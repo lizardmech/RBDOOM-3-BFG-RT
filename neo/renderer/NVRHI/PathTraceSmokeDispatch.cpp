@@ -224,6 +224,17 @@ void AddPathTraceMaterialFeatureOutputBinding(nvrhi::BindingSetDesc& desc, const
     desc.addItem(nvrhi::BindingSetItem::Texture_UAV(slot, PathTraceMaterialFeatureOutputTexture(frameResources, resource)));
 }
 
+void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resources)
+{
+    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
+    {
+        if ((resources & resource) != 0u)
+        {
+            AddPathTraceMaterialFeatureOutputBinding(desc, frameResources, resource);
+        }
+    }
+}
+
 bool PathTraceMaterialFeatureOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources, uint32_t resource)
 {
     return !PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, resource) ||
@@ -3517,10 +3528,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(52, m_frameResources.rrGuideResetMaskTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture));
-        AddPathTraceMaterialFeatureOutputBinding(
+        AddPathTraceMaterialFeatureOutputBindings(
             cleanBindingSetDesc,
             m_frameResources,
-            cleanRtxdiDiTransmissionPassDesc.primaryOutputResource);
+            PathTraceMaterialFeatureBindingLayoutOptionalOutputs(RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(79, m_frameResources.rrGuidePositionTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(57, cleanOptionalSrv(m_smokePreviousEmissiveTriangleBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(64, cleanOptionalSrv(m_smokeRestirLightManagerCurrentToPreviousBuffer)));
