@@ -1171,18 +1171,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanRtxdiDiTransmissionProducerRequested || cleanRtxdiDiTransmissionDebugViewRequested,
             cleanRtxdiDiTransmissionDebugViewRequested);
     const bool cleanRtxdiDiTransmissionWritesDebugOutput =
-        (cleanRtxdiDiTransmissionPassDesc.resourceOutputs & RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR) != 0;
-    const bool cleanRtxdiDiTransmissionWritesFeatureOutput =
-        (cleanRtxdiDiTransmissionPassDesc.resourceOutputs & RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT) != 0;
-    const bool cleanRtxdiDiTransmissionOwnsCurrentSurface =
-        (cleanRtxdiDiTransmissionPassDesc.resourceInputs & RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE) != 0;
-    const bool cleanRtxdiDiTransmissionOwnsMaterialTable =
-        (cleanRtxdiDiTransmissionPassDesc.resourceInputs & RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE) != 0;
+        PathTraceMaterialFeaturePassWritesAnyOutput(cleanRtxdiDiTransmissionPassDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
     const bool cleanRtxdiDiTransmissionPassRequested =
-        cleanRtxdiDiTransmissionPassDesc.enabled &&
-        cleanRtxdiDiTransmissionWritesFeatureOutput &&
-        cleanRtxdiDiTransmissionOwnsCurrentSurface &&
-        cleanRtxdiDiTransmissionOwnsMaterialTable;
+        PathTraceMaterialFeaturePassIsReady(
+            cleanRtxdiDiTransmissionPassDesc,
+            RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE | RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE,
+            RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());

@@ -79,6 +79,28 @@ struct RtPathTraceMaterialFeaturePassDesc
     const char* debugLabel = "disabled";
 };
 
+inline bool PathTraceMaterialFeaturePassHasAllInputs(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)
+{
+    return (desc.resourceInputs & resources) == resources;
+}
+
+inline bool PathTraceMaterialFeaturePassWritesAnyOutput(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)
+{
+    return (desc.resourceOutputs & resources) != 0;
+}
+
+inline bool PathTraceMaterialFeaturePassWritesAllOutputs(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)
+{
+    return (desc.resourceOutputs & resources) == resources;
+}
+
+inline bool PathTraceMaterialFeaturePassIsReady(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t requiredInputs, uint32_t requiredOutputs)
+{
+    return desc.enabled &&
+        PathTraceMaterialFeaturePassHasAllInputs(desc, requiredInputs) &&
+        PathTraceMaterialFeaturePassWritesAllOutputs(desc, requiredOutputs);
+}
+
 inline RtPathTraceMaterialFeaturePassDesc BuildPathTracePrimarySurfaceFeaturePassDesc(bool enabled)
 {
     RtPathTraceMaterialFeaturePassDesc desc;
