@@ -58,6 +58,7 @@ struct RtSmokeMaterialTextureInfo
     bool detailDecal = false;
     bool detailDecalDynamic = false;
     bool detailDecalDiffuseLit = false;
+    bool detailDecalLiquidPool = false;
     bool isDynamic = true;
     int detailDecalSpectrum = 0;
     bool alphaFromDiffuseLuma = false;

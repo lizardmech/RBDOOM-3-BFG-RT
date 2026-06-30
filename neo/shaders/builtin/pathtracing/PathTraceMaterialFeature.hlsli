@@ -71,6 +71,7 @@ static const uint RT_PATH_TRACE_FEATURE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x0000
 static const uint RT_PATH_TRACE_FEATURE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_PATH_TRACE_FEATURE_MATERIAL_DETAIL_DECAL = 0x00002000u;
 static const uint RT_PATH_TRACE_FEATURE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT = 0x00008000u;
+static const uint RT_PATH_TRACE_FEATURE_MATERIAL_DETAIL_DECAL_LIQUID_POOL = 0x00010000u;
 
 struct PathTraceMaterialFeature
 {
@@ -119,6 +120,10 @@ bool PathTraceMaterialFeatureIsParticle(RAB_Surface surface)
 
 uint PathTraceMaterialFeatureModifierKind(RAB_Surface surface)
 {
+    if ((surface.material.flags & RT_PATH_TRACE_FEATURE_MATERIAL_DETAIL_DECAL_LIQUID_POOL) != 0u)
+    {
+        return RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION;
+    }
     if ((surface.material.flags & RT_PATH_TRACE_FEATURE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT) != 0u)
     {
         return RT_PATH_TRACE_MATERIAL_MODIFIER_DIFFUSE_LIT;
@@ -160,7 +165,12 @@ uint PathTraceMaterialFeatureKind(RAB_Surface surface)
     {
         return RT_PATH_TRACE_MATERIAL_KIND_UNKNOWN;
     }
-    if (PathTraceMaterialFeatureModifierKind(surface) != RT_PATH_TRACE_MATERIAL_MODIFIER_NONE)
+    const uint modifierKind = PathTraceMaterialFeatureModifierKind(surface);
+    if (modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION)
+    {
+        return RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER;
+    }
+    if (modifierKind != RT_PATH_TRACE_MATERIAL_MODIFIER_NONE)
     {
         return RT_PATH_TRACE_MATERIAL_KIND_DECAL_MODIFIER;
     }

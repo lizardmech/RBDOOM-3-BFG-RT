@@ -302,6 +302,7 @@ static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u
 static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL = 0x00002000u;
 static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC = 0x00004000u;
 static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT = 0x00008000u;
+static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_LIQUID_POOL = 0x00010000u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
@@ -1561,6 +1562,8 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
     const float normalCosine = abs(dot(rayDirection, surface.geometryNormal));
 
     uint appliedCount = 0u;
+    float liquidPoolCoverage = 0.0;
+    float3 liquidPoolTint = float3(0.0, 0.0, 0.0);
     for (uint applySlot = 0u; applySlot < count; ++applySlot)
     {
         const uint entry = order[applySlot];
@@ -1606,7 +1609,13 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
         const float3 decalRgb = saturate(SampleSmokeDiffuseTexture(decalMaterial, decalTexCoord).rgb) * decalStageColor.rgb;
 
         float coverage;
-        if ((decalMaterial.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT) != 0u)
+        if ((decalMaterial.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL_LIQUID_POOL) != 0u)
+        {
+            coverage = saturate(SmokeAlphaCoverage(decalMaterial, decalTexCoord)) * decalStageColor.a;
+            liquidPoolCoverage = max(liquidPoolCoverage, coverage);
+            liquidPoolTint = max(liquidPoolTint, decalRgb * coverage);
+        }
+        else if ((decalMaterial.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT) != 0u)
         {
             // LIT DIFFUSE interaction layer (`blend diffuseMap`, e.g.
             // textures/decals/alphabet4, textures/hell/pentastic1_spectrum):
@@ -1666,6 +1675,14 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
             surface.material.emissiveRadiance += decalEmissive * coverage;
         }
         ++appliedCount;
+    }
+
+    if (liquidPoolCoverage > 0.0)
+    {
+        const float3 poolTint = saturate(liquidPoolTint / max(liquidPoolCoverage, 1.0e-4));
+        surface.material.diffuseAlbedo = lerp(surface.material.diffuseAlbedo, surface.material.diffuseAlbedo * poolTint, liquidPoolCoverage);
+        surface.material.roughness = lerp(surface.material.roughness, min(surface.material.roughness, 0.18), liquidPoolCoverage);
+        surface.material.specularF0 = lerp(surface.material.specularF0, max(surface.material.specularF0, float3(0.04, 0.04, 0.04)), liquidPoolCoverage);
     }
 
     if (appliedCount > 0u)

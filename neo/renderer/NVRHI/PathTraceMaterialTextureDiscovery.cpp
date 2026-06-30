@@ -1006,6 +1006,7 @@ void ForceSmokeAbsorbingBlackMaterialInfo(RtSmokeMaterialTextureInfo& info)
     info.filterDecalBlackKey = false;
     info.detailDecal = false;
     info.detailDecalDynamic = false;
+    info.detailDecalLiquidPool = false;
     info.isDynamic = false;
     info.alphaFromDiffuseLuma = false;
     info.forceFallbackAlbedo = true;
@@ -1081,6 +1082,31 @@ bool IsSmokeTranslucentOverlayCardMaterial(const idMaterial* material, const RtS
         classifier.polygonOffsetDecal ||
         classifier.nameLooksDecal ||
         (classifier.hasAmbientBlendStage && !classifier.hasDiffuseStage);
+}
+
+bool IsSmokeLiquidPoolDetailDecalMaterial(const idMaterial* material, const RtSmokeMaterialTextureInfo& info)
+{
+    static const char* liquidPoolTokens[] = {
+        "bloodpool",
+        "blood_pool",
+        "liquidpool",
+        "liquid_pool",
+        "waterpool",
+        "water_pool",
+        "slimepool",
+        "slime_pool",
+        "pool_liquid",
+        "pool"
+    };
+
+    idStr materialName = material ? material->GetName() : info.materialName;
+    if (SmokeNameContainsAny(materialName, liquidPoolTokens, sizeof(liquidPoolTokens) / sizeof(liquidPoolTokens[0])))
+    {
+        return true;
+    }
+
+    return SmokeNameContainsAny(info.diffuseImageName, liquidPoolTokens, sizeof(liquidPoolTokens) / sizeof(liquidPoolTokens[0])) ||
+        SmokeNameContainsAny(info.alphaImageName, liquidPoolTokens, sizeof(liquidPoolTokens) / sizeof(liquidPoolTokens[0]));
 }
 
 bool FindSmokeMaterialFallbackAlbedo(const idMaterial* material, idVec4& albedo)
@@ -1511,6 +1537,9 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         info->filterDecal = false;
         info->filterDecalBlackKey = false;
     }
+    info->detailDecalLiquidPool =
+        info->detailDecal &&
+        IsSmokeLiquidPoolDetailDecalMaterial(material, *info);
     // Spectrum surfaces ("invisible writing", e.g. pentastic1_spectrum) only
     // receive light from lights with a matching spectrum. The per-frame record
     // synthesis keys off this (PathTraceSmokeSceneBuild).
