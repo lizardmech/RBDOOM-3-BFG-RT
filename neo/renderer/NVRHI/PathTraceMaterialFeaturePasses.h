@@ -181,7 +181,11 @@ inline RtPathTraceMaterialFeaturePassDesc BuildPathTracePrimarySurfaceFeaturePas
     return desc;
 }
 
-inline RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(bool enabled, bool debugOutput)
+inline RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
+    bool cleanRouteRequested,
+    int cleanView,
+    bool producerRequested,
+    bool debugOutputRequested)
 {
     RtPathTraceMaterialFeaturePassDesc desc;
     desc.kind = RtPathTraceMaterialFeaturePassKind::TransmissionProducer;
@@ -193,11 +197,14 @@ inline RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE;
     desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
     desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
+
+    const bool cleanTransmissionRoute = cleanRouteRequested && cleanView == 16;
+    const bool debugOutput = cleanTransmissionRoute && debugOutputRequested;
     if (debugOutput)
     {
         desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
     }
-    desc.enabled = enabled;
+    desc.enabled = cleanTransmissionRoute && (producerRequested || debugOutputRequested);
     desc.debugLabel = debugOutput ? "clean-rtxdi-di-transmission-producer-debug" : "clean-rtxdi-di-transmission-producer";
     return desc;
 }
