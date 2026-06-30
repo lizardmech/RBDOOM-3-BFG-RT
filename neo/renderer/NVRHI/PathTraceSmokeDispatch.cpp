@@ -1166,9 +1166,23 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanRtxdiDiRouteRequested &&
         cleanRtxdiDiView == 16 &&
         r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0;
+    const RtPathTraceMaterialFeaturePassDesc cleanRtxdiDiTransmissionPassDesc =
+        BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
+            cleanRtxdiDiTransmissionProducerRequested || cleanRtxdiDiTransmissionDebugViewRequested,
+            cleanRtxdiDiTransmissionDebugViewRequested);
+    const bool cleanRtxdiDiTransmissionWritesDebugOutput =
+        (cleanRtxdiDiTransmissionPassDesc.resourceOutputs & RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR) != 0;
+    const bool cleanRtxdiDiTransmissionWritesFeatureOutput =
+        (cleanRtxdiDiTransmissionPassDesc.resourceOutputs & RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT) != 0;
+    const bool cleanRtxdiDiTransmissionOwnsCurrentSurface =
+        (cleanRtxdiDiTransmissionPassDesc.resourceInputs & RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE) != 0;
+    const bool cleanRtxdiDiTransmissionOwnsMaterialTable =
+        (cleanRtxdiDiTransmissionPassDesc.resourceInputs & RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE) != 0;
     const bool cleanRtxdiDiTransmissionPassRequested =
-        cleanRtxdiDiTransmissionProducerRequested ||
-        cleanRtxdiDiTransmissionDebugViewRequested;
+        cleanRtxdiDiTransmissionPassDesc.enabled &&
+        cleanRtxdiDiTransmissionWritesFeatureOutput &&
+        cleanRtxdiDiTransmissionOwnsCurrentSurface &&
+        cleanRtxdiDiTransmissionOwnsMaterialTable;
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
@@ -3919,7 +3933,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.neeCacheInfo1[1] = neeCacheSettings.minRange;
         cleanConstants.neeCacheInfo1[2] = static_cast<float>(neeCacheDesc.cellCount);
         cleanConstants.neeCacheInfo1[3] = static_cast<float>(neeCacheDesc.providerResultCount);
-        cleanConstants.toyPathInfo[0] = cleanRtxdiDiTransmissionDebugViewRequested ? 1.0f : 0.0f;
+        cleanConstants.toyPathInfo[0] = cleanRtxdiDiTransmissionWritesDebugOutput ? 1.0f : 0.0f;
         cleanConstants.toyPathInfo[1] = cleanRtxdiDiTransmissionPassRequested ? 1.0f : 0.0f;
         cleanConstants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
         cleanConstants.toyPathInfo[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
@@ -4046,15 +4060,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanTransmissionState.shaderTable = m_smokeCleanRtxdiDiTransmissionProducerShaderTable;
             commandList->setRayTracingState(cleanTransmissionState);
             PathTraceCleanRtxdiDiSentinelConstants cleanTransmissionConstants = cleanConstants;
-            cleanTransmissionConstants.toyPathInfo[0] = cleanRtxdiDiTransmissionDebugViewRequested ? 1.0f : 0.0f;
+            cleanTransmissionConstants.toyPathInfo[0] = cleanRtxdiDiTransmissionWritesDebugOutput ? 1.0f : 0.0f;
             cleanTransmissionConstants.toyPathInfo[1] = cleanRtxdiDiTransmissionPassRequested ? 1.0f : 0.0f;
             commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanTransmissionConstants, sizeof(cleanTransmissionConstants));
             {
-                PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.2b TransmissionProducer DispatchRays", nsightGpuMarkers);
+                PathTraceGpuMarkerScope nsightMarker(commandList, cleanRtxdiDiTransmissionPassDesc.debugLabel, nsightGpuMarkers);
                 commandList->dispatchRays(cleanArgs);
             }
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.transmissionTexture);
-            if (cleanRtxdiDiTransmissionDebugViewRequested)
+            if (cleanRtxdiDiTransmissionWritesDebugOutput)
             {
                 nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             }
