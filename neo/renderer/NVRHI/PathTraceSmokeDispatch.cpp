@@ -213,6 +213,17 @@ nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFram
     }
 }
 
+void AddPathTraceMaterialFeatureOutputBinding(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resource)
+{
+    const uint32_t slot = PathTraceMaterialFeatureOutputUavSlot(resource);
+    if (slot == UINT32_MAX)
+    {
+        return;
+    }
+
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(slot, PathTraceMaterialFeatureOutputTexture(frameResources, resource)));
+}
+
 bool PathTraceMaterialFeatureOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources, uint32_t resource)
 {
     return !PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, resource) ||
@@ -1254,8 +1265,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanRtxdiDiTransmissionPassDesc,
             RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE | RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE,
             RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT);
-    const nvrhi::TextureHandle cleanRtxdiDiTransmissionOutputTexture =
-        PathTraceMaterialFeatureOutputTexture(m_frameResources, RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
@@ -3504,9 +3513,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(52, m_frameResources.rrGuideResetMaskTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture));
-        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(
-            PathTraceMaterialFeatureOutputUavSlot(RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT),
-            cleanRtxdiDiTransmissionOutputTexture));
+        AddPathTraceMaterialFeatureOutputBinding(
+            cleanBindingSetDesc,
+            m_frameResources,
+            RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT);
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(79, m_frameResources.rrGuidePositionTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(57, cleanOptionalSrv(m_smokePreviousEmissiveTriangleBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(64, cleanOptionalSrv(m_smokeRestirLightManagerCurrentToPreviousBuffer)));
