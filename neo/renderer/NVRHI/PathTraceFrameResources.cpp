@@ -3,6 +3,7 @@
 
 #include "PathTraceFrameResources.h"
 #include "PathTraceMaterialFeaturePasses.h"
+#include "PathTraceMaterialFeatureRuntime.h"
 
 #include <nvrhi/utils.h>
 
@@ -170,6 +171,11 @@ bool PathTraceMaterialFeaturePrimaryOutputAvailable(const RtPathTraceMaterialFea
     return PathTraceMaterialFeatureOutputAvailable(passDesc, frameResources, passDesc.primaryOutputResource);
 }
 
+bool PathTraceMaterialFeaturePrimaryOutputAvailable(const RtPathTraceMaterialFeatureRuntimePass& pass, const RtPathTraceFrameResources& frameResources)
+{
+    return !pass.ready || PathTraceMaterialFeaturePrimaryOutputAvailable(pass.desc, frameResources);
+}
+
 void SetPathTraceMaterialFeatureOutputState(
     nvrhi::ICommandList* commandList,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
@@ -198,6 +204,18 @@ void SetPathTraceMaterialFeaturePrimaryOutputState(
     SetPathTraceMaterialFeatureOutputState(commandList, passDesc, frameResources, passDesc.primaryOutputResource, state);
 }
 
+void SetPathTraceMaterialFeaturePrimaryOutputState(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceFrameResources& frameResources,
+    nvrhi::ResourceStates state)
+{
+    if (pass.ready)
+    {
+        SetPathTraceMaterialFeaturePrimaryOutputState(commandList, pass.desc, frameResources, state);
+    }
+}
+
 void ClearPathTraceMaterialFeatureOutput(
     nvrhi::ICommandList* commandList,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
@@ -224,6 +242,18 @@ void ClearPathTraceMaterialFeaturePrimaryOutput(
     const nvrhi::Color& color)
 {
     ClearPathTraceMaterialFeatureOutput(commandList, passDesc, frameResources, passDesc.primaryOutputResource, color);
+}
+
+void ClearPathTraceMaterialFeaturePrimaryOutput(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceFrameResources& frameResources,
+    const nvrhi::Color& color)
+{
+    if (pass.ready)
+    {
+        ClearPathTraceMaterialFeaturePrimaryOutput(commandList, pass.desc, frameResources, color);
+    }
 }
 
 void BarrierPathTraceMaterialFeatureOutput(

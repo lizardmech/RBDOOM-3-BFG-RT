@@ -2204,8 +2204,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiBaseResourcesValid =
         viewDef && m_smokeCleanRtxdiDiSentinelBindingLayout && m_smokeTextureDescriptorTable && m_smokeCleanRtxdiDiSentinelConstantsBuffer &&
         m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture &&
-        (!cleanRtxdiDiTransmissionPass.ready ||
-            PathTraceMaterialFeaturePrimaryOutputAvailable(cleanRtxdiDiTransmissionPass.desc, m_frameResources)) &&
+        PathTraceMaterialFeaturePrimaryOutputAvailable(cleanRtxdiDiTransmissionPass, m_frameResources) &&
         m_smokeStaticTriangleMaterialIndexBuffer && m_smokeDynamicTriangleMaterialIndexBuffer &&
         m_smokeRigidRouteTriangleMaterialIndexBuffer && m_smokeRigidRouteInstanceBuffer;
     const bool pdfNeeVerifierBaseResourcesValid =
@@ -3513,14 +3512,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-        if (cleanRtxdiDiTransmissionPass.ready)
-        {
-            SetPathTraceMaterialFeaturePrimaryOutputState(
-                commandList,
-                cleanRtxdiDiTransmissionPass.desc,
-                m_frameResources,
-                nvrhi::ResourceStates::UnorderedAccess);
-        }
+        SetPathTraceMaterialFeaturePrimaryOutputState(
+            commandList,
+            cleanRtxdiDiTransmissionPass,
+            m_frameResources,
+            nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
         {
             if (texture)
@@ -3533,14 +3529,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
-        if (cleanRtxdiDiTransmissionPass.ready)
-        {
-            ClearPathTraceMaterialFeaturePrimaryOutput(
-                commandList,
-                cleanRtxdiDiTransmissionPass.desc,
-                m_frameResources,
-                nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
-        }
+        ClearPathTraceMaterialFeaturePrimaryOutput(
+            commandList,
+            cleanRtxdiDiTransmissionPass,
+            m_frameResources,
+            nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
         const int cleanRtxdiDiLightMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiLightMode.GetInteger());
         const bool cleanView12FullAnalyticDomain =
             cleanRtxdiDiView == 12 &&
