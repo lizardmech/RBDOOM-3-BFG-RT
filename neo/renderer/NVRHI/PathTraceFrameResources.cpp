@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceFrameResources.h"
+#include "PathTraceMaterialFeaturePasses.h"
 
 namespace {
 
@@ -141,6 +142,19 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         height == requestedHeight &&
         outputWidth == requestedOutputWidth &&
         outputHeight == requestedOutputHeight;
+}
+
+nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFrameResources& frameResources, uint32_t resource)
+{
+    switch (resource)
+    {
+    case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR:
+        return frameResources.outputTexture;
+    case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT:
+        return frameResources.transmissionTexture;
+    default:
+        return nullptr;
+    }
 }
 
 bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const

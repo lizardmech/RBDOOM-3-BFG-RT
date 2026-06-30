@@ -224,19 +224,6 @@ void SetBufferStateIfPresent(nvrhi::ICommandList* commandList, const nvrhi::Buff
     }
 }
 
-nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFrameResources& frameResources, uint32_t resource)
-{
-    switch (resource)
-    {
-    case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR:
-        return frameResources.outputTexture;
-    case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT:
-        return frameResources.transmissionTexture;
-    default:
-        return nullptr;
-    }
-}
-
 void AddPathTraceMaterialFeatureOutputBinding(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resource)
 {
     const uint32_t slot = PathTraceMaterialFeatureOutputUavSlot(resource);

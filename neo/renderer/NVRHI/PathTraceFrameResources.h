@@ -171,3 +171,5 @@ struct RtPathTraceFrameResources
     void DescribeResetReasons(idStr& out) const;
     void PrintDiagnostics(const char* prefix) const;
 };
+
+nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFrameResources& frameResources, uint32_t resource);
