@@ -9,8 +9,92 @@
 // stages with separate dispatches without changing mode policy again.
 
 #include "PathTraceRestirPT.h"
+#include "PathTracePrimarySurface.h"
 
 #include <cstdint>
+
+enum class RtPathTraceMaterialFeaturePassKind : uint8_t
+{
+    Disabled = 0,
+    PrimarySurface,
+    PathIntegrator,
+    DirectReservoirInitial,
+    DirectReservoirTemporal,
+    DirectReservoirSpatial,
+    DirectReservoirResolve,
+    GiReservoirInitial,
+    ReflectionProducer,
+    TransmissionProducer,
+    DebugVisualize
+};
+
+enum class RtPathTraceMaterialFeatureShaderTable : uint8_t
+{
+    None = 0,
+    CorePathTrace,
+    PrimarySurfaceProducer,
+    RestirInitial,
+    RestirTemporal,
+    RestirSpatialReservoir,
+    RestirSpatial,
+    RestirCombinedResolve,
+    RestirIndirectInitialProducer,
+    RestirDirectTemporalProducer,
+    RestirDirectSpatialReservoirProducer,
+    RestirReflectionProducer,
+    CleanRtxdiDiSentinel,
+    CleanRtxdiDiInitial,
+    CleanRtxdiDiTemporal,
+    CleanRtxdiDiSpatial
+};
+
+enum RtPathTraceMaterialFeatureResourceMask : uint32_t
+{
+    RT_MATERIAL_FEATURE_RESOURCE_NONE = 0,
+    RT_MATERIAL_FEATURE_RESOURCE_TLAS = 1u << 0,
+    RT_MATERIAL_FEATURE_RESOURCE_SCENE_GEOMETRY = 1u << 1,
+    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE = 1u << 2,
+    RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE = 1u << 3,
+    RT_MATERIAL_FEATURE_RESOURCE_PREVIOUS_PRIMARY_SURFACE = 1u << 4,
+    RT_MATERIAL_FEATURE_RESOURCE_CURRENT_DIRECT_RESERVOIR = 1u << 5,
+    RT_MATERIAL_FEATURE_RESOURCE_TEMPORAL_DIRECT_RESERVOIR = 1u << 6,
+    RT_MATERIAL_FEATURE_RESOURCE_SPATIAL_DIRECT_RESERVOIR = 1u << 7,
+    RT_MATERIAL_FEATURE_RESOURCE_GI_RESERVOIR = 1u << 8,
+    RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR = 1u << 9,
+    RT_MATERIAL_FEATURE_RESOURCE_MOTION_VECTORS = 1u << 10,
+    RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDES = 1u << 11
+};
+
+struct RtPathTraceMaterialFeaturePassDesc
+{
+    RtPathTraceMaterialFeaturePassKind kind = RtPathTraceMaterialFeaturePassKind::Disabled;
+    RtPathTraceMaterialFeatureShaderTable shaderTable = RtPathTraceMaterialFeatureShaderTable::None;
+    uint32_t materialCapsConsumed = 0;
+    uint32_t materialPassSupport = 0;
+    uint32_t resourceInputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    uint32_t resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    bool enabled = false;
+    const char* debugLabel = "disabled";
+};
+
+inline RtPathTraceMaterialFeaturePassDesc BuildPathTracePrimarySurfaceFeaturePassDesc(bool enabled)
+{
+    RtPathTraceMaterialFeaturePassDesc desc;
+    desc.kind = RtPathTraceMaterialFeaturePassKind::PrimarySurface;
+    desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::PrimarySurfaceProducer;
+    desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_PRIMARY_SURFACE;
+    desc.resourceInputs =
+        RT_MATERIAL_FEATURE_RESOURCE_TLAS |
+        RT_MATERIAL_FEATURE_RESOURCE_SCENE_GEOMETRY |
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE;
+    desc.resourceOutputs =
+        RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
+        RT_MATERIAL_FEATURE_RESOURCE_MOTION_VECTORS |
+        RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDES;
+    desc.enabled = enabled;
+    desc.debugLabel = "primary-surface-producer";
+    return desc;
+}
 
 enum class RtPathTraceRestirPassKind : uint8_t
 {
@@ -63,6 +147,78 @@ struct RtPathTraceRestirPassBufferSelection
     uint32_t finalShadingInput = 0;
     uint32_t debugInput = 0;
 };
+
+inline RtPathTraceMaterialFeaturePassDesc BuildPathTraceRestirFeaturePassDesc(const RtPathTraceRestirPassPlan& plan)
+{
+    RtPathTraceMaterialFeaturePassDesc desc;
+    desc.enabled = plan.restirDebugMode;
+    desc.debugLabel = plan.label;
+
+    switch (plan.producer)
+    {
+    case RtPathTraceRestirPassKind::InitialReservoir:
+        desc.kind = RtPathTraceMaterialFeaturePassKind::DirectReservoirInitial;
+        desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::RestirInitial;
+        desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_DIRECT;
+        desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR;
+        desc.resourceInputs =
+            RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
+            RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE;
+        desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_CURRENT_DIRECT_RESERVOIR;
+        break;
+    case RtPathTraceRestirPassKind::TemporalReservoir:
+        desc.kind = RtPathTraceMaterialFeaturePassKind::DirectReservoirTemporal;
+        desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::RestirTemporal;
+        desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_DIRECT;
+        desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR;
+        desc.resourceInputs =
+            RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
+            RT_MATERIAL_FEATURE_RESOURCE_PREVIOUS_PRIMARY_SURFACE |
+            RT_MATERIAL_FEATURE_RESOURCE_CURRENT_DIRECT_RESERVOIR |
+            RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE;
+        desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_TEMPORAL_DIRECT_RESERVOIR;
+        break;
+    case RtPathTraceRestirPassKind::SpatialReservoir:
+        desc.kind = RtPathTraceMaterialFeaturePassKind::DirectReservoirSpatial;
+        desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::RestirSpatialReservoir;
+        desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_DIRECT;
+        desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR;
+        desc.resourceInputs =
+            RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
+            RT_MATERIAL_FEATURE_RESOURCE_PREVIOUS_PRIMARY_SURFACE |
+            RT_MATERIAL_FEATURE_RESOURCE_TEMPORAL_DIRECT_RESERVOIR |
+            RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE;
+        desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_SPATIAL_DIRECT_RESERVOIR;
+        break;
+    case RtPathTraceRestirPassKind::DebugVisualize:
+        desc.kind = RtPathTraceMaterialFeaturePassKind::DebugVisualize;
+        desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::CorePathTrace;
+        desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER;
+        desc.resourceInputs = RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE;
+        desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
+        break;
+    default:
+        desc.enabled = false;
+        break;
+    }
+
+    if (plan.output == RtPathTraceRestirPassKind::ReservoirShading)
+    {
+        desc.kind = RtPathTraceMaterialFeaturePassKind::DirectReservoirResolve;
+        desc.resourceInputs |=
+            RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
+            RT_MATERIAL_FEATURE_RESOURCE_CURRENT_DIRECT_RESERVOIR |
+            RT_MATERIAL_FEATURE_RESOURCE_TEMPORAL_DIRECT_RESERVOIR |
+            RT_MATERIAL_FEATURE_RESOURCE_SPATIAL_DIRECT_RESERVOIR;
+        desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
+    }
+    else if (plan.output == RtPathTraceRestirPassKind::DebugVisualize)
+    {
+        desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
+    }
+
+    return desc;
+}
 
 inline bool IsPathTraceRestirPTDebugMode(int debugMode)
 {
