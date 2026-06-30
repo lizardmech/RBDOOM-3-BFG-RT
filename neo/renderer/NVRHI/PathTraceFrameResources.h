@@ -172,4 +172,39 @@ struct RtPathTraceFrameResources
     void PrintDiagnostics(const char* prefix) const;
 };
 
+struct RtPathTraceMaterialFeaturePassDesc;
+
 nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFrameResources& frameResources, uint32_t resource);
+bool PathTraceMaterialFeatureOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources, uint32_t resource);
+bool PathTraceMaterialFeaturePrimaryOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources);
+void SetPathTraceMaterialFeatureOutputState(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceFrameResources& frameResources,
+    uint32_t resource,
+    nvrhi::ResourceStates state);
+void SetPathTraceMaterialFeaturePrimaryOutputState(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceFrameResources& frameResources,
+    nvrhi::ResourceStates state);
+void ClearPathTraceMaterialFeatureOutput(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceFrameResources& frameResources,
+    uint32_t resource,
+    const nvrhi::Color& color);
+void ClearPathTraceMaterialFeaturePrimaryOutput(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceFrameResources& frameResources,
+    const nvrhi::Color& color);
+void BarrierPathTraceMaterialFeatureOutput(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceFrameResources& frameResources,
+    uint32_t resource);
+void BarrierPathTraceMaterialFeatureOutputs(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceFrameResources& frameResources);
