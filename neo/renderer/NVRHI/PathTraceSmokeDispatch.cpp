@@ -357,15 +357,6 @@ struct PathTraceCleanRtxdiDiSentinelConstants
 
 static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 480, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
 
-void ApplyPathTraceCleanMaterialFeaturePassConstants(
-    PathTraceCleanRtxdiDiSentinelConstants& constants,
-    const RtPathTraceMaterialFeaturePassDesc& passDesc,
-    bool passReady)
-{
-    constants.toyPathInfo[0] = PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR) ? 1.0f : 0.0f;
-    constants.toyPathInfo[1] = passReady ? 1.0f : 0.0f;
-}
-
 uint32_t RrxDiRequestedInitialSampleBudget(uint32_t emissiveSampleCount, uint32_t doomAnalyticSampleCount)
 {
     const uint64_t requestedTotal =
@@ -617,7 +608,7 @@ void DispatchPathTraceCleanMaterialFeaturePass(
     commandList->setRayTracingState(featureState);
 
     PathTraceCleanRtxdiDiSentinelConstants featureConstants = baseConstants;
-    ApplyPathTraceCleanMaterialFeaturePassConstants(featureConstants, pass.desc, pass.ready);
+    SetPathTraceMaterialFeatureRuntimeInfo(featureConstants.toyPathInfo, pass.desc, pass.ready);
     commandList->writeBuffer(constantsBuffer, &featureConstants, sizeof(featureConstants));
 
     {
@@ -3965,8 +3956,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.neeCacheInfo1[1] = neeCacheSettings.minRange;
         cleanConstants.neeCacheInfo1[2] = static_cast<float>(neeCacheDesc.cellCount);
         cleanConstants.neeCacheInfo1[3] = static_cast<float>(neeCacheDesc.providerResultCount);
-        ApplyPathTraceCleanMaterialFeaturePassConstants(
-            cleanConstants,
+        SetPathTraceMaterialFeatureRuntimeInfo(
+            cleanConstants.toyPathInfo,
             cleanRtxdiDiTransmissionPass.desc,
             cleanRtxdiDiTransmissionPass.ready);
         cleanConstants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
