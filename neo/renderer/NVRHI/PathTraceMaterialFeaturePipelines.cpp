@@ -22,6 +22,20 @@ struct RtPathTraceMaterialFeaturePipelineContext
     nvrhi::BindingLayoutHandle textureBindlessLayout;
 };
 
+static RtPathTraceMaterialFeaturePipelineContext BuildPathTraceMaterialFeaturePipelineContext(
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources& resources)
+{
+    return {
+        resources.featureState
+            ? &PathTraceCleanRtxdiDiMaterialFeatureShaderTableState(*resources.featureState)
+            : nullptr,
+        resources.smokeTestInitialized,
+        resources.smokeBindingLayout,
+        resources.cleanRtxdiDiBindingLayout,
+        resources.textureBindlessLayout
+    };
+}
+
 static bool LoadPathTraceMaterialFeatureShaderLibrary(nvrhi::IDevice* device, const char* shaderPath, const char* label, nvrhi::ShaderLibraryHandle& shaderLibrary)
 {
     shaderLibrary = nullptr;
@@ -228,16 +242,11 @@ static bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(
     return static_cast<bool>(pass.shader->shaderTable);
 }
 
-bool PathTracePrimaryPass::EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
+bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
+    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources& resources)
 {
-    const RtPathTraceMaterialFeaturePipelineContext context = {
-        &PathTraceCleanRtxdiDiMaterialFeatureShaderTableState(m_smokeCleanRtxdiDiMaterialFeatures),
-        m_smokeTestInitialized,
-        m_smokeBindingLayout,
-        m_smokeCleanRtxdiDiSentinelBindingLayout,
-        m_smokeTextureBindlessLayout
-    };
     return EnsurePathTraceMaterialFeatureRuntimePassPipeline(
         PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(pass),
-        context);
+        BuildPathTraceMaterialFeaturePipelineContext(resources));
 }

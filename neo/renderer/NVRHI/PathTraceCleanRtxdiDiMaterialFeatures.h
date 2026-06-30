@@ -14,6 +14,15 @@ struct RtPathTraceCleanRtxdiDiMaterialFeatureState
     RtPathTraceMaterialFeatureShaderTableState shaderTableState;
 };
 
+struct RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources
+{
+    RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState = nullptr;
+    bool smokeTestInitialized = false;
+    nvrhi::BindingLayoutHandle smokeBindingLayout;
+    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout;
+    nvrhi::BindingLayoutHandle textureBindlessLayout;
+};
+
 struct RtPathTraceCleanRtxdiDiTransmissionPass
 {
     RtPathTraceMaterialFeatureRuntimePass featurePass;
@@ -34,6 +43,9 @@ RtPathTraceMaterialFeatureShaderTableState& PathTraceCleanRtxdiDiMaterialFeature
     RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
 const RtPathTraceMaterialFeatureRuntimePass& PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
+bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
+    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources& resources);
 void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc);
 void AddPathTraceCleanRtxdiDiTransmissionOutputBindings(
     nvrhi::BindingSetDesc& desc,
