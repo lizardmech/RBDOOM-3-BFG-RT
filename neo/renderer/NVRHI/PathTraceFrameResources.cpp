@@ -159,6 +159,28 @@ nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFram
     }
 }
 
+void AddPathTraceMaterialFeatureOutputBinding(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resource)
+{
+    const uint32_t slot = PathTraceMaterialFeatureOutputUavSlot(resource);
+    if (slot == UINT32_MAX)
+    {
+        return;
+    }
+
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(slot, PathTraceMaterialFeatureOutputTexture(frameResources, resource)));
+}
+
+void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resources)
+{
+    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
+    {
+        if ((resources & resource) != 0u)
+        {
+            AddPathTraceMaterialFeatureOutputBinding(desc, frameResources, resource);
+        }
+    }
+}
+
 bool PathTraceMaterialFeatureOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources, uint32_t resource)
 {
     return !PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, resource) ||
