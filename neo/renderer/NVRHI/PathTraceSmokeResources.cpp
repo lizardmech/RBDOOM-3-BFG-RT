@@ -1719,6 +1719,23 @@ bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTrac
     return true;
 }
 
+bool PathTracePrimaryPass::EnsurePathTraceMaterialFeatureRuntimePassPipeline(const RtPathTraceMaterialFeatureRuntimePass& pass)
+{
+    if (!pass.ready)
+    {
+        return true;
+    }
+    if (!pass.shader)
+    {
+        return false;
+    }
+    if (!pass.shader->shaderTable)
+    {
+        InitPathTraceMaterialFeaturePipeline(pass.desc);
+    }
+    return static_cast<bool>(pass.shader->shaderTable);
+}
+
 bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKind)
 {
     auto initLibrary = [&](nvrhi::ShaderLibraryHandle& shaderLibrary,
