@@ -82,6 +82,7 @@ struct RtPathTraceMaterialFeaturePassDesc
     uint32_t materialPassSupport = 0;
     uint32_t resourceInputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
     uint32_t resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    uint32_t primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_NONE;
     bool enabled = false;
     const char* debugLabel = "disabled";
 };
@@ -175,6 +176,7 @@ inline RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
         RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE;
     desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
+    desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
     if (debugOutput)
     {
         desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
