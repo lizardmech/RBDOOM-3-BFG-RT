@@ -5,18 +5,15 @@
 #include "PathTraceMaterialFeatureBindings.h"
 
 RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPass(
-    bool cleanRouteRequested,
-    int cleanView,
-    bool producerRequested,
-    bool debugOutputRequested,
+    const RtPathTraceCleanRtxdiDiTransmissionSettings& settings,
     const RtPathTraceMaterialFeatureShaderTableState& shaderTableState)
 {
     RtPathTraceCleanRtxdiDiTransmissionPass pass;
     pass.featurePass = BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
-        cleanRouteRequested,
-        cleanView,
-        producerRequested,
-        debugOutputRequested,
+        settings.cleanRouteRequested,
+        settings.cleanView,
+        settings.producerRequested,
+        settings.debugOutputRequested,
         shaderTableState);
     return pass;
 }

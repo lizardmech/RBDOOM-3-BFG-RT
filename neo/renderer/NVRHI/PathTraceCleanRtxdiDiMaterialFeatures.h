@@ -14,11 +14,16 @@ struct RtPathTraceCleanRtxdiDiTransmissionPass
     RtPathTraceMaterialFeatureRuntimePass featurePass;
 };
 
+struct RtPathTraceCleanRtxdiDiTransmissionSettings
+{
+    bool cleanRouteRequested = false;
+    int cleanView = 0;
+    bool producerRequested = false;
+    bool debugOutputRequested = false;
+};
+
 RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPass(
-    bool cleanRouteRequested,
-    int cleanView,
-    bool producerRequested,
-    bool debugOutputRequested,
+    const RtPathTraceCleanRtxdiDiTransmissionSettings& settings,
     const RtPathTraceMaterialFeatureShaderTableState& shaderTableState);
 const RtPathTraceMaterialFeatureRuntimePass& PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
