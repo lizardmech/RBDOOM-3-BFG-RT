@@ -1,11 +1,29 @@
 #include "precompiled.h"
 #pragma hdrstop
 
-#include "PathTraceCleanRtxdiDiMaterialFeatures.h"
+#include "PathTraceCleanRtxdiDiMaterialFeaturesInternal.h"
 #include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeatureOutputs.h"
 
 #include <cstring>
+
+struct RtPathTraceCleanRtxdiDiMaterialFeatureState::Impl
+{
+    RtPathTraceMaterialFeatureShaderTableState shaderTableState;
+};
+
+RtPathTraceCleanRtxdiDiMaterialFeatureState::RtPathTraceCleanRtxdiDiMaterialFeatureState()
+    : m_impl(new Impl())
+{
+}
+
+RtPathTraceCleanRtxdiDiMaterialFeatureState::~RtPathTraceCleanRtxdiDiMaterialFeatureState() = default;
+
+RtPathTraceCleanRtxdiDiMaterialFeatureState::RtPathTraceCleanRtxdiDiMaterialFeatureState(
+    RtPathTraceCleanRtxdiDiMaterialFeatureState&&) noexcept = default;
+
+RtPathTraceCleanRtxdiDiMaterialFeatureState& RtPathTraceCleanRtxdiDiMaterialFeatureState::operator=(
+    RtPathTraceCleanRtxdiDiMaterialFeatureState&&) noexcept = default;
 
 RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineResources(
     RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState,
@@ -28,25 +46,44 @@ RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPa
     const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
 {
     RtPathTraceCleanRtxdiDiTransmissionPass pass;
-    pass.featurePass = BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
-        settings.cleanRouteRequested,
-        settings.cleanView,
-        settings.producerRequested,
-        settings.debugOutputRequested,
-        featureState.shaderTableState);
+    pass.settings = settings;
+    pass.featureState = &featureState;
     return pass;
 }
 
-RtPathTraceMaterialFeatureShaderTableState& PathTraceCleanRtxdiDiMaterialFeatureShaderTableState(
+RtPathTraceMaterialFeatureShaderTableState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderTableState(
     RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
 {
-    return featureState.shaderTableState;
+    return featureState.m_impl
+        ? &featureState.m_impl->shaderTableState
+        : nullptr;
 }
 
-const RtPathTraceMaterialFeatureRuntimePass& PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(
+const RtPathTraceMaterialFeatureShaderTableState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderTableState(
+    const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
+{
+    return featureState.m_impl
+        ? &featureState.m_impl->shaderTableState
+        : nullptr;
+}
+
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
 {
-    return pass.featurePass;
+    const RtPathTraceMaterialFeatureShaderTableState* shaderTableState = pass.featureState
+        ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderTableState(*pass.featureState)
+        : nullptr;
+    if (!shaderTableState)
+    {
+        return RtPathTraceMaterialFeatureRuntimePass();
+    }
+
+    return BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
+        pass.settings.cleanRouteRequested,
+        pass.settings.cleanView,
+        pass.settings.producerRequested,
+        pass.settings.debugOutputRequested,
+        *shaderTableState);
 }
 
 void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc)
@@ -65,7 +102,9 @@ bool PathTraceCleanRtxdiDiTransmissionOutputAvailable(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceFrameResources& frameResources)
 {
-    return PathTraceMaterialFeaturePrimaryOutputAvailable(pass.featurePass, frameResources);
+    const RtPathTraceMaterialFeatureRuntimePass featurePass =
+        BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
+    return PathTraceMaterialFeaturePrimaryOutputAvailable(featurePass, frameResources);
 }
 
 void SetPathTraceCleanRtxdiDiTransmissionOutputState(
@@ -74,7 +113,9 @@ void SetPathTraceCleanRtxdiDiTransmissionOutputState(
     const RtPathTraceFrameResources& frameResources,
     nvrhi::ResourceStates state)
 {
-    SetPathTraceMaterialFeaturePrimaryOutputState(commandList, pass.featurePass, frameResources, state);
+    const RtPathTraceMaterialFeatureRuntimePass featurePass =
+        BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
+    SetPathTraceMaterialFeaturePrimaryOutputState(commandList, featurePass, frameResources, state);
 }
 
 void ClearPathTraceCleanRtxdiDiTransmissionOutput(
@@ -83,7 +124,9 @@ void ClearPathTraceCleanRtxdiDiTransmissionOutput(
     const RtPathTraceFrameResources& frameResources,
     const nvrhi::Color& color)
 {
-    ClearPathTraceMaterialFeaturePrimaryOutput(commandList, pass.featurePass, frameResources, color);
+    const RtPathTraceMaterialFeatureRuntimePass featurePass =
+        BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
+    ClearPathTraceMaterialFeaturePrimaryOutput(commandList, featurePass, frameResources, color);
 }
 
 void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
@@ -98,7 +141,9 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
     const RtPathTraceFrameResources& frameResources,
     bool nsightGpuMarkers)
 {
-    if (!commandList || !baseConstants || !pass.featurePass.ready || !pass.featurePass.shader || !pass.featurePass.shader->shaderTable)
+    const RtPathTraceMaterialFeatureRuntimePass featurePass =
+        BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
+    if (!commandList || !baseConstants || !featurePass.ready || !featurePass.shader || !featurePass.shader->shaderTable)
     {
         return;
     }
@@ -108,7 +153,7 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
     }
 
     nvrhi::rt::State featureState = baseState;
-    featureState.shaderTable = pass.featurePass.shader->shaderTable;
+    featureState.shaderTable = featurePass.shader->shaderTable;
     commandList->setRayTracingState(featureState);
 
     unsigned char featureConstants[512] = {};
@@ -118,10 +163,10 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
         pass);
     commandList->writeBuffer(constantsBuffer, featureConstants, baseConstantsSize);
 
-    const bool markerEnabled = nsightGpuMarkers && pass.featurePass.desc.debugLabel && pass.featurePass.desc.debugLabel[0];
+    const bool markerEnabled = nsightGpuMarkers && featurePass.desc.debugLabel && featurePass.desc.debugLabel[0];
     if (markerEnabled)
     {
-        commandList->beginMarker(pass.featurePass.desc.debugLabel);
+        commandList->beginMarker(featurePass.desc.debugLabel);
     }
     commandList->dispatchRays(args);
     if (markerEnabled)
@@ -129,12 +174,14 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
         commandList->endMarker();
     }
 
-    BarrierPathTraceMaterialFeatureOutputs(commandList, pass.featurePass, frameResources);
+    BarrierPathTraceMaterialFeatureOutputs(commandList, featurePass, frameResources);
 }
 
 void SetPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
     float runtimeInfo[4],
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
 {
-    SetPathTraceMaterialFeatureRuntimeInfo(runtimeInfo, pass.featurePass);
+    const RtPathTraceMaterialFeatureRuntimePass featurePass =
+        BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
+    SetPathTraceMaterialFeatureRuntimeInfo(runtimeInfo, featurePass);
 }

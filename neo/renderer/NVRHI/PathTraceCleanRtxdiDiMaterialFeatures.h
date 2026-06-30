@@ -5,13 +5,28 @@
 // The clean render path asks for feature-specific operations here; this facade
 // keeps generic material-feature mechanics out of the core dispatch body.
 
-#include "PathTraceMaterialFeatureRuntime.h"
+#include <cstddef>
+#include <memory>
+
+#include <nvrhi/nvrhi.h>
 
 struct RtPathTraceFrameResources;
 
 struct RtPathTraceCleanRtxdiDiMaterialFeatureState
 {
-    RtPathTraceMaterialFeatureShaderTableState shaderTableState;
+    RtPathTraceCleanRtxdiDiMaterialFeatureState();
+    ~RtPathTraceCleanRtxdiDiMaterialFeatureState();
+
+    RtPathTraceCleanRtxdiDiMaterialFeatureState(const RtPathTraceCleanRtxdiDiMaterialFeatureState&) = delete;
+    RtPathTraceCleanRtxdiDiMaterialFeatureState& operator=(const RtPathTraceCleanRtxdiDiMaterialFeatureState&) = delete;
+    RtPathTraceCleanRtxdiDiMaterialFeatureState(RtPathTraceCleanRtxdiDiMaterialFeatureState&&) noexcept;
+    RtPathTraceCleanRtxdiDiMaterialFeatureState& operator=(RtPathTraceCleanRtxdiDiMaterialFeatureState&&) noexcept;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
+
+    friend struct RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess;
 };
 
 struct RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources
@@ -30,11 +45,6 @@ RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources BuildPathTraceCleanRtxdi
     nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
     nvrhi::BindingLayoutHandle textureBindlessLayout);
 
-struct RtPathTraceCleanRtxdiDiTransmissionPass
-{
-    RtPathTraceMaterialFeatureRuntimePass featurePass;
-};
-
 struct RtPathTraceCleanRtxdiDiTransmissionSettings
 {
     bool cleanRouteRequested = false;
@@ -43,13 +53,15 @@ struct RtPathTraceCleanRtxdiDiTransmissionSettings
     bool debugOutputRequested = false;
 };
 
+struct RtPathTraceCleanRtxdiDiTransmissionPass
+{
+    RtPathTraceCleanRtxdiDiTransmissionSettings settings;
+    const RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState = nullptr;
+};
+
 RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPass(
     const RtPathTraceCleanRtxdiDiTransmissionSettings& settings,
     const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
-RtPathTraceMaterialFeatureShaderTableState& PathTraceCleanRtxdiDiMaterialFeatureShaderTableState(
-    RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
-const RtPathTraceMaterialFeatureRuntimePass& PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(
-    const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
 bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources& resources);
