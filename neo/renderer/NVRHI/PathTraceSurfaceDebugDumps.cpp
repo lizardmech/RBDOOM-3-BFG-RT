@@ -6,11 +6,195 @@
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceGuiSurfaces.h"
+#include "PathTracePrimarySurface.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
 
 #include <algorithm>
+
+namespace {
+
+struct RtCrosshairMaterialFeatureDebug
+{
+    RtPathTraceMaterialKind materialKind = RT_PATH_TRACE_MATERIAL_KIND_UNKNOWN;
+    uint32_t materialCaps = RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED;
+    uint32_t lobeCaps = 0;
+    uint32_t passSupport = RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER;
+    RtPathTraceMaterialModifierKind modifierKind = RT_PATH_TRACE_MATERIAL_MODIFIER_NONE;
+    bool transmissionCandidate = false;
+    bool transmissionActive = false;
+};
+
+const char* RtPathTraceMaterialKindName(const RtPathTraceMaterialKind materialKind)
+{
+    switch (materialKind)
+    {
+        case RT_PATH_TRACE_MATERIAL_KIND_OPAQUE: return "opaque";
+        case RT_PATH_TRACE_MATERIAL_KIND_ALPHA_TESTED: return "alpha-tested";
+        case RT_PATH_TRACE_MATERIAL_KIND_DECAL_MODIFIER: return "decal-modifier";
+        case RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER: return "liquid-pool-modifier";
+        case RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS: return "translucent-glass";
+        case RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_PARTICLE: return "translucent-particle";
+        case RT_PATH_TRACE_MATERIAL_KIND_GUI_SCREEN: return "gui-screen";
+        case RT_PATH_TRACE_MATERIAL_KIND_EMISSIVE_SPECIAL: return "emissive-special";
+        case RT_PATH_TRACE_MATERIAL_KIND_SKY_OR_ENVIRONMENT: return "sky-or-environment";
+        default: return "unknown";
+    }
+}
+
+const char* RtPathTraceMaterialModifierName(const RtPathTraceMaterialModifierKind modifierKind)
+{
+    switch (modifierKind)
+    {
+        case RT_PATH_TRACE_MATERIAL_MODIFIER_OVER: return "over";
+        case RT_PATH_TRACE_MATERIAL_MODIFIER_MODULATE_FILTER: return "modulate-filter";
+        case RT_PATH_TRACE_MATERIAL_MODIFIER_ADDITIVE_EMISSIVE: return "additive-emissive";
+        case RT_PATH_TRACE_MATERIAL_MODIFIER_DIFFUSE_LIT: return "diffuse-lit";
+        case RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION: return "liquid-pool-union";
+        default: return "none";
+    }
+}
+
+const char* RtPathTraceMaterialUnsupportedDebugName(const RtCrosshairMaterialFeatureDebug& feature)
+{
+    if ((feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u)
+    {
+        return "supported-green";
+    }
+    if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS)
+    {
+        return "glass-unsupported-cyan";
+    }
+    if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_PARTICLE)
+    {
+        return "particle-unsupported-orange";
+    }
+    if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_GUI_SCREEN)
+    {
+        return "gui-unsupported-magenta";
+    }
+    return "unsupported-red";
+}
+
+RtPathTraceMaterialModifierKind BuildCrosshairMaterialModifierKind(const RtSmokeMaterialTextureInfo& info)
+{
+    if (info.detailDecalLiquidPool)
+    {
+        return RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION;
+    }
+    if (info.detailDecalDiffuseLit)
+    {
+        return RT_PATH_TRACE_MATERIAL_MODIFIER_DIFFUSE_LIT;
+    }
+    if (info.filterDecal)
+    {
+        return RT_PATH_TRACE_MATERIAL_MODIFIER_MODULATE_FILTER;
+    }
+    if (info.additiveDecal)
+    {
+        return RT_PATH_TRACE_MATERIAL_MODIFIER_ADDITIVE_EMISSIVE;
+    }
+    if (info.detailDecal)
+    {
+        return RT_PATH_TRACE_MATERIAL_MODIFIER_OVER;
+    }
+    return RT_PATH_TRACE_MATERIAL_MODIFIER_NONE;
+}
+
+RtCrosshairMaterialFeatureDebug BuildCrosshairMaterialFeatureDebug(
+    const RtSmokeSurfaceClass surfaceClass,
+    const RtSmokeTranslucentSubtype translucentSubtype,
+    const RtSmokeMaterialTextureInfo& info)
+{
+    RtCrosshairMaterialFeatureDebug feature;
+    feature.modifierKind = BuildCrosshairMaterialModifierKind(info);
+
+    const bool translucent = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha;
+    const bool translucentGlass =
+        translucent &&
+        (translucentSubtype == RtSmokeTranslucentSubtype::ObjectGlass ||
+         translucentSubtype == RtSmokeTranslucentSubtype::PortalWindow);
+    const bool fallbackGlass = info.objectGlassFallback || info.portalWindowFallback;
+    const bool glassLike = translucentGlass || fallbackGlass;
+
+    if (translucent && translucentSubtype == RtSmokeTranslucentSubtype::GuiScreen)
+    {
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_GUI_SCREEN;
+    }
+    else if (translucent && translucentSubtype == RtSmokeTranslucentSubtype::SmokeParticle)
+    {
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_PARTICLE;
+    }
+    else if (glassLike)
+    {
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS;
+    }
+    else if (translucent)
+    {
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_UNKNOWN;
+    }
+    else if (feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION)
+    {
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER;
+    }
+    else if (feature.modifierKind != RT_PATH_TRACE_MATERIAL_MODIFIER_NONE)
+    {
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_DECAL_MODIFIER;
+    }
+    else if (info.hasAlphaTest)
+    {
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_ALPHA_TESTED;
+    }
+    else
+    {
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_OPAQUE;
+    }
+
+    if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS)
+    {
+        feature.materialCaps =
+            RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION |
+            RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED;
+        feature.lobeCaps = RT_PATH_TRACE_MATERIAL_LOBE_SPECULAR_TRANSMISSION;
+        feature.transmissionCandidate = true;
+        feature.transmissionActive = false;
+        return feature;
+    }
+
+    if (!translucent)
+    {
+        feature.materialCaps =
+            RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_DIRECT |
+            RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_GI |
+            RT_PATH_TRACE_MATERIAL_CAP_PATH_DIFFUSE |
+            RT_PATH_TRACE_MATERIAL_CAP_SHADOW_OCCLUSION |
+            RT_PATH_TRACE_MATERIAL_CAP_RR_DIFFUSE_GUIDE;
+        feature.lobeCaps = RT_PATH_TRACE_MATERIAL_LOBE_DIFFUSE_REFLECTION;
+        feature.passSupport |=
+            RT_PATH_TRACE_MATERIAL_PASS_PRIMARY_SURFACE |
+            RT_PATH_TRACE_MATERIAL_PASS_PATH_INTEGRATOR |
+            RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR |
+            RT_PATH_TRACE_MATERIAL_PASS_GI_RESERVOIR |
+            RT_PATH_TRACE_MATERIAL_PASS_RR_GUIDE_EXPORT;
+        if (info.hasAlphaTest)
+        {
+            feature.materialCaps |= RT_PATH_TRACE_MATERIAL_CAP_VISIBILITY_RAY_ALPHA_TEST;
+        }
+        if (info.emissive)
+        {
+            feature.lobeCaps |= RT_PATH_TRACE_MATERIAL_LOBE_EMISSIVE;
+        }
+        if (feature.modifierKind != RT_PATH_TRACE_MATERIAL_MODIFIER_NONE)
+        {
+            feature.materialCaps |= RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER;
+        }
+    }
+
+    return feature;
+}
+
+} // namespace
 
 void ProcessSmokeCrosshairZeroRoughnessToggle(const viewDef_t* viewDef)
 {
@@ -185,6 +369,30 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         info.detailDecalLiquidPool ? "liquid-pool" : (info.detailDecalDiffuseLit ? "diffuse-lit" : (info.filterDecal ? "modulate" : (info.additiveDecal ? "additive" : "over"))),
         info.detailDecalSpectrum,
         r_pathTracingDecalComposite.GetInteger());
+
+    const RtCrosshairMaterialFeatureDebug feature = BuildCrosshairMaterialFeatureDebug(surfaceClass, translucentSubtype, info);
+    const bool directReservoirSupported =
+        (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_DIRECT) != 0u &&
+        (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR) != 0u &&
+        (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u;
+    const bool giReservoirSupported =
+        (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_GI) != 0u &&
+        (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_GI_RESERVOIR) != 0u &&
+        (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u;
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair modular material kind=%s(%u) caps=0x%08x lobes=0x%08x passSupport=0x%08x modifier=%s(%u) transmissionCandidate=%d transmissionActive=%d transmissionBounceRequest=%d transmissionBounceEffective=0 directReservoir=%s giReservoir=%s unsupportedDebug=%s\n",
+        RtPathTraceMaterialKindName(feature.materialKind),
+        static_cast<uint32_t>(feature.materialKind),
+        feature.materialCaps,
+        feature.lobeCaps,
+        feature.passSupport,
+        RtPathTraceMaterialModifierName(feature.modifierKind),
+        static_cast<uint32_t>(feature.modifierKind),
+        feature.transmissionCandidate ? 1 : 0,
+        feature.transmissionActive ? 1 : 0,
+        r_pathTracingTransmissionBounceLimit.GetInteger(),
+        directReservoirSupported ? "supported" : "unsupported",
+        giReservoirSupported ? "supported" : "unsupported",
+        RtPathTraceMaterialUnsupportedDebugName(feature));
 
     common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' alpha='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d alphaMagentaKey=%d normal='%s' usage=%s color=%s safe=%d specular='%s' usage=%s color=%s safe=%d emissive='%s' usage=%s color=%s safe=%d emissive=%d additiveDecal=%d additiveWhiteKey=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",
         info.diffuseImageName.c_str(),
