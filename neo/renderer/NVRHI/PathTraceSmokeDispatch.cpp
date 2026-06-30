@@ -241,6 +241,11 @@ bool PathTraceMaterialFeatureOutputAvailable(const RtPathTraceMaterialFeaturePas
         PathTraceMaterialFeatureOutputTexture(frameResources, resource);
 }
 
+bool PathTraceMaterialFeaturePrimaryOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources)
+{
+    return PathTraceMaterialFeatureOutputAvailable(passDesc, frameResources, passDesc.primaryOutputResource);
+}
+
 void SetPathTraceMaterialFeatureOutputState(
     nvrhi::ICommandList* commandList,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
@@ -258,6 +263,15 @@ void SetPathTraceMaterialFeatureOutputState(
     {
         commandList->setTextureState(texture, nvrhi::AllSubresources, state);
     }
+}
+
+void SetPathTraceMaterialFeaturePrimaryOutputState(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceFrameResources& frameResources,
+    nvrhi::ResourceStates state)
+{
+    SetPathTraceMaterialFeatureOutputState(commandList, passDesc, frameResources, passDesc.primaryOutputResource, state);
 }
 
 void ClearPathTraceMaterialFeatureOutput(
@@ -279,6 +293,15 @@ void ClearPathTraceMaterialFeatureOutput(
     }
 }
 
+void ClearPathTraceMaterialFeaturePrimaryOutput(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceFrameResources& frameResources,
+    const nvrhi::Color& color)
+{
+    ClearPathTraceMaterialFeatureOutput(commandList, passDesc, frameResources, passDesc.primaryOutputResource, color);
+}
+
 void BarrierPathTraceMaterialFeatureOutput(
     nvrhi::ICommandList* commandList,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
@@ -294,6 +317,20 @@ void BarrierPathTraceMaterialFeatureOutput(
     if (commandList && texture)
     {
         nvrhi::utils::TextureUavBarrier(commandList, texture);
+    }
+}
+
+void BarrierPathTraceMaterialFeatureOutputs(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceFrameResources& frameResources)
+{
+    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
+    {
+        if (PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, resource))
+        {
+            BarrierPathTraceMaterialFeatureOutput(commandList, passDesc, frameResources, resource);
+        }
     }
 }
 
@@ -2287,10 +2324,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         viewDef && m_smokeCleanRtxdiDiSentinelBindingLayout && m_smokeTextureDescriptorTable && m_smokeCleanRtxdiDiSentinelConstantsBuffer &&
         m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture &&
         (!cleanRtxdiDiTransmissionPassRequested ||
-            PathTraceMaterialFeatureOutputAvailable(
-                cleanRtxdiDiTransmissionPassDesc,
-                m_frameResources,
-                cleanRtxdiDiTransmissionPassDesc.primaryOutputResource)) &&
+            PathTraceMaterialFeaturePrimaryOutputAvailable(cleanRtxdiDiTransmissionPassDesc, m_frameResources)) &&
         m_smokeStaticTriangleMaterialIndexBuffer && m_smokeDynamicTriangleMaterialIndexBuffer &&
         m_smokeRigidRouteTriangleMaterialIndexBuffer && m_smokeRigidRouteInstanceBuffer;
     const bool pdfNeeVerifierBaseResourcesValid =
@@ -3604,11 +3638,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         if (cleanRtxdiDiTransmissionPassRequested)
         {
-            SetPathTraceMaterialFeatureOutputState(
+            SetPathTraceMaterialFeaturePrimaryOutputState(
                 commandList,
                 cleanRtxdiDiTransmissionPassDesc,
                 m_frameResources,
-                cleanRtxdiDiTransmissionPassDesc.primaryOutputResource,
                 nvrhi::ResourceStates::UnorderedAccess);
         }
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
@@ -3625,11 +3658,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->commitBarriers();
         if (cleanRtxdiDiTransmissionPassRequested)
         {
-            ClearPathTraceMaterialFeatureOutput(
+            ClearPathTraceMaterialFeaturePrimaryOutput(
                 commandList,
                 cleanRtxdiDiTransmissionPassDesc,
                 m_frameResources,
-                cleanRtxdiDiTransmissionPassDesc.primaryOutputResource,
                 nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
         }
         const int cleanRtxdiDiLightMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiLightMode.GetInteger());
@@ -4185,15 +4217,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 PathTraceGpuMarkerScope nsightMarker(commandList, cleanRtxdiDiTransmissionPassDesc.debugLabel, nsightGpuMarkers);
                 commandList->dispatchRays(cleanArgs);
             }
-            BarrierPathTraceMaterialFeatureOutput(
+            BarrierPathTraceMaterialFeatureOutputs(
                 commandList,
                 cleanRtxdiDiTransmissionPassDesc,
-                m_frameResources,
-                cleanRtxdiDiTransmissionPassDesc.primaryOutputResource);
-            if (PathTraceMaterialFeaturePassWritesAnyOutput(cleanRtxdiDiTransmissionPassDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR))
-            {
-                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
-            }
+                m_frameResources);
         }
         if (cleanRtxdiDiRrGuideDebugView)
         {
