@@ -89,6 +89,8 @@ float3 RAB_BuildPerpendicular(float3 normal)
     return RAB_SafeNormalize(cross(axis, normal), float3(1.0, 0.0, 0.0));
 }
 
+#include "../PathTraceMaterialFeature.hlsli"
+
 bool RAB_SurfaceSupportsOpaqueDiffuseBrdf(RAB_Surface surface)
 {
 #ifdef RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES
@@ -97,7 +99,7 @@ bool RAB_SurfaceSupportsOpaqueDiffuseBrdf(RAB_Surface surface)
         return RAB_IsSurfaceValid(surface) && surface.material.opacity > 0.0;
     }
 #endif
-    return RAB_IsSurfaceValid(surface) && surface.surfaceClass != 3u && surface.material.opacity > 0.0;
+    return MaterialSupportsOpaqueDirect(surface);
 }
 
 #endif
