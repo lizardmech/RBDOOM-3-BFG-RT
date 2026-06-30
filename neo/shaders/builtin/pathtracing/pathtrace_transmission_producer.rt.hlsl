@@ -1,0 +1,6 @@
+#define RB_PT_ENABLE_RESTIR 1
+#define RB_PT_ENABLE_RESTIR_TEMPORAL 1
+#define RB_PT_ENABLE_RESTIR_SPATIAL 1
+#define RB_PT_TRANSMISSION_PRODUCER_ONLY 1
+#define RB_PT_FORCE_DEBUG_MODE 56u
+#include "pathtrace_smoke.rt.hlsl"

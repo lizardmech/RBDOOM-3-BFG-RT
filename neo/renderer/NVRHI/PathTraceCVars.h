@@ -244,6 +244,8 @@ extern idCVar r_pathTracingRestirPTUnifiedNee;
 extern idCVar r_pathTracingRestirPTAnalyticLightTrials;
 extern idCVar r_pathTracingRestirPTVisibilityPolicy;
 extern idCVar r_pathTracingRestirPTReflectionMode;
+extern idCVar r_pathTracingTransmissionProducer;
+extern idCVar r_pathTracingTransmissionDebugView;
 extern idCVar r_pathTracingRestirPTSpatialSamples;
 extern idCVar r_pathTracingRestirPTSpatialRadius;
 extern idCVar r_pathTracingRestirPTCombinedSpatialRadius;

@@ -7001,6 +7001,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.outputTexture = m_frameResources.outputTexture;
     bindingBuildDesc.accumulationTexture = m_frameResources.accumulationTexture;
     bindingBuildDesc.restirPTReflectionTexture = m_frameResources.restirPTReflectionTexture;
+    bindingBuildDesc.transmissionTexture = m_frameResources.transmissionTexture;
     bindingBuildDesc.rrInputColorTexture = m_frameResources.rrInputColorTexture;
     bindingBuildDesc.motionVectorTexture = m_frameResources.motionVectorTexture;
     bindingBuildDesc.rrMotionVectorTexture = m_frameResources.rrMotionVectorTexture;

@@ -95,6 +95,7 @@ struct RtPathTraceFrameResources
     nvrhi::TextureHandle outputTexture;
     nvrhi::TextureHandle accumulationTexture;
     nvrhi::TextureHandle restirPTReflectionTexture;
+    nvrhi::TextureHandle transmissionTexture;
     nvrhi::TextureHandle rrInputColorTexture;
     nvrhi::TextureHandle cleanRtxdiDiBoilingFilterTexture;
     nvrhi::TextureHandle motionVectorTexture;

@@ -1425,6 +1425,18 @@ idCVar r_pathTracingRestirPTReflectionMode(
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 56 ReSTIR PT reflection preview: 0 off, 1 sharp screen-space primary-surface lookup, 2 rough diagnostic screen-space lookup" );
 
+idCVar r_pathTracingTransmissionProducer(
+    "r_pathTracingTransmissionProducer",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 56 standalone transmission producer scaffold: 0 off, 1 write sentinel transmission UAV from primary-surface history" );
+
+idCVar r_pathTracingTransmissionDebugView(
+    "r_pathTracingTransmissionDebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 56 standalone transmission producer debug output: 0 off, 1 route producer sentinel to SmokeOutput without final beauty integration" );
+
 idCVar r_pathTracingRestirPTSpatialSamples(
     "r_pathTracingRestirPTSpatialSamples",
     "1",

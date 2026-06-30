@@ -117,6 +117,7 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         TextureSizeMatches(outputTexture, requestedOutputWidth, requestedOutputHeight) &&
         TextureSizeMatches(accumulationTexture, requestedOutputWidth, requestedOutputHeight) &&
         TextureSizeMatches(restirPTReflectionTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(transmissionTexture, requestedWidth, requestedHeight) &&
         TextureSizeMatches(rrInputColorTexture, requestedWidth, requestedHeight) &&
         TextureSizeMatches(cleanRtxdiDiBoilingFilterTexture, requestedWidth, requestedHeight) &&
         TextureSizeMatches(motionVectorTexture, requestedWidth, requestedHeight) &&
@@ -148,6 +149,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         outputTexture ||
         accumulationTexture ||
         restirPTReflectionTexture ||
+        transmissionTexture ||
         rrInputColorTexture ||
         cleanRtxdiDiBoilingFilterTexture ||
         motionVectorTexture ||
@@ -241,6 +243,14 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     if (!newRestirPTReflectionTexture)
     {
         common->Printf("PathTraceFrameResources: failed to create PT ReSTIR reflection UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
+    renderDesc.debugName = "PathTraceTransmission";
+    nvrhi::TextureHandle newTransmissionTexture = device->createTexture(renderDesc);
+    if (!newTransmissionTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT transmission UAV (%dx%d)\n", requestedWidth, requestedHeight);
         return false;
     }
 
@@ -391,6 +401,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     outputTexture = newOutputTexture;
     accumulationTexture = newAccumulationTexture;
     restirPTReflectionTexture = newRestirPTReflectionTexture;
+    transmissionTexture = newTransmissionTexture;
     rrInputColorTexture = newRrInputColorTexture;
     cleanRtxdiDiBoilingFilterTexture = newCleanRtxdiDiBoilingFilterTexture;
     motionVectorTexture = newMotionVectorTexture;
@@ -409,14 +420,14 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     height = requestedHeight;
     outputWidth = requestedOutputWidth;
     outputHeight = requestedOutputHeight;
-    diagnostics.outputTexturesCreated += 5;
+    diagnostics.outputTexturesCreated += 6;
     diagnostics.motionVectorTexturesCreated += 2;
     diagnostics.motionVectorMaskTexturesCreated++;
     diagnostics.rrGuideTexturesCreated += 7;
     diagnostics.diagnosticReadbackResourcesCreated += 2;
     diagnostics.outputTextureBytes =
         EstimateRgba32FloatTextureBytes(outputWidth, outputHeight) * 2ull +
-        EstimateRgba32FloatTextureBytes(width, height) * 3ull;
+        EstimateRgba32FloatTextureBytes(width, height) * 4ull;
     diagnostics.motionVectorBytes = EstimateRgba16FloatTextureBytes(width, height) + EstimateRg16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     diagnostics.rrGuideBytes =
@@ -625,6 +636,7 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     outputTexture = nullptr;
     accumulationTexture = nullptr;
     restirPTReflectionTexture = nullptr;
+    transmissionTexture = nullptr;
     rrInputColorTexture = nullptr;
     cleanRtxdiDiBoilingFilterTexture = nullptr;
     motionVectorTexture = nullptr;

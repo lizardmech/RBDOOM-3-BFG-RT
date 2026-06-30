@@ -42,6 +42,7 @@ enum class RtPathTraceMaterialFeatureShaderTable : uint8_t
     RestirDirectTemporalProducer,
     RestirDirectSpatialReservoirProducer,
     RestirReflectionProducer,
+    TransmissionProducer,
     CleanRtxdiDiSentinel,
     CleanRtxdiDiInitial,
     CleanRtxdiDiTemporal,
@@ -62,7 +63,8 @@ enum RtPathTraceMaterialFeatureResourceMask : uint32_t
     RT_MATERIAL_FEATURE_RESOURCE_GI_RESERVOIR = 1u << 8,
     RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR = 1u << 9,
     RT_MATERIAL_FEATURE_RESOURCE_MOTION_VECTORS = 1u << 10,
-    RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDES = 1u << 11
+    RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDES = 1u << 11,
+    RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT = 1u << 12
 };
 
 struct RtPathTraceMaterialFeaturePassDesc
@@ -93,6 +95,26 @@ inline RtPathTraceMaterialFeaturePassDesc BuildPathTracePrimarySurfaceFeaturePas
         RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDES;
     desc.enabled = enabled;
     desc.debugLabel = "primary-surface-producer";
+    return desc;
+}
+
+inline RtPathTraceMaterialFeaturePassDesc BuildPathTraceTransmissionFeaturePassDesc(bool enabled, bool debugOutput)
+{
+    RtPathTraceMaterialFeaturePassDesc desc;
+    desc.kind = RtPathTraceMaterialFeaturePassKind::TransmissionProducer;
+    desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::TransmissionProducer;
+    desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION;
+    desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
+    desc.resourceInputs =
+        RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE;
+    desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
+    if (debugOutput)
+    {
+        desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
+    }
+    desc.enabled = enabled;
+    desc.debugLabel = debugOutput ? "transmission-producer-debug" : "transmission-producer";
     return desc;
 }
 
