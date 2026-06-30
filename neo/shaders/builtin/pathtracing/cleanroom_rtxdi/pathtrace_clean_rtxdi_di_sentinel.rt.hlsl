@@ -201,7 +201,6 @@ VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceRRGuideResetMask : register(
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideSpecularAlbedo : register(u53);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceRRMotionVectors : register(u78);
-VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiTransmissionOutput : register(u87);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
@@ -954,22 +953,7 @@ RAB_Surface PathTraceCleanRoomSurfaceForView(PathTracePrimarySurfaceRecord recor
     return PathTraceCleanRoomSurfaceFromRecord(record);
 }
 
-float4 PathTraceCleanRoomTransmissionProducerSentinel(uint2 pixel, uint2 dimensions)
-{
-    PathTracePrimarySurfaceRecord record;
-    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
-    {
-        return float4(0.0, 0.0, 0.0, 1.0);
-    }
-
-    const RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
-    if (!MaterialSupportsTransmission(surface))
-    {
-        return float4(0.02, 0.02, 0.02, 1.0);
-    }
-
-    return float4(0.0, 0.85, 1.0, 1.0);
-}
+#include "pathtrace_clean_rtxdi_di_transmission_producer.hlsli"
 
 RAB_Surface RAB_GetGBufferSurface(int2 pixel, bool previousFrame)
 {
