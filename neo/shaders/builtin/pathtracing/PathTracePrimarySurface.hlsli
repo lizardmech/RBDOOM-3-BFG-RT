@@ -173,6 +173,8 @@ float PathTracePrimarySurfacePreviousProjectionDepth(float3 worldPosition)
 #ifndef RB_PATH_TRACE_PRIMARY_SURFACE_HELPERS
 #define RB_PATH_TRACE_PRIMARY_SURFACE_HELPERS
 
+#include "PathTraceMaterialFeature.hlsli"
+
 PathTracePrimarySurfaceRecord PackPathTracePrimarySurfaceRecord(RAB_Surface surface)
 {
     PathTracePrimarySurfaceRecord record = (PathTracePrimarySurfaceRecord)0;
@@ -708,11 +710,33 @@ float4 EvaluatePathTracePrimarySurfaceObjectMotionReprojectionDebug(RAB_Surface 
     return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_OK, currentSurface);
 }
 
+bool TryPathTraceMaterialUnsupportedDebugColor(RAB_Surface currentSurface, uint passKind, out float4 debugColor)
+{
+    debugColor = float4(0.0, 0.0, 0.0, 1.0);
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        return false;
+    }
+    if (MaterialSupportedByPass(currentSurface, passKind))
+    {
+        return false;
+    }
+
+    debugColor = MaterialFailClosedDebugColor(currentSurface, passKind);
+    return true;
+}
+
 float4 EvaluateRestirPTPrimarySurfacePairDebug(RAB_Surface currentSurface, RAB_Surface previousSurface)
 {
     if (!RAB_IsSurfaceValid(currentSurface) && !RAB_IsSurfaceValid(previousSurface))
     {
         return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    float4 unsupportedColor;
+    if (TryPathTraceMaterialUnsupportedDebugColor(currentSurface, RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR, unsupportedColor))
+    {
+        return unsupportedColor;
     }
 
     uint debugStatus;
@@ -735,6 +759,12 @@ float4 EvaluateRestirPTPrimarySurfaceReprojectionDebug(RAB_Surface currentSurfac
     if (!RAB_IsSurfaceValid(currentSurface))
     {
         return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
+    }
+
+    float4 unsupportedColor;
+    if (TryPathTraceMaterialUnsupportedDebugColor(currentSurface, RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR, unsupportedColor))
+    {
+        return unsupportedColor;
     }
 
     int2 previousPixel;
