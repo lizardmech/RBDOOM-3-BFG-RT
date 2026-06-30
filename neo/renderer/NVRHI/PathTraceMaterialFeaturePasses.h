@@ -135,6 +135,17 @@ inline uint32_t PathTraceMaterialFeatureOutputUavSlot(uint32_t resource)
     }
 }
 
+inline uint32_t PathTraceMaterialFeatureBindingLayoutOptionalOutputs(RtPathTraceMaterialFeatureBindingLayout bindingLayout)
+{
+    switch (bindingLayout)
+    {
+    case RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi:
+        return RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
+    default:
+        return RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    }
+}
+
 inline RtPathTraceMaterialFeatureShaderDesc PathTraceMaterialFeatureShaderDescForTable(RtPathTraceMaterialFeatureShaderTable shaderTable)
 {
     switch (shaderTable)
