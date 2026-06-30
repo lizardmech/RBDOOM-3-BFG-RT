@@ -39,6 +39,21 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
         shaderStateCount);
 }
 
+const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
+    nvrhi::GraphicsAPI graphicsApi)
+{
+    switch (graphicsApi)
+    {
+    case nvrhi::GraphicsAPI::D3D12:
+        return shaderDesc.dxilShaderPath;
+    case nvrhi::GraphicsAPI::VULKAN:
+        return shaderDesc.spirvShaderPath;
+    default:
+        return nullptr;
+    }
+}
+
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady)
 {
     runtimeInfo[0] = PathTraceMaterialFeaturePassWritesAnyOutput(desc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR) ? 1.0f : 0.0f;

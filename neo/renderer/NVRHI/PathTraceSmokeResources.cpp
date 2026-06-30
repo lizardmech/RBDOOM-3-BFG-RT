@@ -1671,16 +1671,8 @@ bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTrac
         return false;
     }
 
-    const char* shaderPath = nullptr;
-    if (deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
-    {
-        shaderPath = shaderDesc.dxilShaderPath;
-    }
-    else if (deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
-    {
-        shaderPath = shaderDesc.spirvShaderPath;
-    }
-    else
+    const char* shaderPath = PathTraceMaterialFeatureShaderPathForGraphicsApi(shaderDesc, deviceManager->GetGraphicsAPI());
+    if (!shaderPath)
     {
         return false;
     }

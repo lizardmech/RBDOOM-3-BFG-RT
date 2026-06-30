@@ -36,5 +36,8 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
     bool debugOutputRequested,
     const RtPathTraceMaterialFeatureShaderState* shaderStates,
     size_t shaderStateCount);
+const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
+    nvrhi::GraphicsAPI graphicsApi);
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady);
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimePass& pass);
