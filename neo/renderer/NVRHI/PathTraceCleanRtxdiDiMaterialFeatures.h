@@ -23,6 +23,13 @@ struct RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources
     nvrhi::BindingLayoutHandle textureBindlessLayout;
 };
 
+RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineResources(
+    RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState,
+    bool smokeTestInitialized,
+    nvrhi::BindingLayoutHandle smokeBindingLayout,
+    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
+    nvrhi::BindingLayoutHandle textureBindlessLayout);
+
 struct RtPathTraceCleanRtxdiDiTransmissionPass
 {
     RtPathTraceMaterialFeatureRuntimePass featurePass;

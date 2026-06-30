@@ -7,6 +7,22 @@
 
 #include <cstring>
 
+RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineResources(
+    RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState,
+    bool smokeTestInitialized,
+    nvrhi::BindingLayoutHandle smokeBindingLayout,
+    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
+    nvrhi::BindingLayoutHandle textureBindlessLayout)
+{
+    return {
+        &featureState,
+        smokeTestInitialized,
+        smokeBindingLayout,
+        cleanRtxdiDiBindingLayout,
+        textureBindlessLayout
+    };
+}
+
 RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPass(
     const RtPathTraceCleanRtxdiDiTransmissionSettings& settings,
     const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)

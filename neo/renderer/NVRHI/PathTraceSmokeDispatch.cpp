@@ -2419,13 +2419,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             return;
         }
-        const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources cleanRtxdiDiTransmissionPipelineResources = {
-            &m_smokeCleanRtxdiDiMaterialFeatures,
-            m_smokeTestInitialized,
-            m_smokeBindingLayout,
-            m_smokeCleanRtxdiDiSentinelBindingLayout,
-            m_smokeTextureBindlessLayout
-        };
+        const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources cleanRtxdiDiTransmissionPipelineResources =
+            BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineResources(
+                m_smokeCleanRtxdiDiMaterialFeatures,
+                m_smokeTestInitialized,
+                m_smokeBindingLayout,
+                m_smokeCleanRtxdiDiSentinelBindingLayout,
+                m_smokeTextureBindlessLayout);
         if (!EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
             cleanRtxdiDiTransmissionPass,
             cleanRtxdiDiTransmissionPipelineResources))
