@@ -229,8 +229,6 @@ public:
 private:
     void InitRayTracingSmokeTest();
     bool InitRayTracingSmokeRestirPipeline(int restirLibraryKind);
-    bool InitPathTraceMaterialFeaturePipeline(const RtPathTraceMaterialFeaturePassDesc& passDesc);
-    bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(const RtPathTraceMaterialFeatureRuntimePass& pass);
     bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
     bool ResizeRayTracingSmokeOutput(int width, int height, int outputWidth, int outputHeight);
     void ResetRayTracingSmokeAsyncCpuWork();

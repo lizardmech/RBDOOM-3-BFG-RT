@@ -13,6 +13,15 @@
 
 extern DeviceManager* deviceManager;
 
+struct RtPathTraceMaterialFeaturePipelineContext
+{
+    RtPathTraceMaterialFeatureShaderTableState* shaderTableState = nullptr;
+    bool smokeTestInitialized = false;
+    nvrhi::BindingLayoutHandle smokeBindingLayout;
+    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout;
+    nvrhi::BindingLayoutHandle textureBindlessLayout;
+};
+
 static bool LoadPathTraceMaterialFeatureShaderLibrary(nvrhi::IDevice* device, const char* shaderPath, const char* label, nvrhi::ShaderLibraryHandle& shaderLibrary)
 {
     shaderLibrary = nullptr;
@@ -125,11 +134,18 @@ static bool CreatePathTraceMaterialFeatureRayTracingPipeline(
     return true;
 }
 
-bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTraceMaterialFeaturePassDesc& passDesc)
+static bool InitPathTraceMaterialFeaturePipeline(
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceMaterialFeaturePipelineContext& context)
 {
+    if (!context.shaderTableState)
+    {
+        return false;
+    }
+
     RtPathTraceMaterialFeatureShaderState* materialFeatureShaderState = PathTraceMaterialFeatureShaderStateForPass(
         passDesc,
-        m_smokeMaterialFeatureShaders);
+        *context.shaderTableState);
     if (!materialFeatureShaderState)
     {
         return false;
@@ -139,7 +155,7 @@ bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTrac
         return true;
     }
 
-    if (!m_smokeTestInitialized || !m_smokeTextureBindlessLayout)
+    if (!context.smokeTestInitialized || !context.textureBindlessLayout)
     {
         return false;
     }
@@ -152,9 +168,9 @@ bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTrac
 
     const RtPathTraceMaterialFeaturePipelineRequest pipelineRequest = BuildPathTraceMaterialFeaturePipelineRequest(
         passDesc,
-        m_smokeMaterialFeatureShaders,
-        m_smokeBindingLayout,
-        m_smokeCleanRtxdiDiSentinelBindingLayout,
+        *context.shaderTableState,
+        context.smokeBindingLayout,
+        context.cleanRtxdiDiBindingLayout,
         deviceManager->GetGraphicsAPI());
     if (!pipelineRequest.shaderState)
     {
@@ -178,7 +194,7 @@ bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTrac
         device,
         shaderState.shaderLibrary,
         pipelineRequest.bindingLayout,
-        m_smokeTextureBindlessLayout,
+        context.textureBindlessLayout,
         pipelineRequest.shaderDesc.label,
         shaderState.pipeline,
         shaderState.shaderTable))
@@ -193,7 +209,9 @@ bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTrac
     return true;
 }
 
-bool PathTracePrimaryPass::EnsurePathTraceMaterialFeatureRuntimePassPipeline(const RtPathTraceMaterialFeatureRuntimePass& pass)
+static bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(
+    const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceMaterialFeaturePipelineContext& context)
 {
     if (!pass.ready)
     {
@@ -205,12 +223,21 @@ bool PathTracePrimaryPass::EnsurePathTraceMaterialFeatureRuntimePassPipeline(con
     }
     if (!pass.shader->shaderTable)
     {
-        InitPathTraceMaterialFeaturePipeline(pass.desc);
+        InitPathTraceMaterialFeaturePipeline(pass.desc, context);
     }
     return static_cast<bool>(pass.shader->shaderTable);
 }
 
 bool PathTracePrimaryPass::EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
 {
-    return EnsurePathTraceMaterialFeatureRuntimePassPipeline(PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(pass));
+    const RtPathTraceMaterialFeaturePipelineContext context = {
+        &m_smokeMaterialFeatureShaders,
+        m_smokeTestInitialized,
+        m_smokeBindingLayout,
+        m_smokeCleanRtxdiDiSentinelBindingLayout,
+        m_smokeTextureBindlessLayout
+    };
+    return EnsurePathTraceMaterialFeatureRuntimePassPipeline(
+        PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(pass),
+        context);
 }
