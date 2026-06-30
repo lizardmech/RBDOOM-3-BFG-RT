@@ -46,7 +46,8 @@ enum class RtPathTraceMaterialFeatureShaderTable : uint8_t
     CleanRtxdiDiInitial,
     CleanRtxdiDiTemporal,
     CleanRtxdiDiSpatial,
-    CleanRtxdiDiTransmissionProducer
+    CleanRtxdiDiTransmissionProducer,
+    Count
 };
 
 enum RtPathTraceMaterialFeatureResourceMask : uint32_t

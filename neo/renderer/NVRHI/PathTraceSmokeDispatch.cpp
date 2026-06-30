@@ -1170,6 +1170,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
             cleanRtxdiDiTransmissionProducerRequested || cleanRtxdiDiTransmissionDebugViewRequested,
             cleanRtxdiDiTransmissionDebugViewRequested);
+    const RtPathTraceMaterialFeatureShaderState& cleanRtxdiDiTransmissionShader =
+        m_smokeMaterialFeatureShaders[static_cast<size_t>(cleanRtxdiDiTransmissionPassDesc.shaderTable)];
     const bool cleanRtxdiDiTransmissionWritesDebugOutput =
         PathTraceMaterialFeaturePassWritesAnyOutput(cleanRtxdiDiTransmissionPassDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
     const bool cleanRtxdiDiTransmissionPassRequested =
@@ -2427,11 +2429,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             return;
         }
-        if (cleanRtxdiDiTransmissionPassRequested && !m_smokeCleanRtxdiDiTransmissionProducerShaderTable)
+        if (cleanRtxdiDiTransmissionPassRequested && !cleanRtxdiDiTransmissionShader.shaderTable)
         {
             InitRayTracingSmokeRestirPipeline(21);
         }
-        if (cleanRtxdiDiTransmissionPassRequested && !m_smokeCleanRtxdiDiTransmissionProducerShaderTable)
+        if (cleanRtxdiDiTransmissionPassRequested && !cleanRtxdiDiTransmissionShader.shaderTable)
         {
             if (cleanRtxdiDiDumpRequested)
             {
@@ -4051,7 +4053,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         if (cleanRtxdiDiTransmissionPassRequested)
         {
             nvrhi::rt::State cleanTransmissionState = cleanState;
-            cleanTransmissionState.shaderTable = m_smokeCleanRtxdiDiTransmissionProducerShaderTable;
+            cleanTransmissionState.shaderTable = cleanRtxdiDiTransmissionShader.shaderTable;
             commandList->setRayTracingState(cleanTransmissionState);
             PathTraceCleanRtxdiDiSentinelConstants cleanTransmissionConstants = cleanConstants;
             cleanTransmissionConstants.toyPathInfo[0] = cleanRtxdiDiTransmissionWritesDebugOutput ? 1.0f : 0.0f;

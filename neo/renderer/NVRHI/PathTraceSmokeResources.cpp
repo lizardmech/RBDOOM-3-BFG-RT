@@ -1858,10 +1858,12 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
     {
         const RtPathTraceMaterialFeatureShaderDesc shaderDesc =
             PathTraceMaterialFeatureShaderDescForTable(RtPathTraceMaterialFeatureShaderTable::CleanRtxdiDiTransmissionProducer);
+        RtPathTraceMaterialFeatureShaderState& shaderState =
+            m_smokeMaterialFeatureShaders[static_cast<size_t>(RtPathTraceMaterialFeatureShaderTable::CleanRtxdiDiTransmissionProducer)];
         return initLibrary(
-            m_smokeCleanRtxdiDiTransmissionProducerShaderLibrary,
-            m_smokeCleanRtxdiDiTransmissionProducerPipeline,
-            m_smokeCleanRtxdiDiTransmissionProducerShaderTable,
+            shaderState.shaderLibrary,
+            shaderState.pipeline,
+            shaderState.shaderTable,
             shaderDesc.label,
             shaderDesc.dxilShaderPath,
             shaderDesc.spirvShaderPath,

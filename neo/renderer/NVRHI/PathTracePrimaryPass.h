@@ -21,11 +21,13 @@
 #include "PathTraceRemixLightManager.h"
 #include "PathTraceRemixRtxdiResources.h"
 #include "PathTraceRestirLightManager.h"
+#include "PathTraceRestirPasses.h"
 #include "PathTraceSceneInputs.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSmokeResources.h"
 
 #include <nvrhi/nvrhi.h>
+#include <array>
 #include <condition_variable>
 #include <chrono>
 #include <deque>
@@ -57,6 +59,16 @@ struct RtRetiredSmokeScenePackage
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     std::vector<nvrhi::TextureHandle> activeTextureTable;
 };
+
+struct RtPathTraceMaterialFeatureShaderState
+{
+    nvrhi::ShaderLibraryHandle shaderLibrary;
+    nvrhi::rt::PipelineHandle pipeline;
+    nvrhi::rt::ShaderTableHandle shaderTable;
+};
+
+static constexpr size_t RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_TABLE_COUNT =
+    static_cast<size_t>(RtPathTraceMaterialFeatureShaderTable::Count);
 
 static constexpr int RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS = 3;
 
@@ -501,9 +513,9 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiInitialShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiTemporalShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSpatialShaderLibrary;
-    nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiTransmissionProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeReGIRDebugShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
+    std::array<RtPathTraceMaterialFeatureShaderState, RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_TABLE_COUNT> m_smokeMaterialFeatureShaders;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ShaderHandle m_smokeCleanRtxdiDiBoilingFilterShader;
     nvrhi::ShaderHandle m_smokeNeeCachePrimarySurfaceUpdateShader;
@@ -532,7 +544,6 @@ private:
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiInitialPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiTemporalPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiSpatialPipeline;
-    nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiTransmissionProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeReGIRDebugPipeline;
     nvrhi::rt::PipelineHandle m_smokeNeeCacheDebugPipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
@@ -557,7 +568,6 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiInitialShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiTemporalShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiSpatialShaderTable;
-    nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiTransmissionProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeReGIRDebugShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeNeeCacheDebugShaderTable;
 };
