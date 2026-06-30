@@ -3451,7 +3451,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         AddPathTraceMaterialFeatureOutputBindings(
             cleanBindingSetDesc,
             m_frameResources,
-            PathTraceMaterialFeatureBindingLayoutOptionalOutputs(RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi));
+            RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi);
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(79, m_frameResources.rrGuidePositionTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(57, cleanOptionalSrv(m_smokePreviousEmissiveTriangleBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(64, cleanOptionalSrv(m_smokeRestirLightManagerCurrentToPreviousBuffer)));

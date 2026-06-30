@@ -1357,7 +1357,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
     AddPathTraceMaterialFeatureOutputLayoutBindings(
         cleanRtxdiDiSentinelBindingLayoutDesc,
-        PathTraceMaterialFeatureBindingLayoutOptionalOutputs(RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi));
+        RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi);
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(79));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(57));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(64));
