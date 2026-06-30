@@ -117,6 +117,14 @@ inline bool PathTraceMaterialFeaturePassIsReady(const RtPathTraceMaterialFeature
         PathTraceMaterialFeaturePassWritesAllOutputs(desc, requiredOutputs);
 }
 
+inline bool PathTraceMaterialFeaturePassIsReady(const RtPathTraceMaterialFeaturePassDesc& desc)
+{
+    const uint32_t requiredOutputs = desc.primaryOutputResource != RT_MATERIAL_FEATURE_RESOURCE_NONE
+        ? desc.primaryOutputResource
+        : desc.resourceOutputs;
+    return PathTraceMaterialFeaturePassIsReady(desc, desc.resourceInputs, requiredOutputs);
+}
+
 inline uint32_t PathTraceMaterialFeatureOutputUavSlot(uint32_t resource)
 {
     switch (resource)

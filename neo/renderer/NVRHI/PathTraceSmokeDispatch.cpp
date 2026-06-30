@@ -1268,10 +1268,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const RtPathTraceMaterialFeatureShaderState& cleanRtxdiDiTransmissionShader =
         m_smokeMaterialFeatureShaders[static_cast<size_t>(cleanRtxdiDiTransmissionPassDesc.shaderTable)];
     const bool cleanRtxdiDiTransmissionPassRequested =
-        PathTraceMaterialFeaturePassIsReady(
-            cleanRtxdiDiTransmissionPassDesc,
-            RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE | RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE,
-            cleanRtxdiDiTransmissionPassDesc.primaryOutputResource);
+        PathTraceMaterialFeaturePassIsReady(cleanRtxdiDiTransmissionPassDesc);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
