@@ -26,3 +26,8 @@ void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTr
     runtimeInfo[0] = PathTraceMaterialFeaturePassWritesAnyOutput(desc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR) ? 1.0f : 0.0f;
     runtimeInfo[1] = passReady ? 1.0f : 0.0f;
 }
+
+void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimePass& pass)
+{
+    SetPathTraceMaterialFeatureRuntimeInfo(runtimeInfo, pass.desc, pass.ready);
+}

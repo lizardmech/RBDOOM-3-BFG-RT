@@ -608,14 +608,14 @@ void DispatchPathTraceCleanMaterialFeaturePass(
     commandList->setRayTracingState(featureState);
 
     PathTraceCleanRtxdiDiSentinelConstants featureConstants = baseConstants;
-    SetPathTraceMaterialFeatureRuntimeInfo(featureConstants.toyPathInfo, pass.desc, pass.ready);
+    SetPathTraceMaterialFeatureRuntimeInfo(featureConstants.toyPathInfo, pass);
     commandList->writeBuffer(constantsBuffer, &featureConstants, sizeof(featureConstants));
 
     {
         PathTraceGpuMarkerScope nsightMarker(commandList, pass.desc.debugLabel, nsightGpuMarkers);
         commandList->dispatchRays(args);
     }
-    BarrierPathTraceMaterialFeatureOutputs(commandList, pass.desc, frameResources);
+    BarrierPathTraceMaterialFeatureOutputs(commandList, pass, frameResources);
 }
 
 class PathTraceGpuTimingStageScope
@@ -3951,8 +3951,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.neeCacheInfo1[3] = static_cast<float>(neeCacheDesc.providerResultCount);
         SetPathTraceMaterialFeatureRuntimeInfo(
             cleanConstants.toyPathInfo,
-            cleanRtxdiDiTransmissionPass.desc,
-            cleanRtxdiDiTransmissionPass.ready);
+            cleanRtxdiDiTransmissionPass);
         cleanConstants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
         cleanConstants.toyPathInfo[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
         cleanConstants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
@@ -4072,18 +4071,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
         }
-        if (cleanRtxdiDiTransmissionPass.ready)
-        {
-            DispatchPathTraceCleanMaterialFeaturePass(
-                commandList,
-                cleanState,
-                cleanArgs,
-                m_smokeCleanRtxdiDiSentinelConstantsBuffer,
-                cleanConstants,
-                cleanRtxdiDiTransmissionPass,
-                m_frameResources,
-                nsightGpuMarkers);
-        }
+        DispatchPathTraceCleanMaterialFeaturePass(
+            commandList,
+            cleanState,
+            cleanArgs,
+            m_smokeCleanRtxdiDiSentinelConstantsBuffer,
+            cleanConstants,
+            cleanRtxdiDiTransmissionPass,
+            m_frameResources,
+            nsightGpuMarkers);
         if (cleanRtxdiDiRrGuideDebugView)
         {
             commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));

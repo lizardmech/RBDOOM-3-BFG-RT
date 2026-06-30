@@ -288,6 +288,17 @@ void BarrierPathTraceMaterialFeatureOutputs(
     }
 }
 
+void BarrierPathTraceMaterialFeatureOutputs(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceFrameResources& frameResources)
+{
+    if (pass.ready)
+    {
+        BarrierPathTraceMaterialFeatureOutputs(commandList, pass.desc, frameResources);
+    }
+}
+
 bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
 {
     return

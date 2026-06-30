@@ -220,3 +220,7 @@ void BarrierPathTraceMaterialFeatureOutputs(
     nvrhi::ICommandList* commandList,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
     const RtPathTraceFrameResources& frameResources);
+void BarrierPathTraceMaterialFeatureOutputs(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceFrameResources& frameResources);
