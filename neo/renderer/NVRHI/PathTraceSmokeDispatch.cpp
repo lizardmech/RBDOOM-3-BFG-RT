@@ -2431,7 +2431,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (cleanRtxdiDiTransmissionPassRequested && !cleanRtxdiDiTransmissionShader.shaderTable)
         {
-            InitRayTracingSmokeRestirPipeline(21);
+            InitPathTraceMaterialFeaturePipeline(cleanRtxdiDiTransmissionPassDesc);
         }
         if (cleanRtxdiDiTransmissionPassRequested && !cleanRtxdiDiTransmissionShader.shaderTable)
         {

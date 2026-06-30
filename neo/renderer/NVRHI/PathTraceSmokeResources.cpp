@@ -1628,6 +1628,94 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     common->Printf("PathTracePrimaryPass: RT smoke pipeline initialized\n");
 }
 
+bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTraceMaterialFeaturePassDesc& passDesc)
+{
+    const size_t shaderTableIndex = static_cast<size_t>(passDesc.shaderTable);
+    if (shaderTableIndex >= m_smokeMaterialFeatureShaders.size())
+    {
+        return false;
+    }
+
+    RtPathTraceMaterialFeatureShaderState& shaderState = m_smokeMaterialFeatureShaders[shaderTableIndex];
+    if (shaderState.shaderTable)
+    {
+        return true;
+    }
+
+    if (!m_smokeTestInitialized || !m_smokeTextureBindlessLayout)
+    {
+        return false;
+    }
+
+    const RtPathTraceMaterialFeatureShaderDesc shaderDesc = PathTraceMaterialFeatureShaderDescForTable(passDesc.shaderTable);
+    if (!shaderDesc.dxilShaderPath || !shaderDesc.spirvShaderPath)
+    {
+        return false;
+    }
+
+    nvrhi::BindingLayoutHandle bindingLayout = nullptr;
+    switch (shaderDesc.bindingLayout)
+    {
+    case RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi:
+        bindingLayout = m_smokeCleanRtxdiDiSentinelBindingLayout;
+        break;
+    case RtPathTraceMaterialFeatureBindingLayout::CoreSmoke:
+        bindingLayout = m_smokeBindingLayout;
+        break;
+    default:
+        return false;
+    }
+    if (!bindingLayout)
+    {
+        return false;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return false;
+    }
+
+    const char* shaderPath = nullptr;
+    if (deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+    {
+        shaderPath = shaderDesc.dxilShaderPath;
+    }
+    else if (deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+    {
+        shaderPath = shaderDesc.spirvShaderPath;
+    }
+    else
+    {
+        return false;
+    }
+
+    if (!shaderState.shaderLibrary &&
+        !LoadPathTraceSmokeShaderLibrary(device, shaderPath, shaderDesc.label, shaderState.shaderLibrary))
+    {
+        common->Printf("PathTracePrimaryPass: %s RT smoke shader unavailable; matching material-feature passes will be disabled\n", shaderDesc.label);
+        return false;
+    }
+
+    if (!CreatePathTraceSmokeRayTracingPipeline(
+        device,
+        shaderState.shaderLibrary,
+        bindingLayout,
+        m_smokeTextureBindlessLayout,
+        shaderDesc.label,
+        shaderState.pipeline,
+        shaderState.shaderTable))
+    {
+        common->Printf("PathTracePrimaryPass: %s RT smoke pipeline unavailable; matching material-feature passes will be disabled\n", shaderDesc.label);
+        shaderState.pipeline = nullptr;
+        shaderState.shaderTable = nullptr;
+        return false;
+    }
+
+    common->Printf("PathTracePrimaryPass: %s RT smoke pipeline initialized\n", shaderDesc.label);
+    return true;
+}
+
 bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKind)
 {
     auto initLibrary = [&](nvrhi::ShaderLibraryHandle& shaderLibrary,
@@ -1854,21 +1942,6 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout);
-    case 21:
-    {
-        const RtPathTraceMaterialFeatureShaderDesc shaderDesc =
-            PathTraceMaterialFeatureShaderDescForTable(RtPathTraceMaterialFeatureShaderTable::CleanRtxdiDiTransmissionProducer);
-        RtPathTraceMaterialFeatureShaderState& shaderState =
-            m_smokeMaterialFeatureShaders[static_cast<size_t>(RtPathTraceMaterialFeatureShaderTable::CleanRtxdiDiTransmissionProducer)];
-        return initLibrary(
-            shaderState.shaderLibrary,
-            shaderState.pipeline,
-            shaderState.shaderTable,
-            shaderDesc.label,
-            shaderDesc.dxilShaderPath,
-            shaderDesc.spirvShaderPath,
-            m_smokeCleanRtxdiDiSentinelBindingLayout);
-    }
     case 16:
         return initLibrary(
             m_smokePdfNeeVerifierShaderLibrary,
