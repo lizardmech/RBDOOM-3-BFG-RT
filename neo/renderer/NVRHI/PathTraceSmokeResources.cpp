@@ -239,6 +239,15 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         diagnostics.accelSubmitMs);
 }
 
+static void AddPathTraceMaterialFeatureOutputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource)
+{
+    const uint32_t slot = PathTraceMaterialFeatureOutputUavSlot(resource);
+    if (slot != UINT32_MAX)
+    {
+        desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(slot));
+    }
+}
+
 static uint64_t HashPathTraceTransitionValue(uint64_t hash, uint64_t value)
 {
     hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
@@ -1354,8 +1363,9 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(52));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(53));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
-    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(
-        PathTraceMaterialFeatureOutputUavSlot(RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT)));
+    AddPathTraceMaterialFeatureOutputLayoutBinding(
+        cleanRtxdiDiSentinelBindingLayoutDesc,
+        RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT);
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(79));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(57));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(64));
