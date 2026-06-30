@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 
 #include <nvrhi/utils.h>
 
@@ -4043,7 +4044,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanState,
             cleanArgs,
             m_smokeCleanRtxdiDiSentinelConstantsBuffer,
-            cleanConstants,
+            &cleanConstants,
+            sizeof(cleanConstants),
+            offsetof(PathTraceCleanRtxdiDiSentinelConstants, toyPathInfo),
             cleanRtxdiDiTransmissionPass,
             m_frameResources,
             nsightGpuMarkers);

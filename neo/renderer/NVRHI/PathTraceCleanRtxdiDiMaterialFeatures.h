@@ -5,9 +5,9 @@
 // The clean render path asks for feature-specific operations here; this facade
 // keeps generic material-feature mechanics out of the core dispatch body.
 
-#include "PathTraceMaterialFeatureDispatch.h"
-#include "PathTraceMaterialFeatureOutputs.h"
 #include "PathTraceMaterialFeatureRuntime.h"
+
+struct RtPathTraceFrameResources;
 
 struct RtPathTraceCleanRtxdiDiTransmissionPass
 {
@@ -44,28 +44,17 @@ void ClearPathTraceCleanRtxdiDiTransmissionOutput(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceFrameResources& frameResources,
     const nvrhi::Color& color);
-void SetPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
-    float runtimeInfo[4],
-    const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
-
-template< typename Constants >
 void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
     nvrhi::ICommandList* commandList,
     const nvrhi::rt::State& baseState,
     const nvrhi::rt::DispatchRaysArguments& args,
     nvrhi::BufferHandle constantsBuffer,
-    const Constants& baseConstants,
+    const void* baseConstants,
+    size_t baseConstantsSize,
+    size_t runtimeInfoOffset,
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceFrameResources& frameResources,
-    bool nsightGpuMarkers)
-{
-    DispatchPathTraceMaterialFeaturePass(
-        commandList,
-        baseState,
-        args,
-        constantsBuffer,
-        baseConstants,
-        pass.featurePass,
-        frameResources,
-        nsightGpuMarkers);
-}
+    bool nsightGpuMarkers);
+void SetPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
+    float runtimeInfo[4],
+    const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
