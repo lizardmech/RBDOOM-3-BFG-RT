@@ -746,7 +746,7 @@ PathTraceIntegratorSettings BuildPathTraceIntegratorSettings()
     settings.maxPathDepth = idMath::ClampInt(1, 4, r_pathTracingMaxPathDepth.GetInteger());
     settings.diffuseBounceLimit = idMath::ClampInt(0, 3, r_pathTracingDiffuseBounceLimit.GetInteger());
     settings.specularBounceLimit = idMath::ClampInt(0, 2, r_pathTracingSpecularBounceLimit.GetInteger());
-    settings.transmissionBounceLimit = idMath::ClampInt(0, 0, r_pathTracingTransmissionBounceLimit.GetInteger());
+    settings.transmissionBounceLimit = idMath::ClampInt(0, 1, r_pathTracingTransmissionBounceLimit.GetInteger());
     settings.reflectionMode = idMath::ClampInt(0, 2, r_pathTracingReflectionMode.GetInteger());
     settings.russianRouletteDepth = idMath::ClampInt(0, 8, r_pathTracingRussianRouletteDepth.GetInteger());
     settings.nextEventEstimation = r_pathTracingNextEventEstimation.GetInteger() != 0 ? 1 : 0;
@@ -812,7 +812,8 @@ int EstimatePathTraceRaysPerPixel(const PathTraceIntegratorSettings& settings, i
 {
     const int diffuseRayCount = (settings.maxPathDepth > 1 && settings.diffuseBounceLimit > 0) ? 1 : 0;
     const int reflectionRayCount = (settings.maxPathDepth > 1 && settings.specularBounceLimit > 0 && settings.reflectionMode > 0) ? 1 : 0;
-    const int secondarySurfaceCount = diffuseRayCount + reflectionRayCount;
+    const int transmissionRayCount = (settings.maxPathDepth > 1 && settings.transmissionBounceLimit > 0) ? 1 : 0;
+    const int secondarySurfaceCount = diffuseRayCount + reflectionRayCount + transmissionRayCount;
     int neeTrials = 0;
     if (settings.nextEventEstimation != 0)
     {
@@ -823,7 +824,7 @@ int EstimatePathTraceRaysPerPixel(const PathTraceIntegratorSettings& settings, i
             : (settings.secondaryAnalyticNeeMode == 1 && analyticLightCount > 0 ? Min(settings.secondaryAnalyticNeeSamples, analyticLightCount) : 0);
         neeTrials += secondarySurfaceCount * (secondarySelectedTrials + secondaryAnalyticTrials);
     }
-    return settings.samplesPerPixel * (1 + diffuseRayCount + reflectionRayCount + neeTrials);
+    return settings.samplesPerPixel * (1 + diffuseRayCount + reflectionRayCount + transmissionRayCount + neeTrials);
 }
 
 PathTraceDispatchTileSettings BuildPathTraceDispatchTileSettings(int outputWidth, int outputHeight, int estimatedRaysPerPixel)

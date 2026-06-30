@@ -60,6 +60,11 @@ uint PathTraceIntegratorSpecularBounceLimit()
     return clamp((uint)max(IntegratorInfo.w, 0.0), 0u, 2u);
 }
 
+uint PathTraceIntegratorTransmissionBounceLimit()
+{
+    return clamp((uint)max(IntegratorInfo2.x, 0.0), 0u, 1u);
+}
+
 uint PathTraceIntegratorReflectionMode()
 {
     if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_REFLECTION_RAY))

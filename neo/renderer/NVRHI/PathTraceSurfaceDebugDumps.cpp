@@ -58,13 +58,13 @@ const char* RtPathTraceMaterialModifierName(const RtPathTraceMaterialModifierKin
 
 const char* RtPathTraceMaterialUnsupportedDebugName(const RtCrosshairMaterialFeatureDebug& feature)
 {
+    if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS)
+    {
+        return feature.transmissionActive ? "glass-transmission-path-only" : "glass-transmission-disabled-cyan";
+    }
     if ((feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u)
     {
         return "supported-green";
-    }
-    if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS)
-    {
-        return "glass-unsupported-cyan";
     }
     if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_PARTICLE)
     {
@@ -153,12 +153,13 @@ RtCrosshairMaterialFeatureDebug BuildCrosshairMaterialFeatureDebug(
 
     if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS)
     {
-        feature.materialCaps =
-            RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION |
-            RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED;
+        feature.materialCaps = RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION;
         feature.lobeCaps = RT_PATH_TRACE_MATERIAL_LOBE_SPECULAR_TRANSMISSION;
+        feature.passSupport |=
+            RT_PATH_TRACE_MATERIAL_PASS_PATH_INTEGRATOR |
+            RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
         feature.transmissionCandidate = true;
-        feature.transmissionActive = false;
+        feature.transmissionActive = r_pathTracingTransmissionBounceLimit.GetInteger() > 0;
         return feature;
     }
 
@@ -379,7 +380,9 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_GI) != 0u &&
         (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_GI_RESERVOIR) != 0u &&
         (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u;
-    common->Printf("PathTracePrimaryPass: RT smoke crosshair modular material kind=%s(%u) caps=0x%08x lobes=0x%08x passSupport=0x%08x modifier=%s(%u) transmissionCandidate=%d transmissionActive=%d transmissionBounceRequest=%d transmissionBounceEffective=0 directReservoir=%s giReservoir=%s unsupportedDebug=%s\n",
+    const int transmissionBounceRequest = r_pathTracingTransmissionBounceLimit.GetInteger();
+    const int transmissionBounceEffective = idMath::ClampInt(0, 1, transmissionBounceRequest);
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair modular material kind=%s(%u) caps=0x%08x lobes=0x%08x passSupport=0x%08x modifier=%s(%u) transmissionCandidate=%d transmissionActive=%d transmissionBounceRequest=%d transmissionBounceEffective=%d directReservoir=%s giReservoir=%s unsupportedDebug=%s\n",
         RtPathTraceMaterialKindName(feature.materialKind),
         static_cast<uint32_t>(feature.materialKind),
         feature.materialCaps,
@@ -389,7 +392,8 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         static_cast<uint32_t>(feature.modifierKind),
         feature.transmissionCandidate ? 1 : 0,
         feature.transmissionActive ? 1 : 0,
-        r_pathTracingTransmissionBounceLimit.GetInteger(),
+        transmissionBounceRequest,
+        transmissionBounceEffective,
         directReservoirSupported ? "supported" : "unsupported",
         giReservoirSupported ? "supported" : "unsupported",
         RtPathTraceMaterialUnsupportedDebugName(feature));

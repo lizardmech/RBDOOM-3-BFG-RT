@@ -1237,7 +1237,7 @@ idCVar r_pathTracingTransmissionBounceLimit(
     "r_pathTracingTransmissionBounceLimit",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Reserved transmission/glass bounce limit for the path tracer core; current shader path fails closed" );
+    "Mode 18 glass/transmission secondary-bounce limit; default 0 keeps glass transmission fail-closed, clamp 0..1" );
 
 idCVar r_pathTracingReflectionMode(
     "r_pathTracingReflectionMode",

@@ -3533,6 +3533,93 @@ static const uint RT_PT_TOY_FLAG_REFLECTION_MISS = 0x00000004u;
 static const uint RT_PT_TOY_FLAG_REFLECTION_GATED = 0x00000008u;
 static const uint RT_PT_TOY_FLAG_MAX_DEPTH_TERMINATED = 0x00000010u;
 static const uint RT_PT_TOY_FLAG_RR_CONFIGURED = 0x00000020u;
+static const uint RT_PT_TOY_FLAG_TRANSMISSION_HIT = 0x00000040u;
+static const uint RT_PT_TOY_FLAG_TRANSMISSION_MISS = 0x00000080u;
+static const uint RT_PT_TOY_FLAG_TRANSMISSION_GATED = 0x00000100u;
+
+static const uint RT_PT_GLASS_EVENT_NONE = 0u;
+static const uint RT_PT_GLASS_EVENT_REFLECTION = 1u;
+static const uint RT_PT_GLASS_EVENT_TRANSMISSION = 2u;
+
+float3 SmokeGlassFailClosedColor()
+{
+    return float3(0.05, 0.75, 1.0);
+}
+
+bool BuildSmokeGlassPathEvent(
+    RAB_Surface surface,
+    PathTraceSmokeMaterial material,
+    uint bounceSeed,
+    out float3 eventDir,
+    out float3 eventWeight,
+    out uint eventKind)
+{
+    eventDir = float3(0.0, 0.0, 0.0);
+    eventWeight = float3(0.0, 0.0, 0.0);
+    eventKind = RT_PT_GLASS_EVENT_NONE;
+
+    if (!MaterialSupportsTransmission(surface) || PathTraceIntegratorMaxPathDepth() <= 1u)
+    {
+        return false;
+    }
+
+    const bool canTransmit = PathTraceIntegratorTransmissionBounceLimit() > 0u;
+    const bool canReflect =
+        PathTraceIntegratorReflectionMode() > 0u &&
+        PathTraceIntegratorSpecularBounceLimit() > 0u;
+    if (!canTransmit && !canReflect)
+    {
+        return false;
+    }
+
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 viewDir = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
+    const float3 incomingDir = -viewDir;
+    const float cosTheta = saturate(dot(viewDir, normal));
+    const float f0 = 0.04;
+    const float fresnel = saturate(f0 + (1.0 - f0) * pow(1.0 - cosTheta, 5.0));
+    const float eventSelect = SmokeHashToUnitFloat(bounceSeed ^ 0x6c8e9cf5u);
+
+    if (canReflect && (!canTransmit || eventSelect < fresnel))
+    {
+        eventDir = RAB_SafeNormalize(reflect(incomingDir, normal), normal);
+        if (dot(eventDir, normal) <= 0.0 || dot(eventDir, RAB_GetSurfaceGeoNormal(surface)) <= -0.05)
+        {
+            return false;
+        }
+
+        eventWeight = float3(fresnel, fresnel, fresnel);
+        eventKind = RT_PT_GLASS_EVENT_REFLECTION;
+        return true;
+    }
+
+    if (!canTransmit)
+    {
+        return false;
+    }
+
+    const float eta = 1.0 / 1.45;
+    eventDir = refract(incomingDir, normal, eta);
+    if (dot(eventDir, eventDir) <= 1.0e-8)
+    {
+        if (!canReflect)
+        {
+            return false;
+        }
+
+        eventDir = RAB_SafeNormalize(reflect(incomingDir, normal), normal);
+        eventWeight = float3(1.0, 1.0, 1.0);
+        eventKind = RT_PT_GLASS_EVENT_REFLECTION;
+        return true;
+    }
+
+    eventDir = RAB_SafeNormalize(eventDir, incomingDir);
+    const float transmission = max(SmokeMatClassTransmission(material), 0.65);
+    eventWeight = saturate(surface.material.diffuseAlbedo * transmission) * (1.0 - fresnel);
+    eventWeight = max(eventWeight, float3(0.12, 0.12, 0.14));
+    eventKind = RT_PT_GLASS_EVENT_TRANSMISSION;
+    return true;
+}
 
 float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload primaryPayload, uint2 pixel, uint sampleIndex, out uint pathDepth, out uint pathFlags)
 {
@@ -3557,6 +3644,49 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
         sampleIndex * 374761393u ^
         ((uint)max(ToyPathInfo.w, 0.0)) * 104729u;
     const bool useFakePBRSpecular = SmokeToyFakePBRSpecularEnabled();
+    const bool allowSecondary = PathTraceIntegratorMaxPathDepth() > 1u;
+    const RAB_Surface primarySurface = RAB_BuildSurfaceFromSmokePayload(primaryPayload, rayOrigin, rayDirection, true);
+    if (MaterialSupportsTransmission(primarySurface))
+    {
+        float3 glassEventDir;
+        float3 glassEventWeight;
+        uint glassEventKind;
+        if (allowSecondary && BuildSmokeGlassPathEvent(primarySurface, primaryMaterial, bounceSeed, glassEventDir, glassEventWeight, glassEventKind))
+        {
+            PathTraceSmokePayload glassPayload = InitSmokePayload();
+            RayDesc glassRay;
+            glassRay.Origin = primaryHit + glassEventDir * 0.75;
+            glassRay.Direction = glassEventDir;
+            glassRay.TMin = 0.01;
+            glassRay.TMax = min(CameraOriginAndTMax.w, max(ToyPathInfo.x, 64.0));
+            TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, glassRay, glassPayload);
+
+            if (glassPayload.value != 0u && !SmokePayloadIsGuiScreen(glassPayload))
+            {
+                pathDepth = max(pathDepth, 2u);
+                pathFlags |= glassEventKind == RT_PT_GLASS_EVENT_REFLECTION ? RT_PT_TOY_FLAG_REFLECTION_HIT : RT_PT_TOY_FLAG_TRANSMISSION_HIT;
+                const float3 glassDirect = EvaluateSmokeMode18NeeDirectLighting(
+                    glassPayload,
+                    glassRay.Origin,
+                    glassRay.Direction,
+                    true,
+                    useFakePBRSpecular,
+                    true,
+                    bounceSeed ^ 0x85ebca6bu,
+                    PathTraceIntegratorSecondaryNeeMode(),
+                    PathTraceIntegratorSecondaryAnalyticNeeMode());
+                const float3 glassSprites = EvaluateSmokeLightSpriteProxies(glassRay.Origin, glassRay.Direction, glassPayload.hitT) * 0.25;
+                return float4(saturate((glassDirect + glassSprites) * glassEventWeight), 1.0);
+            }
+
+            pathFlags |= glassEventKind == RT_PT_GLASS_EVENT_REFLECTION ? RT_PT_TOY_FLAG_REFLECTION_MISS : RT_PT_TOY_FLAG_TRANSMISSION_MISS;
+            return float4(SmokeGlassFailClosedColor() * 0.18, 1.0);
+        }
+
+        pathFlags |= allowSecondary ? RT_PT_TOY_FLAG_TRANSMISSION_GATED : RT_PT_TOY_FLAG_MAX_DEPTH_TERMINATED;
+        return float4(SmokeGlassFailClosedColor(), 1.0);
+    }
+
     const float3 nativePrimaryDirect = EvaluateSmokeMode18NeeDirectLighting(primaryPayload, rayOrigin, rayDirection, true, useFakePBRSpecular, true, bounceSeed, SMOKE_NEE_SELECTED_LIGHT_MODE_LEGACY_FULL, SMOKE_NEE_ANALYTIC_LIGHT_MODE_LEGACY_FULL);
     float3 radiance = nativePrimaryDirect;
 #ifdef RB_PT_ENABLE_RESTIR_MODE18_DIRECT
@@ -3608,7 +3738,6 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
     }
 #endif
 
-    const bool allowSecondary = PathTraceIntegratorMaxPathDepth() > 1u;
     if (allowSecondary && PathTraceIntegratorDiffuseBounceLimit() > 0u)
     {
         const float3 bounceDir = SmokeCosineHemisphereDirection(primaryNormal, bounceSeed);
@@ -5296,7 +5425,19 @@ void RayGen()
         }
         else if (debugMode == 35)
         {
-            if ((pathFlags & RT_PT_TOY_FLAG_REFLECTION_HIT) != 0u)
+            if ((pathFlags & RT_PT_TOY_FLAG_TRANSMISSION_HIT) != 0u)
+            {
+                SmokeOutput[pixel] = float4(0.05, 0.75, 1.0, 1.0);
+            }
+            else if ((pathFlags & RT_PT_TOY_FLAG_TRANSMISSION_MISS) != 0u)
+            {
+                SmokeOutput[pixel] = float4(0.10, 0.20, 0.45, 1.0);
+            }
+            else if ((pathFlags & RT_PT_TOY_FLAG_TRANSMISSION_GATED) != 0u)
+            {
+                SmokeOutput[pixel] = float4(0.95, 0.05, 0.85, 1.0);
+            }
+            else if ((pathFlags & RT_PT_TOY_FLAG_REFLECTION_HIT) != 0u)
             {
                 SmokeOutput[pixel] = float4(0.0, 0.85, 1.0, 1.0);
             }
@@ -5315,9 +5456,12 @@ void RayGen()
         }
         else if (debugMode == 36)
         {
-            SmokeOutput[pixel] = (pathFlags & RT_PT_TOY_FLAG_REFLECTION_GATED) != 0u
+            SmokeOutput[pixel] = (pathFlags & RT_PT_TOY_FLAG_TRANSMISSION_GATED) != 0u
+                ? float4(0.95, 0.05, 0.85, 1.0)
+                : ((pathFlags & RT_PT_TOY_FLAG_TRANSMISSION_HIT) != 0u ? float4(0.05, 0.75, 1.0, 1.0) :
+                ((pathFlags & RT_PT_TOY_FLAG_REFLECTION_GATED) != 0u
                 ? float4(0.95, 0.05, 0.05, 1.0)
-                : ((pathFlags & RT_PT_TOY_FLAG_REFLECTION_HIT) != 0u ? float4(0.05, 0.95, 0.20, 1.0) : float4(0.08, 0.08, 0.08, 1.0));
+                : ((pathFlags & RT_PT_TOY_FLAG_REFLECTION_HIT) != 0u ? float4(0.05, 0.95, 0.20, 1.0) : float4(0.08, 0.08, 0.08, 1.0))));
         }
         else
         {

@@ -4,8 +4,8 @@
 // Shared material feature contract for PT shader consumers.
 //
 // This layer deliberately derives features from the current rbdoom surface and
-// material fields. It does not implement glass or liquid behavior; unsupported
-// kinds fail closed until a later task opens their pass contract.
+// material fields. Liquid behavior is still resolved outside this layer; glass
+// transmission is exposed only to path-integrator pass consumers.
 
 static const uint RT_PATH_TRACE_MATERIAL_KIND_UNKNOWN = 0u;
 static const uint RT_PATH_TRACE_MATERIAL_KIND_OPAQUE = 1u;
@@ -226,10 +226,11 @@ PathTraceMaterialFeature BuildMaterialFeatureFromPrimarySurface(RAB_Surface surf
     }
     else if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS)
     {
-        feature.materialCaps =
-            RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION |
-            RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED;
+        feature.materialCaps = RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION;
         feature.lobeCaps = RT_PATH_TRACE_MATERIAL_LOBE_SPECULAR_TRANSMISSION;
+        feature.passSupport |=
+            RT_PATH_TRACE_MATERIAL_PASS_PATH_INTEGRATOR |
+            RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
     }
     else
     {
