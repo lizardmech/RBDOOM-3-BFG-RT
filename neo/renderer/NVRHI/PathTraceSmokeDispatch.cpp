@@ -2613,11 +2613,22 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             return;
         }
-        if (cleanRtxdiDiTransmissionPass.ready && !cleanRtxdiDiTransmissionPass.shader->shaderTable)
-        {
-            InitPathTraceMaterialFeaturePipeline(cleanRtxdiDiTransmissionPass.desc);
-        }
-        if (cleanRtxdiDiTransmissionPass.ready && !cleanRtxdiDiTransmissionPass.shader->shaderTable)
+        const auto ensureMaterialFeatureRuntimePassPipeline = [this](const RtPathTraceMaterialFeatureRuntimePass& pass) {
+            if (!pass.ready)
+            {
+                return true;
+            }
+            if (!pass.shader)
+            {
+                return false;
+            }
+            if (!pass.shader->shaderTable)
+            {
+                InitPathTraceMaterialFeaturePipeline(pass.desc);
+            }
+            return static_cast<bool>(pass.shader->shaderTable);
+        };
+        if (!ensureMaterialFeatureRuntimePassPipeline(cleanRtxdiDiTransmissionPass))
         {
             if (cleanRtxdiDiDumpRequested)
             {
