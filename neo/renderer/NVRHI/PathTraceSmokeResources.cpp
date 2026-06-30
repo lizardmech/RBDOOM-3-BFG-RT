@@ -12,6 +12,7 @@
 #include "PathTraceCVars.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceReservoirs.h"
@@ -237,26 +238,6 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         diagnostics.bufferCreateMs,
         diagnostics.bufferUploadMs,
         diagnostics.accelSubmitMs);
-}
-
-static void AddPathTraceMaterialFeatureOutputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource)
-{
-    const uint32_t slot = PathTraceMaterialFeatureOutputUavSlot(resource);
-    if (slot != UINT32_MAX)
-    {
-        desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(slot));
-    }
-}
-
-static void AddPathTraceMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc, uint32_t resources)
-{
-    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
-    {
-        if ((resources & resource) != 0u)
-        {
-            AddPathTraceMaterialFeatureOutputLayoutBinding(desc, resource);
-        }
-    }
 }
 
 static uint64_t HashPathTraceTransitionValue(uint64_t hash, uint64_t value)
