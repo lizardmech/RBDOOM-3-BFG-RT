@@ -10,9 +10,9 @@
 
 #include "PathTracePrimaryPass.h"
 #include "PathTraceCVars.h"
+#include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceDynamicMaterialState.h"
-#include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceReservoirs.h"
@@ -1355,7 +1355,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(52));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(53));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
-    AddPathTraceCleanRtxdiDiMaterialFeatureOutputLayoutBindings(cleanRtxdiDiSentinelBindingLayoutDesc);
+    AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(cleanRtxdiDiSentinelBindingLayoutDesc);
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(79));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(57));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(64));

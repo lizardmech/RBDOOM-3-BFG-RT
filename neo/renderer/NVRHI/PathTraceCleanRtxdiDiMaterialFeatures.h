@@ -23,6 +23,10 @@ RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPa
     size_t shaderStateCount);
 const RtPathTraceMaterialFeatureRuntimePass& PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
+void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc);
+void AddPathTraceCleanRtxdiDiTransmissionOutputBindings(
+    nvrhi::BindingSetDesc& desc,
+    const RtPathTraceFrameResources& frameResources);
 bool PathTraceCleanRtxdiDiTransmissionOutputAvailable(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceFrameResources& frameResources);

@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceCleanRtxdiDiMaterialFeatures.h"
+#include "PathTraceMaterialFeatureBindings.h"
 
 RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPass(
     bool cleanRouteRequested,
@@ -26,6 +27,18 @@ const RtPathTraceMaterialFeatureRuntimePass& PathTraceCleanRtxdiDiTransmissionMa
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
 {
     return pass.featurePass;
+}
+
+void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc)
+{
+    AddPathTraceCleanRtxdiDiMaterialFeatureOutputLayoutBindings(desc);
+}
+
+void AddPathTraceCleanRtxdiDiTransmissionOutputBindings(
+    nvrhi::BindingSetDesc& desc,
+    const RtPathTraceFrameResources& frameResources)
+{
+    AddPathTraceCleanRtxdiDiMaterialFeatureOutputBindings(desc, frameResources);
 }
 
 bool PathTraceCleanRtxdiDiTransmissionOutputAvailable(
