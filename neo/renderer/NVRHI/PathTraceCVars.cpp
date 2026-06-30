@@ -1425,18 +1425,6 @@ idCVar r_pathTracingRestirPTReflectionMode(
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 56 ReSTIR PT reflection preview: 0 off, 1 sharp screen-space primary-surface lookup, 2 rough diagnostic screen-space lookup" );
 
-idCVar r_pathTracingTransmissionProducer(
-    "r_pathTracingTransmissionProducer",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 standalone transmission producer scaffold: 0 off, 1 write sentinel transmission UAV from primary-surface history" );
-
-idCVar r_pathTracingTransmissionDebugView(
-    "r_pathTracingTransmissionDebugView",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 standalone transmission producer debug output: 0 off, 1 route producer sentinel to SmokeOutput without final beauty integration" );
-
 idCVar r_pathTracingRestirPTSpatialSamples(
     "r_pathTracingRestirPTSpatialSamples",
     "1",
@@ -1628,6 +1616,18 @@ idCVar r_pathTracingCleanRtxdiDiSpatialRadius(
     "30",
     CVAR_RENDERER | CVAR_FLOAT,
     "Clean-room Remix DI spatial reuse: screen-space neighbor sampling radius in pixels" );
+
+idCVar r_pathTracingCleanRtxdiDiTransmissionProducer(
+    "r_pathTracingCleanRtxdiDiTransmissionProducer",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI view 16 standalone transmission producer scaffold: 0 off, 1 write sentinel transmission UAV from the clean primary surface" );
+
+idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
+    "r_pathTracingCleanRtxdiDiTransmissionDebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 route producer sentinel to SmokeOutput after clean DI spatial" );
 
 idCVar r_cleanDiSpatial(
     "r_cleanDiSpatial",

@@ -9,7 +9,6 @@
     defined(RB_PT_RESTIR_DIRECT_SPATIAL_RESERVOIR_PRODUCER_ONLY) || \
     defined(RB_PT_RESTIR_INDIRECT_INITIAL_PRODUCER_ONLY) || \
     defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY) || \
-    defined(RB_PT_TRANSMISSION_PRODUCER_ONLY) || \
     defined(RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY)
 #define RB_PT_RESTIR_PRODUCER_ONLY 1
 #endif
@@ -275,7 +274,6 @@ VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15)
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceMotionVectors : register(u39);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceMotionVectorMask : register(u40);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> RestirPTReflectionOutput : register(u47);
-VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceTransmissionOutput : register(u87);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
@@ -449,7 +447,6 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 NeeCacheInfo2;
     float4 NeeCacheInfo3;
     float4 NeeCacheConsumerInfo;
-    float4 TransmissionInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -536,7 +533,6 @@ uint PathTracePreviousStaticVertexCount() { return (uint)max(GeometryInfo4.x, 0.
 uint PathTracePreviousStaticIndexCount() { return (uint)max(GeometryInfo4.y, 0.0); }
 uint PathTracePreviousStaticTriangleCount() { return (uint)max(GeometryInfo4.z, 0.0); }
 uint PathTracePreviousStaticMaterialIndexCount() { return (uint)max(GeometryInfo4.w, 0.0); }
-bool PathTraceTransmissionDebugOutputEnabled() { return TransmissionInfo.x >= 0.5; }
 
 uint2 PathTraceDispatchTileOffset()
 {
@@ -3406,7 +3402,7 @@ float3 SmokeSampleSphereSolidAngle(float3 axis, float cosThetaMax, uint seed)
     return SafeNormalize(axis * cosTheta + tangent * (cos(phi) * sinTheta) + bitangent * (sin(phi) * sinTheta), axis);
 }
 
-#if defined(RB_PT_RESTIR_PRODUCER_ONLY) && !defined(RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE) && !defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY) && !defined(RB_PT_TRANSMISSION_PRODUCER_ONLY)
+#if defined(RB_PT_RESTIR_PRODUCER_ONLY) && !defined(RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE) && !defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY)
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload)
 {
     return payload.value != 0u &&
@@ -3415,7 +3411,7 @@ bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload)
 }
 #endif
 
-#if (defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY) || defined(RB_PT_TRANSMISSION_PRODUCER_ONLY)) && !defined(RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE)
+#if defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY) && !defined(RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE)
 float3 RestirPTGiSanitizeContribution(float3 contribution)
 {
     if (!all(contribution == contribution) || any(abs(contribution) > 65504.0))
@@ -3441,7 +3437,7 @@ float3 RestirPTGiFallback(RAB_Surface surface)
 }
 #endif
 
-#if defined(RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE) || defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY) || defined(RB_PT_TRANSMISSION_PRODUCER_ONLY)
+#if defined(RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE) || defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY)
 #include "pathtrace_nee.hlsli"
 
 #ifdef RB_PT_ENABLE_RESTIR
@@ -3528,20 +3524,6 @@ float4 EvaluateRestirPTTracedReflectionFromSurface(RAB_Surface surface, uint2 pi
     return float4(saturate(hitPreview * reflectionWeight), 1.0);
 }
 
-float4 EvaluatePathTraceTransmissionProducerSentinel(RAB_Surface surface)
-{
-    if (!RAB_IsSurfaceValid(surface))
-    {
-        return float4(0.0, 0.0, 0.0, 1.0);
-    }
-
-    if (!MaterialSupportsTransmission(surface))
-    {
-        return float4(0.02, 0.02, 0.02, 1.0);
-    }
-
-    return float4(0.0, 0.85, 1.0, 1.0);
-}
 #endif
 
 #include "pathtrace_smoke_native_nee_reservoir_preview.hlsli"
@@ -4904,16 +4886,6 @@ void RayGen()
 
 #ifdef RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY
     RestirPTReflectionOutput[pixel] = EvaluateRestirPTTracedReflectionFromSurface(primaryHistorySurface, pixel);
-    return;
-#endif
-
-#ifdef RB_PT_TRANSMISSION_PRODUCER_ONLY
-    const float4 transmissionSentinel = EvaluatePathTraceTransmissionProducerSentinel(primaryHistorySurface);
-    PathTraceTransmissionOutput[pixel] = transmissionSentinel;
-    if (PathTraceTransmissionDebugOutputEnabled())
-    {
-        SmokeOutput[pixel] = transmissionSentinel;
-    }
     return;
 #endif
 

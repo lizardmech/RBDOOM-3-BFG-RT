@@ -702,7 +702,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
     RtSmokeBindingBuildResult result;
     result.textureDescriptorTable = desc.existingTextureDescriptorTable;
 
-    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.restirPTReflectionTexture || !desc.transmissionTexture || !desc.rrInputColorTexture || !desc.motionVectorTexture || !desc.rrMotionVectorTexture || !desc.motionVectorMaskTexture || !desc.rrGuideAlbedoTexture || !desc.rrGuideSpecularAlbedoTexture || !desc.rrGuideNormalRoughnessTexture || !desc.rrGuideDepthTexture || !desc.rrGuideHitDistanceTexture || !desc.rrGuideResetMaskTexture || !desc.rrGuidePositionTexture || !desc.fallbackTexture || !desc.constantsBuffer || !desc.restirPTConstantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.restirPTReservoirBuffers.IsValidFor(desc.restirPTReservoirBuffers.width, desc.restirPTReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.restirPTDiReservoirBuffers.IsValidFor(desc.restirPTDiReservoirBuffers.width, desc.restirPTDiReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.restirPTGiReservoirBuffers.IsValidFor(desc.restirPTGiReservoirBuffers.width, desc.restirPTGiReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.primarySurfaceHistoryBuffers.IsValidFor(desc.primarySurfaceHistoryBuffers.width, desc.primarySurfaceHistoryBuffers.height))
+    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.restirPTReflectionTexture || !desc.rrInputColorTexture || !desc.motionVectorTexture || !desc.rrMotionVectorTexture || !desc.motionVectorMaskTexture || !desc.rrGuideAlbedoTexture || !desc.rrGuideSpecularAlbedoTexture || !desc.rrGuideNormalRoughnessTexture || !desc.rrGuideDepthTexture || !desc.rrGuideHitDistanceTexture || !desc.rrGuideResetMaskTexture || !desc.rrGuidePositionTexture || !desc.fallbackTexture || !desc.constantsBuffer || !desc.restirPTConstantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.restirPTReservoirBuffers.IsValidFor(desc.restirPTReservoirBuffers.width, desc.restirPTReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.restirPTDiReservoirBuffers.IsValidFor(desc.restirPTDiReservoirBuffers.width, desc.restirPTDiReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.restirPTGiReservoirBuffers.IsValidFor(desc.restirPTGiReservoirBuffers.width, desc.restirPTGiReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.primarySurfaceHistoryBuffers.IsValidFor(desc.primarySurfaceHistoryBuffers.width, desc.primarySurfaceHistoryBuffers.height))
     {
         result.errorMessage = "failed to create RT smoke binding set";
         return result;
@@ -912,7 +912,6 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(39, desc.motionVectorTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(40, desc.motionVectorMaskTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(47, desc.restirPTReflectionTexture));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(87, desc.transmissionTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(48, desc.rrGuideAlbedoTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(49, desc.rrGuideNormalRoughnessTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(50, desc.rrGuideDepthTexture));
@@ -1281,7 +1280,6 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(47));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(87));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(48));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(49));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(50));
@@ -1355,6 +1353,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(52));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(53));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(87));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(79));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(57));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(64));
@@ -1817,14 +1816,6 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "ReSTIR reflection producer",
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.bin");
-    case 21:
-        return initLibrary(
-            m_smokeTransmissionProducerShaderLibrary,
-            m_smokeTransmissionProducerPipeline,
-            m_smokeTransmissionProducerShaderTable,
-            "transmission producer",
-            "renderprogs2/dxil/builtin/pathtracing/pathtrace_transmission_producer.rt.bin",
-            "renderprogs2/spirv/builtin/pathtracing/pathtrace_transmission_producer.rt.bin");
     case 15:
     {
         const bool sentinelOk = initLibrary(
@@ -1861,6 +1852,15 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "clean-room RTXDI DI spatial",
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
+            m_smokeCleanRtxdiDiSentinelBindingLayout);
+    case 21:
+        return initLibrary(
+            m_smokeCleanRtxdiDiTransmissionProducerShaderLibrary,
+            m_smokeCleanRtxdiDiTransmissionProducerPipeline,
+            m_smokeCleanRtxdiDiTransmissionProducerShaderTable,
+            "clean-room RTXDI DI transmission producer",
+            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout);
     case 16:
         return initLibrary(

@@ -494,7 +494,6 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeRestirDirectTemporalProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirDirectSpatialReservoirProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirReflectionProducerShaderLibrary;
-    nvrhi::ShaderLibraryHandle m_smokeTransmissionProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirCombinedResolveShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirPdfNeeRluCurrentShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokePdfNeeVerifierShaderLibrary;
@@ -502,6 +501,7 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiInitialShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiTemporalShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSpatialShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiTransmissionProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeReGIRDebugShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
@@ -525,7 +525,6 @@ private:
     nvrhi::rt::PipelineHandle m_smokeRestirDirectTemporalProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirDirectSpatialReservoirProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirReflectionProducerPipeline;
-    nvrhi::rt::PipelineHandle m_smokeTransmissionProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirCombinedResolvePipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirPdfNeeRluCurrentPipeline;
     nvrhi::rt::PipelineHandle m_smokePdfNeeVerifierPipeline;
@@ -533,6 +532,7 @@ private:
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiInitialPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiTemporalPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiSpatialPipeline;
+    nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiTransmissionProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeReGIRDebugPipeline;
     nvrhi::rt::PipelineHandle m_smokeNeeCacheDebugPipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
@@ -550,7 +550,6 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokeRestirDirectTemporalProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirDirectSpatialReservoirProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirReflectionProducerShaderTable;
-    nvrhi::rt::ShaderTableHandle m_smokeTransmissionProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirCombinedResolveShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirPdfNeeRluCurrentShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokePdfNeeVerifierShaderTable;
@@ -558,6 +557,7 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiInitialShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiTemporalShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiSpatialShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiTransmissionProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeReGIRDebugShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeNeeCacheDebugShaderTable;
 };

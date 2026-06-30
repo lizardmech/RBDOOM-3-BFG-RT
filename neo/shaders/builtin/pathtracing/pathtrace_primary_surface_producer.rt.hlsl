@@ -266,7 +266,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RRProjectionDepthInfo;
     // Padding spans the light-manager/verifier/ReGIR/NEE-cache fields of the CPU
     // PathTraceSmokeConstants struct, which this shader does not consume.
-    float4 ProducerReservedTail[22];
+    float4 ProducerReservedTail[20];
     float4 DecalInfo;
     float4 DecalInfo2;
 };
