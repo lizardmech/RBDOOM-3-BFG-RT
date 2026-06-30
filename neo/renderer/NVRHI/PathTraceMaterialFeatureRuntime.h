@@ -6,7 +6,17 @@
 
 #include <cstddef>
 
-struct RtPathTraceMaterialFeatureShaderState;
+#include <nvrhi/nvrhi.h>
+
+struct RtPathTraceMaterialFeatureShaderState
+{
+    nvrhi::ShaderLibraryHandle shaderLibrary;
+    nvrhi::rt::PipelineHandle pipeline;
+    nvrhi::rt::ShaderTableHandle shaderTable;
+};
+
+static constexpr size_t RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_TABLE_COUNT =
+    static_cast<size_t>(RtPathTraceMaterialFeatureShaderTable::Count);
 
 struct RtPathTraceMaterialFeatureRuntimePass
 {

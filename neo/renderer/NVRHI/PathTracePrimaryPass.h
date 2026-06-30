@@ -15,6 +15,7 @@
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceLightUniverse.h"
 #include "PathTraceCleanRestirGi.h"
+#include "PathTraceMaterialFeatureRuntime.h"
 #include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"
 #include "PathTraceRemixFramePrepare.h"
@@ -59,16 +60,6 @@ struct RtRetiredSmokeScenePackage
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     std::vector<nvrhi::TextureHandle> activeTextureTable;
 };
-
-struct RtPathTraceMaterialFeatureShaderState
-{
-    nvrhi::ShaderLibraryHandle shaderLibrary;
-    nvrhi::rt::PipelineHandle pipeline;
-    nvrhi::rt::ShaderTableHandle shaderTable;
-};
-
-static constexpr size_t RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_TABLE_COUNT =
-    static_cast<size_t>(RtPathTraceMaterialFeatureShaderTable::Count);
 
 static constexpr int RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS = 3;
 

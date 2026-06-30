@@ -2,7 +2,6 @@
 #pragma hdrstop
 
 #include "PathTraceMaterialFeatureRuntime.h"
-#include "PathTracePrimaryPass.h"
 
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
