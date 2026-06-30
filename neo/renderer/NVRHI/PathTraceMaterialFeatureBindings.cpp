@@ -46,6 +46,11 @@ void AddPathTraceMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& d
     AddPathTraceMaterialFeatureOutputLayoutBindings(desc, PathTraceMaterialFeatureBindingLayoutOptionalOutputs(bindingLayout));
 }
 
+void AddPathTraceCleanRtxdiDiMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc)
+{
+    AddPathTraceMaterialFeatureOutputLayoutBindings(desc, RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi);
+}
+
 void AddPathTraceMaterialFeatureOutputBinding(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resource)
 {
     const uint32_t slot = PathTraceMaterialFeatureOutputUavSlot(resource);
@@ -71,4 +76,9 @@ void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, cons
 void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, RtPathTraceMaterialFeatureBindingLayout bindingLayout)
 {
     AddPathTraceMaterialFeatureOutputBindings(desc, frameResources, PathTraceMaterialFeatureBindingLayoutOptionalOutputs(bindingLayout));
+}
+
+void AddPathTraceCleanRtxdiDiMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources)
+{
+    AddPathTraceMaterialFeatureOutputBindings(desc, frameResources, RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi);
 }
