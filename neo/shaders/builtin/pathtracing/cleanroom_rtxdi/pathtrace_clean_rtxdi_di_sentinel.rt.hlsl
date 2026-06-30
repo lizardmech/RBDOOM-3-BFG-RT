@@ -953,8 +953,6 @@ RAB_Surface PathTraceCleanRoomSurfaceForView(PathTracePrimarySurfaceRecord recor
     return PathTraceCleanRoomSurfaceFromRecord(record);
 }
 
-#include "pathtrace_clean_rtxdi_di_transmission_producer.hlsli"
-
 RAB_Surface RAB_GetGBufferSurface(int2 pixel, bool previousFrame)
 {
     const uint2 dimensions = uint2(
@@ -3052,23 +3050,7 @@ bool PathTraceCleanRoomTemporalRayGenView(uint view)
 #endif
 
 #if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
-[shader("raygeneration")]
-void RayGen()
-{
-    const uint2 pixel = DispatchRaysIndex().xy;
-    const uint2 dimensions = DispatchRaysDimensions().xy;
-    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
-    {
-        return;
-    }
-
-    const float4 sentinel = PathTraceCleanRoomTransmissionProducerSentinel(pixel, dimensions);
-    PathTraceCleanRtxdiDiTransmissionOutput[pixel] = sentinel;
-    if (CleanRtxdiDiToyPathInfo.x >= 0.5)
-    {
-        SmokeOutput[pixel] = sentinel;
-    }
-}
+#include "pathtrace_clean_rtxdi_di_transmission_producer.hlsli"
 #elif defined(CLEAN_RTXDI_DI_INITIAL_ENTRY)
 [shader("raygeneration")]
 void RayGen()

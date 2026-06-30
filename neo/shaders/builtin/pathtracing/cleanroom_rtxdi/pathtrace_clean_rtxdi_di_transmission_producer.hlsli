@@ -19,4 +19,22 @@ float4 PathTraceCleanRoomTransmissionProducerSentinel(uint2 pixel, uint2 dimensi
     return float4(0.0, 0.85, 1.0, 1.0);
 }
 
+[shader("raygeneration")]
+void RayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const float4 sentinel = PathTraceCleanRoomTransmissionProducerSentinel(pixel, dimensions);
+    PathTraceCleanRtxdiDiTransmissionOutput[pixel] = sentinel;
+    if (CleanRtxdiDiToyPathInfo.x >= 0.5)
+    {
+        SmokeOutput[pixel] = sentinel;
+    }
+}
+
 #endif
