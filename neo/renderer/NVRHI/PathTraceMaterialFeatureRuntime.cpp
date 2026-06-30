@@ -21,6 +21,24 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     return pass;
 }
 
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
+    bool cleanRouteRequested,
+    int cleanView,
+    bool producerRequested,
+    bool debugOutputRequested,
+    const RtPathTraceMaterialFeatureShaderState* shaderStates,
+    size_t shaderStateCount)
+{
+    return BuildPathTraceMaterialFeatureRuntimePass(
+        BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
+            cleanRouteRequested,
+            cleanView,
+            producerRequested,
+            debugOutputRequested),
+        shaderStates,
+        shaderStateCount);
+}
+
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady)
 {
     runtimeInfo[0] = PathTraceMaterialFeaturePassWritesAnyOutput(desc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR) ? 1.0f : 0.0f;
