@@ -15,7 +15,7 @@
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceLightUniverse.h"
 #include "PathTraceCleanRestirGi.h"
-#include "PathTraceMaterialFeatureRuntime.h"
+#include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"
 #include "PathTraceRemixFramePrepare.h"
@@ -507,7 +507,7 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSpatialShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeReGIRDebugShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
-    RtPathTraceMaterialFeatureShaderTableState m_smokeMaterialFeatureShaders;
+    RtPathTraceCleanRtxdiDiMaterialFeatureState m_smokeCleanRtxdiDiMaterialFeatures;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ShaderHandle m_smokeCleanRtxdiDiBoilingFilterShader;
     nvrhi::ShaderHandle m_smokeNeeCachePrimarySurfaceUpdateShader;

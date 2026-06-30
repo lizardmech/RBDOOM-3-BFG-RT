@@ -231,7 +231,7 @@ static bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(
 bool PathTracePrimaryPass::EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
 {
     const RtPathTraceMaterialFeaturePipelineContext context = {
-        &m_smokeMaterialFeatureShaders,
+        &PathTraceCleanRtxdiDiMaterialFeatureShaderTableState(m_smokeCleanRtxdiDiMaterialFeatures),
         m_smokeTestInitialized,
         m_smokeBindingLayout,
         m_smokeCleanRtxdiDiSentinelBindingLayout,

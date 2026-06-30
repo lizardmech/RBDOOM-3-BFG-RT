@@ -9,7 +9,7 @@
 
 RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPass(
     const RtPathTraceCleanRtxdiDiTransmissionSettings& settings,
-    const RtPathTraceMaterialFeatureShaderTableState& shaderTableState)
+    const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
 {
     RtPathTraceCleanRtxdiDiTransmissionPass pass;
     pass.featurePass = BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
@@ -17,8 +17,14 @@ RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPa
         settings.cleanView,
         settings.producerRequested,
         settings.debugOutputRequested,
-        shaderTableState);
+        featureState.shaderTableState);
     return pass;
+}
+
+RtPathTraceMaterialFeatureShaderTableState& PathTraceCleanRtxdiDiMaterialFeatureShaderTableState(
+    RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
+{
+    return featureState.shaderTableState;
 }
 
 const RtPathTraceMaterialFeatureRuntimePass& PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(

@@ -9,6 +9,11 @@
 
 struct RtPathTraceFrameResources;
 
+struct RtPathTraceCleanRtxdiDiMaterialFeatureState
+{
+    RtPathTraceMaterialFeatureShaderTableState shaderTableState;
+};
+
 struct RtPathTraceCleanRtxdiDiTransmissionPass
 {
     RtPathTraceMaterialFeatureRuntimePass featurePass;
@@ -24,7 +29,9 @@ struct RtPathTraceCleanRtxdiDiTransmissionSettings
 
 RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPass(
     const RtPathTraceCleanRtxdiDiTransmissionSettings& settings,
-    const RtPathTraceMaterialFeatureShaderTableState& shaderTableState);
+    const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
+RtPathTraceMaterialFeatureShaderTableState& PathTraceCleanRtxdiDiMaterialFeatureShaderTableState(
+    RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
 const RtPathTraceMaterialFeatureRuntimePass& PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
 void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc);
