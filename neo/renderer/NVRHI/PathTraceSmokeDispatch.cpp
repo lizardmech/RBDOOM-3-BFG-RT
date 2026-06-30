@@ -50,6 +50,30 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_DISABLE_RIGID_EMISSIVE_TEMPORAL = 1u << 19u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
 
+struct RtPathTraceMaterialFeatureRuntimePass
+{
+    RtPathTraceMaterialFeaturePassDesc desc;
+    const RtPathTraceMaterialFeatureShaderState* shader = nullptr;
+    bool ready = false;
+};
+
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
+    const RtPathTraceMaterialFeaturePassDesc& desc,
+    const std::array<RtPathTraceMaterialFeatureShaderState, RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_TABLE_COUNT>& shaderStates)
+{
+    RtPathTraceMaterialFeatureRuntimePass pass;
+    pass.desc = desc;
+
+    const size_t shaderTableIndex = static_cast<size_t>(desc.shaderTable);
+    if (shaderTableIndex < shaderStates.size())
+    {
+        pass.shader = &shaderStates[shaderTableIndex];
+    }
+
+    pass.ready = pass.shader && PathTraceMaterialFeaturePassIsReady(pass.desc);
+    return pass;
+}
+
 int CleanRtxdiDiTemporalBiasCorrectionValue()
 {
     const int requested = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger());
@@ -1309,14 +1333,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanRtxdiDiRouteRequested &&
         cleanRtxdiDiView == 16 &&
         r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0;
-    const RtPathTraceMaterialFeaturePassDesc cleanRtxdiDiTransmissionPassDesc =
+    const RtPathTraceMaterialFeatureRuntimePass cleanRtxdiDiTransmissionPass = BuildPathTraceMaterialFeatureRuntimePass(
         BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
             cleanRtxdiDiTransmissionProducerRequested || cleanRtxdiDiTransmissionDebugViewRequested,
-            cleanRtxdiDiTransmissionDebugViewRequested);
-    const RtPathTraceMaterialFeatureShaderState& cleanRtxdiDiTransmissionShader =
-        m_smokeMaterialFeatureShaders[static_cast<size_t>(cleanRtxdiDiTransmissionPassDesc.shaderTable)];
-    const bool cleanRtxdiDiTransmissionPassRequested =
-        PathTraceMaterialFeaturePassIsReady(cleanRtxdiDiTransmissionPassDesc);
+            cleanRtxdiDiTransmissionDebugViewRequested),
+        m_smokeMaterialFeatureShaders);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
@@ -2323,8 +2344,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiBaseResourcesValid =
         viewDef && m_smokeCleanRtxdiDiSentinelBindingLayout && m_smokeTextureDescriptorTable && m_smokeCleanRtxdiDiSentinelConstantsBuffer &&
         m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture &&
-        (!cleanRtxdiDiTransmissionPassRequested ||
-            PathTraceMaterialFeaturePrimaryOutputAvailable(cleanRtxdiDiTransmissionPassDesc, m_frameResources)) &&
+        (!cleanRtxdiDiTransmissionPass.ready ||
+            PathTraceMaterialFeaturePrimaryOutputAvailable(cleanRtxdiDiTransmissionPass.desc, m_frameResources)) &&
         m_smokeStaticTriangleMaterialIndexBuffer && m_smokeDynamicTriangleMaterialIndexBuffer &&
         m_smokeRigidRouteTriangleMaterialIndexBuffer && m_smokeRigidRouteInstanceBuffer;
     const bool pdfNeeVerifierBaseResourcesValid =
@@ -2568,11 +2589,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             return;
         }
-        if (cleanRtxdiDiTransmissionPassRequested && !cleanRtxdiDiTransmissionShader.shaderTable)
+        if (cleanRtxdiDiTransmissionPass.ready && !cleanRtxdiDiTransmissionPass.shader->shaderTable)
         {
-            InitPathTraceMaterialFeaturePipeline(cleanRtxdiDiTransmissionPassDesc);
+            InitPathTraceMaterialFeaturePipeline(cleanRtxdiDiTransmissionPass.desc);
         }
-        if (cleanRtxdiDiTransmissionPassRequested && !cleanRtxdiDiTransmissionShader.shaderTable)
+        if (cleanRtxdiDiTransmissionPass.ready && !cleanRtxdiDiTransmissionPass.shader->shaderTable)
         {
             if (cleanRtxdiDiDumpRequested)
             {
@@ -3636,11 +3657,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-        if (cleanRtxdiDiTransmissionPassRequested)
+        if (cleanRtxdiDiTransmissionPass.ready)
         {
             SetPathTraceMaterialFeaturePrimaryOutputState(
                 commandList,
-                cleanRtxdiDiTransmissionPassDesc,
+                cleanRtxdiDiTransmissionPass.desc,
                 m_frameResources,
                 nvrhi::ResourceStates::UnorderedAccess);
         }
@@ -3656,11 +3677,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
-        if (cleanRtxdiDiTransmissionPassRequested)
+        if (cleanRtxdiDiTransmissionPass.ready)
         {
             ClearPathTraceMaterialFeaturePrimaryOutput(
                 commandList,
-                cleanRtxdiDiTransmissionPassDesc,
+                cleanRtxdiDiTransmissionPass.desc,
                 m_frameResources,
                 nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
         }
@@ -4081,8 +4102,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.neeCacheInfo1[3] = static_cast<float>(neeCacheDesc.providerResultCount);
         ApplyPathTraceCleanMaterialFeaturePassConstants(
             cleanConstants,
-            cleanRtxdiDiTransmissionPassDesc,
-            cleanRtxdiDiTransmissionPassRequested);
+            cleanRtxdiDiTransmissionPass.desc,
+            cleanRtxdiDiTransmissionPass.ready);
         cleanConstants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
         cleanConstants.toyPathInfo[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
         cleanConstants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
@@ -4202,24 +4223,24 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
         }
-        if (cleanRtxdiDiTransmissionPassRequested)
+        if (cleanRtxdiDiTransmissionPass.ready)
         {
             nvrhi::rt::State cleanTransmissionState = cleanState;
-            cleanTransmissionState.shaderTable = cleanRtxdiDiTransmissionShader.shaderTable;
+            cleanTransmissionState.shaderTable = cleanRtxdiDiTransmissionPass.shader->shaderTable;
             commandList->setRayTracingState(cleanTransmissionState);
             PathTraceCleanRtxdiDiSentinelConstants cleanTransmissionConstants = cleanConstants;
             ApplyPathTraceCleanMaterialFeaturePassConstants(
                 cleanTransmissionConstants,
-                cleanRtxdiDiTransmissionPassDesc,
-                cleanRtxdiDiTransmissionPassRequested);
+                cleanRtxdiDiTransmissionPass.desc,
+                cleanRtxdiDiTransmissionPass.ready);
             commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanTransmissionConstants, sizeof(cleanTransmissionConstants));
             {
-                PathTraceGpuMarkerScope nsightMarker(commandList, cleanRtxdiDiTransmissionPassDesc.debugLabel, nsightGpuMarkers);
+                PathTraceGpuMarkerScope nsightMarker(commandList, cleanRtxdiDiTransmissionPass.desc.debugLabel, nsightGpuMarkers);
                 commandList->dispatchRays(cleanArgs);
             }
             BarrierPathTraceMaterialFeatureOutputs(
                 commandList,
-                cleanRtxdiDiTransmissionPassDesc,
+                cleanRtxdiDiTransmissionPass.desc,
                 m_frameResources);
         }
         if (cleanRtxdiDiRrGuideDebugView)
