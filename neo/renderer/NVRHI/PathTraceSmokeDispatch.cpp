@@ -753,6 +753,36 @@ private:
     nvrhi::ICommandList* m_commandList = nullptr;
 };
 
+void DispatchPathTraceCleanMaterialFeaturePass(
+    nvrhi::ICommandList* commandList,
+    const nvrhi::rt::State& baseState,
+    const nvrhi::rt::DispatchRaysArguments& args,
+    nvrhi::BufferHandle constantsBuffer,
+    const PathTraceCleanRtxdiDiSentinelConstants& baseConstants,
+    const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceFrameResources& frameResources,
+    bool nsightGpuMarkers)
+{
+    if (!commandList || !pass.ready || !pass.shader || !pass.shader->shaderTable)
+    {
+        return;
+    }
+
+    nvrhi::rt::State featureState = baseState;
+    featureState.shaderTable = pass.shader->shaderTable;
+    commandList->setRayTracingState(featureState);
+
+    PathTraceCleanRtxdiDiSentinelConstants featureConstants = baseConstants;
+    ApplyPathTraceCleanMaterialFeaturePassConstants(featureConstants, pass.desc, pass.ready);
+    commandList->writeBuffer(constantsBuffer, &featureConstants, sizeof(featureConstants));
+
+    {
+        PathTraceGpuMarkerScope nsightMarker(commandList, pass.desc.debugLabel, nsightGpuMarkers);
+        commandList->dispatchRays(args);
+    }
+    BarrierPathTraceMaterialFeatureOutputs(commandList, pass.desc, frameResources);
+}
+
 class PathTraceGpuTimingStageScope
 {
 public:
@@ -4225,23 +4255,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (cleanRtxdiDiTransmissionPass.ready)
         {
-            nvrhi::rt::State cleanTransmissionState = cleanState;
-            cleanTransmissionState.shaderTable = cleanRtxdiDiTransmissionPass.shader->shaderTable;
-            commandList->setRayTracingState(cleanTransmissionState);
-            PathTraceCleanRtxdiDiSentinelConstants cleanTransmissionConstants = cleanConstants;
-            ApplyPathTraceCleanMaterialFeaturePassConstants(
-                cleanTransmissionConstants,
-                cleanRtxdiDiTransmissionPass.desc,
-                cleanRtxdiDiTransmissionPass.ready);
-            commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanTransmissionConstants, sizeof(cleanTransmissionConstants));
-            {
-                PathTraceGpuMarkerScope nsightMarker(commandList, cleanRtxdiDiTransmissionPass.desc.debugLabel, nsightGpuMarkers);
-                commandList->dispatchRays(cleanArgs);
-            }
-            BarrierPathTraceMaterialFeatureOutputs(
+            DispatchPathTraceCleanMaterialFeaturePass(
                 commandList,
-                cleanRtxdiDiTransmissionPass.desc,
-                m_frameResources);
+                cleanState,
+                cleanArgs,
+                m_smokeCleanRtxdiDiSentinelConstantsBuffer,
+                cleanConstants,
+                cleanRtxdiDiTransmissionPass,
+                m_frameResources,
+                nsightGpuMarkers);
         }
         if (cleanRtxdiDiRrGuideDebugView)
         {
