@@ -25,6 +25,14 @@ struct RtPathTraceMaterialFeatureRuntimePass
     bool ready = false;
 };
 
+struct RtPathTraceMaterialFeaturePipelineRequest
+{
+    RtPathTraceMaterialFeatureShaderState* shaderState = nullptr;
+    RtPathTraceMaterialFeatureShaderDesc shaderDesc;
+    nvrhi::BindingLayoutHandle bindingLayout;
+    const char* shaderPath = nullptr;
+};
+
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
     const RtPathTraceMaterialFeatureShaderState* shaderStates,
@@ -36,8 +44,19 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
     bool debugOutputRequested,
     const RtPathTraceMaterialFeatureShaderState* shaderStates,
     size_t shaderStateCount);
+RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPass(
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    RtPathTraceMaterialFeatureShaderState* shaderStates,
+    size_t shaderStateCount);
 const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
+    nvrhi::GraphicsAPI graphicsApi);
+RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    RtPathTraceMaterialFeatureShaderState* shaderStates,
+    size_t shaderStateCount,
+    nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
+    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
     nvrhi::GraphicsAPI graphicsApi);
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady);
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimePass& pass);

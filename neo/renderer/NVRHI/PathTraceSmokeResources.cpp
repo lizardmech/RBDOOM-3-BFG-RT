@@ -1633,34 +1633,20 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
 
 bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTraceMaterialFeaturePassDesc& passDesc)
 {
-    const size_t shaderTableIndex = static_cast<size_t>(passDesc.shaderTable);
-    if (shaderTableIndex >= m_smokeMaterialFeatureShaders.size())
+    RtPathTraceMaterialFeatureShaderState* materialFeatureShaderState = PathTraceMaterialFeatureShaderStateForPass(
+        passDesc,
+        m_smokeMaterialFeatureShaders.data(),
+        m_smokeMaterialFeatureShaders.size());
+    if (!materialFeatureShaderState)
     {
         return false;
     }
-
-    RtPathTraceMaterialFeatureShaderState& shaderState = m_smokeMaterialFeatureShaders[shaderTableIndex];
-    if (shaderState.shaderTable)
+    if (materialFeatureShaderState->shaderTable)
     {
         return true;
     }
 
     if (!m_smokeTestInitialized || !m_smokeTextureBindlessLayout)
-    {
-        return false;
-    }
-
-    const RtPathTraceMaterialFeatureShaderDesc shaderDesc = PathTraceMaterialFeatureShaderDescForTable(passDesc.shaderTable);
-    if (!shaderDesc.dxilShaderPath || !shaderDesc.spirvShaderPath)
-    {
-        return false;
-    }
-
-    const nvrhi::BindingLayoutHandle bindingLayout = PathTraceMaterialFeatureBindingLayoutHandle(
-        shaderDesc.bindingLayout,
-        m_smokeBindingLayout,
-        m_smokeCleanRtxdiDiSentinelBindingLayout);
-    if (!bindingLayout)
     {
         return false;
     }
@@ -1671,35 +1657,47 @@ bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTrac
         return false;
     }
 
-    const char* shaderPath = PathTraceMaterialFeatureShaderPathForGraphicsApi(shaderDesc, deviceManager->GetGraphicsAPI());
-    if (!shaderPath)
+    const RtPathTraceMaterialFeaturePipelineRequest pipelineRequest = BuildPathTraceMaterialFeaturePipelineRequest(
+        passDesc,
+        m_smokeMaterialFeatureShaders.data(),
+        m_smokeMaterialFeatureShaders.size(),
+        m_smokeBindingLayout,
+        m_smokeCleanRtxdiDiSentinelBindingLayout,
+        deviceManager->GetGraphicsAPI());
+    if (!pipelineRequest.shaderState)
     {
         return false;
     }
 
-    if (!shaderState.shaderLibrary &&
-        !LoadPathTraceSmokeShaderLibrary(device, shaderPath, shaderDesc.label, shaderState.shaderLibrary))
+    if (!pipelineRequest.bindingLayout || !pipelineRequest.shaderPath)
     {
-        common->Printf("PathTracePrimaryPass: %s RT smoke shader unavailable; matching material-feature passes will be disabled\n", shaderDesc.label);
+        return false;
+    }
+
+    RtPathTraceMaterialFeatureShaderState& shaderState = *pipelineRequest.shaderState;
+    if (!shaderState.shaderLibrary &&
+        !LoadPathTraceSmokeShaderLibrary(device, pipelineRequest.shaderPath, pipelineRequest.shaderDesc.label, shaderState.shaderLibrary))
+    {
+        common->Printf("PathTracePrimaryPass: %s RT smoke shader unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
         return false;
     }
 
     if (!CreatePathTraceSmokeRayTracingPipeline(
         device,
         shaderState.shaderLibrary,
-        bindingLayout,
+        pipelineRequest.bindingLayout,
         m_smokeTextureBindlessLayout,
-        shaderDesc.label,
+        pipelineRequest.shaderDesc.label,
         shaderState.pipeline,
         shaderState.shaderTable))
     {
-        common->Printf("PathTracePrimaryPass: %s RT smoke pipeline unavailable; matching material-feature passes will be disabled\n", shaderDesc.label);
+        common->Printf("PathTracePrimaryPass: %s RT smoke pipeline unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
         shaderState.pipeline = nullptr;
         shaderState.shaderTable = nullptr;
         return false;
     }
 
-    common->Printf("PathTracePrimaryPass: %s RT smoke pipeline initialized\n", shaderDesc.label);
+    common->Printf("PathTracePrimaryPass: %s RT smoke pipeline initialized\n", pipelineRequest.shaderDesc.label);
     return true;
 }
 

@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeatureRuntime.h"
 
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
@@ -39,6 +40,20 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
         shaderStateCount);
 }
 
+RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPass(
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    RtPathTraceMaterialFeatureShaderState* shaderStates,
+    size_t shaderStateCount)
+{
+    const size_t shaderTableIndex = static_cast<size_t>(passDesc.shaderTable);
+    if (!shaderStates || shaderTableIndex >= shaderStateCount)
+    {
+        return nullptr;
+    }
+
+    return &shaderStates[shaderTableIndex];
+}
+
 const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     nvrhi::GraphicsAPI graphicsApi)
@@ -52,6 +67,37 @@ const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
     default:
         return nullptr;
     }
+}
+
+RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    RtPathTraceMaterialFeatureShaderState* shaderStates,
+    size_t shaderStateCount,
+    nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
+    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
+    nvrhi::GraphicsAPI graphicsApi)
+{
+    RtPathTraceMaterialFeaturePipelineRequest request;
+
+    request.shaderState = PathTraceMaterialFeatureShaderStateForPass(passDesc, shaderStates, shaderStateCount);
+    if (!request.shaderState)
+    {
+        return request;
+    }
+
+    request.shaderDesc = PathTraceMaterialFeatureShaderDescForTable(passDesc.shaderTable);
+    if (!request.shaderDesc.dxilShaderPath || !request.shaderDesc.spirvShaderPath)
+    {
+        request.shaderState = nullptr;
+        return request;
+    }
+
+    request.bindingLayout = PathTraceMaterialFeatureBindingLayoutHandle(
+        request.shaderDesc.bindingLayout,
+        coreSmokeBindingLayout,
+        cleanRtxdiDiBindingLayout);
+    request.shaderPath = PathTraceMaterialFeatureShaderPathForGraphicsApi(request.shaderDesc, graphicsApi);
+    return request;
 }
 
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady)
