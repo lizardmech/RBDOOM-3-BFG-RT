@@ -79,6 +79,13 @@ struct RtPathTraceMaterialFeaturePassDesc
     const char* debugLabel = "disabled";
 };
 
+struct RtPathTraceMaterialFeatureShaderDesc
+{
+    const char* label = "disabled";
+    const char* dxilShaderPath = nullptr;
+    const char* spirvShaderPath = nullptr;
+};
+
 inline bool PathTraceMaterialFeaturePassHasAllInputs(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)
 {
     return (desc.resourceInputs & resources) == resources;
@@ -99,6 +106,21 @@ inline bool PathTraceMaterialFeaturePassIsReady(const RtPathTraceMaterialFeature
     return desc.enabled &&
         PathTraceMaterialFeaturePassHasAllInputs(desc, requiredInputs) &&
         PathTraceMaterialFeaturePassWritesAllOutputs(desc, requiredOutputs);
+}
+
+inline RtPathTraceMaterialFeatureShaderDesc PathTraceMaterialFeatureShaderDescForTable(RtPathTraceMaterialFeatureShaderTable shaderTable)
+{
+    switch (shaderTable)
+    {
+    case RtPathTraceMaterialFeatureShaderTable::CleanRtxdiDiTransmissionProducer:
+        return {
+            "clean-room RTXDI DI transmission producer",
+            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin"
+        };
+    default:
+        return {};
+    }
 }
 
 inline RtPathTraceMaterialFeaturePassDesc BuildPathTracePrimarySurfaceFeaturePassDesc(bool enabled)

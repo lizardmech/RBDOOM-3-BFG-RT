@@ -15,6 +15,7 @@
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceReservoirs.h"
+#include "PathTraceRestirPasses.h"
 #include "PathTraceSmokeDispatch.h"
 #include "PathTraceSmokeResources.h"
 #include "PathTraceTextureRegistry.h"
@@ -1854,14 +1855,18 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout);
     case 21:
+    {
+        const RtPathTraceMaterialFeatureShaderDesc shaderDesc =
+            PathTraceMaterialFeatureShaderDescForTable(RtPathTraceMaterialFeatureShaderTable::CleanRtxdiDiTransmissionProducer);
         return initLibrary(
             m_smokeCleanRtxdiDiTransmissionProducerShaderLibrary,
             m_smokeCleanRtxdiDiTransmissionProducerPipeline,
             m_smokeCleanRtxdiDiTransmissionProducerShaderTable,
-            "clean-room RTXDI DI transmission producer",
-            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
-            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
+            shaderDesc.label,
+            shaderDesc.dxilShaderPath,
+            shaderDesc.spirvShaderPath,
             m_smokeCleanRtxdiDiSentinelBindingLayout);
+    }
     case 16:
         return initLibrary(
             m_smokePdfNeeVerifierShaderLibrary,
