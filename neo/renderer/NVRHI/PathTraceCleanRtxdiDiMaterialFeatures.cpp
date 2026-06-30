@@ -9,8 +9,7 @@ RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPa
     int cleanView,
     bool producerRequested,
     bool debugOutputRequested,
-    const RtPathTraceMaterialFeatureShaderState* shaderStates,
-    size_t shaderStateCount)
+    const RtPathTraceMaterialFeatureShaderTableState& shaderTableState)
 {
     RtPathTraceCleanRtxdiDiTransmissionPass pass;
     pass.featurePass = BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
@@ -18,8 +17,7 @@ RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPa
         cleanView,
         producerRequested,
         debugOutputRequested,
-        shaderStates,
-        shaderStateCount);
+        shaderTableState);
     return pass;
 }
 

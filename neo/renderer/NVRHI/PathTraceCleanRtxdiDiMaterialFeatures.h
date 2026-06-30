@@ -19,8 +19,7 @@ RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPa
     int cleanView,
     bool producerRequested,
     bool debugOutputRequested,
-    const RtPathTraceMaterialFeatureShaderState* shaderStates,
-    size_t shaderStateCount);
+    const RtPathTraceMaterialFeatureShaderTableState& shaderTableState);
 const RtPathTraceMaterialFeatureRuntimePass& PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
 void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc);

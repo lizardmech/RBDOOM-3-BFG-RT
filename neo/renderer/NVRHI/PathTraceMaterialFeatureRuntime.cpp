@@ -22,6 +22,13 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     return pass;
 }
 
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
+    const RtPathTraceMaterialFeaturePassDesc& desc,
+    const RtPathTraceMaterialFeatureShaderTableState& shaderTableState)
+{
+    return BuildPathTraceMaterialFeatureRuntimePass(desc, shaderTableState.shaders.data(), shaderTableState.shaders.size());
+}
+
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
     bool cleanRouteRequested,
     int cleanView,
@@ -40,6 +47,22 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
         shaderStateCount);
 }
 
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
+    bool cleanRouteRequested,
+    int cleanView,
+    bool producerRequested,
+    bool debugOutputRequested,
+    const RtPathTraceMaterialFeatureShaderTableState& shaderTableState)
+{
+    return BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
+        cleanRouteRequested,
+        cleanView,
+        producerRequested,
+        debugOutputRequested,
+        shaderTableState.shaders.data(),
+        shaderTableState.shaders.size());
+}
+
 RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPass(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
     RtPathTraceMaterialFeatureShaderState* shaderStates,
@@ -52,6 +75,13 @@ RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPas
     }
 
     return &shaderStates[shaderTableIndex];
+}
+
+RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPass(
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    RtPathTraceMaterialFeatureShaderTableState& shaderTableState)
+{
+    return PathTraceMaterialFeatureShaderStateForPass(passDesc, shaderTableState.shaders.data(), shaderTableState.shaders.size());
 }
 
 const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
@@ -98,6 +128,22 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
         cleanRtxdiDiBindingLayout);
     request.shaderPath = PathTraceMaterialFeatureShaderPathForGraphicsApi(request.shaderDesc, graphicsApi);
     return request;
+}
+
+RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    RtPathTraceMaterialFeatureShaderTableState& shaderTableState,
+    nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
+    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
+    nvrhi::GraphicsAPI graphicsApi)
+{
+    return BuildPathTraceMaterialFeaturePipelineRequest(
+        passDesc,
+        shaderTableState.shaders.data(),
+        shaderTableState.shaders.size(),
+        coreSmokeBindingLayout,
+        cleanRtxdiDiBindingLayout,
+        graphicsApi);
 }
 
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady)

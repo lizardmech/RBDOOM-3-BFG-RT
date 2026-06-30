@@ -28,7 +28,6 @@
 #include "PathTraceSmokeResources.h"
 
 #include <nvrhi/nvrhi.h>
-#include <array>
 #include <condition_variable>
 #include <chrono>
 #include <deque>
@@ -510,7 +509,7 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSpatialShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeReGIRDebugShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
-    std::array<RtPathTraceMaterialFeatureShaderState, RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_TABLE_COUNT> m_smokeMaterialFeatureShaders;
+    RtPathTraceMaterialFeatureShaderTableState m_smokeMaterialFeatureShaders;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ShaderHandle m_smokeCleanRtxdiDiBoilingFilterShader;
     nvrhi::ShaderHandle m_smokeNeeCachePrimarySurfaceUpdateShader;

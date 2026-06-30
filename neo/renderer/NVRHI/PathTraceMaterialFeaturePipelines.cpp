@@ -129,8 +129,7 @@ bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTrac
 {
     RtPathTraceMaterialFeatureShaderState* materialFeatureShaderState = PathTraceMaterialFeatureShaderStateForPass(
         passDesc,
-        m_smokeMaterialFeatureShaders.data(),
-        m_smokeMaterialFeatureShaders.size());
+        m_smokeMaterialFeatureShaders);
     if (!materialFeatureShaderState)
     {
         return false;
@@ -153,8 +152,7 @@ bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTrac
 
     const RtPathTraceMaterialFeaturePipelineRequest pipelineRequest = BuildPathTraceMaterialFeaturePipelineRequest(
         passDesc,
-        m_smokeMaterialFeatureShaders.data(),
-        m_smokeMaterialFeatureShaders.size(),
+        m_smokeMaterialFeatureShaders,
         m_smokeBindingLayout,
         m_smokeCleanRtxdiDiSentinelBindingLayout,
         deviceManager->GetGraphicsAPI());
