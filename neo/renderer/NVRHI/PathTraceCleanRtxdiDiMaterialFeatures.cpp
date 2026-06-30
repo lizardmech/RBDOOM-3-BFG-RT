@@ -78,11 +78,12 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
         return RtPathTraceMaterialFeatureRuntimePass();
     }
 
-    return BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
-        pass.settings.cleanRouteRequested,
-        pass.settings.cleanView,
-        pass.settings.producerRequested,
-        pass.settings.debugOutputRequested,
+    return BuildPathTraceMaterialFeatureRuntimePass(
+        BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
+            pass.settings.cleanRouteRequested,
+            pass.settings.cleanView,
+            pass.settings.producerRequested,
+            pass.settings.debugOutputRequested),
         *shaderTableState);
 }
 

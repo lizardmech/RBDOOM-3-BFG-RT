@@ -29,40 +29,6 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     return BuildPathTraceMaterialFeatureRuntimePass(desc, shaderTableState.shaders.data(), shaderTableState.shaders.size());
 }
 
-RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
-    bool cleanRouteRequested,
-    int cleanView,
-    bool producerRequested,
-    bool debugOutputRequested,
-    const RtPathTraceMaterialFeatureShaderState* shaderStates,
-    size_t shaderStateCount)
-{
-    return BuildPathTraceMaterialFeatureRuntimePass(
-        BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
-            cleanRouteRequested,
-            cleanView,
-            producerRequested,
-            debugOutputRequested),
-        shaderStates,
-        shaderStateCount);
-}
-
-RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
-    bool cleanRouteRequested,
-    int cleanView,
-    bool producerRequested,
-    bool debugOutputRequested,
-    const RtPathTraceMaterialFeatureShaderTableState& shaderTableState)
-{
-    return BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
-        cleanRouteRequested,
-        cleanView,
-        producerRequested,
-        debugOutputRequested,
-        shaderTableState.shaders.data(),
-        shaderTableState.shaders.size());
-}
-
 RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPass(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
     RtPathTraceMaterialFeatureShaderState* shaderStates,

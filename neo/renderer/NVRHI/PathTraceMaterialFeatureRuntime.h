@@ -46,19 +46,6 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
     const RtPathTraceMaterialFeatureShaderTableState& shaderTableState);
-RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
-    bool cleanRouteRequested,
-    int cleanView,
-    bool producerRequested,
-    bool debugOutputRequested,
-    const RtPathTraceMaterialFeatureShaderState* shaderStates,
-    size_t shaderStateCount);
-RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
-    bool cleanRouteRequested,
-    int cleanView,
-    bool producerRequested,
-    bool debugOutputRequested,
-    const RtPathTraceMaterialFeatureShaderTableState& shaderTableState);
 RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPass(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
     RtPathTraceMaterialFeatureShaderState* shaderStates,
