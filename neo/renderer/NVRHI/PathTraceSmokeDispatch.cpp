@@ -17,6 +17,7 @@
 #include "PathTraceDoomLights.h"
 #include "PathTraceLightSelection.h"
 #include "PathTraceMaterialFeatureBindings.h"
+#include "PathTraceMaterialFeatureDispatch.h"
 #include "PathTraceMaterialFeatureOutputs.h"
 #include "PathTraceMaterialFeatureRuntime.h"
 #include "PathTraceNeeCache.h"
@@ -588,36 +589,6 @@ public:
 private:
     nvrhi::ICommandList* m_commandList = nullptr;
 };
-
-void DispatchPathTraceCleanMaterialFeaturePass(
-    nvrhi::ICommandList* commandList,
-    const nvrhi::rt::State& baseState,
-    const nvrhi::rt::DispatchRaysArguments& args,
-    nvrhi::BufferHandle constantsBuffer,
-    const PathTraceCleanRtxdiDiSentinelConstants& baseConstants,
-    const RtPathTraceMaterialFeatureRuntimePass& pass,
-    const RtPathTraceFrameResources& frameResources,
-    bool nsightGpuMarkers)
-{
-    if (!commandList || !pass.ready || !pass.shader || !pass.shader->shaderTable)
-    {
-        return;
-    }
-
-    nvrhi::rt::State featureState = baseState;
-    featureState.shaderTable = pass.shader->shaderTable;
-    commandList->setRayTracingState(featureState);
-
-    PathTraceCleanRtxdiDiSentinelConstants featureConstants = baseConstants;
-    SetPathTraceMaterialFeatureRuntimeInfo(featureConstants.toyPathInfo, pass);
-    commandList->writeBuffer(constantsBuffer, &featureConstants, sizeof(featureConstants));
-
-    {
-        PathTraceGpuMarkerScope nsightMarker(commandList, pass.desc.debugLabel, nsightGpuMarkers);
-        commandList->dispatchRays(args);
-    }
-    BarrierPathTraceMaterialFeatureOutputs(commandList, pass, frameResources);
-}
 
 class PathTraceGpuTimingStageScope
 {
@@ -4071,7 +4042,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
         }
-        DispatchPathTraceCleanMaterialFeaturePass(
+        DispatchPathTraceMaterialFeaturePass(
             commandList,
             cleanState,
             cleanArgs,
