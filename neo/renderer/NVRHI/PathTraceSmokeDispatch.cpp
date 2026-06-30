@@ -17,6 +17,7 @@
 #include "PathTraceDoomLights.h"
 #include "PathTraceLightSelection.h"
 #include "PathTraceMaterialFeatureBindings.h"
+#include "PathTraceMaterialFeatureRuntime.h"
 #include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"
 #include "PathTraceRemixRtxdiResourceGate.h"
@@ -50,30 +51,6 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_DISABLE_RIGID_EMISSIVE_TEMPORAL = 1u << 19u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
-
-struct RtPathTraceMaterialFeatureRuntimePass
-{
-    RtPathTraceMaterialFeaturePassDesc desc;
-    const RtPathTraceMaterialFeatureShaderState* shader = nullptr;
-    bool ready = false;
-};
-
-RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
-    const RtPathTraceMaterialFeaturePassDesc& desc,
-    const std::array<RtPathTraceMaterialFeatureShaderState, RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_TABLE_COUNT>& shaderStates)
-{
-    RtPathTraceMaterialFeatureRuntimePass pass;
-    pass.desc = desc;
-
-    const size_t shaderTableIndex = static_cast<size_t>(desc.shaderTable);
-    if (shaderTableIndex < shaderStates.size())
-    {
-        pass.shader = &shaderStates[shaderTableIndex];
-    }
-
-    pass.ready = pass.shader && PathTraceMaterialFeaturePassIsReady(pass.desc);
-    return pass;
-}
 
 int CleanRtxdiDiTemporalBiasCorrectionValue()
 {
@@ -1228,7 +1205,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanRtxdiDiView,
             r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0,
             r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0),
-        m_smokeMaterialFeatureShaders);
+        m_smokeMaterialFeatureShaders.data(),
+        m_smokeMaterialFeatureShaders.size());
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
