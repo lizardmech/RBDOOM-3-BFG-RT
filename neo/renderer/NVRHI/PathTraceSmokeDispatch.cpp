@@ -17,6 +17,7 @@
 #include "PathTraceDoomLights.h"
 #include "PathTraceLightSelection.h"
 #include "PathTraceMaterialFeatureBindings.h"
+#include "PathTraceMaterialFeatureOutputs.h"
 #include "PathTraceMaterialFeatureRuntime.h"
 #include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"

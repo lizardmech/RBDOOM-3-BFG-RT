@@ -2,7 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceMaterialFeatureBindings.h"
-#include "PathTraceFrameResources.h"
+#include "PathTraceMaterialFeatureOutputs.h"
 #include "PathTraceMaterialFeaturePasses.h"
 
 void AddPathTraceMaterialFeatureOutputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource)
