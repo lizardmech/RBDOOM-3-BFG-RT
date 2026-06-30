@@ -1656,18 +1656,10 @@ bool PathTracePrimaryPass::InitPathTraceMaterialFeaturePipeline(const RtPathTrac
         return false;
     }
 
-    nvrhi::BindingLayoutHandle bindingLayout = nullptr;
-    switch (shaderDesc.bindingLayout)
-    {
-    case RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi:
-        bindingLayout = m_smokeCleanRtxdiDiSentinelBindingLayout;
-        break;
-    case RtPathTraceMaterialFeatureBindingLayout::CoreSmoke:
-        bindingLayout = m_smokeBindingLayout;
-        break;
-    default:
-        return false;
-    }
+    const nvrhi::BindingLayoutHandle bindingLayout = PathTraceMaterialFeatureBindingLayoutHandle(
+        shaderDesc.bindingLayout,
+        m_smokeBindingLayout,
+        m_smokeCleanRtxdiDiSentinelBindingLayout);
     if (!bindingLayout)
     {
         return false;
