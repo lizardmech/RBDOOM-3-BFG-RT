@@ -3504,7 +3504,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(52, m_frameResources.rrGuideResetMaskTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture));
-        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(87, cleanRtxdiDiTransmissionOutputTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+            PathTraceMaterialFeatureOutputUavSlot(RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT),
+            cleanRtxdiDiTransmissionOutputTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(79, m_frameResources.rrGuidePositionTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(57, cleanOptionalSrv(m_smokePreviousEmissiveTriangleBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(64, cleanOptionalSrv(m_smokeRestirLightManagerCurrentToPreviousBuffer)));
