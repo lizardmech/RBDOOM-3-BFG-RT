@@ -10,6 +10,7 @@
 
 #include "PathTraceCVars.h"
 #include "PathTraceCleanRtxdiDiGui.h"
+#include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceSmokeDispatch.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceAcceleration.h"
@@ -17,9 +18,6 @@
 #include "PathTraceDoomLights.h"
 #include "PathTraceLightSelection.h"
 #include "PathTraceMaterialFeatureBindings.h"
-#include "PathTraceMaterialFeatureDispatch.h"
-#include "PathTraceMaterialFeatureOutputs.h"
-#include "PathTraceMaterialFeatureRuntime.h"
 #include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"
 #include "PathTraceRemixRtxdiResourceGate.h"
@@ -1162,7 +1160,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (cleanRtxdiDiSpatialEnabled &&
                 (cleanRtxdiDiView == 12 ||
                     (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
-    const RtPathTraceMaterialFeatureRuntimePass cleanRtxdiDiTransmissionPass = BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
+    const RtPathTraceCleanRtxdiDiTransmissionPass cleanRtxdiDiTransmissionPass = BuildPathTraceCleanRtxdiDiTransmissionPass(
         cleanRtxdiDiRouteRequested,
         cleanRtxdiDiView,
         r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0,
@@ -2175,7 +2173,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiBaseResourcesValid =
         viewDef && m_smokeCleanRtxdiDiSentinelBindingLayout && m_smokeTextureDescriptorTable && m_smokeCleanRtxdiDiSentinelConstantsBuffer &&
         m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture &&
-        PathTraceMaterialFeaturePrimaryOutputAvailable(cleanRtxdiDiTransmissionPass, m_frameResources) &&
+        PathTraceCleanRtxdiDiTransmissionOutputAvailable(cleanRtxdiDiTransmissionPass, m_frameResources) &&
         m_smokeStaticTriangleMaterialIndexBuffer && m_smokeDynamicTriangleMaterialIndexBuffer &&
         m_smokeRigidRouteTriangleMaterialIndexBuffer && m_smokeRigidRouteInstanceBuffer;
     const bool pdfNeeVerifierBaseResourcesValid =
@@ -2419,7 +2417,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             return;
         }
-        if (!EnsurePathTraceMaterialFeatureRuntimePassPipeline(cleanRtxdiDiTransmissionPass))
+        if (!EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(cleanRtxdiDiTransmissionPass))
         {
             if (cleanRtxdiDiDumpRequested)
             {
@@ -3480,7 +3478,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-        SetPathTraceMaterialFeaturePrimaryOutputState(
+        SetPathTraceCleanRtxdiDiTransmissionOutputState(
             commandList,
             cleanRtxdiDiTransmissionPass,
             m_frameResources,
@@ -3497,7 +3495,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
-        ClearPathTraceMaterialFeaturePrimaryOutput(
+        ClearPathTraceCleanRtxdiDiTransmissionOutput(
             commandList,
             cleanRtxdiDiTransmissionPass,
             m_frameResources,
@@ -3917,7 +3915,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.neeCacheInfo1[1] = neeCacheSettings.minRange;
         cleanConstants.neeCacheInfo1[2] = static_cast<float>(neeCacheDesc.cellCount);
         cleanConstants.neeCacheInfo1[3] = static_cast<float>(neeCacheDesc.providerResultCount);
-        SetPathTraceMaterialFeatureRuntimeInfo(
+        SetPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
             cleanConstants.toyPathInfo,
             cleanRtxdiDiTransmissionPass);
         cleanConstants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
@@ -4039,7 +4037,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
         }
-        DispatchPathTraceMaterialFeaturePass(
+        DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
             commandList,
             cleanState,
             cleanArgs,

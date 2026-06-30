@@ -42,6 +42,7 @@
 class idRenderBackend;
 class TonemapPass;
 struct viewDef_t;
+struct RtPathTraceCleanRtxdiDiTransmissionPass;
 
 struct RtRetiredSmokeScenePackage
 {
@@ -231,6 +232,7 @@ private:
     bool InitRayTracingSmokeRestirPipeline(int restirLibraryKind);
     bool InitPathTraceMaterialFeaturePipeline(const RtPathTraceMaterialFeaturePassDesc& passDesc);
     bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(const RtPathTraceMaterialFeatureRuntimePass& pass);
+    bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
     bool ResizeRayTracingSmokeOutput(int width, int height, int outputWidth, int outputHeight);
     void ResetRayTracingSmokeAsyncCpuWork();
     void ResetRayTracingSmokeSceneResources();

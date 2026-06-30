@@ -6,6 +6,7 @@
 // Feature descriptors and shader selection live outside the core smoke resource
 // module; this file only bridges the resolved feature request into NVRHI.
 
+#include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTracePrimaryPass.h"
 
 #include "../../sys/DeviceManager.h"
@@ -209,4 +210,9 @@ bool PathTracePrimaryPass::EnsurePathTraceMaterialFeatureRuntimePassPipeline(con
         InitPathTraceMaterialFeaturePipeline(pass.desc);
     }
     return static_cast<bool>(pass.shader->shaderTable);
+}
+
+bool PathTracePrimaryPass::EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
+{
+    return EnsurePathTraceMaterialFeatureRuntimePassPipeline(PathTraceCleanRtxdiDiTransmissionMaterialFeaturePass(pass));
 }
