@@ -1062,12 +1062,37 @@ float3 PathTraceCleanRoomVisibleMatClassDebug(float3 color, float3 fallback)
     return PathTraceCleanRoomLuminance(color) > 0.02 ? color : fallback;
 }
 
+bool PathTraceCleanRoomDirectReservoirUnsupportedDebugColor(PathTracePrimarySurfaceRecord record, out float3 color)
+{
+    color = float3(0.0, 0.0, 0.0);
+    if (CleanRtxdiDiView != 24u)
+    {
+        return false;
+    }
+
+    RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
+    if (!RAB_IsSurfaceValid(surface) ||
+        MaterialSupportedByPass(surface, RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR))
+    {
+        return false;
+    }
+
+    color = MaterialFailClosedDebugColor(surface, RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR).rgb;
+    return true;
+}
+
 float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensions)
 {
     PathTracePrimarySurfaceRecord record;
     if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
     {
         return float3(0.75, 0.00, 0.75);
+    }
+
+    float3 unsupportedDirectReservoirColor;
+    if (PathTraceCleanRoomDirectReservoirUnsupportedDebugColor(record, unsupportedDirectReservoirColor))
+    {
+        return unsupportedDirectReservoirColor;
     }
 
     const uint materialIndex = PathTraceCleanRoomResolveLiveMaterialIndex(record);
