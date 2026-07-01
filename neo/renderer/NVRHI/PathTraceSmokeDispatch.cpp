@@ -1161,7 +1161,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (cleanRtxdiDiSpatialEnabled &&
                 (cleanRtxdiDiView == 12 ||
                     (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
-    const RtPathTraceCleanRtxdiDiTransmissionPass cleanRtxdiDiTransmissionPass = BuildPathTraceCleanRtxdiDiTransmissionPass(
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses cleanRtxdiDiMaterialFeaturePasses = BuildPathTraceCleanRtxdiDiMaterialFeaturePasses(
         cleanRtxdiDiRouteRequested,
         cleanRtxdiDiView,
         m_smokeCleanRtxdiDiMaterialFeatures);
@@ -2172,7 +2172,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         viewDef && m_smokeCleanRtxdiDiSentinelBindingLayout && m_smokeTextureDescriptorTable &&
         m_smokeCleanRtxdiDiSentinelConstantsBuffer && m_smokeMaterialFeatureRuntimeConstantsBuffer &&
         m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture &&
-        PathTraceCleanRtxdiDiTransmissionOutputAvailable(cleanRtxdiDiTransmissionPass, m_frameResources) &&
+        PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(cleanRtxdiDiMaterialFeaturePasses, m_frameResources) &&
         m_smokeStaticTriangleMaterialIndexBuffer && m_smokeDynamicTriangleMaterialIndexBuffer &&
         m_smokeRigidRouteTriangleMaterialIndexBuffer && m_smokeRigidRouteInstanceBuffer;
     const bool pdfNeeVerifierBaseResourcesValid =
@@ -2421,8 +2421,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_smokeTestInitialized,
                 m_smokeCleanRtxdiDiSentinelBindingLayout,
                 m_smokeTextureBindlessLayout);
-        if (!EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
-            cleanRtxdiDiTransmissionPass,
+        if (!EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
+            cleanRtxdiDiMaterialFeaturePasses,
             cleanRtxdiDiPipelineContext))
         {
             if (cleanRtxdiDiDumpRequested)
@@ -3415,7 +3415,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture));
         AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
             cleanBindingSetDesc,
-            cleanRtxdiDiTransmissionPass,
+            cleanRtxdiDiMaterialFeaturePasses,
             m_smokeMaterialFeatureBuffer,
             m_smokeMaterialFeatureRuntimeConstantsBuffer,
             m_frameResources);
@@ -3490,9 +3490,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-        SetPathTraceCleanRtxdiDiTransmissionOutputUnorderedAccess(
+        SetPathTraceCleanRtxdiDiMaterialFeatureOutputsUnorderedAccess(
             commandList,
-            cleanRtxdiDiTransmissionPass,
+            cleanRtxdiDiMaterialFeaturePasses,
             m_frameResources);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
         {
@@ -3506,9 +3506,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
-        ClearPathTraceCleanRtxdiDiTransmissionOutput(
+        ClearPathTraceCleanRtxdiDiMaterialFeatureOutputs(
             commandList,
-            cleanRtxdiDiTransmissionPass,
+            cleanRtxdiDiMaterialFeaturePasses,
             m_frameResources);
         const int cleanRtxdiDiLightMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiLightMode.GetInteger());
         const bool cleanView12FullAnalyticDomain =
@@ -4044,7 +4044,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
         }
-        DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
+        DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
             commandList,
             cleanState,
             cleanArgs,
@@ -4052,7 +4052,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             &cleanConstants,
             sizeof(cleanConstants),
             m_smokeMaterialFeatureRuntimeConstantsBuffer,
-            cleanRtxdiDiTransmissionPass,
+            cleanRtxdiDiMaterialFeaturePasses,
             m_frameResources,
             nsightGpuMarkers);
         if (cleanRtxdiDiRrGuideDebugView)

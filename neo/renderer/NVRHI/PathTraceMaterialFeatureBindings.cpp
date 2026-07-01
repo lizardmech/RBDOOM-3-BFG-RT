@@ -74,6 +74,34 @@ void AddOrReplaceTextureUavBinding(nvrhi::BindingSetDesc& desc, uint32_t slot, n
     desc.addItem(item);
 }
 
+void AddOrReplaceStructuredBufferSrvBinding(nvrhi::BindingSetDesc& desc, uint32_t slot, nvrhi::BufferHandle buffer)
+{
+    const nvrhi::BindingSetItem item = nvrhi::BindingSetItem::StructuredBuffer_SRV(slot, buffer);
+    for (nvrhi::BindingSetItem& binding : desc.bindings)
+    {
+        if (binding.slot == slot && binding.type == nvrhi::ResourceType::StructuredBuffer_SRV)
+        {
+            binding = item;
+            return;
+        }
+    }
+    desc.addItem(item);
+}
+
+void AddOrReplaceConstantBufferBinding(nvrhi::BindingSetDesc& desc, uint32_t slot, nvrhi::BufferHandle buffer)
+{
+    const nvrhi::BindingSetItem item = nvrhi::BindingSetItem::ConstantBuffer(slot, buffer);
+    for (nvrhi::BindingSetItem& binding : desc.bindings)
+    {
+        if (binding.slot == slot && binding.type == nvrhi::ResourceType::ConstantBuffer)
+        {
+            binding = item;
+            return;
+        }
+    }
+    desc.addItem(item);
+}
+
 }
 
 void AddPathTraceMaterialFeatureInputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource)
@@ -129,10 +157,10 @@ void AddPathTraceMaterialFeatureInputBinding(nvrhi::BindingSetDesc& desc, const 
     switch (binding->kind)
     {
     case RtPathTraceMaterialFeatureInputBindingKind::StructuredBufferSrv:
-        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(binding->slot, buffer));
+        AddOrReplaceStructuredBufferSrvBinding(desc, binding->slot, buffer);
         break;
     case RtPathTraceMaterialFeatureInputBindingKind::ConstantBuffer:
-        desc.addItem(nvrhi::BindingSetItem::ConstantBuffer(binding->slot, buffer));
+        AddOrReplaceConstantBufferBinding(desc, binding->slot, buffer);
         break;
     }
 }

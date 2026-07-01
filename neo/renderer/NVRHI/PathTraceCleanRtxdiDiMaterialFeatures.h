@@ -43,53 +43,53 @@ RtPathTraceCleanRtxdiDiPipelineContext BuildPathTraceCleanRtxdiDiPipelineContext
     nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
     nvrhi::BindingLayoutHandle textureBindlessLayout);
 
-struct RtPathTraceCleanRtxdiDiTransmissionPass
+struct RtPathTraceCleanRtxdiDiMaterialFeaturePasses
 {
-    RtPathTraceCleanRtxdiDiTransmissionPass();
-    ~RtPathTraceCleanRtxdiDiTransmissionPass();
+    RtPathTraceCleanRtxdiDiMaterialFeaturePasses();
+    ~RtPathTraceCleanRtxdiDiMaterialFeaturePasses();
 
-    RtPathTraceCleanRtxdiDiTransmissionPass(const RtPathTraceCleanRtxdiDiTransmissionPass&) = delete;
-    RtPathTraceCleanRtxdiDiTransmissionPass& operator=(const RtPathTraceCleanRtxdiDiTransmissionPass&) = delete;
-    RtPathTraceCleanRtxdiDiTransmissionPass(RtPathTraceCleanRtxdiDiTransmissionPass&&) noexcept;
-    RtPathTraceCleanRtxdiDiTransmissionPass& operator=(RtPathTraceCleanRtxdiDiTransmissionPass&&) noexcept;
+    RtPathTraceCleanRtxdiDiMaterialFeaturePasses(const RtPathTraceCleanRtxdiDiMaterialFeaturePasses&) = delete;
+    RtPathTraceCleanRtxdiDiMaterialFeaturePasses& operator=(const RtPathTraceCleanRtxdiDiMaterialFeaturePasses&) = delete;
+    RtPathTraceCleanRtxdiDiMaterialFeaturePasses(RtPathTraceCleanRtxdiDiMaterialFeaturePasses&&) noexcept;
+    RtPathTraceCleanRtxdiDiMaterialFeaturePasses& operator=(RtPathTraceCleanRtxdiDiMaterialFeaturePasses&&) noexcept;
 
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 
-    friend struct RtPathTraceCleanRtxdiDiTransmissionPassAccess;
+    friend struct RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess;
 };
 
-RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPass(
+RtPathTraceCleanRtxdiDiMaterialFeaturePasses BuildPathTraceCleanRtxdiDiMaterialFeaturePasses(
     bool cleanRouteRequested,
     int cleanView,
     RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
 size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
-    const RtPathTraceCleanRtxdiDiTransmissionPass& transmissionPass,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& featurePasses,
     RtPathTraceMaterialFeaturePassRegistration* registrations,
     size_t registrationCapacity);
-bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
-    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceCleanRtxdiDiPipelineContext& context);
 void AddPathTraceCleanRtxdiDiMaterialFeatureLayoutBindings(nvrhi::BindingLayoutDesc& desc);
 void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
     nvrhi::BindingSetDesc& desc,
-    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     nvrhi::BufferHandle materialFeatureBuffer,
     nvrhi::BufferHandle runtimeConstantsBuffer,
     const RtPathTraceFrameResources& frameResources);
-bool PathTraceCleanRtxdiDiTransmissionOutputAvailable(
-    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+bool PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceFrameResources& frameResources);
-void SetPathTraceCleanRtxdiDiTransmissionOutputUnorderedAccess(
+void SetPathTraceCleanRtxdiDiMaterialFeatureOutputsUnorderedAccess(
     nvrhi::ICommandList* commandList,
-    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceFrameResources& frameResources);
-void ClearPathTraceCleanRtxdiDiTransmissionOutput(
+void ClearPathTraceCleanRtxdiDiMaterialFeatureOutputs(
     nvrhi::ICommandList* commandList,
-    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceFrameResources& frameResources);
-void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
+void DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
     nvrhi::ICommandList* commandList,
     const nvrhi::rt::State& baseState,
     const nvrhi::rt::DispatchRaysArguments& args,
@@ -97,6 +97,6 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
     const void* baseConstants,
     size_t baseConstantsSize,
     nvrhi::BufferHandle runtimeConstantsBuffer,
-    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceFrameResources& frameResources,
     bool nsightGpuMarkers);
