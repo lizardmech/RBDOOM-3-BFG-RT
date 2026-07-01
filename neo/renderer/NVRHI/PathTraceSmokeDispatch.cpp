@@ -3416,6 +3416,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
             cleanBindingSetDesc,
             cleanRtxdiDiMaterialFeaturePasses,
+            m_smokeMaterialTableBuffer,
             m_smokeMaterialFeatureBuffer,
             m_smokeMaterialFeatureRuntimeConstantsBuffer,
             m_frameResources);

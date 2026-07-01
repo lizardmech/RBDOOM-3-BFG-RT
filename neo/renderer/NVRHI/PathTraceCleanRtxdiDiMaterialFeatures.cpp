@@ -95,21 +95,6 @@ static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceClean
     };
 }
 
-static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiMaterialFeatureLayoutPassDesc()
-{
-    RtPathTraceMaterialFeaturePassDesc layoutDesc;
-    const RtPathTraceMaterialFeaturePassRegistration registrations[] = {
-        BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration(),
-        BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration()
-    };
-    for (const RtPathTraceMaterialFeaturePassRegistration& registration : registrations)
-    {
-        layoutDesc.resourceInputs |= registration.passDesc.resourceInputs;
-        layoutDesc.resourceOutputs |= registration.passDesc.resourceOutputs;
-    }
-    return layoutDesc;
-}
-
 static bool LoadPathTraceCleanRtxdiDiMaterialFeatureShaderLibrary(
     nvrhi::IDevice* device,
     const char* shaderPath,
@@ -488,20 +473,24 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
 
 void AddPathTraceCleanRtxdiDiMaterialFeatureLayoutBindings(nvrhi::BindingLayoutDesc& desc)
 {
-    const RtPathTraceMaterialFeaturePassDesc featureDesc =
-        BuildPathTraceCleanRtxdiDiMaterialFeatureLayoutPassDesc();
-    AddPathTraceMaterialFeatureInputLayoutBindings(desc, featureDesc.resourceInputs);
-    AddPathTraceMaterialFeatureOutputLayoutBindings(desc, featureDesc.resourceOutputs);
+    const RtPathTraceMaterialFeaturePassRegistration registrations[] = {
+        BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration(),
+        BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration()
+    };
+    for (const RtPathTraceMaterialFeaturePassRegistration& registration : registrations)
+    {
+        AddPathTraceMaterialFeatureRegistrationLayoutBindings(desc, registration);
+    }
 }
 
 void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
     nvrhi::BindingSetDesc& desc,
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
+    nvrhi::BufferHandle materialTableBuffer,
     nvrhi::BufferHandle materialFeatureBuffer,
     nvrhi::BufferHandle runtimeConstantsBuffer,
     const RtPathTraceFrameResources& frameResources)
 {
-    RtPathTraceMaterialFeaturePassDesc featureDesc;
     RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT];
     const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
         passes,
@@ -509,17 +498,17 @@ void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
         sizeof(registrations) / sizeof(registrations[0]));
     for (size_t i = 0; i < registrationCount && i < sizeof(registrations) / sizeof(registrations[0]); ++i)
     {
-        featureDesc.resourceInputs |= registrations[i].passDesc.resourceInputs;
-        featureDesc.resourceOutputs |= registrations[i].passDesc.resourceOutputs;
+        AddPathTraceMaterialFeatureRegistrationBindings(
+            desc,
+            {
+                frameResources.primarySurfaceHistoryBuffers.current,
+                materialTableBuffer,
+                materialFeatureBuffer,
+                runtimeConstantsBuffer
+            },
+            frameResources,
+            registrations[i]);
     }
-    AddPathTraceMaterialFeatureInputBindings(
-        desc,
-        {
-            materialFeatureBuffer,
-            runtimeConstantsBuffer
-        },
-        featureDesc.resourceInputs);
-    AddPathTraceMaterialFeatureOutputBindings(desc, frameResources, featureDesc.resourceOutputs);
 }
 
 bool PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(

@@ -75,6 +75,7 @@ void AddPathTraceCleanRtxdiDiMaterialFeatureLayoutBindings(nvrhi::BindingLayoutD
 void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
     nvrhi::BindingSetDesc& desc,
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
+    nvrhi::BufferHandle materialTableBuffer,
     nvrhi::BufferHandle materialFeatureBuffer,
     nvrhi::BufferHandle runtimeConstantsBuffer,
     const RtPathTraceFrameResources& frameResources);

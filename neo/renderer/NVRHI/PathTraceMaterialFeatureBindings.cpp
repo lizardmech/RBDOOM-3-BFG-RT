@@ -88,6 +88,20 @@ void AddOrReplaceStructuredBufferSrvBinding(nvrhi::BindingSetDesc& desc, uint32_
     desc.addItem(item);
 }
 
+void AddOrReplaceStructuredBufferUavBinding(nvrhi::BindingSetDesc& desc, uint32_t slot, nvrhi::BufferHandle buffer)
+{
+    const nvrhi::BindingSetItem item = nvrhi::BindingSetItem::StructuredBuffer_UAV(slot, buffer);
+    for (nvrhi::BindingSetItem& binding : desc.bindings)
+    {
+        if (binding.slot == slot && binding.type == nvrhi::ResourceType::StructuredBuffer_UAV)
+        {
+            binding = item;
+            return;
+        }
+    }
+    desc.addItem(item);
+}
+
 void AddOrReplaceConstantBufferBinding(nvrhi::BindingSetDesc& desc, uint32_t slot, nvrhi::BufferHandle buffer)
 {
     const nvrhi::BindingSetItem item = nvrhi::BindingSetItem::ConstantBuffer(slot, buffer);
@@ -100,6 +114,107 @@ void AddOrReplaceConstantBufferBinding(nvrhi::BindingSetDesc& desc, uint32_t slo
         }
     }
     desc.addItem(item);
+}
+
+nvrhi::BufferHandle PathTraceMaterialFeatureInputResourceBuffer(
+    const RtPathTraceMaterialFeatureInputResources& resources,
+    uint32_t resource)
+{
+    switch (resource)
+    {
+    case RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE:
+        return resources.currentPrimarySurfaceBuffer;
+    case RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE:
+        return resources.materialTableBuffer;
+    case RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR:
+        return resources.materialFeatureBuffer;
+    case RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS:
+        return resources.runtimeConstantsBuffer;
+    default:
+        return nullptr;
+    }
+}
+
+void AddPathTraceMaterialFeatureBindingLayoutItem(
+    nvrhi::BindingLayoutDesc& desc,
+    const RtPathTraceMaterialFeatureBindingDesc& binding)
+{
+    if (binding.slot == 0xffffffffu)
+    {
+        return;
+    }
+
+    switch (binding.kind)
+    {
+    case RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv:
+        if (!BindingLayoutContains(desc, nvrhi::ResourceType::StructuredBuffer_SRV, binding.slot))
+        {
+            desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(binding.slot));
+        }
+        break;
+    case RtPathTraceMaterialFeatureBindingKind::StructuredBufferUav:
+        if (!BindingLayoutContains(desc, nvrhi::ResourceType::StructuredBuffer_UAV, binding.slot))
+        {
+            desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(binding.slot));
+        }
+        break;
+    case RtPathTraceMaterialFeatureBindingKind::ConstantBuffer:
+        if (!BindingLayoutContains(desc, nvrhi::ResourceType::ConstantBuffer, binding.slot))
+        {
+            desc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(binding.slot));
+        }
+        break;
+    case RtPathTraceMaterialFeatureBindingKind::TextureUav:
+        if (!BindingLayoutContains(desc, nvrhi::ResourceType::Texture_UAV, binding.slot))
+        {
+            desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(binding.slot));
+        }
+        break;
+    case RtPathTraceMaterialFeatureBindingKind::Unknown:
+        break;
+    }
+}
+
+void AddPathTraceMaterialFeatureBindingSetItem(
+    nvrhi::BindingSetDesc& desc,
+    const RtPathTraceMaterialFeatureInputResources& resources,
+    const RtPathTraceFrameResources& frameResources,
+    const RtPathTraceMaterialFeatureBindingDesc& binding)
+{
+    if (binding.slot == 0xffffffffu)
+    {
+        return;
+    }
+
+    switch (binding.kind)
+    {
+    case RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv:
+        if (nvrhi::BufferHandle buffer = PathTraceMaterialFeatureInputResourceBuffer(resources, binding.resource))
+        {
+            AddOrReplaceStructuredBufferSrvBinding(desc, binding.slot, buffer);
+        }
+        break;
+    case RtPathTraceMaterialFeatureBindingKind::StructuredBufferUav:
+        if (nvrhi::BufferHandle buffer = PathTraceMaterialFeatureInputResourceBuffer(resources, binding.resource))
+        {
+            AddOrReplaceStructuredBufferUavBinding(desc, binding.slot, buffer);
+        }
+        break;
+    case RtPathTraceMaterialFeatureBindingKind::ConstantBuffer:
+        if (nvrhi::BufferHandle buffer = PathTraceMaterialFeatureInputResourceBuffer(resources, binding.resource))
+        {
+            AddOrReplaceConstantBufferBinding(desc, binding.slot, buffer);
+        }
+        break;
+    case RtPathTraceMaterialFeatureBindingKind::TextureUav:
+        if (nvrhi::TextureHandle texture = PathTraceMaterialFeatureOutputTexture(frameResources, binding.resource))
+        {
+            AddOrReplaceTextureUavBinding(desc, binding.slot, texture);
+        }
+        break;
+    case RtPathTraceMaterialFeatureBindingKind::Unknown:
+        break;
+    }
 }
 
 }
@@ -218,6 +333,52 @@ void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, cons
         if ((resources & resource) != 0u)
         {
             AddPathTraceMaterialFeatureOutputBinding(desc, frameResources, resource);
+        }
+    }
+}
+
+void AddPathTraceMaterialFeatureRegistrationLayoutBindings(
+    nvrhi::BindingLayoutDesc& desc,
+    const RtPathTraceMaterialFeaturePassRegistration& registration)
+{
+    if (!registration.bindingMetadata || registration.bindingMetadataCount == 0)
+    {
+        AddPathTraceMaterialFeatureInputLayoutBindings(desc, registration.passDesc.resourceInputs);
+        AddPathTraceMaterialFeatureOutputLayoutBindings(desc, registration.passDesc.resourceOutputs);
+        return;
+    }
+
+    for (size_t i = 0; i < registration.bindingMetadataCount; ++i)
+    {
+        const RtPathTraceMaterialFeatureBindingDesc& binding = registration.bindingMetadata[i];
+        if ((registration.passDesc.resourceInputs & binding.resource) != 0u ||
+            (registration.passDesc.resourceOutputs & binding.resource) != 0u)
+        {
+            AddPathTraceMaterialFeatureBindingLayoutItem(desc, binding);
+        }
+    }
+}
+
+void AddPathTraceMaterialFeatureRegistrationBindings(
+    nvrhi::BindingSetDesc& desc,
+    const RtPathTraceMaterialFeatureInputResources& resources,
+    const RtPathTraceFrameResources& frameResources,
+    const RtPathTraceMaterialFeaturePassRegistration& registration)
+{
+    if (!registration.bindingMetadata || registration.bindingMetadataCount == 0)
+    {
+        AddPathTraceMaterialFeatureInputBindings(desc, resources, registration.passDesc.resourceInputs);
+        AddPathTraceMaterialFeatureOutputBindings(desc, frameResources, registration.passDesc.resourceOutputs);
+        return;
+    }
+
+    for (size_t i = 0; i < registration.bindingMetadataCount; ++i)
+    {
+        const RtPathTraceMaterialFeatureBindingDesc& binding = registration.bindingMetadata[i];
+        if ((registration.passDesc.resourceInputs & binding.resource) != 0u ||
+            (registration.passDesc.resourceOutputs & binding.resource) != 0u)
+        {
+            AddPathTraceMaterialFeatureBindingSetItem(desc, resources, frameResources, binding);
         }
     }
 }
