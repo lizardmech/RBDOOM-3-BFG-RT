@@ -79,8 +79,7 @@ struct RtPathTraceMaterialFeaturePassDesc
 struct RtPathTraceMaterialFeatureShaderDesc
 {
     const char* label = "disabled";
-    const char* dxilShaderPath = nullptr;
-    const char* spirvShaderPath = nullptr;
+    const char* shaderBlobPath = nullptr;
 };
 
 struct RtPathTraceMaterialFeatureValidationDesc

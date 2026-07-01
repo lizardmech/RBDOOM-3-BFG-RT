@@ -55,18 +55,23 @@ RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPas
     return PathTraceMaterialFeatureShaderStateForPass(passDesc, shaderTableState.shaders.data(), shaderTableState.shaders.size());
 }
 
-const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
+std::string PathTraceMaterialFeatureShaderPathForGraphicsApi(
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     nvrhi::GraphicsAPI graphicsApi)
 {
+    if (!shaderDesc.shaderBlobPath)
+    {
+        return std::string();
+    }
+
     switch (graphicsApi)
     {
     case nvrhi::GraphicsAPI::D3D12:
-        return shaderDesc.dxilShaderPath;
+        return std::string("renderprogs2/dxil/") + shaderDesc.shaderBlobPath;
     case nvrhi::GraphicsAPI::VULKAN:
-        return shaderDesc.spirvShaderPath;
+        return std::string("renderprogs2/spirv/") + shaderDesc.shaderBlobPath;
     default:
-        return nullptr;
+        return std::string();
     }
 }
 
@@ -85,7 +90,7 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
     }
 
     request.shaderDesc = shaderDesc;
-    if (!request.shaderDesc.dxilShaderPath || !request.shaderDesc.spirvShaderPath)
+    if (!request.shaderDesc.shaderBlobPath)
     {
         request.shaderState = nullptr;
         return request;
@@ -93,6 +98,10 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
 
     request.bindingLayout = bindingLayout;
     request.shaderPath = PathTraceMaterialFeatureShaderPathForGraphicsApi(request.shaderDesc, graphicsApi);
+    if (request.shaderPath.empty())
+    {
+        request.shaderState = nullptr;
+    }
     return request;
 }
 

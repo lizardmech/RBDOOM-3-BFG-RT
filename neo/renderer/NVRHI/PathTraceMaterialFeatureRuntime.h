@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstddef>
+#include <string>
 
 #include <nvrhi/nvrhi.h>
 
@@ -36,7 +37,7 @@ struct RtPathTraceMaterialFeaturePipelineRequest
     RtPathTraceMaterialFeatureShaderState* shaderState = nullptr;
     RtPathTraceMaterialFeatureShaderDesc shaderDesc;
     nvrhi::BindingLayoutHandle bindingLayout;
-    const char* shaderPath = nullptr;
+    std::string shaderPath;
 };
 
 struct RtPathTraceMaterialFeatureRuntimeInfo
@@ -64,7 +65,7 @@ RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPas
 RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPass(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
     RtPathTraceMaterialFeatureShaderTableState& shaderTableState);
-const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
+std::string PathTraceMaterialFeatureShaderPathForGraphicsApi(
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     nvrhi::GraphicsAPI graphicsApi);
 RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(

@@ -262,14 +262,14 @@ static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
         return false;
     }
 
-    if (!pipelineRequest.bindingLayout || !pipelineRequest.shaderPath)
+    if (!pipelineRequest.bindingLayout || pipelineRequest.shaderPath.empty())
     {
         return false;
     }
 
     RtPathTraceMaterialFeatureShaderState& shaderState = *pipelineRequest.shaderState;
     if (!shaderState.shaderLibrary &&
-        !LoadPathTraceCleanRtxdiDiMaterialFeatureShaderLibrary(device, pipelineRequest.shaderPath, pipelineRequest.shaderDesc.label, shaderState.shaderLibrary))
+        !LoadPathTraceCleanRtxdiDiMaterialFeatureShaderLibrary(device, pipelineRequest.shaderPath.c_str(), pipelineRequest.shaderDesc.label, shaderState.shaderLibrary))
     {
         common->Printf("PathTracePrimaryPass: %s RT smoke shader unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
         return false;
