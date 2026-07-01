@@ -5,8 +5,12 @@
 #include "PathTraceCVars.h"
 #include "PathTraceMaterialFeatureOutputs.h"
 
+#include "../../sys/DeviceManager.h"
+
 #include <cstring>
 #include <nvrhi/utils.h>
+
+extern DeviceManager* deviceManager;
 
 static constexpr uint32_t CLEAN_RTXDI_DI_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT = 1u << 12u;
 static constexpr uint32_t CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT = 87u;
@@ -23,6 +27,14 @@ struct RtPathTraceCleanRtxdiDiTransmissionPass::Impl
     bool producerRequested = false;
     bool debugOutputRequested = false;
     const RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState = nullptr;
+};
+
+struct RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext
+{
+    RtPathTraceMaterialFeatureShaderState* shaderState = nullptr;
+    bool smokeTestInitialized = false;
+    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout;
+    nvrhi::BindingLayoutHandle textureBindlessLayout;
 };
 
 static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
@@ -51,6 +63,223 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     desc.enabled = cleanTransmissionRoute && (producerRequested || debugOutputRequested);
     desc.debugLabel = debugOutput ? "clean-rtxdi-di-transmission-producer-debug" : "clean-rtxdi-di-transmission-producer";
     return desc;
+}
+
+static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources& resources)
+{
+    return {
+        resources.featureState
+            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::TransmissionShaderState(*resources.featureState)
+            : nullptr,
+        resources.smokeTestInitialized,
+        resources.cleanRtxdiDiBindingLayout,
+        resources.textureBindlessLayout
+    };
+}
+
+static bool LoadPathTraceCleanRtxdiDiMaterialFeatureShaderLibrary(
+    nvrhi::IDevice* device,
+    const char* shaderPath,
+    const char* label,
+    nvrhi::ShaderLibraryHandle& shaderLibrary)
+{
+    shaderLibrary = nullptr;
+
+    void* shaderData = nullptr;
+    ID_TIME_T shaderTimestamp = 0;
+    const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData, &shaderTimestamp);
+    if (shaderSize <= 0 || !shaderData)
+    {
+        common->Printf("PathTracePrimaryPass: couldn't read %s RT smoke shader %s\n", label, shaderPath);
+        return false;
+    }
+
+    common->Printf("PathTracePrimaryPass: loaded %s RT smoke shader %s (%d bytes, timestamp %u)\n",
+        label, shaderPath, shaderSize, static_cast<unsigned int>(shaderTimestamp));
+
+    shaderLibrary = device->createShaderLibrary(shaderData, shaderSize);
+    Mem_Free(shaderData);
+
+    if (!shaderLibrary)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create %s RT smoke shader library\n", label);
+        return false;
+    }
+
+    return true;
+}
+
+static bool CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
+    nvrhi::IDevice* device,
+    nvrhi::ShaderLibraryHandle shaderLibrary,
+    nvrhi::BindingLayoutHandle bindingLayout,
+    nvrhi::BindingLayoutHandle textureBindlessLayout,
+    const char* label,
+    nvrhi::rt::PipelineHandle& pipeline,
+    nvrhi::rt::ShaderTableHandle& shaderTable)
+{
+    pipeline = nullptr;
+    shaderTable = nullptr;
+
+    if (!shaderLibrary)
+    {
+        common->Printf("PathTracePrimaryPass: cannot create %s RT smoke pipeline without a shader library\n", label);
+        return false;
+    }
+
+    nvrhi::ShaderHandle rayGen = shaderLibrary->getShader("RayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle miss = shaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss);
+    nvrhi::ShaderHandle shadowMiss = shaderLibrary->getShader("ShadowMiss", nvrhi::ShaderType::Miss);
+    nvrhi::ShaderHandle closestHit = shaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit);
+    nvrhi::ShaderHandle anyHit = shaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit);
+    nvrhi::ShaderHandle shadowClosestHit = shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
+    nvrhi::ShaderHandle shadowAnyHit = shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
+
+    if (!rayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
+    {
+        common->Printf("PathTracePrimaryPass: %s RT smoke shader library is missing one or more required entry points\n", label);
+        return false;
+    }
+
+    nvrhi::rt::PipelineDesc pipelineDesc;
+    pipelineDesc.globalBindingLayouts = { bindingLayout, textureBindlessLayout };
+    pipelineDesc.shaders = {
+        { "", rayGen, nullptr },
+        { "", miss, nullptr },
+        { "", shadowMiss, nullptr }
+    };
+    pipelineDesc.hitGroups = {
+        {
+            "HitGroup",
+            closestHit,
+            anyHit,
+            nullptr,
+            nullptr,
+            false
+        },
+        {
+            "ShadowHitGroup",
+            shadowClosestHit,
+            shadowAnyHit,
+            nullptr,
+            nullptr,
+            false
+        }
+    };
+    pipelineDesc.maxPayloadSize = 64;
+    pipelineDesc.maxAttributeSize = 8;
+    pipelineDesc.maxRecursionDepth = 1;
+
+    pipeline = device->createRayTracingPipeline(pipelineDesc);
+    if (!pipeline)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create %s RT smoke pipeline\n", label);
+        return false;
+    }
+
+    shaderTable = pipeline->createShaderTable();
+    if (!shaderTable)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create %s RT smoke shader table\n", label);
+        pipeline = nullptr;
+        return false;
+    }
+
+    shaderTable->setRayGenerationShader("RayGen");
+    shaderTable->addMissShader("Miss");
+    shaderTable->addMissShader("ShadowMiss");
+    shaderTable->addHitGroup("HitGroup");
+    shaderTable->addHitGroup("ShadowHitGroup");
+    return true;
+}
+
+static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext& context)
+{
+    if (!context.shaderState)
+    {
+        return false;
+    }
+
+    RtPathTraceMaterialFeatureShaderState* materialFeatureShaderState = context.shaderState;
+    if (materialFeatureShaderState->shaderTable)
+    {
+        return true;
+    }
+
+    if (!context.smokeTestInitialized || !context.textureBindlessLayout)
+    {
+        return false;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return false;
+    }
+
+    const RtPathTraceMaterialFeaturePipelineRequest pipelineRequest = BuildPathTraceMaterialFeaturePipelineRequest(
+        shaderDesc,
+        context.shaderState,
+        context.cleanRtxdiDiBindingLayout,
+        deviceManager->GetGraphicsAPI());
+    if (!pipelineRequest.shaderState)
+    {
+        return false;
+    }
+
+    if (!pipelineRequest.bindingLayout || !pipelineRequest.shaderPath)
+    {
+        return false;
+    }
+
+    RtPathTraceMaterialFeatureShaderState& shaderState = *pipelineRequest.shaderState;
+    if (!shaderState.shaderLibrary &&
+        !LoadPathTraceCleanRtxdiDiMaterialFeatureShaderLibrary(device, pipelineRequest.shaderPath, pipelineRequest.shaderDesc.label, shaderState.shaderLibrary))
+    {
+        common->Printf("PathTracePrimaryPass: %s RT smoke shader unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
+        return false;
+    }
+
+    if (!CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
+        device,
+        shaderState.shaderLibrary,
+        pipelineRequest.bindingLayout,
+        context.textureBindlessLayout,
+        pipelineRequest.shaderDesc.label,
+        shaderState.pipeline,
+        shaderState.shaderTable))
+    {
+        common->Printf("PathTracePrimaryPass: %s RT smoke pipeline unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
+        shaderState.pipeline = nullptr;
+        shaderState.shaderTable = nullptr;
+        return false;
+    }
+
+    common->Printf("PathTracePrimaryPass: %s RT smoke pipeline initialized\n", pipelineRequest.shaderDesc.label);
+    return true;
+}
+
+static bool EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
+    const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext& context)
+{
+    if (!pass.ready)
+    {
+        return true;
+    }
+    if (!pass.shader)
+    {
+        return false;
+    }
+    if (!pass.shader->shaderTable)
+    {
+        InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(shaderDesc, context);
+    }
+    return static_cast<bool>(pass.shader->shaderTable);
 }
 
 RtPathTraceCleanRtxdiDiMaterialFeatureState::RtPathTraceCleanRtxdiDiMaterialFeatureState()
@@ -243,6 +472,20 @@ bool PathTraceCleanRtxdiDiTransmissionOutputAvailable(
         (frameResources.transmissionTexture &&
             (!PathTraceMaterialFeaturePassWritesAnyOutput(featurePass.desc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR) ||
                 frameResources.outputTexture));
+}
+
+bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
+    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources& resources)
+{
+    const RtPathTraceMaterialFeatureRuntimePass featurePass =
+        BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
+    const RtPathTraceMaterialFeatureShaderDesc shaderDesc =
+        PathTraceCleanRtxdiDiTransmissionShaderDesc(pass);
+    return EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
+        featurePass,
+        shaderDesc,
+        BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(resources));
 }
 
 void SetPathTraceCleanRtxdiDiTransmissionOutputState(
