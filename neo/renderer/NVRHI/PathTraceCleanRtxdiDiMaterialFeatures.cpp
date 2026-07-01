@@ -1,9 +1,10 @@
 #include "precompiled.h"
 #pragma hdrstop
 
-#include "PathTraceCleanRtxdiDiMaterialFeaturesInternal.h"
+#include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceCVars.h"
 #include "PathTraceMaterialFeatureOutputs.h"
+#include "PathTraceMaterialFeatureRuntime.h"
 
 #include "../../sys/DeviceManager.h"
 
@@ -14,6 +15,31 @@ extern DeviceManager* deviceManager;
 
 static constexpr uint32_t CLEAN_RTXDI_DI_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT = 1u << 12u;
 static constexpr uint32_t CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT = 87u;
+
+struct RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess
+{
+    static RtPathTraceMaterialFeatureShaderState* TransmissionShaderState(
+        RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
+    static const RtPathTraceMaterialFeatureShaderState* TransmissionShaderState(
+        const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
+};
+
+struct RtPathTraceCleanRtxdiDiTransmissionPassAccess
+{
+    static void Init(
+        RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+        bool cleanRouteRequested,
+        int cleanView,
+        bool producerRequested,
+        bool debugOutputRequested,
+        const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
+    static bool CleanRouteRequested(const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
+    static int CleanView(const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
+    static bool ProducerRequested(const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
+    static bool DebugOutputRequested(const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
+    static const RtPathTraceCleanRtxdiDiMaterialFeatureState* FeatureState(
+        const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
+};
 
 struct RtPathTraceCleanRtxdiDiMaterialFeatureState::Impl
 {

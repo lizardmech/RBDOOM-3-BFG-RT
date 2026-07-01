@@ -117,6 +117,10 @@ cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl       REWRITE
     DI/InitialSampling.hlsli, DI/TemporalResampling.hlsli,
     DI/ReSTIRDIParameters.h, RtxdiParameters.h,
     Utils/Math.hlsli, Utils/RandomSamplerState.hlsli
+cleanroom_rtxdi/pathtrace_clean_rtxdi_di_shared.hlsli           REWRITE
+    DI/Reservoir.hlsli, DI/ReservoirStorage.hlsli,
+    DI/ReSTIRDIParameters.h, RtxdiParameters.h,
+    Utils/Math.hlsli, Utils/RandomSamplerState.hlsli
 cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.hlsl        REWRITE
     DI/Reservoir.hlsli, DI/ReservoirStorage.hlsli,
     DI/ReSTIRDIParameters.h, RtxdiParameters.h, Utils/Math.hlsli,
