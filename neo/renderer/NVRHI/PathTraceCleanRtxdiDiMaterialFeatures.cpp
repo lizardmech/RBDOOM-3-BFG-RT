@@ -59,6 +59,8 @@ struct RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext
     nvrhi::BindingLayoutHandle textureBindlessLayout;
 };
 
+static constexpr size_t RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT = 2;
+
 static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
     bool cleanRouteRequested,
     int cleanView,
@@ -146,7 +148,7 @@ static RtPathTraceMaterialFeaturePassRegistration PathTraceCleanRtxdiDiMaterialF
     const RtPathTraceCleanRtxdiDiTransmissionPass& transmissionPass,
     RtPathTraceMaterialFeaturePassKind kind)
 {
-    RtPathTraceMaterialFeaturePassRegistration registrations[2];
+    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT];
     const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
         transmissionPass,
         registrations,
@@ -524,7 +526,7 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
     RtPathTraceMaterialFeaturePassRegistration* registrations,
     size_t registrationCapacity)
 {
-    static constexpr size_t registrationCount = 2;
+    static constexpr size_t registrationCount = RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT;
     if (registrations && registrationCapacity > 0)
     {
         registrations[0] = BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(transmissionPass);
@@ -552,14 +554,6 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
     const RtPathTraceMaterialFeaturePassRegistration registration =
         PathTraceCleanRtxdiDiMaterialFeatureRegistrationForKind(pass, RtPathTraceMaterialFeaturePassKind::TransmissionProducer);
     return BuildPathTraceMaterialFeatureRuntimePass(registration.passDesc, shaderState);
-}
-
-RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiTransmissionShaderDesc(
-    const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
-{
-    return PathTraceCleanRtxdiDiMaterialFeatureRegistrationForKind(
-        pass,
-        RtPathTraceMaterialFeaturePassKind::TransmissionProducer).shaderDesc;
 }
 
 void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc)
