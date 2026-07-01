@@ -3,7 +3,7 @@
 
 #include "PathTraceMaterialFeatureRuntime.h"
 
-static_assert(sizeof(RtPathTraceMaterialFeatureRuntimeConstants) == 16, "Material feature runtime constants must match shader b88 float4 ABI");
+static_assert(sizeof(RtPathTraceMaterialFeatureRuntimeConstants) == 48, "Material feature runtime constants must match shader b88 three-float4 ABI");
 
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
@@ -191,6 +191,11 @@ RtPathTraceMaterialFeatureRuntimeConstants BuildPathTraceMaterialFeatureRuntimeC
     constants.runtimeInfo[1] = typedInfo.ready;
     constants.runtimeInfo[2] = typedInfo.debugMode;
     constants.runtimeInfo[3] = typedInfo.frameIndex;
+    for (size_t i = 0; i < 4; ++i)
+    {
+        constants.featureParams0[i] = typedInfo.featureParams0[i];
+        constants.featureParams1[i] = typedInfo.featureParams1[i];
+    }
     return constants;
 }
 

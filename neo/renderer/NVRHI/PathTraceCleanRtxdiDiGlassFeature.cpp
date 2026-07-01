@@ -67,9 +67,20 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiGlassBindings[] 
 
 static void FillPathTraceCleanRtxdiDiGlassRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
-    const RtPathTraceMaterialFeaturePassDesc&)
+    const RtPathTraceMaterialFeaturePassDesc& passDesc)
 {
-    runtimeInfo.debugMode = r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0 ? 1.0f : 0.0f;
+    const bool debugOutputEnabled =
+        r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0 &&
+        PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
+    runtimeInfo.debugMode = debugOutputEnabled ? 1.0f : 0.0f;
+    runtimeInfo.featureParams0[0] = 0.05f;
+    runtimeInfo.featureParams0[1] = 0.45f;
+    runtimeInfo.featureParams0[2] = 1.0f;
+    runtimeInfo.featureParams0[3] = 0.35f;
+    runtimeInfo.featureParams1[0] = 0.65f;
+    runtimeInfo.featureParams1[1] = 0.05f;
+    runtimeInfo.featureParams1[2] = 0.85f;
+    runtimeInfo.featureParams1[3] = 0.015f;
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(
@@ -99,7 +110,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
         "opaque material writes dark unsupported proof color",
         "clean RTXDI DI primary view 16 unchanged unless glass debug view is enabled",
         "RtPathTraceMaterialFeatureBindingDesc output-color u1 PathTraceCleanRtxdiDiGlassDebug",
-        "PathTraceMaterialFeatureRecord t80 plus runtime constants b88"
+        "PathTraceMaterialFeatureRecord t80 plus runtime constants b88 with feature parameter lanes"
     };
     return registration;
 }

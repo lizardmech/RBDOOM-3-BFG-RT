@@ -90,6 +90,28 @@ void AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(
             : RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID;
 }
 
+void ResolvePathTraceCleanRtxdiDiSharedDebugOutputs(
+    RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount)
+{
+    uint32_t claimedDebugOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    for (size_t i = 0; registrations && i < registrationCount; ++i)
+    {
+        RtPathTraceMaterialFeaturePassDesc& passDesc = registrations[i].passDesc;
+        const uint32_t duplicateDebugOutputs =
+            passDesc.resourceOutputs & claimedDebugOutputs & RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
+        if (duplicateDebugOutputs != RT_MATERIAL_FEATURE_RESOURCE_NONE)
+        {
+            passDesc.resourceOutputs &= ~duplicateDebugOutputs;
+            if ((passDesc.primaryOutputResource & duplicateDebugOutputs) != 0u)
+            {
+                passDesc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+            }
+        }
+        claimedDebugOutputs |= passDesc.resourceOutputs & RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
+    }
+}
+
 }
 
 size_t PathTraceCleanRtxdiDiMaterialFeatureRegistryCount()
@@ -112,6 +134,9 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryRegistrations(
             AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(registrations[i], i);
         }
     }
+    ResolvePathTraceCleanRtxdiDiSharedDebugOutputs(
+        registrations,
+        registryCount < registrationCapacity ? registryCount : registrationCapacity);
     return registryCount;
 }
 

@@ -19,7 +19,10 @@ bool PathTraceCleanRtxdiDiGlassFeatureSupported(PathTraceMaterialFeature feature
         (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER) != 0u;
 }
 
-float4 PathTraceCleanRtxdiDiGlassDebugColor(uint2 pixel, uint2 dimensions)
+float4 PathTraceCleanRtxdiDiGlassDebugColor(
+    uint2 pixel,
+    uint2 dimensions,
+    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
     PathTracePrimarySurfaceRecord record;
     if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
@@ -32,15 +35,18 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(uint2 pixel, uint2 dimensions)
     if (PathTraceCleanRtxdiDiGlassFeatureSupported(feature))
     {
         const float viewFacing = saturate(abs(dot(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceViewDir(surface))));
-        return float4(0.05, 0.45 + 0.35 * viewFacing, 1.0, 1.0);
+        const float3 baseColor = runtimeParams.params0.xyz;
+        const float viewFacingScale = runtimeParams.params0.w;
+        return float4(baseColor.x, baseColor.y + viewFacingScale * viewFacing, baseColor.z, 1.0);
     }
 
     if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS)
     {
-        return float4(0.65, 0.05, 0.85, 1.0);
+        return float4(runtimeParams.params1.xyz, 1.0);
     }
 
-    return float4(0.015, 0.015, 0.025, 1.0);
+    const float unsupportedOpaque = runtimeParams.params1.w;
+    return float4(unsupportedOpaque, unsupportedOpaque, unsupportedOpaque + 0.01, 1.0);
 }
 
 [shader("raygeneration")]
@@ -60,7 +66,9 @@ void RayGen()
         return;
     }
 
-    SmokeOutput[pixel] = PathTraceCleanRtxdiDiGlassDebugColor(pixel, dimensions);
+    const PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams =
+        PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeParams();
+    SmokeOutput[pixel] = PathTraceCleanRtxdiDiGlassDebugColor(pixel, dimensions, runtimeParams);
 }
 
 #endif

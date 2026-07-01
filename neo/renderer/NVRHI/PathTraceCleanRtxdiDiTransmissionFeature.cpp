@@ -74,9 +74,12 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiTransmissionBind
 
 static void FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
-    const RtPathTraceMaterialFeaturePassDesc&)
+    const RtPathTraceMaterialFeaturePassDesc& passDesc)
 {
-    runtimeInfo.debugMode = r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0 ? 1.0f : 0.0f;
+    const bool debugOutputEnabled =
+        r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0 &&
+        PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
+    runtimeInfo.debugMode = debugOutputEnabled ? 1.0f : 0.0f;
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(

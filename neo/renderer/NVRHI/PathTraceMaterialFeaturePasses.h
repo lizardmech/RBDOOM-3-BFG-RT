@@ -122,11 +122,15 @@ struct RtPathTraceMaterialFeatureRuntimeInfo
     float ready = 0.0f;
     float debugMode = 0.0f;
     float frameIndex = 0.0f;
+    float featureParams0[4] = {};
+    float featureParams1[4] = {};
 };
 
 struct RtPathTraceMaterialFeatureRuntimeConstants
 {
     float runtimeInfo[4] = {};
+    float featureParams0[4] = {};
+    float featureParams1[4] = {};
 };
 
 using RtPathTraceMaterialFeatureRuntimeInfoCallback = void (*)(
@@ -176,6 +180,7 @@ inline bool PathTraceMaterialFeaturePassWritesAllOutputs(const RtPathTraceMateri
 inline bool PathTraceMaterialFeaturePassIsReady(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t requiredInputs, uint32_t requiredOutputs)
 {
     return desc.enabled &&
+        desc.resourceOutputs != RT_MATERIAL_FEATURE_RESOURCE_NONE &&
         PathTraceMaterialFeaturePassHasAllInputs(desc, requiredInputs) &&
         PathTraceMaterialFeaturePassWritesAllOutputs(desc, requiredOutputs);
 }
