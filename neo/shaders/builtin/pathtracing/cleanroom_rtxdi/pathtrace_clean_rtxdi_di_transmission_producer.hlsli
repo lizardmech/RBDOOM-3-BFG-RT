@@ -31,7 +31,9 @@ void RayGen()
 
     const float4 sentinel = PathTraceCleanRoomTransmissionProducerSentinel(pixel, dimensions);
     PathTraceCleanRtxdiDiTransmissionOutput[pixel] = sentinel;
-    if (CleanRtxdiDiToyPathInfo.x >= 0.5)
+    const PathTraceMaterialFeatureRuntimeInfo runtimeInfo =
+        LoadPathTraceMaterialFeatureRuntimeInfo(CleanRtxdiDiToyPathInfo);
+    if (runtimeInfo.writesOutputColor)
     {
         SmokeOutput[pixel] = sentinel;
     }

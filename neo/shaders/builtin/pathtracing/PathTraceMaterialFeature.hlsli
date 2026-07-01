@@ -55,6 +55,24 @@ static const uint RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER = 0x00000020
 static const uint RT_PATH_TRACE_MATERIAL_PASS_RR_GUIDE_EXPORT = 0x00000040u;
 static const uint RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER = 0x00000080u;
 
+struct PathTraceMaterialFeatureRuntimeInfo
+{
+    bool writesOutputColor;
+    bool ready;
+    float debugMode;
+    float frameIndex;
+};
+
+PathTraceMaterialFeatureRuntimeInfo LoadPathTraceMaterialFeatureRuntimeInfo(float4 packedRuntimeInfo)
+{
+    PathTraceMaterialFeatureRuntimeInfo runtimeInfo;
+    runtimeInfo.writesOutputColor = packedRuntimeInfo.x >= 0.5;
+    runtimeInfo.ready = packedRuntimeInfo.y >= 0.5;
+    runtimeInfo.debugMode = packedRuntimeInfo.z;
+    runtimeInfo.frameIndex = packedRuntimeInfo.w;
+    return runtimeInfo;
+}
+
 static const uint RT_PATH_TRACE_FEATURE_SURFACE_CLASS_TRANSLUCENT = 3u;
 static const uint RT_PATH_TRACE_FEATURE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 static const uint RT_PATH_TRACE_FEATURE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
