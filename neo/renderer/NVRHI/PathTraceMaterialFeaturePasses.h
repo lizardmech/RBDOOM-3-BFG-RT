@@ -8,6 +8,7 @@
 
 #include "PathTracePrimarySurface.h"
 
+#include <cstddef>
 #include <cstdint>
 
 enum class RtPathTraceMaterialFeaturePassKind : uint8_t
@@ -82,6 +83,23 @@ struct RtPathTraceMaterialFeatureShaderDesc
     const char* shaderBlobPath = nullptr;
 };
 
+enum class RtPathTraceMaterialFeatureBindingKind : uint8_t
+{
+    Unknown = 0,
+    StructuredBufferSrv,
+    StructuredBufferUav,
+    ConstantBuffer,
+    TextureUav
+};
+
+struct RtPathTraceMaterialFeatureBindingDesc
+{
+    uint32_t resource = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    uint32_t slot = 0xffffffffu;
+    RtPathTraceMaterialFeatureBindingKind kind = RtPathTraceMaterialFeatureBindingKind::Unknown;
+    const char* debugName = "unknown";
+};
+
 struct RtPathTraceMaterialFeatureRuntimeInfo
 {
     float writesOutputColor = 0.0f;
@@ -109,6 +127,8 @@ struct RtPathTraceMaterialFeaturePassRegistration
 {
     RtPathTraceMaterialFeaturePassDesc passDesc;
     RtPathTraceMaterialFeatureShaderDesc shaderDesc;
+    const RtPathTraceMaterialFeatureBindingDesc* bindingMetadata = nullptr;
+    size_t bindingMetadataCount = 0;
     RtPathTraceMaterialFeatureRuntimeInfoCallback runtimeInfoCallback = nullptr;
     RtPathTraceMaterialFeatureValidationDesc validation;
 };
@@ -141,6 +161,44 @@ inline bool PathTraceMaterialFeaturePassIsReady(const RtPathTraceMaterialFeature
         ? desc.primaryOutputResource
         : desc.resourceOutputs;
     return PathTraceMaterialFeaturePassIsReady(desc, desc.resourceInputs, requiredOutputs);
+}
+
+inline bool PathTraceMaterialFeatureBindingMetadataCoversResource(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    uint32_t resource)
+{
+    for (size_t i = 0; registration.bindingMetadata && i < registration.bindingMetadataCount; ++i)
+    {
+        if (registration.bindingMetadata[i].resource == resource &&
+            registration.bindingMetadata[i].slot != 0xffffffffu &&
+            registration.bindingMetadata[i].kind != RtPathTraceMaterialFeatureBindingKind::Unknown)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool PathTraceMaterialFeatureBindingMetadataCoversResources(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    uint32_t resources)
+{
+    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
+    {
+        if ((resources & resource) != 0u &&
+            !PathTraceMaterialFeatureBindingMetadataCoversResource(registration, resource))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline bool PathTraceMaterialFeatureBindingMetadataCoversPass(
+    const RtPathTraceMaterialFeaturePassRegistration& registration)
+{
+    return PathTraceMaterialFeatureBindingMetadataCoversResources(registration, registration.passDesc.resourceInputs) &&
+        PathTraceMaterialFeatureBindingMetadataCoversResources(registration, registration.passDesc.resourceOutputs);
 }
 
 inline RtPathTraceMaterialFeaturePassDesc BuildPathTracePrimarySurfaceFeaturePassDesc(bool enabled)

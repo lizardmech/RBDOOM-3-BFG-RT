@@ -246,6 +246,12 @@ static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
         return false;
     }
 
+    if (!PathTraceMaterialFeatureBindingMetadataCoversPass(registration))
+    {
+        common->Printf("PathTracePrimaryPass: %s material-feature registration is missing binding metadata\n", registration.shaderDesc.label);
+        return false;
+    }
+
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
     if (!device)
     {

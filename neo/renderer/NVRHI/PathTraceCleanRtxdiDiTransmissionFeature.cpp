@@ -34,6 +34,45 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     return desc;
 }
 
+static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiTransmissionBindings[] = {
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE,
+        30u,
+        RtPathTraceMaterialFeatureBindingKind::StructuredBufferUav,
+        "PrimarySurfaceHistoryCurrent"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE,
+        13u,
+        RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
+        "PathTraceMaterialTable"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR,
+        80u,
+        RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
+        "PathTraceMaterialFeatures"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
+        88u,
+        RtPathTraceMaterialFeatureBindingKind::ConstantBuffer,
+        "PathTraceMaterialFeatureRuntimeConstants"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT,
+        87u,
+        RtPathTraceMaterialFeatureBindingKind::TextureUav,
+        "PathTraceCleanRtxdiDiTransmissionOutput"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR,
+        1u,
+        RtPathTraceMaterialFeatureBindingKind::TextureUav,
+        "output-color"
+    }
+};
+
 static void FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc&)
@@ -58,6 +97,8 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         "clean-room RTXDI DI transmission producer",
         "builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin"
     };
+    registration.bindingMetadata = kCleanRtxdiDiTransmissionBindings;
+    registration.bindingMetadataCount = sizeof(kCleanRtxdiDiTransmissionBindings) / sizeof(kCleanRtxdiDiTransmissionBindings[0]);
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo;
     registration.validation = {
         "cmake --build --preset win64-pt-dev-release",
