@@ -183,11 +183,17 @@ static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceClean
 
 static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiMaterialFeatureLayoutPassDesc()
 {
-    return BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
-        true,
-        16,
-        true,
-        false).passDesc;
+    RtPathTraceMaterialFeaturePassDesc layoutDesc;
+    const RtPathTraceMaterialFeaturePassRegistration registrations[] = {
+        BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(true, 16, true, true),
+        BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration()
+    };
+    for (const RtPathTraceMaterialFeaturePassRegistration& registration : registrations)
+    {
+        layoutDesc.resourceInputs |= registration.passDesc.resourceInputs;
+        layoutDesc.resourceOutputs |= registration.passDesc.resourceOutputs;
+    }
+    return layoutDesc;
 }
 
 static bool LoadPathTraceCleanRtxdiDiMaterialFeatureShaderLibrary(

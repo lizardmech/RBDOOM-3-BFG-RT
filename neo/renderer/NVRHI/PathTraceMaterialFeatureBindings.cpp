@@ -48,6 +48,18 @@ const RtPathTraceMaterialFeatureInputBindingDesc* FindPathTraceMaterialFeatureIn
     return nullptr;
 }
 
+bool BindingLayoutContains(const nvrhi::BindingLayoutDesc& desc, nvrhi::ResourceType type, uint32_t slot)
+{
+    for (const nvrhi::BindingLayoutItem& binding : desc.bindings)
+    {
+        if (binding.type == type && binding.slot == slot)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void AddOrReplaceTextureUavBinding(nvrhi::BindingSetDesc& desc, uint32_t slot, nvrhi::TextureHandle texture)
 {
     const nvrhi::BindingSetItem item = nvrhi::BindingSetItem::Texture_UAV(slot, texture);
@@ -75,10 +87,16 @@ void AddPathTraceMaterialFeatureInputLayoutBinding(nvrhi::BindingLayoutDesc& des
     switch (binding->kind)
     {
     case RtPathTraceMaterialFeatureInputBindingKind::StructuredBufferSrv:
-        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(binding->slot));
+        if (!BindingLayoutContains(desc, nvrhi::ResourceType::StructuredBuffer_SRV, binding->slot))
+        {
+            desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(binding->slot));
+        }
         break;
     case RtPathTraceMaterialFeatureInputBindingKind::ConstantBuffer:
-        desc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(binding->slot));
+        if (!BindingLayoutContains(desc, nvrhi::ResourceType::ConstantBuffer, binding->slot))
+        {
+            desc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(binding->slot));
+        }
         break;
     }
 }
@@ -133,7 +151,8 @@ void AddPathTraceMaterialFeatureInputBindings(nvrhi::BindingSetDesc& desc, const
 void AddPathTraceMaterialFeatureOutputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource)
 {
     const RtPathTraceMaterialFeatureOutputDesc* output = FindPathTraceMaterialFeatureOutputDesc(resource);
-    if (output && output->uavSlot != 0xffffffffu)
+    if (output && output->uavSlot != 0xffffffffu &&
+        !BindingLayoutContains(desc, nvrhi::ResourceType::Texture_UAV, output->uavSlot))
     {
         desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(output->uavSlot));
     }
