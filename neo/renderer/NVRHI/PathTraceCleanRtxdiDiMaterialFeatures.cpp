@@ -545,21 +545,32 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
     nvrhi::BufferHandle constantsBuffer,
     const void* baseConstants,
     size_t baseConstantsSize,
-    size_t runtimeInfoOffset,
+    const float* baseRuntimeInfo,
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceFrameResources& frameResources,
     bool nsightGpuMarkers)
 {
     const RtPathTraceMaterialFeatureRuntimePass featurePass =
         BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
-    if (!commandList || !baseConstants || !featurePass.ready || !featurePass.shader || !featurePass.shader->shaderTable)
+    if (!commandList || !baseConstants || !baseRuntimeInfo ||
+        !featurePass.ready || !featurePass.shader || !featurePass.shader->shaderTable)
     {
         return;
     }
-    if (baseConstantsSize == 0 || baseConstantsSize > 512 || runtimeInfoOffset + sizeof(float) * 4 > baseConstantsSize)
+    if (baseConstantsSize == 0 || baseConstantsSize > 512)
     {
         return;
     }
+
+    const unsigned char* baseConstantsBytes = static_cast<const unsigned char*>(baseConstants);
+    const unsigned char* baseConstantsEnd = baseConstantsBytes + baseConstantsSize;
+    const unsigned char* runtimeInfoBytes = reinterpret_cast<const unsigned char*>(baseRuntimeInfo);
+    if (runtimeInfoBytes < baseConstantsBytes ||
+        runtimeInfoBytes + sizeof(float) * 4 > baseConstantsEnd)
+    {
+        return;
+    }
+    const size_t runtimeInfoOffset = static_cast<size_t>(runtimeInfoBytes - baseConstantsBytes);
 
     nvrhi::rt::State featureState = baseState;
     featureState.shaderTable = featurePass.shader->shaderTable;

@@ -4046,7 +4046,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeCleanRtxdiDiSentinelConstantsBuffer,
             &cleanConstants,
             sizeof(cleanConstants),
-            offsetof(PathTraceCleanRtxdiDiSentinelConstants, toyPathInfo),
+            cleanConstants.toyPathInfo,
             cleanRtxdiDiTransmissionPass,
             m_frameResources,
             nsightGpuMarkers);

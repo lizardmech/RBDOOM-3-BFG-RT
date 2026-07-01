@@ -87,7 +87,7 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
     nvrhi::BufferHandle constantsBuffer,
     const void* baseConstants,
     size_t baseConstantsSize,
-    size_t runtimeInfoOffset,
+    const float* baseRuntimeInfo,
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceFrameResources& frameResources,
     bool nsightGpuMarkers);
