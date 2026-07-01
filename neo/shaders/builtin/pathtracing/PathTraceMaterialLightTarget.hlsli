@@ -17,27 +17,13 @@ float MaterialEvaluateOpaqueDirectLightSampleTargetPdf(RAB_LightSample lightSamp
         return 0.0;
     }
 
-    RAB_Surface targetSurface = surface;
-#ifdef RB_RAB_CLEAN_RTXDI_DI_SENTINEL
-    targetSurface.material.diffuseAlbedo = max(targetSurface.material.diffuseAlbedo, float3(0.2, 0.2, 0.2));
-    targetSurface.material.roughness = max(targetSurface.material.roughness, 0.0009);
-#endif
-
     float3 lightDir;
     float lightDistance;
-    RAB_GetLightDirDistance(targetSurface, lightSample, lightDir, lightDistance);
-    const float3 brdf = EvaluateOpaqueDirectBrdf(targetSurface, lightDir, RAB_GetSurfaceViewDir(targetSurface));
-    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(targetSurface), lightDir));
+    RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
+    const float3 brdf = EvaluateOpaqueDirectBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface));
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(surface), lightDir));
     const float3 reflected = brdf * lightSample.radiance * ndotl;
-    const float targetPdf = RAB_Luminance(reflected) / max(lightSample.solidAnglePdf, 1.0e-6);
-#ifdef RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES
-    if (lightSample.lightType == 1u &&
-        (CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DOOM_TARGET_FLOOR) != 0u)
-    {
-        return max(targetPdf, max(RAB_Luminance(lightSample.radiance), 1.0e-4));
-    }
-#endif
-    return targetPdf;
+    return RAB_Luminance(reflected) / max(lightSample.solidAnglePdf, 1.0e-6);
 }
 
 float3 MaterialEvaluateOpaqueDirectReflectedRadiance(float3 incomingRadianceLocation, float3 incomingRadiance, RAB_Surface surface)

@@ -93,12 +93,6 @@ float3 RAB_BuildPerpendicular(float3 normal)
 
 bool RAB_SurfaceSupportsOpaqueDiffuseBrdf(RAB_Surface surface)
 {
-#ifdef RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES
-    if ((CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_RELAX_BRDF_GATES) != 0u)
-    {
-        return RAB_IsSurfaceValid(surface) && surface.material.opacity > 0.0;
-    }
-#endif
     return MaterialSupportsOpaqueDirect(surface);
 }
 
