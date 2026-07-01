@@ -1,0 +1,188 @@
+#ifndef RB_PATH_TRACE_CLEAN_RTXDI_DI_SURFACE_ADAPTER_HLSLI
+#define RB_PATH_TRACE_CLEAN_RTXDI_DI_SURFACE_ADAPTER_HLSLI
+
+bool PathTraceCleanRoomLoadSurfaceRecord(uint2 pixel, uint2 dimensions, out PathTracePrimarySurfaceRecord record)
+{
+    record = (PathTracePrimarySurfaceRecord)0;
+    const uint width = CleanRtxdiDiWidth != 0u ? CleanRtxdiDiWidth : dimensions.x;
+    const uint height = CleanRtxdiDiHeight != 0u ? CleanRtxdiDiHeight : dimensions.y;
+    if (width == 0u || height == 0u || pixel.x >= width || pixel.y >= height)
+    {
+        return false;
+    }
+
+    record = PrimarySurfaceHistoryCurrent[pixel.y * width + pixel.x];
+    return record.header.x == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION &&
+        (record.header.y & RT_PRIMARY_SURFACE_VALID) != 0u;
+}
+
+bool PathTraceCleanRoomLoadSurfaceRecordSigned(int2 pixel, uint2 dimensions, bool previousFrame, out PathTracePrimarySurfaceRecord record)
+{
+    record = (PathTracePrimarySurfaceRecord)0;
+    const uint width = CleanRtxdiDiWidth != 0u ? CleanRtxdiDiWidth : dimensions.x;
+    const uint height = CleanRtxdiDiHeight != 0u ? CleanRtxdiDiHeight : dimensions.y;
+    if (width == 0u || height == 0u || pixel.x < 0 || pixel.y < 0 || (uint)pixel.x >= width || (uint)pixel.y >= height)
+    {
+        return false;
+    }
+
+    const uint index = (uint)pixel.y * width + (uint)pixel.x;
+    if (previousFrame)
+    {
+        record = PrimarySurfaceHistoryPrevious[index];
+    }
+    else
+    {
+        record = PrimarySurfaceHistoryCurrent[index];
+    }
+    return record.header.x == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION &&
+        (record.header.y & RT_PRIMARY_SURFACE_VALID) != 0u;
+}
+
+bool PathTraceCleanRoomIsCachedRigidRouteHit(uint instanceId)
+{
+    if (instanceId < 2u)
+    {
+        return false;
+    }
+
+    const uint routeInstanceIndex = instanceId - 2u;
+    const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
+    if (routeInstanceIndex >= rigidRouteInstanceCount)
+    {
+        return false;
+    }
+
+    const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+    return (routeInstance.flags & PT_RIGID_ROUTE_CACHED_SOURCE) != 0u;
+}
+
+uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
+{
+    if (instanceId == 0u)
+    {
+        return primitiveIndex < CleanRtxdiDiStaticTriangleCount
+            ? SmokeStaticTriangleMaterialIndexes[primitiveIndex]
+            : 0xffffffffu;
+    }
+
+    if (instanceId == 1u)
+    {
+        return primitiveIndex < CleanRtxdiDiDynamicTriangleCount
+            ? SmokeDynamicTriangleMaterialIndexes[primitiveIndex]
+            : 0xffffffffu;
+    }
+
+    const uint routeInstanceIndex = instanceId - 2u;
+    const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
+    if (routeInstanceIndex >= rigidRouteInstanceCount)
+    {
+        return 0xffffffffu;
+    }
+
+    const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+    const uint routedPrimitiveIndex = routeInstance.triangleOffset + primitiveIndex;
+    if (primitiveIndex >= routeInstance.triangleCount ||
+        routedPrimitiveIndex >= CleanRtxdiDiRigidRouteTriangleCount)
+    {
+        return 0xffffffffu;
+    }
+
+    return SmokeRigidRouteTriangleMaterialIndexes[routedPrimitiveIndex];
+}
+
+uint PathTraceCleanRoomResolveLiveMaterialIndex(PathTracePrimarySurfaceRecord record)
+{
+    const uint recordMaterialIndex = record.materialAndSurface.y;
+    const uint liveMaterialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(
+        record.instancePrimitiveObject.x,
+        record.instancePrimitiveObject.y);
+    return liveMaterialIndex < (uint)TextureInfo.z ? liveMaterialIndex : recordMaterialIndex;
+}
+
+RAB_Surface PathTraceCleanRoomSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
+{
+    RAB_Surface surface = RAB_EmptySurface();
+    if (record.header.x != RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION ||
+        (record.header.y & RT_PRIMARY_SURFACE_VALID) == 0u)
+    {
+        return surface;
+    }
+
+    surface.valid = 1u;
+    surface.worldPos = record.worldPositionAndViewDepth.xyz;
+    surface.linearDepth = record.worldPositionAndViewDepth.w;
+    surface.geometryNormal = PathTraceCleanRoomSafeNormalize(record.geometricNormalAndRoughness.xyz, float3(0.0, 0.0, 1.0));
+    surface.shadingNormal = PathTraceCleanRoomSafeNormalize(record.shadingNormalAndOpacity.xyz, surface.geometryNormal);
+    surface.viewDir = PathTraceCleanRoomSafeNormalize(record.viewDirectionAndReserved.xyz, -surface.shadingNormal);
+    surface.materialId = record.materialAndSurface.x;
+    surface.materialIndex = record.materialAndSurface.y;
+    surface.surfaceClass = record.materialAndSurface.w & 0xffu;
+    surface.material = RAB_EmptyMaterial();
+    surface.material.materialId = surface.materialId;
+    surface.material.materialIndex = surface.materialIndex;
+    surface.material.diffuseAlbedo = float3(0.5, 0.5, 0.5);
+    surface.material.roughness = 1.0;
+    surface.material.opacity = 1.0;
+    return surface;
+}
+
+RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
+{
+    RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(record);
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return surface;
+    }
+
+    surface.flags = record.header.w;
+    surface.instanceId = record.instancePrimitiveObject.x;
+    surface.primitiveIndex = record.instancePrimitiveObject.y;
+
+    const uint resolvedMaterialIndex = PathTraceCleanRoomResolveLiveMaterialIndex(record);
+
+    RAB_Material material = RAB_EmptyMaterial();
+    material.materialId = surface.materialId;
+    material.materialIndex = resolvedMaterialIndex;
+    material.flags = record.materialAndSurface.z;
+    material.alphaCutoff = record.albedoAndAlphaCutoff.w;
+    material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
+    material.roughness = saturate(record.geometricNormalAndRoughness.w);
+    material.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
+    PathTraceCleanRoomApplyLiveMaterialClassifierBsdf(
+        material.materialIndex,
+        material.diffuseAlbedo,
+        material.specularF0,
+        material.roughness);
+    material.opacity = saturate(record.shadingNormalAndOpacity.w);
+    material.emissiveRadiance = max(record.emissiveAndHeight.xyz, float3(0.0, 0.0, 0.0));
+    material.emissiveTextureIndex = record.instancePrimitiveObject.w;
+    surface.materialIndex = resolvedMaterialIndex;
+    surface.material = material;
+    return surface;
+}
+
+RAB_Surface PathTraceCleanRoomSurfaceForView(PathTracePrimarySurfaceRecord record)
+{
+    if (CleanRtxdiDiView == 16u ||
+        PathTraceCleanRoomLiveMaterialClassifierBsdfActive(PathTraceCleanRoomResolveLiveMaterialIndex(record)))
+    {
+        return PathTraceCleanRoomMaterialSurfaceFromRecord(record);
+    }
+    return PathTraceCleanRoomSurfaceFromRecord(record);
+}
+
+RAB_Surface RAB_GetGBufferSurface(int2 pixel, bool previousFrame)
+{
+    const uint2 dimensions = uint2(
+        CleanRtxdiDiWidth != 0u ? CleanRtxdiDiWidth : DispatchRaysDimensions().x,
+        CleanRtxdiDiHeight != 0u ? CleanRtxdiDiHeight : DispatchRaysDimensions().y);
+    PathTracePrimarySurfaceRecord record;
+    if (!PathTraceCleanRoomLoadSurfaceRecordSigned(pixel, dimensions, previousFrame, record))
+    {
+        return RAB_EmptySurface();
+    }
+    return PathTraceCleanRoomSurfaceForView(record);
+}
+
+#endif
