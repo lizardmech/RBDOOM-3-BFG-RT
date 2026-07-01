@@ -5966,6 +5966,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
     bufferCreateDesc.existingBuffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
     bufferCreateDesc.existingBuffers.materialTableBuffer = m_smokeMaterialTableBuffer;
+    bufferCreateDesc.existingBuffers.materialFeatureBuffer = m_smokeMaterialFeatureBuffer;
     bufferCreateDesc.existingBuffers.dynamicMaterialBuffer = m_smokeDynamicMaterialBuffer;
     bufferCreateDesc.existingBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
     bufferCreateDesc.existingBuffers.previousEmissiveTriangleBuffer = m_smokePreviousEmissiveTriangleBuffer;
@@ -6027,6 +6028,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.dynamicTriangleMaterialBytes = dynamicTriangleMaterialData.size() * sizeof(dynamicTriangleMaterialData[0]);
     bufferCreateDesc.dynamicTriangleMaterialIndexBytes = materialTable.dynamicMaterialIndexes.size() * sizeof(materialTable.dynamicMaterialIndexes[0]);
     bufferCreateDesc.materialTableBytes = gpuMaterialTableMaterials.size() * sizeof(gpuMaterialTableMaterials[0]);
+    bufferCreateDesc.materialFeatureBytes = materialTable.materialFeatures.size() * sizeof(materialTable.materialFeatures[0]);
     bufferCreateDesc.dynamicMaterialBytes = dynamicMaterialRecords.size() * sizeof(dynamicMaterialRecords[0]);
     bufferCreateDesc.emissiveTriangleBytes = emissiveTriangles.size() * sizeof(emissiveTriangles[0]);
     bufferCreateDesc.previousEmissiveTriangleBytes = previousEmissiveTriangles.size() * sizeof(PathTraceSmokeEmissiveTriangle);
@@ -6116,6 +6118,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeDynamicTriangleMaterialBuffer = smokeBuffers.dynamicTriangleMaterialBuffer;
     nvrhi::BufferHandle smokeDynamicTriangleMaterialIndexBuffer = smokeBuffers.dynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle smokeMaterialTableBuffer = smokeBuffers.materialTableBuffer;
+    nvrhi::BufferHandle smokeMaterialFeatureBuffer = smokeBuffers.materialFeatureBuffer;
     nvrhi::BufferHandle smokeDynamicMaterialBuffer = smokeBuffers.dynamicMaterialBuffer;
     nvrhi::BufferHandle smokeEmissiveTriangleBuffer = smokeBuffers.emissiveTriangleBuffer;
     nvrhi::BufferHandle smokePreviousEmissiveTriangleBuffer = smokeBuffers.previousEmissiveTriangleBuffer;
@@ -6729,6 +6732,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         "dynamicTriangleMaterial",
         "dynamicTriangleMaterialIndex",
         "materialTable",
+        "materialFeature",
         "dynamicMaterial",
         "emissiveTriangle",
         "previousEmissiveTriangle",
@@ -6779,6 +6783,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, gpuMaterialTableMaterials, nvrhi::ResourceStates::ShaderResource, skipMaterialTableUpload, materialTableUploadOffset, materialTableUploadCount),
+        MakeSmokeVectorUploadItem(smokeMaterialFeatureBuffer, materialTable.materialFeatures, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicMaterialBuffer, dynamicMaterialRecords, nvrhi::ResourceStates::ShaderResource, skipDynamicMaterialUpload, dynamicMaterialUploadOffset, dynamicMaterialUploadCount),
         MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokePreviousEmissiveTriangleBuffer, previousEmissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
@@ -7075,8 +7080,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t previousStaticUploadBytes = SumSmokeUploadBytes(uploadItems, 5, 5);
     const uint64_t previousStaticUploadSkippedBytes = SumSmokeSkippedUploadBytes(uploadItems, 5, 5);
     const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 10, 5);
-    const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 2);
-    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 17, 17);
+    const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 3);
+    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 18, 19);
     const uint64_t rigidRouteGeometryBytes =
         rigidRouteBuild.vertices.size() * sizeof(PathTraceSmokeVertex) +
         rigidRouteBuild.indexes.size() * sizeof(uint32_t) +
@@ -7089,15 +7094,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t rigidRouteSkippedUploadBytes =
         (skipRigidRouteSideBufferUpload ? rigidRouteGeometryBytes : 0ull) +
         (skipRigidRouteInstanceBufferUpload ? rigidRouteInstanceBytes : 0ull);
-    const uint64_t skinnedUploadBytes = SumSmokeUploadBytes(uploadItems, 41, 7);
-    const uint64_t skinnedSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 41, 7);
+    const uint64_t skinnedUploadBytes = SumSmokeUploadBytes(uploadItems, 42, 7);
+    const uint64_t skinnedSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 42, 7);
     if (r_pathTracingBufferUploadDump.GetInteger() != 0)
     {
         const uint64_t staticSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 0, 5);
         const uint64_t dynamicSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 10, 5);
-        const uint64_t materialSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 15, 2);
-        const uint64_t bufferDumpLightUploadBytes = SumSmokeUploadBytes(uploadItems, 17, 19);
-        const uint64_t lightSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 17, 19);
+        const uint64_t materialSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 15, 3);
+        const uint64_t bufferDumpLightUploadBytes = SumSmokeUploadBytes(uploadItems, 18, 19);
+        const uint64_t lightSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 18, 19);
         common->Printf(
             "PathTracePrimaryPass: PT buffer upload dump frame=%llu residency=%d staticBlasCacheHit=%d dirtyRange=%d bufferUploadMs=%d totals write(static/prevStatic/dynamic/material/light/rigid/skinned)=%llu/%llu/%llu/%llu/%llu/%llu/%llu skip(static/prevStatic/dynamic/material/light/rigid/skinned)=%llu/%llu/%llu/%llu/%llu/%llu/%llu\n",
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
@@ -7142,7 +7147,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (r_pathTracingMaterialUploadDump.GetInteger() != 0)
     {
         const RtSmokeBufferUploadItem& materialTableUpload = uploadItems[15];
-        const RtSmokeBufferUploadItem& dynamicMaterialUpload = uploadItems[16];
+        const RtSmokeBufferUploadItem& dynamicMaterialUpload = uploadItems[17];
         const RtSmokeMaterialUploadDiffSummary materialDiffSummary = BuildSmokeMaterialUploadDiffSummary(
             m_smokeMaterialTableMaterials,
             gpuMaterialTableMaterials,
@@ -7640,9 +7645,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         RT_SCENE_INPUT_SKINNED_GPU_SKINNING_RESERVED;
 
     sceneInputs.materials.materialTableBuffer = smokeMaterialTableBuffer;
+    sceneInputs.materials.materialFeatureBuffer = smokeMaterialFeatureBuffer;
     sceneInputs.materials.dynamicMaterialBuffer = smokeDynamicMaterialBuffer;
     sceneInputs.materials.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
     sceneInputs.materials.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
+    sceneInputs.materials.materialFeatureRecordCount = static_cast<int>(materialTable.materialFeatures.size());
     sceneInputs.materials.dynamicMaterialRecordCount = static_cast<int>(dynamicMaterialRecords.size());
     sceneInputs.materials.materialTableGpuStable = stableGpuMaterialTableCovered;
     sceneInputs.materials.activeTextureCount = static_cast<int>(bindingBuildResult.activeTextureTable.size());
@@ -7793,6 +7800,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
         m_smokeMaterialTableMaterials = gpuMaterialTableMaterials;
+        m_smokeMaterialFeatureRecords = materialTable.materialFeatures;
         m_smokeDynamicMaterialRecords = dynamicMaterialRecords;
         m_smokePreviousEmissiveTriangles = emissiveTriangles;
         m_smokePreviousStaticSnapshotUploadSignature = previousStaticSnapshotUploadSignature;

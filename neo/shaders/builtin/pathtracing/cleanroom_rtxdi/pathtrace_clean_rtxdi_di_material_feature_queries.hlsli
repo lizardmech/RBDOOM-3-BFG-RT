@@ -11,8 +11,39 @@ float4 PathTraceCleanRtxdiDiMaterialFailClosedDebugColor(RAB_Surface surface, ui
     return MaterialFailClosedDebugColor(surface, passKind);
 }
 
+bool PathTraceCleanRtxdiDiLoadMaterialFeature(uint materialIndex, out PathTraceMaterialFeature feature)
+{
+    feature = (PathTraceMaterialFeature)0;
+#if defined(RB_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_SIDECAR)
+    const uint materialCount = (uint)TextureInfo.z;
+    if (materialIndex >= materialCount)
+    {
+        return false;
+    }
+
+    feature = PathTraceMaterialFeatureFromRecord(PathTraceMaterialFeatures[materialIndex]);
+    return feature.parameterRecordIndex == materialIndex ||
+        feature.parameterRecordIndex == 0xffffffffu;
+#else
+    return false;
+#endif
+}
+
+bool PathTraceMaterialFeatureSupportsTransmission(PathTraceMaterialFeature feature)
+{
+    return (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION) != 0u &&
+        (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u &&
+        (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_PATH_INTEGRATOR) != 0u &&
+        (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER) != 0u;
+}
+
 bool PathTraceCleanRtxdiDiMaterialSupportsTransmission(RAB_Surface surface)
 {
+    PathTraceMaterialFeature feature;
+    if (PathTraceCleanRtxdiDiLoadMaterialFeature(surface.materialIndex, feature))
+    {
+        return PathTraceMaterialFeatureSupportsTransmission(feature);
+    }
     return MaterialSupportsTransmission(surface);
 }
 

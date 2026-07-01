@@ -116,6 +116,19 @@ struct RtPathTracePrimarySurfaceRecord
 };
 static_assert(sizeof(RtPathTracePrimarySurfaceRecord) == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE, "Primary surface CPU/shader record stride mismatch");
 
+struct RtPathTraceMaterialFeatureRecord
+{
+    uint32_t materialKind = RT_PATH_TRACE_MATERIAL_KIND_UNKNOWN;
+    uint32_t materialCaps = RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED;
+    uint32_t lobeCaps = 0;
+    uint32_t passSupport = RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER;
+    uint32_t modifierKind = RT_PATH_TRACE_MATERIAL_MODIFIER_NONE;
+    uint32_t parameterRecordIndex = UINT32_MAX;
+    uint32_t reserved0 = 0;
+    uint32_t reserved1 = 0;
+};
+static_assert(sizeof(RtPathTraceMaterialFeatureRecord) == 32, "Material feature CPU/shader record stride mismatch");
+
 struct RtPathTracePrimarySurfaceHistoryState
 {
     bool currentValid = false;

@@ -8,6 +8,7 @@
 
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceMaterialUniverse.h"
+#include "PathTracePrimarySurface.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -78,6 +79,7 @@ struct RtSmokeMaterialTableBuild
     std::vector<PathTraceSmokeMaterial> materials;
     std::vector<RtSmokeMaterialTextureInfo> materialInfos;
     std::vector<RtSmokeMaterialUniverseFacts> materialFacts;
+    std::vector<RtPathTraceMaterialFeatureRecord> materialFeatures;
     std::vector<uint32_t> staticMaterialIndexes;
     std::vector<uint32_t> dynamicMaterialIndexes;
     std::vector<nvrhi::TextureHandle> diffuseTextures;

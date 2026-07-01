@@ -2206,7 +2206,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
             m_smokeDynamicVertexBuffer && m_smokeDynamicIndexBuffer && m_smokeDynamicTriangleClassBuffer &&
             m_smokeDynamicTriangleMaterialBuffer && m_smokeDynamicTriangleMaterialIndexBuffer &&
-            m_smokeMaterialTableBuffer &&
+            m_smokeMaterialTableBuffer && m_smokeMaterialFeatureBuffer &&
             m_smokeRigidRouteVertexBuffer && m_smokeRigidRouteIndexBuffer &&
             m_smokeRigidRouteTriangleMaterialBuffer && m_smokeRigidRouteTriangleMaterialIndexBuffer &&
             m_smokeRigidRouteInstanceBuffer)) &&
@@ -2229,7 +2229,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_smokeBoundsOverlayLineBuffer && m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer &&
         m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer && m_smokeDynamicVertexBuffer &&
         m_smokeDynamicIndexBuffer && m_smokeDynamicTriangleClassBuffer && m_smokeDynamicTriangleMaterialBuffer &&
-        m_smokeDynamicTriangleMaterialIndexBuffer && m_smokeMaterialTableBuffer && m_smokeEmissiveTriangleBuffer &&
+        m_smokeDynamicTriangleMaterialIndexBuffer && m_smokeMaterialTableBuffer && m_smokeMaterialFeatureBuffer && m_smokeEmissiveTriangleBuffer &&
         m_smokePreviousEmissiveTriangleBuffer && m_smokeEmissiveRemapBuffer && m_smokeEmissiveDistributionBuffer &&
         m_smokeLightCandidateBuffer && m_smokeDoomAnalyticLightBuffer && m_smokeDoomAnalyticPreviousLightBuffer &&
         m_smokeDoomAnalyticCurrentIdentityBuffer && m_smokeDoomAnalyticPreviousIdentityBuffer && m_smokeDoomAnalyticRemapBuffer &&
@@ -2500,7 +2500,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
                 m_smokeDynamicVertexBuffer && m_smokeDynamicIndexBuffer && m_smokeDynamicTriangleClassBuffer &&
                 m_smokeDynamicTriangleMaterialBuffer && m_smokeDynamicTriangleMaterialIndexBuffer &&
-                m_smokeMaterialTableBuffer && m_smokeRigidRouteVertexBuffer && m_smokeRigidRouteIndexBuffer &&
+                m_smokeMaterialTableBuffer && m_smokeMaterialFeatureBuffer && m_smokeRigidRouteVertexBuffer && m_smokeRigidRouteIndexBuffer &&
                 m_smokeRigidRouteTriangleMaterialBuffer && m_smokeRigidRouteTriangleMaterialIndexBuffer &&
                 m_smokeRigidRouteInstanceBuffer && m_smokePreviousStaticVertexBuffer && m_smokePreviousStaticIndexBuffer &&
                 m_smokePreviousStaticTriangleClassBuffer && m_smokePreviousStaticTriangleMaterialBuffer &&
@@ -3426,6 +3426,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, cleanNeeCacheCellSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cleanNeeCacheCandidateSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(80, m_smokeMaterialFeatureBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
         nvrhi::BindingSetHandle cleanBindingSet = device->createBindingSet(cleanBindingSetDesc, m_smokeCleanRtxdiDiSentinelBindingLayout);
         if (!cleanBindingSet)
@@ -3450,6 +3451,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeMaterialFeatureBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeDynamicMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokePreviousEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);

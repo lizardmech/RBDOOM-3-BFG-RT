@@ -3,6 +3,7 @@
 
 #include "../../../vulkan.hlsli"
 #include "../PathTracePrimarySurface.hlsli"
+#include "../PathTraceMaterialFeatureTypes.hlsli"
 #ifdef RTXDI_ENABLE_PRESAMPLING
 #undef RTXDI_ENABLE_PRESAMPLING
 #endif
@@ -228,6 +229,8 @@ StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticPrevio
 StructuredBuffer<PathTraceDoomAnalyticLightRemap> DoomAnalyticRemap : register(t44);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticPreviousLights : register(t45);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokePreviousEmissiveTriangles : register(t57);
+StructuredBuffer<PathTraceMaterialFeatureRecord> PathTraceMaterialFeatures : register(t80);
+#define RB_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_SIDECAR 1
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiCurrentReservoirs : register(u69);
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiTemporalReservoirs : register(u70);
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiPreviousReservoirs : register(u71);
