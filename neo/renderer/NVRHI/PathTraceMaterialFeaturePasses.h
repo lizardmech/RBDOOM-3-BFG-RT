@@ -82,6 +82,18 @@ struct RtPathTraceMaterialFeatureShaderDesc
     const char* shaderBlobPath = nullptr;
 };
 
+struct RtPathTraceMaterialFeatureRuntimeInfo
+{
+    float writesOutputColor = 0.0f;
+    float ready = 0.0f;
+    float debugMode = 0.0f;
+    float frameIndex = 0.0f;
+};
+
+using RtPathTraceMaterialFeatureRuntimeInfoCallback = void (*)(
+    RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc);
+
 struct RtPathTraceMaterialFeatureValidationDesc
 {
     const char* buildProof = "none";
@@ -97,6 +109,7 @@ struct RtPathTraceMaterialFeaturePassRegistration
 {
     RtPathTraceMaterialFeaturePassDesc passDesc;
     RtPathTraceMaterialFeatureShaderDesc shaderDesc;
+    RtPathTraceMaterialFeatureRuntimeInfoCallback runtimeInfoCallback = nullptr;
     RtPathTraceMaterialFeatureValidationDesc validation;
 };
 

@@ -34,6 +34,13 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     return desc;
 }
 
+static void FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
+    RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
+    const RtPathTraceMaterialFeaturePassDesc&)
+{
+    runtimeInfo.debugMode = r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0 ? 1.0f : 0.0f;
+}
+
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
     bool cleanRouteRequested,
     int cleanView)
@@ -51,6 +58,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         "clean-room RTXDI DI transmission producer",
         "builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin"
     };
+    registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo;
     registration.validation = {
         "cmake --build --preset win64-pt-dev-release",
         "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiTransmissionProducer 1; r_pathTracingCleanRtxdiDiTransmissionDebugView 1",

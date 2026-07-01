@@ -15,6 +15,16 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
 }
 
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const RtPathTraceMaterialFeatureShaderState* shaderState)
+{
+    RtPathTraceMaterialFeatureRuntimePass pass =
+        BuildPathTraceMaterialFeatureRuntimePass(registration.passDesc, shaderState);
+    pass.runtimeInfoCallback = registration.runtimeInfoCallback;
+    return pass;
+}
+
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
     const RtPathTraceMaterialFeatureShaderState* shaderStates,
     size_t shaderStateCount)
@@ -115,7 +125,13 @@ RtPathTraceMaterialFeatureRuntimeInfo BuildPathTraceMaterialFeatureRuntimeInfo(c
 
 RtPathTraceMaterialFeatureRuntimeInfo BuildPathTraceMaterialFeatureRuntimeInfo(const RtPathTraceMaterialFeatureRuntimePass& pass)
 {
-    return BuildPathTraceMaterialFeatureRuntimeInfo(pass.desc, pass.ready);
+    RtPathTraceMaterialFeatureRuntimeInfo typedInfo =
+        BuildPathTraceMaterialFeatureRuntimeInfo(pass.desc, pass.ready);
+    if (pass.runtimeInfoCallback)
+    {
+        pass.runtimeInfoCallback(typedInfo, pass.desc);
+    }
+    return typedInfo;
 }
 
 void PackPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimeInfo& typedInfo)

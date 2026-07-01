@@ -28,6 +28,7 @@ struct RtPathTraceMaterialFeatureShaderTableState
 struct RtPathTraceMaterialFeatureRuntimePass
 {
     RtPathTraceMaterialFeaturePassDesc desc;
+    RtPathTraceMaterialFeatureRuntimeInfoCallback runtimeInfoCallback = nullptr;
     const RtPathTraceMaterialFeatureShaderState* shader = nullptr;
     bool ready = false;
 };
@@ -40,16 +41,11 @@ struct RtPathTraceMaterialFeaturePipelineRequest
     std::string shaderPath;
 };
 
-struct RtPathTraceMaterialFeatureRuntimeInfo
-{
-    float writesOutputColor = 0.0f;
-    float ready = 0.0f;
-    float debugMode = 0.0f;
-    float frameIndex = 0.0f;
-};
-
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
+    const RtPathTraceMaterialFeatureShaderState* shaderState);
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
     const RtPathTraceMaterialFeatureShaderState* shaderState);
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,

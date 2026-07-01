@@ -345,7 +345,7 @@ static size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
             ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForPass(*featureState, registration.passDesc)
             : nullptr;
         RtPathTraceMaterialFeatureRuntimePass runtimePass =
-            BuildPathTraceMaterialFeatureRuntimePass(registration.passDesc, shaderState);
+            BuildPathTraceMaterialFeatureRuntimePass(registration, shaderState);
         if (!runtimePass.ready)
         {
             continue;
