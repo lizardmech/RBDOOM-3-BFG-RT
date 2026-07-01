@@ -1,7 +1,6 @@
 #include "precompiled.h"
 #pragma hdrstop
 
-#include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeatureRuntime.h"
 
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
@@ -70,8 +69,7 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     RtPathTraceMaterialFeatureShaderState* shaderStates,
     size_t shaderStateCount,
-    nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
-    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
+    nvrhi::BindingLayoutHandle bindingLayout,
     nvrhi::GraphicsAPI graphicsApi)
 {
     RtPathTraceMaterialFeaturePipelineRequest request;
@@ -89,10 +87,7 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
         return request;
     }
 
-    request.bindingLayout = PathTraceMaterialFeatureBindingLayoutHandle(
-        request.shaderDesc.bindingLayout,
-        coreSmokeBindingLayout,
-        cleanRtxdiDiBindingLayout);
+    request.bindingLayout = bindingLayout;
     request.shaderPath = PathTraceMaterialFeatureShaderPathForGraphicsApi(request.shaderDesc, graphicsApi);
     return request;
 }
@@ -101,8 +96,7 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     RtPathTraceMaterialFeatureShaderTableState& shaderTableState,
-    nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
-    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
+    nvrhi::BindingLayoutHandle bindingLayout,
     nvrhi::GraphicsAPI graphicsApi)
 {
     return BuildPathTraceMaterialFeaturePipelineRequest(
@@ -110,8 +104,7 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
         shaderDesc,
         shaderTableState.shaders.data(),
         shaderTableState.shaders.size(),
-        coreSmokeBindingLayout,
-        cleanRtxdiDiBindingLayout,
+        bindingLayout,
         graphicsApi);
 }
 

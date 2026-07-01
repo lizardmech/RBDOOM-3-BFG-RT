@@ -22,22 +22,6 @@ uint32_t PathTraceMaterialFeatureOutputUavSlot(uint32_t resource)
 
 }
 
-nvrhi::BindingLayoutHandle PathTraceMaterialFeatureBindingLayoutHandle(
-    RtPathTraceMaterialFeatureBindingLayout bindingLayout,
-    nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
-    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout)
-{
-    switch (bindingLayout)
-    {
-    case RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi:
-        return cleanRtxdiDiBindingLayout;
-    case RtPathTraceMaterialFeatureBindingLayout::CoreSmoke:
-        return coreSmokeBindingLayout;
-    default:
-        return nullptr;
-    }
-}
-
 void AddPathTraceMaterialFeatureOutputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource)
 {
     const uint32_t slot = PathTraceMaterialFeatureOutputUavSlot(resource);

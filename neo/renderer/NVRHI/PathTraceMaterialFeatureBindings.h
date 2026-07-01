@@ -9,13 +9,8 @@
 
 #include <nvrhi/nvrhi.h>
 
-enum class RtPathTraceMaterialFeatureBindingLayout : uint8_t;
 struct RtPathTraceFrameResources;
 
-nvrhi::BindingLayoutHandle PathTraceMaterialFeatureBindingLayoutHandle(
-    RtPathTraceMaterialFeatureBindingLayout bindingLayout,
-    nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
-    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout);
 void AddPathTraceMaterialFeatureOutputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource);
 void AddPathTraceMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc, uint32_t resources);
 void AddPathTraceCleanRtxdiDiMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc);

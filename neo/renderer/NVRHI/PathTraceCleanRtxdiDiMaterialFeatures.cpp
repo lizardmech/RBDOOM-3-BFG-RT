@@ -212,8 +212,7 @@ RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiTransmissionShaderDesc
     return {
         "clean-room RTXDI DI transmission producer",
         "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
-        "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
-        RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi
+        "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin"
     };
 }
 

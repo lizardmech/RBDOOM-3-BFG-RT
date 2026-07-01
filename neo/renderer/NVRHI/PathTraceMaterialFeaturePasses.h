@@ -65,12 +65,6 @@ enum RtPathTraceMaterialFeatureResourceMask : uint32_t
     RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT = 1u << 12
 };
 
-enum class RtPathTraceMaterialFeatureBindingLayout : uint8_t
-{
-    CoreSmoke = 0,
-    CleanRtxdiDi
-};
-
 struct RtPathTraceMaterialFeaturePassDesc
 {
     RtPathTraceMaterialFeaturePassKind kind = RtPathTraceMaterialFeaturePassKind::Disabled;
@@ -89,7 +83,6 @@ struct RtPathTraceMaterialFeatureShaderDesc
     const char* label = "disabled";
     const char* dxilShaderPath = nullptr;
     const char* spirvShaderPath = nullptr;
-    RtPathTraceMaterialFeatureBindingLayout bindingLayout = RtPathTraceMaterialFeatureBindingLayout::CoreSmoke;
 };
 
 inline bool PathTraceMaterialFeaturePassHasAllInputs(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)

@@ -17,7 +17,6 @@ struct RtPathTraceMaterialFeaturePipelineContext
 {
     RtPathTraceMaterialFeatureShaderTableState* shaderTableState = nullptr;
     bool smokeTestInitialized = false;
-    nvrhi::BindingLayoutHandle smokeBindingLayout;
     nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout;
     nvrhi::BindingLayoutHandle textureBindlessLayout;
 };
@@ -30,7 +29,6 @@ static RtPathTraceMaterialFeaturePipelineContext BuildPathTraceMaterialFeaturePi
             ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderTableState(*resources.featureState)
             : nullptr,
         resources.smokeTestInitialized,
-        resources.smokeBindingLayout,
         resources.cleanRtxdiDiBindingLayout,
         resources.textureBindlessLayout
     };
@@ -185,7 +183,6 @@ static bool InitPathTraceMaterialFeaturePipeline(
         passDesc,
         shaderDesc,
         *context.shaderTableState,
-        context.smokeBindingLayout,
         context.cleanRtxdiDiBindingLayout,
         deviceManager->GetGraphicsAPI());
     if (!pipelineRequest.shaderState)

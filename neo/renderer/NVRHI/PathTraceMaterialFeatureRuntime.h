@@ -61,15 +61,13 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     RtPathTraceMaterialFeatureShaderState* shaderStates,
     size_t shaderStateCount,
-    nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
-    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
+    nvrhi::BindingLayoutHandle bindingLayout,
     nvrhi::GraphicsAPI graphicsApi);
 RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     RtPathTraceMaterialFeatureShaderTableState& shaderTableState,
-    nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
-    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
+    nvrhi::BindingLayoutHandle bindingLayout,
     nvrhi::GraphicsAPI graphicsApi);
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady);
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimePass& pass);
