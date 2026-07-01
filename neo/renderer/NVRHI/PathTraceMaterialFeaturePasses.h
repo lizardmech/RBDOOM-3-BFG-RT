@@ -108,6 +108,11 @@ struct RtPathTraceMaterialFeatureRuntimeInfo
     float frameIndex = 0.0f;
 };
 
+struct RtPathTraceMaterialFeatureRuntimeConstants
+{
+    float runtimeInfo[4] = {};
+};
+
 using RtPathTraceMaterialFeatureRuntimeInfoCallback = void (*)(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc& passDesc);

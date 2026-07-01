@@ -39,10 +39,10 @@ inline void DispatchPathTraceMaterialFeaturePassWithRuntimeInfo(
     featureState.shaderTable = pass.shader->shaderTable;
     commandList->setRayTracingState(featureState);
 
-    float runtimeInfo[4] = {};
-    SetPathTraceMaterialFeatureRuntimeInfo(runtimeInfo, pass);
+    const RtPathTraceMaterialFeatureRuntimeConstants runtimeConstants =
+        BuildPathTraceMaterialFeatureRuntimeConstants(pass);
     commandList->writeBuffer(constantsBuffer, baseConstants, baseConstantsSize);
-    commandList->writeBuffer(runtimeConstantsBuffer, runtimeInfo, sizeof(runtimeInfo));
+    commandList->writeBuffer(runtimeConstantsBuffer, &runtimeConstants, sizeof(runtimeConstants));
 
     const bool markerEnabled = nsightGpuMarkers && pass.desc.debugLabel && pass.desc.debugLabel[0];
     if (markerEnabled)
@@ -81,10 +81,10 @@ void DispatchPathTraceMaterialFeaturePass(
     commandList->setRayTracingState(featureState);
 
     Constants featureConstants = baseConstants;
-    float runtimeInfo[4] = {};
-    SetPathTraceMaterialFeatureRuntimeInfo(runtimeInfo, pass);
+    const RtPathTraceMaterialFeatureRuntimeConstants runtimeConstants =
+        BuildPathTraceMaterialFeatureRuntimeConstants(pass);
     commandList->writeBuffer(constantsBuffer, &featureConstants, sizeof(featureConstants));
-    commandList->writeBuffer(runtimeConstantsBuffer, runtimeInfo, sizeof(runtimeInfo));
+    commandList->writeBuffer(runtimeConstantsBuffer, &runtimeConstants, sizeof(runtimeConstants));
 
     const bool markerEnabled = nsightGpuMarkers && pass.desc.debugLabel && pass.desc.debugLabel[0];
     if (markerEnabled)

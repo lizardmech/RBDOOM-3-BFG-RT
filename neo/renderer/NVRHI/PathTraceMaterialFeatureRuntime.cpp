@@ -3,6 +3,8 @@
 
 #include "PathTraceMaterialFeatureRuntime.h"
 
+static_assert(sizeof(RtPathTraceMaterialFeatureRuntimeConstants) == 16, "Material feature runtime constants must match shader b88 float4 ABI");
+
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
     const RtPathTraceMaterialFeatureShaderState* shaderState)
@@ -134,22 +136,27 @@ RtPathTraceMaterialFeatureRuntimeInfo BuildPathTraceMaterialFeatureRuntimeInfo(c
     return typedInfo;
 }
 
-void PackPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimeInfo& typedInfo)
+RtPathTraceMaterialFeatureRuntimeConstants BuildPathTraceMaterialFeatureRuntimeConstants(
+    const RtPathTraceMaterialFeatureRuntimeInfo& typedInfo)
 {
-    runtimeInfo[0] = typedInfo.writesOutputColor;
-    runtimeInfo[1] = typedInfo.ready;
-    runtimeInfo[2] = typedInfo.debugMode;
-    runtimeInfo[3] = typedInfo.frameIndex;
+    RtPathTraceMaterialFeatureRuntimeConstants constants;
+    constants.runtimeInfo[0] = typedInfo.writesOutputColor;
+    constants.runtimeInfo[1] = typedInfo.ready;
+    constants.runtimeInfo[2] = typedInfo.debugMode;
+    constants.runtimeInfo[3] = typedInfo.frameIndex;
+    return constants;
 }
 
-void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady)
+RtPathTraceMaterialFeatureRuntimeConstants BuildPathTraceMaterialFeatureRuntimeConstants(
+    const RtPathTraceMaterialFeaturePassDesc& desc,
+    bool passReady)
 {
-    PackPathTraceMaterialFeatureRuntimeInfo(
-        runtimeInfo,
+    return BuildPathTraceMaterialFeatureRuntimeConstants(
         BuildPathTraceMaterialFeatureRuntimeInfo(desc, passReady));
 }
 
-void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimePass& pass)
+RtPathTraceMaterialFeatureRuntimeConstants BuildPathTraceMaterialFeatureRuntimeConstants(
+    const RtPathTraceMaterialFeatureRuntimePass& pass)
 {
-    PackPathTraceMaterialFeatureRuntimeInfo(runtimeInfo, BuildPathTraceMaterialFeatureRuntimeInfo(pass));
+    return BuildPathTraceMaterialFeatureRuntimeConstants(BuildPathTraceMaterialFeatureRuntimeInfo(pass));
 }

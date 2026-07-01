@@ -14,6 +14,7 @@
 #include "PathTraceDoomLights.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceMaterialFeatureBindings.h"
+#include "PathTraceMaterialFeaturePasses.h"
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceReservoirs.h"
@@ -1195,7 +1196,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     nvrhi::BufferDesc materialFeatureRuntimeConstantsDesc;
-    materialFeatureRuntimeConstantsDesc.byteSize = 16;
+    materialFeatureRuntimeConstantsDesc.byteSize = sizeof(RtPathTraceMaterialFeatureRuntimeConstants);
     materialFeatureRuntimeConstantsDesc.debugName = "PathTraceMaterialFeatureRuntimeConstants";
     materialFeatureRuntimeConstantsDesc.isConstantBuffer = true;
     materialFeatureRuntimeConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
