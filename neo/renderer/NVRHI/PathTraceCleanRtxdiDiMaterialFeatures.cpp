@@ -91,11 +91,11 @@ static bool LoadPathTraceCleanRtxdiDiMaterialFeatureShaderLibrary(
     const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData, &shaderTimestamp);
     if (shaderSize <= 0 || !shaderData)
     {
-        common->Printf("PathTracePrimaryPass: couldn't read %s RT smoke shader %s\n", label, shaderPath);
+        common->Printf("PathTracePrimaryPass: couldn't read %s material-feature RT shader %s\n", label, shaderPath);
         return false;
     }
 
-    common->Printf("PathTracePrimaryPass: loaded %s RT smoke shader %s (%d bytes, timestamp %u)\n",
+    common->Printf("PathTracePrimaryPass: loaded %s material-feature RT shader %s (%d bytes, timestamp %u)\n",
         label, shaderPath, shaderSize, static_cast<unsigned int>(shaderTimestamp));
 
     shaderLibrary = device->createShaderLibrary(shaderData, shaderSize);
@@ -103,7 +103,7 @@ static bool LoadPathTraceCleanRtxdiDiMaterialFeatureShaderLibrary(
 
     if (!shaderLibrary)
     {
-        common->Printf("PathTracePrimaryPass: failed to create %s RT smoke shader library\n", label);
+        common->Printf("PathTracePrimaryPass: failed to create %s material-feature RT shader library\n", label);
         return false;
     }
 
@@ -126,7 +126,7 @@ static bool CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
     const char* label = shaderDesc.label;
     if (!shaderLibrary)
     {
-        common->Printf("PathTracePrimaryPass: cannot create %s RT smoke pipeline without a shader library\n", label);
+        common->Printf("PathTracePrimaryPass: cannot create %s material-feature RT pipeline without a shader library\n", label);
         return false;
     }
 
@@ -140,7 +140,7 @@ static bool CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
 
     if (!rayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
     {
-        common->Printf("PathTracePrimaryPass: %s RT smoke shader library is missing one or more required entry points\n", label);
+        common->Printf("PathTracePrimaryPass: %s material-feature RT shader library is missing one or more required entry points\n", label);
         return false;
     }
 
@@ -176,14 +176,14 @@ static bool CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
     pipeline = device->createRayTracingPipeline(pipelineDesc);
     if (!pipeline)
     {
-        common->Printf("PathTracePrimaryPass: failed to create %s RT smoke pipeline\n", label);
+        common->Printf("PathTracePrimaryPass: failed to create %s material-feature RT pipeline\n", label);
         return false;
     }
 
     shaderTable = pipeline->createShaderTable();
     if (!shaderTable)
     {
-        common->Printf("PathTracePrimaryPass: failed to create %s RT smoke shader table\n", label);
+        common->Printf("PathTracePrimaryPass: failed to create %s material-feature RT shader table\n", label);
         pipeline = nullptr;
         return false;
     }
@@ -247,7 +247,7 @@ static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
     if (!shaderState.shaderLibrary &&
         !LoadPathTraceCleanRtxdiDiMaterialFeatureShaderLibrary(device, pipelineRequest.shaderPath.c_str(), pipelineRequest.shaderDesc.label, shaderState.shaderLibrary))
     {
-        common->Printf("PathTracePrimaryPass: %s RT smoke shader unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
+        common->Printf("PathTracePrimaryPass: %s material-feature RT shader unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
         return false;
     }
 
@@ -260,14 +260,14 @@ static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
         shaderState.pipeline,
         shaderState.shaderTable))
     {
-        common->Printf("PathTracePrimaryPass: %s RT smoke pipeline unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
+        common->Printf("PathTracePrimaryPass: %s material-feature RT pipeline unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
         shaderState.pipeline = nullptr;
         shaderState.shaderTable = nullptr;
         return false;
     }
 
     common->Printf(
-        "PathTracePrimaryPass: %s RT smoke pipeline initialized; material-feature validation build='%s' runtime='%s' supported='%s' unsupported='%s' baseline='%s' resources='%s' abi='%s'\n",
+        "PathTracePrimaryPass: %s material-feature RT pipeline initialized; validation build='%s' runtime='%s' supported='%s' unsupported='%s' baseline='%s' resources='%s' abi='%s'\n",
         pipelineRequest.shaderDesc.label,
         registration.validation.buildProof,
         registration.validation.runtimeRoute,
