@@ -85,6 +85,12 @@ set(PATH_TRACING_CLEAN_RESTIR_GI_TEMPORAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_D
 set(PATH_TRACING_CLEAN_RESTIR_GI_BOILING_FILTER_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_boiling_filter.cs.hlsl)
 file(GLOB_RECURSE PATH_TRACING_SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/*.hlsli")
+file(GLOB_RECURSE PATH_TRACING_CLEAN_RTXDI_DI_ALL_INCLUDES
+    "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/*.hlsli")
+list(REMOVE_ITEM PATH_TRACING_SHADER_INCLUDES ${PATH_TRACING_CLEAN_RTXDI_DI_ALL_INCLUDES})
+list(APPEND PATH_TRACING_SHADER_INCLUDES
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/RAB_DoomAnalyticReference.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_rr_geometry_guides.hlsli)
 set(PATH_TRACING_RANDOM_SAMPLER_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/RandomSamplerState.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_random_sampler_state.hlsli)

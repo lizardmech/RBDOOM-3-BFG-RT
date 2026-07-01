@@ -1,6 +1,8 @@
 #ifndef RB_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_QUERIES_HLSLI
 #define RB_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_QUERIES_HLSLI
 
+static const uint RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RECORD_ABI_VERSION = 1u;
+
 bool PathTraceCleanRtxdiDiMaterialSupportedByPass(RAB_Surface surface, uint passKind)
 {
     return MaterialSupportedByPass(surface, passKind);
@@ -21,7 +23,13 @@ bool PathTraceCleanRtxdiDiLoadMaterialFeature(uint materialIndex, out PathTraceM
         return false;
     }
 
-    feature = PathTraceMaterialFeatureFromRecord(PathTraceMaterialFeatures[materialIndex]);
+    const PathTraceMaterialFeatureRecord record = PathTraceMaterialFeatures[materialIndex];
+    if (record.reserved0 != RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RECORD_ABI_VERSION)
+    {
+        return false;
+    }
+
+    feature = PathTraceMaterialFeatureFromRecord(record);
     return feature.parameterRecordIndex == materialIndex ||
         feature.parameterRecordIndex == 0xffffffffu;
 #else
