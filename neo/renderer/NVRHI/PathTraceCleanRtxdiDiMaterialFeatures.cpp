@@ -13,7 +13,7 @@ static constexpr uint32_t CLEAN_RTXDI_DI_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_
 
 struct RtPathTraceCleanRtxdiDiMaterialFeatureState::Impl
 {
-    RtPathTraceMaterialFeatureShaderTableState shaderTableState;
+    RtPathTraceMaterialFeatureShaderState transmissionShaderState;
 };
 
 struct RtPathTraceCleanRtxdiDiTransmissionPass::Impl
@@ -33,7 +33,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
 {
     RtPathTraceMaterialFeaturePassDesc desc;
     desc.kind = RtPathTraceMaterialFeaturePassKind::TransmissionProducer;
-    desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::CleanRtxdiDiTransmissionProducer;
+    desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::None;
     desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION;
     desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
     desc.resourceInputs =
@@ -111,19 +111,19 @@ RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPa
     return pass;
 }
 
-RtPathTraceMaterialFeatureShaderTableState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderTableState(
+RtPathTraceMaterialFeatureShaderState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::TransmissionShaderState(
     RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
 {
     return featureState.m_impl
-        ? &featureState.m_impl->shaderTableState
+        ? &featureState.m_impl->transmissionShaderState
         : nullptr;
 }
 
-const RtPathTraceMaterialFeatureShaderTableState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderTableState(
+const RtPathTraceMaterialFeatureShaderState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::TransmissionShaderState(
     const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
 {
     return featureState.m_impl
-        ? &featureState.m_impl->shaderTableState
+        ? &featureState.m_impl->transmissionShaderState
         : nullptr;
 }
 
@@ -191,10 +191,10 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
 {
     const RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState =
         RtPathTraceCleanRtxdiDiTransmissionPassAccess::FeatureState(pass);
-    const RtPathTraceMaterialFeatureShaderTableState* shaderTableState = featureState
-        ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderTableState(*featureState)
+    const RtPathTraceMaterialFeatureShaderState* shaderState = featureState
+        ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::TransmissionShaderState(*featureState)
         : nullptr;
-    if (!shaderTableState)
+    if (!shaderState)
     {
         return RtPathTraceMaterialFeatureRuntimePass();
     }
@@ -205,7 +205,7 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
             RtPathTraceCleanRtxdiDiTransmissionPassAccess::CleanView(pass),
             RtPathTraceCleanRtxdiDiTransmissionPassAccess::ProducerRequested(pass),
             RtPathTraceCleanRtxdiDiTransmissionPassAccess::DebugOutputRequested(pass)),
-        *shaderTableState);
+        shaderState);
 }
 
 RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiTransmissionShaderDesc(

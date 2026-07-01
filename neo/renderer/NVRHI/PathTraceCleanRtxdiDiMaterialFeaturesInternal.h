@@ -8,9 +8,9 @@
 
 struct RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess
 {
-    static RtPathTraceMaterialFeatureShaderTableState* ShaderTableState(
+    static RtPathTraceMaterialFeatureShaderState* TransmissionShaderState(
         RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
-    static const RtPathTraceMaterialFeatureShaderTableState* ShaderTableState(
+    static const RtPathTraceMaterialFeatureShaderState* TransmissionShaderState(
         const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
 };
 

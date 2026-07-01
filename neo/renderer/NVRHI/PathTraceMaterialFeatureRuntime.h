@@ -41,6 +41,9 @@ struct RtPathTraceMaterialFeaturePipelineRequest
 
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
+    const RtPathTraceMaterialFeatureShaderState* shaderState);
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
+    const RtPathTraceMaterialFeaturePassDesc& desc,
     const RtPathTraceMaterialFeatureShaderState* shaderStates,
     size_t shaderStateCount);
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
@@ -57,16 +60,8 @@ const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     nvrhi::GraphicsAPI graphicsApi);
 RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(
-    const RtPathTraceMaterialFeaturePassDesc& passDesc,
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
-    RtPathTraceMaterialFeatureShaderState* shaderStates,
-    size_t shaderStateCount,
-    nvrhi::BindingLayoutHandle bindingLayout,
-    nvrhi::GraphicsAPI graphicsApi);
-RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(
-    const RtPathTraceMaterialFeaturePassDesc& passDesc,
-    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
-    RtPathTraceMaterialFeatureShaderTableState& shaderTableState,
+    RtPathTraceMaterialFeatureShaderState* shaderState,
     nvrhi::BindingLayoutHandle bindingLayout,
     nvrhi::GraphicsAPI graphicsApi);
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady);

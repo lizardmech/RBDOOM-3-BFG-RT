@@ -15,7 +15,7 @@ extern DeviceManager* deviceManager;
 
 struct RtPathTraceMaterialFeaturePipelineContext
 {
-    RtPathTraceMaterialFeatureShaderTableState* shaderTableState = nullptr;
+    RtPathTraceMaterialFeatureShaderState* shaderState = nullptr;
     bool smokeTestInitialized = false;
     nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout;
     nvrhi::BindingLayoutHandle textureBindlessLayout;
@@ -26,7 +26,7 @@ static RtPathTraceMaterialFeaturePipelineContext BuildPathTraceMaterialFeaturePi
 {
     return {
         resources.featureState
-            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderTableState(*resources.featureState)
+            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::TransmissionShaderState(*resources.featureState)
             : nullptr,
         resources.smokeTestInitialized,
         resources.cleanRtxdiDiBindingLayout,
@@ -151,18 +151,12 @@ static bool InitPathTraceMaterialFeaturePipeline(
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     const RtPathTraceMaterialFeaturePipelineContext& context)
 {
-    if (!context.shaderTableState)
+    if (!context.shaderState)
     {
         return false;
     }
 
-    RtPathTraceMaterialFeatureShaderState* materialFeatureShaderState = PathTraceMaterialFeatureShaderStateForPass(
-        passDesc,
-        *context.shaderTableState);
-    if (!materialFeatureShaderState)
-    {
-        return false;
-    }
+    RtPathTraceMaterialFeatureShaderState* materialFeatureShaderState = context.shaderState;
     if (materialFeatureShaderState->shaderTable)
     {
         return true;
@@ -180,9 +174,8 @@ static bool InitPathTraceMaterialFeaturePipeline(
     }
 
     const RtPathTraceMaterialFeaturePipelineRequest pipelineRequest = BuildPathTraceMaterialFeaturePipelineRequest(
-        passDesc,
         shaderDesc,
-        *context.shaderTableState,
+        context.shaderState,
         context.cleanRtxdiDiBindingLayout,
         deviceManager->GetGraphicsAPI());
     if (!pipelineRequest.shaderState)
