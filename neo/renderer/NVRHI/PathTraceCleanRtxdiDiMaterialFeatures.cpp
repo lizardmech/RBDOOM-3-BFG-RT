@@ -2,7 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceCleanRtxdiDiMaterialFeatures.h"
-#include "PathTraceCleanRtxdiDiTransmissionFeature.h"
+#include "PathTraceCleanRtxdiDiMaterialFeatureRegistry.h"
 #include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeatureDispatch.h"
 #include "PathTraceMaterialFeatureOutputs.h"
@@ -52,30 +52,13 @@ struct RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext
     nvrhi::BindingLayoutHandle textureBindlessLayout;
 };
 
-static constexpr size_t RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT = 2;
-
-static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
+static RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryContext(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes)
 {
-    return BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
+    return {
         RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::CleanRouteRequested(passes),
-        RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::CleanView(passes));
-}
-
-static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration()
-{
-    RtPathTraceMaterialFeaturePassRegistration registration;
-    registration.passDesc.debugLabel = "clean-rtxdi-di-noop-feature";
-    registration.validation = {
-        "host registry only",
-        "disabled no-op registration",
-        "not applicable",
-        "not applicable",
-        "clean RTXDI DI primary view 16 unchanged",
-        "no resources or bindings",
-        "no constants"
+        RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::CleanView(passes)
     };
-    return registration;
 }
 
 static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(
@@ -320,7 +303,7 @@ static size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
     RtPathTraceMaterialFeaturePassRegistration* registrationsOut,
     size_t passCapacity)
 {
-    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT];
+    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
     const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
         passes,
         registrations,
@@ -459,27 +442,21 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
     RtPathTraceMaterialFeaturePassRegistration* registrations,
     size_t registrationCapacity)
 {
-    static constexpr size_t registrationCount = RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT;
-    if (registrations && registrationCapacity > 0)
-    {
-        registrations[0] = BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(featurePasses);
-        if (registrationCapacity > 1)
-        {
-            registrations[1] = BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration();
-        }
-    }
-    return registrationCount;
+    return BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryRegistrations(
+        BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryContext(featurePasses),
+        registrations,
+        registrationCapacity);
 }
 
 void AddPathTraceCleanRtxdiDiMaterialFeatureLayoutBindings(nvrhi::BindingLayoutDesc& desc)
 {
-    const RtPathTraceMaterialFeaturePassRegistration registrations[] = {
-        BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration(),
-        BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration()
-    };
-    for (const RtPathTraceMaterialFeaturePassRegistration& registration : registrations)
+    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
+    const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryLayoutRegistrations(
+        registrations,
+        sizeof(registrations) / sizeof(registrations[0]));
+    for (size_t i = 0; i < registrationCount && i < sizeof(registrations) / sizeof(registrations[0]); ++i)
     {
-        AddPathTraceMaterialFeatureRegistrationLayoutBindings(desc, registration);
+        AddPathTraceMaterialFeatureRegistrationLayoutBindings(desc, registrations[i]);
     }
 }
 
@@ -491,7 +468,7 @@ void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
     nvrhi::BufferHandle runtimeConstantsBuffer,
     const RtPathTraceFrameResources& frameResources)
 {
-    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT];
+    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
     const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
         passes,
         registrations,
@@ -515,7 +492,7 @@ bool PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceFrameResources& frameResources)
 {
-    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT];
+    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
     const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
         passes,
         registrations,
@@ -535,8 +512,8 @@ bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceCleanRtxdiDiPipelineContext& context)
 {
-    RtPathTraceMaterialFeatureRuntimePass runtimePasses[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT];
-    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT];
+    RtPathTraceMaterialFeatureRuntimePass runtimePasses[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
+    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
     const size_t passCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
         passes,
         runtimePasses,
@@ -560,7 +537,7 @@ void SetPathTraceCleanRtxdiDiMaterialFeatureOutputsUnorderedAccess(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceFrameResources& frameResources)
 {
-    RtPathTraceMaterialFeatureRuntimePass runtimePasses[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT];
+    RtPathTraceMaterialFeatureRuntimePass runtimePasses[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
     const size_t passCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
         passes,
         runtimePasses,
@@ -581,7 +558,7 @@ void ClearPathTraceCleanRtxdiDiMaterialFeatureOutputs(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceFrameResources& frameResources)
 {
-    RtPathTraceMaterialFeatureRuntimePass runtimePasses[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT];
+    RtPathTraceMaterialFeatureRuntimePass runtimePasses[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
     const size_t passCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
         passes,
         runtimePasses,
@@ -609,7 +586,7 @@ void DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
     const RtPathTraceFrameResources& frameResources,
     bool nsightGpuMarkers)
 {
-    RtPathTraceMaterialFeatureRuntimePass runtimePasses[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_COUNT];
+    RtPathTraceMaterialFeatureRuntimePass runtimePasses[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
     const size_t passCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
         passes,
         runtimePasses,
