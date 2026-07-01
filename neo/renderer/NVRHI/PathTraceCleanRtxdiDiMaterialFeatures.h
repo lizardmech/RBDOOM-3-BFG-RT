@@ -45,22 +45,26 @@ RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources BuildPathTraceCleanRtxdi
     nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
     nvrhi::BindingLayoutHandle textureBindlessLayout);
 
-struct RtPathTraceCleanRtxdiDiTransmissionSettings
-{
-    bool cleanRouteRequested = false;
-    int cleanView = 0;
-    bool producerRequested = false;
-    bool debugOutputRequested = false;
-};
-
 struct RtPathTraceCleanRtxdiDiTransmissionPass
 {
-    RtPathTraceCleanRtxdiDiTransmissionSettings settings;
-    const RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState = nullptr;
+    RtPathTraceCleanRtxdiDiTransmissionPass();
+    ~RtPathTraceCleanRtxdiDiTransmissionPass();
+
+    RtPathTraceCleanRtxdiDiTransmissionPass(const RtPathTraceCleanRtxdiDiTransmissionPass&) = delete;
+    RtPathTraceCleanRtxdiDiTransmissionPass& operator=(const RtPathTraceCleanRtxdiDiTransmissionPass&) = delete;
+    RtPathTraceCleanRtxdiDiTransmissionPass(RtPathTraceCleanRtxdiDiTransmissionPass&&) noexcept;
+    RtPathTraceCleanRtxdiDiTransmissionPass& operator=(RtPathTraceCleanRtxdiDiTransmissionPass&&) noexcept;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
+
+    friend struct RtPathTraceCleanRtxdiDiTransmissionPassAccess;
 };
 
 RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPass(
-    const RtPathTraceCleanRtxdiDiTransmissionSettings& settings,
+    bool cleanRouteRequested,
+    int cleanView,
     const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
 bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,

@@ -1160,14 +1160,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (cleanRtxdiDiSpatialEnabled &&
                 (cleanRtxdiDiView == 12 ||
                     (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
-    const RtPathTraceCleanRtxdiDiTransmissionSettings cleanRtxdiDiTransmissionSettings = {
+    const RtPathTraceCleanRtxdiDiTransmissionPass cleanRtxdiDiTransmissionPass = BuildPathTraceCleanRtxdiDiTransmissionPass(
         cleanRtxdiDiRouteRequested,
         cleanRtxdiDiView,
-        r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0,
-        r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0
-    };
-    const RtPathTraceCleanRtxdiDiTransmissionPass cleanRtxdiDiTransmissionPass = BuildPathTraceCleanRtxdiDiTransmissionPass(
-        cleanRtxdiDiTransmissionSettings,
         m_smokeCleanRtxdiDiMaterialFeatures);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
