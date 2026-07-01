@@ -76,10 +76,27 @@ struct RtPathTraceMaterialFeaturePassDesc
     const char* debugLabel = "disabled";
 };
 
+struct RtPathTraceMaterialFeatureRayTracingPipelineDesc
+{
+    const char* rayGenerationShader = "RayGen";
+    const char* missShader = "Miss";
+    const char* shadowMissShader = "ShadowMiss";
+    const char* closestHitShader = "ClosestHit";
+    const char* anyHitShader = "AnyHit";
+    const char* shadowClosestHitShader = "ShadowClosestHit";
+    const char* shadowAnyHitShader = "ShadowAnyHit";
+    const char* hitGroupName = "HitGroup";
+    const char* shadowHitGroupName = "ShadowHitGroup";
+    uint32_t maxPayloadSize = 64;
+    uint32_t maxAttributeSize = 8;
+    uint32_t maxRecursionDepth = 1;
+};
+
 struct RtPathTraceMaterialFeatureShaderDesc
 {
     const char* label = "disabled";
     const char* shaderBlobPath = nullptr;
+    RtPathTraceMaterialFeatureRayTracingPipelineDesc rtPipeline;
 };
 
 enum class RtPathTraceMaterialFeatureBindingKind : uint8_t

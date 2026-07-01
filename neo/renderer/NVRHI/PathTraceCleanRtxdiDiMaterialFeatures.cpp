@@ -115,26 +115,28 @@ static bool CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
     nvrhi::ShaderLibraryHandle shaderLibrary,
     nvrhi::BindingLayoutHandle bindingLayout,
     nvrhi::BindingLayoutHandle textureBindlessLayout,
-    const char* label,
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     nvrhi::rt::PipelineHandle& pipeline,
     nvrhi::rt::ShaderTableHandle& shaderTable)
 {
     pipeline = nullptr;
     shaderTable = nullptr;
 
+    const RtPathTraceMaterialFeatureRayTracingPipelineDesc& rtDesc = shaderDesc.rtPipeline;
+    const char* label = shaderDesc.label;
     if (!shaderLibrary)
     {
         common->Printf("PathTracePrimaryPass: cannot create %s RT smoke pipeline without a shader library\n", label);
         return false;
     }
 
-    nvrhi::ShaderHandle rayGen = shaderLibrary->getShader("RayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle miss = shaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss);
-    nvrhi::ShaderHandle shadowMiss = shaderLibrary->getShader("ShadowMiss", nvrhi::ShaderType::Miss);
-    nvrhi::ShaderHandle closestHit = shaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit);
-    nvrhi::ShaderHandle anyHit = shaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit);
-    nvrhi::ShaderHandle shadowClosestHit = shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
-    nvrhi::ShaderHandle shadowAnyHit = shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
+    nvrhi::ShaderHandle rayGen = shaderLibrary->getShader(rtDesc.rayGenerationShader, nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle miss = shaderLibrary->getShader(rtDesc.missShader, nvrhi::ShaderType::Miss);
+    nvrhi::ShaderHandle shadowMiss = shaderLibrary->getShader(rtDesc.shadowMissShader, nvrhi::ShaderType::Miss);
+    nvrhi::ShaderHandle closestHit = shaderLibrary->getShader(rtDesc.closestHitShader, nvrhi::ShaderType::ClosestHit);
+    nvrhi::ShaderHandle anyHit = shaderLibrary->getShader(rtDesc.anyHitShader, nvrhi::ShaderType::AnyHit);
+    nvrhi::ShaderHandle shadowClosestHit = shaderLibrary->getShader(rtDesc.shadowClosestHitShader, nvrhi::ShaderType::ClosestHit);
+    nvrhi::ShaderHandle shadowAnyHit = shaderLibrary->getShader(rtDesc.shadowAnyHitShader, nvrhi::ShaderType::AnyHit);
 
     if (!rayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
     {
@@ -151,7 +153,7 @@ static bool CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
     };
     pipelineDesc.hitGroups = {
         {
-            "HitGroup",
+            rtDesc.hitGroupName,
             closestHit,
             anyHit,
             nullptr,
@@ -159,7 +161,7 @@ static bool CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
             false
         },
         {
-            "ShadowHitGroup",
+            rtDesc.shadowHitGroupName,
             shadowClosestHit,
             shadowAnyHit,
             nullptr,
@@ -167,9 +169,9 @@ static bool CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
             false
         }
     };
-    pipelineDesc.maxPayloadSize = 64;
-    pipelineDesc.maxAttributeSize = 8;
-    pipelineDesc.maxRecursionDepth = 1;
+    pipelineDesc.maxPayloadSize = rtDesc.maxPayloadSize;
+    pipelineDesc.maxAttributeSize = rtDesc.maxAttributeSize;
+    pipelineDesc.maxRecursionDepth = rtDesc.maxRecursionDepth;
 
     pipeline = device->createRayTracingPipeline(pipelineDesc);
     if (!pipeline)
@@ -186,11 +188,11 @@ static bool CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
         return false;
     }
 
-    shaderTable->setRayGenerationShader("RayGen");
-    shaderTable->addMissShader("Miss");
-    shaderTable->addMissShader("ShadowMiss");
-    shaderTable->addHitGroup("HitGroup");
-    shaderTable->addHitGroup("ShadowHitGroup");
+    shaderTable->setRayGenerationShader(rtDesc.rayGenerationShader);
+    shaderTable->addMissShader(rtDesc.missShader);
+    shaderTable->addMissShader(rtDesc.shadowMissShader);
+    shaderTable->addHitGroup(rtDesc.hitGroupName);
+    shaderTable->addHitGroup(rtDesc.shadowHitGroupName);
     return true;
 }
 
@@ -254,7 +256,7 @@ static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
         shaderState.shaderLibrary,
         pipelineRequest.bindingLayout,
         context.textureBindlessLayout,
-        pipelineRequest.shaderDesc.label,
+        pipelineRequest.shaderDesc,
         shaderState.pipeline,
         shaderState.shaderTable))
     {
