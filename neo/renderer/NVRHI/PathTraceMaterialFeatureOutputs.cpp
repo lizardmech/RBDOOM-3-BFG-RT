@@ -13,8 +13,6 @@ nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFram
     {
     case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR:
         return frameResources.outputTexture;
-    case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT:
-        return frameResources.transmissionTexture;
     default:
         return nullptr;
     }
