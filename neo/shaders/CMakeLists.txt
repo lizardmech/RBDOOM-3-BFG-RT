@@ -85,8 +85,6 @@ set(PATH_TRACING_CLEAN_RESTIR_GI_TEMPORAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_D
 set(PATH_TRACING_CLEAN_RESTIR_GI_BOILING_FILTER_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_boiling_filter.cs.hlsl)
 file(GLOB_RECURSE PATH_TRACING_SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/*.hlsli")
-file(GLOB_RECURSE PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES
-    "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/*.hlsli")
 set(PATH_TRACING_RANDOM_SAMPLER_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/RandomSamplerState.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_random_sampler_state.hlsli)
@@ -116,12 +114,27 @@ set(PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_spatial_neighbors.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_reservoir_addressing.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_math.hlsli)
+set(PATH_TRACING_CLEAN_RTXDI_DI_SHARED_INCLUDES
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/RAB_DoomAnalyticReference.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_diagnostics.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_emissive_distribution.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_material_adapter.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_material_feature_queries.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_material_texture.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_math.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_nee_cache.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_rr_debug.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_rr_geometry_guides.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_shared.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_smoke_exports.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_surface_adapter.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_output.hlsli)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/vulkan.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTracePrimarySurface.hlsli
     ${PATH_TRACING_RANDOM_SAMPLER_INCLUDES}
     ${PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES}
-    ${PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES})
+    ${PATH_TRACING_CLEAN_RTXDI_DI_SHARED_INCLUDES})
 file(GLOB_RECURSE PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/*.hlsli"
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_bridge/*.hlsli")
@@ -130,7 +143,7 @@ set(PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTracePrimarySurface.hlsli
     ${PATH_TRACING_RANDOM_SAMPLER_INCLUDES}
     ${PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES}
-    ${PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES}
+    ${PATH_TRACING_CLEAN_RTXDI_DI_SHARED_INCLUDES}
     ${PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES}
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/GI/Reservoir.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/GI/ReSTIRGIParameters.h
@@ -206,7 +219,6 @@ function(path_tracing_declare_clean_rtxdi_di_material_feature_rt_library)
         SOURCE ${PT_CLEAN_FEATURE_SOURCE}
         DEFINES ${PT_CLEAN_FEATURE_DEFINES}
         DEPENDS
-            ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE}
             ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES}
             ${PT_CLEAN_FEATURE_DEPENDS}
         COMMENT ${PT_CLEAN_FEATURE_COMMENT})
@@ -607,6 +619,7 @@ if(USE_VULKAN)
     path_tracing_declare_clean_rtxdi_di_material_feature_rt_library(
         BLOB_PATH builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin
         SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.hlsl
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.hlsli
         COMMENT "Compiling clean-room RTXDI DI transmission producer RT shader library (SPIR-V)")
     path_tracing_declare_clean_rtxdi_di_material_feature_rt_library(
         BLOB_PATH builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_glass.rt.bin
