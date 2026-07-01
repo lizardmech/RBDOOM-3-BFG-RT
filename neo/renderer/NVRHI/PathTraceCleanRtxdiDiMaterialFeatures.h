@@ -29,19 +29,15 @@ private:
     friend struct RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess;
 };
 
-struct RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources
+struct RtPathTraceCleanRtxdiDiPipelineContext
 {
-    RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState = nullptr;
     bool smokeTestInitialized = false;
-    nvrhi::BindingLayoutHandle smokeBindingLayout;
     nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout;
     nvrhi::BindingLayoutHandle textureBindlessLayout;
 };
 
-RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineResources(
-    RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState,
+RtPathTraceCleanRtxdiDiPipelineContext BuildPathTraceCleanRtxdiDiPipelineContext(
     bool smokeTestInitialized,
-    nvrhi::BindingLayoutHandle smokeBindingLayout,
     nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
     nvrhi::BindingLayoutHandle textureBindlessLayout);
 
@@ -65,10 +61,10 @@ private:
 RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPass(
     bool cleanRouteRequested,
     int cleanView,
-    const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
+    RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
 bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
-    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineResources& resources);
+    const RtPathTraceCleanRtxdiDiPipelineContext& context);
 void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc);
 void AddPathTraceCleanRtxdiDiTransmissionOutputBindings(
     nvrhi::BindingSetDesc& desc,
