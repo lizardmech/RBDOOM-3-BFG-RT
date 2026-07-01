@@ -9,11 +9,9 @@
 #include "../../sys/DeviceManager.h"
 
 #include <cstring>
-#include <nvrhi/utils.h>
 
 extern DeviceManager* deviceManager;
 
-static constexpr uint32_t CLEAN_RTXDI_DI_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT = 1u << 12u;
 static constexpr uint32_t CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT = 87u;
 
 struct RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess
@@ -77,8 +75,8 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     desc.resourceInputs =
         RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE;
-    desc.resourceOutputs = CLEAN_RTXDI_DI_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
-    desc.primaryOutputResource = CLEAN_RTXDI_DI_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
+    desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
+    desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
 
     const bool cleanTransmissionRoute = cleanRouteRequested && cleanView == 16;
     const bool debugOutput = cleanTransmissionRoute && debugOutputRequested;
@@ -494,9 +492,8 @@ bool PathTraceCleanRtxdiDiTransmissionOutputAvailable(
     const RtPathTraceMaterialFeatureRuntimePass featurePass =
         BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
     return !featurePass.ready ||
-        (frameResources.transmissionTexture &&
-            (!PathTraceMaterialFeaturePassWritesAnyOutput(featurePass.desc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR) ||
-                frameResources.outputTexture));
+        (PathTraceMaterialFeaturePrimaryOutputAvailable(featurePass, frameResources) &&
+            PathTraceMaterialFeatureOutputAvailable(featurePass.desc, frameResources, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR));
 }
 
 bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
@@ -520,13 +517,11 @@ void SetPathTraceCleanRtxdiDiTransmissionOutputUnorderedAccess(
 {
     const RtPathTraceMaterialFeatureRuntimePass featurePass =
         BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
-    if (featurePass.ready && commandList && frameResources.transmissionTexture)
-    {
-        commandList->setTextureState(
-            frameResources.transmissionTexture,
-            nvrhi::AllSubresources,
-            nvrhi::ResourceStates::UnorderedAccess);
-    }
+    SetPathTraceMaterialFeaturePrimaryOutputState(
+        commandList,
+        featurePass,
+        frameResources,
+        nvrhi::ResourceStates::UnorderedAccess);
 }
 
 void ClearPathTraceCleanRtxdiDiTransmissionOutput(
@@ -536,13 +531,11 @@ void ClearPathTraceCleanRtxdiDiTransmissionOutput(
 {
     const RtPathTraceMaterialFeatureRuntimePass featurePass =
         BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
-    if (featurePass.ready && commandList && frameResources.transmissionTexture)
-    {
-        commandList->clearTextureFloat(
-            frameResources.transmissionTexture,
-            nvrhi::AllSubresources,
-            nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
-    }
+    ClearPathTraceMaterialFeaturePrimaryOutput(
+        commandList,
+        featurePass,
+        frameResources,
+        nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
 void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
@@ -590,16 +583,7 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
         commandList->endMarker();
     }
 
-    if (commandList && frameResources.transmissionTexture)
-    {
-        nvrhi::utils::TextureUavBarrier(commandList, frameResources.transmissionTexture);
-    }
-    if (commandList &&
-        frameResources.outputTexture &&
-        PathTraceMaterialFeaturePassWritesAnyOutput(featurePass.desc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR))
-    {
-        nvrhi::utils::TextureUavBarrier(commandList, frameResources.outputTexture);
-    }
+    BarrierPathTraceMaterialFeatureOutputs(commandList, featurePass, frameResources);
 }
 
 void SetPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
