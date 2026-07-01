@@ -126,11 +126,27 @@ static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTran
         RtPathTraceCleanRtxdiDiTransmissionPassAccess::DebugOutputRequested(pass));
 }
 
+static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration()
+{
+    RtPathTraceMaterialFeaturePassRegistration registration;
+    registration.passDesc.debugLabel = "clean-rtxdi-di-noop-feature";
+    registration.validation = {
+        "host registry only",
+        "disabled no-op registration",
+        "not applicable",
+        "not applicable",
+        "clean RTXDI DI primary view 16 unchanged",
+        "no resources or bindings",
+        "no constants"
+    };
+    return registration;
+}
+
 static RtPathTraceMaterialFeaturePassRegistration PathTraceCleanRtxdiDiMaterialFeatureRegistrationForKind(
     const RtPathTraceCleanRtxdiDiTransmissionPass& transmissionPass,
     RtPathTraceMaterialFeaturePassKind kind)
 {
-    RtPathTraceMaterialFeaturePassRegistration registrations[1];
+    RtPathTraceMaterialFeaturePassRegistration registrations[2];
     const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
         transmissionPass,
         registrations,
@@ -508,10 +524,14 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
     RtPathTraceMaterialFeaturePassRegistration* registrations,
     size_t registrationCapacity)
 {
-    static constexpr size_t registrationCount = 1;
+    static constexpr size_t registrationCount = 2;
     if (registrations && registrationCapacity > 0)
     {
         registrations[0] = BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(transmissionPass);
+        if (registrationCapacity > 1)
+        {
+            registrations[1] = BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration();
+        }
     }
     return registrationCount;
 }
