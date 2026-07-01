@@ -13,6 +13,8 @@ uint32_t PathTraceMaterialFeatureOutputUavSlot(uint32_t resource)
     {
     case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR:
         return 1u;
+    case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT:
+        return 87u;
     default:
         return UINT32_MAX;
     }
