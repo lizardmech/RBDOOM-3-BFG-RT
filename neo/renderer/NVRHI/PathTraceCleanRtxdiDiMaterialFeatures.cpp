@@ -566,13 +566,21 @@ void ClearPathTraceCleanRtxdiDiMaterialFeatureOutputs(
         runtimePasses,
         nullptr,
         sizeof(runtimePasses) / sizeof(runtimePasses[0]));
+    uint32_t clearedPrimaryOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
     for (size_t i = 0; i < passCount && i < sizeof(runtimePasses) / sizeof(runtimePasses[0]); ++i)
     {
+        const uint32_t primaryOutputResource = runtimePasses[i].desc.primaryOutputResource;
+        if (primaryOutputResource == RT_MATERIAL_FEATURE_RESOURCE_NONE ||
+            (clearedPrimaryOutputs & primaryOutputResource) != 0u)
+        {
+            continue;
+        }
         ClearPathTraceMaterialFeaturePrimaryOutput(
             commandList,
             runtimePasses[i],
             frameResources,
             nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+        clearedPrimaryOutputs |= primaryOutputResource;
     }
 }
 
