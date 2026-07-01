@@ -39,6 +39,7 @@ enum class RtPathTraceMaterialFeatureShaderTable : uint8_t
     RestirDirectTemporalProducer,
     RestirDirectSpatialReservoirProducer,
     RestirReflectionProducer,
+    CleanRtxdiDiTransmissionProducer,
     Count
 };
 

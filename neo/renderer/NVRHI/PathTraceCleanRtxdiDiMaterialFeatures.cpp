@@ -14,10 +14,9 @@ extern DeviceManager* deviceManager;
 
 struct RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess
 {
-    static RtPathTraceMaterialFeatureShaderState* TransmissionShaderState(
-        RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
-    static const RtPathTraceMaterialFeatureShaderState* TransmissionShaderState(
-        const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
+    static RtPathTraceMaterialFeatureShaderState* ShaderStateForPass(
+        RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState,
+        const RtPathTraceMaterialFeaturePassDesc& passDesc);
 };
 
 struct RtPathTraceCleanRtxdiDiTransmissionPassAccess
@@ -39,7 +38,7 @@ struct RtPathTraceCleanRtxdiDiTransmissionPassAccess
 
 struct RtPathTraceCleanRtxdiDiMaterialFeatureState::Impl
 {
-    RtPathTraceMaterialFeatureShaderState transmissionShaderState;
+    RtPathTraceMaterialFeatureShaderTableState shaderTableState;
 };
 
 struct RtPathTraceCleanRtxdiDiTransmissionPass::Impl
@@ -69,7 +68,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
 {
     RtPathTraceMaterialFeaturePassDesc desc;
     desc.kind = RtPathTraceMaterialFeaturePassKind::TransmissionProducer;
-    desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::None;
+    desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::CleanRtxdiDiTransmissionProducer;
     desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION;
     desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
     desc.resourceInputs =
@@ -167,13 +166,14 @@ static RtPathTraceMaterialFeaturePassRegistration PathTraceCleanRtxdiDiMaterialF
 
 static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
     const RtPathTraceCleanRtxdiDiPipelineContext& context)
 {
     RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState =
         RtPathTraceCleanRtxdiDiTransmissionPassAccess::FeatureState(pass);
     return {
         featureState
-            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::TransmissionShaderState(*featureState)
+            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForPass(*featureState, registration.passDesc)
             : nullptr,
         context.smokeTestInitialized,
         context.cleanRtxdiDiBindingLayout,
@@ -457,19 +457,12 @@ RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPa
     return pass;
 }
 
-RtPathTraceMaterialFeatureShaderState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::TransmissionShaderState(
-    RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
+RtPathTraceMaterialFeatureShaderState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForPass(
+    RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc)
 {
     return featureState.m_impl
-        ? &featureState.m_impl->transmissionShaderState
-        : nullptr;
-}
-
-const RtPathTraceMaterialFeatureShaderState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::TransmissionShaderState(
-    const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
-{
-    return featureState.m_impl
-        ? &featureState.m_impl->transmissionShaderState
+        ? PathTraceMaterialFeatureShaderStateForPass(passDesc, featureState.m_impl->shaderTableState)
         : nullptr;
 }
 
@@ -552,18 +545,17 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
 {
-    const RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState =
+    RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState =
         RtPathTraceCleanRtxdiDiTransmissionPassAccess::FeatureState(pass);
+    const RtPathTraceMaterialFeaturePassRegistration registration =
+        PathTraceCleanRtxdiDiMaterialFeatureRegistrationForKind(pass, RtPathTraceMaterialFeaturePassKind::TransmissionProducer);
     const RtPathTraceMaterialFeatureShaderState* shaderState = featureState
-        ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::TransmissionShaderState(*featureState)
+        ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForPass(*featureState, registration.passDesc)
         : nullptr;
     if (!shaderState)
     {
         return RtPathTraceMaterialFeatureRuntimePass();
     }
-
-    const RtPathTraceMaterialFeaturePassRegistration registration =
-        PathTraceCleanRtxdiDiMaterialFeatureRegistrationForKind(pass, RtPathTraceMaterialFeaturePassKind::TransmissionProducer);
     return BuildPathTraceMaterialFeatureRuntimePass(registration.passDesc, shaderState);
 }
 
@@ -616,7 +608,7 @@ bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
     return EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
         featurePass,
         registration,
-        BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(pass, context));
+        BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(pass, registration, context));
 }
 
 void SetPathTraceCleanRtxdiDiTransmissionOutputUnorderedAccess(
