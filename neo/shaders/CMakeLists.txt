@@ -150,6 +150,27 @@ set(PATH_TRACING_SHADER_OUTPUTS)
 set(PATH_TRACING_RTXDI_INCLUDE_ARGS)
 list(APPEND PATH_TRACING_RTXDI_INCLUDE_ARGS -I "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing")
 
+function(path_tracing_declare_spirv_rt_library)
+    set(options)
+    set(oneValueArgs OUTPUT SOURCE OUTPUT_DIR COMMENT)
+    set(multiValueArgs DEPENDS DEFINES)
+    cmake_parse_arguments(PT_RT "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    if(NOT PT_RT_OUTPUT OR NOT PT_RT_SOURCE OR NOT PT_RT_OUTPUT_DIR OR NOT PT_RT_COMMENT)
+        message(FATAL_ERROR "path_tracing_declare_spirv_rt_library requires OUTPUT, SOURCE, OUTPUT_DIR, and COMMENT")
+    endif()
+
+    add_custom_command(
+        OUTPUT ${PT_RT_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PT_RT_OUTPUT_DIR}
+        COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV ${PT_RT_DEFINES} ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PT_RT_OUTPUT} ${PT_RT_SOURCE}
+        DEPENDS ${PT_RT_SOURCE} ${PT_RT_DEPENDS}
+        COMMENT ${PT_RT_COMMENT}
+        VERBATIM)
+    list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PT_RT_OUTPUT})
+    set(PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_SHADER_OUTPUTS} PARENT_SCOPE)
+endfunction()
+
 if(USE_DX12 AND USE_DXIL_ON_DX12 AND PATH_TRACING_BUILD_DXIL_RT_SHADERS)
     set(PATH_TRACING_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_smoke.rt.bin)
     set(PATH_TRACING_MODE18_RESTIR_HYBRID_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_smoke_mode18_restir_hybrid.rt.bin)
@@ -441,7 +462,6 @@ if(USE_VULKAN)
     set(PATH_TRACING_CLEAN_RTXDI_DI_INITIAL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_TEMPORAL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin)
-    set(PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin)
     set(PATH_TRACING_CLEAN_RESTIR_GI_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin)
     set(PATH_TRACING_CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_producer_rayquery.cs.bin)
     set(PATH_TRACING_CLEAN_RESTIR_GI_TEMPORAL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_temporal.cs.bin)
@@ -551,13 +571,12 @@ if(USE_VULKAN)
         DEPENDS ${PATH_TRACING_RESTIR_REFLECTION_PRODUCER_SHADER_SOURCE} ${PATH_TRACING_SHADER_SOURCE} ${PATH_TRACING_SHADER_INCLUDES}
         COMMENT "Compiling path tracing ReSTIR reflection producer RT shader library (SPIR-V)"
         VERBATIM)
-    add_custom_command(
-        OUTPUT ${PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SPIRV_OUTPUT}
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi
-        COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SPIRV_OUTPUT} ${PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SHADER_SOURCE}
-        DEPENDS ${PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES}
-        COMMENT "Compiling clean-room RTXDI DI transmission producer RT shader library (SPIR-V)"
-        VERBATIM)
+    path_tracing_declare_spirv_rt_library(
+        OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin
+        SOURCE ${PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SHADER_SOURCE}
+        OUTPUT_DIR ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi
+        DEPENDS ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES}
+        COMMENT "Compiling clean-room RTXDI DI transmission producer RT shader library (SPIR-V)")
     add_custom_command(
         OUTPUT ${PATH_TRACING_RESTIR_COMBINED_RESOLVE_SPIRV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing
@@ -655,7 +674,6 @@ if(USE_VULKAN)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_DIRECT_TEMPORAL_PRODUCER_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_DIRECT_SPATIAL_RESERVOIR_PRODUCER_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_REFLECTION_PRODUCER_SPIRV_OUTPUT})
-    list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_COMBINED_RESOLVE_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_PDF_NEE_RLU_CURRENT_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_PDF_NEE_VERIFIER_SPIRV_OUTPUT})
