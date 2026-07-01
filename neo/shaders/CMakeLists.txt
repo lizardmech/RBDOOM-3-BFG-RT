@@ -224,6 +224,10 @@ function(path_tracing_declare_clean_rtxdi_di_material_feature_rt_library)
     set(PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_SHADER_OUTPUTS} PARENT_SCOPE)
 endfunction()
 
+set(PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_SHADERS
+    "pathtrace_clean_rtxdi_di_transmission_producer|clean-room RTXDI DI transmission producer"
+    "pathtrace_clean_rtxdi_di_glass|clean-room RTXDI DI glass material-feature")
+
 if(USE_DX12 AND USE_DXIL_ON_DX12 AND PATH_TRACING_BUILD_DXIL_RT_SHADERS)
     set(PATH_TRACING_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_smoke.rt.bin)
     set(PATH_TRACING_MODE18_RESTIR_HYBRID_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_smoke_mode18_restir_hybrid.rt.bin)
@@ -615,16 +619,16 @@ if(USE_VULKAN)
         DEPENDS ${PATH_TRACING_RESTIR_REFLECTION_PRODUCER_SHADER_SOURCE} ${PATH_TRACING_SHADER_SOURCE} ${PATH_TRACING_SHADER_INCLUDES}
         COMMENT "Compiling path tracing ReSTIR reflection producer RT shader library (SPIR-V)"
         VERBATIM)
-    path_tracing_declare_clean_rtxdi_di_material_feature_rt_library(
-        BLOB_PATH builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin
-        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.hlsl
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.hlsli
-        COMMENT "Compiling clean-room RTXDI DI transmission producer RT shader library (SPIR-V)")
-    path_tracing_declare_clean_rtxdi_di_material_feature_rt_library(
-        BLOB_PATH builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_glass.rt.bin
-        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_glass.rt.hlsl
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_glass.hlsli
-        COMMENT "Compiling clean-room RTXDI DI glass material-feature RT shader library (SPIR-V)")
+    foreach(PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_SHADER IN LISTS PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_SHADERS)
+        string(REPLACE "|" ";" PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_FIELDS "${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_SHADER}")
+        list(GET PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_FIELDS 0 PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM)
+        list(GET PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_FIELDS 1 PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_LABEL)
+        path_tracing_declare_clean_rtxdi_di_material_feature_rt_library(
+            BLOB_PATH builtin/pathtracing/cleanroom_rtxdi/${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM}.rt.bin
+            SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM}.rt.hlsl
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM}.hlsli
+            COMMENT "Compiling ${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_LABEL} RT shader library (SPIR-V)")
+    endforeach()
     add_custom_command(
         OUTPUT ${PATH_TRACING_RESTIR_COMBINED_RESOLVE_SPIRV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing
