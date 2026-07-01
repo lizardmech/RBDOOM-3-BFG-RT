@@ -67,6 +67,7 @@ const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
 
 RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     RtPathTraceMaterialFeatureShaderState* shaderStates,
     size_t shaderStateCount,
     nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
@@ -81,7 +82,7 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
         return request;
     }
 
-    request.shaderDesc = PathTraceMaterialFeatureShaderDescForTable(passDesc.shaderTable);
+    request.shaderDesc = shaderDesc;
     if (!request.shaderDesc.dxilShaderPath || !request.shaderDesc.spirvShaderPath)
     {
         request.shaderState = nullptr;
@@ -98,6 +99,7 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
 
 RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     RtPathTraceMaterialFeatureShaderTableState& shaderTableState,
     nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
     nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
@@ -105,6 +107,7 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
 {
     return BuildPathTraceMaterialFeaturePipelineRequest(
         passDesc,
+        shaderDesc,
         shaderTableState.shaders.data(),
         shaderTableState.shaders.size(),
         coreSmokeBindingLayout,

@@ -33,3 +33,5 @@ struct RtPathTraceCleanRtxdiDiTransmissionPassAccess
 
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass);
+RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiTransmissionShaderDesc(
+    const RtPathTraceCleanRtxdiDiTransmissionPass& pass);

@@ -146,22 +146,6 @@ inline uint32_t PathTraceMaterialFeatureBindingLayoutOptionalOutputs(RtPathTrace
     }
 }
 
-inline RtPathTraceMaterialFeatureShaderDesc PathTraceMaterialFeatureShaderDescForTable(RtPathTraceMaterialFeatureShaderTable shaderTable)
-{
-    switch (shaderTable)
-    {
-    case RtPathTraceMaterialFeatureShaderTable::CleanRtxdiDiTransmissionProducer:
-        return {
-            "clean-room RTXDI DI transmission producer",
-            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
-            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
-            RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi
-        };
-    default:
-        return {};
-    }
-}
-
 inline RtPathTraceMaterialFeaturePassDesc BuildPathTracePrimarySurfaceFeaturePassDesc(bool enabled)
 {
     RtPathTraceMaterialFeaturePassDesc desc;

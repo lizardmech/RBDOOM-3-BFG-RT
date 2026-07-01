@@ -150,6 +150,7 @@ static bool CreatePathTraceMaterialFeatureRayTracingPipeline(
 
 static bool InitPathTraceMaterialFeaturePipeline(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     const RtPathTraceMaterialFeaturePipelineContext& context)
 {
     if (!context.shaderTableState)
@@ -182,6 +183,7 @@ static bool InitPathTraceMaterialFeaturePipeline(
 
     const RtPathTraceMaterialFeaturePipelineRequest pipelineRequest = BuildPathTraceMaterialFeaturePipelineRequest(
         passDesc,
+        shaderDesc,
         *context.shaderTableState,
         context.smokeBindingLayout,
         context.cleanRtxdiDiBindingLayout,
@@ -225,6 +227,7 @@ static bool InitPathTraceMaterialFeaturePipeline(
 
 static bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(
     const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     const RtPathTraceMaterialFeaturePipelineContext& context)
 {
     if (!pass.ready)
@@ -237,7 +240,7 @@ static bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(
     }
     if (!pass.shader->shaderTable)
     {
-        InitPathTraceMaterialFeaturePipeline(pass.desc, context);
+        InitPathTraceMaterialFeaturePipeline(pass.desc, shaderDesc, context);
     }
     return static_cast<bool>(pass.shader->shaderTable);
 }
@@ -248,7 +251,10 @@ bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
 {
     const RtPathTraceMaterialFeatureRuntimePass featurePass =
         BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
+    const RtPathTraceMaterialFeatureShaderDesc shaderDesc =
+        PathTraceCleanRtxdiDiTransmissionShaderDesc(pass);
     return EnsurePathTraceMaterialFeatureRuntimePassPipeline(
         featurePass,
+        shaderDesc,
         BuildPathTraceMaterialFeaturePipelineContext(resources));
 }

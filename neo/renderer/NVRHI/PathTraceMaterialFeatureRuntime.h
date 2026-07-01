@@ -58,6 +58,7 @@ const char* PathTraceMaterialFeatureShaderPathForGraphicsApi(
     nvrhi::GraphicsAPI graphicsApi);
 RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     RtPathTraceMaterialFeatureShaderState* shaderStates,
     size_t shaderStateCount,
     nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
@@ -65,6 +66,7 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
     nvrhi::GraphicsAPI graphicsApi);
 RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineRequest(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     RtPathTraceMaterialFeatureShaderTableState& shaderTableState,
     nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
     nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout,
