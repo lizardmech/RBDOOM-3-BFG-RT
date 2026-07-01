@@ -4,32 +4,31 @@
 #include "PathTraceCleanRtxdiDiMaterialFeatureRegistry.h"
 #include "PathTraceCleanRtxdiDiGlassFeature.h"
 #include "PathTraceCleanRtxdiDiTransmissionFeature.h"
+#include "PathTraceMaterialFeatureRegistry.h"
 
 namespace {
 
-using RtPathTraceCleanRtxdiDiFeatureRuntimeRegistrationBuilder =
-    RtPathTraceMaterialFeaturePassRegistration (*)(const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext& context);
-using RtPathTraceCleanRtxdiDiFeatureLayoutRegistrationBuilder =
-    RtPathTraceMaterialFeaturePassRegistration (*)();
-
-struct RtPathTraceCleanRtxdiDiMaterialFeatureRegistryEntry
-{
-    const char* debugName = "unknown";
-    RtPathTraceCleanRtxdiDiFeatureRuntimeRegistrationBuilder buildRuntimeRegistration = nullptr;
-    RtPathTraceCleanRtxdiDiFeatureLayoutRegistrationBuilder buildLayoutRegistration = nullptr;
-};
-
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionRuntimeRegistration(
-    const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext& context)
+    const void* contextPtr)
 {
+    RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext context;
+    if (contextPtr)
+    {
+        context = *static_cast<const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext*>(contextPtr);
+    }
     return BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
         context.cleanRouteRequested,
         context.cleanView);
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassRuntimeRegistration(
-    const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext& context)
+    const void* contextPtr)
 {
+    RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext context;
+    if (contextPtr)
+    {
+        context = *static_cast<const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext*>(contextPtr);
+    }
     return BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(
         context.cleanRouteRequested,
         context.cleanView);
@@ -53,26 +52,29 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiNoOpFeature
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiNoOpRuntimeRegistration(
-    const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext&)
+    const void*)
 {
     return BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration();
 }
 
-static const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatureRegistry[] = {
+static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatureRegistry[] = {
     {
         "clean-rtxdi-di-transmission",
         BuildPathTraceCleanRtxdiDiTransmissionRuntimeRegistration,
-        BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration
+        BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration,
+        RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR
     },
     {
         "clean-rtxdi-di-glass",
         BuildPathTraceCleanRtxdiDiGlassRuntimeRegistration,
-        BuildPathTraceCleanRtxdiDiGlassFeatureLayoutRegistration
+        BuildPathTraceCleanRtxdiDiGlassFeatureLayoutRegistration,
+        RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR
     },
     {
         "clean-rtxdi-di-noop",
         BuildPathTraceCleanRtxdiDiNoOpRuntimeRegistration,
-        BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration
+        BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration,
+        RT_MATERIAL_FEATURE_RESOURCE_NONE
     }
 };
 
@@ -80,16 +82,6 @@ static_assert(
     sizeof(kCleanRtxdiDiMaterialFeatureRegistry) / sizeof(kCleanRtxdiDiMaterialFeatureRegistry[0]) <=
         RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY,
     "Clean RTXDI DI material feature registry exceeds fixed traversal capacity");
-
-void AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(
-    RtPathTraceMaterialFeaturePassRegistration& registration,
-    size_t registryIndex)
-{
-    registration.shaderStateIndex =
-        registryIndex < RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY
-            ? static_cast<uint32_t>(registryIndex)
-            : RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID;
-}
 
 }
 
@@ -103,36 +95,21 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryRegistrations(
     RtPathTraceMaterialFeaturePassRegistration* registrations,
     size_t registrationCapacity)
 {
-    const size_t registryCount = PathTraceCleanRtxdiDiMaterialFeatureRegistryCount();
-    for (size_t i = 0; registrations && i < registryCount && i < registrationCapacity; ++i)
-    {
-        const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryEntry& entry = kCleanRtxdiDiMaterialFeatureRegistry[i];
-        if (entry.buildRuntimeRegistration)
-        {
-            registrations[i] = entry.buildRuntimeRegistration(context);
-            AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(registrations[i], i);
-        }
-    }
-    ResolvePathTraceMaterialFeatureSharedOutputOwner(
+    return BuildPathTraceMaterialFeatureRegistryRuntimeRegistrations(
+        &context,
+        kCleanRtxdiDiMaterialFeatureRegistry,
+        PathTraceCleanRtxdiDiMaterialFeatureRegistryCount(),
         registrations,
-        registryCount < registrationCapacity ? registryCount : registrationCapacity,
-        RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
-    return registryCount;
+        registrationCapacity);
 }
 
 size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryLayoutRegistrations(
     RtPathTraceMaterialFeaturePassRegistration* registrations,
     size_t registrationCapacity)
 {
-    const size_t registryCount = PathTraceCleanRtxdiDiMaterialFeatureRegistryCount();
-    for (size_t i = 0; registrations && i < registryCount && i < registrationCapacity; ++i)
-    {
-        const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryEntry& entry = kCleanRtxdiDiMaterialFeatureRegistry[i];
-        if (entry.buildLayoutRegistration)
-        {
-            registrations[i] = entry.buildLayoutRegistration();
-            AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(registrations[i], i);
-        }
-    }
-    return registryCount;
+    return BuildPathTraceMaterialFeatureRegistryLayoutRegistrations(
+        kCleanRtxdiDiMaterialFeatureRegistry,
+        PathTraceCleanRtxdiDiMaterialFeatureRegistryCount(),
+        registrations,
+        registrationCapacity);
 }
