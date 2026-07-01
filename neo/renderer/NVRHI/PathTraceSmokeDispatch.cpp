@@ -17,6 +17,7 @@
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceLightSelection.h"
+#include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"
 #include "PathTraceRemixRtxdiResourceGate.h"
@@ -3427,8 +3428,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, cleanNeeCacheCellSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cleanNeeCacheCandidateSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
-        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(80, m_smokeMaterialFeatureBuffer));
-        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(88, m_smokeMaterialFeatureRuntimeConstantsBuffer));
+        AddPathTraceMaterialFeatureInputBindings(
+            cleanBindingSetDesc,
+            {
+                m_smokeMaterialFeatureBuffer,
+                m_smokeMaterialFeatureRuntimeConstantsBuffer
+            },
+            RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR |
+            RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS);
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
         nvrhi::BindingSetHandle cleanBindingSet = device->createBindingSet(cleanBindingSetDesc, m_smokeCleanRtxdiDiSentinelBindingLayout);
         if (!cleanBindingSet)
