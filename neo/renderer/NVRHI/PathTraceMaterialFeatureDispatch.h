@@ -3,7 +3,7 @@
 // Generic dispatch adapter for material feature raygen passes.
 //
 // The caller owns its pass constants type; the adapter only requires a
-// toyPathInfo[4] runtime-info lane matching the current clean feature contract.
+// four-float runtime-info lane matching the current material feature contract.
 
 #include "PathTraceFrameResources.h"
 #include "PathTraceMaterialFeatureOutputs.h"

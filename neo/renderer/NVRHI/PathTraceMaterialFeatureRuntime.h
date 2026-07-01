@@ -39,6 +39,14 @@ struct RtPathTraceMaterialFeaturePipelineRequest
     const char* shaderPath = nullptr;
 };
 
+struct RtPathTraceMaterialFeatureRuntimeInfo
+{
+    float writesOutputColor = 0.0f;
+    float ready = 0.0f;
+    float debugMode = 0.0f;
+    float frameIndex = 0.0f;
+};
+
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
     const RtPathTraceMaterialFeatureShaderState* shaderState);
@@ -64,5 +72,8 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
     RtPathTraceMaterialFeatureShaderState* shaderState,
     nvrhi::BindingLayoutHandle bindingLayout,
     nvrhi::GraphicsAPI graphicsApi);
+RtPathTraceMaterialFeatureRuntimeInfo BuildPathTraceMaterialFeatureRuntimeInfo(const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady);
+RtPathTraceMaterialFeatureRuntimeInfo BuildPathTraceMaterialFeatureRuntimeInfo(const RtPathTraceMaterialFeatureRuntimePass& pass);
+void PackPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimeInfo& typedInfo);
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady);
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimePass& pass);

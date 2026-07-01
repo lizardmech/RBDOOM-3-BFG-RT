@@ -80,6 +80,13 @@ struct RtPathTraceMaterialFeatureShaderDesc
     const char* spirvShaderPath = nullptr;
 };
 
+struct RtPathTraceMaterialFeaturePassRegistration
+{
+    RtPathTraceMaterialFeaturePassDesc passDesc;
+    RtPathTraceMaterialFeatureShaderDesc shaderDesc;
+    const char* validationRoute = "none";
+};
+
 inline bool PathTraceMaterialFeaturePassHasAllInputs(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)
 {
     return (desc.resourceInputs & resources) == resources;

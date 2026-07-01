@@ -96,13 +96,35 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
     return request;
 }
 
+RtPathTraceMaterialFeatureRuntimeInfo BuildPathTraceMaterialFeatureRuntimeInfo(const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady)
+{
+    RtPathTraceMaterialFeatureRuntimeInfo typedInfo;
+    typedInfo.writesOutputColor = PathTraceMaterialFeaturePassWritesAnyOutput(desc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR) ? 1.0f : 0.0f;
+    typedInfo.ready = passReady ? 1.0f : 0.0f;
+    return typedInfo;
+}
+
+RtPathTraceMaterialFeatureRuntimeInfo BuildPathTraceMaterialFeatureRuntimeInfo(const RtPathTraceMaterialFeatureRuntimePass& pass)
+{
+    return BuildPathTraceMaterialFeatureRuntimeInfo(pass.desc, pass.ready);
+}
+
+void PackPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimeInfo& typedInfo)
+{
+    runtimeInfo[0] = typedInfo.writesOutputColor;
+    runtimeInfo[1] = typedInfo.ready;
+    runtimeInfo[2] = typedInfo.debugMode;
+    runtimeInfo[3] = typedInfo.frameIndex;
+}
+
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady)
 {
-    runtimeInfo[0] = PathTraceMaterialFeaturePassWritesAnyOutput(desc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR) ? 1.0f : 0.0f;
-    runtimeInfo[1] = passReady ? 1.0f : 0.0f;
+    PackPathTraceMaterialFeatureRuntimeInfo(
+        runtimeInfo,
+        BuildPathTraceMaterialFeatureRuntimeInfo(desc, passReady));
 }
 
 void SetPathTraceMaterialFeatureRuntimeInfo(float runtimeInfo[4], const RtPathTraceMaterialFeatureRuntimePass& pass)
 {
-    SetPathTraceMaterialFeatureRuntimeInfo(runtimeInfo, pass.desc, pass.ready);
+    PackPathTraceMaterialFeatureRuntimeInfo(runtimeInfo, BuildPathTraceMaterialFeatureRuntimeInfo(pass));
 }

@@ -87,6 +87,37 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     return desc;
 }
 
+static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
+    bool cleanRouteRequested,
+    int cleanView,
+    bool producerRequested,
+    bool debugOutputRequested)
+{
+    RtPathTraceMaterialFeaturePassRegistration registration;
+    registration.passDesc = BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
+        cleanRouteRequested,
+        cleanView,
+        producerRequested,
+        debugOutputRequested);
+    registration.shaderDesc = {
+        "clean-room RTXDI DI transmission producer",
+        "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
+        "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin"
+    };
+    registration.validationRoute = "clean-rtxdi-di-view-16-transmission-debug";
+    return registration;
+}
+
+static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
+    const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
+{
+    return BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
+        RtPathTraceCleanRtxdiDiTransmissionPassAccess::CleanRouteRequested(pass),
+        RtPathTraceCleanRtxdiDiTransmissionPassAccess::CleanView(pass),
+        RtPathTraceCleanRtxdiDiTransmissionPassAccess::ProducerRequested(pass),
+        RtPathTraceCleanRtxdiDiTransmissionPassAccess::DebugOutputRequested(pass));
+}
+
 static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceCleanRtxdiDiPipelineContext& context)
@@ -449,24 +480,15 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
         return RtPathTraceMaterialFeatureRuntimePass();
     }
 
-    return BuildPathTraceMaterialFeatureRuntimePass(
-        BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
-            RtPathTraceCleanRtxdiDiTransmissionPassAccess::CleanRouteRequested(pass),
-            RtPathTraceCleanRtxdiDiTransmissionPassAccess::CleanView(pass),
-            RtPathTraceCleanRtxdiDiTransmissionPassAccess::ProducerRequested(pass),
-            RtPathTraceCleanRtxdiDiTransmissionPassAccess::DebugOutputRequested(pass)),
-        shaderState);
+    const RtPathTraceMaterialFeaturePassRegistration registration =
+        BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(pass);
+    return BuildPathTraceMaterialFeatureRuntimePass(registration.passDesc, shaderState);
 }
 
 RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiTransmissionShaderDesc(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
 {
-    (void)pass;
-    return {
-        "clean-room RTXDI DI transmission producer",
-        "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
-        "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin"
-    };
+    return BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(pass).shaderDesc;
 }
 
 void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc)
