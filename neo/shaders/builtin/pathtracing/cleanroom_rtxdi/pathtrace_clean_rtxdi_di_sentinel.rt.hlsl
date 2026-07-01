@@ -330,9 +330,7 @@ float3 PathTraceCleanRoomPrimarySurfaceStatusColor(uint2 pixel, uint2 dimensions
 
 #include "pathtrace_clean_rtxdi_di_math.hlsli"
 
-#include "pathtrace_clean_rtxdi_di_material_texture.hlsli"
-#include "pathtrace_clean_rtxdi_di_surface_adapter.hlsli"
-#include "pathtrace_clean_rtxdi_di_material_feature_queries.hlsli"
+#include "pathtrace_clean_rtxdi_di_material_adapter.hlsli"
 
 uint PathTraceCleanRoomReservoirBlockCount(uint dimension)
 {

@@ -1,0 +1,8 @@
+#ifndef RB_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_ADAPTER_HLSLI
+#define RB_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_ADAPTER_HLSLI
+
+#include "pathtrace_clean_rtxdi_di_material_texture.hlsli"
+#include "pathtrace_clean_rtxdi_di_surface_adapter.hlsli"
+#include "pathtrace_clean_rtxdi_di_material_feature_queries.hlsli"
+
+#endif
