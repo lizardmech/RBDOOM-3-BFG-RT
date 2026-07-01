@@ -3,12 +3,11 @@
 
 #include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceCVars.h"
+#include "PathTraceMaterialFeatureDispatch.h"
 #include "PathTraceMaterialFeatureOutputs.h"
 #include "PathTraceMaterialFeatureRuntime.h"
 
 #include "../../sys/DeviceManager.h"
-
-#include <cstring>
 
 extern DeviceManager* deviceManager;
 
@@ -552,49 +551,17 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
 {
     const RtPathTraceMaterialFeatureRuntimePass featurePass =
         BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
-    if (!commandList || !baseConstants || !baseRuntimeInfo ||
-        !featurePass.ready || !featurePass.shader || !featurePass.shader->shaderTable)
-    {
-        return;
-    }
-    if (baseConstantsSize == 0 || baseConstantsSize > 512)
-    {
-        return;
-    }
-
-    const unsigned char* baseConstantsBytes = static_cast<const unsigned char*>(baseConstants);
-    const unsigned char* baseConstantsEnd = baseConstantsBytes + baseConstantsSize;
-    const unsigned char* runtimeInfoBytes = reinterpret_cast<const unsigned char*>(baseRuntimeInfo);
-    if (runtimeInfoBytes < baseConstantsBytes ||
-        runtimeInfoBytes + sizeof(float) * 4 > baseConstantsEnd)
-    {
-        return;
-    }
-    const size_t runtimeInfoOffset = static_cast<size_t>(runtimeInfoBytes - baseConstantsBytes);
-
-    nvrhi::rt::State featureState = baseState;
-    featureState.shaderTable = featurePass.shader->shaderTable;
-    commandList->setRayTracingState(featureState);
-
-    unsigned char featureConstants[512] = {};
-    std::memcpy(featureConstants, baseConstants, baseConstantsSize);
-    SetPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
-        reinterpret_cast<float*>(featureConstants + runtimeInfoOffset),
-        pass);
-    commandList->writeBuffer(constantsBuffer, featureConstants, baseConstantsSize);
-
-    const bool markerEnabled = nsightGpuMarkers && featurePass.desc.debugLabel && featurePass.desc.debugLabel[0];
-    if (markerEnabled)
-    {
-        commandList->beginMarker(featurePass.desc.debugLabel);
-    }
-    commandList->dispatchRays(args);
-    if (markerEnabled)
-    {
-        commandList->endMarker();
-    }
-
-    BarrierPathTraceMaterialFeatureOutputs(commandList, featurePass, frameResources);
+    DispatchPathTraceMaterialFeaturePassWithRuntimeInfo(
+        commandList,
+        baseState,
+        args,
+        constantsBuffer,
+        baseConstants,
+        baseConstantsSize,
+        baseRuntimeInfo,
+        featurePass,
+        frameResources,
+        nsightGpuMarkers);
 }
 
 void SetPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
