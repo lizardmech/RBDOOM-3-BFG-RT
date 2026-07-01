@@ -53,6 +53,18 @@ bool PathTraceMaterialFeatureOutputAvailable(const RtPathTraceMaterialFeaturePas
         PathTraceMaterialFeatureOutputTexture(frameResources, resource);
 }
 
+bool PathTraceMaterialFeatureOutputsAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources)
+{
+    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
+    {
+        if (!PathTraceMaterialFeatureOutputAvailable(passDesc, frameResources, resource))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool PathTraceMaterialFeaturePrimaryOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources)
 {
     return PathTraceMaterialFeatureOutputAvailable(passDesc, frameResources, passDesc.primaryOutputResource);
@@ -79,6 +91,33 @@ void SetPathTraceMaterialFeatureOutputState(
     if (commandList && texture)
     {
         commandList->setTextureState(texture, nvrhi::AllSubresources, state);
+    }
+}
+
+void SetPathTraceMaterialFeatureOutputsState(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    const RtPathTraceFrameResources& frameResources,
+    nvrhi::ResourceStates state)
+{
+    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
+    {
+        if (PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, resource))
+        {
+            SetPathTraceMaterialFeatureOutputState(commandList, passDesc, frameResources, resource, state);
+        }
+    }
+}
+
+void SetPathTraceMaterialFeatureOutputsState(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceFrameResources& frameResources,
+    nvrhi::ResourceStates state)
+{
+    if (pass.ready)
+    {
+        SetPathTraceMaterialFeatureOutputsState(commandList, pass.desc, frameResources, state);
     }
 }
 

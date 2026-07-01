@@ -523,8 +523,7 @@ bool PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(
     for (size_t i = 0; i < registrationCount && i < sizeof(registrations) / sizeof(registrations[0]); ++i)
     {
         const RtPathTraceMaterialFeaturePassDesc& passDesc = registrations[i].passDesc;
-        if (!PathTraceMaterialFeaturePrimaryOutputAvailable(passDesc, frameResources) ||
-            !PathTraceMaterialFeatureOutputAvailable(passDesc, frameResources, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR))
+        if (!PathTraceMaterialFeatureOutputsAvailable(passDesc, frameResources))
         {
             return false;
         }
@@ -569,7 +568,7 @@ void SetPathTraceCleanRtxdiDiMaterialFeatureOutputsUnorderedAccess(
         sizeof(runtimePasses) / sizeof(runtimePasses[0]));
     for (size_t i = 0; i < passCount && i < sizeof(runtimePasses) / sizeof(runtimePasses[0]); ++i)
     {
-        SetPathTraceMaterialFeaturePrimaryOutputState(
+        SetPathTraceMaterialFeatureOutputsState(
             commandList,
             runtimePasses[i],
             frameResources,
