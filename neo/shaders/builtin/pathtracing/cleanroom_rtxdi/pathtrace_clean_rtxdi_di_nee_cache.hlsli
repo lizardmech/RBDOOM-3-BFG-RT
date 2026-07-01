@@ -385,7 +385,7 @@ bool PathTraceCleanRoomNeeCacheStreamLightIntoReservoir(
         return false;
     }
 
-    const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+    const float targetPdf = max(PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(lightSample, surface), 0.0);
     const bool resolveDividesBySolidAngle = (CleanRtxdiDiFlags & CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF) != 0u;
     const float sourcePdf = sourceSelectionPdf * (resolveDividesBySolidAngle ? 1.0 : lightSample.solidAnglePdf);
     if (targetPdf <= 0.0 || sourcePdf <= 0.0)

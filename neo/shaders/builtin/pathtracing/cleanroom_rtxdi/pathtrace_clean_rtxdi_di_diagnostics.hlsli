@@ -471,10 +471,10 @@ float3 PathTraceCleanRoomRealAnalyticTargetFactorDiagnosticColor(uint2 pixel, ui
     const float geoNdotL = saturate(dot(RAB_GetSurfaceGeoNormal(surface), lightDir));
     const float shadeNdotV = saturate(dot(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceViewDir(surface)));
     const float geoNdotV = saturate(dot(RAB_GetSurfaceGeoNormal(surface), RAB_GetSurfaceViewDir(surface)));
-    const float3 brdf = RAB_EvaluateSurfaceBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface));
+    const float3 brdf = PathTraceCleanRtxdiDiMaterialEvaluateOpaqueDirectBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface));
     const float radianceLum = RAB_Luminance(lightSample.radiance);
     const float brdfLum = RAB_Luminance(brdf);
-    const float targetPdf = RAB_GetLightSampleTargetPdfForSurface(lightSample, surface);
+    const float targetPdf = PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(lightSample, surface);
     const float reflectedLum = RAB_Luminance(brdf * lightSample.radiance * shadeNdotL);
 
     const uint band = min((pixel.y * 8u) / max(dimensions.y, 1u), 7u);
@@ -574,10 +574,10 @@ float3 PathTraceCleanRoomRealAnalyticBinaryGateDiagnosticColor(uint2 pixel, uint
     const float shadeNdotV = dot(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceViewDir(surface));
     const float geoNdotV = dot(RAB_GetSurfaceGeoNormal(surface), RAB_GetSurfaceViewDir(surface));
     const float radianceLum = RAB_Luminance(lightSample.radiance);
-    const bool brdfSupported = RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface);
-    const float3 brdf = RAB_EvaluateSurfaceBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface));
+    const bool brdfSupported = PathTraceCleanRtxdiDiMaterialSupportsOpaqueDirect(surface);
+    const float3 brdf = PathTraceCleanRtxdiDiMaterialEvaluateOpaqueDirectBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface));
     const float brdfLum = RAB_Luminance(brdf);
-    const float targetPdf = RAB_GetLightSampleTargetPdfForSurface(lightSample, surface);
+    const float targetPdf = PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(lightSample, surface);
     const float reflectedLum = RAB_Luminance(brdf * lightSample.radiance * saturate(shadeNdotL));
 
     const uint band = min((pixel.y * 8u) / max(dimensions.y, 1u), 7u);

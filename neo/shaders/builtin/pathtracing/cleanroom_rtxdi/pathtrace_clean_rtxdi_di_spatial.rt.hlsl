@@ -244,6 +244,7 @@ static const uint CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 #define RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES 1
 // The clean RTXDI target function uses Remix-style material floors before reservoir weighting.
 #include "../RtxdiBridge/RAB_LightTarget.hlsli"
+#include "pathtrace_clean_rtxdi_di_material_feature_queries.hlsli"
 
 uint CleanRtxdiDiDynamicMaterialRecordCount()
 {
@@ -1045,7 +1046,7 @@ float CleanTargetPdf(uint lightIndex, float2 sampleUv, RAB_Surface surface)
 {
     const RAB_LightInfo lightInfo = CleanLoadRluLightInfo(lightIndex);
     const RAB_LightSample sample = RAB_SamplePolymorphicLight(lightInfo, surface, sampleUv);
-    return max(RAB_GetLightSampleTargetPdfForSurface(sample, surface), 0.0);
+    return max(PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(sample, surface), 0.0);
 }
 
 float CleanTraceVisibility(RAB_Surface surface, RAB_LightInfo lightInfo, RAB_LightSample sample)
@@ -1150,7 +1151,7 @@ float3 CleanResolve(uint2 pixel, uint lightIndex, float2 sampleUv, PathTracePrim
     }
 
     surface.material.diffuseAlbedo = receiverAlbedo;
-    const float3 reflected = RAB_GetReflectedBsdfRadianceForSurface(sample.position, sample.radiance, surface);
+    const float3 reflected = PathTraceCleanRtxdiDiMaterialEvaluateReflectedRadiance(sample.position, sample.radiance, surface);
     const uint visibilityMode = min(CleanRtxdiDiResolveVisibilityReuse, 3u);
     float visibility = 0.0;
     if (CleanSkipResolveVisibilityTrace(pixel, visibilityMode))

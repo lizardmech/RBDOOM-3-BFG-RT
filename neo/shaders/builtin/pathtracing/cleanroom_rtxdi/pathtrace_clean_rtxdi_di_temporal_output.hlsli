@@ -192,7 +192,7 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
                 const RAB_LightInfo mappedPreviousLight = RAB_LoadLightInfo((uint)mappedPreviousLightIndex, false);
                 const RAB_LightSample mappedPreviousSample = RAB_SamplePolymorphicLight(
                     mappedPreviousLight, surface, RTXDI_GetDIReservoirSampleUV(previousReservoir));
-                result.previousTargetAtCurrentPdf = RAB_GetLightSampleTargetPdfForSurface(mappedPreviousSample, surface);
+                result.previousTargetAtCurrentPdf = PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(mappedPreviousSample, surface);
                 if (result.previousTargetAtCurrentPdf > 1.0e-8)
                 {
                     result.flags |= CLEAN_TEMPORAL_DIAG_PREVIOUS_TARGET_AT_CURRENT;
@@ -541,7 +541,7 @@ float3 PathTraceCleanRoomRluReplayNodeColor(
         return float3(0.0, 0.95, 1.0);
     }
 
-    const float targetPdf = RAB_GetLightSampleTargetPdfForSurface(sample, surface);
+    const float targetPdf = PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(sample, surface);
     if (targetPdf <= 1.0e-8 || !(targetPdf == targetPdf))
     {
         return float3(0.95, 0.95, 0.95);
@@ -730,7 +730,7 @@ float3 PathTraceCleanRoomRluAnalyticReplayDiagnosticColor(
             previousInfo = RAB_LoadLightInfo(previousIndex, true);
         }
     const RAB_LightSample previousSampleAtCurrent = RAB_SamplePolymorphicLight(previousInfo, surface, RTXDI_GetDIReservoirSampleUV(initial.reservoir));
-        const float previousTargetAtCurrent = RAB_GetLightSampleTargetPdfForSurface(previousSampleAtCurrent, surface);
+        const float previousTargetAtCurrent = PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(previousSampleAtCurrent, surface);
         if (mappedAnalytic && !RAB_IsLightInfoValid(previousInfo))
         {
             return PathTraceCleanRoomRluAnalyticPayloadFailureColor(previousRecord);
@@ -797,7 +797,7 @@ float3 PathTraceCleanRoomRluAnalyticReplayDiagnosticColor(
         currentInfo = RAB_LoadLightInfo(currentIndex, false);
     }
     const RAB_LightSample currentSampleAtCurrent = RAB_SamplePolymorphicLight(currentInfo, surface, RTXDI_GetDIReservoirSampleUV(previousReservoir));
-    const float currentTargetAtCurrent = RAB_GetLightSampleTargetPdfForSurface(currentSampleAtCurrent, surface);
+    const float currentTargetAtCurrent = PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(currentSampleAtCurrent, surface);
 
     return PathTraceCleanRoomRluAnalyticReplayGateColor(
         selectedPresent,

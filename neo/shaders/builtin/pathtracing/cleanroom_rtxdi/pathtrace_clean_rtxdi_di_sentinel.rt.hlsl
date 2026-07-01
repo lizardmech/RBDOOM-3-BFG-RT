@@ -1663,7 +1663,7 @@ PathTraceCleanRoomPreviousBestSeed PathTraceCleanRoomResolvePreviousBestInitialS
     const float2 uv = RTXDI_GetDIReservoirSampleUV(previousReservoir);
     const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
     float targetPdf = RAB_IsReplayableLightSample(lightSample)
-        ? max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0)
+        ? max(PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(lightSample, surface), 0.0)
         : 0.0;
     if (targetPdf <= 1.0e-8)
     {
@@ -1758,7 +1758,7 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
             {
                 const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
                 targetPdf = RAB_IsReplayableLightSample(lightSample)
-                    ? max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0)
+                    ? max(PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(lightSample, surface), 0.0)
                     : 0.0;
             }
 
@@ -2229,7 +2229,7 @@ float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceReco
     const float3 reflectedRadiance = referenceDoomAnalytic
         ? PathTraceCleanReferenceRabReflectedRadiance(lightSample.position, lightSample.radiance, surface)
         : CleanRtxdiDiResolveBrdfTarget != 0u
-        ? RAB_GetReflectedBsdfRadianceForSurface(lightSample.position, lightSample.radiance, surface)
+        ? PathTraceCleanRtxdiDiMaterialEvaluateReflectedRadiance(lightSample.position, lightSample.radiance, surface)
         : max(lightSample.radiance, float3(0.0, 0.0, 0.0)) * flatDiffuse * ndotl;
     const float reservoirThroughput = referenceDoomAnalytic && CleanRtxdiDiReferenceRab == 10u
         ? 1.0
