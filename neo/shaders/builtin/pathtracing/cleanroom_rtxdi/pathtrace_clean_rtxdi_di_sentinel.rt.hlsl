@@ -332,6 +332,7 @@ float3 PathTraceCleanRoomPrimarySurfaceStatusColor(uint2 pixel, uint2 dimensions
 
 #include "pathtrace_clean_rtxdi_di_material_texture.hlsli"
 #include "pathtrace_clean_rtxdi_di_surface_adapter.hlsli"
+#include "pathtrace_clean_rtxdi_di_material_feature_queries.hlsli"
 
 uint PathTraceCleanRoomReservoirBlockCount(uint dimension)
 {
@@ -459,12 +460,12 @@ bool PathTraceCleanRoomDirectReservoirUnsupportedDebugColor(PathTracePrimarySurf
 
     RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
     if (!RAB_IsSurfaceValid(surface) ||
-        MaterialSupportedByPass(surface, RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR))
+        PathTraceCleanRtxdiDiMaterialSupportedByPass(surface, RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR))
     {
         return false;
     }
 
-    color = MaterialFailClosedDebugColor(surface, RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR).rgb;
+    color = PathTraceCleanRtxdiDiMaterialFailClosedDebugColor(surface, RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR).rgb;
     return true;
 }
 

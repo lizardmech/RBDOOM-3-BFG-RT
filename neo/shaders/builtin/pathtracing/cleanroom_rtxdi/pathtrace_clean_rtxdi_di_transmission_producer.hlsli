@@ -11,7 +11,7 @@ float4 PathTraceCleanRoomTransmissionProducerSentinel(uint2 pixel, uint2 dimensi
     }
 
     const RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
-    if (!MaterialSupportsTransmission(surface))
+    if (!PathTraceCleanRtxdiDiMaterialSupportsTransmission(surface))
     {
         return float4(0.02, 0.02, 0.02, 1.0);
     }
