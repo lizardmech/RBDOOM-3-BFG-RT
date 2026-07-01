@@ -91,46 +91,6 @@ void AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(
             : RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID;
 }
 
-void ResolvePathTraceCleanRtxdiDiSharedDebugOutput(
-    RtPathTraceMaterialFeaturePassRegistration* registrations,
-    size_t registrationCount,
-    uint32_t outputResource)
-{
-    size_t ownerIndex = registrationCount;
-    uint32_t ownerPriority = 0u;
-    for (size_t i = 0; registrations && i < registrationCount; ++i)
-    {
-        const RtPathTraceMaterialFeaturePassDesc& passDesc = registrations[i].passDesc;
-        if (!PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, outputResource))
-        {
-            continue;
-        }
-        if (ownerIndex == registrationCount || passDesc.sharedOutputPriority > ownerPriority)
-        {
-            ownerIndex = i;
-            ownerPriority = passDesc.sharedOutputPriority;
-        }
-    }
-
-    for (size_t i = 0; registrations && i < registrationCount; ++i)
-    {
-        if (i == ownerIndex)
-        {
-            continue;
-        }
-
-        RtPathTraceMaterialFeaturePassDesc& passDesc = registrations[i].passDesc;
-        if (PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, outputResource))
-        {
-            passDesc.resourceOutputs &= ~outputResource;
-            if ((passDesc.primaryOutputResource & outputResource) != 0u)
-            {
-                passDesc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_NONE;
-            }
-        }
-    }
-}
-
 }
 
 size_t PathTraceCleanRtxdiDiMaterialFeatureRegistryCount()
@@ -153,7 +113,7 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryRegistrations(
             AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(registrations[i], i);
         }
     }
-    ResolvePathTraceCleanRtxdiDiSharedDebugOutput(
+    ResolvePathTraceMaterialFeatureSharedOutputOwner(
         registrations,
         registryCount < registrationCapacity ? registryCount : registrationCapacity,
         RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
