@@ -66,6 +66,16 @@ static_assert(
         RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY,
     "Clean RTXDI DI material feature registry exceeds fixed traversal capacity");
 
+void AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(
+    RtPathTraceMaterialFeaturePassRegistration& registration,
+    size_t registryIndex)
+{
+    registration.shaderStateIndex =
+        registryIndex < RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY
+            ? static_cast<uint32_t>(registryIndex)
+            : RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID;
+}
+
 }
 
 size_t PathTraceCleanRtxdiDiMaterialFeatureRegistryCount()
@@ -85,6 +95,7 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryRegistrations(
         if (entry.buildRuntimeRegistration)
         {
             registrations[i] = entry.buildRuntimeRegistration(context);
+            AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(registrations[i], i);
         }
     }
     return registryCount;
@@ -101,6 +112,7 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryLayoutRegistrations(
         if (entry.buildLayoutRegistration)
         {
             registrations[i] = entry.buildLayoutRegistration();
+            AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(registrations[i], i);
         }
     }
     return registryCount;

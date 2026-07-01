@@ -16,7 +16,7 @@ struct RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext
 };
 
 static constexpr size_t RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY =
-    static_cast<size_t>(RtPathTraceMaterialFeatureShaderTable::Count);
+    RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_CAPACITY;
 
 size_t PathTraceCleanRtxdiDiMaterialFeatureRegistryCount();
 size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryRegistrations(

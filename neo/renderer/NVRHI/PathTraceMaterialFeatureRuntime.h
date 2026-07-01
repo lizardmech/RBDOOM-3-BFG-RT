@@ -17,12 +17,12 @@ struct RtPathTraceMaterialFeatureShaderState
     nvrhi::rt::ShaderTableHandle shaderTable;
 };
 
-static constexpr size_t RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_TABLE_COUNT =
+static constexpr size_t RT_PATH_TRACE_MATERIAL_FEATURE_LEGACY_SHADER_TABLE_COUNT =
     static_cast<size_t>(RtPathTraceMaterialFeatureShaderTable::Count);
 
 struct RtPathTraceMaterialFeatureShaderTableState
 {
-    std::array<RtPathTraceMaterialFeatureShaderState, RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_TABLE_COUNT> shaders;
+    std::array<RtPathTraceMaterialFeatureShaderState, RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_CAPACITY> shaders;
 };
 
 struct RtPathTraceMaterialFeatureRuntimePass
@@ -48,6 +48,13 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassRegistration& registration,
     const RtPathTraceMaterialFeatureShaderState* shaderState);
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const RtPathTraceMaterialFeatureShaderState* shaderStates,
+    size_t shaderStateCount);
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const RtPathTraceMaterialFeatureShaderTableState& shaderTableState);
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
     const RtPathTraceMaterialFeatureShaderState* shaderStates,
     size_t shaderStateCount);
@@ -60,6 +67,13 @@ RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPas
     size_t shaderStateCount);
 RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPass(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    RtPathTraceMaterialFeatureShaderTableState& shaderTableState);
+RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForRegistration(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    RtPathTraceMaterialFeatureShaderState* shaderStates,
+    size_t shaderStateCount);
+RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForRegistration(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
     RtPathTraceMaterialFeatureShaderTableState& shaderTableState);
 std::string PathTraceMaterialFeatureShaderPathForGraphicsApi(
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,

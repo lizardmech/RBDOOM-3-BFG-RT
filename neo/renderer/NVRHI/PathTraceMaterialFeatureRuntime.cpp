@@ -27,6 +27,28 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
 }
 
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const RtPathTraceMaterialFeatureShaderState* shaderStates,
+    size_t shaderStateCount)
+{
+    const uint32_t shaderStateIndex = registration.shaderStateIndex;
+    return BuildPathTraceMaterialFeatureRuntimePass(
+        registration,
+        shaderStates &&
+                shaderStateIndex != RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID &&
+                shaderStateIndex < shaderStateCount
+            ? &shaderStates[shaderStateIndex]
+            : nullptr);
+}
+
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const RtPathTraceMaterialFeatureShaderTableState& shaderTableState)
+{
+    return BuildPathTraceMaterialFeatureRuntimePass(registration, shaderTableState.shaders.data(), shaderTableState.shaders.size());
+}
+
+RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
     const RtPathTraceMaterialFeatureShaderState* shaderStates,
     size_t shaderStateCount)
@@ -65,6 +87,31 @@ RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPas
     RtPathTraceMaterialFeatureShaderTableState& shaderTableState)
 {
     return PathTraceMaterialFeatureShaderStateForPass(passDesc, shaderTableState.shaders.data(), shaderTableState.shaders.size());
+}
+
+RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForRegistration(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    RtPathTraceMaterialFeatureShaderState* shaderStates,
+    size_t shaderStateCount)
+{
+    if (!shaderStates ||
+        registration.shaderStateIndex == RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID ||
+        registration.shaderStateIndex >= shaderStateCount)
+    {
+        return nullptr;
+    }
+
+    return &shaderStates[registration.shaderStateIndex];
+}
+
+RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForRegistration(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    RtPathTraceMaterialFeatureShaderTableState& shaderTableState)
+{
+    return PathTraceMaterialFeatureShaderStateForRegistration(
+        registration,
+        shaderTableState.shaders.data(),
+        shaderTableState.shaders.size());
 }
 
 std::string PathTraceMaterialFeatureShaderPathForGraphicsApi(

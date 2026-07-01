@@ -14,9 +14,9 @@ extern DeviceManager* deviceManager;
 
 struct RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess
 {
-    static RtPathTraceMaterialFeatureShaderState* ShaderStateForPass(
+    static RtPathTraceMaterialFeatureShaderState* ShaderStateForRegistration(
         RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState,
-        const RtPathTraceMaterialFeaturePassDesc& passDesc);
+        const RtPathTraceMaterialFeaturePassRegistration& registration);
 };
 
 struct RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess
@@ -70,7 +70,7 @@ static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceClean
         RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::FeatureState(passes);
     return {
         featureState
-            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForPass(*featureState, registration.passDesc)
+            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForRegistration(*featureState, registration)
             : nullptr,
         context.smokeTestInitialized,
         context.cleanRtxdiDiBindingLayout,
@@ -316,7 +316,7 @@ static size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
     {
         const RtPathTraceMaterialFeaturePassRegistration& registration = registrations[i];
         RtPathTraceMaterialFeatureShaderState* shaderState = featureState
-            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForPass(*featureState, registration.passDesc)
+            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForRegistration(*featureState, registration)
             : nullptr;
         RtPathTraceMaterialFeatureRuntimePass runtimePass =
             BuildPathTraceMaterialFeatureRuntimePass(registration, shaderState);
@@ -389,12 +389,12 @@ RtPathTraceCleanRtxdiDiMaterialFeaturePasses BuildPathTraceCleanRtxdiDiMaterialF
     return passes;
 }
 
-RtPathTraceMaterialFeatureShaderState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForPass(
+RtPathTraceMaterialFeatureShaderState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForRegistration(
     RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState,
-    const RtPathTraceMaterialFeaturePassDesc& passDesc)
+    const RtPathTraceMaterialFeaturePassRegistration& registration)
 {
     return featureState.m_impl
-        ? PathTraceMaterialFeatureShaderStateForPass(passDesc, featureState.m_impl->shaderTableState)
+        ? PathTraceMaterialFeatureShaderStateForRegistration(registration, featureState.m_impl->shaderTableState)
         : nullptr;
 }
 

@@ -40,7 +40,6 @@ enum class RtPathTraceMaterialFeatureShaderTable : uint8_t
     RestirDirectTemporalProducer,
     RestirDirectSpatialReservoirProducer,
     RestirReflectionProducer,
-    CleanRtxdiDiTransmissionProducer,
     Count
 };
 
@@ -128,10 +127,14 @@ struct RtPathTraceMaterialFeatureValidationDesc
     const char* cpuShaderAbiProof = "none";
 };
 
+static constexpr uint32_t RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID = 0xffffffffu;
+static constexpr size_t RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_CAPACITY = 32;
+
 struct RtPathTraceMaterialFeaturePassRegistration
 {
     RtPathTraceMaterialFeaturePassDesc passDesc;
     RtPathTraceMaterialFeatureShaderDesc shaderDesc;
+    uint32_t shaderStateIndex = RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID;
     const RtPathTraceMaterialFeatureBindingDesc* bindingMetadata = nullptr;
     size_t bindingMetadataCount = 0;
     RtPathTraceMaterialFeatureRuntimeInfoCallback runtimeInfoCallback = nullptr;
