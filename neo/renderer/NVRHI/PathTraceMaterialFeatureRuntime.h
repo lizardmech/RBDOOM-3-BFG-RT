@@ -84,6 +84,9 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
     RtPathTraceMaterialFeatureShaderState* shaderState,
     nvrhi::BindingLayoutHandle bindingLayout,
     nvrhi::GraphicsAPI graphicsApi);
+bool ValidatePathTraceMaterialFeatureRegistration(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const char* ownerLabel);
 RtPathTraceMaterialFeatureRuntimeInfo BuildPathTraceMaterialFeatureRuntimeInfo(const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady);
 RtPathTraceMaterialFeatureRuntimeInfo BuildPathTraceMaterialFeatureRuntimeInfo(const RtPathTraceMaterialFeatureRuntimePass& pass);
 RtPathTraceMaterialFeatureRuntimeConstants BuildPathTraceMaterialFeatureRuntimeConstants(

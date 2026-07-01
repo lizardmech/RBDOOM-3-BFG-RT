@@ -531,6 +531,11 @@ bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
             continue;
         }
 
+        if (!ValidatePathTraceMaterialFeatureRegistration(registration, "clean-room RTXDI DI"))
+        {
+            return false;
+        }
+
         RtPathTraceMaterialFeatureShaderState* shaderState = featureState
             ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForRegistration(*featureState, registration)
             : nullptr;

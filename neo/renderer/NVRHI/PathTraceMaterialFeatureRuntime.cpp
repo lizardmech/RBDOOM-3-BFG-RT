@@ -5,6 +5,34 @@
 
 static_assert(sizeof(RtPathTraceMaterialFeatureRuntimeConstants) == 48, "Material feature runtime constants must match shader b88 three-float4 ABI");
 
+static bool PathTraceMaterialFeatureStringIsSet(const char* value)
+{
+    return value && value[0] != '\0';
+}
+
+static bool PathTraceMaterialFeatureValidationProofIsSet(const char* value)
+{
+    return PathTraceMaterialFeatureStringIsSet(value) && idStr::Cmp(value, "none") != 0;
+}
+
+static bool PathTraceMaterialFeatureResourceMaskIsSingleResource(uint32_t resource)
+{
+    return resource != RT_MATERIAL_FEATURE_RESOURCE_NONE && (resource & (resource - 1u)) == 0u;
+}
+
+static bool PathTraceMaterialFeatureValidationFail(
+    const char* ownerLabel,
+    const char* featureLabel,
+    const char* reason)
+{
+    common->Printf(
+        "PathTracePrimaryPass: %s material-feature registration '%s' failed descriptor validation: %s\n",
+        PathTraceMaterialFeatureStringIsSet(ownerLabel) ? ownerLabel : "unknown",
+        PathTraceMaterialFeatureStringIsSet(featureLabel) ? featureLabel : "unknown",
+        reason);
+    return false;
+}
+
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
     const RtPathTraceMaterialFeatureShaderState* shaderState)
@@ -163,6 +191,80 @@ RtPathTraceMaterialFeaturePipelineRequest BuildPathTraceMaterialFeaturePipelineR
         request.shaderState = nullptr;
     }
     return request;
+}
+
+bool ValidatePathTraceMaterialFeatureRegistration(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const char* ownerLabel)
+{
+    const RtPathTraceMaterialFeaturePassDesc& desc = registration.passDesc;
+    const char* featureLabel = PathTraceMaterialFeatureStringIsSet(desc.featureId)
+        ? desc.featureId
+        : registration.shaderDesc.label;
+
+    if (!desc.enabled)
+    {
+        return true;
+    }
+
+    if (desc.kind == RtPathTraceMaterialFeaturePassKind::Disabled)
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "enabled pass uses Disabled kind");
+    }
+
+    if (!PathTraceMaterialFeatureStringIsSet(desc.featureId) || idStr::Cmp(desc.featureId, "disabled") == 0)
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "missing feature id");
+    }
+
+    if (!PathTraceMaterialFeatureStringIsSet(desc.debugLabel) || idStr::Cmp(desc.debugLabel, "disabled") == 0)
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "missing debug label");
+    }
+
+    if (registration.shaderStateIndex == RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID ||
+        registration.shaderStateIndex >= RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_CAPACITY)
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "invalid shader state index");
+    }
+
+    if (!PathTraceMaterialFeatureStringIsSet(registration.shaderDesc.label))
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "missing shader label");
+    }
+
+    if (!PathTraceMaterialFeatureStringIsSet(registration.shaderDesc.shaderBlobPath))
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "missing shader blob path");
+    }
+
+    if (desc.primaryOutputResource != RT_MATERIAL_FEATURE_RESOURCE_NONE)
+    {
+        if (!PathTraceMaterialFeatureResourceMaskIsSingleResource(desc.primaryOutputResource))
+        {
+            return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "primary output is not a single resource");
+        }
+
+        if ((desc.resourceOutputs & desc.primaryOutputResource) != desc.primaryOutputResource)
+        {
+            return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "primary output is not declared as an output resource");
+        }
+    }
+
+    if (!PathTraceMaterialFeatureBindingMetadataCoversPass(registration))
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "binding metadata does not cover declared inputs and outputs");
+    }
+
+    if (!PathTraceMaterialFeatureValidationProofIsSet(registration.validation.buildProof) ||
+        !PathTraceMaterialFeatureValidationProofIsSet(registration.validation.runtimeRoute) ||
+        !PathTraceMaterialFeatureValidationProofIsSet(registration.validation.resourceBindingProof) ||
+        !PathTraceMaterialFeatureValidationProofIsSet(registration.validation.cpuShaderAbiProof))
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "missing validation proof strings");
+    }
+
+    return true;
 }
 
 RtPathTraceMaterialFeatureRuntimeInfo BuildPathTraceMaterialFeatureRuntimeInfo(const RtPathTraceMaterialFeaturePassDesc& desc, bool passReady)
