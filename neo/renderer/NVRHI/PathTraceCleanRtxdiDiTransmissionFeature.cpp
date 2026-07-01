@@ -12,6 +12,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
 {
     RtPathTraceMaterialFeaturePassDesc desc;
     desc.kind = RtPathTraceMaterialFeaturePassKind::TransmissionProducer;
+    desc.featureId = "clean-rtxdi-di-transmission";
     desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION;
     desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
     desc.resourceInputs =
@@ -21,6 +22,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS;
     desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
     desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
+    desc.sharedOutputPriority = 100u;
 
     const bool cleanTransmissionRoute = cleanRouteRequested && cleanView == 16;
     const bool debugOutput = cleanTransmissionRoute && debugOutputRequested;

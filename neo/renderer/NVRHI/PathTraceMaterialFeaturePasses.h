@@ -67,11 +67,13 @@ struct RtPathTraceMaterialFeaturePassDesc
 {
     RtPathTraceMaterialFeaturePassKind kind = RtPathTraceMaterialFeaturePassKind::Disabled;
     RtPathTraceMaterialFeatureShaderTable shaderTable = RtPathTraceMaterialFeatureShaderTable::None;
+    const char* featureId = "disabled";
     uint32_t materialCapsConsumed = 0;
     uint32_t materialPassSupport = 0;
     uint32_t resourceInputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
     uint32_t resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
     uint32_t primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    uint32_t sharedOutputPriority = 0;
     bool enabled = false;
     const char* debugLabel = "disabled";
 };
@@ -236,6 +238,7 @@ inline RtPathTraceMaterialFeaturePassDesc BuildPathTracePrimarySurfaceFeaturePas
     RtPathTraceMaterialFeaturePassDesc desc;
     desc.kind = RtPathTraceMaterialFeaturePassKind::PrimarySurface;
     desc.shaderTable = RtPathTraceMaterialFeatureShaderTable::PrimarySurfaceProducer;
+    desc.featureId = "primary-surface-producer";
     desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_PRIMARY_SURFACE;
     desc.resourceInputs =
         RT_MATERIAL_FEATURE_RESOURCE_TLAS |

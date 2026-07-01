@@ -69,6 +69,7 @@ inline RtPathTraceMaterialFeaturePassDesc BuildPathTraceRestirFeaturePassDesc(co
 {
     RtPathTraceMaterialFeaturePassDesc desc;
     desc.enabled = plan.restirDebugMode;
+    desc.featureId = plan.label;
     desc.debugLabel = plan.label;
 
     switch (plan.producer)

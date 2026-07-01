@@ -267,8 +267,9 @@ static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
     }
 
     common->Printf(
-        "PathTracePrimaryPass: %s material-feature RT pipeline initialized; validation build='%s' runtime='%s' supported='%s' unsupported='%s' baseline='%s' resources='%s' abi='%s'\n",
+        "PathTracePrimaryPass: %s material-feature RT pipeline initialized; feature='%s' validation build='%s' runtime='%s' supported='%s' unsupported='%s' baseline='%s' resources='%s' abi='%s'\n",
         pipelineRequest.shaderDesc.label,
+        registration.passDesc.featureId,
         registration.validation.buildProof,
         registration.validation.runtimeRoute,
         registration.validation.supportedMaterialTest,
@@ -514,19 +515,32 @@ bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceCleanRtxdiDiPipelineContext& context)
 {
-    RtPathTraceMaterialFeatureRuntimePass runtimePasses[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
     RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
-    const size_t passCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
+    const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
         passes,
-        runtimePasses,
         registrations,
-        sizeof(runtimePasses) / sizeof(runtimePasses[0]));
-    for (size_t i = 0; i < passCount && i < sizeof(runtimePasses) / sizeof(runtimePasses[0]); ++i)
+        sizeof(registrations) / sizeof(registrations[0]));
+    RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState =
+        RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::FeatureState(passes);
+
+    for (size_t i = 0; i < registrationCount && i < sizeof(registrations) / sizeof(registrations[0]); ++i)
     {
+        const RtPathTraceMaterialFeaturePassRegistration& registration = registrations[i];
+        if (!registration.passDesc.enabled)
+        {
+            continue;
+        }
+
+        RtPathTraceMaterialFeatureShaderState* shaderState = featureState
+            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForRegistration(*featureState, registration)
+            : nullptr;
+        RtPathTraceMaterialFeatureRuntimePass pipelinePass =
+            BuildPathTraceMaterialFeatureRuntimePass(registration, shaderState);
+        pipelinePass.ready = true;
         if (!EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
-            runtimePasses[i],
-            registrations[i],
-            BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(passes, registrations[i], context)))
+            pipelinePass,
+            registration,
+            BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(passes, registration, context)))
         {
             return false;
         }

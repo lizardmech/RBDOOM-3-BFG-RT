@@ -12,6 +12,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
 {
     RtPathTraceMaterialFeaturePassDesc desc;
     desc.kind = RtPathTraceMaterialFeaturePassKind::TransmissionProducer;
+    desc.featureId = "clean-rtxdi-di-glass";
     desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION;
     desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
     desc.resourceInputs =
@@ -19,6 +20,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS;
+    desc.sharedOutputPriority = 50u;
 
     const bool cleanGlassRoute = cleanRouteRequested && cleanView == 16;
     const bool debugOutput = cleanGlassRoute && debugOutputRequested;

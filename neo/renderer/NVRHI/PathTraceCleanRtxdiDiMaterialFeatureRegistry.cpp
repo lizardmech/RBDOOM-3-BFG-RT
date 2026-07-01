@@ -38,6 +38,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassRuntim
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration()
 {
     RtPathTraceMaterialFeaturePassRegistration registration;
+    registration.passDesc.featureId = "clean-rtxdi-di-noop";
     registration.passDesc.debugLabel = "clean-rtxdi-di-noop-feature";
     registration.validation = {
         "host registry only",
@@ -90,25 +91,43 @@ void AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(
             : RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID;
 }
 
-void ResolvePathTraceCleanRtxdiDiSharedDebugOutputs(
+void ResolvePathTraceCleanRtxdiDiSharedDebugOutput(
     RtPathTraceMaterialFeaturePassRegistration* registrations,
-    size_t registrationCount)
+    size_t registrationCount,
+    uint32_t outputResource)
 {
-    uint32_t claimedDebugOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    size_t ownerIndex = registrationCount;
+    uint32_t ownerPriority = 0u;
     for (size_t i = 0; registrations && i < registrationCount; ++i)
     {
-        RtPathTraceMaterialFeaturePassDesc& passDesc = registrations[i].passDesc;
-        const uint32_t duplicateDebugOutputs =
-            passDesc.resourceOutputs & claimedDebugOutputs & RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
-        if (duplicateDebugOutputs != RT_MATERIAL_FEATURE_RESOURCE_NONE)
+        const RtPathTraceMaterialFeaturePassDesc& passDesc = registrations[i].passDesc;
+        if (!PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, outputResource))
         {
-            passDesc.resourceOutputs &= ~duplicateDebugOutputs;
-            if ((passDesc.primaryOutputResource & duplicateDebugOutputs) != 0u)
+            continue;
+        }
+        if (ownerIndex == registrationCount || passDesc.sharedOutputPriority > ownerPriority)
+        {
+            ownerIndex = i;
+            ownerPriority = passDesc.sharedOutputPriority;
+        }
+    }
+
+    for (size_t i = 0; registrations && i < registrationCount; ++i)
+    {
+        if (i == ownerIndex)
+        {
+            continue;
+        }
+
+        RtPathTraceMaterialFeaturePassDesc& passDesc = registrations[i].passDesc;
+        if (PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, outputResource))
+        {
+            passDesc.resourceOutputs &= ~outputResource;
+            if ((passDesc.primaryOutputResource & outputResource) != 0u)
             {
                 passDesc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_NONE;
             }
         }
-        claimedDebugOutputs |= passDesc.resourceOutputs & RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
     }
 }
 
@@ -134,9 +153,10 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryRegistrations(
             AssignPathTraceCleanRtxdiDiMaterialFeatureRegistryShaderStateIndex(registrations[i], i);
         }
     }
-    ResolvePathTraceCleanRtxdiDiSharedDebugOutputs(
+    ResolvePathTraceCleanRtxdiDiSharedDebugOutput(
         registrations,
-        registryCount < registrationCapacity ? registryCount : registrationCapacity);
+        registryCount < registrationCapacity ? registryCount : registrationCapacity,
+        RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
     return registryCount;
 }
 
