@@ -285,7 +285,7 @@ static bool EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
     const RtPathTraceMaterialFeaturePassRegistration& registration,
     const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext& context)
 {
-    if (!pass.ready)
+    if (!pass.pipelineRequested)
     {
         return true;
     }
@@ -536,7 +536,6 @@ bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
             : nullptr;
         RtPathTraceMaterialFeatureRuntimePass pipelinePass =
             BuildPathTraceMaterialFeatureRuntimePass(registration, shaderState);
-        pipelinePass.ready = true;
         if (!EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
             pipelinePass,
             registration,

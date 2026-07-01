@@ -30,6 +30,7 @@ struct RtPathTraceMaterialFeatureRuntimePass
     RtPathTraceMaterialFeaturePassDesc desc;
     RtPathTraceMaterialFeatureRuntimeInfoCallback runtimeInfoCallback = nullptr;
     const RtPathTraceMaterialFeatureShaderState* shader = nullptr;
+    bool pipelineRequested = false;
     bool ready = false;
 };
 

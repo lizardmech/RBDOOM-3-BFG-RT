@@ -12,6 +12,7 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     RtPathTraceMaterialFeatureRuntimePass pass;
     pass.desc = desc;
     pass.shader = shaderState;
+    pass.pipelineRequested = pass.shader && pass.desc.enabled;
     pass.ready = pass.shader && PathTraceMaterialFeaturePassIsReady(pass.desc);
     return pass;
 }
