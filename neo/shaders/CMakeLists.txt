@@ -80,6 +80,7 @@ set(PATH_TRACING_CLEAN_RTXDI_DI_INITIAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR
 set(PATH_TRACING_CLEAN_RTXDI_DI_TEMPORAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.hlsl)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.hlsl)
 set(PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.hlsl)
+set(PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SHADER_BLOB builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin)
 set(PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.hlsl)
 set(PATH_TRACING_CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_producer_rayquery.cs.hlsl)
 set(PATH_TRACING_CLEAN_RESTIR_GI_TEMPORAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_temporal.cs.hlsl)
@@ -168,6 +169,27 @@ function(path_tracing_declare_spirv_rt_library)
         COMMENT ${PT_RT_COMMENT}
         VERBATIM)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PT_RT_OUTPUT})
+    set(PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_SHADER_OUTPUTS} PARENT_SCOPE)
+endfunction()
+
+function(path_tracing_declare_spirv_feature_rt_library)
+    set(options)
+    set(oneValueArgs BLOB_PATH SOURCE COMMENT)
+    set(multiValueArgs DEPENDS DEFINES)
+    cmake_parse_arguments(PT_FEATURE "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    if(NOT PT_FEATURE_BLOB_PATH OR NOT PT_FEATURE_SOURCE OR NOT PT_FEATURE_COMMENT)
+        message(FATAL_ERROR "path_tracing_declare_spirv_feature_rt_library requires BLOB_PATH, SOURCE, and COMMENT")
+    endif()
+
+    get_filename_component(PT_FEATURE_BLOB_DIR "${PT_FEATURE_BLOB_PATH}" DIRECTORY)
+    path_tracing_declare_spirv_rt_library(
+        OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/${PT_FEATURE_BLOB_PATH}
+        SOURCE ${PT_FEATURE_SOURCE}
+        OUTPUT_DIR ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/${PT_FEATURE_BLOB_DIR}
+        DEFINES ${PT_FEATURE_DEFINES}
+        DEPENDS ${PT_FEATURE_DEPENDS}
+        COMMENT ${PT_FEATURE_COMMENT})
     set(PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_SHADER_OUTPUTS} PARENT_SCOPE)
 endfunction()
 
@@ -571,10 +593,9 @@ if(USE_VULKAN)
         DEPENDS ${PATH_TRACING_RESTIR_REFLECTION_PRODUCER_SHADER_SOURCE} ${PATH_TRACING_SHADER_SOURCE} ${PATH_TRACING_SHADER_INCLUDES}
         COMMENT "Compiling path tracing ReSTIR reflection producer RT shader library (SPIR-V)"
         VERBATIM)
-    path_tracing_declare_spirv_rt_library(
-        OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin
+    path_tracing_declare_spirv_feature_rt_library(
+        BLOB_PATH ${PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SHADER_BLOB}
         SOURCE ${PATH_TRACING_CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_SHADER_SOURCE}
-        OUTPUT_DIR ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi
         DEPENDS ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES}
         COMMENT "Compiling clean-room RTXDI DI transmission producer RT shader library (SPIR-V)")
     add_custom_command(
