@@ -3,13 +3,13 @@
 
 #include "PathTraceCleanRtxdiDiMaterialFeaturesInternal.h"
 #include "PathTraceCVars.h"
-#include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeatureOutputs.h"
 
 #include <cstring>
 #include <nvrhi/utils.h>
 
 static constexpr uint32_t CLEAN_RTXDI_DI_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT = 1u << 12u;
+static constexpr uint32_t CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT = 87u;
 
 struct RtPathTraceCleanRtxdiDiMaterialFeatureState::Impl
 {
@@ -221,14 +221,16 @@ RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiTransmissionShaderDesc
 
 void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc)
 {
-    AddPathTraceCleanRtxdiDiMaterialFeatureOutputLayoutBindings(desc);
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT));
 }
 
 void AddPathTraceCleanRtxdiDiTransmissionOutputBindings(
     nvrhi::BindingSetDesc& desc,
     const RtPathTraceFrameResources& frameResources)
 {
-    AddPathTraceCleanRtxdiDiMaterialFeatureOutputBindings(desc, frameResources);
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT,
+        frameResources.transmissionTexture));
 }
 
 bool PathTraceCleanRtxdiDiTransmissionOutputAvailable(

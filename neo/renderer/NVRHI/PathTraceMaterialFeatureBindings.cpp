@@ -7,8 +7,6 @@
 
 namespace {
 
-constexpr uint32_t CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT = 87u;
-
 uint32_t PathTraceMaterialFeatureOutputUavSlot(uint32_t resource)
 {
     switch (resource)
@@ -42,11 +40,6 @@ void AddPathTraceMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& d
     }
 }
 
-void AddPathTraceCleanRtxdiDiMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc)
-{
-    desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT));
-}
-
 void AddPathTraceMaterialFeatureOutputBinding(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resource)
 {
     const uint32_t slot = PathTraceMaterialFeatureOutputUavSlot(resource);
@@ -67,11 +60,4 @@ void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, cons
             AddPathTraceMaterialFeatureOutputBinding(desc, frameResources, resource);
         }
     }
-}
-
-void AddPathTraceCleanRtxdiDiMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources)
-{
-    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
-        CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT,
-        frameResources.transmissionTexture));
 }
