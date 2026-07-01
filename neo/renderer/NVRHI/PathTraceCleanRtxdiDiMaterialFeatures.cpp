@@ -3,7 +3,6 @@
 
 #include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceCleanRtxdiDiTransmissionFeature.h"
-#include "PathTraceCVars.h"
 #include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeatureDispatch.h"
 #include "PathTraceMaterialFeatureOutputs.h"
@@ -26,13 +25,9 @@ struct RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess
         RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
         bool cleanRouteRequested,
         int cleanView,
-        bool producerRequested,
-        bool debugOutputRequested,
         RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
     static bool CleanRouteRequested(const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes);
     static int CleanView(const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes);
-    static bool ProducerRequested(const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes);
-    static bool DebugOutputRequested(const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes);
     static RtPathTraceCleanRtxdiDiMaterialFeatureState* FeatureState(
         const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes);
 };
@@ -46,8 +41,6 @@ struct RtPathTraceCleanRtxdiDiMaterialFeaturePasses::Impl
 {
     bool cleanRouteRequested = false;
     int cleanView = 0;
-    bool producerRequested = false;
-    bool debugOutputRequested = false;
     RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState = nullptr;
 };
 
@@ -66,9 +59,7 @@ static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTran
 {
     return BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
         RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::CleanRouteRequested(passes),
-        RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::CleanView(passes),
-        RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::ProducerRequested(passes),
-        RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::DebugOutputRequested(passes));
+        RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::CleanView(passes));
 }
 
 static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration()
@@ -108,7 +99,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiMaterialFeat
 {
     RtPathTraceMaterialFeaturePassDesc layoutDesc;
     const RtPathTraceMaterialFeaturePassRegistration registrations[] = {
-        BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(true, 16, true, true),
+        BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration(),
         BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration()
     };
     for (const RtPathTraceMaterialFeaturePassRegistration& registration : registrations)
@@ -420,8 +411,6 @@ RtPathTraceCleanRtxdiDiMaterialFeaturePasses BuildPathTraceCleanRtxdiDiMaterialF
         passes,
         cleanRouteRequested,
         cleanView,
-        r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0,
-        r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0,
         featureState);
     return passes;
 }
@@ -439,8 +428,6 @@ void RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::Init(
     RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     bool cleanRouteRequested,
     int cleanView,
-    bool producerRequested,
-    bool debugOutputRequested,
     RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
 {
     if (!passes.m_impl)
@@ -449,8 +436,6 @@ void RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::Init(
     }
     passes.m_impl->cleanRouteRequested = cleanRouteRequested;
     passes.m_impl->cleanView = cleanView;
-    passes.m_impl->producerRequested = producerRequested;
-    passes.m_impl->debugOutputRequested = debugOutputRequested;
     passes.m_impl->featureState = &featureState;
 }
 
@@ -468,22 +453,6 @@ int RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::CleanView(
     return passes.m_impl
         ? passes.m_impl->cleanView
         : 0;
-}
-
-bool RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::ProducerRequested(
-    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes)
-{
-    return passes.m_impl
-        ? passes.m_impl->producerRequested
-        : false;
-}
-
-bool RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::DebugOutputRequested(
-    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes)
-{
-    return passes.m_impl
-        ? passes.m_impl->debugOutputRequested
-        : false;
 }
 
 RtPathTraceCleanRtxdiDiMaterialFeatureState* RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::FeatureState(

@@ -9,6 +9,5 @@
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
     bool cleanRouteRequested,
-    int cleanView,
-    bool producerRequested,
-    bool debugOutputRequested);
+    int cleanView);
+RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration();

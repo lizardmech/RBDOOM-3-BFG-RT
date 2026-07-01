@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceCleanRtxdiDiTransmissionFeature.h"
+#include "PathTraceCVars.h"
 
 static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
     bool cleanRouteRequested,
@@ -35,10 +36,11 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
     bool cleanRouteRequested,
-    int cleanView,
-    bool producerRequested,
-    bool debugOutputRequested)
+    int cleanView)
 {
+    const bool producerRequested = r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0;
+    const bool debugOutputRequested = r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0;
+
     RtPathTraceMaterialFeaturePassRegistration registration;
     registration.passDesc = BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
         cleanRouteRequested,
@@ -59,5 +61,17 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         "RtPathTraceMaterialFeatureOutputDesc transmission u87 PathTraceCleanRtxdiDiTransmissionOutput",
         "PathTraceMaterialFeatureRuntimeInfo packed in PathTraceMaterialFeatureRuntimeConstants b88"
     };
+    return registration;
+}
+
+RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration()
+{
+    RtPathTraceMaterialFeaturePassRegistration registration =
+        BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(true, 16);
+    registration.passDesc = BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
+        true,
+        16,
+        true,
+        true);
     return registration;
 }
