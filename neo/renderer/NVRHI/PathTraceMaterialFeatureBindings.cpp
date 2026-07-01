@@ -5,6 +5,23 @@
 #include "PathTraceMaterialFeatureOutputs.h"
 #include "PathTraceMaterialFeaturePasses.h"
 
+namespace {
+
+constexpr uint32_t CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT = 87u;
+
+uint32_t PathTraceMaterialFeatureOutputUavSlot(uint32_t resource)
+{
+    switch (resource)
+    {
+    case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR:
+        return 1u;
+    default:
+        return UINT32_MAX;
+    }
+}
+
+}
+
 nvrhi::BindingLayoutHandle PathTraceMaterialFeatureBindingLayoutHandle(
     RtPathTraceMaterialFeatureBindingLayout bindingLayout,
     nvrhi::BindingLayoutHandle coreSmokeBindingLayout,
@@ -41,14 +58,9 @@ void AddPathTraceMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& d
     }
 }
 
-void AddPathTraceMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc, RtPathTraceMaterialFeatureBindingLayout bindingLayout)
-{
-    AddPathTraceMaterialFeatureOutputLayoutBindings(desc, PathTraceMaterialFeatureBindingLayoutOptionalOutputs(bindingLayout));
-}
-
 void AddPathTraceCleanRtxdiDiMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc)
 {
-    AddPathTraceMaterialFeatureOutputLayoutBindings(desc, RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi);
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT));
 }
 
 void AddPathTraceMaterialFeatureOutputBinding(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resource)
@@ -73,12 +85,9 @@ void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, cons
     }
 }
 
-void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, RtPathTraceMaterialFeatureBindingLayout bindingLayout)
-{
-    AddPathTraceMaterialFeatureOutputBindings(desc, frameResources, PathTraceMaterialFeatureBindingLayoutOptionalOutputs(bindingLayout));
-}
-
 void AddPathTraceCleanRtxdiDiMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources)
 {
-    AddPathTraceMaterialFeatureOutputBindings(desc, frameResources, RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi);
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        CLEAN_RTXDI_DI_TRANSMISSION_OUTPUT_UAV_SLOT,
+        frameResources.transmissionTexture));
 }

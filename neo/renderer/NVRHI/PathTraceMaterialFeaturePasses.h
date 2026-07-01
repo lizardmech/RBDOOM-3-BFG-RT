@@ -122,30 +122,6 @@ inline bool PathTraceMaterialFeaturePassIsReady(const RtPathTraceMaterialFeature
     return PathTraceMaterialFeaturePassIsReady(desc, desc.resourceInputs, requiredOutputs);
 }
 
-inline uint32_t PathTraceMaterialFeatureOutputUavSlot(uint32_t resource)
-{
-    switch (resource)
-    {
-    case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR:
-        return 1u;
-    case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT:
-        return 87u;
-    default:
-        return UINT32_MAX;
-    }
-}
-
-inline uint32_t PathTraceMaterialFeatureBindingLayoutOptionalOutputs(RtPathTraceMaterialFeatureBindingLayout bindingLayout)
-{
-    switch (bindingLayout)
-    {
-    case RtPathTraceMaterialFeatureBindingLayout::CleanRtxdiDi:
-        return RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
-    default:
-        return RT_MATERIAL_FEATURE_RESOURCE_NONE;
-    }
-}
-
 inline RtPathTraceMaterialFeaturePassDesc BuildPathTracePrimarySurfaceFeaturePassDesc(bool enabled)
 {
     RtPathTraceMaterialFeaturePassDesc desc;
