@@ -7,17 +7,44 @@
 
 #include <nvrhi/utils.h>
 
+namespace {
+
+static const RtPathTraceMaterialFeatureOutputDesc kMaterialFeatureOutputs[] = {
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR,
+        1u,
+        "output-color",
+        &RtPathTraceFrameResources::outputTexture
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT,
+        87u,
+        "transmission-output",
+        &RtPathTraceFrameResources::transmissionTexture
+    }
+};
+
+}
+
+const RtPathTraceMaterialFeatureOutputDesc* FindPathTraceMaterialFeatureOutputDesc(uint32_t resource)
+{
+    for (const RtPathTraceMaterialFeatureOutputDesc& desc : kMaterialFeatureOutputs)
+    {
+        if (desc.resource == resource)
+        {
+            return &desc;
+        }
+    }
+
+    return nullptr;
+}
+
 nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFrameResources& frameResources, uint32_t resource)
 {
-    switch (resource)
-    {
-    case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR:
-        return frameResources.outputTexture;
-    case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT:
-        return frameResources.transmissionTexture;
-    default:
-        return nullptr;
-    }
+    const RtPathTraceMaterialFeatureOutputDesc* desc = FindPathTraceMaterialFeatureOutputDesc(resource);
+    return desc && desc->textureMember
+        ? frameResources.*(desc->textureMember)
+        : nullptr;
 }
 
 bool PathTraceMaterialFeatureOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources, uint32_t resource)

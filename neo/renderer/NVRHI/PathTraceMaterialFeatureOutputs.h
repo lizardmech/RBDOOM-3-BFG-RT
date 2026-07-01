@@ -7,9 +7,20 @@
 
 #include "PathTraceFrameResources.h"
 
+#include <cstdint>
+
 struct RtPathTraceMaterialFeaturePassDesc;
 struct RtPathTraceMaterialFeatureRuntimePass;
 
+struct RtPathTraceMaterialFeatureOutputDesc
+{
+    uint32_t resource = 0;
+    uint32_t uavSlot = 0xffffffffu;
+    const char* debugName = "unknown";
+    nvrhi::TextureHandle RtPathTraceFrameResources::* textureMember = nullptr;
+};
+
+const RtPathTraceMaterialFeatureOutputDesc* FindPathTraceMaterialFeatureOutputDesc(uint32_t resource);
 nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFrameResources& frameResources, uint32_t resource);
 bool PathTraceMaterialFeatureOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources, uint32_t resource);
 bool PathTraceMaterialFeaturePrimaryOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources);

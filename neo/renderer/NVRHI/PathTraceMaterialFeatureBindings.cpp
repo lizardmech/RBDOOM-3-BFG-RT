@@ -5,29 +5,12 @@
 #include "PathTraceMaterialFeatureOutputs.h"
 #include "PathTraceMaterialFeaturePasses.h"
 
-namespace {
-
-uint32_t PathTraceMaterialFeatureOutputUavSlot(uint32_t resource)
-{
-    switch (resource)
-    {
-    case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR:
-        return 1u;
-    case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT:
-        return 87u;
-    default:
-        return UINT32_MAX;
-    }
-}
-
-}
-
 void AddPathTraceMaterialFeatureOutputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource)
 {
-    const uint32_t slot = PathTraceMaterialFeatureOutputUavSlot(resource);
-    if (slot != UINT32_MAX)
+    const RtPathTraceMaterialFeatureOutputDesc* output = FindPathTraceMaterialFeatureOutputDesc(resource);
+    if (output && output->uavSlot != 0xffffffffu)
     {
-        desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(slot));
+        desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(output->uavSlot));
     }
 }
 
@@ -44,13 +27,15 @@ void AddPathTraceMaterialFeatureOutputLayoutBindings(nvrhi::BindingLayoutDesc& d
 
 void AddPathTraceMaterialFeatureOutputBinding(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resource)
 {
-    const uint32_t slot = PathTraceMaterialFeatureOutputUavSlot(resource);
-    if (slot == UINT32_MAX)
+    const RtPathTraceMaterialFeatureOutputDesc* output = FindPathTraceMaterialFeatureOutputDesc(resource);
+    if (!output || output->uavSlot == 0xffffffffu)
     {
         return;
     }
 
-    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(slot, PathTraceMaterialFeatureOutputTexture(frameResources, resource)));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        output->uavSlot,
+        PathTraceMaterialFeatureOutputTexture(frameResources, resource)));
 }
 
 void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resources)
