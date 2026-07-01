@@ -513,31 +513,35 @@ bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
         BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(pass, context));
 }
 
-void SetPathTraceCleanRtxdiDiTransmissionOutputState(
+void SetPathTraceCleanRtxdiDiTransmissionOutputUnorderedAccess(
     nvrhi::ICommandList* commandList,
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
-    const RtPathTraceFrameResources& frameResources,
-    nvrhi::ResourceStates state)
+    const RtPathTraceFrameResources& frameResources)
 {
     const RtPathTraceMaterialFeatureRuntimePass featurePass =
         BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
     if (featurePass.ready && commandList && frameResources.transmissionTexture)
     {
-        commandList->setTextureState(frameResources.transmissionTexture, nvrhi::AllSubresources, state);
+        commandList->setTextureState(
+            frameResources.transmissionTexture,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::UnorderedAccess);
     }
 }
 
 void ClearPathTraceCleanRtxdiDiTransmissionOutput(
     nvrhi::ICommandList* commandList,
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
-    const RtPathTraceFrameResources& frameResources,
-    const nvrhi::Color& color)
+    const RtPathTraceFrameResources& frameResources)
 {
     const RtPathTraceMaterialFeatureRuntimePass featurePass =
         BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
     if (featurePass.ready && commandList && frameResources.transmissionTexture)
     {
-        commandList->clearTextureFloat(frameResources.transmissionTexture, nvrhi::AllSubresources, color);
+        commandList->clearTextureFloat(
+            frameResources.transmissionTexture,
+            nvrhi::AllSubresources,
+            nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
     }
 }
 

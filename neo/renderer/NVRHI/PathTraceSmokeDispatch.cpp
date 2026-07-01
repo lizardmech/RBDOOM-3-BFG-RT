@@ -3482,11 +3482,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-        SetPathTraceCleanRtxdiDiTransmissionOutputState(
+        SetPathTraceCleanRtxdiDiTransmissionOutputUnorderedAccess(
             commandList,
             cleanRtxdiDiTransmissionPass,
-            m_frameResources,
-            nvrhi::ResourceStates::UnorderedAccess);
+            m_frameResources);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
         {
             if (texture)
@@ -3502,8 +3501,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         ClearPathTraceCleanRtxdiDiTransmissionOutput(
             commandList,
             cleanRtxdiDiTransmissionPass,
-            m_frameResources,
-            nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+            m_frameResources);
         const int cleanRtxdiDiLightMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiLightMode.GetInteger());
         const bool cleanView12FullAnalyticDomain =
             cleanRtxdiDiView == 12 &&

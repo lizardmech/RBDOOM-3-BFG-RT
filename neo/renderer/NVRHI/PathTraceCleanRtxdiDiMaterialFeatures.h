@@ -72,16 +72,14 @@ void AddPathTraceCleanRtxdiDiTransmissionOutputBindings(
 bool PathTraceCleanRtxdiDiTransmissionOutputAvailable(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceFrameResources& frameResources);
-void SetPathTraceCleanRtxdiDiTransmissionOutputState(
+void SetPathTraceCleanRtxdiDiTransmissionOutputUnorderedAccess(
     nvrhi::ICommandList* commandList,
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
-    const RtPathTraceFrameResources& frameResources,
-    nvrhi::ResourceStates state);
+    const RtPathTraceFrameResources& frameResources);
 void ClearPathTraceCleanRtxdiDiTransmissionOutput(
     nvrhi::ICommandList* commandList,
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
-    const RtPathTraceFrameResources& frameResources,
-    const nvrhi::Color& color);
+    const RtPathTraceFrameResources& frameResources);
 void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
     nvrhi::ICommandList* commandList,
     const nvrhi::rt::State& baseState,
