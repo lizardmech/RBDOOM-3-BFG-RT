@@ -1193,6 +1193,19 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BufferDesc materialFeatureRuntimeConstantsDesc;
+    materialFeatureRuntimeConstantsDesc.byteSize = 16;
+    materialFeatureRuntimeConstantsDesc.debugName = "PathTraceMaterialFeatureRuntimeConstants";
+    materialFeatureRuntimeConstantsDesc.isConstantBuffer = true;
+    materialFeatureRuntimeConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+    materialFeatureRuntimeConstantsDesc.keepInitialState = true;
+    m_smokeMaterialFeatureRuntimeConstantsBuffer = device->createBuffer(materialFeatureRuntimeConstantsDesc);
+    if (!m_smokeMaterialFeatureRuntimeConstantsBuffer)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create material-feature runtime constants buffer\n");
+        return;
+    }
+
     nvrhi::BufferDesc cleanRtxdiDiBoilingFilterConstantsDesc;
     cleanRtxdiDiBoilingFilterConstantsDesc.byteSize = 16;
     cleanRtxdiDiBoilingFilterConstantsDesc.debugName = "PathTraceCleanRtxdiDiBoilingFilterConstants";
@@ -1378,6 +1391,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(78));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(80));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(88));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeCleanRtxdiDiSentinelBindingLayout = device->createBindingLayout(cleanRtxdiDiSentinelBindingLayoutDesc);
     if (!m_smokeCleanRtxdiDiSentinelBindingLayout)

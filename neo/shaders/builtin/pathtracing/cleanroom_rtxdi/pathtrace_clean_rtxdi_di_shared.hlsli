@@ -301,6 +301,11 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     float4 CleanRtxdiDiEmissiveDistributionInfo;
 };
 
+cbuffer PathTraceMaterialFeatureRuntimeConstants : register(b88)
+{
+    float4 PathTraceMaterialFeatureRuntimeInfoPacked;
+};
+
 static const uint RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0x00020000u;
 static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;

@@ -113,7 +113,7 @@ static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTran
         "opaque material writes dark unsupported sentinel",
         "clean RTXDI DI primary view 16 unchanged",
         "RtPathTraceMaterialFeatureOutputDesc transmission u87 PathTraceCleanRtxdiDiTransmissionOutput",
-        "PathTraceMaterialFeatureRuntimeInfo packed in CleanRtxdiDiToyPathInfo"
+        "PathTraceMaterialFeatureRuntimeInfo packed in PathTraceMaterialFeatureRuntimeConstants b88"
     };
     return registration;
 }
@@ -628,7 +628,7 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
     nvrhi::BufferHandle constantsBuffer,
     const void* baseConstants,
     size_t baseConstantsSize,
-    const float* baseRuntimeInfo,
+    nvrhi::BufferHandle runtimeConstantsBuffer,
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceFrameResources& frameResources,
     bool nsightGpuMarkers)
@@ -642,17 +642,8 @@ void DispatchPathTraceCleanRtxdiDiTransmissionFeaturePass(
         constantsBuffer,
         baseConstants,
         baseConstantsSize,
-        baseRuntimeInfo,
+        runtimeConstantsBuffer,
         featurePass,
         frameResources,
         nsightGpuMarkers);
-}
-
-void SetPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
-    float runtimeInfo[4],
-    const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
-{
-    const RtPathTraceMaterialFeatureRuntimePass featurePass =
-        BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
-    SetPathTraceMaterialFeatureRuntimeInfo(runtimeInfo, featurePass);
 }

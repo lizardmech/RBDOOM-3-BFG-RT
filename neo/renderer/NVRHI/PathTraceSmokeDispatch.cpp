@@ -2168,7 +2168,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         return;
     }
     const bool cleanRtxdiDiBaseResourcesValid =
-        viewDef && m_smokeCleanRtxdiDiSentinelBindingLayout && m_smokeTextureDescriptorTable && m_smokeCleanRtxdiDiSentinelConstantsBuffer &&
+        viewDef && m_smokeCleanRtxdiDiSentinelBindingLayout && m_smokeTextureDescriptorTable &&
+        m_smokeCleanRtxdiDiSentinelConstantsBuffer && m_smokeMaterialFeatureRuntimeConstantsBuffer &&
         m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture &&
         PathTraceCleanRtxdiDiTransmissionOutputAvailable(cleanRtxdiDiTransmissionPass, m_frameResources) &&
         m_smokeStaticTriangleMaterialIndexBuffer && m_smokeDynamicTriangleMaterialIndexBuffer &&
@@ -3427,6 +3428,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cleanNeeCacheCandidateSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(80, m_smokeMaterialFeatureBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(88, m_smokeMaterialFeatureRuntimeConstantsBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
         nvrhi::BindingSetHandle cleanBindingSet = device->createBindingSet(cleanBindingSetDesc, m_smokeCleanRtxdiDiSentinelBindingLayout);
         if (!cleanBindingSet)
@@ -3919,9 +3921,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.neeCacheInfo1[1] = neeCacheSettings.minRange;
         cleanConstants.neeCacheInfo1[2] = static_cast<float>(neeCacheDesc.cellCount);
         cleanConstants.neeCacheInfo1[3] = static_cast<float>(neeCacheDesc.providerResultCount);
-        SetPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
-            cleanConstants.toyPathInfo,
-            cleanRtxdiDiTransmissionPass);
         cleanConstants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
         cleanConstants.toyPathInfo[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
         cleanConstants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
@@ -4048,7 +4047,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeCleanRtxdiDiSentinelConstantsBuffer,
             &cleanConstants,
             sizeof(cleanConstants),
-            cleanConstants.toyPathInfo,
+            m_smokeMaterialFeatureRuntimeConstantsBuffer,
             cleanRtxdiDiTransmissionPass,
             m_frameResources,
             nsightGpuMarkers);

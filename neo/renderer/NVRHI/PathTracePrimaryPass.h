@@ -435,6 +435,7 @@ private:
     nvrhi::BufferHandle m_smokeSkinnedGpuSkinningOutputBuffer;
     nvrhi::BufferHandle m_smokeSkinnedGpuSkinningPreviousPositionBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiSentinelConstantsBuffer;
+    nvrhi::BufferHandle m_smokeMaterialFeatureRuntimeConstantsBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiBoilingFilterConstantsBuffer;
     nvrhi::TextureHandle m_smokeCleanRtxdiDiBoilingFilterInputTexture;
     nvrhi::TextureHandle m_smokeCleanRtxdiDiBoilingFilterOutputTexture;

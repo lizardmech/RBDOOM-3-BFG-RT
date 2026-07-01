@@ -263,6 +263,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
     m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
     m_smokeCleanRtxdiDiSentinelConstantsBuffer = nullptr;
+    m_smokeMaterialFeatureRuntimeConstantsBuffer = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterConstantsBuffer = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterInputTexture = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterOutputTexture = nullptr;
