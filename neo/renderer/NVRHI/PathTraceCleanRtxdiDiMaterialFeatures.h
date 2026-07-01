@@ -10,6 +10,8 @@
 
 #include <nvrhi/nvrhi.h>
 
+#include "PathTraceMaterialFeaturePasses.h"
+
 struct RtPathTraceFrameResources;
 
 struct RtPathTraceCleanRtxdiDiMaterialFeatureState
@@ -62,6 +64,10 @@ RtPathTraceCleanRtxdiDiTransmissionPass BuildPathTraceCleanRtxdiDiTransmissionPa
     bool cleanRouteRequested,
     int cleanView,
     RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
+size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
+    const RtPathTraceCleanRtxdiDiTransmissionPass& transmissionPass,
+    RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCapacity);
 bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceCleanRtxdiDiPipelineContext& context);

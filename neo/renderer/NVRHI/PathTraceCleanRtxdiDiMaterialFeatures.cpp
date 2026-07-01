@@ -118,6 +118,25 @@ static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTran
         RtPathTraceCleanRtxdiDiTransmissionPassAccess::DebugOutputRequested(pass));
 }
 
+static RtPathTraceMaterialFeaturePassRegistration PathTraceCleanRtxdiDiMaterialFeatureRegistrationForKind(
+    const RtPathTraceCleanRtxdiDiTransmissionPass& transmissionPass,
+    RtPathTraceMaterialFeaturePassKind kind)
+{
+    RtPathTraceMaterialFeaturePassRegistration registrations[1];
+    const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
+        transmissionPass,
+        registrations,
+        sizeof(registrations) / sizeof(registrations[0]));
+    for (size_t i = 0; i < registrationCount && i < sizeof(registrations) / sizeof(registrations[0]); ++i)
+    {
+        if (registrations[i].passDesc.kind == kind)
+        {
+            return registrations[i];
+        }
+    }
+    return RtPathTraceMaterialFeaturePassRegistration();
+}
+
 static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceCleanRtxdiDiPipelineContext& context)
@@ -467,6 +486,19 @@ RtPathTraceCleanRtxdiDiMaterialFeatureState* RtPathTraceCleanRtxdiDiTransmission
         : nullptr;
 }
 
+size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
+    const RtPathTraceCleanRtxdiDiTransmissionPass& transmissionPass,
+    RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCapacity)
+{
+    static constexpr size_t registrationCount = 1;
+    if (registrations && registrationCapacity > 0)
+    {
+        registrations[0] = BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(transmissionPass);
+    }
+    return registrationCount;
+}
+
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
 {
@@ -481,14 +513,16 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
     }
 
     const RtPathTraceMaterialFeaturePassRegistration registration =
-        BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(pass);
+        PathTraceCleanRtxdiDiMaterialFeatureRegistrationForKind(pass, RtPathTraceMaterialFeaturePassKind::TransmissionProducer);
     return BuildPathTraceMaterialFeatureRuntimePass(registration.passDesc, shaderState);
 }
 
 RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiTransmissionShaderDesc(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass)
 {
-    return BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(pass).shaderDesc;
+    return PathTraceCleanRtxdiDiMaterialFeatureRegistrationForKind(
+        pass,
+        RtPathTraceMaterialFeaturePassKind::TransmissionProducer).shaderDesc;
 }
 
 void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc)
