@@ -3,4 +3,5 @@
 #include "pathtrace_clean_rtxdi_di_math.hlsli"
 #include "pathtrace_clean_rtxdi_di_material_texture.hlsli"
 #include "pathtrace_clean_rtxdi_di_surface_adapter.hlsli"
+#include "pathtrace_clean_rtxdi_di_smoke_exports.hlsli"
 #include "pathtrace_clean_rtxdi_di_transmission_producer.hlsli"
