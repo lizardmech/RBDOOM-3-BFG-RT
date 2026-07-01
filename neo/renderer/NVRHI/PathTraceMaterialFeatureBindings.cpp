@@ -48,6 +48,20 @@ const RtPathTraceMaterialFeatureInputBindingDesc* FindPathTraceMaterialFeatureIn
     return nullptr;
 }
 
+void AddOrReplaceTextureUavBinding(nvrhi::BindingSetDesc& desc, uint32_t slot, nvrhi::TextureHandle texture)
+{
+    const nvrhi::BindingSetItem item = nvrhi::BindingSetItem::Texture_UAV(slot, texture);
+    for (nvrhi::BindingSetItem& binding : desc.bindings)
+    {
+        if (binding.slot == slot && binding.type == nvrhi::ResourceType::Texture_UAV)
+        {
+            binding = item;
+            return;
+        }
+    }
+    desc.addItem(item);
+}
+
 }
 
 void AddPathTraceMaterialFeatureInputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource)
@@ -144,9 +158,10 @@ void AddPathTraceMaterialFeatureOutputBinding(nvrhi::BindingSetDesc& desc, const
         return;
     }
 
-    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+    AddOrReplaceTextureUavBinding(
+        desc,
         output->uavSlot,
-        PathTraceMaterialFeatureOutputTexture(frameResources, resource)));
+        PathTraceMaterialFeatureOutputTexture(frameResources, resource));
 }
 
 void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, const RtPathTraceFrameResources& frameResources, uint32_t resources)

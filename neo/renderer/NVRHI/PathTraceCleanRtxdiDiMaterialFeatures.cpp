@@ -181,6 +181,15 @@ static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceClean
     };
 }
 
+static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiMaterialFeatureLayoutPassDesc()
+{
+    return BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
+        true,
+        16,
+        true,
+        false).passDesc;
+}
+
 static bool LoadPathTraceCleanRtxdiDiMaterialFeatureShaderLibrary(
     nvrhi::IDevice* device,
     const char* shaderPath,
@@ -558,16 +567,31 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceCleanRtxdiDiTransmissionRunt
     return BuildPathTraceMaterialFeatureRuntimePass(registration.passDesc, shaderState);
 }
 
-void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc)
+void AddPathTraceCleanRtxdiDiMaterialFeatureLayoutBindings(nvrhi::BindingLayoutDesc& desc)
 {
-    AddPathTraceMaterialFeatureOutputLayoutBindings(desc, RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT);
+    const RtPathTraceMaterialFeaturePassDesc featureDesc =
+        BuildPathTraceCleanRtxdiDiMaterialFeatureLayoutPassDesc();
+    AddPathTraceMaterialFeatureInputLayoutBindings(desc, featureDesc.resourceInputs);
+    AddPathTraceMaterialFeatureOutputLayoutBindings(desc, featureDesc.resourceOutputs);
 }
 
-void AddPathTraceCleanRtxdiDiTransmissionOutputBindings(
+void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
     nvrhi::BindingSetDesc& desc,
+    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+    nvrhi::BufferHandle materialFeatureBuffer,
+    nvrhi::BufferHandle runtimeConstantsBuffer,
     const RtPathTraceFrameResources& frameResources)
 {
-    AddPathTraceMaterialFeatureOutputBindings(desc, frameResources, RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT);
+    const RtPathTraceMaterialFeatureRuntimePass featurePass =
+        BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
+    AddPathTraceMaterialFeatureInputBindings(
+        desc,
+        {
+            materialFeatureBuffer,
+            runtimeConstantsBuffer
+        },
+        featurePass.desc.resourceInputs);
+    AddPathTraceMaterialFeatureOutputBindings(desc, frameResources, featurePass.desc.resourceOutputs);
 }
 
 bool PathTraceCleanRtxdiDiTransmissionOutputAvailable(

@@ -71,9 +71,12 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
 bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
     const RtPathTraceCleanRtxdiDiPipelineContext& context);
-void AddPathTraceCleanRtxdiDiTransmissionOutputLayoutBindings(nvrhi::BindingLayoutDesc& desc);
-void AddPathTraceCleanRtxdiDiTransmissionOutputBindings(
+void AddPathTraceCleanRtxdiDiMaterialFeatureLayoutBindings(nvrhi::BindingLayoutDesc& desc);
+void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
     nvrhi::BindingSetDesc& desc,
+    const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
+    nvrhi::BufferHandle materialFeatureBuffer,
+    nvrhi::BufferHandle runtimeConstantsBuffer,
     const RtPathTraceFrameResources& frameResources);
 bool PathTraceCleanRtxdiDiTransmissionOutputAvailable(
     const RtPathTraceCleanRtxdiDiTransmissionPass& pass,
