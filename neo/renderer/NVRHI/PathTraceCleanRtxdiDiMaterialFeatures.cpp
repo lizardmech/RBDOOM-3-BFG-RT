@@ -104,7 +104,15 @@ static RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTran
         "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin",
         "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin"
     };
-    registration.validationRoute = "clean-rtxdi-di-view-16-transmission-debug";
+    registration.validation = {
+        "cmake --build --preset win64-pt-dev-release",
+        "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiTransmissionProducer 1; r_pathTracingCleanRtxdiDiTransmissionDebugView 1",
+        "glass-like material writes cyan to transmission output",
+        "opaque material writes dark unsupported sentinel",
+        "clean RTXDI DI primary view 16 unchanged",
+        "RtPathTraceMaterialFeatureOutputDesc transmission u87 PathTraceCleanRtxdiDiTransmissionOutput",
+        "PathTraceMaterialFeatureRuntimeInfo packed in CleanRtxdiDiToyPathInfo"
+    };
     return registration;
 }
 
@@ -270,7 +278,7 @@ static bool CreatePathTraceCleanRtxdiDiMaterialFeatureRayTracingPipeline(
 }
 
 static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
-    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
     const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext& context)
 {
     if (!context.shaderState)
@@ -296,7 +304,7 @@ static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
     }
 
     const RtPathTraceMaterialFeaturePipelineRequest pipelineRequest = BuildPathTraceMaterialFeaturePipelineRequest(
-        shaderDesc,
+        registration.shaderDesc,
         context.shaderState,
         context.cleanRtxdiDiBindingLayout,
         deviceManager->GetGraphicsAPI());
@@ -333,13 +341,22 @@ static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
         return false;
     }
 
-    common->Printf("PathTracePrimaryPass: %s RT smoke pipeline initialized\n", pipelineRequest.shaderDesc.label);
+    common->Printf(
+        "PathTracePrimaryPass: %s RT smoke pipeline initialized; material-feature validation build='%s' runtime='%s' supported='%s' unsupported='%s' baseline='%s' resources='%s' abi='%s'\n",
+        pipelineRequest.shaderDesc.label,
+        registration.validation.buildProof,
+        registration.validation.runtimeRoute,
+        registration.validation.supportedMaterialTest,
+        registration.validation.unsupportedMaterialTest,
+        registration.validation.baselineRegressionCheck,
+        registration.validation.resourceBindingProof,
+        registration.validation.cpuShaderAbiProof);
     return true;
 }
 
 static bool EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
     const RtPathTraceMaterialFeatureRuntimePass& pass,
-    const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
     const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext& context)
 {
     if (!pass.ready)
@@ -352,7 +369,7 @@ static bool EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
     }
     if (!pass.shader->shaderTable)
     {
-        InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(shaderDesc, context);
+        InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(registration, context);
     }
     return static_cast<bool>(pass.shader->shaderTable);
 }
@@ -554,11 +571,11 @@ bool EnsurePathTraceCleanRtxdiDiTransmissionPassPipeline(
 {
     const RtPathTraceMaterialFeatureRuntimePass featurePass =
         BuildPathTraceCleanRtxdiDiTransmissionRuntimePass(pass);
-    const RtPathTraceMaterialFeatureShaderDesc shaderDesc =
-        PathTraceCleanRtxdiDiTransmissionShaderDesc(pass);
+    const RtPathTraceMaterialFeaturePassRegistration registration =
+        PathTraceCleanRtxdiDiMaterialFeatureRegistrationForKind(pass, RtPathTraceMaterialFeaturePassKind::TransmissionProducer);
     return EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
         featurePass,
-        shaderDesc,
+        registration,
         BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(pass, context));
 }
 

@@ -80,11 +80,22 @@ struct RtPathTraceMaterialFeatureShaderDesc
     const char* spirvShaderPath = nullptr;
 };
 
+struct RtPathTraceMaterialFeatureValidationDesc
+{
+    const char* buildProof = "none";
+    const char* runtimeRoute = "none";
+    const char* supportedMaterialTest = "none";
+    const char* unsupportedMaterialTest = "none";
+    const char* baselineRegressionCheck = "none";
+    const char* resourceBindingProof = "none";
+    const char* cpuShaderAbiProof = "none";
+};
+
 struct RtPathTraceMaterialFeaturePassRegistration
 {
     RtPathTraceMaterialFeaturePassDesc passDesc;
     RtPathTraceMaterialFeatureShaderDesc shaderDesc;
-    const char* validationRoute = "none";
+    RtPathTraceMaterialFeatureValidationDesc validation;
 };
 
 inline bool PathTraceMaterialFeaturePassHasAllInputs(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)
