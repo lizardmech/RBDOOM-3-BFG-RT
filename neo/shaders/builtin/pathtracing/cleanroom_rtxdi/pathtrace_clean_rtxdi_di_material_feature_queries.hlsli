@@ -60,6 +60,12 @@ float3 PathTraceCleanRtxdiDiMaterialEvaluateOpaqueDirectBrdf(RAB_Surface surface
 
 float PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(RAB_LightSample lightSample, RAB_Surface surface)
 {
+#ifdef RB_RAB_CLEAN_REFERENCE_DOOM_ANALYTIC
+    if (PathTraceCleanReferenceRabEnabled() && lightSample.lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
+    {
+        return PathTraceCleanReferenceRabTargetPdf(lightSample, surface);
+    }
+#endif
     if (!RAB_IsReplayableLightSample(lightSample) || !RAB_IsSurfaceValid(surface))
     {
         return 0.0;
