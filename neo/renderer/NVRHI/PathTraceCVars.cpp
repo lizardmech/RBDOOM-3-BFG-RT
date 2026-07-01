@@ -1629,6 +1629,18 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 route producer sentinel to SmokeOutput after clean DI spatial" );
 
+idCVar r_pathTracingCleanRtxdiDiGlassShader(
+    "r_pathTracingCleanRtxdiDiGlassShader",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI view 16 glass material-feature shader proof: 0 off, 1 run glass shader without changing beauty unless its debug view is enabled" );
+
+idCVar r_pathTracingCleanRtxdiDiGlassDebugView(
+    "r_pathTracingCleanRtxdiDiGlassDebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI view 16 glass material-feature debug output: 0 off, 1 route glass proof color to SmokeOutput after clean DI spatial" );
+
 idCVar r_cleanDiSpatial(
     "r_cleanDiSpatial",
     "1",

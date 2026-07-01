@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceCleanRtxdiDiMaterialFeatureRegistry.h"
+#include "PathTraceCleanRtxdiDiGlassFeature.h"
 #include "PathTraceCleanRtxdiDiTransmissionFeature.h"
 
 namespace {
@@ -22,6 +23,14 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
     const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext& context)
 {
     return BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
+        context.cleanRouteRequested,
+        context.cleanView);
+}
+
+RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassRuntimeRegistration(
+    const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext& context)
+{
+    return BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(
         context.cleanRouteRequested,
         context.cleanView);
 }
@@ -53,6 +62,11 @@ static const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryEntry kCleanRtxdiDiMa
         "clean-rtxdi-di-transmission",
         BuildPathTraceCleanRtxdiDiTransmissionRuntimeRegistration,
         BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration
+    },
+    {
+        "clean-rtxdi-di-glass",
+        BuildPathTraceCleanRtxdiDiGlassRuntimeRegistration,
+        BuildPathTraceCleanRtxdiDiGlassFeatureLayoutRegistration
     },
     {
         "clean-rtxdi-di-noop",

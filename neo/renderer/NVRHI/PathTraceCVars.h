@@ -278,6 +278,8 @@ extern idCVar r_pathTracingCleanRtxdiDiSpatialDisocclusionSamples;
 extern idCVar r_pathTracingCleanRtxdiDiSpatialRadius;
 extern idCVar r_pathTracingCleanRtxdiDiTransmissionProducer;
 extern idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView;
+extern idCVar r_pathTracingCleanRtxdiDiGlassShader;
+extern idCVar r_pathTracingCleanRtxdiDiGlassDebugView;
 extern idCVar r_cleanDiSpatial;
 extern idCVar r_cleanSpatial;
 extern idCVar r_cleanDiSpatialSamples;

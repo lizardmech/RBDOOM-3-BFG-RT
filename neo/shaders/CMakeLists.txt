@@ -608,6 +608,11 @@ if(USE_VULKAN)
         BLOB_PATH builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin
         SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.hlsl
         COMMENT "Compiling clean-room RTXDI DI transmission producer RT shader library (SPIR-V)")
+    path_tracing_declare_clean_rtxdi_di_material_feature_rt_library(
+        BLOB_PATH builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_glass.rt.bin
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_glass.rt.hlsl
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_glass.hlsli
+        COMMENT "Compiling clean-room RTXDI DI glass material-feature RT shader library (SPIR-V)")
     add_custom_command(
         OUTPUT ${PATH_TRACING_RESTIR_COMBINED_RESOLVE_SPIRV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing
