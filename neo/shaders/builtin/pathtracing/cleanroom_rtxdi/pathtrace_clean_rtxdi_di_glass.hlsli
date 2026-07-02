@@ -72,13 +72,7 @@ float4 PathTraceCleanRtxdiDiGlassComposeColor(
         PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
     const PathTraceCleanRtxdiDiGlassThinPayload payload =
         PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
-    const float payloadWeight = saturate(payload.weight);
-    const float3 attenuatedColor = currentColor.rgb * saturate(payload.transmission);
-    const float3 surfaceTerm =
-        payload.reflection * materialParams.reflectionBoost +
-        payload.transmission * materialParams.transmissionFloor;
-    const float3 composedColor = saturate(attenuatedColor + surfaceTerm);
-    return float4(lerp(currentColor.rgb, composedColor, payloadWeight), currentColor.a);
+    return PathTraceCleanRtxdiDiComposeThinGlassColor(currentColor, materialParams, payload);
 }
 
 [shader("raygeneration")]

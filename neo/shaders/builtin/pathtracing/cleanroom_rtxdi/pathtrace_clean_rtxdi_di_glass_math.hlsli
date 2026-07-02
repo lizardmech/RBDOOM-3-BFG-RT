@@ -172,4 +172,18 @@ PathTraceCleanRtxdiDiGlassThinPayload PathTraceCleanRtxdiDiBuildGlassThinPayload
         PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams));
 }
 
+float4 PathTraceCleanRtxdiDiComposeThinGlassColor(
+    float4 currentColor,
+    PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
+    PathTraceCleanRtxdiDiGlassThinPayload payload)
+{
+    const float payloadWeight = saturate(payload.weight);
+    const float3 attenuatedColor = currentColor.rgb * saturate(payload.transmission);
+    const float3 surfaceTerm =
+        payload.reflection * materialParams.reflectionBoost +
+        payload.transmission * materialParams.transmissionFloor;
+    const float3 composedColor = saturate(attenuatedColor + surfaceTerm);
+    return float4(lerp(currentColor.rgb, composedColor, payloadWeight), currentColor.a);
+}
+
 #endif
