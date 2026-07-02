@@ -87,6 +87,12 @@ static bool PathTraceMaterialFeatureOutputBindingMetadataMatchesDeclaredOutputs(
     return true;
 }
 
+static bool PathTraceMaterialFeatureRegistryContractIsSet(
+    const RtPathTraceMaterialFeatureRegistryContractDesc& contract)
+{
+    return PathTraceMaterialFeatureStringIsSet(contract.featureId);
+}
+
 static bool PathTraceMaterialFeatureValidationFail(
     const char* ownerLabel,
     const char* featureLabel,
@@ -98,6 +104,51 @@ static bool PathTraceMaterialFeatureValidationFail(
         PathTraceMaterialFeatureStringIsSet(featureLabel) ? featureLabel : "unknown",
         reason);
     return false;
+}
+
+static bool PathTraceMaterialFeatureRegistryContractMatchesRegistration(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const char* ownerLabel,
+    const char* featureLabel)
+{
+    const RtPathTraceMaterialFeaturePassDesc& desc = registration.passDesc;
+    const RtPathTraceMaterialFeatureRegistryContractDesc& contract = registration.registryContract;
+    if (!PathTraceMaterialFeatureRegistryContractIsSet(contract))
+    {
+        return true;
+    }
+
+    if (idStr::Cmp(desc.featureId, contract.featureId) != 0)
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "feature id drifted from registry contract");
+    }
+
+    if (desc.kind != contract.kind)
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "pass kind drifted from registry contract");
+    }
+
+    if (desc.materialCapsConsumed != contract.materialCapsConsumed)
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "material caps drifted from registry contract");
+    }
+
+    if (desc.materialPassSupport != contract.materialPassSupport)
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "material pass support drifted from registry contract");
+    }
+
+    if ((desc.resourceInputs & contract.requiredResourceInputs) != contract.requiredResourceInputs)
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "required registry inputs are missing");
+    }
+
+    if ((desc.resourceOutputs & ~contract.allowedResourceOutputs) != 0u)
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "output resource is not declared by registry contract");
+    }
+
+    return true;
 }
 
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
@@ -320,6 +371,11 @@ bool ValidatePathTraceMaterialFeatureRegistration(
     if (!PathTraceMaterialFeatureStringIsSet(desc.debugLabel) || idStr::Cmp(desc.debugLabel, "disabled") == 0)
     {
         return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "missing debug label");
+    }
+
+    if (!PathTraceMaterialFeatureRegistryContractMatchesRegistration(registration, ownerLabel, featureLabel))
+    {
+        return false;
     }
 
     if (registration.shaderStateIndex == RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID ||

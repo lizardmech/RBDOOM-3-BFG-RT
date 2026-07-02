@@ -158,6 +158,16 @@ struct RtPathTraceMaterialFeatureValidationDesc
     const char* cpuShaderAbiProof = "none";
 };
 
+struct RtPathTraceMaterialFeatureRegistryContractDesc
+{
+    const char* featureId = nullptr;
+    RtPathTraceMaterialFeaturePassKind kind = RtPathTraceMaterialFeaturePassKind::Disabled;
+    uint32_t materialCapsConsumed = 0;
+    uint32_t materialPassSupport = 0;
+    uint32_t requiredResourceInputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    uint32_t allowedResourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+};
+
 static constexpr uint32_t RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID = 0xffffffffu;
 static constexpr size_t RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_CAPACITY = 32;
 
@@ -170,6 +180,7 @@ struct RtPathTraceMaterialFeaturePassRegistration
     size_t bindingMetadataCount = 0;
     RtPathTraceMaterialFeatureRuntimeInfoCallback runtimeInfoCallback = nullptr;
     RtPathTraceMaterialFeatureValidationDesc validation;
+    RtPathTraceMaterialFeatureRegistryContractDesc registryContract;
 };
 
 inline bool PathTraceMaterialFeaturePassHasAllInputs(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)

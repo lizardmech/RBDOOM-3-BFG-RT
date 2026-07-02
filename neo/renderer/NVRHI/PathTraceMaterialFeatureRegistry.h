@@ -20,6 +20,11 @@ struct RtPathTraceMaterialFeatureRegistryEntry
     const char* featureId = "unknown";
     RtPathTraceMaterialFeatureRuntimeRegistrationBuilder buildRuntimeRegistration = nullptr;
     RtPathTraceMaterialFeatureLayoutRegistrationBuilder buildLayoutRegistration = nullptr;
+    RtPathTraceMaterialFeaturePassKind kind = RtPathTraceMaterialFeaturePassKind::Disabled;
+    uint32_t materialCapsConsumed = 0;
+    uint32_t materialPassSupport = 0;
+    uint32_t requiredResourceInputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    uint32_t allowedResourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
     uint32_t sharedOutputArbitrationResources = RT_MATERIAL_FEATURE_RESOURCE_NONE;
 };
 
@@ -46,6 +51,14 @@ inline void ApplyPathTraceMaterialFeatureRegistryEntry(
         registryIndex < RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_CAPACITY
             ? static_cast<uint32_t>(registryIndex)
             : RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID;
+    registration.registryContract = {
+        entry.featureId,
+        entry.kind,
+        entry.materialCapsConsumed,
+        entry.materialPassSupport,
+        entry.requiredResourceInputs,
+        entry.allowedResourceOutputs
+    };
 }
 
 inline uint32_t BuildPathTraceMaterialFeatureRegistrySharedOutputMask(

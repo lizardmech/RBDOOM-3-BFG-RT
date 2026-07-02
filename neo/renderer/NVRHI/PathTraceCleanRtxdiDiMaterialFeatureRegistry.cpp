@@ -3,6 +3,7 @@
 
 #include "PathTraceCleanRtxdiDiMaterialFeatureRegistry.h"
 #include "PathTraceCleanRtxdiDiGlassFeature.h"
+#include "PathTraceCleanRtxdiDiMaterialFeatureCommon.h"
 #include "PathTraceCleanRtxdiDiTransmissionFeature.h"
 #include "PathTraceMaterialFeatureRegistry.h"
 
@@ -62,18 +63,38 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         "clean-rtxdi-di-transmission",
         BuildPathTraceCleanRtxdiDiTransmissionRuntimeRegistration,
         BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration,
+        RtPathTraceMaterialFeaturePassKind::TransmissionProducer,
+        RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION,
+        RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
+        PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs(),
+        RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT | RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR,
         RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR
     },
     {
         "clean-rtxdi-di-glass",
         BuildPathTraceCleanRtxdiDiGlassRuntimeRegistration,
         BuildPathTraceCleanRtxdiDiGlassFeatureLayoutRegistration,
+        RtPathTraceMaterialFeaturePassKind::TransmissionProducer,
+        RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION,
+        RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
+        PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs(),
+        RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR |
+            RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO |
+            RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR |
+            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE0 |
+            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE1 |
+            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE2,
         RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR
     },
     {
         "clean-rtxdi-di-noop",
         BuildPathTraceCleanRtxdiDiNoOpRuntimeRegistration,
         BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration,
+        RtPathTraceMaterialFeaturePassKind::Disabled,
+        0u,
+        0u,
+        RT_MATERIAL_FEATURE_RESOURCE_NONE,
+        RT_MATERIAL_FEATURE_RESOURCE_NONE,
         RT_MATERIAL_FEATURE_RESOURCE_NONE
     }
 };
