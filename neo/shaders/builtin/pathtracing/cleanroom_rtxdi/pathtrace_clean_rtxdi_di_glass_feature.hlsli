@@ -26,4 +26,21 @@ bool PathTraceCleanRtxdiDiGlassSurfaceSupported(RAB_Surface surface)
         PathTraceCleanRtxdiDiGlassFeatureForSurface(surface));
 }
 
+bool PathTraceCleanRtxdiDiLoadGlassMaterialSurface(
+    uint2 pixel,
+    uint2 dimensions,
+    out RAB_Surface surface)
+{
+    surface = RAB_EmptySurface();
+
+    PathTracePrimarySurfaceRecord record;
+    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
+    {
+        return false;
+    }
+
+    surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
+    return RAB_IsSurfaceValid(surface);
+}
+
 #endif

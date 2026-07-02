@@ -7,13 +7,12 @@ float4 PathTraceCleanRoomTransmissionProducerPayload(
     uint2 dimensions,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
-    PathTracePrimarySurfaceRecord record;
-    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
+    RAB_Surface surface;
+    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
     {
         return float4(1.0, 1.0, 1.0, 0.0);
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
     if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
     {
         return float4(1.0, 1.0, 1.0, 0.0);
@@ -29,13 +28,12 @@ float4 PathTraceCleanRoomTransmissionProducerDebugColor(
     uint2 dimensions,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
-    PathTracePrimarySurfaceRecord record;
-    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
+    RAB_Surface surface;
+    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
     {
         return float4(0.0, 0.0, 0.0, 1.0);
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
     if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
     {
         return float4(0.02, 0.02, 0.02, 1.0);
@@ -52,13 +50,12 @@ float4 PathTraceCleanRoomTransmissionProducerComposeColor(
     float4 currentColor,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
-    PathTracePrimarySurfaceRecord record;
-    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
+    RAB_Surface surface;
+    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
     {
         return currentColor;
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
     if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
     {
         return currentColor;
