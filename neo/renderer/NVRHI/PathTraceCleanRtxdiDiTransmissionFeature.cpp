@@ -90,6 +90,8 @@ static void FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
     runtimeInfo.featureParams0[3] = 0.08f;
     runtimeInfo.featureParams1[0] = 1.5f;
     runtimeInfo.featureParams1[1] = 1.0f;
+    runtimeInfo.featureParams1[2] = 1.5f;
+    runtimeInfo.featureParams1[3] = 0.02f;
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
@@ -121,7 +123,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
         "clean RTXDI DI primary view 16 unchanged unless transmission compose or debug view is enabled",
         "RtPathTraceMaterialFeatureOutputDesc transmission u87 PathTraceCleanRtxdiDiTransmissionOutput plus optional output-color u1",
-        "PathTraceMaterialFeatureRuntimeInfo plus glass transmittance/thickness/ior params in b88"
+        "PathTraceMaterialFeatureRuntimeInfo plus glass transmittance/thickness/ior/compose params in b88"
     };
     return registration;
 }

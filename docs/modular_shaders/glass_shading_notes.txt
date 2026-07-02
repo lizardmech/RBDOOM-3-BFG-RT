@@ -194,7 +194,9 @@ Current implementation checkpoint:
         transmission payload to `PathTraceCleanRtxdiDiTransmissionOutput`
     `r_pathTracingCleanRtxdiDiTransmissionCompose 1` lets that same
         material-feature pass attenuate `SmokeOutput` for supported glass
-        pixels after the clean-DI primary color exists
+        pixels after the clean-DI primary color exists, with a small
+        angle-dependent surface term so black legacy glass receives a visible
+        first-slice glass response
     `r_pathTracingCleanRtxdiDiTransmissionDebugView 1` still overrides compose
         and writes the payload/debug visualization instead
 

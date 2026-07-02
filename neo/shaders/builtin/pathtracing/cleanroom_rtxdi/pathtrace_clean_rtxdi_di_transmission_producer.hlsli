@@ -46,11 +46,33 @@ float4 PathTraceCleanRoomTransmissionProducerDebugColor(
     return float4(saturate(payload.transmission + payload.reflection * 0.25), 1.0);
 }
 
-float4 PathTraceCleanRoomTransmissionProducerComposeColor(float4 currentColor, float4 payload)
+float4 PathTraceCleanRoomTransmissionProducerComposeColor(
+    uint2 pixel,
+    uint2 dimensions,
+    float4 currentColor,
+    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
-    const float payloadWeight = saturate(payload.a);
-    const float3 attenuatedColor = currentColor.rgb * saturate(payload.rgb);
-    return float4(lerp(currentColor.rgb, attenuatedColor, payloadWeight), currentColor.a);
+    PathTracePrimarySurfaceRecord record;
+    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
+    {
+        return currentColor;
+    }
+
+    const RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
+    if (!PathTraceCleanRtxdiDiMaterialSupportsTransmission(surface))
+    {
+        return currentColor;
+    }
+
+    const PathTraceCleanRtxdiDiGlassThinPayload payload =
+        PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, runtimeParams);
+    const float payloadWeight = saturate(payload.weight);
+    const float reflectionBoost = max(runtimeParams.params1.z, 0.0);
+    const float transmissionFloor = max(runtimeParams.params1.w, 0.0);
+    const float3 attenuatedColor = currentColor.rgb * saturate(payload.transmission);
+    const float3 surfaceTerm = payload.reflection * reflectionBoost + payload.transmission * transmissionFloor;
+    const float3 composedColor = saturate(attenuatedColor + surfaceTerm);
+    return float4(lerp(currentColor.rgb, composedColor, payloadWeight), currentColor.a);
 }
 
 [shader("raygeneration")]
@@ -77,7 +99,11 @@ void RayGen()
         }
         else
         {
-            SmokeOutput[pixel] = PathTraceCleanRoomTransmissionProducerComposeColor(SmokeOutput[pixel], payload);
+            SmokeOutput[pixel] = PathTraceCleanRoomTransmissionProducerComposeColor(
+                pixel,
+                dimensions,
+                SmokeOutput[pixel],
+                runtimeParams);
         }
     }
 }
