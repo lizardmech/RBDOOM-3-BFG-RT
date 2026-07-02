@@ -4,7 +4,14 @@
 #include "PathTraceCleanRtxdiDiTransmissionFeature.h"
 #include "PathTraceCVars.h"
 #include "PathTraceCleanRtxdiDiMaterialFeatureCommon.h"
-#include "PathTraceCleanRtxdiDiMaterialFeatureShaders.h"
+
+static RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiTransmissionProducerShaderDesc()
+{
+    RtPathTraceMaterialFeatureShaderDesc desc;
+    desc.label = "clean-room RTXDI DI transmission producer";
+    desc.shaderBlobPath = "builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin";
+    return desc;
+}
 
 static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
     bool cleanRouteRequested,
@@ -65,8 +72,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         producerRequested,
         composeOutputRequested,
         debugOutputRequested);
-    registration.shaderDesc = PathTraceCleanRtxdiDiMaterialFeatureShaderDesc(
-        RtPathTraceCleanRtxdiDiMaterialFeatureShaderId::TransmissionProducer);
+    registration.shaderDesc = PathTraceCleanRtxdiDiTransmissionProducerShaderDesc();
     registration.bindingMetadata = kCleanRtxdiDiTransmissionBindings;
     registration.bindingMetadataCount = sizeof(kCleanRtxdiDiTransmissionBindings) / sizeof(kCleanRtxdiDiTransmissionBindings[0]);
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo;
