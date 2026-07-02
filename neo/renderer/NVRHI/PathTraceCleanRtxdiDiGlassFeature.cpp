@@ -3,6 +3,7 @@
 
 #include "PathTraceCleanRtxdiDiGlassFeature.h"
 #include "PathTraceCVars.h"
+#include "PathTraceMaterialFeatureParameters.h"
 
 static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
     bool cleanRouteRequested,
@@ -82,12 +83,9 @@ static void FillPathTraceCleanRtxdiDiGlassRuntimeInfo(
         r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0 &&
         PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
     runtimeInfo.debugMode = debugOutputEnabled ? 1.0f : 0.0f;
-    runtimeInfo.featureParams0[0] = 0.82f;
-    runtimeInfo.featureParams0[1] = 0.93f;
-    runtimeInfo.featureParams0[2] = 1.0f;
-    runtimeInfo.featureParams0[3] = 0.08f;
-    runtimeInfo.featureParams1[0] = 1.5f;
-    runtimeInfo.featureParams1[1] = 1.0f;
+    CopyPathTraceMaterialFeatureParametersToRuntimeInfo(
+        runtimeInfo,
+        BuildPathTraceObjectGlassMaterialFeatureParameters());
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(
