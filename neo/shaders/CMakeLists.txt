@@ -230,9 +230,7 @@ function(path_tracing_declare_clean_rtxdi_di_material_feature_rt_library)
     set(PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_SHADER_OUTPUTS} PARENT_SCOPE)
 endfunction()
 
-set(PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_SHADERS
-    "pathtrace_clean_rtxdi_di_transmission_producer|clean-room RTXDI DI transmission producer"
-    "pathtrace_clean_rtxdi_di_glass|clean-room RTXDI DI glass material-feature")
+include(${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_material_features.cmake)
 
 if(USE_DX12 AND USE_DXIL_ON_DX12 AND PATH_TRACING_BUILD_DXIL_RT_SHADERS)
     set(PATH_TRACING_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_smoke.rt.bin)
