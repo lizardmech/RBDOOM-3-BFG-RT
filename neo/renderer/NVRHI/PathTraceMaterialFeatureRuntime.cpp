@@ -164,6 +164,39 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     return BuildPathTraceMaterialFeatureRuntimePass(desc, shaderTableState.shaders.data(), shaderTableState.shaders.size());
 }
 
+size_t BuildPathTraceReadyMaterialFeatureRuntimePasses(
+    const RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount,
+    const RtPathTraceMaterialFeatureShaderTableState* shaderTableState,
+    RtPathTraceMaterialFeatureRuntimePass* runtimePasses,
+    RtPathTraceMaterialFeaturePassRegistration* registrationsOut,
+    size_t passCapacity)
+{
+    size_t passCount = 0;
+    for (size_t i = 0; registrations && i < registrationCount; ++i)
+    {
+        const RtPathTraceMaterialFeaturePassRegistration& registration = registrations[i];
+        RtPathTraceMaterialFeatureRuntimePass runtimePass = shaderTableState
+            ? BuildPathTraceMaterialFeatureRuntimePass(registration, *shaderTableState)
+            : BuildPathTraceMaterialFeatureRuntimePass(registration, static_cast<const RtPathTraceMaterialFeatureShaderState*>(nullptr));
+        if (!runtimePass.ready)
+        {
+            continue;
+        }
+
+        if (runtimePasses && passCount < passCapacity)
+        {
+            runtimePasses[passCount] = runtimePass;
+        }
+        if (registrationsOut && passCount < passCapacity)
+        {
+            registrationsOut[passCount] = registration;
+        }
+        ++passCount;
+    }
+    return passCount;
+}
+
 RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPass(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
     RtPathTraceMaterialFeatureShaderState* shaderStates,

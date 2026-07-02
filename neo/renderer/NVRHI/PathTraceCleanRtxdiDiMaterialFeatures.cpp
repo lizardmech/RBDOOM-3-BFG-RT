@@ -18,6 +18,8 @@ struct RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess
     static RtPathTraceMaterialFeatureShaderState* ShaderStateForRegistration(
         RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState,
         const RtPathTraceMaterialFeaturePassRegistration& registration);
+    static const RtPathTraceMaterialFeatureShaderTableState* ShaderTableState(
+        const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
 };
 
 struct RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess
@@ -194,33 +196,18 @@ static size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
         passes,
         registrations,
         sizeof(registrations) / sizeof(registrations[0]));
-    RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState =
+    const RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState =
         RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::FeatureState(passes);
 
-    size_t passCount = 0;
-    for (size_t i = 0; i < registrationCount && i < sizeof(registrations) / sizeof(registrations[0]); ++i)
-    {
-        const RtPathTraceMaterialFeaturePassRegistration& registration = registrations[i];
-        RtPathTraceMaterialFeatureShaderState* shaderState = featureState
-            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForRegistration(*featureState, registration)
-            : nullptr;
-        RtPathTraceMaterialFeatureRuntimePass runtimePass =
-            BuildPathTraceMaterialFeatureRuntimePass(registration, shaderState);
-        if (!runtimePass.ready)
-        {
-            continue;
-        }
-        if (runtimePasses && passCount < passCapacity)
-        {
-            runtimePasses[passCount] = runtimePass;
-        }
-        if (registrationsOut && passCount < passCapacity)
-        {
-            registrationsOut[passCount] = registration;
-        }
-        ++passCount;
-    }
-    return passCount;
+    return BuildPathTraceReadyMaterialFeatureRuntimePasses(
+        registrations,
+        Min(registrationCount, sizeof(registrations) / sizeof(registrations[0])),
+        featureState
+            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderTableState(*featureState)
+            : nullptr,
+        runtimePasses,
+        registrationsOut,
+        passCapacity);
 }
 
 RtPathTraceCleanRtxdiDiMaterialFeatureState::RtPathTraceCleanRtxdiDiMaterialFeatureState()
@@ -281,6 +268,14 @@ RtPathTraceMaterialFeatureShaderState* RtPathTraceCleanRtxdiDiMaterialFeatureSta
 {
     return featureState.m_impl
         ? PathTraceMaterialFeatureShaderStateForRegistration(registration, featureState.m_impl->shaderTableState)
+        : nullptr;
+}
+
+const RtPathTraceMaterialFeatureShaderTableState* RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderTableState(
+    const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
+{
+    return featureState.m_impl
+        ? &featureState.m_impl->shaderTableState
         : nullptr;
 }
 

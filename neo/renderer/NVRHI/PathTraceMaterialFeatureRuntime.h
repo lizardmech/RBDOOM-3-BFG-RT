@@ -62,6 +62,13 @@ RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
 RtPathTraceMaterialFeatureRuntimePass BuildPathTraceMaterialFeatureRuntimePass(
     const RtPathTraceMaterialFeaturePassDesc& desc,
     const RtPathTraceMaterialFeatureShaderTableState& shaderTableState);
+size_t BuildPathTraceReadyMaterialFeatureRuntimePasses(
+    const RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount,
+    const RtPathTraceMaterialFeatureShaderTableState* shaderTableState,
+    RtPathTraceMaterialFeatureRuntimePass* runtimePasses,
+    RtPathTraceMaterialFeaturePassRegistration* registrationsOut,
+    size_t passCapacity);
 RtPathTraceMaterialFeatureShaderState* PathTraceMaterialFeatureShaderStateForPass(
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
     RtPathTraceMaterialFeatureShaderState* shaderStates,
