@@ -80,6 +80,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         RtPathTraceMaterialFeaturePassKind::TransmissionProducer,
         RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION,
         RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
+        100u,
         PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs(),
         PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs() |
             RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE,
@@ -109,6 +110,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         RtPathTraceMaterialFeaturePassKind::TransmissionProducer,
         RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION,
         RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
+        50u,
         PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs(),
         PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs() |
             RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE,
@@ -128,6 +130,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         {},
         {},
         RtPathTraceMaterialFeaturePassKind::Disabled,
+        0u,
         0u,
         0u,
         RT_MATERIAL_FEATURE_RESOURCE_NONE,

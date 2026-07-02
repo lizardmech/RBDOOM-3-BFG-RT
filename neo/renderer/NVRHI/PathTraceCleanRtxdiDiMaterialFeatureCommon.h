@@ -1,7 +1,8 @@
 #pragma once
 
 // Shared clean RTXDI DI material-feature descriptor helpers.
-// Concrete feature modules still own their outputs, shader identity, and cvars.
+// Concrete feature modules own runtime cvar decisions and feature-local outputs;
+// registry entries own shader identity, invariant pass fields, and contracts.
 
 #include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeatureParameters.h"
@@ -93,20 +94,6 @@ inline uint32_t PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs()
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS;
-}
-
-inline RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmissionProducerFeaturePassDesc(
-    const char* featureId,
-    uint32_t sharedOutputPriority)
-{
-    RtPathTraceMaterialFeaturePassDesc desc;
-    desc.kind = RtPathTraceMaterialFeaturePassKind::TransmissionProducer;
-    desc.featureId = featureId;
-    desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION;
-    desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
-    desc.resourceInputs = PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs();
-    desc.sharedOutputPriority = sharedOutputPriority;
-    return desc;
 }
 
 inline void FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(

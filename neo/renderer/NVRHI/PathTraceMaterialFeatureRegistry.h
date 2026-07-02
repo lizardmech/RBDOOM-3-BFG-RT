@@ -57,6 +57,7 @@ struct RtPathTraceMaterialFeatureRegistryEntry
     RtPathTraceMaterialFeaturePassKind kind = RtPathTraceMaterialFeaturePassKind::Disabled;
     uint32_t materialCapsConsumed = 0;
     uint32_t materialPassSupport = 0;
+    uint32_t sharedOutputPriority = 0;
     uint32_t requiredResourceInputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
     uint32_t allowedResourceInputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
     uint32_t allowedResourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
@@ -103,6 +104,11 @@ inline const char* ValidatePathTraceMaterialFeatureRegistryEntry(
     {
         return "material pass support mask is empty";
     }
+    if (entry.sharedOutputArbitrationResources != RT_MATERIAL_FEATURE_RESOURCE_NONE &&
+        entry.sharedOutputPriority == 0u)
+    {
+        return "shared-output priority is empty";
+    }
     if (!PathTraceMaterialFeatureRegistryResourceMaskHasOnlyAllowed(
             entry.requiredResourceInputs,
             entry.allowedResourceInputs))
@@ -139,15 +145,28 @@ inline void ApplyPathTraceMaterialFeatureRegistryEntry(
     size_t registryIndex,
     RtPathTraceMaterialFeaturePassRegistration& registration)
 {
-    if ((!registration.passDesc.featureId || registration.passDesc.featureId[0] == '\0') && entry.featureId)
+    if ((!registration.passDesc.featureId ||
+            registration.passDesc.featureId[0] == '\0' ||
+            PathTraceMaterialFeatureRegistryStringEquals(registration.passDesc.featureId, "disabled") ||
+            PathTraceMaterialFeatureRegistryStringEquals(registration.passDesc.featureId, "unknown")) &&
+        entry.featureId)
     {
         registration.passDesc.featureId = entry.featureId;
     }
-    if ((!registration.passDesc.debugLabel || registration.passDesc.debugLabel[0] == '\0') && entry.featureId)
+    if ((!registration.passDesc.debugLabel ||
+            registration.passDesc.debugLabel[0] == '\0' ||
+            PathTraceMaterialFeatureRegistryStringEquals(registration.passDesc.debugLabel, "disabled") ||
+            PathTraceMaterialFeatureRegistryStringEquals(registration.passDesc.debugLabel, "unknown")) &&
+        entry.featureId)
     {
         registration.passDesc.debugLabel = entry.featureId;
     }
 
+    registration.passDesc.kind = entry.kind;
+    registration.passDesc.materialCapsConsumed = entry.materialCapsConsumed;
+    registration.passDesc.materialPassSupport = entry.materialPassSupport;
+    registration.passDesc.resourceInputs |= entry.requiredResourceInputs;
+    registration.passDesc.sharedOutputPriority = entry.sharedOutputPriority;
     registration.shaderStateIndex =
         registryIndex < RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_CAPACITY
             ? static_cast<uint32_t>(registryIndex)

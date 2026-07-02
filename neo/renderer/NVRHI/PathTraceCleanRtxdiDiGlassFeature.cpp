@@ -12,8 +12,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
     bool debugOutputRequested,
     bool guideCandidateOutputRequested)
 {
-    RtPathTraceMaterialFeaturePassDesc desc =
-        BuildPathTraceCleanRtxdiDiTransmissionProducerFeaturePassDesc("clean-rtxdi-di-glass", 50u);
+    RtPathTraceMaterialFeaturePassDesc desc;
 
     const bool cleanGlassRoute = PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(cleanRouteRequested, cleanView);
     const bool outputRequested = cleanGlassRoute && (shaderRequested || debugOutputRequested);

@@ -12,8 +12,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     bool composeOutputRequested,
     bool debugOutputRequested)
 {
-    RtPathTraceMaterialFeaturePassDesc desc =
-        BuildPathTraceCleanRtxdiDiTransmissionProducerFeaturePassDesc("clean-rtxdi-di-transmission", 100u);
+    RtPathTraceMaterialFeaturePassDesc desc;
     desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
     desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
 
