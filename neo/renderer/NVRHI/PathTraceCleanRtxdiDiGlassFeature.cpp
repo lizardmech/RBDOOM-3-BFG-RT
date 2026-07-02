@@ -3,7 +3,7 @@
 
 #include "PathTraceCleanRtxdiDiGlassFeature.h"
 #include "PathTraceCVars.h"
-#include "PathTraceMaterialFeatureParameters.h"
+#include "PathTraceCleanRtxdiDiMaterialFeatureCommon.h"
 #include "PathTraceCleanRtxdiDiMaterialFeatureShaders.h"
 
 static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
@@ -17,15 +17,10 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
     desc.featureId = "clean-rtxdi-di-glass";
     desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION;
     desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
-    desc.resourceInputs =
-        RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
-        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE |
-        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR |
-        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS |
-        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS;
+    desc.resourceInputs = PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs();
     desc.sharedOutputPriority = 50u;
 
-    const bool cleanGlassRoute = cleanRouteRequested && cleanView == 16;
+    const bool cleanGlassRoute = PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(cleanRouteRequested, cleanView);
     const bool outputRequested = cleanGlassRoute && (shaderRequested || debugOutputRequested);
     const bool debugOutput = cleanGlassRoute && debugOutputRequested;
     if (outputRequested)
@@ -81,13 +76,10 @@ static void FillPathTraceCleanRtxdiDiGlassRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc& passDesc)
 {
-    const bool debugOutputEnabled =
-        r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0 &&
-        PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
-    runtimeInfo.debugMode = debugOutputEnabled ? 1.0f : 0.0f;
-    CopyPathTraceMaterialFeatureParametersToRuntimeInfo(
+    FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
         runtimeInfo,
-        BuildPathTraceObjectGlassMaterialFeatureParameters());
+        passDesc,
+        r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0);
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(

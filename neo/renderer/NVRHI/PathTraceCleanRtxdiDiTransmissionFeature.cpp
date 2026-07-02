@@ -3,7 +3,7 @@
 
 #include "PathTraceCleanRtxdiDiTransmissionFeature.h"
 #include "PathTraceCVars.h"
-#include "PathTraceMaterialFeatureParameters.h"
+#include "PathTraceCleanRtxdiDiMaterialFeatureCommon.h"
 #include "PathTraceCleanRtxdiDiMaterialFeatureShaders.h"
 
 static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
@@ -18,17 +18,12 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     desc.featureId = "clean-rtxdi-di-transmission";
     desc.materialCapsConsumed = RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION;
     desc.materialPassSupport = RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
-    desc.resourceInputs =
-        RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
-        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE |
-        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR |
-        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS |
-        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS;
+    desc.resourceInputs = PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs();
     desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
     desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
     desc.sharedOutputPriority = 100u;
 
-    const bool cleanTransmissionRoute = cleanRouteRequested && cleanView == 16;
+    const bool cleanTransmissionRoute = PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(cleanRouteRequested, cleanView);
     const bool debugOutput = cleanTransmissionRoute && debugOutputRequested;
     const bool composeOutput = cleanTransmissionRoute && producerRequested && composeOutputRequested;
     if (debugOutput || composeOutput)
@@ -89,13 +84,10 @@ static void FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc& passDesc)
 {
-    const bool debugOutputEnabled =
-        r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0 &&
-        PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
-    runtimeInfo.debugMode = debugOutputEnabled ? 1.0f : 0.0f;
-    CopyPathTraceMaterialFeatureParametersToRuntimeInfo(
+    FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
         runtimeInfo,
-        BuildPathTraceObjectGlassMaterialFeatureParameters());
+        passDesc,
+        r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0);
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
