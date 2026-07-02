@@ -11,6 +11,16 @@ struct PathTraceCleanRtxdiDiGlassMaterialParams
     float transmissionFloor;
 };
 
+static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_R = 0u;
+static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_G = 1u;
+static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_B = 2u;
+static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM0_THICKNESS = 3u;
+
+static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM1_IOR = 0u;
+static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM1_STRENGTH = 1u;
+static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM1_REFLECTION_BOOST = 2u;
+static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM1_TRANSMISSION_FLOOR = 3u;
+
 float3 PathTraceCleanRtxdiDiGlassMaterialTintFromSurface(RAB_Surface surface, float3 fallbackTint)
 {
     const float3 surfaceTint = saturate(surface.material.diffuseAlbedo);
@@ -26,12 +36,15 @@ PathTraceCleanRtxdiDiGlassMaterialParams PathTraceCleanRtxdiDiDefaultGlassMateri
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
     PathTraceCleanRtxdiDiGlassMaterialParams params;
-    params.transmittanceColor = saturate(runtimeParams.params0.xyz);
-    params.thickness = max(runtimeParams.params0.w, 0.0);
-    params.ior = max(runtimeParams.params1.x, 1.0001);
-    params.strength = saturate(runtimeParams.params1.y);
-    params.reflectionBoost = max(runtimeParams.params1.z, 0.0);
-    params.transmissionFloor = max(runtimeParams.params1.w, 0.0);
+    params.transmittanceColor = saturate(float3(
+        runtimeParams.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_R],
+        runtimeParams.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_G],
+        runtimeParams.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_B]));
+    params.thickness = max(runtimeParams.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_THICKNESS], 0.0);
+    params.ior = max(runtimeParams.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_IOR], 1.0001);
+    params.strength = saturate(runtimeParams.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_STRENGTH]);
+    params.reflectionBoost = max(runtimeParams.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_REFLECTION_BOOST], 0.0);
+    params.transmissionFloor = max(runtimeParams.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_TRANSMISSION_FLOOR], 0.0);
     return params;
 }
 
@@ -39,12 +52,15 @@ void PathTraceCleanRtxdiDiApplyGlassParameterRecord(
     inout PathTraceCleanRtxdiDiGlassMaterialParams params,
     PathTraceMaterialFeatureParameterRecord record)
 {
-    params.transmittanceColor = saturate(record.params0.xyz);
-    params.thickness = max(record.params0.w, 0.0);
-    params.ior = max(record.params1.x, 1.0001);
-    params.strength = saturate(record.params1.y);
-    params.reflectionBoost = max(record.params1.z, 0.0);
-    params.transmissionFloor = max(record.params1.w, 0.0);
+    params.transmittanceColor = saturate(float3(
+        record.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_R],
+        record.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_G],
+        record.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_B]));
+    params.thickness = max(record.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_THICKNESS], 0.0);
+    params.ior = max(record.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_IOR], 1.0001);
+    params.strength = saturate(record.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_STRENGTH]);
+    params.reflectionBoost = max(record.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_REFLECTION_BOOST], 0.0);
+    params.transmissionFloor = max(record.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_TRANSMISSION_FLOOR], 0.0);
 }
 
 PathTraceCleanRtxdiDiGlassMaterialParams PathTraceCleanRtxdiDiLoadGlassMaterialParams(

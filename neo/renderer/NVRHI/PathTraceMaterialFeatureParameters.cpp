@@ -16,28 +16,28 @@ RtPathTraceMaterialFeatureParameterRecord BuildDefaultMaterialFeatureParameters(
 RtPathTraceMaterialFeatureParameterRecord BuildPathTracePortalWindowMaterialFeatureParameters()
 {
     RtPathTraceMaterialFeatureParameterRecord params = {};
-    params.params0[0] = 0.78f;
-    params.params0[1] = 0.92f;
-    params.params0[2] = 1.0f;
-    params.params0[3] = 0.05f;
-    params.params1[0] = 1.45f;
-    params.params1[1] = 1.0f;
-    params.params1[2] = 1.15f;
-    params.params1[3] = 0.015f;
+    params.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_R] = 0.78f;
+    params.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_G] = 0.92f;
+    params.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_B] = 1.0f;
+    params.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_THICKNESS] = 0.05f;
+    params.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_IOR] = 1.45f;
+    params.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_STRENGTH] = 1.0f;
+    params.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_REFLECTION_BOOST] = 1.15f;
+    params.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_TRANSMISSION_FLOOR] = 0.015f;
     return params;
 }
 
 RtPathTraceMaterialFeatureParameterRecord BuildPathTraceObjectGlassMaterialFeatureParameters()
 {
     RtPathTraceMaterialFeatureParameterRecord params = {};
-    params.params0[0] = 0.82f;
-    params.params0[1] = 0.93f;
-    params.params0[2] = 1.0f;
-    params.params0[3] = 0.08f;
-    params.params1[0] = 1.5f;
-    params.params1[1] = 1.0f;
-    params.params1[2] = 1.5f;
-    params.params1[3] = 0.02f;
+    params.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_R] = 0.82f;
+    params.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_G] = 0.93f;
+    params.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_B] = 1.0f;
+    params.params0[RT_PATH_TRACE_OBJECT_GLASS_PARAM0_THICKNESS] = 0.08f;
+    params.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_IOR] = 1.5f;
+    params.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_STRENGTH] = 1.0f;
+    params.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_REFLECTION_BOOST] = 1.5f;
+    params.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_TRANSMISSION_FLOOR] = 0.02f;
     return params;
 }
 
