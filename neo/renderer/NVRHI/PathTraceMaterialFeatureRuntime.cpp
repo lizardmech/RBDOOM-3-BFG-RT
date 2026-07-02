@@ -550,11 +550,11 @@ RtPathTraceMaterialFeatureRuntimeConstants BuildPathTraceMaterialFeatureRuntimeC
     const RtPathTraceMaterialFeatureRuntimeInfo& typedInfo)
 {
     RtPathTraceMaterialFeatureRuntimeConstants constants;
-    constants.runtimeInfo[0] = typedInfo.writesOutputColor;
-    constants.runtimeInfo[1] = typedInfo.ready;
-    constants.runtimeInfo[2] = typedInfo.debugMode;
-    constants.runtimeInfo[3] = typedInfo.frameIndex;
-    for (size_t i = 0; i < 4; ++i)
+    constants.runtimeInfo[RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_WRITES_OUTPUT_COLOR] = typedInfo.writesOutputColor;
+    constants.runtimeInfo[RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_READY] = typedInfo.ready;
+    constants.runtimeInfo[RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_DEBUG_MODE] = typedInfo.debugMode;
+    constants.runtimeInfo[RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_FRAME_INDEX] = typedInfo.frameIndex;
+    for (size_t i = 0; i < RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_LANE_COUNT; ++i)
     {
         constants.featureParams0[i] = typedInfo.featureParams0[i];
         constants.featureParams1[i] = typedInfo.featureParams1[i];

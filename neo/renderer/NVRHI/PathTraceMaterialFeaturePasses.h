@@ -136,6 +136,17 @@ struct RtPathTraceMaterialFeatureRuntimeInfo
     float featureParams1[4] = {};
 };
 
+enum RtPathTraceMaterialFeatureRuntimeInfoLane : uint8_t
+{
+    RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_WRITES_OUTPUT_COLOR = 0,
+    RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_READY = 1,
+    RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_DEBUG_MODE = 2,
+    RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_FRAME_INDEX = 3,
+    RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_LANE_COUNT = 4
+};
+
+static constexpr size_t RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_LANE_COUNT = 4;
+
 struct RtPathTraceMaterialFeatureRuntimeConstants
 {
     float runtimeInfo[4] = {};

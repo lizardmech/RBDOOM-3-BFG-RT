@@ -58,7 +58,7 @@ void CopyPathTraceMaterialFeatureParametersToRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeatureParameterRecord& params)
 {
-    for (size_t i = 0; i < 4; ++i)
+    for (size_t i = 0; i < RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_LANE_COUNT; ++i)
     {
         runtimeInfo.featureParams0[i] = params.params0[i];
         runtimeInfo.featureParams1[i] = params.params1[i];
