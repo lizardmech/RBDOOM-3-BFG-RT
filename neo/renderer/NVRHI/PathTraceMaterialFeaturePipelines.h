@@ -5,8 +5,19 @@
 // repeated shader-library and ray-tracing pipeline mechanics.
 
 #include "PathTraceMaterialFeaturePasses.h"
+#include "PathTraceMaterialFeatureRuntime.h"
 
 #include <nvrhi/nvrhi.h>
+
+struct RtPathTraceMaterialFeaturePipelineContext
+{
+    RtPathTraceMaterialFeatureShaderState* shaderState = nullptr;
+    nvrhi::IDevice* device = nullptr;
+    nvrhi::GraphicsAPI graphicsApi = nvrhi::GraphicsAPI::D3D12;
+    bool runtimeInitialized = false;
+    nvrhi::BindingLayoutHandle bindingLayout;
+    nvrhi::BindingLayoutHandle textureBindlessLayout;
+};
 
 bool LoadPathTraceMaterialFeatureShaderLibrary(
     nvrhi::IDevice* device,
@@ -21,3 +32,10 @@ bool CreatePathTraceMaterialFeatureRayTracingPipeline(
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
     nvrhi::rt::PipelineHandle& pipeline,
     nvrhi::rt::ShaderTableHandle& shaderTable);
+bool InitPathTraceMaterialFeaturePipeline(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const RtPathTraceMaterialFeaturePipelineContext& context);
+bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(
+    const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const RtPathTraceMaterialFeaturePipelineContext& context);

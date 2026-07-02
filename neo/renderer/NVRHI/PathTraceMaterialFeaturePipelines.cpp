@@ -120,3 +120,106 @@ bool CreatePathTraceMaterialFeatureRayTracingPipeline(
     shaderTable->addHitGroup(rtDesc.shadowHitGroupName);
     return true;
 }
+
+bool InitPathTraceMaterialFeaturePipeline(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const RtPathTraceMaterialFeaturePipelineContext& context)
+{
+    if (!context.shaderState)
+    {
+        return false;
+    }
+
+    RtPathTraceMaterialFeatureShaderState* materialFeatureShaderState = context.shaderState;
+    if (materialFeatureShaderState->shaderTable)
+    {
+        return true;
+    }
+
+    if (!context.runtimeInitialized || !context.textureBindlessLayout)
+    {
+        return false;
+    }
+
+    if (!PathTraceMaterialFeatureBindingMetadataCoversPass(registration))
+    {
+        common->Printf("PathTracePrimaryPass: %s material-feature registration is missing binding metadata\n", registration.shaderDesc.label);
+        return false;
+    }
+
+    if (!context.device)
+    {
+        return false;
+    }
+
+    const RtPathTraceMaterialFeaturePipelineRequest pipelineRequest = BuildPathTraceMaterialFeaturePipelineRequest(
+        registration.shaderDesc,
+        context.shaderState,
+        context.bindingLayout,
+        context.graphicsApi);
+    if (!pipelineRequest.shaderState)
+    {
+        return false;
+    }
+
+    if (!pipelineRequest.bindingLayout || pipelineRequest.shaderPath.empty())
+    {
+        return false;
+    }
+
+    RtPathTraceMaterialFeatureShaderState& shaderState = *pipelineRequest.shaderState;
+    if (!shaderState.shaderLibrary &&
+        !LoadPathTraceMaterialFeatureShaderLibrary(context.device, pipelineRequest.shaderPath.c_str(), pipelineRequest.shaderDesc.label, shaderState.shaderLibrary))
+    {
+        common->Printf("PathTracePrimaryPass: %s material-feature RT shader unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
+        return false;
+    }
+
+    if (!CreatePathTraceMaterialFeatureRayTracingPipeline(
+        context.device,
+        shaderState.shaderLibrary,
+        pipelineRequest.bindingLayout,
+        context.textureBindlessLayout,
+        pipelineRequest.shaderDesc,
+        shaderState.pipeline,
+        shaderState.shaderTable))
+    {
+        common->Printf("PathTracePrimaryPass: %s material-feature RT pipeline unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
+        shaderState.pipeline = nullptr;
+        shaderState.shaderTable = nullptr;
+        return false;
+    }
+
+    common->Printf(
+        "PathTracePrimaryPass: %s material-feature RT pipeline initialized; feature='%s' validation build='%s' runtime='%s' supported='%s' unsupported='%s' baseline='%s' resources='%s' abi='%s'\n",
+        pipelineRequest.shaderDesc.label,
+        registration.passDesc.featureId,
+        registration.validation.buildProof,
+        registration.validation.runtimeRoute,
+        registration.validation.supportedMaterialTest,
+        registration.validation.unsupportedMaterialTest,
+        registration.validation.baselineRegressionCheck,
+        registration.validation.resourceBindingProof,
+        registration.validation.cpuShaderAbiProof);
+    return true;
+}
+
+bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(
+    const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const RtPathTraceMaterialFeaturePipelineContext& context)
+{
+    if (!pass.pipelineRequested)
+    {
+        return true;
+    }
+    if (!pass.shader)
+    {
+        return false;
+    }
+    if (!pass.shader->shaderTable)
+    {
+        InitPathTraceMaterialFeaturePipeline(registration, context);
+    }
+    return static_cast<bool>(pass.shader->shaderTable);
+}

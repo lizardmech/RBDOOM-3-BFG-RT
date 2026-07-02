@@ -47,14 +47,6 @@ struct RtPathTraceCleanRtxdiDiMaterialFeaturePasses::Impl
     RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState = nullptr;
 };
 
-struct RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext
-{
-    RtPathTraceMaterialFeatureShaderState* shaderState = nullptr;
-    bool smokeTestInitialized = false;
-    nvrhi::BindingLayoutHandle cleanRtxdiDiBindingLayout;
-    nvrhi::BindingLayoutHandle textureBindlessLayout;
-};
-
 static RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryContext(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes)
 {
@@ -64,7 +56,7 @@ static RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext BuildPathTraceClean
     };
 }
 
-static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(
+static RtPathTraceMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceMaterialFeaturePassRegistration& registration,
     const RtPathTraceCleanRtxdiDiPipelineContext& context)
@@ -75,114 +67,12 @@ static RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext BuildPathTraceClean
         featureState
             ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForRegistration(*featureState, registration)
             : nullptr,
+        deviceManager ? deviceManager->GetDevice() : nullptr,
+        deviceManager ? deviceManager->GetGraphicsAPI() : nvrhi::GraphicsAPI::D3D12,
         context.smokeTestInitialized,
         context.cleanRtxdiDiBindingLayout,
         context.textureBindlessLayout
     };
-}
-
-static bool InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(
-    const RtPathTraceMaterialFeaturePassRegistration& registration,
-    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext& context)
-{
-    if (!context.shaderState)
-    {
-        return false;
-    }
-
-    RtPathTraceMaterialFeatureShaderState* materialFeatureShaderState = context.shaderState;
-    if (materialFeatureShaderState->shaderTable)
-    {
-        return true;
-    }
-
-    if (!context.smokeTestInitialized || !context.textureBindlessLayout)
-    {
-        return false;
-    }
-
-    if (!PathTraceMaterialFeatureBindingMetadataCoversPass(registration))
-    {
-        common->Printf("PathTracePrimaryPass: %s material-feature registration is missing binding metadata\n", registration.shaderDesc.label);
-        return false;
-    }
-
-    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
-    if (!device)
-    {
-        return false;
-    }
-
-    const RtPathTraceMaterialFeaturePipelineRequest pipelineRequest = BuildPathTraceMaterialFeaturePipelineRequest(
-        registration.shaderDesc,
-        context.shaderState,
-        context.cleanRtxdiDiBindingLayout,
-        deviceManager->GetGraphicsAPI());
-    if (!pipelineRequest.shaderState)
-    {
-        return false;
-    }
-
-    if (!pipelineRequest.bindingLayout || pipelineRequest.shaderPath.empty())
-    {
-        return false;
-    }
-
-    RtPathTraceMaterialFeatureShaderState& shaderState = *pipelineRequest.shaderState;
-    if (!shaderState.shaderLibrary &&
-        !LoadPathTraceMaterialFeatureShaderLibrary(device, pipelineRequest.shaderPath.c_str(), pipelineRequest.shaderDesc.label, shaderState.shaderLibrary))
-    {
-        common->Printf("PathTracePrimaryPass: %s material-feature RT shader unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
-        return false;
-    }
-
-    if (!CreatePathTraceMaterialFeatureRayTracingPipeline(
-        device,
-        shaderState.shaderLibrary,
-        pipelineRequest.bindingLayout,
-        context.textureBindlessLayout,
-        pipelineRequest.shaderDesc,
-        shaderState.pipeline,
-        shaderState.shaderTable))
-    {
-        common->Printf("PathTracePrimaryPass: %s material-feature RT pipeline unavailable; matching material-feature passes will be disabled\n", pipelineRequest.shaderDesc.label);
-        shaderState.pipeline = nullptr;
-        shaderState.shaderTable = nullptr;
-        return false;
-    }
-
-    common->Printf(
-        "PathTracePrimaryPass: %s material-feature RT pipeline initialized; feature='%s' validation build='%s' runtime='%s' supported='%s' unsupported='%s' baseline='%s' resources='%s' abi='%s'\n",
-        pipelineRequest.shaderDesc.label,
-        registration.passDesc.featureId,
-        registration.validation.buildProof,
-        registration.validation.runtimeRoute,
-        registration.validation.supportedMaterialTest,
-        registration.validation.unsupportedMaterialTest,
-        registration.validation.baselineRegressionCheck,
-        registration.validation.resourceBindingProof,
-        registration.validation.cpuShaderAbiProof);
-    return true;
-}
-
-static bool EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
-    const RtPathTraceMaterialFeatureRuntimePass& pass,
-    const RtPathTraceMaterialFeaturePassRegistration& registration,
-    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineContext& context)
-{
-    if (!pass.pipelineRequested)
-    {
-        return true;
-    }
-    if (!pass.shader)
-    {
-        return false;
-    }
-    if (!pass.shader->shaderTable)
-    {
-        InitPathTraceCleanRtxdiDiMaterialFeaturePipeline(registration, context);
-    }
-    return static_cast<bool>(pass.shader->shaderTable);
 }
 
 static size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
@@ -414,7 +304,7 @@ bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
             : nullptr;
         RtPathTraceMaterialFeatureRuntimePass pipelinePass =
             BuildPathTraceMaterialFeatureRuntimePass(registration, shaderState);
-        if (!EnsurePathTraceCleanRtxdiDiMaterialFeatureRuntimePassPipeline(
+        if (!EnsurePathTraceMaterialFeatureRuntimePassPipeline(
             pipelinePass,
             registration,
             BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(passes, registration, context)))
