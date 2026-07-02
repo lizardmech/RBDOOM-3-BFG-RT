@@ -9,20 +9,11 @@
 
 namespace {
 
-RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionRuntimeRegistration(
-    const void* contextPtr)
-{
-    RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext context;
-    if (contextPtr)
-    {
-        context = *static_cast<const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext*>(contextPtr);
-    }
-    return BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
-        context.cleanRouteRequested,
-        context.cleanView);
-}
+using RtPathTraceCleanRtxdiDiRouteFeatureBuilder =
+    RtPathTraceMaterialFeaturePassRegistration (*)(bool cleanRouteRequested, int cleanView);
 
-RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassRuntimeRegistration(
+template<RtPathTraceCleanRtxdiDiRouteFeatureBuilder BuildFeatureRegistration>
+RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiRouteRuntimeRegistration(
     const void* contextPtr)
 {
     RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext context;
@@ -30,7 +21,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassRuntim
     {
         context = *static_cast<const RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext*>(contextPtr);
     }
-    return BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(
+    return BuildFeatureRegistration(
         context.cleanRouteRequested,
         context.cleanView);
 }
@@ -61,7 +52,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiNoOpRuntime
 static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatureRegistry[] = {
     {
         "clean-rtxdi-di-transmission",
-        BuildPathTraceCleanRtxdiDiTransmissionRuntimeRegistration,
+        BuildPathTraceCleanRtxdiDiRouteRuntimeRegistration<BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration>,
         BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration,
         {
             "clean-room RTXDI DI transmission producer",
@@ -91,7 +82,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
     },
     {
         "clean-rtxdi-di-glass",
-        BuildPathTraceCleanRtxdiDiGlassRuntimeRegistration,
+        BuildPathTraceCleanRtxdiDiRouteRuntimeRegistration<BuildPathTraceCleanRtxdiDiGlassFeatureRegistration>,
         BuildPathTraceCleanRtxdiDiGlassFeatureLayoutRegistration,
         {
             "clean-room RTXDI DI glass",
