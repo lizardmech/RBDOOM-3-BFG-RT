@@ -8,6 +8,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     bool cleanRouteRequested,
     int cleanView,
     bool producerRequested,
+    bool composeOutputRequested,
     bool debugOutputRequested)
 {
     RtPathTraceMaterialFeaturePassDesc desc;
@@ -26,7 +27,8 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
 
     const bool cleanTransmissionRoute = cleanRouteRequested && cleanView == 16;
     const bool debugOutput = cleanTransmissionRoute && debugOutputRequested;
-    if (debugOutput)
+    const bool composeOutput = cleanTransmissionRoute && producerRequested && composeOutputRequested;
+    if (debugOutput || composeOutput)
     {
         desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
     }
@@ -95,6 +97,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
     int cleanView)
 {
     const bool producerRequested = r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0;
+    const bool composeOutputRequested = r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
     const bool debugOutputRequested = r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0;
 
     RtPathTraceMaterialFeaturePassRegistration registration;
@@ -102,6 +105,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         cleanRouteRequested,
         cleanView,
         producerRequested,
+        composeOutputRequested,
         debugOutputRequested);
     registration.shaderDesc = {
         "clean-room RTXDI DI transmission producer",
@@ -112,11 +116,11 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo;
     registration.validation = {
         "cmake --build --preset win64-pt-dev-release",
-        "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiTransmissionProducer 1; r_pathTracingCleanRtxdiDiTransmissionDebugView 1",
+        "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiTransmissionProducer 1; r_pathTracingCleanRtxdiDiTransmissionCompose 1; r_pathTracingCleanRtxdiDiTransmissionDebugView 1",
         "glass-like material writes thin-glass attenuation rgb plus contribution weight to transmission output",
         "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
-        "clean RTXDI DI primary view 16 unchanged",
-        "RtPathTraceMaterialFeatureOutputDesc transmission u87 PathTraceCleanRtxdiDiTransmissionOutput",
+        "clean RTXDI DI primary view 16 unchanged unless transmission compose or debug view is enabled",
+        "RtPathTraceMaterialFeatureOutputDesc transmission u87 PathTraceCleanRtxdiDiTransmissionOutput plus optional output-color u1",
         "PathTraceMaterialFeatureRuntimeInfo plus glass transmittance/thickness/ior params in b88"
     };
     return registration;
@@ -129,6 +133,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
     registration.passDesc = BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
         true,
         16,
+        true,
         true,
         true);
     return registration;

@@ -46,6 +46,13 @@ float4 PathTraceCleanRoomTransmissionProducerDebugColor(
     return float4(saturate(payload.transmission + payload.reflection * 0.25), 1.0);
 }
 
+float4 PathTraceCleanRoomTransmissionProducerComposeColor(float4 currentColor, float4 payload)
+{
+    const float payloadWeight = saturate(payload.a);
+    const float3 attenuatedColor = currentColor.rgb * saturate(payload.rgb);
+    return float4(lerp(currentColor.rgb, attenuatedColor, payloadWeight), currentColor.a);
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -64,7 +71,14 @@ void RayGen()
         LoadPathTraceMaterialFeatureRuntimeInfo(PathTraceMaterialFeatureRuntimeInfoPacked);
     if (runtimeInfo.writesOutputColor)
     {
-        SmokeOutput[pixel] = PathTraceCleanRoomTransmissionProducerDebugColor(pixel, dimensions, runtimeParams);
+        if (runtimeInfo.debugMode >= 0.5)
+        {
+            SmokeOutput[pixel] = PathTraceCleanRoomTransmissionProducerDebugColor(pixel, dimensions, runtimeParams);
+        }
+        else
+        {
+            SmokeOutput[pixel] = PathTraceCleanRoomTransmissionProducerComposeColor(SmokeOutput[pixel], payload);
+        }
     }
 }
 

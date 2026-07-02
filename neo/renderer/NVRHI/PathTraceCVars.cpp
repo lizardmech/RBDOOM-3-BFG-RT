@@ -1621,13 +1621,19 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionProducer(
     "r_pathTracingCleanRtxdiDiTransmissionProducer",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 standalone transmission producer scaffold: 0 off, 1 write sentinel transmission UAV from the clean primary surface" );
+    "Clean RTXDI DI view 16 standalone transmission producer: 0 off, 1 write thin-glass transmission payload from the clean primary surface" );
+
+idCVar r_pathTracingCleanRtxdiDiTransmissionCompose(
+    "r_pathTracingCleanRtxdiDiTransmissionCompose",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI view 16 transmission compose: 0 off, 1 let the transmission producer attenuate SmokeOutput for matching glass pixels" );
 
 idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
     "r_pathTracingCleanRtxdiDiTransmissionDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 route producer sentinel to SmokeOutput after clean DI spatial" );
+    "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 route thin-glass payload visualization to SmokeOutput after clean DI spatial" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassShader(
     "r_pathTracingCleanRtxdiDiGlassShader",

@@ -188,6 +188,16 @@ This is deliberately a simple tint/attenuation pass. It proves the material
 feature can affect beauty output without claiming physically complete
 refraction.
 
+Current implementation checkpoint:
+
+    `r_pathTracingCleanRtxdiDiTransmissionProducer 1` writes the thin-glass
+        transmission payload to `PathTraceCleanRtxdiDiTransmissionOutput`
+    `r_pathTracingCleanRtxdiDiTransmissionCompose 1` lets that same
+        material-feature pass attenuate `SmokeOutput` for supported glass
+        pixels after the clean-DI primary color exists
+    `r_pathTracingCleanRtxdiDiTransmissionDebugView 1` still overrides compose
+        and writes the payload/debug visualization instead
+
 Do not use this as a direct-light or GI transmissive reservoir contract. DI/GI
 should continue to fail closed for glass until a later task explicitly opens
 that consumer.
