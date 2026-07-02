@@ -21,6 +21,8 @@ struct RtPathTraceMaterialFeatureOutputDesc
 };
 
 const RtPathTraceMaterialFeatureOutputDesc* FindPathTraceMaterialFeatureOutputDesc(uint32_t resource);
+bool PathTraceMaterialFeatureOutputResourceDeclared(uint32_t resource);
+bool PathTraceMaterialFeatureOutputResourcesDeclared(uint32_t resources);
 nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFrameResources& frameResources, uint32_t resource);
 bool PathTraceMaterialFeatureOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources, uint32_t resource);
 bool PathTraceMaterialFeatureOutputsAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources);

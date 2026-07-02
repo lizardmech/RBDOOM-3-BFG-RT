@@ -39,6 +39,25 @@ const RtPathTraceMaterialFeatureOutputDesc* FindPathTraceMaterialFeatureOutputDe
     return nullptr;
 }
 
+bool PathTraceMaterialFeatureOutputResourceDeclared(uint32_t resource)
+{
+    return resource == RT_MATERIAL_FEATURE_RESOURCE_NONE ||
+        FindPathTraceMaterialFeatureOutputDesc(resource) != nullptr;
+}
+
+bool PathTraceMaterialFeatureOutputResourcesDeclared(uint32_t resources)
+{
+    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
+    {
+        if ((resources & resource) != 0u &&
+            !PathTraceMaterialFeatureOutputResourceDeclared(resource))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFrameResources& frameResources, uint32_t resource)
 {
     const RtPathTraceMaterialFeatureOutputDesc* desc = FindPathTraceMaterialFeatureOutputDesc(resource);

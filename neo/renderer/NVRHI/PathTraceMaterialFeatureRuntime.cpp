@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceMaterialFeatureOutputs.h"
 #include "PathTraceMaterialFeatureRuntime.h"
 
 static_assert(sizeof(RtPathTraceMaterialFeatureRuntimeConstants) == 48, "Material feature runtime constants must match shader b88 three-float4 ABI");
@@ -18,6 +19,48 @@ static bool PathTraceMaterialFeatureValidationProofIsSet(const char* value)
 static bool PathTraceMaterialFeatureResourceMaskIsSingleResource(uint32_t resource)
 {
     return resource != RT_MATERIAL_FEATURE_RESOURCE_NONE && (resource & (resource - 1u)) == 0u;
+}
+
+static bool PathTraceMaterialFeatureOutputBindingMetadataMatchesDeclaredOutputs(
+    const RtPathTraceMaterialFeaturePassRegistration& registration)
+{
+    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
+    {
+        if ((registration.passDesc.resourceOutputs & resource) == 0u)
+        {
+            continue;
+        }
+
+        const RtPathTraceMaterialFeatureOutputDesc* outputDesc =
+            FindPathTraceMaterialFeatureOutputDesc(resource);
+        if (!outputDesc)
+        {
+            return false;
+        }
+
+        bool foundBinding = false;
+        for (size_t i = 0; registration.bindingMetadata && i < registration.bindingMetadataCount; ++i)
+        {
+            const RtPathTraceMaterialFeatureBindingDesc& binding = registration.bindingMetadata[i];
+            if (binding.resource != resource)
+            {
+                continue;
+            }
+
+            foundBinding = true;
+            if (binding.kind != RtPathTraceMaterialFeatureBindingKind::TextureUav ||
+                binding.slot != outputDesc->uavSlot)
+            {
+                return false;
+            }
+        }
+
+        if (!foundBinding)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool PathTraceMaterialFeatureValidationFail(
@@ -249,6 +292,16 @@ bool ValidatePathTraceMaterialFeatureRegistration(
         {
             return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "primary output is not declared as an output resource");
         }
+    }
+
+    if (!PathTraceMaterialFeatureOutputResourcesDeclared(desc.resourceOutputs))
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "output resource has no frame-resource mapping");
+    }
+
+    if (!PathTraceMaterialFeatureOutputBindingMetadataMatchesDeclaredOutputs(registration))
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "output binding metadata does not match output declaration");
     }
 
     if (!PathTraceMaterialFeatureBindingMetadataCoversPass(registration))
