@@ -3,57 +3,53 @@
 // Shared clean RTXDI DI material-feature descriptor helpers.
 // Concrete feature modules still own their outputs, shader identity, and cvars.
 
+#include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeatureParameters.h"
 
 #define RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB(stem) "builtin/pathtracing/cleanroom_rtxdi/" stem ".rt.bin"
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_CURRENT_PRIMARY_SURFACE = {
-    RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE,
-    30u,
-    RtPathTraceMaterialFeatureBindingKind::StructuredBufferUav,
-    "PrimarySurfaceHistoryCurrent"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiCanonicalBinding(uint32_t resource)
+{
+    const RtPathTraceMaterialFeatureBindingDesc* binding =
+        FindPathTraceMaterialFeatureCanonicalBindingDesc(resource);
+    return binding ? *binding : RtPathTraceMaterialFeatureBindingDesc();
+}
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_TABLE = {
-    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE,
-    13u,
-    RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
-    "PathTraceMaterialTable"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiCurrentPrimarySurfaceBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE);
+}
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURES = {
-    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR,
-    80u,
-    RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
-    "PathTraceMaterialFeatures"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiMaterialTableBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE);
+}
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_PARAMETERS = {
-    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS,
-    81u,
-    RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
-    "PathTraceMaterialFeatureParameters"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiMaterialFeaturesBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR);
+}
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_RUNTIME_CONSTANTS = {
-    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
-    88u,
-    RtPathTraceMaterialFeatureBindingKind::ConstantBuffer,
-    "PathTraceMaterialFeatureRuntimeConstants"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiMaterialFeatureParametersBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS);
+}
+
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiMaterialFeatureRuntimeConstantsBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS);
+}
+
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiOutputColorSourceBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE);
+}
 
 static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR = {
     RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR,
     1u,
     RtPathTraceMaterialFeatureBindingKind::TextureUav,
     "output-color"
-};
-
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR_SOURCE = {
-    RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE,
-    89u,
-    RtPathTraceMaterialFeatureBindingKind::TextureSrv,
-    "output-color-source"
 };
 
 static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_TRANSMISSION_OUTPUT = {

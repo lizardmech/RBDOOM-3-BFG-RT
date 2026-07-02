@@ -51,12 +51,12 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
 }
 
 static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiGlassBindings[] = {
-    RT_CLEAN_RTXDI_DI_BINDING_CURRENT_PRIMARY_SURFACE,
-    RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_TABLE,
-    RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURES,
-    RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_PARAMETERS,
-    RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
-    RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR_SOURCE,
+    PathTraceCleanRtxdiDiCurrentPrimarySurfaceBinding(),
+    PathTraceCleanRtxdiDiMaterialTableBinding(),
+    PathTraceCleanRtxdiDiMaterialFeaturesBinding(),
+    PathTraceCleanRtxdiDiMaterialFeatureParametersBinding(),
+    PathTraceCleanRtxdiDiMaterialFeatureRuntimeConstantsBinding(),
+    PathTraceCleanRtxdiDiOutputColorSourceBinding(),
     RT_CLEAN_RTXDI_DI_BINDING_RR_GUIDE_SPECULAR_ALBEDO,
     RT_CLEAN_RTXDI_DI_BINDING_RR_INPUT_COLOR,
     RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE0,
