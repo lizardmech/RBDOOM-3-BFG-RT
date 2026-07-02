@@ -49,6 +49,8 @@ static const uint RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER = 0x00000020
 static const uint RT_PATH_TRACE_MATERIAL_PASS_RR_GUIDE_EXPORT = 0x00000040u;
 static const uint RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER = 0x00000080u;
 
+static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION = 1u;
+
 struct PathTraceMaterialFeatureRuntimeInfo
 {
     bool writesOutputColor;
@@ -103,7 +105,7 @@ struct PathTraceMaterialFeatureRecord
     uint passSupport;
     uint modifierKind;
     uint parameterRecordIndex;
-    uint reserved0;
+    uint recordAbiVersion;
     uint reserved1;
 };
 

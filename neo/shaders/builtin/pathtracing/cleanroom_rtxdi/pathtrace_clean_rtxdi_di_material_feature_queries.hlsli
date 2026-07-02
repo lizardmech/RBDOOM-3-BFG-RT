@@ -1,8 +1,6 @@
 #ifndef RB_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_QUERIES_HLSLI
 #define RB_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_QUERIES_HLSLI
 
-static const uint RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RECORD_ABI_VERSION = 1u;
-
 float4 PathTraceCleanRtxdiDiMaterialFailClosedDebugColor(RAB_Surface surface, uint passKind)
 {
     return MaterialFailClosedDebugColor(surface, passKind);
@@ -19,7 +17,7 @@ bool PathTraceCleanRtxdiDiLoadMaterialFeature(uint materialIndex, out PathTraceM
     }
 
     const PathTraceMaterialFeatureRecord record = PathTraceMaterialFeatures[materialIndex];
-    if (record.reserved0 != RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RECORD_ABI_VERSION)
+    if (record.recordAbiVersion != RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION)
     {
         return false;
     }
