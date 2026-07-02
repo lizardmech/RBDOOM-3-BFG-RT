@@ -335,10 +335,10 @@ void AddPathTraceCleanRtxdiDiMaterialFeatureLayoutBindings(nvrhi::BindingLayoutD
     const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryLayoutRegistrations(
         registrations,
         sizeof(registrations) / sizeof(registrations[0]));
-    for (size_t i = 0; i < registrationCount && i < sizeof(registrations) / sizeof(registrations[0]); ++i)
-    {
-        AddPathTraceMaterialFeatureRegistrationLayoutBindings(desc, registrations[i]);
-    }
+    AddPathTraceMaterialFeatureRegistrationListLayoutBindings(
+        desc,
+        registrations,
+        Min(registrationCount, sizeof(registrations) / sizeof(registrations[0])));
 }
 
 void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
@@ -355,20 +355,18 @@ void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
         passes,
         registrations,
         sizeof(registrations) / sizeof(registrations[0]));
-    for (size_t i = 0; i < registrationCount && i < sizeof(registrations) / sizeof(registrations[0]); ++i)
-    {
-        AddPathTraceMaterialFeatureRegistrationBindings(
-            desc,
-            {
-                frameResources.primarySurfaceHistoryBuffers.current,
-                materialTableBuffer,
-                materialFeatureBuffer,
-                materialFeatureParameterBuffer,
-                runtimeConstantsBuffer
-            },
-            frameResources,
-            registrations[i]);
-    }
+    AddPathTraceMaterialFeatureRegistrationListBindings(
+        desc,
+        {
+            frameResources.primarySurfaceHistoryBuffers.current,
+            materialTableBuffer,
+            materialFeatureBuffer,
+            materialFeatureParameterBuffer,
+            runtimeConstantsBuffer
+        },
+        frameResources,
+        registrations,
+        Min(registrationCount, sizeof(registrations) / sizeof(registrations[0])));
 }
 
 bool PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(
@@ -380,15 +378,10 @@ bool PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(
         passes,
         registrations,
         sizeof(registrations) / sizeof(registrations[0]));
-    for (size_t i = 0; i < registrationCount && i < sizeof(registrations) / sizeof(registrations[0]); ++i)
-    {
-        const RtPathTraceMaterialFeaturePassDesc& passDesc = registrations[i].passDesc;
-        if (!PathTraceMaterialFeatureOutputsAvailable(passDesc, frameResources))
-        {
-            return false;
-        }
-    }
-    return true;
+    return PathTraceMaterialFeatureRegistrationListOutputsAvailable(
+        registrations,
+        Min(registrationCount, sizeof(registrations) / sizeof(registrations[0])),
+        frameResources);
 }
 
 bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(

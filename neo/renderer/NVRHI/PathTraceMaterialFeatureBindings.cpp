@@ -367,6 +367,17 @@ void AddPathTraceMaterialFeatureRegistrationLayoutBindings(
     }
 }
 
+void AddPathTraceMaterialFeatureRegistrationListLayoutBindings(
+    nvrhi::BindingLayoutDesc& desc,
+    const RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount)
+{
+    for (size_t i = 0; registrations && i < registrationCount; ++i)
+    {
+        AddPathTraceMaterialFeatureRegistrationLayoutBindings(desc, registrations[i]);
+    }
+}
+
 void AddPathTraceMaterialFeatureRegistrationBindings(
     nvrhi::BindingSetDesc& desc,
     const RtPathTraceMaterialFeatureInputResources& resources,
@@ -388,5 +399,22 @@ void AddPathTraceMaterialFeatureRegistrationBindings(
         {
             AddPathTraceMaterialFeatureBindingSetItem(desc, resources, frameResources, binding);
         }
+    }
+}
+
+void AddPathTraceMaterialFeatureRegistrationListBindings(
+    nvrhi::BindingSetDesc& desc,
+    const RtPathTraceMaterialFeatureInputResources& resources,
+    const RtPathTraceFrameResources& frameResources,
+    const RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount)
+{
+    for (size_t i = 0; registrations && i < registrationCount; ++i)
+    {
+        AddPathTraceMaterialFeatureRegistrationBindings(
+            desc,
+            resources,
+            frameResources,
+            registrations[i]);
     }
 }

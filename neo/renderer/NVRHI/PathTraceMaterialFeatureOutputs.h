@@ -11,6 +11,7 @@
 #include <cstdint>
 
 struct RtPathTraceMaterialFeaturePassDesc;
+struct RtPathTraceMaterialFeaturePassRegistration;
 struct RtPathTraceMaterialFeatureRuntimePass;
 
 struct RtPathTraceMaterialFeatureOutputDesc
@@ -27,6 +28,10 @@ bool PathTraceMaterialFeatureOutputResourcesDeclared(uint32_t resources);
 nvrhi::TextureHandle PathTraceMaterialFeatureOutputTexture(const RtPathTraceFrameResources& frameResources, uint32_t resource);
 bool PathTraceMaterialFeatureOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources, uint32_t resource);
 bool PathTraceMaterialFeatureOutputsAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources);
+bool PathTraceMaterialFeatureRegistrationListOutputsAvailable(
+    const RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount,
+    const RtPathTraceFrameResources& frameResources);
 bool PathTraceMaterialFeaturePrimaryOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources);
 bool PathTraceMaterialFeaturePrimaryOutputAvailable(const RtPathTraceMaterialFeatureRuntimePass& pass, const RtPathTraceFrameResources& frameResources);
 void SetPathTraceMaterialFeatureOutputState(

@@ -32,8 +32,18 @@ void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, cons
 void AddPathTraceMaterialFeatureRegistrationLayoutBindings(
     nvrhi::BindingLayoutDesc& desc,
     const RtPathTraceMaterialFeaturePassRegistration& registration);
+void AddPathTraceMaterialFeatureRegistrationListLayoutBindings(
+    nvrhi::BindingLayoutDesc& desc,
+    const RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount);
 void AddPathTraceMaterialFeatureRegistrationBindings(
     nvrhi::BindingSetDesc& desc,
     const RtPathTraceMaterialFeatureInputResources& resources,
     const RtPathTraceFrameResources& frameResources,
     const RtPathTraceMaterialFeaturePassRegistration& registration);
+void AddPathTraceMaterialFeatureRegistrationListBindings(
+    nvrhi::BindingSetDesc& desc,
+    const RtPathTraceMaterialFeatureInputResources& resources,
+    const RtPathTraceFrameResources& frameResources,
+    const RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount);

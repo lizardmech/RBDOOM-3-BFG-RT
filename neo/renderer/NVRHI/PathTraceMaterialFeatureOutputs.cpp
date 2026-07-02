@@ -84,6 +84,21 @@ bool PathTraceMaterialFeatureOutputsAvailable(const RtPathTraceMaterialFeaturePa
     return true;
 }
 
+bool PathTraceMaterialFeatureRegistrationListOutputsAvailable(
+    const RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount,
+    const RtPathTraceFrameResources& frameResources)
+{
+    for (size_t i = 0; registrations && i < registrationCount; ++i)
+    {
+        if (!PathTraceMaterialFeatureOutputsAvailable(registrations[i].passDesc, frameResources))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool PathTraceMaterialFeaturePrimaryOutputAvailable(const RtPathTraceMaterialFeaturePassDesc& passDesc, const RtPathTraceFrameResources& frameResources)
 {
     return PathTraceMaterialFeatureOutputAvailable(passDesc, frameResources, passDesc.primaryOutputResource);
