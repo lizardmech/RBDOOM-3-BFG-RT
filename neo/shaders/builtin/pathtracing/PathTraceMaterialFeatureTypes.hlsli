@@ -107,6 +107,12 @@ struct PathTraceMaterialFeatureRecord
     uint reserved1;
 };
 
+struct PathTraceMaterialFeatureParameterRecord
+{
+    float4 params0;
+    float4 params1;
+};
+
 PathTraceMaterialFeature PathTraceMaterialFeatureFromRecord(PathTraceMaterialFeatureRecord record)
 {
     PathTraceMaterialFeature feature;

@@ -3418,6 +3418,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanRtxdiDiMaterialFeaturePasses,
             m_smokeMaterialTableBuffer,
             m_smokeMaterialFeatureBuffer,
+            m_smokeMaterialFeatureParameterBuffer,
             m_smokeMaterialFeatureRuntimeConstantsBuffer,
             m_frameResources);
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(79, m_frameResources.rrGuidePositionTexture));

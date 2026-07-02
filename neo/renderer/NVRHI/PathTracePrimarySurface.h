@@ -130,6 +130,13 @@ struct RtPathTraceMaterialFeatureRecord
 };
 static_assert(sizeof(RtPathTraceMaterialFeatureRecord) == 32, "Material feature CPU/shader record stride mismatch");
 
+struct RtPathTraceMaterialFeatureParameterRecord
+{
+    float params0[4] = { 0.82f, 0.93f, 1.0f, 0.08f };
+    float params1[4] = { 1.5f, 1.0f, 1.5f, 0.02f };
+};
+static_assert(sizeof(RtPathTraceMaterialFeatureParameterRecord) == 32, "Material feature parameter CPU/shader record stride mismatch");
+
 struct RtPathTracePrimarySurfaceHistoryState
 {
     bool currentValid = false;

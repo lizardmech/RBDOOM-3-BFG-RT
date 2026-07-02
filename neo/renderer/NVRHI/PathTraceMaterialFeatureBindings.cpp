@@ -29,6 +29,12 @@ static const RtPathTraceMaterialFeatureInputBindingDesc kMaterialFeatureInputs[]
         &RtPathTraceMaterialFeatureInputResources::materialFeatureBuffer
     },
     {
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS,
+        81u,
+        RtPathTraceMaterialFeatureInputBindingKind::StructuredBufferSrv,
+        &RtPathTraceMaterialFeatureInputResources::materialFeatureParameterBuffer
+    },
+    {
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
         88u,
         RtPathTraceMaterialFeatureInputBindingKind::ConstantBuffer,
@@ -128,6 +134,8 @@ nvrhi::BufferHandle PathTraceMaterialFeatureInputResourceBuffer(
         return resources.materialTableBuffer;
     case RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR:
         return resources.materialFeatureBuffer;
+    case RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS:
+        return resources.materialFeatureParameterBuffer;
     case RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS:
         return resources.runtimeConstantsBuffer;
     default:

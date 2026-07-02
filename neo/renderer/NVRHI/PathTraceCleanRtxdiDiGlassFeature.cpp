@@ -19,6 +19,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
         RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR |
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS;
     desc.sharedOutputPriority = 50u;
 
@@ -52,6 +53,12 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiGlassBindings[] 
         80u,
         RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
         "PathTraceMaterialFeatures"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS,
+        81u,
+        RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
+        "PathTraceMaterialFeatureParameters"
     },
     {
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
@@ -110,7 +117,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
         "opaque material writes dark unsupported debug color",
         "clean RTXDI DI primary view 16 unchanged unless glass debug view is enabled",
         "RtPathTraceMaterialFeatureBindingDesc output-color u1 PathTraceCleanRtxdiDiGlassDebug",
-        "PathTraceMaterialFeatureRecord t80 plus pathtrace_clean_rtxdi_di_glass_params.hlsli material params with b88 defaults"
+        "PathTraceMaterialFeatureRecord t80 plus PathTraceMaterialFeatureParameters t81 with b88 defaults"
     };
     return registration;
 }

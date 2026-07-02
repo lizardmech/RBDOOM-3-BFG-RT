@@ -409,6 +409,23 @@ RtPathTraceMaterialFeatureRecord BuildSmokeMaterialFeatureRecord(const RtSmokeMa
     return feature;
 }
 
+RtPathTraceMaterialFeatureParameterRecord BuildSmokeMaterialFeatureParameterRecord(const RtSmokeMaterialUniverseFacts& facts)
+{
+    RtPathTraceMaterialFeatureParameterRecord params;
+    if (facts.objectGlassFallback || facts.portalWindowFallback)
+    {
+        params.params0[0] = 0.82f;
+        params.params0[1] = 0.93f;
+        params.params0[2] = 1.0f;
+        params.params0[3] = 0.08f;
+        params.params1[0] = 1.5f;
+        params.params1[1] = 1.0f;
+        params.params1[2] = 1.5f;
+        params.params1[3] = 0.02f;
+    }
+    return params;
+}
+
 uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t materialId)
 {
     std::vector<uint32_t>::iterator existing = std::find(table.materialIds.begin(), table.materialIds.end(), materialId);
@@ -424,6 +441,7 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
     table.materialInfos.push_back(info);
     table.materialFacts.push_back(record.facts);
     table.materialFeatures.push_back(BuildSmokeMaterialFeatureRecord(record.facts, static_cast<uint32_t>(table.materialFeatures.size())));
+    table.materialFeatureParameters.push_back(BuildSmokeMaterialFeatureParameterRecord(record.facts));
     table.materialsAdditiveDecals += record.additiveDecalContribution;
     return static_cast<uint32_t>(table.materials.size() - 1);
 }
@@ -433,7 +451,8 @@ bool RefreshSmokeMaterialTableFrameRecords(RtSmokeMaterialTableBuild& table)
     if (table.materialIds.size() != table.materials.size() ||
         table.materialInfos.size() != table.materials.size() ||
         table.materialFacts.size() != table.materials.size() ||
-        table.materialFeatures.size() != table.materials.size())
+        table.materialFeatures.size() != table.materials.size() ||
+        table.materialFeatureParameters.size() != table.materials.size())
     {
         return false;
     }
@@ -448,6 +467,7 @@ bool RefreshSmokeMaterialTableFrameRecords(RtSmokeMaterialTableBuild& table)
         table.materials[tableIndex] = BuildSmokeMaterialTableMaterial(materialId, info, record);
         table.materialFacts[tableIndex] = record.facts;
         table.materialFeatures[tableIndex] = BuildSmokeMaterialFeatureRecord(record.facts, static_cast<uint32_t>(tableIndex));
+        table.materialFeatureParameters[tableIndex] = BuildSmokeMaterialFeatureParameterRecord(record.facts);
         table.materialsAdditiveDecals += record.additiveDecalContribution;
     }
     return true;
@@ -475,7 +495,8 @@ bool ValidateSmokeMaterialIndexes(const RtSmokeMaterialTableBuild& table)
     return table.materialIds.size() == table.materials.size() &&
         table.materialInfos.size() == table.materials.size() &&
         table.materialFacts.size() == table.materials.size() &&
-        table.materialFeatures.size() == table.materials.size();
+        table.materialFeatures.size() == table.materials.size() &&
+        table.materialFeatureParameters.size() == table.materials.size();
 }
 
 bool SmokeMaterialTableIndexIsValid(const RtSmokeMaterialTableBuild& table, int tableIndex)
@@ -485,7 +506,8 @@ bool SmokeMaterialTableIndexIsValid(const RtSmokeMaterialTableBuild& table, int 
         tableIndex < static_cast<int>(table.materials.size()) &&
         tableIndex < static_cast<int>(table.materialInfos.size()) &&
         tableIndex < static_cast<int>(table.materialFacts.size()) &&
-        tableIndex < static_cast<int>(table.materialFeatures.size());
+        tableIndex < static_cast<int>(table.materialFeatures.size()) &&
+        tableIndex < static_cast<int>(table.materialFeatureParameters.size());
 }
 
 std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table, const std::vector<RtSmokeMaterialTextureInfo>& materialInfos)
@@ -1286,6 +1308,7 @@ void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector
     table.materialIds.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
     table.materials.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
     table.materialFeatures.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
+    table.materialFeatureParameters.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
     table.staticMaterialIndexes.reserve(staticMaterialIds.size());
     table.dynamicMaterialIndexes.reserve(dynamicMaterialIds.size());
 
@@ -1436,7 +1459,8 @@ bool RebuildSmokeMaterialTableCacheRemaps(
         return table.materialIds.size() == table.materials.size() &&
             table.materialInfos.size() == table.materials.size() &&
             table.materialFacts.size() == table.materials.size() &&
-            table.materialFeatures.size() == table.materials.size();
+            table.materialFeatures.size() == table.materials.size() &&
+            table.materialFeatureParameters.size() == table.materials.size();
     }
 
     RebuildSmokeMaterialIndexesFromCachedTable(table, staticMaterialIds, dynamicMaterialIds);
@@ -1478,7 +1502,8 @@ bool RefreshSmokeStableMaterialTableRows(RtSmokeMaterialTableBuild& table)
     if (table.materialIds.size() != table.materials.size() ||
         table.materialInfos.size() != table.materials.size() ||
         table.materialFacts.size() != table.materials.size() ||
-        table.materialFeatures.size() != table.materials.size())
+        table.materialFeatures.size() != table.materials.size() ||
+        table.materialFeatureParameters.size() != table.materials.size())
     {
         return false;
     }
@@ -1495,6 +1520,7 @@ bool RefreshSmokeStableMaterialTableRows(RtSmokeMaterialTableBuild& table)
         PreserveSmokeMaterialTextureBindings(table.materials[tableIndex], previousMaterial);
         table.materialFacts[tableIndex] = record.facts;
         table.materialFeatures[tableIndex] = BuildSmokeMaterialFeatureRecord(record.facts, static_cast<uint32_t>(tableIndex));
+        table.materialFeatureParameters[tableIndex] = BuildSmokeMaterialFeatureParameterRecord(record.facts);
         table.materialsAdditiveDecals += record.additiveDecalContribution;
     }
     return true;
@@ -1661,7 +1687,8 @@ RtSmokeMaterialTableCompareStats CompareSmokeMaterialTables(const RtSmokeMateria
 
     if (expected.materialIds.size() != actual.materialIds.size() ||
         expected.materials.size() != actual.materials.size() ||
-        expected.materialFeatures.size() != actual.materialFeatures.size())
+        expected.materialFeatures.size() != actual.materialFeatures.size() ||
+        expected.materialFeatureParameters.size() != actual.materialFeatureParameters.size())
     {
         ++stats.materialCountMismatches;
     }
@@ -1690,6 +1717,12 @@ RtSmokeMaterialTableCompareStats CompareSmokeMaterialTables(const RtSmokeMateria
         if (expectedIndex < static_cast<int>(expected.materialFeatures.size()) &&
             actualIndex->second < static_cast<int>(actual.materialFeatures.size()) &&
             std::memcmp(&expected.materialFeatures[expectedIndex], &actual.materialFeatures[actualIndex->second], sizeof(expected.materialFeatures[expectedIndex])) != 0)
+        {
+            ++stats.materialRecordMismatches;
+        }
+        if (expectedIndex < static_cast<int>(expected.materialFeatureParameters.size()) &&
+            actualIndex->second < static_cast<int>(actual.materialFeatureParameters.size()) &&
+            std::memcmp(&expected.materialFeatureParameters[expectedIndex], &actual.materialFeatureParameters[actualIndex->second], sizeof(expected.materialFeatureParameters[expectedIndex])) != 0)
         {
             ++stats.materialRecordMismatches;
         }

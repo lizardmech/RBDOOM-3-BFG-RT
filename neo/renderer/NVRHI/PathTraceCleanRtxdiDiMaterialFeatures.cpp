@@ -468,6 +468,7 @@ void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     nvrhi::BufferHandle materialTableBuffer,
     nvrhi::BufferHandle materialFeatureBuffer,
+    nvrhi::BufferHandle materialFeatureParameterBuffer,
     nvrhi::BufferHandle runtimeConstantsBuffer,
     const RtPathTraceFrameResources& frameResources)
 {
@@ -484,6 +485,7 @@ void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
                 frameResources.primarySurfaceHistoryBuffers.current,
                 materialTableBuffer,
                 materialFeatureBuffer,
+                materialFeatureParameterBuffer,
                 runtimeConstantsBuffer
             },
             frameResources,

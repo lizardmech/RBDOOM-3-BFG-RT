@@ -221,10 +221,12 @@ struct RtPathTraceSceneInputMaterials
 {
     nvrhi::BufferHandle materialTableBuffer;
     nvrhi::BufferHandle materialFeatureBuffer;
+    nvrhi::BufferHandle materialFeatureParameterBuffer;
     nvrhi::BufferHandle dynamicMaterialBuffer;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     int materialTableEntryCount = 0;
     int materialFeatureRecordCount = 0;
+    int materialFeatureParameterRecordCount = 0;
     int dynamicMaterialRecordCount = 0;
     bool materialTableGpuStable = false;
     int activeTextureCount = 0;

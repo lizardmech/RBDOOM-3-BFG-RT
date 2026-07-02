@@ -80,6 +80,7 @@ struct RtSmokeMaterialTableBuild
     std::vector<RtSmokeMaterialTextureInfo> materialInfos;
     std::vector<RtSmokeMaterialUniverseFacts> materialFacts;
     std::vector<RtPathTraceMaterialFeatureRecord> materialFeatures;
+    std::vector<RtPathTraceMaterialFeatureParameterRecord> materialFeatureParameters;
     std::vector<uint32_t> staticMaterialIndexes;
     std::vector<uint32_t> dynamicMaterialIndexes;
     std::vector<nvrhi::TextureHandle> diffuseTextures;

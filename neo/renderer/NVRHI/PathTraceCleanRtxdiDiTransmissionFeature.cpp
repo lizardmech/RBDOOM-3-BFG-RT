@@ -20,6 +20,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
         RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR |
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS |
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS;
     desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
     desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT;
@@ -55,6 +56,12 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiTransmissionBind
         80u,
         RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
         "PathTraceMaterialFeatures"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS,
+        81u,
+        RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
+        "PathTraceMaterialFeatureParameters"
     },
     {
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
@@ -123,7 +130,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
         "clean RTXDI DI primary view 16 unchanged unless transmission compose or debug view is enabled",
         "RtPathTraceMaterialFeatureOutputDesc transmission u87 PathTraceCleanRtxdiDiTransmissionOutput plus optional output-color u1",
-        "PathTraceMaterialFeatureRuntimeInfo plus pathtrace_clean_rtxdi_di_glass_params.hlsli material params with b88 defaults/controls"
+        "PathTraceMaterialFeatureRuntimeInfo plus PathTraceMaterialFeatureParameters t81 with b88 defaults/controls"
     };
     return registration;
 }

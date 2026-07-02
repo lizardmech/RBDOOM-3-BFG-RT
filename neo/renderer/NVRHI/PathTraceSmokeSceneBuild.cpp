@@ -5967,6 +5967,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
     bufferCreateDesc.existingBuffers.materialTableBuffer = m_smokeMaterialTableBuffer;
     bufferCreateDesc.existingBuffers.materialFeatureBuffer = m_smokeMaterialFeatureBuffer;
+    bufferCreateDesc.existingBuffers.materialFeatureParameterBuffer = m_smokeMaterialFeatureParameterBuffer;
     bufferCreateDesc.existingBuffers.dynamicMaterialBuffer = m_smokeDynamicMaterialBuffer;
     bufferCreateDesc.existingBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
     bufferCreateDesc.existingBuffers.previousEmissiveTriangleBuffer = m_smokePreviousEmissiveTriangleBuffer;
@@ -6029,6 +6030,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.dynamicTriangleMaterialIndexBytes = materialTable.dynamicMaterialIndexes.size() * sizeof(materialTable.dynamicMaterialIndexes[0]);
     bufferCreateDesc.materialTableBytes = gpuMaterialTableMaterials.size() * sizeof(gpuMaterialTableMaterials[0]);
     bufferCreateDesc.materialFeatureBytes = materialTable.materialFeatures.size() * sizeof(materialTable.materialFeatures[0]);
+    bufferCreateDesc.materialFeatureParameterBytes = materialTable.materialFeatureParameters.size() * sizeof(materialTable.materialFeatureParameters[0]);
     bufferCreateDesc.dynamicMaterialBytes = dynamicMaterialRecords.size() * sizeof(dynamicMaterialRecords[0]);
     bufferCreateDesc.emissiveTriangleBytes = emissiveTriangles.size() * sizeof(emissiveTriangles[0]);
     bufferCreateDesc.previousEmissiveTriangleBytes = previousEmissiveTriangles.size() * sizeof(PathTraceSmokeEmissiveTriangle);
@@ -6119,6 +6121,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeDynamicTriangleMaterialIndexBuffer = smokeBuffers.dynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle smokeMaterialTableBuffer = smokeBuffers.materialTableBuffer;
     nvrhi::BufferHandle smokeMaterialFeatureBuffer = smokeBuffers.materialFeatureBuffer;
+    nvrhi::BufferHandle smokeMaterialFeatureParameterBuffer = smokeBuffers.materialFeatureParameterBuffer;
     nvrhi::BufferHandle smokeDynamicMaterialBuffer = smokeBuffers.dynamicMaterialBuffer;
     nvrhi::BufferHandle smokeEmissiveTriangleBuffer = smokeBuffers.emissiveTriangleBuffer;
     nvrhi::BufferHandle smokePreviousEmissiveTriangleBuffer = smokeBuffers.previousEmissiveTriangleBuffer;
@@ -6733,6 +6736,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         "dynamicTriangleMaterialIndex",
         "materialTable",
         "materialFeature",
+        "materialFeatureParameter",
         "dynamicMaterial",
         "emissiveTriangle",
         "previousEmissiveTriangle",
@@ -6784,6 +6788,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, gpuMaterialTableMaterials, nvrhi::ResourceStates::ShaderResource, skipMaterialTableUpload, materialTableUploadOffset, materialTableUploadCount),
         MakeSmokeVectorUploadItem(smokeMaterialFeatureBuffer, materialTable.materialFeatures, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeMaterialFeatureParameterBuffer, materialTable.materialFeatureParameters, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicMaterialBuffer, dynamicMaterialRecords, nvrhi::ResourceStates::ShaderResource, skipDynamicMaterialUpload, dynamicMaterialUploadOffset, dynamicMaterialUploadCount),
         MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokePreviousEmissiveTriangleBuffer, previousEmissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
@@ -7646,10 +7651,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     sceneInputs.materials.materialTableBuffer = smokeMaterialTableBuffer;
     sceneInputs.materials.materialFeatureBuffer = smokeMaterialFeatureBuffer;
+    sceneInputs.materials.materialFeatureParameterBuffer = smokeMaterialFeatureParameterBuffer;
     sceneInputs.materials.dynamicMaterialBuffer = smokeDynamicMaterialBuffer;
     sceneInputs.materials.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
     sceneInputs.materials.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
     sceneInputs.materials.materialFeatureRecordCount = static_cast<int>(materialTable.materialFeatures.size());
+    sceneInputs.materials.materialFeatureParameterRecordCount = static_cast<int>(materialTable.materialFeatureParameters.size());
     sceneInputs.materials.dynamicMaterialRecordCount = static_cast<int>(dynamicMaterialRecords.size());
     sceneInputs.materials.materialTableGpuStable = stableGpuMaterialTableCovered;
     sceneInputs.materials.activeTextureCount = static_cast<int>(bindingBuildResult.activeTextureTable.size());
@@ -7801,6 +7808,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
         m_smokeMaterialTableMaterials = gpuMaterialTableMaterials;
         m_smokeMaterialFeatureRecords = materialTable.materialFeatures;
+        m_smokeMaterialFeatureParameterRecords = materialTable.materialFeatureParameters;
         m_smokeDynamicMaterialRecords = dynamicMaterialRecords;
         m_smokePreviousEmissiveTriangles = emissiveTriangles;
         m_smokePreviousStaticSnapshotUploadSignature = previousStaticSnapshotUploadSignature;

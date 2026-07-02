@@ -17,6 +17,7 @@ struct RtPathTraceMaterialFeatureInputResources
     nvrhi::BufferHandle currentPrimarySurfaceBuffer;
     nvrhi::BufferHandle materialTableBuffer;
     nvrhi::BufferHandle materialFeatureBuffer;
+    nvrhi::BufferHandle materialFeatureParameterBuffer;
     nvrhi::BufferHandle runtimeConstantsBuffer;
 };
 

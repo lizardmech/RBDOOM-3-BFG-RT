@@ -35,6 +35,18 @@ PathTraceCleanRtxdiDiGlassMaterialParams PathTraceCleanRtxdiDiDefaultGlassMateri
     return params;
 }
 
+void PathTraceCleanRtxdiDiApplyGlassParameterRecord(
+    inout PathTraceCleanRtxdiDiGlassMaterialParams params,
+    PathTraceMaterialFeatureParameterRecord record)
+{
+    params.transmittanceColor = saturate(record.params0.xyz);
+    params.thickness = max(record.params0.w, 0.0);
+    params.ior = max(record.params1.x, 1.0001);
+    params.strength = saturate(record.params1.y);
+    params.reflectionBoost = max(record.params1.z, 0.0);
+    params.transmissionFloor = max(record.params1.w, 0.0);
+}
+
 PathTraceCleanRtxdiDiGlassMaterialParams PathTraceCleanRtxdiDiLoadGlassMaterialParams(
     RAB_Surface surface,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
@@ -47,6 +59,9 @@ PathTraceCleanRtxdiDiGlassMaterialParams PathTraceCleanRtxdiDiLoadGlassMaterialP
         feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS &&
         feature.parameterRecordIndex == surface.materialIndex)
     {
+        PathTraceCleanRtxdiDiApplyGlassParameterRecord(
+            params,
+            PathTraceMaterialFeatureParameters[feature.parameterRecordIndex]);
         params.transmittanceColor =
             PathTraceCleanRtxdiDiGlassMaterialTintFromSurface(surface, params.transmittanceColor);
     }
