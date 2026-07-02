@@ -126,6 +126,26 @@ struct RtPathTraceMaterialFeatureBindingDesc
     const char* debugName = "unknown";
 };
 
+enum class RtPathTraceMaterialFeatureParameterVector : uint8_t
+{
+    Params0 = 0,
+    Params1
+};
+
+struct RtPathTraceMaterialFeatureParameterLaneDesc
+{
+    const char* name = "unknown";
+    RtPathTraceMaterialFeatureParameterVector vector = RtPathTraceMaterialFeatureParameterVector::Params0;
+    uint8_t component = 0;
+};
+
+struct RtPathTraceMaterialFeatureParameterLayoutDesc
+{
+    const char* layoutName = nullptr;
+    const RtPathTraceMaterialFeatureParameterLaneDesc* lanes = nullptr;
+    size_t laneCount = 0;
+};
+
 struct RtPathTraceMaterialFeatureRuntimeInfo
 {
     float writesOutputColor = 0.0f;
@@ -190,6 +210,7 @@ struct RtPathTraceMaterialFeaturePassRegistration
     uint32_t shaderStateIndex = RT_PATH_TRACE_MATERIAL_FEATURE_SHADER_STATE_INVALID;
     const RtPathTraceMaterialFeatureBindingDesc* bindingMetadata = nullptr;
     size_t bindingMetadataCount = 0;
+    RtPathTraceMaterialFeatureParameterLayoutDesc parameterLayout;
     RtPathTraceMaterialFeatureRuntimeInfoCallback runtimeInfoCallback = nullptr;
     RtPathTraceMaterialFeatureValidationDesc validation;
     RtPathTraceMaterialFeatureRegistryContractDesc registryContract;

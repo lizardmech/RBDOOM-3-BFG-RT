@@ -11,6 +11,17 @@ RtPathTraceMaterialFeatureParameterRecord BuildDefaultMaterialFeatureParameters(
     return params;
 }
 
+static const RtPathTraceMaterialFeatureParameterLaneDesc kObjectGlassParameterLanes[] = {
+    { "transmittance.r", RtPathTraceMaterialFeatureParameterVector::Params0, RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_R },
+    { "transmittance.g", RtPathTraceMaterialFeatureParameterVector::Params0, RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_G },
+    { "transmittance.b", RtPathTraceMaterialFeatureParameterVector::Params0, RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_B },
+    { "thickness", RtPathTraceMaterialFeatureParameterVector::Params0, RT_PATH_TRACE_OBJECT_GLASS_PARAM0_THICKNESS },
+    { "ior", RtPathTraceMaterialFeatureParameterVector::Params1, RT_PATH_TRACE_OBJECT_GLASS_PARAM1_IOR },
+    { "strength", RtPathTraceMaterialFeatureParameterVector::Params1, RT_PATH_TRACE_OBJECT_GLASS_PARAM1_STRENGTH },
+    { "reflection-boost", RtPathTraceMaterialFeatureParameterVector::Params1, RT_PATH_TRACE_OBJECT_GLASS_PARAM1_REFLECTION_BOOST },
+    { "transmission-floor", RtPathTraceMaterialFeatureParameterVector::Params1, RT_PATH_TRACE_OBJECT_GLASS_PARAM1_TRANSMISSION_FLOOR }
+};
+
 }
 
 RtPathTraceMaterialFeatureParameterRecord BuildPathTracePortalWindowMaterialFeatureParameters()
@@ -52,6 +63,15 @@ RtPathTraceMaterialFeatureParameterRecord BuildSmokeMaterialFeatureParameterReco
         return BuildPathTraceObjectGlassMaterialFeatureParameters();
     }
     return BuildDefaultMaterialFeatureParameters();
+}
+
+RtPathTraceMaterialFeatureParameterLayoutDesc PathTraceObjectGlassMaterialFeatureParameterLayout()
+{
+    return {
+        "object-glass-thin-parameters",
+        kObjectGlassParameterLanes,
+        sizeof(kObjectGlassParameterLanes) / sizeof(kObjectGlassParameterLanes[0])
+    };
 }
 
 void CopyPathTraceMaterialFeatureParametersToRuntimeInfo(

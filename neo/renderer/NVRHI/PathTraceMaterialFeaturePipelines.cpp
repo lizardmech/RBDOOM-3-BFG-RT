@@ -191,9 +191,10 @@ bool InitPathTraceMaterialFeaturePipeline(
     }
 
     common->Printf(
-        "PathTracePrimaryPass: %s material-feature RT pipeline initialized; feature='%s' validation build='%s' runtime='%s' supported='%s' unsupported='%s' baseline='%s' resources='%s' abi='%s'\n",
+        "PathTracePrimaryPass: %s material-feature RT pipeline initialized; feature='%s' params='%s' validation build='%s' runtime='%s' supported='%s' unsupported='%s' baseline='%s' resources='%s' abi='%s'\n",
         pipelineRequest.shaderDesc.label,
         registration.passDesc.featureId,
+        registration.parameterLayout.layoutName ? registration.parameterLayout.layoutName : "none",
         registration.validation.buildProof,
         registration.validation.runtimeRoute,
         registration.validation.supportedMaterialTest,

@@ -139,6 +139,34 @@ static bool PathTraceMaterialFeatureOutputBindingMetadataMatchesDeclaredOutputs(
     return true;
 }
 
+static bool PathTraceMaterialFeatureParameterLayoutIsValid(
+    const RtPathTraceMaterialFeatureParameterLayoutDesc& layout)
+{
+    if (!PathTraceMaterialFeatureStringIsSet(layout.layoutName) ||
+        !layout.lanes ||
+        layout.laneCount == 0)
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < layout.laneCount; ++i)
+    {
+        const RtPathTraceMaterialFeatureParameterLaneDesc& lane = layout.lanes[i];
+        if (!PathTraceMaterialFeatureStringIsSet(lane.name) ||
+            lane.component >= RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_LANE_COUNT)
+        {
+            return false;
+        }
+        if (lane.vector != RtPathTraceMaterialFeatureParameterVector::Params0 &&
+            lane.vector != RtPathTraceMaterialFeatureParameterVector::Params1)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool PathTraceMaterialFeatureRegistryContractIsSet(
     const RtPathTraceMaterialFeatureRegistryContractDesc& contract)
 {
@@ -514,6 +542,15 @@ bool ValidatePathTraceMaterialFeatureRegistration(
     if (!PathTraceMaterialFeatureBindingMetadataCoversPass(registration))
     {
         return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "binding metadata does not cover declared inputs and outputs");
+    }
+
+    const bool parameterLayoutRequired =
+        PathTraceMaterialFeaturePassReadsAnyInput(desc, RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS) ||
+        registration.runtimeInfoCallback != nullptr;
+    if (parameterLayoutRequired &&
+        !PathTraceMaterialFeatureParameterLayoutIsValid(registration.parameterLayout))
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "missing or invalid parameter layout descriptor");
     }
 
     if (!PathTraceMaterialFeatureValidationProofIsSet(registration.validation.buildProof) ||

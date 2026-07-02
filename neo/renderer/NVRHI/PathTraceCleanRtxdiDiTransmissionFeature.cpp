@@ -82,6 +82,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
     registration.shaderDesc = PathTraceCleanRtxdiDiTransmissionProducerShaderDesc();
     registration.bindingMetadata = kCleanRtxdiDiTransmissionBindings;
     registration.bindingMetadataCount = sizeof(kCleanRtxdiDiTransmissionBindings) / sizeof(kCleanRtxdiDiTransmissionBindings[0]);
+    registration.parameterLayout = PathTraceObjectGlassMaterialFeatureParameterLayout();
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo;
     registration.validation = {
         "cmake --build --preset win64-pt-dev-release",
