@@ -67,6 +67,8 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION,
         RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
         PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs(),
+        PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs() |
+            RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE,
         RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT |
             RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR |
             RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR,
@@ -80,6 +82,8 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION,
         RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
         PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs(),
+        PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs() |
+            RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE,
         RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR |
             RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO |
             RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR |
@@ -95,6 +99,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         RtPathTraceMaterialFeaturePassKind::Disabled,
         0u,
         0u,
+        RT_MATERIAL_FEATURE_RESOURCE_NONE,
         RT_MATERIAL_FEATURE_RESOURCE_NONE,
         RT_MATERIAL_FEATURE_RESOURCE_NONE,
         RT_MATERIAL_FEATURE_RESOURCE_NONE

@@ -165,6 +165,7 @@ struct RtPathTraceMaterialFeatureRegistryContractDesc
     uint32_t materialCapsConsumed = 0;
     uint32_t materialPassSupport = 0;
     uint32_t requiredResourceInputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    uint32_t allowedResourceInputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
     uint32_t allowedResourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
 };
 

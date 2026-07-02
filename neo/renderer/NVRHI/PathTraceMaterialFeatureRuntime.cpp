@@ -21,6 +21,58 @@ static bool PathTraceMaterialFeatureResourceMaskIsSingleResource(uint32_t resour
     return resource != RT_MATERIAL_FEATURE_RESOURCE_NONE && (resource & (resource - 1u)) == 0u;
 }
 
+static const char* PathTraceMaterialFeatureResourceName(uint32_t resource)
+{
+    switch (resource)
+    {
+    case RT_MATERIAL_FEATURE_RESOURCE_TLAS: return "tlas";
+    case RT_MATERIAL_FEATURE_RESOURCE_SCENE_GEOMETRY: return "scene-geometry";
+    case RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE: return "material-table";
+    case RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE: return "current-primary-surface";
+    case RT_MATERIAL_FEATURE_RESOURCE_PREVIOUS_PRIMARY_SURFACE: return "previous-primary-surface";
+    case RT_MATERIAL_FEATURE_RESOURCE_CURRENT_DIRECT_RESERVOIR: return "current-direct-reservoir";
+    case RT_MATERIAL_FEATURE_RESOURCE_TEMPORAL_DIRECT_RESERVOIR: return "temporal-direct-reservoir";
+    case RT_MATERIAL_FEATURE_RESOURCE_SPATIAL_DIRECT_RESERVOIR: return "spatial-direct-reservoir";
+    case RT_MATERIAL_FEATURE_RESOURCE_GI_RESERVOIR: return "gi-reservoir";
+    case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR: return "output-color";
+    case RT_MATERIAL_FEATURE_RESOURCE_MOTION_VECTORS: return "motion-vectors";
+    case RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDES: return "rr-guides";
+    case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT: return "transmission-output";
+    case RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR: return "material-feature-sidecar";
+    case RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS: return "material-feature-runtime-constants";
+    case RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS: return "material-feature-parameters";
+    case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE: return "output-color-source";
+    case RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO: return "rr-guide-specular-albedo";
+    case RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR: return "rr-input-color";
+    case RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE0: return "glass-guide-candidate0";
+    case RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE1: return "glass-guide-candidate1";
+    case RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE2: return "glass-guide-candidate2";
+    default: return "unknown";
+    }
+}
+
+static void AppendPathTraceMaterialFeatureResourceMask(idStr& out, uint32_t resources)
+{
+    if (resources == RT_MATERIAL_FEATURE_RESOURCE_NONE)
+    {
+        out.Append("none");
+        return;
+    }
+
+    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
+    {
+        if ((resources & resource) == 0u)
+        {
+            continue;
+        }
+        if (out.Length() > 0)
+        {
+            out.Append("|");
+        }
+        out.Append(PathTraceMaterialFeatureResourceName(resource));
+    }
+}
+
 static bool PathTraceMaterialFeatureShaderBlobPathIsPackagedRelative(const char* shaderBlobPath)
 {
     if (!PathTraceMaterialFeatureStringIsSet(shaderBlobPath))
@@ -106,6 +158,24 @@ static bool PathTraceMaterialFeatureValidationFail(
     return false;
 }
 
+static bool PathTraceMaterialFeatureValidationFailResourceMask(
+    const char* ownerLabel,
+    const char* featureLabel,
+    const char* reason,
+    uint32_t resources)
+{
+    idStr resourceNames;
+    AppendPathTraceMaterialFeatureResourceMask(resourceNames, resources);
+    common->Printf(
+        "PathTracePrimaryPass: %s material-feature registration '%s' failed descriptor validation: %s resources=0x%08x(%s)\n",
+        PathTraceMaterialFeatureStringIsSet(ownerLabel) ? ownerLabel : "unknown",
+        PathTraceMaterialFeatureStringIsSet(featureLabel) ? featureLabel : "unknown",
+        reason,
+        resources,
+        resourceNames.c_str());
+    return false;
+}
+
 static bool PathTraceMaterialFeatureRegistryContractMatchesRegistration(
     const RtPathTraceMaterialFeaturePassRegistration& registration,
     const char* ownerLabel,
@@ -140,12 +210,31 @@ static bool PathTraceMaterialFeatureRegistryContractMatchesRegistration(
 
     if ((desc.resourceInputs & contract.requiredResourceInputs) != contract.requiredResourceInputs)
     {
-        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "required registry inputs are missing");
+        return PathTraceMaterialFeatureValidationFailResourceMask(
+            ownerLabel,
+            featureLabel,
+            "required registry inputs are missing",
+            contract.requiredResourceInputs & ~desc.resourceInputs);
     }
 
-    if ((desc.resourceOutputs & ~contract.allowedResourceOutputs) != 0u)
+    const uint32_t undeclaredInputs = desc.resourceInputs & ~contract.allowedResourceInputs;
+    if (undeclaredInputs != 0u)
     {
-        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "output resource is not declared by registry contract");
+        return PathTraceMaterialFeatureValidationFailResourceMask(
+            ownerLabel,
+            featureLabel,
+            "input resource is not declared by registry contract",
+            undeclaredInputs);
+    }
+
+    const uint32_t undeclaredOutputs = desc.resourceOutputs & ~contract.allowedResourceOutputs;
+    if (undeclaredOutputs != 0u)
+    {
+        return PathTraceMaterialFeatureValidationFailResourceMask(
+            ownerLabel,
+            featureLabel,
+            "output resource is not declared by registry contract",
+            undeclaredOutputs);
     }
 
     return true;
