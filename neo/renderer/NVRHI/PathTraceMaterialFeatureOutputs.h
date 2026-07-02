@@ -7,6 +7,7 @@
 
 #include "PathTraceFrameResources.h"
 
+#include <cstddef>
 #include <cstdint>
 
 struct RtPathTraceMaterialFeaturePassDesc;
@@ -44,6 +45,12 @@ void SetPathTraceMaterialFeatureOutputsState(
     const RtPathTraceMaterialFeatureRuntimePass& pass,
     const RtPathTraceFrameResources& frameResources,
     nvrhi::ResourceStates state);
+void SetPathTraceMaterialFeatureRuntimePassOutputsState(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeatureRuntimePass* passes,
+    size_t passCount,
+    const RtPathTraceFrameResources& frameResources,
+    nvrhi::ResourceStates state);
 void SetPathTraceMaterialFeaturePrimaryOutputState(
     nvrhi::ICommandList* commandList,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
@@ -68,6 +75,12 @@ void ClearPathTraceMaterialFeaturePrimaryOutput(
 void ClearPathTraceMaterialFeaturePrimaryOutput(
     nvrhi::ICommandList* commandList,
     const RtPathTraceMaterialFeatureRuntimePass& pass,
+    const RtPathTraceFrameResources& frameResources,
+    const nvrhi::Color& color);
+void ClearPathTraceMaterialFeatureRuntimePassPrimaryOutputs(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeatureRuntimePass* passes,
+    size_t passCount,
     const RtPathTraceFrameResources& frameResources,
     const nvrhi::Color& color);
 void BarrierPathTraceMaterialFeatureOutput(

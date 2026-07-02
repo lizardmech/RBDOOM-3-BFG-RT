@@ -140,6 +140,19 @@ void SetPathTraceMaterialFeatureOutputsState(
     }
 }
 
+void SetPathTraceMaterialFeatureRuntimePassOutputsState(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeatureRuntimePass* passes,
+    size_t passCount,
+    const RtPathTraceFrameResources& frameResources,
+    nvrhi::ResourceStates state)
+{
+    for (size_t i = 0; passes && i < passCount; ++i)
+    {
+        SetPathTraceMaterialFeatureOutputsState(commandList, passes[i], frameResources, state);
+    }
+}
+
 void SetPathTraceMaterialFeaturePrimaryOutputState(
     nvrhi::ICommandList* commandList,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
@@ -198,6 +211,32 @@ void ClearPathTraceMaterialFeaturePrimaryOutput(
     if (pass.ready)
     {
         ClearPathTraceMaterialFeaturePrimaryOutput(commandList, pass.desc, frameResources, color);
+    }
+}
+
+void ClearPathTraceMaterialFeatureRuntimePassPrimaryOutputs(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceMaterialFeatureRuntimePass* passes,
+    size_t passCount,
+    const RtPathTraceFrameResources& frameResources,
+    const nvrhi::Color& color)
+{
+    uint32_t clearedPrimaryOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
+    for (size_t i = 0; passes && i < passCount; ++i)
+    {
+        const uint32_t primaryOutputResource = passes[i].desc.primaryOutputResource;
+        if (primaryOutputResource == RT_MATERIAL_FEATURE_RESOURCE_NONE ||
+            (clearedPrimaryOutputs & primaryOutputResource) != 0u)
+        {
+            continue;
+        }
+
+        ClearPathTraceMaterialFeaturePrimaryOutput(
+            commandList,
+            passes[i],
+            frameResources,
+            color);
+        clearedPrimaryOutputs |= primaryOutputResource;
     }
 }
 

@@ -443,14 +443,12 @@ void SetPathTraceCleanRtxdiDiMaterialFeatureOutputsUnorderedAccess(
         runtimePasses,
         nullptr,
         sizeof(runtimePasses) / sizeof(runtimePasses[0]));
-    for (size_t i = 0; i < passCount && i < sizeof(runtimePasses) / sizeof(runtimePasses[0]); ++i)
-    {
-        SetPathTraceMaterialFeatureOutputsState(
-            commandList,
-            runtimePasses[i],
-            frameResources,
-            nvrhi::ResourceStates::UnorderedAccess);
-    }
+    SetPathTraceMaterialFeatureRuntimePassOutputsState(
+        commandList,
+        runtimePasses,
+        Min(passCount, sizeof(runtimePasses) / sizeof(runtimePasses[0])),
+        frameResources,
+        nvrhi::ResourceStates::UnorderedAccess);
 }
 
 void ClearPathTraceCleanRtxdiDiMaterialFeatureOutputs(
@@ -464,22 +462,12 @@ void ClearPathTraceCleanRtxdiDiMaterialFeatureOutputs(
         runtimePasses,
         nullptr,
         sizeof(runtimePasses) / sizeof(runtimePasses[0]));
-    uint32_t clearedPrimaryOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
-    for (size_t i = 0; i < passCount && i < sizeof(runtimePasses) / sizeof(runtimePasses[0]); ++i)
-    {
-        const uint32_t primaryOutputResource = runtimePasses[i].desc.primaryOutputResource;
-        if (primaryOutputResource == RT_MATERIAL_FEATURE_RESOURCE_NONE ||
-            (clearedPrimaryOutputs & primaryOutputResource) != 0u)
-        {
-            continue;
-        }
-        ClearPathTraceMaterialFeaturePrimaryOutput(
-            commandList,
-            runtimePasses[i],
-            frameResources,
-            nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
-        clearedPrimaryOutputs |= primaryOutputResource;
-    }
+    ClearPathTraceMaterialFeatureRuntimePassPrimaryOutputs(
+        commandList,
+        runtimePasses,
+        Min(passCount, sizeof(runtimePasses) / sizeof(runtimePasses[0])),
+        frameResources,
+        nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
 void DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
@@ -500,18 +488,16 @@ void DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
         runtimePasses,
         nullptr,
         sizeof(runtimePasses) / sizeof(runtimePasses[0]));
-    for (size_t i = 0; i < passCount && i < sizeof(runtimePasses) / sizeof(runtimePasses[0]); ++i)
-    {
-        DispatchPathTraceMaterialFeaturePassWithRuntimeInfo(
-            commandList,
-            baseState,
-            args,
-            constantsBuffer,
-            baseConstants,
-            baseConstantsSize,
-            runtimeConstantsBuffer,
-            runtimePasses[i],
-            frameResources,
-            nsightGpuMarkers);
-    }
+    DispatchPathTraceMaterialFeaturePassesWithRuntimeInfo(
+        commandList,
+        baseState,
+        args,
+        constantsBuffer,
+        baseConstants,
+        baseConstantsSize,
+        runtimeConstantsBuffer,
+        runtimePasses,
+        Min(passCount, sizeof(runtimePasses) / sizeof(runtimePasses[0])),
+        frameResources,
+        nsightGpuMarkers);
 }

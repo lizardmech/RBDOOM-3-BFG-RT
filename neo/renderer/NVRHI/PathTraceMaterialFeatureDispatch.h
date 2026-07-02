@@ -58,6 +58,35 @@ inline void DispatchPathTraceMaterialFeaturePassWithRuntimeInfo(
     BarrierPathTraceMaterialFeatureOutputs(commandList, pass, frameResources);
 }
 
+inline void DispatchPathTraceMaterialFeaturePassesWithRuntimeInfo(
+    nvrhi::ICommandList* commandList,
+    const nvrhi::rt::State& baseState,
+    const nvrhi::rt::DispatchRaysArguments& args,
+    nvrhi::BufferHandle constantsBuffer,
+    const void* baseConstants,
+    size_t baseConstantsSize,
+    nvrhi::BufferHandle runtimeConstantsBuffer,
+    const RtPathTraceMaterialFeatureRuntimePass* passes,
+    size_t passCount,
+    const RtPathTraceFrameResources& frameResources,
+    bool nsightGpuMarkers)
+{
+    for (size_t i = 0; passes && i < passCount; ++i)
+    {
+        DispatchPathTraceMaterialFeaturePassWithRuntimeInfo(
+            commandList,
+            baseState,
+            args,
+            constantsBuffer,
+            baseConstants,
+            baseConstantsSize,
+            runtimeConstantsBuffer,
+            passes[i],
+            frameResources,
+            nsightGpuMarkers);
+    }
+}
+
 template< typename Constants >
 void DispatchPathTraceMaterialFeaturePass(
     nvrhi::ICommandList* commandList,
