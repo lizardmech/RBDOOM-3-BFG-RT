@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeatureOutputs.h"
 #include "PathTraceMaterialFeatureRuntime.h"
 
@@ -126,6 +127,48 @@ static bool PathTraceMaterialFeatureOutputBindingMetadataMatchesDeclaredOutputs(
             foundBinding = true;
             if (binding.kind != RtPathTraceMaterialFeatureBindingKind::TextureUav ||
                 binding.slot != outputDesc->uavSlot)
+            {
+                return false;
+            }
+        }
+
+        if (!foundBinding)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool PathTraceMaterialFeatureInputBindingMetadataMatchesCanonicalBindings(
+    const RtPathTraceMaterialFeaturePassRegistration& registration)
+{
+    for (uint32_t resource = 1u; resource != 0u; resource <<= 1u)
+    {
+        if ((registration.passDesc.resourceInputs & resource) == 0u)
+        {
+            continue;
+        }
+
+        const RtPathTraceMaterialFeatureBindingDesc* canonicalBinding =
+            FindPathTraceMaterialFeatureCanonicalBindingDesc(resource);
+        if (!canonicalBinding)
+        {
+            continue;
+        }
+
+        bool foundBinding = false;
+        for (size_t i = 0; registration.bindingMetadata && i < registration.bindingMetadataCount; ++i)
+        {
+            const RtPathTraceMaterialFeatureBindingDesc& binding = registration.bindingMetadata[i];
+            if (binding.resource != resource)
+            {
+                continue;
+            }
+
+            foundBinding = true;
+            if (binding.kind != canonicalBinding->kind ||
+                binding.slot != canonicalBinding->slot)
             {
                 return false;
             }
@@ -571,6 +614,11 @@ bool ValidatePathTraceMaterialFeatureRegistration(
     if (!PathTraceMaterialFeatureBindingMetadataCoversPass(registration))
     {
         return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "binding metadata does not cover declared inputs and outputs");
+    }
+
+    if (!PathTraceMaterialFeatureInputBindingMetadataMatchesCanonicalBindings(registration))
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "input binding metadata does not match canonical binding declaration");
     }
 
     if (!PathTraceMaterialFeatureBindingMetadataMatchesRegistryContract(registration))

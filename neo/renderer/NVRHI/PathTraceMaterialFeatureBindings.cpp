@@ -21,6 +21,45 @@ struct RtPathTraceMaterialFeatureInputBindingDesc
     nvrhi::BufferHandle RtPathTraceMaterialFeatureInputResources::* bufferMember = nullptr;
 };
 
+static const RtPathTraceMaterialFeatureBindingDesc kMaterialFeatureCanonicalBindings[] = {
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE,
+        30u,
+        RtPathTraceMaterialFeatureBindingKind::StructuredBufferUav,
+        "PrimarySurfaceHistoryCurrent"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE,
+        13u,
+        RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
+        "PathTraceMaterialTable"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR,
+        80u,
+        RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
+        "PathTraceMaterialFeatures"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS,
+        81u,
+        RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
+        "PathTraceMaterialFeatureParameters"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
+        88u,
+        RtPathTraceMaterialFeatureBindingKind::ConstantBuffer,
+        "PathTraceMaterialFeatureRuntimeConstants"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE,
+        89u,
+        RtPathTraceMaterialFeatureBindingKind::TextureSrv,
+        "output-color-source"
+    }
+};
+
 static const RtPathTraceMaterialFeatureInputBindingDesc kMaterialFeatureInputs[] = {
     {
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR,
@@ -264,6 +303,18 @@ void AddPathTraceMaterialFeatureBindingSetItem(
     }
 }
 
+}
+
+const RtPathTraceMaterialFeatureBindingDesc* FindPathTraceMaterialFeatureCanonicalBindingDesc(uint32_t resource)
+{
+    for (const RtPathTraceMaterialFeatureBindingDesc& desc : kMaterialFeatureCanonicalBindings)
+    {
+        if (desc.resource == resource)
+        {
+            return &desc;
+        }
+    }
+    return nullptr;
 }
 
 void AddPathTraceMaterialFeatureInputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource)

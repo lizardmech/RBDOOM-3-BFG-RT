@@ -10,6 +10,7 @@
 #include <nvrhi/nvrhi.h>
 
 struct RtPathTraceFrameResources;
+struct RtPathTraceMaterialFeatureBindingDesc;
 struct RtPathTraceMaterialFeaturePassRegistration;
 
 struct RtPathTraceMaterialFeatureInputResources
@@ -21,6 +22,7 @@ struct RtPathTraceMaterialFeatureInputResources
     nvrhi::BufferHandle runtimeConstantsBuffer;
 };
 
+const RtPathTraceMaterialFeatureBindingDesc* FindPathTraceMaterialFeatureCanonicalBindingDesc(uint32_t resource);
 void AddPathTraceMaterialFeatureInputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource);
 void AddPathTraceMaterialFeatureInputLayoutBindings(nvrhi::BindingLayoutDesc& desc, uint32_t resources);
 void AddPathTraceMaterialFeatureInputBinding(nvrhi::BindingSetDesc& desc, const RtPathTraceMaterialFeatureInputResources& resources, uint32_t resource);
