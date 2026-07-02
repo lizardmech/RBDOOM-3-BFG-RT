@@ -21,6 +21,31 @@ inline bool PathTraceMaterialFeatureRegistryStringIsUnsetOrNone(const char* valu
         (value[0] == 'n' && value[1] == 'o' && value[2] == 'n' && value[3] == 'e' && value[4] == '\0');
 }
 
+inline bool PathTraceMaterialFeatureRegistryStringEquals(const char* value, const char* expected)
+{
+    if (!value || !expected)
+    {
+        return value == expected;
+    }
+
+    while (*value && *expected && *value == *expected)
+    {
+        ++value;
+        ++expected;
+    }
+    return *value == '\0' && *expected == '\0';
+}
+
+inline bool PathTraceMaterialFeatureRegistryStringIsSet(const char* value)
+{
+    return !PathTraceMaterialFeatureRegistryStringIsUnsetOrNone(value);
+}
+
+inline bool PathTraceMaterialFeatureRegistryResourceMaskHasOnlyAllowed(uint32_t value, uint32_t allowed)
+{
+    return (value & ~allowed) == 0u;
+}
+
 struct RtPathTraceMaterialFeatureRegistryEntry
 {
     const char* featureId = "unknown";
@@ -37,6 +62,72 @@ struct RtPathTraceMaterialFeatureRegistryEntry
     uint32_t allowedResourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_NONE;
     uint32_t sharedOutputArbitrationResources = RT_MATERIAL_FEATURE_RESOURCE_NONE;
 };
+
+inline const char* ValidatePathTraceMaterialFeatureRegistryEntry(
+    const RtPathTraceMaterialFeatureRegistryEntry& entry,
+    bool requireRuntimeBuilder,
+    bool requireLayoutBuilder)
+{
+    if (!PathTraceMaterialFeatureRegistryStringIsSet(entry.featureId) ||
+        PathTraceMaterialFeatureRegistryStringEquals(entry.featureId, "unknown"))
+    {
+        return "feature id is not declared";
+    }
+    if (requireRuntimeBuilder && !entry.buildRuntimeRegistration)
+    {
+        return "runtime registration builder is missing";
+    }
+    if (requireLayoutBuilder && !entry.buildLayoutRegistration)
+    {
+        return "layout registration builder is missing";
+    }
+
+    if (entry.kind == RtPathTraceMaterialFeaturePassKind::Disabled)
+    {
+        return nullptr;
+    }
+
+    if (!PathTraceMaterialFeatureRegistryStringIsSet(entry.shaderDesc.label))
+    {
+        return "shader label is not declared";
+    }
+    if (!PathTraceMaterialFeatureRegistryStringIsSet(entry.shaderDesc.shaderBlobPath))
+    {
+        return "shader blob path is not declared";
+    }
+    if (entry.materialCapsConsumed == 0u)
+    {
+        return "material capability mask is empty";
+    }
+    if (entry.materialPassSupport == 0u)
+    {
+        return "material pass support mask is empty";
+    }
+    if (!PathTraceMaterialFeatureRegistryResourceMaskHasOnlyAllowed(
+            entry.requiredResourceInputs,
+            entry.allowedResourceInputs))
+    {
+        return "required inputs are not a subset of allowed inputs";
+    }
+    if (entry.allowedResourceOutputs == RT_MATERIAL_FEATURE_RESOURCE_NONE)
+    {
+        return "allowed output resource mask is empty";
+    }
+    if (!PathTraceMaterialFeatureRegistryResourceMaskHasOnlyAllowed(
+            entry.sharedOutputArbitrationResources,
+            entry.allowedResourceOutputs))
+    {
+        return "shared-output arbitration mask is not a subset of allowed outputs";
+    }
+    if (!PathTraceMaterialFeatureRegistryStringIsSet(entry.validation.buildProof) ||
+        !PathTraceMaterialFeatureRegistryStringIsSet(entry.validation.runtimeRoute) ||
+        !PathTraceMaterialFeatureRegistryStringIsSet(entry.validation.resourceBindingProof) ||
+        !PathTraceMaterialFeatureRegistryStringIsSet(entry.validation.cpuShaderAbiProof))
+    {
+        return "validation proof strings are incomplete";
+    }
+    return nullptr;
+}
 
 inline size_t PathTraceMaterialFeatureRegistryWritableCount(size_t entryCount, size_t registrationCapacity)
 {

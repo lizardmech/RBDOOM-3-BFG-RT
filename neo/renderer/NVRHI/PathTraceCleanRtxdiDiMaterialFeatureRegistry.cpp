@@ -142,6 +142,30 @@ static_assert(
         RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY,
     "Clean RTXDI DI material feature registry exceeds fixed traversal capacity");
 
+bool ValidatePathTraceCleanRtxdiDiMaterialFeatureRegistryEntries(
+    bool requireRuntimeBuilder,
+    bool requireLayoutBuilder)
+{
+    const size_t entryCount = sizeof(kCleanRtxdiDiMaterialFeatureRegistry) / sizeof(kCleanRtxdiDiMaterialFeatureRegistry[0]);
+    for (size_t i = 0; i < entryCount; ++i)
+    {
+        const RtPathTraceMaterialFeatureRegistryEntry& entry = kCleanRtxdiDiMaterialFeatureRegistry[i];
+        const char* failureReason = ValidatePathTraceMaterialFeatureRegistryEntry(
+            entry,
+            requireRuntimeBuilder,
+            requireLayoutBuilder);
+        if (failureReason)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: clean-room RTXDI DI material-feature registry entry '%s' failed validation: %s\n",
+                entry.featureId ? entry.featureId : "unknown",
+                failureReason);
+            return false;
+        }
+    }
+    return true;
+}
+
 }
 
 size_t PathTraceCleanRtxdiDiMaterialFeatureRegistryCount()
@@ -154,6 +178,11 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryRegistrations(
     RtPathTraceMaterialFeaturePassRegistration* registrations,
     size_t registrationCapacity)
 {
+    if (!ValidatePathTraceCleanRtxdiDiMaterialFeatureRegistryEntries(true, true))
+    {
+        return 0;
+    }
+
     return BuildPathTraceMaterialFeatureRegistryRuntimeRegistrations(
         &context,
         kCleanRtxdiDiMaterialFeatureRegistry,
@@ -166,6 +195,11 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryLayoutRegistrations(
     RtPathTraceMaterialFeaturePassRegistration* registrations,
     size_t registrationCapacity)
 {
+    if (!ValidatePathTraceCleanRtxdiDiMaterialFeatureRegistryEntries(true, true))
+    {
+        return 0;
+    }
+
     return BuildPathTraceMaterialFeatureRegistryLayoutRegistrations(
         kCleanRtxdiDiMaterialFeatureRegistry,
         PathTraceCleanRtxdiDiMaterialFeatureRegistryCount(),
