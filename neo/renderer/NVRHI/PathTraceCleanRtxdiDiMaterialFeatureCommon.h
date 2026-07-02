@@ -5,6 +5,55 @@
 
 #include "PathTraceMaterialFeatureParameters.h"
 
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_CURRENT_PRIMARY_SURFACE = {
+    RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE,
+    30u,
+    RtPathTraceMaterialFeatureBindingKind::StructuredBufferUav,
+    "PrimarySurfaceHistoryCurrent"
+};
+
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_TABLE = {
+    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_TABLE,
+    13u,
+    RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
+    "PathTraceMaterialTable"
+};
+
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURES = {
+    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR,
+    80u,
+    RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
+    "PathTraceMaterialFeatures"
+};
+
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_PARAMETERS = {
+    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS,
+    81u,
+    RtPathTraceMaterialFeatureBindingKind::StructuredBufferSrv,
+    "PathTraceMaterialFeatureParameters"
+};
+
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_RUNTIME_CONSTANTS = {
+    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
+    88u,
+    RtPathTraceMaterialFeatureBindingKind::ConstantBuffer,
+    "PathTraceMaterialFeatureRuntimeConstants"
+};
+
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR = {
+    RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR,
+    1u,
+    RtPathTraceMaterialFeatureBindingKind::TextureUav,
+    "output-color"
+};
+
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_TRANSMISSION_OUTPUT = {
+    RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT,
+    87u,
+    RtPathTraceMaterialFeatureBindingKind::TextureUav,
+    "PathTraceCleanRtxdiDiTransmissionOutput"
+};
+
 inline bool PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(bool cleanRouteRequested, int cleanView)
 {
     return cleanRouteRequested && cleanView == 16;
@@ -33,4 +82,3 @@ inline void FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
         runtimeInfo,
         BuildPathTraceObjectGlassMaterialFeatureParameters());
 }
-
