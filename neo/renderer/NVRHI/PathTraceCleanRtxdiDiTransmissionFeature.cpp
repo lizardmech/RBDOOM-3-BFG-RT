@@ -82,6 +82,12 @@ static void FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
         r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0 &&
         PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
     runtimeInfo.debugMode = debugOutputEnabled ? 1.0f : 0.0f;
+    runtimeInfo.featureParams0[0] = 0.82f;
+    runtimeInfo.featureParams0[1] = 0.93f;
+    runtimeInfo.featureParams0[2] = 1.0f;
+    runtimeInfo.featureParams0[3] = 0.08f;
+    runtimeInfo.featureParams1[0] = 1.5f;
+    runtimeInfo.featureParams1[1] = 1.0f;
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
@@ -107,11 +113,11 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
     registration.validation = {
         "cmake --build --preset win64-pt-dev-release",
         "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiTransmissionProducer 1; r_pathTracingCleanRtxdiDiTransmissionDebugView 1",
-        "glass-like material writes cyan to transmission output",
-        "opaque material writes dark unsupported sentinel",
+        "glass-like material writes thin-glass attenuation rgb plus contribution weight to transmission output",
+        "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
         "clean RTXDI DI primary view 16 unchanged",
         "RtPathTraceMaterialFeatureOutputDesc transmission u87 PathTraceCleanRtxdiDiTransmissionOutput",
-        "PathTraceMaterialFeatureRuntimeInfo packed in PathTraceMaterialFeatureRuntimeConstants b88"
+        "PathTraceMaterialFeatureRuntimeInfo plus glass transmittance/thickness/ior params in b88"
     };
     return registration;
 }

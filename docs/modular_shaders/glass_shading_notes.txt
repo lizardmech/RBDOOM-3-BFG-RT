@@ -1,0 +1,332 @@
+Clean RTXDI DI Glass Shading Notes
+==================================
+
+Purpose
+-------
+
+This note records the current design direction for turning the clean RTXDI DI
+glass material-feature proof into a basic usable glass shader.
+
+The near-term goal is not full RTX Remix parity. It is a narrow, testable,
+clean-DI view 16 glass slice that:
+
+    uses the modular material-feature pass path
+    does not add glass branches to unrelated DI/GI math
+    keeps unsupported material kinds fail-closed
+    produces a primary-view effect, not only a debug color
+    can be replaced or expanded by later shader implementations
+
+
+Reference
+---------
+
+Useful RTX Remix reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/concept/surface_material/surface_material.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/concept/surface_material/translucent_surface_material.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/concept/surface_material/translucent_surface_material_interaction.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/utility/brdf.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/visibility.slangh
+
+The inspected material shader files carry permissive MIT-style NVIDIA license
+headers. If source text is copied directly, retain the notice in the derived
+file and record the copied file. Prefer an rbdoom-owned HLSL rewrite of the
+small formulas unless exact Remix behavior is required.
+
+
+Useful Remix Shape
+------------------
+
+The useful first slice is thin-walled translucent glass.
+
+Remix translucent materials are organized around:
+
+    material parameters:
+        base reflectivity or IOR-derived F0
+        refractive index
+        transmittance color
+        thickness or measurement distance
+        optional diffuse layer
+        optional emissive layer
+
+    interaction state:
+        shading normal
+        base reflectivity
+        refractive index
+        transmittance color
+        diffuse color and opacity
+        thickness or measurement distance
+        flags
+
+    lobes:
+        specular reflection
+        specular transmission
+
+For thin-walled glass, negative thickness marks a thin surface. Transmission
+does not need to enter nested medium tracking for the first pass. The main
+effect is a specular/transmission split plus Beer-Lambert attenuation through a
+thin-surface distance.
+
+This maps better to the current clean-DI material-feature route than Remix's
+full PSR system. The full PSR path adds reflection/transmission buffers,
+multi-bounce resolver state, medium tracking, DLSS/RR guide interaction, and
+GBuffer packing. Those should stay out of the first rbdoom glass slice.
+
+
+Do Not Pull In Yet
+------------------
+
+Do not bring these into the first glass shader:
+
+    Remix polymorphic material table layout
+    Remix GBuffer material serialization
+    PSR reflection/transmission resolver buffers
+    thick medium enter/exit tracking
+    nested translucent media
+    animated water normal layering
+    diffuse translucent layer
+    decals applied onto translucent material
+    Slang build participation
+    direct-light or GI transmissive reservoir behavior
+
+Those are separate contracts. Pulling them in early would make the clean-DI
+feature route depend on unrelated renderer structure.
+
+
+Initial rbdoom Glass Contract
+-----------------------------
+
+Start with a small rbdoom-owned HLSL include for glass math, used only by the
+clean RTXDI DI glass/transmission material-feature shader.
+
+Suggested helper set:
+
+    GlassIorToF0(incidentIor, transmittedIor)
+    GlassSchlickFresnel(f0, viewDotNormal)
+    GlassSchlickFresnelTir(f0, relativeIor, viewDotNormal)
+    GlassTransmittanceToAttenuation(transmittanceColor, measurementDistance)
+    GlassBeerLambert(attenuationCoefficient, distance)
+    GlassThinAttenuationDistance(thickness, normal, direction)
+    GlassThinTransmissionThroughput(outsideFresnel, insideFresnel, attenuation)
+    GlassThinReflectionThroughput(outsideFresnel, insideFresnel, attenuation)
+
+Keep the first shader dirac-only:
+
+    no roughness
+    no GGX/VNDF
+    no diffuse transmission
+    no multibounce path recursion beyond the existing clean-DI route
+
+Good starter defaults:
+
+    incident IOR: 1.0
+    glass IOR: 1.45 to 1.52
+    transmittance color: runtime parameter, default near white
+    thin thickness: runtime parameter, small positive scalar
+    fallback F0: derived from IOR unless an explicit sidecar value exists
+
+
+Parameter Source
+----------------
+
+Use the current runtime parameter lanes for the first visible prototype, but
+do not treat them as the final material ABI.
+
+Near-term mapping:
+
+    featureParams0.xyz = transmittance color
+    featureParams0.w   = thin thickness
+    featureParams1.x   = IOR
+    featureParams1.y   = debug blend or strength
+    featureParams1.zw  = reserved
+
+After proof:
+
+    add a glass parameter sidecar keyed by material index or feature
+    move transmittance color, IOR/F0, thickness, and optional roughness there
+    leave runtime constants for global debug/control values only
+
+
+Output Contract
+---------------
+
+The existing transmission producer proof writes a sentinel transmission UAV.
+The next step should give that output a real meaning.
+
+Recommended first payload:
+
+    rgb = thin-glass transmission/attenuation color
+    a   = glass coverage or contribution weight
+
+The output should be produced only when:
+
+    clean RTXDI DI view 16 is active
+    the feature pass is enabled
+    the surface has PATH_TRANSMISSION material capability
+    the material kind is translucent glass
+    the sidecar ABI/version check passes
+
+Unsupported materials should write a dark sentinel only in debug mode, not
+beauty output.
+
+
+Primary-View Consume
+--------------------
+
+The glass shader is not useful until clean-DI consumes the output in the primary
+view. Keep this consume step explicit and narrow.
+
+Lowest-risk first compose:
+
+    after clean-DI primary lighting is available
+    sample or bind the transmission output
+    if alpha/weight is zero, leave primary color unchanged
+    if alpha/weight is non-zero, apply a controlled blend:
+        output = lerp(primaryColor, primaryColor * transmissionRgb, weight)
+
+This is deliberately a simple tint/attenuation pass. It proves the material
+feature can affect beauty output without claiming physically complete
+refraction.
+
+Do not use this as a direct-light or GI transmissive reservoir contract. DI/GI
+should continue to fail closed for glass until a later task explicitly opens
+that consumer.
+
+
+DLSS/RR Normal Guide Rule
+-------------------------
+
+RTX Remix treats refractive glass normals specially for DLSS Ray
+Reconstruction guide data. The glass surface normal itself is not exported as
+the normal guide for the refracted view. Instead, the surface seen behind the
+glass is the meaningful guide source, with its normal distorted by the glass
+path when that resolver exists.
+
+Carry that rule into rbdoom when glass reaches RR guide integration:
+
+    do not write the glass surface normal into `PathTraceRRGuideNormalRoughness`
+        merely because the primary ray hit glass
+    do not let the first thin-glass tint prototype overwrite existing opaque
+        guide normals behind the glass
+    if a future refractive resolver traces through glass, export the resolved
+        seen-through surface normal/roughness, transformed consistently with
+        the refracted path
+    if the seen-through surface is unavailable, prefer fail-closed or preserve
+        the previous valid guide over inventing a glass-normal guide
+
+This is separate from the first beauty consume step. The first glass slice may
+leave RR guide generation unchanged, but it must not claim RR correctness until
+the refractive guide-normal contract is implemented and debugged.
+
+
+DLSS/RR Specular Channel Rule
+-----------------------------
+
+Shipping DLSS Ray Reconstruction integrations commonly separate glossy
+reflected radiance into the specular reconstruction path instead of leaving RR
+with only base specular material metadata. rbdoom currently has guide resources
+such as `PathTraceRRGuideSpecularAlbedo`, but a basic material F0/specular guide
+is not the same thing as giving RR the glossy reflected ray contribution that it
+should reconstruct.
+
+Carry this into glass and future glossy work:
+
+    do not treat `PathTraceRRGuideSpecularAlbedo` alone as proof that RR has the
+        reflected-ray/specular signal it needs
+    keep diffuse/base lighting and glossy reflected radiance separable before
+        RR evaluate
+    when glass or glossy reflections produce secondary reflected radiance,
+        route that contribution into the specular RR channel or equivalent
+        split input, not only into a combined beauty color
+    keep the base specular/F0 guide as material metadata, not as a replacement
+        for reflected glossy radiance
+    add a debug view or dump that proves reflected-ray energy is present in the
+        specular RR input before claiming RR parity
+
+For the first thin-glass tint prototype, it is acceptable to leave this as a
+documented non-goal. Once glass has actual reflection/refraction rays, RR
+integration should be revisited so reflected and refracted components are not
+collapsed into the wrong reconstruction channel.
+
+
+Validation Route
+----------------
+
+Each step must be observable in clean-DI view 16.
+
+Minimum checks:
+
+    baseline:
+        glass feature disabled
+        no visual change from current clean RTXDI DI view 16
+
+    debug:
+        glass debug view shows known glass candidates
+        unsupported/translucent non-glass remains visibly fail-closed in debug
+
+    producer:
+        transmission output changes from sentinel/debug color to real payload
+        opaque surfaces do not write a contribution
+
+    consume:
+        primary view changes only on glass-like materials
+        disabling the compose or producer returns to baseline
+        unsupported materials never fall back to old diffuse/albedo lighting
+
+    logging:
+        pipeline init prints feature id
+        descriptor validation has no failures
+        validation string names the glass payload and consume route
+
+
+Suggested Implementation Order
+------------------------------
+
+1. Add `pathtrace_clean_rtxdi_di_glass_math.hlsli`.
+
+    Include only the small thin-glass helpers. Keep the file rbdoom-owned and
+    note Remix as the reference in the header comment if formulas are derived
+    from that audit.
+
+2. Replace the glass proof color with thin-glass payload generation.
+
+    Use runtime constants for transmittance color, IOR, and thickness. Write
+    RGB attenuation and alpha/weight into the transmission output. Preserve
+    debug output as a separate view, not the beauty payload.
+
+3. Add a narrow clean-DI compose/consume step.
+
+    Consume the transmission texture only in clean RTXDI DI view 16 and only
+    when the feature is enabled. Keep the initial visual effect intentionally
+    simple.
+
+4. Move glass parameters into a sidecar.
+
+    Add a compact parameter record once the output and consume path are proven.
+    Keep ABI version checks and fail closed if the parameter record is absent
+    or mismatched.
+
+5. Only after the first slice is stable, consider expansion.
+
+    Possible expansions:
+        rough glass lobe
+        true reflection/transmission split
+        path-integrator transmission bounce
+        RR guide interaction
+        thick-medium attenuation
+        DI/GI transmissive contracts
+
+
+Acceptance
+----------
+
+The basic glass shader is acceptable when:
+
+    it affects clean RTXDI DI primary view 16 through the material-feature path
+    the effect is gated by glass material capability and feature cvars
+    disabling the feature restores baseline
+    unsupported materials fail closed
+    no unrelated legacy/experimental render path is touched
+    no DI/GI math receives glass-specific branches
+    shader build/deploy proof names the active glass blob
+    runtime validation proves debug, producer, and primary consume behavior

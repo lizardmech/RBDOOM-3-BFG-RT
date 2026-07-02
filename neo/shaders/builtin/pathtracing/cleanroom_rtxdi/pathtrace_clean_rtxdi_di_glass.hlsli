@@ -34,19 +34,17 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(
     const PathTraceMaterialFeature feature = PathTraceCleanRtxdiDiGlassFeatureForSurface(surface);
     if (PathTraceCleanRtxdiDiGlassFeatureSupported(feature))
     {
-        const float viewFacing = saturate(abs(dot(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceViewDir(surface))));
-        const float3 baseColor = runtimeParams.params0.xyz;
-        const float viewFacingScale = runtimeParams.params0.w;
-        return float4(baseColor.x, baseColor.y + viewFacingScale * viewFacing, baseColor.z, 1.0);
+        const PathTraceCleanRtxdiDiGlassThinPayload payload =
+            PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, runtimeParams);
+        return float4(saturate(payload.transmission + payload.reflection * 0.25), 1.0);
     }
 
     if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS)
     {
-        return float4(runtimeParams.params1.xyz, 1.0);
+        return float4(0.65, 0.05, 0.85, 1.0);
     }
 
-    const float unsupportedOpaque = runtimeParams.params1.w;
-    return float4(unsupportedOpaque, unsupportedOpaque, unsupportedOpaque + 0.01, 1.0);
+    return float4(0.015, 0.015, 0.025, 1.0);
 }
 
 [shader("raygeneration")]
