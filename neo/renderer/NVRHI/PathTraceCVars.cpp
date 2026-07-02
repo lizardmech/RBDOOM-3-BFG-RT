@@ -1653,12 +1653,6 @@ idCVar r_pathTracingCleanRtxdiDiGlassGuideDebugView(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 glass resolved-guide candidate debug: 0 off, 1 normal/depth, 2 motion/reset/valid, 3 absolute source-pixel offset; writes only isolated u90-u92 candidates" );
 
-idCVar r_pathTracingCleanRtxdiDiGlassGuideCompose(
-    "r_pathTracingCleanRtxdiDiGlassGuideCompose",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Disabled clean RTXDI DI view 16 glass guide compose placeholder: retained for diagnostics only; live RR guide replacement needs a resolved behind-surface normal/depth/motion/position contract" );
-
 idCVar r_cleanDiSpatial(
     "r_cleanDiSpatial",
     "1",

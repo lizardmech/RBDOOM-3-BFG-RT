@@ -165,12 +165,14 @@ void RayGen()
         return;
     }
 
-    PathTraceCleanRtxdiDiGlassClearGuideCandidate(pixel);
-
     const PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams =
         PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeParams();
     if (runtimeInfo.debugMode >= 0.5)
     {
+        if (runtimeInfo.debugMode >= 1.5)
+        {
+            PathTraceCleanRtxdiDiGlassClearGuideCandidate(pixel);
+        }
         SmokeOutput[pixel] = runtimeInfo.debugMode >= 1.5
             ? float4(PathTraceCleanRtxdiDiGlassGuideCandidateDebugColor(pixel, dimensions, runtimeParams, runtimeInfo.debugMode), 1.0)
             : PathTraceCleanRtxdiDiGlassDebugColor(pixel, dimensions, runtimeParams);
@@ -201,7 +203,6 @@ void RayGen()
                     payload);
                 PathTraceCleanRtxdiDiGlassExportRrSpecularGuide(pixel, materialParams, payload);
                 PathTraceCleanRtxdiDiGlassExportRrInputColor(pixel, sourceColor, materialParams, payload);
-                PathTraceCleanRtxdiDiGlassExportGuideCandidate(pixel, sourcePixel, dimensions, payload.weight);
             }
         }
     }

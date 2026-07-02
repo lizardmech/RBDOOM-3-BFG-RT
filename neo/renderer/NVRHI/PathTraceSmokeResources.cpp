@@ -1228,19 +1228,6 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
-    nvrhi::BufferDesc cleanRtxdiDiGlassGuideComposeConstantsDesc;
-    cleanRtxdiDiGlassGuideComposeConstantsDesc.byteSize = 32;
-    cleanRtxdiDiGlassGuideComposeConstantsDesc.debugName = "PathTraceCleanRtxdiDiGlassGuideComposeConstants";
-    cleanRtxdiDiGlassGuideComposeConstantsDesc.isConstantBuffer = true;
-    cleanRtxdiDiGlassGuideComposeConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
-    cleanRtxdiDiGlassGuideComposeConstantsDesc.keepInitialState = true;
-    m_smokeCleanRtxdiDiGlassGuideComposeConstantsBuffer = device->createBuffer(cleanRtxdiDiGlassGuideComposeConstantsDesc);
-    if (!m_smokeCleanRtxdiDiGlassGuideComposeConstantsBuffer)
-    {
-        common->Printf("PathTracePrimaryPass: failed to create clean-room RTXDI DI glass guide compose constants buffer\n");
-        return;
-    }
-
     nvrhi::BufferDesc boundsOverlayDesc;
     boundsOverlayDesc.byteSize = sizeof(RtPathTraceBoundsOverlayLine) * RT_PT_BOUNDS_OVERLAY_MAX_LINES;
     boundsOverlayDesc.debugName = "PathTraceSmokeBoundsOverlayLines";
@@ -1632,47 +1619,6 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
             if (!m_smokeCleanRtxdiDiBoilingFilterPipeline)
             {
                 common->Printf("PathTracePrimaryPass: failed to create clean-room RTXDI DI boiling-filter compute pipeline\n");
-            }
-        }
-    }
-
-    nvrhi::BindingLayoutDesc cleanGlassGuideComposeBindingLayoutDesc;
-    cleanGlassGuideComposeBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
-    cleanGlassGuideComposeBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
-        .setShaderResourceOffset(0)
-        .setUnorderedAccessViewOffset(0)
-        .setConstantBufferOffset(0);
-    cleanGlassGuideComposeBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
-    cleanGlassGuideComposeBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(1));
-    cleanGlassGuideComposeBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(2));
-    cleanGlassGuideComposeBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(3));
-    cleanGlassGuideComposeBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(4));
-    cleanGlassGuideComposeBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(5));
-    cleanGlassGuideComposeBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(6));
-    cleanGlassGuideComposeBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(7));
-    cleanGlassGuideComposeBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(8));
-    m_smokeCleanRtxdiDiGlassGuideComposeBindingLayout = device->createBindingLayout(cleanGlassGuideComposeBindingLayoutDesc);
-    if (!m_smokeCleanRtxdiDiGlassGuideComposeBindingLayout)
-    {
-        common->Printf("PathTracePrimaryPass: failed to create clean-room RTXDI DI glass guide compose binding layout\n");
-    }
-    else
-    {
-        const programInfo_t cleanGlassGuideComposeProgram = renderProgManager.GetProgramInfo(BUILTIN_CLEAN_RTXDI_DI_GLASS_GUIDE_COMPOSE_CS);
-        m_smokeCleanRtxdiDiGlassGuideComposeShader = cleanGlassGuideComposeProgram.cs;
-        if (!m_smokeCleanRtxdiDiGlassGuideComposeShader)
-        {
-            common->Printf("PathTracePrimaryPass: clean-room RTXDI DI glass guide compose shader unavailable\n");
-        }
-        else
-        {
-            nvrhi::ComputePipelineDesc cleanGlassGuideComposePipelineDesc;
-            cleanGlassGuideComposePipelineDesc.CS = m_smokeCleanRtxdiDiGlassGuideComposeShader;
-            cleanGlassGuideComposePipelineDesc.bindingLayouts = { m_smokeCleanRtxdiDiGlassGuideComposeBindingLayout };
-            m_smokeCleanRtxdiDiGlassGuideComposePipeline = device->createComputePipeline(cleanGlassGuideComposePipelineDesc);
-            if (!m_smokeCleanRtxdiDiGlassGuideComposePipeline)
-            {
-                common->Printf("PathTracePrimaryPass: failed to create clean-room RTXDI DI glass guide compose compute pipeline\n");
             }
         }
     }
