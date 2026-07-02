@@ -1657,7 +1657,7 @@ idCVar r_pathTracingCleanRtxdiDiGlassGuideCompose(
     "r_pathTracingCleanRtxdiDiGlassGuideCompose",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Experimental clean RTXDI DI view 16 glass guide compose before DLSSRR: 0 off, 1 copy validated u90-u92 candidate tuple into live RR normal/depth/motion/position together" );
+    "Disabled clean RTXDI DI view 16 glass guide compose placeholder: retained for diagnostics only; live RR guide replacement needs a resolved behind-surface normal/depth/motion/position contract" );
 
 idCVar r_cleanDiSpatial(
     "r_cleanDiSpatial",
@@ -1765,7 +1765,7 @@ idCVar r_pathTracingCleanRtxdiDiView18Tile(
     "r_pathTracingCleanRtxdiDiView18Tile",
     "-1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: force view 18 to show one DLSS RR input full-screen; -1 keeps the 2x3 mosaic, 0 albedo, 1 normal/roughness, 2 specular albedo, 3 input color, 4 depth/hit distance, 5 motion/reset" );
+    "Clean-room Remix DI diagnostic: force view 18 to show one DLSS RR input full-screen; -1 keeps the 2x3 mosaic, 0 albedo, 1 normal/roughness, 2 specular albedo, 3 input color, 4 depth/hit distance, 5 motion/reset, 6 max(input color, specular guide)" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",

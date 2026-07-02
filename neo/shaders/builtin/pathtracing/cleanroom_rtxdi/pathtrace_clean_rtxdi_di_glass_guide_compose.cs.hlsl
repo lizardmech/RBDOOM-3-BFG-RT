@@ -73,6 +73,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     CleanRtxdiDiRRGuidePosition[pixel] = float4(candidate2.xyz, 1.0);
     if (CleanRtxdiDiGlassGuideComposeResetOnReplacement != 0u)
     {
-        CleanRtxdiDiRRGuideResetMask[pixel] = candidate1.z > 0.5 ? 0xffffffffu : 0u;
+        CleanRtxdiDiRRGuideResetMask[pixel] =
+            CleanRtxdiDiRRGuideResetMask[pixel] | (uint)round(max(candidate1.z, 0.0));
     }
 }

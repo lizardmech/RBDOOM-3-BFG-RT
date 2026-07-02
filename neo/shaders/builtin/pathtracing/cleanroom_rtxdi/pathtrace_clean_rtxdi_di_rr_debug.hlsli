@@ -121,6 +121,12 @@ float3 PathTraceCleanRoomRRInputTileColor(uint2 sourcePixel, uint tile)
     {
         return PathTraceCleanRoomToneMapRRInput(PathTraceRRInputColor[sourcePixel].rgb);
     }
+    if (tile == 6u)
+    {
+        const float3 inputColor = PathTraceCleanRoomToneMapRRInput(PathTraceRRInputColor[sourcePixel].rgb);
+        const float3 specularGuide = saturate(PathTraceRRGuideSpecularAlbedo[sourcePixel].rgb);
+        return saturate(max(inputColor, specularGuide));
+    }
     if (tile == 4u)
     {
         const float depth = PathTraceRRGuideDepth[sourcePixel];
@@ -269,8 +275,8 @@ float3 PathTraceCleanRoomPreviousHitReprojectionErrorColor(uint2 pixel, uint2 di
 
 float3 PathTraceCleanRoomRRInputMosaicColor(uint2 pixel, uint2 dimensions)
 {
-    const uint selectedTile = CleanRtxdiDiView8Band <= 5u ? CleanRtxdiDiView8Band : 0xffffffffu;
-    if (selectedTile <= 5u)
+    const uint selectedTile = CleanRtxdiDiView8Band <= 6u ? CleanRtxdiDiView8Band : 0xffffffffu;
+    if (selectedTile <= 6u)
     {
         return PathTraceCleanRoomRRInputTileColor(pixel, selectedTile);
     }

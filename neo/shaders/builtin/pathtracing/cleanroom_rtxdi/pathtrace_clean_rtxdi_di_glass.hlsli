@@ -87,7 +87,7 @@ void PathTraceCleanRtxdiDiGlassExportGuideCandidate(
 
     const float4 sourceNormalRoughness = PathTraceRRGuideNormalRoughness[sourcePixel];
     const float sourceDepth = PathTraceRRGuideDepth[sourcePixel];
-    const float2 sourceMotion = PathTraceRRMotionVectors[sourcePixel];
+    const float2 sourceMotion = PathTraceRRMotionVectors[sourcePixel] + (float2(sourcePixel) - float2(pixel));
     const uint sourceResetMask = PathTraceRRGuideResetMask[sourcePixel];
     const float roughness = saturate(sourceNormalRoughness.w);
     const float validWeight = saturate(glassWeight);

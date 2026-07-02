@@ -1158,7 +1158,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiRrInputMosaicView = cleanRtxdiDiView == 18;
     const bool cleanRtxdiDiRrGuideDebugView = cleanRtxdiDiView >= 18 && cleanRtxdiDiView <= 23;
     const int cleanRtxdiDiResolveView = cleanRtxdiDiRrGuideDebugView ? 16 : cleanRtxdiDiView;
-    const int cleanRtxdiDiView18Tile = idMath::ClampInt(-1, 5, r_pathTracingCleanRtxdiDiView18Tile.GetInteger());
+    const int cleanRtxdiDiView18Tile = idMath::ClampInt(-1, 6, r_pathTracingCleanRtxdiDiView18Tile.GetInteger());
     const uint32_t cleanRtxdiDiFrameIndexForDispatch = r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0
         ? 0u
         : m_smokeCleanRtxdiDiFrameIndex;
@@ -1177,7 +1177,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses cleanRtxdiDiMaterialFeaturePasses = BuildPathTraceCleanRtxdiDiMaterialFeaturePasses(
         cleanRtxdiDiRouteRequested,
-        cleanRtxdiDiView,
+        cleanRtxdiDiResolveView,
         m_smokeCleanRtxdiDiMaterialFeatures);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
@@ -4287,6 +4287,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
 
             const bool cleanGlassGuideComposeEnabled =
+                false &&
                 cleanRtxdiDiView == 16 &&
                 r_pathTracingCleanRtxdiDiGlassGuideCompose.GetInteger() != 0 &&
                 r_pathTracingCleanRtxdiDiGlassShader.GetInteger() != 0 &&
