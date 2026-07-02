@@ -223,3 +223,41 @@ bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(
     }
     return static_cast<bool>(pass.shader->shaderTable);
 }
+
+bool EnsurePathTraceMaterialFeatureRegistrationListPipelines(
+    const RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount,
+    RtPathTraceMaterialFeaturePipelineContextCallback contextCallback,
+    const void* userContext,
+    const char* ownerLabel)
+{
+    if (!registrations)
+    {
+        return true;
+    }
+
+    for (size_t i = 0; i < registrationCount; ++i)
+    {
+        const RtPathTraceMaterialFeaturePassRegistration& registration = registrations[i];
+        if (!registration.passDesc.enabled)
+        {
+            continue;
+        }
+
+        if (!ValidatePathTraceMaterialFeatureRegistration(registration, ownerLabel))
+        {
+            return false;
+        }
+
+        const RtPathTraceMaterialFeaturePipelineContext context = contextCallback
+            ? contextCallback(registration, userContext)
+            : RtPathTraceMaterialFeaturePipelineContext();
+        const RtPathTraceMaterialFeatureRuntimePass pipelinePass =
+            BuildPathTraceMaterialFeatureRuntimePass(registration, context.shaderState);
+        if (!EnsurePathTraceMaterialFeatureRuntimePassPipeline(pipelinePass, registration, context))
+        {
+            return false;
+        }
+    }
+    return true;
+}

@@ -19,6 +19,10 @@ struct RtPathTraceMaterialFeaturePipelineContext
     nvrhi::BindingLayoutHandle textureBindlessLayout;
 };
 
+typedef RtPathTraceMaterialFeaturePipelineContext (*RtPathTraceMaterialFeaturePipelineContextCallback)(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const void* userContext);
+
 bool LoadPathTraceMaterialFeatureShaderLibrary(
     nvrhi::IDevice* device,
     const char* shaderPath,
@@ -39,3 +43,9 @@ bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(
     const RtPathTraceMaterialFeatureRuntimePass& pass,
     const RtPathTraceMaterialFeaturePassRegistration& registration,
     const RtPathTraceMaterialFeaturePipelineContext& context);
+bool EnsurePathTraceMaterialFeatureRegistrationListPipelines(
+    const RtPathTraceMaterialFeaturePassRegistration* registrations,
+    size_t registrationCount,
+    RtPathTraceMaterialFeaturePipelineContextCallback contextCallback,
+    const void* userContext,
+    const char* ownerLabel);

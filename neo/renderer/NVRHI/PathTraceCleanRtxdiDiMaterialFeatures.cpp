@@ -47,6 +47,12 @@ struct RtPathTraceCleanRtxdiDiMaterialFeaturePasses::Impl
     RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState = nullptr;
 };
 
+struct RtPathTraceCleanRtxdiDiMaterialFeaturePipelineEnsureContext
+{
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses* passes = nullptr;
+    const RtPathTraceCleanRtxdiDiPipelineContext* pipelineContext = nullptr;
+};
+
 static RtPathTraceCleanRtxdiDiMaterialFeatureRegistryContext BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryContext(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes)
 {
@@ -73,6 +79,23 @@ static RtPathTraceMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMater
         context.cleanRtxdiDiBindingLayout,
         context.textureBindlessLayout
     };
+}
+
+static RtPathTraceMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContextCallback(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const void* userContext)
+{
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineEnsureContext* ensureContext =
+        static_cast<const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineEnsureContext*>(userContext);
+    if (!ensureContext || !ensureContext->passes || !ensureContext->pipelineContext)
+    {
+        return RtPathTraceMaterialFeaturePipelineContext();
+    }
+
+    return BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(
+        *ensureContext->passes,
+        registration,
+        *ensureContext->pipelineContext);
 }
 
 static size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
@@ -283,36 +306,13 @@ bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
         passes,
         registrations,
         sizeof(registrations) / sizeof(registrations[0]));
-    RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState =
-        RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::FeatureState(passes);
-
-    for (size_t i = 0; i < registrationCount && i < sizeof(registrations) / sizeof(registrations[0]); ++i)
-    {
-        const RtPathTraceMaterialFeaturePassRegistration& registration = registrations[i];
-        if (!registration.passDesc.enabled)
-        {
-            continue;
-        }
-
-        if (!ValidatePathTraceMaterialFeatureRegistration(registration, "clean-room RTXDI DI"))
-        {
-            return false;
-        }
-
-        RtPathTraceMaterialFeatureShaderState* shaderState = featureState
-            ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForRegistration(*featureState, registration)
-            : nullptr;
-        RtPathTraceMaterialFeatureRuntimePass pipelinePass =
-            BuildPathTraceMaterialFeatureRuntimePass(registration, shaderState);
-        if (!EnsurePathTraceMaterialFeatureRuntimePassPipeline(
-            pipelinePass,
-            registration,
-            BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContext(passes, registration, context)))
-        {
-            return false;
-        }
-    }
-    return true;
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineEnsureContext ensureContext = { &passes, &context };
+    return EnsurePathTraceMaterialFeatureRegistrationListPipelines(
+        registrations,
+        Min(registrationCount, sizeof(registrations) / sizeof(registrations[0])),
+        BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContextCallback,
+        &ensureContext,
+        "clean-room RTXDI DI");
 }
 
 void SetPathTraceCleanRtxdiDiMaterialFeatureOutputsUnorderedAccess(
