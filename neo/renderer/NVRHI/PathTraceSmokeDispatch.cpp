@@ -4046,6 +4046,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
         }
+        if (PathTraceCleanRtxdiDiMaterialFeatureNeedsOutputColorSource(cleanRtxdiDiMaterialFeaturePasses))
+        {
+            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+            commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyTexture(
+                m_frameResources.accumulationTexture,
+                nvrhi::TextureSlice(),
+                m_frameResources.outputTexture,
+                nvrhi::TextureSlice());
+            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->commitBarriers();
+        }
         DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
             commandList,
             cleanState,

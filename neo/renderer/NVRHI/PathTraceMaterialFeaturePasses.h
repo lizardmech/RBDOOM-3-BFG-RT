@@ -61,7 +61,8 @@ enum RtPathTraceMaterialFeatureResourceMask : uint32_t
     RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT = 1u << 12,
     RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR = 1u << 13,
     RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS = 1u << 14,
-    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS = 1u << 15
+    RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS = 1u << 15,
+    RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE = 1u << 16
 };
 
 struct RtPathTraceMaterialFeaturePassDesc
@@ -108,6 +109,7 @@ enum class RtPathTraceMaterialFeatureBindingKind : uint8_t
     StructuredBufferSrv,
     StructuredBufferUav,
     ConstantBuffer,
+    TextureSrv,
     TextureUav
 };
 
@@ -168,6 +170,11 @@ struct RtPathTraceMaterialFeaturePassRegistration
 inline bool PathTraceMaterialFeaturePassHasAllInputs(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)
 {
     return (desc.resourceInputs & resources) == resources;
+}
+
+inline bool PathTraceMaterialFeaturePassReadsAnyInput(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)
+{
+    return (desc.resourceInputs & resources) != 0;
 }
 
 inline bool PathTraceMaterialFeaturePassWritesAnyOutput(const RtPathTraceMaterialFeaturePassDesc& desc, uint32_t resources)

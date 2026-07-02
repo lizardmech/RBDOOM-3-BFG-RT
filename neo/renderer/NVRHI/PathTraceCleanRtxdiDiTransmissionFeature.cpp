@@ -30,6 +30,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     const bool composeOutput = cleanTransmissionRoute && producerRequested && composeOutputRequested;
     if (debugOutput || composeOutput)
     {
+        desc.resourceInputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE;
         desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
     }
     desc.enabled = cleanTransmissionRoute && (producerRequested || debugOutputRequested);
@@ -43,6 +44,7 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiTransmissionBind
     RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURES,
     RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_PARAMETERS,
     RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
+    RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR_SOURCE,
     RT_CLEAN_RTXDI_DI_BINDING_TRANSMISSION_OUTPUT,
     RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR
 };
@@ -82,7 +84,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         "glass-like material writes thin-glass attenuation rgb plus contribution weight to transmission output",
         "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
         "clean RTXDI DI primary view 16 unchanged unless transmission compose or debug view is enabled",
-        "RtPathTraceMaterialFeatureOutputDesc transmission u87 PathTraceCleanRtxdiDiTransmissionOutput plus optional output-color u1",
+        "RtPathTraceMaterialFeatureOutputDesc transmission u87 plus output-color-source t89 and optional output-color u1",
         "PathTraceMaterialFeatureRuntimeInfo plus PathTraceMaterialFeatureParameters t81 with b88 defaults/controls"
     };
     return registration;

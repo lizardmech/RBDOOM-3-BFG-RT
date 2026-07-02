@@ -47,6 +47,13 @@ static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_OUT
     "output-color"
 };
 
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR_SOURCE = {
+    RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE,
+    89u,
+    RtPathTraceMaterialFeatureBindingKind::TextureSrv,
+    "output-color-source"
+};
+
 static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_TRANSMISSION_OUTPUT = {
     RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT,
     87u,

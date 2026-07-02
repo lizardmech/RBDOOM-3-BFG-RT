@@ -1,5 +1,7 @@
 #if defined(CLEAN_RTXDI_DI_GLASS_ENTRY)
 
+Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
+
 float4 PathTraceCleanRtxdiDiGlassDebugColor(
     uint2 pixel,
     uint2 dimensions,
@@ -51,7 +53,14 @@ float4 PathTraceCleanRtxdiDiGlassComposeColor(
         PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
     const PathTraceCleanRtxdiDiGlassThinPayload payload =
         PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
-    return PathTraceCleanRtxdiDiComposeThinGlassColor(currentColor, materialParams, payload);
+    const uint2 sourcePixel = PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
+        pixel,
+        dimensions,
+        surface,
+        materialParams,
+        payload);
+    const float4 sourceColor = PathTraceCleanRtxdiDiOutputColorSource.Load(int3(sourcePixel, 0));
+    return PathTraceCleanRtxdiDiComposeThinGlassColor(currentColor, sourceColor, materialParams, payload);
 }
 
 [shader("raygeneration")]

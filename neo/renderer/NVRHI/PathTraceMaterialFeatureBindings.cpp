@@ -80,6 +80,20 @@ void AddOrReplaceTextureUavBinding(nvrhi::BindingSetDesc& desc, uint32_t slot, n
     desc.addItem(item);
 }
 
+void AddOrReplaceTextureSrvBinding(nvrhi::BindingSetDesc& desc, uint32_t slot, nvrhi::TextureHandle texture)
+{
+    const nvrhi::BindingSetItem item = nvrhi::BindingSetItem::Texture_SRV(slot, texture);
+    for (nvrhi::BindingSetItem& binding : desc.bindings)
+    {
+        if (binding.slot == slot && binding.type == nvrhi::ResourceType::Texture_SRV)
+        {
+            binding = item;
+            return;
+        }
+    }
+    desc.addItem(item);
+}
+
 void AddOrReplaceStructuredBufferSrvBinding(nvrhi::BindingSetDesc& desc, uint32_t slot, nvrhi::BufferHandle buffer)
 {
     const nvrhi::BindingSetItem item = nvrhi::BindingSetItem::StructuredBuffer_SRV(slot, buffer);
@@ -143,6 +157,19 @@ nvrhi::BufferHandle PathTraceMaterialFeatureInputResourceBuffer(
     }
 }
 
+nvrhi::TextureHandle PathTraceMaterialFeatureInputResourceTexture(
+    const RtPathTraceFrameResources& frameResources,
+    uint32_t resource)
+{
+    switch (resource)
+    {
+    case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE:
+        return frameResources.accumulationTexture;
+    default:
+        return nullptr;
+    }
+}
+
 void AddPathTraceMaterialFeatureBindingLayoutItem(
     nvrhi::BindingLayoutDesc& desc,
     const RtPathTraceMaterialFeatureBindingDesc& binding)
@@ -170,6 +197,12 @@ void AddPathTraceMaterialFeatureBindingLayoutItem(
         if (!BindingLayoutContains(desc, nvrhi::ResourceType::ConstantBuffer, binding.slot))
         {
             desc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(binding.slot));
+        }
+        break;
+    case RtPathTraceMaterialFeatureBindingKind::TextureSrv:
+        if (!BindingLayoutContains(desc, nvrhi::ResourceType::Texture_SRV, binding.slot))
+        {
+            desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(binding.slot));
         }
         break;
     case RtPathTraceMaterialFeatureBindingKind::TextureUav:
@@ -212,6 +245,12 @@ void AddPathTraceMaterialFeatureBindingSetItem(
         if (nvrhi::BufferHandle buffer = PathTraceMaterialFeatureInputResourceBuffer(resources, binding.resource))
         {
             AddOrReplaceConstantBufferBinding(desc, binding.slot, buffer);
+        }
+        break;
+    case RtPathTraceMaterialFeatureBindingKind::TextureSrv:
+        if (nvrhi::TextureHandle texture = PathTraceMaterialFeatureInputResourceTexture(frameResources, binding.resource))
+        {
+            AddOrReplaceTextureSrvBinding(desc, binding.slot, texture);
         }
         break;
     case RtPathTraceMaterialFeatureBindingKind::TextureUav:
@@ -395,7 +434,8 @@ void AddPathTraceMaterialFeatureRegistrationBindings(
     {
         const RtPathTraceMaterialFeatureBindingDesc& binding = registration.bindingMetadata[i];
         if ((registration.passDesc.resourceInputs & binding.resource) != 0u ||
-            (registration.passDesc.resourceOutputs & binding.resource) != 0u)
+            (registration.passDesc.resourceOutputs & binding.resource) != 0u ||
+            binding.resource == RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE)
         {
             AddPathTraceMaterialFeatureBindingSetItem(desc, resources, frameResources, binding);
         }

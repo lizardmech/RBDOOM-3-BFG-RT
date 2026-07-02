@@ -297,6 +297,26 @@ bool PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(
         frameResources);
 }
 
+bool PathTraceCleanRtxdiDiMaterialFeatureNeedsOutputColorSource(
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes)
+{
+    RtPathTraceMaterialFeaturePassRegistration registrations[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
+    const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
+        passes,
+        registrations,
+        sizeof(registrations) / sizeof(registrations[0]));
+    for (size_t i = 0; i < Min(registrationCount, sizeof(registrations) / sizeof(registrations[0])); ++i)
+    {
+        const RtPathTraceMaterialFeaturePassDesc& passDesc = registrations[i].passDesc;
+        if (passDesc.enabled &&
+            PathTraceMaterialFeaturePassReadsAnyInput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceCleanRtxdiDiPipelineContext& context)

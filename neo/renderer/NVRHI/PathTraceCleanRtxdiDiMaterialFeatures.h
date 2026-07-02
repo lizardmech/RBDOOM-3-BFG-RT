@@ -83,6 +83,8 @@ void AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
 bool PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceFrameResources& frameResources);
+bool PathTraceCleanRtxdiDiMaterialFeatureNeedsOutputColorSource(
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes);
 void SetPathTraceCleanRtxdiDiMaterialFeatureOutputsUnorderedAccess(
     nvrhi::ICommandList* commandList,
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,

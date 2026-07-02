@@ -27,6 +27,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
     const bool debugOutput = cleanGlassRoute && debugOutputRequested;
     if (outputRequested)
     {
+        desc.resourceInputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE;
         desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
         desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
     }
@@ -41,6 +42,7 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiGlassBindings[] 
     RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURES,
     RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_PARAMETERS,
     RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
+    RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR_SOURCE,
     RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR
 };
 
@@ -77,7 +79,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
         "glass material writes thin-glass attenuation/reflectance through the material-feature ABI",
         "opaque material writes dark unsupported debug color",
         "clean RTXDI DI primary view 16 unchanged unless the glass shader owns output-color",
-        "RtPathTraceMaterialFeatureBindingDesc output-color u1 PathTraceCleanRtxdiDiGlassDebug",
+        "RtPathTraceMaterialFeatureBindingDesc output-color-source t89 plus output-color u1",
         "PathTraceMaterialFeatureRecord t80 plus PathTraceMaterialFeatureParameters t81 with b88 defaults"
     };
     return registration;
