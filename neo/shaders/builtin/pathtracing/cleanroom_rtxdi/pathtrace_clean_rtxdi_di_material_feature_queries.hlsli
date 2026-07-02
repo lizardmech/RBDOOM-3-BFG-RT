@@ -3,11 +3,6 @@
 
 static const uint RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RECORD_ABI_VERSION = 1u;
 
-bool PathTraceCleanRtxdiDiMaterialSupportedByPass(RAB_Surface surface, uint passKind)
-{
-    return MaterialSupportedByPass(surface, passKind);
-}
-
 float4 PathTraceCleanRtxdiDiMaterialFailClosedDebugColor(RAB_Surface surface, uint passKind)
 {
     return MaterialFailClosedDebugColor(surface, passKind);
@@ -37,12 +32,35 @@ bool PathTraceCleanRtxdiDiLoadMaterialFeature(uint materialIndex, out PathTraceM
 #endif
 }
 
+bool PathTraceMaterialFeatureSupportsPass(PathTraceMaterialFeature feature, uint passKind)
+{
+    return (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u &&
+        (feature.passSupport & passKind) != 0u;
+}
+
+bool PathTraceCleanRtxdiDiMaterialSupportedByPass(RAB_Surface surface, uint passKind)
+{
+    PathTraceMaterialFeature feature;
+    if (PathTraceCleanRtxdiDiLoadMaterialFeature(surface.materialIndex, feature))
+    {
+        return PathTraceMaterialFeatureSupportsPass(feature, passKind);
+    }
+    return MaterialSupportedByPass(surface, passKind);
+}
+
 bool PathTraceMaterialFeatureSupportsTransmission(PathTraceMaterialFeature feature)
 {
     return (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION) != 0u &&
         (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u &&
         (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_PATH_INTEGRATOR) != 0u &&
         (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER) != 0u;
+}
+
+bool PathTraceMaterialFeatureSupportsOpaqueDirect(PathTraceMaterialFeature feature)
+{
+    return (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_DIRECT) != 0u &&
+        (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u &&
+        (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR) != 0u;
 }
 
 bool PathTraceCleanRtxdiDiMaterialSupportsTransmission(RAB_Surface surface)
@@ -65,6 +83,11 @@ bool PathTraceCleanRtxdiDiMaterialSupportsOpaqueDirect(RAB_Surface surface)
     if (PathTraceCleanRtxdiDiMaterialRelaxOpaqueDirectGates())
     {
         return RAB_IsSurfaceValid(surface) && surface.material.opacity > 0.0;
+    }
+    PathTraceMaterialFeature feature;
+    if (PathTraceCleanRtxdiDiLoadMaterialFeature(surface.materialIndex, feature))
+    {
+        return PathTraceMaterialFeatureSupportsOpaqueDirect(feature);
     }
     return MaterialSupportsOpaqueDirect(surface);
 }
