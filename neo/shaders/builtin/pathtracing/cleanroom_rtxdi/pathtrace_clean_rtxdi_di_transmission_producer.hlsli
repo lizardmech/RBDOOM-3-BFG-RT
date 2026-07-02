@@ -14,7 +14,7 @@ float4 PathTraceCleanRoomTransmissionProducerPayload(
     }
 
     const RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
-    if (!PathTraceCleanRtxdiDiMaterialSupportsTransmission(surface))
+    if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
     {
         return float4(1.0, 1.0, 1.0, 0.0);
     }
@@ -36,7 +36,7 @@ float4 PathTraceCleanRoomTransmissionProducerDebugColor(
     }
 
     const RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
-    if (!PathTraceCleanRtxdiDiMaterialSupportsTransmission(surface))
+    if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
     {
         return float4(0.02, 0.02, 0.02, 1.0);
     }
@@ -59,7 +59,7 @@ float4 PathTraceCleanRoomTransmissionProducerComposeColor(
     }
 
     const RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
-    if (!PathTraceCleanRtxdiDiMaterialSupportsTransmission(surface))
+    if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
     {
         return currentColor;
     }
