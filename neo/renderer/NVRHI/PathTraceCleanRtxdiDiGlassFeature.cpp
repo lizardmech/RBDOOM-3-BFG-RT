@@ -26,8 +26,9 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
     desc.sharedOutputPriority = 50u;
 
     const bool cleanGlassRoute = cleanRouteRequested && cleanView == 16;
+    const bool outputRequested = cleanGlassRoute && (shaderRequested || debugOutputRequested);
     const bool debugOutput = cleanGlassRoute && debugOutputRequested;
-    if (debugOutput)
+    if (outputRequested)
     {
         desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
         desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
@@ -109,10 +110,10 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiGlassRuntimeInfo;
     registration.validation = {
         "cmake --build --preset win64-pt-dev-release",
-        "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiGlassShader 1; r_pathTracingCleanRtxdiDiGlassDebugView 1",
-        "glass material writes thin-glass attenuation debug color through the material-feature ABI",
+        "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiGlassShader 1; optional r_pathTracingCleanRtxdiDiGlassDebugView 1",
+        "glass material writes thin-glass attenuation/reflectance through the material-feature ABI",
         "opaque material writes dark unsupported debug color",
-        "clean RTXDI DI primary view 16 unchanged unless glass debug view is enabled",
+        "clean RTXDI DI primary view 16 unchanged unless the glass shader owns output-color",
         "RtPathTraceMaterialFeatureBindingDesc output-color u1 PathTraceCleanRtxdiDiGlassDebug",
         "PathTraceMaterialFeatureRecord t80 plus PathTraceMaterialFeatureParameters t81 with b88 defaults"
     };

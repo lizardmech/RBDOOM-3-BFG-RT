@@ -49,6 +49,38 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(
     return float4(0.015, 0.015, 0.025, 1.0);
 }
 
+float4 PathTraceCleanRtxdiDiGlassComposeColor(
+    uint2 pixel,
+    uint2 dimensions,
+    float4 currentColor,
+    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
+{
+    PathTracePrimarySurfaceRecord record;
+    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
+    {
+        return currentColor;
+    }
+
+    const RAB_Surface surface = PathTraceCleanRoomMaterialSurfaceFromRecord(record);
+    const PathTraceMaterialFeature feature = PathTraceCleanRtxdiDiGlassFeatureForSurface(surface);
+    if (!PathTraceCleanRtxdiDiGlassFeatureSupported(feature))
+    {
+        return currentColor;
+    }
+
+    const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
+        PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
+    const PathTraceCleanRtxdiDiGlassThinPayload payload =
+        PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
+    const float payloadWeight = saturate(payload.weight);
+    const float3 attenuatedColor = currentColor.rgb * saturate(payload.transmission);
+    const float3 surfaceTerm =
+        payload.reflection * materialParams.reflectionBoost +
+        payload.transmission * materialParams.transmissionFloor;
+    const float3 composedColor = saturate(attenuatedColor + surfaceTerm);
+    return float4(lerp(currentColor.rgb, composedColor, payloadWeight), currentColor.a);
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -61,14 +93,25 @@ void RayGen()
 
     const PathTraceMaterialFeatureRuntimeInfo runtimeInfo =
         LoadPathTraceMaterialFeatureRuntimeInfo(PathTraceMaterialFeatureRuntimeInfoPacked);
-    if (!runtimeInfo.ready || runtimeInfo.debugMode < 0.5)
+    if (runtimeInfo.ready < 0.5 || runtimeInfo.writesOutputColor < 0.5)
     {
         return;
     }
 
     const PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams =
         PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeParams();
-    SmokeOutput[pixel] = PathTraceCleanRtxdiDiGlassDebugColor(pixel, dimensions, runtimeParams);
+    if (runtimeInfo.debugMode >= 0.5)
+    {
+        SmokeOutput[pixel] = PathTraceCleanRtxdiDiGlassDebugColor(pixel, dimensions, runtimeParams);
+    }
+    else
+    {
+        SmokeOutput[pixel] = PathTraceCleanRtxdiDiGlassComposeColor(
+            pixel,
+            dimensions,
+            SmokeOutput[pixel],
+            runtimeParams);
+    }
 }
 
 #endif
