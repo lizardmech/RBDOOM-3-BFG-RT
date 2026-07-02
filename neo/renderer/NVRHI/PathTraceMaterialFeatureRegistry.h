@@ -15,6 +15,12 @@ using RtPathTraceMaterialFeatureRuntimeRegistrationBuilder =
 using RtPathTraceMaterialFeatureLayoutRegistrationBuilder =
     RtPathTraceMaterialFeaturePassRegistration (*)();
 
+inline bool PathTraceMaterialFeatureRegistryStringIsUnsetOrNone(const char* value)
+{
+    return !value || value[0] == '\0' ||
+        (value[0] == 'n' && value[1] == 'o' && value[2] == 'n' && value[3] == 'e' && value[4] == '\0');
+}
+
 struct RtPathTraceMaterialFeatureRegistryEntry
 {
     const char* featureId = "unknown";
@@ -22,6 +28,7 @@ struct RtPathTraceMaterialFeatureRegistryEntry
     RtPathTraceMaterialFeatureLayoutRegistrationBuilder buildLayoutRegistration = nullptr;
     RtPathTraceMaterialFeatureShaderDesc shaderDesc;
     RtPathTraceMaterialFeatureParameterLayoutDesc parameterLayout;
+    RtPathTraceMaterialFeatureValidationDesc validation;
     RtPathTraceMaterialFeaturePassKind kind = RtPathTraceMaterialFeaturePassKind::Disabled;
     uint32_t materialCapsConsumed = 0;
     uint32_t materialPassSupport = 0;
@@ -70,6 +77,11 @@ inline void ApplyPathTraceMaterialFeatureRegistryEntry(
     if (!registration.parameterLayout.layoutName && entry.parameterLayout.layoutName)
     {
         registration.parameterLayout = entry.parameterLayout;
+    }
+    if (PathTraceMaterialFeatureRegistryStringIsUnsetOrNone(registration.validation.buildProof) &&
+        !PathTraceMaterialFeatureRegistryStringIsUnsetOrNone(entry.validation.buildProof))
+    {
+        registration.validation = entry.validation;
     }
 }
 

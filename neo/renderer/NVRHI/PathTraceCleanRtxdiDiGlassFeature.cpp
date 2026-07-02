@@ -91,15 +91,6 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
     registration.bindingMetadata = kCleanRtxdiDiGlassBindings;
     registration.bindingMetadataCount = sizeof(kCleanRtxdiDiGlassBindings) / sizeof(kCleanRtxdiDiGlassBindings[0]);
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiGlassRuntimeInfo;
-    registration.validation = {
-        "cmake --build --preset win64-pt-dev-release",
-        "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiGlassShader 1; optional r_pathTracingCleanRtxdiDiGlassDebugView 1 or r_pathTracingCleanRtxdiDiGlassGuideDebugView 1..3",
-        "glass material writes thin-glass attenuation/reflectance through the material-feature ABI",
-        "opaque material writes dark unsupported debug color",
-        "clean RTXDI DI primary view 16 unchanged unless the glass shader owns output-color",
-        "RtPathTraceMaterialFeatureBindingDesc output-color-source t89, rr-guide-specular-albedo u53, rr-input-color u54, isolated glass guide candidates u90/u91/u92, output-color u1",
-        "PathTraceMaterialFeatureRecord t80 plus PathTraceMaterialFeatureParameters t81 with b88 defaults"
-    };
     return registration;
 }
 

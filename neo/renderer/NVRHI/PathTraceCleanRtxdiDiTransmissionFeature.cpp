@@ -74,15 +74,6 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
     registration.bindingMetadata = kCleanRtxdiDiTransmissionBindings;
     registration.bindingMetadataCount = sizeof(kCleanRtxdiDiTransmissionBindings) / sizeof(kCleanRtxdiDiTransmissionBindings[0]);
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo;
-    registration.validation = {
-        "cmake --build --preset win64-pt-dev-release",
-        "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiTransmissionProducer 1; r_pathTracingCleanRtxdiDiTransmissionCompose 1; r_pathTracingCleanRtxdiDiTransmissionDebugView 1",
-        "glass-like material writes thin-glass attenuation rgb plus contribution weight to transmission output",
-        "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
-        "clean RTXDI DI primary view 16 unchanged unless transmission compose or debug view is enabled",
-        "RtPathTraceMaterialFeatureOutputDesc transmission u87 plus output-color-source t89, optional rr-input-color u54 and output-color u1",
-        "PathTraceMaterialFeatureRuntimeInfo plus PathTraceMaterialFeatureParameters t81 with b88 defaults/controls"
-    };
     return registration;
 }
 
