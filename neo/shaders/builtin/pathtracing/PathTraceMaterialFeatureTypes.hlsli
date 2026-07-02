@@ -51,6 +51,11 @@ static const uint RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER = 0x00000080u;
 
 static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION = 1u;
 
+static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_WRITES_OUTPUT_COLOR = 0u;
+static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_READY = 1u;
+static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_DEBUG_MODE = 2u;
+static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_FRAME_INDEX = 3u;
+
 struct PathTraceMaterialFeatureRuntimeInfo
 {
     bool writesOutputColor;
@@ -62,10 +67,10 @@ struct PathTraceMaterialFeatureRuntimeInfo
 PathTraceMaterialFeatureRuntimeInfo LoadPathTraceMaterialFeatureRuntimeInfo(float4 packedRuntimeInfo)
 {
     PathTraceMaterialFeatureRuntimeInfo runtimeInfo;
-    runtimeInfo.writesOutputColor = packedRuntimeInfo.x >= 0.5;
-    runtimeInfo.ready = packedRuntimeInfo.y >= 0.5;
-    runtimeInfo.debugMode = packedRuntimeInfo.z;
-    runtimeInfo.frameIndex = packedRuntimeInfo.w;
+    runtimeInfo.writesOutputColor = packedRuntimeInfo[RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_WRITES_OUTPUT_COLOR] >= 0.5;
+    runtimeInfo.ready = packedRuntimeInfo[RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_READY] >= 0.5;
+    runtimeInfo.debugMode = packedRuntimeInfo[RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_DEBUG_MODE];
+    runtimeInfo.frameIndex = packedRuntimeInfo[RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_FRAME_INDEX];
     return runtimeInfo;
 }
 
