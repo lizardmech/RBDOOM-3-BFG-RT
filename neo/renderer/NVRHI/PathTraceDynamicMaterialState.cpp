@@ -412,7 +412,18 @@ RtPathTraceMaterialFeatureRecord BuildSmokeMaterialFeatureRecord(const RtSmokeMa
 RtPathTraceMaterialFeatureParameterRecord BuildSmokeMaterialFeatureParameterRecord(const RtSmokeMaterialUniverseFacts& facts)
 {
     RtPathTraceMaterialFeatureParameterRecord params;
-    if (facts.objectGlassFallback || facts.portalWindowFallback)
+    if (facts.portalWindowFallback)
+    {
+        params.params0[0] = 0.78f;
+        params.params0[1] = 0.92f;
+        params.params0[2] = 1.0f;
+        params.params0[3] = 0.05f;
+        params.params1[0] = 1.45f;
+        params.params1[1] = 1.0f;
+        params.params1[2] = 1.15f;
+        params.params1[3] = 0.015f;
+    }
+    else if (facts.objectGlassFallback)
     {
         params.params0[0] = 0.82f;
         params.params0[1] = 0.93f;

@@ -143,6 +143,11 @@ Near-term mapping:
     featureParams1.w   = compose transmission floor
     material-feature sidecar/surface data may override transmittance tint per
         material when a valid glass feature record is present
+    `PathTraceMaterialFeatureParameters` stores one parameter row per material
+        table entry, currently keyed by `parameterRecordIndex`
+    object-glass and portal-window fallback materials have separate initial
+        parameter defaults to prove the table can carry more than one glass
+        shader setting
 
 After proof:
 
