@@ -5,14 +5,6 @@
 #include "PathTraceCVars.h"
 #include "PathTraceCleanRtxdiDiMaterialFeatureCommon.h"
 
-static RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiTransmissionProducerShaderDesc()
-{
-    RtPathTraceMaterialFeatureShaderDesc desc;
-    desc.label = "clean-room RTXDI DI transmission producer";
-    desc.shaderBlobPath = RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB("pathtrace_clean_rtxdi_di_transmission_producer");
-    return desc;
-}
-
 static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
     bool cleanRouteRequested,
     int cleanView,
@@ -79,7 +71,6 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         producerRequested,
         composeOutputRequested,
         debugOutputRequested);
-    registration.shaderDesc = PathTraceCleanRtxdiDiTransmissionProducerShaderDesc();
     registration.bindingMetadata = kCleanRtxdiDiTransmissionBindings;
     registration.bindingMetadataCount = sizeof(kCleanRtxdiDiTransmissionBindings) / sizeof(kCleanRtxdiDiTransmissionBindings[0]);
     registration.parameterLayout = PathTraceObjectGlassMaterialFeatureParameterLayout();

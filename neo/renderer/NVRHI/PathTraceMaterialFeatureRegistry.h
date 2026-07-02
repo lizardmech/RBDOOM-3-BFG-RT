@@ -20,6 +20,7 @@ struct RtPathTraceMaterialFeatureRegistryEntry
     const char* featureId = "unknown";
     RtPathTraceMaterialFeatureRuntimeRegistrationBuilder buildRuntimeRegistration = nullptr;
     RtPathTraceMaterialFeatureLayoutRegistrationBuilder buildLayoutRegistration = nullptr;
+    RtPathTraceMaterialFeatureShaderDesc shaderDesc;
     RtPathTraceMaterialFeaturePassKind kind = RtPathTraceMaterialFeaturePassKind::Disabled;
     uint32_t materialCapsConsumed = 0;
     uint32_t materialPassSupport = 0;
@@ -61,6 +62,10 @@ inline void ApplyPathTraceMaterialFeatureRegistryEntry(
         entry.allowedResourceInputs,
         entry.allowedResourceOutputs
     };
+    if (!registration.shaderDesc.shaderBlobPath && entry.shaderDesc.shaderBlobPath)
+    {
+        registration.shaderDesc = entry.shaderDesc;
+    }
 }
 
 inline uint32_t BuildPathTraceMaterialFeatureRegistrySharedOutputMask(
