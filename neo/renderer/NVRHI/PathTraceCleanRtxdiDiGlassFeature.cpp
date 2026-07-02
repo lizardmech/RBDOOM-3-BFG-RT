@@ -4,6 +4,7 @@
 #include "PathTraceCleanRtxdiDiGlassFeature.h"
 #include "PathTraceCVars.h"
 #include "PathTraceMaterialFeatureParameters.h"
+#include "PathTraceCleanRtxdiDiMaterialFeatureShaders.h"
 
 static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
     bool cleanRouteRequested,
@@ -101,10 +102,8 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
         cleanView,
         shaderRequested,
         debugOutputRequested);
-    registration.shaderDesc = {
-        "clean-room RTXDI DI glass proof",
-        "builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_glass.rt.bin"
-    };
+    registration.shaderDesc = PathTraceCleanRtxdiDiMaterialFeatureShaderDesc(
+        RtPathTraceCleanRtxdiDiMaterialFeatureShaderId::Glass);
     registration.bindingMetadata = kCleanRtxdiDiGlassBindings;
     registration.bindingMetadataCount = sizeof(kCleanRtxdiDiGlassBindings) / sizeof(kCleanRtxdiDiGlassBindings[0]);
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiGlassRuntimeInfo;
