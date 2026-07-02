@@ -21,6 +21,30 @@ static bool PathTraceMaterialFeatureResourceMaskIsSingleResource(uint32_t resour
     return resource != RT_MATERIAL_FEATURE_RESOURCE_NONE && (resource & (resource - 1u)) == 0u;
 }
 
+static bool PathTraceMaterialFeatureShaderBlobPathIsPackagedRelative(const char* shaderBlobPath)
+{
+    if (!PathTraceMaterialFeatureStringIsSet(shaderBlobPath))
+    {
+        return false;
+    }
+
+    const size_t pathLength = strlen(shaderBlobPath);
+    if (shaderBlobPath[0] == '/' ||
+        shaderBlobPath[0] == '\\' ||
+        (pathLength > 1 && shaderBlobPath[1] == ':'))
+    {
+        return false;
+    }
+
+    if (idStr::FindText(shaderBlobPath, "renderprogs2/", false) >= 0 ||
+        idStr::FindText(shaderBlobPath, "renderprogs2\\", false) >= 0)
+    {
+        return false;
+    }
+
+    return pathLength > 4 && idStr::Icmp(shaderBlobPath + pathLength - 4, ".bin") == 0;
+}
+
 static bool PathTraceMaterialFeatureOutputBindingMetadataMatchesDeclaredOutputs(
     const RtPathTraceMaterialFeaturePassRegistration& registration)
 {
@@ -279,6 +303,11 @@ bool ValidatePathTraceMaterialFeatureRegistration(
     if (!PathTraceMaterialFeatureStringIsSet(registration.shaderDesc.shaderBlobPath))
     {
         return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "missing shader blob path");
+    }
+
+    if (!PathTraceMaterialFeatureShaderBlobPathIsPackagedRelative(registration.shaderDesc.shaderBlobPath))
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "shader blob path must be a packaged relative .bin path");
     }
 
     if (desc.primaryOutputResource != RT_MATERIAL_FEATURE_RESOURCE_NONE)
