@@ -5,6 +5,8 @@
 
 #include "PathTraceMaterialFeatureParameters.h"
 
+#define RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB(stem) "builtin/pathtracing/cleanroom_rtxdi/" stem ".rt.bin"
+
 static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_CURRENT_PRIMARY_SURFACE = {
     RT_MATERIAL_FEATURE_RESOURCE_CURRENT_PRIMARY_SURFACE,
     30u,

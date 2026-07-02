@@ -9,7 +9,7 @@ static RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiTransmissionPro
 {
     RtPathTraceMaterialFeatureShaderDesc desc;
     desc.label = "clean-room RTXDI DI transmission producer";
-    desc.shaderBlobPath = "builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin";
+    desc.shaderBlobPath = RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB("pathtrace_clean_rtxdi_di_transmission_producer");
     return desc;
 }
 
@@ -33,6 +33,10 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
         desc.resourceInputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE;
         desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
     }
+    if (composeOutput)
+    {
+        desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR;
+    }
     desc.enabled = cleanTransmissionRoute && (producerRequested || debugOutputRequested);
     desc.debugLabel = debugOutput ? "clean-rtxdi-di-transmission-producer-debug" : "clean-rtxdi-di-transmission-producer";
     return desc;
@@ -46,6 +50,7 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiTransmissionBind
     RT_CLEAN_RTXDI_DI_BINDING_MATERIAL_FEATURE_RUNTIME_CONSTANTS,
     RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR_SOURCE,
     RT_CLEAN_RTXDI_DI_BINDING_TRANSMISSION_OUTPUT,
+    RT_CLEAN_RTXDI_DI_BINDING_RR_INPUT_COLOR,
     RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR
 };
 
@@ -84,7 +89,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         "glass-like material writes thin-glass attenuation rgb plus contribution weight to transmission output",
         "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
         "clean RTXDI DI primary view 16 unchanged unless transmission compose or debug view is enabled",
-        "RtPathTraceMaterialFeatureOutputDesc transmission u87 plus output-color-source t89 and optional output-color u1",
+        "RtPathTraceMaterialFeatureOutputDesc transmission u87 plus output-color-source t89, optional rr-input-color u54 and output-color u1",
         "PathTraceMaterialFeatureRuntimeInfo plus PathTraceMaterialFeatureParameters t81 with b88 defaults/controls"
     };
     return registration;

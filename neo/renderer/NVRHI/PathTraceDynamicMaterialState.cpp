@@ -410,6 +410,29 @@ RtPathTraceMaterialFeatureRecord BuildSmokeMaterialFeatureRecord(const RtSmokeMa
     return feature;
 }
 
+bool SmokeMaterialFeatureRecordAbiValid(const RtPathTraceMaterialFeatureRecord& feature)
+{
+    return feature.recordAbiVersion == RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION;
+}
+
+bool ValidateSmokeMaterialFeatureRecords(const RtSmokeMaterialTableBuild& table)
+{
+    if (table.materialFeatures.size() != table.materials.size())
+    {
+        return false;
+    }
+
+    for (const RtPathTraceMaterialFeatureRecord& feature : table.materialFeatures)
+    {
+        if (!SmokeMaterialFeatureRecordAbiValid(feature))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t materialId)
 {
     std::vector<uint32_t>::iterator existing = std::find(table.materialIds.begin(), table.materialIds.end(), materialId);
@@ -479,7 +502,7 @@ bool ValidateSmokeMaterialIndexes(const RtSmokeMaterialTableBuild& table)
     return table.materialIds.size() == table.materials.size() &&
         table.materialInfos.size() == table.materials.size() &&
         table.materialFacts.size() == table.materials.size() &&
-        table.materialFeatures.size() == table.materials.size() &&
+        ValidateSmokeMaterialFeatureRecords(table) &&
         table.materialFeatureParameters.size() == table.materials.size();
 }
 
@@ -491,6 +514,7 @@ bool SmokeMaterialTableIndexIsValid(const RtSmokeMaterialTableBuild& table, int 
         tableIndex < static_cast<int>(table.materialInfos.size()) &&
         tableIndex < static_cast<int>(table.materialFacts.size()) &&
         tableIndex < static_cast<int>(table.materialFeatures.size()) &&
+        SmokeMaterialFeatureRecordAbiValid(table.materialFeatures[tableIndex]) &&
         tableIndex < static_cast<int>(table.materialFeatureParameters.size());
 }
 

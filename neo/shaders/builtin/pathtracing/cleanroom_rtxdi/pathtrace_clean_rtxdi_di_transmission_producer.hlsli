@@ -3,6 +3,26 @@
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiTransmissionOutput : register(u87);
 Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
 
+float PathTraceCleanRoomTransmissionProducerColorEnergy(float4 color)
+{
+    return dot(abs(color.rgb), float3(1.0, 1.0, 1.0));
+}
+
+float4 PathTraceCleanRoomTransmissionProducerSourceColor(uint2 pixel, float4 fallbackColor)
+{
+    const float4 outputSource = PathTraceCleanRtxdiDiOutputColorSource.Load(int3(pixel, 0));
+    const float4 rrInputSource = PathTraceRRInputColor[pixel];
+    if (PathTraceCleanRoomTransmissionProducerColorEnergy(outputSource) > 1.0e-5)
+    {
+        return outputSource;
+    }
+    if (PathTraceCleanRoomTransmissionProducerColorEnergy(rrInputSource) > 1.0e-5)
+    {
+        return rrInputSource;
+    }
+    return fallbackColor;
+}
+
 float4 PathTraceCleanRoomTransmissionProducerPayload(
     uint2 pixel,
     uint2 dimensions,
@@ -66,14 +86,7 @@ float4 PathTraceCleanRoomTransmissionProducerComposeColor(
         PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
     const PathTraceCleanRtxdiDiGlassThinPayload payload =
         PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
-    const uint2 sourcePixel = PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
-        pixel,
-        dimensions,
-        surface,
-        materialParams,
-        payload);
-    const float4 sourceColor = PathTraceCleanRtxdiDiOutputColorSource.Load(int3(sourcePixel, 0));
-    return PathTraceCleanRtxdiDiComposeThinGlassColor(currentColor, sourceColor, materialParams, payload);
+    return PathTraceCleanRtxdiDiComposeThinGlassColor(currentColor, currentColor, materialParams, payload);
 }
 
 [shader("raygeneration")]
@@ -100,11 +113,14 @@ void RayGen()
         }
         else
         {
-            SmokeOutput[pixel] = PathTraceCleanRoomTransmissionProducerComposeColor(
+            const float4 baseColor = PathTraceCleanRoomTransmissionProducerSourceColor(pixel, SmokeOutput[pixel]);
+            const float4 composedColor = PathTraceCleanRoomTransmissionProducerComposeColor(
                 pixel,
                 dimensions,
-                SmokeOutput[pixel],
+                baseColor,
                 runtimeParams);
+            SmokeOutput[pixel] = composedColor;
+            PathTraceRRInputColor[pixel] = composedColor;
         }
     }
 }

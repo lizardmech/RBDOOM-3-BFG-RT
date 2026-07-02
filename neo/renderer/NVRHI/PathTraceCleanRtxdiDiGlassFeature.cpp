@@ -9,7 +9,7 @@ static RtPathTraceMaterialFeatureShaderDesc PathTraceCleanRtxdiDiGlassShaderDesc
 {
     RtPathTraceMaterialFeatureShaderDesc desc;
     desc.label = "clean-room RTXDI DI glass";
-    desc.shaderBlobPath = "builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_glass.rt.bin";
+    desc.shaderBlobPath = RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB("pathtrace_clean_rtxdi_di_glass");
     return desc;
 }
 
