@@ -57,12 +57,12 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiGlassBindings[] 
     PathTraceCleanRtxdiDiMaterialFeatureParametersBinding(),
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeConstantsBinding(),
     PathTraceCleanRtxdiDiOutputColorSourceBinding(),
-    RT_CLEAN_RTXDI_DI_BINDING_RR_GUIDE_SPECULAR_ALBEDO,
-    RT_CLEAN_RTXDI_DI_BINDING_RR_INPUT_COLOR,
-    RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE0,
-    RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE1,
-    RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE2,
-    RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR
+    PathTraceCleanRtxdiDiRrGuideSpecularAlbedoBinding(),
+    PathTraceCleanRtxdiDiRrInputColorBinding(),
+    PathTraceCleanRtxdiDiGlassGuideCandidate0Binding(),
+    PathTraceCleanRtxdiDiGlassGuideCandidate1Binding(),
+    PathTraceCleanRtxdiDiGlassGuideCandidate2Binding(),
+    PathTraceCleanRtxdiDiOutputColorBinding()
 };
 
 static void FillPathTraceCleanRtxdiDiGlassRuntimeInfo(

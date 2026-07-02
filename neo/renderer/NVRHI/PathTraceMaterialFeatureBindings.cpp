@@ -317,6 +317,28 @@ const RtPathTraceMaterialFeatureBindingDesc* FindPathTraceMaterialFeatureCanonic
     return nullptr;
 }
 
+bool BuildPathTraceMaterialFeatureCanonicalBindingDesc(uint32_t resource, RtPathTraceMaterialFeatureBindingDesc& binding)
+{
+    if (const RtPathTraceMaterialFeatureBindingDesc* canonicalBinding =
+        FindPathTraceMaterialFeatureCanonicalBindingDesc(resource))
+    {
+        binding = *canonicalBinding;
+        return true;
+    }
+
+    if (const RtPathTraceMaterialFeatureOutputDesc* output = FindPathTraceMaterialFeatureOutputDesc(resource))
+    {
+        binding.resource = output->resource;
+        binding.slot = output->uavSlot;
+        binding.kind = RtPathTraceMaterialFeatureBindingKind::TextureUav;
+        binding.debugName = output->debugName;
+        return output->uavSlot != 0xffffffffu;
+    }
+
+    binding = RtPathTraceMaterialFeatureBindingDesc();
+    return false;
+}
+
 void AddPathTraceMaterialFeatureInputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource)
 {
     const RtPathTraceMaterialFeatureInputBindingDesc* binding = FindPathTraceMaterialFeatureInputBindingDesc(resource);

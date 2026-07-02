@@ -10,9 +10,9 @@
 
 inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiCanonicalBinding(uint32_t resource)
 {
-    const RtPathTraceMaterialFeatureBindingDesc* binding =
-        FindPathTraceMaterialFeatureCanonicalBindingDesc(resource);
-    return binding ? *binding : RtPathTraceMaterialFeatureBindingDesc();
+    RtPathTraceMaterialFeatureBindingDesc binding;
+    BuildPathTraceMaterialFeatureCanonicalBindingDesc(resource, binding);
+    return binding;
 }
 
 inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiCurrentPrimarySurfaceBinding()
@@ -45,54 +45,40 @@ inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiOutputColorSou
     return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE);
 }
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR = {
-    RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR,
-    1u,
-    RtPathTraceMaterialFeatureBindingKind::TextureUav,
-    "output-color"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiOutputColorBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
+}
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_TRANSMISSION_OUTPUT = {
-    RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT,
-    87u,
-    RtPathTraceMaterialFeatureBindingKind::TextureUav,
-    "PathTraceCleanRtxdiDiTransmissionOutput"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiTransmissionOutputBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT);
+}
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_RR_GUIDE_SPECULAR_ALBEDO = {
-    RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO,
-    53u,
-    RtPathTraceMaterialFeatureBindingKind::TextureUav,
-    "rr-guide-specular-albedo"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiRrGuideSpecularAlbedoBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO);
+}
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_RR_INPUT_COLOR = {
-    RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR,
-    54u,
-    RtPathTraceMaterialFeatureBindingKind::TextureUav,
-    "rr-input-color"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiRrInputColorBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR);
+}
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE0 = {
-    RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE0,
-    90u,
-    RtPathTraceMaterialFeatureBindingKind::TextureUav,
-    "glass-guide-candidate0"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiGlassGuideCandidate0Binding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE0);
+}
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE1 = {
-    RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE1,
-    91u,
-    RtPathTraceMaterialFeatureBindingKind::TextureUav,
-    "glass-guide-candidate1"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiGlassGuideCandidate1Binding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE1);
+}
 
-static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE2 = {
-    RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE2,
-    92u,
-    RtPathTraceMaterialFeatureBindingKind::TextureUav,
-    "glass-guide-candidate2"
-};
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiGlassGuideCandidate2Binding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE2);
+}
 
 inline bool PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(bool cleanRouteRequested, int cleanView)
 {

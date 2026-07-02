@@ -23,6 +23,7 @@ struct RtPathTraceMaterialFeatureInputResources
 };
 
 const RtPathTraceMaterialFeatureBindingDesc* FindPathTraceMaterialFeatureCanonicalBindingDesc(uint32_t resource);
+bool BuildPathTraceMaterialFeatureCanonicalBindingDesc(uint32_t resource, RtPathTraceMaterialFeatureBindingDesc& binding);
 void AddPathTraceMaterialFeatureInputLayoutBinding(nvrhi::BindingLayoutDesc& desc, uint32_t resource);
 void AddPathTraceMaterialFeatureInputLayoutBindings(nvrhi::BindingLayoutDesc& desc, uint32_t resources);
 void AddPathTraceMaterialFeatureInputBinding(nvrhi::BindingSetDesc& desc, const RtPathTraceMaterialFeatureInputResources& resources, uint32_t resource);

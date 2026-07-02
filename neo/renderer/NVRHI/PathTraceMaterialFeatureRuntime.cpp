@@ -150,9 +150,8 @@ static bool PathTraceMaterialFeatureInputBindingMetadataMatchesCanonicalBindings
             continue;
         }
 
-        const RtPathTraceMaterialFeatureBindingDesc* canonicalBinding =
-            FindPathTraceMaterialFeatureCanonicalBindingDesc(resource);
-        if (!canonicalBinding)
+        RtPathTraceMaterialFeatureBindingDesc canonicalBinding;
+        if (!BuildPathTraceMaterialFeatureCanonicalBindingDesc(resource, canonicalBinding))
         {
             continue;
         }
@@ -167,8 +166,8 @@ static bool PathTraceMaterialFeatureInputBindingMetadataMatchesCanonicalBindings
             }
 
             foundBinding = true;
-            if (binding.kind != canonicalBinding->kind ||
-                binding.slot != canonicalBinding->slot)
+            if (binding.kind != canonicalBinding.kind ||
+                binding.slot != canonicalBinding.slot)
             {
                 return false;
             }

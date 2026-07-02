@@ -49,9 +49,9 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiTransmissionBind
     PathTraceCleanRtxdiDiMaterialFeatureParametersBinding(),
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeConstantsBinding(),
     PathTraceCleanRtxdiDiOutputColorSourceBinding(),
-    RT_CLEAN_RTXDI_DI_BINDING_TRANSMISSION_OUTPUT,
-    RT_CLEAN_RTXDI_DI_BINDING_RR_INPUT_COLOR,
-    RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR
+    PathTraceCleanRtxdiDiTransmissionOutputBinding(),
+    PathTraceCleanRtxdiDiRrInputColorBinding(),
+    PathTraceCleanRtxdiDiOutputColorBinding()
 };
 
 static void FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
