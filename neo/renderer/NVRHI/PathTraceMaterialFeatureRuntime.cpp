@@ -139,6 +139,35 @@ static bool PathTraceMaterialFeatureOutputBindingMetadataMatchesDeclaredOutputs(
     return true;
 }
 
+static bool PathTraceMaterialFeatureBindingMetadataMatchesRegistryContract(
+    const RtPathTraceMaterialFeaturePassRegistration& registration)
+{
+    if (!PathTraceMaterialFeatureStringIsSet(registration.registryContract.featureId))
+    {
+        return true;
+    }
+
+    const uint32_t allowedResources =
+        registration.registryContract.allowedResourceInputs |
+        registration.registryContract.allowedResourceOutputs;
+    for (size_t i = 0; registration.bindingMetadata && i < registration.bindingMetadataCount; ++i)
+    {
+        const RtPathTraceMaterialFeatureBindingDesc& binding = registration.bindingMetadata[i];
+        if (!PathTraceMaterialFeatureResourceMaskIsSingleResource(binding.resource) ||
+            binding.slot == 0xffffffffu ||
+            binding.kind == RtPathTraceMaterialFeatureBindingKind::Unknown)
+        {
+            return false;
+        }
+        if ((allowedResources & binding.resource) == 0u)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool PathTraceMaterialFeatureParameterLayoutIsValid(
     const RtPathTraceMaterialFeatureParameterLayoutDesc& layout)
 {
@@ -542,6 +571,11 @@ bool ValidatePathTraceMaterialFeatureRegistration(
     if (!PathTraceMaterialFeatureBindingMetadataCoversPass(registration))
     {
         return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "binding metadata does not cover declared inputs and outputs");
+    }
+
+    if (!PathTraceMaterialFeatureBindingMetadataMatchesRegistryContract(registration))
+    {
+        return PathTraceMaterialFeatureValidationFail(ownerLabel, featureLabel, "binding metadata is outside the registry resource contract");
     }
 
     const bool parameterLayoutRequired =
