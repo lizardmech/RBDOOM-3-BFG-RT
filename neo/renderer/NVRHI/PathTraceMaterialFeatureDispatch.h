@@ -3,7 +3,7 @@
 // Generic dispatch adapter for material feature raygen passes.
 //
 // The caller owns its pass constants type; the adapter only requires a
-// 16-byte runtime constants buffer matching the current material feature contract.
+// 48-byte runtime constants buffer matching the current material feature contract.
 
 #include "PathTraceFrameResources.h"
 #include "PathTraceMaterialFeatureOutputs.h"

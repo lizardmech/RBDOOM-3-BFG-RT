@@ -309,6 +309,11 @@ cbuffer PathTraceMaterialFeatureRuntimeConstants : register(b88)
     float4 PathTraceMaterialFeatureParams1;
 };
 
+PathTraceMaterialFeatureRuntimeInfo PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeInfo()
+{
+    return LoadPathTraceMaterialFeatureRuntimeInfo(PathTraceMaterialFeatureRuntimeInfoPacked);
+}
+
 struct PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams
 {
     float4 params0;

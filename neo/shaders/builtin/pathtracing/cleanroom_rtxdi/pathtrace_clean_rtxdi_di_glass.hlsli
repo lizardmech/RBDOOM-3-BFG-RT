@@ -159,7 +159,7 @@ void RayGen()
     }
 
     const PathTraceMaterialFeatureRuntimeInfo runtimeInfo =
-        LoadPathTraceMaterialFeatureRuntimeInfo(PathTraceMaterialFeatureRuntimeInfoPacked);
+        PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeInfo();
     if (runtimeInfo.ready < 0.5 || runtimeInfo.writesOutputColor < 0.5)
     {
         return;

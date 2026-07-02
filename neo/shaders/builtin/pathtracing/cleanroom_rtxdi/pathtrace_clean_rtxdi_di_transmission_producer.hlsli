@@ -91,7 +91,7 @@ void RayGen()
     const float4 payload = PathTraceCleanRoomTransmissionProducerPayload(pixel, dimensions, runtimeParams);
     PathTraceCleanRtxdiDiTransmissionOutput[pixel] = payload;
     const PathTraceMaterialFeatureRuntimeInfo runtimeInfo =
-        LoadPathTraceMaterialFeatureRuntimeInfo(PathTraceMaterialFeatureRuntimeInfoPacked);
+        PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeInfo();
     if (runtimeInfo.writesOutputColor)
     {
         if (runtimeInfo.debugMode >= 0.5)
