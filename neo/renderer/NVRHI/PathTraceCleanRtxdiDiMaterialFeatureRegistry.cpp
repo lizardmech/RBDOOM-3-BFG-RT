@@ -67,6 +67,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
             "clean-room RTXDI DI transmission producer",
             RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB("pathtrace_clean_rtxdi_di_transmission_producer")
         },
+        PathTraceObjectGlassMaterialFeatureParameterLayout(),
         RtPathTraceMaterialFeaturePassKind::TransmissionProducer,
         RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION,
         RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
@@ -86,6 +87,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
             "clean-room RTXDI DI glass",
             RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB("pathtrace_clean_rtxdi_di_glass")
         },
+        PathTraceObjectGlassMaterialFeatureParameterLayout(),
         RtPathTraceMaterialFeaturePassKind::TransmissionProducer,
         RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION,
         RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
@@ -104,6 +106,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         "clean-rtxdi-di-noop",
         BuildPathTraceCleanRtxdiDiNoOpRuntimeRegistration,
         BuildPathTraceCleanRtxdiDiNoOpFeatureRegistration,
+        {},
         {},
         RtPathTraceMaterialFeaturePassKind::Disabled,
         0u,

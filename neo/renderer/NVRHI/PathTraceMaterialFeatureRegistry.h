@@ -21,6 +21,7 @@ struct RtPathTraceMaterialFeatureRegistryEntry
     RtPathTraceMaterialFeatureRuntimeRegistrationBuilder buildRuntimeRegistration = nullptr;
     RtPathTraceMaterialFeatureLayoutRegistrationBuilder buildLayoutRegistration = nullptr;
     RtPathTraceMaterialFeatureShaderDesc shaderDesc;
+    RtPathTraceMaterialFeatureParameterLayoutDesc parameterLayout;
     RtPathTraceMaterialFeaturePassKind kind = RtPathTraceMaterialFeaturePassKind::Disabled;
     uint32_t materialCapsConsumed = 0;
     uint32_t materialPassSupport = 0;
@@ -65,6 +66,10 @@ inline void ApplyPathTraceMaterialFeatureRegistryEntry(
     if (!registration.shaderDesc.shaderBlobPath && entry.shaderDesc.shaderBlobPath)
     {
         registration.shaderDesc = entry.shaderDesc;
+    }
+    if (!registration.parameterLayout.layoutName && entry.parameterLayout.layoutName)
+    {
+        registration.parameterLayout = entry.parameterLayout;
     }
 }
 
