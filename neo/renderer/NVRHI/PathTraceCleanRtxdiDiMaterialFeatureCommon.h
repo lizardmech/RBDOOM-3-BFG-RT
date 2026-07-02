@@ -75,6 +75,27 @@ static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_RR_
     "rr-input-color"
 };
 
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE0 = {
+    RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE0,
+    90u,
+    RtPathTraceMaterialFeatureBindingKind::TextureUav,
+    "glass-guide-candidate0"
+};
+
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE1 = {
+    RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE1,
+    91u,
+    RtPathTraceMaterialFeatureBindingKind::TextureUav,
+    "glass-guide-candidate1"
+};
+
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE2 = {
+    RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE2,
+    92u,
+    RtPathTraceMaterialFeatureBindingKind::TextureUav,
+    "glass-guide-candidate2"
+};
+
 inline bool PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(bool cleanRouteRequested, int cleanView)
 {
     return cleanRouteRequested && cleanView == 16;

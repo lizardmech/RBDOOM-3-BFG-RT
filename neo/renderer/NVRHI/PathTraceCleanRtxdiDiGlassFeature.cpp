@@ -35,7 +35,10 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
     {
         desc.resourceOutputs |=
             RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO |
-            RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR;
+            RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR |
+            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE0 |
+            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE1 |
+            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE2;
     }
     desc.enabled = cleanGlassRoute && (shaderRequested || debugOutputRequested);
     desc.debugLabel = debugOutput ? "clean-rtxdi-di-glass-debug" : "clean-rtxdi-di-glass";
@@ -51,6 +54,9 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiGlassBindings[] 
     RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR_SOURCE,
     RT_CLEAN_RTXDI_DI_BINDING_RR_GUIDE_SPECULAR_ALBEDO,
     RT_CLEAN_RTXDI_DI_BINDING_RR_INPUT_COLOR,
+    RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE0,
+    RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE1,
+    RT_CLEAN_RTXDI_DI_BINDING_GLASS_GUIDE_CANDIDATE2,
     RT_CLEAN_RTXDI_DI_BINDING_OUTPUT_COLOR
 };
 
@@ -58,10 +64,16 @@ static void FillPathTraceCleanRtxdiDiGlassRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc& passDesc)
 {
+    const int guideDebugMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiGlassGuideDebugView.GetInteger());
     FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
         runtimeInfo,
         passDesc,
         r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0);
+    if (guideDebugMode > 0 &&
+        PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR))
+    {
+        runtimeInfo.debugMode = static_cast<float>(1 + guideDebugMode);
+    }
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(
@@ -70,24 +82,25 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
 {
     const bool shaderRequested = r_pathTracingCleanRtxdiDiGlassShader.GetInteger() != 0;
     const bool debugOutputRequested = r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0;
+    const bool guideDebugRequested = r_pathTracingCleanRtxdiDiGlassGuideDebugView.GetInteger() != 0;
 
     RtPathTraceMaterialFeaturePassRegistration registration;
     registration.passDesc = BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
         cleanRouteRequested,
         cleanView,
-        shaderRequested,
-        debugOutputRequested);
+        shaderRequested || guideDebugRequested,
+        debugOutputRequested || guideDebugRequested);
     registration.shaderDesc = PathTraceCleanRtxdiDiGlassShaderDesc();
     registration.bindingMetadata = kCleanRtxdiDiGlassBindings;
     registration.bindingMetadataCount = sizeof(kCleanRtxdiDiGlassBindings) / sizeof(kCleanRtxdiDiGlassBindings[0]);
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiGlassRuntimeInfo;
     registration.validation = {
         "cmake --build --preset win64-pt-dev-release",
-        "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiGlassShader 1; optional r_pathTracingCleanRtxdiDiGlassDebugView 1",
+        "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiGlassShader 1; optional r_pathTracingCleanRtxdiDiGlassDebugView 1 or r_pathTracingCleanRtxdiDiGlassGuideDebugView 1..3",
         "glass material writes thin-glass attenuation/reflectance through the material-feature ABI",
         "opaque material writes dark unsupported debug color",
         "clean RTXDI DI primary view 16 unchanged unless the glass shader owns output-color",
-        "RtPathTraceMaterialFeatureBindingDesc output-color-source t89, rr-guide-specular-albedo u53, rr-input-color u54, output-color u1",
+        "RtPathTraceMaterialFeatureBindingDesc output-color-source t89, rr-guide-specular-albedo u53, rr-input-color u54, isolated glass guide candidates u90/u91/u92, output-color u1",
         "PathTraceMaterialFeatureRecord t80 plus PathTraceMaterialFeatureParameters t81 with b88 defaults"
     };
     return registration;

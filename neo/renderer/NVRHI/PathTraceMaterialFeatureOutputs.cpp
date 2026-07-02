@@ -33,6 +33,24 @@ static const RtPathTraceMaterialFeatureOutputDesc kMaterialFeatureOutputs[] = {
         54u,
         "rr-input-color",
         &RtPathTraceFrameResources::rrInputColorTexture
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE0,
+        90u,
+        "glass-guide-candidate0",
+        &RtPathTraceFrameResources::glassGuideCandidate0Texture
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE1,
+        91u,
+        "glass-guide-candidate1",
+        &RtPathTraceFrameResources::glassGuideCandidate1Texture
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE2,
+        92u,
+        "glass-guide-candidate2",
+        &RtPathTraceFrameResources::glassGuideCandidate2Texture
     }
 };
 

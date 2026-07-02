@@ -239,6 +239,31 @@ This is separate from the first beauty consume step. The first glass slice may
 leave RR guide generation unchanged, but it must not claim RR correctness until
 the refractive guide-normal contract is implemented and debugged.
 
+Direct Live RR Tuple Write Failure
+----------------------------------
+
+2026-07-02 validation found that writing a behind-glass RR tuple directly from
+the clean-DI glass material-feature shader into the live Streamline guide
+resources is unsafe. The attempted slice wrote the refracted source surface into
+`PathTraceRRGuideNormalRoughness`, `PathTraceRRGuideDepth`,
+`PathTraceRRGuideResetMask`, `PathTraceRRMotionVectors`, and
+`PathTraceRRGuidePosition` from the glass feature pass. Runtime symptom:
+clean RTXDI DI view 16 became a purple primary output; enabling glass plus
+DLSSRR showed only emissive and glass-like surfaces, not the full primary view.
+Rolling the tuple experiment back restored normal rendering.
+
+Treat this as a contract rule, not as a transient bug:
+
+    the glass material-feature shader may adjust RR input color/specular guide
+        only through the already validated color path
+    it must not overwrite live Streamline normal/depth/motion/position guides
+        from a shader-local screen-space source pixel
+    a future RR glass guide implementation needs a separate resolved-guide
+        candidate contract, with ownership, barriers, debug views, and a
+        compositor/validator pass that updates normal, depth, motion, position,
+        and reset state as one coherent tuple
+    until that pass exists, keep live RR guide normal/depth/motion replacement
+        disabled and leave DLSSRR glass guide parity as a non-goal
 
 DLSS/RR Specular Channel Rule
 -----------------------------

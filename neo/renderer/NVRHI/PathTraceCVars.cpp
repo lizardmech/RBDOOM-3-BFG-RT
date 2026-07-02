@@ -1647,6 +1647,18 @@ idCVar r_pathTracingCleanRtxdiDiGlassDebugView(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 glass material-feature debug output: 0 off, 1 route glass proof color to SmokeOutput after clean DI spatial" );
 
+idCVar r_pathTracingCleanRtxdiDiGlassGuideDebugView(
+    "r_pathTracingCleanRtxdiDiGlassGuideDebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI view 16 glass resolved-guide candidate debug: 0 off, 1 normal/depth, 2 motion/reset/valid, 3 absolute source-pixel offset; writes only isolated u90-u92 candidates" );
+
+idCVar r_pathTracingCleanRtxdiDiGlassGuideCompose(
+    "r_pathTracingCleanRtxdiDiGlassGuideCompose",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Experimental clean RTXDI DI view 16 glass guide compose before DLSSRR: 0 off, 1 copy validated u90-u92 candidate tuple into live RR normal/depth/motion/position together" );
+
 idCVar r_cleanDiSpatial(
     "r_cleanDiSpatial",
     "1",

@@ -69,6 +69,20 @@ struct PathTraceCleanRtxdiDiBoilingFilterConstants
     uint32_t enabled = 0;
 };
 
+struct PathTraceCleanRtxdiDiGlassGuideComposeConstants
+{
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t enabled = 0;
+    uint32_t resetOnReplacement = 0;
+    float minWeight = 0.01f;
+    float padding0 = 0.0f;
+    float padding1 = 0.0f;
+    float padding2 = 0.0f;
+};
+
+static_assert(sizeof(PathTraceCleanRtxdiDiGlassGuideComposeConstants) == 32, "Glass guide compose constants must match HLSL packing");
+
 float PathTraceDLSSRRHalton(uint32_t index, uint32_t base)
 {
     float result = 0.0f;
@@ -2725,6 +2739,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.glassGuideCandidate0Texture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.glassGuideCandidate1Texture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.glassGuideCandidate2Texture);
 
             if (cleanNeeCacheBuildPrepassRequested &&
                 m_smokeNeeCachePrimarySurfaceUpdatePipeline &&
@@ -4267,6 +4284,94 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 dispatchCleanRestirGi(cleanGiView0ResolveRequested);
                 cleanGiDispatchedBeforeRr = true;
+            }
+
+            const bool cleanGlassGuideComposeEnabled =
+                cleanRtxdiDiView == 16 &&
+                r_pathTracingCleanRtxdiDiGlassGuideCompose.GetInteger() != 0 &&
+                r_pathTracingCleanRtxdiDiGlassShader.GetInteger() != 0 &&
+                m_smokeCleanRtxdiDiGlassGuideComposePipeline &&
+                m_smokeCleanRtxdiDiGlassGuideComposeBindingLayout &&
+                m_smokeCleanRtxdiDiGlassGuideComposeConstantsBuffer &&
+                m_frameResources.glassGuideCandidate0Texture &&
+                m_frameResources.glassGuideCandidate1Texture &&
+                m_frameResources.glassGuideCandidate2Texture &&
+                m_frameResources.rrGuideNormalRoughnessTexture &&
+                m_frameResources.rrGuideDepthTexture &&
+                m_frameResources.rrGuideResetMaskTexture &&
+                m_frameResources.rrMotionVectorTexture &&
+                m_frameResources.rrGuidePositionTexture;
+            if (cleanGlassGuideComposeEnabled)
+            {
+                if (!m_smokeCleanRtxdiDiGlassGuideComposeBindingSet ||
+                    m_smokeCleanRtxdiDiGlassGuideComposeCandidate0Texture != m_frameResources.glassGuideCandidate0Texture ||
+                    m_smokeCleanRtxdiDiGlassGuideComposeCandidate1Texture != m_frameResources.glassGuideCandidate1Texture ||
+                    m_smokeCleanRtxdiDiGlassGuideComposeCandidate2Texture != m_frameResources.glassGuideCandidate2Texture ||
+                    m_smokeCleanRtxdiDiGlassGuideComposeNormalRoughnessTexture != m_frameResources.rrGuideNormalRoughnessTexture ||
+                    m_smokeCleanRtxdiDiGlassGuideComposeDepthTexture != m_frameResources.rrGuideDepthTexture ||
+                    m_smokeCleanRtxdiDiGlassGuideComposeResetMaskTexture != m_frameResources.rrGuideResetMaskTexture ||
+                    m_smokeCleanRtxdiDiGlassGuideComposeMotionTexture != m_frameResources.rrMotionVectorTexture ||
+                    m_smokeCleanRtxdiDiGlassGuideComposePositionTexture != m_frameResources.rrGuidePositionTexture)
+                {
+                    nvrhi::BindingSetDesc cleanGlassGuideComposeBindingSetDesc;
+                    cleanGlassGuideComposeBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_smokeCleanRtxdiDiGlassGuideComposeConstantsBuffer));
+                    cleanGlassGuideComposeBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(1, m_frameResources.glassGuideCandidate0Texture));
+                    cleanGlassGuideComposeBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(2, m_frameResources.glassGuideCandidate1Texture));
+                    cleanGlassGuideComposeBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(3, m_frameResources.glassGuideCandidate2Texture));
+                    cleanGlassGuideComposeBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(4, m_frameResources.rrGuideNormalRoughnessTexture));
+                    cleanGlassGuideComposeBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(5, m_frameResources.rrGuideDepthTexture));
+                    cleanGlassGuideComposeBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(6, m_frameResources.rrGuideResetMaskTexture));
+                    cleanGlassGuideComposeBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(7, m_frameResources.rrMotionVectorTexture));
+                    cleanGlassGuideComposeBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(8, m_frameResources.rrGuidePositionTexture));
+                    m_smokeCleanRtxdiDiGlassGuideComposeBindingSet = device->createBindingSet(cleanGlassGuideComposeBindingSetDesc, m_smokeCleanRtxdiDiGlassGuideComposeBindingLayout);
+                    m_smokeCleanRtxdiDiGlassGuideComposeCandidate0Texture = m_smokeCleanRtxdiDiGlassGuideComposeBindingSet ? m_frameResources.glassGuideCandidate0Texture : nullptr;
+                    m_smokeCleanRtxdiDiGlassGuideComposeCandidate1Texture = m_smokeCleanRtxdiDiGlassGuideComposeBindingSet ? m_frameResources.glassGuideCandidate1Texture : nullptr;
+                    m_smokeCleanRtxdiDiGlassGuideComposeCandidate2Texture = m_smokeCleanRtxdiDiGlassGuideComposeBindingSet ? m_frameResources.glassGuideCandidate2Texture : nullptr;
+                    m_smokeCleanRtxdiDiGlassGuideComposeNormalRoughnessTexture = m_smokeCleanRtxdiDiGlassGuideComposeBindingSet ? m_frameResources.rrGuideNormalRoughnessTexture : nullptr;
+                    m_smokeCleanRtxdiDiGlassGuideComposeDepthTexture = m_smokeCleanRtxdiDiGlassGuideComposeBindingSet ? m_frameResources.rrGuideDepthTexture : nullptr;
+                    m_smokeCleanRtxdiDiGlassGuideComposeResetMaskTexture = m_smokeCleanRtxdiDiGlassGuideComposeBindingSet ? m_frameResources.rrGuideResetMaskTexture : nullptr;
+                    m_smokeCleanRtxdiDiGlassGuideComposeMotionTexture = m_smokeCleanRtxdiDiGlassGuideComposeBindingSet ? m_frameResources.rrMotionVectorTexture : nullptr;
+                    m_smokeCleanRtxdiDiGlassGuideComposePositionTexture = m_smokeCleanRtxdiDiGlassGuideComposeBindingSet ? m_frameResources.rrGuidePositionTexture : nullptr;
+                }
+
+                if (m_smokeCleanRtxdiDiGlassGuideComposeBindingSet)
+                {
+                    PathTraceCleanRtxdiDiGlassGuideComposeConstants composeConstants;
+                    composeConstants.width = static_cast<uint32_t>(Max(m_frameResources.width, 0));
+                    composeConstants.height = static_cast<uint32_t>(Max(m_frameResources.height, 0));
+                    composeConstants.enabled = 1u;
+                    composeConstants.resetOnReplacement = 1u;
+                    composeConstants.minWeight = 0.01f;
+                    commandList->writeBuffer(m_smokeCleanRtxdiDiGlassGuideComposeConstantsBuffer, &composeConstants, sizeof(composeConstants));
+
+                    commandList->setTextureState(m_frameResources.glassGuideCandidate0Texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.glassGuideCandidate1Texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.glassGuideCandidate2Texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                    commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                    commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                    commandList->setTextureState(m_frameResources.rrMotionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                    commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                    commandList->commitBarriers();
+
+                    nvrhi::ComputeState cleanGlassGuideComposeState;
+                    cleanGlassGuideComposeState.pipeline = m_smokeCleanRtxdiDiGlassGuideComposePipeline;
+                    cleanGlassGuideComposeState.bindings = { m_smokeCleanRtxdiDiGlassGuideComposeBindingSet };
+                    commandList->setComputeState(cleanGlassGuideComposeState);
+                    {
+                        PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.4 GlassGuideCompose Dispatch", nsightGpuMarkers);
+                        commandList->dispatch(
+                            static_cast<uint32_t>((m_frameResources.width + 7) / 8),
+                            static_cast<uint32_t>((m_frameResources.height + 7) / 8),
+                            1);
+                    }
+
+                    nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
+                    nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
+                    nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
+                    nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
+                    nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
+                }
             }
 
             commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);

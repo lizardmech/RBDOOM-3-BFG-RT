@@ -130,6 +130,9 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         TextureSizeMatches(rrGuideHitDistanceTexture, requestedWidth, requestedHeight) &&
         TextureSizeMatches(rrGuideResetMaskTexture, requestedWidth, requestedHeight) &&
         TextureSizeMatches(rrGuidePositionTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(glassGuideCandidate0Texture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(glassGuideCandidate1Texture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(glassGuideCandidate2Texture, requestedWidth, requestedHeight) &&
         readbackTexture &&
         rrInputColorDumpReadbackTexture &&
         smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight) &&
@@ -162,6 +165,9 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         rrGuideHitDistanceTexture ||
         rrGuideResetMaskTexture ||
         rrGuidePositionTexture ||
+        glassGuideCandidate0Texture ||
+        glassGuideCandidate1Texture ||
+        glassGuideCandidate2Texture ||
         readbackTexture ||
         rrInputColorDumpReadbackTexture ||
         smokeReservoirBuffers.current ||
@@ -364,6 +370,32 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
+    nvrhi::TextureDesc glassGuideCandidateDesc = renderDesc;
+    glassGuideCandidateDesc.format = nvrhi::Format::RGBA32_FLOAT;
+    glassGuideCandidateDesc.debugName = "PathTraceCleanRtxdiDiGlassGuideCandidate0";
+    nvrhi::TextureHandle newGlassGuideCandidate0Texture = device->createTexture(glassGuideCandidateDesc);
+    if (!newGlassGuideCandidate0Texture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create clean RTXDI DI glass guide candidate0 UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
+    glassGuideCandidateDesc.debugName = "PathTraceCleanRtxdiDiGlassGuideCandidate1";
+    nvrhi::TextureHandle newGlassGuideCandidate1Texture = device->createTexture(glassGuideCandidateDesc);
+    if (!newGlassGuideCandidate1Texture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create clean RTXDI DI glass guide candidate1 UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
+    glassGuideCandidateDesc.debugName = "PathTraceCleanRtxdiDiGlassGuideCandidate2";
+    nvrhi::TextureHandle newGlassGuideCandidate2Texture = device->createTexture(glassGuideCandidateDesc);
+    if (!newGlassGuideCandidate2Texture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create clean RTXDI DI glass guide candidate2 UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
     nvrhi::TextureDesc readbackDesc = outputDesc;
     readbackDesc.isShaderResource = false;
     readbackDesc.isUAV = false;
@@ -414,6 +446,9 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     rrGuideHitDistanceTexture = newRrGuideHitDistanceTexture;
     rrGuideResetMaskTexture = newRrGuideResetMaskTexture;
     rrGuidePositionTexture = newRrGuidePositionTexture;
+    glassGuideCandidate0Texture = newGlassGuideCandidate0Texture;
+    glassGuideCandidate1Texture = newGlassGuideCandidate1Texture;
+    glassGuideCandidate2Texture = newGlassGuideCandidate2Texture;
     readbackTexture = newReadbackTexture;
     rrInputColorDumpReadbackTexture = newRrInputColorDumpReadbackTexture;
     width = requestedWidth;
@@ -423,7 +458,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     diagnostics.outputTexturesCreated += 6;
     diagnostics.motionVectorTexturesCreated += 2;
     diagnostics.motionVectorMaskTexturesCreated++;
-    diagnostics.rrGuideTexturesCreated += 7;
+    diagnostics.rrGuideTexturesCreated += 10;
     diagnostics.diagnosticReadbackResourcesCreated += 2;
     diagnostics.outputTextureBytes =
         EstimateRgba32FloatTextureBytes(outputWidth, outputHeight) * 2ull +
@@ -432,7 +467,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     diagnostics.rrGuideBytes =
         EstimateRgba16FloatTextureBytes(width, height) * 3ull +
-        EstimateRgba32FloatTextureBytes(width, height) +
+        EstimateRgba32FloatTextureBytes(width, height) * 4ull +
         EstimateR32FloatTextureBytes(width, height) * 2ull +
         EstimateR32UintTextureBytes(width, height);
     MarkResetReason(RT_FRAME_RESET_OUTPUT_RESIZE);
@@ -620,7 +655,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),
         static_cast<unsigned long long>(diagnostics.motionVectorMaskBytes));
 
-    common->Printf("PathTraceFrameResources: RT DLSS RR guide scaffold render=%dx%d output=%dx%d albedo=RGBA16_FLOAT/u48 normalRoughness=RGBA16_FLOAT/u49 depth=R32_FLOAT/u50 hitDistance=R32_FLOAT/u51 resetMask=R32_UINT/u52 specularAlbedo=RGBA16_FLOAT/u53 rrInputColor=RGBA32_FLOAT/u54 position=RGBA32_FLOAT/u79 guideBytes=%llu producer=primary-surface-prepass\n",
+    common->Printf("PathTraceFrameResources: RT DLSS RR guide scaffold render=%dx%d output=%dx%d albedo=RGBA16_FLOAT/u48 normalRoughness=RGBA16_FLOAT/u49 depth=R32_FLOAT/u50 hitDistance=R32_FLOAT/u51 resetMask=R32_UINT/u52 specularAlbedo=RGBA16_FLOAT/u53 rrInputColor=RGBA32_FLOAT/u54 position=RGBA32_FLOAT/u79 glassCandidate=RGBA32_FLOAT/u90-u92 guideBytes=%llu producer=primary-surface-prepass\n",
         requestedWidth,
         requestedHeight,
         requestedOutputWidth,
@@ -649,6 +684,9 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     rrGuideHitDistanceTexture = nullptr;
     rrGuideResetMaskTexture = nullptr;
     rrGuidePositionTexture = nullptr;
+    glassGuideCandidate0Texture = nullptr;
+    glassGuideCandidate1Texture = nullptr;
+    glassGuideCandidate2Texture = nullptr;
     readbackTexture = nullptr;
     rrInputColorDumpReadbackTexture = nullptr;
     width = 0;

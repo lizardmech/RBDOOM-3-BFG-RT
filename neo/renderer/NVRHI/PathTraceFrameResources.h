@@ -108,6 +108,9 @@ struct RtPathTraceFrameResources
     nvrhi::TextureHandle rrGuideHitDistanceTexture;
     nvrhi::TextureHandle rrGuideResetMaskTexture;
     nvrhi::TextureHandle rrGuidePositionTexture;
+    nvrhi::TextureHandle glassGuideCandidate0Texture;
+    nvrhi::TextureHandle glassGuideCandidate1Texture;
+    nvrhi::TextureHandle glassGuideCandidate2Texture;
     nvrhi::StagingTextureHandle readbackTexture;
     nvrhi::StagingTextureHandle rrInputColorDumpReadbackTexture;
     int width = 0;
