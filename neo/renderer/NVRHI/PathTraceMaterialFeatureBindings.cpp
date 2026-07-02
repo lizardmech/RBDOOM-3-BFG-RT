@@ -433,12 +433,7 @@ void AddPathTraceMaterialFeatureRegistrationBindings(
     for (size_t i = 0; i < registration.bindingMetadataCount; ++i)
     {
         const RtPathTraceMaterialFeatureBindingDesc& binding = registration.bindingMetadata[i];
-        if ((registration.passDesc.resourceInputs & binding.resource) != 0u ||
-            (registration.passDesc.resourceOutputs & binding.resource) != 0u ||
-            binding.resource == RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE)
-        {
-            AddPathTraceMaterialFeatureBindingSetItem(desc, resources, frameResources, binding);
-        }
+        AddPathTraceMaterialFeatureBindingSetItem(desc, resources, frameResources, binding);
     }
 }
 
