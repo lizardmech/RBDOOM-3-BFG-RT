@@ -2,6 +2,7 @@
 #include "pathtrace_clean_rtxdi_di_shared.hlsli"
 #include "pathtrace_clean_rtxdi_di_math.hlsli"
 #include "pathtrace_clean_rtxdi_di_material_adapter.hlsli"
+#include "pathtrace_clean_rtxdi_di_glass_params.hlsli"
 #include "pathtrace_clean_rtxdi_di_glass_math.hlsli"
 #include "pathtrace_clean_rtxdi_di_smoke_exports.hlsli"
 #include "pathtrace_clean_rtxdi_di_transmission_producer.hlsli"

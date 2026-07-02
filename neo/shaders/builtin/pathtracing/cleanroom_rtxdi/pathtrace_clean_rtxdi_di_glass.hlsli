@@ -34,8 +34,10 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(
     const PathTraceMaterialFeature feature = PathTraceCleanRtxdiDiGlassFeatureForSurface(surface);
     if (PathTraceCleanRtxdiDiGlassFeatureSupported(feature))
     {
+        const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
+            PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
         const PathTraceCleanRtxdiDiGlassThinPayload payload =
-            PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, runtimeParams);
+            PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
         return float4(saturate(payload.transmission + payload.reflection * 0.25), 1.0);
     }
 

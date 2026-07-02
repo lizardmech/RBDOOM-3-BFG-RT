@@ -64,13 +64,15 @@ float4 PathTraceCleanRoomTransmissionProducerComposeColor(
         return currentColor;
     }
 
+    const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
+        PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
     const PathTraceCleanRtxdiDiGlassThinPayload payload =
-        PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, runtimeParams);
+        PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
     const float payloadWeight = saturate(payload.weight);
-    const float reflectionBoost = max(runtimeParams.params1.z, 0.0);
-    const float transmissionFloor = max(runtimeParams.params1.w, 0.0);
     const float3 attenuatedColor = currentColor.rgb * saturate(payload.transmission);
-    const float3 surfaceTerm = payload.reflection * reflectionBoost + payload.transmission * transmissionFloor;
+    const float3 surfaceTerm =
+        payload.reflection * materialParams.reflectionBoost +
+        payload.transmission * materialParams.transmissionFloor;
     const float3 composedColor = saturate(attenuatedColor + surfaceTerm);
     return float4(lerp(currentColor.rgb, composedColor, payloadWeight), currentColor.a);
 }

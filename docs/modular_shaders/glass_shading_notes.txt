@@ -129,16 +129,20 @@ Good starter defaults:
 Parameter Source
 ----------------
 
-Use the current runtime parameter lanes for the first visible prototype, but
-do not treat them as the final material ABI.
+Use `pathtrace_clean_rtxdi_di_glass_params.hlsli` as the shader-facing parameter
+adapter. Runtime parameter lanes are defaults and global proof controls, not the
+final material ABI.
 
 Near-term mapping:
 
     featureParams0.xyz = transmittance color
     featureParams0.w   = thin thickness
     featureParams1.x   = IOR
-    featureParams1.y   = debug blend or strength
-    featureParams1.zw  = reserved
+    featureParams1.y   = strength
+    featureParams1.z   = compose reflection boost
+    featureParams1.w   = compose transmission floor
+    material-feature sidecar/surface data may override transmittance tint per
+        material when a valid glass feature record is present
 
 After proof:
 

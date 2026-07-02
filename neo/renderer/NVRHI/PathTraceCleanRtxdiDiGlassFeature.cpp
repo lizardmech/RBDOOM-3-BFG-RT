@@ -110,7 +110,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
         "opaque material writes dark unsupported debug color",
         "clean RTXDI DI primary view 16 unchanged unless glass debug view is enabled",
         "RtPathTraceMaterialFeatureBindingDesc output-color u1 PathTraceCleanRtxdiDiGlassDebug",
-        "PathTraceMaterialFeatureRecord t80 plus glass transmittance/thickness/ior params in b88"
+        "PathTraceMaterialFeatureRecord t80 plus pathtrace_clean_rtxdi_di_glass_params.hlsli material params with b88 defaults"
     };
     return registration;
 }

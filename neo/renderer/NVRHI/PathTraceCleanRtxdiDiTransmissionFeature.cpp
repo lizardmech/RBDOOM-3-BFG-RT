@@ -123,7 +123,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
         "clean RTXDI DI primary view 16 unchanged unless transmission compose or debug view is enabled",
         "RtPathTraceMaterialFeatureOutputDesc transmission u87 PathTraceCleanRtxdiDiTransmissionOutput plus optional output-color u1",
-        "PathTraceMaterialFeatureRuntimeInfo plus glass transmittance/thickness/ior/compose params in b88"
+        "PathTraceMaterialFeatureRuntimeInfo plus pathtrace_clean_rtxdi_di_glass_params.hlsli material params with b88 defaults/controls"
     };
     return registration;
 }

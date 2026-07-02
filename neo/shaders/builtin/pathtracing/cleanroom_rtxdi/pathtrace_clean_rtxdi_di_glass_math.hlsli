@@ -122,7 +122,7 @@ struct PathTraceCleanRtxdiDiGlassThinPayload
 
 PathTraceCleanRtxdiDiGlassThinPayload PathTraceCleanRtxdiDiBuildGlassThinPayload(
     RAB_Surface surface,
-    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
+    PathTraceCleanRtxdiDiGlassMaterialParams materialParams)
 {
     PathTraceCleanRtxdiDiGlassThinPayload payload;
 
@@ -130,10 +130,10 @@ PathTraceCleanRtxdiDiGlassThinPayload PathTraceCleanRtxdiDiBuildGlassThinPayload
     const float3 viewDirection = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
     const float ndotv = saturate(abs(dot(normal, viewDirection)));
 
-    const float3 transmittanceColor = saturate(runtimeParams.params0.xyz);
-    const float thickness = max(runtimeParams.params0.w, 0.0);
-    const float glassIor = max(runtimeParams.params1.x, 1.0001);
-    const float strength = saturate(runtimeParams.params1.y);
+    const float3 transmittanceColor = saturate(materialParams.transmittanceColor);
+    const float thickness = max(materialParams.thickness, 0.0);
+    const float glassIor = max(materialParams.ior, 1.0001);
+    const float strength = saturate(materialParams.strength);
 
     const float f0 = PathTraceCleanRtxdiDiGlassIorToF0(1.0, glassIor);
     const float outsideFresnel = PathTraceCleanRtxdiDiGlassSchlickFresnel(f0, ndotv);
@@ -161,6 +161,15 @@ PathTraceCleanRtxdiDiGlassThinPayload PathTraceCleanRtxdiDiBuildGlassThinPayload
     payload.fresnel = outsideFresnel;
     payload.attenuationDistance = attenuationDistance;
     return payload;
+}
+
+PathTraceCleanRtxdiDiGlassThinPayload PathTraceCleanRtxdiDiBuildGlassThinPayload(
+    RAB_Surface surface,
+    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
+{
+    return PathTraceCleanRtxdiDiBuildGlassThinPayload(
+        surface,
+        PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams));
 }
 
 #endif
