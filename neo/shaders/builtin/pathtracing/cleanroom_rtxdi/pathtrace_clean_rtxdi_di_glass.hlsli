@@ -31,36 +31,30 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(
     return float4(0.015, 0.015, 0.025, 1.0);
 }
 
-float4 PathTraceCleanRtxdiDiGlassComposeColor(
+void PathTraceCleanRtxdiDiGlassExportRrSpecularGuide(
     uint2 pixel,
-    uint2 dimensions,
-    float4 currentColor,
-    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
+    PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
+    PathTraceCleanRtxdiDiGlassThinPayload payload)
 {
-    RAB_Surface surface;
-    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
-    {
-        return currentColor;
-    }
+    const float3 currentSpecular = saturate(PathTraceRRGuideSpecularAlbedo[pixel].rgb);
+    const float3 glassSpecular = saturate(
+        payload.reflection *
+        max(materialParams.reflectionBoost, 1.0) *
+        saturate(payload.weight));
+    PathTraceRRGuideSpecularAlbedo[pixel] = float4(max(currentSpecular, glassSpecular), 1.0);
+}
 
-    const PathTraceMaterialFeature feature = PathTraceCleanRtxdiDiGlassFeatureForSurface(surface);
-    if (!PathTraceCleanRtxdiDiGlassFeatureSupported(feature))
-    {
-        return currentColor;
-    }
-
-    const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
-        PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
-    const PathTraceCleanRtxdiDiGlassThinPayload payload =
-        PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
-    const uint2 sourcePixel = PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
-        pixel,
-        dimensions,
-        surface,
+void PathTraceCleanRtxdiDiGlassExportRrInputColor(
+    uint2 pixel,
+    float4 sourceColor,
+    PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
+    PathTraceCleanRtxdiDiGlassThinPayload payload)
+{
+    PathTraceRRInputColor[pixel] = PathTraceCleanRtxdiDiComposeThinGlassColor(
+        PathTraceRRInputColor[pixel],
+        sourceColor,
         materialParams,
         payload);
-    const float4 sourceColor = PathTraceCleanRtxdiDiOutputColorSource.Load(int3(sourcePixel, 0));
-    return PathTraceCleanRtxdiDiComposeThinGlassColor(currentColor, sourceColor, materialParams, payload);
 }
 
 [shader("raygeneration")]
@@ -88,11 +82,32 @@ void RayGen()
     }
     else
     {
-        SmokeOutput[pixel] = PathTraceCleanRtxdiDiGlassComposeColor(
-            pixel,
-            dimensions,
-            SmokeOutput[pixel],
-            runtimeParams);
+        RAB_Surface surface;
+        if (PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
+        {
+            const PathTraceMaterialFeature feature = PathTraceCleanRtxdiDiGlassFeatureForSurface(surface);
+            if (PathTraceCleanRtxdiDiGlassFeatureSupported(feature))
+            {
+                const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
+                    PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
+                const PathTraceCleanRtxdiDiGlassThinPayload payload =
+                    PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
+                const uint2 sourcePixel = PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
+                    pixel,
+                    dimensions,
+                    surface,
+                    materialParams,
+                    payload);
+                const float4 sourceColor = PathTraceCleanRtxdiDiOutputColorSource.Load(int3(sourcePixel, 0));
+                SmokeOutput[pixel] = PathTraceCleanRtxdiDiComposeThinGlassColor(
+                    SmokeOutput[pixel],
+                    sourceColor,
+                    materialParams,
+                    payload);
+                PathTraceCleanRtxdiDiGlassExportRrSpecularGuide(pixel, materialParams, payload);
+                PathTraceCleanRtxdiDiGlassExportRrInputColor(pixel, sourceColor, materialParams, payload);
+            }
+        }
     }
 }
 

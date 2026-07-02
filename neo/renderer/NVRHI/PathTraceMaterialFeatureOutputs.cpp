@@ -21,6 +21,18 @@ static const RtPathTraceMaterialFeatureOutputDesc kMaterialFeatureOutputs[] = {
         87u,
         "transmission-output",
         &RtPathTraceFrameResources::transmissionTexture
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO,
+        53u,
+        "rr-guide-specular-albedo",
+        &RtPathTraceFrameResources::rrGuideSpecularAlbedoTexture
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR,
+        54u,
+        "rr-input-color",
+        &RtPathTraceFrameResources::rrInputColorTexture
     }
 };
 

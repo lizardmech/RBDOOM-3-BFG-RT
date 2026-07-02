@@ -61,6 +61,20 @@ static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_TRA
     "PathTraceCleanRtxdiDiTransmissionOutput"
 };
 
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_RR_GUIDE_SPECULAR_ALBEDO = {
+    RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO,
+    53u,
+    RtPathTraceMaterialFeatureBindingKind::TextureUav,
+    "rr-guide-specular-albedo"
+};
+
+static const RtPathTraceMaterialFeatureBindingDesc RT_CLEAN_RTXDI_DI_BINDING_RR_INPUT_COLOR = {
+    RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR,
+    54u,
+    RtPathTraceMaterialFeatureBindingKind::TextureUav,
+    "rr-input-color"
+};
+
 inline bool PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(bool cleanRouteRequested, int cleanView)
 {
     return cleanRouteRequested && cleanView == 16;
