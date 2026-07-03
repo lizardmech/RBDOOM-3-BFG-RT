@@ -5,6 +5,7 @@ Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
 
 static const float RT_CLEAN_RTXDI_DI_GLASS_SUPPORTED_SOURCE_TAP_WEIGHT = 0.25;
 static const float RT_CLEAN_RTXDI_DI_GLASS_SOURCE_DEPTH_EPSILON = 0.05;
+static const float RT_CLEAN_RTXDI_DI_GLASS_CHROMATIC_REFRACTION_SCALE = 0.06;
 
 struct PathTraceCleanRtxdiDiGlassComposeResult
 {
@@ -142,6 +143,41 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
         validWeightSum;
 }
 
+float4 PathTraceCleanRtxdiDiGlassOutputSourceColorChromatic(
+    Texture2D<float4> outputColorSource,
+    float2 currentPixel,
+    float2 refractedSamplePixel,
+    uint2 dimensions,
+    RAB_Surface referenceSurface,
+    float4 fallbackColor)
+{
+    const float2 refractedOffset = refractedSamplePixel - currentPixel;
+    const float2 channelOffset = refractedOffset * RT_CLEAN_RTXDI_DI_GLASS_CHROMATIC_REFRACTION_SCALE;
+    const float4 redSource = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
+        outputColorSource,
+        refractedSamplePixel - channelOffset,
+        dimensions,
+        referenceSurface,
+        true,
+        fallbackColor);
+    const float4 greenSource = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
+        outputColorSource,
+        refractedSamplePixel,
+        dimensions,
+        referenceSurface,
+        true,
+        fallbackColor);
+    const float4 blueSource = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
+        outputColorSource,
+        refractedSamplePixel + channelOffset,
+        dimensions,
+        referenceSurface,
+        true,
+        fallbackColor);
+
+    return float4(redSource.r, greenSource.g, blueSource.b, greenSource.a);
+}
+
 void PathTraceCleanRtxdiDiStoreGlassComposedColor(uint2 pixel, float4 color)
 {
     SmokeOutput[pixel] = color;
@@ -236,12 +272,12 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
         surface,
         materialParams,
         payload);
-    const float4 sourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
+    const float4 sourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorChromatic(
         PathTraceCleanRtxdiDiOutputColorSource,
+        float2(pixel),
         sourcePixel,
         dimensions,
         surface,
-        true,
         currentColor);
     const float4 reflectedSourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
         PathTraceCleanRtxdiDiOutputColorSource,

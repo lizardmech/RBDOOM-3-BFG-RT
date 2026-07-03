@@ -733,6 +733,23 @@ static void ApplySmokeDetailDecalNormalOffset(
     }
 }
 
+static bool SmokeSurfaceClassPrefersGeometricNormal(
+    uint32_t surfaceClassId,
+    uint32_t particleAlphaClassId)
+{
+    const uint32_t surfaceClass = surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK;
+    if (surfaceClass != particleAlphaClassId)
+    {
+        return false;
+    }
+
+    const uint32_t translucentSubtype =
+        (surfaceClassId & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+    return
+        translucentSubtype != SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype::ObjectGlass) &&
+        translucentSubtype != SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype::PortalWindow);
+}
+
 int AppendSmokeSurfaceGeometry(
     const drawSurf_t* drawSurf,
     const srfTriangles_t* tri,
@@ -815,7 +832,7 @@ int AppendSmokeSurfaceGeometry(
             !SmokeTexCoordIsUsable(SmokeVertexTexCoord(v2));
         const bool preferGeometricNormal =
             invalidNormalTriangle ||
-            static_cast<uint32_t>(classIndex) == particleAlphaClassId;
+            SmokeSurfaceClassPrefersGeometricNormal(surfaceClassId, particleAlphaClassId);
 
         if (invalidNormalTriangle)
         {
