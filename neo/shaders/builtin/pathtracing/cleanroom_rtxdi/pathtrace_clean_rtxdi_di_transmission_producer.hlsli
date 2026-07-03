@@ -25,11 +25,6 @@ float4 PathTraceCleanRoomTransmissionProducerSourceColor(uint2 pixel, float4 fal
     {
         return outputSource;
     }
-    const float4 rrInputSource = PathTraceRRInputColor[pixel];
-    if (PathTraceCleanRoomTransmissionProducerColorEnergy(rrInputSource) > 1.0e-5)
-    {
-        return rrInputSource;
-    }
     return fallbackColor;
 }
 

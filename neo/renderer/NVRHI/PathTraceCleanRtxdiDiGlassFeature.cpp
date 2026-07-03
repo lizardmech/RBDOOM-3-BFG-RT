@@ -19,14 +19,10 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
     if (outputRequested)
     {
         desc.resourceInputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE;
-        desc.resourceOutputs = RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
-        desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
-    }
-    if (cleanGlassRoute && shaderRequested)
-    {
-        desc.resourceOutputs |=
-            RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO |
+        desc.resourceOutputs =
+            RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR |
             RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR;
+        desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
     }
     desc.enabled = cleanGlassRoute && (shaderRequested || debugOutputRequested);
     desc.debugLabel = debugOutput ? "clean-rtxdi-di-glass-debug" : "clean-rtxdi-di-glass";
@@ -40,7 +36,6 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiGlassBindings[] 
     PathTraceCleanRtxdiDiMaterialFeatureParametersBinding(),
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeConstantsBinding(),
     PathTraceCleanRtxdiDiOutputColorSourceBinding(),
-    PathTraceCleanRtxdiDiRrGuideSpecularAlbedoBinding(),
     PathTraceCleanRtxdiDiRrInputColorBinding(),
     PathTraceCleanRtxdiDiOutputColorBinding()
 };

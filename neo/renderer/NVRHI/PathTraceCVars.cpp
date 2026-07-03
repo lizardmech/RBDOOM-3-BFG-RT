@@ -1639,7 +1639,7 @@ idCVar r_pathTracingCleanRtxdiDiGlassShader(
     "r_pathTracingCleanRtxdiDiGlassShader",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 glass material-feature shader proof: 0 off, 1 run glass shader without changing beauty unless its debug view is enabled" );
+    "Clean RTXDI DI view 16 glass material-feature shader: 0 off, 1 compose thin-glass beauty for matching glass pixels" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassDebugView(
     "r_pathTracingCleanRtxdiDiGlassDebugView",

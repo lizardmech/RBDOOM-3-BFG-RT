@@ -56,11 +56,6 @@ inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiTransmissionOu
     return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT);
 }
 
-inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiRrGuideSpecularAlbedoBinding()
-{
-    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO);
-}
-
 inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiRrInputColorBinding()
 {
     return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR);
