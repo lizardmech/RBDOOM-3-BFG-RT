@@ -25,17 +25,6 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
     return desc;
 }
 
-static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiGlassBindings[] = {
-    PathTraceCleanRtxdiDiCurrentPrimarySurfaceBinding(),
-    PathTraceCleanRtxdiDiMaterialTableBinding(),
-    PathTraceCleanRtxdiDiMaterialFeaturesBinding(),
-    PathTraceCleanRtxdiDiMaterialFeatureParametersBinding(),
-    PathTraceCleanRtxdiDiMaterialFeatureRuntimeConstantsBinding(),
-    PathTraceCleanRtxdiDiOutputColorSourceBinding(),
-    PathTraceCleanRtxdiDiRrInputColorBinding(),
-    PathTraceCleanRtxdiDiOutputColorBinding()
-};
-
 static void FillPathTraceCleanRtxdiDiGlassRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc& passDesc)
@@ -54,13 +43,14 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
     const bool debugOutputRequested = r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0;
 
     RtPathTraceMaterialFeaturePassRegistration registration;
+    size_t bindingMetadataCount = 0;
     registration.passDesc = BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
         cleanRouteRequested,
         cleanView,
         shaderRequested,
         debugOutputRequested);
-    registration.bindingMetadata = kCleanRtxdiDiGlassBindings;
-    registration.bindingMetadataCount = sizeof(kCleanRtxdiDiGlassBindings) / sizeof(kCleanRtxdiDiGlassBindings[0]);
+    registration.bindingMetadata = PathTraceCleanRtxdiDiObjectGlassBindingMetadata(false, bindingMetadataCount);
+    registration.bindingMetadataCount = bindingMetadataCount;
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiGlassRuntimeInfo;
     return registration;
 }

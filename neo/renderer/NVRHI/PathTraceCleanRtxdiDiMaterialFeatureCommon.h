@@ -7,6 +7,8 @@
 #include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeatureParameters.h"
 
+#include <cstddef>
+
 #define RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB(stem) "builtin/pathtracing/cleanroom_rtxdi/" stem ".rt.bin"
 
 inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiCanonicalBinding(uint32_t resource)
@@ -93,6 +95,42 @@ inline void PathTraceCleanRtxdiDiEnableComposedOutput(
     {
         desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
     }
+}
+
+inline const RtPathTraceMaterialFeatureBindingDesc* PathTraceCleanRtxdiDiObjectGlassBindingMetadata(
+    bool includeTransmissionOutput,
+    size_t& bindingCount)
+{
+    static const RtPathTraceMaterialFeatureBindingDesc kComposedGlassBindings[] = {
+        PathTraceCleanRtxdiDiCurrentPrimarySurfaceBinding(),
+        PathTraceCleanRtxdiDiMaterialTableBinding(),
+        PathTraceCleanRtxdiDiMaterialFeaturesBinding(),
+        PathTraceCleanRtxdiDiMaterialFeatureParametersBinding(),
+        PathTraceCleanRtxdiDiMaterialFeatureRuntimeConstantsBinding(),
+        PathTraceCleanRtxdiDiOutputColorSourceBinding(),
+        PathTraceCleanRtxdiDiRrInputColorBinding(),
+        PathTraceCleanRtxdiDiOutputColorBinding()
+    };
+    static const RtPathTraceMaterialFeatureBindingDesc kTransmissionProducerBindings[] = {
+        PathTraceCleanRtxdiDiCurrentPrimarySurfaceBinding(),
+        PathTraceCleanRtxdiDiMaterialTableBinding(),
+        PathTraceCleanRtxdiDiMaterialFeaturesBinding(),
+        PathTraceCleanRtxdiDiMaterialFeatureParametersBinding(),
+        PathTraceCleanRtxdiDiMaterialFeatureRuntimeConstantsBinding(),
+        PathTraceCleanRtxdiDiOutputColorSourceBinding(),
+        PathTraceCleanRtxdiDiTransmissionOutputBinding(),
+        PathTraceCleanRtxdiDiRrInputColorBinding(),
+        PathTraceCleanRtxdiDiOutputColorBinding()
+    };
+
+    if (includeTransmissionOutput)
+    {
+        bindingCount = sizeof(kTransmissionProducerBindings) / sizeof(kTransmissionProducerBindings[0]);
+        return kTransmissionProducerBindings;
+    }
+
+    bindingCount = sizeof(kComposedGlassBindings) / sizeof(kComposedGlassBindings[0]);
+    return kComposedGlassBindings;
 }
 
 inline void FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
