@@ -37,6 +37,16 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColor(
     return fallbackColor;
 }
 
+float4 PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
+    Texture2D<float4> outputColorSource,
+    uint2 pixel,
+    out float validWeight)
+{
+    const float4 outputSource = outputColorSource.Load(int3(pixel, 0));
+    validWeight = PathTraceCleanRtxdiDiGlassColorEnergy(outputSource) > 1.0e-5 ? 1.0 : 0.0;
+    return outputSource;
+}
+
 float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
     Texture2D<float4> outputColorSource,
     float2 samplePixel,
@@ -53,15 +63,29 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
     const uint2 p01 = uint2(min(basePixel + float2(0.0, 1.0), maxPixel));
     const uint2 p11 = uint2(min(basePixel + float2(1.0, 1.0), maxPixel));
 
-    const float4 c00 = PathTraceCleanRtxdiDiGlassOutputSourceColor(outputColorSource, p00, fallbackColor);
-    const float4 c10 = PathTraceCleanRtxdiDiGlassOutputSourceColor(outputColorSource, p10, fallbackColor);
-    const float4 c01 = PathTraceCleanRtxdiDiGlassOutputSourceColor(outputColorSource, p01, fallbackColor);
-    const float4 c11 = PathTraceCleanRtxdiDiGlassOutputSourceColor(outputColorSource, p11, fallbackColor);
+    const float4 sampleWeights = float4(
+        (1.0 - fraction.x) * (1.0 - fraction.y),
+        fraction.x * (1.0 - fraction.y),
+        (1.0 - fraction.x) * fraction.y,
+        fraction.x * fraction.y);
 
-    return lerp(
-        lerp(c00, c10, fraction.x),
-        lerp(c01, c11, fraction.x),
-        fraction.y);
+    float tapValid00;
+    float tapValid10;
+    float tapValid01;
+    float tapValid11;
+    const float4 c00 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p00, tapValid00);
+    const float4 c10 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p10, tapValid10);
+    const float4 c01 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p01, tapValid01);
+    const float4 c11 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p11, tapValid11);
+    const float4 validWeights = sampleWeights * float4(tapValid00, tapValid10, tapValid01, tapValid11);
+    const float validWeightSum = dot(validWeights, float4(1.0, 1.0, 1.0, 1.0));
+    if (validWeightSum <= 1.0e-5)
+    {
+        return fallbackColor;
+    }
+
+    return (c00 * validWeights.x + c10 * validWeights.y + c01 * validWeights.z + c11 * validWeights.w) /
+        validWeightSum;
 }
 
 void PathTraceCleanRtxdiDiStoreGlassComposedColor(uint2 pixel, float4 color)
