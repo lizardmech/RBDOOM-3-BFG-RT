@@ -52,17 +52,15 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
     const bool debugOutputRequested = r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0;
 
     RtPathTraceMaterialFeaturePassRegistration registration;
-    size_t bindingMetadataCount = 0;
     registration.passDesc = BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
         cleanRouteRequested,
         cleanView,
         producerRequested,
         composeOutputRequested,
         debugOutputRequested);
-    registration.bindingMetadata = PathTraceCleanRtxdiDiObjectGlassBindingMetadata(
-        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::TransmissionProducer,
-        bindingMetadataCount);
-    registration.bindingMetadataCount = bindingMetadataCount;
+    AttachPathTraceCleanRtxdiDiObjectGlassBindingMetadata(
+        registration,
+        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::TransmissionProducer);
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo;
     return registration;
 }

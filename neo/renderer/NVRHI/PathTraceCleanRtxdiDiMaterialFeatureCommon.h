@@ -153,6 +153,16 @@ inline const RtPathTraceMaterialFeatureBindingDesc* PathTraceCleanRtxdiDiObjectG
     return kComposedGlassBindings;
 }
 
+inline void AttachPathTraceCleanRtxdiDiObjectGlassBindingMetadata(
+    RtPathTraceMaterialFeaturePassRegistration& registration,
+    RtPathTraceCleanRtxdiDiObjectGlassBindingSet bindingSet)
+{
+    size_t bindingMetadataCount = 0;
+    registration.bindingMetadata =
+        PathTraceCleanRtxdiDiObjectGlassBindingMetadata(bindingSet, bindingMetadataCount);
+    registration.bindingMetadataCount = bindingMetadataCount;
+}
+
 inline void FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,

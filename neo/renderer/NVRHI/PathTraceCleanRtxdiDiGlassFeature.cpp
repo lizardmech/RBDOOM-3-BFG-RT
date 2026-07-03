@@ -43,16 +43,14 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
     const bool debugOutputRequested = r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0;
 
     RtPathTraceMaterialFeaturePassRegistration registration;
-    size_t bindingMetadataCount = 0;
     registration.passDesc = BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
         cleanRouteRequested,
         cleanView,
         shaderRequested,
         debugOutputRequested);
-    registration.bindingMetadata = PathTraceCleanRtxdiDiObjectGlassBindingMetadata(
-        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::ComposedGlass,
-        bindingMetadataCount);
-    registration.bindingMetadataCount = bindingMetadataCount;
+    AttachPathTraceCleanRtxdiDiObjectGlassBindingMetadata(
+        registration,
+        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::ComposedGlass);
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiGlassRuntimeInfo;
     return registration;
 }
