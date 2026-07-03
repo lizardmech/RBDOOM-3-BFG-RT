@@ -44,7 +44,6 @@ void RayGen()
                 pixel,
                 dimensions,
                 SmokeOutput[pixel],
-                PathTraceCleanRtxdiDiOutputColorSource,
                 runtimeParams);
         if (result.supported)
         {

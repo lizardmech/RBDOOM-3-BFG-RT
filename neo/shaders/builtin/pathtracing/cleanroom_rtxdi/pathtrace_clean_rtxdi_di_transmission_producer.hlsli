@@ -43,7 +43,6 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
             pixel,
             dimensions,
             currentColor,
-            PathTraceCleanRtxdiDiOutputColorSource,
             runtimeParams);
     return result.color;
 }

@@ -105,7 +105,6 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
     uint2 pixel,
     uint2 dimensions,
     float4 currentColor,
-    Texture2D<float4> outputColorSource,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
     PathTraceCleanRtxdiDiGlassComposeResult result =
@@ -127,7 +126,7 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
         materialParams,
         payload);
     const float4 sourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColor(
-        outputColorSource,
+        PathTraceCleanRtxdiDiOutputColorSource,
         sourcePixel,
         currentColor);
 
@@ -145,7 +144,6 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
     uint2 pixel,
     uint2 dimensions,
     float4 currentColor,
-    Texture2D<float4> outputColorSource,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
     RAB_Surface surface;
@@ -159,7 +157,6 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
         pixel,
         dimensions,
         currentColor,
-        outputColorSource,
         runtimeParams);
 }
 
