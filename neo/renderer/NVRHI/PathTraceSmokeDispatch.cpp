@@ -2725,9 +2725,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.glassGuideCandidate0Texture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.glassGuideCandidate1Texture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.glassGuideCandidate2Texture);
 
             if (cleanNeeCacheBuildPrepassRequested &&
                 m_smokeNeeCachePrimarySurfaceUpdatePipeline &&

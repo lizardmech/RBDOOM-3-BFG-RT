@@ -95,7 +95,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
             "glass material writes thin-glass attenuation/reflectance through the material-feature ABI",
             "opaque material writes dark unsupported debug color",
             "clean RTXDI DI primary view 16 unchanged unless the glass shader owns output-color",
-            "RtPathTraceMaterialFeatureBindingDesc output-color-source t89, rr-guide-specular-albedo u53, rr-input-color u54, isolated glass guide candidates u90/u91/u92, output-color u1",
+            "RtPathTraceMaterialFeatureBindingDesc output-color-source t89, rr-guide-specular-albedo u53, rr-input-color u54, output-color u1",
             "PathTraceMaterialFeatureRecord t80 plus PathTraceMaterialFeatureParameters t81 with b88 defaults"
         },
         RtPathTraceMaterialFeaturePassKind::TransmissionProducer,
@@ -107,10 +107,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
             RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE,
         RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR |
             RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO |
-            RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR |
-            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE0 |
-            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE1 |
-            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE2,
+            RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR,
         RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR
     },
     {

@@ -66,21 +66,6 @@ inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiRrInputColorBi
     return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR);
 }
 
-inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiGlassGuideCandidate0Binding()
-{
-    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE0);
-}
-
-inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiGlassGuideCandidate1Binding()
-{
-    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE1);
-}
-
-inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiGlassGuideCandidate2Binding()
-{
-    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE2);
-}
-
 inline bool PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(bool cleanRouteRequested, int cleanView)
 {
     return cleanRouteRequested && cleanView == 16;

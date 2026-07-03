@@ -8,14 +8,24 @@ float PathTraceCleanRoomTransmissionProducerColorEnergy(float4 color)
     return dot(abs(color.rgb), float3(1.0, 1.0, 1.0));
 }
 
-float4 PathTraceCleanRoomTransmissionProducerSourceColor(uint2 pixel, float4 fallbackColor)
+float4 PathTraceCleanRoomTransmissionProducerOutputSourceColor(uint2 pixel, float4 fallbackColor)
 {
     const float4 outputSource = PathTraceCleanRtxdiDiOutputColorSource.Load(int3(pixel, 0));
-    const float4 rrInputSource = PathTraceRRInputColor[pixel];
     if (PathTraceCleanRoomTransmissionProducerColorEnergy(outputSource) > 1.0e-5)
     {
         return outputSource;
     }
+    return fallbackColor;
+}
+
+float4 PathTraceCleanRoomTransmissionProducerSourceColor(uint2 pixel, float4 fallbackColor)
+{
+    const float4 outputSource = PathTraceCleanRtxdiDiOutputColorSource.Load(int3(pixel, 0));
+    if (PathTraceCleanRoomTransmissionProducerColorEnergy(outputSource) > 1.0e-5)
+    {
+        return outputSource;
+    }
+    const float4 rrInputSource = PathTraceRRInputColor[pixel];
     if (PathTraceCleanRoomTransmissionProducerColorEnergy(rrInputSource) > 1.0e-5)
     {
         return rrInputSource;
@@ -86,7 +96,14 @@ float4 PathTraceCleanRoomTransmissionProducerComposeColor(
         PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
     const PathTraceCleanRtxdiDiGlassThinPayload payload =
         PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
-    return PathTraceCleanRtxdiDiComposeThinGlassColor(currentColor, currentColor, materialParams, payload);
+    const uint2 sourcePixel = PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
+        pixel,
+        dimensions,
+        surface,
+        materialParams,
+        payload);
+    const float4 sourceColor = PathTraceCleanRoomTransmissionProducerOutputSourceColor(sourcePixel, currentColor);
+    return PathTraceCleanRtxdiDiComposeThinGlassColor(currentColor, sourceColor, materialParams, payload);
 }
 
 [shader("raygeneration")]

@@ -241,7 +241,7 @@ inline size_t BuildPathTraceMaterialFeatureRegistryRuntimeRegistrations(
         }
     }
     ResolvePathTraceMaterialFeatureRegistrySharedOutputs(registrations, writableCount, entries, entryCount);
-    return entryCount;
+    return writableCount;
 }
 
 inline size_t BuildPathTraceMaterialFeatureRegistryLayoutRegistrations(
@@ -260,5 +260,5 @@ inline size_t BuildPathTraceMaterialFeatureRegistryLayoutRegistrations(
             ApplyPathTraceMaterialFeatureRegistryEntry(entry, i, registrations[i]);
         }
     }
-    return entryCount;
+    return writableCount;
 }

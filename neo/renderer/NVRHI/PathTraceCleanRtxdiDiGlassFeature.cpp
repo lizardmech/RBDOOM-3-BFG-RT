@@ -9,8 +9,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
     bool cleanRouteRequested,
     int cleanView,
     bool shaderRequested,
-    bool debugOutputRequested,
-    bool guideCandidateOutputRequested)
+    bool debugOutputRequested)
 {
     RtPathTraceMaterialFeaturePassDesc desc;
 
@@ -29,13 +28,6 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
             RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO |
             RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR;
     }
-    if (cleanGlassRoute && guideCandidateOutputRequested)
-    {
-        desc.resourceOutputs |=
-            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE0 |
-            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE1 |
-            RT_MATERIAL_FEATURE_RESOURCE_GLASS_GUIDE_CANDIDATE2;
-    }
     desc.enabled = cleanGlassRoute && (shaderRequested || debugOutputRequested);
     desc.debugLabel = debugOutput ? "clean-rtxdi-di-glass-debug" : "clean-rtxdi-di-glass";
     return desc;
@@ -50,9 +42,6 @@ static const RtPathTraceMaterialFeatureBindingDesc kCleanRtxdiDiGlassBindings[] 
     PathTraceCleanRtxdiDiOutputColorSourceBinding(),
     PathTraceCleanRtxdiDiRrGuideSpecularAlbedoBinding(),
     PathTraceCleanRtxdiDiRrInputColorBinding(),
-    PathTraceCleanRtxdiDiGlassGuideCandidate0Binding(),
-    PathTraceCleanRtxdiDiGlassGuideCandidate1Binding(),
-    PathTraceCleanRtxdiDiGlassGuideCandidate2Binding(),
     PathTraceCleanRtxdiDiOutputColorBinding()
 };
 
@@ -85,8 +74,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
         cleanRouteRequested,
         cleanView,
         shaderRequested || guideDebugRequested,
-        debugOutputRequested || guideDebugRequested,
-        guideDebugRequested);
+        debugOutputRequested || guideDebugRequested);
     registration.bindingMetadata = kCleanRtxdiDiGlassBindings;
     registration.bindingMetadataCount = sizeof(kCleanRtxdiDiGlassBindings) / sizeof(kCleanRtxdiDiGlassBindings[0]);
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiGlassRuntimeInfo;
@@ -100,7 +88,6 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
     registration.passDesc = BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
         true,
         16,
-        true,
         true,
         true);
     return registration;

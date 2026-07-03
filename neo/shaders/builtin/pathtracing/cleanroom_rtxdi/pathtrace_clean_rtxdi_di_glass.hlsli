@@ -1,16 +1,6 @@
 #if defined(CLEAN_RTXDI_DI_GLASS_ENTRY)
 
 Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
-VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiGlassGuideCandidate0 : register(u90);
-VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiGlassGuideCandidate1 : register(u91);
-VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiGlassGuideCandidate2 : register(u92);
-
-void PathTraceCleanRtxdiDiGlassClearGuideCandidate(uint2 pixel)
-{
-    PathTraceCleanRtxdiDiGlassGuideCandidate0[pixel] = float4(0.0, 0.0, 0.0, 0.0);
-    PathTraceCleanRtxdiDiGlassGuideCandidate1[pixel] = float4(0.0, 0.0, 0.0, 0.0);
-    PathTraceCleanRtxdiDiGlassGuideCandidate2[pixel] = float4(0.0, 0.0, 0.0, 0.0);
-}
 
 float4 PathTraceCleanRtxdiDiGlassDebugColor(
     uint2 pixel,
@@ -67,22 +57,29 @@ void PathTraceCleanRtxdiDiGlassExportRrInputColor(
         payload);
 }
 
-void PathTraceCleanRtxdiDiGlassExportGuideCandidate(
+bool PathTraceCleanRtxdiDiGlassBuildGuideCandidate(
     uint2 pixel,
     uint2 sourcePixel,
     uint2 dimensions,
-    float glassWeight)
+    float glassWeight,
+    out float4 candidate0,
+    out float4 candidate1,
+    out float4 candidate2)
 {
+    candidate0 = float4(0.0, 0.0, 0.0, 0.0);
+    candidate1 = float4(0.0, 0.0, 0.0, 0.0);
+    candidate2 = float4(0.0, 0.0, 0.0, 0.0);
+
     PathTracePrimarySurfaceRecord sourceRecord;
     if (!PathTraceCleanRoomLoadSurfaceRecord(sourcePixel, dimensions, sourceRecord))
     {
-        return;
+        return false;
     }
 
     const RAB_Surface sourceSurface = PathTraceCleanRoomSurfaceForView(sourceRecord);
     if (!RAB_IsSurfaceValid(sourceSurface))
     {
-        return;
+        return false;
     }
 
     const float4 sourceNormalRoughness = PathTraceRRGuideNormalRoughness[sourcePixel];
@@ -92,12 +89,10 @@ void PathTraceCleanRtxdiDiGlassExportGuideCandidate(
     const float roughness = saturate(sourceNormalRoughness.w);
     const float validWeight = saturate(glassWeight);
 
-    PathTraceCleanRtxdiDiGlassGuideCandidate0[pixel] =
-        float4(sourceNormalRoughness.xyz, sourceDepth);
-    PathTraceCleanRtxdiDiGlassGuideCandidate1[pixel] =
-        float4(sourceMotion.xy, float(sourceResetMask), validWeight);
-    PathTraceCleanRtxdiDiGlassGuideCandidate2[pixel] =
-        float4(sourceSurface.worldPos, roughness);
+    candidate0 = float4(sourceNormalRoughness.xyz, sourceDepth);
+    candidate1 = float4(sourceMotion.xy, float(sourceResetMask), validWeight);
+    candidate2 = float4(sourceSurface.worldPos, roughness);
+    return true;
 }
 
 float3 PathTraceCleanRtxdiDiGlassGuideCandidateDebugColor(
@@ -130,10 +125,21 @@ float3 PathTraceCleanRtxdiDiGlassGuideCandidateDebugColor(
         surface,
         materialParams,
         payload);
-    PathTraceCleanRtxdiDiGlassExportGuideCandidate(pixel, sourcePixel, dimensions, payload.weight);
+    float4 candidate0;
+    float4 candidate1;
+    float4 candidate2;
+    if (!PathTraceCleanRtxdiDiGlassBuildGuideCandidate(
+            pixel,
+            sourcePixel,
+            dimensions,
+            payload.weight,
+            candidate0,
+            candidate1,
+            candidate2))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
 
-    const float4 candidate0 = PathTraceCleanRtxdiDiGlassGuideCandidate0[pixel];
-    const float4 candidate1 = PathTraceCleanRtxdiDiGlassGuideCandidate1[pixel];
     if (debugMode < 2.5)
     {
         return saturate(float3(candidate0.xy * 0.5 + 0.5, candidate0.w / 4096.0));
@@ -169,10 +175,6 @@ void RayGen()
         PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeParams();
     if (runtimeInfo.debugMode >= 0.5)
     {
-        if (runtimeInfo.debugMode >= 1.5)
-        {
-            PathTraceCleanRtxdiDiGlassClearGuideCandidate(pixel);
-        }
         SmokeOutput[pixel] = runtimeInfo.debugMode >= 1.5
             ? float4(PathTraceCleanRtxdiDiGlassGuideCandidateDebugColor(pixel, dimensions, runtimeParams, runtimeInfo.debugMode), 1.0)
             : PathTraceCleanRtxdiDiGlassDebugColor(pixel, dimensions, runtimeParams);
