@@ -52,15 +52,8 @@ float4 PathTraceCleanRoomTransmissionProducerComposeColor(
     float4 currentColor,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
-    RAB_Surface surface;
-    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
-    {
-        return currentColor;
-    }
-
     const PathTraceCleanRtxdiDiGlassComposeResult result =
-        PathTraceCleanRtxdiDiBuildGlassComposeResult(
-            surface,
+        PathTraceCleanRtxdiDiBuildGlassComposeResultForPixel(
             pixel,
             dimensions,
             currentColor,

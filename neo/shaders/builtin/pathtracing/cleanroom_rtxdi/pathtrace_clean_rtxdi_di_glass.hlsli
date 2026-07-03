@@ -56,26 +56,17 @@ void RayGen()
     }
     else
     {
-        RAB_Surface surface;
-        if (PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
+        const PathTraceCleanRtxdiDiGlassComposeResult result =
+            PathTraceCleanRtxdiDiBuildGlassComposeResultForPixel(
+                pixel,
+                dimensions,
+                SmokeOutput[pixel],
+                PathTraceCleanRtxdiDiOutputColorSource,
+                runtimeParams);
+        if (result.supported)
         {
-            const PathTraceMaterialFeature feature = PathTraceCleanRtxdiDiGlassFeatureForSurface(surface);
-            if (PathTraceCleanRtxdiDiGlassFeatureSupported(feature))
-            {
-                const PathTraceCleanRtxdiDiGlassComposeResult result =
-                    PathTraceCleanRtxdiDiBuildGlassComposeResult(
-                        surface,
-                        pixel,
-                        dimensions,
-                        SmokeOutput[pixel],
-                        PathTraceCleanRtxdiDiOutputColorSource,
-                        runtimeParams);
-                if (result.supported)
-                {
-                    SmokeOutput[pixel] = result.color;
-                    PathTraceRRInputColor[pixel] = result.color;
-                }
-            }
+            SmokeOutput[pixel] = result.color;
+            PathTraceRRInputColor[pixel] = result.color;
         }
     }
 }
