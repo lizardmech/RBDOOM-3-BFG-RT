@@ -54,12 +54,12 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatureLayoutRegistration()
 {
-    RtPathTraceMaterialFeaturePassRegistration registration =
-        BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(true, 16);
-    registration.passDesc = BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
-        true,
-        16,
-        true,
-        true);
-    return registration;
+    return BuildPathTraceCleanRtxdiDiObjectGlassRegistration(
+        BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
+            true,
+            16,
+            true,
+            true),
+        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::ComposedGlass,
+        FillPathTraceCleanRtxdiDiGlassRuntimeInfo);
 }

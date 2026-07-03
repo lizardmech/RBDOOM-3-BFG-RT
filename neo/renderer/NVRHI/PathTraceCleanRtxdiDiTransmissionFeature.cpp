@@ -64,13 +64,13 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration()
 {
-    RtPathTraceMaterialFeaturePassRegistration registration =
-        BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(true, 16);
-    registration.passDesc = BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
-        true,
-        16,
-        true,
-        true,
-        true);
-    return registration;
+    return BuildPathTraceCleanRtxdiDiObjectGlassRegistration(
+        BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
+            true,
+            16,
+            true,
+            true,
+            true),
+        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::TransmissionProducer,
+        FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo);
 }
