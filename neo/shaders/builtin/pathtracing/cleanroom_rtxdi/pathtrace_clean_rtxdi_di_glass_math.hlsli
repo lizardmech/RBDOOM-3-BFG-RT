@@ -113,6 +113,44 @@ float3 PathTraceCleanRtxdiDiGlassThinTransmissionThroughput(
         PathTraceCleanRtxdiDiGlassThinGeometricSeries(attenuation * insideFresnel);
 }
 
+float2 PathTraceCleanRtxdiDiGlassProjectScreenDirection(float3 direction)
+{
+    const float3 left = PathTraceCleanRoomSafeNormalize(CleanRtxdiDiCameraLeftAndTanY.xyz, float3(0.0, 1.0, 0.0));
+    const float3 up = PathTraceCleanRoomSafeNormalize(CleanRtxdiDiCameraUpAndTanY.xyz, float3(0.0, 0.0, 1.0));
+    return float2(-dot(direction, left), -dot(direction, up));
+}
+
+float2 PathTraceCleanRtxdiDiGlassNormalizeScreenDirection(float2 direction, float2 fallbackDirection)
+{
+    const float directionLengthSq = dot(direction, direction);
+    if (directionLengthSq > RT_CLEAN_RTXDI_DI_GLASS_EPSILON)
+    {
+        return direction * rsqrt(directionLengthSq);
+    }
+
+    const float fallbackLengthSq = dot(fallbackDirection, fallbackDirection);
+    if (fallbackLengthSq > RT_CLEAN_RTXDI_DI_GLASS_EPSILON)
+    {
+        return fallbackDirection * rsqrt(fallbackLengthSq);
+    }
+
+    return float2(0.0, 0.0);
+}
+
+float2 PathTraceCleanRtxdiDiGlassRefractedScreenDirection(
+    float3 normal,
+    float3 viewDirection,
+    float ior)
+{
+    const float3 incidentDirection = -viewDirection;
+    const float3 entryNormal = dot(normal, viewDirection) >= 0.0 ? normal : -normal;
+    const float3 refractedDirection = refract(incidentDirection, entryNormal, rcp(max(ior, 1.0001)));
+    const float2 fallbackDirection = PathTraceCleanRtxdiDiGlassProjectScreenDirection(normal);
+    return PathTraceCleanRtxdiDiGlassNormalizeScreenDirection(
+        PathTraceCleanRtxdiDiGlassProjectScreenDirection(refractedDirection - incidentDirection),
+        fallbackDirection);
+}
+
 struct PathTraceCleanRtxdiDiGlassThinPayload
 {
     float3 transmission;
@@ -183,7 +221,8 @@ float2 PathTraceCleanRtxdiDiGlassRefractionPixelOffset(
     const float3 viewDirection = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
     const float ndotv = saturate(abs(dot(normal, viewDirection)));
     const float grazing = 1.0 - ndotv;
-    const float iorBend = saturate((max(materialParams.ior, 1.0001) - 1.0) / 0.7);
+    const float glassIor = max(materialParams.ior, 1.0001);
+    const float iorBend = saturate((glassIor - 1.0) / 0.7);
     const float pixelMagnitude = min(
         RT_CLEAN_RTXDI_DI_GLASS_REFRACTION_MAX_PIXELS,
         max(materialParams.thickness, 0.0) *
@@ -192,16 +231,16 @@ float2 PathTraceCleanRtxdiDiGlassRefractionPixelOffset(
             saturate(payload.weight) *
             grazing);
 
-    const float3 left = PathTraceCleanRoomSafeNormalize(CleanRtxdiDiCameraLeftAndTanY.xyz, float3(0.0, 1.0, 0.0));
-    const float3 up = PathTraceCleanRoomSafeNormalize(CleanRtxdiDiCameraUpAndTanY.xyz, float3(0.0, 0.0, 1.0));
-    const float2 screenNormal = float2(-dot(normal, left), -dot(normal, up));
-    const float screenNormalLengthSq = dot(screenNormal, screenNormal);
-    if (screenNormalLengthSq <= RT_CLEAN_RTXDI_DI_GLASS_EPSILON)
+    const float2 screenDirection = PathTraceCleanRtxdiDiGlassRefractedScreenDirection(
+        normal,
+        viewDirection,
+        glassIor);
+    if (dot(screenDirection, screenDirection) <= RT_CLEAN_RTXDI_DI_GLASS_EPSILON)
     {
         return float2(0.0, 0.0);
     }
 
-    return screenNormal * rsqrt(screenNormalLengthSq) * pixelMagnitude;
+    return screenDirection * pixelMagnitude;
 }
 
 uint2 PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
