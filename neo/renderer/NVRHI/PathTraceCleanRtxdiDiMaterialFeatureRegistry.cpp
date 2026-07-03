@@ -73,10 +73,8 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
         100u,
         PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs(),
-        PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs() |
-            RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE,
-        RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT |
-            PathTraceCleanRtxdiDiComposedOutputResources(),
+        PathTraceCleanRtxdiDiComposedInputResources(),
+        PathTraceCleanRtxdiDiTransmissionProducerOutputResources(),
         RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR
     },
     {
@@ -102,8 +100,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
         50u,
         PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs(),
-        PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs() |
-            RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE,
+        PathTraceCleanRtxdiDiComposedInputResources(),
         PathTraceCleanRtxdiDiComposedOutputResources(),
         RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR
     },

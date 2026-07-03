@@ -11,6 +11,12 @@
 
 #define RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB(stem) "builtin/pathtracing/cleanroom_rtxdi/" stem ".rt.bin"
 
+enum class RtPathTraceCleanRtxdiDiObjectGlassBindingSet
+{
+    ComposedGlass,
+    TransmissionProducer
+};
+
 inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiCanonicalBinding(uint32_t resource)
 {
     RtPathTraceMaterialFeatureBindingDesc binding;
@@ -85,6 +91,20 @@ inline uint32_t PathTraceCleanRtxdiDiComposedOutputResources()
         RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR;
 }
 
+inline uint32_t PathTraceCleanRtxdiDiComposedInputResources()
+{
+    return
+        PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs() |
+        RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE;
+}
+
+inline uint32_t PathTraceCleanRtxdiDiTransmissionProducerOutputResources()
+{
+    return
+        RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT |
+        PathTraceCleanRtxdiDiComposedOutputResources();
+}
+
 inline void PathTraceCleanRtxdiDiEnableComposedOutput(
     RtPathTraceMaterialFeaturePassDesc& desc,
     bool primaryOutput)
@@ -98,7 +118,7 @@ inline void PathTraceCleanRtxdiDiEnableComposedOutput(
 }
 
 inline const RtPathTraceMaterialFeatureBindingDesc* PathTraceCleanRtxdiDiObjectGlassBindingMetadata(
-    bool includeTransmissionOutput,
+    RtPathTraceCleanRtxdiDiObjectGlassBindingSet bindingSet,
     size_t& bindingCount)
 {
     static const RtPathTraceMaterialFeatureBindingDesc kComposedGlassBindings[] = {
@@ -123,7 +143,7 @@ inline const RtPathTraceMaterialFeatureBindingDesc* PathTraceCleanRtxdiDiObjectG
         PathTraceCleanRtxdiDiOutputColorBinding()
     };
 
-    if (includeTransmissionOutput)
+    if (bindingSet == RtPathTraceCleanRtxdiDiObjectGlassBindingSet::TransmissionProducer)
     {
         bindingCount = sizeof(kTransmissionProducerBindings) / sizeof(kTransmissionProducerBindings[0]);
         return kTransmissionProducerBindings;

@@ -49,7 +49,9 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
         cleanView,
         shaderRequested,
         debugOutputRequested);
-    registration.bindingMetadata = PathTraceCleanRtxdiDiObjectGlassBindingMetadata(false, bindingMetadataCount);
+    registration.bindingMetadata = PathTraceCleanRtxdiDiObjectGlassBindingMetadata(
+        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::ComposedGlass,
+        bindingMetadataCount);
     registration.bindingMetadataCount = bindingMetadataCount;
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiGlassRuntimeInfo;
     return registration;

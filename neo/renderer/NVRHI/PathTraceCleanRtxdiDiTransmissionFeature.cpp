@@ -59,7 +59,9 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         producerRequested,
         composeOutputRequested,
         debugOutputRequested);
-    registration.bindingMetadata = PathTraceCleanRtxdiDiObjectGlassBindingMetadata(true, bindingMetadataCount);
+    registration.bindingMetadata = PathTraceCleanRtxdiDiObjectGlassBindingMetadata(
+        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::TransmissionProducer,
+        bindingMetadataCount);
     registration.bindingMetadataCount = bindingMetadataCount;
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo;
     return registration;
