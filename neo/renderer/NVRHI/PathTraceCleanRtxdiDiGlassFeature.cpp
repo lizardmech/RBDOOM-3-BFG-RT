@@ -44,16 +44,10 @@ static void FillPathTraceCleanRtxdiDiGlassRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc& passDesc)
 {
-    const int guideDebugMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiGlassGuideDebugView.GetInteger());
     FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
         runtimeInfo,
         passDesc,
         r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0);
-    if (guideDebugMode > 0 &&
-        PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR))
-    {
-        runtimeInfo.debugMode = static_cast<float>(1 + guideDebugMode);
-    }
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(
@@ -62,14 +56,13 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
 {
     const bool shaderRequested = r_pathTracingCleanRtxdiDiGlassShader.GetInteger() != 0;
     const bool debugOutputRequested = r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0;
-    const bool guideDebugRequested = r_pathTracingCleanRtxdiDiGlassGuideDebugView.GetInteger() != 0;
 
     RtPathTraceMaterialFeaturePassRegistration registration;
     registration.passDesc = BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
         cleanRouteRequested,
         cleanView,
-        shaderRequested || guideDebugRequested,
-        debugOutputRequested || guideDebugRequested);
+        shaderRequested,
+        debugOutputRequested);
     registration.bindingMetadata = kCleanRtxdiDiGlassBindings;
     registration.bindingMetadataCount = sizeof(kCleanRtxdiDiGlassBindings) / sizeof(kCleanRtxdiDiGlassBindings[0]);
     registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiGlassRuntimeInfo;

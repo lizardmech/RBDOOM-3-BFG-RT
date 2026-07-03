@@ -1651,7 +1651,7 @@ idCVar r_pathTracingCleanRtxdiDiGlassGuideDebugView(
     "r_pathTracingCleanRtxdiDiGlassGuideDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 glass resolved-guide candidate debug: 0 off, 1 normal/depth, 2 motion/reset/valid, 3 absolute source-pixel offset; visualizes local candidates without exporting RR guide UAVs" );
+    "Reserved for future clean RTXDI DI glass RR guide diagnostics; ignored by the basic glass visual shader" );
 
 idCVar r_cleanDiSpatial(
     "r_cleanDiSpatial",

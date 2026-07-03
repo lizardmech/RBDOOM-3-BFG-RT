@@ -91,7 +91,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         PathTraceObjectGlassMaterialFeatureParameterLayout(),
         {
             "cmake --build --preset win64-pt-dev-release",
-            "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiGlassShader 1; optional r_pathTracingCleanRtxdiDiGlassDebugView 1 or r_pathTracingCleanRtxdiDiGlassGuideDebugView 1..3",
+            "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiGlassShader 1; optional r_pathTracingCleanRtxdiDiGlassDebugView 1",
             "glass material writes thin-glass attenuation/reflectance through the material-feature ABI",
             "opaque material writes dark unsupported debug color",
             "clean RTXDI DI primary view 16 unchanged unless the glass shader owns output-color",
