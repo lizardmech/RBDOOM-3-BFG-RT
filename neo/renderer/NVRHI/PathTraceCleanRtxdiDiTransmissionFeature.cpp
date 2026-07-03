@@ -51,18 +51,15 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
     const bool composeOutputRequested = r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
     const bool debugOutputRequested = r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0;
 
-    RtPathTraceMaterialFeaturePassRegistration registration;
-    registration.passDesc = BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
-        cleanRouteRequested,
-        cleanView,
-        producerRequested,
-        composeOutputRequested,
-        debugOutputRequested);
-    AttachPathTraceCleanRtxdiDiObjectGlassBindingMetadata(
-        registration,
-        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::TransmissionProducer);
-    registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo;
-    return registration;
+    return BuildPathTraceCleanRtxdiDiObjectGlassRegistration(
+        BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
+            cleanRouteRequested,
+            cleanView,
+            producerRequested,
+            composeOutputRequested,
+            debugOutputRequested),
+        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::TransmissionProducer,
+        FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo);
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration()

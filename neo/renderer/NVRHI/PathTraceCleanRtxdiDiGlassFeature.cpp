@@ -42,17 +42,14 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
     const bool shaderRequested = r_pathTracingCleanRtxdiDiGlassShader.GetInteger() != 0;
     const bool debugOutputRequested = r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0;
 
-    RtPathTraceMaterialFeaturePassRegistration registration;
-    registration.passDesc = BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
-        cleanRouteRequested,
-        cleanView,
-        shaderRequested,
-        debugOutputRequested);
-    AttachPathTraceCleanRtxdiDiObjectGlassBindingMetadata(
-        registration,
-        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::ComposedGlass);
-    registration.runtimeInfoCallback = FillPathTraceCleanRtxdiDiGlassRuntimeInfo;
-    return registration;
+    return BuildPathTraceCleanRtxdiDiObjectGlassRegistration(
+        BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
+            cleanRouteRequested,
+            cleanView,
+            shaderRequested,
+            debugOutputRequested),
+        RtPathTraceCleanRtxdiDiObjectGlassBindingSet::ComposedGlass,
+        FillPathTraceCleanRtxdiDiGlassRuntimeInfo);
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatureLayoutRegistration()

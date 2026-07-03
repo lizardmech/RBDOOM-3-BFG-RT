@@ -163,6 +163,18 @@ inline void AttachPathTraceCleanRtxdiDiObjectGlassBindingMetadata(
     registration.bindingMetadataCount = bindingMetadataCount;
 }
 
+inline RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiObjectGlassRegistration(
+    const RtPathTraceMaterialFeaturePassDesc& passDesc,
+    RtPathTraceCleanRtxdiDiObjectGlassBindingSet bindingSet,
+    RtPathTraceMaterialFeatureRuntimeInfoCallback runtimeInfoCallback)
+{
+    RtPathTraceMaterialFeaturePassRegistration registration;
+    registration.passDesc = passDesc;
+    AttachPathTraceCleanRtxdiDiObjectGlassBindingMetadata(registration, bindingSet);
+    registration.runtimeInfoCallback = runtimeInfoCallback;
+    return registration;
+}
+
 inline void FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
