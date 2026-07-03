@@ -37,6 +37,33 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColor(
     return fallbackColor;
 }
 
+float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
+    Texture2D<float4> outputColorSource,
+    float2 samplePixel,
+    uint2 dimensions,
+    float4 fallbackColor)
+{
+    const float2 maxPixel = float2((float)max(dimensions.x, 1u) - 1.0, (float)max(dimensions.y, 1u) - 1.0);
+    const float2 clampedPixel = clamp(samplePixel, float2(0.0, 0.0), maxPixel);
+    const float2 basePixel = floor(clampedPixel);
+    const float2 fraction = clampedPixel - basePixel;
+
+    const uint2 p00 = uint2(basePixel);
+    const uint2 p10 = uint2(min(basePixel + float2(1.0, 0.0), maxPixel));
+    const uint2 p01 = uint2(min(basePixel + float2(0.0, 1.0), maxPixel));
+    const uint2 p11 = uint2(min(basePixel + float2(1.0, 1.0), maxPixel));
+
+    const float4 c00 = PathTraceCleanRtxdiDiGlassOutputSourceColor(outputColorSource, p00, fallbackColor);
+    const float4 c10 = PathTraceCleanRtxdiDiGlassOutputSourceColor(outputColorSource, p10, fallbackColor);
+    const float4 c01 = PathTraceCleanRtxdiDiGlassOutputSourceColor(outputColorSource, p01, fallbackColor);
+    const float4 c11 = PathTraceCleanRtxdiDiGlassOutputSourceColor(outputColorSource, p11, fallbackColor);
+
+    return lerp(
+        lerp(c00, c10, fraction.x),
+        lerp(c01, c11, fraction.x),
+        fraction.y);
+}
+
 void PathTraceCleanRtxdiDiStoreGlassComposedColor(uint2 pixel, float4 color)
 {
     SmokeOutput[pixel] = color;
@@ -119,25 +146,27 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
         PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
     const PathTraceCleanRtxdiDiGlassThinPayload payload =
         PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
-    const uint2 sourcePixel = PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
+    const float2 sourcePixel = PathTraceCleanRtxdiDiGlassRefractionSamplePosition(
         pixel,
         dimensions,
         surface,
         materialParams,
         payload);
-    const uint2 reflectedSourcePixel = PathTraceCleanRtxdiDiGlassReflectionSamplePixel(
+    const float2 reflectedSourcePixel = PathTraceCleanRtxdiDiGlassReflectionSamplePosition(
         pixel,
         dimensions,
         surface,
         materialParams,
         payload);
-    const float4 sourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColor(
+    const float4 sourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
         PathTraceCleanRtxdiDiOutputColorSource,
         sourcePixel,
+        dimensions,
         currentColor);
-    const float4 reflectedSourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColor(
+    const float4 reflectedSourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
         PathTraceCleanRtxdiDiOutputColorSource,
         reflectedSourcePixel,
+        dimensions,
         currentColor);
 
     result.supported = true;

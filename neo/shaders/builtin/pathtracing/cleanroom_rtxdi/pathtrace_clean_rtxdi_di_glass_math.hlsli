@@ -245,19 +245,19 @@ float2 PathTraceCleanRtxdiDiGlassRefractionPixelOffset(
     return screenDirection * pixelMagnitude;
 }
 
-uint2 PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
+float2 PathTraceCleanRtxdiDiGlassRefractionSamplePosition(
     uint2 pixel,
     uint2 dimensions,
     RAB_Surface surface,
     PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
     PathTraceCleanRtxdiDiGlassThinPayload payload)
 {
-    const int2 offsetPixels = int2(round(PathTraceCleanRtxdiDiGlassRefractionPixelOffset(
+    const float2 samplePixel = float2(pixel) + PathTraceCleanRtxdiDiGlassRefractionPixelOffset(
         surface,
         materialParams,
-        payload)));
-    const int2 maxPixel = int2((int)max(dimensions.x, 1u) - 1, (int)max(dimensions.y, 1u) - 1);
-    return uint2(clamp(int2(pixel) + offsetPixels, int2(0, 0), maxPixel));
+        payload);
+    const float2 maxPixel = float2((float)max(dimensions.x, 1u) - 1.0, (float)max(dimensions.y, 1u) - 1.0);
+    return clamp(samplePixel, float2(0.0, 0.0), maxPixel);
 }
 
 float2 PathTraceCleanRtxdiDiGlassReflectionPixelOffset(
@@ -291,19 +291,19 @@ float2 PathTraceCleanRtxdiDiGlassReflectionPixelOffset(
     return screenDirection * pixelMagnitude;
 }
 
-uint2 PathTraceCleanRtxdiDiGlassReflectionSamplePixel(
+float2 PathTraceCleanRtxdiDiGlassReflectionSamplePosition(
     uint2 pixel,
     uint2 dimensions,
     RAB_Surface surface,
     PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
     PathTraceCleanRtxdiDiGlassThinPayload payload)
 {
-    const int2 offsetPixels = int2(round(PathTraceCleanRtxdiDiGlassReflectionPixelOffset(
+    const float2 samplePixel = float2(pixel) + PathTraceCleanRtxdiDiGlassReflectionPixelOffset(
         surface,
         materialParams,
-        payload)));
-    const int2 maxPixel = int2((int)max(dimensions.x, 1u) - 1, (int)max(dimensions.y, 1u) - 1);
-    return uint2(clamp(int2(pixel) + offsetPixels, int2(0, 0), maxPixel));
+        payload);
+    const float2 maxPixel = float2((float)max(dimensions.x, 1u) - 1.0, (float)max(dimensions.y, 1u) - 1.0);
+    return clamp(samplePixel, float2(0.0, 0.0), maxPixel);
 }
 
 float4 PathTraceCleanRtxdiDiComposeThinGlassColor(
