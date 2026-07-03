@@ -3,7 +3,7 @@
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiTransmissionOutput : register(u87);
 Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
 
-float4 PathTraceCleanRoomTransmissionProducerSourceColor(uint2 pixel, float4 fallbackColor)
+float4 PathTraceCleanRtxdiDiTransmissionProducerSourceColor(uint2 pixel, float4 fallbackColor)
 {
     return PathTraceCleanRtxdiDiGlassOutputSourceColor(
         PathTraceCleanRtxdiDiOutputColorSource,
@@ -11,7 +11,7 @@ float4 PathTraceCleanRoomTransmissionProducerSourceColor(uint2 pixel, float4 fal
         fallbackColor);
 }
 
-float4 PathTraceCleanRoomTransmissionProducerPayload(
+float4 PathTraceCleanRtxdiDiTransmissionProducerPayload(
     uint2 pixel,
     uint2 dimensions,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
@@ -19,7 +19,7 @@ float4 PathTraceCleanRoomTransmissionProducerPayload(
     return PathTraceCleanRtxdiDiGlassTransmissionPayloadForPixel(pixel, dimensions, runtimeParams);
 }
 
-float4 PathTraceCleanRoomTransmissionProducerDebugColor(
+float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
     uint2 pixel,
     uint2 dimensions,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
@@ -33,7 +33,7 @@ float4 PathTraceCleanRoomTransmissionProducerDebugColor(
         float4(0.02, 0.02, 0.02, 1.0));
 }
 
-float4 PathTraceCleanRoomTransmissionProducerComposeColor(
+float4 PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
     uint2 pixel,
     uint2 dimensions,
     float4 currentColor,
@@ -61,7 +61,7 @@ void RayGen()
 
     const PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams =
         PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeParams();
-    const float4 payload = PathTraceCleanRoomTransmissionProducerPayload(pixel, dimensions, runtimeParams);
+    const float4 payload = PathTraceCleanRtxdiDiTransmissionProducerPayload(pixel, dimensions, runtimeParams);
     PathTraceCleanRtxdiDiTransmissionOutput[pixel] = payload;
     const PathTraceMaterialFeatureRuntimeInfo runtimeInfo =
         PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeInfo();
@@ -69,12 +69,12 @@ void RayGen()
     {
         if (runtimeInfo.debugMode >= 0.5)
         {
-            SmokeOutput[pixel] = PathTraceCleanRoomTransmissionProducerDebugColor(pixel, dimensions, runtimeParams);
+            SmokeOutput[pixel] = PathTraceCleanRtxdiDiTransmissionProducerDebugColor(pixel, dimensions, runtimeParams);
         }
         else
         {
-            const float4 baseColor = PathTraceCleanRoomTransmissionProducerSourceColor(pixel, SmokeOutput[pixel]);
-            const float4 composedColor = PathTraceCleanRoomTransmissionProducerComposeColor(
+            const float4 baseColor = PathTraceCleanRtxdiDiTransmissionProducerSourceColor(pixel, SmokeOutput[pixel]);
+            const float4 composedColor = PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
                 pixel,
                 dimensions,
                 baseColor,
