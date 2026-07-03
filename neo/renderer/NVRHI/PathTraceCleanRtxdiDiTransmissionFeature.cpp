@@ -26,7 +26,7 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     }
     if (composeOutput)
     {
-        desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR;
+        PathTraceCleanRtxdiDiEnableComposedOutput(desc, false);
     }
     desc.enabled = cleanTransmissionRoute && (producerRequested || debugOutputRequested);
     desc.debugLabel = debugOutput ? "clean-rtxdi-di-transmission-producer-debug" : "clean-rtxdi-di-transmission-producer";

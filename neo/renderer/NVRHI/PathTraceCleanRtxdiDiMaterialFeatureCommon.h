@@ -76,6 +76,25 @@ inline uint32_t PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs()
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_RUNTIME_CONSTANTS;
 }
 
+inline uint32_t PathTraceCleanRtxdiDiComposedOutputResources()
+{
+    return
+        RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR |
+        RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR;
+}
+
+inline void PathTraceCleanRtxdiDiEnableComposedOutput(
+    RtPathTraceMaterialFeaturePassDesc& desc,
+    bool primaryOutput)
+{
+    desc.resourceInputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE;
+    desc.resourceOutputs |= PathTraceCleanRtxdiDiComposedOutputResources();
+    if (primaryOutput)
+    {
+        desc.primaryOutputResource = RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
+    }
+}
+
 inline void FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
