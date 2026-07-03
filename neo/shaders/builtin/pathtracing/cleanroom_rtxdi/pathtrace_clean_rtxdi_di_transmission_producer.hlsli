@@ -3,29 +3,12 @@
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiTransmissionOutput : register(u87);
 Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
 
-float PathTraceCleanRoomTransmissionProducerColorEnergy(float4 color)
-{
-    return dot(abs(color.rgb), float3(1.0, 1.0, 1.0));
-}
-
-float4 PathTraceCleanRoomTransmissionProducerOutputSourceColor(uint2 pixel, float4 fallbackColor)
-{
-    const float4 outputSource = PathTraceCleanRtxdiDiOutputColorSource.Load(int3(pixel, 0));
-    if (PathTraceCleanRoomTransmissionProducerColorEnergy(outputSource) > 1.0e-5)
-    {
-        return outputSource;
-    }
-    return fallbackColor;
-}
-
 float4 PathTraceCleanRoomTransmissionProducerSourceColor(uint2 pixel, float4 fallbackColor)
 {
-    const float4 outputSource = PathTraceCleanRtxdiDiOutputColorSource.Load(int3(pixel, 0));
-    if (PathTraceCleanRoomTransmissionProducerColorEnergy(outputSource) > 1.0e-5)
-    {
-        return outputSource;
-    }
-    return fallbackColor;
+    return PathTraceCleanRtxdiDiGlassOutputSourceColor(
+        PathTraceCleanRtxdiDiOutputColorSource,
+        pixel,
+        fallbackColor);
 }
 
 float4 PathTraceCleanRoomTransmissionProducerPayload(
@@ -39,14 +22,7 @@ float4 PathTraceCleanRoomTransmissionProducerPayload(
         return float4(1.0, 1.0, 1.0, 0.0);
     }
 
-    if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
-    {
-        return float4(1.0, 1.0, 1.0, 0.0);
-    }
-
-    const PathTraceCleanRtxdiDiGlassThinPayload payload =
-        PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, runtimeParams);
-    return float4(payload.transmission, payload.weight);
+    return PathTraceCleanRtxdiDiGlassTransmissionPayload(surface, runtimeParams);
 }
 
 float4 PathTraceCleanRoomTransmissionProducerDebugColor(
@@ -82,23 +58,15 @@ float4 PathTraceCleanRoomTransmissionProducerComposeColor(
         return currentColor;
     }
 
-    if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
-    {
-        return currentColor;
-    }
-
-    const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
-        PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
-    const PathTraceCleanRtxdiDiGlassThinPayload payload =
-        PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
-    const uint2 sourcePixel = PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
-        pixel,
-        dimensions,
-        surface,
-        materialParams,
-        payload);
-    const float4 sourceColor = PathTraceCleanRoomTransmissionProducerOutputSourceColor(sourcePixel, currentColor);
-    return PathTraceCleanRtxdiDiComposeThinGlassColor(currentColor, sourceColor, materialParams, payload);
+    const PathTraceCleanRtxdiDiGlassComposeResult result =
+        PathTraceCleanRtxdiDiBuildGlassComposeResult(
+            surface,
+            pixel,
+            dimensions,
+            currentColor,
+            PathTraceCleanRtxdiDiOutputColorSource,
+            runtimeParams);
+    return result.color;
 }
 
 [shader("raygeneration")]

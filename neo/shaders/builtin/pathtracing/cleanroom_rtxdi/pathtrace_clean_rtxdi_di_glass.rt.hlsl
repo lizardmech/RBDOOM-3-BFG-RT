@@ -5,5 +5,6 @@
 #include "pathtrace_clean_rtxdi_di_glass_feature.hlsli"
 #include "pathtrace_clean_rtxdi_di_glass_params.hlsli"
 #include "pathtrace_clean_rtxdi_di_glass_math.hlsli"
+#include "pathtrace_clean_rtxdi_di_glass_compose.hlsli"
 #include "pathtrace_clean_rtxdi_di_smoke_exports.hlsli"
 #include "pathtrace_clean_rtxdi_di_glass.hlsli"

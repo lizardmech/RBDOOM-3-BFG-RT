@@ -161,24 +161,19 @@ void RayGen()
             const PathTraceMaterialFeature feature = PathTraceCleanRtxdiDiGlassFeatureForSurface(surface);
             if (PathTraceCleanRtxdiDiGlassFeatureSupported(feature))
             {
-                const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
-                    PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
-                const PathTraceCleanRtxdiDiGlassThinPayload payload =
-                    PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
-                const uint2 sourcePixel = PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
-                    pixel,
-                    dimensions,
-                    surface,
-                    materialParams,
-                    payload);
-                const float4 sourceColor = PathTraceCleanRtxdiDiOutputColorSource.Load(int3(sourcePixel, 0));
-                const float4 composedColor = PathTraceCleanRtxdiDiComposeThinGlassColor(
-                    SmokeOutput[pixel],
-                    sourceColor,
-                    materialParams,
-                    payload);
-                SmokeOutput[pixel] = composedColor;
-                PathTraceRRInputColor[pixel] = composedColor;
+                const PathTraceCleanRtxdiDiGlassComposeResult result =
+                    PathTraceCleanRtxdiDiBuildGlassComposeResult(
+                        surface,
+                        pixel,
+                        dimensions,
+                        SmokeOutput[pixel],
+                        PathTraceCleanRtxdiDiOutputColorSource,
+                        runtimeParams);
+                if (result.supported)
+                {
+                    SmokeOutput[pixel] = result.color;
+                    PathTraceRRInputColor[pixel] = result.color;
+                }
             }
         }
     }
