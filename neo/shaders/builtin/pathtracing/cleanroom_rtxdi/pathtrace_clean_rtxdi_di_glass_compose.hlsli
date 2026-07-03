@@ -39,9 +39,19 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColor(
 
 float4 PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
     Texture2D<float4> outputColorSource,
-    uint2 pixel,
+    int2 pixel,
+    uint2 dimensions,
     out float validWeight)
 {
+    if (pixel.x < 0 ||
+        pixel.y < 0 ||
+        pixel.x >= (int)dimensions.x ||
+        pixel.y >= (int)dimensions.y)
+    {
+        validWeight = 0.0;
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+
     const float4 outputSource = outputColorSource.Load(int3(pixel, 0));
     validWeight = PathTraceCleanRtxdiDiGlassColorEnergy(outputSource) > 1.0e-5 ? 1.0 : 0.0;
     return outputSource;
@@ -53,15 +63,13 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
     uint2 dimensions,
     float4 fallbackColor)
 {
-    const float2 maxPixel = float2((float)max(dimensions.x, 1u) - 1.0, (float)max(dimensions.y, 1u) - 1.0);
-    const float2 clampedPixel = clamp(samplePixel, float2(0.0, 0.0), maxPixel);
-    const float2 basePixel = floor(clampedPixel);
-    const float2 fraction = clampedPixel - basePixel;
+    const float2 basePixel = floor(samplePixel);
+    const float2 fraction = samplePixel - basePixel;
 
-    const uint2 p00 = uint2(basePixel);
-    const uint2 p10 = uint2(min(basePixel + float2(1.0, 0.0), maxPixel));
-    const uint2 p01 = uint2(min(basePixel + float2(0.0, 1.0), maxPixel));
-    const uint2 p11 = uint2(min(basePixel + float2(1.0, 1.0), maxPixel));
+    const int2 p00 = int2(basePixel);
+    const int2 p10 = int2(basePixel + float2(1.0, 0.0));
+    const int2 p01 = int2(basePixel + float2(0.0, 1.0));
+    const int2 p11 = int2(basePixel + float2(1.0, 1.0));
 
     const float4 sampleWeights = float4(
         (1.0 - fraction.x) * (1.0 - fraction.y),
@@ -73,10 +81,10 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
     float tapValid10;
     float tapValid01;
     float tapValid11;
-    const float4 c00 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p00, tapValid00);
-    const float4 c10 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p10, tapValid10);
-    const float4 c01 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p01, tapValid01);
-    const float4 c11 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p11, tapValid11);
+    const float4 c00 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p00, dimensions, tapValid00);
+    const float4 c10 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p10, dimensions, tapValid10);
+    const float4 c01 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p01, dimensions, tapValid01);
+    const float4 c11 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p11, dimensions, tapValid11);
     const float4 validWeights = sampleWeights * float4(tapValid00, tapValid10, tapValid01, tapValid11);
     const float validWeightSum = dot(validWeights, float4(1.0, 1.0, 1.0, 1.0));
     if (validWeightSum <= 1.0e-5)

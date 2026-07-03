@@ -252,12 +252,10 @@ float2 PathTraceCleanRtxdiDiGlassRefractionSamplePosition(
     PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
     PathTraceCleanRtxdiDiGlassThinPayload payload)
 {
-    const float2 samplePixel = float2(pixel) + PathTraceCleanRtxdiDiGlassRefractionPixelOffset(
+    return float2(pixel) + PathTraceCleanRtxdiDiGlassRefractionPixelOffset(
         surface,
         materialParams,
         payload);
-    const float2 maxPixel = float2((float)max(dimensions.x, 1u) - 1.0, (float)max(dimensions.y, 1u) - 1.0);
-    return clamp(samplePixel, float2(0.0, 0.0), maxPixel);
 }
 
 float2 PathTraceCleanRtxdiDiGlassReflectionPixelOffset(
@@ -298,12 +296,10 @@ float2 PathTraceCleanRtxdiDiGlassReflectionSamplePosition(
     PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
     PathTraceCleanRtxdiDiGlassThinPayload payload)
 {
-    const float2 samplePixel = float2(pixel) + PathTraceCleanRtxdiDiGlassReflectionPixelOffset(
+    return float2(pixel) + PathTraceCleanRtxdiDiGlassReflectionPixelOffset(
         surface,
         materialParams,
         payload);
-    const float2 maxPixel = float2((float)max(dimensions.x, 1u) - 1.0, (float)max(dimensions.y, 1u) - 1.0);
-    return clamp(samplePixel, float2(0.0, 0.0), maxPixel);
 }
 
 float4 PathTraceCleanRtxdiDiComposeThinGlassColor(
