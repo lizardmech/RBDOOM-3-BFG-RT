@@ -50,8 +50,7 @@ void RayGen()
                 runtimeParams);
         if (result.supported)
         {
-            SmokeOutput[pixel] = result.color;
-            PathTraceRRInputColor[pixel] = result.color;
+            PathTraceCleanRtxdiDiStoreGlassComposedColor(pixel, result.color);
         }
     }
 }

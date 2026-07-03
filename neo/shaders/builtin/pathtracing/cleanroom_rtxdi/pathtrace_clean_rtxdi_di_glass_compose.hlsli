@@ -35,6 +35,12 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColor(
     return fallbackColor;
 }
 
+void PathTraceCleanRtxdiDiStoreGlassComposedColor(uint2 pixel, float4 color)
+{
+    SmokeOutput[pixel] = color;
+    PathTraceRRInputColor[pixel] = color;
+}
+
 float4 PathTraceCleanRtxdiDiGlassTransmissionPayload(
     RAB_Surface surface,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)

@@ -79,8 +79,7 @@ void RayGen()
                 dimensions,
                 baseColor,
                 runtimeParams);
-            SmokeOutput[pixel] = composedColor;
-            PathTraceRRInputColor[pixel] = composedColor;
+            PathTraceCleanRtxdiDiStoreGlassComposedColor(pixel, composedColor);
         }
     }
 }
