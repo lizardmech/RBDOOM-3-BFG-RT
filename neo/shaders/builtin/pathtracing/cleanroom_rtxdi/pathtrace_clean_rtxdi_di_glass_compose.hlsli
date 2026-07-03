@@ -1,6 +1,8 @@
 #ifndef RB_PATH_TRACE_CLEAN_RTXDI_DI_GLASS_COMPOSE_HLSLI
 #define RB_PATH_TRACE_CLEAN_RTXDI_DI_GLASS_COMPOSE_HLSLI
 
+Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
+
 struct PathTraceCleanRtxdiDiGlassComposeResult
 {
     bool supported;

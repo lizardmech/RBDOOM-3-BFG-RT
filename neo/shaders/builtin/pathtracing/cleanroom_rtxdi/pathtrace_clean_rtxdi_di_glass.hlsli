@@ -1,7 +1,5 @@
 #if defined(CLEAN_RTXDI_DI_GLASS_ENTRY)
 
-Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
-
 float4 PathTraceCleanRtxdiDiGlassDebugColor(
     uint2 pixel,
     uint2 dimensions,

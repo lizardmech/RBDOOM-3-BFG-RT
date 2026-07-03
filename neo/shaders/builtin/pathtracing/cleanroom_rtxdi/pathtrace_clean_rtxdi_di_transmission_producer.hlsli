@@ -1,7 +1,6 @@
 #if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiTransmissionOutput : register(u87);
-Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
 
 float4 PathTraceCleanRtxdiDiTransmissionProducerSourceColor(uint2 pixel, float4 fallbackColor)
 {
