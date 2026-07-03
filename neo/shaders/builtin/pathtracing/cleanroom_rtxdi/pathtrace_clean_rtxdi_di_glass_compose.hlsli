@@ -3,6 +3,8 @@
 
 Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
 
+static const float RT_CLEAN_RTXDI_DI_GLASS_SUPPORTED_SOURCE_TAP_WEIGHT = 0.25;
+
 struct PathTraceCleanRtxdiDiGlassComposeResult
 {
     bool supported;
@@ -37,6 +39,19 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColor(
     return fallbackColor;
 }
 
+float PathTraceCleanRtxdiDiGlassSourceTapMaterialWeight(int2 pixel, uint2 dimensions)
+{
+    RAB_Surface sourceSurface;
+    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface((uint2)pixel, dimensions, sourceSurface))
+    {
+        return 1.0;
+    }
+
+    return PathTraceCleanRtxdiDiGlassSurfaceSupported(sourceSurface)
+        ? RT_CLEAN_RTXDI_DI_GLASS_SUPPORTED_SOURCE_TAP_WEIGHT
+        : 1.0;
+}
+
 float4 PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
     Texture2D<float4> outputColorSource,
     int2 pixel,
@@ -53,7 +68,9 @@ float4 PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
     }
 
     const float4 outputSource = outputColorSource.Load(int3(pixel, 0));
-    validWeight = PathTraceCleanRtxdiDiGlassColorEnergy(outputSource) > 1.0e-5 ? 1.0 : 0.0;
+    validWeight = PathTraceCleanRtxdiDiGlassColorEnergy(outputSource) > 1.0e-5
+        ? PathTraceCleanRtxdiDiGlassSourceTapMaterialWeight(pixel, dimensions)
+        : 0.0;
     return outputSource;
 }
 
