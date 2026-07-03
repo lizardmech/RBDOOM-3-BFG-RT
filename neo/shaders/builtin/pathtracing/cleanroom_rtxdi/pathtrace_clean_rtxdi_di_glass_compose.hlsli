@@ -8,6 +8,15 @@ struct PathTraceCleanRtxdiDiGlassComposeResult
     float4 transmissionPayload;
 };
 
+PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiEmptyGlassComposeResult(float4 currentColor)
+{
+    PathTraceCleanRtxdiDiGlassComposeResult result;
+    result.supported = false;
+    result.color = currentColor;
+    result.transmissionPayload = float4(1.0, 1.0, 1.0, 0.0);
+    return result;
+}
+
 float PathTraceCleanRtxdiDiGlassColorEnergy(float4 color)
 {
     return dot(abs(color.rgb), float3(1.0, 1.0, 1.0));
@@ -40,6 +49,49 @@ float4 PathTraceCleanRtxdiDiGlassTransmissionPayload(
     return float4(payload.transmission, payload.weight);
 }
 
+float4 PathTraceCleanRtxdiDiGlassTransmissionPayloadForPixel(
+    uint2 pixel,
+    uint2 dimensions,
+    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
+{
+    RAB_Surface surface;
+    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
+    {
+        return float4(1.0, 1.0, 1.0, 0.0);
+    }
+
+    return PathTraceCleanRtxdiDiGlassTransmissionPayload(surface, runtimeParams);
+}
+
+float4 PathTraceCleanRtxdiDiGlassDebugColorForPixel(
+    uint2 pixel,
+    uint2 dimensions,
+    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams,
+    float4 invalidColor,
+    float4 unsupportedColor,
+    float4 translucentUnsupportedColor)
+{
+    RAB_Surface surface;
+    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
+    {
+        return invalidColor;
+    }
+
+    const PathTraceMaterialFeature feature = PathTraceCleanRtxdiDiGlassFeatureForSurface(surface);
+    if (PathTraceCleanRtxdiDiGlassFeatureSupported(feature))
+    {
+        const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
+            PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
+        const PathTraceCleanRtxdiDiGlassThinPayload payload =
+            PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
+        return float4(saturate(payload.transmission + payload.reflection * 0.25), 1.0);
+    }
+
+    return feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS
+        ? translucentUnsupportedColor
+        : unsupportedColor;
+}
+
 PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeResult(
     RAB_Surface surface,
     uint2 pixel,
@@ -48,10 +100,8 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
     Texture2D<float4> outputColorSource,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
-    PathTraceCleanRtxdiDiGlassComposeResult result;
-    result.supported = false;
-    result.color = currentColor;
-    result.transmissionPayload = float4(1.0, 1.0, 1.0, 0.0);
+    PathTraceCleanRtxdiDiGlassComposeResult result =
+        PathTraceCleanRtxdiDiEmptyGlassComposeResult(currentColor);
 
     if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
     {
@@ -93,11 +143,7 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
     RAB_Surface surface;
     if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
     {
-        PathTraceCleanRtxdiDiGlassComposeResult result;
-        result.supported = false;
-        result.color = currentColor;
-        result.transmissionPayload = float4(1.0, 1.0, 1.0, 0.0);
-        return result;
+        return PathTraceCleanRtxdiDiEmptyGlassComposeResult(currentColor);
     }
 
     return PathTraceCleanRtxdiDiBuildGlassComposeResult(
