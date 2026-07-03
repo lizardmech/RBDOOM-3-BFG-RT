@@ -87,6 +87,25 @@ float PathTraceCleanRtxdiDiGlassThinAttenuationDistance(
     return max(thickness, 0.0) / max(abs(dot(normal, viewDirection)), 0.05);
 }
 
+float PathTraceCleanRtxdiDiGlassThinRefractedAttenuationDistance(
+    float thickness,
+    float3 normal,
+    float3 viewDirection,
+    float glassIor)
+{
+    const float viewDotNormal = saturate(abs(dot(normal, viewDirection)));
+    float refractedDotNormal;
+    if (!PathTraceCleanRtxdiDiGlassRefractionCosine(
+        rcp(max(glassIor, 1.0001)),
+        viewDotNormal,
+        refractedDotNormal))
+    {
+        return PathTraceCleanRtxdiDiGlassThinAttenuationDistance(thickness, normal, viewDirection);
+    }
+
+    return max(thickness, 0.0) / max(refractedDotNormal, 0.05);
+}
+
 float3 PathTraceCleanRtxdiDiGlassThinGeometricSeries(float3 value)
 {
     return 1.0 / max(1.0 - value * value, float3(
@@ -180,10 +199,11 @@ PathTraceCleanRtxdiDiGlassThinPayload PathTraceCleanRtxdiDiBuildGlassThinPayload
     const float f0 = PathTraceCleanRtxdiDiGlassIorToF0(1.0, glassIor);
     const float outsideFresnel = PathTraceCleanRtxdiDiGlassSchlickFresnel(f0, ndotv);
     const float insideFresnel = PathTraceCleanRtxdiDiGlassSchlickFresnelTir(f0, glassIor, ndotv);
-    const float attenuationDistance = PathTraceCleanRtxdiDiGlassThinAttenuationDistance(
+    const float attenuationDistance = PathTraceCleanRtxdiDiGlassThinRefractedAttenuationDistance(
         thickness,
         normal,
-        viewDirection);
+        viewDirection,
+        glassIor);
     const float3 attenuationCoefficient = PathTraceCleanRtxdiDiGlassTransmittanceToAttenuation(
         transmittanceColor,
         1.0);
