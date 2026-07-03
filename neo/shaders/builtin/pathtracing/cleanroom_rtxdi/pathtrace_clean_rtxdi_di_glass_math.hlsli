@@ -332,9 +332,9 @@ float4 PathTraceCleanRtxdiDiComposeThinGlassColor(
     const float payloadWeight = saturate(payload.weight);
     const float3 transmission = saturate(payload.transmission);
     const float3 reflectedThroughput = saturate(payload.reflection * materialParams.reflectionBoost);
-    const float3 surfaceFresnel = saturate(payload.fresnel * materialParams.reflectionBoost);
+    const float surfaceGlint = saturate(payload.fresnel * payload.fresnel * materialParams.reflectionBoost);
     const float3 transmittedColor = sourceColor.rgb * transmission;
-    const float3 reflectedColor = surfaceFresnel + reflectedSourceColor.rgb * reflectedThroughput;
+    const float3 reflectedColor = surfaceGlint + reflectedSourceColor.rgb * reflectedThroughput;
     const float3 floorColor = transmission * materialParams.transmissionFloor;
     const float3 composedColor = saturate(transmittedColor + reflectedColor + floorColor);
     return float4(lerp(currentColor.rgb, composedColor, payloadWeight), currentColor.a);

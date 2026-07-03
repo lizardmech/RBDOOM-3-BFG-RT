@@ -4,6 +4,7 @@
 Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
 
 static const float RT_CLEAN_RTXDI_DI_GLASS_SUPPORTED_SOURCE_TAP_WEIGHT = 0.25;
+static const float RT_CLEAN_RTXDI_DI_GLASS_SOURCE_DEPTH_EPSILON = 0.05;
 
 struct PathTraceCleanRtxdiDiGlassComposeResult
 {
@@ -39,7 +40,11 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColor(
     return fallbackColor;
 }
 
-float PathTraceCleanRtxdiDiGlassSourceTapMaterialWeight(int2 pixel, uint2 dimensions)
+float PathTraceCleanRtxdiDiGlassSourceTapMaterialWeight(
+    int2 pixel,
+    uint2 dimensions,
+    RAB_Surface referenceSurface,
+    bool requireBehindSurface)
 {
     RAB_Surface sourceSurface;
     if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface((uint2)pixel, dimensions, sourceSurface))
@@ -47,15 +52,33 @@ float PathTraceCleanRtxdiDiGlassSourceTapMaterialWeight(int2 pixel, uint2 dimens
         return 1.0;
     }
 
-    return PathTraceCleanRtxdiDiGlassSurfaceSupported(sourceSurface)
-        ? RT_CLEAN_RTXDI_DI_GLASS_SUPPORTED_SOURCE_TAP_WEIGHT
-        : 1.0;
+    if (PathTraceCleanRtxdiDiGlassSurfaceSupported(sourceSurface))
+    {
+        return RT_CLEAN_RTXDI_DI_GLASS_SUPPORTED_SOURCE_TAP_WEIGHT;
+    }
+
+    if (requireBehindSurface && RAB_IsSurfaceValid(referenceSurface))
+    {
+        const float referenceDepth = RAB_GetSurfaceLinearDepth(referenceSurface);
+        const float sourceDepth = RAB_GetSurfaceLinearDepth(sourceSurface);
+        const float depthEpsilon = max(
+            RT_CLEAN_RTXDI_DI_GLASS_SOURCE_DEPTH_EPSILON,
+            abs(referenceDepth) * 0.001);
+        if (sourceDepth <= referenceDepth + depthEpsilon)
+        {
+            return 0.0;
+        }
+    }
+
+    return 1.0;
 }
 
 float4 PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
     Texture2D<float4> outputColorSource,
     int2 pixel,
     uint2 dimensions,
+    RAB_Surface referenceSurface,
+    bool requireBehindSurface,
     out float validWeight)
 {
     if (pixel.x < 0 ||
@@ -69,7 +92,7 @@ float4 PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
 
     const float4 outputSource = outputColorSource.Load(int3(pixel, 0));
     validWeight = PathTraceCleanRtxdiDiGlassColorEnergy(outputSource) > 1.0e-5
-        ? PathTraceCleanRtxdiDiGlassSourceTapMaterialWeight(pixel, dimensions)
+        ? PathTraceCleanRtxdiDiGlassSourceTapMaterialWeight(pixel, dimensions, referenceSurface, requireBehindSurface)
         : 0.0;
     return outputSource;
 }
@@ -78,6 +101,8 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
     Texture2D<float4> outputColorSource,
     float2 samplePixel,
     uint2 dimensions,
+    RAB_Surface referenceSurface,
+    bool requireBehindSurface,
     float4 fallbackColor)
 {
     const float2 basePixel = floor(samplePixel);
@@ -98,10 +123,14 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
     float tapValid10;
     float tapValid01;
     float tapValid11;
-    const float4 c00 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p00, dimensions, tapValid00);
-    const float4 c10 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p10, dimensions, tapValid10);
-    const float4 c01 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p01, dimensions, tapValid01);
-    const float4 c11 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(outputColorSource, p11, dimensions, tapValid11);
+    const float4 c00 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
+        outputColorSource, p00, dimensions, referenceSurface, requireBehindSurface, tapValid00);
+    const float4 c10 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
+        outputColorSource, p10, dimensions, referenceSurface, requireBehindSurface, tapValid10);
+    const float4 c01 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
+        outputColorSource, p01, dimensions, referenceSurface, requireBehindSurface, tapValid01);
+    const float4 c11 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
+        outputColorSource, p11, dimensions, referenceSurface, requireBehindSurface, tapValid11);
     const float4 validWeights = sampleWeights * float4(tapValid00, tapValid10, tapValid01, tapValid11);
     const float validWeightSum = dot(validWeights, float4(1.0, 1.0, 1.0, 1.0));
     if (validWeightSum <= 1.0e-5)
@@ -211,11 +240,15 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
         PathTraceCleanRtxdiDiOutputColorSource,
         sourcePixel,
         dimensions,
+        surface,
+        true,
         currentColor);
     const float4 reflectedSourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
         PathTraceCleanRtxdiDiOutputColorSource,
         reflectedSourcePixel,
         dimensions,
+        surface,
+        false,
         currentColor);
 
     result.supported = true;
