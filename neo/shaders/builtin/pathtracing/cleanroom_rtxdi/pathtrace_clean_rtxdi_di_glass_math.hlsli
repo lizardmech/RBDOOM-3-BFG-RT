@@ -11,6 +11,8 @@ static const float RT_CLEAN_RTXDI_DI_GLASS_EPSILON = 1.0e-4;
 static const float RT_CLEAN_RTXDI_DI_GLASS_MIN_TRANSMITTANCE = 1.0e-4;
 static const float RT_CLEAN_RTXDI_DI_GLASS_REFRACTION_PIXEL_SCALE = 120.0;
 static const float RT_CLEAN_RTXDI_DI_GLASS_REFRACTION_MAX_PIXELS = 10.0;
+static const float RT_CLEAN_RTXDI_DI_GLASS_REFLECTION_PIXEL_SCALE = 48.0;
+static const float RT_CLEAN_RTXDI_DI_GLASS_REFLECTION_MAX_PIXELS = 6.0;
 
 float PathTraceCleanRtxdiDiGlassPow5(float value)
 {
@@ -258,9 +260,56 @@ uint2 PathTraceCleanRtxdiDiGlassRefractionSamplePixel(
     return uint2(clamp(int2(pixel) + offsetPixels, int2(0, 0), maxPixel));
 }
 
+float2 PathTraceCleanRtxdiDiGlassReflectionPixelOffset(
+    RAB_Surface surface,
+    PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
+    PathTraceCleanRtxdiDiGlassThinPayload payload)
+{
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 viewDirection = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
+    const float ndotv = saturate(abs(dot(normal, viewDirection)));
+    const float grazing = 1.0 - ndotv;
+    const float reflectionEnergy = saturate(max(payload.reflection.x, max(payload.reflection.y, payload.reflection.z)));
+    const float pixelMagnitude = min(
+        RT_CLEAN_RTXDI_DI_GLASS_REFLECTION_MAX_PIXELS,
+        max(materialParams.thickness, 0.0) *
+            RT_CLEAN_RTXDI_DI_GLASS_REFLECTION_PIXEL_SCALE *
+            saturate(payload.weight) *
+            reflectionEnergy *
+            (0.25 + 0.75 * grazing));
+
+    const float3 reflectedDirection = reflect(-viewDirection, normal);
+    const float2 fallbackDirection = PathTraceCleanRtxdiDiGlassProjectScreenDirection(normal);
+    const float2 screenDirection = PathTraceCleanRtxdiDiGlassNormalizeScreenDirection(
+        PathTraceCleanRtxdiDiGlassProjectScreenDirection(reflectedDirection),
+        fallbackDirection);
+    if (dot(screenDirection, screenDirection) <= RT_CLEAN_RTXDI_DI_GLASS_EPSILON)
+    {
+        return float2(0.0, 0.0);
+    }
+
+    return screenDirection * pixelMagnitude;
+}
+
+uint2 PathTraceCleanRtxdiDiGlassReflectionSamplePixel(
+    uint2 pixel,
+    uint2 dimensions,
+    RAB_Surface surface,
+    PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
+    PathTraceCleanRtxdiDiGlassThinPayload payload)
+{
+    const int2 offsetPixels = int2(round(PathTraceCleanRtxdiDiGlassReflectionPixelOffset(
+        surface,
+        materialParams,
+        payload)));
+    const int2 maxPixel = int2((int)max(dimensions.x, 1u) - 1, (int)max(dimensions.y, 1u) - 1);
+    return uint2(clamp(int2(pixel) + offsetPixels, int2(0, 0), maxPixel));
+}
+
 float4 PathTraceCleanRtxdiDiComposeThinGlassColor(
     float4 currentColor,
     float4 sourceColor,
+    float4 reflectedSourceColor,
     PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
     PathTraceCleanRtxdiDiGlassThinPayload payload)
 {
@@ -268,7 +317,7 @@ float4 PathTraceCleanRtxdiDiComposeThinGlassColor(
     const float3 transmission = saturate(payload.transmission);
     const float3 reflectedThroughput = saturate(payload.reflection * materialParams.reflectionBoost);
     const float3 transmittedColor = sourceColor.rgb * transmission;
-    const float3 reflectedColor = reflectedThroughput + currentColor.rgb * reflectedThroughput;
+    const float3 reflectedColor = reflectedThroughput + reflectedSourceColor.rgb * reflectedThroughput;
     const float3 floorColor = transmission * materialParams.transmissionFloor;
     const float3 composedColor = saturate(transmittedColor + reflectedColor + floorColor);
     return float4(lerp(currentColor.rgb, composedColor, payloadWeight), currentColor.a);

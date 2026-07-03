@@ -125,15 +125,26 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
         surface,
         materialParams,
         payload);
+    const uint2 reflectedSourcePixel = PathTraceCleanRtxdiDiGlassReflectionSamplePixel(
+        pixel,
+        dimensions,
+        surface,
+        materialParams,
+        payload);
     const float4 sourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColor(
         PathTraceCleanRtxdiDiOutputColorSource,
         sourcePixel,
+        currentColor);
+    const float4 reflectedSourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColor(
+        PathTraceCleanRtxdiDiOutputColorSource,
+        reflectedSourcePixel,
         currentColor);
 
     result.supported = true;
     result.color = PathTraceCleanRtxdiDiComposeThinGlassColor(
         currentColor,
         sourceColor,
+        reflectedSourceColor,
         materialParams,
         payload);
     result.transmissionPayload = float4(payload.transmission, payload.weight);
