@@ -1653,6 +1653,18 @@ idCVar r_pathTracingCleanRtxdiDiGlassGuideDebugView(
     CVAR_RENDERER | CVAR_INTEGER,
     "Reserved for future clean RTXDI DI glass RR guide diagnostics; ignored by the basic glass visual shader" );
 
+idCVar r_pathTracingCleanRtxdiDiGlassReflectionBoost(
+    "r_pathTracingCleanRtxdiDiGlassReflectionBoost",
+    "1.5",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean RTXDI DI view 16 glass late-compose reflection boost; default matches object-glass material feature params" );
+
+idCVar r_pathTracingCleanRtxdiDiGlassTransmissionFloor(
+    "r_pathTracingCleanRtxdiDiGlassTransmissionFloor",
+    "0.02",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean RTXDI DI view 16 glass late-compose minimum transmission floor; default matches object-glass material feature params" );
+
 idCVar r_cleanDiSpatial(
     "r_cleanDiSpatial",
     "1",

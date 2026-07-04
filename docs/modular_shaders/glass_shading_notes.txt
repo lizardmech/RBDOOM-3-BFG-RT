@@ -438,6 +438,8 @@ Minimum checks:
             for valid PSR payloads, while 0.25 remains the detected-but-missed sentinel
         sidecar encode/decode must use pathtrace_clean_rtxdi_di_transmission_sidecar.hlsli
         late compose applies the default glass reflection boost and transmission floor
+        runtime tuning uses r_pathTracingCleanRtxdiDiGlassReflectionBoost and
+            r_pathTracingCleanRtxdiDiGlassTransmissionFloor
 
     producer:
         PSR detects supported glass pixels before DI

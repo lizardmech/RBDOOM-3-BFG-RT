@@ -191,13 +191,19 @@ inline RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiObje
 inline void FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
     RtPathTraceMaterialFeatureRuntimeInfo& runtimeInfo,
     const RtPathTraceMaterialFeaturePassDesc& passDesc,
-    int debugOutputMode)
+    int debugOutputMode,
+    float reflectionBoost,
+    float transmissionFloor)
 {
     const bool debugOutputEnabled =
         debugOutputMode != 0 &&
         PathTraceMaterialFeaturePassWritesAnyOutput(passDesc, RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR);
     runtimeInfo.debugMode = debugOutputEnabled ? static_cast<float>(debugOutputMode) : 0.0f;
+    RtPathTraceMaterialFeatureParameterRecord params =
+        BuildPathTraceObjectGlassMaterialFeatureParameters();
+    params.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_REFLECTION_BOOST] = reflectionBoost;
+    params.params1[RT_PATH_TRACE_OBJECT_GLASS_PARAM1_TRANSMISSION_FLOOR] = transmissionFloor;
     CopyPathTraceMaterialFeatureParametersToRuntimeInfo(
         runtimeInfo,
-        BuildPathTraceObjectGlassMaterialFeatureParameters());
+        params);
 }

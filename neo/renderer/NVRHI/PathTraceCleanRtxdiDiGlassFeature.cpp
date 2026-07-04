@@ -38,7 +38,9 @@ static void FillPathTraceCleanRtxdiDiGlassRuntimeInfo(
     FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
         runtimeInfo,
         passDesc,
-        r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger());
+        r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger(),
+        idMath::ClampFloat(0.0f, 8.0f, r_pathTracingCleanRtxdiDiGlassReflectionBoost.GetFloat()),
+        idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRtxdiDiGlassTransmissionFloor.GetFloat()));
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(

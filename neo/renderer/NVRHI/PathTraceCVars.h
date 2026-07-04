@@ -282,6 +282,8 @@ extern idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView;
 extern idCVar r_pathTracingCleanRtxdiDiGlassShader;
 extern idCVar r_pathTracingCleanRtxdiDiGlassDebugView;
 extern idCVar r_pathTracingCleanRtxdiDiGlassGuideDebugView;
+extern idCVar r_pathTracingCleanRtxdiDiGlassReflectionBoost;
+extern idCVar r_pathTracingCleanRtxdiDiGlassTransmissionFloor;
 extern idCVar r_cleanDiSpatial;
 extern idCVar r_cleanSpatial;
 extern idCVar r_cleanDiSpatialSamples;
