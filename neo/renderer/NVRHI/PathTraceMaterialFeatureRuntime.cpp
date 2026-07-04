@@ -430,6 +430,39 @@ size_t BuildPathTraceReadyMaterialFeatureRuntimePasses(
         }
         ++passCount;
     }
+
+    const size_t storedPassCount = Min(passCount, passCapacity);
+    if (!runtimePasses)
+    {
+        return passCount;
+    }
+
+    for (size_t i = 1; i < storedPassCount; ++i)
+    {
+        RtPathTraceMaterialFeatureRuntimePass pass = runtimePasses[i];
+        RtPathTraceMaterialFeaturePassRegistration registration;
+        if (registrationsOut)
+        {
+            registration = registrationsOut[i];
+        }
+
+        size_t j = i;
+        while (j > 0 && runtimePasses[j - 1].desc.sharedOutputPriority > pass.desc.sharedOutputPriority)
+        {
+            runtimePasses[j] = runtimePasses[j - 1];
+            if (registrationsOut)
+            {
+                registrationsOut[j] = registrationsOut[j - 1];
+            }
+            --j;
+        }
+
+        runtimePasses[j] = pass;
+        if (registrationsOut)
+        {
+            registrationsOut[j] = registration;
+        }
+    }
     return passCount;
 }
 

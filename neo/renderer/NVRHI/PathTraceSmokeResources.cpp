@@ -1355,8 +1355,12 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(7));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(8));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(9));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(10));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(11));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(12));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(13));
@@ -1365,6 +1369,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(23));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));

@@ -9,18 +9,22 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
     bool cleanRouteRequested,
     int cleanView,
     bool shaderRequested,
-    bool debugOutputRequested)
+    bool debugOutputRequested,
+    bool transmissionComposeRequested)
 {
     RtPathTraceMaterialFeaturePassDesc desc;
 
     const bool cleanGlassRoute = PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(cleanRouteRequested, cleanView);
-    const bool outputRequested = cleanGlassRoute && (shaderRequested || debugOutputRequested);
+    // The older screen-space glass beauty pass has been removed from normal
+    // output. Keep explicit glass debug available; PSR transmission owns beauty.
+    const bool beautyOutput = false;
+    const bool outputRequested = cleanGlassRoute && (beautyOutput || debugOutputRequested);
     const bool debugOutput = cleanGlassRoute && debugOutputRequested;
     if (outputRequested)
     {
         PathTraceCleanRtxdiDiEnableComposedOutput(desc, true);
     }
-    desc.enabled = cleanGlassRoute && (shaderRequested || debugOutputRequested);
+    desc.enabled = cleanGlassRoute && (beautyOutput || debugOutputRequested);
     desc.debugLabel = debugOutput ? "clean-rtxdi-di-glass-debug" : "clean-rtxdi-di-glass";
     return desc;
 }
@@ -32,7 +36,7 @@ static void FillPathTraceCleanRtxdiDiGlassRuntimeInfo(
     FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
         runtimeInfo,
         passDesc,
-        r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0);
+        r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger());
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(
@@ -41,13 +45,17 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
 {
     const bool shaderRequested = r_pathTracingCleanRtxdiDiGlassShader.GetInteger() != 0;
     const bool debugOutputRequested = r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0;
+    const bool transmissionComposeRequested =
+        r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
+        r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
 
     return BuildPathTraceCleanRtxdiDiObjectGlassRegistration(
         BuildPathTraceCleanRtxdiDiGlassFeaturePassDesc(
             cleanRouteRequested,
             cleanView,
             shaderRequested,
-            debugOutputRequested),
+            debugOutputRequested,
+            transmissionComposeRequested),
         RtPathTraceCleanRtxdiDiObjectGlassBindingSet::ComposedGlass,
         FillPathTraceCleanRtxdiDiGlassRuntimeInfo);
 }
@@ -59,7 +67,8 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
             true,
             16,
             true,
-            true),
+            true,
+            false),
         RtPathTraceCleanRtxdiDiObjectGlassBindingSet::ComposedGlass,
         FillPathTraceCleanRtxdiDiGlassRuntimeInfo);
 }

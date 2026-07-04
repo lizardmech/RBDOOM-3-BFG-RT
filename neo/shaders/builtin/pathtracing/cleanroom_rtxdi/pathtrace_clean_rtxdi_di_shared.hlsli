@@ -25,6 +25,15 @@ struct PathTraceCleanRtxdiPayload
     uint ignoreInstanceId;
     uint ignorePrimitiveIndex;
     uint ignoreMaterialIndex;
+#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+    uint hitInstanceId;
+    uint hitPrimitiveIndex;
+    uint hitMaterialId;
+    uint hitMaterialIndex;
+    uint hitTriangleClassAndFlags;
+    float hitT;
+    float2 hitBarycentrics;
+#endif
 };
 
 struct PathTraceRigidRouteInstance
@@ -205,11 +214,16 @@ VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceRRGuideResetMask : register(
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideSpecularAlbedo : register(u53);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceRRMotionVectors : register(u78);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRGuidePosition : register(u79);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
+StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
 StructuredBuffer<PathTraceSmokeVertex> SmokeDynamicVertices : register(t6);
 StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
+StructuredBuffer<uint> SmokeDynamicTriangleClasses : register(t8);
+StructuredBuffer<uint> SmokeStaticTriangleMaterials : register(t9);
+StructuredBuffer<uint> SmokeDynamicTriangleMaterials : register(t10);
 StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
@@ -219,6 +233,7 @@ StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : regist
 StructuredBuffer<PathTraceEmissiveDistributionEntry> SmokeEmissiveDistribution : register(t46);
 StructuredBuffer<PathTraceSmokeVertex> SmokeRigidRouteVertices : register(t22);
 StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
+StructuredBuffer<uint> SmokeRigidRouteTriangleMaterials : register(t24);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
 StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
@@ -235,6 +250,7 @@ StructuredBuffer<PathTraceMaterialFeatureParameterRecord> PathTraceMaterialFeatu
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiCurrentReservoirs : register(u69);
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiTemporalReservoirs : register(u70);
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiPreviousReservoirs : register(u71);
+RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiSpatialReservoirs : register(u72);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
@@ -330,14 +346,25 @@ PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams PathTraceCleanRtxdiDiLoadMater
 
 static const uint RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0x00020000u;
 static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
+static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
 static const uint RT_SMOKE_MATERIAL_EMISSIVE = 0x00000008u;
 static const uint RT_SMOKE_MATERIAL_FILTER_DECAL = 0x00000010u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA = 0x00000040u;
+static const uint RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO = 0x00000080u;
 static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
+static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN = 5u;
+static const uint RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY = 1u;
+static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
+static const uint RT_SMOKE_SURFACE_CLASS_TRANSLUCENT = 3u;
+static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
+static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
 #define DoomAnalyticLightInfo CleanRtxdiDiDoomAnalyticLightInfo
@@ -400,6 +427,7 @@ static const uint CLEAN_FLAG_NEE_CACHE_PROVIDER = 1u << 11u;
 static const uint CLEAN_FLAG_PREVIOUS_BEST_APPROXIMATION = 1u << 12u;
 static const uint CLEAN_FLAG_INITIAL_VISIBILITY = 1u << 17u;
 static const uint CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
+static const uint CLEAN_FLAG_TRANSMISSION_PSR_PHASE = 1u << 20u;
 static const uint CLEAN_TEMPORAL_FLAG_ENABLE = 1u << 0u;
 static const uint CLEAN_TEMPORAL_FLAG_PREVIOUS_VALID = 1u << 1u;
 static const uint CLEAN_TEMPORAL_DIAG_CURRENT_VALID = 1u << 0u;

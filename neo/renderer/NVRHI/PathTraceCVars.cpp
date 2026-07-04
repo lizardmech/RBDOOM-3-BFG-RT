@@ -1633,13 +1633,13 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
     "r_pathTracingCleanRtxdiDiTransmissionDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 route thin-glass payload visualization to SmokeOutput after clean DI spatial" );
+    "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 thin-glass payload, 2 source validity red=strict green=relaxed blue=current-source energy, 3 PSR status green=replaced yellow=miss red=still-glass gray=not-glass" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassShader(
     "r_pathTracingCleanRtxdiDiGlassShader",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 glass material-feature shader: 0 off, 1 compose thin-glass beauty for matching glass pixels" );
+    "Clean RTXDI DI view 16 legacy screen-space glass material-feature shader: removed from normal beauty output; use transmission producer/compose for PSR glass" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassDebugView(
     "r_pathTracingCleanRtxdiDiGlassDebugView",

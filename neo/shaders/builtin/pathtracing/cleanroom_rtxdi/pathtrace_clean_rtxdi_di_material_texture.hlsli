@@ -1,6 +1,10 @@
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
+#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE = 0x00000200u;
+static const uint RT_SMOKE_MATERIAL_DYNAMIC_EMISSIVE_REGISTER_MASK = 0x0000003cu;
+#endif
 
 uint PathTraceCleanRoomDynamicMaterialRecordCount()
 {
@@ -32,6 +36,13 @@ void PathTraceCleanRoomApplyDynamicMaterialRecord(uint materialIndex, inout Path
     {
         return;
     }
+#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+    if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
+        (material.padding0 & RT_SMOKE_MATERIAL_DYNAMIC_EMISSIVE_REGISTER_MASK) == 0u)
+    {
+        return;
+    }
+#endif
 
     const bool stageEnabled =
         (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u &&
@@ -44,8 +55,30 @@ void PathTraceCleanRoomApplyDynamicMaterialRecord(uint materialIndex, inout Path
         return;
     }
 
+#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+    const float stageAlpha = saturate(record.color.a);
+    const float3 stageScale = max(record.color.rgb, float3(0.0, 0.0, 0.0)) * stageAlpha;
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE) != 0u)
+    {
+        material.emissiveColor.rgb = stageScale;
+    }
+    else
+    {
+        material.emissiveColor.rgb *= stageScale;
+    }
+    material.emissiveColor.a = stageAlpha;
+    if (max(max(material.emissiveColor.r, material.emissiveColor.g), material.emissiveColor.b) <= 1.0e-5)
+    {
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+    }
+    else
+    {
+        material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
+    }
+#else
     material.emissiveColor = float4(max(record.color.rgb, float3(0.0, 0.0, 0.0)), saturate(record.color.a));
     material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
+#endif
 }
 
 PathTraceSmokeMaterial PathTraceCleanRoomLoadSmokeMaterial(uint materialIndex)

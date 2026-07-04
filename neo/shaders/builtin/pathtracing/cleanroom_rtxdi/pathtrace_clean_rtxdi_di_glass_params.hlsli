@@ -11,6 +11,8 @@ struct PathTraceCleanRtxdiDiGlassMaterialParams
     float transmissionFloor;
 };
 
+static const bool RT_CLEAN_RTXDI_DI_GLASS_FORCE_NEUTRAL_TRANSMITTANCE = true;
+
 static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_R = 0u;
 static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_G = 1u;
 static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_B = 2u;
@@ -78,8 +80,16 @@ PathTraceCleanRtxdiDiGlassMaterialParams PathTraceCleanRtxdiDiLoadGlassMaterialP
         PathTraceCleanRtxdiDiApplyGlassParameterRecord(
             params,
             PathTraceMaterialFeatureParameters[feature.parameterRecordIndex]);
-        params.transmittanceColor =
-            PathTraceCleanRtxdiDiGlassMaterialTintFromSurface(surface, params.transmittanceColor);
+        if (!RT_CLEAN_RTXDI_DI_GLASS_FORCE_NEUTRAL_TRANSMITTANCE)
+        {
+            params.transmittanceColor =
+                PathTraceCleanRtxdiDiGlassMaterialTintFromSurface(surface, params.transmittanceColor);
+        }
+    }
+
+    if (RT_CLEAN_RTXDI_DI_GLASS_FORCE_NEUTRAL_TRANSMITTANCE)
+    {
+        params.transmittanceColor = float3(0.96, 0.96, 0.96);
     }
 
     return params;

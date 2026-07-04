@@ -12,6 +12,7 @@ struct PathTraceCleanRtxdiDiGlassComposeResult
     bool supported;
     float4 color;
     float4 transmissionPayload;
+    float sourceValidity;
 };
 
 PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiEmptyGlassComposeResult(float4 currentColor)
@@ -20,6 +21,7 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiEmptyGlassComposeRe
     result.supported = false;
     result.color = currentColor;
     result.transmissionPayload = float4(1.0, 1.0, 1.0, 0.0);
+    result.sourceValidity = 0.0;
     return result;
 }
 
@@ -98,13 +100,14 @@ float4 PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
     return outputSource;
 }
 
-float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
+float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinearWithValidity(
     Texture2D<float4> outputColorSource,
     float2 samplePixel,
     uint2 dimensions,
     RAB_Surface referenceSurface,
     bool requireBehindSurface,
-    float4 fallbackColor)
+    float4 fallbackColor,
+    out float validWeightSum)
 {
     const float2 basePixel = floor(samplePixel);
     const float2 fraction = samplePixel - basePixel;
@@ -133,7 +136,7 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
     const float4 c11 = PathTraceCleanRtxdiDiGlassLoadOutputSourceTap(
         outputColorSource, p11, dimensions, referenceSurface, requireBehindSurface, tapValid11);
     const float4 validWeights = sampleWeights * float4(tapValid00, tapValid10, tapValid01, tapValid11);
-    const float validWeightSum = dot(validWeights, float4(1.0, 1.0, 1.0, 1.0));
+    validWeightSum = dot(validWeights, float4(1.0, 1.0, 1.0, 1.0));
     if (validWeightSum <= 1.0e-5)
     {
         return fallbackColor;
@@ -141,6 +144,69 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
 
     return (c00 * validWeights.x + c10 * validWeights.y + c01 * validWeights.z + c11 * validWeights.w) /
         validWeightSum;
+}
+
+float4 PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
+    Texture2D<float4> outputColorSource,
+    float2 samplePixel,
+    uint2 dimensions,
+    RAB_Surface referenceSurface,
+    bool requireBehindSurface,
+    float4 fallbackColor)
+{
+    float validWeightSum;
+    return PathTraceCleanRtxdiDiGlassOutputSourceColorBilinearWithValidity(
+        outputColorSource,
+        samplePixel,
+        dimensions,
+        referenceSurface,
+        requireBehindSurface,
+        fallbackColor,
+        validWeightSum);
+}
+
+float4 PathTraceCleanRtxdiDiGlassOutputSourceColorChromaticWithValidity(
+    Texture2D<float4> outputColorSource,
+    float2 currentPixel,
+    float2 refractedSamplePixel,
+    uint2 dimensions,
+    RAB_Surface referenceSurface,
+    bool requireBehindSurface,
+    float4 fallbackColor,
+    out float validWeight)
+{
+    const float2 refractedOffset = refractedSamplePixel - currentPixel;
+    const float2 channelOffset = refractedOffset * RT_CLEAN_RTXDI_DI_GLASS_CHROMATIC_REFRACTION_SCALE;
+    float redValidity;
+    float greenValidity;
+    float blueValidity;
+    const float4 redSource = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinearWithValidity(
+        outputColorSource,
+        refractedSamplePixel - channelOffset,
+        dimensions,
+        referenceSurface,
+        requireBehindSurface,
+        fallbackColor,
+        redValidity);
+    const float4 greenSource = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinearWithValidity(
+        outputColorSource,
+        refractedSamplePixel,
+        dimensions,
+        referenceSurface,
+        requireBehindSurface,
+        fallbackColor,
+        greenValidity);
+    const float4 blueSource = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinearWithValidity(
+        outputColorSource,
+        refractedSamplePixel + channelOffset,
+        dimensions,
+        referenceSurface,
+        requireBehindSurface,
+        fallbackColor,
+        blueValidity);
+
+    validWeight = min(redValidity, min(greenValidity, blueValidity));
+    return float4(redSource.r, greenSource.g, blueSource.b, greenSource.a);
 }
 
 float4 PathTraceCleanRtxdiDiGlassOutputSourceColorChromatic(
@@ -151,31 +217,16 @@ float4 PathTraceCleanRtxdiDiGlassOutputSourceColorChromatic(
     RAB_Surface referenceSurface,
     float4 fallbackColor)
 {
-    const float2 refractedOffset = refractedSamplePixel - currentPixel;
-    const float2 channelOffset = refractedOffset * RT_CLEAN_RTXDI_DI_GLASS_CHROMATIC_REFRACTION_SCALE;
-    const float4 redSource = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
+    float validWeight;
+    return PathTraceCleanRtxdiDiGlassOutputSourceColorChromaticWithValidity(
         outputColorSource,
-        refractedSamplePixel - channelOffset,
-        dimensions,
-        referenceSurface,
-        true,
-        fallbackColor);
-    const float4 greenSource = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
-        outputColorSource,
+        currentPixel,
         refractedSamplePixel,
         dimensions,
         referenceSurface,
         true,
-        fallbackColor);
-    const float4 blueSource = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
-        outputColorSource,
-        refractedSamplePixel + channelOffset,
-        dimensions,
-        referenceSurface,
-        true,
-        fallbackColor);
-
-    return float4(redSource.r, greenSource.g, blueSource.b, greenSource.a);
+        fallbackColor,
+        validWeight);
 }
 
 void PathTraceCleanRtxdiDiStoreGlassComposedColor(uint2 pixel, float4 color)
@@ -272,13 +323,40 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
         surface,
         materialParams,
         payload);
-    const float4 sourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorChromatic(
+    const float4 invalidSourceColor = float4(0.0, 0.0, 0.0, 0.0);
+    float strictSourceValidity;
+    float4 sourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorChromaticWithValidity(
         PathTraceCleanRtxdiDiOutputColorSource,
         float2(pixel),
         sourcePixel,
         dimensions,
         surface,
-        currentColor);
+        true,
+        invalidSourceColor,
+        strictSourceValidity);
+    float sourceValidity = strictSourceValidity;
+    if (sourceValidity <= 1.0e-5)
+    {
+        float relaxedSourceValidity;
+        const float4 relaxedSourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorChromaticWithValidity(
+            PathTraceCleanRtxdiDiOutputColorSource,
+            float2(pixel),
+            sourcePixel,
+            dimensions,
+            surface,
+            false,
+            invalidSourceColor,
+            relaxedSourceValidity);
+        if (relaxedSourceValidity > 1.0e-5)
+        {
+            sourceColor = relaxedSourceColor;
+            sourceValidity = relaxedSourceValidity;
+        }
+        else
+        {
+            sourceColor = currentColor;
+        }
+    }
     const float4 reflectedSourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
         PathTraceCleanRtxdiDiOutputColorSource,
         reflectedSourcePixel,
@@ -295,6 +373,7 @@ PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeRe
         materialParams,
         payload);
     result.transmissionPayload = float4(payload.transmission, payload.weight);
+    result.sourceValidity = sourceValidity;
     return result;
 }
 

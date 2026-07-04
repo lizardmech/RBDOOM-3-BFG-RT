@@ -98,6 +98,52 @@ RAB_Surface PathTraceCleanRtxdiDiMaterialTargetSurface(RAB_Surface surface)
     return targetSurface;
 }
 
+float3 PathTraceCleanRtxdiDiMaterialFresnelSchlick(float3 f0, float cosine)
+{
+    const float oneMinusCosine = 1.0 - saturate(cosine);
+    const float factor = oneMinusCosine * oneMinusCosine * oneMinusCosine * oneMinusCosine * oneMinusCosine;
+    return saturate(f0) + (float3(1.0, 1.0, 1.0) - saturate(f0)) * factor;
+}
+
+float PathTraceCleanRtxdiDiMaterialSmithG1(float ndotx, float roughness)
+{
+    const float r = saturate(roughness) + 1.0;
+    const float k = (r * r) * 0.125;
+    return ndotx / max(ndotx * (1.0 - k) + k, 1.0e-5);
+}
+
+float3 PathTraceCleanRtxdiDiMaterialEvaluatePbrDirectBrdf(RAB_Surface surface, float3 wi, float3 wo)
+{
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 lightDir = RAB_SafeNormalize(wi, normal);
+    const float3 viewDir = RAB_SafeNormalize(wo, normal);
+    const float ndotl = saturate(dot(normal, lightDir));
+    const float ndotv = saturate(dot(normal, viewDir));
+    if (ndotl <= 0.0 || ndotv <= 0.0 ||
+        dot(RAB_GetSurfaceGeoNormal(surface), lightDir) <= 0.0 ||
+        dot(RAB_GetSurfaceGeoNormal(surface), viewDir) <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const float roughness = max(saturate(surface.material.roughness), 0.035);
+    const float alpha = max(roughness * roughness, 1.0e-4);
+    const float alphaSquared = alpha * alpha;
+    const float3 halfVector = RAB_SafeNormalize(lightDir + viewDir, normal);
+    const float ndoth = saturate(dot(normal, halfVector));
+    const float vdoth = saturate(dot(viewDir, halfVector));
+    const float denom = max(ndoth * ndoth * (alphaSquared - 1.0) + 1.0, 1.0e-4);
+    const float distribution = alphaSquared / max(RT_PATH_TRACE_OPAQUE_DIRECT_PI * denom * denom, 1.0e-5);
+    const float geometry =
+        PathTraceCleanRtxdiDiMaterialSmithG1(ndotl, roughness) *
+        PathTraceCleanRtxdiDiMaterialSmithG1(ndotv, roughness);
+    const float3 fresnel = PathTraceCleanRtxdiDiMaterialFresnelSchlick(surface.material.specularF0, vdoth);
+    const float3 specular = fresnel * (distribution * geometry / max(4.0 * ndotl * ndotv, 1.0e-5));
+    const float specularWeight = saturate(max(max(fresnel.r, fresnel.g), fresnel.b));
+    const float3 diffuse = GetDiffuseAlbedo(surface.material) * ((1.0 - specularWeight) / RT_PATH_TRACE_OPAQUE_DIRECT_PI);
+    return diffuse + specular;
+}
+
 float3 PathTraceCleanRtxdiDiMaterialEvaluateOpaqueDirectBrdf(RAB_Surface surface, float3 wi, float3 wo)
 {
     if (!PathTraceCleanRtxdiDiMaterialSupportsOpaqueDirect(surface))
@@ -115,7 +161,7 @@ float3 PathTraceCleanRtxdiDiMaterialEvaluateOpaqueDirectBrdf(RAB_Surface surface
         return GetDiffuseAlbedo(surface.material) * (1.0 / RT_PATH_TRACE_OPAQUE_DIRECT_PI);
     }
 
-    return EvaluateOpaqueDirectBrdf(surface, wi, wo);
+    return PathTraceCleanRtxdiDiMaterialEvaluatePbrDirectBrdf(surface, wi, wo);
 }
 
 float PathTraceCleanRtxdiDiMaterialEvaluateLightSampleTargetPdf(RAB_LightSample lightSample, RAB_Surface surface)

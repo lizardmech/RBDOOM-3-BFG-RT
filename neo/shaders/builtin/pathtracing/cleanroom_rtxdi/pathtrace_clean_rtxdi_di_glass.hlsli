@@ -37,19 +37,6 @@ void RayGen()
     {
         SmokeOutput[pixel] = PathTraceCleanRtxdiDiGlassDebugColor(pixel, dimensions, runtimeParams);
     }
-    else
-    {
-        const PathTraceCleanRtxdiDiGlassComposeResult result =
-            PathTraceCleanRtxdiDiBuildGlassComposeResultForPixel(
-                pixel,
-                dimensions,
-                SmokeOutput[pixel],
-                runtimeParams);
-        if (result.supported)
-        {
-            PathTraceCleanRtxdiDiStoreGlassComposedColor(pixel, result.color);
-        }
-    }
 }
 
 #endif

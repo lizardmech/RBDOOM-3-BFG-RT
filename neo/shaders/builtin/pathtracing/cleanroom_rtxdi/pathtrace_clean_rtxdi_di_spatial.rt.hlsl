@@ -937,6 +937,49 @@ float4 CleanSampleDecodedDiffuse(PathTraceSmokeMaterial material, float2 texCoor
     return saturate(texel);
 }
 
+float3 CleanTexturedEmissiveRadiance(PathTraceUnifiedLightRecord light)
+{
+    const float emissiveScale = max(CleanRtxdiDiToyPathInfo.z, 0.0);
+    const float3 fallbackRadiance = max(light.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * emissiveScale;
+    if (emissiveScale <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const uint sourceIndex = light.sourceIndex;
+    if (sourceIndex >= CleanRtxdiDiCurrentEmissiveTriangleCount)
+    {
+        return fallbackRadiance;
+    }
+
+    const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[sourceIndex];
+    if (emissiveTriangle.materialIndex >= (uint)CleanRtxdiDiTextureInfo.z)
+    {
+        return fallbackRadiance;
+    }
+
+    const PathTraceSmokeMaterial material = CleanLoadSmokeMaterial(emissiveTriangle.materialIndex);
+    const bool activeEmissiveStage = (emissiveTriangle.padding0 & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
+    if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u || !activeEmissiveStage)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    float3 radiance = max(material.emissiveColor.rgb, float3(0.0, 0.0, 0.0));
+    if ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS) != 0u &&
+        material.emissiveTextureIndex != 0xffffffffu)
+    {
+        radiance *= saturate(CleanSampleTexture(
+            material.emissiveTextureIndex,
+            material.emissiveTextureWidth,
+            material.emissiveTextureHeight,
+            emissiveTriangle.centroidUvAndWeight.xy,
+            float4(1.0, 1.0, 1.0, 1.0)).rgb);
+    }
+    radiance *= 1.75 * emissiveScale;
+    return CleanLuminance(radiance) > 0.0 ? radiance : fallbackRadiance;
+}
+
 RAB_LightInfo CleanLoadRluLightInfo(uint lightIndex)
 {
     RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
@@ -1007,8 +1050,7 @@ RAB_LightInfo CleanLoadRluLightInfo(uint lightIndex)
         return lightInfo;
     }
 
-    const float emissiveScale = max(CleanRtxdiDiToyPathInfo.z, 0.0);
-    const float3 radiance = max(light.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * emissiveScale;
+    const float3 radiance = CleanTexturedEmissiveRadiance(light);
     if (CleanLuminance(radiance) <= 0.0)
     {
         return lightInfo;

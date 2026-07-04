@@ -7,12 +7,21 @@ Purpose
 This note records the current design direction for turning the clean RTXDI DI
 glass material-feature proof into a basic usable glass shader.
 
+The main architectural lesson from the early experiments is that usable glass
+does not start with Fresnel color math. It starts with primary surface
+replacement (PSR): resolve the surface seen through the glass first, let the
+normal clean RTXDI DI path shade that replacement surface, then add the glass
+surface response afterward. Every other glass function is secondary until that
+contract works.
+
 The near-term goal is not full RTX Remix parity. It is a narrow, testable,
 clean-DI view 16 glass slice that:
 
     uses the modular material-feature pass path
     does not add glass branches to unrelated DI/GI math
     keeps unsupported material kinds fail-closed
+    replaces glass primary pixels with resolved behind-glass surfaces before DI
+    applies glass attenuation/reflection only after the behind surface is shaded
     produces a primary-view effect, not only a debug color
     can be replaced or expanded by later shader implementations
 
@@ -27,6 +36,7 @@ Useful RTX Remix reference files:
     E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/concept/surface_material/translucent_surface_material_interaction.slangh
     E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/utility/brdf.slangh
     E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/visibility.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/geometry_resolver.slangh
 
 The inspected material shader files carry permissive MIT-style NVIDIA license
 headers. If source text is copied directly, retain the notice in the derived
@@ -67,10 +77,39 @@ does not need to enter nested medium tracking for the first pass. The main
 effect is a specular/transmission split plus Beer-Lambert attenuation through a
 thin-surface distance.
 
-This maps better to the current clean-DI material-feature route than Remix's
-full PSR system. The full PSR path adds reflection/transmission buffers,
-multi-bounce resolver state, medium tracking, DLSS/RR guide interaction, and
-GBuffer packing. Those should stay out of the first rbdoom glass slice.
+The useful Remix shape is not just the translucent material formula. The
+important part is that transmission participates in surface resolution. For
+transparent pixels, Remix-style rendering can replace the primary surface seen
+by the lighting/denoising pipeline with the surface behind the glass, while
+carrying glass attenuation and surface contribution as separate data for the
+late resolve.
+
+For rbdoom, that means the first credible clean-DI glass slice is:
+
+    pre-DI PSR phase:
+        identify supported glass pixels from the original primary surface
+        trace or otherwise resolve the behind-glass primary surface
+        write a complete replacement primary-surface record for DI
+        store the original glass overlay data separately
+
+    normal clean DI phase:
+        shade the replacement surface using existing clean RTXDI DI code
+        do not add glass-specific branches to DI/GI reservoir math
+
+    late glass overlay phase:
+        read the saved glass overlay data, not the replaced primary record
+        apply thin-glass throughput, Fresnel/reflection, tint, and debug output
+        write beauty/RR input color through the material-feature output path
+
+Until the PSR handoff works, Fresnel, Beer-Lambert attenuation, chromatic
+offsets, roughness, normal maps, and tint controls are only local surface
+effects. They cannot make black legacy glass transparent and they cannot show
+properly shaded objects behind the pane.
+
+The first rbdoom slice should still avoid Remix's full medium tracker,
+multi-bounce resolver, and complete DLSS/RR guide replacement. It should not
+avoid PSR itself. PSR is the minimum architecture required for usable glass in
+the clean RTXDI DI primary view.
 
 
 Do Not Pull In Yet
@@ -80,7 +119,6 @@ Do not bring these into the first glass shader:
 
     Remix polymorphic material table layout
     Remix GBuffer material serialization
-    PSR reflection/transmission resolver buffers
     thick medium enter/exit tracking
     nested translucent media
     animated water normal layering
@@ -92,14 +130,37 @@ Do not bring these into the first glass shader:
 Those are separate contracts. Pulling them in early would make the clean-DI
 feature route depend on unrelated renderer structure.
 
+Do bring in the rbdoom-owned PSR contract. The local version can be smaller
+than Remix's resolver, but it must still keep the same ownership split:
+
+    replacement primary surface for clean DI
+    saved glass overlay/source record for late glass shading
+    explicit transmission/throughput payload
+    debug views proving each phase independently
+
 
 Initial rbdoom Glass Contract
 -----------------------------
 
-Start with a small rbdoom-owned HLSL include for glass math, used only by the
-clean RTXDI DI glass/transmission material-feature shader.
+Start with a rbdoom-owned PSR handoff, then keep glass math small and local.
+The HLSL helpers are useful only after the pass has a real behind-glass surface
+to shade.
 
-Suggested helper set:
+Required PSR contract:
+
+    the original glass primary surface remains available after replacement
+    the replacement primary record is fully packed, not a hybrid glass/background
+        record
+    material id, material index, material flags, alpha cutoff, surface class,
+        emissive texture index, instance id, primitive id, previous position,
+        normals, roughness, albedo, specular, and emissive fields all match the
+        resolved behind-glass hit
+    the late glass pass does not rediscover glass by rereading the replaced
+        `PrimarySurfaceHistoryCurrent` record
+    unsupported or missed transmission leaves the original glass path
+        fail-closed and visible in debug
+
+Suggested helper set after PSR is proven:
 
     GlassIorToF0(incidentIor, transmittedIor)
     GlassSchlickFresnel(f0, viewDotNormal)
@@ -160,12 +221,24 @@ Output Contract
 ---------------
 
 The existing transmission producer proof writes a sentinel transmission UAV.
-The next step should give that output a real meaning.
+For PSR, one texture is not enough to describe the whole contract. The output
+must distinguish:
+
+    replacement status:
+        no glass
+        supported glass but transmission miss
+        supported glass and replacement succeeded
+
+    glass overlay payload:
+        original glass material/surface identity or a compact saved record
+        thin-glass throughput
+        overlay weight/coverage
+        optional debug classification
 
 Recommended first payload:
 
     rgb = thin-glass transmission/attenuation color
-    a   = glass coverage or contribution weight
+    a   = PSR/replacement state or glass coverage, but document which one
 
 The output should be produced only when:
 
@@ -182,20 +255,26 @@ beauty output.
 Primary-View Consume
 --------------------
 
-The glass shader is not useful until clean-DI consumes the output in the primary
-view. Keep this consume step explicit and narrow.
+The glass shader is not useful until clean-DI consumes the PSR output in the
+primary view. Keep this consume step explicit and narrow.
 
-Lowest-risk first compose:
+Correct first compose shape:
 
-    after clean-DI primary lighting is available
-    sample or bind the transmission output
-    if alpha/weight is zero, leave primary color unchanged
-    if alpha/weight is non-zero, apply a controlled blend:
-        output = lerp(primaryColor, primaryColor * transmissionRgb, weight)
+    before clean-DI:
+        save glass overlay data for supported glass pixels
+        replace the primary surface with the resolved behind-glass surface
 
-This is deliberately a simple tint/attenuation pass. It proves the material
-feature can affect beauty output without claiming physically complete
-refraction.
+    after clean-DI primary lighting is available:
+        if PSR did not replace the pixel, leave primary color unchanged or show
+            a debug/fail-closed glass color
+        if PSR replaced the pixel, treat current primary color as shaded
+            behind-glass radiance
+        apply a controlled overlay:
+            output = behindColor * transmissionRgb + reflectedGlassTerm
+
+This is still a simple thin-glass approximation, but it proves the right
+architecture: shaded scene first, glass surface second. A post-DI tint pass over
+the already-rendered glass surface is not enough.
 
 Current implementation checkpoint:
 
@@ -209,9 +288,46 @@ Current implementation checkpoint:
     `r_pathTracingCleanRtxdiDiTransmissionDebugView 1` still overrides compose
         and writes the payload/debug visualization instead
 
+These older compose behaviors are scaffolding only. They should not be treated
+as the target transparency architecture. If a transmission path only shades one
+hit manually, samples a screen-space source pixel, or attenuates the current
+glass color, it is a fallback/debug approximation until PSR is working.
+
 Do not use this as a direct-light or GI transmissive reservoir contract. DI/GI
 should continue to fail closed for glass until a later task explicitly opens
 that consumer.
+
+
+PSR Failure Modes To Avoid
+--------------------------
+
+The current code reviews identified several ways a PSR attempt can look
+directionally correct but still fail:
+
+    destructive glass lookup:
+        replacing `PrimarySurfaceHistoryCurrent` and then asking the late glass
+        pass to rediscover glass from that same record removes the glass
+        metadata the pass needs
+
+    hybrid primary records:
+        updating position/normals/material index but leaving material id,
+        flags, alpha cutoff, surface class, emissive texture index, or previous
+        position from the original glass record creates impossible surfaces for
+        clean DI to shade
+
+    phase reuse without ownership:
+        using the same transmission material-feature pass for pre-DI PSR and
+        post-DI compose is acceptable only if the phase flag, resource writes,
+        payload lifetime, and debug views are explicit
+
+    output priority inversion:
+        transmission should produce replacement/throughput data; the final
+        visible glass overlay should own beauty composition once PSR succeeds
+
+    one-hit reshading:
+        tracing through glass and inventing albedo or analytic lighting in the
+        transmission shader does not match the scene behind the glass. The
+        replacement surface must go through the normal clean DI shading path.
 
 
 DLSS/RR Normal Guide Rule
@@ -311,8 +427,17 @@ Minimum checks:
         unsupported/translucent non-glass remains visibly fail-closed in debug
 
     producer:
-        transmission output changes from sentinel/debug color to real payload
+        PSR detects supported glass pixels before DI
+        transmission/overlay output changes from sentinel/debug color to real
+            payload
         opaque surfaces do not write a contribution
+
+    PSR:
+        replacement primary record shows the behind-glass material and surface,
+            not stale glass flags mixed with behind-glass position
+        late glass debug can still identify the original glass overlay after
+            the primary record has been replaced
+        disabling PSR returns to the old glass/fail-closed path
 
     consume:
         primary view changes only on glass-like materials
@@ -328,31 +453,51 @@ Minimum checks:
 Suggested Implementation Order
 ------------------------------
 
-1. Add `pathtrace_clean_rtxdi_di_glass_math.hlsli`.
+1. Define the PSR sidecar/overlay contract.
+
+    Decide where the original glass surface data and throughput live after
+    `PrimarySurfaceHistoryCurrent` is replaced. This can be a compact texture or
+    structured payload, but it must be separate from the replaced primary
+    record. Document the resource slots and debug states.
+
+2. Add the pre-DI PSR phase.
+
+    For supported glass pixels, trace/resolve the behind-glass hit and write a
+    complete primary-surface replacement record. Do not leave stale glass fields
+    in the replacement. On miss, mark the overlay payload as failed and leave a
+    debug-visible state.
+
+3. Wire the normal clean DI path to shade the replacement.
+
+    The DI/GI code should not learn glass internals. It should see an ordinary
+    primary surface after PSR. Validate with debug views that the behind-glass
+    surface receives normal clean DI lighting, not hand-shaded albedo.
+
+4. Add the late glass overlay pass.
+
+    Consume the saved glass overlay payload after clean DI. Apply thin-glass
+    attenuation/reflection over the shaded replacement color. The pass must not
+    depend on rereading glass from the replaced primary record.
+
+5. Add `pathtrace_clean_rtxdi_di_glass_math.hlsli`.
 
     Include only the small thin-glass helpers. Keep the file rbdoom-owned and
     note Remix as the reference in the header comment if formulas are derived
     from that audit.
 
-2. Replace the glass proof color with thin-glass payload generation.
+6. Replace the glass proof color with thin-glass payload generation.
 
     Use runtime constants for transmittance color, IOR, and thickness. Write
     RGB attenuation and alpha/weight into the transmission output. Preserve
     debug output as a separate view, not the beauty payload.
 
-3. Add a narrow clean-DI compose/consume step.
-
-    Consume the transmission texture only in clean RTXDI DI view 16 and only
-    when the feature is enabled. Keep the initial visual effect intentionally
-    simple.
-
-4. Move glass parameters into a sidecar.
+7. Move glass parameters into a sidecar.
 
     Add a compact parameter record once the output and consume path are proven.
     Keep ABI version checks and fail closed if the parameter record is absent
     or mismatched.
 
-5. Only after the first slice is stable, consider expansion.
+8. Only after PSR plus late overlay is stable, consider expansion.
 
     Possible expansions:
         rough glass lobe
@@ -368,6 +513,9 @@ Acceptance
 
 The basic glass shader is acceptable when:
 
+    supported glass pixels can be replaced by shaded behind-glass primary
+        surfaces in clean RTXDI DI view 16
+    the final glass look is added after the behind surface has been shaded
     it affects clean RTXDI DI primary view 16 through the material-feature path
     the effect is gated by glass material capability and feature cvars
     disabling the feature restores baseline
@@ -375,4 +523,4 @@ The basic glass shader is acceptable when:
     no unrelated legacy/experimental render path is touched
     no DI/GI math receives glass-specific branches
     shader build/deploy proof names the active glass blob
-    runtime validation proves debug, producer, and primary consume behavior
+    runtime validation proves debug, PSR producer, and late overlay behavior

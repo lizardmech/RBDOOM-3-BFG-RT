@@ -104,3 +104,16 @@ void DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceFrameResources& frameResources,
     bool nsightGpuMarkers);
+// Dispatches only the transmission feature pass, used for the pre-DI primary
+// surface replacement phase (constants should carry the PSR phase flag).
+void DispatchPathTraceCleanRtxdiDiTransmissionPsrPass(
+    nvrhi::ICommandList* commandList,
+    const nvrhi::rt::State& baseState,
+    const nvrhi::rt::DispatchRaysArguments& args,
+    nvrhi::BufferHandle constantsBuffer,
+    const void* baseConstants,
+    size_t baseConstantsSize,
+    nvrhi::BufferHandle runtimeConstantsBuffer,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
+    const RtPathTraceFrameResources& frameResources,
+    bool nsightGpuMarkers);

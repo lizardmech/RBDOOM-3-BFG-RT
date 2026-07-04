@@ -71,7 +71,10 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         RtPathTraceMaterialFeaturePassKind::TransmissionProducer,
         RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION,
         RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
-        100u,
+        // Temporary PSR route keeps late throughput compose in the transmission
+        // pass because u87 is not yet exposed as a glass-pass input. Once that
+        // sidecar is readable, glass should own final output-color composition.
+        75u,
         PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs(),
         PathTraceCleanRtxdiDiComposedInputResources(),
         PathTraceCleanRtxdiDiTransmissionProducerOutputResources(),

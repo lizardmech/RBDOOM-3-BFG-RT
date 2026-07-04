@@ -13,6 +13,7 @@ static const float RT_CLEAN_RTXDI_DI_GLASS_REFRACTION_PIXEL_SCALE = 120.0;
 static const float RT_CLEAN_RTXDI_DI_GLASS_REFRACTION_MAX_PIXELS = 10.0;
 static const float RT_CLEAN_RTXDI_DI_GLASS_REFLECTION_PIXEL_SCALE = 48.0;
 static const float RT_CLEAN_RTXDI_DI_GLASS_REFLECTION_MAX_PIXELS = 6.0;
+static const float RT_CLEAN_RTXDI_DI_GLASS_NORMAL_DISTORTION_MAX_PIXELS = 2.0;
 
 float PathTraceCleanRtxdiDiGlassPow5(float value)
 {
@@ -172,6 +173,39 @@ float2 PathTraceCleanRtxdiDiGlassRefractedScreenDirection(
         fallbackDirection);
 }
 
+float2 PathTraceCleanRtxdiDiGlassNormalDistortionPixelOffset(
+    RAB_Surface surface,
+    float pixelMagnitude,
+    float grazing,
+    float weight)
+{
+    const float3 geoNormal = RAB_SafeNormalize(RAB_GetSurfaceGeoNormal(surface), float3(0.0, 0.0, 1.0));
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), geoNormal);
+    const float3 normalDelta = normal - geoNormal;
+    const float normalDeltaLength = length(normalDelta);
+    if (normalDeltaLength <= RT_CLEAN_RTXDI_DI_GLASS_EPSILON)
+    {
+        return float2(0.0, 0.0);
+    }
+
+    const float2 direction = PathTraceCleanRtxdiDiGlassNormalizeScreenDirection(
+        PathTraceCleanRtxdiDiGlassProjectScreenDirection(normalDelta),
+        PathTraceCleanRtxdiDiGlassProjectScreenDirection(normal));
+    if (dot(direction, direction) <= RT_CLEAN_RTXDI_DI_GLASS_EPSILON)
+    {
+        return float2(0.0, 0.0);
+    }
+
+    const float distortionMagnitude = min(
+        RT_CLEAN_RTXDI_DI_GLASS_NORMAL_DISTORTION_MAX_PIXELS,
+        (0.35 + 0.65 * saturate(grazing)) *
+            saturate(weight) *
+            saturate(normalDeltaLength * 2.0) *
+            (0.5 + 0.35 * max(pixelMagnitude, 0.0)));
+
+    return direction * distortionMagnitude;
+}
+
 struct PathTraceCleanRtxdiDiGlassThinPayload
 {
     float3 transmission;
@@ -198,7 +232,12 @@ PathTraceCleanRtxdiDiGlassThinPayload PathTraceCleanRtxdiDiBuildGlassThinPayload
 
     const float f0 = PathTraceCleanRtxdiDiGlassIorToF0(1.0, glassIor);
     const float outsideFresnel = PathTraceCleanRtxdiDiGlassSchlickFresnel(f0, ndotv);
-    const float insideFresnel = PathTraceCleanRtxdiDiGlassSchlickFresnelTir(f0, glassIor, ndotv);
+    // The exit-interface Fresnel must use the refracted cosine (the ray inside the
+    // pane was bent toward the normal on entry). Feeding the raw view cosine here
+    // false-triggers TIR beyond the critical angle and blacks out the glass.
+    float refractedDotNormal;
+    PathTraceCleanRtxdiDiGlassRefractionCosine(rcp(glassIor), ndotv, refractedDotNormal);
+    const float insideFresnel = PathTraceCleanRtxdiDiGlassSchlickFresnelTir(f0, glassIor, refractedDotNormal);
     const float attenuationDistance = PathTraceCleanRtxdiDiGlassThinRefractedAttenuationDistance(
         thickness,
         normal,
@@ -262,7 +301,13 @@ float2 PathTraceCleanRtxdiDiGlassRefractionPixelOffset(
         return float2(0.0, 0.0);
     }
 
-    return screenDirection * pixelMagnitude;
+    return
+        screenDirection * pixelMagnitude +
+        PathTraceCleanRtxdiDiGlassNormalDistortionPixelOffset(
+            surface,
+            pixelMagnitude,
+            grazing,
+            payload.weight);
 }
 
 float2 PathTraceCleanRtxdiDiGlassRefractionSamplePosition(
@@ -306,7 +351,13 @@ float2 PathTraceCleanRtxdiDiGlassReflectionPixelOffset(
         return float2(0.0, 0.0);
     }
 
-    return screenDirection * pixelMagnitude;
+    return
+        screenDirection * pixelMagnitude +
+        0.5 * PathTraceCleanRtxdiDiGlassNormalDistortionPixelOffset(
+            surface,
+            pixelMagnitude,
+            grazing,
+            payload.weight);
 }
 
 float2 PathTraceCleanRtxdiDiGlassReflectionSamplePosition(
@@ -332,11 +383,9 @@ float4 PathTraceCleanRtxdiDiComposeThinGlassColor(
     const float payloadWeight = saturate(payload.weight);
     const float3 transmission = saturate(payload.transmission);
     const float3 reflectedThroughput = saturate(payload.reflection * materialParams.reflectionBoost);
-    const float surfaceGlint = saturate(payload.fresnel * payload.fresnel * materialParams.reflectionBoost);
     const float3 transmittedColor = sourceColor.rgb * transmission;
-    const float3 reflectedColor = surfaceGlint + reflectedSourceColor.rgb * reflectedThroughput;
-    const float3 floorColor = transmission * materialParams.transmissionFloor;
-    const float3 composedColor = saturate(transmittedColor + reflectedColor + floorColor);
+    const float3 reflectedColor = reflectedSourceColor.rgb * reflectedThroughput;
+    const float3 composedColor = transmittedColor + reflectedColor;
     return float4(lerp(currentColor.rgb, composedColor, payloadWeight), currentColor.a);
 }
 

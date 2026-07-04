@@ -50,6 +50,7 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS = 1u << 16u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_INITIAL_VISIBILITY = 1u << 17u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_DISABLE_RIGID_EMISSIVE_TEMPORAL = 1u << 19u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE = 1u << 20u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
 
@@ -3384,8 +3385,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeCleanRtxdiDiSentinelConstantsBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_smokeStaticVertexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_smokeStaticIndexBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_smokeStaticTriangleClassBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_smokeDynamicVertexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, m_smokeDynamicIndexBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, m_smokeDynamicTriangleClassBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(9, m_smokeStaticTriangleMaterialBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, m_smokeDynamicTriangleMaterialBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, m_smokeStaticTriangleMaterialIndexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, m_smokeDynamicTriangleMaterialIndexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(13, m_smokeMaterialTableBuffer));
@@ -3394,6 +3399,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, cleanOptionalSrv(m_smokeEmissiveTriangleBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(22, m_smokeRigidRouteVertexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(23, m_smokeRigidRouteIndexBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, m_smokeRigidRouteTriangleMaterialBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, m_smokeRigidRouteTriangleMaterialIndexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_smokeRigidRouteInstanceBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer)));
@@ -3454,8 +3460,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeDynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeDynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -3466,6 +3476,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         SetBufferStateIfPresent(commandList, m_smokeReGIRState.placeholderSrvBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -3982,6 +3993,40 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             dispatchConstants.flags |= CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS;
         }
         commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
+        {
+            // Primary surface replacement for thin glass: trace through glass
+            // pixels and swap their primary-surface records for the behind-glass
+            // hit before any DI/GI pass consumes them.
+            PathTraceCleanRtxdiDiSentinelConstants psrConstants = dispatchConstants;
+            psrConstants.flags |= CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE;
+            DispatchPathTraceCleanRtxdiDiTransmissionPsrPass(
+                commandList,
+                cleanState,
+                cleanArgs,
+                m_smokeCleanRtxdiDiSentinelConstantsBuffer,
+                &psrConstants,
+                sizeof(psrConstants),
+                m_smokeMaterialFeatureRuntimeConstantsBuffer,
+                cleanRtxdiDiMaterialFeaturePasses,
+                m_frameResources,
+                nsightGpuMarkers);
+            nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
+            if (m_frameResources.transmissionTexture)
+            {
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.transmissionTexture);
+            }
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorMaskTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
+            // Restore the DI constants the PSR dispatch overwrote.
+            commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
+        }
         if (cleanSplitRaygenView)
         {
             cleanState.shaderTable = m_smokeCleanRtxdiDiInitialShaderTable;

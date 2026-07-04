@@ -40,7 +40,7 @@ static void FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo(
     FillPathTraceCleanRtxdiDiObjectGlassRuntimeInfo(
         runtimeInfo,
         passDesc,
-        r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0);
+        r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger());
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration(
