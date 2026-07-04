@@ -34,6 +34,31 @@ static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY_TRANSMISSION = 0
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS = 1u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW = 4u;
 
+bool PathTraceCleanRoomTransmissionMaterialAlwaysTransmits(uint materialIndex)
+{
+    if (materialIndex >= (uint)TextureInfo.z)
+    {
+        return false;
+    }
+
+    const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(materialIndex);
+    PathTraceMaterialFeature feature;
+    if (PathTraceCleanRtxdiDiLoadMaterialFeature(materialIndex, feature) &&
+        feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS &&
+        (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION) != 0u)
+    {
+        return true;
+    }
+
+    const uint alwaysTransparentFlags =
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+        RT_SMOKE_MATERIAL_FILTER_DECAL |
+        RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK |
+        RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK |
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY;
+    return (material.flags & alwaysTransparentFlags) != 0u;
+}
+
 float2 PathTraceCleanRoomTransmissionInterpolateTexCoord(uint instanceId, uint primitiveIndex, float2 hitBarycentrics)
 {
     const float3 barycentrics = float3(
@@ -168,7 +193,7 @@ float PathTraceCleanRoomTransmissionAlphaCoverage(PathTraceSmokeMaterial materia
 
 bool PathTraceCleanRoomTriangleDoesNotOccludeTransmission(uint instanceId, uint primitiveIndex, uint materialIndex)
 {
-    if (PathTraceCleanRoomMaterialDoesNotOccludeVisibility(materialIndex))
+    if (PathTraceCleanRoomTransmissionMaterialAlwaysTransmits(materialIndex))
     {
         return true;
     }
