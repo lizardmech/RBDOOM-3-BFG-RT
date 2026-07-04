@@ -26,7 +26,10 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(
         float4(0.65, 0.05, 0.85, 1.0));
 }
 
-float4 PathTraceCleanRtxdiDiGlassSidecarComposeColor(uint2 pixel, float4 fallbackColor)
+float4 PathTraceCleanRtxdiDiGlassSidecarComposeColor(
+    uint2 pixel,
+    float4 fallbackColor,
+    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
     const float4 baseColor = PathTraceCleanRtxdiDiGlassOutputSourceColor(
         PathTraceCleanRtxdiDiOutputColorSource,
@@ -38,8 +41,17 @@ float4 PathTraceCleanRtxdiDiGlassSidecarComposeColor(uint2 pixel, float4 fallbac
         return fallbackColor;
     }
 
-    const float3 transmission = PathTraceCleanRtxdiDiTransmissionSidecarTransmission(sidecar);
-    const float reflectionEnergy = PathTraceCleanRtxdiDiTransmissionSidecarReflectionEnergy(sidecar);
+    const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
+        PathTraceCleanRtxdiDiDefaultGlassMaterialParams(runtimeParams);
+    const float3 transmission = max(
+        PathTraceCleanRtxdiDiTransmissionSidecarTransmission(sidecar),
+        float3(
+            materialParams.transmissionFloor,
+            materialParams.transmissionFloor,
+            materialParams.transmissionFloor));
+    const float reflectionEnergy =
+        PathTraceCleanRtxdiDiTransmissionSidecarReflectionEnergy(sidecar) *
+        materialParams.reflectionBoost;
     const float3 reflectionSheen = reflectionEnergy * float3(0.08, 0.085, 0.09);
     return float4(baseColor.rgb * transmission + reflectionSheen, baseColor.a);
 }
@@ -73,7 +85,7 @@ void RayGen()
     {
         PathTraceCleanRtxdiDiStoreGlassComposedColor(
             pixel,
-            PathTraceCleanRtxdiDiGlassSidecarComposeColor(pixel, SmokeOutput[pixel]));
+            PathTraceCleanRtxdiDiGlassSidecarComposeColor(pixel, SmokeOutput[pixel], runtimeParams));
     }
 }
 
