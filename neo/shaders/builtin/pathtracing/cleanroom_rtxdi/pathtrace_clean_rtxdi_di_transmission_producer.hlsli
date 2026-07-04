@@ -43,14 +43,6 @@ bool PathTraceCleanRtxdiDiTransmissionLoadSpatialReservoir(
     return RTXDI_IsValidDIReservoir(reservoir);
 }
 
-float4 PathTraceCleanRtxdiDiTransmissionProducerSourceColor(uint2 pixel, float4 fallbackColor)
-{
-    return PathTraceCleanRtxdiDiGlassOutputSourceColor(
-        PathTraceCleanRtxdiDiOutputColorSource,
-        pixel,
-        fallbackColor);
-}
-
 float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
     uint2 pixel,
     uint2 dimensions,
@@ -223,25 +215,6 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     PathTraceCleanRtxdiDiTransmissionOutput[pixel] = float4(saturate(glassPayload.transmission), 1.0);
 }
 
-float4 PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
-    uint2 pixel,
-    uint2 dimensions,
-    float4 currentColor,
-    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
-{
-    // PSR pixels: the current color already holds the behind-glass surface shaded
-    // by the full pipeline; apply the stored thin-glass throughput.
-    const float4 psrPayload = PathTraceCleanRtxdiDiTransmissionOutput[pixel];
-    if (psrPayload.a > 0.5)
-    {
-        return currentColor;
-    }
-
-    // No PSR happened (trace miss or unsupported). Do not fall back to the
-    // older screen-space glass composite; leave the DI result unchanged.
-    return currentColor;
-}
-
 [shader("raygeneration")]
 void RayGen()
 {
@@ -260,34 +233,21 @@ void RayGen()
         return;
     }
 
-    // Late compose phase: u87 holds the PSR throughput written before DI ran;
-    // do not overwrite it here.
+    // Post-DI phase is debug-only for transmission. Glass owns normal sidecar
+    // compose from the shaded output-color source.
     const PathTraceMaterialFeatureRuntimeInfo runtimeInfo =
         PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeInfo();
-    if (runtimeInfo.writesOutputColor)
+    if (runtimeInfo.writesOutputColor && runtimeInfo.debugMode >= 0.5)
     {
-        if (runtimeInfo.debugMode >= 0.5)
-        {
-            // Route debug output through the composed-color store so it also
-            // lands in the DLSS-RR input; presentation may not read SmokeOutput.
-            PathTraceCleanRtxdiDiStoreGlassComposedColor(
-                pixel,
-                PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
-                    pixel,
-                    dimensions,
-                    runtimeParams,
-                    runtimeInfo.debugMode));
-        }
-        else
-        {
-            const float4 baseColor = PathTraceCleanRtxdiDiTransmissionProducerSourceColor(pixel, SmokeOutput[pixel]);
-            const float4 composedColor = PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
+        // Route debug output through the composed-color store so it also lands
+        // in the DLSS-RR input; presentation may not read SmokeOutput.
+        PathTraceCleanRtxdiDiStoreGlassComposedColor(
+            pixel,
+            PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
                 pixel,
                 dimensions,
-                baseColor,
-                runtimeParams);
-            PathTraceCleanRtxdiDiStoreGlassComposedColor(pixel, composedColor);
-        }
+                runtimeParams,
+                runtimeInfo.debugMode));
     }
 }
 

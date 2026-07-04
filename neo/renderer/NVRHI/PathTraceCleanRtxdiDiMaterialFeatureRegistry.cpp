@@ -65,15 +65,14 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
             "glass-like material writes thin-glass attenuation rgb plus contribution weight to transmission output",
             "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
             "clean RTXDI DI primary view 16 unchanged unless transmission compose or debug view is enabled",
-            "RtPathTraceMaterialFeatureOutputDesc transmission u87 plus output-color-source t89, output-color u1, optional rr-input-color u54 for DLSSRR color presentation",
+            "RtPathTraceMaterialFeatureOutputDesc transmission u87 plus optional debug output-color-source t89, output-color u1, rr-input-color u54",
             "PathTraceMaterialFeatureRuntimeInfo plus PathTraceMaterialFeatureParameters t81 with b88 defaults/controls"
         },
         RtPathTraceMaterialFeaturePassKind::TransmissionProducer,
         RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION,
         RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER,
-        // Temporary PSR route keeps late throughput compose in the transmission
-        // pass because u87 is not yet exposed as a glass-pass input. Once that
-        // sidecar is readable, glass should own final output-color composition.
+        // Transmission owns PSR replacement and sidecar generation. Glass owns
+        // final output-color composition from the readable sidecar.
         75u,
         PathTraceCleanRtxdiDiMaterialFeatureSurfaceInputs(),
         PathTraceCleanRtxdiDiComposedInputResources(),
