@@ -61,10 +61,10 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         PathTraceObjectGlassMaterialFeatureParameterLayout(),
         {
             "cmake --build --preset win64-pt-dev-release",
-            "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiTransmissionProducer 1; r_pathTracingCleanRtxdiDiTransmissionCompose 1; r_pathTracingCleanRtxdiDiTransmissionDebugView 1",
+            "r_pathTracingCleanRtxdiDiView 16; r_pathTracingCleanRtxdiDiTransmissionProducer 1; optional r_pathTracingCleanRtxdiDiTransmissionDebugView 1",
             "glass-like material writes thin-glass attenuation rgb plus contribution weight to transmission output",
             "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
-            "clean RTXDI DI primary view 16 unchanged unless transmission compose or debug view is enabled",
+            "clean RTXDI DI primary view 16 unchanged unless transmission debug view is enabled",
             "RtPathTraceMaterialFeatureOutputDesc transmission u87 plus optional debug output-color-source t89, output-color u1, rr-input-color u54",
             "PathTraceMaterialFeatureRuntimeInfo plus PathTraceMaterialFeatureParameters t81 with b88 defaults/controls"
         },

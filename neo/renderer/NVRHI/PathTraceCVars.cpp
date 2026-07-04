@@ -1627,7 +1627,7 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionCompose(
     "r_pathTracingCleanRtxdiDiTransmissionCompose",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 transmission compose: 0 off, 1 let the transmission producer attenuate SmokeOutput for matching glass pixels" );
+    "Clean RTXDI DI view 16 glass sidecar compose: 0 off, 1 let the glass pass copy shaded output through the transmission sidecar path" );
 
 idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
     "r_pathTracingCleanRtxdiDiTransmissionDebugView",

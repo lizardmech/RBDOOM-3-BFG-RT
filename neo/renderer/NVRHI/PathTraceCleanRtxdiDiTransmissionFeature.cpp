@@ -9,7 +9,6 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
     bool cleanRouteRequested,
     int cleanView,
     bool producerRequested,
-    bool composeOutputRequested,
     bool debugOutputRequested)
 {
     RtPathTraceMaterialFeaturePassDesc desc;
@@ -44,7 +43,6 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
     int cleanView)
 {
     const bool producerRequested = r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0;
-    const bool composeOutputRequested = r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
     const bool debugOutputRequested = r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0;
 
     return BuildPathTraceCleanRtxdiDiObjectGlassRegistration(
@@ -52,7 +50,6 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
             cleanRouteRequested,
             cleanView,
             producerRequested,
-            composeOutputRequested,
             debugOutputRequested),
         RtPathTraceCleanRtxdiDiObjectGlassBindingSet::TransmissionProducer,
         FillPathTraceCleanRtxdiDiTransmissionRuntimeInfo);
@@ -64,7 +61,6 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiTransmissio
         BuildPathTraceCleanRtxdiDiTransmissionFeaturePassDesc(
             true,
             16,
-            true,
             true,
             true),
         RtPathTraceCleanRtxdiDiObjectGlassBindingSet::TransmissionProducer,

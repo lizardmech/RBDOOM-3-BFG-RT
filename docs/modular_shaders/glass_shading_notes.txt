@@ -280,11 +280,11 @@ Current implementation checkpoint:
 
     `r_pathTracingCleanRtxdiDiTransmissionProducer 1` writes the thin-glass
         transmission payload to `PathTraceCleanRtxdiDiTransmissionOutput`
-    `r_pathTracingCleanRtxdiDiTransmissionCompose 1` lets that same
-        material-feature pass attenuate `SmokeOutput` for supported glass
-        pixels after the clean-DI primary color exists, with a small
-        angle-dependent surface term so black legacy glass receives a visible
-        first-slice glass response
+    `r_pathTracingCleanRtxdiDiTransmissionCompose 1` enables the glass
+        material-feature pass to read that sidecar as `t87` after clean DI and
+        write the final output/RR input color. The current compose is still
+        neutral for visual parity; it exists to put final glass ownership in
+        the glass pass rather than the transmission producer.
     `r_pathTracingCleanRtxdiDiTransmissionDebugView 1` still overrides compose
         and writes the payload/debug visualization instead
 
