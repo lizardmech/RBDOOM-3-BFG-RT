@@ -3,6 +3,7 @@
 
 #include "pathtrace_clean_rtxdi_di_material_texture.hlsli"
 #include "pathtrace_clean_rtxdi_di_surface_adapter.hlsli"
+#include "pathtrace_clean_rtxdi_di_rr_guide_export.hlsli"
 #include "pathtrace_clean_rtxdi_di_material_feature_queries.hlsli"
 
 #endif
