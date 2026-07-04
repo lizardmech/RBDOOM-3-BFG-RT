@@ -1034,6 +1034,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "material-classifier";
         }
+        if (view == 25)
+        {
+            return "transmission-psr-mask";
+        }
         return "disabled";
     };
     auto cleanRtxdiDiBehaviorLabel = [](int view) -> const char*
@@ -1134,6 +1138,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "clean-primary-surface-material-classifier";
         }
+        if (view == 25)
+        {
+            return "clean-primary-surface-transmission-psr-mask";
+        }
         return "none";
     };
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
@@ -1144,12 +1152,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         !cleanRtxdiDiMaterialClassifierProofView;
     const bool cleanRtxdiDiRrInputMosaicView = cleanRtxdiDiView == 18;
     const bool cleanRtxdiDiRrGuideDebugView = cleanRtxdiDiView >= 18 && cleanRtxdiDiView <= 23;
+    const bool cleanRtxdiDiPsrMaskView = cleanRtxdiDiView == 25;
     const int cleanRtxdiDiResolveView = cleanRtxdiDiRrGuideDebugView ? 16 : cleanRtxdiDiView;
+    const int cleanRtxdiDiMaterialFeatureView = cleanRtxdiDiPsrMaskView ? 16 : cleanRtxdiDiResolveView;
     const int cleanRtxdiDiView18Tile = idMath::ClampInt(-1, 6, r_pathTracingCleanRtxdiDiView18Tile.GetInteger());
     const uint32_t cleanRtxdiDiFrameIndexForDispatch = r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0
         ? 0u
         : m_smokeCleanRtxdiDiFrameIndex;
-    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 24;
+    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 25;
     const bool cleanRtxdiDiSpatialEnabled =
         r_pathTracingCleanRtxdiDiSpatial.GetInteger() != 0 &&
         r_cleanDiSpatial.GetInteger() != 0 &&
@@ -1164,7 +1174,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses cleanRtxdiDiMaterialFeaturePasses = BuildPathTraceCleanRtxdiDiMaterialFeaturePasses(
         cleanRtxdiDiRouteRequested,
-        cleanRtxdiDiResolveView,
+        cleanRtxdiDiMaterialFeatureView,
         m_smokeCleanRtxdiDiMaterialFeatures);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
@@ -1676,7 +1686,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         const bool cleanEnabledNow = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
         const int cleanViewNow = cleanEnabledNow ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
-        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 24;
+        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 25;
         const int bindingSetReady = cleanRouteNow
             ? (m_smokeCleanRtxdiDiSentinelBindingLayout && m_frameResources.outputTexture ? 1 : 0)
             : (m_smokeBindingSet ? 1 : 0);
@@ -2481,7 +2491,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
-        if (cleanRtxdiDiView >= 2 && cleanRtxdiDiView <= 24)
+        if (cleanRtxdiDiView >= 2 && cleanRtxdiDiView <= 25)
         {
             if (!m_smokePrimarySurfaceProducerShaderTable)
             {
@@ -2586,8 +2596,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
                 (r_pathTracingUseNormalMaps.GetInteger() != 0 ? 8u : 0u) |
                 (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u) |
-                (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && cleanRtxdiDiResolveView == 16 ? 32u : 0u) |
-                (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (cleanRtxdiDiResolveView == 16 || cleanRtxdiDiMaterialClassifierProofView) ? 128u : 0u);
+                (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (cleanRtxdiDiResolveView == 16 || cleanRtxdiDiPsrMaskView) ? 32u : 0u) |
+                (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (cleanRtxdiDiResolveView == 16 || cleanRtxdiDiMaterialClassifierProofView || cleanRtxdiDiPsrMaskView) ? 128u : 0u);
             primarySurfaceConstants.textureInfo[3] = static_cast<float>(primarySurfaceTextureFlags);
             primarySurfaceConstants.safetyInfo[0] = static_cast<float>(BuildPathTraceSafetyDisableMask());
             primarySurfaceConstants.safetyInfo[1] = primarySurfaceConstants.textureInfo[0];
@@ -4095,7 +4105,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
         }
-        if (PathTraceCleanRtxdiDiMaterialFeatureNeedsOutputColorSource(cleanRtxdiDiMaterialFeaturePasses))
+        if (!cleanRtxdiDiPsrMaskView &&
+            PathTraceCleanRtxdiDiMaterialFeatureNeedsOutputColorSource(cleanRtxdiDiMaterialFeaturePasses))
         {
             commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
             commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
@@ -4109,17 +4120,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->commitBarriers();
         }
-        DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
-            commandList,
-            cleanState,
-            cleanArgs,
-            m_smokeCleanRtxdiDiSentinelConstantsBuffer,
-            &cleanConstants,
-            sizeof(cleanConstants),
-            m_smokeMaterialFeatureRuntimeConstantsBuffer,
-            cleanRtxdiDiMaterialFeaturePasses,
-            m_frameResources,
-            nsightGpuMarkers);
+        if (!cleanRtxdiDiPsrMaskView)
+        {
+            DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
+                commandList,
+                cleanState,
+                cleanArgs,
+                m_smokeCleanRtxdiDiSentinelConstantsBuffer,
+                &cleanConstants,
+                sizeof(cleanConstants),
+                m_smokeMaterialFeatureRuntimeConstantsBuffer,
+                cleanRtxdiDiMaterialFeaturePasses,
+                m_frameResources,
+                nsightGpuMarkers);
+        }
         if (cleanRtxdiDiRrGuideDebugView)
         {
             commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
