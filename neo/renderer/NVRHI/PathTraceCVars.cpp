@@ -1639,7 +1639,7 @@ idCVar r_pathTracingCleanRtxdiDiGlassShader(
     "r_pathTracingCleanRtxdiDiGlassShader",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 legacy screen-space glass material-feature shader: removed from normal beauty output; use transmission producer/compose for PSR glass" );
+    "Clean RTXDI DI view 16 glass material-feature pass: owns post-DI sidecar compose/debug while transmission producer owns PSR sidecar generation" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassDebugView(
     "r_pathTracingCleanRtxdiDiGlassDebugView",

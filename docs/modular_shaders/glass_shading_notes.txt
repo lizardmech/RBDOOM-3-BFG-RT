@@ -288,10 +288,11 @@ Current implementation checkpoint:
     `r_pathTracingCleanRtxdiDiTransmissionDebugView 1` still overrides compose
         and writes the payload/debug visualization instead
 
-These older compose behaviors are scaffolding only. They should not be treated
-as the target transparency architecture. If a transmission path only shades one
-hit manually, samples a screen-space source pixel, or attenuates the current
-glass color, it is a fallback/debug approximation until PSR is working.
+The removed screen-space compose behaviors were scaffolding only. They should
+not be restored as the target transparency architecture. If a transmission path
+only shades one hit manually, samples a screen-space source pixel, or attenuates
+the current glass color, it is a fallback/debug approximation and not the PSR
+contract.
 
 Do not use this as a direct-light or GI transmissive reservoir contract. DI/GI
 should continue to fail closed for glass until a later task explicitly opens
@@ -317,8 +318,8 @@ directionally correct but still fail:
 
     phase reuse without ownership:
         using the same transmission material-feature pass for pre-DI PSR and
-        post-DI compose is acceptable only if the phase flag, resource writes,
-        payload lifetime, and debug views are explicit
+        post-DI compose was only a temporary bridge. Transmission now owns PSR
+        sidecar generation; glass owns the post-DI output-color compose.
 
     output priority inversion:
         transmission should produce replacement/throughput data; the final
@@ -428,8 +429,7 @@ Minimum checks:
 
     producer:
         PSR detects supported glass pixels before DI
-        transmission/overlay output changes from sentinel/debug color to real
-            payload
+        transmission sidecar changes from sentinel/debug state to real payload
         opaque surfaces do not write a contribution
 
     PSR:
