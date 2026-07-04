@@ -440,6 +440,8 @@ Minimum checks:
         sidecar transmittance uses material-feature glass parameter records,
             not the resolved surface diffuse albedo tint
         late compose applies the default glass reflection boost and transmission floor
+        late compose may sample the post-DI output-color source for a bounded
+            screen-space reflected-color overlay; it must not shade the reflected hit itself
         runtime tuning uses r_pathTracingCleanRtxdiDiGlassReflectionBoost and
             r_pathTracingCleanRtxdiDiGlassTransmissionFloor
 

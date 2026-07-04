@@ -28,6 +28,7 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(
 
 float4 PathTraceCleanRtxdiDiGlassSidecarComposeColor(
     uint2 pixel,
+    uint2 dimensions,
     float4 fallbackColor,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
@@ -52,8 +53,29 @@ float4 PathTraceCleanRtxdiDiGlassSidecarComposeColor(
     const float reflectionEnergy =
         PathTraceCleanRtxdiDiTransmissionSidecarReflectionEnergy(sidecar) *
         materialParams.reflectionBoost;
-    const float3 reflectionSheen = reflectionEnergy * float3(0.08, 0.085, 0.09);
-    return float4(baseColor.rgb * transmission + reflectionSheen, baseColor.a);
+    float3 reflectionColor = float3(0.08, 0.085, 0.09);
+    RAB_Surface surface;
+    if (PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
+    {
+        const PathTraceCleanRtxdiDiGlassThinPayload payload =
+            PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
+        const float2 reflectionSamplePixel = PathTraceCleanRtxdiDiGlassReflectionSamplePosition(
+            pixel,
+            dimensions,
+            surface,
+            materialParams,
+            payload);
+        const float4 reflectedSource = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
+            PathTraceCleanRtxdiDiOutputColorSource,
+            reflectionSamplePixel,
+            dimensions,
+            surface,
+            false,
+            float4(reflectionColor, 1.0));
+        reflectionColor = max(reflectedSource.rgb, reflectionColor);
+    }
+
+    return float4(baseColor.rgb * transmission + reflectionColor * reflectionEnergy, baseColor.a);
 }
 
 [shader("raygeneration")]
@@ -85,7 +107,7 @@ void RayGen()
     {
         PathTraceCleanRtxdiDiStoreGlassComposedColor(
             pixel,
-            PathTraceCleanRtxdiDiGlassSidecarComposeColor(pixel, SmokeOutput[pixel], runtimeParams));
+            PathTraceCleanRtxdiDiGlassSidecarComposeColor(pixel, dimensions, SmokeOutput[pixel], runtimeParams));
     }
 }
 
