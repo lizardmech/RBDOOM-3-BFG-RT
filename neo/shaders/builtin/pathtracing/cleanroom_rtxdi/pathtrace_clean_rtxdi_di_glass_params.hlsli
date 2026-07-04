@@ -11,8 +11,6 @@ struct PathTraceCleanRtxdiDiGlassMaterialParams
     float transmissionFloor;
 };
 
-static const bool RT_CLEAN_RTXDI_DI_GLASS_FORCE_NEUTRAL_TRANSMITTANCE = true;
-
 static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_R = 0u;
 static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_G = 1u;
 static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM0_TRANSMITTANCE_B = 2u;
@@ -22,17 +20,6 @@ static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM1_IOR = 0u;
 static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM1_STRENGTH = 1u;
 static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM1_REFLECTION_BOOST = 2u;
 static const uint RT_PATH_TRACE_OBJECT_GLASS_PARAM1_TRANSMISSION_FLOOR = 3u;
-
-float3 PathTraceCleanRtxdiDiGlassMaterialTintFromSurface(RAB_Surface surface, float3 fallbackTint)
-{
-    const float3 surfaceTint = saturate(surface.material.diffuseAlbedo);
-    const float tintMax = max(surfaceTint.x, max(surfaceTint.y, surfaceTint.z));
-    if (tintMax <= 0.05)
-    {
-        return fallbackTint;
-    }
-    return max(surfaceTint, float3(0.05, 0.05, 0.05));
-}
 
 PathTraceCleanRtxdiDiGlassMaterialParams PathTraceCleanRtxdiDiDefaultGlassMaterialParams(
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
@@ -80,16 +67,6 @@ PathTraceCleanRtxdiDiGlassMaterialParams PathTraceCleanRtxdiDiLoadGlassMaterialP
         PathTraceCleanRtxdiDiApplyGlassParameterRecord(
             params,
             PathTraceMaterialFeatureParameters[feature.parameterRecordIndex]);
-        if (!RT_CLEAN_RTXDI_DI_GLASS_FORCE_NEUTRAL_TRANSMITTANCE)
-        {
-            params.transmittanceColor =
-                PathTraceCleanRtxdiDiGlassMaterialTintFromSurface(surface, params.transmittanceColor);
-        }
-    }
-
-    if (RT_CLEAN_RTXDI_DI_GLASS_FORCE_NEUTRAL_TRANSMITTANCE)
-    {
-        params.transmittanceColor = float3(0.96, 0.96, 0.96);
     }
 
     return params;
