@@ -56,7 +56,7 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
         //   blue  = PSR replacement happened, but no valid reservoir reached compose
         //   yellow/red/gray match the basic PSR hit diagnostic below
         const float4 psrPayload = PathTraceCleanRtxdiDiTransmissionOutput[pixel];
-        if (psrPayload.a > 0.5)
+        if (PathTraceCleanRtxdiDiTransmissionSidecarHasResolvedPayload(psrPayload))
         {
             RTXDI_DIReservoir reservoir;
             if (PathTraceCleanRtxdiDiTransmissionLoadSpatialReservoir(pixel, dimensions, reservoir) &&
@@ -68,7 +68,7 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
             }
             return float4(0.05, 0.12, 0.95, 1.0);
         }
-        if (psrPayload.a > 0.1)
+        if (PathTraceCleanRtxdiDiTransmissionSidecarHasPendingPayload(psrPayload))
         {
             return float4(0.9, 0.9, 0.05, 1.0);
         }
@@ -90,11 +90,11 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
         //   red    = pixel still classifies as glass; PSR phase never touched it
         //   gray   = not glass
         const float4 psrPayload = PathTraceCleanRtxdiDiTransmissionOutput[pixel];
-        if (psrPayload.a > 0.5)
+        if (PathTraceCleanRtxdiDiTransmissionSidecarHasResolvedPayload(psrPayload))
         {
             return float4(0.05, 0.9, 0.05, 1.0);
         }
-        if (psrPayload.a > 0.1)
+        if (PathTraceCleanRtxdiDiTransmissionSidecarHasPendingPayload(psrPayload))
         {
             return float4(0.9, 0.9, 0.05, 1.0);
         }
@@ -175,7 +175,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     uint2 dimensions,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
-    PathTraceCleanRtxdiDiTransmissionOutput[pixel] = float4(1.0, 1.0, 1.0, 0.0);
+    PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
+        PathTraceCleanRtxdiDiTransmissionSidecarEmpty();
 
     RAB_Surface glassSurface;
     if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, glassSurface) ||
@@ -191,7 +192,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
 
     // Sentinel alpha 0.25: glass detected, continuation trace pending/missed.
     // Overwritten with 1.0 below when the record replacement succeeds.
-    PathTraceCleanRtxdiDiTransmissionOutput[pixel] = float4(1.0, 1.0, 1.0, 0.25);
+    PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
+        PathTraceCleanRtxdiDiTransmissionSidecarPending();
 
     PathTraceCleanRtxdiPayload hitPayload;
     float3 hitPosition;
@@ -215,9 +217,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     const float reflectionEnergy = saturate(max(
         glassPayload.reflection.x,
         max(glassPayload.reflection.y, glassPayload.reflection.z)));
-    PathTraceCleanRtxdiDiTransmissionOutput[pixel] = float4(
-        saturate(glassPayload.transmission),
-        1.0 + reflectionEnergy);
+    PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
+        PathTraceCleanRtxdiDiTransmissionSidecarResolved(glassPayload.transmission, reflectionEnergy);
 }
 
 [shader("raygeneration")]
