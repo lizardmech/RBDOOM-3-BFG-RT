@@ -146,6 +146,13 @@ float PathTraceCleanRoomTransmissionAlphaCoverage(PathTraceSmokeMaterial materia
         return max(max(decoded.r, decoded.g), decoded.b);
     }
 
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY) != 0u)
+    {
+        const float3 decoded = PathTraceCleanRoomTransmissionSampleDecodedDiffuse(material, texCoord).rgb;
+        const float keyDistance = max(abs(decoded.r - 1.0), max(abs(decoded.g), abs(decoded.b - 1.0)));
+        return keyDistance <= 0.08 ? 0.0 : 1.0;
+    }
+
     const float4 fallback = PathTraceCleanRoomTransmissionSampleDecodedDiffuse(material, texCoord);
     if (material.alphaTextureIndex != 0xffffffffu)
     {
