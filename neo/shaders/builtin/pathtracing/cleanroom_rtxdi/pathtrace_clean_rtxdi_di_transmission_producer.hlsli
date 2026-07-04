@@ -212,7 +212,12 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         return;
     }
 
-    PathTraceCleanRtxdiDiTransmissionOutput[pixel] = float4(saturate(glassPayload.transmission), 1.0);
+    const float reflectionEnergy = saturate(max(
+        glassPayload.reflection.x,
+        max(glassPayload.reflection.y, glassPayload.reflection.z)));
+    PathTraceCleanRtxdiDiTransmissionOutput[pixel] = float4(
+        saturate(glassPayload.transmission),
+        1.0 + reflectionEnergy);
 }
 
 [shader("raygeneration")]

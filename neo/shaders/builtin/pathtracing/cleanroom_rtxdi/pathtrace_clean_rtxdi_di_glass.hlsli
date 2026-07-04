@@ -7,6 +7,16 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(
     uint2 dimensions,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
+    const float4 sidecar = PathTraceCleanRtxdiDiTransmissionSidecar.Load(int3(pixel, 0));
+    if (sidecar.a > 0.5)
+    {
+        return float4(0.05 + 0.5 * saturate(sidecar.r), 0.9, 0.05 + 0.25 * saturate(sidecar.b), 1.0);
+    }
+    if (sidecar.a > 0.1)
+    {
+        return float4(0.9, 0.9, 0.05, 1.0);
+    }
+
     return PathTraceCleanRtxdiDiGlassDebugColorForPixel(
         pixel,
         dimensions,
@@ -23,7 +33,15 @@ float4 PathTraceCleanRtxdiDiGlassSidecarComposeColor(uint2 pixel, float4 fallbac
         pixel,
         fallbackColor);
     const float4 sidecar = PathTraceCleanRtxdiDiTransmissionSidecar.Load(int3(pixel, 0));
-    return sidecar.a > 0.5 ? baseColor : fallbackColor;
+    if (sidecar.a <= 0.5)
+    {
+        return fallbackColor;
+    }
+
+    const float3 transmission = max(sidecar.rgb, float3(0.0, 0.0, 0.0));
+    const float reflectionEnergy = saturate(sidecar.a - 1.0);
+    const float3 reflectionSheen = reflectionEnergy * float3(0.08, 0.085, 0.09);
+    return float4(baseColor.rgb * transmission + reflectionSheen, baseColor.a);
 }
 
 [shader("raygeneration")]

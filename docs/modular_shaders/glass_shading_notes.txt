@@ -425,7 +425,17 @@ Minimum checks:
 
     debug:
         glass debug view shows known glass candidates
+        glass debug view shows sidecar status after PSR replacement:
+            green = late glass pass saw PSR payload
+            yellow = glass was detected but continuation miss/pending
         unsupported/translucent non-glass remains visibly fail-closed in debug
+
+    beauty:
+        PSR replacement owns the resolved behind-glass surface
+        normal clean DI owns lighting/material shading for that surface
+        late glass compose only applies sidecar transmission throughput
+        sidecar RGB stores transmission; sidecar alpha is 1.0 + reflection energy
+            for valid PSR payloads, while 0.25 remains the detected-but-missed sentinel
 
     producer:
         PSR detects supported glass pixels before DI

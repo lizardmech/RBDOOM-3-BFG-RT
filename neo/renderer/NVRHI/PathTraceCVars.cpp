@@ -1645,7 +1645,7 @@ idCVar r_pathTracingCleanRtxdiDiGlassDebugView(
     "r_pathTracingCleanRtxdiDiGlassDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 glass material-feature debug output: 0 off, 1 route glass proof color to SmokeOutput after clean DI spatial" );
+    "Clean RTXDI DI view 16 glass material-feature debug output: 0 off, 1 sidecar status green=PSR payload yellow=PSR miss/pending magenta=translucent unsupported dark=unsupported" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassGuideDebugView(
     "r_pathTracingCleanRtxdiDiGlassGuideDebugView",
