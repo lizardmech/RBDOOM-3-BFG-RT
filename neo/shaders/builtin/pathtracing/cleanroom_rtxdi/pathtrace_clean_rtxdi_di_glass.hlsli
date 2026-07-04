@@ -23,7 +23,7 @@ float4 PathTraceCleanRtxdiDiGlassSidecarComposeColor(uint2 pixel, float4 fallbac
         pixel,
         fallbackColor);
     const float4 sidecar = PathTraceCleanRtxdiDiTransmissionSidecar.Load(int3(pixel, 0));
-    return sidecar.a > 0.5 ? baseColor : baseColor;
+    return sidecar.a > 0.5 ? baseColor : fallbackColor;
 }
 
 [shader("raygeneration")]
