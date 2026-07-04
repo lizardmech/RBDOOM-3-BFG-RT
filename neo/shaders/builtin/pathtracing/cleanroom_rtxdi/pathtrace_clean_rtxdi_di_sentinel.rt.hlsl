@@ -2204,6 +2204,9 @@ float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceReco
     }
     const bool referenceDoomAnalytic = PathTraceCleanReferenceRabEnabled() &&
         lightSample.lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
+    const bool useMaterialResolve =
+        CleanRtxdiDiResolveBrdfTarget != 0u ||
+        (surfaceRecord.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u;
 
     const float3 toSample = lightSample.position - surfaceRecord.worldPositionAndViewDepth.xyz;
     const float3 lightDirection = PathTraceCleanRoomSafeNormalize(toSample, PathTraceCleanRoomSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz));
@@ -2226,7 +2229,7 @@ float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceReco
     }
     const float3 reflectedRadiance = referenceDoomAnalytic
         ? PathTraceCleanReferenceRabReflectedRadiance(lightSample.position, lightSample.radiance, surface)
-        : CleanRtxdiDiResolveBrdfTarget != 0u
+        : useMaterialResolve
         ? PathTraceCleanRtxdiDiMaterialEvaluateReflectedRadiance(lightSample.position, lightSample.radiance, surface)
         : max(lightSample.radiance, float3(0.0, 0.0, 0.0)) * flatDiffuse * ndotl;
     const float reservoirThroughput = referenceDoomAnalytic && CleanRtxdiDiReferenceRab == 10u

@@ -247,7 +247,7 @@ PathTracePrimarySurfaceRecord PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRec
         RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION,
         validFlags,
         RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION,
-        surface.flags);
+        surface.flags | CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED);
     record.worldPositionAndViewDepth = float4(surface.worldPos, surface.linearDepth);
     record.geometricNormalAndRoughness = float4(surface.geometryNormal, surface.material.roughness);
     record.shadingNormalAndOpacity = float4(surface.shadingNormal, surface.material.opacity);

@@ -428,6 +428,7 @@ static const uint CLEAN_FLAG_PREVIOUS_BEST_APPROXIMATION = 1u << 12u;
 static const uint CLEAN_FLAG_INITIAL_VISIBILITY = 1u << 17u;
 static const uint CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 static const uint CLEAN_FLAG_TRANSMISSION_PSR_PHASE = 1u << 20u;
+static const uint CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED = 0x80000000u;
 static const uint CLEAN_TEMPORAL_FLAG_ENABLE = 1u << 0u;
 static const uint CLEAN_TEMPORAL_FLAG_PREVIOUS_VALID = 1u << 1u;
 static const uint CLEAN_TEMPORAL_DIAG_CURRENT_VALID = 1u << 0u;
