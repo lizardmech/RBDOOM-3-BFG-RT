@@ -367,6 +367,7 @@ static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
+static const uint RT_SMOKE_TEXTURE_FLAG_NORMAL_MAP_FLIP_GREEN = 0x00000100u;
 #define DoomAnalyticLightInfo CleanRtxdiDiDoomAnalyticLightInfo
 #define MotionVectorInfo CleanRtxdiDiMotionVectorInfo
 #define RestirPTSurfaceInfo CleanRtxdiDiRestirPTSurfaceInfo

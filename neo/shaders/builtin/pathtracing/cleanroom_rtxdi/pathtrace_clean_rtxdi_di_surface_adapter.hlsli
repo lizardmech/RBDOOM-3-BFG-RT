@@ -204,11 +204,14 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
     material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
     material.roughness = saturate(record.geometricNormalAndRoughness.w);
     material.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
-    PathTraceCleanRoomApplyLiveMaterialClassifierBsdf(
-        material.materialIndex,
-        material.diffuseAlbedo,
-        material.specularF0,
-        material.roughness);
+    if ((record.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) == 0u)
+    {
+        PathTraceCleanRoomApplyLiveMaterialClassifierBsdf(
+            material.materialIndex,
+            material.diffuseAlbedo,
+            material.specularF0,
+            material.roughness);
+    }
     material.opacity = saturate(record.shadingNormalAndOpacity.w);
     material.emissiveRadiance = max(record.emissiveAndHeight.xyz, float3(0.0, 0.0, 0.0));
     material.emissiveTextureIndex = record.instancePrimitiveObject.w;

@@ -3796,7 +3796,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.emissiveDistributionInfo[2] = static_cast<float>(Max(0, m_sceneInputs.lights.emissiveDistributionFallbackIndex));
         const int cleanMaterialOverlayRecordCount =
             m_sceneInputs.materials.materialTableGpuStable ? Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount) : 0;
-        cleanConstants.emissiveDistributionInfo[3] = 0.0f;
+        cleanConstants.emissiveDistributionInfo[3] = static_cast<float>(cleanMaterialOverlayRecordCount);
         const int cleanTextureSampleMethod = r_pathTracingTextureSampleEnable.GetInteger() != 0
             ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger())
             : 0;
@@ -3804,8 +3804,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
             (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
             (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
+            (r_pathTracingUseNormalMaps.GetInteger() != 0 ? 8u : 0u) |
+            (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u) |
             (r_pathTracingUseEmissiveMaps.GetInteger() != 0 ? 32u : 0u) |
-            64u;
+            64u |
+            (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 ? 128u : 0u) |
+            (r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 256u : 0u);
         cleanConstants.textureInfo[0] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
         cleanConstants.textureInfo[1] = static_cast<float>(cleanTextureSampleMethod);
         cleanConstants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));

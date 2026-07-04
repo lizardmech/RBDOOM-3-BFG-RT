@@ -296,7 +296,9 @@ float3 PathTraceCleanRtxdiDiTraceHitDecodeNormal(
         return normal;
     }
 
-    const float2 normalXY = SmokeMatClassNormalXY(material, bump, RestirPTSurfaceInfo.y);
+    const float normalMapFlipGreen =
+        ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_NORMAL_MAP_FLIP_GREEN) != 0u) ? 1.0 : 0.0;
+    const float2 normalXY = SmokeMatClassNormalXY(material, bump, normalMapFlipGreen);
     float3 decoded = float3(normalXY, 0.0);
     const float xyLengthSquared = dot(decoded.xy, decoded.xy);
     if (xyLengthSquared >= 1.0)
