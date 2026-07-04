@@ -18,14 +18,10 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiTransmission
 
     const bool cleanTransmissionRoute = PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(cleanRouteRequested, cleanView);
     const bool debugOutput = cleanTransmissionRoute && debugOutputRequested;
-    const bool composeOutput = cleanTransmissionRoute && producerRequested && composeOutputRequested;
-    if (debugOutput || composeOutput)
+    if (debugOutput)
     {
         desc.resourceInputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE;
         desc.resourceOutputs |= RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR;
-    }
-    if (composeOutput)
-    {
         PathTraceCleanRtxdiDiEnableComposedOutput(desc, false);
     }
     desc.enabled = cleanTransmissionRoute && (producerRequested || debugOutputRequested);

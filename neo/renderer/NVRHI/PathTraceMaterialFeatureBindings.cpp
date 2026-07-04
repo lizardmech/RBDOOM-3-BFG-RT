@@ -57,6 +57,12 @@ static const RtPathTraceMaterialFeatureBindingDesc kMaterialFeatureCanonicalBind
         89u,
         RtPathTraceMaterialFeatureBindingKind::TextureSrv,
         "output-color-source"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_SIDECAR,
+        87u,
+        RtPathTraceMaterialFeatureBindingKind::TextureSrv,
+        "transmission-sidecar"
     }
 };
 
@@ -204,6 +210,8 @@ nvrhi::TextureHandle PathTraceMaterialFeatureInputResourceTexture(
     {
     case RT_MATERIAL_FEATURE_RESOURCE_OUTPUT_COLOR_SOURCE:
         return frameResources.accumulationTexture;
+    case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_SIDECAR:
+        return frameResources.transmissionTexture;
     default:
         return nullptr;
     }

@@ -16,15 +16,17 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
 
     const bool cleanGlassRoute = PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(cleanRouteRequested, cleanView);
     // The older screen-space glass beauty pass has been removed from normal
-    // output. Keep explicit glass debug available; PSR transmission owns beauty.
+    // output. Normal compose now only applies the PSR transmission sidecar.
     const bool beautyOutput = false;
-    const bool outputRequested = cleanGlassRoute && (beautyOutput || debugOutputRequested);
+    const bool sidecarComposeOutput = cleanGlassRoute && transmissionComposeRequested;
+    const bool outputRequested = cleanGlassRoute && (beautyOutput || debugOutputRequested || sidecarComposeOutput);
     const bool debugOutput = cleanGlassRoute && debugOutputRequested;
     if (outputRequested)
     {
         PathTraceCleanRtxdiDiEnableComposedOutput(desc, true);
+        desc.resourceInputs |= RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_SIDECAR;
     }
-    desc.enabled = cleanGlassRoute && (beautyOutput || debugOutputRequested);
+    desc.enabled = cleanGlassRoute && (beautyOutput || debugOutputRequested || sidecarComposeOutput);
     desc.debugLabel = debugOutput ? "clean-rtxdi-di-glass-debug" : "clean-rtxdi-di-glass";
     return desc;
 }
