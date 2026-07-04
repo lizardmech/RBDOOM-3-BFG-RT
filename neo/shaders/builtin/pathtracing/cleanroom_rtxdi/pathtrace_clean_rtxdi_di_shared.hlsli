@@ -25,7 +25,7 @@ struct PathTraceCleanRtxdiPayload
     uint ignoreInstanceId;
     uint ignorePrimitiveIndex;
     uint ignoreMaterialIndex;
-#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+#if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
     uint hitInstanceId;
     uint hitPrimitiveIndex;
     uint hitMaterialId;

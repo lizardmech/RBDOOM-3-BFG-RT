@@ -28,7 +28,7 @@ bool PathTraceCleanRoomMaterialDoesNotOccludeVisibility(uint materialIndex)
     return (material.flags & transparentCardFlags) != 0u;
 }
 
-#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+#if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
 static const uint RT_SMOKE_MATERIAL_ALPHA_TEST_TRANSMISSION = 0x00000001u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY_TRANSMISSION = 0x00000100u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS = 1u;
@@ -209,7 +209,7 @@ void ShadowMiss(inout PathTraceCleanRtxdiPayload payload)
 [shader("anyhit")]
 void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+#if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
     if (payload.rayMode == 3u)
     {
         const uint instanceId = InstanceID();
@@ -277,7 +277,7 @@ void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInter
 void ClosestHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     payload.value = 1u;
-#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+#if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
     payload.hitInstanceId = InstanceID();
     payload.hitPrimitiveIndex = PrimitiveIndex();
     payload.hitMaterialId = PathTraceCleanRtxdiDiTransmissionLoadTriangleMaterialId(payload.hitInstanceId, payload.hitPrimitiveIndex);

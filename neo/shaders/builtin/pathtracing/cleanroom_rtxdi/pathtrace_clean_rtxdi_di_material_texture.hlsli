@@ -1,7 +1,7 @@
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
-#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+#if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_DYNAMIC_EMISSIVE_REGISTER_MASK = 0x0000003cu;
 #endif
@@ -36,7 +36,7 @@ void PathTraceCleanRoomApplyDynamicMaterialRecord(uint materialIndex, inout Path
     {
         return;
     }
-#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+#if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
     if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
         (material.padding0 & RT_SMOKE_MATERIAL_DYNAMIC_EMISSIVE_REGISTER_MASK) == 0u)
     {
@@ -55,7 +55,7 @@ void PathTraceCleanRoomApplyDynamicMaterialRecord(uint materialIndex, inout Path
         return;
     }
 
-#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+#if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
     const float stageAlpha = saturate(record.color.a);
     const float3 stageScale = max(record.color.rgb, float3(0.0, 0.0, 0.0)) * stageAlpha;
     if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE) != 0u)

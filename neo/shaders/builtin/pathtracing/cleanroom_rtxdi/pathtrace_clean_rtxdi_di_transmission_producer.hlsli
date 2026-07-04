@@ -43,156 +43,12 @@ bool PathTraceCleanRtxdiDiTransmissionLoadSpatialReservoir(
     return RTXDI_IsValidDIReservoir(reservoir);
 }
 
-bool PathTraceCleanRtxdiDiTransmissionProjectWorldPixel(
-    float3 worldPosition,
-    uint2 dimensions,
-    out uint2 projectedPixel)
-{
-    projectedPixel = uint2(0u, 0u);
-    const float3 delta = worldPosition - CleanRtxdiDiCameraOriginAndValid.xyz;
-    const float forwardDistance = dot(delta, CleanRtxdiDiCameraForwardAndTanX.xyz);
-    if (forwardDistance <= 1.0e-4)
-    {
-        return false;
-    }
-
-    const float ndcX = -dot(delta, CleanRtxdiDiCameraLeftAndTanY.xyz) /
-        max(forwardDistance * CleanRtxdiDiCameraForwardAndTanX.w, 1.0e-5);
-    const float ndcY = -dot(delta, CleanRtxdiDiCameraUpAndTanY.xyz) /
-        max(forwardDistance * CleanRtxdiDiCameraLeftAndTanY.w, 1.0e-5);
-    if (abs(ndcX) > 1.0 || abs(ndcY) > 1.0)
-    {
-        return false;
-    }
-
-    const float2 projectedPixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) *
-        float2(max(dimensions, uint2(1u, 1u)));
-    projectedPixel = min(
-        uint2(max(projectedPixelFloat, float2(0.0, 0.0))),
-        max(dimensions, uint2(1u, 1u)) - 1u);
-    return true;
-}
-
-RAB_LightInfo PathTraceCleanRtxdiDiTransmissionLoadRluLightInfo(uint lightIndex)
-{
-    RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
-    if (lightIndex >= CleanRtxdiDiRluCurrentLightCount)
-    {
-        return lightInfo;
-    }
-
-    const PathTraceUnifiedLightRecord light = CleanRtxdiDiRluCurrentLights[lightIndex];
-    if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
-    {
-        const float3 radiance = max(light.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) *
-            max(CleanRtxdiDiDoomAnalyticLightInfo.z, 0.0);
-        const float luminance = RAB_Luminance(radiance);
-        if (light.sourceWeight <= 0.0 ||
-            luminance <= 0.0 ||
-            light.positionAndRadius.w <= 0.0 ||
-            light.uvOrDoomParams.x <= 0.0)
-        {
-            return lightInfo;
-        }
-
-        lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
-        lightInfo.lightIndex = lightIndex;
-        lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
-        lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
-        lightInfo.flags = light.flags;
-        lightInfo.position = light.positionAndRadius.xyz;
-        lightInfo.radius = max(light.positionAndRadius.w, 0.01);
-        lightInfo.influenceRadius = max(light.uvOrDoomParams.x, lightInfo.radius);
-        lightInfo.normal = float3(0.0, 0.0, 1.0);
-        lightInfo.area = max(light.uvOrDoomParams.y, 1.0e-4);
-        lightInfo.radiance = radiance;
-        lightInfo.weight = luminance * lightInfo.area * lightInfo.influenceRadius;
-        return lightInfo;
-    }
-
-    if (light.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE ||
-        light.sourceIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX ||
-        light.sourceIndex >= CleanRtxdiDiCurrentEmissiveTriangleCount ||
-        light.sourceWeight <= 0.0)
-    {
-        return lightInfo;
-    }
-
-    const PathTraceSmokeEmissiveTriangle tri = SmokeEmissiveTriangles[light.sourceIndex];
-    if (tri.materialIndex >= (uint)CleanRtxdiDiTextureInfo.z ||
-        (tri.padding0 & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) != 0u)
-    {
-        return lightInfo;
-    }
-
-    const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(tri.materialIndex);
-    const float3 radiance = PathTraceCleanRoomTexturedEmissiveRadiance(light, false);
-    if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
-        RAB_Luminance(radiance) <= 0.0)
-    {
-        return lightInfo;
-    }
-
-    lightInfo.lightType = RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE;
-    lightInfo.lightIndex = lightIndex;
-    lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
-    lightInfo.materialIndex = light.materialOrLightId;
-    lightInfo.flags = light.flags;
-    lightInfo.position = light.positionAndRadius.xyz;
-    lightInfo.radius = 0.0;
-    lightInfo.influenceRadius = 0.0;
-    lightInfo.normal = RAB_SafeNormalize(tri.normalAndLuminance.xyz, float3(0.0, 0.0, 1.0));
-    lightInfo.area = max(tri.centerAndArea.w, 1.0e-4);
-    lightInfo.radiance = radiance;
-    lightInfo.weight = light.sourceWeight;
-    lightInfo.sourceIndex = light.sourceIndex;
-    lightInfo.hasTriangleGeometry = 0u;
-    lightInfo.emissiveTextureIndex = material.emissiveTextureIndex;
-    lightInfo.emissiveTextureWidth = material.emissiveTextureWidth;
-    lightInfo.emissiveTextureHeight = material.emissiveTextureHeight;
-    lightInfo.emissiveActiveStage = 1u;
-    lightInfo.emissiveColor = max(material.emissiveColor.rgb, float3(0.0, 0.0, 0.0));
-    lightInfo.trianglePosition0 = lightInfo.position;
-    lightInfo.trianglePosition1 = lightInfo.position;
-    lightInfo.trianglePosition2 = lightInfo.position;
-    lightInfo.triangleUv0 = tri.centroidUvAndWeight.xy;
-    lightInfo.triangleUv1 = tri.centroidUvAndWeight.xy;
-    lightInfo.triangleUv2 = tri.centroidUvAndWeight.xy;
-    return lightInfo;
-}
-
-PathTraceCleanRtxdiPayload PathTraceCleanRtxdiDiEmptyTransmissionTracePayload(RAB_Surface surface)
-{
-    PathTraceCleanRtxdiPayload payload;
-    payload.value = 0u;
-    payload.rayMode = 3u;
-    payload.ignoreInstanceId = surface.instanceId;
-    payload.ignorePrimitiveIndex = surface.primitiveIndex;
-    payload.ignoreMaterialIndex = surface.materialIndex;
-    payload.hitInstanceId = 0xffffffffu;
-    payload.hitPrimitiveIndex = 0xffffffffu;
-    payload.hitMaterialId = 0xffffffffu;
-    payload.hitMaterialIndex = 0xffffffffu;
-    payload.hitTriangleClassAndFlags = 0u;
-    payload.hitT = 0.0;
-    payload.hitBarycentrics = float2(0.0, 0.0);
-    return payload;
-}
-
 float4 PathTraceCleanRtxdiDiTransmissionProducerSourceColor(uint2 pixel, float4 fallbackColor)
 {
     return PathTraceCleanRtxdiDiGlassOutputSourceColor(
         PathTraceCleanRtxdiDiOutputColorSource,
         pixel,
         fallbackColor);
-}
-
-float4 PathTraceCleanRtxdiDiTransmissionProducerPayload(
-    uint2 pixel,
-    uint2 dimensions,
-    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
-{
-    return PathTraceCleanRtxdiDiGlassTransmissionPayloadForPixel(pixel, dimensions, runtimeParams);
 }
 
 float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
@@ -322,35 +178,6 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
         float4(0.02, 0.02, 0.02, 1.0));
 }
 
-// Primary surface replacement (PSR): trace the transmitted ray through thin glass
-// before DI runs, and overwrite the glass pixel's primary-surface record with the
-// hit so the entire pipeline (RTXDI, GI, guides, denoiser) shades it natively.
-// The glass throughput is stashed in the transmission output for the late compose.
-bool PathTraceCleanRtxdiDiTraceTransmissionHit(
-    RAB_Surface surface,
-    out PathTraceCleanRtxdiPayload hitPayload,
-    out float3 hitPosition,
-    out float3 rayDirection)
-{
-    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
-    const float3 viewDirection = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
-    // Thin-walled glass: entry and exit refractions cancel, so the transmitted
-    // ray keeps the incident direction.
-    rayDirection = -viewDirection;
-    hitPayload = PathTraceCleanRtxdiDiEmptyTransmissionTracePayload(surface);
-
-    RayDesc ray;
-    ray.Origin = RAB_GetSurfaceWorldPos(surface) + rayDirection * 0.05;
-    ray.Direction = rayDirection;
-    ray.TMin = 0.01;
-    ray.TMax = 100000.0;
-    // Force non-opaque so the rayMode 3 anyhit filter always runs; it skips the
-    // source pane and transparent-carded glass so the ray reaches the backdrop.
-    TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 1, 0, ray, hitPayload);
-    hitPosition = ray.Origin + rayDirection * hitPayload.hitT;
-    return hitPayload.value != 0u && hitPayload.hitMaterialIndex < (uint)TextureInfo.z;
-}
-
 void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     uint2 pixel,
     uint2 dimensions,
@@ -388,21 +215,10 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         return;
     }
 
-    const uint width = CleanRtxdiDiWidth != 0u ? CleanRtxdiDiWidth : dimensions.x;
-    const uint height = CleanRtxdiDiHeight != 0u ? CleanRtxdiDiHeight : dimensions.y;
-    if (width == 0u || height == 0u || pixel.x >= width || pixel.y >= height)
+    if (!PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(pixel, dimensions, hitSurface))
     {
         return;
     }
-    const uint recordIndex = pixel.y * width + pixel.x;
-
-    const float viewDepth = dot(
-        hitPosition - CleanRtxdiDiCameraOriginAndValid.xyz,
-        CleanRtxdiDiCameraForwardAndTanX.xyz);
-    hitSurface.linearDepth = viewDepth;
-    PrimarySurfaceHistoryCurrent[recordIndex] =
-        PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRecord(hitSurface);
-    PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(pixel, hitSurface);
 
     PathTraceCleanRtxdiDiTransmissionOutput[pixel] = float4(saturate(glassPayload.transmission), 1.0);
 }

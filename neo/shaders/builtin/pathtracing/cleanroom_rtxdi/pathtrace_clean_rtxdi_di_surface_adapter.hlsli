@@ -91,7 +91,7 @@ uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitive
     return SmokeRigidRouteTriangleMaterialIndexes[routedPrimitiveIndex];
 }
 
-#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+#if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
 uint PathTraceCleanRtxdiDiTransmissionLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
 {
     if (instanceId == 0u)
@@ -299,6 +299,28 @@ void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(uint2 pixel, RAB_Surface 
     PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
     PathTraceMotionVectorMask[pixel] = 0u;
     PathTraceRRGuideResetMask[pixel] = PathTraceCleanRtxdiDiResolvedSurfaceResetMask(surface);
+}
+
+bool PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
+    uint2 pixel,
+    uint2 dimensions,
+    inout RAB_Surface surface)
+{
+    const uint width = CleanRtxdiDiWidth != 0u ? CleanRtxdiDiWidth : dimensions.x;
+    const uint height = CleanRtxdiDiHeight != 0u ? CleanRtxdiDiHeight : dimensions.y;
+    if (width == 0u || height == 0u || pixel.x >= width || pixel.y >= height)
+    {
+        return false;
+    }
+
+    const uint recordIndex = pixel.y * width + pixel.x;
+    surface.linearDepth = dot(
+        surface.worldPos - CleanRtxdiDiCameraOriginAndValid.xyz,
+        CleanRtxdiDiCameraForwardAndTanX.xyz);
+    PrimarySurfaceHistoryCurrent[recordIndex] =
+        PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRecord(surface);
+    PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(pixel, surface);
+    return true;
 }
 
 RAB_Surface RAB_GetGBufferSurface(int2 pixel, bool previousFrame)
