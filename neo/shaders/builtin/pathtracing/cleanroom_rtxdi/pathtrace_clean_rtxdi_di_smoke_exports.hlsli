@@ -167,7 +167,7 @@ bool PathTraceCleanRoomTriangleDoesNotOccludeTransmission(uint instanceId, uint 
     }
 
     const uint triangleClassAndFlags =
-        PathTraceCleanRtxdiDiTransmissionLoadTriangleClassAndFlags(instanceId, primitiveIndex);
+        PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(instanceId, primitiveIndex);
     const uint surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
     const uint translucentSubtype =
         (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
@@ -280,9 +280,9 @@ void ClosestHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInterse
 #if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
     payload.hitInstanceId = InstanceID();
     payload.hitPrimitiveIndex = PrimitiveIndex();
-    payload.hitMaterialId = PathTraceCleanRtxdiDiTransmissionLoadTriangleMaterialId(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    payload.hitMaterialId = PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(payload.hitInstanceId, payload.hitPrimitiveIndex);
     payload.hitMaterialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
-    payload.hitTriangleClassAndFlags = PathTraceCleanRtxdiDiTransmissionLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    payload.hitTriangleClassAndFlags = PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
     payload.hitT = RayTCurrent();
     payload.hitBarycentrics = attributes.barycentrics;
 #endif

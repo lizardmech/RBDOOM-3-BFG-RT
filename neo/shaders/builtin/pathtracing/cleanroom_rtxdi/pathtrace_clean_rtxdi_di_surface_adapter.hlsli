@@ -92,7 +92,7 @@ uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitive
 }
 
 #if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
-uint PathTraceCleanRtxdiDiTransmissionLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
+uint PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
 {
     if (instanceId == 0u)
     {
@@ -126,7 +126,7 @@ uint PathTraceCleanRtxdiDiTransmissionLoadTriangleMaterialId(uint instanceId, ui
     return SmokeRigidRouteTriangleMaterials[routedPrimitiveIndex];
 }
 
-uint PathTraceCleanRtxdiDiTransmissionLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
+uint PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 {
     if (instanceId == 0u)
     {
