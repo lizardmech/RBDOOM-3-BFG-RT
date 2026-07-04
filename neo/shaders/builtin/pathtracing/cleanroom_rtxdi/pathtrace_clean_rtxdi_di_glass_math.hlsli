@@ -373,20 +373,4 @@ float2 PathTraceCleanRtxdiDiGlassReflectionSamplePosition(
         payload);
 }
 
-float4 PathTraceCleanRtxdiDiComposeThinGlassColor(
-    float4 currentColor,
-    float4 sourceColor,
-    float4 reflectedSourceColor,
-    PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
-    PathTraceCleanRtxdiDiGlassThinPayload payload)
-{
-    const float payloadWeight = saturate(payload.weight);
-    const float3 transmission = saturate(payload.transmission);
-    const float3 reflectedThroughput = saturate(payload.reflection * materialParams.reflectionBoost);
-    const float3 transmittedColor = sourceColor.rgb * transmission;
-    const float3 reflectedColor = reflectedSourceColor.rgb * reflectedThroughput;
-    const float3 composedColor = transmittedColor + reflectedColor;
-    return float4(lerp(currentColor.rgb, composedColor, payloadWeight), currentColor.a);
-}
-
 #endif

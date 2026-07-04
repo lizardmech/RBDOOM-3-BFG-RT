@@ -7,24 +7,6 @@ static const float RT_CLEAN_RTXDI_DI_GLASS_SUPPORTED_SOURCE_TAP_WEIGHT = 0.25;
 static const float RT_CLEAN_RTXDI_DI_GLASS_SOURCE_DEPTH_EPSILON = 0.05;
 static const float RT_CLEAN_RTXDI_DI_GLASS_CHROMATIC_REFRACTION_SCALE = 0.06;
 
-struct PathTraceCleanRtxdiDiGlassComposeResult
-{
-    bool supported;
-    float4 color;
-    float4 transmissionPayload;
-    float sourceValidity;
-};
-
-PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiEmptyGlassComposeResult(float4 currentColor)
-{
-    PathTraceCleanRtxdiDiGlassComposeResult result;
-    result.supported = false;
-    result.color = currentColor;
-    result.transmissionPayload = float4(1.0, 1.0, 1.0, 0.0);
-    result.sourceValidity = 0.0;
-    return result;
-}
-
 float PathTraceCleanRtxdiDiGlassColorEnergy(float4 color)
 {
     return dot(abs(color.rgb), float3(1.0, 1.0, 1.0));
@@ -235,34 +217,6 @@ void PathTraceCleanRtxdiDiStoreGlassComposedColor(uint2 pixel, float4 color)
     PathTraceRRInputColor[pixel] = color;
 }
 
-float4 PathTraceCleanRtxdiDiGlassTransmissionPayload(
-    RAB_Surface surface,
-    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
-{
-    if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
-    {
-        return float4(1.0, 1.0, 1.0, 0.0);
-    }
-
-    const PathTraceCleanRtxdiDiGlassThinPayload payload =
-        PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, runtimeParams);
-    return float4(payload.transmission, payload.weight);
-}
-
-float4 PathTraceCleanRtxdiDiGlassTransmissionPayloadForPixel(
-    uint2 pixel,
-    uint2 dimensions,
-    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
-{
-    RAB_Surface surface;
-    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
-    {
-        return float4(1.0, 1.0, 1.0, 0.0);
-    }
-
-    return PathTraceCleanRtxdiDiGlassTransmissionPayload(surface, runtimeParams);
-}
-
 float4 PathTraceCleanRtxdiDiGlassDebugColorForPixel(
     uint2 pixel,
     uint2 dimensions,
@@ -290,111 +244,6 @@ float4 PathTraceCleanRtxdiDiGlassDebugColorForPixel(
     return feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS
         ? translucentUnsupportedColor
         : unsupportedColor;
-}
-
-PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeResult(
-    RAB_Surface surface,
-    uint2 pixel,
-    uint2 dimensions,
-    float4 currentColor,
-    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
-{
-    PathTraceCleanRtxdiDiGlassComposeResult result =
-        PathTraceCleanRtxdiDiEmptyGlassComposeResult(currentColor);
-
-    if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
-    {
-        return result;
-    }
-
-    const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
-        PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
-    const PathTraceCleanRtxdiDiGlassThinPayload payload =
-        PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
-    const float2 sourcePixel = PathTraceCleanRtxdiDiGlassRefractionSamplePosition(
-        pixel,
-        dimensions,
-        surface,
-        materialParams,
-        payload);
-    const float2 reflectedSourcePixel = PathTraceCleanRtxdiDiGlassReflectionSamplePosition(
-        pixel,
-        dimensions,
-        surface,
-        materialParams,
-        payload);
-    const float4 invalidSourceColor = float4(0.0, 0.0, 0.0, 0.0);
-    float strictSourceValidity;
-    float4 sourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorChromaticWithValidity(
-        PathTraceCleanRtxdiDiOutputColorSource,
-        float2(pixel),
-        sourcePixel,
-        dimensions,
-        surface,
-        true,
-        invalidSourceColor,
-        strictSourceValidity);
-    float sourceValidity = strictSourceValidity;
-    if (sourceValidity <= 1.0e-5)
-    {
-        float relaxedSourceValidity;
-        const float4 relaxedSourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorChromaticWithValidity(
-            PathTraceCleanRtxdiDiOutputColorSource,
-            float2(pixel),
-            sourcePixel,
-            dimensions,
-            surface,
-            false,
-            invalidSourceColor,
-            relaxedSourceValidity);
-        if (relaxedSourceValidity > 1.0e-5)
-        {
-            sourceColor = relaxedSourceColor;
-            sourceValidity = relaxedSourceValidity;
-        }
-        else
-        {
-            sourceColor = currentColor;
-        }
-    }
-    const float4 reflectedSourceColor = PathTraceCleanRtxdiDiGlassOutputSourceColorBilinear(
-        PathTraceCleanRtxdiDiOutputColorSource,
-        reflectedSourcePixel,
-        dimensions,
-        surface,
-        false,
-        currentColor);
-
-    result.supported = true;
-    result.color = PathTraceCleanRtxdiDiComposeThinGlassColor(
-        currentColor,
-        sourceColor,
-        reflectedSourceColor,
-        materialParams,
-        payload);
-    result.transmissionPayload = float4(payload.transmission, payload.weight);
-    result.sourceValidity = sourceValidity;
-    return result;
-}
-
-PathTraceCleanRtxdiDiGlassComposeResult PathTraceCleanRtxdiDiBuildGlassComposeResultForPixel(
-    uint2 pixel,
-    uint2 dimensions,
-    float4 currentColor,
-    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
-{
-    RAB_Surface surface;
-    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface))
-    {
-        return PathTraceCleanRtxdiDiEmptyGlassComposeResult(currentColor);
-    }
-
-    return PathTraceCleanRtxdiDiBuildGlassComposeResult(
-        surface,
-        pixel,
-        dimensions,
-        currentColor,
-        runtimeParams);
 }
 
 #endif
