@@ -55,11 +55,7 @@ RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatur
 {
     const bool transmissionDebugRequested =
         r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0;
-    const bool producerOwnedComposeRequested =
-        r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
-        r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
-    const bool producerOwnedOutputRequested =
-        transmissionDebugRequested || producerOwnedComposeRequested;
+    const bool producerOwnedOutputRequested = transmissionDebugRequested;
     const bool shaderRequested =
         !producerOwnedOutputRequested &&
         r_pathTracingCleanRtxdiDiGlassShader.GetInteger() != 0;
