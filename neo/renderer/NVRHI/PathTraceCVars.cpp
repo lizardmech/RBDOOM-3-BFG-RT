@@ -1619,13 +1619,13 @@ idCVar r_pathTracingCleanRtxdiDiSpatialRadius(
 
 idCVar r_pathTracingCleanRtxdiDiTransmissionProducer(
     "r_pathTracingCleanRtxdiDiTransmissionProducer",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 standalone transmission producer: 0 off, 1 write thin-glass transmission payload from the clean primary surface" );
 
 idCVar r_pathTracingCleanRtxdiDiTransmissionCompose(
     "r_pathTracingCleanRtxdiDiTransmissionCompose",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 glass sidecar compose: 0 off, 1 let the glass pass copy shaded output through the transmission sidecar path" );
 
@@ -1633,19 +1633,43 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
     "r_pathTracingCleanRtxdiDiTransmissionDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 thin-glass payload, 2 source validity red=strict green=relaxed blue=current-source energy, 3 PSR status green=replaced yellow=miss red=still-glass gray=not-glass" );
+    "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 thin-glass payload, 2 source validity red=strict green=relaxed blue=current-source energy, 3 PSR status green=replaced yellow=miss red=still-glass gray=not-glass, 4 reflection sidecar marker, 5 cosmetic distortion sidecar, 6 cosmetic distorted source preview, 7 cosmetic distortion source difference, 8 normal-map diagnostic, 9 procedural warped checker" );
+
+idCVar r_pathTracingCleanRtxdiDiGlassReflection(
+    "r_pathTracingCleanRtxdiDiGlassReflection",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI view 16 glass reflection sidecar: 0 off, 1 trace mirror ray in PSR producer and compose reflected radiance" );
+
+idCVar r_pathTracingCleanRtxdiDiGlassDistortion(
+    "r_pathTracingCleanRtxdiDiGlassDistortion",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI view 16 cosmetic glass distortion sidecar: 0 off, 1 diagnostic final-color warp only; does not affect DI/GI/RR guides or PSR continuation direction" );
+
+idCVar r_pathTracingCleanRtxdiDiGlassRefractedPsr(
+    "r_pathTracingCleanRtxdiDiGlassRefractedPsr",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI view 16 transmission PSR: 0 thin straight-through continuation, 1 use refracted PSR continuation ray for supported glass" );
+
+idCVar r_pathTracingCleanRtxdiDiGlassRefractedPsrStrength(
+    "r_pathTracingCleanRtxdiDiGlassRefractedPsrStrength",
+    "0.25",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean RTXDI DI view 16 refracted transmission PSR direction strength: 0 straight-through thin glass, 1 full single-interface refraction" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassShader(
     "r_pathTracingCleanRtxdiDiGlassShader",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 glass material-feature pass: owns post-DI sidecar compose/debug while transmission producer owns PSR sidecar generation" );
+    "Clean RTXDI DI view 16 glass material-feature pass: 1 applies PSR sidecar compose when available, otherwise opaque glass overlay for incidence-response testing" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassDebugView(
     "r_pathTracingCleanRtxdiDiGlassDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 glass material-feature debug output: 0 off, 1 sidecar status green=PSR payload yellow=PSR miss/pending magenta=translucent unsupported dark=unsupported" );
+    "Clean RTXDI DI view 16 glass material-feature debug output: 0 off, 1 sidecar status, 2 transmission RGB, 3 overlay energy; producer-only no-ops here, use transmission debug view for PSR producer/reflection status" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassGuideDebugView(
     "r_pathTracingCleanRtxdiDiGlassGuideDebugView",
@@ -1939,7 +1963,7 @@ idCVar r_pathTracingCleanRestirGiView(
     "r_pathTracingCleanRestirGiView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect GI (diffuse+specular isolated), 7 reservoir M/age diagnostics, 8 route sentinel, 9 secondary material albedo, 10 secondary material texture-source flags, 11 final diffuse lobe, 12 final specular lobe, 13 specular producer radiance, 14 specular producer hit geometry, 15 specular producer PDF health, 16 specular lobe hit distance, 17 specular producer eligibility, 18 specular reuse state, 19 stored specular output, 20 NEE-cache provider state, 21 producer shade gate, 22 producer ray-query vs TraceRay compare, 23 producer-to-reservoir path classifier. Reads GI lane resources only" );
+    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect GI (diffuse+specular isolated), 7 reservoir M/age diagnostics, 8 route sentinel, 9 secondary material albedo, 10 secondary material texture-source flags, 11 final diffuse lobe, 12 final specular lobe, 13 specular producer radiance, 14 specular producer hit geometry, 15 specular producer PDF health, 16 specular lobe hit distance, 17 specular producer eligibility, 18 specular reuse state, 19 stored specular output, 20 NEE-cache provider state, 21 producer shade gate, 22 producer ray-query vs TraceRay compare, 23 producer-to-reservoir path classifier, 24 transmission PSR primary-surface mask. Reads GI lane resources only" );
 
 idCVar r_pathTracingCleanRestirGiTemporal(
     "r_pathTracingCleanRestirGiTemporal",

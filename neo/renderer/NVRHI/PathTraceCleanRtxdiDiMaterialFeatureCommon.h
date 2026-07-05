@@ -69,9 +69,24 @@ inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiTransmissionSi
     return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_SIDECAR);
 }
 
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiReflectionOutputBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_OUTPUT);
+}
+
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiGlassDistortionOutputBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_OUTPUT);
+}
+
 inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiRrInputColorBinding()
 {
     return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR);
+}
+
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiRrGuideSpecularAlbedoBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO);
 }
 
 inline bool PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(bool cleanRouteRequested, int cleanView)
@@ -114,6 +129,9 @@ inline uint32_t PathTraceCleanRtxdiDiTransmissionProducerOutputResources()
 {
     return
         RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT |
+        RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_OUTPUT |
+        RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_OUTPUT |
+        RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO |
         PathTraceCleanRtxdiDiComposedOutputResources();
 }
 
@@ -152,6 +170,9 @@ inline const RtPathTraceMaterialFeatureBindingDesc* PathTraceCleanRtxdiDiObjectG
         PathTraceCleanRtxdiDiMaterialFeatureRuntimeConstantsBinding(),
         PathTraceCleanRtxdiDiOutputColorSourceBinding(),
         PathTraceCleanRtxdiDiTransmissionOutputBinding(),
+        PathTraceCleanRtxdiDiReflectionOutputBinding(),
+        PathTraceCleanRtxdiDiGlassDistortionOutputBinding(),
+        PathTraceCleanRtxdiDiRrGuideSpecularAlbedoBinding(),
         PathTraceCleanRtxdiDiRrInputColorBinding(),
         PathTraceCleanRtxdiDiOutputColorBinding()
     };

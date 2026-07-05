@@ -1,0 +1,96 @@
+Manager Notes
+=============
+
+Current Read Of The Codebase
+----------------------------
+
+The live RAB bridge is opaque-diffuse centered. The useful current gate is:
+
+    RAB_SurfaceSupportsOpaqueDiffuseBrdf(...)
+
+Low-level direct-light target PDFs and reflected radiance currently call the
+same diffuse BRDF helpers. That means glass/transmission is a consumer-contract
+change, not a safe one-line BRDF extension.
+
+The current primary-surface record already carries useful fields:
+
+    material flags
+    surface class
+    opacity
+    roughness
+    diffuse albedo
+    specular F0
+    emissive
+    material id/index
+
+Use that as the first contract boundary before adding feature-specific passes.
+
+
+Reference Direction
+-------------------
+
+Borrow from RTX Remix:
+
+    distinct material interaction types
+    decal interaction as material/receiver modification
+    separate transmission-style pass ownership
+    host-side resource/pass registration
+
+Borrow from nvpro_core2 nvshaders:
+
+    central BSDF material record
+    bsdfEvaluate / bsdfSample style interface
+    explicit IOR/transmission fields
+
+Do not borrow:
+
+    a full framework before rbdoom has the ABI and pass boundary
+    source text without file-level license review
+    denoiser/RR coupling before material outputs and motion contracts exist
+
+
+Likely Implementation Seams
+---------------------------
+
+Material/CPU seam:
+
+    neo/renderer/NVRHI/PathTraceMaterialClassifier.*
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTracePrimarySurface.h
+
+Primary-surface shader seam:
+
+    neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+
+RAB consumer seam:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_SurfaceCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Brdf.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightTarget.hlsli
+
+Host pass seam:
+
+    neo/renderer/NVRHI/PathTraceRestirPasses.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+
+Detail-decal seam:
+
+    neo/shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+    docs/decal_cards/*
+
+
+Preferred Sequencing
+--------------------
+
+1. Contract audit.
+2. ABI/capability fields.
+3. Central material adapter with no visual behavior change.
+4. RAB opaque diffuse migration through the adapter.
+5. Liquid-pool modifier.
+6. Glass path-event support.
+7. Standalone transmission pass only if path-event support is insufficient.
+
+Do not start with the glass shader. Start with the boundary that lets glass be
+unsupported everywhere it is not deliberately supported.

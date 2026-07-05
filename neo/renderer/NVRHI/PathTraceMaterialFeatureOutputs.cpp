@@ -23,6 +23,18 @@ static const RtPathTraceMaterialFeatureOutputDesc kMaterialFeatureOutputs[] = {
         &RtPathTraceFrameResources::transmissionTexture
     },
     {
+        RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_OUTPUT,
+        90u,
+        "reflection-output",
+        &RtPathTraceFrameResources::reflectionSidecarTexture
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_OUTPUT,
+        91u,
+        "glass-distortion-output",
+        &RtPathTraceFrameResources::glassDistortionSidecarTexture
+    },
+    {
         RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO,
         53u,
         "rr-guide-specular-albedo",

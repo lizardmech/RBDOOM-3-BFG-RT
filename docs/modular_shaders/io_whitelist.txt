@@ -1,0 +1,223 @@
+Modular Shader I/O Whitelist
+============================
+
+Purpose
+-------
+
+This whitelist prevents new material features from silently consuming fallback
+lighting, old reservoirs, or unrelated pass outputs. Every worker must list the
+entries it consumes and writes before editing.
+
+
+Allowed Input Classes
+---------------------
+
+I-01: Material Classifier Facts
+
+    Meaning:
+        CPU-side material semantic facts, stage facts, surface class, and
+        packed material classifier flags.
+
+    Allowed use:
+        deriving materialKind/materialCaps/lobeCaps
+        deciding modifier kind
+        diagnostics and dumps
+
+    Forbidden use:
+        no per-pass shader branching from raw classifier heuristics when a
+        material capability should exist instead
+
+
+I-02: Shader-Facing Material Table
+
+    Meaning:
+        Current compact material records and texture indexes visible to the
+        path-tracing shaders.
+
+    Allowed use:
+        material feature construction
+        primary-surface packing
+        path-event sampling
+        receiver modifier evaluation
+
+    Forbidden use:
+        no direct DI/GI feature-specific interpretation without adapter gates
+
+
+I-03: Current Primary Surface
+
+    Meaning:
+        Current-frame hit data and resolved material fields.
+
+    Allowed use:
+        DI/GI adapter gating
+        path integrator material sampling
+        reflection/transmission producer gating
+        debug visualization
+
+    Forbidden use:
+        no fallback albedo as proof for unsupported material kinds
+
+
+I-04: Previous Primary Surface
+
+    Meaning:
+        Previous-frame hit data used by temporal consumers.
+
+    Allowed use:
+        material-aware temporal rejection only after the current task opens
+        temporal behavior
+
+    Forbidden use:
+        no same-pixel fake history
+        no material feature proof from previous-frame fallback
+
+
+I-05: Detail-Decal Hit Bin
+
+    Meaning:
+        Any-hit accumulated decal card layers and their material/texcoord/sort
+        metadata.
+
+    Allowed use:
+        receiver modifier resolution
+        liquid-pool union coverage
+        decal debug views
+
+    Forbidden use:
+        no recursive tracing
+        no glass/transmission path event from pool decals
+
+
+I-06: Current Light Universe
+
+    Meaning:
+        Current analytic/emissive light records.
+
+    Allowed use:
+        DI/GI consumers after material adapters approve the surface
+        path integrator NEE
+
+    Forbidden use:
+        no direct-light fallback for unsupported materials
+
+
+I-07: Material Feature Constants / CVars
+
+    Meaning:
+        Runtime controls for experimental feature enable, debug view, or bounce
+        limits.
+
+    Allowed use:
+        feature gates
+        validation views
+        safety caps
+
+    Forbidden use:
+        no hidden overrides that make unsupported materials look supported
+
+
+I-08: Feature Pass Resources
+
+    Meaning:
+        Dedicated resource sets for standalone feature passes such as
+        reflection or future transmission.
+
+    Allowed use:
+        only by the owning feature pass and final composite/debug consumers
+
+    Forbidden use:
+        no DI/GI read unless a task explicitly opens that dependency
+
+
+Allowed Output Classes
+----------------------
+
+O-01: Material Capability Fields
+
+    Written by:
+        material classifier / material table packing / primary surface packing
+
+    Read by:
+        material adapters and pass gates
+
+
+O-02: Resolved Primary Surface
+
+    Written by:
+        primary surface producer
+
+    Read by:
+        DI/GI/path/reflection/transmission/debug consumers
+
+    Requirement:
+        receiver modifiers that affect lighting should be resolved here or in a
+        shared material layer before low-level consumers read the surface.
+
+
+O-03: Material Adapter Result
+
+    Written by:
+        shared material-evaluation includes
+
+    Read by:
+        DI/GI/path consumers
+
+    Requirement:
+        must state supported/unsupported explicitly.
+
+
+O-04: Receiver Modifier Result
+
+    Written by:
+        decal/material modifier resolver
+
+    Read by:
+        primary-surface/material layer
+
+    Requirement:
+        liquid-pool union coverage is idempotent: overlapping 100 percent pool
+        strength remains 100 percent strength.
+
+
+O-05: Standalone Feature Output
+
+    Written by:
+        feature-specific pass such as reflection or future transmission
+
+    Read by:
+        final resolve/composite/debug views only unless another task opens the
+        consumer.
+
+
+O-06: Debug/Validation Output
+
+    Written by:
+        validation views
+
+    Requirement:
+        unsupported material states are explicit and loud.
+
+
+Forbidden Input Classes
+-----------------------
+
+Workers must not consume these as proof of a modular material feature:
+
+    SmokeOutput
+    SmokeAccumulation
+    mode-56 fallback/combined preview output
+    old synthetic RRX debug output
+    old smoke reservoirs as material-feature state
+    GI reservoirs for glass proof
+    DI reservoirs for liquid-pool proof
+    DLSS/RR denoiser confidence or gradient buffers
+    path-traced beauty underneath unsupported material debug
+    material albedo fallback when adapter says unsupported
+
+
+Review Rule
+-----------
+
+Reject any worker result that cannot name the whitelist entry for every input
+and output it uses.

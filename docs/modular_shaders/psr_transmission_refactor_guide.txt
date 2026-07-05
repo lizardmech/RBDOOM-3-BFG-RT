@@ -1,0 +1,410 @@
+PSR Transmission Refactor Guide
+===============================
+
+Purpose
+-------
+
+This guide is for agents correcting the current clean RTXDI DI glass/
+transmission implementation after the first PSR transparency breakthrough.
+
+Do not reopen the RTX Remix source tree for this task unless the local code
+contradicts this guide. The relevant Remix architecture has already been
+checked. The key lesson is simple:
+
+    translucent material code owns transport sampling and attenuation
+    the resolver owns tracing to the replacement surface
+    the normal material/integrator path owns shading the replacement surface
+
+The rbdoom implementation should follow that boundary. It must not grow a
+second opaque shader inside the transmission shader.
+
+
+Current rbdoom State
+--------------------
+
+The current local direction is no longer the old screen-space post-compose
+fake. That is good.
+
+The transmission pass now has a PSR phase that runs before clean DI. It traces
+through supported glass, builds a behind-glass hit surface, and overwrites the
+current primary-surface record so the normal clean DI path shades the surface
+behind the pane.
+
+Important local files:
+
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+        Dispatches the transmission PSR pass before clean DI consumes primary
+        surfaces.
+
+    neo/renderer/NVRHI/PathTraceCleanRtxdiDiMaterialFeatures.cpp
+        Contains DispatchPathTraceCleanRtxdiDiTransmissionPsrPass(...).
+
+    neo/renderer/NVRHI/PathTraceCleanRtxdiDiMaterialFeatureRegistry.cpp
+        Registers clean-rtxdi-di-transmission and clean-rtxdi-di-glass.
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+        pathtrace_clean_rtxdi_di_transmission_producer.hlsli
+        pathtrace_clean_rtxdi_di_surface_adapter.hlsli
+        pathtrace_clean_rtxdi_di_material_feature_queries.hlsli
+        pathtrace_clean_rtxdi_di_material_texture.hlsli
+        pathtrace_clean_rtxdi_di_glass_*.hlsli
+
+The useful current pieces are:
+
+    PathTraceCleanRtxdiDiTransmissionPsrPhase(...)
+        This is the desired pass shape: identify glass, trace through it,
+        replace the primary surface, stash transmission sidecar payload.
+
+    PathTraceCleanRtxdiDiTransmissionLoadResolvedSurface(...)
+        This is close to the correct boundary: convert a traced hit into a
+        RAB_Surface for the normal DI path.
+
+    PathTraceCleanRtxdiDiPackTransmissionPrimarySurfaceRecord(...)
+        This packs the resolved surface back into the primary-surface contract.
+
+The problematic current pieces are:
+
+    PathTraceCleanRtxdiDiTransmissionHitColor(...)
+    PathTraceCleanRtxdiDiTransmissionDoomAnalyticRadiance(...)
+    PathTraceCleanRtxdiDiTransmissionResolveContinuation(...)
+    transmission-local normal/specular/material helpers
+
+Those functions duplicate parts of the opaque/material shading path inside the
+transmission producer. They were useful while the agent was trying to find a
+visible transparency result. They are not an acceptable long-term modular
+shader architecture.
+
+
+Current Problem
+---------------
+
+The transmission producer currently mixes two designs:
+
+    Design A:
+        PSR replaces the primary surface, then existing clean DI shades it.
+
+    Design B:
+        transmission_producer.hlsli traces to a hit and shades that hit itself
+        with private material and analytic-light code.
+
+Design A is the keeper. Design B is the duplication trap.
+
+If Design B remains as an example, every future material feature will be
+tempted to copy:
+
+    vertex interpolation
+    tangent-basis reconstruction
+    normal-map decode
+    specular-map decode
+    material-classifier BSDF application
+    emissive handling
+    direct-light loops
+    RR guide packing
+
+That would make each new shader a fork of the renderer. A later opaque BSDF
+change, material-classifier change, emissive rule, decal rule, or RR guide
+contract would have to be patched repeatedly.
+
+
+How RTX Remix Solves This
+-------------------------
+
+RTX Remix does not put a full opaque shader inside the translucent shader.
+
+The inspected Remix files are:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/
+        concept/surface_material/surface_material_helper.slangh
+        concept/surface_material/polymorphic_surface_material_interaction.slangh
+        concept/surface_material/translucent_surface_material_interaction.slangh
+        algorithm/resolve.slangh
+        algorithm/geometry_resolver.slangh
+        utility/gbuffer_helpers.slangh
+        pass/integrate/integrate_direct.slangh
+        algorithm/integrator_direct.slangh
+        algorithm/integrator_indirect.slangh
+
+The relevant Remix shape is:
+
+    1. Material interaction dispatch is polymorphic.
+
+       polymorphicSurfaceMaterialInteractionCalcPSRSample(...) dispatches by
+       material type. Opaque, translucent, and ray-portal materials each
+       produce PSR samples through their own material-specific functions.
+
+    2. A PSR sample is transport data, not shaded color.
+
+       SurfaceMaterialInteractionPSRSample contains:
+
+           performPSR
+           useAlternateDisocclusionThreshold
+           inputDirection
+           attenuation
+           vectorTransform
+
+       It does not contain "shade the object behind this glass" logic.
+
+    3. Translucent PSR code computes reflection/transmission direction and
+       attenuation.
+
+       The translucent material code decides whether reflection/transmission
+       PSR should happen, computes Fresnel/Beer-Lambert-style attenuation, and
+       chooses the continuation direction.
+
+       It does not evaluate the opaque BRDF for the eventual background hit.
+
+    4. The geometry resolver follows the PSR ray.
+
+       geometry_resolver.slangh stores transmission PSR data with
+       storeTransmissionPSRData(...), then a PSR resolver traces/continues until
+       it reaches the final resolved surface.
+
+    5. resolveVertex(...) builds the normal material interaction for whatever
+       surface the PSR ray hit.
+
+       If the resolved surface is opaque, the opaque interaction is created by
+       the normal opaque material path. If it is translucent, the translucent
+       interaction is created by the normal translucent material path.
+
+    6. The resolved material interaction is written to G-buffer.
+
+       geometryResolverOutputSurface(...) writes the final resolved
+       PolymorphicSurfaceMaterialInteraction using
+       polymorphicSurfaceMaterialInteractionWriteToGBuffer(...).
+
+    7. Direct and indirect integrators read the G-buffer and shade normally.
+
+       integrate_direct.slangh deserializes the chosen primary/secondary
+       surface from G-buffer, then integrator_direct.slangh and
+       integrator_indirect.slangh use the normal material/integrator dispatch.
+
+The duplication that does exist in Remix is much narrower: some translucent
+PSR sampling formulas overlap with normal translucent lobe sampling formulas.
+That duplication is at the "choose transport direction and attenuation" level.
+It is not a duplicated opaque/background shader.
+
+
+Target rbdoom Boundary
+----------------------
+
+rbdoom should mirror the same ownership split in its own HLSL/C++ structure.
+
+Glass/transmission material code may own:
+
+    glass classification and support checks
+    thin-glass transmission/reflection throughput
+    continuation ray direction
+    attenuation sidecar payload
+    glass-specific debug colors
+    late glass overlay/composition, if explicitly enabled
+
+Shared surface/material adapter code must own:
+
+    trace-hit payload to surface conversion
+    vertex interpolation for static/dynamic/rigid-route geometry
+    material id/index/class/flag resolution
+    material table lookup and dynamic material updates
+    diffuse/specular/roughness/emissive extraction
+    material-classifier BSDF application
+    normal-map decode and tangent-basis handling
+    alpha/opacity extraction
+    packing RAB_Surface into PathTracePrimarySurfaceRecord
+    RR guide export from a resolved surface or primary-surface record
+
+Existing clean DI/GI/BSDF code must own:
+
+    direct-light target pdf
+    reflected radiance / BRDF evaluation
+    reservoir target functions
+    spatial/temporal reservoir consumers
+    normal opaque material shading
+    future non-glass material shading
+
+
+Required Refactor
+-----------------
+
+Do this before adding more glass behavior or additional special shaders.
+
+Step 1: Freeze the visual feature set.
+
+    Do not add rough glass, chromatic offsets, liquid cards, decals, or new
+    material kinds while correcting the structure.
+
+    The only allowed behavior target is preserving current working PSR
+    transparency as closely as possible.
+
+Step 2: Identify and classify transmission-local duplication.
+
+    In pathtrace_clean_rtxdi_di_transmission_producer.hlsli, list each helper
+    that performs generic material or surface work.
+
+    Expected examples:
+
+        PathTraceCleanRtxdiDiTransmissionLoadHitSurface
+        PathTraceCleanRtxdiDiTransmissionDecodeNormal
+        PathTraceCleanRtxdiDiTransmissionSampleSpecular
+        PathTraceCleanRtxdiDiTransmissionSurfaceAlbedo
+        PathTraceCleanRtxdiDiTransmissionSurfaceEmissive
+        PathTraceCleanRtxdiDiTransmissionLoadResolvedSurface
+        PathTraceCleanRtxdiDiPackTransmissionPrimarySurfaceRecord
+
+    Do not delete these in the first step. First classify them as either:
+
+        glass transport
+        shared hit-to-surface adapter
+        shared surface-to-record packer
+        obsolete fallback shading
+        debug-only
+
+Step 3: Create or extend a shared adapter include.
+
+    Preferred destination:
+
+        pathtrace_clean_rtxdi_di_surface_adapter.hlsli
+
+    Acceptable split if the file grows too large:
+
+        pathtrace_clean_rtxdi_di_hit_surface_adapter.hlsli
+        pathtrace_clean_rtxdi_di_primary_surface_pack.hlsli
+        pathtrace_clean_rtxdi_di_rr_guide_export.hlsli
+
+    The shared helper should expose a small contract such as:
+
+        bool PathTraceCleanRtxdiDiLoadHitSurface(...)
+        bool PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(...)
+        PathTracePrimarySurfaceRecord PathTraceCleanRtxdiDiPackPrimarySurfaceRecord(...)
+        void PathTraceCleanRtxdiDiWriteRrGuidesForResolvedSurface(...)
+
+    Names can differ, but the ownership cannot.
+
+Step 4: Convert PSR to use shared helpers only.
+
+    PathTraceCleanRtxdiDiTransmissionPsrPhase(...) should read like:
+
+        load current glass surface
+        compute glass material params and throughput
+        trace continuation ray
+        build resolved RAB_Surface using shared adapter
+        pack and write replacement primary-surface record using shared packer
+        write RR guide resources using shared guide export
+        write transmission sidecar payload
+
+    It must not call private material shading or private direct-light loops.
+
+Step 5: Remove the obsolete continuation color path.
+
+    PathTraceCleanRtxdiDiTransmissionResolveContinuation(...) should not shade
+    the behind-glass hit. If it is still needed for debug, rename it as a debug
+    fallback and make it unavailable in the normal PSR path.
+
+    The normal path after a successful PSR replacement is:
+
+        replacement primary surface -> clean DI -> late glass sidecar compose
+
+    It is not:
+
+        trace hit -> private transmission shader lighting -> output color
+
+Step 6: Move RR guide writes behind a shared helper.
+
+    The current PSR phase writes RR guide albedo, specular albedo, normal,
+    depth, position, motion, and reset mask directly. That is another
+    duplication point.
+
+    A shared helper should take the resolved surface or packed record and write
+    all RR guide outputs consistently. Later guide contract changes must land
+    in one place.
+
+Step 7: Fix pass ownership.
+
+    The registry currently has both transmission and glass concepts, with a
+    note that the transmission pass temporarily owns late throughput compose
+    because the u87 sidecar is not yet exposed as a glass-pass input.
+
+    Correct long-term ownership:
+
+        transmission PSR pass:
+            writes replacement primary surface and transmission sidecar
+
+        normal clean DI passes:
+            shade replacement surface
+
+        glass late compose pass:
+            reads shaded output and sidecar, applies glass overlay/throughput
+
+    Do not add a third path that also shades surfaces.
+
+
+Acceptance Criteria
+-------------------
+
+The correction is not complete until these are true:
+
+    pathtrace_clean_rtxdi_di_transmission_producer.hlsli no longer contains a
+        generic direct-light or opaque-background shading implementation
+
+    PSR success path does not call TransmissionHitColor or any renamed variant
+        of it
+
+    trace-hit to RAB_Surface conversion is available from a shared adapter
+
+    primary-surface packing is shared or clearly renderer-owned, not
+        transmission-only
+
+    RR guide export for resolved PSR surfaces is shared or clearly
+        renderer-owned
+
+    the transmission producer owns only glass transport, PSR orchestration, and
+        sidecar/debug output
+
+    current working transparency still appears in view 16
+
+    debug view proves:
+        glass pixel detected
+        continuation trace hit/miss
+        primary surface was replaced
+        DI reservoir reached the replaced surface
+        late compose saw the sidecar payload
+
+    adding a future material shader would not require copying the transmission
+        producer's material decode or lighting code
+
+
+Forbidden Fixes
+---------------
+
+Do not:
+
+    copy more opaque shader logic into transmission_producer.hlsli
+    add another material-specific direct-light loop for glass
+    make the glass pass evaluate the opaque BSDF for the behind-glass hit
+    add liquid-pool decal behavior in the same change
+    make DI/GI reservoir code know about glass internals
+    use the old screen-space output-source path as the primary architecture
+    hide trace misses by falling back to albedo-only shading
+    claim Remix parity because a pane is visually transparent
+
+
+Recommended Agent Prompt
+------------------------
+
+Use this prompt for the implementation agent:
+
+    Read docs/modular_shaders/README.txt,
+    docs/modular_shaders/glass_shading_notes.txt, and
+    docs/modular_shaders/psr_transmission_refactor_guide.txt.
+
+    Do not add new glass behavior. Preserve the current PSR transparency
+    behavior while correcting the ownership boundary.
+
+    Refactor the current transmission producer so generic trace-hit material
+    decode, primary-surface packing, and RR guide export are shared helpers
+    outside the transmission-specific shader. The transmission producer should
+    own only glass transport, PSR orchestration, sidecar/debug output, and late
+    compose handoff. It must not contain or call a private opaque/direct-light
+    shading path for the behind-glass hit.
+
+    First produce a read-only duplication map. Patch only after identifying the
+    exact helpers to move or delete. Keep the write set narrow and verify that
+    view 16 still shows PSR transparency.

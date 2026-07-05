@@ -465,6 +465,8 @@ static const uint CLEAN_FLAG_NEE_CACHE_PROVIDER = 1u << 11u;
 #include "../remix_bridge/RAB_GIReservoirBridge.hlsli"
 
 static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
+static const uint CLEAN_GI_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED = 0x80000000u;
+static const uint CLEAN_GI_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED = 0x40000000u;
 
 float3 CleanGiSafeNormalize(float3 value, float3 fallback);
 float CleanGiLuminance(float3 value);
@@ -478,6 +480,11 @@ float3 CleanGiEvaluateIndirectLobes(RAB_Surface surface, float3 sampleDir, float
 bool CleanGiSampleSpecularProducerDirection(RAB_Surface surface, inout RTXDI_RandomSamplerState rng, out float3 bounceDir, out float solidAnglePdf);
 void CleanGiProducerMixtureProbabilities(RAB_Surface surface, out float diffuseProbability, out float specularProbability);
 float CleanGiProducerMixturePdf(RAB_Surface surface, float3 bounceDir);
+
+bool CleanGiSurfaceRecordIsTransmissionPsrResolved(PathTracePrimarySurfaceRecord record)
+{
+    return (record.header.w & CLEAN_GI_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u;
+}
 
 // ---------------------------------------------------------------------------
 // Surface bridge callback (GI-I-01/GI-I-02): material RAB_Surface from the
@@ -5000,7 +5007,8 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     desc.temporalInputPage = RemixRAB_GetGITemporalInputReservoirIndex();
     desc.temporalOutputPage = RemixRAB_GetGITemporalOutputReservoirIndex();
     desc.activeCheckerboardField = 0u;
-    desc.enableTemporalReuse = glossyReuseQuarantine ? 0u : CleanRestirGiTemporalEnabled;
+    const bool transmissionPsrResolved = surfaceValid && CleanGiSurfaceRecordIsTransmissionPsrResolved(record);
+    desc.enableTemporalReuse = (glossyReuseQuarantine || transmissionPsrResolved) ? 0u : CleanRestirGiTemporalEnabled;
     // Keep GI history validation conservative. DI temporal can tolerate
     // broader gates because its sample is a direct-light replay; GI history
     // stores full indirect radiance at a secondary point, so accepting the
@@ -6679,6 +6687,14 @@ void ReuseRayGen()
             viewSurface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
         }
         color = CleanGiProducerReservoirPathColor(pixel, surfaceValid, viewSurface, initialReservoir, temporalReservoir);
+    }
+    else if (view == 24u)
+    {
+        color = !surfaceValid
+            ? float3(0.08, 0.08, 0.08)
+            : (CleanGiSurfaceRecordIsTransmissionPsrResolved(record)
+                ? float3(0.0, 0.85, 0.18)
+                : float3(0.02, 0.04, 0.10));
     }
     else if (view == 7u)
     {

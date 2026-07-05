@@ -1,0 +1,188 @@
+Modular Shader Material Contract
+================================
+
+Purpose
+-------
+
+This file defines the target contract shape. Task workers must keep
+implementation details aligned with this contract or update this file first.
+
+
+Core Concepts
+-------------
+
+Material Kind:
+
+    A coarse semantic type carried by the material table or primary-surface
+    record.
+
+    expected initial kinds:
+        unknown
+        opaque
+        alpha_tested
+        decal_modifier
+        liquid_pool_modifier
+        translucent_glass
+        translucent_particle
+        gui_screen
+        emissive_special
+        sky_or_environment
+
+Material Capabilities:
+
+    A bitfield describing what downstream consumers may do.
+
+    expected initial caps:
+        supports_opaque_direct
+        supports_opaque_gi
+        supports_path_diffuse
+        supports_path_specular_reflection
+        supports_path_transmission
+        supports_shadow_occlusion
+        supports_visibility_ray_alpha_test
+        is_receiver_modifier
+        uses_idempotent_modifier_blend
+        writes_rr_diffuse_guide
+        writes_rr_specular_guide
+        debug_fail_closed
+
+Lobe Capabilities:
+
+    A bitfield describing the actual scattering/event lobes.
+
+    expected initial lobes:
+        diffuse_reflection
+        specular_reflection
+        glossy_reflection
+        specular_transmission
+        diffuse_transmission
+        emissive
+        absorb
+
+Modifier Kind:
+
+    A material feature applied to a receiver before lighting.
+
+    expected initial modifier kinds:
+        none
+        over
+        modulate_filter
+        additive_emissive
+        diffuse_lit
+        liquid_pool_union
+
+Pass Support:
+
+    A pass-specific support mask. The same material may be supported in one
+    pass and skipped in another.
+
+    expected initial pass support:
+        primary_surface
+        path_integrator
+        direct_reservoir
+        gi_reservoir
+        reflection_producer
+        transmission_producer
+        rr_guide_export
+        debug_visualizer
+
+
+Required Adapter Shape
+----------------------
+
+Material loading and normalization:
+
+    LoadPathTraceMaterialFeature(...)
+    BuildMaterialFeatureFromPrimarySurface(...)
+    ResolveReceiverModifiers(...)
+
+Opaque direct lighting:
+
+    MaterialSupportsOpaqueDirect(surface)
+    EvaluateOpaqueDirectBrdf(surface, wi, wo)
+    EvaluateOpaqueDirectPdf(surface, wi)
+    SampleOpaqueDirectBrdf(surface, rng)
+
+Path tracing:
+
+    MaterialSupportsPathEvent(surface, lobeMask)
+    SamplePathMaterialEvent(surface, rayState, rng)
+    EvaluatePathMaterialEvent(surface, event)
+
+Transmission:
+
+    MaterialSupportsTransmission(surface)
+    SampleTransmissionEvent(surface, rayState, rng)
+    EvaluateTransmissionEvent(surface, event)
+
+Pass gating:
+
+    MaterialSupportedByPass(surface, passKind)
+    MaterialFailClosedDebugColor(surface, passKind)
+
+
+Fail-Closed Policy
+------------------
+
+Unsupported material kinds must not fall back to unrelated output.
+
+Examples:
+
+    DI sees glass:
+        return unsupported/zero target, or explicit debug color in validation
+        views. Do not run opaque diffuse targetPdf unless the material has
+        supports_opaque_direct.
+
+    GI sees liquid-pool modifier:
+        consume only the resolved receiver material after the modifier has
+        been applied by the primary-surface/material layer. Do not re-run
+        decal stacking inside GI.
+
+    Path integrator sees liquid-pool modifier:
+        trace the receiver, not the decal card as transmissive glass. The pool
+        effect must already be resolved as a receiver material modifier.
+
+    Path integrator sees glass:
+        may sample reflection/transmission only when supports_path_transmission
+        or supports_path_specular_reflection is present and the relevant bounce
+        limits allow it.
+
+
+ABI Rules
+---------
+
+CPU and shader layouts must remain synchronized.
+
+Before changing GPU-visible fields, workers must identify:
+
+    CPU struct
+    shader struct
+    static_assert or equivalent size proof
+    packing/alignment rule
+    current version number
+    consumers that read the field
+    consumers that must ignore the field
+
+If there is no room in the current primary-surface record, make a deliberate
+versioned layout change or add an auxiliary buffer. Do not silently replace
+reserved fields that another task already depends on.
+
+
+Reference Lessons
+-----------------
+
+RTX Remix:
+
+    Useful for material type separation, translucent material handling,
+    transmission PSR-style pass separation, and decal interaction architecture.
+
+nvpro_core2 nvshaders:
+
+    Useful for BSDF interface shape and permissively licensed transmission
+    math references, subject to file-level license checks.
+
+rbdoom:
+
+    Use rbdoom call sites and active shader consumers as the final contract.
+    Existing RAB helpers are consumer adapters, not the long-term owner of all
+    material feature logic.

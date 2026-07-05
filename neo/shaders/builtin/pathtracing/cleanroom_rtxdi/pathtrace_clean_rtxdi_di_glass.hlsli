@@ -2,17 +2,113 @@
 
 Texture2D<float4> PathTraceCleanRtxdiDiTransmissionSidecar : register(t87);
 
+bool PathTraceCleanRtxdiDiGlassSidecarComposeEnabled(PathTraceMaterialFeatureRuntimeInfo runtimeInfo)
+{
+    return runtimeInfo.frameIndex >= 1.5;
+}
+
+bool PathTraceCleanRtxdiDiGlassSidecarAvailable(PathTraceMaterialFeatureRuntimeInfo runtimeInfo)
+{
+    return PathTraceCleanRtxdiDiGlassSidecarComposeEnabled(runtimeInfo);
+}
+
+bool PathTraceCleanRtxdiDiGlassProducerOnly(PathTraceMaterialFeatureRuntimeInfo runtimeInfo)
+{
+    return runtimeInfo.frameIndex >= 0.5 && runtimeInfo.frameIndex < 1.5;
+}
+
+bool PathTraceCleanRtxdiDiGlassCurrentPixelSupported(uint2 pixel, uint2 dimensions)
+{
+    RAB_Surface surface;
+    return PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface) &&
+        PathTraceCleanRtxdiDiGlassSurfaceSupported(surface);
+}
+
 float4 PathTraceCleanRtxdiDiGlassDebugColor(
     uint2 pixel,
     uint2 dimensions,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
-    const float4 sidecar = PathTraceCleanRtxdiDiTransmissionSidecar.Load(int3(pixel, 0));
-    if (PathTraceCleanRtxdiDiTransmissionSidecarHasResolvedPayload(sidecar))
+    const PathTraceMaterialFeatureRuntimeInfo runtimeInfo =
+        PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeInfo();
+    const bool producerOnly = PathTraceCleanRtxdiDiGlassProducerOnly(runtimeInfo);
+    if (producerOnly)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const bool sidecarAvailable = PathTraceCleanRtxdiDiGlassSidecarAvailable(runtimeInfo);
+    const bool sidecarComposeEnabled = PathTraceCleanRtxdiDiGlassSidecarComposeEnabled(runtimeInfo);
+    const float4 sidecar = sidecarAvailable
+        ? PathTraceCleanRtxdiDiTransmissionSidecar.Load(int3(pixel, 0))
+        : PathTraceCleanRtxdiDiTransmissionSidecarEmpty();
+    const bool sidecarResolved =
+        sidecarAvailable &&
+        PathTraceCleanRtxdiDiTransmissionSidecarHasResolvedPayload(sidecar);
+    const bool sidecarPending =
+        sidecarAvailable &&
+        !sidecarResolved &&
+        PathTraceCleanRtxdiDiTransmissionSidecarHasPendingPayload(sidecar);
+    const bool glassPixel =
+        sidecarResolved ||
+        sidecarPending ||
+        (!sidecarAvailable && PathTraceCleanRtxdiDiGlassCurrentPixelSupported(pixel, dimensions));
+    if (runtimeInfo.debugMode >= 2.5)
+    {
+        if (!glassPixel)
+        {
+            return float4(0.0, 0.0, 0.0, 1.0);
+        }
+        if (!sidecarAvailable)
+        {
+            return float4(0.95, 0.05, 0.05, 1.0);
+        }
+        if (sidecarResolved)
+        {
+            const float reflectionEnergy =
+                PathTraceCleanRtxdiDiTransmissionSidecarReflectionEnergy(sidecar);
+            const float debugEnergy = saturate(reflectionEnergy * 4.0);
+            return float4(
+                0.05 + 0.95 * debugEnergy,
+                0.15 + 0.85 * debugEnergy,
+                0.95 - 0.75 * debugEnergy,
+                1.0);
+        }
+        if (sidecarPending)
+        {
+            return float4(0.9, 0.9, 0.05, 1.0);
+        }
+        return sidecarComposeEnabled
+            ? float4(0.05, 0.15, 0.95, 1.0)
+            : float4(0.55, 0.05, 0.95, 1.0);
+    }
+    if (runtimeInfo.debugMode >= 1.5)
+    {
+        if (!glassPixel)
+        {
+            return float4(0.0, 0.0, 0.0, 1.0);
+        }
+        if (!sidecarAvailable)
+        {
+            return float4(0.95, 0.05, 0.05, 1.0);
+        }
+        if (sidecarResolved)
+        {
+            return float4(PathTraceCleanRtxdiDiTransmissionSidecarTransmission(sidecar), 1.0);
+        }
+        if (sidecarPending)
+        {
+            return float4(0.9, 0.9, 0.05, 1.0);
+        }
+        return sidecarComposeEnabled
+            ? float4(0.05, 0.15, 0.95, 1.0)
+            : float4(0.55, 0.05, 0.95, 1.0);
+    }
+    if (sidecarResolved)
     {
         return float4(0.05 + 0.5 * saturate(sidecar.r), 0.9, 0.05 + 0.25 * saturate(sidecar.b), 1.0);
     }
-    if (PathTraceCleanRtxdiDiTransmissionSidecarHasPendingPayload(sidecar))
+    if (sidecarPending)
     {
         return float4(0.9, 0.9, 0.05, 1.0);
     }
@@ -26,34 +122,89 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(
         float4(0.65, 0.05, 0.85, 1.0));
 }
 
-float4 PathTraceCleanRtxdiDiGlassSidecarComposeColor(
-    uint2 pixel,
-    float4 fallbackColor,
+float4 PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
+    float4 baseColor,
+    float4 sidecar,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
+{
+    const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
+        PathTraceCleanRtxdiDiDefaultGlassMaterialParams(runtimeParams);
+    const float weight = PathTraceCleanRtxdiDiTransmissionSidecarWeight(sidecar);
+    const float3 transmission = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
+        PathTraceCleanRtxdiDiTransmissionSidecarTransmission(sidecar),
+        materialParams);
+    const float reflectionBlend = saturate(
+        PathTraceCleanRtxdiDiTransmissionSidecarReflectionEnergy(sidecar) *
+        max(materialParams.reflectionBoost, 0.0) *
+        2.0);
+    const float3 transmittedColor = baseColor.rgb * transmission;
+    const float3 reflectedProxy = max(baseColor.rgb, float3(0.45, 0.48, 0.52));
+    const float3 composedColor = lerp(transmittedColor, reflectedProxy, reflectionBlend);
+    return float4(
+        lerp(baseColor.rgb, composedColor, weight),
+        baseColor.a);
+}
+
+float4 PathTraceCleanRtxdiDiGlassOpaqueOverlayComposeColor(
+    uint2 pixel,
+    uint2 dimensions,
+    float4 baseColor,
+    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams,
+    out bool composed)
+{
+    composed = false;
+    RAB_Surface surface;
+    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, surface) ||
+        !PathTraceCleanRtxdiDiGlassSurfaceSupported(surface))
+    {
+        return baseColor;
+    }
+
+    const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
+        PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams);
+    const PathTraceCleanRtxdiDiGlassThinPayload payload =
+        PathTraceCleanRtxdiDiBuildGlassThinPayload(surface, materialParams);
+    const float3 surfaceTerm =
+        saturate(payload.reflection) * max(materialParams.reflectionBoost, 0.0) +
+        PathTraceCleanRtxdiDiGlassTransmissionWithFloor(payload.transmission, materialParams) *
+            max(materialParams.transmissionFloor, 0.0);
+    composed = true;
+    return float4(baseColor.rgb + surfaceTerm, baseColor.a);
+}
+
+bool PathTraceCleanRtxdiDiTryGlassSidecarComposeColor(
+    uint2 pixel,
+    uint2 dimensions,
+    float4 fallbackColor,
+    PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams,
+    bool sidecarComposeEnabled,
+    out float4 composedColor)
 {
     const float4 baseColor = PathTraceCleanRtxdiDiGlassOutputSourceColor(
         PathTraceCleanRtxdiDiOutputColorSource,
         pixel,
         fallbackColor);
-    const float4 sidecar = PathTraceCleanRtxdiDiTransmissionSidecar.Load(int3(pixel, 0));
-    if (!PathTraceCleanRtxdiDiTransmissionSidecarHasResolvedPayload(sidecar))
+    const float4 sidecar = sidecarComposeEnabled
+        ? PathTraceCleanRtxdiDiTransmissionSidecar.Load(int3(pixel, 0))
+        : PathTraceCleanRtxdiDiTransmissionSidecarEmpty();
+    if (!sidecarComposeEnabled ||
+        !PathTraceCleanRtxdiDiTransmissionSidecarHasResolvedPayload(sidecar))
     {
-        return fallbackColor;
+        bool composed;
+        composedColor = PathTraceCleanRtxdiDiGlassOpaqueOverlayComposeColor(
+            pixel,
+            dimensions,
+            baseColor,
+            runtimeParams,
+            composed);
+        return composed;
     }
 
-    const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
-        PathTraceCleanRtxdiDiDefaultGlassMaterialParams(runtimeParams);
-    const float3 transmission = max(
-        PathTraceCleanRtxdiDiTransmissionSidecarTransmission(sidecar),
-        float3(
-            materialParams.transmissionFloor,
-            materialParams.transmissionFloor,
-            materialParams.transmissionFloor));
-    const float reflectionEnergy =
-        PathTraceCleanRtxdiDiTransmissionSidecarReflectionEnergy(sidecar) *
-        materialParams.reflectionBoost;
-    const float3 reflectionSheen = reflectionEnergy * float3(0.08, 0.085, 0.09);
-    return float4(baseColor.rgb * transmission + reflectionSheen, baseColor.a);
+    composedColor = PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
+        baseColor,
+        sidecar,
+        runtimeParams);
+    return true;
 }
 
 [shader("raygeneration")]
@@ -75,6 +226,7 @@ void RayGen()
 
     const PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams =
         PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeParams();
+    const bool sidecarComposeEnabled = PathTraceCleanRtxdiDiGlassSidecarComposeEnabled(runtimeInfo);
     if (runtimeInfo.debugMode >= 0.5)
     {
         PathTraceCleanRtxdiDiStoreGlassComposedColor(
@@ -83,9 +235,19 @@ void RayGen()
     }
     else
     {
-        PathTraceCleanRtxdiDiStoreGlassComposedColor(
+        float4 composedColor;
+        if (PathTraceCleanRtxdiDiTryGlassSidecarComposeColor(
             pixel,
-            PathTraceCleanRtxdiDiGlassSidecarComposeColor(pixel, SmokeOutput[pixel], runtimeParams));
+            dimensions,
+            SmokeOutput[pixel],
+            runtimeParams,
+            sidecarComposeEnabled,
+            composedColor))
+        {
+            PathTraceCleanRtxdiDiStoreGlassComposedColor(
+                pixel,
+                composedColor);
+        }
     }
 }
 

@@ -1,0 +1,110 @@
+Validation Matrix
+=================
+
+Build Validation
+----------------
+
+Default build:
+
+    cwd: E:/prog/rbdoom-3-bfg-rt/neo
+    command: cmake --build --preset win64-pt-dev-release
+
+Shader validation:
+
+    Force or directly compile touched shader entry points when the CMake target
+    reports "up to date" but shader sources changed.
+
+ABI validation:
+
+    CPU primary-surface/material structs match shader structs.
+    Size/static assertions still pass.
+    Version changes are documented.
+    All new fields have explicit default behavior.
+
+Dependency validation:
+
+    New shader includes resolve to rbdoom-owned paths unless the task
+    explicitly uses a permissively licensed reference file.
+    New top-level shader files are listed in the build system.
+    No task accidentally widens unrelated clean DI/GI shader compile graphs.
+
+
+Runtime Validation
+------------------
+
+All runtime validation is performed in:
+
+    E:/prog/rbdoom-3-BFG-prebuilt
+
+Baseline checks:
+
+    existing opaque diffuse output remains visually unchanged for the task's
+        target mode
+    DI/GI validation modes do not become fallback albedo views
+    unsupported material kinds show explicit debug state in validation views
+    enabling a new feature does not change unrelated modes
+
+
+M1 Hard Pass
+------------
+
+The architecture refactor passes only if all are true:
+
+    opaque diffuse behavior matches the prior baseline
+    material capabilities are visible to shader consumers
+    DI/GI calls go through adapter gates for opaque direct behavior
+    unsupported material kinds return zero/unsupported or debug color
+    no glass or liquid feature code is required inside low-level DI/GI math
+    no old fallback output is used as proof
+
+
+M2 Liquid-Pool Hard Pass
+------------------------
+
+The liquid-pool feature passes only if all are true:
+
+    liquid-pool materials are classified or tagged separately from generic
+        over/modulate/additive decals
+    pool coverage is resolved by max/union or an equivalent idempotent law
+    two overlapping 100 percent pool layers still render as 100 percent pool
+    resolved receiver material affects the expected fields, such as tint,
+        roughness, F0/specular, or diffuse contribution
+    DI/GI consume only the resolved receiver material
+    no glass/transmission path is involved
+    ordinary decal blend kinds remain unchanged
+
+
+M3 Glass Hard Pass
+------------------
+
+The glass feature passes only if all are true:
+
+    glass material kind and capabilities are explicit
+    transmission bounce limit can be enabled deliberately
+    path integrator handles reflection/transmission as path events
+    DI/GI fail closed or skip glass unless a later task opens support
+    debug views expose glass unsupported/support states
+    no targetPdf or reservoir math is changed to hide unsupported behavior
+    no denoiser/RR guide claims are made before guide contracts are explicit
+    glass does not overwrite live RR normal/depth/motion/position guide
+        resources from a material-feature shader-local source pixel
+
+
+Hard Fail
+---------
+
+Fail if any are true:
+
+    adding a feature requires unrelated DI/GI branch edits
+    unsupported glass runs through opaque diffuse BRDF by accident
+    liquid-pool overlap stacks like ordinary alpha-over
+    shader-only debug branches are unreachable because host routing was not
+        updated
+    output falls back to albedo or old scene lighting on unsupported surfaces
+    CPU/shader ABI fields diverge
+    new standalone pass resources are not named and owned
+    glass writes live Streamline RR guide normal/depth/motion/position outputs
+        without a separate resolved-guide candidate/compositor contract
+    file-level license status is unclear for reused source text
+    broad shader changes hit SPIR-V ID overflow and the worker continues by
+        hiding the feature

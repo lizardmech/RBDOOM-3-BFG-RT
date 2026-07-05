@@ -118,6 +118,8 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         TextureSizeMatches(accumulationTexture, requestedOutputWidth, requestedOutputHeight) &&
         TextureSizeMatches(restirPTReflectionTexture, requestedWidth, requestedHeight) &&
         TextureSizeMatches(transmissionTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(reflectionSidecarTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(glassDistortionSidecarTexture, requestedWidth, requestedHeight) &&
         TextureSizeMatches(rrInputColorTexture, requestedWidth, requestedHeight) &&
         TextureSizeMatches(cleanRtxdiDiBoilingFilterTexture, requestedWidth, requestedHeight) &&
         TextureSizeMatches(motionVectorTexture, requestedWidth, requestedHeight) &&
@@ -150,6 +152,8 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         accumulationTexture ||
         restirPTReflectionTexture ||
         transmissionTexture ||
+        reflectionSidecarTexture ||
+        glassDistortionSidecarTexture ||
         rrInputColorTexture ||
         cleanRtxdiDiBoilingFilterTexture ||
         motionVectorTexture ||
@@ -251,6 +255,26 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     if (!newTransmissionTexture)
     {
         common->Printf("PathTraceFrameResources: failed to create PT transmission UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
+    nvrhi::TextureDesc reflectionSidecarDesc = renderDesc;
+    reflectionSidecarDesc.format = nvrhi::Format::RGBA16_FLOAT;
+    reflectionSidecarDesc.debugName = "PathTraceGlassReflectionSidecar";
+    nvrhi::TextureHandle newReflectionSidecarTexture = device->createTexture(reflectionSidecarDesc);
+    if (!newReflectionSidecarTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT glass reflection sidecar UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
+    nvrhi::TextureDesc glassDistortionSidecarDesc = renderDesc;
+    glassDistortionSidecarDesc.format = nvrhi::Format::RGBA16_FLOAT;
+    glassDistortionSidecarDesc.debugName = "PathTraceGlassDistortionSidecar";
+    nvrhi::TextureHandle newGlassDistortionSidecarTexture = device->createTexture(glassDistortionSidecarDesc);
+    if (!newGlassDistortionSidecarTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT glass distortion sidecar UAV (%dx%d)\n", requestedWidth, requestedHeight);
         return false;
     }
 
@@ -402,6 +426,8 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     accumulationTexture = newAccumulationTexture;
     restirPTReflectionTexture = newRestirPTReflectionTexture;
     transmissionTexture = newTransmissionTexture;
+    reflectionSidecarTexture = newReflectionSidecarTexture;
+    glassDistortionSidecarTexture = newGlassDistortionSidecarTexture;
     rrInputColorTexture = newRrInputColorTexture;
     cleanRtxdiDiBoilingFilterTexture = newCleanRtxdiDiBoilingFilterTexture;
     motionVectorTexture = newMotionVectorTexture;
@@ -420,14 +446,15 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     height = requestedHeight;
     outputWidth = requestedOutputWidth;
     outputHeight = requestedOutputHeight;
-    diagnostics.outputTexturesCreated += 6;
+    diagnostics.outputTexturesCreated += 7;
     diagnostics.motionVectorTexturesCreated += 2;
     diagnostics.motionVectorMaskTexturesCreated++;
     diagnostics.rrGuideTexturesCreated += 7;
     diagnostics.diagnosticReadbackResourcesCreated += 2;
     diagnostics.outputTextureBytes =
         EstimateRgba32FloatTextureBytes(outputWidth, outputHeight) * 2ull +
-        EstimateRgba32FloatTextureBytes(width, height) * 4ull;
+        EstimateRgba32FloatTextureBytes(width, height) * 4ull +
+        EstimateRgba16FloatTextureBytes(width, height);
     diagnostics.motionVectorBytes = EstimateRgba16FloatTextureBytes(width, height) + EstimateRg16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     diagnostics.rrGuideBytes =
@@ -637,6 +664,8 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     accumulationTexture = nullptr;
     restirPTReflectionTexture = nullptr;
     transmissionTexture = nullptr;
+    reflectionSidecarTexture = nullptr;
+    glassDistortionSidecarTexture = nullptr;
     rrInputColorTexture = nullptr;
     cleanRtxdiDiBoilingFilterTexture = nullptr;
     motionVectorTexture = nullptr;

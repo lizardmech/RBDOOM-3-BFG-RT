@@ -51,6 +51,9 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_INITIAL_VISIBILITY = 1u << 17u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_DISABLE_RIGID_EMISSIVE_TEMPORAL = 1u << 19u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE = 1u << 20u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION = 1u << 21u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_DISTORTION = 1u << 22u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR = 1u << 23u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
 
@@ -3736,6 +3739,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_SPATIAL_REUSE;
         }
+        if (r_pathTracingCleanRtxdiDiGlassReflection.GetInteger() != 0)
+        {
+            cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION;
+        }
+        if (r_pathTracingCleanRtxdiDiGlassDistortion.GetInteger() != 0)
+        {
+            cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_DISTORTION;
+        }
+        if (r_pathTracingCleanRtxdiDiGlassRefractedPsr.GetInteger() != 0)
+        {
+            cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR;
+        }
         PathTraceCleanRtxdiDiSentinelConstants cleanConstants = {};
         cleanConstants.view = static_cast<uint32_t>(cleanRtxdiDiResolveView);
         cleanConstants.status = cleanRtxdiDiView == 1 ? 1u : 2u;
@@ -3952,6 +3967,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.neeCacheInfo1[1] = neeCacheSettings.minRange;
         cleanConstants.neeCacheInfo1[2] = static_cast<float>(neeCacheDesc.cellCount);
         cleanConstants.neeCacheInfo1[3] = static_cast<float>(neeCacheDesc.providerResultCount);
+        cleanConstants.toyPathInfo[0] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRtxdiDiGlassRefractedPsrStrength.GetFloat());
         cleanConstants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
         cleanConstants.toyPathInfo[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
         cleanConstants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
@@ -4007,6 +4023,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             dispatchConstants.flags |= CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS;
         }
         commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
+        if (r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
+            r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0)
         {
             // Primary surface replacement for thin glass: trace through glass
             // pixels and swap their primary-surface records for the behind-glass
@@ -4028,6 +4046,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             if (m_frameResources.transmissionTexture)
             {
                 nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.transmissionTexture);
+            }
+            if (m_frameResources.reflectionSidecarTexture)
+            {
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.reflectionSidecarTexture);
+            }
+            if (m_frameResources.glassDistortionSidecarTexture)
+            {
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.glassDistortionSidecarTexture);
             }
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorMaskTexture);
@@ -4105,23 +4131,26 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
         }
-        if (!cleanRtxdiDiPsrMaskView &&
-            PathTraceCleanRtxdiDiMaterialFeatureNeedsOutputColorSource(cleanRtxdiDiMaterialFeaturePasses))
+        auto dispatchCleanMaterialFeatureCompose = [&]()
         {
-            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
-            commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
-            commandList->commitBarriers();
-            commandList->copyTexture(
-                m_frameResources.accumulationTexture,
-                nvrhi::TextureSlice(),
-                m_frameResources.outputTexture,
-                nvrhi::TextureSlice());
-            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-            commandList->commitBarriers();
-        }
-        if (!cleanRtxdiDiPsrMaskView)
-        {
+            if (cleanRtxdiDiPsrMaskView)
+            {
+                return;
+            }
+            if (PathTraceCleanRtxdiDiMaterialFeatureNeedsOutputColorSource(cleanRtxdiDiMaterialFeaturePasses))
+            {
+                commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+                commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
+                commandList->commitBarriers();
+                commandList->copyTexture(
+                    m_frameResources.accumulationTexture,
+                    nvrhi::TextureSlice(),
+                    m_frameResources.outputTexture,
+                    nvrhi::TextureSlice());
+                commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                commandList->commitBarriers();
+            }
             DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
                 commandList,
                 cleanState,
@@ -4133,7 +4162,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 cleanRtxdiDiMaterialFeaturePasses,
                 m_frameResources,
                 nsightGpuMarkers);
-        }
+        };
+        dispatchCleanMaterialFeatureCompose();
         if (cleanRtxdiDiRrGuideDebugView)
         {
             commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
@@ -4329,6 +4359,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             if (cleanGiPreDlssRequested)
             {
                 dispatchCleanRestirGi(cleanGiView0ResolveRequested);
+                dispatchCleanMaterialFeatureCompose();
                 cleanGiDispatchedBeforeRr = true;
             }
 
@@ -4428,6 +4459,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             // and copying current->previous first turns camera-motion
             // reprojection into current-frame lookups.
             dispatchCleanRestirGi(false);
+            dispatchCleanMaterialFeatureCompose();
         }
         if (cleanRtxdiDiView >= 2 && cleanPromoteSubviewSurface)
         {

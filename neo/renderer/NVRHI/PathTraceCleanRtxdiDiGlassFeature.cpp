@@ -15,9 +15,9 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
     RtPathTraceMaterialFeaturePassDesc desc;
 
     const bool cleanGlassRoute = PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(cleanRouteRequested, cleanView);
-    // The older screen-space glass beauty pass has been removed from normal
-    // output. Normal compose now only applies the PSR transmission sidecar.
-    const bool beautyOutput = false;
+    // Shader-only output is an opaque overlay test path. Normal transparent
+    // compose still comes from the PSR transmission sidecar.
+    const bool beautyOutput = cleanGlassRoute && shaderRequested;
     const bool sidecarComposeOutput = cleanGlassRoute && transmissionComposeRequested;
     const bool outputRequested = cleanGlassRoute && (beautyOutput || debugOutputRequested || sidecarComposeOutput);
     const bool debugOutput = cleanGlassRoute && debugOutputRequested;
@@ -41,15 +41,33 @@ static void FillPathTraceCleanRtxdiDiGlassRuntimeInfo(
         r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger(),
         idMath::ClampFloat(0.0f, 8.0f, r_pathTracingCleanRtxdiDiGlassReflectionBoost.GetFloat()),
         idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRtxdiDiGlassTransmissionFloor.GetFloat()));
+    const bool transmissionProducerEnabled =
+        r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0;
+    const bool transmissionComposeEnabled =
+        transmissionProducerEnabled &&
+        r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
+    runtimeInfo.frameIndex = transmissionComposeEnabled ? 2.0f : (transmissionProducerEnabled ? 1.0f : 0.0f);
 }
 
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiGlassFeatureRegistration(
     bool cleanRouteRequested,
     int cleanView)
 {
-    const bool shaderRequested = r_pathTracingCleanRtxdiDiGlassShader.GetInteger() != 0;
-    const bool debugOutputRequested = r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0;
+    const bool transmissionDebugRequested =
+        r_pathTracingCleanRtxdiDiTransmissionDebugView.GetInteger() != 0;
+    const bool producerOwnedComposeRequested =
+        r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
+        r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
+    const bool producerOwnedOutputRequested =
+        transmissionDebugRequested || producerOwnedComposeRequested;
+    const bool shaderRequested =
+        !producerOwnedOutputRequested &&
+        r_pathTracingCleanRtxdiDiGlassShader.GetInteger() != 0;
+    const bool debugOutputRequested =
+        !producerOwnedOutputRequested &&
+        r_pathTracingCleanRtxdiDiGlassDebugView.GetInteger() != 0;
     const bool transmissionComposeRequested =
+        !producerOwnedOutputRequested &&
         r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
         r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
 

@@ -273,6 +273,40 @@ PathTraceCleanRtxdiDiGlassThinPayload PathTraceCleanRtxdiDiBuildGlassThinPayload
         PathTraceCleanRtxdiDiLoadGlassMaterialParams(surface, runtimeParams));
 }
 
+float PathTraceCleanRtxdiDiGlassOverlayStrength(PathTraceCleanRtxdiDiGlassThinPayload payload)
+{
+    const float reflectionEnergy = saturate(max(
+        payload.reflection.x,
+        max(payload.reflection.y, payload.reflection.z)));
+    const float transmissionLoss = saturate(1.0 - PathTraceCleanRoomLuminance(saturate(payload.transmission)));
+    return saturate(max(reflectionEnergy, payload.fresnel) + 0.35 * transmissionLoss);
+}
+
+float3 PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
+    float3 transmission,
+    PathTraceCleanRtxdiDiGlassMaterialParams materialParams)
+{
+    const float floorValue = max(materialParams.transmissionFloor, 0.0);
+    return max(saturate(transmission), float3(floorValue, floorValue, floorValue));
+}
+
+float4 PathTraceCleanRtxdiDiComposeThinGlassColor(
+    float4 currentColor,
+    float4 transmittedSourceColor,
+    float4 reflectedSourceColor,
+    PathTraceCleanRtxdiDiGlassMaterialParams materialParams,
+    PathTraceCleanRtxdiDiGlassThinPayload payload)
+{
+    const float3 transmission = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
+        payload.transmission,
+        materialParams);
+    const float3 reflection = saturate(payload.reflection) * max(materialParams.reflectionBoost, 0.0);
+    const float3 composedColor =
+        transmittedSourceColor.rgb * transmission +
+        reflectedSourceColor.rgb * reflection;
+    return float4(lerp(currentColor.rgb, composedColor, saturate(payload.weight)), currentColor.a);
+}
+
 float2 PathTraceCleanRtxdiDiGlassRefractionPixelOffset(
     RAB_Surface surface,
     PathTraceCleanRtxdiDiGlassMaterialParams materialParams,

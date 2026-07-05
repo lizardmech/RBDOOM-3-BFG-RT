@@ -1,0 +1,591 @@
+Worker Tasks
+============
+
+Use these tasks in order. Do not skip ahead.
+
+
+MSH-00: Live Modular Shader Contract Audit
+------------------------------------------
+
+Type:
+
+    read-only audit
+
+Goal:
+
+    Produce the exact current rbdoom material/shader/pass coupling map before
+    any implementation.
+
+rbdoom files to inspect:
+
+    docs/pathtrace_core_refactor_plan.txt
+    docs/pathtrace_core_refactor_tasks/task_02_primary_surface_contract.txt
+    docs/pathtrace_core_refactor_tasks/task_05_restir_pass_split.txt
+    docs/pathtrace_modules.txt
+    neo/renderer/NVRHI/PathTraceMaterialClassifier.*
+    neo/renderer/NVRHI/PathTracePrimarySurface.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceRestirPasses.h
+    neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_SurfaceCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Brdf.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightTarget.hlsli
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/concept/surface_material/
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/gbuffer/
+    E:/prog/references/nvpro_core2-main/nvshaders/pbr_material_types.h.slang
+    E:/prog/references/nvpro_core2-main/nvshaders/bsdf_functions.h.slang
+
+Required output:
+
+    table of current material fields and where they are packed
+    table of current material consumers and whether they assume opaque diffuse
+    exact DI/GI helper functions that must stay adapter-only
+    table of host pass/shader-table routing points
+    table of decal modifier paths
+    missing materialKind/materialCaps/lobeCaps fields
+    first safe implementation write-set recommendation
+
+Forbidden:
+
+    no edits
+    no build
+    no implementation proposal that skips adapter migration
+
+
+MSH-01: Material Capability ABI Reservation
+-------------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Add or reserve shader-visible material capability fields without changing
+    rendering behavior.
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTracePrimarySurface.h
+    neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    neo/renderer/NVRHI/PathTraceMaterialClassifier.*
+    shader-facing material record definitions only if MSH-00 proves they are
+        required
+    docs/modular_shaders/material_contract.txt
+
+Requirements:
+
+    CPU/shader layout stays synchronized
+    existing primary-surface record version is handled deliberately
+    defaults preserve current opaque behavior
+    materialKind/materialCaps/lobeCaps are zero or opaque-compatible for old
+        materials
+    no visual behavior changes
+    no DI/GI math changes
+
+Validation:
+
+    build succeeds
+    primary-surface debug modes still work
+    existing opaque surfaces still report valid material fields
+
+Forbidden:
+
+    no glass behavior
+    no liquid-pool behavior
+    no BRDF changes
+    no standalone pass additions
+
+
+MSH-02: Shared Material Feature Include Scaffold
+------------------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Add a shared shader include that converts current rbdoom material/surface
+    data into a material feature record and pass support result.
+
+Allowed rbdoom write set:
+
+    new include under neo/shaders/builtin/pathtracing/
+    minimal includes in primary-surface/RAB files needed for compile proof
+    docs/modular_shaders/material_contract.txt
+
+Requirements:
+
+    no behavior change
+    helper returns current opaque support for existing opaque surfaces
+    helper returns unsupported for known translucent/glass unless explicitly
+        marked as old opaque-compatible by existing behavior
+    helper has no light sampling or reservoir code
+    helper compiles in all touched shader entry points
+
+Validation:
+
+    targeted shader compile or full shader build proves the include compiles
+    no output changes expected
+
+Forbidden:
+
+    no direct edits to reservoir math
+    no material-specific branches in DI/GI call sites yet
+
+
+MSH-03: Opaque Direct Adapter Migration
+---------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Route existing opaque diffuse BRDF support through material adapter helpers
+    while preserving identical behavior.
+
+Allowed rbdoom write set:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_SurfaceCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Brdf.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightTarget.hlsli
+    shared material feature include from MSH-02
+
+Requirements:
+
+    RAB_SurfaceSupportsOpaqueDiffuseBrdf behavior is preserved or becomes a
+        thin wrapper over MaterialSupportsOpaqueDirect
+    BRDF sample/evaluate/pdf outputs match current opaque diffuse behavior
+    translucent/glass still fails closed for DI/GI
+    targetPdf/reflected-radiance helpers do not learn glass internals
+
+Validation:
+
+    build succeeds
+    DI/GI debug views that rely on opaque direct lighting still render
+    unsupported surface debug path is visible when available
+
+Forbidden:
+
+    no physical glass
+    no liquid-pool blend changes
+    no targetPdf tuning
+    no fallback albedo
+
+
+MSH-04: Pass Support Gates And Debug Colors
+-------------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Add explicit per-pass material support gates and debug colors for
+    unsupported material kinds.
+
+Allowed rbdoom write set:
+
+    shared material feature include
+    RAB adapter files touched in MSH-03
+    debug visualizer shader branches only when explicitly identified
+
+Requirements:
+
+    each pass can ask whether a material is supported
+    unsupported materials fail closed
+    unsupported debug color is loud and documented
+    no beauty/fallback output appears underneath unsupported state
+
+Validation:
+
+    debug view demonstrates at least one unsupported material class when a
+        known translucent surface is visible
+    existing opaque output remains valid
+
+Forbidden:
+
+    no new feature behavior
+    no broad debug-mode routing unless required and documented
+
+
+MSH-05: Host Feature Pass Descriptor Audit
+------------------------------------------
+
+Type:
+
+    read-only audit
+
+Goal:
+
+    Identify the smallest host-side pass descriptor shape needed before adding
+    more standalone material feature passes.
+
+rbdoom files to inspect:
+
+    neo/renderer/NVRHI/PathTraceRestirPasses.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceFrameResources.*
+    neo/renderer/NVRHI/PathTraceCVars.*
+    neo/shaders/CMakeLists.txt
+
+Required output:
+
+    current shader-table creation points
+    current binding layout/resource ownership points
+    current dispatch route points
+    proposed minimal pass descriptor fields
+    first standalone pass candidate recommendation
+    risks for SPIR-V shader-size and debug-route reachability
+
+Forbidden:
+
+    no edits
+    no new pass
+
+
+MSH-06: Minimal Host Feature Pass Descriptor Scaffold
+-----------------------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Add a small host-side descriptor or planning helper for future material
+    feature passes without changing existing pass behavior.
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceRestirPasses.h or a new adjacent header
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp only if needed for no-op
+        integration
+    docs/pathtrace_modules.txt
+    docs/modular_shaders/*
+
+Requirements:
+
+    descriptor can name pass kind, shader table, material caps consumed,
+        resource inputs, resource outputs, enable predicate, debug label
+    existing ReSTIR pass planning still works
+    no new shader required
+    no visual behavior change
+
+Validation:
+
+    build succeeds
+    existing mode 56/ReSTIR route logs still report expected pass labels
+
+Forbidden:
+
+    no feature implementation
+    no binding layout churn beyond no-op descriptor support
+
+
+MSH-07: Liquid-Pool Decal Classification Audit
+----------------------------------------------
+
+Type:
+
+    read-only audit
+
+Goal:
+
+    Identify how to classify liquid-pool decal cards separately from generic
+    over/modulate/additive/diffuse-lit decals.
+
+rbdoom files to inspect:
+
+    docs/decal_cards/*
+    neo/renderer/NVRHI/PathTraceMaterialClassifier.*
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+
+Required output:
+
+    candidate material names/stage facts for liquid pools
+    whether classifier, material table, or shader-side flags should tag them
+    exact current blend branch they take
+    exact fields the pool should modify: coverage, tint, roughness, F0,
+        diffuse, emissive, opacity
+    first implementation write set
+
+Forbidden:
+
+    no edits
+
+
+MSH-08: Liquid-Pool Modifier Blend Kind
+---------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Add a receiver-material modifier kind for liquid pools using max/union
+    coverage so overlaps do not stack.
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceMaterialClassifier.*
+    neo/shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+    shared material feature include if modifier kind is exposed there
+    docs/decal_cards/* only for notes/validation updates
+    docs/modular_shaders/*
+
+Requirements:
+
+    liquid-pool modifier is distinct from generic OVER
+    per-layer pool coverage combines with max or equivalent union law
+    final modifier applies once to receiver material
+    two 100 percent overlapping pools remain 100 percent strength
+    ordinary decal kinds remain unchanged
+    DI/GI consume resolved receiver material only
+
+Validation:
+
+    build succeeds
+    decal composite debug view can show pool layers/coverage
+    user runtime test can compare overlapping pool decals
+
+Forbidden:
+
+    no glass/transmission
+    no DI/GI pass changes
+    no recursive tracing
+    no fallback albedo proof
+
+
+MSH-09: Glass Material Classification And Controls
+--------------------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Expose glass/transmission material capabilities and runtime controls without
+    changing path behavior yet.
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceMaterialClassifier.*
+    neo/renderer/NVRHI/PathTraceCVars.*
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp, only for existing
+        transmission control clamping if this task explicitly opens it
+    primary-surface/material ABI files from MSH-01
+    docs/modular_shaders/*
+
+Requirements:
+
+    glass materialKind/caps are visible in shader records
+    transmission bounce limit control remains disabled by default
+    DI/GI still fail closed for glass
+    debug view can distinguish glass unsupported from invalid surface
+    no visual behavior change unless a debug view is enabled
+
+Validation:
+
+    build succeeds
+    crosshair/material dump identifies glass classification and caps
+    unsupported debug view is visible on known glass
+
+Forbidden:
+
+    no transmission ray sampling
+    no targetPdf changes
+    no denoiser/RR guide changes
+
+
+MSH-10: Path-Tracer Glass Event Prototype
+-----------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Add path-integrator-only glass reflection/transmission event sampling using
+    the material capability contract.
+
+Reference files:
+
+    E:/prog/references/nvpro_core2-main/nvshaders/pbr_material_types.h.slang
+    E:/prog/references/nvpro_core2-main/nvshaders/bsdf_functions.h.slang
+    E:/prog/references/nvpro_core2-main/nvshaders/pbr_ggx_microfacet.h.slang
+
+Allowed rbdoom write set:
+
+    shared material/path-event shader include
+    mode-18/path-integrator shader code only where the task identifies the
+        existing path-event seam
+    PathTraceCVars/dispatch constants only if bounce limits must be exposed
+    docs/modular_shaders/*
+
+Requirements:
+
+    file-level license status checked before any source reuse
+    glass path event is gated by supports_path_transmission
+    DI/GI opaque direct adapters remain unchanged
+    unsupported or disabled transmission terminates/fails closed explicitly
+    reflection/transmission bounce limits are respected
+    initial prototype may be simple and debug-only, but must not corrupt
+        reservoir target PDFs
+
+Validation:
+
+    targeted shader compile or full shader build
+    runtime glass debug scene shows path-tracer-only behavior
+    DI/GI debug views still skip/fail closed for glass
+
+Forbidden:
+
+    no DI/GI transmissive lighting support
+    no denoiser/RR guide claims
+    no copying full BSDF framework without manager review
+
+
+MSH-11: Transmission Pass Audit
+-------------------------------
+
+Type:
+
+    read-only audit
+
+Goal:
+
+    Decide whether rbdoom needs a standalone transmission pass or whether
+    path-integrator glass is sufficient for the current target.
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/gbuffer/
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_types.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+
+rbdoom files to inspect:
+
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceFrameResources.*
+    neo/renderer/NVRHI/PathTraceRestirPasses.h
+    neo/shaders/CMakeLists.txt
+
+Required output:
+
+    reason to add or defer standalone transmission
+    proposed resources
+    proposed shader entry point
+    proposed pass descriptor
+    expected DI/GI/RR interaction
+    expected debug views
+    first implementation write set
+
+Forbidden:
+
+    no edits
+
+
+MSH-12: Standalone Transmission Pass Scaffold
+---------------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Add a disabled-by-default transmission pass scaffold only if MSH-11 proves
+    it is needed.
+
+Allowed rbdoom write set:
+
+    new shader entry point under neo/shaders/builtin/pathtracing/
+    host pass/resource files identified by MSH-11
+    neo/shaders/CMakeLists.txt
+    PathTraceCVars.*
+    docs/pathtrace_modules.txt
+    docs/modular_shaders/*
+
+Requirements:
+
+    disabled by default
+    explicit resource ownership
+    explicit binding layout
+    explicit shader-table route
+    explicit debug sentinel output
+    no DI/GI consumer dependency
+    no final beauty integration
+
+Validation:
+
+    build succeeds
+    shader blob is regenerated
+    enabling debug route writes sentinel output only
+
+Forbidden:
+
+    no full glass implementation in the scaffold task
+    no denoiser/RR guide writes
+    no fallback scene lighting
+
+
+MSH-13: Material Adapter Regression Sweep
+-----------------------------------------
+
+Type:
+
+    build/deploy stop
+
+Goal:
+
+    Produce a runtime build for user validation after the first modular
+    material feature lands.
+
+Requirements:
+
+    build succeeds
+    exe copied
+    shader contents copied without nesting
+    exact touched shader blobs listed
+    exact cvars and debug views listed
+    opaque baseline checks listed
+    unsupported material debug checks listed
+    feature-specific checks listed
+
+Stop:
+
+    stop after build/deploy for user visual testing
+    do not commit until user confirms runtime behavior
+
+
+Deferred Tasks
+--------------
+
+Do not start until M1-M3 are accepted:
+
+    transmissive DI support
+    transmissive GI support
+    caustics
+    volumetric glass absorption beyond the first path-event prototype
+    RR guide export for glass/transmission
+    denoiser/RR integration
+    material plugin registry beyond the minimal pass descriptor
+    replacing the broader material classifier with a full idTech4 material
+        interpreter

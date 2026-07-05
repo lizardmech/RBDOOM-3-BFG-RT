@@ -4,6 +4,11 @@ bool PathTraceCleanRoomTemporalReuseEnabled()
         (CleanRtxdiDiTemporalFlags & CLEAN_TEMPORAL_FLAG_PREVIOUS_VALID) != 0u;
 }
 
+bool PathTraceCleanRoomSurfaceIsTransmissionPsrResolved(PathTracePrimarySurfaceRecord surface)
+{
+    return (surface.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u;
+}
+
 bool PathTraceCleanRoomTemporalRigidEmissiveBypassEnabled()
 {
     return (CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL) != 0u &&
@@ -126,6 +131,10 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
         result.flags |= CLEAN_TEMPORAL_DIAG_PREVIOUS_FRAME_VALID;
     }
     if (currentReservoir.M <= 0.0 || !PathTraceCleanRoomTemporalReuseEnabled())
+    {
+        return result;
+    }
+    if (PathTraceCleanRoomSurfaceIsTransmissionPsrResolved(currentSurface))
     {
         return result;
     }
@@ -278,6 +287,10 @@ bool PathTraceCleanRoomTemporalDiagnosticsNeeded(uint view)
 RTXDI_DIReservoir PathTraceCleanRoomRunTemporalProducerFast(uint2 pixel, uint2 dimensions, RTXDI_DIReservoir currentReservoir, PathTracePrimarySurfaceRecord currentSurface)
 {
     if (currentReservoir.M <= 0.0 || !PathTraceCleanRoomTemporalReuseEnabled())
+    {
+        return currentReservoir;
+    }
+    if (PathTraceCleanRoomSurfaceIsTransmissionPsrResolved(currentSurface))
     {
         return currentReservoir;
     }

@@ -46,6 +46,9 @@ static const char* PathTraceMaterialFeatureResourceName(uint32_t resource)
     case RT_MATERIAL_FEATURE_RESOURCE_RR_GUIDE_SPECULAR_ALBEDO: return "rr-guide-specular-albedo";
     case RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR: return "rr-input-color";
     case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_SIDECAR: return "transmission-sidecar";
+    case RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_SIDECAR: return "reflection-sidecar";
+    case RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_OUTPUT: return "reflection-output";
+    case RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_OUTPUT: return "glass-distortion-output";
     default: return "unknown";
     }
 }

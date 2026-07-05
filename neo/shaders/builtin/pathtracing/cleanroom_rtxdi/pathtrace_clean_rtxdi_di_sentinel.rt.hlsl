@@ -529,6 +529,11 @@ float3 PathTraceCleanRoomTransmissionPsrMaskColor(uint2 pixel, uint2 dimensions)
         return float3(1.0, 0.0, 1.0);
     }
 
+    if ((record.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED) != 0u)
+    {
+        return float3(0.0, 0.85, 1.0);
+    }
+
     if ((record.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u)
     {
         return float3(0.0, 0.95, 0.20);
@@ -2225,9 +2230,7 @@ float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceReco
     }
     const bool referenceDoomAnalytic = PathTraceCleanReferenceRabEnabled() &&
         lightSample.lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
-    const bool useMaterialResolve =
-        CleanRtxdiDiResolveBrdfTarget != 0u ||
-        (surfaceRecord.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u;
+    const bool useMaterialResolve = CleanRtxdiDiResolveBrdfTarget != 0u;
 
     const float3 toSample = lightSample.position - surfaceRecord.worldPositionAndViewDepth.xyz;
     const float3 lightDirection = PathTraceCleanRoomSafeNormalize(toSample, PathTraceCleanRoomSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz));

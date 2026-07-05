@@ -68,6 +68,14 @@ float3 PathTraceCleanRtxdiDiTransformRouteVector(PathTraceRigidRouteInstance rou
         dot(routeInstance.currentObjectToWorld2.xyz, localVector));
 }
 
+float3 PathTraceCleanRtxdiDiTransformRoutePoint(PathTraceRigidRouteInstance routeInstance, float3 localPoint)
+{
+    return float3(
+        dot(routeInstance.currentObjectToWorld0.xyz, localPoint) + routeInstance.currentObjectToWorld0.w,
+        dot(routeInstance.currentObjectToWorld1.xyz, localPoint) + routeInstance.currentObjectToWorld1.w,
+        dot(routeInstance.currentObjectToWorld2.xyz, localPoint) + routeInstance.currentObjectToWorld2.w);
+}
+
 float PathTraceCleanRtxdiDiRouteHandedness(PathTraceRigidRouteInstance routeInstance)
 {
     const float3 x = routeInstance.currentObjectToWorld0.xyz;
@@ -270,6 +278,143 @@ bool PathTraceCleanRtxdiDiLoadTraceHitSurface(
     surface.bitangent = RAB_SafeNormalize(PathTraceCleanRtxdiDiTransformRouteVector(routeInstance, objectBitangent), RAB_SafeNormalize(cross(surface.shadingNormal, surface.tangent), float3(0.0, 1.0, 0.0)));
     surface.valid = true;
     return true;
+}
+
+bool PathTraceCleanRtxdiDiComputeTriangleBarycentrics(
+    float3 position,
+    float3 p0,
+    float3 p1,
+    float3 p2,
+    out float3 barycentrics)
+{
+    barycentrics = float3(1.0, 0.0, 0.0);
+    const float3 v0 = p1 - p0;
+    const float3 v1 = p2 - p0;
+    const float3 v2 = position - p0;
+    const float d00 = dot(v0, v0);
+    const float d01 = dot(v0, v1);
+    const float d11 = dot(v1, v1);
+    const float d20 = dot(v2, v0);
+    const float d21 = dot(v2, v1);
+    const float denom = d00 * d11 - d01 * d01;
+    if (abs(denom) <= 1.0e-10)
+    {
+        return false;
+    }
+
+    const float v = (d11 * d20 - d01 * d21) / denom;
+    const float w = (d00 * d21 - d01 * d20) / denom;
+    barycentrics = float3(1.0 - v - w, v, w);
+    if (!all(barycentrics == barycentrics))
+    {
+        return false;
+    }
+
+    barycentrics = max(barycentrics, float3(0.0, 0.0, 0.0));
+    const float sum = barycentrics.x + barycentrics.y + barycentrics.z;
+    if (sum <= 1.0e-8)
+    {
+        return false;
+    }
+    barycentrics /= sum;
+    return true;
+}
+
+bool PathTraceCleanRtxdiDiReconstructPrimarySurfaceBarycentrics(
+    RAB_Surface primarySurface,
+    out float2 hitBarycentrics)
+{
+    hitBarycentrics = float2(0.0, 0.0);
+    const uint instanceId = primarySurface.instanceId;
+    const uint primitiveIndex = primarySurface.primitiveIndex;
+
+    if (instanceId == 0u || instanceId == 1u)
+    {
+        const uint vertexCount = instanceId == 0u ? (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0) : (uint)max(CleanRtxdiDiGeometryInfo0.w, 0.0);
+        const uint indexCount = instanceId == 0u ? (uint)max(CleanRtxdiDiGeometryInfo0.y, 0.0) : (uint)max(CleanRtxdiDiGeometryInfo1.x, 0.0);
+        const uint triangleCount = instanceId == 0u ? (uint)max(CleanRtxdiDiGeometryInfo0.z, 0.0) : (uint)max(CleanRtxdiDiGeometryInfo1.y, 0.0);
+        const uint indexOffset = primitiveIndex * 3u;
+        if (primitiveIndex >= triangleCount || indexOffset + 2u >= indexCount)
+        {
+            return false;
+        }
+
+        const uint i0 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 0u] : SmokeDynamicIndices[indexOffset + 0u];
+        const uint i1 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 1u] : SmokeDynamicIndices[indexOffset + 1u];
+        const uint i2 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 2u] : SmokeDynamicIndices[indexOffset + 2u];
+        if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+        {
+            return false;
+        }
+
+        const float3 p0 = (instanceId == 0u ? SmokeStaticVertices[i0].position : SmokeDynamicVertices[i0].position).xyz;
+        const float3 p1 = (instanceId == 0u ? SmokeStaticVertices[i1].position : SmokeDynamicVertices[i1].position).xyz;
+        const float3 p2 = (instanceId == 0u ? SmokeStaticVertices[i2].position : SmokeDynamicVertices[i2].position).xyz;
+        float3 barycentrics;
+        if (!PathTraceCleanRtxdiDiComputeTriangleBarycentrics(primarySurface.worldPos, p0, p1, p2, barycentrics))
+        {
+            return false;
+        }
+        hitBarycentrics = barycentrics.yz;
+        return true;
+    }
+
+    const uint routeInstanceIndex = instanceId - 2u;
+    const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
+    if (instanceId < 2u || routeInstanceIndex >= rigidRouteInstanceCount)
+    {
+        return false;
+    }
+
+    const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+    const uint routeIndexOffset = routeInstance.indexOffset + primitiveIndex * 3u;
+    const uint rigidRouteVertexCount = (uint)max(CleanRtxdiDiGeometryInfo1.z, 0.0);
+    const uint rigidRouteIndexCount = (uint)max(CleanRtxdiDiGeometryInfo1.w, 0.0);
+    if (primitiveIndex >= routeInstance.triangleCount ||
+        routeIndexOffset + 2u >= rigidRouteIndexCount)
+    {
+        return false;
+    }
+
+    const uint i0 = SmokeRigidRouteIndices[routeIndexOffset + 0u];
+    const uint i1 = SmokeRigidRouteIndices[routeIndexOffset + 1u];
+    const uint i2 = SmokeRigidRouteIndices[routeIndexOffset + 2u];
+    if (i0 >= routeInstance.vertexCount || i1 >= routeInstance.vertexCount || i2 >= routeInstance.vertexCount ||
+        routeInstance.vertexOffset + i0 >= rigidRouteVertexCount ||
+        routeInstance.vertexOffset + i1 >= rigidRouteVertexCount ||
+        routeInstance.vertexOffset + i2 >= rigidRouteVertexCount)
+    {
+        return false;
+    }
+
+    const float3 p0 = PathTraceCleanRtxdiDiTransformRoutePoint(routeInstance, SmokeRigidRouteVertices[routeInstance.vertexOffset + i0].position.xyz);
+    const float3 p1 = PathTraceCleanRtxdiDiTransformRoutePoint(routeInstance, SmokeRigidRouteVertices[routeInstance.vertexOffset + i1].position.xyz);
+    const float3 p2 = PathTraceCleanRtxdiDiTransformRoutePoint(routeInstance, SmokeRigidRouteVertices[routeInstance.vertexOffset + i2].position.xyz);
+    float3 barycentrics;
+    if (!PathTraceCleanRtxdiDiComputeTriangleBarycentrics(primarySurface.worldPos, p0, p1, p2, barycentrics))
+    {
+        return false;
+    }
+    hitBarycentrics = barycentrics.yz;
+    return true;
+}
+
+bool PathTraceCleanRtxdiDiLoadPrimaryRecordTraceHitSurface(
+    RAB_Surface primarySurface,
+    out PathTraceCleanRtxdiDiTraceHitSurface hitSurface)
+{
+    hitSurface = PathTraceCleanRtxdiDiEmptyTraceHitSurface();
+    float2 hitBarycentrics;
+    if (!PathTraceCleanRtxdiDiReconstructPrimarySurfaceBarycentrics(primarySurface, hitBarycentrics))
+    {
+        return false;
+    }
+
+    PathTraceCleanRtxdiPayload payload = (PathTraceCleanRtxdiPayload)0;
+    payload.hitInstanceId = primarySurface.instanceId;
+    payload.hitPrimitiveIndex = primarySurface.primitiveIndex;
+    payload.hitBarycentrics = hitBarycentrics;
+    return PathTraceCleanRtxdiDiLoadTraceHitSurface(payload, hitSurface);
 }
 
 float3 PathTraceCleanRtxdiDiTraceHitDecodeNormal(

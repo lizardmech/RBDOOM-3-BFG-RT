@@ -1,0 +1,513 @@
+Remix-Style Transmission PSR Implementation Steps
+=================================================
+
+Purpose
+-------
+
+This document is a worker handoff for replacing the current weak post-PSR
+cosmetic glass distortion with a small RTX Remix-shaped transmission PSR
+contract.
+
+Do not implement full Remix. The target is a narrow rbdoom-owned subset:
+
+    material code decides whether transmission PSR is allowed
+    material code produces a PSR sample: direction, attenuation, flags
+    the resolver traces the replacement surface along that sample direction
+    normal DI/GI/RR consumers see the replacement surface through a stable
+        primary-surface contract
+    late compose applies glass attenuation/reflection/optional cosmetics
+
+This is intended for clean RTXDI DI view 16, which is the active primary clean
+render path for this lane.
+
+
+Why This Replaces The Cosmetic Warp
+-----------------------------------
+
+The current rbdoom PSR transmission transport traces straight through glass:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+        pathtrace_clean_rtxdi_di_transmission_transport.hlsli
+
+    PathTraceCleanRtxdiDiTraceTransmissionHit(...)
+        rayDirection = -viewDirection
+
+That makes transparency stable, but curved glass loses the visible displacement
+that existed before PSR. The late cosmetic warp only shuffles neighboring
+pixels after a straight-through replacement surface has already been chosen.
+It cannot reproduce curved-glass parallax because it does not change which
+backdrop surface is found.
+
+RTX Remix solves this at the PSR sample boundary. Transmission PSR can store a
+refracted replacement ray for non-thin/transmissive material, and the PSR pass
+traces that ray to the replacement surface.
+
+
+Reference Files
+---------------
+
+rbdoom files to inspect first:
+
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceCleanRtxdiDiMaterialFeatures.cpp
+    neo/renderer/NVRHI/PathTraceCleanRtxdiDiTransmissionFeature.cpp
+    neo/renderer/NVRHI/PathTraceMaterialFeatureParameters.cpp
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+        pathtrace_clean_rtxdi_di_transmission_producer.hlsli
+        pathtrace_clean_rtxdi_di_transmission_transport.hlsli
+        pathtrace_clean_rtxdi_di_transmission_sidecar.hlsli
+        pathtrace_clean_rtxdi_di_glass_math.hlsli
+        pathtrace_clean_rtxdi_di_glass_params.hlsli
+        pathtrace_clean_rtxdi_di_glass_compose.hlsli
+        pathtrace_clean_rtxdi_di_hit_surface_adapter.hlsli
+        pathtrace_clean_rtxdi_di_temporal_output.hlsli
+
+RTX Remix reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/
+        concept/surface_material/surface_material_helper.slangh
+        concept/surface_material/translucent_surface_material_interaction.slangh
+        concept/surface_material/polymorphic_surface_material_interaction.slangh
+        algorithm/geometry_resolver.slangh
+        algorithm/geometry_resolver_state.slangh
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/
+        rtx_pathtracer_gbuffer.cpp
+        rtx_ray_reconstruction.cpp
+
+Use Remix as an architecture reference. Do not copy source text into rbdoom
+unless a file-level license review is recorded.
+
+
+Remix Contract To Emulate
+-------------------------
+
+The useful Remix shape is:
+
+    SurfaceMaterialInteractionPSRSample:
+        performPSR
+        useAlternateDisocclusionThreshold
+        inputDirection
+        attenuation
+        vectorTransform
+
+    translucentSurfaceMaterialInteractionCalcPSRTransmissionSample(...):
+        checks whether a specular transmission dirac lobe exists
+        computes relative IOR and Fresnel/TIR
+        for thick/non-thin transmission:
+            inputDirection = refractedDirection
+            vectorTransform = getRefractionQuaternion(...)
+            attenuation = transmission throughput
+            penetrateSurface = true
+        for thin-walled transmission:
+            inputDirection = -outputDirection
+            vectorTransform = identity
+            attenuation = thin-wall throughput
+            penetrateSurface = true
+
+    geometry_resolver.slangh:
+        rayCreateDirection(..., sample.inputDirection, penetrateSurface)
+        packPSRData(sampledRay, mediumIndex, attenuation, vectorTransform, flags)
+        storeTransmissionPSRData(...)
+
+The key boundary is that material interaction produces transport data, not a
+privately shaded color. The resolver traces and replaces the primary surface.
+The ordinary material/lighting path shades the replacement surface.
+
+
+Target rbdoom Contract
+---------------------
+
+Add an rbdoom-owned equivalent:
+
+    struct PathTraceCleanRtxdiDiTransmissionPsrSample
+    {
+        bool performPsr;
+        bool useAlternateDisocclusionThreshold;
+        bool penetrateSurface;
+        float3 inputDirection;
+        float3 attenuation;
+        float distortionWeight;
+        uint guidePolicy;
+    };
+
+Minimum guide policies:
+
+    0 = normal straight-through thin glass
+    1 = strong refraction / unstable replacement
+
+Policy 1 must not be silently treated as ordinary opaque receiver history by
+RR/DLSS/GI. It can initially force a conservative reset/disocclusion behavior
+or bypass RR surface replacement for that pixel, but it must be explicit.
+
+
+Implementation Steps
+--------------------
+
+MSH-PSTR-00: Baseline Audit
+
+    Type: read-only
+
+    Goal:
+        Identify the current dirty implementation state and confirm the exact
+        active view-16 route.
+
+    Inspect:
+        git status --short
+        git diff --stat
+        PathTraceCleanRtxdiDiTransmissionPsrPhase(...)
+        PathTraceCleanRtxdiDiTraceTransmissionHit(...)
+        PathTraceCleanRtxdiDiTransmissionProducerComposeColor(...)
+        PathTraceCleanRtxdiDiStoreGlassComposedColor(...)
+        PathTraceCleanRtxdiDiMaterialFeatureRouteEnabled(...)
+        dispatchCleanMaterialFeatureCompose in PathTraceSmokeDispatch.cpp
+
+    Required finding:
+        State whether the current compose pass is active and whether the weak
+        distortion is a math issue, a routing issue, or a post-PSR limitation.
+
+    Do not edit.
+
+
+MSH-PSTR-01: Add The Local PSR Sample Type
+
+    Type: shader-only contract addition
+
+    Goal:
+        Add a compact transmission PSR sample type without changing behavior.
+
+    Allowed write set:
+        neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+            pathtrace_clean_rtxdi_di_transmission_transport.hlsli
+            or a new pathtrace_clean_rtxdi_di_transmission_psr_sample.hlsli
+
+    Requirements:
+        include performPsr, inputDirection, attenuation, penetrateSurface,
+        alternate-disocclusion flag, distortionWeight, guidePolicy.
+
+        Add helpers:
+            PathTraceCleanRtxdiDiTransmissionPsrSampleEmpty()
+            PathTraceCleanRtxdiDiTransmissionPsrSampleThinStraight(...)
+            PathTraceCleanRtxdiDiTransmissionPsrSampleRefracted(...)
+
+    Validation:
+        Compile with behavior unchanged.
+        Existing straight-through transparency still works.
+
+
+MSH-PSTR-02: Move Direction Selection Out Of TraceTransmissionHit
+
+    Type: narrow shader refactor
+
+    Goal:
+        Stop hardcoding transmission transport direction inside the trace
+        helper.
+
+    Current anti-pattern:
+        PathTraceCleanRtxdiDiTraceTransmissionHit(...) computes:
+
+            rayDirection = -viewDirection
+
+    Required shape:
+        PathTraceCleanRtxdiDiTraceTransmissionHit(...) accepts a prepared
+        sample/inputDirection:
+
+            bool PathTraceCleanRtxdiDiTraceTransmissionHit(
+                RAB_Surface surface,
+                PathTraceCleanRtxdiDiTransmissionPsrSample sample,
+                out PathTraceCleanRtxdiPayload hitPayload,
+                out float3 hitPosition,
+                out float3 rayDirection)
+
+    Requirements:
+        Preserve the old straight-through path by passing a thin-straight
+        sample.
+
+        Do not change reflection transport in this step.
+
+    Validation:
+        debug PSR status still reports resolved glass pixels.
+        visual output should match prior straight-through behavior.
+
+
+MSH-PSTR-03: Implement Thin Straight Sample
+
+    Type: behavior-preserving setup
+
+    Goal:
+        Encode the current behavior as an explicit thin-glass sample.
+
+    Requirements:
+        For flat/thin glass:
+
+            inputDirection = -viewDirection
+            attenuation = current thin transmission throughput
+            penetrateSurface = true
+            guidePolicy = 0
+            vectorTransform equivalent = identity/not stored yet
+
+        Keep this as the default for portal windows and ordinary flat panes
+        until refracted mode is classified.
+
+    Validation:
+        With refracted mode disabled, current transparency and reflections are
+        unchanged.
+
+
+MSH-PSTR-04: Implement Refracted Sample Mode
+
+    Type: visible behavior change behind a cvar or material policy
+
+    Goal:
+        Add a Remix-shaped refracted transmission PSR path for curved/thick
+        glass.
+
+    Add a cvar or temporary material policy:
+
+        r_pathTracingCleanRtxdiDiGlassRefractedPsr 0/1
+
+    Required math:
+        Use the original glass surface normal and view direction.
+        Compute:
+
+            faceForwardNormal = dot(normal, viewDir) >= 0 ? normal : -normal
+            eta = 1.0 / max(ior, 1.0001)
+            refractedDirection = refract(-viewDir, faceForwardNormal, eta)
+
+        If refraction fails or faces the wrong side:
+
+            return performPsr = false, or fall back to reflection policy
+            Do not silently use zero direction.
+
+        If valid:
+
+            inputDirection = refractedDirection
+            attenuation = thin/transmission throughput already computed by
+                PathTraceCleanRtxdiDiBuildGlassThinPayload(...)
+            penetrateSurface = true
+            guidePolicy = 1
+
+    Important:
+        This first rbdoom step may still use thin-wall attenuation while using
+        refracted continuation for beauty. This is a deliberate cosmetic/
+        practical compromise. Record that it is not full physical thick glass.
+
+    Validation:
+        Curved glass must visibly displace background surfaces with cosmetic
+        distortion disabled.
+        Flat glass should remain close to the straight-through result.
+
+
+MSH-PSTR-05: Feed The Refracted Sample Into PSR Replacement
+
+    Type: shader behavior integration
+
+    Goal:
+        The replacement primary surface must be traced from the refracted
+        direction, not from a late screen-space warp.
+
+    Required code movement:
+        In PathTraceCleanRtxdiDiTransmissionPsrPhase(...):
+
+            build glassPayload
+            build transmissionPsrSample
+            call PathTraceCleanRtxdiDiTraceTransmissionHit(..., sample, ...)
+            build resolved surface from hit
+            pack replacement primary-surface record
+            store sidecar attenuation/overlay payload
+
+    Requirements:
+        Sidecar attenuation follows the sample, not a second local formula.
+        Reflection sidecar may remain separate.
+        Do not shade the replacement hit inside the transmission producer.
+
+    Validation:
+        A forced debug mode that visualizes replacement hit material/depth
+        should change when refracted mode is toggled on curved glass.
+
+
+MSH-PSTR-06: Encode Strong-Refraction Guide Policy
+
+    Type: contract integration
+
+    Goal:
+        Do not let strongly refracted replacement pixels masquerade as normal
+        opaque receiver history.
+
+    Required local checks:
+        Search for:
+
+            CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED
+            PathTraceRRGuideNormalRoughness
+            PathTraceRRMotionVectors
+            PathTraceRRGuideDepth
+            PathTraceRRGuideResetMask
+            CleanGiMaterialSurfaceFromCurrentRecord
+
+    Minimum acceptable behavior:
+        If guidePolicy == 1, mark the primary-surface record or sidecar so RR/GI
+        can see it.
+
+        For the first implementation, prefer conservative handling:
+
+            no glass normal in RR normal guide
+            depth/motion remains the resolved replacement surface unless a
+                disocclusion/reset mask says otherwise
+            reset/disocclusion is stronger than normal straight-through glass
+            GI temporal reuse must not inherit stale glass history blindly
+
+    Remix reference:
+        Remix uses alternate disocclusion threshold flags and RR-specific
+        surface-replacement handling. It also notes that translucent surfaces
+        with significant refraction are excluded from DLSS-RR surface
+        replacement and use surface motion vectors.
+
+    Validation:
+        DLSSRR on/off comparison should not create a stable screen-space blob
+        or ghosted refracted background.
+
+
+MSH-PSTR-07: Keep Cosmetic Warp As Secondary Only
+
+    Type: cleanup/refactor
+
+    Goal:
+        Demote post-PSR screen-space distortion to a small normal-map/pattern
+        overlay, not the primary curved-glass mechanism.
+
+    Requirements:
+        The main curved-glass displacement must remain visible with cosmetic
+        sidecar warp disabled.
+
+        Cosmetic sidecar may still:
+
+            add patterned-glass bump wiggle
+            add small chromatic/sample offset
+            add debug checker previews
+
+        It must not:
+
+            decide the replacement surface
+            carry DI/GI/RR identity
+            be the only visible curved-glass distortion
+
+    Validation:
+        Toggle cosmetic warp off. Curved glass still distorts due to refracted
+        PSR. Toggle it on. Patterned glass gains subtle extra texture.
+
+
+MSH-PSTR-08: Remove Duplicate Shading From Transmission Producer
+
+    Type: cleanup after refracted PSR works
+
+    Goal:
+        Prevent the transmission producer from becoming another fork of the
+        opaque shader.
+
+    Remove or quarantine functions that privately duplicate:
+
+        material normal/specular decode
+        analytic direct lighting loops
+        replacement-hit shading
+        opaque BRDF evaluation
+
+    Keep:
+
+        transport sample creation
+        PSR trace/packing
+        sidecar storage
+        late attenuation/reflection compose
+        debug views that prove routing/contract
+
+    Validation:
+        A material/BSDF change in the opaque path should not require editing
+        the transmission producer.
+
+
+MSH-PSTR-09: Host Routing And Resource Audit
+
+    Type: host/shader contract audit
+
+    Goal:
+        Prove the resource and dispatch sequence matches the Remix-style
+        ownership boundary.
+
+    Required order:
+
+        primary-surface generation
+        transmission PSR producer phase
+        barriers for primary surface and sidecars
+        clean DI/GI shading of replacement surface
+        outputTexture copy to output-color source
+        material-feature compose
+        RR/DLSS evaluation or final presentation
+
+    Required proof:
+        Log or document which pass writes:
+
+            primary-surface replacement
+            transmission sidecar
+            reflection sidecar
+            RR input color
+            final outputTexture
+
+    Validation:
+        Debug view proves both:
+
+            original glass surface was detected
+            replacement surface differs between straight and refracted PSR
+
+
+MSH-PSTR-10: Final Validation Matrix
+
+    Type: runtime validation
+
+    Test cases:
+
+        flat glass window
+        curved glass corner
+        patterned bump glass
+        glass with DLSSRR off
+        glass with DLSSRR on
+        GI temporal off
+        GI temporal on
+        camera pan across glass edge
+        object moving behind glass
+
+    Required pass criteria:
+
+        flat glass remains stable and mostly straight-through
+        curved glass visibly displaces backdrop with cosmetic warp disabled
+        patterned glass bump remains visible as a secondary effect
+        RR guide normals do not show glass normals where replacement surface
+            should be seen
+        RR motion does not smear into a stable screen-space blob
+        GI temporal does not create the old center-screen transparency artifact
+        no private opaque-shading fork remains in transmission producer
+
+
+Worker Stop Conditions
+----------------------
+
+Stop and report before continuing if:
+
+    refracted PSR only changes debug views but not replacement hit/depth
+    curved glass still only changes when cosmetic warp is enabled
+    DLSSRR hides the effect by reconstructing through old history
+    GI temporal reintroduces screen-space transparency artifacts
+    the implementation requires copying opaque direct-light code into the
+        transmission producer
+    any fix requires changing unrelated DI/GI math without an adapter contract
+
+
+Expected End State
+------------------
+
+The acceptable end state is not full Remix parity. It is:
+
+    straight-through thin PSR for ordinary flat glass
+    refracted PSR sample mode for curved/thick cosmetic glass
+    explicit guide policy for strong refraction
+    late compose for attenuation/reflection
+    cosmetic warp demoted to optional pattern detail
+    no duplicated opaque shader inside transmission producer

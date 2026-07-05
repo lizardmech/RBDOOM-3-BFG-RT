@@ -42,4 +42,14 @@ float PathTraceCleanRtxdiDiTransmissionSidecarReflectionEnergy(float4 sidecar)
     return saturate(sidecar.a - RT_CLEAN_RTXDI_DI_TRANSMISSION_SIDECAR_RESOLVED);
 }
 
+float PathTraceCleanRtxdiDiTransmissionSidecarWeight(float4 sidecar)
+{
+    return 1.0;
+}
+
+float3 PathTraceCleanRtxdiDiTransmissionSidecarOverlayColor(float4 sidecar)
+{
+    return PathTraceCleanRtxdiDiTransmissionSidecarTransmission(sidecar);
+}
+
 #endif

@@ -1039,7 +1039,7 @@ bool PathTraceCleanRestirGiExecute(
         return false;
     }
 
-    const int view = idMath::ClampInt(0, 23, r_pathTracingCleanRestirGiView.GetInteger());
+    const int view = idMath::ClampInt(0, 24, r_pathTracingCleanRestirGiView.GetInteger());
     const int specularProducerMode = idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiSpecularProducer.GetInteger());
     const bool rrHitDistanceRequested =
         r_pathTracingCleanRestirGiRrHitDistance.GetInteger() != 0 &&

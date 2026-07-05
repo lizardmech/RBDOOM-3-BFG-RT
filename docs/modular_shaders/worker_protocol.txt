@@ -1,0 +1,154 @@
+Worker Protocol
+===============
+
+This protocol is mandatory for every modular-shader worker.
+
+
+Before Editing
+--------------
+
+The worker must state:
+
+    task id
+    exact goal
+    exact rbdoom write set
+    exact rbdoom read-only files
+    exact reference files, if any
+    file-level license status for any source text being reused
+    material-contract fields consumed or written
+    pass-contract fields consumed or written
+    io_whitelist.txt input entries consumed
+    io_whitelist.txt output entries written
+    forbidden files/functions
+    expected build proof
+    expected runtime or debug proof
+
+If any item is unknown, stop and report the missing information.
+
+
+Reference Conduct
+-----------------
+
+Workers may read RTX Remix and nvpro shader files to understand architecture,
+pass ownership, resource roles, and BSDF interface shape.
+
+Workers must not paste or paraphrase proprietary source into rbdoom. File-level
+licenses must be checked before reusing any source text from:
+
+    E:/prog/references/dxvk-remix-git
+    E:/prog/references/nvpro_core2-main/nvshaders
+
+For glass math, prefer adapting the interface shape first. Do not import a full
+BSDF library before rbdoom has a stable material record, lobe flags, and path
+event contract.
+
+
+Allowed Edits
+-------------
+
+Allowed only when the task explicitly names the files:
+
+    documentation in docs/modular_shaders
+    material classifier and material table packing
+    primary-surface CPU/shader record packing
+    new shared material-evaluation shader includes
+    RAB adapter wrappers that preserve existing behavior
+    detail-decal composite code for task-specific modifier kinds
+    host pass descriptors or dispatch routing for task-specific standalone
+        passes
+    CMake shader additions for explicitly new shader entry points
+
+
+Forbidden Edits
+---------------
+
+Do not edit unless a task explicitly says so:
+
+    clean DI/GI reservoir math
+    clean GI temporal/spatial math
+    ReSTIR PT reservoir math
+    old RRX synthetic paths
+    mode-56 fallback lighting
+    unrelated geometry/light/material-universe systems
+    DLSS/RR integration
+    denoiser/confidence/gradient code
+    unrelated debug-view routing
+
+Do not add:
+
+    glass branches inside every DI/GI target-PDF helper
+    fallback albedo for unsupported materials
+    liquid-pool behavior through ordinary alpha-over
+    broad pass routing tied only to debug mode numbers
+    shader-only views without host route and scene-build proof
+
+
+Adapter Rule
+------------
+
+Low-level consumers should call adapters, not material-specific implementation
+code.
+
+Examples of allowed adapter questions:
+
+    Does this surface support opaque direct lighting?
+    What is the opaque direct-light BRDF/target function?
+    Does this surface support path-tracer transmission?
+    Does this surface expose a receiver modifier?
+    Should this pass skip or fail closed for this material kind?
+
+Examples of forbidden coupling:
+
+    DI temporal code knows how glass refraction samples a path
+    GI spatial code knows liquid-pool blend internals
+    RR guide routing infers material support from debug-view magic numbers
+    shader pass dispatch picks material behavior by copying branch logic from
+        the primary surface producer
+
+
+Stop Conditions
+---------------
+
+Stop immediately if:
+
+    a task needs a material field not present in the contract and no reserved
+        slot exists
+    CPU and shader primary-surface layouts diverge
+    a DI/GI pass needs behavior for a material kind that the task did not open
+    a new shader requires resources not listed in io_whitelist.txt
+    a new debug view is shader-only and host routing is not identified
+    a broad shader compile hits or risks SPIR-V ID overflow
+    the feature works only by falling back to path-traced beauty or albedo
+    liquid-pool overlap changes because layers stack instead of unioning
+    a glass proof changes DI/GI target PDFs without an explicit task
+    reference math or license status is unclear
+
+
+Build And Deploy
+----------------
+
+Default build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Default build command:
+
+    cmake --build --preset win64-pt-dev-release
+
+For narrow shader work, also use targeted shader rebuild or direct DXC compile
+when the worker task asks for it. Do not accept "up to date" output as proof
+that a changed shader entry point was compiled.
+
+Deploy exe:
+
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    -> E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Deploy shaders:
+
+    copy contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    -> E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not create:
+
+    E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2/renderprogs2

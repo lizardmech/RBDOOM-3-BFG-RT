@@ -1,0 +1,293 @@
+Shader System Compliance Steps
+==============================
+
+Purpose
+-------
+
+This file records the remaining work needed before the modular shader system
+is compliant with the contract in this folder and practical for adding more
+material shaders, such as an OpenPBR-derived EON diffuse BRDF, multibounce GGX,
+or VNDF sampling slice.
+
+The first pass is useful: it introduces material feature descriptors, shader
+adapter vocabulary, pass/resource masks, and a clean DI transmission sentinel
+route. It is not yet a general shader system. A new shader still requires
+feature-specific host code, explicit resource binding switches, CMake entries,
+and constant-layout assumptions.
+
+
+Compliance Target
+-----------------
+
+The system is compliant enough for adding more shaders when all of these are
+true:
+
+    adding a new material shader does not require unrelated DI/GI math edits
+    material support is expressed through material kind, caps, lobes, and pass
+        support, not one-off surface flag tests at every consumer
+    each feature pass owns its shader, bindings, constants, resources, enable
+        predicate, debug route, and validation path
+    unsupported material kinds fail closed and can be visualized
+    CPU and shader material records have a versioned, checked ABI
+    source-tree coexistence and build participation are treated separately for
+        HLSL and Slang files
+    OpenPBR or other reference code is used only after file-level license
+        review and rbdoom-owned integration boundaries are chosen
+
+
+Current Gaps
+------------
+
+G-01: Feature descriptors are not yet a registry.
+
+    Current feature descriptors describe useful properties, but the main
+    dispatch path still knows about each concrete feature. The clean DI
+    transmission route is built, bound, ensured, and dispatched by explicit
+    feature-specific calls.
+
+    Compliance risk:
+        adding a second standalone shader repeats the same host edits and does
+        not prove the abstraction scales.
+
+
+G-02: Output and binding ownership is hard-coded.
+
+    Feature output mapping currently knows about fixed outputs such as the
+    final output color and clean DI transmission texture. UAV slots and frame
+    resources are selected by switches rather than by descriptor-owned binding
+    metadata.
+
+    Compliance risk:
+        new feature outputs require renderer/frame-resource surgery and can
+        accidentally collide with existing binding slots.
+
+
+G-03: Runtime constants are tied to toyPathInfo.
+
+    The shared dispatch helper assumes a four-float runtime-info lane and only
+    writes a small ready/output state. That is enough for a sentinel route, but
+    not for real BRDF selection, OpenPBR parameterization, multibounce controls,
+    VNDF mode selection, or per-feature debug state.
+
+    Compliance risk:
+        future shaders either overload unrelated lanes or add new bespoke
+        constant plumbing.
+
+
+G-04: Material feature data is mostly derived from legacy flags.
+
+    The shader-side material feature layer is useful, but the primary-surface
+    record does not yet carry an explicit, stable feature ABI for material kind,
+    material caps, lobe caps, modifier kind, and pass support. The adapter still
+    reconstructs most of that from existing flags and surface classes.
+
+    Compliance risk:
+        OpenPBR-style material inputs cannot be represented cleanly, and
+        consumers remain coupled to old rbdoom flag interpretation.
+
+
+G-05: Standalone shader build participation is manual.
+
+    New shader entry points still need explicit build-system wiring. Slang files
+    can live beside HLSL files, but they are inert unless a Slang compile lane is
+    added and its outputs are packaged like the existing shader blobs.
+
+    Compliance risk:
+        workers may add source files that never compile, never deploy, or never
+        participate in runtime validation.
+
+
+G-06: The first transmission feature is still a sentinel.
+
+    The clean DI transmission producer proves that a feature pass can be routed
+    and can write a debug output. It does not yet prove real material sampling,
+    path-event interaction, DI/GI fail-closed behavior, or final composition.
+
+    Compliance risk:
+        the host route can be mistaken for a finished material feature.
+
+
+Required Steps
+--------------
+
+S-01: Turn feature pass descriptors into a host-owned registry.
+
+    Add a central feature-pass list or registry that the renderer can iterate.
+    Each entry should declare:
+
+        pass kind
+        shader table or shader entry identity
+        material caps and pass support consumed
+        resource inputs
+        resource outputs
+        binding layout
+        constants layout or constants update callback
+        enable predicate
+        debug label
+        validation view or proof route
+
+    Acceptance:
+
+        a disabled no-op or sentinel feature can be registered without adding a
+        new named build/ensure/bind/dispatch block in the middle of unrelated
+        renderer code.
+
+
+S-02: Move output and binding mapping into feature-owned metadata.
+
+    Replace fixed output switches with descriptor-owned output declarations or
+    a small feature-resource table. Keep the actual frame-resource allocation
+    explicit, but make the binding slot, access type, format expectation, and
+    debug name part of the feature contract.
+
+    Acceptance:
+
+        adding a new standalone feature output requires one resource allocation
+        decision and one descriptor entry, not scattered binding switches.
+
+
+S-03: Replace toyPathInfo with typed feature constants.
+
+    Add a typed runtime constants path for material feature passes. The common
+    dispatch helper may still fill standard fields such as enabled, ready,
+    writesOutput, debugMode, and frameIndex, but feature-specific data should be
+    represented by an explicit struct or callback-owned constant update.
+
+    Acceptance:
+
+        an EON/GGX/VNDF shader can receive feature controls without borrowing
+        unrelated clean DI lanes or depending on array indices with implicit
+        meanings.
+
+
+S-04: Promote material capabilities into a stable ABI or sidecar.
+
+    Decide whether the compact primary-surface record has room for explicit
+    material feature fields. If not, add a material-parameter sidecar keyed by
+    material id/index and resolve richer material inputs at shading time.
+
+    Required fields or equivalents:
+
+        material kind
+        material caps
+        lobe caps
+        modifier kind
+        pass support
+        material parameter record index, if a sidecar is used
+
+    Acceptance:
+
+        material adapters no longer need to rediscover all semantic state from
+        raw legacy flags, and CPU/shader layout checks prove the ABI.
+
+
+S-05: Keep DI/GI behind adapter gates.
+
+    Continue moving direct-light and reservoir consumers through material
+    adapter helpers. Do not let EON, GGX, OpenPBR, glass, or liquid-pool code
+    appear directly inside low-level DI/GI math. Unsupported materials must
+    return zero/unsupported or a validation color.
+
+    Acceptance:
+
+        opaque baseline output remains stable, and unsupported material kinds
+        cannot silently run through the old diffuse targetPdf path.
+
+
+S-06: Add a shader build declaration helper.
+
+    Add a small CMake helper or table for feature shader entry points so a new
+    HLSL shader has one obvious declaration site. If Slang is opened, add it as
+    a separate compile lane with explicit tool discovery, output naming,
+    dependency tracking, and package/deploy behavior.
+
+    Acceptance:
+
+        a new shader source is compiled, packaged, and listed in validation
+        output. A .slang file is never treated as active merely because it is in
+        the source tree.
+
+
+S-07: Land the first real BRDF slice in the lowest-risk seam.
+
+    For the near-term EON diffuse plus GGX/VNDF goal, prefer an rbdoom-owned
+    HLSL include behind the path-integrator material-event seam first. Do not
+    promote it into RAB direct-light target PDFs until path-integrator behavior,
+    energy, pdf, and sampling validation are available.
+
+    Acceptance:
+
+        the slice can evaluate/sample/pdf through a material adapter interface,
+        is gated by material caps, and has a debug/runtime control path.
+
+
+S-08: Add OpenPBR parameter mapping deliberately.
+
+    Do not copy the whole OpenPBR resolved-input model into every primary
+    surface. Map rbdoom material data into a compact shader-side parameter
+    record or sidecar, then implement only the required subset first.
+
+    Initial useful subset:
+
+        base color / diffuse weight
+        roughness or alpha
+        specular F0 or IOR-derived specular
+        normal and shading frame inputs
+        EON diffuse evaluation
+        GGX VNDF sampling/evaluation/pdf
+        multibounce compensation controls or LUT ownership
+
+    Acceptance:
+
+        each imported or rewritten math piece has a named owner, license status,
+        input mapping, output contract, and validation case.
+
+
+S-09: Add validation gates before broadening consumers.
+
+    Each feature must name:
+
+        build command or shader compile proof
+        runtime cvar or debug view
+        supported material test
+        unsupported material test
+        baseline opaque regression check
+        resource and binding proof
+        CPU/shader ABI proof, if fields changed
+
+    Acceptance:
+
+        no feature is considered modular because it merely compiles. It must be
+        reachable, gated, and observable.
+
+
+Recommended Ordering
+--------------------
+
+1. Finish the host registry shape for existing feature passes without changing
+   visuals.
+2. Move binding/output metadata into descriptors.
+3. Replace toyPathInfo with typed feature constants.
+4. Promote material caps into a stable ABI or material sidecar.
+5. Add the shader build declaration helper for more HLSL entry points.
+6. Add the EON/GGX/VNDF BRDF slice behind the path-integrator material adapter.
+7. Validate the BRDF slice in the path integrator.
+8. Only then consider RAB/DI/GI promotion, transmission feature expansion, or
+   Slang build support.
+
+
+Review Checklist
+----------------
+
+Reject a future worker result if any of these are true:
+
+    a new shader requires unrelated DI/GI math edits
+    a shader source file is added but not compiled or packaged
+    a feature writes an unnamed output or uses an undocumented UAV slot
+    constants are passed through unexplained toyPathInfo lanes
+    material support is inferred from ad hoc flags at each consumer
+    unsupported materials fall back to albedo, old diffuse lighting, or beauty
+        output
+    OpenPBR source is copied without file-level license review
+    Slang source-tree coexistence is presented as build-system support
+    validation proves only compile success, not runtime reachability
