@@ -21,6 +21,11 @@ float PathTraceOpenPbrLuminance(float3 value)
     return dot(max(value, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
 }
 
+float PathTraceOpenPbrMaxComponent(float3 value)
+{
+    return max(value.r, max(value.g, value.b));
+}
+
 float3 PathTraceOpenPbrLocalToWorld(float3 normal, float3 localDir)
 {
     const float3 tangent = RAB_BuildPerpendicular(normal);
@@ -120,6 +125,31 @@ float3 PathTraceOpenPbrEvaluateGgxSpecular(float3 f0, float roughness, float3 no
     return f * (d * g / max(4.0 * noL * noV, 1.0e-5));
 }
 
+float PathTraceOpenPbrRoughMetalCompensationWeight(float3 f0, float roughness)
+{
+    const float f0Max = PathTraceOpenPbrMaxComponent(saturate(f0));
+    const float metalProxy = saturate((f0Max - 0.08) / 0.92);
+    const float rough = saturate((roughness - 0.18) / 0.82);
+    return metalProxy * rough * rough;
+}
+
+float3 PathTraceOpenPbrEvaluateScalarMmsApprox(float3 f0, float roughness, float3 normal, float3 lightDir, float3 viewDir)
+{
+    const float noL = saturate(dot(normal, lightDir));
+    const float noV = saturate(dot(normal, viewDir));
+    if (noL <= 0.0 || noV <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    // Small table-free rough-metal energy recovery. This is not OpenPBR's
+    // table-based MMS lobe; it is an rbdoom scalar approximation until the
+    // energy tables are deliberately added.
+    const float weight = PathTraceOpenPbrRoughMetalCompensationWeight(f0, roughness);
+    const float grazingFade = lerp(0.55, 1.0, sqrt(saturate(noV * noL)));
+    return saturate(f0) * (0.22 * weight * grazingFade * RT_OPENPBR_RCP_PI);
+}
+
 float PathTraceOpenPbrGgxReflectionPdf(float roughness, float3 normal, float3 lightDir, float3 viewDir)
 {
     const float noL = saturate(dot(normal, lightDir));
@@ -173,8 +203,9 @@ bool PathTraceOpenPbrSampleGgxVndf(float roughness, float3 normal, float3 viewDi
 float PathTraceOpenPbrSpecularSampleProbability(float3 f0, float roughness)
 {
     const float specular = PathTraceOpenPbrLuminance(saturate(f0));
+    const float compensation = PathTraceOpenPbrRoughMetalCompensationWeight(f0, roughness) * 0.25;
     const float diffuse = saturate(1.0 - specular) * lerp(1.0, 0.35, saturate(1.0 - roughness));
-    return clamp(specular / max(specular + diffuse, 1.0e-4), 0.05, 0.95);
+    return clamp((specular + compensation) / max(specular + compensation + diffuse, 1.0e-4), 0.05, 0.95);
 }
 
 #endif

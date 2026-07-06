@@ -103,7 +103,10 @@ float3 EvaluateOpaqueDirectBrdf(RAB_Surface surface, float3 wi, float3 wo)
     const float3 fresnel = PathTraceOpenPbrFresnelSchlick(f0, saturate(dot(viewDir, RAB_SafeNormalize(lightDir + viewDir, normal))));
     const float diffuseWeight = saturate(1.0 - max(max(fresnel.r, fresnel.g), fresnel.b));
     const float3 diffuse = PathTraceOpenPbrEvaluateEonDiffuse(albedo, GetRoughness(surface.material), normal, lightDir, viewDir) * diffuseWeight;
-    const float3 specular = PathTraceOpenPbrEvaluateGgxSpecular(f0, GetRoughness(surface.material), normal, lightDir, viewDir);
+    float3 specular = PathTraceOpenPbrEvaluateGgxSpecular(f0, GetRoughness(surface.material), normal, lightDir, viewDir);
+#if RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE >= 4
+    specular += PathTraceOpenPbrEvaluateScalarMmsApprox(f0, GetRoughness(surface.material), normal, lightDir, viewDir);
+#endif
     return diffuse + specular;
 #else
     return albedo * (1.0 / RT_PATH_TRACE_OPAQUE_DIRECT_PI);

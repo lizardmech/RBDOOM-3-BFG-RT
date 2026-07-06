@@ -1787,7 +1787,7 @@ float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceS
 uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue);
 
 #define RB_PATH_TRACE_OPAQUE_DIRECT_ENABLE_OPENPBR 1
-#define RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE 3
+#define RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE 4
 
 #include "pathtrace_emissive_sampling.hlsli"
 #include "pathtrace_smoke_rab_environment_stub.hlsli"
