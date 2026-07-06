@@ -54,7 +54,7 @@ struct PathTraceFirstIndirectCandidateSurface
     uint materialFlags;
     uint emissiveTextureIndex;
     uint primarySampledSpecular;
-    uint pad0;
+    float sourcePdf;
 };
 
 // Shaded first-indirect candidate. Radiance is incoming radiance at the
@@ -70,6 +70,7 @@ struct PathTraceFirstIndirectCandidateResult
     float materialOpacity;
     uint materialFlags;
     uint diffuseTextureIndex;
+    float sourcePdf;
 };
 
 bool PathTraceFirstIndirectCandidateRaySampleIsValid(PathTraceFirstIndirectCandidateRaySample sample)

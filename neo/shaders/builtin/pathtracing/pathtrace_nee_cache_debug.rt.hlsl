@@ -581,9 +581,17 @@ bool PathTraceNeeCacheAnalyticRluReplayValid(uint denseIndex)
 
 float4 PathTraceNeeCacheBuildCandidatesForCell(PathTraceNeeCacheCellDebug cell, uint view);
 
+uint PathTraceNeeCachePcgHash(uint hash)
+{
+    uint state = hash * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
 float PathTraceNeeCacheHashToUnitFloat(uint hash)
 {
-    return ((hash & 0x00ffffffu) + 0.5) / 16777216.0;
+    const uint mixed = PathTraceNeeCachePcgHash(hash);
+    return ((mixed & 0x00ffffffu) + 0.5) / 16777216.0;
 }
 
 PathTraceNeeCacheProviderResult PathTraceNeeCacheMakeInvalidProviderResult(uint cellIndex, uint fallbackReason)
@@ -1154,7 +1162,8 @@ PathTraceNeeCacheCandidateRecord PathTraceNeeCacheBuildRisCandidateFromRange(
     [loop]
     for (uint proposalIndex = 0u; proposalIndex < proposalCount; ++proposalIndex)
     {
-        const uint proposalHash = seed ^ (slot * 1013904223u) ^ (proposalIndex * 2654435761u);
+        const uint proposalHash = PathTraceNeeCachePcgHash(
+            seed ^ (slot * 1013904223u) ^ (proposalIndex * 2654435761u));
         const uint denseIndex = rangeOffset + (proposalHash % rangeCount);
         const PathTraceUnifiedLightRecord record = PathTraceRestirLightManagerCurrentPayload[denseIndex];
         if (requiredClass != 0u && record.type != requiredClass)

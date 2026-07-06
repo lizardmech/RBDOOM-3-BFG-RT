@@ -2189,9 +2189,9 @@ idCVar r_pathTracingCleanRestirGiResolve(
 
 idCVar r_pathTracingCleanRestirGiResolveGain(
     "r_pathTracingCleanRestirGiResolveGain",
-    "10.0",
+    "1.0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Clean-room ReSTIR GI gain for the final view-0 resolve add and matching RR input resolve; default 10 after brush color-bleed calibration, set 1 for raw indirect energy" );
+    "Clean-room ReSTIR GI gain for the final view-0 resolve add and matching RR input resolve; default 1 uses raw indirect energy after source-PDF reservoir weighting" );
 
 idCVar r_pathTracingCleanRestirGiBoilingFilter(
     "r_pathTracingCleanRestirGiBoilingFilter",

@@ -33,7 +33,36 @@ uint RBPT_RestirPcgHash(uint v)
 
 uint RBPT_RestirHashCombine(uint a, uint b)
 {
-    return RBPT_RestirPcgHash(a ^ (b + 0x9e3779b9u + (a << 6u) + (a >> 2u)));
+    const uint mixed =
+        (a * 0x9e3779b9u) ^
+        (b * 0x85ebca6bu) ^
+        ((a >> 16u) | (a << 16u)) ^
+        ((b >> 13u) | (b << 19u));
+    return RBPT_RestirPcgHash(mixed);
+}
+
+uint RBPT_RestirPart1By1(uint v)
+{
+    v &= 0x0000ffffu;
+    v = (v ^ (v << 8u)) & 0x00ff00ffu;
+    v = (v ^ (v << 4u)) & 0x0f0f0f0fu;
+    v = (v ^ (v << 2u)) & 0x33333333u;
+    v = (v ^ (v << 1u)) & 0x55555555u;
+    return v;
+}
+
+uint RBPT_RestirPixelMorton(uint2 pixel)
+{
+    return RBPT_RestirPart1By1(pixel.x) | (RBPT_RestirPart1By1(pixel.y) << 1u);
+}
+
+uint RBPT_RestirPixelSeed(uint2 pixel, uint frameIndex, uint passNamespace)
+{
+    const uint mixed =
+        RBPT_RestirPixelMorton(pixel) ^
+        (frameIndex * 0xc2b2ae35u) ^
+        (passNamespace * 0x27d4eb2du);
+    return RBPT_RestirPcgHash(mixed);
 }
 
 float RBPT_RestirUintToUnitFloat(uint v)
@@ -68,9 +97,7 @@ RTXDI_RandomSamplerState RTXDI_CreateRandomSamplerFromDirectSeed(uint seed, uint
 RTXDI_RandomSamplerState RTXDI_InitRandomSampler(uint2 pixel, uint frameIndex, uint dimensionBase)
 {
     RTXDI_RandomSamplerState rng;
-    rng.seed = RBPT_RestirHashCombine(
-        RBPT_RestirHashCombine(pixel.x, pixel.y),
-        frameIndex);
+    rng.seed = RBPT_RestirPixelSeed(pixel, frameIndex, dimensionBase);
     rng.index = dimensionBase;
     rng.pixel = pixel;
     rng.frameIndex = frameIndex;
@@ -90,11 +117,7 @@ RTXDI_RandomSamplerState RTXDI_InitRandomSampler(uint2 pixel, uint frameIndex, u
 RTXDI_RandomSamplerState RTXDI_InitRandomSamplerForPass(uint2 pixel, uint frameIndex, uint passNamespace, uint startDimension)
 {
     RTXDI_RandomSamplerState rng;
-    rng.seed = RBPT_RestirHashCombine(
-        RBPT_RestirHashCombine(
-            RBPT_RestirHashCombine(pixel.x, pixel.y),
-            frameIndex),
-        passNamespace);
+    rng.seed = RBPT_RestirPixelSeed(pixel, frameIndex, passNamespace);
     rng.index = startDimension;
     rng.pixel = pixel;
     rng.frameIndex = frameIndex;

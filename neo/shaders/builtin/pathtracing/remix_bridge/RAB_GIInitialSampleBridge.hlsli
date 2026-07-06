@@ -32,6 +32,7 @@ struct RemixRestirGIRawInitialSample
     uint flags;
     float3 radiance;
     float indirectPathLength;
+    float sourcePdf;
     float3 hitPosition;
     float3 hitNormal;
     uint portalIndex;

@@ -244,14 +244,14 @@ r_pathTracingCleanRestirGiResolve
     r_pathTracingCleanRestirGiRrSpecularInput export.
 
 r_pathTracingCleanRestirGiResolveGain
-    float, default 10.0. Scales only the final view-0 resolve add from the
+    float, default 1.0. Scales only the final view-0 resolve add from the
     filtered GI output. It applies to both SmokeOutput and the matching
     PathTraceRRInputColor resolve when the clean DI pre-DLSSRR path asks GI to
     resolve into RR input. It does not change GI producer reservoirs, GI debug
-    views, lobe textures, firefly filtering, or stored raw indirect. Set to
-    1.0 for raw indirect energy. The default 10.0 follows brush color-bleed
-    calibration where static brush primary records and resolve writes were
-    proven valid, but indirect energy was too weak to see at 1x.
+    views, lobe textures, firefly filtering, or stored raw indirect. The
+    default is raw indirect energy; the earlier 10.0 diagnostic gain is no
+    longer needed after first-indirect source-PDF weighting was preserved
+    through the initial GI reservoir.
 
 
 Rules

@@ -661,6 +661,7 @@ RemixRestirGIRawInitialSample RemixRAB_LoadRawGIInitialSample(uint2 pixel)
     sample.flags = REMIX_RESTIR_GI_INITIAL_FLAG_SELECTED_SURFACE;
     sample.radiance = max(radianceAndLength.rgb, float3(0.0, 0.0, 0.0));
     sample.indirectPathLength = radianceAndLength.a;
+    sample.sourcePdf = max(hitPositionAndValid.w, 0.0);
     sample.hitPosition = hitPositionAndValid.xyz;
     sample.hitNormal = CleanGiSafeNormalize(hitNormalPacked.xyz, float3(0.0, 0.0, 1.0));
     return sample;
@@ -695,7 +696,7 @@ RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
         rawSample.hitPosition,
         rawSample.hitNormal,
         rawSample.radiance,
-        1.0);
+        rawSample.sourcePdf);
 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(
         pixel,
@@ -3946,6 +3947,7 @@ CleanGiProducerSurface CleanGiPackProducerSurface(RAB_Surface s, CleanGiFirstInd
     g.materialFlags = s.material.flags;
     g.emissiveTextureIndex = s.material.emissiveTextureIndex;
     g.primarySampledSpecular = PathTraceFirstIndirectCandidateRaySampleIsSpecular(raySample) ? 1u : 0u;
+    g.sourcePdf = raySample.sourcePdf;
     return g;
 }
 
@@ -4443,10 +4445,10 @@ float3 CleanGiShadeProducerSurfaceDefaultOneSample(RAB_Surface secondarySurface,
     return CleanGiAllFinite3(producerRadiance) ? max(producerRadiance, float3(0.0, 0.0, 0.0)) : float3(0.0, 0.0, 0.0);
 }
 
-CleanGiProducerResult CleanGiMakeShadedFirstIndirectCandidate(RAB_Surface secondarySurface, float3 radiance)
+CleanGiProducerResult CleanGiMakeShadedFirstIndirectCandidate(RAB_Surface secondarySurface, float3 radiance, float sourcePdf)
 {
     CleanGiProducerResult candidate = (CleanGiProducerResult)0;
-    if (!RAB_IsSurfaceValid(secondarySurface) || !CleanGiAllFinite3(radiance))
+    if (!RAB_IsSurfaceValid(secondarySurface) || !CleanGiAllFinite3(radiance) || sourcePdf <= 1.0e-6)
     {
         return candidate;
     }
@@ -4458,6 +4460,7 @@ CleanGiProducerResult CleanGiMakeShadedFirstIndirectCandidate(RAB_Surface second
     candidate.hitNormal = secondarySurface.shadingNormal;
     candidate.materialAlbedo = secondarySurface.material.diffuseAlbedo;
     candidate.materialOpacity = secondarySurface.material.opacity;
+    candidate.sourcePdf = sourcePdf;
     return candidate;
 }
 
@@ -4480,7 +4483,8 @@ void CleanGiStoreFirstIndirectTraceCandidateForRawGiSample(
     float3 hitNormal,
     float status)
 {
-    CleanRestirGiProducerHitPosition[pixel] = float4(hitPosition, candidateSurface.valid != 0u ? 1.0 : 0.0);
+    const float sourcePdf = candidateSurface.valid != 0u ? max(candidateSurface.sourcePdf, 0.0) : 0.0;
+    CleanRestirGiProducerHitPosition[pixel] = float4(hitPosition, sourcePdf);
     CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, status);
 }
 
@@ -4553,6 +4557,7 @@ bool CleanGiBuildFirstIndirectTraceCandidate(
 CleanGiProducerResult CleanGiShadeFirstIndirectSurface(
     RAB_Surface secondarySurface,
     bool primarySampledSpecular,
+    float sourcePdf,
     uint shadeMode,
     inout RTXDI_RandomSamplerState rng)
 {
@@ -4565,7 +4570,7 @@ CleanGiProducerResult CleanGiShadeFirstIndirectSurface(
     {
         radiance = CleanGiShadeProducerSurface(secondarySurface, primarySampledSpecular, rng);
     }
-    return CleanGiMakeShadedFirstIndirectCandidate(secondarySurface, radiance);
+    return CleanGiMakeShadedFirstIndirectCandidate(secondarySurface, radiance, sourcePdf);
 }
 
 CleanGiProducerResult CleanGiShadeFirstIndirectTraceCandidate(
@@ -4587,6 +4592,7 @@ CleanGiProducerResult CleanGiShadeFirstIndirectTraceCandidate(
     return CleanGiShadeFirstIndirectSurface(
         CleanGiUnpackProducerSurface(traceCandidate),
         traceCandidate.primarySampledSpecular != 0u,
+        traceCandidate.sourcePdf,
         shadeMode,
         rng);
 }
@@ -4630,6 +4636,7 @@ CleanGiProducerResult CleanGiTraceProducerRayWithShadeMode(
     result = CleanGiShadeFirstIndirectSurface(
         secondarySurface,
         PathTraceFirstIndirectCandidateRaySampleIsSpecular(raySample),
+        raySample.sourcePdf,
         shadeMode,
         rng);
     if (result.valid == 0u)
@@ -5079,7 +5086,7 @@ void CleanGiMergeProducerSeedIntoInitPage(
     CleanGiProducerResult producer,
     float randomValue)
 {
-    if (producer.valid == 0u || !RAB_IsSurfaceValid(surface) || !CleanGiAllFinite3(producer.radiance))
+    if (producer.valid == 0u || producer.sourcePdf <= 1.0e-6 || !RAB_IsSurfaceValid(surface) || !CleanGiAllFinite3(producer.radiance))
     {
         return;
     }
@@ -5088,7 +5095,7 @@ void CleanGiMergeProducerSeedIntoInitPage(
         producer.hitPosition,
         CleanGiSafeNormalize(producer.hitNormal, float3(0.0, 0.0, 1.0)),
         max(producer.radiance, float3(0.0, 0.0, 0.0)),
-        1.0);
+        producer.sourcePdf);
     const float targetPdf = RemixRAB_GetGISampleTargetPdfForSurface(sample.position, sample.radiance, surface);
     if (targetPdf <= 0.0)
     {
@@ -5106,7 +5113,7 @@ void CleanGiMergePackedSpecularSeedIntoInitPage(
     CleanGiProducerResult producer,
     float randomValue)
 {
-    if (producer.valid == 0u || receiver.valid == 0u || !CleanGiAllFinite3(producer.radiance))
+    if (producer.valid == 0u || producer.sourcePdf <= 1.0e-6 || receiver.valid == 0u || !CleanGiAllFinite3(producer.radiance))
     {
         return;
     }
@@ -5115,7 +5122,7 @@ void CleanGiMergePackedSpecularSeedIntoInitPage(
         producer.hitPosition,
         CleanGiSafeNormalize(producer.hitNormal, float3(0.0, 0.0, 1.0)),
         max(producer.radiance, float3(0.0, 0.0, 0.0)),
-        1.0);
+        producer.sourcePdf);
     const float targetPdf = CleanGiSpecularSeedReceiverTargetPdf(receiver, sample.position, sample.radiance);
     if (targetPdf <= 0.0)
     {
@@ -5766,6 +5773,7 @@ void FirstIndirectSimpleRayGen()
             producer = CleanGiShadeFirstIndirectSurface(
                 secondarySurface,
                 PathTraceFirstIndirectCandidateRaySampleIsSpecular(raySample),
+                raySample.sourcePdf,
                 CLEAN_GI_FIRST_INDIRECT_SHADE_DEFAULT_ONE_SAMPLE,
                 rng);
         }

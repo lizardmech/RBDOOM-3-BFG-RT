@@ -458,12 +458,13 @@ bool PathTraceCleanRoomNeeCacheStreamProviderIntoReservoir(
         return false;
     }
 
+    const float2 lightUv = PathTraceCleanRoomNeeCacheRandomLightUv(rng);
     return PathTraceCleanRoomNeeCacheStreamLightIntoReservoir(
         reservoir,
         rng,
         surface,
         selectedDenseRluIndex,
-        PathTraceCleanRoomNeeCacheRandomLightUv(rng),
+        lightUv,
         sourceSelectionPdf);
 }
 
