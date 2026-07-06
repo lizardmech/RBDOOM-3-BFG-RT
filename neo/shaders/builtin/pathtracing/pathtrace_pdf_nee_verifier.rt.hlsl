@@ -1786,6 +1786,9 @@ bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
 float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload firstPayload);
 uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue);
 
+#define RB_PATH_TRACE_OPAQUE_DIRECT_ENABLE_OPENPBR 1
+#define RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE 3
+
 #include "pathtrace_emissive_sampling.hlsli"
 #include "pathtrace_smoke_rab_environment_stub.hlsli"
 
@@ -4535,8 +4538,10 @@ float4 EvaluateRestirPTTracedReflectionFromSurface(RAB_Surface surface, uint2 pi
         bounceSeed ^ 0x7feb352du,
         PathTraceIntegratorSecondaryNeeMode(),
         PathTraceIntegratorSecondaryAnalyticNeeMode());
-    const float3 hitPreview = RestirPTGiFallback(hitSurface) + RestirPTGiToneMapPreview(direct + hitSurface.material.emissiveRadiance);
-    return float4(saturate(hitPreview * reflectionWeight), 1.0);
+    const float3 reflectedRadiance =
+        max(direct + hitSurface.material.emissiveRadiance, float3(0.0, 0.0, 0.0)) *
+        reflectionWeight;
+    return float4(RestirPTGiSanitizeContribution(reflectedRadiance), 1.0);
 }
 #endif
 

@@ -251,6 +251,22 @@ float PathTraceCleanRtxdiDiReflectionTraceVisibility(RAB_Surface surface, float3
     return shadowPayload.value == 0u ? 1.0 : 0.0;
 }
 
+float PathTraceCleanRtxdiDiReflectionSecondaryNeeMisWeight(RAB_Surface surface, RAB_LightSample lightSample, float3 lightDir)
+{
+    if (!RAB_IsReplayableLightSample(lightSample) || lightSample.solidAnglePdf <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float scatterPdf = RAB_GetSurfaceBrdfPdf(surface, lightDir);
+    if (scatterPdf <= 0.0)
+    {
+        return 1.0;
+    }
+
+    return lightSample.solidAnglePdf / max(lightSample.solidAnglePdf + scatterPdf, 1.0e-6);
+}
+
 bool PathTraceCleanRtxdiDiAccumulateReflectionAnalyticLight(
     inout float3 radiance,
     RAB_Surface hitSurface,
@@ -295,8 +311,16 @@ bool PathTraceCleanRtxdiDiAccumulateReflectionAnalyticLight(
         return false;
     }
 
+    const float misWeight =
+        PathTraceCleanRtxdiDiReflectionSecondaryNeeMisWeight(hitSurface, lightSample, lightDir);
+    if (misWeight <= 0.0)
+    {
+        return false;
+    }
+
     radiance += brdf * lightSample.radiance * ndotl * visibility /
-        max(sourcePdf * lightSample.solidAnglePdf, 1.0e-6);
+        max(sourcePdf * lightSample.solidAnglePdf, 1.0e-6) *
+        misWeight;
     return true;
 }
 

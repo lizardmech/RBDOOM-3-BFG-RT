@@ -1489,6 +1489,26 @@ struct CleanGiIndirectLobeResult
     float hitDistance;
 };
 
+float3 CleanGiFresnelSchlick(float3 f0, float cosine)
+{
+    const float x = 1.0 - saturate(cosine);
+    const float x2 = x * x;
+    const float x5 = x2 * x2 * x;
+    return saturate(f0) + (float3(1.0, 1.0, 1.0) - saturate(f0)) * x5;
+}
+
+float CleanGiSmithG1(float noV, float roughness)
+{
+    const float a = max(saturate(roughness) * saturate(roughness), 1.0e-3);
+    const float noV2 = noV * noV;
+    if (noV2 <= 0.0)
+    {
+        return 0.0;
+    }
+    const float tan2 = max(0.0, (1.0 - noV2) / noV2);
+    return 2.0 / (1.0 + sqrt(1.0 + a * a * tan2));
+}
+
 float3 CleanGiEvaluateIndirectSpecularLobe(RAB_Surface surface, float3 sampleDir, float3 incomingRadiance)
 {
     const float3 specularF0 = max(GetSpecularF0(surface.material), float3(0.0, 0.0, 0.0));
@@ -1520,20 +1540,17 @@ float3 CleanGiEvaluateIndirectSpecularLobe(RAB_Surface surface, float3 sampleDir
         return float3(0.0, 0.0, 0.0);
     }
 
-    if (CleanGiToyFakePBRSpecularEnabled())
-    {
-        const float roughness = max(saturate(GetRoughness(surface.material)), 0.04);
-        const float rr = roughness * roughness;
-        const float rrrr = max(rr * rr, 1.0e-4);
-        const float D = max((ndoth * ndoth) * (rrrr - 1.0) + 1.0, 1.0e-4);
-        const float VFapprox = max((ldotH * ldotH) * (roughness + 0.5), 1.0e-4);
-        const float specularTerm = (rrrr / (4.0 * D * D * VFapprox)) * ndotl;
-        const float3 reflected = specularF0 * max(incomingRadiance, float3(0.0, 0.0, 0.0)) * specularTerm;
-        return CleanGiAllFinite3(reflected) ? reflected : float3(0.0, 0.0, 0.0);
-    }
-
-    const float specularTerm = pow(ndoth, 32.0);
-    const float3 reflected = specularF0 * max(incomingRadiance, float3(0.0, 0.0, 0.0)) * specularTerm;
+    const float roughness = max(saturate(GetRoughness(surface.material)), 0.035);
+    const float alpha = max(roughness * roughness, 1.0e-3);
+    const float alphaSquared = alpha * alpha;
+    const float denom = max(ndoth * ndoth * (alphaSquared - 1.0) + 1.0, 1.0e-4);
+    const float distribution = alphaSquared / max(RTXDI_PI * denom * denom, 1.0e-6);
+    const float geometry = CleanGiSmithG1(ndotl, roughness) * CleanGiSmithG1(ndotv, roughness);
+    const float3 fresnel = CleanGiFresnelSchlick(specularF0, ldotH);
+    const float3 reflected =
+        fresnel *
+        max(incomingRadiance, float3(0.0, 0.0, 0.0)) *
+        (distribution * geometry * ndotl / max(4.0 * ndotl * ndotv, 1.0e-5));
     return CleanGiAllFinite3(reflected) ? reflected : float3(0.0, 0.0, 0.0);
 }
 
@@ -1558,7 +1575,11 @@ CleanGiIndirectLobeResult CleanGiEvaluateIndirectLobesSplit(RAB_Surface surface,
     }
 
     const float3 safeRadiance = max(incomingRadiance, float3(0.0, 0.0, 0.0));
-    result.diffuse = GetDiffuseAlbedo(surface.material) * safeRadiance * (ndotl / RTXDI_PI);
+    const float3 viewDir = CleanGiSafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
+    const float3 halfVector = CleanGiSafeNormalize(sampleDir + viewDir, normal);
+    const float3 fresnel = CleanGiFresnelSchlick(max(GetSpecularF0(surface.material), float3(0.0, 0.0, 0.0)), saturate(dot(viewDir, halfVector)));
+    const float diffuseWeight = saturate(1.0 - max(max(fresnel.r, fresnel.g), fresnel.b));
+    result.diffuse = GetDiffuseAlbedo(surface.material) * safeRadiance * (diffuseWeight * ndotl / RTXDI_PI);
     result.specular = CleanGiEvaluateIndirectSpecularLobe(surface, sampleDir, safeRadiance);
     if (!CleanGiAllFinite3(result.diffuse))
     {

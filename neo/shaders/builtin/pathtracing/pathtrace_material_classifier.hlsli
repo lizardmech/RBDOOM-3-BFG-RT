@@ -201,7 +201,9 @@ void SmokeApplyMaterialClassifierBsdfInternal(
     {
         roughness = saturate(classifiedRoughness);
     }
+    const float classifiedMetallic = saturate(SmokeMatClassMetallic(material));
     specularF0 = SmokeMatClassMetallicF0(material, albedo);
+    albedo *= 1.0 - classifiedMetallic;
 }
 
 void SmokeApplyMaterialClassifierBsdfWithSpecularTexel(

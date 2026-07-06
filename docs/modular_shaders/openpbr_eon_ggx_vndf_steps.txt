@@ -1,0 +1,906 @@
+OpenPBR EON + GGX Smith VNDF Implementation Steps
+=================================================
+
+Purpose
+-------
+
+This document is a worker handoff for adding a small OpenPBR-derived opaque
+shading slice to rbdoom:
+
+    EON diffuse evaluation
+    GGX Smith VNDF specular evaluation
+    GGX Smith VNDF specular sampling/pdf
+    optional table-based microfacet multiple-scattering compensation
+
+It is not a handoff for importing the whole OpenPBR BSDF. The target is a
+controlled conventional-shading upgrade that can live behind the existing
+rbdoom material adapter seam without making every DI/GI/PT consumer learn a
+different material model.
+
+
+Source Roots
+------------
+
+OpenPBR reference checkout:
+
+    E:/prog/references/openpbr-bsdf-main
+
+Relevant OpenPBR files:
+
+    openpbr.h
+        Public include that pulls the whole implementation together.
+
+    openpbr_resolved_inputs.h
+        Full OpenPBR material input shape. Do not mirror this whole struct into
+        rbdoom primary-surface records.
+
+    impl/openpbr_diffuse_lobe.h
+        EON diffuse BRDF and the wrapper that applies specular energy
+        compensation to diffuse.
+
+    impl/openpbr_lobe_utils.h
+        Low-level GGX, Smith, VNDF, Fresnel, thin-wall Fresnel, basis, and
+        utility math.
+
+    impl/openpbr_vndf_microfacet_distribution.h
+        Small distribution wrapper around anisotropic GGX Smith VNDF sampling,
+        GGX D evaluation, Smith G1/G2 evaluation, and isotropic-alpha access.
+
+    impl/openpbr_comprehensive_microfacet_lobe.h
+        Main single-scatter GGX reflection/transmission lobe. This is the best
+        reference for evaluate/sample/pdf consistency.
+
+    impl/openpbr_microfacet_multiple_scattering_lobes.h
+        Separate dielectric and metal microfacet multiple-scattering lobes.
+        These are compensation lobes driven by energy tables. They are not
+        explicit recursive GGX random walks.
+
+    impl/openpbr_microfacet_multiple_scattering_data.h
+        Lookup helpers for the energy-complement tables.
+
+    impl/data/openpbr_energy_arrays.h
+    impl/data/openpbr_*_data.h
+        Array-backed energy tables. These are useful if the first rbdoom slice
+        includes multiple-scattering compensation.
+
+License note:
+
+    The OpenPBR files inspected in this tree carry Apache-2.0 headers. Code
+    reuse is allowed under that license, but direct copied source must retain
+    the required notice. Prefer an rbdoom-owned HLSL rewrite of the small
+    formulas unless exact source reuse is deliberately chosen.
+
+
+Important Interpretation
+------------------------
+
+OpenPBR's GGX setup has two pieces:
+
+    1. The primary specular lobe is GGX with Smith visible-normal sampling.
+
+       It samples a GGX VNDF half-vector, reflects or transmits according to
+       Fresnel/coefficient probabilities, evaluates GGX D and Smith G terms,
+       and returns sample weight/pdf.
+
+    2. Microfacet multiple scattering is represented by extra compensation
+       lobes.
+
+       Those lobes use precomputed energy-complement tables and broad
+       hemisphere-style sampling. They do not sample a sequence of explicit
+       GGX micro-bounces. Do not describe this as "multi-bounce GGX VNDF" in
+       rbdoom docs or comments. It is table-based microfacet
+       multiple-scattering compensation layered alongside the single-scatter
+       GGX VNDF lobe.
+
+For the first rbdoom implementation, treat this as:
+
+    single-scatter GGX Smith VNDF
+    plus optional table-based multiscatter energy compensation
+
+
+rbdoom Landing Policy
+---------------------
+
+Do not start by wiring OpenPBR into every consumer.
+
+The current safest owner for conventional opaque direct BRDF behavior is:
+
+    neo/shaders/builtin/pathtracing/PathTraceOpaqueDirectMaterial.hlsli
+
+Current RAB consumers already route through:
+
+    SampleOpaqueDirectBrdf(...)
+    EvaluateOpaqueDirectPdf(...)
+    EvaluateOpaqueDirectBrdf(...)
+    EvaluateOpaqueDirectBrdfOverPdf(...)
+
+and:
+
+    RAB_EvaluateSurfaceBrdf(...)
+    RAB_GetSurfaceBrdfPdf(...)
+    RAB_GetSurfaceBrdfSample(...)
+
+via:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Brdf.hlsli
+    neo/shaders/builtin/pathtracing/PathTraceMaterialLightTarget.hlsli
+
+Clean DI currently also has a private PBR-ish direct BRDF in:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+        pathtrace_clean_rtxdi_di_material_feature_queries.hlsli
+
+Do not make clean DI part of the first OpenPBR/EON/GGX consolidation. The clean
+DI sentinel shader is already near the SPIR-V ID budget limit, and broadening
+shared includes or generic material-feature loading can overflow it before the
+RAB/path-tracing path is even validated. For the first slice, let normal
+RAB/path-tracing consumers use the shared opaque adapter and leave clean DI's
+private helper alone.
+
+Clean DI consolidation is a later split task:
+
+    split the cheap sentinel/debug route away from heavier material code
+    prove the split builds without SPIR-V ID overflow
+    then move one clean DI consumer at a time to the shared opaque BRDF
+
+Until that split is accepted, clean DI is explicitly allowed to keep its private
+PBR-ish direct helper. That divergence is temporary and should be documented,
+not "fixed" by forcing the sentinel to include the new BRDF implementation.
+
+
+Hard Boundaries
+---------------
+
+Do not:
+
+    import the full OpenPBR resolved-input model into primary-surface history
+    add OpenPBR branches directly inside DI/GI reservoir math
+    make unsupported glass/transmission run through opaque BRDF gates
+    reuse glass parameter lanes for opaque EON/GGX controls
+    overload toyPathInfo or other debug lanes for BRDF parameters
+    claim microfacet multiple scattering is VNDF random-walk sampling
+    add Slang build assumptions unless the build lane is actually implemented
+    change target PDFs without validating BRDF/pdf/sample consistency
+
+Do:
+
+    keep the first slice opaque-only
+    keep RAB/path-tracing consumers behind material adapter functions
+    keep clean DI out of the first slice until the sentinel split is proven
+    define a compact rbdoom material parameter shape
+    implement evaluate/pdf/sample together
+    preserve a Lambert fallback/debug path for A/B validation
+    gate the new BRDF behind an explicit cvar or material-feature mode
+
+
+Phase 0: Scope And Build Decision
+---------------------------------
+
+Goal:
+
+    Decide whether this task is an rbdoom-owned HLSL rewrite or direct
+    OpenPBR source reuse.
+
+Recommended choice:
+
+    rbdoom-owned HLSL rewrite of the EON and GGX Smith VNDF formulas, with
+    OpenPBR cited as the reference.
+
+Rationale:
+
+    OpenPBR is a full portable BSDF framework with macro abstraction, aggregate
+    lobes, specialization constants, volume helpers, thin film, dispersion,
+    transmission, and energy tables. rbdoom currently needs a smaller opaque
+    direct/path BRDF slice. A local HLSL include will be easier to review,
+    compile, and debug.
+
+Expected write shape:
+
+    new shader include under neo/shaders/builtin/pathtracing/
+    small edits to PathTraceOpaqueDirectMaterial.hlsli
+    optional CVar/constant route only if the existing controls are insufficient
+    docs update naming the validation modes
+
+Do not add .slang files for this first slice unless the task explicitly opens
+Slang build participation. Slang files can coexist in the tree, but they are
+not active until CMake/toolchain packaging supports them.
+
+
+Phase 1: Define The rbdoom Opaque BRDF Contract
+-----------------------------------------------
+
+Goal:
+
+    Establish one shared interface for conventional opaque shading before
+    adding OpenPBR-derived math.
+
+Required functions:
+
+    bool SampleOpaqueDirectBrdf(RAB_Surface surface, inout rng, out float3 wi)
+    float EvaluateOpaqueDirectPdf(RAB_Surface surface, float3 wi)
+    float3 EvaluateOpaqueDirectBrdf(RAB_Surface surface, float3 wi, float3 wo)
+    float3 EvaluateOpaqueDirectBrdfOverPdf(RAB_Surface surface, float3 wi, float3 wo)
+
+Optional path-integrator functions:
+
+    bool SamplePathOpaqueMaterialEvent(...)
+    float EvaluatePathOpaqueMaterialPdf(...)
+    float3 EvaluatePathOpaqueMaterialBrdf(...)
+
+Material inputs available today:
+
+    surface.material.diffuseAlbedo
+    surface.material.specularF0
+    surface.material.roughness
+    surface.material.opacity
+    surface.material.flags
+    surface.geometryNormal
+    surface.shadingNormal
+    surface.viewDir
+
+Initial derived parameters:
+
+    baseColor = saturate(diffuseAlbedo)
+    roughness = clamp(surface roughness, minRoughness, 1)
+    alpha = roughness * roughness
+    specularF0 = saturate(specularF0)
+    metalness = 0 unless a reliable material fact exists
+    diffuseWeight = 1 - maxComponent(specularF0) for a conservative first pass
+
+Acceptance:
+
+    All existing RAB calls still enter the shared functions above.
+    Clean DI wrappers call the same shared BRDF, or are documented as a
+    temporary A/B route.
+
+
+Phase 2: Add A Local Math Include
+---------------------------------
+
+Goal:
+
+    Create a compact include for the OpenPBR-derived opaque math.
+
+Suggested file:
+
+    neo/shaders/builtin/pathtracing/PathTraceOpenPbrEonGgxVndf.hlsli
+
+Suggested structure:
+
+    constants:
+        PI
+        INV_PI
+        MIN_ROUGHNESS
+        MIN_ALPHA
+        EPSILON
+
+    scalar/vector helpers:
+        safe_rcp
+        safe_sqrt
+        safe_normalize
+        pow5
+        max_component
+        luminance if needed
+
+    frame helpers:
+        build_tangent_frame(normal)
+        world_to_local(frame, v)
+        local_to_world(frame, v)
+
+    EON diffuse:
+        EonApproxDirectionalAlbedo(mu, roughness)
+        EonAverageAlbedo(roughness)
+        EvaluateEonDiffuse(rho, roughness, wiLocal, woLocal)
+
+    GGX Smith VNDF:
+        EvalAnisoGgxD(hLocal, alphaXY)
+        EvalAnisoSmithG1(vLocal, alphaXY)
+        EvalAnisoSmithG2(wiLocal, woLocal, alphaXY)
+        SampleAnisoGgxSmithVndf(viewLocal, alphaXY, rand2)
+
+    BRDF assembly:
+        EvaluateOpaqueOpenPbrSlice(surface, wi, wo)
+        PdfOpaqueOpenPbrSlice(surface, wi)
+        SampleOpaqueOpenPbrSlice(surface, rng, out wi, out pdf, out weight)
+
+Keep this include independent of cleanroom_rtxdi files. Clean DI can include it
+through the shared opaque material adapter later.
+
+
+Phase 3: Port EON Diffuse Evaluation
+------------------------------------
+
+OpenPBR source:
+
+    impl/openpbr_diffuse_lobe.h
+
+Concept:
+
+    EON is an energy-preserving Fujii Oren-Nayar diffuse model. It evaluates a
+    single-scatter rough diffuse term and adds a diffuse multiscatter term based
+    on directional and average albedo approximations.
+
+Inputs:
+
+    rho:
+        diffuse single-scattering albedo, usually rbdoom diffuse/base color
+
+    roughness:
+        diffuse roughness in [0, 1]. For a first slice, reuse material roughness.
+
+    wiLocal:
+        incident/light direction in local +Z frame, pointing away from surface
+
+    woLocal:
+        outgoing/view direction in local +Z frame, pointing away from surface
+
+Implementation notes:
+
+    mu_i = wiLocal.z
+    mu_o = woLocal.z
+    s = dot(wiLocal, woLocal) - mu_i * mu_o
+    s_over_t = s / max(mu_i, mu_o) when s is positive, otherwise s
+    A = 1 / (1 + FON_A * roughness)
+    singleScatter = rho / pi * A * (1 + roughness * s_over_t)
+    compute directional albedos for mu_i and mu_o
+    compute average albedo
+    compute diffuse multiscatter from rho^2 and the albedo complements
+    result = singleScatter + multiscatter
+
+Practical first pass:
+
+    Use OpenPBR's fast approximate directional albedo path, not the exact path.
+    Keep cosine-hemisphere sampling for diffuse until a better EON sampler is
+    deliberately added. Direct-light evaluation can still use EON while the
+    sampling PDF remains explicit.
+
+Validation:
+
+    roughness 0 should be close to Lambert
+    high roughness should not darken as much as old Lambert/naive Oren-Nayar
+    white diffuse should not exceed plausible energy under cosine integration
+
+
+Phase 4: Port GGX Smith VNDF Evaluation
+---------------------------------------
+
+OpenPBR sources:
+
+    impl/openpbr_lobe_utils.h
+    impl/openpbr_vndf_microfacet_distribution.h
+    impl/openpbr_comprehensive_microfacet_lobe.h
+
+Concept:
+
+    The main specular lobe is single-scatter GGX with Smith masking-shadowing.
+    OpenPBR wraps the distribution so lobes can call:
+
+        sample visible GGX normal
+        evaluate GGX D
+        evaluate Smith G1
+        evaluate Smith G2
+        retrieve isotropic alpha for energy-compensation tables
+
+Initial rbdoom scope:
+
+    Start isotropic:
+
+        alphaX = alphaY = max(roughness * roughness, MIN_ALPHA)
+
+    Add anisotropy later only if rbdoom has a reliable anisotropy parameter and
+    tangent frame.
+
+Evaluation shape:
+
+    normal = face-forwarded shading normal
+    wo = view direction, pointing away from surface
+    wi = light/sample direction, pointing away from surface
+    if dot(normal, wi) <= 0 or dot(normal, wo) <= 0, return zero
+    halfVector = normalize(wi + wo)
+    D = GGX_D(halfVector, alpha)
+    G = Smith_G2(wi, wo, alpha)
+    F = Fresnel(specularF0, dot(wi or wo, halfVector))
+    specular = D * G * F / (4 * NoL * NoV)
+
+Use consistent direction naming. rbdoom's current direct-light functions pass
+`wi` as light direction and `wo` as view direction, both away from the surface.
+
+Do not mix the OpenPBR sample weight formula directly into the eval function.
+OpenPBR's sampling function returns BSDF*cos/pdf weight. rbdoom's
+EvaluateOpaqueDirectBrdf returns BRDF value. Keep those contracts separate.
+
+
+Phase 5: Port GGX Smith VNDF Sampling And Pdf
+---------------------------------------------
+
+OpenPBR sources:
+
+    impl/openpbr_lobe_utils.h
+    impl/openpbr_vndf_microfacet_distribution.h
+    impl/openpbr_comprehensive_microfacet_lobe.h
+
+VNDF sampling shape:
+
+    transform view direction into local frame
+    stretch view by alphaX/alphaY
+    build basis around stretched view
+    sample disk
+    warp projected disk point onto visible hemisphere
+    unstretch sampled normal
+    transform half-vector back to world
+    reflect view about half-vector to get wi
+
+For isotropic first pass:
+
+    alphaX = alphaY = alpha
+
+Pdf for reflection:
+
+    OpenPBR's reflection pdf after sampling the visible normal is:
+
+        pdf = D * G1(view) * dot(view, halfVector)
+              / (4 * dot(light, halfVector) * dot(view, normal))
+
+    If a Fresnel reflection probability is introduced as a lobe-selection
+    probability, multiply by that probability. For an opaque-only first pass
+    with no transmission lobe selection, keep probability at 1.0.
+
+Sampling output:
+
+    For path tracing, return:
+
+        wi
+        pdf
+        weight = BRDF(wi, wo) * NoL / pdf
+
+    For ReSTIR/RAB direct-light importance sampling, make sure the existing
+    caller expects the same contract before changing SampleOpaqueDirectBrdf.
+
+Important:
+
+    The old Lambert sampler is cosine hemisphere. If SampleOpaqueDirectBrdf is
+    switched to VNDF-only, diffuse surfaces may be sampled poorly. For a first
+    conventional BRDF upgrade, consider a two-lobe sampler:
+
+        choose diffuse or specular based on simple lobe weights
+        diffuse: cosine hemisphere, pdf = NoL / pi
+        specular: GGX VNDF, pdf as above
+        final pdf = diffuseWeight * diffusePdf + specularWeight * specularPdf
+        evaluation = EON diffuse + GGX specular
+
+    That keeps pdf/eval consistent for mixed diffuse/specular materials.
+
+
+Phase 6: Add Optional Microfacet Multiple-Scattering Compensation
+-----------------------------------------------------------------
+
+OpenPBR sources:
+
+    impl/openpbr_microfacet_multiple_scattering_lobes.h
+    impl/openpbr_microfacet_multiple_scattering_data.h
+    impl/data/openpbr_energy_arrays.h
+
+Concept:
+
+    OpenPBR does not do explicit recursive GGX micro-bounce sampling for this.
+    It adds separate dielectric and metal MMS lobes using energy-complement
+    lookup tables. These lobes approximate energy that the single-scatter GGX
+    lobe loses, especially at higher roughness.
+
+First rbdoom options:
+
+    Option A: Defer MMS.
+
+        Implement EON + single-scatter GGX VNDF first. This is easier to
+        validate and avoids table plumbing.
+
+    Option B: Add scalar compensation only.
+
+        Use an approximate energy compensation factor for rough dielectrics or
+        metals without adding full OpenPBR tables. This is less accurate but
+        small.
+
+    Option C: Add OpenPBR array-backed tables.
+
+        Port the table data and lookup functions. This gives the closest match
+        to OpenPBR's energy behavior but adds static data and interpolation
+        code to shader compilation.
+
+Recommended sequence:
+
+    Start with Option A.
+    Add Option C only after single-scatter evaluate/sample/pdf validation
+    passes and shader size is measured.
+
+If adding table-based MMS:
+
+    dielectric MMS needs:
+        IOR
+        alpha
+        view NoV
+        reflection ratio table
+        ideal dielectric energy complement
+        ideal dielectric average energy complement
+
+    metal MMS needs:
+        alpha
+        view NoV
+        ideal metal energy complement
+        ideal metal average energy complement
+
+    opaque diffuse energy compensation needs:
+        opaque dielectric energy complement
+        opaque dielectric average energy complement
+
+Sampling note:
+
+    OpenPBR's MMS lobe samplers are broad hemisphere samplers with simple
+    1/(2*pi)-style PDFs, not VNDF samplers. Keep that distinction in comments.
+
+
+Phase 7: Material Parameter Mapping
+-----------------------------------
+
+Do not mirror all OpenPBR inputs.
+
+Initial rbdoom parameter record:
+
+    baseColor or diffuseAlbedo:
+        from RAB material diffuseAlbedo
+
+    roughness:
+        from RAB material roughness
+
+    specularF0:
+        from RAB material specularF0
+
+    diffuseWeight:
+        default 1 for dielectric-like surfaces, reduced by specular/metal
+
+    specularWeight:
+        default 1 when specularF0 has energy
+
+    metalness:
+        default 0 until a material fact exists
+
+    ior:
+        default 1.5 for dielectric compensation if F0-to-IOR is not reliable
+
+    anisotropy:
+        default 0
+
+    mode flags:
+        enableEon
+        enableGgxVndf
+        enableMms
+        debugMode
+
+If using `PathTraceMaterialFeatureParameterRecord`, define a new opaque PBR
+layout. Do not reuse object-glass lanes.
+
+Possible opaque PBR layout:
+
+    params0.x = mode flags as float bits only if the codebase already accepts
+                that pattern; otherwise use integer constants elsewhere
+    params0.y = diffuse roughness override
+    params0.z = specular roughness override
+    params0.w = anisotropy
+
+    params1.x = dielectric IOR
+    params1.y = diffuse weight
+    params1.z = specular weight
+    params1.w = metalness
+
+Prefer deriving baseColor/specularF0 from existing material table fields rather
+than duplicating them into the parameter record.
+
+
+Phase 8: Integrate Behind The Shared Opaque Adapter
+---------------------------------------------------
+
+Implementation order:
+
+1. Add the new math include with no call-site changes.
+
+2. Add an internal helper in PathTraceOpaqueDirectMaterial.hlsli:
+
+       EvaluateOpaqueDirectBrdfLambert(...)
+       EvaluateOpaqueDirectBrdfOpenPbrSlice(...)
+
+3. Add a compile-time or cvar-driven selector:
+
+       mode 0 = existing Lambert
+       mode 1 = EON diffuse only
+       mode 2 = EON + GGX eval, cosine/diffuse sampling
+       mode 3 = EON + GGX eval + mixed diffuse/VNDF sampling
+       mode 4 = mode 3 + MMS compensation
+
+4. Keep `EvaluateOpaqueDirectPdf` consistent with the sampler.
+
+5. Update `EvaluateOpaqueDirectBrdfOverPdf` only after eval/pdf are correct.
+
+6. Do not include clean DI from this phase. Its private PBR helper remains in
+   place until the sentinel split / ID-budget proof is complete.
+
+7. Only after the path/RAB contract is stable, decide whether clean DI target
+   PDFs should use the exact same shared target helpers.
+
+Do not update every ReSTIR file directly. They should already reach the shared
+RAB/material helpers.
+
+
+Phase 9: Validation Gates
+-------------------------
+
+Build validation:
+
+    shader compile succeeds
+    no SPIR-V ID overflow
+    no new external include dependency leaks into generated build files
+    if tables are added, shader compile time and blob size are recorded
+
+Unit-style shader validation:
+
+    Lambert mode still matches baseline
+    EON at roughness 0 is close to Lambert
+    GGX eval returns zero below the geometric hemisphere
+    GGX pdf is positive only for valid sampled directions
+    sampled VNDF directions have positive NoL and valid pdf
+    BRDF*cos/pdf weight is finite
+    no NaN/Inf survives into output
+
+Runtime validation:
+
+    opaque baseline scene with mode 0 unchanged
+    mode 1 shows diffuse roughness change without specular fireflies
+    mode 2 shows plausible specular highlights from existing F0/roughness
+    mode 3 does not destabilize temporal/spatial ReSTIR immediately
+    mode 4, if enabled, increases rough-specular energy without overbright
+        white furnace behavior
+
+Consumer validation:
+
+    path tracer sampling and direct-light target pdf agree about the BRDF
+    clean DI target pdf remains on its existing private path or is explicitly
+        gated behind a later sentinel-split proof
+    clean GI still skips unsupported materials and does not learn glass
+    glass PSR remains a separate transmission path
+
+Debug/A-B controls:
+
+    a cvar or shader mode can return to old Lambert
+    a debug view can isolate diffuse, specular, pdf, or lobe selection
+    target pdf can be compared before/after for the same surface/light sample
+
+
+Failure Modes To Avoid
+----------------------
+
+F-01: VNDF eval/sample mismatch.
+
+    Symptom:
+        highlights look plausible, but path tracing or ReSTIR gets unstable.
+
+    Cause:
+        eval uses GGX, pdf still assumes cosine hemisphere or old Lambert.
+
+    Fix:
+        implement eval, sample, and pdf as one contract.
+
+
+F-02: Accidental clean DI sentinel overflow.
+
+    Symptom:
+        shader build fails with SPIR-V ID overflow after a seemingly small
+        shared BRDF or material-feature include change.
+
+    Cause:
+        the clean DI sentinel translation unit was forced to include the heavier
+        OpenPBR/GGX/material-feature implementation before it was split.
+
+    Fix:
+        keep clean DI private for this lane; split the sentinel/debug route
+        before consolidating clean DI with the shared opaque adapter.
+
+
+F-02B: Permanent two-owner BRDF drift.
+
+    Symptom:
+        path tracer/RAB and clean DI produce different shading for the same
+        opaque material after the OpenPBR lane is accepted.
+
+    Cause:
+        clean DI private PBR helper was left divergent without an explicit
+        follow-up split/consolidation task.
+
+    Fix:
+        treat clean DI consolidation as a gated follow-up, not as part of
+        OPGGX-01 through OPGGX-04.
+
+
+F-03: OpenPBR full import.
+
+    Symptom:
+        a worker adds resolved inputs, volumes, thin film, dispersion,
+        transmission, and energy tables in one change.
+
+    Cause:
+        OpenPBR was treated as a drop-in framework instead of a reference.
+
+    Fix:
+        keep this lane to opaque EON + GGX Smith VNDF first.
+
+
+F-04: MMS described incorrectly.
+
+    Symptom:
+        comments or docs say rbdoom has "multi-bounce GGX VNDF" after only
+        adding OpenPBR MMS compensation tables.
+
+    Cause:
+        microfacet multiple-scattering compensation was confused with explicit
+        multi-bounce VNDF sampling.
+
+    Fix:
+        call it table-based microfacet multiple-scattering compensation.
+
+
+F-05: Parameter lane collision.
+
+    Symptom:
+        glass changes when opaque BRDF controls are adjusted, or opaque PBR
+        changes when glass controls are adjusted.
+
+    Cause:
+        object-glass parameter lanes were reused for opaque PBR.
+
+    Fix:
+        define a separate opaque PBR material-feature parameter layout.
+
+
+Worker Task Sequence
+--------------------
+
+Task OPGGX-00: Read-Only Contract Map
+
+    Inspect:
+        PathTraceOpaqueDirectMaterial.hlsli
+        PathTraceMaterialLightTarget.hlsli
+        RtxdiBridge/RAB_Brdf.hlsli
+        RtxdiBridge/RAB_LightTarget.hlsli
+        cleanroom_rtxdi/pathtrace_clean_rtxdi_di_material_feature_queries.hlsli
+
+    Output:
+        exact list of consumers that call the shared opaque BRDF
+        exact list of clean DI private BRDF helpers
+        confirmation that clean DI is not part of OPGGX-01 through OPGGX-04
+        list of files that must not be widened before the sentinel split
+
+
+Task OPGGX-01: Add Math Include
+
+    Add:
+        PathTraceOpenPbrEonGgxVndf.hlsli
+
+    Include:
+        constants
+        frame helpers
+        EON eval
+        isotropic GGX eval
+        isotropic GGX VNDF sample
+        pdf helpers
+
+    Forbidden:
+        no call-site behavior change
+        no MMS tables
+        no transmission
+
+
+Task OPGGX-02: EON Eval Behind Adapter
+
+    Change:
+        EvaluateOpaqueDirectBrdf can select Lambert or EON diffuse.
+
+    Keep:
+        existing cosine sampling and pdf.
+
+    Validate:
+        roughness 0 close to Lambert
+        mode can be disabled instantly
+
+
+Task OPGGX-03: GGX Eval Behind Adapter
+
+    Change:
+        Add GGX specular evaluation to EON diffuse.
+
+    Keep:
+        sampling conservative if needed.
+
+    Validate:
+        F0/roughness produce visible but finite highlights
+        target pdf remains stable
+
+
+Task OPGGX-04: Mixed Diffuse/VNDF Sampling
+
+    Change:
+        Add lobe selection, VNDF sampling, mixed pdf.
+
+    Validate:
+        sample/pdf/eval consistency
+        no NaN/Inf
+        ReSTIR target weights do not explode
+
+
+Task OPGGX-05: Clean DI Sentinel Split Gate
+
+    Preconditions:
+        OPGGX-01 through OPGGX-04 accepted in the RAB/path-tracing path
+        no SPIR-V ID overflow in the normal shader set
+
+    Change:
+        Split the cheap clean DI sentinel/debug route away from heavier material
+        feature and BRDF implementation includes, or otherwise prove an
+        equivalent ID-budget reduction.
+
+    Forbidden:
+        do not make pathtrace_clean_rtxdi_di_material_feature_queries.hlsli
+        include the full OpenPBR/GGX implementation in this task unless the
+        split already builds.
+
+    Validate:
+        clean DI sentinel/debug views still render
+        pathtrace_clean_rtxdi_di_sentinel.rt.bin builds without ID overflow
+        glass PSR still routes separately
+
+
+Task OPGGX-06: Consolidate Clean DI Wrapper
+
+    Preconditions:
+        OPGGX-05 accepted
+        clean DI sentinel split / ID-budget proof is complete
+
+    Change:
+        Move one clean DI consumer at a time toward the shared opaque BRDF,
+        starting with eval-only target pdf. Do not add VNDF sampling or generic
+        material-feature table loading in the same step.
+
+    Validate:
+        clean DI view 16 still renders
+        target pdf debug views remain finite
+        glass PSR still routes separately
+
+
+Task OPGGX-07: Optional MMS Table Pass
+
+    Preconditions:
+        OPGGX-01 through OPGGX-04 accepted
+        if clean DI participates, OPGGX-05 and OPGGX-06 are also accepted
+        shader size/build risk understood
+
+    Change:
+        Add OpenPBR energy table lookup support or an explicitly documented
+        smaller compensation approximation.
+
+    Validate:
+        rough high-F0 materials recover energy without overbright instability
+        table data ownership/license notice recorded
+
+
+Acceptance Criteria
+-------------------
+
+The OpenPBR EON + GGX Smith VNDF slice is acceptable when:
+
+    old Lambert mode is still available
+    EON/GGX implementation lives behind the shared opaque material adapter
+    RAB/path-tracing consumers use that shared adapter
+    clean DI either remains explicitly gated on its private helper or has passed
+        the later sentinel split/consolidation tasks
+    eval/sample/pdf are internally consistent
+    unsupported materials still fail closed
+    glass/transmission PSR remains separate
+    optional MMS is documented as table-based compensation, not VNDF random walk
+    direct OpenPBR source reuse, if any, retains Apache-2.0 notice
+    validation names the exact cvars/modes and shader blobs tested
