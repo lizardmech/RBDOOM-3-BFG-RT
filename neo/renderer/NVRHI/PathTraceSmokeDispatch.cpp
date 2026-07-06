@@ -54,8 +54,34 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE = 1u << 20u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION = 1u << 21u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_DISTORTION = 1u << 22u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR = 1u << 23u;
+const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT = 9u;
+const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_MASK = 7u << RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT;
+const uint32_t CLEAN_RTXDI_DI_RESOLVE_BRDF_TARGET_ENABLE = 1u << 0u;
+const uint32_t CLEAN_RTXDI_DI_RESOLVE_BRDF_MODE_SHIFT = 8u;
+const uint32_t CLEAN_RTXDI_DI_RESOLVE_BRDF_MODE_MASK = 7u << CLEAN_RTXDI_DI_RESOLVE_BRDF_MODE_SHIFT;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
+
+uint32_t PathTraceOpenPbrBrdfModeValue()
+{
+    return static_cast<uint32_t>(idMath::ClampInt(0, 4, r_pathTracingOpenPbrBrdfMode.GetInteger()));
+}
+
+uint32_t PackPathTraceOpenPbrBrdfMode()
+{
+    const uint32_t mode = PathTraceOpenPbrBrdfModeValue();
+    return (mode << RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT) & RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_MASK;
+}
+
+uint32_t PackCleanRtxdiDiResolveBrdfTarget()
+{
+    const uint32_t enabled = r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() != 0
+        ? CLEAN_RTXDI_DI_RESOLVE_BRDF_TARGET_ENABLE
+        : 0u;
+    return enabled |
+        ((PathTraceOpenPbrBrdfModeValue() << CLEAN_RTXDI_DI_RESOLVE_BRDF_MODE_SHIFT) &
+            CLEAN_RTXDI_DI_RESOLVE_BRDF_MODE_MASK);
+}
 
 int CleanRtxdiDiTemporalBiasCorrectionValue()
 {
@@ -2600,7 +2626,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (r_pathTracingUseNormalMaps.GetInteger() != 0 ? 8u : 0u) |
                 (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u) |
                 (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (cleanRtxdiDiResolveView == 16 || cleanRtxdiDiPsrMaskView) ? 32u : 0u) |
-                (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (cleanRtxdiDiResolveView == 16 || cleanRtxdiDiMaterialClassifierProofView || cleanRtxdiDiPsrMaskView) ? 128u : 0u);
+                (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (cleanRtxdiDiResolveView == 16 || cleanRtxdiDiMaterialClassifierProofView || cleanRtxdiDiPsrMaskView) ? 128u : 0u) |
+                PackPathTraceOpenPbrBrdfMode();
             primarySurfaceConstants.textureInfo[3] = static_cast<float>(primarySurfaceTextureFlags);
             primarySurfaceConstants.safetyInfo[0] = static_cast<float>(BuildPathTraceSafetyDisableMask());
             primarySurfaceConstants.safetyInfo[1] = primarySurfaceConstants.textureInfo[0];
@@ -3160,7 +3187,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (r_pathTracingUseNormalMaps.GetInteger() != 0 ? 8u : 0u) |
                 (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u) |
                 (r_pathTracingUseEmissiveMaps.GetInteger() != 0 ? 32u : 0u) |
-                (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 ? 64u : 0u);
+                (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 ? 64u : 0u) |
+                PackPathTraceOpenPbrBrdfMode();
             pdfNeeProducerConstants.textureInfo[3] = static_cast<float>(pdfNeeTextureFlags);
             pdfNeeProducerConstants.emissiveInfo[0] = static_cast<float>(pdfNeeDisableEmissiveTriangleSampling ? 0 : m_smokeEmissiveTriangleCount);
             pdfNeeProducerConstants.emissiveInfo[1] = static_cast<float>(pdfNeeDisableEmissiveTriangleSampling ? 0 : m_smokeEmissiveStaticTriangleCount);
@@ -3776,7 +3804,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             ? cleanRtxdiDiView18Tile
             : idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()));
         cleanConstants.resolveVisibilityReuse = static_cast<uint32_t>(idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger()));
-        cleanConstants.resolveBrdfTarget = r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() != 0 ? 1u : 0u;
+        cleanConstants.resolveBrdfTarget = PackCleanRtxdiDiResolveBrdfTarget();
         cleanConstants.referenceRab = static_cast<uint32_t>(idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()));
         cleanConstants.rluCurrentLightCount = cleanRluRoute ? cleanRluCurrentLightCount : 0u;
         cleanConstants.rluPreviousLightCount = cleanRluRoute ? cleanRluPreviousLightCount : 0u;
@@ -5274,6 +5302,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         static_cast<uint64>(idMath::ClampInt(0, RT_SMOKE_MAX_DEBUG_LIGHTS, r_pathTracingToyLightTraceCap.GetInteger())));
     accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(lightSelectionMode));
     accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(r_pathTracingToyFakePBRSpecular.GetInteger() != 0 ? 1 : 0));
+    accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(idMath::ClampInt(0, 4, r_pathTracingOpenPbrBrdfMode.GetInteger())));
     accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(r_pathTracingToyAccumulation.GetInteger() != 0 ? 1 : 0));
     accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(safetyDisableMask));
     accumulationSignature = HashPathTraceIntegratorSettings(accumulationSignature, integratorSettings);
@@ -5504,7 +5533,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 57 || (integratorUsesSpecular && (debugMode == 18 || effectiveRestirPTMode || integratorDebugMode))) ? 16u : 0u) |
         (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || effectiveRestirPTMode || integratorDebugMode || cleanRtxdiDiRouteRequested) ? 32u : 0u) |
         (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 18 || debugMode == 20 || effectiveRestirPTMode || pdfNeeEmissiveVerifierRoute || cleanRtxdiDiRouteRequested) ? 64u : 0u) |
-        (toyFakePBRSpecularEnabled ? 128u : 0u);
+        (toyFakePBRSpecularEnabled ? 128u : 0u) |
+        PackPathTraceOpenPbrBrdfMode();
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     const bool previousHistoryViewValid =
         !disablePrimarySurfaceHistory &&

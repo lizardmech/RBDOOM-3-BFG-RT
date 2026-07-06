@@ -1589,6 +1589,7 @@ bool SmokePrimaryFilterDecalCompositeEnabled(uint debugMode)
 
 #define RB_PATH_TRACE_OPAQUE_DIRECT_ENABLE_OPENPBR 1
 #define RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE 4
+#define RB_PATH_TRACE_OPAQUE_DIRECT_RUNTIME_MODE ((((uint)TextureInfo.w) >> 9u) & 7u)
 
 #include "pathtrace_emissive_sampling.hlsli"
 #include "pathtrace_smoke_rab_environment_stub.hlsli"

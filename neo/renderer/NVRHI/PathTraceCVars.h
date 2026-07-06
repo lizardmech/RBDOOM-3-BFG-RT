@@ -206,6 +206,7 @@ extern idCVar r_pathTracingToyLightScale;
 extern idCVar r_pathTracingToyEmissiveScale;
 extern idCVar r_pathTracingToyLightTraceCap;
 extern idCVar r_pathTracingToyFakePBRSpecular;
+extern idCVar r_pathTracingOpenPbrBrdfMode;
 extern idCVar r_pathTracingToyAccumulation;
 extern idCVar r_pathTracingToyAccumMaxFrames;
 extern idCVar r_pathTracingSamplesPerPixel;

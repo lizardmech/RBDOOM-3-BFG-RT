@@ -112,6 +112,23 @@ float PathTraceCleanRtxdiDiMaterialSmithG1(float ndotx, float roughness)
     return ndotx / max(ndotx * (1.0 - k) + k, 1.0e-5);
 }
 
+uint PathTraceCleanRtxdiDiMaterialBrdfMode()
+{
+    return min((CleanRtxdiDiResolveBrdfTarget >> 8u) & 7u, 4u);
+}
+
+float3 PathTraceCleanRtxdiDiMaterialEvaluateLambertDirectBrdf(RAB_Surface surface, float3 wi, float3 wo)
+{
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    if (dot(normal, wi) <= 0.0 || dot(normal, wo) <= 0.0 ||
+        dot(RAB_GetSurfaceGeoNormal(surface), wi) <= 0.0 ||
+        dot(RAB_GetSurfaceGeoNormal(surface), wo) <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return GetDiffuseAlbedo(surface.material) * (1.0 / RT_PATH_TRACE_OPAQUE_DIRECT_PI);
+}
+
 float3 PathTraceCleanRtxdiDiMaterialEvaluatePbrDirectBrdf(RAB_Surface surface, float3 wi, float3 wo)
 {
     const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
@@ -153,12 +170,12 @@ float3 PathTraceCleanRtxdiDiMaterialEvaluateOpaqueDirectBrdf(RAB_Surface surface
 
     if (PathTraceCleanRtxdiDiMaterialRelaxOpaqueDirectGates())
     {
-        const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
-        if (dot(normal, wi) <= 0.0)
-        {
-            return float3(0.0, 0.0, 0.0);
-        }
-        return GetDiffuseAlbedo(surface.material) * (1.0 / RT_PATH_TRACE_OPAQUE_DIRECT_PI);
+        return PathTraceCleanRtxdiDiMaterialEvaluateLambertDirectBrdf(surface, wi, wo);
+    }
+
+    if (PathTraceCleanRtxdiDiMaterialBrdfMode() == 0u)
+    {
+        return PathTraceCleanRtxdiDiMaterialEvaluateLambertDirectBrdf(surface, wi, wo);
     }
 
     return PathTraceCleanRtxdiDiMaterialEvaluatePbrDirectBrdf(surface, wi, wo);

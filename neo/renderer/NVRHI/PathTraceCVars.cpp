@@ -1197,6 +1197,12 @@ idCVar r_pathTracingToyFakePBRSpecular(
     CVAR_RENDERER | CVAR_INTEGER,
     "Use rbdoom3 legacy specmap-to-PBR roughness/F0 shading for mode 18 and related path-tracing visualizers; set 0 to opt out" );
 
+idCVar r_pathTracingOpenPbrBrdfMode(
+    "r_pathTracingOpenPbrBrdfMode",
+    "4",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Opaque direct BRDF mode for OpenPBR test consumers: 0 Lambert, 1 EON diffuse, 2 EON+GGX eval, 3 GGX VNDF sampling, 4 mode 3 plus scalar rough-metal compensation" );
+
 idCVar r_pathTracingToyAccumulation(
     "r_pathTracingToyAccumulation",
     "1",

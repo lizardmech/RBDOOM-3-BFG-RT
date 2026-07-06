@@ -15,6 +15,15 @@ static const float RT_PATH_TRACE_OPAQUE_DIRECT_PI = 3.14159265358979323846;
 #define RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE 0
 #endif
 
+uint MaterialOpaqueDirectBrdfMode()
+{
+#if defined(RB_PATH_TRACE_OPAQUE_DIRECT_RUNTIME_MODE)
+    return min((uint)(RB_PATH_TRACE_OPAQUE_DIRECT_RUNTIME_MODE), 4u);
+#else
+    return (uint)RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE;
+#endif
+}
+
 float3 MaterialOpaqueDirectCosineHemisphereDirection(float3 normal, float2 randomValues)
 {
     const float phi = 2.0 * RT_PATH_TRACE_OPAQUE_DIRECT_PI * randomValues.x;
@@ -36,11 +45,12 @@ bool SampleOpaqueDirectBrdf(RAB_Surface surface, inout RAB_RandomSamplerState rn
     }
 
     const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
-#if RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE >= 3
+#if defined(RB_PATH_TRACE_OPAQUE_DIRECT_ENABLE_OPENPBR)
+    const uint brdfMode = MaterialOpaqueDirectBrdfMode();
     const float3 randomValues = float3(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
     const float3 viewDir = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
     const float specularProbability = PathTraceOpenPbrSpecularSampleProbability(GetSpecularF0(surface.material), GetRoughness(surface.material));
-    if (randomValues.x < specularProbability &&
+    if (brdfMode >= 3u && randomValues.x < specularProbability &&
         PathTraceOpenPbrSampleGgxVndf(GetRoughness(surface.material), normal, viewDir, randomValues.yz, dir))
     {
         return dot(normal, dir) > 0.0 && dot(RAB_GetSurfaceGeoNormal(surface), dir) > 0.0;
@@ -68,7 +78,12 @@ float EvaluateOpaqueDirectPdf(RAB_Surface surface, float3 dir)
     }
 
     const float diffusePdf = ndotDir / RT_PATH_TRACE_OPAQUE_DIRECT_PI;
-#if RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE >= 3
+#if defined(RB_PATH_TRACE_OPAQUE_DIRECT_ENABLE_OPENPBR)
+    const uint brdfMode = MaterialOpaqueDirectBrdfMode();
+    if (brdfMode < 3u)
+    {
+        return diffusePdf;
+    }
     const float3 viewDir = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
     const float specularProbability = PathTraceOpenPbrSpecularSampleProbability(GetSpecularF0(surface.material), GetRoughness(surface.material));
     const float specularPdf = PathTraceOpenPbrGgxReflectionPdf(GetRoughness(surface.material), normal, RAB_SafeNormalize(dir, normal), viewDir);
@@ -94,23 +109,29 @@ float3 EvaluateOpaqueDirectBrdf(RAB_Surface surface, float3 wi, float3 wo)
     }
 
     const float3 albedo = GetDiffuseAlbedo(surface.material);
-#if RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE == 1
-    return PathTraceOpenPbrEvaluateEonDiffuse(albedo, GetRoughness(surface.material), normal, RAB_SafeNormalize(wi, normal), RAB_SafeNormalize(wo, normal));
-#elif RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE >= 2
-    const float3 lightDir = RAB_SafeNormalize(wi, normal);
-    const float3 viewDir = RAB_SafeNormalize(wo, normal);
-    const float3 f0 = GetSpecularF0(surface.material);
-    const float3 fresnel = PathTraceOpenPbrFresnelSchlick(f0, saturate(dot(viewDir, RAB_SafeNormalize(lightDir + viewDir, normal))));
-    const float diffuseWeight = saturate(1.0 - max(max(fresnel.r, fresnel.g), fresnel.b));
-    const float3 diffuse = PathTraceOpenPbrEvaluateEonDiffuse(albedo, GetRoughness(surface.material), normal, lightDir, viewDir) * diffuseWeight;
-    float3 specular = PathTraceOpenPbrEvaluateGgxSpecular(f0, GetRoughness(surface.material), normal, lightDir, viewDir);
-#if RB_PATH_TRACE_OPAQUE_DIRECT_BRDF_MODE >= 4
-    specular += PathTraceOpenPbrEvaluateScalarMmsApprox(f0, GetRoughness(surface.material), normal, lightDir, viewDir);
+#if defined(RB_PATH_TRACE_OPAQUE_DIRECT_ENABLE_OPENPBR)
+    const uint brdfMode = MaterialOpaqueDirectBrdfMode();
+    if (brdfMode == 1u)
+    {
+        return PathTraceOpenPbrEvaluateEonDiffuse(albedo, GetRoughness(surface.material), normal, RAB_SafeNormalize(wi, normal), RAB_SafeNormalize(wo, normal));
+    }
+    if (brdfMode >= 2u)
+    {
+        const float3 lightDir = RAB_SafeNormalize(wi, normal);
+        const float3 viewDir = RAB_SafeNormalize(wo, normal);
+        const float3 f0 = GetSpecularF0(surface.material);
+        const float3 fresnel = PathTraceOpenPbrFresnelSchlick(f0, saturate(dot(viewDir, RAB_SafeNormalize(lightDir + viewDir, normal))));
+        const float diffuseWeight = saturate(1.0 - max(max(fresnel.r, fresnel.g), fresnel.b));
+        const float3 diffuse = PathTraceOpenPbrEvaluateEonDiffuse(albedo, GetRoughness(surface.material), normal, lightDir, viewDir) * diffuseWeight;
+        float3 specular = PathTraceOpenPbrEvaluateGgxSpecular(f0, GetRoughness(surface.material), normal, lightDir, viewDir);
+        if (brdfMode >= 4u)
+        {
+            specular += PathTraceOpenPbrEvaluateScalarMmsApprox(f0, GetRoughness(surface.material), normal, lightDir, viewDir);
+        }
+        return diffuse + specular;
+    }
 #endif
-    return diffuse + specular;
-#else
     return albedo * (1.0 / RT_PATH_TRACE_OPAQUE_DIRECT_PI);
-#endif
 }
 
 float3 EvaluateOpaqueDirectBrdfOverPdf(RAB_Surface surface, float3 wi, float3 wo)

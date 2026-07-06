@@ -1184,7 +1184,7 @@ bool CleanSkipResolveVisibilityTrace(uint2 pixel, uint visibilityMode)
 float3 CleanResolve(uint2 pixel, uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRecord surfaceRecord, RAB_Surface surface, RTXDI_DIReservoir reservoir)
 {
     const float3 receiverAlbedo = CleanTexturedSurfaceAlbedo(surfaceRecord);
-    if (CleanRtxdiDiResolveBrdfTarget != 0u)
+    if ((CleanRtxdiDiResolveBrdfTarget & 1u) != 0u)
     {
         return receiverAlbedo;
     }

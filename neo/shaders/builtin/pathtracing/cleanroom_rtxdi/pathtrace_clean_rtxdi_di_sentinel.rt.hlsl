@@ -2230,7 +2230,7 @@ float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceReco
     }
     const bool referenceDoomAnalytic = PathTraceCleanReferenceRabEnabled() &&
         lightSample.lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
-    const bool useMaterialResolve = CleanRtxdiDiResolveBrdfTarget != 0u;
+    const bool useMaterialResolve = (CleanRtxdiDiResolveBrdfTarget & 1u) != 0u;
 
     const float3 toSample = lightSample.position - surfaceRecord.worldPositionAndViewDepth.xyz;
     const float3 lightDirection = PathTraceCleanRoomSafeNormalize(toSample, PathTraceCleanRoomSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz));
