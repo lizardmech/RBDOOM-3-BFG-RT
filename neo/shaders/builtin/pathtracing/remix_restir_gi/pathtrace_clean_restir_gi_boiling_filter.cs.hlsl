@@ -22,7 +22,7 @@ cbuffer PathTraceCleanRestirGiBoilingFilterConstants : register(b0)
     uint CleanGiBfResolveEnabled; // adds shaded indirect GI into SmokeOutput
     uint CleanGiBfRrInputResolveEnabled; // legacy/debug only; normal RR export owns RR input
     uint CleanGiBfRrSpecularInputEnabled; // adds filtered eligible specular GI to RR input
-    uint CleanGiBfPadding0;
+    float CleanGiBfResolveGain;
 };
 
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanGiBfIndirectDiffuse : register(u1);
@@ -161,10 +161,11 @@ void main(uint2 pixel : SV_DispatchThreadID, uint2 localIndex : SV_GroupThreadID
         if (record.header.x == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION &&
             (record.header.y & RT_PRIMARY_SURFACE_VALID) != 0u)
         {
-            CleanGiBfSmokeOutput[pixel] += float4(indirect, 0.0);
+            const float3 resolvedIndirect = indirect * max(CleanGiBfResolveGain, 0.0);
+            CleanGiBfSmokeOutput[pixel] += float4(resolvedIndirect, 0.0);
             if (CleanGiBfRrInputResolveEnabled != 0u)
             {
-                CleanGiBfRRInputColor[pixel] += float4(indirect, 0.0);
+                CleanGiBfRRInputColor[pixel] += float4(resolvedIndirect, 0.0);
             }
         }
     }

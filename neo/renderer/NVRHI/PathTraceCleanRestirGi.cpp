@@ -579,7 +579,7 @@ struct PathTraceCleanRestirGiBoilingFilterConstants
     uint32_t resolveEnabled;
     uint32_t rrInputResolveEnabled;
     uint32_t rrSpecularInputEnabled;
-    uint32_t padding0;
+    float resolveGain;
 };
 static_assert(sizeof(PathTraceCleanRestirGiBoilingFilterConstants) == 32, "GI boiling filter constants size must match HLSL packing");
 
@@ -1622,6 +1622,7 @@ bool PathTraceCleanRestirGiExecute(
             filterConstants.rrInputResolveEnabled =
                 resolveAddRequested && inputs.resolveToRrInputColor ? 1u : 0u;
             filterConstants.rrSpecularInputEnabled = rrSpecularExportRequested ? 1u : 0u;
+            filterConstants.resolveGain = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingCleanRestirGiResolveGain.GetFloat());
             commandList->writeBuffer(state.boilingFilterConstantsBuffer, &filterConstants, sizeof(filterConstants));
 
             commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::ShaderResource);

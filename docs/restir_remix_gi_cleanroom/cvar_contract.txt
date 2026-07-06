@@ -229,15 +229,29 @@ r_pathTracingCleanRestirGiRrSpecularInput
     beauty resolve and uses the same reflective receiver/lobe eligibility as
     the hit-distance route. In clean DI views 12/16 with DLSS-RR enabled and
     GI view 0, this export dispatch runs before DLSS-RR evaluates so RR can
-    consume the modified input color. This is the only normal GI path that may
-    add GI radiance to PathTraceRRInputColor; the beauty resolve must not also
-    write RR input or the specular lobe is double-counted.
+    consume the modified input color. This is the specular-lobe-only export
+    path; the full resolved GI color path is owned by
+    r_pathTracingCleanRestirGiResolve when the clean DI pre-DLSSRR dispatch
+    explicitly requests a matching RR input resolve.
 
 r_pathTracingCleanRestirGiResolve
     int, default 0 until RGI-07. When 1, the final-shaded GI output is
-    added into the combined beauty resolve. It must not write
-    PathTraceRRInputColor; RR input is owned by
-    r_pathTracingCleanRestirGiRrSpecularInput.
+    added into the combined beauty resolve. In clean DI views 12/16 with
+    DLSS-RR enabled and GI view 0, the pre-DLSSRR GI dispatch may also add
+    the same resolved contribution into PathTraceRRInputColor so RR consumes
+    the same GI color that the beauty path receives. That full resolve-to-RR
+    path is separate from the specular-lobe-only
+    r_pathTracingCleanRestirGiRrSpecularInput export.
+
+r_pathTracingCleanRestirGiResolveGain
+    float, default 10.0. Scales only the final view-0 resolve add from the
+    filtered GI output. It applies to both SmokeOutput and the matching
+    PathTraceRRInputColor resolve when the clean DI pre-DLSSRR path asks GI to
+    resolve into RR input. It does not change GI producer reservoirs, GI debug
+    views, lobe textures, firefly filtering, or stored raw indirect. Set to
+    1.0 for raw indirect energy. The default 10.0 follows brush color-bleed
+    calibration where static brush primary records and resolve writes were
+    proven valid, but indirect energy was too weak to see at 1x.
 
 
 Rules

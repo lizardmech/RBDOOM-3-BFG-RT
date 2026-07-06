@@ -2187,6 +2187,12 @@ idCVar r_pathTracingCleanRestirGiResolve(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI: add the final-shaded GI output into the combined resolve. Default 0 until RGI-07. Debug views work without it" );
 
+idCVar r_pathTracingCleanRestirGiResolveGain(
+    "r_pathTracingCleanRestirGiResolveGain",
+    "10.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI gain for the final view-0 resolve add and matching RR input resolve; default 10 after brush color-bleed calibration, set 1 for raw indirect energy" );
+
 idCVar r_pathTracingCleanRestirGiBoilingFilter(
     "r_pathTracingCleanRestirGiBoilingFilter",
     "15",

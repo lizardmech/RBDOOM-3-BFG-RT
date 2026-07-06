@@ -371,6 +371,7 @@ extern idCVar r_pathTracingCleanRestirGiGlossySecondRayRoughness;
 extern idCVar r_pathTracingCleanRestirGiRrHitDistance;
 extern idCVar r_pathTracingCleanRestirGiRrSpecularInput;
 extern idCVar r_pathTracingCleanRestirGiResolve;
+extern idCVar r_pathTracingCleanRestirGiResolveGain;
 extern idCVar r_pathTracingCleanRestirGiBoilingFilter;
 extern idCVar r_pathTracingCleanRestirGiBoilingFilterMax;
 extern idCVar r_pathTracingCleanRestirGiDump;
