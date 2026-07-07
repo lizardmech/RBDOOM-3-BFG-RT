@@ -159,7 +159,7 @@ RemixRestirGITemporalReuseResult RemixRestirGIRunTemporalReuseContract(
             desc.frameIndex,
             REMIX_RESTIR_GI_TEMPORAL_RNG_PASS,
             0u);
-        CleanGiDisableBlueNoise(rng);
+        CleanGiApplyBlueNoiseToggle(rng);
 
         result.temporalReservoir = RTXDI_GITemporalResampling(
             desc.pixel,
