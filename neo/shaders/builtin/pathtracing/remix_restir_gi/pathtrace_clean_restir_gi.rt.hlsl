@@ -891,7 +891,7 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
         CleanRestirGiFrameIndex,
         CLEAN_RESTIR_GI_SPATIAL_RNG_PASS,
         0u);
-    CleanGiDisableBlueNoise(rng);
+    CleanGiApplyBlueNoiseToggle(rng);
 
     RTXDI_RuntimeParameters params = (RTXDI_RuntimeParameters)0;
     params.activeCheckerboardField = 0u;
