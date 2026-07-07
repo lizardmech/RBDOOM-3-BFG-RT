@@ -2037,8 +2037,11 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunInitialProducer(uint2 pi
     sampleParams.enableInitialVisibility = 0u;
 
     RTXDI_InitialSamplingMisData misData = RTXDI_ComputeInitialSamplingMisData(sampleParams);
-    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x4d534449u);
-    RTXDI_RandomSamplerState coherentRng = RTXDI_InitRandomSampler(pixel / RTXDI_TILE_SIZE_IN_PIXELS, CleanRtxdiDiFrameIndex, 0x4d534449u);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4d534449u, 0u);
+    RTXDI_RandomSamplerState coherentRng =
+        RTXDI_InitRandomSamplerForPass(pixel / RTXDI_TILE_SIZE_IN_PIXELS, CleanRtxdiDiFrameIndex, 0x4d534449u, 0u);
+    PathTraceCleanRtxdiDiApplyBlueNoiseToggle(rng);
+    PathTraceCleanRtxdiDiApplyBlueNoiseToggle(coherentRng);
     RAB_LightSample selectedSample = RAB_EmptyLightSample();
     result.reservoir = RTXDI_SampleLocalLights(
         rng,

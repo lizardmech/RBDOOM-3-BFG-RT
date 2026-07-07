@@ -1404,6 +1404,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(78));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeCleanRtxdiDiSentinelBindingLayout = device->createBindingLayout(cleanRtxdiDiSentinelBindingLayoutDesc);
     if (!m_smokeCleanRtxdiDiSentinelBindingLayout)
@@ -2366,6 +2367,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeCleanRtxdiDiHistorySignature = 0;
     m_smokeCleanRtxdiDiHistoryResetCount = 0;
     m_smokeCleanRtxdiDiPreviousReservoirResetReason = 1u;
+    m_smokeCleanRtxdiDiBlueNoise.Release();
     m_smokeTextureDescriptorTable = nullptr;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;

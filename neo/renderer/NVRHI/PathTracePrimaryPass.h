@@ -387,6 +387,7 @@ private:
     nvrhi::BufferHandle m_smokeCleanRtxdiDiTemporalReservoirBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiPreviousReservoirBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiSpatialReservoirBuffer;
+    PathTraceBlueNoiseState m_smokeCleanRtxdiDiBlueNoise;
     PathTraceCleanRestirGiState m_cleanRestirGiState;
     PathTraceNeeCacheState m_smokeNeeCacheState;
     PathTraceReGIRState m_smokeReGIRState;

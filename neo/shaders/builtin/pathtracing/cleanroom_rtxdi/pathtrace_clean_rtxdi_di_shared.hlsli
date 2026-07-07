@@ -325,6 +325,17 @@ cbuffer PathTraceMaterialFeatureRuntimeConstants : register(b88)
     float4 PathTraceMaterialFeatureParams1;
 };
 
+static const uint CLEAN_FLAG_BLUE_NOISE = 1u << 24u;
+
+void PathTraceCleanRtxdiDiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)
+{
+#ifdef RBPT_ENABLE_BLUE_NOISE
+    rng.useBlueNoise = ((CleanRtxdiDiFlags & CLEAN_FLAG_BLUE_NOISE) != 0u) ? rng.useBlueNoise : 0u;
+#else
+    rng.useBlueNoise = 0u;
+#endif
+}
+
 PathTraceMaterialFeatureRuntimeInfo PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeInfo()
 {
     return LoadPathTraceMaterialFeatureRuntimeInfo(PathTraceMaterialFeatureRuntimeInfoPacked);

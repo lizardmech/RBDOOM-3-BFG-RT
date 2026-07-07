@@ -508,6 +508,9 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunNeeCacheProviderProducer
     sampleParams.enableInitialVisibility = 0u;
 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4e434439u, 0u);
+    // NEE-cache provider selection is cell/range sensitive; keep it white-noise
+    // until it has a dedicated blue-noise domain that cannot over-lock lights.
+    rng.useBlueNoise = 0u;
     [loop]
     for (uint sampleIndex = 0u; sampleIndex < sampleParams.numLocalLightSamples; ++sampleIndex)
     {
@@ -632,6 +635,8 @@ bool PathTraceCleanRoomTryAugmentInitialResultWithNeeCache(
     RTXDI_DIReservoir mixedReservoir = RTXDI_EmptyDIReservoir();
     RTXDI_RandomSamplerState rng =
         RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4e43414du, 0u);
+    // See provider path above: the cache augment stream remains white-noise.
+    rng.useBlueNoise = 0u;
 
     RTXDI_CombineDIReservoirs(
         mixedReservoir,

@@ -1623,6 +1623,12 @@ idCVar r_pathTracingCleanRtxdiDiSpatialRadius(
     CVAR_RENDERER | CVAR_FLOAT,
     "Clean-room Remix DI spatial reuse: screen-space neighbor sampling radius in pixels" );
 
+idCVar r_pathTracingCleanRtxdiDiBlueNoise(
+    "r_pathTracingCleanRtxdiDiBlueNoise",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room RTXDI DI: allow eligible low-dimension ReSTIR sampler sites to use the shared STBN blue-noise mask. Default off; requires shaders compiled with RBPT_ENABLE_BLUE_NOISE and a valid textures/bluenoise/stbn_scalar_128x128x64.raw mask." );
+
 idCVar r_pathTracingCleanRtxdiDiTransmissionProducer(
     "r_pathTracingCleanRtxdiDiTransmissionProducer",
     "1",

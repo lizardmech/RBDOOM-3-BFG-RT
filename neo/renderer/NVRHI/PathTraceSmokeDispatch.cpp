@@ -54,6 +54,7 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE = 1u << 20u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION = 1u << 21u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_DISTORTION = 1u << 22u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR = 1u << 23u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_BLUE_NOISE = 1u << 24u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT = 9u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_MASK = 7u << RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT;
 const uint32_t CLEAN_RTXDI_DI_RESOLVE_BRDF_TARGET_ENABLE = 1u << 0u;
@@ -3419,6 +3420,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const nvrhi::BufferHandle cleanNeeCacheCandidateSrv = m_smokeNeeCacheState.candidateBuffer
             ? m_smokeNeeCacheState.candidateBuffer
             : cleanOptionalSrv(m_smokeNeeCacheState.placeholderSrvBuffer);
+        PathTraceEnsureBlueNoise(
+            m_smokeCleanRtxdiDiBlueNoise,
+            device,
+            "PathTracePrimaryPass: clean-room RTXDI DI",
+            "PathTraceCleanRtxdiDiBlueNoise");
+        if (!m_smokeCleanRtxdiDiBlueNoise.texture)
+        {
+            if (cleanRtxdiDiDumpRequested)
+            {
+                printCleanRtxdiDiDump("dispatch-entry", "clean-blue-noise-texture", 0);
+                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+            }
+            return;
+        }
 
         nvrhi::BindingSetDesc cleanBindingSetDesc;
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas));
@@ -3482,6 +3497,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, cleanNeeCacheCellSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cleanNeeCacheCandidateSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING, m_smokeCleanRtxdiDiBlueNoise.texture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
         nvrhi::BindingSetHandle cleanBindingSet = device->createBindingSet(cleanBindingSetDesc, m_smokeCleanRtxdiDiSentinelBindingLayout);
         if (!cleanBindingSet)
@@ -3498,6 +3514,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanState.shaderTable = m_smokeCleanRtxdiDiSentinelShaderTable;
         cleanState.bindings = { cleanBindingSet, m_smokeTextureDescriptorTable };
 
+        PathTraceUploadBlueNoise(m_smokeCleanRtxdiDiBlueNoise, commandList);
+        commandList->setTextureState(m_smokeCleanRtxdiDiBlueNoise.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -3795,6 +3813,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.reservoirCount = cleanReservoirCount;
         cleanConstants.candidateCount = cleanCandidateCount;
         cleanConstants.flags = cleanFlags;
+        if (m_smokeCleanRtxdiDiBlueNoise.valid && r_pathTracingCleanRtxdiDiBlueNoise.GetInteger() != 0)
+        {
+            cleanConstants.flags |= CLEAN_RTXDI_DI_FLAG_BLUE_NOISE;
+        }
         cleanConstants.previousAnalyticLightCount = cleanPreviousAnalyticLightCount;
         cleanConstants.previousAnalyticIdentityCount = cleanPreviousAnalyticIdentityCount;
         cleanConstants.analyticRemapCount = cleanAnalyticRemapCount;

@@ -228,7 +228,8 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
     temporalParams.permutationSamplingThreshold = 0.0;
     temporalParams.fireflyClampRatio = (float)CleanRtxdiDiTemporalFireflyClamp;
 
-    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x52525805u);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x52525805u, 0u);
+    PathTraceCleanRtxdiDiApplyBlueNoiseToggle(rng);
     int2 temporalSamplePixel = int2(-1, -1);
     RAB_LightSample selectedLightSample = RAB_EmptyLightSample();
     result.flags |= CLEAN_TEMPORAL_DIAG_SDK_CALLED;
@@ -333,7 +334,8 @@ RTXDI_DIReservoir PathTraceCleanRoomRunTemporalProducerFast(uint2 pixel, uint2 d
     temporalParams.permutationSamplingThreshold = 0.0;
     temporalParams.fireflyClampRatio = (float)CleanRtxdiDiTemporalFireflyClamp;
 
-    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x52525805u);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x52525805u, 0u);
+    PathTraceCleanRtxdiDiApplyBlueNoiseToggle(rng);
     int2 temporalSamplePixel = int2(-1, -1);
     RAB_LightSample selectedLightSample = RAB_EmptyLightSample();
     return RTXDI_DITemporalResampling(

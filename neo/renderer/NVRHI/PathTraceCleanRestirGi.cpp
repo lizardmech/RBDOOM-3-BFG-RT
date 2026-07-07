@@ -817,62 +817,6 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
     return true;
 }
 
-// Blue-noise mask (t127). The GI shader is compiled with RBPT_ENABLE_BLUE_NOISE,
-// so t127 is always part of the binding layout; this creates a valid texture to
-// bind there. The mask blob is optional: if it is missing or malformed we keep a
-// (one-MiB R8) texture bound but mark blue noise invalid so the cbuffer toggle is
-// forced off and the shader uses white noise. Non-fatal; never fails the lane.
-const uint32_t CLEAN_RESTIR_GI_BLUE_NOISE_SIZE = 128u;
-const uint32_t CLEAN_RESTIR_GI_BLUE_NOISE_LAYERS = 64u;
-
-void CleanRestirGiEnsureBlueNoise(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
-{
-    if (state.blueNoiseInitAttempted)
-    {
-        return;
-    }
-    state.blueNoiseInitAttempted = true;
-
-    const uint32_t size = CLEAN_RESTIR_GI_BLUE_NOISE_SIZE;
-    const uint32_t layers = CLEAN_RESTIR_GI_BLUE_NOISE_LAYERS;
-    const size_t expectedBytes = size_t(size) * size * layers;
-
-    nvrhi::TextureDesc desc;
-    desc.width = size;
-    desc.height = size;
-    desc.arraySize = layers;
-    desc.mipLevels = 1;
-    desc.dimension = nvrhi::TextureDimension::Texture2DArray;
-    desc.format = nvrhi::Format::R8_UNORM; // shader decodes .x as [0,1)
-    desc.debugName = "PathTraceCleanRestirGiBlueNoise";
-    desc.initialState = nvrhi::ResourceStates::ShaderResource;
-    desc.keepInitialState = true;
-    state.blueNoiseTexture = inputs.device->createTexture(desc);
-    if (!state.blueNoiseTexture)
-    {
-        common->Printf("PathTraceCleanRestirGi: failed to create blue-noise texture; blue noise disabled\n");
-        return;
-    }
-
-    void* maskData = nullptr;
-    ID_TIME_T maskTimestamp = 0;
-    const int maskSize = fileSystem->ReadFile("textures/bluenoise/stbn_scalar_128x128x64.raw", &maskData, &maskTimestamp);
-    if (maskSize != (int)expectedBytes || !maskData)
-    {
-        if (maskData)
-        {
-            Mem_Free(maskData);
-        }
-        common->Printf("PathTraceCleanRestirGi: blue-noise mask missing or wrong size (got %d, expected %zu); blue noise disabled\n",
-            maskSize, expectedBytes);
-        return;
-    }
-
-    state.blueNoiseBlob.assign((const uint8_t*)maskData, (const uint8_t*)maskData + expectedBytes);
-    Mem_Free(maskData);
-    state.blueNoiseValid = true; // upload happens once on the command list in Execute
-}
-
 } // namespace
 
 void PathTraceCleanRestirGiState::ReleaseResources()
@@ -892,11 +836,7 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     indirectDiffuseTexture = nullptr;
     indirectDiffuseLobeTexture = nullptr;
     indirectSpecularLobeTexture = nullptr;
-    blueNoiseTexture = nullptr;
-    blueNoiseBlob.clear();
-    blueNoiseInitAttempted = false;
-    blueNoiseValid = false;
-    blueNoiseUploaded = false;
+    blueNoise.Release();
     placeholderSrvBuffer = nullptr;
     producerRayQueryComputeShader = nullptr;
     producerRayQueryComputeBindingLayout = nullptr;
@@ -1091,8 +1031,14 @@ bool PathTraceCleanRestirGiExecute(
         printDump("resources");
         return false;
     }
-    CleanRestirGiEnsureBlueNoise(state, inputs); // non-fatal; always leaves a texture bound at t127
-    if (!state.blueNoiseTexture)
+    // Non-fatal for missing/malformed masks: the helper still leaves a dummy
+    // texture bound at t127 and reports blue noise unavailable to the cbuffer.
+    PathTraceEnsureBlueNoise(
+        state.blueNoise,
+        inputs.device,
+        "PathTraceCleanRestirGi",
+        "PathTraceCleanRestirGiBlueNoise");
+    if (!state.blueNoise.texture)
     {
         clearFailureOutput();
         printDump("blue-noise-texture");
@@ -1147,7 +1093,7 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(48, inputs.rrGuideAlbedoTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(51, inputs.rrGuideHitDistanceTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, inputs.rrInputColorTexture));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(127, state.blueNoiseTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(127, state.blueNoise.texture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, inputs.materialSampler));
     nvrhi::BindingSetHandle bindingSet = inputs.device->createBindingSet(bindingSetDesc, state.bindingLayout);
     if (!bindingSet)
@@ -1162,24 +1108,7 @@ bool PathTraceCleanRestirGiExecute(
     // producer/temporal/spatial individually instead of one merged "raygen" bar.
     // No-op unless VK_EXT_debug_utils is enabled and the cvar is set.
     const bool nsightGpuMarkers = r_pathTracingNsightGpuMarkers.GetInteger() != 0;
-    if (state.blueNoiseValid && !state.blueNoiseUploaded && !state.blueNoiseBlob.empty())
-    {
-        const uint32_t size = CLEAN_RESTIR_GI_BLUE_NOISE_SIZE;
-        const uint32_t layers = CLEAN_RESTIR_GI_BLUE_NOISE_LAYERS;
-        const size_t layerBytes = size_t(size) * size; // R8, tightly packed
-        for (uint32_t layer = 0; layer < layers; ++layer)
-        {
-            commandList->writeTexture(
-                state.blueNoiseTexture,
-                /*arraySlice=*/layer,
-                /*mipLevel=*/0,
-                state.blueNoiseBlob.data() + size_t(layer) * layerBytes,
-                /*rowPitch=*/size);
-        }
-        state.blueNoiseUploaded = true;
-        state.blueNoiseBlob.clear();
-        state.blueNoiseBlob.shrink_to_fit();
-    }
+    PathTraceUploadBlueNoise(state.blueNoise, commandList);
     if (state.reservoirClearPending)
     {
         commandList->setBufferState(state.reservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -1228,7 +1157,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.secondaryDirectSamples = static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingCleanRestirGiSecondaryDirectSamples.GetInteger()));
     tail.secondaryRluCandidateCount = static_cast<uint32_t>(idMath::ClampInt(1, 16, r_pathTracingCleanRestirGiSecondaryRluCandidates.GetInteger()));
     tail.contributionFireflyThreshold = Max(0.0f, r_pathTracingCleanRestirGiContributionFireflyThreshold.GetFloat());
-    tail.blueNoiseEnabled = (state.blueNoiseValid && r_pathTracingCleanRestirGiBlueNoise.GetInteger() != 0) ? 1u : 0u;
+    tail.blueNoiseEnabled = (state.blueNoise.valid && r_pathTracingCleanRestirGiBlueNoise.GetInteger() != 0) ? 1u : 0u;
     tail.producerRayQueryHitIdMode = static_cast<uint32_t>(
         idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiProducerRayQueryHitIdMode.GetInteger()));
     tail.spatialVisibilityMode = static_cast<uint32_t>(
@@ -1280,7 +1209,7 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(inputs.dynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.materialTableBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setTextureState(inputs.fallbackTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-    commandList->setTextureState(state.blueNoiseTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+    commandList->setTextureState(state.blueNoise.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.emissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.emissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);

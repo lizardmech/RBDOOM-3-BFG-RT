@@ -203,6 +203,17 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     float4 CleanRtxdiDiEmissiveDistributionInfo;
 };
 
+static const uint CLEAN_FLAG_BLUE_NOISE = 1u << 24u;
+
+void PathTraceCleanRtxdiDiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)
+{
+#ifdef RBPT_ENABLE_BLUE_NOISE
+    rng.useBlueNoise = ((CleanRtxdiDiFlags & CLEAN_FLAG_BLUE_NOISE) != 0u) ? rng.useBlueNoise : 0u;
+#else
+    rng.useBlueNoise = 0u;
+#endif
+}
+
 static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
 static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
@@ -1244,7 +1255,8 @@ RTXDI_DIReservoir CleanSpatialReuse(uint2 pixel, uint2 dimensions, PathTracePrim
         return centerReservoir;
     }
 
-    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x52525807u);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x52525807u, 0u);
+    PathTraceCleanRtxdiDiApplyBlueNoiseToggle(rng);
     RTXDI_DIReservoir result = RTXDI_EmptyDIReservoir();
     RTXDI_CombineDIReservoirs(result, centerReservoir, 0.5, centerReservoir.targetPdf);
     int2 selectedSourcePixel = int2(pixel);

@@ -9,8 +9,9 @@
 
 #include <nvrhi/nvrhi.h>
 
+#include "PathTraceBlueNoise.h"
+
 #include <cstdint>
-#include <vector>
 
 struct PathTraceCleanRestirGiState
 {
@@ -47,11 +48,7 @@ struct PathTraceCleanRestirGiState
     nvrhi::rt::ShaderTableHandle specularSeedShadeShaderTable;
     nvrhi::rt::ShaderTableHandle specularSeedShadeFastShaderTable;
     nvrhi::rt::ShaderTableHandle reuseShaderTable;
-    nvrhi::TextureHandle blueNoiseTexture;       // STBN mask array (t127), or unused dummy
-    std::vector<uint8_t> blueNoiseBlob;          // staged mask bytes, uploaded once then cleared
-    bool blueNoiseInitAttempted = false;
-    bool blueNoiseValid = false;                 // true only when the mask loaded and uploaded
-    bool blueNoiseUploaded = false;
+    PathTraceBlueNoiseState blueNoise;
     nvrhi::ShaderHandle producerRayQueryComputeShader;
     nvrhi::BindingLayoutHandle producerRayQueryComputeBindingLayout;
     nvrhi::ComputePipelineHandle producerRayQueryComputePipeline;
