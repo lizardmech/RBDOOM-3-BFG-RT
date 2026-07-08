@@ -508,8 +508,12 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunNeeCacheProviderProducer
     sampleParams.enableInitialVisibility = 0u;
 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4e434439u, 0u);
-    // NEE-cache provider selection is cell/range sensitive; keep it white-noise
-    // until it has a dedicated blue-noise domain that cannot over-lock lights.
+    // NEE-cache provider selection is cell/range sensitive and each streamed
+    // proposal consumes fallback/candidate/UV/RIS draws. The shared STBN path
+    // only covers the first RBPT_BLUE_NOISE_DIMS dimensions, so a provider loop
+    // would blue-noise only the first few candidates then fall back to white
+    // noise. Keep this lane white-noise until it has a dedicated per-candidate
+    // dimension plan that cannot over-lock light choices.
     rng.useBlueNoise = 0u;
     [loop]
     for (uint sampleIndex = 0u; sampleIndex < sampleParams.numLocalLightSamples; ++sampleIndex)
@@ -635,7 +639,9 @@ bool PathTraceCleanRoomTryAugmentInitialResultWithNeeCache(
     RTXDI_DIReservoir mixedReservoir = RTXDI_EmptyDIReservoir();
     RTXDI_RandomSamplerState rng =
         RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4e43414du, 0u);
-    // See provider path above: the cache augment stream remains white-noise.
+    // See provider path above: the cache augment stream remains white-noise so
+    // its first cached proposal is not treated differently from later proposals
+    // by the shared 16-dimension STBN cap.
     rng.useBlueNoise = 0u;
 
     RTXDI_CombineDIReservoirs(
