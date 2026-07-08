@@ -2035,7 +2035,7 @@ idCVar r_pathTracingCleanRestirGiBlueNoise(
     "r_pathTracingCleanRestirGiBlueNoise",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room ReSTIR GI: feed spatiotemporal blue noise to eligible producer and initial-sample RNG dimensions instead of white noise. Requires the STBN mask at textures/bluenoise/stbn_scalar_128x128x64.raw; falls back to white noise if absent. Temporal/spatial reuse stay white-noise for now." );
+    "Clean-room ReSTIR GI: feed spatiotemporal blue noise to eligible producer, initial-sample, spatial reuse, and temporal reuse RNG dimensions instead of white noise. Requires the STBN mask at textures/bluenoise/stbn_scalar_128x128x64.raw; falls back to white noise if absent." );
 
 idCVar r_pathTracingCleanRestirGiMaxBounces(
     "r_pathTracingCleanRestirGiMaxBounces",

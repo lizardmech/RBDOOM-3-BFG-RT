@@ -147,6 +147,15 @@ r_pathTracingCleanRestirGiContinuationOpaqueTrace
     continuation reference if alpha-cutout geometry needs to affect second
     bounces.
 
+r_pathTracingCleanRestirGiBlueNoise
+    bool, default 0. When 1 and the shared STBN mask
+    textures/bluenoise/stbn_scalar_128x128x64.raw loaded successfully, eligible
+    low-dimension GI producer, initial-sample merge, spatial reuse, and temporal
+    reuse RNG draws use the shared spatiotemporal blue-noise mask. Missing or
+    malformed mask data is non-fatal and falls back to white-noise sampling.
+    Direct-seed/replay paths remain white-noise unless they are redesigned to
+    carry pixel/frame/pass identity.
+
 r_pathTracingCleanRestirGiNeeCacheSeed
     int, default 0 for bring-up. When 1, merges the NEE-cache-seeded
     reservoir at the temporal pass's initial-sample step (Remix
