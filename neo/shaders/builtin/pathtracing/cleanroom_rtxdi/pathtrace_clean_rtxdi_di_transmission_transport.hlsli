@@ -196,6 +196,95 @@ PathTraceCleanRtxdiDiReflectionPsrCandidate PathTraceCleanRtxdiDiBuildReflection
     return candidate;
 }
 
+// Stochastic reflection vs transmission lane selection (step 4).
+struct PathTraceCleanRtxdiDiReflectionPsrSelection
+{
+    bool reflectionSelected;
+    bool transmissionSelected;
+    bool failClosed;
+    float pReflection;
+    float pTransmission;
+    float3 selectedThroughputOverPdf;
+    float3 reflectionThroughput;
+    float3 transmissionThroughput;
+};
+
+PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiReflectionPsrSelectionFailClosed()
+{
+    PathTraceCleanRtxdiDiReflectionPsrSelection selection;
+    selection.reflectionSelected = false;
+    selection.transmissionSelected = false;
+    selection.failClosed = true;
+    selection.pReflection = 0.0;
+    selection.pTransmission = 0.0;
+    selection.selectedThroughputOverPdf = float3(0.0, 0.0, 0.0);
+    selection.reflectionThroughput = float3(0.0, 0.0, 0.0);
+    selection.transmissionThroughput = float3(0.0, 0.0, 0.0);
+    return selection;
+}
+
+PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiSelectReflectionPsrLane(
+    bool reflectionValid,
+    bool transmissionValid,
+    float3 reflectionThroughput,
+    float3 transmissionThroughput,
+    inout RTXDI_RandomSamplerState rng)
+{
+    PathTraceCleanRtxdiDiReflectionPsrSelection selection =
+        PathTraceCleanRtxdiDiReflectionPsrSelectionFailClosed();
+    selection.reflectionThroughput = max(reflectionThroughput, float3(0.0, 0.0, 0.0));
+    selection.transmissionThroughput = max(transmissionThroughput, float3(0.0, 0.0, 0.0));
+    selection.failClosed = false;
+
+    if (!reflectionValid && !transmissionValid)
+    {
+        selection.failClosed = true;
+        return selection;
+    }
+
+    if (reflectionValid && !transmissionValid)
+    {
+        selection.reflectionSelected = true;
+        selection.pReflection = 1.0;
+        selection.pTransmission = 0.0;
+        selection.selectedThroughputOverPdf = selection.reflectionThroughput;
+        return selection;
+    }
+
+    if (!reflectionValid && transmissionValid)
+    {
+        selection.transmissionSelected = true;
+        selection.pReflection = 0.0;
+        selection.pTransmission = 1.0;
+        selection.selectedThroughputOverPdf = selection.transmissionThroughput;
+        return selection;
+    }
+
+    const float reflectionLuma = PathTraceCleanRoomLuminance(selection.reflectionThroughput);
+    const float transmissionLuma = PathTraceCleanRoomLuminance(selection.transmissionThroughput);
+    const float denom = max(reflectionLuma + transmissionLuma, 1.0e-5);
+    float pReflection = reflectionLuma / denom;
+    pReflection = clamp(pReflection, 0.02, 0.98);
+    const float pTransmission = 1.0 - pReflection;
+    selection.pReflection = pReflection;
+    selection.pTransmission = pTransmission;
+
+    const float u = RTXDI_GetNextRandom(rng);
+    if (u < pReflection)
+    {
+        selection.reflectionSelected = true;
+        selection.selectedThroughputOverPdf =
+            selection.reflectionThroughput / max(pReflection, 1.0e-5);
+    }
+    else
+    {
+        selection.transmissionSelected = true;
+        selection.selectedThroughputOverPdf =
+            selection.transmissionThroughput / max(pTransmission, 1.0e-5);
+    }
+    return selection;
+}
+
 bool PathTraceCleanRtxdiDiTraceReflectionHit(
     RAB_Surface surface,
     out PathTraceCleanRtxdiPayload hitPayload,

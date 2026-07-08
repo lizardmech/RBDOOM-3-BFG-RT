@@ -411,13 +411,13 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
 
     if (debugMode >= 9.5)
     {
-        // Reflection PSR lane status (alpha contract):
-        //   green    = reflection selected / Option B radiance present (a ~ 1.0)
-        //   cyan     = valid reflection candidate (a ~ 0.375)
-        //   red      = transmission selected (a ~ 0.5)
-        //   magenta  = rejected candidate (a ~ 0.125)
-        //   yellow   = reflection trace miss (a ~ 0.25)
-        //   gray     = empty
+        // Stochastic lane mask (step 4):
+        //   green  = reflection selected (a ~ 1.0)
+        //   blue   = transmission selected (a ~ 0.5)
+        //   cyan   = candidate only (a ~ 0.375, should be rare after step 4)
+        //   magenta = rejected (a ~ 0.125)
+        //   yellow = mirror miss (a ~ 0.25)
+        //   gray   = empty / fail-closed
         return PathTraceCleanRtxdiDiReflectionPsrLaneDebugColor(
             PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel]);
     }
@@ -663,43 +663,6 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         }
     }
 
-    // Reflection PSR candidate tags (step 3). No surface replace / stochastic
-    // selection yet. Do not overwrite Option B radiance (a > 0.5) so beauty
-    // stays unchanged when the old reflection path is still enabled.
-    if (reflectionPsrEnabled &&
-        !PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(
-            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel]))
-    {
-        if (reflectionCandidate.valid)
-        {
-            // Candidate only for now. Trace miss is still reported when Option B
-            // ran and missed; otherwise store the valid-candidate state.
-            if (reflectionSidecarEnabled && !reflectionTraceHit)
-            {
-                PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                    PathTraceCleanRtxdiDiReflectionSidecarMissed();
-            }
-            else
-            {
-                PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                    PathTraceCleanRtxdiDiReflectionSidecarCandidate(
-                        reflectionCandidate.throughput);
-            }
-        }
-        else if (reflectionCandidate.rejectReason ==
-            RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_ZERO_THROUGHPUT)
-        {
-            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                PathTraceCleanRtxdiDiReflectionSidecarTransmissionSelected(
-                    glassPayload.transmission);
-        }
-        else
-        {
-            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                PathTraceCleanRtxdiDiReflectionSidecarRejected();
-        }
-    }
-
     // Sentinel alpha 0.25: glass detected, continuation trace pending/missed.
     // Overwritten with 1.0 below when the record replacement succeeds.
     PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
@@ -722,6 +685,66 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     if (!transmissionSample.performPsr)
     {
         transmissionSample = PathTraceCleanRtxdiDiTransmissionPsrSampleThinStraight(glassSurface, glassPayload);
+    }
+
+    // Reflection PSR stochastic lane selection (step 4).
+    // Stores selectedThroughput / selectionPdf in the reflection sidecar rgb.
+    // Does not replace the primary surface yet (steps 5-6) and does not
+    // overwrite Option B radiance (a > 0.5) so beauty stays stable while the
+    // old reflection path is still enabled.
+    if (reflectionPsrEnabled &&
+        !PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(
+            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel]))
+    {
+        const bool transmissionLaneValid =
+            transmissionSample.performPsr &&
+            PathTraceCleanRoomLuminance(max(glassPayload.transmission, float3(0.0, 0.0, 0.0))) > 1.0e-5;
+        const bool reflectionLaneValid = reflectionCandidate.valid;
+
+        if (reflectionSidecarEnabled && reflectionLaneValid && !reflectionTraceHit)
+        {
+            // Option B attempted a mirror trace and missed: keep miss visible.
+            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                PathTraceCleanRtxdiDiReflectionSidecarMissed();
+        }
+        else if (!reflectionLaneValid &&
+            reflectionCandidate.rejectReason ==
+                RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_INVALID_DIRECTION)
+        {
+            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                PathTraceCleanRtxdiDiReflectionSidecarRejected();
+        }
+        else
+        {
+            RTXDI_RandomSamplerState laneRng =
+                RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x52505352u, 0u);
+            PathTraceCleanRtxdiDiApplyBlueNoiseToggle(laneRng);
+            const PathTraceCleanRtxdiDiReflectionPsrSelection laneSelection =
+                PathTraceCleanRtxdiDiSelectReflectionPsrLane(
+                    reflectionLaneValid,
+                    transmissionLaneValid,
+                    reflectionCandidate.throughput,
+                    glassPayload.transmission,
+                    laneRng);
+
+            if (laneSelection.failClosed)
+            {
+                PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                    PathTraceCleanRtxdiDiReflectionSidecarEmpty();
+            }
+            else if (laneSelection.reflectionSelected)
+            {
+                PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                    PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
+                        laneSelection.selectedThroughputOverPdf);
+            }
+            else
+            {
+                PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                    PathTraceCleanRtxdiDiReflectionSidecarTransmissionSelected(
+                        laneSelection.selectedThroughputOverPdf);
+            }
+        }
     }
     PathTraceCleanRtxdiPayload hitPayload;
     float3 hitPosition;

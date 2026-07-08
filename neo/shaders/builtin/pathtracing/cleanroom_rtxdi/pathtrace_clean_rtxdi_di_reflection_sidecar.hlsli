@@ -114,26 +114,26 @@ float3 PathTraceCleanRtxdiDiReflectionSidecarRgb(float4 sidecar)
     return max(sidecar.rgb, float3(0.0, 0.0, 0.0));
 }
 
-// Lane-status debug colors (beauty-neutral; debug views only):
-//   green  = reflection selected / radiance present
-//   cyan   = valid reflection candidate (not yet selected)
-//   red    = transmission selected
+// Stochastic lane mask (step 4 done criteria):
+//   green  = reflection selected (or Option B radiance present)
+//   blue   = transmission selected
+//   cyan   = candidate only (pre-selection / intermediate)
 //   magenta = rejected candidate
 //   yellow = trace miss
-//   gray   = empty
+//   gray   = empty / fail-closed
 float4 PathTraceCleanRtxdiDiReflectionPsrLaneDebugColor(float4 sidecar)
 {
     if (PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(sidecar))
     {
         return float4(0.05, 0.9, 0.05, 1.0);
     }
+    if (PathTraceCleanRtxdiDiReflectionSidecarIsTransmissionSelected(sidecar))
+    {
+        return float4(0.15, 0.35, 0.95, 1.0);
+    }
     if (PathTraceCleanRtxdiDiReflectionSidecarIsCandidate(sidecar))
     {
         return float4(0.05, 0.85, 0.85, 1.0);
-    }
-    if (PathTraceCleanRtxdiDiReflectionSidecarIsTransmissionSelected(sidecar))
-    {
-        return float4(0.9, 0.05, 0.05, 1.0);
     }
     if (PathTraceCleanRtxdiDiReflectionSidecarIsRejected(sidecar))
     {
