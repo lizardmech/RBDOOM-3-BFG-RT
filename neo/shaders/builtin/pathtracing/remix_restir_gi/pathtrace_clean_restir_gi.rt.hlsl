@@ -381,7 +381,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiSpatialVisibilityMode;
     uint CleanRestirGiGlossySecondRayEnabled;
     float CleanRestirGiGlossySecondRayMaxRoughness;
-    uint CleanRestirGiPad2;
+    uint CleanRestirGiFinalMixMode;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -5267,7 +5267,63 @@ void CleanGiSeedInitPageFromNeeCache(uint2 pixel, bool surfaceValid, PathTracePr
 // still "IndirectDiffuse", but the value is now final reflected indirect GI.
 // ---------------------------------------------------------------------------
 
-CleanGiIndirectLobeResult CleanGiFinalShadeIndirectSplit(RAB_Surface surface, RTXDI_GIReservoir reservoir)
+uint CleanGiFinalMixBaseMode()
+{
+    const uint mode = CleanRestirGiFinalMixMode >= 10u
+        ? CleanRestirGiFinalMixMode - 10u
+        : CleanRestirGiFinalMixMode;
+    return mode <= 3u ? mode : 0u;
+}
+
+bool CleanGiFinalMixReservoirVisibilityEnabled()
+{
+    return CleanRestirGiFinalMixMode >= 10u && CleanRestirGiFinalMixMode <= 13u;
+}
+
+bool CleanGiFinalMixCanTraceReservoirVisibility(RAB_Surface surface)
+{
+    return surface.surfaceClass != RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED &&
+        surface.surfaceClass != RT_SMOKE_SURFACE_CLASS_TRANSLUCENT;
+}
+
+CleanGiIndirectLobeResult CleanGiBlendIndirectLobes(
+    CleanGiIndirectLobeResult reservoirLobes,
+    CleanGiIndirectLobeResult rawLobes,
+    float rawWeight)
+{
+    rawWeight = saturate(rawWeight);
+
+    CleanGiIndirectLobeResult result = (CleanGiIndirectLobeResult)0;
+    result.diffuse = lerp(reservoirLobes.diffuse, rawLobes.diffuse, rawWeight);
+    result.specular = lerp(reservoirLobes.specular, rawLobes.specular, rawWeight);
+
+    const bool reservoirHitValid = reservoirLobes.hitDistance > 0.0 && reservoirLobes.hitDistance < 1.0e8;
+    const bool rawHitValid = rawLobes.hitDistance > 0.0 && rawLobes.hitDistance < 1.0e8;
+    if (reservoirHitValid && rawHitValid)
+    {
+        result.hitDistance = lerp(reservoirLobes.hitDistance, rawLobes.hitDistance, rawWeight);
+    }
+    else
+    {
+        result.hitDistance = rawHitValid ? rawLobes.hitDistance : reservoirLobes.hitDistance;
+    }
+    return result;
+}
+
+float CleanGiAdaptiveRawFinalMixWeight(RAB_Surface surface, RTXDI_GIReservoir reservoir)
+{
+    const float maxHistory = max((float)CleanRestirGiMaxHistoryLength, 1.0);
+    const float historyConfidence = saturate(((float)reservoir.M - 1.0) / max(maxHistory - 1.0, 1.0));
+    const float roughness = saturate(GetRoughness(surface.material));
+    const float specularLum = RAB_MaterialLuminance(GetSpecularF0(surface.material));
+    const float glossyWeight = saturate((0.45 - roughness) / 0.45) * saturate(specularLum * 8.0);
+    return saturate((1.0 - historyConfidence) * 0.75 + glossyWeight * 0.25);
+}
+
+CleanGiIndirectLobeResult CleanGiFinalShadeIndirectSplitInternal(
+    RAB_Surface surface,
+    RTXDI_GIReservoir reservoir,
+    bool finalVisibility)
 {
     CleanGiIndirectLobeResult result = (CleanGiIndirectLobeResult)0;
     if (!RAB_IsSurfaceValid(surface) || !RTXDI_IsValidGIReservoir(reservoir))
@@ -5290,6 +5346,12 @@ CleanGiIndirectLobeResult CleanGiFinalShadeIndirectSplit(RAB_Surface surface, RT
     {
         return result;
     }
+    if (finalVisibility &&
+        CleanGiFinalMixCanTraceReservoirVisibility(surface) &&
+        CleanGiTraceVisibility(RAB_GetSurfaceWorldPos(surface), RAB_GetSurfaceGeoNormal(surface), reservoir.position) <= 0.0)
+    {
+        return result;
+    }
     float3 weightedRadiance = max(reservoir.radiance, float3(0.0, 0.0, 0.0)) * weight;
     if (CleanRestirGiContributionFireflyThreshold > 0.0)
     {
@@ -5306,6 +5368,11 @@ CleanGiIndirectLobeResult CleanGiFinalShadeIndirectSplit(RAB_Surface surface, RT
         weightedRadiance);
     result.hitDistance = sqrt(distanceSquared);
     return result;
+}
+
+CleanGiIndirectLobeResult CleanGiFinalShadeIndirectSplit(RAB_Surface surface, RTXDI_GIReservoir reservoir)
+{
+    return CleanGiFinalShadeIndirectSplitInternal(surface, reservoir, false);
 }
 
 float3 CleanGiFinalShadeIndirect(RAB_Surface surface, RTXDI_GIReservoir reservoir)
@@ -5340,7 +5407,48 @@ bool CleanGiShouldWriteRrHitDistance(RAB_Surface surface, CleanGiIndirectLobeRes
 // (so the beauty image receives the FILTERED contribution).
 void CleanGiFinalShadingAndResolve(uint2 pixel, RAB_Surface surface, RTXDI_GIReservoir reservoir)
 {
-    const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(surface, reservoir);
+    CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplitInternal(
+        surface,
+        reservoir,
+        CleanGiFinalMixReservoirVisibilityEnabled());
+
+    const uint finalMixMode = CleanGiFinalMixBaseMode();
+    if (finalMixMode != 0u && RAB_IsSurfaceValid(surface))
+    {
+        const RemixRestirGIRawInitialSample rawSample = RemixRAB_LoadRawGIInitialSample(pixel);
+        CleanGiIndirectLobeResult rawLobes = (CleanGiIndirectLobeResult)0;
+        if (rawSample.valid != 0u && rawSample.sourcePdf > 1.0e-8)
+        {
+            const RTXDI_GIReservoir rawReservoir = RTXDI_MakeGIReservoir(
+                rawSample.hitPosition,
+                rawSample.hitNormal,
+                rawSample.radiance,
+                rawSample.sourcePdf);
+            rawLobes = CleanGiFinalShadeIndirectSplitInternal(surface, rawReservoir, false);
+        }
+
+        if (finalMixMode == 1u)
+        {
+            lobes = rawLobes;
+        }
+        else
+        {
+            const bool rawHasEnergy = CleanGiLuminance(rawLobes.diffuse + rawLobes.specular) > 1.0e-8;
+            const bool reservoirHasEnergy = CleanGiLuminance(lobes.diffuse + lobes.specular) > 1.0e-8;
+            if (rawHasEnergy && reservoirHasEnergy)
+            {
+                const float rawWeight = finalMixMode == 2u
+                    ? 0.5
+                    : CleanGiAdaptiveRawFinalMixWeight(surface, reservoir);
+                lobes = CleanGiBlendIndirectLobes(lobes, rawLobes, rawWeight);
+            }
+            else if (rawHasEnergy)
+            {
+                lobes = rawLobes;
+            }
+        }
+    }
+
     const float3 indirect = lobes.diffuse + lobes.specular;
     CleanRestirGiIndirectDiffuse[pixel] = float4(indirect, 1.0);
     CleanRestirGiIndirectDiffuseLobe[pixel] = float4(lobes.diffuse, 1.0);

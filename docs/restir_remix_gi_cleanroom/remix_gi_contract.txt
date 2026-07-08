@@ -100,6 +100,18 @@ Remix Pass Order
          - rbdoom current baseline: diffuse + specular lobes share the
            existing dedicated GI output consumed by the combined resolve;
            separate diffuse/specular NRD outputs remain deferred
+         - rbdoom staged extension: r_pathTracingCleanRestirGiFinalMix can
+           shade the current raw initial sample beside the reused reservoir
+           and blend those lobes before the boiling filter. This tests the
+           same quality direction as Remix's raw/ReSTIR final MIS blend, where
+           unreliable reuse should not appear at full amplitude. It is not yet
+           the full Remix parallax MIS policy; exact parallax weights remain a
+           deferred contract.
+         - rbdoom staged extension: adding 10 to
+           r_pathTracingCleanRestirGiFinalMix final-visibility-tests reused
+           reservoir samples from the current receiver before final shading.
+           The current diagnostic skips skinned/deformed and translucent
+           receivers.
 
 
 Reservoir Payload (upstream RTXDI GI)

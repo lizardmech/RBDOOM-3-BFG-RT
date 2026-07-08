@@ -2033,7 +2033,7 @@ idCVar r_pathTracingCleanRestirGiContributionFireflyThreshold(
 
 idCVar r_pathTracingCleanRestirGiBlueNoise(
     "r_pathTracingCleanRestirGiBlueNoise",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI: feed spatiotemporal blue noise to eligible producer, initial-sample, spatial reuse, and temporal reuse RNG dimensions instead of white noise. Requires the STBN mask at textures/bluenoise/stbn_scalar_128x128x64.raw; falls back to white noise if absent." );
 
@@ -2198,6 +2198,12 @@ idCVar r_pathTracingCleanRestirGiResolveGain(
     "1.0",
     CVAR_RENDERER | CVAR_FLOAT,
     "Clean-room ReSTIR GI gain for the final view-0 resolve add and matching RR input resolve; default 1 uses raw indirect energy after source-PDF reservoir weighting" );
+
+idCVar r_pathTracingCleanRestirGiFinalMix(
+    "r_pathTracingCleanRestirGiFinalMix",
+    "13",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI final shading mix: 0 reservoir-only, 1 raw initial-only, 2 fixed raw/reservoir blend, 3 adaptive raw fallback. Add 10 to final-visibility-test reused reservoir samples before shading" );
 
 idCVar r_pathTracingCleanRestirGiBoilingFilter(
     "r_pathTracingCleanRestirGiBoilingFilter",

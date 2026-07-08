@@ -148,7 +148,7 @@ r_pathTracingCleanRestirGiContinuationOpaqueTrace
     bounces.
 
 r_pathTracingCleanRestirGiBlueNoise
-    bool, default 0. When 1 and the shared STBN mask
+    bool, default 1. When 1 and the shared STBN mask
     textures/bluenoise/stbn_scalar_128x128x64.raw loaded successfully, eligible
     low-dimension GI producer, initial-sample merge, spatial reuse, and temporal
     reuse RNG draws use the shared spatiotemporal blue-noise mask. Missing or
@@ -261,6 +261,21 @@ r_pathTracingCleanRestirGiResolveGain
     default is raw indirect energy; the earlier 10.0 diagnostic gain is no
     longer needed after first-indirect source-PDF weighting was preserved
     through the initial GI reservoir.
+
+r_pathTracingCleanRestirGiFinalMix
+    int, default 13. Selects the final GI lobe source before the boiling filter
+    and view-0 resolve:
+        0 reservoir-only final shading, the current baseline
+        1 raw initial sample only, diagnostic
+        2 fixed 50/50 raw initial plus reservoir blend
+        3 adaptive raw fallback, biased toward raw when history confidence is
+          low or the primary receiver is glossy/specular
+    Add 10 to final-visibility-test reused reservoir samples before final
+    shading, for example 13 = adaptive blend plus final reservoir visibility.
+    This is a staged approximation of Remix's raw/ReSTIR final MIS direction,
+    not the full parallax MIS contract. Final visibility is skipped for
+    skinned/deformed and translucent receiver surfaces so the diagnostic
+    shadow ray does not perturb animated character normals or glass ownership.
 
 
 Rules
