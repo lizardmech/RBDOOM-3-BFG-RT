@@ -597,7 +597,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                 reflectionSurface))
             {
                 RTXDI_RandomSamplerState reflectionRng =
-                    RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x4752464cu);
+                    RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4752464cu, 0u);
+                PathTraceCleanRtxdiDiApplyBlueNoiseToggle(reflectionRng);
                 reflectedRadiance = PathTraceCleanRtxdiDiShadeReflectionHit(
                     reflectionSurface,
                     reflectionRng);

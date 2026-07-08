@@ -631,6 +631,7 @@ if(USE_VULKAN)
         path_tracing_declare_clean_rtxdi_di_material_feature_rt_library(
             BLOB_PATH builtin/pathtracing/cleanroom_rtxdi/${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM}.rt.bin
             SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM}.rt.hlsl
+            DEFINES -D RBPT_ENABLE_BLUE_NOISE
             DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM}.hlsli
             COMMENT "Compiling ${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_LABEL} RT shader library (SPIR-V)")
     endforeach()
