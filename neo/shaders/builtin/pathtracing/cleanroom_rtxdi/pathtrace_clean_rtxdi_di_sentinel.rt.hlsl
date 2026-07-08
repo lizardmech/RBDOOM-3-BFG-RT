@@ -534,6 +534,12 @@ float3 PathTraceCleanRoomTransmissionPsrMaskColor(uint2 pixel, uint2 dimensions)
         return float3(0.0, 0.85, 1.0);
     }
 
+    if ((record.header.w & CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED) != 0u)
+    {
+        // Magenta-ish: reflection PSR replacement surface.
+        return float3(0.95, 0.15, 0.85);
+    }
+
     if ((record.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u)
     {
         return float3(0.0, 0.95, 0.20);

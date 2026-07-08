@@ -9,6 +9,17 @@ bool PathTraceCleanRoomSurfaceIsTransmissionPsrResolved(PathTracePrimarySurfaceR
     return (surface.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u;
 }
 
+bool PathTraceCleanRoomSurfaceIsReflectionPsrResolved(PathTracePrimarySurfaceRecord surface)
+{
+    return (surface.header.w & CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED) != 0u;
+}
+
+bool PathTraceCleanRoomSurfaceIsGlassPsrResolved(PathTracePrimarySurfaceRecord surface)
+{
+    return PathTraceCleanRoomSurfaceIsTransmissionPsrResolved(surface) ||
+        PathTraceCleanRoomSurfaceIsReflectionPsrResolved(surface);
+}
+
 bool PathTraceCleanRoomTemporalRigidEmissiveBypassEnabled()
 {
     return (CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL) != 0u &&
@@ -134,7 +145,9 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
     {
         return result;
     }
-    if (PathTraceCleanRoomSurfaceIsTransmissionPsrResolved(currentSurface))
+    // Glass PSR replacements (transmission or reflection) fail closed on
+    // temporal reuse until motion/reset contracts land for those lanes.
+    if (PathTraceCleanRoomSurfaceIsGlassPsrResolved(currentSurface))
     {
         return result;
     }
@@ -291,7 +304,7 @@ RTXDI_DIReservoir PathTraceCleanRoomRunTemporalProducerFast(uint2 pixel, uint2 d
     {
         return currentReservoir;
     }
-    if (PathTraceCleanRoomSurfaceIsTransmissionPsrResolved(currentSurface))
+    if (PathTraceCleanRoomSurfaceIsGlassPsrResolved(currentSurface))
     {
         return currentReservoir;
     }

@@ -204,7 +204,11 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
     material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
     material.roughness = saturate(record.geometricNormalAndRoughness.w);
     material.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
-    if ((record.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) == 0u)
+    // Transmission/reflection PSR already wrote resolved hit materials; do not
+    // re-run the live classifier over the replacement surface.
+    if ((record.header.w &
+            (CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED |
+                CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED)) == 0u)
     {
         PathTraceCleanRoomApplyLiveMaterialClassifierBsdf(
             material.materialIndex,
@@ -230,7 +234,9 @@ RAB_Surface PathTraceCleanRoomSurfaceForView(PathTracePrimarySurfaceRecord recor
     return PathTraceCleanRoomSurfaceFromRecord(record);
 }
 
-PathTracePrimarySurfaceRecord PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRecord(RAB_Surface surface)
+PathTracePrimarySurfaceRecord PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRecord(
+    RAB_Surface surface,
+    uint psrResolvedFlag)
 {
     PathTracePrimarySurfaceRecord record = (PathTracePrimarySurfaceRecord)0;
     record.header.x = RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION;
@@ -250,7 +256,7 @@ PathTracePrimarySurfaceRecord PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRec
         RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION,
         validFlags,
         RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION,
-        surface.flags | CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED);
+        surface.flags | psrResolvedFlag);
     record.worldPositionAndViewDepth = float4(surface.worldPos, surface.linearDepth);
     record.geometricNormalAndRoughness = float4(surface.geometryNormal, surface.material.roughness);
     record.shadingNormalAndOpacity = float4(surface.shadingNormal, surface.material.opacity);

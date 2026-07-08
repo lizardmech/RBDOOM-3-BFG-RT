@@ -467,6 +467,7 @@ static const uint CLEAN_FLAG_NEE_CACHE_PROVIDER = 1u << 11u;
 static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
 static const uint CLEAN_GI_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED = 0x80000000u;
 static const uint CLEAN_GI_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED = 0x40000000u;
+static const uint CLEAN_GI_SURFACE_FLAG_REFLECTION_PSR_RESOLVED = 0x20000000u;
 
 float3 CleanGiSafeNormalize(float3 value, float3 fallback);
 float CleanGiLuminance(float3 value);
@@ -483,7 +484,11 @@ float CleanGiProducerMixturePdf(RAB_Surface surface, float3 bounceDir);
 
 bool CleanGiSurfaceRecordIsTransmissionPsrResolved(PathTracePrimarySurfaceRecord record)
 {
-    return (record.header.w & CLEAN_GI_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u;
+    // Treat either glass PSR replacement (transmission or reflection) as a
+    // fully resolved surface for material loading / temporal fail-closed.
+    return (record.header.w &
+            (CLEAN_GI_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED |
+                CLEAN_GI_SURFACE_FLAG_REFLECTION_PSR_RESOLVED)) != 0u;
 }
 
 // ---------------------------------------------------------------------------

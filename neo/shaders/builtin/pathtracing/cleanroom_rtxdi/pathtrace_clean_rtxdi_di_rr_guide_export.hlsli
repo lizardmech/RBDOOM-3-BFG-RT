@@ -36,7 +36,8 @@ void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(uint2 pixel, RAB_Surface 
 bool PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
     uint2 pixel,
     uint2 dimensions,
-    inout RAB_Surface surface)
+    inout RAB_Surface surface,
+    uint psrResolvedFlag)
 {
     const uint width = CleanRtxdiDiWidth != 0u ? CleanRtxdiDiWidth : dimensions.x;
     const uint height = CleanRtxdiDiHeight != 0u ? CleanRtxdiDiHeight : dimensions.y;
@@ -50,9 +51,21 @@ bool PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
         surface.worldPos - CleanRtxdiDiCameraOriginAndValid.xyz,
         CleanRtxdiDiCameraForwardAndTanX.xyz);
     PrimarySurfaceHistoryCurrent[recordIndex] =
-        PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRecord(surface);
+        PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRecord(surface, psrResolvedFlag);
     PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(pixel, surface);
     return true;
+}
+
+bool PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
+    uint2 pixel,
+    uint2 dimensions,
+    inout RAB_Surface surface)
+{
+    return PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
+        pixel,
+        dimensions,
+        surface,
+        CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED);
 }
 
 #endif

@@ -687,10 +687,11 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         transmissionSample = PathTraceCleanRtxdiDiTransmissionPsrSampleThinStraight(glassSurface, glassPayload);
     }
 
-    // Reflection PSR stochastic lane selection (step 4) + replacement ray
-    // (step 5). Sidecar rgb stores selectedThroughput / selectionPdf.
-    // Does not pack the reflected hit into the primary surface yet (step 6)
-    // and does not overwrite Option B radiance (a > 0.5).
+    // Reflection PSR stochastic lane selection (step 4), replacement ray
+    // (step 5), and primary-surface pack (step 6). Sidecar rgb stores
+    // selectedThroughput / selectionPdf. Does not overwrite Option B radiance
+    // (a > 0.5).
+    bool reflectionPrimaryPublished = false;
     if (reflectionPsrEnabled &&
         !PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(
             PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel]))
@@ -733,9 +734,6 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             }
             else if (laneSelection.reflectionSelected)
             {
-                // Step 5: trace the mirror replacement ray. Hit keeps
-                // REFLECTION_SELECTED + throughput/pdf; miss becomes MISSED.
-                // Primary surface is not replaced until step 6.
                 PathTraceCleanRtxdiPayload reflectionPsrPayload;
                 float3 reflectionPsrHitPosition;
                 float3 reflectionPsrRayDirection;
@@ -746,9 +744,38 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                     reflectionPsrHitPosition,
                     reflectionPsrRayDirection))
                 {
-                    PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                        PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
-                            laneSelection.selectedThroughputOverPdf);
+                    RAB_Surface reflectionHitSurface;
+                    if (PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
+                        reflectionPsrPayload,
+                        reflectionPsrHitPosition,
+                        reflectionPsrRayDirection,
+                        reflectionHitSurface) &&
+                        PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
+                            pixel,
+                            dimensions,
+                            reflectionHitSurface,
+                            CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED))
+                    {
+                        // Downstream DI sees the reflected surface, not glass.
+                        PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                            PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
+                                laneSelection.selectedThroughputOverPdf);
+                        // Interim compose multiplier: reuse the transmission
+                        // sidecar channel with reflection throughput/pdf until
+                        // step 8 owns reflection compose explicitly.
+                        const float overlayStrength =
+                            PathTraceCleanRtxdiDiGlassOverlayStrength(glassPayload);
+                        PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
+                            PathTraceCleanRtxdiDiTransmissionSidecarResolved(
+                                laneSelection.selectedThroughputOverPdf,
+                                overlayStrength);
+                        reflectionPrimaryPublished = true;
+                    }
+                    else
+                    {
+                        PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                            PathTraceCleanRtxdiDiReflectionSidecarMissed();
+                    }
                 }
                 else
                 {
@@ -764,6 +791,12 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             }
         }
     }
+
+    if (reflectionPrimaryPublished)
+    {
+        return;
+    }
+
     PathTraceCleanRtxdiPayload hitPayload;
     float3 hitPosition;
     float3 rayDirection;
@@ -782,7 +815,11 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         hitSurface.flags |= CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED;
     }
 
-    if (!PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(pixel, dimensions, hitSurface))
+    if (!PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
+        pixel,
+        dimensions,
+        hitSurface,
+        CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED))
     {
         return;
     }

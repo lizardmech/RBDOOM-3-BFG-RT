@@ -252,6 +252,7 @@ static const uint CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
 static const uint CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 static const uint CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED = 0x80000000u;
 static const uint CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED = 0x40000000u;
+static const uint CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED = 0x20000000u;
 #define RB_RAB_LIGHT_SAMPLING_CORE_ONLY 1
 #define RB_RAB_CLEAN_RTXDI_DI_SENTINEL 1
 #define RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES 1
@@ -702,7 +703,9 @@ void CleanApplyLiveMaterialClassifierBsdf(
 float3 CleanTexturedSurfaceAlbedo(PathTracePrimarySurfaceRecord record)
 {
     const float3 fallbackAlbedo = CleanSurfaceFallbackAlbedo(record);
-    if ((record.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u)
+    if ((record.header.w &
+            (CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED |
+                CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED)) != 0u)
     {
         return fallbackAlbedo;
     }
@@ -792,7 +795,9 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
     material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
     material.roughness = saturate(record.geometricNormalAndRoughness.w);
     material.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
-    if ((record.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) == 0u)
+    if ((record.header.w &
+            (CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED |
+                CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED)) == 0u)
     {
         CleanApplyLiveMaterialClassifierBsdf(
             material.materialIndex,
