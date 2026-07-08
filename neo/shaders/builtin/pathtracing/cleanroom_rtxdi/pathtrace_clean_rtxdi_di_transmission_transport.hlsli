@@ -127,6 +127,75 @@ bool PathTraceCleanRtxdiDiTraceTransmissionHit(
     return hitPayload.value != 0u && hitPayload.hitMaterialIndex < (uint)TextureInfo.z;
 }
 
+// Reflection PSR candidate (step 3): transport-only decision, no shading.
+struct PathTraceCleanRtxdiDiReflectionPsrCandidate
+{
+    bool valid;
+    uint rejectReason;
+    float3 direction;
+    float3 throughput;
+    float3 faceForwardNormal;
+};
+
+PathTraceCleanRtxdiDiReflectionPsrCandidate PathTraceCleanRtxdiDiReflectionPsrCandidateEmpty()
+{
+    PathTraceCleanRtxdiDiReflectionPsrCandidate candidate;
+    candidate.valid = false;
+    candidate.rejectReason = RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_INVALID_DIRECTION;
+    candidate.direction = float3(0.0, 0.0, 0.0);
+    candidate.throughput = float3(0.0, 0.0, 0.0);
+    candidate.faceForwardNormal = float3(0.0, 0.0, 1.0);
+    return candidate;
+}
+
+PathTraceCleanRtxdiDiReflectionPsrCandidate PathTraceCleanRtxdiDiBuildReflectionPsrCandidate(
+    RAB_Surface surface,
+    PathTraceCleanRtxdiDiGlassThinPayload glassPayload)
+{
+    PathTraceCleanRtxdiDiReflectionPsrCandidate candidate =
+        PathTraceCleanRtxdiDiReflectionPsrCandidateEmpty();
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 viewDirection = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
+    const float3 faceForwardNormal = dot(normal, viewDirection) >= 0.0 ? normal : -normal;
+    candidate.faceForwardNormal = faceForwardNormal;
+    candidate.throughput = max(glassPayload.reflection, float3(0.0, 0.0, 0.0));
+
+    // Reject when reflection energy is effectively zero (transmission-only glass).
+    if (PathTraceCleanRoomLuminance(candidate.throughput) <= 1.0e-5)
+    {
+        candidate.rejectReason = RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_ZERO_THROUGHPUT;
+        return candidate;
+    }
+
+    const float3 reflectedDirection = reflect(-viewDirection, faceForwardNormal);
+    if (dot(reflectedDirection, reflectedDirection) <= 1.0e-8)
+    {
+        candidate.rejectReason = RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_INVALID_DIRECTION;
+        return candidate;
+    }
+
+    const float3 safeDirection = RAB_SafeNormalize(reflectedDirection, faceForwardNormal);
+    // Must leave the front of the pane (same side the viewer sees).
+    if (dot(safeDirection, faceForwardNormal) <= 1.0e-4)
+    {
+        candidate.rejectReason = RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_INVALID_DIRECTION;
+        return candidate;
+    }
+
+    // Origin offset used by the mirror trace must remain finite/non-zero.
+    const float3 originOffset = safeDirection * 0.05;
+    if (dot(originOffset, originOffset) <= 1.0e-12)
+    {
+        candidate.rejectReason = RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_INVALID_DIRECTION;
+        return candidate;
+    }
+
+    candidate.valid = true;
+    candidate.rejectReason = RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_NONE;
+    candidate.direction = safeDirection;
+    return candidate;
+}
+
 bool PathTraceCleanRtxdiDiTraceReflectionHit(
     RAB_Surface surface,
     out PathTraceCleanRtxdiPayload hitPayload,
