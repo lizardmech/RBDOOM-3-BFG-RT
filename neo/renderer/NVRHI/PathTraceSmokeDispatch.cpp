@@ -1933,6 +1933,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             idMath::ClampInt(1, 16, r_cleanDiSpatialSamples.GetInteger()),
             idMath::ClampInt(1, 16, r_cleanDiSpatialDisocclusionSamples.GetInteger()),
             idMath::ClampFloat(1.0f, 128.0f, r_cleanDiSpatialRadius.GetFloat()));
+        common->Printf(
+            "PathTracePrimaryPass: clean-room RTXDI DI blue-noise proof requested=%d maskValid=%d textureBound=%d flagWillSet=%d binding=t127 eligible='DI initial/temporal/spatial plus glass reflection material-feature' whiteNoise='NEE-cache direct-seed/replay paths'\n",
+            r_pathTracingCleanRtxdiDiBlueNoise.GetInteger() != 0 ? 1 : 0,
+            m_smokeCleanRtxdiDiBlueNoise.valid ? 1 : 0,
+            m_smokeCleanRtxdiDiBlueNoise.texture ? 1 : 0,
+            (m_smokeCleanRtxdiDiBlueNoise.valid && r_pathTracingCleanRtxdiDiBlueNoise.GetInteger() != 0) ? 1 : 0);
     };
     auto printNeeCacheSecondaryDump = [&]()
     {
