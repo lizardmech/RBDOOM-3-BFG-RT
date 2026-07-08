@@ -411,12 +411,12 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
 
     if (debugMode >= 9.5)
     {
-        // Stochastic lane mask (step 4):
-        //   green  = reflection selected (a ~ 1.0)
+        // Reflection PSR lane + replacement-ray status (steps 4-5):
+        //   green  = reflection selected AND mirror hit (a ~ 1.0)
         //   blue   = transmission selected (a ~ 0.5)
-        //   cyan   = candidate only (a ~ 0.375, should be rare after step 4)
-        //   magenta = rejected (a ~ 0.125)
-        //   yellow = mirror miss (a ~ 0.25)
+        //   cyan   = candidate only (a ~ 0.375, pre-trace intermediate)
+        //   magenta = rejected candidate (a ~ 0.125)
+        //   yellow = reflection selected but mirror miss (a ~ 0.25)
         //   gray   = empty / fail-closed
         return PathTraceCleanRtxdiDiReflectionPsrLaneDebugColor(
             PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel]);
@@ -687,11 +687,10 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         transmissionSample = PathTraceCleanRtxdiDiTransmissionPsrSampleThinStraight(glassSurface, glassPayload);
     }
 
-    // Reflection PSR stochastic lane selection (step 4).
-    // Stores selectedThroughput / selectionPdf in the reflection sidecar rgb.
-    // Does not replace the primary surface yet (steps 5-6) and does not
-    // overwrite Option B radiance (a > 0.5) so beauty stays stable while the
-    // old reflection path is still enabled.
+    // Reflection PSR stochastic lane selection (step 4) + replacement ray
+    // (step 5). Sidecar rgb stores selectedThroughput / selectionPdf.
+    // Does not pack the reflected hit into the primary surface yet (step 6)
+    // and does not overwrite Option B radiance (a > 0.5).
     if (reflectionPsrEnabled &&
         !PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(
             PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel]))
@@ -734,9 +733,28 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             }
             else if (laneSelection.reflectionSelected)
             {
-                PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                    PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
-                        laneSelection.selectedThroughputOverPdf);
+                // Step 5: trace the mirror replacement ray. Hit keeps
+                // REFLECTION_SELECTED + throughput/pdf; miss becomes MISSED.
+                // Primary surface is not replaced until step 6.
+                PathTraceCleanRtxdiPayload reflectionPsrPayload;
+                float3 reflectionPsrHitPosition;
+                float3 reflectionPsrRayDirection;
+                if (PathTraceCleanRtxdiDiTraceReflectionPsrHit(
+                    glassSurface,
+                    reflectionCandidate,
+                    reflectionPsrPayload,
+                    reflectionPsrHitPosition,
+                    reflectionPsrRayDirection))
+                {
+                    PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                        PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
+                            laneSelection.selectedThroughputOverPdf);
+                }
+                else
+                {
+                    PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                        PathTraceCleanRtxdiDiReflectionSidecarMissed();
+                }
             }
             else
             {

@@ -1645,7 +1645,7 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
     "r_pathTracingCleanRtxdiDiTransmissionDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 thin-glass payload, 2 source validity red=strict green=relaxed blue=current-source energy, 3 PSR status green=replaced yellow=miss red=still-glass gray=not-glass, 4 reflection sidecar radiance, 5 cosmetic distortion sidecar, 6 cosmetic distorted source preview, 7 cosmetic distortion source difference, 8 normal-map diagnostic, 9 procedural warped checker, 10 reflection PSR lane mask green=reflection-selected blue=transmission-selected cyan=candidate magenta=rejected yellow=miss gray=empty, 11 reflection PSR candidate class green=candidate/selected cyan=transmission-only red=rejected yellow=miss gray=empty" );
+    "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 thin-glass payload, 2 source validity red=strict green=relaxed blue=current-source energy, 3 PSR status green=replaced yellow=miss red=still-glass gray=not-glass, 4 reflection sidecar radiance, 5 cosmetic distortion sidecar, 6 cosmetic distorted source preview, 7 cosmetic distortion source difference, 8 normal-map diagnostic, 9 procedural warped checker, 10 reflection PSR lane/trace mask green=reflection-hit blue=transmission-selected cyan=candidate magenta=rejected yellow=reflection-miss gray=empty, 11 reflection PSR candidate class green=hit/selected cyan=transmission red=rejected yellow=miss gray=empty" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassReflection(
     "r_pathTracingCleanRtxdiDiGlassReflection",

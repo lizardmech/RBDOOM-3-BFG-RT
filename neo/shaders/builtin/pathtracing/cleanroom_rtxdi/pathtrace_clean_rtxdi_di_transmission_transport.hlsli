@@ -285,6 +285,43 @@ PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiSelectReflectio
     return selection;
 }
 
+// Reflection PSR replacement ray (step 5): same pane-skip / offset policy as
+// transmission continuation. Transport only — no shading, no primary pack.
+bool PathTraceCleanRtxdiDiTraceReflectionPsrHit(
+    RAB_Surface surface,
+    PathTraceCleanRtxdiDiReflectionPsrCandidate candidate,
+    out PathTraceCleanRtxdiPayload hitPayload,
+    out float3 hitPosition,
+    out float3 rayDirection)
+{
+    hitPayload = PathTraceCleanRtxdiDiEmptyTransmissionTracePayload(surface);
+    hitPosition = RAB_GetSurfaceWorldPos(surface);
+    rayDirection = float3(0.0, 0.0, 0.0);
+    if (!candidate.valid || dot(candidate.direction, candidate.direction) <= 1.0e-8)
+    {
+        return false;
+    }
+
+    rayDirection = RAB_SafeNormalize(candidate.direction, candidate.faceForwardNormal);
+    if (dot(rayDirection, rayDirection) <= 1.0e-8)
+    {
+        return false;
+    }
+
+    RayDesc ray;
+    ray.Origin = RAB_GetSurfaceWorldPos(surface) + rayDirection * 0.05;
+    ray.Direction = rayDirection;
+    ray.TMin = 0.01;
+    ray.TMax = 100000.0;
+    // Force non-opaque so rayMode 3 anyhit filter always runs; skips the source
+    // pane and transparent-carded glass exactly like transmission PSR.
+    TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 1, 0, ray, hitPayload);
+    hitPosition = ray.Origin + rayDirection * hitPayload.hitT;
+    return hitPayload.value != 0u && hitPayload.hitMaterialIndex < (uint)TextureInfo.z;
+}
+
+// Option B mirror trace (shaded radiance path). Shares the same origin offset
+// and source-pane skip policy as TraceReflectionPsrHit.
 bool PathTraceCleanRtxdiDiTraceReflectionHit(
     RAB_Surface surface,
     out PathTraceCleanRtxdiPayload hitPayload,
@@ -294,19 +331,19 @@ bool PathTraceCleanRtxdiDiTraceReflectionHit(
     const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     const float3 viewDirection = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
     const float3 faceForwardNormal = dot(normal, viewDirection) >= 0.0 ? normal : -normal;
-    rayDirection = reflect(-viewDirection, faceForwardNormal);
-    hitPayload = PathTraceCleanRtxdiDiEmptyTransmissionTracePayload(surface);
-
-    RayDesc ray;
-    ray.Origin = RAB_GetSurfaceWorldPos(surface) + rayDirection * 0.05;
-    ray.Direction = rayDirection;
-    ray.TMin = 0.01;
-    ray.TMax = 100000.0;
-    // Keep rayMode 3 and forced any-hit filtering so the source pane is skipped
-    // exactly like the transmission continuation ray.
-    TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 1, 0, ray, hitPayload);
-    hitPosition = ray.Origin + rayDirection * hitPayload.hitT;
-    return hitPayload.value != 0u && hitPayload.hitMaterialIndex < (uint)TextureInfo.z;
+    PathTraceCleanRtxdiDiReflectionPsrCandidate candidate =
+        PathTraceCleanRtxdiDiReflectionPsrCandidateEmpty();
+    candidate.valid = true;
+    candidate.rejectReason = RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_NONE;
+    candidate.direction = reflect(-viewDirection, faceForwardNormal);
+    candidate.faceForwardNormal = faceForwardNormal;
+    candidate.throughput = float3(1.0, 1.0, 1.0);
+    return PathTraceCleanRtxdiDiTraceReflectionPsrHit(
+        surface,
+        candidate,
+        hitPayload,
+        hitPosition,
+        rayDirection);
 }
 
 bool PathTraceCleanRtxdiDiReflectionAnalyticPayloadValid(PathTraceDoomAnalyticLightCandidate light)
