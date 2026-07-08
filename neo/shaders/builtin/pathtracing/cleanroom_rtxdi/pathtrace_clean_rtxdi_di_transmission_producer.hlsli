@@ -378,33 +378,35 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
 {
     if (debugMode >= 10.5)
     {
-        // Step 3 live reflection candidate classification:
-        //   gray  = no glass
+        // Step 3 candidate classification from the reflection sidecar written
+        // during the PSR phase. Do not re-load PrimarySurfaceHistoryCurrent:
+        // transmission PSR has already replaced glass with the backdrop surface
+        // by the time producer debug colors run (same trap as mode 3 "still glass").
+        //
+        //   gray  = no glass / empty
+        //   green = valid reflection candidate (or later reflection-selected)
         //   cyan  = transmission only (zero reflection throughput)
         //   red   = rejected reflection (invalid mirror direction)
-        //   green = valid reflection candidate
-        RAB_Surface glassSurface;
-        const bool isGlass =
-            PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, glassSurface) &&
-            PathTraceCleanRtxdiDiGlassSurfaceSupported(glassSurface);
-        if (!isGlass)
+        //   yellow = candidate existed but mirror trace missed (Option B path)
+        const float4 reflectionSidecar = PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel];
+        if (PathTraceCleanRtxdiDiReflectionSidecarIsCandidate(reflectionSidecar) ||
+            PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar))
         {
-            return PathTraceCleanRtxdiDiReflectionPsrCandidateDebugColor(
-                false,
-                false,
-                RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_INVALID_DIRECTION);
+            return float4(0.05, 0.9, 0.05, 1.0);
         }
-
-        const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
-            PathTraceCleanRtxdiDiLoadGlassMaterialParams(glassSurface, runtimeParams);
-        const PathTraceCleanRtxdiDiGlassThinPayload glassPayload =
-            PathTraceCleanRtxdiDiBuildGlassThinPayload(glassSurface, materialParams);
-        const PathTraceCleanRtxdiDiReflectionPsrCandidate candidate =
-            PathTraceCleanRtxdiDiBuildReflectionPsrCandidate(glassSurface, glassPayload);
-        return PathTraceCleanRtxdiDiReflectionPsrCandidateDebugColor(
-            true,
-            candidate.valid,
-            candidate.rejectReason);
+        if (PathTraceCleanRtxdiDiReflectionSidecarIsTransmissionSelected(reflectionSidecar))
+        {
+            return float4(0.05, 0.55, 0.9, 1.0);
+        }
+        if (PathTraceCleanRtxdiDiReflectionSidecarIsRejected(reflectionSidecar))
+        {
+            return float4(0.9, 0.05, 0.05, 1.0);
+        }
+        if (PathTraceCleanRtxdiDiReflectionSidecarIsMissed(reflectionSidecar))
+        {
+            return float4(0.9, 0.9, 0.05, 1.0);
+        }
+        return float4(0.08, 0.08, 0.08, 1.0);
     }
 
     if (debugMode >= 9.5)
