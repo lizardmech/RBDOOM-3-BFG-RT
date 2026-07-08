@@ -282,6 +282,7 @@ extern idCVar r_pathTracingCleanRtxdiDiTransmissionProducer;
 extern idCVar r_pathTracingCleanRtxdiDiTransmissionCompose;
 extern idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView;
 extern idCVar r_pathTracingCleanRtxdiDiGlassReflection;
+extern idCVar r_pathTracingCleanRtxdiDiGlassReflectionPsr;
 extern idCVar r_pathTracingCleanRtxdiDiGlassDistortion;
 extern idCVar r_pathTracingCleanRtxdiDiGlassRefractedPsr;
 extern idCVar r_pathTracingCleanRtxdiDiGlassRefractedPsrStrength;

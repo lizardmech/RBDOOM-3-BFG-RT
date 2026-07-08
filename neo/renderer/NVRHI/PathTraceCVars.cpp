@@ -1653,6 +1653,12 @@ idCVar r_pathTracingCleanRtxdiDiGlassReflection(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 glass reflection sidecar: 0 off, 1 trace mirror ray in PSR producer and compose reflected radiance" );
 
+idCVar r_pathTracingCleanRtxdiDiGlassReflectionPsr(
+    "r_pathTracingCleanRtxdiDiGlassReflectionPsr",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI view 16 glass reflection PSR: 0 off (sidecar reflection path unchanged), 1 allow producer to select reflected replacement primary surfaces (plumbing only until later steps)" );
+
 idCVar r_pathTracingCleanRtxdiDiGlassDistortion(
     "r_pathTracingCleanRtxdiDiGlassDistortion",
     "0",

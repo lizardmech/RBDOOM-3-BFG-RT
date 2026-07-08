@@ -55,6 +55,7 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION = 1u << 21u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_DISTORTION = 1u << 22u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR = 1u << 23u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_BLUE_NOISE = 1u << 24u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR = 1u << 25u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT = 9u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_MASK = 7u << RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT;
 const uint32_t CLEAN_RTXDI_DI_RESOLVE_BRDF_TARGET_ENABLE = 1u << 0u;
@@ -3794,6 +3795,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         if (r_pathTracingCleanRtxdiDiGlassReflection.GetInteger() != 0)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION;
+        }
+        if (r_pathTracingCleanRtxdiDiGlassReflectionPsr.GetInteger() != 0)
+        {
+            cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR;
         }
         if (r_pathTracingCleanRtxdiDiGlassDistortion.GetInteger() != 0)
         {
