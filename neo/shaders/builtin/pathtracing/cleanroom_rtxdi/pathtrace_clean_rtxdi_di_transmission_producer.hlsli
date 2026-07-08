@@ -376,6 +376,17 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams,
     float debugMode)
 {
+    if (debugMode >= 9.5)
+    {
+        // Reflection PSR lane status (alpha contract):
+        //   green  = reflection selected / Option B radiance present (a ~ 1.0)
+        //   red    = transmission selected (a ~ 0.5)
+        //   yellow = reflection candidate miss (a ~ 0.25)
+        //   gray   = empty
+        return PathTraceCleanRtxdiDiReflectionPsrLaneDebugColor(
+            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel]);
+    }
+
     if (debugMode >= 8.5)
     {
         return PathTraceCleanRtxdiDiGlassCosmeticDistortionCheckerColor(pixel);
@@ -411,11 +422,11 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
     if (debugMode >= 3.5)
     {
         const float4 reflectionSidecar = PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel];
-        if (reflectionSidecar.a < 0.5)
+        if (!PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar))
         {
             return float4(0.015, 0.015, 0.015, 1.0);
         }
-        return float4(saturate(reflectionSidecar.rgb * 4.0), 1.0);
+        return float4(saturate(PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar) * 4.0), 1.0);
     }
 
     if (debugMode >= 2.5)
@@ -535,15 +546,16 @@ bool PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
         materialParams);
     const bool reflectionEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION) != 0u;
     const float reflectionScale =
-        reflectionEnabled && reflectionSidecar.a > 0.5 ? max(materialParams.reflectionBoost, 0.0) : 0.0;
-    const float3 reflectedGuideColor =
-        saturate(max(reflectionSidecar.rgb, float3(0.0, 0.0, 0.0)) * reflectionScale);
+        reflectionEnabled && PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar)
+            ? max(materialParams.reflectionBoost, 0.0)
+            : 0.0;
+    const float3 reflectedRadiance = PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar);
+    const float3 reflectedGuideColor = saturate(reflectedRadiance * reflectionScale);
     PathTraceRRGuideSpecularAlbedo[pixel] = float4(
         max(PathTraceRRGuideSpecularAlbedo[pixel].rgb, reflectedGuideColor),
         1.0);
     composedColor = float4(
-        baseColor.rgb * transmission +
-            max(reflectionSidecar.rgb, float3(0.0, 0.0, 0.0)) * reflectionScale,
+        baseColor.rgb * transmission + reflectedRadiance * reflectionScale,
         baseColor.a);
     return true;
 }
@@ -555,7 +567,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
 {
     PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
         PathTraceCleanRtxdiDiTransmissionSidecarEmpty();
-    PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] = float4(0.0, 0.0, 0.0, 0.0);
+    PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+        PathTraceCleanRtxdiDiReflectionSidecarEmpty();
     PathTraceCleanRtxdiDiGlassDistortionSidecarOutput[pixel] =
         PathTraceCleanRtxdiDiGlassDistortionSidecarEmpty();
 
@@ -577,7 +590,10 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             ? PathTraceCleanRtxdiDiGlassNormalMapDiagnosticSidecar(glassSurface)
             : PathTraceCleanRtxdiDiGlassDistortionSidecarBuild(glassSurface, materialParams, glassPayload);
 
-    if ((CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION) != 0u)
+    const bool reflectionSidecarEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION) != 0u;
+    const bool reflectionPsrEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION_PSR) != 0u;
+    bool reflectionTraceHit = false;
+    if (reflectionSidecarEnabled)
     {
         PathTraceCleanRtxdiPayload reflectionPayload;
         float3 reflectionHitPosition;
@@ -588,6 +604,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             reflectionHitPosition,
             reflectionRayDirection))
         {
+            reflectionTraceHit = true;
             RAB_Surface reflectionSurface;
             float3 reflectedRadiance = float3(0.0, 0.0, 0.0);
             if (PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
@@ -604,7 +621,30 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                     reflectionRng);
             }
             PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                float4(max(reflectedRadiance * glassPayload.reflection, float3(0.0, 0.0, 0.0)), 1.0);
+                PathTraceCleanRtxdiDiReflectionSidecarRadiance(
+                    reflectedRadiance * glassPayload.reflection);
+        }
+    }
+
+    // Reflection PSR state tags only (no surface replace / lane selection yet).
+    // Beauty still comes from Option B radiance when a > 0.5.
+    if (reflectionPsrEnabled)
+    {
+        if (reflectionSidecarEnabled && reflectionTraceHit)
+        {
+            // Keep radiance rgb; alpha already REFLECTION_SELECTED via Radiance().
+        }
+        else if (reflectionSidecarEnabled)
+        {
+            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                PathTraceCleanRtxdiDiReflectionSidecarMissed();
+        }
+        else
+        {
+            // Glass present, reflection not traced this frame: mark transmission lane.
+            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                PathTraceCleanRtxdiDiReflectionSidecarTransmissionSelected(
+                    glassPayload.transmission);
         }
     }
 
