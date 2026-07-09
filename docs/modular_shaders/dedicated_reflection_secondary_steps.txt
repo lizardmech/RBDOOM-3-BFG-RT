@@ -7,6 +7,11 @@ Revision
 2026-07-10: handoff for a shared "reflection secondary" ray path for clear
 glass and high-gloss GGX, separate from full clean DI / ReSTIR-PT.
 
+2026-07-10 (later): added "RTX Remix Research Findings" subsection. Confirmed
+shipping quality is PSR surface replacement + primary DI (or RIS on secondary),
+not multi-SPP brute force of simplified shade. Agents must follow that section
+before changing sample counts.
+
 Phase A glass PSR + hybrid compose is far enough along for now. This document
 owns the next quality lane: noiseless-leaning dedicated reflection rays with
 simplified lighting, not a second full path-trace integrator.
@@ -107,14 +112,19 @@ Do not confuse:
 
     Reflection PSR
         Optional surface replacement for DI/RR identity when the reflection
-        lane owns the pixel.
+        lane owns the pixel. In Remix, this is the **main** noiseless path:
+        the reflected hit becomes primary and receives clean DI / RTXDI once.
+        That is intentional primary lighting, not "run DI twice."
 
     Reflection secondary / Option B shade
-        Already-shaded reflected radiance from a simplified hit path.
-        This is the path to promote into a first-class service.
+        Already-shaded reflected radiance from a simplified hit path (hybrid
+        R when T owns, or when secondary is kept). Promote quality via RIS,
+        not multi-SPP. See research subsection.
 
-    Full clean DI on the mirror hit
-        Wrong default "quality" plan: second DI frame of noise and cost.
+    Full clean DI reservoirs as a second pass on every reflection hit
+        Wrong default "quality" plan when the hit is *not* primary-selected:
+        second DI frame of noise/cost, and Remix avoids RTXDI on secondary
+        for spatial mismatch. Do not build this.
 
 
 Non-Goals (this lane)
@@ -154,18 +164,22 @@ Already landed (do not re-do; treat as prerequisites):
 Already landed (this document):
 
     Step 0:   pathtrace_reflection_secondary.hlsli — shared Trace/Shade API,
-              legacy PathTraceCleanRtxdiDi* wrappers, glass producer calls
-              PathTraceReflectionSecondaryShade with budget-from-constants
-    Step 1a:  multi-sample analytic shade (default 4) + shadow toggle cvars
-              r_pathTracingReflectionSecondarySamples (1-8, default 4)
+              legacy PathTraceCleanRtxdiDi* wrappers
+    Step 1a:  budget cvars + shadow toggle
+              r_pathTracingReflectionSecondarySamples (RIS M, default 7)
               r_pathTracingReflectionSecondaryShadows (default 1)
               CLEAN_FLAG_REFLECTION_SECONDARY_NO_SHADOWS
-              samples packed in CleanRtxdiDiMotionVectorInfo.y
+              M packed in CleanRtxdiDiMotionVectorInfo.y
+    Step 1b:  RIS shade (M candidates -> 1 light + 1 shadow), not multi-SPP.
+              R-owned skips secondary shade (primary DI owns mirror).
+              Single mirror trace reused for R-publish and T-owned hybrid.
 
 Still open:
 
-    Step 1b:  optional further shade quality (more light classes / MIS polish)
-    Step 2:   glass compose contract audit (no double-count; document hybrid)
+    Step 1c:  optional more light classes / NEE-cache; equal-cost A-B only if
+              multi-SPP debug mode is reintroduced
+    Step 2:   glass compose contract audit (no double-count; document hybrid;
+              R-owned prefers PSR+DI quality path where practical)
     Step 3:   opaque high-gloss eligibility + composite
     Step 4:   GGX VNDF direction for non-Dirac gloss
     Step 5:   validation matrix
@@ -221,6 +235,164 @@ Comparative / design constraints (not a license to copy proprietary code):
 
 Local capture notes from Phase A still apply for glass guides. Do not regress
 them while upgrading secondary shade.
+
+Details from a local dxvk-remix tree audit are in the next subsection. Agents
+must treat that subsection as binding quality direction for Phase 1+.
+
+
+RTX Remix Research Findings (binding agent direction)
+-----------------------------------------------------
+
+Source: local tree E:\prog\references\dxvk-remix-git (shaders under
+src/dxvk/shaders/rtx/, options in rtx_options.h). This is comparative
+architecture research only — do not copy proprietary code; implement with
+local cleanroom_rtxdi APIs. Do not re-open the Remix tree unless local
+behavior contradicts this summary.
+
+### Finding 1 — Near-noiseless glass/mirror is PSR + primary DI, not more SPP
+
+Remix does **not** get clean glass reflections by averaging many simplified
+secondary light samples. For Dirac specular (Portal-style glass reflection,
+perfect mirrors):
+
+    1. On the first hit, if the specular lobe is Dirac, fire **one** perfect
+       reflection ray (Reflection PSR / PSRR).
+    2. **Replace the primary G-buffer surface** with the hit through that
+       ray (Fresnel / thin-wall series stored as attenuation).
+    3. Run **full primary Integrate Direct (RTXDI)** on the promoted surface
+       as if it were the primary wall/floor the mirror "sees."
+
+That is why DI can look near noiseless at **1 SPP** on ordinary surfaces and
+also on what the mirror shows: the reflection hit **is** the primary for
+lighting. Quality comes from **reservoir DI on a promoted surface**, not from
+multi-SPP Monte Carlo of a cheap shade.
+
+Local parallel:
+
+    - CLEAN_FLAG_GLASS_REFLECTION_PSR / TraceReflectionPsrHit already exist.
+    - When R owns (or should own) the pixel, prefer identity + clean DI over
+      pumping PathTraceReflectionSecondaryShade sample counts.
+    - Hybrid T * DI(behind) + R * secondary remains valid when T-owned; still
+      do not "fix" R noise with 4–8 independent draws as the quality plan.
+
+Opaque PSR in Remix only fires when: Dirac specular, **no** diffuse lobe,
+not emissive. Rough GGX is **not** promoted via PSR — it goes through normal
+indirect / denoise. Match that policy in Phase 2–3.
+
+### Finding 2 — Secondary hits use RIS (one sample), never full RTXDI
+
+When the reflection hit is **not** the selected primary integration surface
+(e.g. glass stochastic R vs T pick lands on transmission as primary), Remix
+still lights the secondary surface with **direct NEE**, but:
+
+    - Primary selected surface  -> RTXDI reservoirs (spatiotemporal).
+    - Secondary / non-primary   -> **RIS only** (or NEE cache), not full DI.
+
+Explicit integrator reason (paraphrased from integrate direct): running RTXDI
+on secondary tries to use lights chosen for the **primary pixel location** and
+looks wrong when the hit is far away in space.
+
+RIS shape (rtx.risLightSampleCount default **7**):
+
+    - Consider M candidate lights from the global pool (strided / typed ranges).
+    - Weighted reservoir selection (target pdf from light weight at surface).
+    - **One** final light area sample + **one** visibility evaluation.
+    - Not: N independent uniform light picks averaged together.
+
+Indirect bounces use the same idea: RIS or NEE cache, optional ReSTIR GI later,
+then NRD / DLSS-RR. Residual noise is a **denoise / temporal** problem, not a
+"raise reflection SPP" problem.
+
+### Finding 3 — Multi-SPP average of simplified shade is the wrong lever
+
+Local Step 1a landed:
+
+    r_pathTracingReflectionSecondarySamples (1–8, default 4)
+    PathTraceReflectionSecondaryShade: N independent uniform analytic draws,
+    average the estimates.
+
+That is unbiased multi-SPP MC. It is a **bootstrap**, not the shipping quality
+model. It will not converge like primary DI because it lacks:
+
+    - spatiotemporal light reservoirs
+    - importance sampling among lights (beyond uniform)
+    - denoise-oriented signal packing
+
+**Mandatory anti-pattern for agents:**
+
+    DO NOT raise secondary sample count (default 4 -> 8, etc.) as the
+    quality fix for sparkly / noisy glass reflections.
+    DO NOT invent a full second ReSTIR-DI / ReSTIR-PT pass on every mirror hit.
+    DO NOT treat "more samples" as done for Phase 1.
+
+### Agent direction — how to get Remix-class results locally
+
+Priority order (do higher items before lower):
+
+    A. Dirac glass / R-owned quality (true shipping path)
+        Prefer reflection PSR so the reflected hit is the DI primary when R
+        owns the pixel. That reuses the already near-noiseless clean DI path
+        (view-16 RTXDI). Compose carefully (Step 2 no double-count): either
+        DI-only on R-owned or secondary-only, never both for the same energy.
+
+    B. Hybrid R * secondary shade (T-owned glass, or when secondary is kept)
+        Replace multi-SPP uniform average with **RIS-style light selection**:
+            M candidates (start ~7, cvar-tunable)
+            target pdf ~ luminance * area proxy * n·l (and later MIS)
+            select ONE light, shade once, optional ONE shadow ray
+        Include hit emissive as noise-free add (already partial).
+        Keep denylist: no volumetrics, no nested full GI, no reservoir DI on
+        the secondary hit.
+
+    C. Opaque high-gloss (Phase 2–3)
+        One mirror or GGX VNDF ray; same RIS shade at hit.
+        Do not PSR-replace primary for RR identity (primary stays metal).
+        Residual noise: denoise + specular hitT, not multi-SPP.
+
+    D. Phase 4 only after A–C
+        Cheap probe / 1 diffuse bounce at hit, nested mirror cap 1–2,
+        optional temporal reuse of secondary radiance (not full reservoirs).
+
+Equal-cost validation rule for shade work:
+
+    Compare RIS-M=7 (1 shade + 1 shadow) vs multi-SPP-N=4/8 at **equal
+    shadow-ray budget**. Accept RIS if variance is lower or equal at same cost.
+    Multi-SPP may remain as a debug / A-B cvar; it must not be the default
+    quality path once RIS lands.
+
+### Map: Remix concept -> local piece
+
+    Remix Reflection PSR (PSRR)
+        -> glass reflection PSR flags + TraceReflectionPsrHit / secondary
+           Trace; promote surface into DI when R-owned (Step 2 contract).
+
+    Remix primary Integrate Direct + RTXDI
+        -> existing clean DI view-16 on primary / PSR-resolved surface.
+           Do not reimplement.
+
+    Remix secondary NEE via RIS (M candidates, 1 sample)
+        -> upgrade PathTraceReflectionSecondaryShade (Step 1 / 1b).
+           Target for hybrid secondary path.
+
+    Remix NEE cache / ReSTIR GI / NRD
+        -> Phase 4 optional or existing denoise/RR pipeline; not Phase 1
+           acceptance.
+
+    Remix: no full ReSTIR on secondary
+        -> Non-goal already listed; keep it.
+
+### What "done" looks like for Phase 1 after this research
+
+    - Glass Dirac reflections lean on PSR + DI quality where R owns the pixel,
+      OR on RIS-1 secondary when hybrid R is used — not on sampleCount=8.
+    - Default secondary shade is RIS (or equivalent importance selection),
+      with multi-SPP only as optional debug.
+    - Documented no double-count between reflection PSR DI and secondary.
+    - Noise on lights in mirrors is "soft" like primary DI class, not sparkly
+      single-light lottery; emissives on hit stay direct and stable.
+
+If an implementation plan's main lever is "increase secondary samples," reject
+it and re-plan against A then B above.
 
 
 Existing Local Pieces To Reuse
@@ -292,22 +464,36 @@ Proposed new cvars (names may change; document final names in commit):
 Reference Architecture Summary
 ------------------------------
 
-Shipping shape (Remix / high-end RT reflection class):
+Shipping shape (Remix / high-end RT reflection class) — refined by research:
 
-    material says lobe is Dirac or high-gloss enough
-    emit reflection ray (mirror or GGX VNDF sample)
-    shade hit with simplified direct lighting
-    composite Fresnel-weighted radiance into beauty
-    RR: primary (or glass policy) guides + specular hit distance
+    Dirac glass / mirror:
+        material says lobe is Dirac
+        emit **one** reflection ray
+        **promote hit to primary G-buffer** (PSR) when that lobe owns the pixel
+        light with **full primary DI / RTXDI** (1 spp class quality)
+        composite Fresnel attenuation into beauty / throughput
+        RR: primary (or glass policy) guides + specular hit distance
+
+    Secondary / hybrid (hit not primary-selected):
+        same one reflection ray
+        shade hit with **RIS direct NEE** (M candidates -> 1 light + 1 shadow)
+        + hit emissive; no full ReSTIR on secondary
+        residual: denoise / temporal, not multi-SPP
+
+    High-gloss non-Dirac:
+        VNDF or similar sample; same simplified/RIS shade; not PSR primary
 
 For rbdoom minimum equivalent:
 
     shared TraceReflectionSecondary(origin, dir, ignore, maxT) -> hit
     shared ShadeReflectionSecondary(hit, budget flags) -> radiance
+        Phase 1 target: RIS selection, not multi-SPP average (Step 1a is
+        bootstrap only; see research subsection)
     glass caller: dir = reflect, weight = glass R
     opaque caller: dir = mirror or VNDF, weight = specular lobe weight
     compose: no double-count with DI when DI already owns the mirror surface
     hitT written for RR specular hit distance when secondary contributes
+    R-owned glass: prefer PSR surface + clean DI when product allows
 
 
 Shade Budget Ladder
@@ -319,17 +505,28 @@ Shade Budget Ladder
         no shadows required
         glass only
 
-    v1 (Phase 1 target)
-        same transport
-        N important lights (analytics + large emissives), simple MIS or fixed
-        optional 1 visibility ray per light
-        hit material: Lambertian + simple specular OR unlit albedo + emissive
-        still no multi-bounce GI, no volumetrics
+    v1a (landed bootstrap — not the quality end state)
+        multi-sample uniform analytic draws averaged (default 4)
+        optional shadows
+        keep for A/B / debug; do not raise default as Phase 1 "done"
+
+    v1 (Phase 1 target — match Remix secondary NEE)
+        same transport (1 reflection ray)
+        RIS: M candidate lights (start ~7) -> **one** selected sample
+        optional **one** visibility ray on the selected light
+        hit emissive direct; analytics + later larger light classes
+        simple MIS optional
+        hit material: Lambertian + simple specular OR albedo + emissive
+        still no multi-bounce GI, no volumetrics, no full reservoir DI
+
+    v1+ (R-owned glass quality)
+        when reflection owns the pixel: PSR primary + clean DI instead of
+        (or instead of only) secondary multi-sample shade
 
     v2 (Phase 2–3)
         GGX VNDF sample for non-Dirac high gloss
-        same v1 shade
-        1 spp + optional temporal reuse later
+        same v1 RIS shade
+        1 direction sample + optional temporal reuse later
 
     v3 (Phase 4, optional)
         1 cheap diffuse bounce at hit (probe/cache)
@@ -412,22 +609,36 @@ Step 1: Upgrade Simplified Shade (v1)
 
 Type: shading quality
 
-Improve ShadeReflectionSecondary without full DI:
+Read **RTX Remix Research Findings** first. Improve ShadeReflectionSecondary
+without full DI, and **without** treating multi-SPP average as the end state.
 
-    - Sample more than one analytic / important light when budget allows
+Step 1a (landed bootstrap — keep, do not expand as quality plan):
+
+    - multi-sample uniform analytic draws (cvar 1–8, default 4)
+    - optional shadows
+    - hit emissive
+
+Step 1b (required quality direction):
+
+    - Replace default shade path with **RIS-style** selection over the analytic
+      (then broader) light domain: M candidates -> **one** light sample
     - Include hit emissive reliably (already partial)
-    - Optional hard shadow ray per selected light (cvar)
+    - Optional hard shadow ray on the **selected** light only (cvar)
     - Explicit denylist: no volumetrics, no nested full GI, no reservoir DI
+    - Do **not** ship "default samples = 8" as the Phase 1 fix
 
 Keep radiance in the reflection sidecar alpha contract (0.875) or successor
 documented in reflection_sidecar.hlsli.
 
 Done when:
 
+    - Default secondary shade is RIS (or equal-cost better than multi-SPP),
+      not "crank sample count."
     - Glass reflections look sharper / less "one sample sparkle" than v0
-      at similar cost order of magnitude.
+      at similar shadow-ray budget (equal-cost check vs multi-SPP-4).
     - Noise on emissives in reflection remains low (direct emissive on hit).
     - Toggle shadows cvar shows expected contact darkening in mirrors.
+    - Multi-SPP remains available as debug/A-B if useful, not as default.
 
 
 Step 2: Glass Compose Contract (No Double-Count)

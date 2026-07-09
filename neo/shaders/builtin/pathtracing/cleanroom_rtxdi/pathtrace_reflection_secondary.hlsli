@@ -19,20 +19,24 @@
 // Budget / result contract
 // ---------------------------------------------------------------------------
 
-// Budget for simplified secondary shade. Host packs sample count in
-// CleanRtxdiDiMotionVectorInfo.y (1-8). Shadows off via
-// CLEAN_FLAG_REFLECTION_SECONDARY_NO_SHADOWS.
+// Budget for simplified secondary shade.
+// Host packs RIS candidate count M in CleanRtxdiDiMotionVectorInfo.y (1-16).
+// Default M~7 matches Remix rtx.risLightSampleCount class of secondary NEE.
+// Shadows off via CLEAN_FLAG_REFLECTION_SECONDARY_NO_SHADOWS.
+//
+// Quality path is RIS (M candidates -> 1 light + 1 shadow), NOT multi-SPP
+// averaging. Multi-SPP cannot match 1-SPP primary DI / RTXDI cost quality.
 struct PathTraceReflectionSecondaryBudget
 {
-    uint maxAnalyticSamples;
+    uint risCandidateCount;
     uint enableShadows;
 };
 
 PathTraceReflectionSecondaryBudget PathTraceReflectionSecondaryBudgetFromConstants()
 {
     PathTraceReflectionSecondaryBudget budget;
-    budget.maxAnalyticSamples =
-        clamp((uint)max(CleanRtxdiDiMotionVectorInfo.y, 1.0), 1u, 8u);
+    budget.risCandidateCount =
+        clamp((uint)max(CleanRtxdiDiMotionVectorInfo.y, 1.0), 1u, 16u);
     budget.enableShadows =
         ((CleanRtxdiDiFlags & CLEAN_FLAG_REFLECTION_SECONDARY_NO_SHADOWS) == 0u) ? 1u : 0u;
     return budget;
@@ -311,12 +315,39 @@ bool PathTraceReflectionSecondaryAccumulateAnalyticLight(
     return true;
 }
 
-// Simplified direct shade at a reflection hit. Uses the full current Doom
-// analytic domain (not the camera portal subset) so reflections through
-// doorways do not hard-cut light classes.
-//
-// Budget.maxAnalyticSamples independent uniform draws of the analytic domain;
-// each draw is an unbiased estimate of full-domain direct, then averaged.
+// Target weight for RIS light selection (no visibility). Proxy of direct
+// contribution so reservoir prefers strong, front-facing lights at the hit.
+float PathTraceReflectionSecondaryRisTargetWeight(
+    RAB_Surface hitSurface,
+    RAB_LightInfo lightInfo)
+{
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return 0.0;
+    }
+
+    const float3 hitPos = RAB_GetSurfaceWorldPos(hitSurface);
+    const float3 toLight = lightInfo.position - hitPos;
+    const float distSq = max(dot(toLight, toLight), 1.0e-6);
+    const float3 lightDir = toLight * rsqrt(distSq);
+    const float3 shadingNormal = RAB_SafeNormalize(
+        RAB_GetSurfaceNormal(hitSurface),
+        RAB_GetSurfaceGeoNormal(hitSurface));
+    const float ndotl = saturate(dot(shadingNormal, lightDir));
+    if (ndotl <= 0.0)
+    {
+        return 0.0;
+    }
+
+    // lightInfo.weight already folds luminance * area * influence radius.
+    return max(lightInfo.weight, 0.0) * ndotl / distSq;
+}
+
+// Simplified direct shade at a reflection hit (Remix secondary NEE shape):
+//   RIS over M uniform light candidates from the full Doom analytic domain
+//   -> select ONE light -> ONE area sample + optional ONE shadow ray.
+// Not multi-SPP averaging and not full RTXDI (spatial reservoirs are for the
+// primary/selected surface only).
 float3 PathTraceReflectionSecondaryShade(
     RAB_Surface hitSurface,
     PathTraceReflectionSecondaryBudget budget,
@@ -335,28 +366,70 @@ float3 PathTraceReflectionSecondaryShade(
         return radiance;
     }
 
-    const uint sampleCount = clamp(budget.maxAnalyticSamples, 1u, 8u);
-    const float sourcePdf = 1.0 / max((float)analyticCount, 1.0);
-    float3 directSum = float3(0.0, 0.0, 0.0);
+    const uint candidateCount = clamp(budget.risCandidateCount, 1u, 16u);
+    const float proposalPdf = 1.0 / max((float)analyticCount, 1.0);
+
+    float weightSum = 0.0;
+    uint selectedLightIndex = 0xffffffffu;
+    float selectedTargetWeight = 0.0;
+    RAB_LightInfo selectedLightInfo = RAB_EmptyLightInfo();
+
     [loop]
-    for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
+    for (uint candidateIndex = 0u; candidateIndex < candidateCount; ++candidateIndex)
     {
-        float3 sampleRadiance = float3(0.0, 0.0, 0.0);
         const uint lightIndex =
             min((uint)(RTXDI_GetNextRandom(rng) * analyticCount), analyticCount - 1u);
         const RAB_LightInfo lightInfo = PathTraceReflectionSecondaryBuildAnalyticLightInfo(
             DoomAnalyticLights[lightIndex],
             lightIndex);
-        PathTraceReflectionSecondaryAccumulateAnalyticLight(
-            sampleRadiance,
-            hitSurface,
-            lightInfo,
-            sourcePdf,
-            budget,
-            rng);
-        directSum += sampleRadiance;
+        const float targetWeight =
+            PathTraceReflectionSecondaryRisTargetWeight(hitSurface, lightInfo);
+        if (targetWeight <= 1.0e-10)
+        {
+            continue;
+        }
+
+        // Streaming RIS: w_i = p_hat / q, q = uniform over lights.
+        const float risWeight = targetWeight / max(proposalPdf, 1.0e-8);
+        weightSum += risWeight;
+        if (weightSum > 0.0 &&
+            RTXDI_GetNextRandom(rng) * weightSum < risWeight)
+        {
+            selectedLightIndex = lightIndex;
+            selectedTargetWeight = targetWeight;
+            selectedLightInfo = lightInfo;
+        }
     }
-    radiance = emissive + directSum / (float)sampleCount;
+
+    if (selectedLightIndex == 0xffffffffu ||
+        weightSum <= 1.0e-10 ||
+        selectedTargetWeight <= 1.0e-10)
+    {
+        return radiance;
+    }
+
+    // Unbiased contribution weight for discrete RIS (M candidates).
+    // UCW = (1/M * sum w_i) / p_hat(selected).
+    const float ucw = (weightSum / max((float)candidateCount, 1.0)) /
+        max(selectedTargetWeight, 1.0e-8);
+
+    // One continuous sample on the selected light + optional shadow.
+    // Accumulate with sourcePdf = 1 so we apply UCW ourselves (RIS replaces
+    // the uniform 1/N light pdf already folded into w_i).
+    float3 direct = float3(0.0, 0.0, 0.0);
+    if (PathTraceReflectionSecondaryAccumulateAnalyticLight(
+        direct,
+        hitSurface,
+        selectedLightInfo,
+        1.0,
+        budget,
+        rng))
+    {
+        // Accumulate used sourcePdf=1 and internal solid-angle pdf + MIS.
+        // Scale by RIS UCW so the estimator remains unbiased for the domain.
+        radiance += direct * ucw;
+    }
+
     return radiance;
 }
 

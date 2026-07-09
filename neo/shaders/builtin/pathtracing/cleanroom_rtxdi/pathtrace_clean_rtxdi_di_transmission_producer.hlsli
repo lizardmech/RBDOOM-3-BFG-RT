@@ -650,11 +650,10 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     const PathTraceCleanRtxdiDiReflectionPsrCandidate reflectionCandidate =
         PathTraceCleanRtxdiDiBuildReflectionPsrCandidate(glassSurface, glassPayload);
 
-    // Mirror shade + guide surface into locals first. Write the radiance
-    // sidecar only after PSR decides the lane so Option B cannot block PSR
-    // (shared a=1 bug) and so reflection-owned PSR pixels do not double-count
-    // radiance (DI owns them). Keep the resolved mirror surface for RR material
-    // guides on T-owned pixels (albedo/spec of reflected parts).
+    // One mirror trace for RR guides + optional secondary shade. Shade is
+    // deferred until after PSR lane select: when R owns, clean DI lights the
+    // promoted surface (Remix 1-SPP class) — do not pay RIS shade or double-
+    // count. When T owns, RIS secondary shades this hit for hybrid R add.
     float3 optionBRadiance = float3(0.0, 0.0, 0.0);
     bool optionBRadianceValid = false;
     bool optionBTraceHit = false;
@@ -683,15 +682,6 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                 reflectionGuideSurface = reflectionSurface;
                 reflectionGuideSurfaceValid = true;
                 reflectionGuideHitT = max(reflectionPayload.hitT, 0.0);
-                RTXDI_RandomSamplerState reflectionRng =
-                    RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4752464cu, 0u);
-                PathTraceCleanRtxdiDiApplyBlueNoiseToggle(reflectionRng);
-                optionBRadiance = PathTraceReflectionSecondaryShade(
-                    reflectionSurface,
-                    PathTraceReflectionSecondaryBudgetFromConstants(),
-                    reflectionRng) * glassPayload.reflection;
-                optionBRadianceValid =
-                    PathTraceCleanRoomLuminance(optionBRadiance) > 1.0e-8;
             }
         }
     }
@@ -775,56 +765,62 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             }
             else if (laneSelection.reflectionSelected)
             {
-                PathTraceCleanRtxdiPayload reflectionPsrPayload;
-                float3 reflectionPsrHitPosition;
-                float3 reflectionPsrRayDirection;
-                if (PathTraceCleanRtxdiDiTraceReflectionPsrHit(
-                    glassSurface,
-                    reflectionCandidate,
-                    reflectionPsrPayload,
-                    reflectionPsrHitPosition,
-                    reflectionPsrRayDirection))
+                // Prefer reusing the single mirror trace above (same dir as
+                // candidate). Only re-trace if the early guide trace missed.
+                RAB_Surface reflectionHitSurface = reflectionGuideSurface;
+                float reflectionPsrHitT = reflectionGuideHitT;
+                bool haveHit = reflectionGuideSurfaceValid;
+                if (!haveHit)
                 {
-                    RAB_Surface reflectionHitSurface;
-                    if (PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
+                    PathTraceCleanRtxdiPayload reflectionPsrPayload;
+                    float3 reflectionPsrHitPosition;
+                    float3 reflectionPsrRayDirection;
+                    if (PathTraceCleanRtxdiDiTraceReflectionPsrHit(
+                        glassSurface,
+                        reflectionCandidate,
                         reflectionPsrPayload,
                         reflectionPsrHitPosition,
-                        reflectionPsrRayDirection,
-                        reflectionHitSurface))
+                        reflectionPsrRayDirection) &&
+                        PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
+                            reflectionPsrPayload,
+                            reflectionPsrHitPosition,
+                            reflectionPsrRayDirection,
+                            reflectionHitSurface))
                     {
-                        // DI opaque-direct path needs non-zero opacity.
-                        reflectionHitSurface.material.opacity = max(
-                            reflectionHitSurface.material.opacity,
-                            1.0);
-                        if (PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
-                            pixel,
-                            dimensions,
-                            reflectionHitSurface,
-                            CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED,
-                            max(reflectionPsrPayload.hitT, 0.0),
-                            glassPsrLaneChanged))
-                        {
-                            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                                PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
-                                    laneSelection.selectedThroughputOverPdf);
-                            // Mark ownership in the transmission sidecar (t87) so
-                            // glass beauty compose does not depend solely on t90.
-                            PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
-                                PathTraceCleanRtxdiDiTransmissionSidecarReflectionPsrOwned(
-                                    laneSelection.selectedThroughputOverPdf);
-                            publishedReflectionSurface = reflectionHitSurface;
-                            publishedReflectionHitT = max(reflectionPsrPayload.hitT, 0.0);
-                            reflectionPrimaryPublished = true;
-                        }
-                    }
-                    if (!reflectionPrimaryPublished)
-                    {
-                        PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                            PathTraceCleanRtxdiDiReflectionSidecarMissed();
-                        glassPsrLaneChanged = true;
+                        haveHit = true;
+                        reflectionPsrHitT = max(reflectionPsrPayload.hitT, 0.0);
+                        reflectionGuideSurface = reflectionHitSurface;
+                        reflectionGuideSurfaceValid = true;
+                        reflectionGuideHitT = reflectionPsrHitT;
                     }
                 }
-                else
+
+                if (haveHit)
+                {
+                    // DI opaque-direct path needs non-zero opacity.
+                    reflectionHitSurface.material.opacity = max(
+                        reflectionHitSurface.material.opacity,
+                        1.0);
+                    if (PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
+                        pixel,
+                        dimensions,
+                        reflectionHitSurface,
+                        CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED,
+                        reflectionPsrHitT,
+                        glassPsrLaneChanged))
+                    {
+                        PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                            PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
+                                laneSelection.selectedThroughputOverPdf);
+                        PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
+                            PathTraceCleanRtxdiDiTransmissionSidecarReflectionPsrOwned(
+                                laneSelection.selectedThroughputOverPdf);
+                        publishedReflectionSurface = reflectionHitSurface;
+                        publishedReflectionHitT = reflectionPsrHitT;
+                        reflectionPrimaryPublished = true;
+                    }
+                }
+                if (!reflectionPrimaryPublished)
                 {
                     PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
                         PathTraceCleanRtxdiDiReflectionSidecarMissed();
@@ -840,10 +836,22 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         }
     }
 
-    // Mirror radiance for compose ADD when PSR did not replace the primary with
-    // the reflected hit (pure Option B, or PSR transmission-owned + weak lobe).
+    // RIS secondary shade only when DI does NOT own the mirror surface
+    // (T-owned hybrid R, or pure Option B). R-owned uses primary clean DI.
     if (!reflectionPrimaryPublished && reflectionShadeEnabled)
     {
+        if (reflectionGuideSurfaceValid)
+        {
+            RTXDI_RandomSamplerState reflectionRng =
+                RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4752464cu, 0u);
+            PathTraceCleanRtxdiDiApplyBlueNoiseToggle(reflectionRng);
+            optionBRadiance = PathTraceReflectionSecondaryShade(
+                reflectionGuideSurface,
+                PathTraceReflectionSecondaryBudgetFromConstants(),
+                reflectionRng) * glassPayload.reflection;
+            optionBRadianceValid =
+                PathTraceCleanRoomLuminance(optionBRadiance) > 1.0e-8;
+        }
         if (optionBRadianceValid)
         {
             PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =

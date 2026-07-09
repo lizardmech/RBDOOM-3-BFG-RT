@@ -1661,9 +1661,9 @@ idCVar r_pathTracingCleanRtxdiDiGlassReflectionPsr(
 
 idCVar r_pathTracingReflectionSecondarySamples(
     "r_pathTracingReflectionSecondarySamples",
-    "4",
+    "7",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Dedicated reflection secondary analytic light samples per mirror hit (1-8). Glass/high-gloss simplified shade; not full ReSTIR DI" );
+    "Dedicated reflection secondary RIS candidate count M (1-16, default 7). Selects ONE light + ONE shadow; not multi-SPP average. Quality path is RIS or R-owned primary DI, not raising M for multi-shade" );
 
 idCVar r_pathTracingReflectionSecondaryShadows(
     "r_pathTracingReflectionSecondaryShadows",

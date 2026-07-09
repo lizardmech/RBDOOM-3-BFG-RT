@@ -4018,9 +4018,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool() ? 4u : 0u);
         cleanConstants.doomAnalyticLightInfo[3] = static_cast<float>(cleanAnalyticLightFlags);
         cleanConstants.motionVectorInfo[0] = cleanRtxdiDiView >= 5 || r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
-        // y = dedicated reflection secondary analytic sample count (1-8).
+        // y = dedicated reflection secondary RIS candidate count M (1-16).
         cleanConstants.motionVectorInfo[1] = static_cast<float>(
-            idMath::ClampInt(1, 8, r_pathTracingReflectionSecondarySamples.GetInteger()));
+            idMath::ClampInt(1, 16, r_pathTracingReflectionSecondarySamples.GetInteger()));
         cleanConstants.motionVectorInfo[2] = static_cast<float>(idMath::ClampInt(1, 128, r_pathTracingRestirPTAnalyticLightTrials.GetInteger()));
         cleanConstants.motionVectorInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
         cleanConstants.restirPTSurfaceInfo[0] = static_cast<float>(idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiView10LightStart.GetInteger()));
