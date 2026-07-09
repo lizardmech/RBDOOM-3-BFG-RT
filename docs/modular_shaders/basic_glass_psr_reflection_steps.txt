@@ -112,11 +112,12 @@ Already landed (do not re-do unless fixing regressions):
     Step 5:   PathTraceCleanRtxdiDiTraceReflectionPsrHit
     Step 6:   pack reflected hit, CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED
     Step 7a:  initial RR guide write on publish (albedo/normal/depth/position,
-              hit distance, aggressive reset bits)
+              hit distance)
+    Step 7b:  sticky/deterministic lane ownership + soft RR resets; pure
+              material albedo/spec guides (no radiance stuffing)
 
 Still open (Phase A remaining):
 
-    Step 7b:  RR guide stability policy (critical — see below)
     Step 8:   compose energy / PDF / no double-count (no dirt requirement)
     Step 9:   Phase A validation matrix (clear glass; dirt tests deferred)
     Step 10:  Phase B dirt/grime/normal-map (deferred)
