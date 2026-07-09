@@ -575,17 +575,31 @@ bool PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
     const float4 reflectionSidecar = PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel];
     const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
         PathTraceCleanRtxdiDiDefaultGlassMaterialParams(runtimeParams);
+    // Reflection-PSR owns the primary: DI already shaded the mirrored hit.
+    // Pass it through (modulated by Fresnel throughput * boost). Do not treat
+    // the sidecar RGB as transmission or also ADD Option B.
+    if (PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar) ||
+        PathTraceCleanRtxdiDiTransmissionSidecarIsReflectionPsrOwned(transmissionSidecar))
+    {
+        float3 reflectionWeight = PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar)
+            ? PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar)
+            : PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar);
+        reflectionWeight = max(reflectionWeight, float3(0.02, 0.02, 0.02));
+        composedColor = float4(
+            baseColor.rgb * reflectionWeight * max(materialParams.reflectionBoost, 0.0),
+            baseColor.a);
+        return true;
+    }
+
     const float3 transmission = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
         PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar),
         materialParams);
-    // Option B: ADD shaded radiance when sidecar holds Option B alpha (0.875).
-    // PSR reflection-owned pixels use a=1 with throughput in the transmission
-    // compose channel already — do not also add Option B (double count).
-    // Never write radiance into specular albedo guides.
+    // Transmission-owned (or Option B alone): attenuate DI of the behind hit and
+    // ADD shaded mirror radiance when present (alpha 0.875). Radiance is written
+    // for GlassReflection and/or GlassReflectionPsr so PSR alone is not
+    // transmission-only in beauty.
     const bool optionBRadiance =
-        (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION) != 0u &&
-        PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar) &&
-        !PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar);
+        PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar);
     const float reflectionScale =
         optionBRadiance ? max(materialParams.reflectionBoost, 0.0) : 0.0;
     const float3 reflectedRadiance =
@@ -628,16 +642,21 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
 
     const bool reflectionSidecarEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION) != 0u;
     const bool reflectionPsrEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION_PSR) != 0u;
+    // Clear glass is almost always transmission-owned by energy (pR ~ 0.04 face-on).
+    // PSR alone must still produce a mirror shade to ADD on T-owned pixels, or
+    // view 16 looks fully transparent with zero reflection. Same shade is used
+    // by classic Option B when that flag is on.
+    const bool reflectionShadeEnabled = reflectionSidecarEnabled || reflectionPsrEnabled;
     const PathTraceCleanRtxdiDiReflectionPsrCandidate reflectionCandidate =
         PathTraceCleanRtxdiDiBuildReflectionPsrCandidate(glassSurface, glassPayload);
 
-    // Option B: shade into locals first. Write the radiance sidecar only after
+    // Mirror shade into locals first. Write the radiance sidecar only after
     // PSR decides the lane so Option B cannot block PSR (shared a=1 bug) and so
-    // reflection-owned PSR pixels do not double-count radiance.
+    // reflection-owned PSR pixels do not double-count radiance (DI owns them).
     float3 optionBRadiance = float3(0.0, 0.0, 0.0);
     bool optionBRadianceValid = false;
     bool optionBTraceHit = false;
-    if (reflectionSidecarEnabled)
+    if (reflectionShadeEnabled)
     {
         PathTraceCleanRtxdiPayload reflectionPayload;
         float3 reflectionHitPosition;
@@ -808,9 +827,9 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         }
     }
 
-    // Option B radiance for compose ADD when PSR did not own the reflection
-    // lane (pure Option B, or PSR transmission-selected cross-lobe estimate).
-    if (!reflectionPrimaryPublished && reflectionSidecarEnabled)
+    // Mirror radiance for compose ADD when PSR did not replace the primary with
+    // the reflected hit (pure Option B, or PSR transmission-owned + weak lobe).
+    if (!reflectionPrimaryPublished && reflectionShadeEnabled)
     {
         if (optionBRadianceValid)
         {

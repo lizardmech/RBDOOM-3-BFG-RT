@@ -135,24 +135,30 @@ float4 PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
     const float3 sidecarRgb =
         PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar);
 
-    // PSR reflection-owned: sticky/deterministic ownership already chose the
-    // mirrored hit as the only primary. Pass full DI (no Fresnel re-multiply,
-    // no gray proxy, no Option B). Detect via t90 or transmission-sidecar
-    // marker (0.75) so beauty does not depend on a single SRV binding.
+    // PSR reflection-owned: DI already shaded the mirrored primary. Modulate by
+    // Fresnel lobe weight * boost (single-surface energy). Do not also ADD
+    // Option B. Detect via t90 or transmission-sidecar marker (0.75).
     if (PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar) ||
         PathTraceCleanRtxdiDiTransmissionSidecarIsReflectionPsrOwned(transmissionSidecar))
     {
-        return float4(baseColor.rgb, baseColor.a);
+        float3 reflectionWeight = PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar)
+            ? PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar)
+            : PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar);
+        reflectionWeight = max(reflectionWeight, float3(0.02, 0.02, 0.02));
+        return float4(
+            baseColor.rgb * reflectionWeight * max(materialParams.reflectionBoost, 0.0),
+            baseColor.a);
     }
 
     const float3 throughput = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
         sidecarRgb,
         materialParams);
 
-    // Transmission (or non-PSR) path: attenuate behind-glass shading.
+    // Transmission-owned: attenuate behind-glass DI and ADD shaded mirror
+    // radiance when the producer wrote Option B / PSR cross-lobe radiance
+    // (alpha 0.875). This is what makes PSR-alone non-transparent face-on.
     float3 composed = baseColor.rgb * throughput;
 
-    // Option B: add real traced/shaded radiance when present.
     if (PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar))
     {
         composed += PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar) *
