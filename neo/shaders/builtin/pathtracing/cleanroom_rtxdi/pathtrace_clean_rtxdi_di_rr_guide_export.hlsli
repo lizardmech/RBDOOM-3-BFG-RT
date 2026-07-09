@@ -7,8 +7,10 @@
 //   - Normals: behind-glass only. Mirror normals are for pure mirrors; clear
 //     glass behaves as if it has no reflection normal. Heavy refraction /
 //     non-transparent glass coatings are deferred.
-//   - Depth / position / motion: ignore the glass pane; track the see-through
-//     (behind-glass) surface. Do not zero motion or leave glass-pane depth.
+//   - Depth / position: ignore the glass pane; track the see-through
+//     (behind-glass) surface. Do not leave glass-pane depth.
+//   - Motion: do not zero or recompute here — keep primary-producer vectors
+//     (full jitter-corrected path). Broken glass-only reprojection polluted RR.
 //   - Specular hit distance: mirror ray length when reflection energy is present.
 
 // Fixed Remix-like material blend (not angle-dependent Fresnel).
@@ -29,67 +31,17 @@ float PathTraceCleanRtxdiDiResolvedSurfaceRRDepth(RAB_Surface surface)
     return saturate((zFar / max(zFar - zNear, 1.0e-4)) * (1.0 - zNear / safeViewZ));
 }
 
-// Camera motion for a resolved (usually behind-glass) world position. Clear
-// glass must not disable motion; shipping titles ignore the pane.
-bool PathTraceCleanRtxdiDiWriteCameraMotionForSurface(uint2 pixel, RAB_Surface surface)
-{
-    const uint width = CleanRtxdiDiWidth != 0u ? CleanRtxdiDiWidth : DispatchRaysDimensions().x;
-    const uint height = CleanRtxdiDiHeight != 0u ? CleanRtxdiDiHeight : DispatchRaysDimensions().y;
-    if (width == 0u || height == 0u || pixel.x >= width || pixel.y >= height ||
-        !RAB_IsSurfaceValid(surface) ||
-        CleanRtxdiDiPrevCameraOriginAndValid.w < 0.5)
-    {
-        PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
-        PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
-        PathTraceMotionVectorMask[pixel] = 0u;
-        return false;
-    }
-
-    const float3 delta = surface.worldPos - CleanRtxdiDiPrevCameraOriginAndValid.xyz;
-    const float forwardDistance = dot(delta, CleanRtxdiDiPrevCameraForwardAndTanX.xyz);
-    if (forwardDistance <= 0.05)
-    {
-        PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
-        PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
-        PathTraceMotionVectorMask[pixel] = 0u;
-        return false;
-    }
-
-    const float ndcX = -dot(delta, CleanRtxdiDiPrevCameraLeftAndTanY.xyz) /
-        max(forwardDistance * CleanRtxdiDiPrevCameraForwardAndTanX.w, 1.0e-5);
-    const float ndcY = -dot(delta, CleanRtxdiDiPrevCameraUpAndTanY.xyz) /
-        max(forwardDistance * CleanRtxdiDiPrevCameraLeftAndTanY.w, 1.0e-5);
-    if (abs(ndcX) > 1.0 || abs(ndcY) > 1.0)
-    {
-        PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
-        PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
-        PathTraceMotionVectorMask[pixel] = 0u;
-        return false;
-    }
-
-    const float2 previousPixelFloat =
-        (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(width, height);
-    if (!all(previousPixelFloat == previousPixelFloat) ||
-        previousPixelFloat.x < 0.0 || previousPixelFloat.y < 0.0 ||
-        previousPixelFloat.x >= (float)width || previousPixelFloat.y >= (float)height)
-    {
-        PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
-        PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
-        PathTraceMotionVectorMask[pixel] = 0u;
-        return false;
-    }
-
-    const float2 motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
-    PathTraceRRMotionVectors[pixel] = motionPixels;
-    PathTraceMotionVectors[pixel] = float4(motionPixels, 0.0, 0.0);
-    PathTraceMotionVectorMask[pixel] = PT_MOTION_VECTOR_MASK_VALID;
-    return true;
-}
-
 // RR guides for a PSR-resolved replacement surface (transmission or reflection
-// as DI primary). Geometry/motion always come from this surface; for clear glass
-// the producer should pass the behind-glass surface here and then blend
-// reflection materials separately.
+// as DI primary). Geometry guides come from this surface; for clear glass the
+// producer should pass the behind-glass surface here and then blend reflection
+// materials separately.
+//
+// Motion vectors: intentionally NOT written here. The primary-surface producer
+// already exported correct current-to-previous pixel motion (with RR jitter
+// correction). Glass PSR used to zero them (looked like motion disabled) or
+// recompute with a half-baked projector that dumped garbage / "translucent"
+// looking values into the RR motion input. Leave primary motion alone until a
+// full primary-equivalent behind-glass motion path exists.
 //
 // reflectionRayDistance:
 //   > 0  -> write PathTraceRRGuideHitDistance as the mirror ray length.
@@ -108,10 +60,6 @@ void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(
         saturate(surface.material.roughness));
     PathTraceRRGuideDepth[pixel] = PathTraceCleanRtxdiDiResolvedSurfaceRRDepth(surface);
     PathTraceRRGuidePosition[pixel] = float4(surface.worldPos, 1.0);
-
-    // Camera motion of the resolved surface (behind-glass for clear glass).
-    // Never permanently zero motion on glass pixels.
-    PathTraceCleanRtxdiDiWriteCameraMotionForSurface(pixel, surface);
 
     uint resetMask = 0u;
     if (!RAB_IsSurfaceValid(surface))
