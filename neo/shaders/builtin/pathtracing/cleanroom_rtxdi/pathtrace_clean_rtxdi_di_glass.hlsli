@@ -135,15 +135,15 @@ float4 PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
     const float3 sidecarRgb =
         PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar);
 
-    // PSR reflection-owned (reflection sidecar a ~ 1.0): base is DI of the
-    // mirrored hit; transmission-sidecar RGB is reflection throughput.
-    // Never apply transmission floor or gray-proxy — both destroy the mirror.
+    // PSR reflection-owned (reflection sidecar a ~ 1.0):
+    // Sticky/deterministic lane ownership already chose THIS surface as the
+    // pixel's only primary. Base is DI of the mirrored hit. Do NOT multiply by
+    // Fresnel throughput again — that double-dims the lobe and reads as empty
+    // glass. Full DI of the selected surface is the correct single-surface
+    // PSR beauty. No gray proxy, no Option B add.
     if (PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar))
     {
-        const float3 reflectionThroughput = max(sidecarRgb, float3(0.0, 0.0, 0.0));
-        const float boost = max(materialParams.reflectionBoost, 1.0);
-        const float3 mirrored = baseColor.rgb * reflectionThroughput * boost;
-        return float4(lerp(baseColor.rgb, mirrored, weight), baseColor.a);
+        return float4(baseColor.rgb, baseColor.a);
     }
 
     const float3 throughput = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
