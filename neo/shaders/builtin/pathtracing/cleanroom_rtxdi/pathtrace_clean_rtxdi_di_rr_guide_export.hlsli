@@ -46,6 +46,30 @@ float PathTraceCleanRtxdiDiResolvedSurfaceRRDepth(RAB_Surface surface)
 // reflectionRayDistance:
 //   > 0  -> write PathTraceRRGuideHitDistance as the mirror ray length.
 //   <= 0 -> leave hit-distance buffer unchanged for this pixel.
+// Specular albedo for RR: material F0, plus variable/parm emissive color when
+// a live dynamic emissive stage is selected. Static texture emissives leave F0.
+float3 PathTraceCleanRtxdiDiRrSpecularAlbedoFromSurface(RAB_Surface surface)
+{
+    float3 specular = saturate(surface.material.specularF0);
+    PathTraceDynamicMaterialRecord record;
+    if (!PathTraceCleanRoomFindDynamicMaterialRecord(surface.material.materialIndex, record) ||
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) == 0u ||
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) == 0u ||
+        record.texMatrix0.w == 0.0 ||
+        max(max(record.color.r, record.color.g), record.color.b) <= 1.0e-5)
+    {
+        return specular;
+    }
+
+    const float3 emissive = max(surface.material.emissiveRadiance, float3(0.0, 0.0, 0.0));
+    const float peak = max(max(emissive.r, emissive.g), emissive.b);
+    if (peak > 1.0e-4)
+    {
+        return max(specular, saturate(emissive / max(peak, 1.0e-5)));
+    }
+    return max(specular, saturate(record.color.rgb * saturate(record.color.a)));
+}
+
 void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(
     uint2 pixel,
     RAB_Surface surface,
@@ -54,7 +78,9 @@ void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(
     bool laneChanged)
 {
     PathTraceRRGuideAlbedo[pixel] = float4(saturate(surface.material.diffuseAlbedo), 1.0);
-    PathTraceRRGuideSpecularAlbedo[pixel] = float4(saturate(surface.material.specularF0), 1.0);
+    PathTraceRRGuideSpecularAlbedo[pixel] = float4(
+        PathTraceCleanRtxdiDiRrSpecularAlbedoFromSurface(surface),
+        1.0);
     PathTraceRRGuideNormalRoughness[pixel] = float4(
         RAB_SafeNormalize(surface.shadingNormal, surface.geometryNormal),
         saturate(surface.material.roughness));
