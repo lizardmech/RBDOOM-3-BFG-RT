@@ -578,15 +578,14 @@ bool PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
     const float3 transmission = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
         PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar),
         materialParams);
-    // Option B radiance add only when the shaded-sidecar path is on AND
-    // reflection PSR is not owning this pixel (a ~ 1 with throughput/PDF is not
-    // radiance). Never stuff radiance into specular albedo guides (step 7b).
-    const bool reflectionSidecarEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION) != 0u;
-    const bool reflectionPsrEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION_PSR) != 0u;
+    // Option B: ADD shaded radiance when sidecar holds Option B alpha (0.875).
+    // PSR reflection-owned pixels use a=1 with throughput in the transmission
+    // compose channel already — do not also add Option B (double count).
+    // Never write radiance into specular albedo guides.
     const bool optionBRadiance =
-        reflectionSidecarEnabled &&
-        !reflectionPsrEnabled &&
-        PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar);
+        (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION) != 0u &&
+        PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar) &&
+        !PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar);
     const float reflectionScale =
         optionBRadiance ? max(materialParams.reflectionBoost, 0.0) : 0.0;
     const float3 reflectedRadiance =
@@ -631,7 +630,13 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     const bool reflectionPsrEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION_PSR) != 0u;
     const PathTraceCleanRtxdiDiReflectionPsrCandidate reflectionCandidate =
         PathTraceCleanRtxdiDiBuildReflectionPsrCandidate(glassSurface, glassPayload);
-    bool reflectionTraceHit = false;
+
+    // Option B: shade into locals first. Write the radiance sidecar only after
+    // PSR decides the lane so Option B cannot block PSR (shared a=1 bug) and so
+    // reflection-owned PSR pixels do not double-count radiance.
+    float3 optionBRadiance = float3(0.0, 0.0, 0.0);
+    bool optionBRadianceValid = false;
+    bool optionBTraceHit = false;
     if (reflectionSidecarEnabled)
     {
         PathTraceCleanRtxdiPayload reflectionPayload;
@@ -643,9 +648,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             reflectionHitPosition,
             reflectionRayDirection))
         {
-            reflectionTraceHit = true;
+            optionBTraceHit = true;
             RAB_Surface reflectionSurface;
-            float3 reflectedRadiance = float3(0.0, 0.0, 0.0);
             if (PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
                 reflectionPayload,
                 reflectionHitPosition,
@@ -655,13 +659,12 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                 RTXDI_RandomSamplerState reflectionRng =
                     RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4752464cu, 0u);
                 PathTraceCleanRtxdiDiApplyBlueNoiseToggle(reflectionRng);
-                reflectedRadiance = PathTraceCleanRtxdiDiShadeReflectionHit(
+                optionBRadiance = PathTraceCleanRtxdiDiShadeReflectionHit(
                     reflectionSurface,
-                    reflectionRng);
+                    reflectionRng) * glassPayload.reflection;
+                optionBRadianceValid =
+                    PathTraceCleanRoomLuminance(optionBRadiance) > 1.0e-8;
             }
-            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                PathTraceCleanRtxdiDiReflectionSidecarRadiance(
-                    reflectedRadiance * glassPayload.reflection);
         }
     }
 
@@ -689,14 +692,11 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         transmissionSample = PathTraceCleanRtxdiDiTransmissionPsrSampleThinStraight(glassSurface, glassPayload);
     }
 
-    // Reflection PSR lane selection (step 4 + 7b sticky/deterministic),
-    // replacement ray (step 5), and primary-surface pack (step 6). Does not
-    // overwrite Option B radiance when that path already wrote a>0.5.
+    // Reflection PSR lane selection + pack. Always allowed when the flag is on
+    // (do not gate on Option B sidecar occupancy).
     bool reflectionPrimaryPublished = false;
     bool glassPsrLaneChanged = true;
-    if (reflectionPsrEnabled &&
-        !PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(
-            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel]))
+    if (reflectionPsrEnabled)
     {
         const bool transmissionLaneValid =
             transmissionSample.performPsr &&
@@ -718,13 +718,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             (previousRecord.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u;
         const bool previousGlassPsrValid = previousReflectionLane || previousTransmissionLane;
 
-        if (reflectionSidecarEnabled && reflectionLaneValid && !reflectionTraceHit)
-        {
-            // Option B attempted a mirror trace and missed: keep miss visible.
-            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                PathTraceCleanRtxdiDiReflectionSidecarMissed();
-        }
-        else if (!reflectionLaneValid &&
+        if (!reflectionLaneValid &&
             reflectionCandidate.rejectReason ==
                 RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECT_INVALID_DIRECTION)
         {
@@ -806,6 +800,22 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                     PathTraceCleanRtxdiDiReflectionSidecarTransmissionSelected(
                         laneSelection.selectedThroughputOverPdf);
             }
+        }
+    }
+
+    // Option B radiance for compose ADD when PSR did not own the reflection
+    // lane (pure Option B, or PSR transmission-selected cross-lobe estimate).
+    if (!reflectionPrimaryPublished && reflectionSidecarEnabled)
+    {
+        if (optionBRadianceValid)
+        {
+            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                PathTraceCleanRtxdiDiReflectionSidecarRadiance(optionBRadiance);
+        }
+        else if (!reflectionPsrEnabled && !optionBTraceHit)
+        {
+            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                PathTraceCleanRtxdiDiReflectionSidecarMissed();
         }
     }
 

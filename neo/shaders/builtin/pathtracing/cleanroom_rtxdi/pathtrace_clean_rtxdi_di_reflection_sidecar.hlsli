@@ -2,28 +2,29 @@
 #define RB_PATH_TRACE_CLEAN_RTXDI_DI_REFLECTION_SIDECAR_HLSLI
 
 // Reflection sidecar (u90/t90) shared by:
-//   - Option B shaded mirror radiance (rgb = radiance * Fresnel, a = valid)
-//   - Reflection PSR lane metadata (rgb = throughput or fallback radiance, a = lane state)
+//   - Option B shaded mirror radiance (rgb = radiance * Fresnel)
+//   - Reflection PSR lane metadata (rgb = selected lobe throughput)
 //
-// Alpha contract for reflection PSR (v1). Option B radiance-valid uses the same
-// top state value so existing compose (a > 0.5) keeps working.
+// Alpha contract (keep ranges disjoint):
 //
-//   0.0  = empty / no reflection PSR activity
-//   0.125 = reflection candidate rejected (bad direction / no offset)
-//   0.25 = reflection PSR candidate but mirror trace missed
-//   0.375 = valid reflection candidate (step 3; not yet lane-selected)
-//   0.5  = transmission selected / transmission-only (reflection not selected)
-//   1.0  = reflection selected (PSR) or Option B radiance present
+//   0.0   = empty
+//   0.125 = reflection candidate rejected
+//   0.25  = mirror trace missed
+//   0.375 = valid candidate (debug intermediate)
+//   0.5   = transmission lane selected (PSR)
+//   0.875 = Option B shaded radiance present (compose ADD)
+//   1.0   = reflection lane selected + surface packed (PSR)
 //
-// States with a <= 0.5 never feed Option B radiance compose (gate is a > 0.5).
-// Do not silently retune these values without updating producer, compose, and
-// debug views together.
+// Option B and PSR reflection-selected MUST NOT share the same alpha: a shared
+// a=1 value made PSR skip when Option B ran, and compose then suppressed Option B
+// whenever PSR was enabled — killing all glass reflections.
 
 static const float RT_CLEAN_RTXDI_DI_REFLECTION_PSR_EMPTY = 0.0;
 static const float RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REJECTED = 0.125;
 static const float RT_CLEAN_RTXDI_DI_REFLECTION_PSR_MISSED = 0.25;
 static const float RT_CLEAN_RTXDI_DI_REFLECTION_PSR_CANDIDATE = 0.375;
 static const float RT_CLEAN_RTXDI_DI_REFLECTION_PSR_TRANSMISSION_SELECTED = 0.5;
+static const float RT_CLEAN_RTXDI_DI_REFLECTION_SIDECAR_OPTION_B_RADIANCE = 0.875;
 static const float RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REFLECTION_SELECTED = 1.0;
 
 // Candidate reject reasons (stored only in producer logic / live debug, not alpha).
@@ -67,10 +68,13 @@ float4 PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(float3 throughpu
         RT_CLEAN_RTXDI_DI_REFLECTION_PSR_REFLECTION_SELECTED);
 }
 
-// Option B radiance write: keeps the historical a=1.0 valid marker.
+// Option B radiance write: distinct alpha so PSR can still run and compose
+// can tell radiance-add from PSR surface ownership.
 float4 PathTraceCleanRtxdiDiReflectionSidecarRadiance(float3 radiance)
 {
-    return PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(radiance);
+    return float4(
+        max(radiance, float3(0.0, 0.0, 0.0)),
+        RT_CLEAN_RTXDI_DI_REFLECTION_SIDECAR_OPTION_B_RADIANCE);
 }
 
 bool PathTraceCleanRtxdiDiReflectionSidecarIsEmpty(float4 sidecar)
@@ -98,15 +102,20 @@ bool PathTraceCleanRtxdiDiReflectionSidecarIsTransmissionSelected(float4 sidecar
     return sidecar.a >= 0.4375 && sidecar.a < 0.75;
 }
 
-bool PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(float4 sidecar)
+bool PathTraceCleanRtxdiDiReflectionSidecarIsOptionBRadiance(float4 sidecar)
 {
-    return sidecar.a >= 0.75;
+    return sidecar.a >= 0.75 && sidecar.a < 0.95;
 }
 
-// Option B compose gate (historical): treat reflection-selected / radiance as present.
+bool PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(float4 sidecar)
+{
+    return sidecar.a >= 0.95;
+}
+
+// Option B compose gate: shaded radiance present (not PSR throughput state).
 bool PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(float4 sidecar)
 {
-    return sidecar.a > 0.5;
+    return PathTraceCleanRtxdiDiReflectionSidecarIsOptionBRadiance(sidecar);
 }
 
 float3 PathTraceCleanRtxdiDiReflectionSidecarRgb(float4 sidecar)
@@ -114,18 +123,23 @@ float3 PathTraceCleanRtxdiDiReflectionSidecarRgb(float4 sidecar)
     return max(sidecar.rgb, float3(0.0, 0.0, 0.0));
 }
 
-// Stochastic lane mask (step 4 done criteria):
-//   green  = reflection selected (or Option B radiance present)
+// Lane / Option B mask:
+//   green  = PSR reflection-owned surface
+//   orange = Option B shaded radiance
 //   blue   = transmission selected
-//   cyan   = candidate only (pre-selection / intermediate)
-//   magenta = rejected candidate
-//   yellow = trace miss
-//   gray   = empty / fail-closed
+//   cyan   = candidate only
+//   magenta = rejected
+//   yellow = miss
+//   gray   = empty
 float4 PathTraceCleanRtxdiDiReflectionPsrLaneDebugColor(float4 sidecar)
 {
     if (PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(sidecar))
     {
         return float4(0.05, 0.9, 0.05, 1.0);
+    }
+    if (PathTraceCleanRtxdiDiReflectionSidecarIsOptionBRadiance(sidecar))
+    {
+        return float4(0.95, 0.55, 0.05, 1.0);
     }
     if (PathTraceCleanRtxdiDiReflectionSidecarIsTransmissionSelected(sidecar))
     {
