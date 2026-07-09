@@ -1792,14 +1792,19 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
                     : 0.0;
             }
 
-            RTXDI_StreamSample(
-                reservoir,
-                lightIndex,
-                uv,
-                RTXDI_GetNextRandom(rng),
-                targetPdf,
-                invSourcePdf);
-            streamedAny = streamedAny || targetPdf > 0.0;
+            // Black-noise rule: do not stream zero-target samples into the
+            // reservoir (would inflate M and dilute valid weight).
+            if (targetPdf > 1.0e-8)
+            {
+                RTXDI_StreamSample(
+                    reservoir,
+                    lightIndex,
+                    uv,
+                    RTXDI_GetNextRandom(rng),
+                    targetPdf,
+                    invSourcePdf);
+                streamedAny = true;
+            }
         }
     }
 

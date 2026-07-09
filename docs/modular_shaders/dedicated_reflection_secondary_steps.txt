@@ -173,11 +173,16 @@ Already landed (this document):
     Step 1b:  RIS shade (M candidates -> 1 light + 1 shadow), not multi-SPP.
               R-owned skips secondary shade (primary DI owns mirror).
               Single mirror trace reused for R-publish and T-owned hybrid.
+    Step 1c:  Black-noise rule: StreamSample ignores zero targetPdf (no M
+              inflate); initial DI streaming skips zeros; secondary RIS skips
+              zero p_hat and retries shade if visibility fails.
 
 Still open:
 
-    Step 1c:  optional more light classes / NEE-cache; equal-cost A-B only if
+    Step 1d:  optional more light classes / NEE-cache; equal-cost A-B only if
               multi-SPP debug mode is reintroduced
+    Step 1e:  optional temporal hold of secondary radiance (Phase 4-ish) when
+              hybrid R must stay T-owned face-on
     Step 2:   glass compose contract audit (no double-count; document hybrid;
               R-owned prefers PSR+DI quality path where practical)
     Step 3:   opaque high-gloss eligibility + composite
@@ -305,25 +310,39 @@ then NRD / DLSS-RR. Residual noise is a **denoise / temporal** problem, not a
 
 ### Finding 3 — Multi-SPP average of simplified shade is the wrong lever
 
-Local Step 1a landed:
-
-    r_pathTracingReflectionSecondarySamples (1–8, default 4)
-    PathTraceReflectionSecondaryShade: N independent uniform analytic draws,
-    average the estimates.
-
-That is unbiased multi-SPP MC. It is a **bootstrap**, not the shipping quality
-model. It will not converge like primary DI because it lacks:
-
-    - spatiotemporal light reservoirs
-    - importance sampling among lights (beyond uniform)
-    - denoise-oriented signal packing
+Local history: multi-SPP uniform average (Step 1a) was a bootstrap. It will not
+match 1-SPP primary DI / RTXDI. RIS (Step 1b) is the secondary path; multi-SPP
+must not return as the quality fix.
 
 **Mandatory anti-pattern for agents:**
 
-    DO NOT raise secondary sample count (default 4 -> 8, etc.) as the
-    quality fix for sparkly / noisy glass reflections.
+    DO NOT raise secondary sample count (M or SPP) as the quality fix for
+    sparkly / noisy glass reflections.
     DO NOT invent a full second ReSTIR-DI / ReSTIR-PT pass on every mirror hit.
     DO NOT treat "more samples" as done for Phase 1.
+
+### Finding 4 — Black-noise / zero-sample admission (same DI lesson)
+
+A prior clean-DI fix: **do not admit zero-result samples into the reservoir**
+(and do not let empty draws steal valid temporal/spatial samples). When zeros
+inflate M while adding no weight, W is diluted and well-lit surfaces show
+black splotches; once zeros are rejected, DI looks raster-solid.
+
+Apply the same rule everywhere:
+
+    - RTXDI_StreamSample: zero targetPdf must not increase M or enter weight.
+    - Initial light streaming: skip StreamSample when targetPdf is zero.
+    - Reflection secondary RIS: skip zero p_hat candidates; if the selected
+      light fails visibility/shade, **retry** another positive candidate —
+      do not write pure black reflection energy for that pixel.
+    - Temporal/spatial combine: empty/zero-weight reservoirs must not starve
+      valid neighbors (existing Combine already rejects invalid light bits;
+      keep M-inflation under control).
+
+This is a larger part of "Remix solid" than sample count. Primary DI already
+has spatiotemporal reuse once zeros stop poisoning history; secondary RIS
+cannot match that without (a) R-owned DI on the mirror surface or (b) temporal
+hold of secondary radiance (Phase 4).
 
 ### Agent direction — how to get Remix-class results locally
 

@@ -128,10 +128,7 @@ RTXDI_DIReservoir RTXDI_SampleLocalLights(
         const float2 uv = RTXDI_RandomlySelectLocalLightUV(rng);
         if (!RAB_IsLightInfoValid(lightInfo))
         {
-            // Keep the confidence accounting consistent with streamed
-            // candidates: an invalid light is a zero-weight candidate,
-            // not a skipped one.
-            reservoir.M = min(reservoir.M + 1.0, RTXDI_DIRESERVOIR_MAX_M);
+            // Black-noise rule: do not inflate M for invalid/zero candidates.
             continue;
         }
 

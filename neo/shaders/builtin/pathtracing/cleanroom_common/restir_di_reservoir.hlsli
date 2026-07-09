@@ -117,6 +117,13 @@ float RTXDI_GetDIReservoirInvPdf(RTXDI_DIReservoir reservoir)
 // Streaming RIS update (Bitterli 2020, Alg. 2): candidate resampling weight
 // is targetPdf / sourcePdf. Returns true when the candidate replaces the
 // current selection.
+//
+// Production note (black-noise): zero-target candidates must NOT inflate M or
+// enter the reservoir. Counting them in M dilutes W = wSum/(p_hat*M) and lets
+// empty/zero draws starve valid samples in temporal/spatial merges — classic
+// "black noise on well-lit surfaces." Mild bias vs textbook RIS; required for
+// solid 1-SPP DI look. Callers should still prefer skipping the call when
+// targetPdf is known zero.
 bool RTXDI_StreamSample(
     inout RTXDI_DIReservoir reservoir,
     uint lightIndex,
@@ -126,12 +133,12 @@ bool RTXDI_StreamSample(
     float invSourcePdf)
 {
     const float risWeight = max(targetPdf, 0.0) * max(invSourcePdf, 0.0);
-    reservoir.M = min(reservoir.M + 1.0, RTXDI_DIRESERVOIR_MAX_M);
     if (risWeight <= 0.0)
     {
         return false;
     }
 
+    reservoir.M = min(reservoir.M + 1.0, RTXDI_DIRESERVOIR_MAX_M);
     reservoir.weightSum += risWeight;
     const bool selectSample = random * reservoir.weightSum <= risWeight;
     if (selectSample)

@@ -346,8 +346,10 @@ float PathTraceReflectionSecondaryRisTargetWeight(
 // Simplified direct shade at a reflection hit (Remix secondary NEE shape):
 //   RIS over M uniform light candidates from the full Doom analytic domain
 //   -> select ONE light -> ONE area sample + optional ONE shadow ray.
-// Not multi-SPP averaging and not full RTXDI (spatial reservoirs are for the
-// primary/selected surface only).
+// Zero-weight candidates are skipped (same black-noise rule as DI StreamSample:
+// do not inflate M / admit empty draws that starve valid lights).
+// If the selected light fails shade/visibility, retry other stored positive-
+// weight candidates instead of writing pure black reflection energy.
 float3 PathTraceReflectionSecondaryShade(
     RAB_Surface hitSurface,
     PathTraceReflectionSecondaryBudget budget,
@@ -369,10 +371,16 @@ float3 PathTraceReflectionSecondaryShade(
     const uint candidateCount = clamp(budget.risCandidateCount, 1u, 16u);
     const float proposalPdf = 1.0 / max((float)analyticCount, 1.0);
 
+    // Short list of positive-weight candidates for visibility retries.
+    const uint kMaxRetryLights = 4u;
+    uint retryLightIndex[4];
+    float retryTargetWeight[4];
+    RAB_LightInfo retryLightInfo[4];
+    uint retryCount = 0u;
+
     float weightSum = 0.0;
-    uint selectedLightIndex = 0xffffffffu;
-    float selectedTargetWeight = 0.0;
-    RAB_LightInfo selectedLightInfo = RAB_EmptyLightInfo();
+    uint selectedSlot = 0xffffffffu;
+    uint positiveCandidateCount = 0u;
 
     [loop]
     for (uint candidateIndex = 0u; candidateIndex < candidateCount; ++candidateIndex)
@@ -384,50 +392,82 @@ float3 PathTraceReflectionSecondaryShade(
             lightIndex);
         const float targetWeight =
             PathTraceReflectionSecondaryRisTargetWeight(hitSurface, lightInfo);
+        // Do not admit zero-target candidates (black-noise rule).
         if (targetWeight <= 1.0e-10)
         {
             continue;
         }
 
-        // Streaming RIS: w_i = p_hat / q, q = uniform over lights.
+        positiveCandidateCount += 1u;
         const float risWeight = targetWeight / max(proposalPdf, 1.0e-8);
         weightSum += risWeight;
-        if (weightSum > 0.0 &&
-            RTXDI_GetNextRandom(rng) * weightSum < risWeight)
+
+        // Streaming RIS selection among positive-weight candidates only.
+        const bool selectThis =
+            weightSum > 0.0 &&
+            RTXDI_GetNextRandom(rng) * weightSum < risWeight;
+
+        if (retryCount < kMaxRetryLights)
         {
-            selectedLightIndex = lightIndex;
-            selectedTargetWeight = targetWeight;
-            selectedLightInfo = lightInfo;
+            retryLightIndex[retryCount] = lightIndex;
+            retryTargetWeight[retryCount] = targetWeight;
+            retryLightInfo[retryCount] = lightInfo;
+            if (selectThis)
+            {
+                selectedSlot = retryCount;
+            }
+            retryCount += 1u;
+        }
+        else if (selectThis)
+        {
+            // Keep the current selection in slot 0 for shade attempts.
+            retryLightIndex[0] = lightIndex;
+            retryTargetWeight[0] = targetWeight;
+            retryLightInfo[0] = lightInfo;
+            selectedSlot = 0u;
         }
     }
 
-    if (selectedLightIndex == 0xffffffffu ||
-        weightSum <= 1.0e-10 ||
-        selectedTargetWeight <= 1.0e-10)
+    if (retryCount == 0u || weightSum <= 1.0e-10 || positiveCandidateCount == 0u)
     {
         return radiance;
     }
 
-    // Unbiased contribution weight for discrete RIS (M candidates).
-    // UCW = (1/M * sum w_i) / p_hat(selected).
-    const float ucw = (weightSum / max((float)candidateCount, 1.0)) /
-        max(selectedTargetWeight, 1.0e-8);
-
-    // One continuous sample on the selected light + optional shadow.
-    // Accumulate with sourcePdf = 1 so we apply UCW ourselves (RIS replaces
-    // the uniform 1/N light pdf already folded into w_i).
-    float3 direct = float3(0.0, 0.0, 0.0);
-    if (PathTraceReflectionSecondaryAccumulateAnalyticLight(
-        direct,
-        hitSurface,
-        selectedLightInfo,
-        1.0,
-        budget,
-        rng))
+    if (selectedSlot >= retryCount)
     {
-        // Accumulate used sourcePdf=1 and internal solid-angle pdf + MIS.
-        // Scale by RIS UCW so the estimator remains unbiased for the domain.
+        selectedSlot = 0u;
+    }
+
+    // UCW uses count of positive candidates only (zeros never entered).
+    const float ucwBase = weightSum / max((float)positiveCandidateCount, 1.0);
+
+    // Try selected first, then other positive candidates if shade/visibility fails.
+    [loop]
+    for (uint attempt = 0u; attempt < retryCount; ++attempt)
+    {
+        const uint slot = (selectedSlot + attempt) % retryCount;
+        const float pHat = retryTargetWeight[slot];
+        if (pHat <= 1.0e-10)
+        {
+            continue;
+        }
+
+        float3 direct = float3(0.0, 0.0, 0.0);
+        if (!PathTraceReflectionSecondaryAccumulateAnalyticLight(
+            direct,
+            hitSurface,
+            retryLightInfo[slot],
+            1.0,
+            budget,
+            rng))
+        {
+            // Zero result after selection: do not accept black — try next.
+            continue;
+        }
+
+        const float ucw = ucwBase / max(pHat, 1.0e-8);
         radiance += direct * ucw;
+        break;
     }
 
     return radiance;
