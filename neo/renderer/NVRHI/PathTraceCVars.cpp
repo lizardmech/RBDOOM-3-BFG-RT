@@ -1649,15 +1649,15 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
 
 idCVar r_pathTracingCleanRtxdiDiGlassReflection(
     "r_pathTracingCleanRtxdiDiGlassReflection",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 glass reflection sidecar: 0 off, 1 trace mirror ray in PSR producer and compose reflected radiance" );
+    "Clean RTXDI DI view 16 Option B glass reflection sidecar: 0 off (default), 1 shade mirror hits and ADD radiance when reflection PSR does not own the primary" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassReflectionPsr(
     "r_pathTracingCleanRtxdiDiGlassReflectionPsr",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 glass reflection PSR: 0 off (sidecar reflection path unchanged), 1 allow producer to select reflected replacement primary surfaces (plumbing only until later steps)" );
+    "Clean RTXDI DI view 16 glass reflection PSR (default on): lane-select + mirror primary when energy-owned; T-owned still shades/adds mirror and feeds RR material blend" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassDistortion(
     "r_pathTracingCleanRtxdiDiGlassDistortion",
