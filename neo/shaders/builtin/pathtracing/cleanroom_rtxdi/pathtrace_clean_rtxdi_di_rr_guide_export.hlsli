@@ -65,6 +65,37 @@ void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(
     }
 }
 
+// Material guides for the mirrored hit when beauty still carries reflection
+// energy but DI ownership stayed on the transmission lane (clear-glass face-on
+// case). Shipping captures feed clean albedo/spec of reflected surfaces into
+// RR even when the pane is mostly transmission; never stuff shaded radiance.
+// Leaves depth/position from the published DI surface so see-through depth
+// still tracks the behind-glass hit.
+void PathTraceCleanRtxdiDiWriteReflectionMaterialRrGuides(
+    uint2 pixel,
+    RAB_Surface reflectionSurface,
+    float reflectionRayDistance)
+{
+    if (!RAB_IsSurfaceValid(reflectionSurface))
+    {
+        return;
+    }
+
+    PathTraceRRGuideAlbedo[pixel] = float4(
+        saturate(reflectionSurface.material.diffuseAlbedo),
+        1.0);
+    PathTraceRRGuideSpecularAlbedo[pixel] = float4(
+        saturate(reflectionSurface.material.specularF0),
+        1.0);
+    PathTraceRRGuideNormalRoughness[pixel] = float4(
+        RAB_SafeNormalize(reflectionSurface.shadingNormal, reflectionSurface.geometryNormal),
+        saturate(reflectionSurface.material.roughness));
+    if (reflectionRayDistance > 0.0)
+    {
+        PathTraceRRGuideHitDistance[pixel] = reflectionRayDistance;
+    }
+}
+
 void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(uint2 pixel, RAB_Surface surface)
 {
     PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(

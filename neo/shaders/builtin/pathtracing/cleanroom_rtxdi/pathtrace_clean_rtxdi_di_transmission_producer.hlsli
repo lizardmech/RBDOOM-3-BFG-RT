@@ -650,12 +650,17 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     const PathTraceCleanRtxdiDiReflectionPsrCandidate reflectionCandidate =
         PathTraceCleanRtxdiDiBuildReflectionPsrCandidate(glassSurface, glassPayload);
 
-    // Mirror shade into locals first. Write the radiance sidecar only after
-    // PSR decides the lane so Option B cannot block PSR (shared a=1 bug) and so
-    // reflection-owned PSR pixels do not double-count radiance (DI owns them).
+    // Mirror shade + guide surface into locals first. Write the radiance
+    // sidecar only after PSR decides the lane so Option B cannot block PSR
+    // (shared a=1 bug) and so reflection-owned PSR pixels do not double-count
+    // radiance (DI owns them). Keep the resolved mirror surface for RR material
+    // guides on T-owned pixels (albedo/spec of reflected parts).
     float3 optionBRadiance = float3(0.0, 0.0, 0.0);
     bool optionBRadianceValid = false;
     bool optionBTraceHit = false;
+    RAB_Surface reflectionGuideSurface = RAB_EmptySurface();
+    bool reflectionGuideSurfaceValid = false;
+    float reflectionGuideHitT = 0.0;
     if (reflectionShadeEnabled)
     {
         PathTraceCleanRtxdiPayload reflectionPayload;
@@ -675,6 +680,9 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                 reflectionRayDirection,
                 reflectionSurface))
             {
+                reflectionGuideSurface = reflectionSurface;
+                reflectionGuideSurfaceValid = true;
+                reflectionGuideHitT = max(reflectionPayload.hitT, 0.0);
                 RTXDI_RandomSamplerState reflectionRng =
                     RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4752464cu, 0u);
                 PathTraceCleanRtxdiDiApplyBlueNoiseToggle(reflectionRng);
@@ -892,6 +900,18 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         transmissionPublishLaneChanged))
     {
         return;
+    }
+
+    // T-owned primary keeps behind-glass DI + depth, but beauty still carries
+    // the mirror shade. Feed RR the clean material albedo/spec/normal of the
+    // mirrored hit (and specular hit distance) so reflections are not only in
+    // the noisy color input. R-owned already wrote full guides via Publish.
+    if (reflectionPsrEnabled && reflectionGuideSurfaceValid)
+    {
+        PathTraceCleanRtxdiDiWriteReflectionMaterialRrGuides(
+            pixel,
+            reflectionGuideSurface,
+            reflectionGuideHitT);
     }
 
     const float overlayStrength = PathTraceCleanRtxdiDiGlassOverlayStrength(glassPayload);
