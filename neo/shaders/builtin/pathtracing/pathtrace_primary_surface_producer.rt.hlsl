@@ -991,58 +991,39 @@ void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
     StorePathTracePrimarySurfaceRecord(pixel, surface);
 }
 
-// Variable/parm-driven emissives (dynamic material stage color). Static texture
-// emissives leave specular F0 alone; RR reconstructs those from color + albedo.
-bool PathTracePrimarySurfaceVariableEmissiveActive(RAB_Surface surface)
-{
-    if (!RAB_IsSurfaceValid(surface))
-    {
-        return false;
-    }
-
-    const uint materialIndex = surface.material.materialIndex;
-    const uint recordCount = PathTraceDynamicMaterialRecordCount();
-    if (materialIndex >= recordCount)
-    {
-        return false;
-    }
-
-    const PathTraceDynamicMaterialRecord record = SmokeDynamicMaterials[materialIndex];
-    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
-        record.materialIndex != materialIndex ||
-        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) == 0u ||
-        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) == 0u ||
-        record.texMatrix0.w == 0.0 ||
-        max(max(record.color.r, record.color.g), record.color.b) <= 1.0e-5)
-    {
-        return false;
-    }
-
-    return true;
-}
-
-// Specular albedo for DLSS-RR: material F0, plus emissive *color* for variable
-// (parm-tinted) emissives so RR sees the live stage tint in the specular guide.
+// Specular albedo for DLSS-RR: material F0 plus emissive color injection.
+// All emissives (static texture and variable/parm-driven) need to appear in
+// the specular guide so RR can reconstruct self-lit surfaces. Preserve
+// chromaticity; do not dump full HDR energy into the albedo-range channel.
 float3 PathTracePrimarySurfaceRrSpecularAlbedo(RAB_Surface surface)
 {
     float3 specular = saturate(surface.material.specularF0);
-    if (!PathTracePrimarySurfaceVariableEmissiveActive(surface))
-    {
-        return specular;
-    }
-
     const float3 emissive = max(surface.material.emissiveRadiance, float3(0.0, 0.0, 0.0));
     const float peak = max(max(emissive.r, emissive.g), emissive.b);
     if (peak > 1.0e-4)
     {
-        // Preserve chromaticity; do not dump full HDR energy into the albedo guide.
-        const float3 emissiveTint = saturate(emissive / max(peak, 1.0e-5));
-        return max(specular, emissiveTint);
+        return max(specular, saturate(emissive / max(peak, 1.0e-5)));
     }
 
-    // Stage color only (no texture / zero sampled radiance).
-    const PathTraceDynamicMaterialRecord record = SmokeDynamicMaterials[surface.material.materialIndex];
-    return max(specular, saturate(record.color.rgb * saturate(record.color.a)));
+    // Variable stage color only when radiance sample is zero but a live
+    // dynamic emissive stage is selected (parm on, texture empty).
+    const uint materialIndex = surface.material.materialIndex;
+    const uint recordCount = PathTraceDynamicMaterialRecordCount();
+    if (materialIndex < recordCount)
+    {
+        const PathTraceDynamicMaterialRecord record = SmokeDynamicMaterials[materialIndex];
+        if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) != 0u &&
+            record.materialIndex == materialIndex &&
+            (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) != 0u &&
+            (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u &&
+            record.texMatrix0.w != 0.0 &&
+            max(max(record.color.r, record.color.g), record.color.b) > 1.0e-5)
+        {
+            return max(specular, saturate(record.color.rgb * saturate(record.color.a)));
+        }
+    }
+
+    return specular;
 }
 
 void StoreRayReconstructionGuides(uint2 pixel, RAB_Surface surface)
