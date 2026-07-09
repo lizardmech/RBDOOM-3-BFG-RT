@@ -1,0 +1,586 @@
+Basic Glass PSR Reflection Implementation Steps
+===============================================
+
+Revision
+--------
+
+2026-07 revision: priority is correct reflections (beauty energy + DLSS-RR
+guide stability) before dirt/grime/textures/normal-map glass polish.
+
+Do not implement overlay-material work until Phase A (reflection correctness)
+exits. Phase B (surface coatings) is explicitly deferred.
+
+
+Purpose
+-------
+
+This document is a worker handoff for a Remix-shaped reflection PSR path for
+glass in the clean RTXDI DI view-16 route.
+
+The target is not the final generic glossy-reflection system. The target is a
+basic, sharp, glass-specific reflection PSR path that can coexist with the
+current transmission PSR path and gives DLSS-RR a surface-shaped reflection
+signal instead of a late reflected-radiance overlay.
+
+Read this document before editing code. Do not reopen the RTX Remix tree unless
+local code contradicts this guide.
+
+
+Priority Rule (mandatory)
+-------------------------
+
+Get reflections completely correct first.
+
+    Phase A — reflection correctness (do now / finish before anything else):
+        surface replacement
+        lane selection + PDF
+        compose energy without double-counting
+        DLSS-RR guide stability and policy
+        motion/reset that does not permanently block reconstruction
+        validation of pure clear glass reflection/transmission
+
+    Phase B — glass surface coatings (deferred until Phase A exits):
+        dirt / grime / stains
+        dirt as late overlay only
+        normal-map scratches / waves on the pane
+        material texture polish on the glass sheet itself
+
+    Phase C — later lanes (out of scope here):
+        generic glossy / metal / puddle reflection PSR
+        GGX/VNDF
+        frosted multi-sample transmission
+        dual-surface RR productization
+
+If a task improves dirt visibility or glass sheet textures but does not improve
+reflection energy or RR guides, it belongs in Phase B and must wait.
+
+
+Core Decision
+-------------
+
+Start with PSR for clear glass.
+
+Glass has two distinct problems:
+
+    transmission/refraction:
+        Which surface is visible through the pane?
+
+    reflection:
+        Which surface is visible in the mirror lobe of the pane?
+
+Transmission PSR already solves the first problem by replacing the primary
+surface record with the behind-glass hit before clean DI shades it.
+
+Basic reflection PSR solves the second problem by allowing selected glass
+pixels to publish a reflected replacement surface, then letting the normal
+clean DI/RR path shade and denoise that reflected surface.
+
+Do not confuse this with the reflection sidecar fallback. A sidecar stores
+already shaded reflected radiance. Reflection PSR stores transport/replacement
+state so later passes see a real surface.
+
+
+Non-Goals (this lane)
+---------------------
+
+Do not build any of these in Phase A:
+
+    - dirt/grime/stain overlay implementation as an acceptance requirement
+    - glass sheet normal-map driven reflection bend as a gate
+    - frosted-glass multi-sample transmission
+    - generic glossy reflections for puddles, wet floors, metals, or rough glass
+    - GGX/VNDF reflection sampling
+    - reflection reservoirs
+    - GI recursion inside the reflected hit
+    - screen-space reflection or image warp
+    - full dual-surface DLSS-RR product support
+    - a new opaque/material shader inside the glass producer
+
+Phase B may touch dirt overlay later. Phase C owns generic glossy systems.
+
+
+Implementation Status (local tree, 2026-07)
+------------------------------------------
+
+Already landed (do not re-do unless fixing regressions):
+
+    Step 0–1: baseline audit, CLEAN_FLAG_GLASS_REFLECTION_PSR,
+              r_pathTracingCleanRtxdiDiGlassReflectionPsr
+    Step 2:   reflection sidecar alpha contract + lane debug views
+    Step 3:   reflection candidate build / reject
+    Step 4:   stochastic Fresnel-energy lane selection + throughput/PDF store
+    Step 5:   PathTraceCleanRtxdiDiTraceReflectionPsrHit
+    Step 6:   pack reflected hit, CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED
+    Step 7a:  initial RR guide write on publish (albedo/normal/depth/position,
+              hit distance, aggressive reset bits)
+
+Still open (Phase A remaining):
+
+    Step 7b:  RR guide stability policy (critical — see below)
+    Step 8:   compose energy / PDF / no double-count (no dirt requirement)
+    Step 9:   Phase A validation matrix (clear glass; dirt tests deferred)
+    Step 10:  Phase B dirt/grime/normal-map (deferred)
+
+Option B shaded reflection sidecar remains a fallback behind
+r_pathTracingCleanRtxdiDiGlassReflection. Prefer PSR on and Option B off while
+validating Phase A.
+
+
+Mental Model
+------------
+
+The basic PSR reflection path is:
+
+    1. The pre-DI glass PSR producer still identifies a glass primary pixel.
+    2. The glass math computes both transmission and reflection throughput.
+    3. The producer decides whether this pixel's integration surface is the
+       transmitted hit or the reflected hit.
+    4. If reflection is selected, trace a mirror ray from the glass surface.
+    5. Build the reflected hit into the same primary-surface record contract
+       that clean DI already consumes.
+    6. Record enough sidecar metadata for late glass composition and debug.
+    7. Clean DI shades the reflected surface normally.
+    8. RR guides describe a stable resolved surface (not glass, not a coin-flip
+       every frame if policy can avoid it).
+    9. Compose multiplies by the selected lane throughput/PDF only.
+
+The important difference from a reflection sidecar is step 5. The reflected hit
+becomes a surface record, not just an RGB addend.
+
+
+What Shipping Games' DLSS-RR Inputs Imply
+----------------------------------------
+
+Comparative capture notes (keep these as design constraints for Phase A):
+
+    - Albedo and specular albedo on glass reflections are clean material
+      attributes of the resolved hit, not noisy lighting.
+    - Depth ignores the glass pane; it tracks the seen surface (behind glass
+      and/or virtual mirror surface). Glass must not permanently "block" depth.
+    - Normals for reflections appear mainly for near-perfect mirrors and look
+      like primary-resolved hits, not ReSTIR multi-bounce noise.
+    - Permanent per-frame stochastic guide identity + heavy reset masks will
+      never look like those captures even if beauty energy is roughly right.
+
+Phase A must address guide stability, not only "write some guides once."
+
+
+Existing Local Pieces To Reuse
+------------------------------
+
+Files under:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+
+Useful existing shader pieces:
+
+    pathtrace_clean_rtxdi_di_transmission_producer.hlsli
+        Owns the pre-DI transmission/reflection PSR phase. Only place that
+        still has the original glass surface in hand before replace.
+
+    pathtrace_clean_rtxdi_di_transmission_transport.hlsli
+        Candidate, selection, TraceReflectionPsrHit, transmission continue.
+
+    pathtrace_clean_rtxdi_di_reflection_sidecar.hlsli
+        Sidecar alpha/state contract and lane debug colors.
+
+    pathtrace_clean_rtxdi_di_surface_adapter.hlsli
+        Packs resolved RAB_Surface into the primary-surface record.
+
+    pathtrace_clean_rtxdi_di_rr_guide_export.hlsli
+        Publish + RR guide write path for PSR surfaces.
+
+    pathtrace_clean_rtxdi_di_glass_math.hlsli
+        Thin-glass Fresnel/Beer-Lambert/interreflection. Do not rewrite for v1.
+
+    pathtrace_clean_rtxdi_di_glass.hlsli / glass compose path
+        Late compose. Must understand reflection vs transmission throughput.
+        Must not become a reflection tracer.
+
+    pathtrace_clean_rtxdi_di_shared.hlsli
+        Clean DI flags and surface flag constants.
+
+Relevant flags/resources (verify live names before editing):
+
+    CLEAN_FLAG_TRANSMISSION_PSR_PHASE
+    CLEAN_FLAG_GLASS_REFLECTION
+    CLEAN_FLAG_GLASS_REFLECTION_PSR
+    CLEAN_FLAG_GLASS_REFRACTED_PSR
+    CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED
+    CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED
+    CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED
+    PathTraceCleanRtxdiDiReflectionSidecarOutput : register(u90)
+
+
+Reference Architecture Summary
+------------------------------
+
+RTX Remix uses this shape:
+
+    material interaction decides whether PSR is possible
+    material interaction emits a PSR sample
+    PSR sample is transport data, not shaded color
+    resolver traces the PSR ray
+    resolver writes a real G-buffer surface
+    direct/indirect/RR passes consume that surface normally
+
+For rbdoom Phase A, the minimum equivalent is:
+
+    selected lane: transmission or reflection
+    input direction: refracted/straight or reflected direction
+    throughput / selection PDF
+    resolved surface record
+    RR guides that match that surface and stay stable enough to denoise
+    sidecar/debug metadata identifying which lane was selected
+    compose that multiplies shaded result by selectedThroughput/PDF only
+
+
+==============================================================================
+PHASE A — REFLECTION CORRECTNESS
+==============================================================================
+
+
+Steps 0–7a: Foundation (already landed)
+---------------------------------------
+
+See "Implementation Status" above. Workers starting mid-lane should:
+
+    1. Confirm cvars:
+           r_pathTracingCleanRtxdiDiGlassReflectionPsr
+           r_pathTracingCleanRtxdiDiGlassReflection  (Option B; prefer 0)
+    2. Confirm view 16 + transmission producer still work with PSR off.
+    3. Confirm reflection-selected pixels pack non-glass materials (Step 6).
+    4. Not reimplement Steps 0–6 unless fixing a regression.
+
+
+Step 7b: RR Guide Stability Policy (NEXT — highest priority open work)
+----------------------------------------------------------------------
+
+Type: guide contract / policy
+
+Step 7a already writes reflected albedo/normal/roughness/depth/position and
+mirror hit distance on reflection-selected publish. That is not enough.
+
+Problem:
+
+    Stochastic lane selection changes the primary surface and RR guide identity
+    every frame. Combined with aggressive reset bits
+    (STOCHASTIC_TRANSLUCENT, MATERIAL_MISMATCH, motion unavailable every
+    frame), DLSS-RR tends to block or refuse stable reconstruction. Shipping
+    titles show clean, stable material guides on glass reflections.
+
+Goals:
+
+    1. Albedo and specular albedo remain pure material of the guide surface.
+       Never stuff reflection radiance into PathTraceRRGuideSpecularAlbedo.
+
+    2. Depth ignores glass. Depth/position describe the resolved seen surface
+       (behind-glass or reflected hit). Do not leave glass-pane depth as the
+       active guide for PSR glass pixels.
+
+    3. Motion:
+           Prefer correct virtual/reflected or behind-glass motion when
+           available.
+           If unavailable, reset only when necessary — not a permanent block
+           every frame on all glass pixels.
+
+    4. Reset:
+           Reset on real lane change, miss, invalid hit, or disocclusion.
+           Do not OR material-mismatch + stochastic + motion-unavailable on
+           every reflection pixel by default if that permanently disables RR.
+
+    5. Stability options (pick one, document choice in commit notes):
+
+           A. Sticky lane for guides:
+                  Beauty may stay stochastic; guides follow a temporally
+                  sticky lane until confidence drops.
+
+           B. Deterministic guide surface:
+                  e.g. Fresnel threshold: above threshold guides use reflection
+                  surface; else transmission/behind. Beauty can still sample
+                  stochastically with PDF if desired.
+
+           C. Transmission-primary guides + reflection only when near-mirror:
+                  Closest to many shipping captures: depth/albedo usually
+                  through-glass; reflection surface guides only when the
+                  mirror lobe dominates.
+
+    6. Normals:
+           Export resolved-hit normals for Dirac reflection when that surface
+           owns the pixel's guide identity.
+           Do not invent noisy multi-bounce normals.
+           If reflection does not own guides this frame, do not leave glass
+           normals in the guide.
+
+    7. Specular hit distance:
+           When reflection owns the specular reconstruction path, write the
+           actual mirror ray length. Never substitute primary linear depth.
+
+Done when:
+
+    - RR guide debug (albedo, normal/roughness, depth) on glass looks stable
+      enough to compare to other titles' clean material guides (not random
+      dual-world speckles every frame).
+    - Depth is not "blocked empty" on glass; it tracks a resolved world
+      surface.
+    - Beauty can still show reflection energy; guides no longer fight RR
+      with permanent fail-closed every pixel every frame.
+
+
+Step 8: Compose Energy Without Double Counting (Phase A only)
+-------------------------------------------------------------
+
+Type: late glass compose
+
+Scope: energy and ownership only. No dirt/grime feature work.
+
+The compose pass must understand the selected lane:
+
+    transmission-selected:
+        shaded input is the behind-glass surface
+        multiply by transmission throughput / selection PDF
+
+    reflection-selected:
+        shaded input is the reflected surface
+        multiply by reflection throughput / selection PDF
+
+Rules:
+
+    - Do not add Option B reflection sidecar RGB on reflection-selected PSR
+      pixels (double count).
+    - Do not treat reflection sidecar a>0.5 as "radiance present" when the
+      alpha contract means "reflection PSR selected" and rgb is throughput/PDF.
+    - Do not require dirt/grime overlay to ship this step.
+    - Optional neutral glass surface term only if already required for
+      non-PSR fallback; do not expand dirt classification here.
+
+Interim note (current code):
+
+    Reflection-selected pixels may already stuff throughput/PDF into the
+    transmission sidecar compose channel. Step 8 should make that ownership
+    explicit and correct, including glass material-feature compose if it still
+    runs a separate path.
+
+Done when:
+
+    - Reflection-selected pixels show reflected scene color from clean DI/RR,
+      not from a direct sidecar radiance add.
+    - Transmission-selected pixels keep correct transmission tint.
+    - Toggling Option B off with PSR on does not remove all reflections.
+    - Toggling PSR off restores baseline (including Option B if enabled).
+
+
+Step 9: Phase A Validation Matrix
+---------------------------------
+
+Required CVars (use live names if renamed):
+
+    r_pathTracingCleanRtxdiDiView 16
+    r_pathTracingCleanRtxdiDiGlassShader 1
+    r_pathTracingCleanRtxdiDiTransmissionProducer 1
+    r_pathTracingCleanRtxdiDiTransmissionCompose 1
+    r_pathTracingCleanRtxdiDiGlassReflectionPsr 1
+    r_pathTracingCleanRtxdiDiGlassReflection 0
+
+Tests (Phase A — clear glass focus):
+
+    1. Baseline off
+        Reflection PSR cvar 0 matches pre-lane / Option B-off baseline as
+        documented.
+
+    2. Lane mask
+        Debug view shows reflection vs transmission selection in expected
+        Fresnel ratio (grazing more reflection).
+
+    3. Head-on glass
+        Mostly transmission; weak reflection.
+
+    4. Grazing glass
+        Stronger reflection; DI-shaded reflected content, not gray proxy.
+
+    5. Bright object in reflection
+        Appears via clean DI path on reflection-owned pixels.
+
+    6. RR guide albedo / normal / depth
+        Stable material-like guides on glass; depth not blocked; no glass
+        sheet identity as the primary guide surface.
+
+    7. Motion
+        Camera strafe: no glass-pane motion smear on reflection-owned pixels;
+        reset or reproject coherently per Step 7b policy.
+
+    8. Option B interaction
+        PSR on + Option B off: correct PSR reflections.
+        PSR on + Option B on: must not double-count (document chosen policy).
+
+    9. Disable transmission producer / PSR dependency
+        Fail closed; no silent invalid primary records.
+
+    10. Performance (optional for Phase A exit)
+        Off/on timing in a glass-heavy scene; record numbers, do not block
+        Phase A on micro-optimizations.
+
+Deferred to Phase B validation (do not block Phase A exit):
+
+    - Dirty glass overlay visibility
+    - Stain/grime classification
+    - Normal-map pane distortion of reflection direction
+
+
+Phase A Exit Criteria
+---------------------
+
+Phase A is done when:
+
+    - reflection PSR toggles independently
+    - reflection-owned pixels are shaded by the normal clean DI route
+    - compose applies correct selected throughput/PDF without double-counting
+    - RR guides describe a resolved non-glass surface with a stability policy
+      that does not permanently block reconstruction
+    - albedo/specular guides stay material attributes, not radiance dumps
+    - transmission PSR still works
+    - Option B can remain as optional fallback without being required
+    - disabling reflection PSR returns to baseline
+
+Phase A does NOT require:
+
+    - dirty glass overlay correctness
+    - glass sheet texture/detail fidelity
+    - normal-map scratches on the pane
+    - generic glossy materials
+
+
+==============================================================================
+PHASE B — GLASS SURFACE COATINGS (DEFERRED)
+==============================================================================
+
+Do not start Phase B until Phase A exit criteria are met.
+
+
+Step 10: Dirt / Grime / Overlay (deferred)
+------------------------------------------
+
+Type: material classification + late compose
+
+Doom 3 glass is often dirty. Dirt is not a reason to disable PSR, but it is
+also not required for reflection correctness.
+
+Classify glass components separately:
+
+    clear/transmissive base:
+        PSR transport (Phase A)
+
+    reflection lobe:
+        reflection PSR for sharp Dirac (Phase A)
+
+    grime/dirt/stains:
+        late overlay or opacity/diffuse layer (this step)
+
+    normal-map scratches/waves:
+        perturb PSR direction only after Phase A is stable
+
+    frosted/rough glass:
+        future generic glossy/transmission producer, not this lane
+
+Compose shape when Phase B is opened:
+
+    composed = selectedResolvedShading * selectedThroughputOverPdf
+             + glassOverlayDiffuseOrDirt
+
+Done when:
+
+    A dirty glass material still uses PSR for the clear component while dirt
+    remains visible as an overlay — without regressing Phase A reflection or
+    RR guides.
+
+
+Step 11: Pane Normal Maps / Cosmetic Distortion (deferred)
+----------------------------------------------------------
+
+Cosmetic distortion that only warps final color may already exist. Do not bend
+PSR reflection/transmission directions with pane normals until Phase A exits
+and a dedicated contract is written.
+
+Phase B may later:
+
+    - use pane normals to perturb mirror/refract directions carefully
+    - keep RR guide ownership consistent with the perturbed resolve
+    - keep dirt/grime as overlay, not as the PSR hit material
+
+
+==============================================================================
+SHARED NOTES
+==============================================================================
+
+
+Known Hazards
+-------------
+
+Do not make these mistakes:
+
+    - Do not shade the reflected hit inside the glass producer for the PSR path.
+      That is the sidecar fallback design, not PSR.
+
+    - Do not write reflected radiance into PathTraceRRInputColor while RR guide
+      buffers still describe the glass pane or the wrong lane's surface.
+
+    - Do not let both reflection and transmission claim one primary-surface
+      record without an explicit selection/PDF contract.
+
+    - Do not use primary linear depth as specular hit distance for
+      reflection-owned pixels.
+
+    - Do not classify every roughness-zero material as glass reflection PSR.
+      This lane is glass-specific.
+
+    - Do not permanently reset RR on every glass pixel every frame and then
+      claim RR parity.
+
+    - Do not stuff Option B radiance into specular albedo as a substitute for
+      reflection PSR guides.
+
+    - Do not start dirt/grime/normal-map work before Phase A exits.
+
+    - Do not erase grime later "to make PSR cleaner" without an overlay plan.
+      Dirt is a layer; it is just not Phase A.
+
+    - Do not copy RTX Remix code into the shader tree. Use local contracts and
+      rbdoom-owned helpers.
+
+
+Suggested Commit Breakdown (remaining work)
+-------------------------------------------
+
+Phase A:
+
+    Commit A1:
+        Step 7b — RR guide stability policy + softer reset/motion rules.
+        Debug views proving stable albedo/normal/depth on glass.
+
+    Commit A2:
+        Step 8 — compose energy/PDF ownership; no Option B double-count.
+        No dirt feature work.
+
+    Commit A3:
+        Step 9 — Phase A validation cleanup, CVar help text, short notes.
+
+Phase B (only after Phase A):
+
+    Commit B1:
+        Dirt/grime overlay classification and compose term.
+
+    Commit B2:
+        Optional pane normal perturbation of PSR directions + guide update.
+
+
+After This Lane
+---------------
+
+When Phase A is stable, the next lane is still not "more glass dirt hacks"
+unless product priority says so. Reasonable next lanes:
+
+    1. Phase B glass coatings if Doom 3 materials require it for ship look
+    2. Generic glossy reflection producer for rough/high-gloss non-glass
+    3. Dedicated multi-sample reflection shading quality on top of stable PSR
+
+Prefer not to expand scope until Phase A exit criteria pass.
