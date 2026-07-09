@@ -4122,6 +4122,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
+            if (m_frameResources.rrGuideHitDistanceTexture)
+            {
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
+            }
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);

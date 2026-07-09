@@ -772,12 +772,14 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                         PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
                             PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
                                 laneSelection.selectedThroughputOverPdf);
-                        const float overlayStrength =
-                            PathTraceCleanRtxdiDiGlassOverlayStrength(glassPayload);
+                        // a = RESOLVED only (no overlay energy). Overlay energy in
+                        // the transmission sidecar drives the legacy gray-proxy
+                        // lerp in glass compose; that must not run for PSR
+                        // reflection-owned pixels.
                         PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
                             PathTraceCleanRtxdiDiTransmissionSidecarResolved(
                                 laneSelection.selectedThroughputOverPdf,
-                                overlayStrength);
+                                0.0);
                         reflectionPrimaryPublished = true;
                     }
                     else

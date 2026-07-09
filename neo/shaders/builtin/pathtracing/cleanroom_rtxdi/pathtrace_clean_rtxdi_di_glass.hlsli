@@ -132,16 +132,23 @@ float4 PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
     const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
         PathTraceCleanRtxdiDiDefaultGlassMaterialParams(runtimeParams);
     const float weight = PathTraceCleanRtxdiDiTransmissionSidecarWeight(transmissionSidecar);
-    const float3 throughput = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
-        PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar),
-        materialParams);
+    const float3 sidecarRgb =
+        PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar);
 
-    // PSR reflection-owned: base is DI of the mirrored surface; throughput is
-    // already the reflection lobe weight. No gray proxy, no Option B add.
+    // PSR reflection-owned (reflection sidecar a ~ 1.0): base is DI of the
+    // mirrored hit; transmission-sidecar RGB is reflection throughput.
+    // Never apply transmission floor or gray-proxy — both destroy the mirror.
     if (PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar))
     {
-        return float4(lerp(baseColor.rgb, baseColor.rgb * throughput, weight), baseColor.a);
+        const float3 reflectionThroughput = max(sidecarRgb, float3(0.0, 0.0, 0.0));
+        const float boost = max(materialParams.reflectionBoost, 1.0);
+        const float3 mirrored = baseColor.rgb * reflectionThroughput * boost;
+        return float4(lerp(baseColor.rgb, mirrored, weight), baseColor.a);
     }
+
+    const float3 throughput = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
+        sidecarRgb,
+        materialParams);
 
     // Transmission (or non-PSR) path: attenuate behind-glass shading.
     float3 composed = baseColor.rgb * throughput;
