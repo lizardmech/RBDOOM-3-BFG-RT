@@ -4351,7 +4351,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 commandList->clearTextureFloat(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 1.0f, 1.0f));
             }
-            commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+            // Do not clear specular hit distance when glass reflection PSR wrote
+            // real mirror ray lengths into this buffer. A full clear wiped that
+            // guide for DLSS-RR.
+            if (r_pathTracingCleanRtxdiDiGlassReflectionPsr.GetInteger() == 0)
+            {
+                commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+            }
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);

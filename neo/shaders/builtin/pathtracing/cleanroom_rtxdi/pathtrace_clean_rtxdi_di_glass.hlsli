@@ -135,13 +135,12 @@ float4 PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
     const float3 sidecarRgb =
         PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar);
 
-    // PSR reflection-owned (reflection sidecar a ~ 1.0):
-    // Sticky/deterministic lane ownership already chose THIS surface as the
-    // pixel's only primary. Base is DI of the mirrored hit. Do NOT multiply by
-    // Fresnel throughput again — that double-dims the lobe and reads as empty
-    // glass. Full DI of the selected surface is the correct single-surface
-    // PSR beauty. No gray proxy, no Option B add.
-    if (PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar))
+    // PSR reflection-owned: sticky/deterministic ownership already chose the
+    // mirrored hit as the only primary. Pass full DI (no Fresnel re-multiply,
+    // no gray proxy, no Option B). Detect via t90 or transmission-sidecar
+    // marker (0.75) so beauty does not depend on a single SRV binding.
+    if (PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar) ||
+        PathTraceCleanRtxdiDiTransmissionSidecarIsReflectionPsrOwned(transmissionSidecar))
     {
         return float4(baseColor.rgb, baseColor.a);
     }

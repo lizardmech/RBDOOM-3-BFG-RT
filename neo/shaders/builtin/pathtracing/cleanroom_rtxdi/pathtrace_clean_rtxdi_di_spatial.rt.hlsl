@@ -806,6 +806,12 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
             material.roughness);
     }
     material.opacity = saturate(record.shadingNormalAndOpacity.w);
+    if ((record.header.w &
+            (CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED |
+                CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED)) != 0u)
+    {
+        material.opacity = max(material.opacity, 1.0);
+    }
     material.emissiveRadiance = max(record.emissiveAndHeight.xyz, float3(0.0, 0.0, 0.0));
     material.emissiveTextureIndex = record.instancePrimitiveObject.w;
     surface.materialIndex = resolvedMaterialIndex;

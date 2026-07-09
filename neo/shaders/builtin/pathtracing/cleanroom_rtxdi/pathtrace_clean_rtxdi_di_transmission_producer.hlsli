@@ -760,29 +760,32 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                         reflectionPsrPayload,
                         reflectionPsrHitPosition,
                         reflectionPsrRayDirection,
-                        reflectionHitSurface) &&
-                        PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
+                        reflectionHitSurface))
+                    {
+                        // DI opaque-direct path needs non-zero opacity.
+                        reflectionHitSurface.material.opacity = max(
+                            reflectionHitSurface.material.opacity,
+                            1.0);
+                        if (PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
                             pixel,
                             dimensions,
                             reflectionHitSurface,
                             CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED,
                             max(reflectionPsrPayload.hitT, 0.0),
                             glassPsrLaneChanged))
-                    {
-                        PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
-                            PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
-                                laneSelection.selectedThroughputOverPdf);
-                        // a = RESOLVED only (no overlay energy). Overlay energy in
-                        // the transmission sidecar drives the legacy gray-proxy
-                        // lerp in glass compose; that must not run for PSR
-                        // reflection-owned pixels.
-                        PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
-                            PathTraceCleanRtxdiDiTransmissionSidecarResolved(
-                                laneSelection.selectedThroughputOverPdf,
-                                0.0);
-                        reflectionPrimaryPublished = true;
+                        {
+                            PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+                                PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
+                                    laneSelection.selectedThroughputOverPdf);
+                            // Mark ownership in the transmission sidecar (t87) so
+                            // glass beauty compose does not depend solely on t90.
+                            PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
+                                PathTraceCleanRtxdiDiTransmissionSidecarReflectionPsrOwned(
+                                    laneSelection.selectedThroughputOverPdf);
+                            reflectionPrimaryPublished = true;
+                        }
                     }
-                    else
+                    if (!reflectionPrimaryPublished)
                     {
                         PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
                             PathTraceCleanRtxdiDiReflectionSidecarMissed();
