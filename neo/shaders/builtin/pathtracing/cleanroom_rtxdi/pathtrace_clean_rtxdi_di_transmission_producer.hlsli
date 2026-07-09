@@ -723,6 +723,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     // (do not gate on Option B sidecar occupancy).
     bool reflectionPrimaryPublished = false;
     bool glassPsrLaneChanged = true;
+    RAB_Surface publishedReflectionSurface = RAB_EmptySurface();
+    float publishedReflectionHitT = 0.0;
     if (reflectionPsrEnabled)
     {
         const bool transmissionLaneValid =
@@ -809,6 +811,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                             PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
                                 PathTraceCleanRtxdiDiTransmissionSidecarReflectionPsrOwned(
                                     laneSelection.selectedThroughputOverPdf);
+                            publishedReflectionSurface = reflectionHitSurface;
+                            publishedReflectionHitT = max(reflectionPsrPayload.hitT, 0.0);
                             reflectionPrimaryPublished = true;
                         }
                     }
@@ -851,27 +855,61 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         }
     }
 
-    if (reflectionPrimaryPublished)
-    {
-        return;
-    }
-
+    // Always resolve the behind-glass hit for clear-glass RR geometry when
+    // possible. DI primary may be reflection-owned, but depth/normal/motion
+    // ignore the pane and track the see-through surface (shipping/Remix).
     PathTraceCleanRtxdiPayload hitPayload;
     float3 hitPosition;
     float3 rayDirection;
-    if (!PathTraceCleanRtxdiDiTraceTransmissionHit(glassSurface, transmissionSample, hitPayload, hitPosition, rayDirection))
+    RAB_Surface behindGlassSurface = RAB_EmptySurface();
+    bool behindGlassValid = false;
+    if (PathTraceCleanRtxdiDiTraceTransmissionHit(
+        glassSurface,
+        transmissionSample,
+        hitPayload,
+        hitPosition,
+        rayDirection) &&
+        PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
+            hitPayload,
+            hitPosition,
+            rayDirection,
+            behindGlassSurface))
     {
+        behindGlassValid = true;
+        if (transmissionSample.guidePolicy == CLEAN_RTXDI_DI_TRANSMISSION_GUIDE_POLICY_STRONG_REFRACTION)
+        {
+            behindGlassSurface.flags |= CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED;
+        }
+    }
+
+    if (reflectionPrimaryPublished)
+    {
+        // DI primary stays the mirrored hit. Rewrite RR guides to clear-glass
+        // policy: behind geometry + fixed-ratio reflection material blend.
+        if (behindGlassValid)
+        {
+            RAB_Surface reflectionMaterials = reflectionGuideSurface;
+            float reflectionHitT = reflectionGuideHitT;
+            if (RAB_IsSurfaceValid(publishedReflectionSurface))
+            {
+                reflectionMaterials = publishedReflectionSurface;
+                reflectionHitT = publishedReflectionHitT;
+            }
+            const bool hasReflectionMaterials = RAB_IsSurfaceValid(reflectionMaterials);
+            PathTraceCleanRtxdiDiWriteClearGlassRrGuides(
+                pixel,
+                behindGlassSurface,
+                hasReflectionMaterials,
+                reflectionMaterials,
+                reflectionHitT,
+                glassPsrLaneChanged);
+        }
         return;
     }
 
-    RAB_Surface hitSurface;
-    if (!PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(hitPayload, hitPosition, rayDirection, hitSurface))
+    if (!behindGlassValid)
     {
         return;
-    }
-    if (transmissionSample.guidePolicy == CLEAN_RTXDI_DI_TRANSMISSION_GUIDE_POLICY_STRONG_REFRACTION)
-    {
-        hitSurface.flags |= CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED;
     }
 
     // When reflection PSR is off, still avoid permanent RR reset: sticky
@@ -894,7 +932,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     if (!PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
         pixel,
         dimensions,
-        hitSurface,
+        behindGlassSurface,
         CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED,
         0.0,
         transmissionPublishLaneChanged))
@@ -902,13 +940,12 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         return;
     }
 
-    // T-owned primary keeps behind-glass DI + depth, but beauty still carries
-    // the mirror shade. Feed RR the clean material albedo/spec/normal of the
-    // mirrored hit (and specular hit distance) so reflections are not only in
-    // the noisy color input. R-owned already wrote full guides via Publish.
+    // T-owned: behind-glass owns DI + geometry guides. Blend mirrored material
+    // albedo/spec at a fixed ratio (not overwrite, not Fresnel). Normals stay
+    // on the behind surface.
     if (reflectionPsrEnabled && reflectionGuideSurfaceValid)
     {
-        PathTraceCleanRtxdiDiWriteReflectionMaterialRrGuides(
+        PathTraceCleanRtxdiDiBlendReflectionMaterialRrGuides(
             pixel,
             reflectionGuideSurface,
             reflectionGuideHitT);

@@ -4029,6 +4029,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.neeCacheInfo1[2] = static_cast<float>(neeCacheDesc.cellCount);
         cleanConstants.neeCacheInfo1[3] = static_cast<float>(neeCacheDesc.providerResultCount);
         cleanConstants.toyPathInfo[0] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRtxdiDiGlassRefractedPsrStrength.GetFloat());
+        // y = RR cameraNear for glass PSR depth encode (matches primary RR contract).
+        {
+            const float rrNearCvar = r_pathTracingDLSSRRCameraNear.GetFloat();
+            cleanConstants.toyPathInfo[1] = Max(rrNearCvar > 0.0f ? rrNearCvar : r_znear.GetFloat(), 1.0e-4f);
+        }
         cleanConstants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
         cleanConstants.toyPathInfo[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
         cleanConstants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
