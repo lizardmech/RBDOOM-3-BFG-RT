@@ -1659,6 +1659,18 @@ idCVar r_pathTracingCleanRtxdiDiGlassReflectionPsr(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 glass reflection PSR (default on): lane-select + mirror primary when energy-owned; T-owned still shades/adds mirror and feeds RR material blend" );
 
+idCVar r_pathTracingReflectionSecondarySamples(
+    "r_pathTracingReflectionSecondarySamples",
+    "4",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Dedicated reflection secondary analytic light samples per mirror hit (1-8). Glass/high-gloss simplified shade; not full ReSTIR DI" );
+
+idCVar r_pathTracingReflectionSecondaryShadows(
+    "r_pathTracingReflectionSecondaryShadows",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Dedicated reflection secondary: 0 skip visibility rays on simplified shade, 1 cast shadow rays (default)" );
+
 idCVar r_pathTracingCleanRtxdiDiGlassDistortion(
     "r_pathTracingCleanRtxdiDiGlassDistortion",
     "0",

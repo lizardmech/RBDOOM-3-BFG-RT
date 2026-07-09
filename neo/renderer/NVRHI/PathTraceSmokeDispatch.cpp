@@ -56,6 +56,7 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_DISTORTION = 1u << 22u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR = 1u << 23u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_BLUE_NOISE = 1u << 24u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR = 1u << 25u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS = 1u << 26u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT = 9u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_MASK = 7u << RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT;
 const uint32_t CLEAN_RTXDI_DI_RESOLVE_BRDF_TARGET_ENABLE = 1u << 0u;
@@ -3800,6 +3801,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR;
         }
+        if (r_pathTracingReflectionSecondaryShadows.GetInteger() == 0)
+        {
+            cleanFlags |= CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS;
+        }
         if (r_pathTracingCleanRtxdiDiGlassDistortion.GetInteger() != 0)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_DISTORTION;
@@ -4013,7 +4018,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool() ? 4u : 0u);
         cleanConstants.doomAnalyticLightInfo[3] = static_cast<float>(cleanAnalyticLightFlags);
         cleanConstants.motionVectorInfo[0] = cleanRtxdiDiView >= 5 || r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
-        cleanConstants.motionVectorInfo[1] = 1.0f;
+        // y = dedicated reflection secondary analytic sample count (1-8).
+        cleanConstants.motionVectorInfo[1] = static_cast<float>(
+            idMath::ClampInt(1, 8, r_pathTracingReflectionSecondarySamples.GetInteger()));
         cleanConstants.motionVectorInfo[2] = static_cast<float>(idMath::ClampInt(1, 128, r_pathTracingRestirPTAnalyticLightTrials.GetInteger()));
         cleanConstants.motionVectorInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
         cleanConstants.restirPTSurfaceInfo[0] = static_cast<float>(idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiView10LightStart.GetInteger()));

@@ -151,14 +151,24 @@ Already landed (do not re-do; treat as prerequisites):
         RR clear-glass policy (blend albedo/spec, behind normals/depth,
             primary motion left alone, emissive inject into specular guide)
 
-Still open (this document):
+Already landed (this document):
 
-    Step 0:   extract reflection secondary API (no behavior change)
-    Step 1:   glass shade upgrade (v1 lights / shadows / emissives)
-    Step 2:   glass compose contract uses secondary only (no double-count)
+    Step 0:   pathtrace_reflection_secondary.hlsli — shared Trace/Shade API,
+              legacy PathTraceCleanRtxdiDi* wrappers, glass producer calls
+              PathTraceReflectionSecondaryShade with budget-from-constants
+    Step 1a:  multi-sample analytic shade (default 4) + shadow toggle cvars
+              r_pathTracingReflectionSecondarySamples (1-8, default 4)
+              r_pathTracingReflectionSecondaryShadows (default 1)
+              CLEAN_FLAG_REFLECTION_SECONDARY_NO_SHADOWS
+              samples packed in CleanRtxdiDiMotionVectorInfo.y
+
+Still open:
+
+    Step 1b:  optional further shade quality (more light classes / MIS polish)
+    Step 2:   glass compose contract audit (no double-count; document hybrid)
     Step 3:   opaque high-gloss eligibility + composite
     Step 4:   GGX VNDF direction for non-Dirac gloss
-    Step 5:   validation matrix + cvars
+    Step 5:   validation matrix
     Step 6+:  optional probe bounce / nested mirror (Phase 4)
 
 

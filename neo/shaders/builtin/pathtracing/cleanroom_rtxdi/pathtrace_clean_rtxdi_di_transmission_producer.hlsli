@@ -686,8 +686,9 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                 RTXDI_RandomSamplerState reflectionRng =
                     RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4752464cu, 0u);
                 PathTraceCleanRtxdiDiApplyBlueNoiseToggle(reflectionRng);
-                optionBRadiance = PathTraceCleanRtxdiDiShadeReflectionHit(
+                optionBRadiance = PathTraceReflectionSecondaryShade(
                     reflectionSurface,
+                    PathTraceReflectionSecondaryBudgetFromConstants(),
                     reflectionRng) * glassPayload.reflection;
                 optionBRadianceValid =
                     PathTraceCleanRoomLuminance(optionBRadiance) > 1.0e-8;
