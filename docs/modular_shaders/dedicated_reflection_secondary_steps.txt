@@ -1,0 +1,590 @@
+Dedicated Reflection Secondary Implementation Steps
+===================================================
+
+Revision
+--------
+
+2026-07-10: handoff for a shared "reflection secondary" ray path for clear
+glass and high-gloss GGX, separate from full clean DI / ReSTIR-PT.
+
+Phase A glass PSR + hybrid compose is far enough along for now. This document
+owns the next quality lane: noiseless-leaning dedicated reflection rays with
+simplified lighting, not a second full path-trace integrator.
+
+
+Purpose
+-------
+
+This document is a worker handoff for a dedicated reflection secondary service
+in the clean RTXDI DI view-16 route (and, later, opaque high-gloss materials).
+
+Shipping titles (RTX Remix-style remasters, Cyberpunk-class RT reflections)
+generally do **not** rely on generic ReSTIR-PT / full-frame reservoir output
+for Dirac glass and near-mirror metals. They:
+
+    1. Trace one (or few) reflection ray(s) from the primary surface.
+    2. Shade the hit with a **simplified lighting model**.
+    3. Composite by Fresnel / specular lobe weight.
+
+Simplified shade typically **includes** direct lights and important emissives,
+and **skips** expensive features that barely matter in a mirror: multi-bounce
+GI, volumetrics, nested full PT, heavy ReSTIR on the reflection hit.
+
+The target is not "run clean DI twice." The target is a first-class reflection
+secondary pass shared by:
+
+    - clear glass (Dirac / thin-wall Fresnel; upgrade of Option B shade)
+    - high-gloss opaque (low roughness GGX / near-mirror)
+
+Read this document before editing code. Do not reopen the RTX Remix tree unless
+local code contradicts this guide. Prefer reusing local transport already in
+cleanroom_rtxdi (TraceReflectionPsrHit, ShadeReflectionHit) over new
+integrations.
+
+
+Priority Rule (mandatory)
+-------------------------
+
+Quality of the **reflection ray + simplified shade** first. Do not expand
+scope into dirt, full OpenPBR productization, or mid-roughness metals until
+glass Dirac secondary is clearly better than the current hybrid.
+
+    Phase 0 — extract and contract (do first):
+        pull Trace + Shade into a shared reflection-secondary API
+        define inputs/outputs/flags
+        glass still the only caller
+        no behavior change required beyond extract
+
+    Phase 1 — glass dedicated ray quality:
+        upgrade simplified shade (more lights, emissives, optional shadows)
+        glass beauty uses this radiance path intentionally
+        keep Phase A RR guide policy (do not re-litigate dirt/glass coatings)
+        validation: PSR alone looks as good or better than Option B, less noise
+
+    Phase 2 — opaque high-gloss eligibility:
+        roughness / alpha threshold
+        one secondary sample per pixel (mirror or VNDF)
+        composite into view-16 beauty without replacing primary for RR
+
+    Phase 3 — GGX VNDF sampling for non-Dirac gloss:
+        sample direction with GGX Smith VNDF (see openpbr_eon_ggx_vndf_steps)
+        same simplified shade at hit
+        still not full ReSTIR-PT on the reflection hit
+
+    Phase 4 — optional polish (only after 1–3):
+        1 cheap diffuse bounce at hit (probe/cache)
+        nested mirror bounce cap 1–2
+        temporal/spatial reuse of secondary radiance (not full reservoirs)
+
+If a task improves mid-roughness metals, volumetrics-in-mirror, or dirt overlays
+but does not improve Dirac/high-gloss reflection quality, it does not belong
+here.
+
+
+Core Decision
+-------------
+
+Keep three jobs separate (shipping titles do this; do not merge them):
+
+    ReSTIR DI / clean DI
+        Who lights the world we see as primary (noisy, reservoir-based).
+
+    Reflection secondary (this document)
+        What does this mirror / high-gloss lobe see, cheaply.
+
+    PSR / G-buffers / RR guides
+        What surface identity does this pixel have for DLSS-RR.
+
+Glass already uses a hybrid that proves the beauty model:
+
+    beauty ≈ T * DI(behind) + R * ShadeMirror(simplified)
+
+Reflection secondary owns and improves `ShadeMirror`. It does **not** replace
+transmission PSR, and it does **not** require reflection PSR to own every
+pixel's primary surface.
+
+Do not confuse:
+
+    Reflection PSR
+        Optional surface replacement for DI/RR identity when the reflection
+        lane owns the pixel.
+
+    Reflection secondary / Option B shade
+        Already-shaded reflected radiance from a simplified hit path.
+        This is the path to promote into a first-class service.
+
+    Full clean DI on the mirror hit
+        Wrong default "quality" plan: second DI frame of noise and cost.
+
+
+Non-Goals (this lane)
+---------------------
+
+Do not build any of these as acceptance requirements for Phase 0–1:
+
+    - full multi-bounce GI inside the reflection hit
+    - volumetrics / fog / participating media in the reflection ray
+    - running full clean DI reservoirs on every reflection hit
+    - generic mid-roughness metal productization
+    - screen-space reflections as the primary solution
+    - dirt/grime glass overlays (Phase B of basic_glass_psr_reflection_steps)
+    - dual-surface DLSS-RR product support for opaque gloss
+    - frosted multi-sample glass transmission
+    - reopening Remix source as the implementation base
+
+Phase 2–3 may touch GGX VNDF. Phase 4 may touch cheap probes. Full path-trace
+parity inside mirrors is out of scope indefinitely unless product priority
+changes.
+
+
+Implementation Status (local tree, 2026-07)
+-------------------------------------------
+
+Already landed (do not re-do; treat as prerequisites):
+
+    Glass Phase A (basic_glass_psr_reflection_steps.txt):
+        CLEAN_FLAG_GLASS_REFLECTION_PSR default on
+        CLEAN_FLAG_GLASS_REFLECTION (Option B) default off
+        TraceReflectionPsrHit / TraceReflectionHit
+        ShadeReflectionHit (1 analytic domain sample + hit emissive)
+        Hybrid T-owned beauty + mirror shade add
+        RR clear-glass policy (blend albedo/spec, behind normals/depth,
+            primary motion left alone, emissive inject into specular guide)
+
+Still open (this document):
+
+    Step 0:   extract reflection secondary API (no behavior change)
+    Step 1:   glass shade upgrade (v1 lights / shadows / emissives)
+    Step 2:   glass compose contract uses secondary only (no double-count)
+    Step 3:   opaque high-gloss eligibility + composite
+    Step 4:   GGX VNDF direction for non-Dirac gloss
+    Step 5:   validation matrix + cvars
+    Step 6+:  optional probe bounce / nested mirror (Phase 4)
+
+
+Mental Model
+------------
+
+Primary frame (simplified):
+
+    Primary (opaque / glass base)
+        │
+        ├─ clean DI / ReSTIR
+        │       diffuse + rough specular energy (noisy, reservoir)
+        │
+        └─ Reflection Secondary
+                Trace 1 ray (Dirac or low-α GGX sample)
+                Shade simplified lighting
+                Write radiance + hitT (+ optional material for RR)
+                Composite by Fresnel / lobe weight
+
+Glass-specific beauty (target contract):
+
+    1. Transmission PSR publishes behind-glass primary for DI when T-owned.
+    2. Reflection secondary always available when glass has non-zero R.
+    3. Beauty = T * DI(behind) + R * secondaryRadiance
+       (R-owned DI of mirror is optional; do not double-count with secondary).
+    4. RR guides keep Phase A clear-glass policy unless product revisits it.
+
+Opaque high-gloss beauty (target contract):
+
+    1. Primary surface stays the metal/glossy material (RR identity).
+    2. Secondary samples specular direction (mirror or VNDF).
+    3. Beauty = DI_base + secondaryRadiance * specularWeight.
+    4. Specular hit distance = secondary ray length when secondary fires.
+
+
+What Shipping Games Imply
+-------------------------
+
+Comparative / design constraints (not a license to copy proprietary code):
+
+    - Dirac and near-mirror reflections are a **specialized ray budget**, not
+      a free sample from the full PT/ReSTIR pipeline.
+    - Shade at the reflection hit is often **direct + emissive**, not full GI.
+    - Features that barely change mirror appearance (volumetrics, multi-bounce
+      diffuse GI, complex SSS) are omitted or approximated.
+    - DLSS-RR gets clean material guides for the **primary** (or glass policy
+      surface), plus specular hit distance for the reflection ray length.
+    - Noisy ReSTIR-only reflection on glass is a known weak match for RR;
+      dedicated secondary + stable guides is the shipping shape.
+
+Local capture notes from Phase A still apply for glass guides. Do not regress
+them while upgrading secondary shade.
+
+
+Existing Local Pieces To Reuse
+------------------------------
+
+Files under:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+    docs/modular_shaders/
+
+Useful existing shader pieces:
+
+    pathtrace_clean_rtxdi_di_transmission_transport.hlsli
+        TraceReflectionPsrHit, TraceReflectionHit, ShadeReflectionHit,
+        analytic light helper for reflection domain.
+        **Extract from here into the shared secondary module.**
+
+    pathtrace_clean_rtxdi_di_transmission_producer.hlsli
+        PSR phase, Option B shade trigger, glass lane select, compose add.
+        Becomes a **caller** of reflection secondary, not the owner of shade
+        math long-term.
+
+    pathtrace_clean_rtxdi_di_reflection_sidecar.hlsli
+        Alpha contract for radiance (0.875) vs PSR lane states.
+        Keep contract; secondary writes radiance through it or a successor.
+
+    pathtrace_clean_rtxdi_di_glass_math.hlsli
+        Thin-glass Fresnel / throughput. Secondary does not reimplement glass
+        Fresnel; caller multiplies R.
+
+    pathtrace_clean_rtxdi_di_glass.hlsli
+        Late compose. Must remain compose-only (no new tracer).
+
+    pathtrace_clean_rtxdi_di_rr_guide_export.hlsli
+        Glass RR policy. Secondary may supply hitT; do not invent a second
+        RR policy for glass without updating that file deliberately.
+
+Related docs:
+
+    basic_glass_psr_reflection_steps.txt
+        Phase A glass PSR + RR. Prerequisite; do not reopen dirt work here.
+
+    openpbr_eon_ggx_vndf_steps.txt
+        GGX Smith VNDF formulas for Phase 3 direction sampling.
+
+    glass_shading_notes.txt
+        Historical RR/specular-channel notes.
+
+Relevant flags/cvars (verify live names before editing):
+
+    r_pathTracingCleanRtxdiDiGlassReflectionPsr     default 1
+    r_pathTracingCleanRtxdiDiGlassReflection        default 0 (Option B)
+    CLEAN_FLAG_GLASS_REFLECTION_PSR
+    CLEAN_FLAG_GLASS_REFLECTION
+    CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED
+    CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED
+    PathTraceCleanRtxdiDiReflectionSidecarOutput : register(u90)
+
+Proposed new cvars (names may change; document final names in commit):
+
+    r_pathTracingReflectionSecondaryEnable
+    r_pathTracingReflectionSecondaryMaxLights
+    r_pathTracingReflectionSecondaryShadows
+    r_pathTracingReflectionSecondaryGlossThreshold
+    r_pathTracingReflectionSecondaryGlass
+    r_pathTracingReflectionSecondaryOpaque
+
+
+Reference Architecture Summary
+------------------------------
+
+Shipping shape (Remix / high-end RT reflection class):
+
+    material says lobe is Dirac or high-gloss enough
+    emit reflection ray (mirror or GGX VNDF sample)
+    shade hit with simplified direct lighting
+    composite Fresnel-weighted radiance into beauty
+    RR: primary (or glass policy) guides + specular hit distance
+
+For rbdoom minimum equivalent:
+
+    shared TraceReflectionSecondary(origin, dir, ignore, maxT) -> hit
+    shared ShadeReflectionSecondary(hit, budget flags) -> radiance
+    glass caller: dir = reflect, weight = glass R
+    opaque caller: dir = mirror or VNDF, weight = specular lobe weight
+    compose: no double-count with DI when DI already owns the mirror surface
+    hitT written for RR specular hit distance when secondary contributes
+
+
+Shade Budget Ladder
+-------------------
+
+    v0 (current Option B / ShadeReflectionHit)
+        1 mirror ray
+        1 analytic / domain light sample + hit emissive
+        no shadows required
+        glass only
+
+    v1 (Phase 1 target)
+        same transport
+        N important lights (analytics + large emissives), simple MIS or fixed
+        optional 1 visibility ray per light
+        hit material: Lambertian + simple specular OR unlit albedo + emissive
+        still no multi-bounce GI, no volumetrics
+
+    v2 (Phase 2–3)
+        GGX VNDF sample for non-Dirac high gloss
+        same v1 shade
+        1 spp + optional temporal reuse later
+
+    v3 (Phase 4, optional)
+        1 cheap diffuse bounce at hit (probe/cache)
+        nested mirror bounce cap 1–2
+
+
+Glass vs Opaque Policy (same service, different ownership)
+----------------------------------------------------------
+
+Glass (clear):
+
+    Direction: perfect reflect (normal-map bend later if needed)
+    Energy: thin-glass Fresnel R (existing glass math)
+    RR: keep Phase A clear-glass policy
+        behind depth/normals, blend albedo/spec, hitT = mirror length
+    Beauty: T * DI(behind) + R * secondary
+    Do not require reflection PSR primary for secondary to fire
+
+Opaque high-gloss:
+
+    Direction: mirror if roughness ~ 0, else GGX VNDF
+    Energy: Fresnel / specular weight
+    RR: primary stays the metal/glossy surface
+    Beauty: DI + secondary * weight
+    Do not replace primary with mirror hit for mid-gloss (fights RR)
+
+
+==============================================================================
+PHASE 0 — EXTRACT AND CONTRACT
+==============================================================================
+
+
+Step 0: Extract Reflection Secondary API
+----------------------------------------
+
+Type: refactor / plumbing
+
+Create a shared HLSL module (suggested name):
+
+    pathtrace_reflection_secondary.hlsli
+        (under cleanroom_rtxdi/ or pathtracing/ as fits existing layout)
+
+Contract (minimum):
+
+    Inputs:
+        ray origin, direction, tMin, tMax
+        ignore instance / primitive (source pane)
+        budget flags (max lights, shadows on/off, light classes)
+
+    Outputs:
+        hit valid
+        hitT
+        hit world position
+        optional RAB_Surface or packed material for shade
+        radiance (RGB)
+
+Move without behavior change:
+
+    PathTraceCleanRtxdiDiTraceReflectionPsrHit
+    PathTraceCleanRtxdiDiTraceReflectionHit
+    PathTraceCleanRtxdiDiShadeReflectionHit
+    related analytic helpers used only by shade
+
+Callers temporarily wrap old names to the new API if needed for compile ease.
+
+Done when:
+
+    - Glass path still matches pre-extract beauty (PSR defaults).
+    - No new cvars required.
+    - Single module is the only home of mirror transport + simplified shade.
+
+
+==============================================================================
+PHASE 1 — GLASS DEDICATED RAY QUALITY
+==============================================================================
+
+
+Step 1: Upgrade Simplified Shade (v1)
+-------------------------------------
+
+Type: shading quality
+
+Improve ShadeReflectionSecondary without full DI:
+
+    - Sample more than one analytic / important light when budget allows
+    - Include hit emissive reliably (already partial)
+    - Optional hard shadow ray per selected light (cvar)
+    - Explicit denylist: no volumetrics, no nested full GI, no reservoir DI
+
+Keep radiance in the reflection sidecar alpha contract (0.875) or successor
+documented in reflection_sidecar.hlsli.
+
+Done when:
+
+    - Glass reflections look sharper / less "one sample sparkle" than v0
+      at similar cost order of magnitude.
+    - Noise on emissives in reflection remains low (direct emissive on hit).
+    - Toggle shadows cvar shows expected contact darkening in mirrors.
+
+
+Step 2: Glass Compose Contract (No Double-Count)
+------------------------------------------------
+
+Type: compose / energy
+
+Rules:
+
+    - When secondary radiance is present and used for beauty, do not also add
+      the same energy from Option B under another flag without documentation.
+    - When reflection PSR owns DI primary and DI already shades the mirror,
+      either:
+          A. use DI only (secondary off for that pixel), or
+          B. use secondary only (DI contribution zeroed for reflection energy)
+      Pick one per pixel; never A+B.
+    - Transmission-owned hybrid remains: T * DI(behind) + R * secondary.
+
+Prefer hybrid (B-style secondary always) for noiseless-leaning glass if DI on
+mirror remains noisy; document choice in commit notes.
+
+Done when:
+
+    - GlassReflection 0 + GlassReflectionPsr 1 is the default beauty path.
+    - Forcing GlassReflection 1 does not double-brighten reflection-owned
+      pixels.
+    - Debug 10 / lane masks still match ownership.
+
+
+Step 3: Glass Validation Matrix
+-------------------------------
+
+Required CVars:
+
+    r_pathTracingCleanRtxdiDiView 16
+    r_pathTracingCleanRtxdiDiTransmissionProducer 1
+    r_pathTracingCleanRtxdiDiTransmissionCompose 1
+    r_pathTracingCleanRtxdiDiGlassReflectionPsr 1
+    r_pathTracingCleanRtxdiDiGlassReflection 0
+    (+ new secondary cvars when added)
+
+Tests:
+
+    1. Head-on glass: mostly T, weak but present R from secondary.
+    2. Grazing glass: stronger R, stable RR guides.
+    3. Emissive in reflection: colored, low noise (direct on hit).
+    4. Analytic lights in reflection: soft noise ok; no black voids.
+    5. Secondary off / fall back: no crash; documented baseline.
+    6. RR specular hit distance tracks mirror length when R contributes.
+    7. No regression: motion not garbage colors; albedo/spec blend still ok.
+
+
+==============================================================================
+PHASE 2 — OPAQUE HIGH-GLOSS
+==============================================================================
+
+
+Step 4: Eligibility and Composite
+---------------------------------
+
+Type: material / compose
+
+Eligibility (tune thresholds in cvars):
+
+    - roughness or GGX alpha below threshold (e.g. 0.05–0.15)
+    - material not transmission glass (glass uses glass caller)
+    - optional metal / specular weight minimum
+
+Per eligible pixel:
+
+    1. Sample direction (Phase 2 may still use mirror for α≈0 only).
+    2. Fire reflection secondary.
+    3. Composite: beauty += secondary * specularWeight.
+    4. RR: leave primary material guides; write specular hitT if secondary hits.
+
+Done when:
+
+    - Near-mirror metals show cleaner reflections than DI-only.
+    - Mid-roughness materials unchanged when below eligibility.
+    - RR normals/depth still match the metal surface, not the mirror hit.
+
+
+==============================================================================
+PHASE 3 — GGX VNDF DIRECTION
+==============================================================================
+
+
+Step 5: Non-Dirac Glossy Sampling
+---------------------------------
+
+Type: BRDF sampling
+
+Use formulas from openpbr_eon_ggx_vndf_steps.txt (rbdoom-owned HLSL):
+
+    - Sample visible GGX normal
+    - Reflect; weight with BRDF/pdf as required for unbiased or balanced
+      single-sample estimate
+    - Same ShadeReflectionSecondary at hit
+
+Do not implement multi-scatter GGX random walks in this lane.
+
+Done when:
+
+    - Slightly rough metals soften correctly vs pure mirror.
+    - 1 spp is acceptable with DLSS-RR; no full ReSTIR required on hit.
+
+
+==============================================================================
+PHASE 4 — OPTIONAL POLISH
+==============================================================================
+
+
+Step 6: Cheap Hit GI / Nested Mirror
+------------------------------------
+
+Only after Phases 1–3:
+
+    - Optional single diffuse probe/cache lookup at hit
+    - Nested Dirac bounce cap 1–2 for hall-of-mirrors
+    - Temporal accumulation of secondary radiance (firefly clamp)
+
+Do not promote this to a second full integrator.
+
+
+==============================================================================
+Integration Rules With Existing Glass Phase A
+==============================================================================
+
+    - Do not revert clear-glass RR policy without a new design pass.
+    - Do not write secondary radiance into specular albedo guides
+      (guides stay material attributes + emissive chromaticity inject).
+    - Do not clear motion vectors from glass PSR (primary motion stands).
+    - Keep defaults: GlassReflectionPsr 1, GlassReflection 0 unless product
+      changes them again.
+    - Dirt/grime remains Phase B of basic_glass_psr_reflection_steps.txt.
+
+
+Worker Protocol
+---------------
+
+    1. Read this document and basic_glass_psr_reflection_steps.txt status.
+    2. Confirm live cvar/flag names before editing.
+    3. Checkpoint after each step; avoid mega-PRs.
+    4. Vulkan/SPIR-V only for shader rebuilds (delete .rt.bin when .hlsli
+       edits do not re-trigger DXC).
+    5. Deploy exe + SPIR-V only unless Streamline refresh is requested.
+    6. Prefer development DLSS DLLs if Streamline is touched; never silently
+       replace with production packages.
+
+
+Done Definition (whole lane)
+----------------------------
+
+    - Shared reflection secondary API exists and is the only shade path for
+      dedicated reflection rays.
+    - Glass Dirac reflections use v1 simplified lighting and look better than
+      pure ReSTIR-on-mirror without full PT cost.
+    - High-gloss opaque can opt in without breaking mid-rough DI.
+    - RR remains stable (glass Phase A policy; opaque primary identity).
+    - Documented non-goals remain non-goals unless this file is revised.
+
+
+Related Documents
+-----------------
+
+    docs/modular_shaders/basic_glass_psr_reflection_steps.txt
+    docs/modular_shaders/openpbr_eon_ggx_vndf_steps.txt
+    docs/modular_shaders/glass_shading_notes.txt
+    docs/modular_shaders/glass_reflection_correction.txt
+    docs/modular_shaders/worker_protocol.txt
