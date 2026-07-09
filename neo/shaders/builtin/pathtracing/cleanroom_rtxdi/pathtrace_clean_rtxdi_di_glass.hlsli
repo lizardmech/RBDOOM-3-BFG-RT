@@ -1,6 +1,7 @@
 #if defined(CLEAN_RTXDI_DI_GLASS_ENTRY)
 
 Texture2D<float4> PathTraceCleanRtxdiDiTransmissionSidecar : register(t87);
+Texture2D<float4> PathTraceCleanRtxdiDiReflectionSidecar : register(t90);
 
 bool PathTraceCleanRtxdiDiGlassSidecarComposeEnabled(PathTraceMaterialFeatureRuntimeInfo runtimeInfo)
 {
@@ -124,25 +125,45 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(
 
 float4 PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
     float4 baseColor,
-    float4 sidecar,
+    float4 transmissionSidecar,
+    float4 reflectionSidecar,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
     const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
         PathTraceCleanRtxdiDiDefaultGlassMaterialParams(runtimeParams);
-    const float weight = PathTraceCleanRtxdiDiTransmissionSidecarWeight(sidecar);
-    const float3 transmission = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
-        PathTraceCleanRtxdiDiTransmissionSidecarTransmission(sidecar),
+    const float weight = PathTraceCleanRtxdiDiTransmissionSidecarWeight(transmissionSidecar);
+    const float3 throughput = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
+        PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar),
         materialParams);
-    const float reflectionBlend = saturate(
-        PathTraceCleanRtxdiDiTransmissionSidecarReflectionEnergy(sidecar) *
-        max(materialParams.reflectionBoost, 0.0) *
-        2.0);
-    const float3 transmittedColor = baseColor.rgb * transmission;
-    const float3 reflectedProxy = max(baseColor.rgb, float3(0.45, 0.48, 0.52));
-    const float3 composedColor = lerp(transmittedColor, reflectedProxy, reflectionBlend);
-    return float4(
-        lerp(baseColor.rgb, composedColor, weight),
-        baseColor.a);
+
+    // PSR reflection-owned: base is DI of the mirrored surface; throughput is
+    // already the reflection lobe weight. No gray proxy, no Option B add.
+    if (PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar))
+    {
+        return float4(lerp(baseColor.rgb, baseColor.rgb * throughput, weight), baseColor.a);
+    }
+
+    // Transmission (or non-PSR) path: attenuate behind-glass shading.
+    float3 composed = baseColor.rgb * throughput;
+
+    // Option B: add real traced/shaded radiance when present.
+    if (PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar))
+    {
+        composed += PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar) *
+            max(materialParams.reflectionBoost, 0.0);
+    }
+    else
+    {
+        // Legacy gray proxy only when no real reflection radiance/PSR surface.
+        const float reflectionBlend = saturate(
+            PathTraceCleanRtxdiDiTransmissionSidecarReflectionEnergy(transmissionSidecar) *
+            max(materialParams.reflectionBoost, 0.0) *
+            2.0);
+        const float3 reflectedProxy = max(baseColor.rgb, float3(0.45, 0.48, 0.52));
+        composed = lerp(composed, reflectedProxy, reflectionBlend);
+    }
+
+    return float4(lerp(baseColor.rgb, composed, weight), baseColor.a);
 }
 
 float4 PathTraceCleanRtxdiDiGlassOpaqueOverlayComposeColor(
@@ -184,11 +205,14 @@ bool PathTraceCleanRtxdiDiTryGlassSidecarComposeColor(
         PathTraceCleanRtxdiDiOutputColorSource,
         pixel,
         fallbackColor);
-    const float4 sidecar = sidecarComposeEnabled
+    const float4 transmissionSidecar = sidecarComposeEnabled
         ? PathTraceCleanRtxdiDiTransmissionSidecar.Load(int3(pixel, 0))
         : PathTraceCleanRtxdiDiTransmissionSidecarEmpty();
+    const float4 reflectionSidecar = sidecarComposeEnabled
+        ? PathTraceCleanRtxdiDiReflectionSidecar.Load(int3(pixel, 0))
+        : PathTraceCleanRtxdiDiReflectionSidecarEmpty();
     if (!sidecarComposeEnabled ||
-        !PathTraceCleanRtxdiDiTransmissionSidecarHasResolvedPayload(sidecar))
+        !PathTraceCleanRtxdiDiTransmissionSidecarHasResolvedPayload(transmissionSidecar))
     {
         bool composed;
         composedColor = PathTraceCleanRtxdiDiGlassOpaqueOverlayComposeColor(
@@ -202,7 +226,8 @@ bool PathTraceCleanRtxdiDiTryGlassSidecarComposeColor(
 
     composedColor = PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
         baseColor,
-        sidecar,
+        transmissionSidecar,
+        reflectionSidecar,
         runtimeParams);
     return true;
 }

@@ -63,6 +63,12 @@ static const RtPathTraceMaterialFeatureBindingDesc kMaterialFeatureCanonicalBind
         87u,
         RtPathTraceMaterialFeatureBindingKind::TextureSrv,
         "transmission-sidecar"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_SIDECAR,
+        90u,
+        RtPathTraceMaterialFeatureBindingKind::TextureSrv,
+        "reflection-sidecar"
     }
 };
 
@@ -212,6 +218,8 @@ nvrhi::TextureHandle PathTraceMaterialFeatureInputResourceTexture(
         return frameResources.accumulationTexture;
     case RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_SIDECAR:
         return frameResources.transmissionTexture;
+    case RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_SIDECAR:
+        return frameResources.reflectionSidecarTexture;
     default:
         return nullptr;
     }
