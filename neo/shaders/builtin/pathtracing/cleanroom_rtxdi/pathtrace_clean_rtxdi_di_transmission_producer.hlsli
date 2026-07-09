@@ -754,9 +754,13 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                             pixel,
                             dimensions,
                             reflectionHitSurface,
-                            CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED))
+                            CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED,
+                            // Specular hit distance = mirror ray length, not
+                            // primary view depth (step 7 RR contract).
+                            max(reflectionPsrPayload.hitT, 0.0)))
                     {
                         // Downstream DI sees the reflected surface, not glass.
+                        // RR guides already describe this surface from publish.
                         PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
                             PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
                                 laneSelection.selectedThroughputOverPdf);
@@ -819,7 +823,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         pixel,
         dimensions,
         hitSurface,
-        CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED))
+        CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED,
+        0.0))
     {
         return;
     }
