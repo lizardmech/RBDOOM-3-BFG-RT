@@ -411,13 +411,12 @@ float4 PathTraceCleanRtxdiDiTransmissionProducerDebugColor(
 
     if (debugMode >= 9.5)
     {
-        // Reflection PSR lane + replacement-ray status (steps 4-5):
-        //   green  = reflection selected AND mirror hit (a ~ 1.0)
-        //   blue   = transmission selected (a ~ 0.5)
-        //   cyan   = candidate only (a ~ 0.375, pre-trace intermediate)
-        //   magenta = rejected candidate (a ~ 0.125)
-        //   yellow = reflection selected but mirror miss (a ~ 0.25)
-        //   gray   = empty / fail-closed
+        // Reflection PSR lane mask (steps 4-7b sticky/deterministic):
+        //   green  = reflection owned + mirror hit (should be stable over time)
+        //   blue   = transmission owned
+        //   yellow = reflection chosen but mirror miss
+        //   magenta = rejected candidate
+        //   gray   = empty
         return PathTraceCleanRtxdiDiReflectionPsrLaneDebugColor(
             PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel]);
     }
@@ -579,16 +578,19 @@ bool PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
     const float3 transmission = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
         PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar),
         materialParams);
-    const bool reflectionEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION) != 0u;
+    // Option B radiance add only when the shaded-sidecar path is on AND
+    // reflection PSR is not owning this pixel (a ~ 1 with throughput/PDF is not
+    // radiance). Never stuff radiance into specular albedo guides (step 7b).
+    const bool reflectionSidecarEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION) != 0u;
+    const bool reflectionPsrEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION_PSR) != 0u;
+    const bool optionBRadiance =
+        reflectionSidecarEnabled &&
+        !reflectionPsrEnabled &&
+        PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar);
     const float reflectionScale =
-        reflectionEnabled && PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar)
-            ? max(materialParams.reflectionBoost, 0.0)
-            : 0.0;
-    const float3 reflectedRadiance = PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar);
-    const float3 reflectedGuideColor = saturate(reflectedRadiance * reflectionScale);
-    PathTraceRRGuideSpecularAlbedo[pixel] = float4(
-        max(PathTraceRRGuideSpecularAlbedo[pixel].rgb, reflectedGuideColor),
-        1.0);
+        optionBRadiance ? max(materialParams.reflectionBoost, 0.0) : 0.0;
+    const float3 reflectedRadiance =
+        optionBRadiance ? PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar) : float3(0.0, 0.0, 0.0);
     composedColor = float4(
         baseColor.rgb * transmission + reflectedRadiance * reflectionScale,
         baseColor.a);
@@ -687,11 +689,11 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         transmissionSample = PathTraceCleanRtxdiDiTransmissionPsrSampleThinStraight(glassSurface, glassPayload);
     }
 
-    // Reflection PSR stochastic lane selection (step 4), replacement ray
-    // (step 5), and primary-surface pack (step 6). Sidecar rgb stores
-    // selectedThroughput / selectionPdf. Does not overwrite Option B radiance
-    // (a > 0.5).
+    // Reflection PSR lane selection (step 4 + 7b sticky/deterministic),
+    // replacement ray (step 5), and primary-surface pack (step 6). Does not
+    // overwrite Option B radiance when that path already wrote a>0.5.
     bool reflectionPrimaryPublished = false;
+    bool glassPsrLaneChanged = true;
     if (reflectionPsrEnabled &&
         !PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(
             PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel]))
@@ -700,6 +702,21 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             transmissionSample.performPsr &&
             PathTraceCleanRoomLuminance(max(glassPayload.transmission, float3(0.0, 0.0, 0.0))) > 1.0e-5;
         const bool reflectionLaneValid = reflectionCandidate.valid;
+
+        PathTracePrimarySurfaceRecord previousRecord;
+        const bool previousRecordValid =
+            PathTraceCleanRoomLoadSurfaceRecordSigned(
+                int2(pixel),
+                dimensions,
+                true,
+                previousRecord);
+        const bool previousReflectionLane =
+            previousRecordValid &&
+            (previousRecord.header.w & CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED) != 0u;
+        const bool previousTransmissionLane =
+            previousRecordValid &&
+            (previousRecord.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u;
+        const bool previousGlassPsrValid = previousReflectionLane || previousTransmissionLane;
 
         if (reflectionSidecarEnabled && reflectionLaneValid && !reflectionTraceHit)
         {
@@ -716,16 +733,16 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         }
         else
         {
-            RTXDI_RandomSamplerState laneRng =
-                RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x52505352u, 0u);
-            PathTraceCleanRtxdiDiApplyBlueNoiseToggle(laneRng);
             const PathTraceCleanRtxdiDiReflectionPsrSelection laneSelection =
                 PathTraceCleanRtxdiDiSelectReflectionPsrLane(
                     reflectionLaneValid,
                     transmissionLaneValid,
                     reflectionCandidate.throughput,
                     glassPayload.transmission,
-                    laneRng);
+                    previousReflectionLane,
+                    previousTransmissionLane,
+                    previousGlassPsrValid);
+            glassPsrLaneChanged = laneSelection.laneChanged;
 
             if (laneSelection.failClosed)
             {
@@ -755,18 +772,12 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                             dimensions,
                             reflectionHitSurface,
                             CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED,
-                            // Specular hit distance = mirror ray length, not
-                            // primary view depth (step 7 RR contract).
-                            max(reflectionPsrPayload.hitT, 0.0)))
+                            max(reflectionPsrPayload.hitT, 0.0),
+                            glassPsrLaneChanged))
                     {
-                        // Downstream DI sees the reflected surface, not glass.
-                        // RR guides already describe this surface from publish.
                         PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
                             PathTraceCleanRtxdiDiReflectionSidecarReflectionSelected(
                                 laneSelection.selectedThroughputOverPdf);
-                        // Interim compose multiplier: reuse the transmission
-                        // sidecar channel with reflection throughput/pdf until
-                        // step 8 owns reflection compose explicitly.
                         const float overlayStrength =
                             PathTraceCleanRtxdiDiGlassOverlayStrength(glassPayload);
                         PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
@@ -779,12 +790,14 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                     {
                         PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
                             PathTraceCleanRtxdiDiReflectionSidecarMissed();
+                        glassPsrLaneChanged = true;
                     }
                 }
                 else
                 {
                     PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
                         PathTraceCleanRtxdiDiReflectionSidecarMissed();
+                    glassPsrLaneChanged = true;
                 }
             }
             else
@@ -819,12 +832,30 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         hitSurface.flags |= CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED;
     }
 
+    // When reflection PSR is off, still avoid permanent RR reset: sticky
+    // transmission-resolved history leaves reset clear.
+    bool transmissionPublishLaneChanged = glassPsrLaneChanged;
+    if (!reflectionPsrEnabled)
+    {
+        PathTracePrimarySurfaceRecord previousTransmissionRecord;
+        const bool previousTransmissionValid =
+            PathTraceCleanRoomLoadSurfaceRecordSigned(
+                int2(pixel),
+                dimensions,
+                true,
+                previousTransmissionRecord);
+        transmissionPublishLaneChanged = !(
+            previousTransmissionValid &&
+            (previousTransmissionRecord.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u);
+    }
+
     if (!PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
         pixel,
         dimensions,
         hitSurface,
         CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED,
-        0.0))
+        0.0,
+        transmissionPublishLaneChanged))
     {
         return;
     }

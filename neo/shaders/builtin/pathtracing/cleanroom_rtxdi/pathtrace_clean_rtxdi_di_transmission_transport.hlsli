@@ -196,12 +196,25 @@ PathTraceCleanRtxdiDiReflectionPsrCandidate PathTraceCleanRtxdiDiBuildReflection
     return candidate;
 }
 
-// Stochastic reflection vs transmission lane selection (step 4).
+// Glass PSR lane selection (steps 4 + 7b).
+//
+// Policy (Phase A / 7b): deterministic energy ownership + temporal stickiness.
+// Beauty and RR guides share the same surface identity so DLSS-RR sees stable
+// material albedo/normal/depth instead of a per-frame coin flip.
+//
+//   1. Extreme Fresnel energy forces reflection or transmission.
+//   2. Otherwise stick to the previous frame's glass PSR lane when still valid.
+//   3. Otherwise pick the higher-energy lobe (pReflection >= 0.5).
+//
+// Throughput is the selected lobe throughput without 1/p MIS (single-surface
+// ownership; the weak lobe is deferred, not dual-shaded).
 struct PathTraceCleanRtxdiDiReflectionPsrSelection
 {
     bool reflectionSelected;
     bool transmissionSelected;
     bool failClosed;
+    bool laneChanged;
+    bool sticky;
     float pReflection;
     float pTransmission;
     float3 selectedThroughputOverPdf;
@@ -215,6 +228,8 @@ PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiReflectionPsrSe
     selection.reflectionSelected = false;
     selection.transmissionSelected = false;
     selection.failClosed = true;
+    selection.laneChanged = true;
+    selection.sticky = false;
     selection.pReflection = 0.0;
     selection.pTransmission = 0.0;
     selection.selectedThroughputOverPdf = float3(0.0, 0.0, 0.0);
@@ -228,13 +243,17 @@ PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiSelectReflectio
     bool transmissionValid,
     float3 reflectionThroughput,
     float3 transmissionThroughput,
-    inout RTXDI_RandomSamplerState rng)
+    bool previousReflectionLane,
+    bool previousTransmissionLane,
+    bool previousGlassPsrValid)
 {
     PathTraceCleanRtxdiDiReflectionPsrSelection selection =
         PathTraceCleanRtxdiDiReflectionPsrSelectionFailClosed();
     selection.reflectionThroughput = max(reflectionThroughput, float3(0.0, 0.0, 0.0));
     selection.transmissionThroughput = max(transmissionThroughput, float3(0.0, 0.0, 0.0));
     selection.failClosed = false;
+    selection.laneChanged = true;
+    selection.sticky = false;
 
     if (!reflectionValid && !transmissionValid)
     {
@@ -248,6 +267,8 @@ PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiSelectReflectio
         selection.pReflection = 1.0;
         selection.pTransmission = 0.0;
         selection.selectedThroughputOverPdf = selection.reflectionThroughput;
+        selection.laneChanged = !(previousGlassPsrValid && previousReflectionLane);
+        selection.sticky = previousGlassPsrValid && previousReflectionLane;
         return selection;
     }
 
@@ -257,30 +278,56 @@ PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiSelectReflectio
         selection.pReflection = 0.0;
         selection.pTransmission = 1.0;
         selection.selectedThroughputOverPdf = selection.transmissionThroughput;
+        selection.laneChanged = !(previousGlassPsrValid && previousTransmissionLane);
+        selection.sticky = previousGlassPsrValid && previousTransmissionLane;
         return selection;
     }
 
     const float reflectionLuma = PathTraceCleanRoomLuminance(selection.reflectionThroughput);
     const float transmissionLuma = PathTraceCleanRoomLuminance(selection.transmissionThroughput);
     const float denom = max(reflectionLuma + transmissionLuma, 1.0e-5);
-    float pReflection = reflectionLuma / denom;
-    pReflection = clamp(pReflection, 0.02, 0.98);
-    const float pTransmission = 1.0 - pReflection;
+    const float pReflection = clamp(reflectionLuma / denom, 0.0, 1.0);
     selection.pReflection = pReflection;
-    selection.pTransmission = pTransmission;
+    selection.pTransmission = 1.0 - pReflection;
 
-    const float u = RTXDI_GetNextRandom(rng);
-    if (u < pReflection)
+    // Strong Fresnel dominance: force the high-energy lobe (stable, primary-like).
+    const float kForceReflection = 0.85;
+    const float kForceTransmission = 0.15;
+    bool chooseReflection = pReflection >= 0.5;
+    bool sticky = false;
+
+    if (pReflection >= kForceReflection)
+    {
+        chooseReflection = true;
+    }
+    else if (pReflection <= kForceTransmission)
+    {
+        chooseReflection = false;
+    }
+    else if (previousGlassPsrValid && previousReflectionLane && reflectionValid)
+    {
+        chooseReflection = true;
+        sticky = true;
+    }
+    else if (previousGlassPsrValid && previousTransmissionLane && transmissionValid)
+    {
+        chooseReflection = false;
+        sticky = true;
+    }
+
+    if (chooseReflection)
     {
         selection.reflectionSelected = true;
-        selection.selectedThroughputOverPdf =
-            selection.reflectionThroughput / max(pReflection, 1.0e-5);
+        selection.selectedThroughputOverPdf = selection.reflectionThroughput;
+        selection.laneChanged = !(previousGlassPsrValid && previousReflectionLane);
+        selection.sticky = sticky && previousReflectionLane;
     }
     else
     {
         selection.transmissionSelected = true;
-        selection.selectedThroughputOverPdf =
-            selection.transmissionThroughput / max(pTransmission, 1.0e-5);
+        selection.selectedThroughputOverPdf = selection.transmissionThroughput;
+        selection.laneChanged = !(previousGlassPsrValid && previousTransmissionLane);
+        selection.sticky = sticky && previousTransmissionLane;
     }
     return selection;
 }
