@@ -56,6 +56,7 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR = 1u << 23u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_BLUE_NOISE = 1u << 24u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR = 1u << 25u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS = 1u << 26u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION = 1u << 27u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT = 9u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_MASK = 7u << RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT;
 const uint32_t CLEAN_RTXDI_DI_RESOLVE_BRDF_TARGET_ENABLE = 1u << 0u;
@@ -3830,6 +3831,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR;
         }
+        if (r_pathTracingReflectionOpaqueMirror.GetInteger() != 0)
+        {
+            cleanFlags |= CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION;
+        }
         if (r_pathTracingReflectionSecondaryShadows.GetInteger() == 0)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS;
@@ -4394,10 +4399,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 commandList->clearTextureFloat(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 1.0f, 1.0f));
             }
-            // Do not clear specular hit distance when glass reflection PSR wrote
-            // real mirror ray lengths into this buffer. A full clear wiped that
-            // guide for DLSS-RR.
-            if (r_pathTracingCleanRtxdiDiGlassReflectionPsr.GetInteger() == 0)
+            // Do not clear specular hit distance when either reflection route
+            // wrote real mirror ray lengths into this buffer.
+            if (r_pathTracingCleanRtxdiDiGlassReflectionPsr.GetInteger() == 0 &&
+                r_pathTracingReflectionOpaqueMirror.GetInteger() == 0)
             {
                 commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
             }

@@ -1653,6 +1653,12 @@ idCVar r_pathTracingCleanRtxdiDiGlassReflectionPsr(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 glass reflection system (default on): deterministic/sticky PSR transport, one dense mirror hit, exact hit emissive, and bounded analytic RIS sidecar lighting" );
 
+idCVar r_pathTracingReflectionOpaqueMirror(
+    "r_pathTracingReflectionOpaqueMirror",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental opaque exact-mirror reflections: 0 off, 1 reuse the dense reflection secondary path on opaque surfaces whose resolved roughness is effectively zero" );
+
 idCVar r_pathTracingReflectionSecondarySamples(
     "r_pathTracingReflectionSecondarySamples",
     "8",

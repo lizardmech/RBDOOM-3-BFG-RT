@@ -565,9 +565,23 @@ bool PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
 {
     composedColor = float4(0.0, 0.0, 0.0, 1.0);
     const float4 transmissionSidecar = PathTraceCleanRtxdiDiTransmissionOutput[pixel];
+    const float4 reflectionSidecar = PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel];
     if (!PathTraceCleanRtxdiDiTransmissionSidecarHasResolvedPayload(transmissionSidecar))
     {
-        return false;
+        // Opaque zero-roughness mirrors retain their primary DI surface and
+        // simply add the current-frame secondary reflection to its color.
+        if (!PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar))
+        {
+            return false;
+        }
+        const float4 opaqueBaseColor = PathTraceCleanRtxdiDiGlassOutputSourceColor(
+            PathTraceCleanRtxdiDiOutputColorSource,
+            pixel,
+            SmokeOutput[pixel]);
+        composedColor = float4(
+            opaqueBaseColor.rgb + PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar),
+            opaqueBaseColor.a);
+        return true;
     }
 
     const float4 baseColorSource = PathTraceCleanRtxdiDiGlassOutputSourceColor(
@@ -578,7 +592,6 @@ bool PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
         pixel,
         dimensions,
         baseColorSource);
-    const float4 reflectionSidecar = PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel];
     const PathTraceCleanRtxdiDiGlassMaterialParams materialParams =
         PathTraceCleanRtxdiDiDefaultGlassMaterialParams(runtimeParams);
     // Reflection-PSR owns the primary: DI already shaded the mirrored hit.
@@ -613,6 +626,61 @@ bool PathTraceCleanRtxdiDiTransmissionProducerComposeColor(
     return true;
 }
 
+bool PathTraceCleanRtxdiDiTryOpaqueMirrorReflection(
+    uint2 pixel,
+    RAB_Surface surface)
+{
+    if ((CleanRtxdiDiFlags & CLEAN_FLAG_OPAQUE_MIRROR_REFLECTION) == 0u ||
+        !PathTraceCleanRtxdiDiMaterialSupportsOpaqueDirect(surface) ||
+        saturate(surface.material.roughness) > 1.0e-3)
+    {
+        return false;
+    }
+
+    const float3 normal =
+        RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 viewDirection = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
+    const float3 faceForwardNormal = dot(normal, viewDirection) >= 0.0 ? normal : -normal;
+    const float3 fresnel = PathTraceCleanRtxdiDiMaterialFresnelSchlick(
+        saturate(surface.material.specularF0),
+        saturate(dot(faceForwardNormal, viewDirection)));
+    if (PathTraceCleanRoomLuminance(fresnel) <= 1.0e-5)
+    {
+        return false;
+    }
+
+    PathTraceReflectionSecondaryHit reflectionHit;
+    if (!PathTraceReflectionSecondaryTraceMirrorFromSurface(surface, reflectionHit))
+    {
+        return true;
+    }
+
+    RAB_Surface reflectionSurface;
+    if (!PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
+        reflectionHit.payload,
+        reflectionHit.hitPosition,
+        reflectionHit.rayDirection,
+        reflectionSurface))
+    {
+        return true;
+    }
+
+    RTXDI_RandomSamplerState reflectionRng =
+        RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4f4d4952u, 0u);
+    PathTraceCleanRtxdiDiApplyBlueNoiseToggle(reflectionRng);
+    const float3 reflectionRadiance = PathTraceReflectionSecondaryShade(
+        reflectionSurface,
+        PathTraceReflectionSecondaryBudgetFromConstants(),
+        reflectionRng) * fresnel;
+    PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
+        PathTraceCleanRtxdiDiReflectionSidecarRadiance(reflectionRadiance);
+    if (reflectionHit.hitT > 0.0)
+    {
+        PathTraceRRGuideHitDistance[pixel] = reflectionHit.hitT;
+    }
+    return true;
+}
+
 void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     uint2 pixel,
     uint2 dimensions,
@@ -626,9 +694,13 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         PathTraceCleanRtxdiDiGlassDistortionSidecarEmpty();
 
     RAB_Surface glassSurface;
-    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, glassSurface) ||
-        !PathTraceCleanRtxdiDiGlassSurfaceSupported(glassSurface))
+    if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, glassSurface))
     {
+        return;
+    }
+    if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(glassSurface))
+    {
+        PathTraceCleanRtxdiDiTryOpaqueMirrorReflection(pixel, glassSurface);
         return;
     }
 

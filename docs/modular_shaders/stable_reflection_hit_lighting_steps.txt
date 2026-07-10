@@ -108,6 +108,7 @@ Runtime Controls
 Production controls only:
 
     r_pathTracingCleanRtxdiDiGlassReflectionPsr       default 1
+    r_pathTracingReflectionOpaqueMirror               default 1
     r_pathTracingReflectionSecondarySamples           default 8
     r_pathTracingReflectionSecondaryShadows           default 1
     r_pathTracingCleanRtxdiDiTransmissionProducer     default 1

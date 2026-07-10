@@ -445,6 +445,7 @@ static const uint CLEAN_FLAG_GLASS_REFRACTED_PSR = 1u << 23u;
 static const uint CLEAN_FLAG_GLASS_REFLECTION_PSR = 1u << 25u;
 // When set, reflection secondary simplified shade skips shadow rays.
 static const uint CLEAN_FLAG_REFLECTION_SECONDARY_NO_SHADOWS = 1u << 26u;
+static const uint CLEAN_FLAG_OPAQUE_MIRROR_REFLECTION = 1u << 27u;
 static const uint CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED = 0x80000000u;
 static const uint CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED = 0x40000000u;
 static const uint CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED = 0x20000000u;
