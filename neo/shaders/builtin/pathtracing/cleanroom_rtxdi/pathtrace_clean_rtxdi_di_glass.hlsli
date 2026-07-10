@@ -123,6 +123,10 @@ float4 PathTraceCleanRtxdiDiGlassDebugColor(
         float4(0.65, 0.05, 0.85, 1.0));
 }
 
+// CONTRACT (stable_reflection_hit_lighting_steps.txt):
+// Compose applies transmission/reflection energy to already-lit signals. It
+// does not trace, select lights, or shade a reflection hit. Reflection sidecar
+// radiance is unowned by compose and already contains its Fresnel weight.
 float4 PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
     float4 baseColor,
     float4 transmissionSidecar,
@@ -136,27 +140,25 @@ float4 PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
         PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar);
 
     // PSR reflection-owned: DI already shaded the mirrored primary. Modulate by
-    // Fresnel lobe weight * boost (single-surface energy). Do not also ADD
-    // Option B. Detect via t90 or transmission-sidecar marker (0.75).
+    // Fresnel lobe weight * boost (single-surface energy). Detect via t90 or
+    // the transmission-sidecar ownership marker (0.75).
     if (PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar) ||
         PathTraceCleanRtxdiDiTransmissionSidecarIsReflectionPsrOwned(transmissionSidecar))
     {
         float3 reflectionWeight = PathTraceCleanRtxdiDiReflectionSidecarIsReflectionSelected(reflectionSidecar)
             ? PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar)
             : PathTraceCleanRtxdiDiTransmissionSidecarTransmission(transmissionSidecar);
-        reflectionWeight = max(reflectionWeight, float3(0.02, 0.02, 0.02));
+        reflectionWeight = max(reflectionWeight, float3(0.0, 0.0, 0.0));
         return float4(
             baseColor.rgb * reflectionWeight * max(materialParams.reflectionBoost, 0.0),
             baseColor.a);
     }
 
-    const float3 throughput = PathTraceCleanRtxdiDiGlassTransmissionWithFloor(
-        sidecarRgb,
-        materialParams);
+    const float3 throughput =
+        PathTraceCleanRtxdiDiGlassTransmissionWithFloor(sidecarRgb, materialParams);
 
     // Transmission-owned: attenuate behind-glass DI and ADD shaded mirror
-    // radiance when the producer wrote Option B / PSR cross-lobe radiance
-    // (alpha 0.875). This is what makes PSR-alone non-transparent face-on.
+    // radiance from the one dense hybrid reflection shade (alpha 0.875).
     float3 composed = baseColor.rgb * throughput;
 
     if (PathTraceCleanRtxdiDiReflectionSidecarHasRadiance(reflectionSidecar))
@@ -164,17 +166,6 @@ float4 PathTraceCleanRtxdiDiComposeThinGlassSidecarColor(
         composed += PathTraceCleanRtxdiDiReflectionSidecarRgb(reflectionSidecar) *
             max(materialParams.reflectionBoost, 0.0);
     }
-    else
-    {
-        // Legacy gray proxy only when no real reflection radiance/PSR surface.
-        const float reflectionBlend = saturate(
-            PathTraceCleanRtxdiDiTransmissionSidecarReflectionEnergy(transmissionSidecar) *
-            max(materialParams.reflectionBoost, 0.0) *
-            2.0);
-        const float3 reflectedProxy = max(baseColor.rgb, float3(0.45, 0.48, 0.52));
-        composed = lerp(composed, reflectedProxy, reflectionBlend);
-    }
-
     return float4(lerp(baseColor.rgb, composed, weight), baseColor.a);
 }
 

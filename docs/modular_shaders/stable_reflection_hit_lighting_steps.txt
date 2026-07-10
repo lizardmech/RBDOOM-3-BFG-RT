@@ -1,0 +1,180 @@
+Stable Glass Reflection System
+==============================
+
+Status
+------
+
+Validated runtime baseline as of 2026-07-11.
+
+This is the only supported clear-glass reflection implementation. The former
+sparse stochastic-lobe, linked mirror-secondary DI/GI, reflection NEE-cache,
+legacy Option-B, and alternate hit-lighting-mode experiments were removed from
+code after the dense hybrid passed runtime validation.
+
+
+Production Design
+-----------------
+
+Each eligible clear-glass pixel performs:
+
+    1. Load the original glass material and compute thin-glass Fresnel weights.
+    2. Trace one deterministic mirror ray and reconstruct its resolved hit.
+    3. Read hit emissive directly. This term does not depend on light sampling.
+    4. Run M=8 analytic RIS proposals over current Doom analytic lights.
+    5. Commit at most one analytic light shade and one visibility ray.
+    6. Store Fresnel-weighted reflection radiance in the reflection sidecar.
+    7. Resolve the behind-glass PSR surface for the existing clean DI/GI path.
+    8. Export dense reflected-hit material detail and mirror hit distance to RR.
+    9. Compose transmitted primary lighting plus reflection sidecar radiance.
+
+At strongly reflection-dominant Fresnel angles, the reflected resolved hit may
+own the existing clean DI integration surface. The private sidecar shade is then
+skipped to avoid double lighting.
+
+
+Why This Is One System
+----------------------
+
+The implementation has:
+
+    one glass PSR producer
+    one mirror trace per eligible glass pixel
+    one reflection hit reconstruction contract
+    one analytic RIS shade helper
+    one reflection sidecar
+    one glass compose path
+    one RR guide policy
+
+It does not have:
+
+    a reflection reservoir buffer
+    reflection temporal or spatial reuse passes
+    a mirror-secondary G-buffer
+    linked reflection GI
+    a reflection NEE-cache provider
+    stochastic per-pixel reflection/transmission ownership
+    alternate reflection lighting modes
+    a gray proxy reflection fallback
+
+The sidecar is a current-frame signal, not another ReSTIR product.
+
+
+Lighting Ownership
+------------------
+
+Directly hit emissive:
+
+    Loaded from the resolved reflected material.
+    Added exactly on every valid mirror hit.
+    Never selected through RIS.
+    Never depends on temporal accumulation.
+
+Doom analytic direct lighting:
+
+    M uniform analytic proposals, default M=8.
+    Zero-target candidates are rejected.
+    Streaming RIS selects one candidate.
+    At most one sampled light shade and one shadow ray are committed.
+
+Transmission and primary lighting:
+
+    Existing clean DI/GI shade the behind-glass resolved surface.
+    Primary reservoirs are never replayed at the distant reflection hit.
+
+Fresnel:
+
+    The reflection sidecar already contains reflection throughput.
+    Compose applies reflection boost once and transmission attenuation once.
+
+
+RR Contract
+-----------
+
+The deterministic mirror hit supplies dense current-frame material data:
+
+    reflected material albedo/specular detail
+    emissive chromaticity in the specular guide
+    behind-glass geometry policy for clear-glass normal/depth
+    actual mirror ray length in specular hit distance
+    stable material identity without stochastic lobe holes
+
+The validated runtime result has solid emissives and working DLSS-RR reflection
+reconstruction.
+
+
+Runtime Controls
+----------------
+
+Production controls only:
+
+    r_pathTracingCleanRtxdiDiGlassReflectionPsr       default 1
+    r_pathTracingReflectionSecondarySamples           default 8
+    r_pathTracingReflectionSecondaryShadows           default 1
+    r_pathTracingCleanRtxdiDiTransmissionProducer     default 1
+    r_pathTracingCleanRtxdiDiTransmissionCompose      default 1
+    r_pathTracingCleanRtxdiDiGlassShader              default 1
+
+Useful diagnostics:
+
+    r_pathTracingCleanRtxdiDiTransmissionDebugView 10
+        reflection/transport ownership and trace status
+
+    r_pathTracingDLSSRRGuideDebugView 1
+        RR albedo
+
+    r_pathTracingDLSSRRGuideDebugView 8
+        RR specular albedo
+
+    r_pathTracingDLSSRRGuideDebugView 9
+        RR input HDR
+
+
+Implementation Map
+------------------
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+        pathtrace_clean_rtxdi_di_transmission_producer.hlsli
+            Owns glass transport, mirror trace, reflection shade call, RR guide
+            publication, and sidecar production.
+
+        pathtrace_reflection_secondary.hlsli
+            Owns mirror trace service, exact hit emissive, analytic RIS, and
+            optional selected-light visibility.
+
+        pathtrace_clean_rtxdi_di_transmission_transport.hlsli
+            Owns deterministic/sticky Fresnel lane policy and transport helpers.
+
+        pathtrace_clean_rtxdi_di_reflection_sidecar.hlsli
+            Owns reflection sidecar markers and radiance payload.
+
+        pathtrace_clean_rtxdi_di_rr_guide_export.hlsli
+            Owns clear-glass RR material/geometry guide policy.
+
+        pathtrace_clean_rtxdi_di_glass.hlsli
+            Owns late transmission plus reflection composition.
+
+    neo/renderer/NVRHI/
+        PathTraceCVars.cpp / .h
+            Production controls.
+
+        PathTraceSmokeDispatch.cpp
+            Producer dispatch, bindings, barriers, and clean DI/GI/RR ordering.
+
+
+Acceptance Baseline
+-------------------
+
+Validated in runtime:
+
+    beauty reflection works
+    directly reflected emissives are solid
+    dense albedo/specular guide detail reaches DLSS-RR
+    DLSS-RR reconstruction works
+    M=8 matches the accepted lighting quality
+    motion is responsive
+    no device loss in the production path
+
+Any future glossy expansion must reuse the trace/shade service and must not add a
+second clear-glass reflection system. Opaque near-mirror or VNDF-glossy callers
+are separate material eligibility work, not permission to add another reservoir
+pipeline.

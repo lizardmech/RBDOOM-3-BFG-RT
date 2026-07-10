@@ -1,7 +1,10 @@
 #ifndef RB_PATH_TRACE_CLEAN_RTXDI_DI_RR_GUIDE_EXPORT_HLSLI
 #define RB_PATH_TRACE_CLEAN_RTXDI_DI_RR_GUIDE_EXPORT_HLSLI
 
-// Clear-glass RR policy (shipping / Remix comparison notes):
+// Legacy deterministic clear-glass RR policy (shipping / Remix comparison
+// notes). The stable stochastic PSR lane does NOT use this hybrid policy: its
+// guides strictly follow the one selected integration surface so RR inputs and
+// beauty ownership agree pixel-for-pixel.
 //   - Albedo + specular: behind-glass materials PLUS reflected materials at a
 //     fixed blend weight (not Fresnel/angle). Never full overwrite.
 //   - Normals: behind-glass only. Mirror normals are for pure mirrors; clear

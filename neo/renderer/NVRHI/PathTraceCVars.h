@@ -281,7 +281,6 @@ extern idCVar r_pathTracingCleanRtxdiDiBlueNoise;
 extern idCVar r_pathTracingCleanRtxdiDiTransmissionProducer;
 extern idCVar r_pathTracingCleanRtxdiDiTransmissionCompose;
 extern idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView;
-extern idCVar r_pathTracingCleanRtxdiDiGlassReflection;
 extern idCVar r_pathTracingCleanRtxdiDiGlassReflectionPsr;
 extern idCVar r_pathTracingReflectionSecondarySamples;
 extern idCVar r_pathTracingReflectionSecondaryShadows;

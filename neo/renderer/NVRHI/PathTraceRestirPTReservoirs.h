@@ -77,3 +77,13 @@ struct RtRestirPTPrimarySurfaceHistoryBufferCreateResult
 
 RtRestirPTPrimarySurfaceHistoryBufferCreateResult CreateRestirPTPrimarySurfaceHistoryBuffers(const RtRestirPTPrimarySurfaceHistoryBufferCreateDesc& desc);
 bool ClearRestirPTPrimarySurfaceHistoryBuffers(nvrhi::ICommandList* commandList, const RtRestirPTPrimarySurfaceHistoryBufferHandles& buffers);
+
+// Single primary-surface-record buffer (same stride/count as one history page).
+// Used for mirror secondary G-buffer (L1 Strategy B).
+bool RestirPTPrimarySurfaceHistoryBufferHasCapacity(nvrhi::BufferHandle buffer, uint32_t width, uint32_t height);
+nvrhi::BufferHandle ReuseOrCreateRestirPTPrimarySurfaceHistoryBuffer(
+    nvrhi::IDevice* device,
+    nvrhi::BufferHandle existingBuffer,
+    const char* debugName,
+    uint32_t width,
+    uint32_t height);

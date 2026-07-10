@@ -51,7 +51,6 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_INITIAL_VISIBILITY = 1u << 17u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_DISABLE_RIGID_EMISSIVE_TEMPORAL = 1u << 19u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE = 1u << 20u;
-const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION = 1u << 21u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_DISTORTION = 1u << 22u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR = 1u << 23u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_BLUE_NOISE = 1u << 24u;
@@ -1290,6 +1289,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         m_smokeNeeCacheState.secondaryVisualSnapshotHoldActive = false;
         m_smokeNeeCacheState.cleanProviderSnapshotHoldActive = false;
+        // Re-arm clean-provider learn so we do not fall into delay=0/refresh=0/hold=false
+        // and accidentally rebuild the NEE cache every frame after leaving view-8 band 10.
+        m_smokeNeeCacheState.cleanProviderStartupDelayFrames = PATH_TRACE_NEE_CACHE_CLEAN_PROVIDER_STARTUP_DELAY_FRAMES;
+        m_smokeNeeCacheState.cleanProviderStartupRefreshFrames = 0u;
+        m_smokeNeeCacheState.cleanProviderStableViewFrames = 0u;
         m_smokeNeeCacheState.pendingInvalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_DIAGNOSTIC_OWNERSHIP;
         m_smokeNeeCacheState.lastInvalidationFlags = m_smokeNeeCacheState.pendingInvalidationFlags;
         m_smokeNeeCacheState.taskClearPending = true;
@@ -1343,6 +1347,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_smokeNeeCacheState.cleanProviderLastViewValid = false;
     }
     bool cleanNeeCacheProviderViewStable = false;
+    bool cleanNeeCacheProviderViewLargeJump = false;
     if (cleanNeeCacheProviderRequestedEarly && viewDef)
     {
         idVec3 cleanProviderForward = viewDef->renderView.viewaxis[0];
@@ -1358,7 +1363,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 cleanProviderForward.x * m_smokeNeeCacheState.cleanProviderLastViewForward[0] +
                 cleanProviderForward.y * m_smokeNeeCacheState.cleanProviderLastViewForward[1] +
                 cleanProviderForward.z * m_smokeNeeCacheState.cleanProviderLastViewForward[2];
-            cleanNeeCacheProviderViewStable = movementSq <= 0.25f && forwardDot >= 0.9999f;
+            // Mild look/walk is fine; only used for diagnostics / large-jump detection.
+            // Old 0.25 / 0.9999 never settled under mouse look.
+            cleanNeeCacheProviderViewStable = movementSq <= 16.0f && forwardDot >= 0.98f;
+            // Teleport / hard cut: force a full relearn. Mild motion keeps hold.
+            cleanNeeCacheProviderViewLargeJump = movementSq > 1024.0f || forwardDot < 0.5f;
+        }
+        else
+        {
+            // First frame after enable: treat as stable for diagnostics.
+            cleanNeeCacheProviderViewStable = true;
         }
         m_smokeNeeCacheState.cleanProviderLastViewOrigin[0] = cleanProviderOrigin.x;
         m_smokeNeeCacheState.cleanProviderLastViewOrigin[1] = cleanProviderOrigin.y;
@@ -1368,11 +1382,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_smokeNeeCacheState.cleanProviderLastViewForward[2] = cleanProviderForward.z;
         m_smokeNeeCacheState.cleanProviderLastViewValid = true;
     }
-    if (!cleanNeeCacheProviderViewStable &&
+    if (cleanNeeCacheProviderViewLargeJump &&
         cleanNeeCacheProviderRequestedEarly &&
-        !m_smokeNeeCacheState.cleanProviderSnapshotHoldActive &&
         !cleanRestirGiNeeCacheLiveDiagnosticRefresh)
     {
+        // Only re-arm the full startup sequence on large camera jumps.
         m_smokeNeeCacheState.cleanProviderSnapshotHoldActive = false;
         m_smokeNeeCacheState.cleanProviderStartupDelayFrames = PATH_TRACE_NEE_CACHE_CLEAN_PROVIDER_STARTUP_DELAY_FRAMES;
         m_smokeNeeCacheState.cleanProviderStartupRefreshFrames = 0u;
@@ -1386,7 +1400,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanNeeCacheProviderRequestedEarly &&
         !cleanRestirGiNeeCacheLiveDiagnosticRefresh &&
         m_smokeNeeCacheState.cleanProviderStartupDelayFrames > 0u;
-    if (cleanNeeCacheProviderStartupDelayActive && cleanNeeCacheProviderViewStable)
+    // Count delay/refresh in wall frames so mild mouse look cannot stall the
+    // learn forever and leave the provider in a permanent clear/rebuild thrash.
+    if (cleanNeeCacheProviderStartupDelayActive)
     {
         --m_smokeNeeCacheState.cleanProviderStartupDelayFrames;
         if (m_smokeNeeCacheState.cleanProviderStartupDelayFrames == 0u)
@@ -1404,13 +1420,30 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         neeCacheRluInvalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_MAPPING;
     }
-    if (regirRemixLightManagerStats.payloadSignatureChanged != 0u)
+    // Clean DI NEE-cache provider freezes a snapshot once held. Payload-only
+    // luminance flicker must not force a full 4-buffer clear every frame while
+    // the learn is in flight or the hold is off — that was a major perf thrash.
+    if (!cleanNeeCacheProviderRequestedEarly)
     {
-        neeCacheRluInvalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_PAYLOAD;
+        if (regirRemixLightManagerStats.payloadSignatureChanged != 0u)
+        {
+            neeCacheRluInvalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_PAYLOAD;
+        }
+        if (regirRemixLightManagerStats.payloadOnlyChange != 0u)
+        {
+            neeCacheRluInvalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_PAYLOAD_ONLY;
+        }
     }
-    if (regirRemixLightManagerStats.payloadOnlyChange != 0u)
+    else if (
+        (neeCacheRluInvalidationFlags &
+            (PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_STRUCTURAL | PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_MAPPING)) != 0u &&
+        !cleanRestirGiNeeCacheLiveDiagnosticRefresh)
     {
-        neeCacheRluInvalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_PAYLOAD_ONLY;
+        // Light universe membership changed: one relearn, not a permanent thrash.
+        m_smokeNeeCacheState.cleanProviderSnapshotHoldActive = false;
+        m_smokeNeeCacheState.cleanProviderStartupDelayFrames = PATH_TRACE_NEE_CACHE_CLEAN_PROVIDER_STARTUP_DELAY_FRAMES;
+        m_smokeNeeCacheState.cleanProviderStartupRefreshFrames = 0u;
+        m_smokeNeeCacheState.cleanProviderStableViewFrames = 0u;
     }
     if (neeCacheResourceReady && neeCacheSettings.enabled && neeCacheRluInputs.remixDenseDomain && !neeCacheSecondaryVisualSnapshotHold && !m_smokeNeeCacheState.cleanProviderSnapshotHoldActive)
     {
@@ -1465,16 +1498,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanNeeCacheProviderStartupRefreshActive =
         cleanNeeCacheProviderRequestedEarly &&
         !cleanNeeCacheProviderStartupDelayActive &&
-        cleanNeeCacheProviderViewStable &&
         m_smokeNeeCacheState.cleanProviderStartupRefreshFrames > 0u;
+    // Prepass is expensive (full-screen CS over primary surfaces into 64k-cell
+    // NEE buffers). Only the short post-delay refresh burst (or diagnostics) —
+    // never every frame while hold is off.
     const bool cleanNeeCacheProviderBuildPrepassRequested =
         cleanNeeCacheProviderRequestedEarly &&
         !neeCacheSecondaryVisualBandActive &&
         neeCacheCandidateBuildRequested &&
-        (!cleanNeeCacheProviderStartupDelayActive ||
-            cleanRestirGiNeeCacheLiveDiagnosticRefresh) &&
-        (!m_smokeNeeCacheState.cleanProviderSnapshotHoldActive ||
-            cleanNeeCacheProviderStartupRefreshActive ||
+        !cleanNeeCacheProviderStartupDelayActive &&
+        (cleanNeeCacheProviderStartupRefreshActive ||
             cleanRestirGiNeeCacheLiveDiagnosticRefresh) &&
         !neeCacheSecondaryVisualSnapshotHold;
     const bool cleanNeeCacheBuildPrepassRequested =
@@ -3793,10 +3826,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_SPATIAL_REUSE;
         }
-        if (r_pathTracingCleanRtxdiDiGlassReflection.GetInteger() != 0)
-        {
-            cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION;
-        }
         if (r_pathTracingCleanRtxdiDiGlassReflectionPsr.GetInteger() != 0)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR;
@@ -3805,6 +3834,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS;
         }
+        const bool glassReflectionProducerActive =
+            r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
+            r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
         if (r_pathTracingCleanRtxdiDiGlassDistortion.GetInteger() != 0)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_GLASS_DISTORTION;
@@ -4018,7 +4050,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool() ? 4u : 0u);
         cleanConstants.doomAnalyticLightInfo[3] = static_cast<float>(cleanAnalyticLightFlags);
         cleanConstants.motionVectorInfo[0] = cleanRtxdiDiView >= 5 || r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
-        // y = dedicated reflection secondary RIS candidate count M (1-16).
+        // y = bounded analytic reflection RIS candidate count M (1..16).
         cleanConstants.motionVectorInfo[1] = static_cast<float>(
             idMath::ClampInt(1, 16, r_pathTracingReflectionSecondarySamples.GetInteger()));
         cleanConstants.motionVectorInfo[2] = static_cast<float>(idMath::ClampInt(1, 128, r_pathTracingRestirPTAnalyticLightTrials.GetInteger()));
@@ -4096,8 +4128,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             dispatchConstants.flags |= CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS;
         }
         commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
-        if (r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
-            r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0)
+        if (glassReflectionProducerActive)
         {
             // Primary surface replacement for thin glass: trace through glass
             // pixels and swap their primary-surface records for the behind-glass

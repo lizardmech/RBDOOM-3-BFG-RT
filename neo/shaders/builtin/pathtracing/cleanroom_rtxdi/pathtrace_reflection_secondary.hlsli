@@ -5,7 +5,7 @@
 //
 // Jobs:
 //   Trace a simplified reflection ray (Dirac glass / high-gloss callers).
-//   Shade the hit with direct lights + emissive (not full clean DI / ReSTIR-PT).
+//   Add exact hit emissive, then bounded analytic RIS direct lighting.
 //
 // Callers multiply by Fresnel / specular weight. This module does not own
 // glass Fresnel, PSR lane select, or RR guide policy.
@@ -21,7 +21,7 @@
 
 // Budget for simplified secondary shade.
 // Host packs RIS candidate count M in CleanRtxdiDiMotionVectorInfo.y (1-16).
-// Default M~7 matches Remix rtx.risLightSampleCount class of secondary NEE.
+// Validated default M=8; candidates select one analytic shade and at most one shadow ray.
 // Shadows off via CLEAN_FLAG_REFLECTION_SECONDARY_NO_SHADOWS.
 //
 // Quality path is RIS (M candidates -> 1 light + 1 shadow), NOT multi-SPP
@@ -40,11 +40,6 @@ PathTraceReflectionSecondaryBudget PathTraceReflectionSecondaryBudgetFromConstan
     budget.enableShadows =
         ((CleanRtxdiDiFlags & CLEAN_FLAG_REFLECTION_SECONDARY_NO_SHADOWS) == 0u) ? 1u : 0u;
     return budget;
-}
-
-PathTraceReflectionSecondaryBudget PathTraceReflectionSecondaryBudgetDefault()
-{
-    return PathTraceReflectionSecondaryBudgetFromConstants();
 }
 
 struct PathTraceReflectionSecondaryHit
@@ -111,7 +106,7 @@ bool PathTraceReflectionSecondaryTrace(
     return hit.valid;
 }
 
-// Build a mirror candidate from the surface view and trace (glass Option B /
+// Build a mirror candidate from the surface view and trace (dense glass hybrid /
 // secondary path without a pre-built PSR candidate).
 bool PathTraceReflectionSecondaryTraceMirrorFromSurface(
     RAB_Surface surface,
@@ -471,97 +466,6 @@ float3 PathTraceReflectionSecondaryShade(
     }
 
     return radiance;
-}
-
-float3 PathTraceReflectionSecondaryShadeDefault(
-    RAB_Surface hitSurface,
-    inout RTXDI_RandomSamplerState rng)
-{
-    return PathTraceReflectionSecondaryShade(
-        hitSurface,
-        PathTraceReflectionSecondaryBudgetDefault(),
-        rng);
-}
-
-// ---------------------------------------------------------------------------
-// Compatibility wrappers (legacy PathTraceCleanRtxdiDi* names)
-// ---------------------------------------------------------------------------
-
-bool PathTraceCleanRtxdiDiTraceReflectionPsrHit(
-    RAB_Surface surface,
-    PathTraceCleanRtxdiDiReflectionPsrCandidate candidate,
-    out PathTraceCleanRtxdiPayload hitPayload,
-    out float3 hitPosition,
-    out float3 rayDirection)
-{
-    PathTraceReflectionSecondaryHit hit;
-    const bool ok = PathTraceReflectionSecondaryTrace(surface, candidate, hit);
-    hitPayload = hit.payload;
-    hitPosition = hit.hitPosition;
-    rayDirection = hit.rayDirection;
-    return ok;
-}
-
-bool PathTraceCleanRtxdiDiTraceReflectionHit(
-    RAB_Surface surface,
-    out PathTraceCleanRtxdiPayload hitPayload,
-    out float3 hitPosition,
-    out float3 rayDirection)
-{
-    PathTraceReflectionSecondaryHit hit;
-    const bool ok = PathTraceReflectionSecondaryTraceMirrorFromSurface(surface, hit);
-    hitPayload = hit.payload;
-    hitPosition = hit.hitPosition;
-    rayDirection = hit.rayDirection;
-    return ok;
-}
-
-bool PathTraceCleanRtxdiDiReflectionAnalyticPayloadValid(PathTraceDoomAnalyticLightCandidate light)
-{
-    return PathTraceReflectionSecondaryAnalyticPayloadValid(light);
-}
-
-RAB_LightInfo PathTraceCleanRtxdiDiBuildReflectionAnalyticLightInfo(
-    PathTraceDoomAnalyticLightCandidate light,
-    uint lightIndex)
-{
-    return PathTraceReflectionSecondaryBuildAnalyticLightInfo(light, lightIndex);
-}
-
-float PathTraceCleanRtxdiDiReflectionTraceVisibility(RAB_Surface surface, float3 samplePosition)
-{
-    return PathTraceReflectionSecondaryTraceVisibility(surface, samplePosition);
-}
-
-float PathTraceCleanRtxdiDiReflectionSecondaryNeeMisWeight(
-    RAB_Surface surface,
-    RAB_LightSample lightSample,
-    float3 lightDir)
-{
-    return PathTraceReflectionSecondaryNeeMisWeight(surface, lightSample, lightDir);
-}
-
-bool PathTraceCleanRtxdiDiAccumulateReflectionAnalyticLight(
-    inout float3 radiance,
-    RAB_Surface hitSurface,
-    RAB_LightInfo lightInfo,
-    float sourcePdf,
-    inout RTXDI_RandomSamplerState rng)
-{
-    return PathTraceReflectionSecondaryAccumulateAnalyticLight(
-        radiance,
-        hitSurface,
-        lightInfo,
-        sourcePdf,
-        PathTraceReflectionSecondaryBudgetDefault(),
-        rng);
-}
-
-float3 PathTraceCleanRtxdiDiShadeReflectionHit(
-    RAB_Surface hitSurface,
-    inout RTXDI_RandomSamplerState rng)
-{
-    return PathTraceReflectionSecondaryShadeDefault(hitSurface, rng);
 }
 
 #endif // CLEAN_RTXDI_DI_TRANSMISSION_PSR_TRANSPORT || CLEAN_RTXDI_DI_REFLECTION_SECONDARY

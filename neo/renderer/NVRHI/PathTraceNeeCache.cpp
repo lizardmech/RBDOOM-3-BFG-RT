@@ -362,10 +362,9 @@ void PathTraceNeeCacheState::ObserveRluSignatures(uint64_t structuralSignature, 
         {
             invalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_MAPPING;
         }
-        if (payloadSignature != observedRluPayloadSignature)
-        {
-            invalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_PAYLOAD;
-        }
+        // Payload-only differences are caller-gated via changeFlags. Auto-flagging
+        // them here forced a full 4-buffer clear every frame under animated lights
+        // whenever the clean DI NEE-cache provider had not yet entered snapshot hold.
     }
 
     observedRluStructuralSignature = structuralSignature;

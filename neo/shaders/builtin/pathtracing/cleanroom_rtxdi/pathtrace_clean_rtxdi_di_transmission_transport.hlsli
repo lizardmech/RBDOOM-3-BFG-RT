@@ -206,8 +206,7 @@ PathTraceCleanRtxdiDiReflectionPsrCandidate PathTraceCleanRtxdiDiBuildReflection
 //   2. Otherwise stick to the previous frame's glass PSR lane when still valid.
 //   3. Otherwise pick the higher-energy lobe (pReflection >= 0.5).
 //
-// Throughput is the selected lobe throughput without 1/p MIS (single-surface
-// ownership; the weak lobe is deferred, not dual-shaded).
+// selectedThroughput is the raw deterministic/sticky selected-lobe weight.
 struct PathTraceCleanRtxdiDiReflectionPsrSelection
 {
     bool reflectionSelected;
@@ -217,7 +216,7 @@ struct PathTraceCleanRtxdiDiReflectionPsrSelection
     bool sticky;
     float pReflection;
     float pTransmission;
-    float3 selectedThroughputOverPdf;
+    float3 selectedThroughput;
     float3 reflectionThroughput;
     float3 transmissionThroughput;
 };
@@ -232,7 +231,7 @@ PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiReflectionPsrSe
     selection.sticky = false;
     selection.pReflection = 0.0;
     selection.pTransmission = 0.0;
-    selection.selectedThroughputOverPdf = float3(0.0, 0.0, 0.0);
+    selection.selectedThroughput = float3(0.0, 0.0, 0.0);
     selection.reflectionThroughput = float3(0.0, 0.0, 0.0);
     selection.transmissionThroughput = float3(0.0, 0.0, 0.0);
     return selection;
@@ -266,7 +265,7 @@ PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiSelectReflectio
         selection.reflectionSelected = true;
         selection.pReflection = 1.0;
         selection.pTransmission = 0.0;
-        selection.selectedThroughputOverPdf = selection.reflectionThroughput;
+        selection.selectedThroughput = selection.reflectionThroughput;
         selection.laneChanged = !(previousGlassPsrValid && previousReflectionLane);
         selection.sticky = previousGlassPsrValid && previousReflectionLane;
         return selection;
@@ -277,7 +276,7 @@ PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiSelectReflectio
         selection.transmissionSelected = true;
         selection.pReflection = 0.0;
         selection.pTransmission = 1.0;
-        selection.selectedThroughputOverPdf = selection.transmissionThroughput;
+        selection.selectedThroughput = selection.transmissionThroughput;
         selection.laneChanged = !(previousGlassPsrValid && previousTransmissionLane);
         selection.sticky = previousGlassPsrValid && previousTransmissionLane;
         return selection;
@@ -318,24 +317,21 @@ PathTraceCleanRtxdiDiReflectionPsrSelection PathTraceCleanRtxdiDiSelectReflectio
     if (chooseReflection)
     {
         selection.reflectionSelected = true;
-        selection.selectedThroughputOverPdf = selection.reflectionThroughput;
+        selection.selectedThroughput = selection.reflectionThroughput;
         selection.laneChanged = !(previousGlassPsrValid && previousReflectionLane);
         selection.sticky = sticky && previousReflectionLane;
     }
     else
     {
         selection.transmissionSelected = true;
-        selection.selectedThroughputOverPdf = selection.transmissionThroughput;
+        selection.selectedThroughput = selection.transmissionThroughput;
         selection.laneChanged = !(previousGlassPsrValid && previousTransmissionLane);
         selection.sticky = sticky && previousTransmissionLane;
     }
     return selection;
 }
 
-// Reflection secondary (dedicated ray + simplified shade) lives in
-// pathtrace_reflection_secondary.hlsli. Included here so glass PSR transport
-// keeps a single include path; legacy PathTraceCleanRtxdiDiTrace/ShadeReflection*
-// names remain as wrappers in that module.
+// Reflection trace and bounded analytic shade service.
 #include "pathtrace_reflection_secondary.hlsli"
 
 #endif

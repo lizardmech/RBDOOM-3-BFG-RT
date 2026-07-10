@@ -440,7 +440,6 @@ static const uint CLEAN_FLAG_PREVIOUS_BEST_APPROXIMATION = 1u << 12u;
 static const uint CLEAN_FLAG_INITIAL_VISIBILITY = 1u << 17u;
 static const uint CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 static const uint CLEAN_FLAG_TRANSMISSION_PSR_PHASE = 1u << 20u;
-static const uint CLEAN_FLAG_GLASS_REFLECTION = 1u << 21u;
 static const uint CLEAN_FLAG_GLASS_DISTORTION = 1u << 22u;
 static const uint CLEAN_FLAG_GLASS_REFRACTED_PSR = 1u << 23u;
 static const uint CLEAN_FLAG_GLASS_REFLECTION_PSR = 1u << 25u;

@@ -78,6 +78,17 @@ Read these before starting any task:
     docs/modular_shaders/README.txt
     docs/modular_shaders/worker_protocol.txt
     docs/modular_shaders/material_contract.txt
+
+Glass / reflection quality (view-16 clean DI):
+
+    docs/modular_shaders/basic_glass_psr_reflection_steps.txt
+    docs/modular_shaders/dedicated_reflection_secondary_steps.txt
+    docs/modular_shaders/stable_reflection_hit_lighting_steps.txt
+        **Single production system: deterministic hybrid clear glass. Existing
+        clean DI shades the transmitted/primary surface; one mirror hit per
+        glass pixel supplies exact emissive, bounded analytic RIS lighting,
+        dense RR material guides, and Fresnel sidecar radiance. Duplicate
+        sparse, linked-DI/GI, NEE-cache, and legacy fallback systems are removed.**
     docs/modular_shaders/io_whitelist.txt
     docs/modular_shaders/worker_tasks.txt
     docs/modular_shaders/validation_matrix.txt

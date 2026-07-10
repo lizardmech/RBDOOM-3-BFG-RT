@@ -1647,23 +1647,17 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 transmission producer debug output: 0 off, 1 thin-glass payload, 2 source validity red=strict green=relaxed blue=current-source energy, 3 PSR status green=replaced yellow=miss red=still-glass gray=not-glass, 4 reflection sidecar radiance, 5 cosmetic distortion sidecar, 6 cosmetic distorted source preview, 7 cosmetic distortion source difference, 8 normal-map diagnostic, 9 procedural warped checker, 10 reflection PSR lane/trace mask green=reflection-hit blue=transmission-selected cyan=candidate magenta=rejected yellow=reflection-miss gray=empty, 11 reflection PSR candidate class green=hit/selected cyan=transmission red=rejected yellow=miss gray=empty" );
 
-idCVar r_pathTracingCleanRtxdiDiGlassReflection(
-    "r_pathTracingCleanRtxdiDiGlassReflection",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 Option B glass reflection sidecar: 0 off (default), 1 shade mirror hits and ADD radiance when reflection PSR does not own the primary" );
-
 idCVar r_pathTracingCleanRtxdiDiGlassReflectionPsr(
     "r_pathTracingCleanRtxdiDiGlassReflectionPsr",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 glass reflection PSR (default on): lane-select + mirror primary when energy-owned; T-owned still shades/adds mirror and feeds RR material blend" );
+    "Clean RTXDI DI view 16 glass reflection system (default on): deterministic/sticky PSR transport, one dense mirror hit, exact hit emissive, and bounded analytic RIS sidecar lighting" );
 
 idCVar r_pathTracingReflectionSecondarySamples(
     "r_pathTracingReflectionSecondarySamples",
-    "7",
+    "8",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Dedicated reflection secondary RIS candidate count M (1-16, default 7). Selects ONE light + ONE shadow; not multi-SPP average. Quality path is RIS or R-owned primary DI, not raising M for multi-shade" );
+    "Glass reflection analytic RIS candidate count M (1-16, default 8), committing at most one shade and one shadow ray. Not multi-SPP" );
 
 idCVar r_pathTracingReflectionSecondaryShadows(
     "r_pathTracingReflectionSecondaryShadows",
@@ -2207,9 +2201,9 @@ idCVar r_pathTracingCleanRestirGiRrSpecularInput(
 
 idCVar r_pathTracingCleanRestirGiResolve(
     "r_pathTracingCleanRestirGiResolve",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room ReSTIR GI: add the final-shaded GI output into the combined resolve. Default 0 until RGI-07. Debug views work without it" );
+    "Clean-room ReSTIR GI: add the final-shaded GI output into the combined resolve (T path / behind-glass). Default 1. Glass hybrid R also needs LinkedGi so mirror GI is written into the reflection sidecar" );
 
 idCVar r_pathTracingCleanRestirGiResolveGain(
     "r_pathTracingCleanRestirGiResolveGain",
