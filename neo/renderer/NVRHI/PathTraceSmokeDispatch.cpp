@@ -1187,7 +1187,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiPsrMaskView = cleanRtxdiDiView == 25;
     const int cleanRtxdiDiResolveView = cleanRtxdiDiRrGuideDebugView ? 16 : cleanRtxdiDiView;
     const int cleanRtxdiDiMaterialFeatureView = cleanRtxdiDiPsrMaskView ? 16 : cleanRtxdiDiResolveView;
-    const int cleanRtxdiDiView18Tile = idMath::ClampInt(-1, 6, r_pathTracingCleanRtxdiDiView18Tile.GetInteger());
+    const int cleanRtxdiDiView18Tile = idMath::ClampInt(-1, 7, r_pathTracingCleanRtxdiDiView18Tile.GetInteger());
     const uint32_t cleanRtxdiDiFrameIndexForDispatch = r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0
         ? 0u
         : m_smokeCleanRtxdiDiFrameIndex;
@@ -4277,32 +4277,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nsightGpuMarkers);
         };
         dispatchCleanMaterialFeatureCompose();
-        if (cleanRtxdiDiRrGuideDebugView)
-        {
-            commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
-            nvrhi::rt::State cleanMosaicState = cleanState;
-            cleanMosaicState.shaderTable = m_smokeCleanRtxdiDiSentinelShaderTable;
-            commandList->setRayTracingState(cleanMosaicState);
-            PathTraceCleanRtxdiDiSentinelConstants mosaicConstants = cleanConstants;
-            mosaicConstants.view = static_cast<uint32_t>(cleanRtxdiDiView);
-            commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &mosaicConstants, sizeof(mosaicConstants));
-            {
-                PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.3 RrGuideMosaic DispatchRays", nsightGpuMarkers);
-                commandList->dispatchRays(cleanArgs);
-            }
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
-        }
         auto dispatchCleanRestirGi = [&](bool resolveToRrInputColor) -> bool
         {
             PathTraceCleanRestirGiDispatchInputs giInputs;
@@ -4579,6 +4553,34 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             // reprojection into current-frame lookups.
             dispatchCleanRestirGi(false);
             dispatchCleanMaterialFeatureCompose();
+        }
+        if (cleanRtxdiDiRrGuideDebugView)
+        {
+            // Draw after all guide producers, including Clean GI. Clearing or
+            // drawing before GI made specular hit distance permanently empty
+            // in this diagnostic even when the live DLSS-RR input was valid.
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
+            nvrhi::rt::State cleanMosaicState = cleanState;
+            cleanMosaicState.shaderTable = m_smokeCleanRtxdiDiSentinelShaderTable;
+            commandList->setRayTracingState(cleanMosaicState);
+            PathTraceCleanRtxdiDiSentinelConstants mosaicConstants = cleanConstants;
+            mosaicConstants.view = static_cast<uint32_t>(cleanRtxdiDiView);
+            commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &mosaicConstants, sizeof(mosaicConstants));
+            {
+                PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.3 RrGuideMosaic DispatchRays", nsightGpuMarkers);
+                commandList->dispatchRays(cleanArgs);
+            }
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
         }
         if (cleanRtxdiDiView >= 2 && cleanPromoteSubviewSurface)
         {

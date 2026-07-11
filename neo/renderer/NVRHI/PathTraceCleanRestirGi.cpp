@@ -177,6 +177,7 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(84));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(85));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(86));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(93));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(48));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(51));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
@@ -195,6 +196,9 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     nvrhi::ShaderHandle producerLeanTraceRayGen = state.shaderLibrary->getShader("FirstIndirectLeanTraceRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle producerLeanShadeRayGen = state.shaderLibrary->getShader("FirstIndirectLeanShadeRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle producerRoughFallbackRayGen = state.shaderLibrary->getShader("FirstIndirectTraceRoughFallbackRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle continuationRayGen = state.shaderLibrary->getShader("FirstIndirectContinuationRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle continuationTraceRayGen = state.shaderLibrary->getShader("FirstIndirectContinuationTraceRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle continuationShadeRayGen = state.shaderLibrary->getShader("FirstIndirectContinuationShadeRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle producerShadeRayGen = state.shaderLibrary->getShader("FirstIndirectShadeRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle producerShadeFastRayGen = state.shaderLibrary->getShader("FirstIndirectShadeFastRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle seedRayGen = state.shaderLibrary->getShader("SeedRayGen", nvrhi::ShaderType::RayGeneration);
@@ -210,7 +214,8 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     nvrhi::ShaderHandle shadowClosestHit = state.shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
     nvrhi::ShaderHandle shadowAnyHit = state.shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
     if (!producerTraceRayGen || !producerSimpleRayGen || !producerLeanTraceRayGen || !producerLeanShadeRayGen ||
-        !producerRoughFallbackRayGen || !producerShadeRayGen || !producerShadeFastRayGen || !seedRayGen || !seedNoSpecRayGen ||
+        !producerRoughFallbackRayGen || !continuationRayGen || !continuationTraceRayGen || !continuationShadeRayGen ||
+        !producerShadeRayGen || !producerShadeFastRayGen || !seedRayGen || !seedNoSpecRayGen ||
         !specularSeedTraceRayGen || !specularSeedShadeRayGen || !specularSeedShadeFastRayGen || !reuseRayGen ||
         !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
     {
@@ -226,6 +231,9 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         { "", producerLeanTraceRayGen, nullptr },
         { "", producerLeanShadeRayGen, nullptr },
         { "", producerRoughFallbackRayGen, nullptr },
+        { "", continuationRayGen, nullptr },
+        { "", continuationTraceRayGen, nullptr },
+        { "", continuationShadeRayGen, nullptr },
         { "", producerShadeRayGen, nullptr },
         { "", producerShadeFastRayGen, nullptr },
         { "", seedRayGen, nullptr },
@@ -256,6 +264,9 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     state.producerLeanTraceShaderTable = state.pipeline->createShaderTable();
     state.producerLeanShadeShaderTable = state.pipeline->createShaderTable();
     state.producerRoughFallbackShaderTable = state.pipeline->createShaderTable();
+    state.continuationShaderTable = state.pipeline->createShaderTable();
+    state.continuationTraceShaderTable = state.pipeline->createShaderTable();
+    state.continuationShadeShaderTable = state.pipeline->createShaderTable();
     state.shadeShaderTable = state.pipeline->createShaderTable();
     state.shadeFastShaderTable = state.pipeline->createShaderTable();
     state.seedShaderTable = state.pipeline->createShaderTable();
@@ -266,7 +277,8 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     state.reuseShaderTable = state.pipeline->createShaderTable();
     if (!state.producerShaderTable || !state.producerSimpleShaderTable ||
         !state.producerLeanTraceShaderTable || !state.producerLeanShadeShaderTable ||
-        !state.producerRoughFallbackShaderTable ||
+        !state.producerRoughFallbackShaderTable || !state.continuationShaderTable ||
+        !state.continuationTraceShaderTable || !state.continuationShadeShaderTable ||
         !state.shadeShaderTable || !state.shadeFastShaderTable || !state.seedShaderTable ||
         !state.seedNoSpecShaderTable || !state.specularSeedTraceShaderTable ||
         !state.specularSeedShadeShaderTable || !state.specularSeedShadeFastShaderTable ||
@@ -305,6 +317,24 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     state.producerRoughFallbackShaderTable->addMissShader("ShadowMiss");
     state.producerRoughFallbackShaderTable->addHitGroup("HitGroup");
     state.producerRoughFallbackShaderTable->addHitGroup("ShadowHitGroup");
+
+    state.continuationShaderTable->setRayGenerationShader("FirstIndirectContinuationRayGen");
+    state.continuationShaderTable->addMissShader("Miss");
+    state.continuationShaderTable->addMissShader("ShadowMiss");
+    state.continuationShaderTable->addHitGroup("HitGroup");
+    state.continuationShaderTable->addHitGroup("ShadowHitGroup");
+
+    state.continuationTraceShaderTable->setRayGenerationShader("FirstIndirectContinuationTraceRayGen");
+    state.continuationTraceShaderTable->addMissShader("Miss");
+    state.continuationTraceShaderTable->addMissShader("ShadowMiss");
+    state.continuationTraceShaderTable->addHitGroup("HitGroup");
+    state.continuationTraceShaderTable->addHitGroup("ShadowHitGroup");
+
+    state.continuationShadeShaderTable->setRayGenerationShader("FirstIndirectContinuationShadeRayGen");
+    state.continuationShadeShaderTable->addMissShader("Miss");
+    state.continuationShadeShaderTable->addMissShader("ShadowMiss");
+    state.continuationShadeShaderTable->addHitGroup("HitGroup");
+    state.continuationShadeShaderTable->addHitGroup("ShadowHitGroup");
 
     state.shadeShaderTable->setRayGenerationShader("FirstIndirectShadeRayGen");
     state.shadeShaderTable->addMissShader("Miss");
@@ -401,6 +431,7 @@ void CleanRestirGiAddCommonComputeBindingLayoutItems(nvrhi::BindingLayoutDesc& l
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(84));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(85));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(86));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(93));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(48));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(51));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
@@ -753,6 +784,7 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         state.producerRadianceTexture &&
         state.producerHitPositionTexture &&
         state.producerHitNormalTexture &&
+        state.continuationRadianceTexture &&
         state.producerSurfaceBuffer &&
         state.indirectDiffuseTexture &&
         state.indirectDiffuseLobeTexture &&
@@ -783,6 +815,9 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         producerDesc.debugName = "PathTraceCleanRestirGiProducerHitNormal";
         state.producerHitNormalTexture = inputs.device->createTexture(producerDesc);
 
+        producerDesc.debugName = "PathTraceCleanRestirGiContinuationRadiance";
+        state.continuationRadianceTexture = inputs.device->createTexture(producerDesc);
+
         producerDesc.format = nvrhi::Format::RGBA16_FLOAT;
         producerDesc.debugName = "PathTraceCleanRestirGiIndirectDiffuse";
         state.indirectDiffuseTexture = inputs.device->createTexture(producerDesc);
@@ -806,7 +841,7 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         state.producerSurfaceBuffer = inputs.device->createBuffer(surfaceBufferDesc);
 
         if (!state.producerRadianceTexture || !state.producerHitPositionTexture || !state.producerHitNormalTexture ||
-            !state.producerSurfaceBuffer ||
+            !state.continuationRadianceTexture || !state.producerSurfaceBuffer ||
             !state.indirectDiffuseTexture || !state.indirectDiffuseLobeTexture || !state.indirectSpecularLobeTexture)
         {
             common->Printf("PathTraceCleanRestirGi: failed to create GI producer textures (%ux%u)\n", width, height);
@@ -832,6 +867,7 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     producerRadianceTexture = nullptr;
     producerHitPositionTexture = nullptr;
     producerHitNormalTexture = nullptr;
+    continuationRadianceTexture = nullptr;
     producerSurfaceBuffer = nullptr;
     indirectDiffuseTexture = nullptr;
     indirectDiffuseLobeTexture = nullptr;
@@ -860,6 +896,9 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     producerLeanTraceShaderTable = nullptr;
     producerLeanShadeShaderTable = nullptr;
     producerRoughFallbackShaderTable = nullptr;
+    continuationShaderTable = nullptr;
+    continuationTraceShaderTable = nullptr;
+    continuationShadeShaderTable = nullptr;
     shadeShaderTable = nullptr;
     shadeFastShaderTable = nullptr;
     seedShaderTable = nullptr;
@@ -1091,6 +1130,7 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(84, state.indirectDiffuseTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(85, state.indirectDiffuseLobeTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(86, state.indirectSpecularLobeTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(93, state.continuationRadianceTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(48, inputs.rrGuideAlbedoTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(51, inputs.rrGuideHitDistanceTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, inputs.rrInputColorTexture));
@@ -1183,6 +1223,7 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setTextureState(state.producerRadianceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(state.producerHitPositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(state.producerHitNormalTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(state.continuationRadianceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setAccelStructState(inputs.tlas, nvrhi::ResourceStates::AccelStructRead);
     commandList->setBufferState(state.reservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(state.producerSurfaceBuffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -1271,6 +1312,40 @@ bool PathTraceCleanRestirGiExecute(
     giArgs.width = inputs.width;
     giArgs.height = inputs.height;
     giArgs.depth = 1;
+
+    auto dispatchContinuation = [&](const char* marker)
+    {
+        nvrhi::rt::State continuationState;
+        continuationState.shaderTable = state.continuationShaderTable;
+        continuationState.bindings = { bindingSet, inputs.textureDescriptorTable };
+        if (nsightGpuMarkers) { commandList->beginMarker(marker); }
+        commandList->setRayTracingState(continuationState);
+        commandList->dispatchRays(giArgs);
+        if (nsightGpuMarkers) { commandList->endMarker(); }
+        nvrhi::utils::TextureUavBarrier(commandList, state.continuationRadianceTexture);
+    };
+
+    auto dispatchSplitContinuation = [&]()
+    {
+        nvrhi::rt::State continuationTraceState;
+        continuationTraceState.shaderTable = state.continuationTraceShaderTable;
+        continuationTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
+        if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0c ContinuationTrace DispatchRays"); }
+        commandList->setRayTracingState(continuationTraceState);
+        commandList->dispatchRays(giArgs);
+        if (nsightGpuMarkers) { commandList->endMarker(); }
+        nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
+        nvrhi::utils::TextureUavBarrier(commandList, state.continuationRadianceTexture);
+
+        nvrhi::rt::State continuationShadeState;
+        continuationShadeState.shaderTable = state.continuationShadeShaderTable;
+        continuationShadeState.bindings = { bindingSet, inputs.textureDescriptorTable };
+        if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0d ContinuationShade DispatchRays"); }
+        commandList->setRayTracingState(continuationShadeState);
+        commandList->dispatchRays(giArgs);
+        if (nsightGpuMarkers) { commandList->endMarker(); }
+        nvrhi::utils::TextureUavBarrier(commandList, state.producerRadianceTexture);
+    };
 
     // Remix-shaped split: first produce indirect candidate radiance/hit
     // geometry, then run GI reuse/final shading as a separate consumer pass.
@@ -1407,6 +1482,11 @@ bool PathTraceCleanRestirGiExecute(
         if (nsightGpuMarkers) { commandList->endMarker(); }
 
         nvrhi::utils::TextureUavBarrier(commandList, state.producerRadianceTexture);
+
+        if (tail.maxBounces >= 2u)
+        {
+            dispatchSplitContinuation();
+        }
     }
 
     // INIT-page seed pass: mode 1 splits the specular producer's trace and
@@ -1433,6 +1513,11 @@ bool PathTraceCleanRestirGiExecute(
         commandList->dispatchRays(giArgs);
         if (nsightGpuMarkers) { commandList->endMarker(); }
         nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
+
+        if (tail.maxBounces >= 2u)
+        {
+            dispatchContinuation("FirstIndirect.0e Continuation DispatchRays");
+        }
 
         nvrhi::rt::State specularSeedShadeState;
         specularSeedShadeState.shaderTable = defaultOneSampleShade ? state.specularSeedShadeFastShaderTable : state.specularSeedShadeShaderTable;

@@ -1825,7 +1825,7 @@ idCVar r_pathTracingCleanRtxdiDiView18Tile(
     "r_pathTracingCleanRtxdiDiView18Tile",
     "-1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: force view 18 to show one DLSS RR input full-screen; -1 keeps the 2x3 mosaic, 0 albedo, 1 normal/roughness, 2 specular albedo, 3 input color, 4 depth/hit distance, 5 motion/reset, 6 max(input color, specular guide)" );
+    "Clean-room Remix DI diagnostic: force view 18 to show one DLSS RR input full-screen; -1 keeps the 2x3 mosaic, 0 albedo, 1 normal/roughness, 2 specular albedo, 3 input color, 4 depth/hit distance, 5 motion/reset, 6 max(input color, specular guide), 7 specular hit distance only using Remix linear grayscale hitDistance/1000" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",
@@ -2057,7 +2057,7 @@ idCVar r_pathTracingCleanRestirGiBlueNoise(
 
 idCVar r_pathTracingCleanRestirGiMaxBounces(
     "r_pathTracingCleanRestirGiMaxBounces",
-    "1",
+    "2",
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room ReSTIR GI producer path depth: 1 keeps the current primary->secondary path, 2 adds one secondary->tertiary continuation bounce" );
 
@@ -2069,15 +2069,15 @@ idCVar r_pathTracingCleanRestirGiContinuationRoulette(
 
 idCVar r_pathTracingCleanRestirGiContinuationRouletteMin(
     "r_pathTracingCleanRestirGiContinuationRouletteMin",
-    "0.6",
+    "0.1",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Clean-room ReSTIR GI continuation roulette minimum probability for secondary->tertiary paths" );
+    "Clean-room ReSTIR GI 2nd+ bounce diffuse continuation probability (legacy Min name); 0.1 matches Remix specular-based shipping configuration" );
 
 idCVar r_pathTracingCleanRestirGiContinuationRouletteMax(
     "r_pathTracingCleanRestirGiContinuationRouletteMax",
-    "0.9",
+    "0.98",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Clean-room ReSTIR GI continuation roulette maximum probability for secondary->tertiary paths" );
+    "Clean-room ReSTIR GI 2nd+ bounce specular continuation probability (legacy Max name); blended by roughness and a 0.1 segment-distance factor like Remix" );
 
 idCVar r_pathTracingCleanRestirGiContinuationDirectProbability(
     "r_pathTracingCleanRestirGiContinuationDirectProbability",
@@ -2203,7 +2203,7 @@ idCVar r_pathTracingCleanRestirGiRrSpecularInput(
     "r_pathTracingCleanRestirGiRrSpecularInput",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room ReSTIR GI: add eligible stored specular GI into PathTraceRRInputColor for RR/DLSS experiments. Requires the specular producer and is off by default for A/B validation" );
+    "Clean-room ReSTIR GI: add eligible stored specular GI into PathTraceRRInputColor only when the full GI resolve is not already feeding RR. Off by default; the old path double-added specular when both routes were active" );
 
 idCVar r_pathTracingCleanRestirGiResolve(
     "r_pathTracingCleanRestirGiResolve",
@@ -2623,7 +2623,7 @@ idCVar r_pathTracingDLSSRRGuideDebugView(
     "r_pathTracingDLSSRRGuideDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DLSS RR guide debug view: 0 = off, 1 = albedo, 2 = normal, 3 = roughness, 4 = depth, 5 = hit distance, 6 = motion-vector mask, 7 = reset/disocclusion mask, 8 = specular albedo/F0, 9 = RR input HDR preview, 10 = RR motion vector" );
+    "Mode 56 DLSS RR guide debug view: 0 = off, 1 = albedo, 2 = normal, 3 = roughness, 4 = depth, 5 = actual specular hit distance using Remix linear grayscale hitDistance/1000, 6 = motion-vector mask, 7 = reset/disocclusion mask, 8 = specular albedo/F0, 9 = RR input HDR preview, 10 = RR motion vector" );
 
 idCVar r_pathTracingDLSSRRProbe(
     "r_pathTracingDLSSRRProbe",

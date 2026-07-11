@@ -26,6 +26,7 @@ struct PathTraceCleanRestirGiState
     nvrhi::TextureHandle producerRadianceTexture;
     nvrhi::TextureHandle producerHitPositionTexture;
     nvrhi::TextureHandle producerHitNormalTexture;
+    nvrhi::TextureHandle continuationRadianceTexture; // staged continuation throughput/radiance scratch
     nvrhi::BufferHandle producerSurfaceBuffer;   // trace->shade first-indirect candidate surface per pixel
     nvrhi::TextureHandle indirectDiffuseTexture;
     nvrhi::TextureHandle indirectDiffuseLobeTexture;
@@ -40,6 +41,9 @@ struct PathTraceCleanRestirGiState
     nvrhi::rt::ShaderTableHandle producerLeanTraceShaderTable;
     nvrhi::rt::ShaderTableHandle producerLeanShadeShaderTable;
     nvrhi::rt::ShaderTableHandle producerRoughFallbackShaderTable;
+    nvrhi::rt::ShaderTableHandle continuationShaderTable;      // combined fallback for split specular seed
+    nvrhi::rt::ShaderTableHandle continuationTraceShaderTable; // FirstIndirectContinuationTraceRayGen
+    nvrhi::rt::ShaderTableHandle continuationShadeShaderTable; // FirstIndirectContinuationShadeRayGen
     nvrhi::rt::ShaderTableHandle shadeShaderTable;      // FirstIndirectShadeRayGen
     nvrhi::rt::ShaderTableHandle shadeFastShaderTable;  // FirstIndirectShadeFastRayGen
     nvrhi::rt::ShaderTableHandle seedShaderTable;       // SeedRayGen (INIT-page seeds)

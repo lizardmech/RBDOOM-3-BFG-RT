@@ -248,6 +248,7 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiProducerHitNormal : 
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuse : register(u84);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuseLobe : register(u85);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectSpecularLobe : register(u86);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiContinuationRadiance : register(u93);
 
 // CleanGI currently owns the first consumer, but the trace->shade payload is a
 // first-indirect candidate surface rather than a GI-specific contract.
@@ -926,6 +927,8 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
 static const uint CLEAN_RESTIR_GI_PRODUCER_RNG_PASS = 0x52525810u;
 static const uint CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS = 0x52525813u;
 static const uint CLEAN_RESTIR_GI_GLOSSY_SECOND_RAY_RNG_PASS = 0x52525815u;
+static const uint CLEAN_RESTIR_GI_CONTINUATION_RNG_PASS = 0x52525816u;
+static const uint CLEAN_RESTIR_GI_CONTINUATION_SHADE_RNG_PASS = 0x52525817u;
 static const float CLEAN_RESTIR_GI_FIREFLY_FACTOR = 30.0;
 static const float CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MAX_ROUGHNESS = 0.35;
 static const float CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MIN_F0 = 0.035;
@@ -3770,17 +3773,28 @@ float CleanGiContinuationContinueProbability(RAB_Surface surface, bool sampledSp
         return 1.0;
     }
 
-    const float diffuseLuminance = CleanGiLuminance(GetDiffuseAlbedo(surface.material));
-    const float specularLuminance = CleanGiLuminance(GetSpecularF0(surface.material));
-    const float roughness = saturate(GetRoughness(surface.material));
-    const float specularImportance = saturate(specularLuminance * 8.0) * saturate(1.0 - roughness);
-    const float importance = sampledSpecular
-        ? max(specularImportance, diffuseLuminance * 0.25)
-        : diffuseLuminance;
-    return clamp(
-        importance,
-        CleanRestirGiContinuationRouletteMin,
-        CleanRestirGiContinuationRouletteMax);
+    // Remix shipping-style specular roulette for 2nd+ bounces. Its distance
+    // term is current segment length / accumulated camera-path length. The
+    // packed secondary surface gives us the segment and incoming direction,
+    // so reconstruct the primary vertex without another surface-buffer field.
+    float specularWeight = 0.0;
+    if (sampledSpecular)
+    {
+        const float segmentDistance = max(surface.linearDepth, 1.0e-4);
+        const float3 incomingDirection = CleanGiSafeNormalize(surface.viewDir, surface.geometryNormal);
+        const float3 primaryPosition = surface.worldPos + incomingDirection * segmentDistance;
+        const float primaryDistance = length(primaryPosition - CleanRtxdiDiCameraOriginAndValid.xyz);
+        const float accumulatedDistance = max(primaryDistance + segmentDistance, 1.0e-4);
+        const float segmentDistanceProportion = segmentDistance / accumulatedDistance;
+        const float perceptualRoughness = saturate(GetRoughness(surface.material));
+        const float distanceWeight = saturate(0.1 / max(segmentDistanceProportion, 1.0e-4));
+        specularWeight = saturate(1.0 - perceptualRoughness) * distanceWeight;
+    }
+
+    return lerp(
+        saturate(CleanRestirGiContinuationRouletteMin),
+        saturate(CleanRestirGiContinuationRouletteMax),
+        specularWeight);
 }
 
 float3 CleanGiTraceOneContinuationBounce(
@@ -3861,7 +3875,7 @@ float3 CleanGiShadeSecondaryVertex(
     bool primarySampledSpecular,
     inout RTXDI_RandomSamplerState rng)
 {
-    float3 radiance = CleanGiShadeDirectVertex(
+    const float3 radiance = CleanGiShadeDirectVertex(
         secondarySurface,
         hitGeometricNormal,
         secondaryEmissive,
@@ -3869,12 +3883,6 @@ float3 CleanGiShadeSecondaryVertex(
         true,
         CleanRestirGiSecondaryDirectProbability,
         CleanRestirGiSecondaryDirectSamples,
-        rng);
-
-    radiance += CleanGiTraceOneContinuationBounce(
-        secondarySurface,
-        hitGeometricNormal,
-        primarySampledSpecular,
         rng);
 
     return CleanGiAllFinite3(radiance) ? max(radiance, float3(0.0, 0.0, 0.0)) : float3(0.0, 0.0, 0.0);
@@ -4400,18 +4408,8 @@ bool CleanGiBuildProducerSurfaceRayQuery(
 }
 #endif
 
-float3 CleanGiShadeProducerSurface(RAB_Surface secondarySurface, bool primarySampledSpecular, inout RTXDI_RandomSamplerState rng)
+float3 CleanGiApplyProducerFireflyClamp(float3 producerRadiance)
 {
-    // Producer radiance contract: incoming radiance at the primary surface.
-    const float3 outgoing = CleanGiShadeSecondaryVertex(
-        secondarySurface,
-        secondarySurface.geometryNormal,
-        secondarySurface.material.emissiveRadiance,
-        primarySampledSpecular,
-        rng);
-
-    float3 producerRadiance = outgoing;
-
     // Firefly clamp (initial samples only). Matches the Remix shape:
     // luminance clamp at threshold * 30.
     const float fireflyThreshold = CleanRestirGiFireflyThreshold;
@@ -4425,7 +4423,36 @@ float3 CleanGiShadeProducerSurface(RAB_Surface secondarySurface, bool primarySam
         }
     }
 
-    return producerRadiance;
+    return CleanGiAllFinite3(producerRadiance)
+        ? max(producerRadiance, float3(0.0, 0.0, 0.0))
+        : float3(0.0, 0.0, 0.0);
+}
+
+float3 CleanGiShadeProducerSurfaceWithContinuation(
+    RAB_Surface secondarySurface,
+    bool primarySampledSpecular,
+    float3 continuationRadiance,
+    inout RTXDI_RandomSamplerState rng)
+{
+    // Producer radiance contract: incoming radiance at the primary surface.
+    // The continuation is generated by a separate dispatch, then folded into
+    // the producer before the initial-sample clamp and reservoir construction.
+    const float3 directRadiance = CleanGiShadeSecondaryVertex(
+        secondarySurface,
+        secondarySurface.geometryNormal,
+        secondarySurface.material.emissiveRadiance,
+        primarySampledSpecular,
+        rng);
+    return CleanGiApplyProducerFireflyClamp(directRadiance + continuationRadiance);
+}
+
+float3 CleanGiShadeProducerSurface(RAB_Surface secondarySurface, bool primarySampledSpecular, inout RTXDI_RandomSamplerState rng)
+{
+    return CleanGiShadeProducerSurfaceWithContinuation(
+        secondarySurface,
+        primarySampledSpecular,
+        float3(0.0, 0.0, 0.0),
+        rng);
 }
 
 float3 CleanGiShadeProducerSurfaceDefaultOneSample(RAB_Surface secondarySurface, inout RTXDI_RandomSamplerState rng)
@@ -4436,18 +4463,7 @@ float3 CleanGiShadeProducerSurfaceDefaultOneSample(RAB_Surface secondarySurface,
         secondarySurface.material.emissiveRadiance,
         rng);
 
-    const float fireflyThreshold = CleanRestirGiFireflyThreshold;
-    if (fireflyThreshold > 0.0)
-    {
-        const float clampLuminance = fireflyThreshold * CLEAN_RESTIR_GI_FIREFLY_FACTOR;
-        const float luminance = CleanGiLuminance(producerRadiance);
-        if (luminance > clampLuminance)
-        {
-            producerRadiance *= clampLuminance / max(luminance, 1.0e-6);
-        }
-    }
-
-    return CleanGiAllFinite3(producerRadiance) ? max(producerRadiance, float3(0.0, 0.0, 0.0)) : float3(0.0, 0.0, 0.0);
+    return CleanGiApplyProducerFireflyClamp(producerRadiance);
 }
 
 CleanGiProducerResult CleanGiMakeShadedFirstIndirectCandidate(RAB_Surface secondarySurface, float3 radiance, float sourcePdf)
@@ -5404,7 +5420,71 @@ bool CleanGiReflectiveOutputEligible(RAB_Surface surface, CleanGiIndirectLobeRes
 
 bool CleanGiShouldWriteRrHitDistance(RAB_Surface surface, CleanGiIndirectLobeResult lobes)
 {
-    return CleanRestirGiRrHitDistanceEnabled != 0u && CleanGiReflectiveOutputEligible(surface, lobes);
+    // Match Remix RR preparation: with ReSTIR GI active, diffuse-first and
+    // specular-first paths share the same first-indirect hit distance. Export
+    // every valid GI hit instead of sparsifying the guide by final specular
+    // energy, which left only edge/highlight pixels populated.
+    return CleanRestirGiRrHitDistanceEnabled != 0u &&
+        RAB_IsSurfaceValid(surface) &&
+        lobes.hitDistance > 0.0 &&
+        lobes.hitDistance < 1.0e8 &&
+        lobes.hitDistance == lobes.hitDistance;
+}
+
+CleanGiProducerResult CleanGiShadeFirstIndirectTraceCandidateWithContinuation(
+    CleanGiProducerSurface traceCandidate,
+    float3 continuationRadiance,
+    bool replayRaySampleRandoms,
+    inout RTXDI_RandomSamplerState rng)
+{
+    if (traceCandidate.valid == 0u)
+    {
+        return (CleanGiProducerResult)0;
+    }
+
+    if (replayRaySampleRandoms)
+    {
+        CleanGiSkipFirstIndirectCandidateRaySampleRandoms(traceCandidate, rng);
+    }
+
+    const RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(traceCandidate);
+    const float3 radiance = CleanGiShadeProducerSurfaceWithContinuation(
+        secondarySurface,
+        traceCandidate.primarySampledSpecular != 0u,
+        continuationRadiance,
+        rng);
+    return CleanGiMakeShadedFirstIndirectCandidate(
+        secondarySurface,
+        radiance,
+        traceCandidate.sourcePdf);
+}
+
+CleanGiProducerResult CleanGiShadeFirstIndirectTraceCandidateDirectUnclamped(
+    CleanGiProducerSurface traceCandidate,
+    bool replayRaySampleRandoms,
+    inout RTXDI_RandomSamplerState rng)
+{
+    if (traceCandidate.valid == 0u)
+    {
+        return (CleanGiProducerResult)0;
+    }
+
+    if (replayRaySampleRandoms)
+    {
+        CleanGiSkipFirstIndirectCandidateRaySampleRandoms(traceCandidate, rng);
+    }
+
+    const RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(traceCandidate);
+    const float3 directRadiance = CleanGiShadeSecondaryVertex(
+        secondarySurface,
+        secondarySurface.geometryNormal,
+        secondarySurface.material.emissiveRadiance,
+        traceCandidate.primarySampledSpecular != 0u,
+        rng);
+    return CleanGiMakeShadedFirstIndirectCandidate(
+        secondarySurface,
+        directRadiance,
+        traceCandidate.sourcePdf);
 }
 
 // Writes the GI-O-05 output. The boiling-filter compute pass consumes it,
@@ -6199,6 +6279,175 @@ void FirstIndirectTraceRoughFallbackRayGen()
     CleanGiStoreFirstIndirectTraceCandidateForRawGiSample(pixel, gbuf, hitPosition, hitNormal, 0.0);
 }
 
+// Continuation trace pass for the normal producer. The secondary vertex has
+// already been directly shaded into ProducerRadiance, so this pass may reuse
+// the 144-byte surface buffer for the tertiary hit. The secondary BSDF weight
+// is reduced to a compact RGB throughput scratch value before the overwrite.
+[shader("raygeneration")]
+void FirstIndirectContinuationTraceRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+    const CleanGiProducerSurface secondaryGbuf = CleanGiProducerSurfaceBuffer[flatIndex];
+    CleanGiProducerSurface tertiaryGbuf = (CleanGiProducerSurface)0;
+    float3 throughput = float3(0.0, 0.0, 0.0);
+
+    if (CleanRestirGiMaxBounces >= 2u && CleanRestirGiView != 22u && secondaryGbuf.valid != 0u)
+    {
+        const RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(secondaryGbuf);
+        RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(
+            pixel,
+            CleanRestirGiFrameIndex,
+            CLEAN_RESTIR_GI_CONTINUATION_RNG_PASS);
+
+        float3 continuationDir;
+        float continuationPdf;
+        bool sampledSpecular;
+        if (CleanGiSampleContinuationDirection(
+            secondarySurface,
+            secondaryGbuf.primarySampledSpecular != 0u,
+            rng,
+            continuationDir,
+            continuationPdf,
+            sampledSpecular))
+        {
+            const float continueProbability = CleanGiContinuationContinueProbability(secondarySurface, sampledSpecular);
+            const bool survivedRoulette = CleanRestirGiContinuationRouletteEnabled == 0u ||
+                RAB_GetNextRandom(rng) < continueProbability;
+            if (survivedRoulette)
+            {
+                RAB_Surface tertiarySurface;
+                float3 tertiaryGeometricNormal;
+                float3 tertiaryEmissive;
+                float tertiaryHitT;
+                if (CleanGiTraceMaterialSurfaceRay(
+                    RAB_GetSurfaceWorldPos(secondarySurface),
+                    secondarySurface.geometryNormal,
+                    continuationDir,
+                    secondarySurface.instanceId,
+                    secondarySurface.primitiveIndex,
+                    secondarySurface.materialIndex,
+                    CleanRestirGiContinuationOpaqueTrace != 0u,
+                    tertiarySurface,
+                    tertiaryGeometricNormal,
+                    tertiaryEmissive,
+                    tertiaryHitT))
+                {
+                    const float pathPdf = max(continuationPdf * continueProbability, 1.0e-6);
+                    throughput = CleanGiEvaluateIndirectLobes(
+                        secondarySurface,
+                        continuationDir,
+                        float3(1.0, 1.0, 1.0)) / pathPdf;
+                    if (CleanGiAllFinite3(throughput))
+                    {
+                        const uint lobeFlag = sampledSpecular
+                            ? PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_SPECULAR_LOBE
+                            : PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_DIFFUSE_LOBE;
+                        const CleanGiFirstIndirectRaySample continuationSample = CleanGiMakeFirstIndirectRaySample(
+                            continuationDir,
+                            pathPdf,
+                            lobeFlag,
+                            1.0,
+                            continuationPdf);
+                        tertiaryGbuf = CleanGiPackProducerSurface(tertiarySurface, continuationSample);
+                    }
+                    else
+                    {
+                        throughput = float3(0.0, 0.0, 0.0);
+                    }
+                }
+            }
+        }
+    }
+
+    CleanGiProducerSurfaceBuffer[flatIndex] = tertiaryGbuf;
+    CleanRestirGiContinuationRadiance[pixel] = float4(max(throughput, float3(0.0, 0.0, 0.0)), 0.0);
+}
+
+// Continuation shade pass: consume only the packed tertiary surface plus the
+// compact secondary throughput. This kernel owns light selection and its
+// shadow ray; it contains no material TraceRay or hit reconstruction.
+[shader("raygeneration")]
+void FirstIndirectContinuationShadeRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+    const CleanGiProducerSurface tertiaryGbuf = CleanGiProducerSurfaceBuffer[flatIndex];
+    const float3 throughput = CleanRestirGiContinuationRadiance[pixel].rgb;
+    const float4 directAndLength = CleanRestirGiProducerRadiance[pixel];
+    float3 continuationRadiance = float3(0.0, 0.0, 0.0);
+
+    if (tertiaryGbuf.valid != 0u && CleanGiLuminance(throughput) > 0.0)
+    {
+        const RAB_Surface tertiarySurface = CleanGiUnpackProducerSurface(tertiaryGbuf);
+        RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(
+            pixel,
+            CleanRestirGiFrameIndex,
+            CLEAN_RESTIR_GI_CONTINUATION_SHADE_RNG_PASS);
+        const float3 tertiaryOutgoing = CleanGiShadeDirectVertex(
+            tertiarySurface,
+            tertiarySurface.geometryNormal,
+            tertiarySurface.material.emissiveRadiance,
+            tertiaryGbuf.primarySampledSpecular != 0u,
+            false,
+            CleanRestirGiContinuationDirectProbability,
+            1u,
+            rng);
+        continuationRadiance = throughput * tertiaryOutgoing;
+    }
+
+    const float3 combinedRadiance = CleanGiApplyProducerFireflyClamp(
+        directAndLength.rgb + continuationRadiance);
+    CleanRestirGiProducerRadiance[pixel] = float4(combinedRadiance, directAndLength.a);
+}
+
+// Combined continuation fallback used only by the optional split-specular
+// seed route, whose receiver metadata cannot reuse the normal producer output.
+[shader("raygeneration")]
+void FirstIndirectContinuationRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    float3 continuationRadiance = float3(0.0, 0.0, 0.0);
+    if (CleanRestirGiMaxBounces >= 2u && CleanRestirGiView != 22u)
+    {
+        const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+        const CleanGiProducerSurface gbuf = CleanGiProducerSurfaceBuffer[flatIndex];
+        if (gbuf.valid != 0u)
+        {
+            const RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
+            RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(
+                pixel,
+                CleanRestirGiFrameIndex,
+                CLEAN_RESTIR_GI_CONTINUATION_RNG_PASS);
+            continuationRadiance = CleanGiTraceOneContinuationBounce(
+                secondarySurface,
+                secondarySurface.geometryNormal,
+                gbuf.primarySampledSpecular != 0u,
+                rng);
+        }
+    }
+
+    CleanRestirGiContinuationRadiance[pixel] = float4(continuationRadiance, 0.0);
+}
+
 // Pass B of the producer trace/shade split: load the surface produced by the
 // trace pass and run the divergent direct-NEE (the 4-way light sampling +
 // shadow rays). Isolated from the bounce-trace/geometry machinery.
@@ -6224,11 +6473,18 @@ void FirstIndirectShadeRayGen()
     if (gbuf.valid != 0u)
     {
         RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
-        producer = CleanGiShadeFirstIndirectTraceCandidate(
-            gbuf,
-            CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE,
-            true,
-            rng);
+        if (CleanRestirGiMaxBounces >= 2u)
+        {
+            producer = CleanGiShadeFirstIndirectTraceCandidateDirectUnclamped(gbuf, true, rng);
+        }
+        else
+        {
+            producer = CleanGiShadeFirstIndirectTraceCandidate(
+                gbuf,
+                CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE,
+                true,
+                rng);
+        }
     }
 
     CleanGiStoreShadedFirstIndirectCandidateForRawGiSample(pixel, producer);
@@ -6484,10 +6740,13 @@ void FirstIndirectSpecularShadeRayGen()
     }
 
     RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
+    const float3 continuationRadiance = CleanRestirGiMaxBounces >= 2u
+        ? CleanRestirGiContinuationRadiance[pixel].rgb
+        : float3(0.0, 0.0, 0.0);
 
-    CleanGiProducerResult producer = CleanGiShadeFirstIndirectTraceCandidate(
+    CleanGiProducerResult producer = CleanGiShadeFirstIndirectTraceCandidateWithContinuation(
         gbuf,
-        CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE,
+        continuationRadiance,
         true,
         rng);
     CleanGiMergePackedSpecularSeedIntoInitPage(pixel, receiver, producer, RAB_GetNextRandom(rng));

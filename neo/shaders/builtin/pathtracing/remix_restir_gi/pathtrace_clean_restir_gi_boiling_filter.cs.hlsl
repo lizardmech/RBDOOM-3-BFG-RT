@@ -170,7 +170,10 @@ void main(uint2 pixel : SV_DispatchThreadID, uint2 localIndex : SV_GroupThreadID
         }
     }
 
+    // The full RR resolve above already includes filteredSpecular. Only use
+    // this isolated export when that resolve is not feeding RR input color.
     if (CleanGiBfRrSpecularInputEnabled != 0u &&
+        CleanGiBfRrInputResolveEnabled == 0u &&
         CleanGiBfSpecularExportEligible(filteredDiffuse, filteredSpecular, specularHitDistance))
     {
         CleanGiBfRRInputColor[pixel] += float4(filteredSpecular, 0.0);

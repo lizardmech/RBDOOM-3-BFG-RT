@@ -124,12 +124,16 @@ float4 EvaluateRayReconstructionGuideDebug(uint2 pixel, uint view)
     }
     if (view == 5u)
     {
-        float hitDistance = PathTraceRRGuideHitDistance[pixel];
-        if (hitDistance <= 0.0 && RAB_IsSurfaceValid(surface))
+        const float hitDistance = PathTraceRRGuideHitDistance[pixel];
+        if (!(hitDistance == hitDistance))
         {
-            hitDistance = surface.linearDepth;
+            return float4(1.0, 0.0, 1.0, 1.0);
         }
-        const float normalizedHitDistance = saturate(hitDistance / 4096.0);
+        if (hitDistance <= 0.0)
+        {
+            return float4(0.0, 0.0, 0.0, 1.0);
+        }
+        const float normalizedHitDistance = saturate(hitDistance / 1000.0);
         return float4(normalizedHitDistance, normalizedHitDistance, normalizedHitDistance, 1.0);
     }
 
