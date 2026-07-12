@@ -281,9 +281,47 @@ uint32_t SmokeMaterialId(const idMaterial* material)
     return HashSmokeMaterialName(material ? material->GetName() : "<none>");
 }
 
+bool SmokeMaterialHasRuntimeConditionalNoOpAlphaStage(const idMaterial* material)
+{
+    if (!material || material->ConstantRegisters() != nullptr)
+    {
+        return false;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || !stage->hasAlphaTest || stage->ignoreAlphaTest)
+        {
+            continue;
+        }
+
+        const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+        const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+        if (srcBlend == GLS_SRCBLEND_ZERO && dstBlend == GLS_DSTBLEND_ONE)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+
 PathTraceSmokeMaterial BuildSmokeMaterialTableMaterial(uint32_t materialId, const RtSmokeMaterialTextureInfo& info, const RtSmokePersistentMaterialRecord& record)
 {
     PathTraceSmokeMaterial material = record.material;
+    const idMaterial* materialDecl = nullptr;
+    if (SmokeMaterialTextureInfoHasMaterialMetadata(info))
+    {
+        materialDecl = declManager ? declManager->FindMaterial(info.materialName.c_str(), false) : nullptr;
+    }
+    if (SmokeMaterialHasRuntimeConditionalNoOpAlphaStage(materialDecl))
+    {
+        // `if parm7 { blend GL_ZERO,GL_ONE; alphaTest ... }` is a dormant
+        // dissolve controller. Fail opaque until the per-entity runtime record
+        // explicitly enables it; never apply its mask to a living character.
+        material.flags &= ~RT_SMOKE_MATERIAL_ALPHA_TEST;
+    }
     if (SmokeMaterialHasZeroRoughnessOverride(materialId))
     {
         material.padding0 |= RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS;
@@ -297,7 +335,6 @@ PathTraceSmokeMaterial BuildSmokeMaterialTableMaterial(uint32_t materialId, cons
         const RtMaterialRecord* materialClassRecord = nullptr;
         if (SmokeMaterialTextureInfoHasMaterialMetadata(info))
         {
-            const idMaterial* materialDecl = declManager ? declManager->FindMaterial(info.materialName.c_str(), false) : nullptr;
             materialClassRecord = &RegisterPathTraceMaterialRecord(materialDecl, info);
         }
         else

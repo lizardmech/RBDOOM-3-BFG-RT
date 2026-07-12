@@ -39,7 +39,7 @@ RAB_Surface PathTraceCleanRtxdiDiGlassDistortionSurface(
     float3 smoothNormal = RAB_SafeNormalize(hitSurface.shadingNormal, RAB_GetSurfaceNormal(glassSurface));
     float3 shadingNormal = PathTraceCleanRtxdiDiTraceHitDecodeNormal(
         material,
-        hitSurface.texCoord,
+        hitSurface.normalTexCoord,
         smoothNormal,
         hitSurface.tangent,
         hitSurface.bitangent);
@@ -91,7 +91,7 @@ float2 PathTraceCleanRtxdiDiGlassNormalMapTangentDistortionPixelOffset(
         material.normalTextureIndex,
         material.normalTextureWidth,
         material.normalTextureHeight,
-        hitSurface.texCoord,
+        hitSurface.normalTexCoord,
         float4(0.5, 0.5, 1.0, 1.0)) * 2.0 - 1.0;
     if (!all(bump == bump))
     {
@@ -155,7 +155,7 @@ float4 PathTraceCleanRtxdiDiGlassNormalMapDiagnosticSidecar(RAB_Surface glassSur
         material.normalTextureIndex,
         material.normalTextureWidth,
         material.normalTextureHeight,
-        hitSurface.texCoord,
+        hitSurface.normalTexCoord,
         float4(0.5, 0.5, 1.0, 1.0)) * 2.0 - 1.0;
     if (!all(bump == bump))
     {

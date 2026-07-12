@@ -18,6 +18,7 @@
 const int RT_SMOKE_DEBUG_TEXTURE_COVERAGE_CLASS_COUNT = 5;
 
 struct viewDef_t;
+struct RtPathTraceRigidRouteBuild;
 
 struct RtPathTraceDebugModeInfo
 {
@@ -280,6 +281,12 @@ struct RtSmokeMaterialDiagnosticTriggerDesc
     const viewDef_t* viewDef = nullptr;
     const RtSmokeMaterialTableBuild* materialTable = nullptr;
     const RtSmokeMaterialStats* materialStats = nullptr;
+    const std::vector<PathTraceDynamicMaterialRecord>* dynamicMaterialRecords = nullptr;
+    const std::vector<uint32_t>* dynamicTriangleMaterialIds = nullptr;
+    const std::vector<uint32_t>* dynamicTriangleMaterialIndexes = nullptr;
+    const std::vector<uint32_t>* staticTriangleMaterialIds = nullptr;
+    const std::vector<uint32_t>* staticTriangleMaterialIndexes = nullptr;
+    const RtPathTraceRigidRouteBuild* rigidRouteBuild = nullptr;
     bool enableTextureProbe = false;
 };
 

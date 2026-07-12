@@ -287,18 +287,6 @@ void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, const RtSmokeTran
         return;
     }
 
-    const bool allowTranslucentCutout =
-        material->Coverage() == MC_TRANSLUCENT &&
-        !classifier.hasScreenTexgen &&
-        !classifier.hasAddDefault0200Texture &&
-        !classifier.nameLooksGui &&
-        !classifier.nameLooksParticle &&
-        (classifier.nameLooksGlass || classifier.nameLooksSignage || classifier.nameLooksGlow);
-    if (material->Coverage() != MC_PERFORATED && !allowTranslucentCutout)
-    {
-        return;
-    }
-
     const float* constantRegisters = material->ConstantRegisters();
     const int registerCount = material->GetNumRegisters();
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
@@ -318,6 +306,10 @@ void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, const RtSmokeTran
         return;
     }
 
+    // Coverage is a derived material-wide summary. An explicit stage alphatest is
+    // authoritative regardless of whether the declaration ended up classified as
+    // perforated or translucent, and must not depend on material-name categories.
+    (void)classifier;
     if (material->Coverage() == MC_PERFORATED)
     {
         hasAlphaTest = true;

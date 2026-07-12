@@ -6,6 +6,7 @@
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceGuiSurfaces.h"
+#include "PathTraceGeometryUniverse.h"
 #include "PathTracePrimarySurface.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSurfaceClassification.h"
@@ -286,7 +287,15 @@ void ProcessSmokeCrosshairFullMetalToggle(const viewDef_t* viewDef)
 }
 
 
-void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table)
+void LogSmokeCrosshairMaterialDump(
+    const viewDef_t* viewDef,
+    const RtSmokeMaterialTableBuild& table,
+    const std::vector<PathTraceDynamicMaterialRecord>* dynamicRecords,
+    const std::vector<uint32_t>* dynamicTriangleMaterialIds,
+    const std::vector<uint32_t>* dynamicTriangleMaterialIndexes,
+    const std::vector<uint32_t>* staticTriangleMaterialIds,
+    const std::vector<uint32_t>* staticTriangleMaterialIndexes,
+    const RtPathTraceRigidRouteBuild* rigidRouteBuild)
 {
     idVec3 hitPoint = vec3_origin;
     int surfaceIndex = -1;
@@ -315,7 +324,8 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
     const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
     const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    const uint32_t materialId = SmokeMaterialId(material);
+    const uint32_t baseMaterialId = SmokeMaterialId(material);
+    const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
     const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
 
     int tableIndex = -1;
@@ -328,14 +338,16 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         }
     }
 
-    common->Printf("PathTracePrimaryPass: RT smoke crosshair material hit surface=%d triangle=%d point=(%.2f %.2f %.2f) material='%s' id=%u tableIndex=%d class=%s subtype=%s coverage=%s sort=%.2f deform=%s cull=%d stages=%d guiSurface=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair material hit surface=%d triangle=%d point=(%.2f %.2f %.2f) material='%s' baseId=%u runtimeId=%u variant=%d tableIndex=%d class=%s subtype=%s coverage=%s sort=%.2f deform=%s cull=%d stages=%d guiSurface=%d\n",
         surfaceIndex,
         triangleIndex,
         hitPoint.x,
         hitPoint.y,
         hitPoint.z,
         material->GetName(),
+        baseMaterialId,
         materialId,
+        materialId != baseMaterialId ? 1 : 0,
         tableIndex,
         SmokeSurfaceClassName(surfaceClass),
         SmokeTranslucentSubtypeName(translucentSubtype),
@@ -463,6 +475,160 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
             rtMaterial.alphaCutoff);
     }
 
+    if (tableIndex >= 0)
+    {
+        int idMatches = 0;
+        int indexMatches = 0;
+        if (dynamicTriangleMaterialIds)
+        {
+            idMatches = static_cast<int>(std::count(dynamicTriangleMaterialIds->begin(), dynamicTriangleMaterialIds->end(), materialId));
+        }
+        if (dynamicTriangleMaterialIndexes)
+        {
+            indexMatches = static_cast<int>(std::count(dynamicTriangleMaterialIndexes->begin(), dynamicTriangleMaterialIndexes->end(), static_cast<uint32_t>(tableIndex)));
+        }
+
+        if (dynamicRecords && tableIndex < static_cast<int>(dynamicRecords->size()))
+        {
+            const PathTraceDynamicMaterialRecord& record = (*dynamicRecords)[tableIndex];
+            common->Printf("PathTracePrimaryPass: RT smoke crosshair dynamicRecord count=%d tableIndex=%d recordMaterialId=%u recordMaterialIndex=%u stage=%u flags=0x%08x matrix=(%.4f %.4f %.4f;%.4f %.4f %.4f) condition=%.4f alpha=%.4f triangleMatches id/index=%d/%d\n",
+                static_cast<int>(dynamicRecords->size()),
+                tableIndex,
+                record.materialId,
+                record.materialIndex,
+                record.stageIndex,
+                record.flags,
+                record.texMatrix0[0], record.texMatrix0[1], record.texMatrix0[2],
+                record.texMatrix1[0], record.texMatrix1[1], record.texMatrix1[2],
+                record.texMatrix0[3], record.texMatrix1[3],
+                idMatches,
+                indexMatches);
+        }
+        else
+        {
+            common->Printf("PathTracePrimaryPass: RT smoke crosshair dynamicRecord missing tableIndex=%d recordCount=%d triangleMatches id/index=%d/%d\n",
+                tableIndex,
+                dynamicRecords ? static_cast<int>(dynamicRecords->size()) : 0,
+                idMatches,
+                indexMatches);
+        }
+    }
+
+    if (rigidRouteBuild)
+    {
+        int runtimeInstanceMatches = 0;
+        int baseInstanceMatches = 0;
+        int runtimeIndexMatches = 0;
+        int baseIndexMatches = 0;
+        const PathTraceRigidRouteInstance* sampleInstance = nullptr;
+        for (const PathTraceRigidRouteInstance& instance : rigidRouteBuild->instances)
+        {
+            if (instance.materialId == materialId)
+            {
+                ++runtimeInstanceMatches;
+                if (!sampleInstance)
+                {
+                    sampleInstance = &instance;
+                }
+            }
+            if (instance.materialId == baseMaterialId)
+            {
+                ++baseInstanceMatches;
+                if (!sampleInstance)
+                {
+                    sampleInstance = &instance;
+                }
+            }
+            if (tableIndex >= 0 && instance.materialIndex == static_cast<uint32_t>(tableIndex))
+            {
+                ++runtimeIndexMatches;
+            }
+            if (instance.materialIndex < table.materialIds.size() && table.materialIds[instance.materialIndex] == baseMaterialId)
+            {
+                ++baseIndexMatches;
+            }
+        }
+
+        common->Printf(
+            "PathTracePrimaryPass: RT smoke crosshair rigidRoute instances=%d runtime/baseIdMatches=%d/%d runtime/baseIndexMatches=%d/%d\n",
+            static_cast<int>(rigidRouteBuild->instances.size()),
+            runtimeInstanceMatches,
+            baseInstanceMatches,
+            runtimeIndexMatches,
+            baseIndexMatches);
+        if (sampleInstance)
+        {
+            uint32_t triangleMaterialId = UINT32_MAX;
+            uint32_t triangleMaterialIndex = UINT32_MAX;
+            if (sampleInstance->triangleOffset < rigidRouteBuild->triangleMaterials.size())
+            {
+                triangleMaterialId = rigidRouteBuild->triangleMaterials[sampleInstance->triangleOffset];
+            }
+            if (sampleInstance->triangleOffset < rigidRouteBuild->triangleMaterialIndexes.size())
+            {
+                triangleMaterialIndex = rigidRouteBuild->triangleMaterialIndexes[sampleInstance->triangleOffset];
+            }
+            idVec2 baseUv(0.0f, 0.0f);
+            if (sampleInstance->vertexOffset < rigidRouteBuild->vertices.size())
+            {
+                const PathTraceSmokeVertex& vertex = rigidRouteBuild->vertices[sampleInstance->vertexOffset];
+                baseUv.Set(vertex.texCoord[0], vertex.texCoord[1]);
+            }
+            idVec2 resolvedUv = baseUv;
+            if (dynamicRecords && sampleInstance->materialIndex < dynamicRecords->size())
+            {
+                const PathTraceDynamicMaterialRecord& record = (*dynamicRecords)[sampleInstance->materialIndex];
+                if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX) != 0u)
+                {
+                    resolvedUv.Set(
+                        record.texMatrix0[0] * baseUv.x + record.texMatrix0[1] * baseUv.y + record.texMatrix0[2],
+                        record.texMatrix1[0] * baseUv.x + record.texMatrix1[1] * baseUv.y + record.texMatrix1[2]);
+                }
+            }
+            common->Printf(
+                "PathTracePrimaryPass: RT smoke crosshair rigidRoute sample materialId/index=%u/%u triangleMaterialId/index=%u/%u offsets(v/i/t)=%u/%u/%u baseUv=(%.4f %.4f) resolvedUv=(%.4f %.4f)\n",
+                sampleInstance->materialId,
+                sampleInstance->materialIndex,
+                triangleMaterialId,
+                triangleMaterialIndex,
+                sampleInstance->vertexOffset,
+                sampleInstance->indexOffset,
+                sampleInstance->triangleOffset,
+                baseUv.x,
+                baseUv.y,
+                resolvedUv.x,
+                resolvedUv.y);
+        }
+    }
+
+    const int staticRuntimeIdMatches = staticTriangleMaterialIds
+        ? static_cast<int>(std::count(staticTriangleMaterialIds->begin(), staticTriangleMaterialIds->end(), materialId))
+        : 0;
+    const int staticBaseIdMatches = staticTriangleMaterialIds
+        ? static_cast<int>(std::count(staticTriangleMaterialIds->begin(), staticTriangleMaterialIds->end(), baseMaterialId))
+        : 0;
+    const int staticRuntimeIndexMatches = staticTriangleMaterialIndexes && tableIndex >= 0
+        ? static_cast<int>(std::count(staticTriangleMaterialIndexes->begin(), staticTriangleMaterialIndexes->end(), static_cast<uint32_t>(tableIndex)))
+        : 0;
+    int staticBaseIndexMatches = 0;
+    if (staticTriangleMaterialIndexes)
+    {
+        for (uint32_t materialIndex : *staticTriangleMaterialIndexes)
+        {
+            if (materialIndex < table.materialIds.size() && table.materialIds[materialIndex] == baseMaterialId)
+            {
+                ++staticBaseIndexMatches;
+            }
+        }
+    }
+    common->Printf(
+        "PathTracePrimaryPass: RT smoke crosshair staticRoute triangles=%d runtime/baseIdMatches=%d/%d runtime/baseIndexMatches=%d/%d\n",
+        staticTriangleMaterialIds ? static_cast<int>(staticTriangleMaterialIds->size()) : 0,
+        staticRuntimeIdMatches,
+        staticBaseIdMatches,
+        staticRuntimeIndexMatches,
+        staticBaseIndexMatches);
+
     const int indexBase = triangleIndex * 3;
     if (indexBase >= 0 && indexBase + 2 < tri->numIndexes)
     {
@@ -504,6 +670,21 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
 
         const float condition = regs && stage->conditionRegister >= 0 && stage->conditionRegister < registerCount ? regs[stage->conditionRegister] : 1.0f;
         const float alphaTest = regs && stage->alphaTestRegister >= 0 && stage->alphaTestRegister < registerCount ? regs[stage->alphaTestRegister] : -1.0f;
+        float texMatrix[2][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+        if (stage->texture.hasMatrix && regs)
+        {
+            for (int row = 0; row < 2; ++row)
+            {
+                for (int column = 0; column < 3; ++column)
+                {
+                    const int matrixRegister = stage->texture.matrix[row][column];
+                    if (matrixRegister >= 0 && matrixRegister < registerCount)
+                    {
+                        texMatrix[row][column] = regs[matrixRegister];
+                    }
+                }
+            }
+        }
         idImage* image = stage->texture.image;
         const bool imageSafe = image && IsSmokeDiffuseImageSafeForRayTracing(image);
         const textureUsage_t imageUsage = image ? image->GetUsage() : TD_DEFAULT;
@@ -531,6 +712,43 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
             SmokeTextureUsageName(imageUsage),
             SmokeTextureColorFormatName(imageColorFormat),
             imageSafe ? 1 : 0);
+
+        if (stage->texture.hasMatrix)
+        {
+            common->Printf("PathTracePrimaryPass: RT smoke crosshair stage[%d] texMatrix regs=(%d %d %d;%d %d %d) values=(%.4f %.4f %.4f;%.4f %.4f %.4f)\n",
+                stageIndex,
+                stage->texture.matrix[0][0], stage->texture.matrix[0][1], stage->texture.matrix[0][2],
+                stage->texture.matrix[1][0], stage->texture.matrix[1][1], stage->texture.matrix[1][2],
+                texMatrix[0][0], texMatrix[0][1], texMatrix[0][2],
+                texMatrix[1][0], texMatrix[1][1], texMatrix[1][2]);
+
+            if (stage->lighting == SL_BUMP && indexBase >= 0 && indexBase + 2 < tri->numIndexes)
+            {
+                const int matrixIndexes[3] = {
+                    tri->indexes[indexBase + 0],
+                    tri->indexes[indexBase + 1],
+                    tri->indexes[indexBase + 2]
+                };
+                if (matrixIndexes[0] >= 0 && matrixIndexes[0] < tri->numVerts &&
+                    matrixIndexes[1] >= 0 && matrixIndexes[1] < tri->numVerts &&
+                    matrixIndexes[2] >= 0 && matrixIndexes[2] < tri->numVerts)
+                {
+                    idVec2 baseUv[3];
+                    idVec2 normalUv[3];
+                    for (int vertex = 0; vertex < 3; ++vertex)
+                    {
+                        baseUv[vertex] = tri->verts[matrixIndexes[vertex]].GetTexCoord();
+                        normalUv[vertex].Set(
+                            texMatrix[0][0] * baseUv[vertex].x + texMatrix[0][1] * baseUv[vertex].y + texMatrix[0][2],
+                            texMatrix[1][0] * baseUv[vertex].x + texMatrix[1][1] * baseUv[vertex].y + texMatrix[1][2]);
+                    }
+                    common->Printf("PathTracePrimaryPass: RT smoke crosshair stage[%d] bumpUv base=(%.4f %.4f),(%.4f %.4f),(%.4f %.4f) transformed=(%.4f %.4f),(%.4f %.4f),(%.4f %.4f)\n",
+                        stageIndex,
+                        baseUv[0].x, baseUv[0].y, baseUv[1].x, baseUv[1].y, baseUv[2].x, baseUv[2].y,
+                        normalUv[0].x, normalUv[0].y, normalUv[1].x, normalUv[1].y, normalUv[2].x, normalUv[2].y);
+                }
+            }
+        }
     }
 }
 

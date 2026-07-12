@@ -26,6 +26,39 @@ namespace {
 
 constexpr uint64 RT_SMOKE_RIGID_BLAS_RETIRE_FRAMES = 3;
 
+void BuildRigidNormalTexMatrix(const idMaterial* material, const float* registers, float matrix[6])
+{
+    const float identity[6] = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+    memcpy(matrix, identity, sizeof(identity));
+    if (!material || !registers)
+    {
+        return;
+    }
+
+    const int registerCount = material->GetNumRegisters();
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || stage->lighting != SL_BUMP || !stage->texture.hasMatrix)
+        {
+            continue;
+        }
+
+        for (int row = 0; row < 2; ++row)
+        {
+            for (int column = 0; column < 3; ++column)
+            {
+                const int registerIndex = stage->texture.matrix[row][column];
+                if (registerIndex >= 0 && registerIndex < registerCount)
+                {
+                    matrix[row * 3 + column] = registers[registerIndex];
+                }
+            }
+        }
+        return;
+    }
+}
+
 template< typename T >
 RtSmokePlanDataSpan MakeRigidRoutePlanDataSpan(const std::vector<T>& data)
 {
@@ -764,6 +797,7 @@ uint64 BuildRigidGpuUploadSignature(const RtSmokeGeometryUniverse::RigidMeshCand
     hash = HashSmokeBytes(hash, &record.vertexBufferIdentity, sizeof(record.vertexBufferIdentity));
     hash = HashSmokeBytes(hash, &record.indexBufferIdentity, sizeof(record.indexBufferIdentity));
     hash = HashSmokeBytes(hash, &record.materialId, sizeof(record.materialId));
+    hash = HashSmokeBytes(hash, record.normalTexMatrix, sizeof(record.normalTexMatrix));
     hash = HashSmokeBytes(hash, &record.sourceRange.vertices.count, sizeof(record.sourceRange.vertices.count));
     hash = HashSmokeBytes(hash, &record.sourceRange.indexes.count, sizeof(record.sourceRange.indexes.count));
     return hash;
@@ -973,7 +1007,7 @@ void AppendRigidRoutePlaceholder(
     build.instanceObjectToWorld.push_back(objectToWorld);
 }
 
-PathTraceSmokeVertex BuildRigidLocalSmokeVertex(const idDrawVert& drawVert)
+PathTraceSmokeVertex BuildRigidLocalSmokeVertex(const idDrawVert& drawVert, const float normalTexMatrix[6])
 {
     idVec3 localNormal = drawVert.GetNormal();
     if (localNormal.Normalize() == 0.0f)
@@ -1006,8 +1040,8 @@ PathTraceSmokeVertex BuildRigidLocalSmokeVertex(const idDrawVert& drawVert)
     vertex.normal[3] = 0.0f;
     vertex.texCoord[0] = texCoord.x;
     vertex.texCoord[1] = texCoord.y;
-    vertex.texCoord[2] = 0.0f;
-    vertex.texCoord[3] = 0.0f;
+    vertex.texCoord[2] = normalTexMatrix[0] * texCoord.x + normalTexMatrix[1] * texCoord.y + normalTexMatrix[2];
+    vertex.texCoord[3] = normalTexMatrix[3] * texCoord.x + normalTexMatrix[4] * texCoord.y + normalTexMatrix[5];
     vertex.color[0] = drawVert.color[0] * (1.0f / 255.0f);
     vertex.color[1] = drawVert.color[1] * (1.0f / 255.0f);
     vertex.color[2] = drawVert.color[2] * (1.0f / 255.0f);
@@ -1048,7 +1082,7 @@ bool BuildRigidLocalMeshData(const RtSmokeGeometryUniverse::RigidMeshCandidateRe
     vertices.resize(record.sourceRange.vertices.count);
     for (int vertexIndex = 0; vertexIndex < record.sourceRange.vertices.count; ++vertexIndex)
     {
-        vertices[vertexIndex] = BuildRigidLocalSmokeVertex(record.tri->verts[vertexIndex]);
+        vertices[vertexIndex] = BuildRigidLocalSmokeVertex(record.tri->verts[vertexIndex], record.normalTexMatrix);
     }
 
     indexes.resize(record.sourceRange.indexes.count);
@@ -1080,7 +1114,7 @@ void RefreshRigidMeshCandidateCpuCache(RtSmokeGeometryUniverse::RigidMeshCandida
     record.cachedLocalVertices.resize(record.sourceRange.vertices.count);
     for (int vertexIndex = 0; vertexIndex < record.sourceRange.vertices.count; ++vertexIndex)
     {
-        record.cachedLocalVertices[vertexIndex] = BuildRigidLocalSmokeVertex(record.tri->verts[vertexIndex]);
+        record.cachedLocalVertices[vertexIndex] = BuildRigidLocalSmokeVertex(record.tri->verts[vertexIndex], record.normalTexMatrix);
     }
 
     record.cachedLocalIndexes.resize(record.sourceRange.indexes.count);
@@ -2176,6 +2210,7 @@ void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMes
         record->vertexFormat = observation.vertexFormat;
         record->modelEpoch = observation.modelEpoch;
         record->jointIndex = observation.jointIndex;
+        memcpy(record->normalTexMatrix, observation.normalTexMatrix, sizeof(record->normalTexMatrix));
         record->sourceRange.vertices.count = observation.numVerts;
         record->sourceRange.indexes.count = observation.numIndexes;
         record->sourceRange.triangles.count = observation.numIndexes / 3;
@@ -3462,6 +3497,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     candidateObservation.numVerts = tri->numVerts;
                     candidateObservation.numIndexes = tri->numIndexes;
                     candidateObservation.localSpaceValid = true;
+                    BuildRigidNormalTexMatrix(material, material ? material->ConstantRegisters() : nullptr, candidateObservation.normalTexMatrix);
                     candidateObservation.materialName = material ? material->GetName() : "<none>";
                     candidateObservation.modelName = model ? model->Name() : "<none>";
                     RecordRigidMeshCandidate(candidateObservation);

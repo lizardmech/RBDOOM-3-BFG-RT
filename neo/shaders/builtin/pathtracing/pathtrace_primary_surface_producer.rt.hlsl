@@ -16,6 +16,7 @@ struct PathTraceSmokePayload
     float3 tangent;
     float3 bitangent;
     float2 texCoord;
+    float2 normalTexCoord;
     float2 hitBarycentrics;
     float4 vertexColor;
     float4 vertexColorAdd;
@@ -888,7 +889,9 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     material.diffuseAlbedo = materialAlbedo;
     material.roughness = roughness;
     material.specularF0 = specularF0;
-    material.opacity = SmokeAlphaCoverage(smokeMaterial, payload.texCoord);
+    material.opacity = (smokeMaterial.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0u
+        ? SmokeAlphaCoverage(smokeMaterial, payload.texCoord)
+        : 1.0;
     material.emissiveRadiance = SampleSmokeEmissive(smokeMaterial, payload.texCoord, payload.surfaceClass, activeEmissiveStage) * max(ToyPathInfo.z, 0.0);
     if (activeEmissiveStage && SmokeMaterialUsesUnlitColorFallback(smokeMaterial, payload.surfaceClass, payload.translucentSubtype))
     {
@@ -1217,6 +1220,7 @@ PathTraceSmokePayload InitSmokePayload()
     payload.tangent = float3(1.0, 0.0, 0.0);
     payload.bitangent = float3(0.0, 1.0, 0.0);
     payload.texCoord = float2(0.0, 0.0);
+    payload.normalTexCoord = float2(0.0, 0.0);
     payload.hitBarycentrics = float2(0.0, 0.0);
     payload.vertexColor = float4(1.0, 1.0, 1.0, 1.0);
     payload.vertexColorAdd = float4(0.5, 0.5, 0.5, 0.5);
@@ -1264,7 +1268,16 @@ bool SmokeTriangleIndexRangeValid(uint instanceId, uint primitiveIndex)
         return primitiveIndex < PathTraceDynamicTriangleCount() &&
             primitiveIndex * 3u + 2u < PathTraceDynamicIndexCount();
     }
-    return false;
+    const uint routeInstanceIndex = instanceId - 2u;
+    if (routeInstanceIndex >= PathTraceRigidRouteInstanceCount())
+    {
+        return false;
+    }
+    const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+    const uint routeIndexOffset = routeInstance.indexOffset + primitiveIndex * 3u;
+    return primitiveIndex < routeInstance.triangleCount &&
+        routeInstance.triangleOffset + primitiveIndex < PathTraceRigidRouteTriangleCount() &&
+        routeIndexOffset + 2u < PathTraceRigidRouteIndexCount();
 }
 
 uint LoadSmokeTriangleMaterialId(uint instanceId, uint primitiveIndex)
@@ -1316,11 +1329,48 @@ uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
     {
         return SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
     }
+    if (instanceId >= 2u)
+    {
+        const uint routeInstanceIndex = instanceId - 2u;
+        if (routeInstanceIndex < PathTraceRigidRouteInstanceCount())
+        {
+            const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+            if (primitiveIndex < routeInstance.triangleCount &&
+                routeInstance.triangleOffset + primitiveIndex < PathTraceRigidRouteTriangleCount())
+            {
+                return SmokeRigidRouteTriangleMaterialIndexes[routeInstance.triangleOffset + primitiveIndex];
+            }
+        }
+    }
     return 0xffffffffu;
 }
 
 float2 InterpolateSmokeTexCoord(uint instanceId, uint primitiveIndex, float2 barycentrics)
 {
+    if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+    {
+        return float2(0.0, 0.0);
+    }
+    if (instanceId >= 2u)
+    {
+        const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[instanceId - 2u];
+        const uint indexOffset = routeInstance.indexOffset + primitiveIndex * 3u;
+        const uint i0 = SmokeRigidRouteIndices[indexOffset + 0u];
+        const uint i1 = SmokeRigidRouteIndices[indexOffset + 1u];
+        const uint i2 = SmokeRigidRouteIndices[indexOffset + 2u];
+        if (i0 >= routeInstance.vertexCount || i1 >= routeInstance.vertexCount || i2 >= routeInstance.vertexCount ||
+            routeInstance.vertexOffset + i0 >= PathTraceRigidRouteVertexCount() ||
+            routeInstance.vertexOffset + i1 >= PathTraceRigidRouteVertexCount() ||
+            routeInstance.vertexOffset + i2 >= PathTraceRigidRouteVertexCount())
+        {
+            return float2(0.0, 0.0);
+        }
+        const float2 uv0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0].texCoord.xy;
+        const float2 uv1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1].texCoord.xy;
+        const float2 uv2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2].texCoord.xy;
+        const float3 weights = float3(1.0 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y);
+        return uv0 * weights.x + uv1 * weights.y + uv2 * weights.z;
+    }
     const uint indexOffset = primitiveIndex * 3u;
     const uint i0 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 0u] : SmokeDynamicIndices[indexOffset + 0u];
     const uint i1 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 1u] : SmokeDynamicIndices[indexOffset + 1u];
@@ -1339,6 +1389,30 @@ float2 InterpolateSmokeTexCoord(uint instanceId, uint primitiveIndex, float2 bar
 
 float4 InterpolateSmokeVertexColor(uint instanceId, uint primitiveIndex, float2 barycentrics)
 {
+    if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+    {
+        return float4(1.0, 1.0, 1.0, 1.0);
+    }
+    if (instanceId >= 2u)
+    {
+        const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[instanceId - 2u];
+        const uint indexOffset = routeInstance.indexOffset + primitiveIndex * 3u;
+        const uint i0 = SmokeRigidRouteIndices[indexOffset + 0u];
+        const uint i1 = SmokeRigidRouteIndices[indexOffset + 1u];
+        const uint i2 = SmokeRigidRouteIndices[indexOffset + 2u];
+        if (i0 >= routeInstance.vertexCount || i1 >= routeInstance.vertexCount || i2 >= routeInstance.vertexCount ||
+            routeInstance.vertexOffset + i0 >= PathTraceRigidRouteVertexCount() ||
+            routeInstance.vertexOffset + i1 >= PathTraceRigidRouteVertexCount() ||
+            routeInstance.vertexOffset + i2 >= PathTraceRigidRouteVertexCount())
+        {
+            return float4(1.0, 1.0, 1.0, 1.0);
+        }
+        const float4 c0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0].color;
+        const float4 c1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1].color;
+        const float4 c2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2].color;
+        const float3 weights = float3(1.0 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y);
+        return saturate(c0 * weights.x + c1 * weights.y + c2 * weights.z);
+    }
     const uint indexOffset = primitiveIndex * 3u;
     const uint i0 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 0u] : SmokeDynamicIndices[indexOffset + 0u];
     const uint i1 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 1u] : SmokeDynamicIndices[indexOffset + 1u];
@@ -1969,6 +2043,9 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         const float2 uv0 = v0.texCoord.xy;
         const float2 uv1 = v1.texCoord.xy;
         const float2 uv2 = v2.texCoord.xy;
+        const float2 normalUv0 = v0.texCoord.zw;
+        const float2 normalUv1 = v1.texCoord.zw;
+        const float2 normalUv2 = v2.texCoord.zw;
 
         payload.value = 1u;
         payload.hitT = RayTCurrent();
@@ -1979,6 +2056,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         const float3 objectInterpolatedNormal = SafeNormalize(n0 * barycentrics.x + n1 * barycentrics.y + n2 * barycentrics.z, objectGeometricNormal);
         payload.normal = TransformObjectNormalToWorld(objectInterpolatedNormal, payload.geometricNormal);
         payload.texCoord = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
+        payload.normalTexCoord = normalUv0 * barycentrics.x + normalUv1 * barycentrics.y + normalUv2 * barycentrics.z;
         payload.vertexColor = saturate(v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z);
         payload.vertexColorAdd = saturate(v0.color2 * barycentrics.x + v1.color2 * barycentrics.y + v2.color2 * barycentrics.z);
         const float3 tangentFallback = BuildPerpendicular(payload.normal);
@@ -2047,6 +2125,9 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     const float2 uv0 = (instanceId == 0u ? SmokeStaticVertices[i0].texCoord : SmokeDynamicVertices[i0].texCoord).xy;
     const float2 uv1 = (instanceId == 0u ? SmokeStaticVertices[i1].texCoord : SmokeDynamicVertices[i1].texCoord).xy;
     const float2 uv2 = (instanceId == 0u ? SmokeStaticVertices[i2].texCoord : SmokeDynamicVertices[i2].texCoord).xy;
+    const float2 normalUv0 = (instanceId == 0u ? SmokeStaticVertices[i0].texCoord : SmokeDynamicVertices[i0].texCoord).zw;
+    const float2 normalUv1 = (instanceId == 0u ? SmokeStaticVertices[i1].texCoord : SmokeDynamicVertices[i1].texCoord).zw;
+    const float2 normalUv2 = (instanceId == 0u ? SmokeStaticVertices[i2].texCoord : SmokeDynamicVertices[i2].texCoord).zw;
     const float4 c0 = instanceId == 0u ? SmokeStaticVertices[i0].color : SmokeDynamicVertices[i0].color;
     const float4 c1 = instanceId == 0u ? SmokeStaticVertices[i1].color : SmokeDynamicVertices[i1].color;
     const float4 c2 = instanceId == 0u ? SmokeStaticVertices[i2].color : SmokeDynamicVertices[i2].color;
@@ -2093,6 +2174,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         }
     }
     payload.texCoord = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
+    payload.normalTexCoord = normalUv0 * barycentrics.x + normalUv1 * barycentrics.y + normalUv2 * barycentrics.z;
     payload.vertexColor = saturate(c0 * barycentrics.x + c1 * barycentrics.y + c2 * barycentrics.z);
     payload.vertexColorAdd = saturate(c20 * barycentrics.x + c21 * barycentrics.y + c22 * barycentrics.z);
     payload.surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;

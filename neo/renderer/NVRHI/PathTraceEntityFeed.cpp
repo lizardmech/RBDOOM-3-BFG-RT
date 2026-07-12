@@ -22,6 +22,39 @@
 
 namespace {
 
+void BuildEntityFeedNormalTexMatrix(const idMaterial* material, float matrix[6])
+{
+    const float identity[6] = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+    memcpy(matrix, identity, sizeof(identity));
+    const float* registers = material ? material->ConstantRegisters() : nullptr;
+    if (!material || !registers)
+    {
+        return;
+    }
+
+    const int registerCount = material->GetNumRegisters();
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || stage->lighting != SL_BUMP || !stage->texture.hasMatrix)
+        {
+            continue;
+        }
+        for (int row = 0; row < 2; ++row)
+        {
+            for (int column = 0; column < 3; ++column)
+            {
+                const int registerIndex = stage->texture.matrix[row][column];
+                if (registerIndex >= 0 && registerIndex < registerCount)
+                {
+                    matrix[row * 3 + column] = registers[registerIndex];
+                }
+            }
+        }
+        return;
+    }
+}
+
 bool SurfaceUsesStaticModelWithJoints(const idRenderModel* model, int surfaceIndex)
 {
     const modelSurface_t* surface = model ? model->Surface(surfaceIndex) : nullptr;
@@ -742,6 +775,7 @@ EntityFeedRigidCandidate BuildEntityFeedRigidCandidate(const EntityFeedCapturedR
     candidate.candidateObservation.numVerts = captured.meshKey.numVerts;
     candidate.candidateObservation.numIndexes = captured.meshKey.numIndexes;
     candidate.candidateObservation.localSpaceValid = candidate.meshObservation.localSpaceValid;
+    BuildEntityFeedNormalTexMatrix(captured.baseMaterial, candidate.candidateObservation.normalTexMatrix);
     candidate.candidateObservation.materialName = captured.materialName;
     candidate.candidateObservation.modelName = captured.modelName;
     return candidate;

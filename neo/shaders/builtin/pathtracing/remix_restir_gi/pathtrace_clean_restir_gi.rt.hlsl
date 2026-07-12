@@ -1772,7 +1772,9 @@ RAB_Material CleanGiBuildMaterialFromHit(
     material.diffuseAlbedo = saturate(materialAlbedo);
     material.roughness = saturate(roughness);
     material.specularF0 = max(specularF0, float3(0.0, 0.0, 0.0));
-    material.opacity = CleanGiAlphaCoverage(smokeMaterial, texCoord);
+    material.opacity = (smokeMaterial.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0u
+        ? CleanGiAlphaCoverage(smokeMaterial, texCoord)
+        : 1.0;
     material.emissiveRadiance = CleanGiSampleEmissiveRadiance(smokeMaterial, texCoord, surfaceClass, activeEmissiveStage);
     if (activeEmissiveStage && CleanGiMaterialUsesUnlitColorFallback(smokeMaterial, surfaceClass, translucentSubtype))
     {
@@ -1808,6 +1810,7 @@ bool CleanGiLoadTriangleGeometryFull(
     out float3 p0, out float3 p1, out float3 p2,
     out float3 n0, out float3 n1, out float3 n2,
     out float2 uv0, out float2 uv1, out float2 uv2,
+    out float2 normalUv0, out float2 normalUv1, out float2 normalUv2,
     out float4 c0, out float4 c1, out float4 c2,
     out float4 c20, out float4 c21, out float4 c22)
 {
@@ -1820,6 +1823,9 @@ bool CleanGiLoadTriangleGeometryFull(
     uv0 = float2(0.0, 0.0);
     uv1 = float2(0.0, 0.0);
     uv2 = float2(0.0, 0.0);
+    normalUv0 = float2(0.0, 0.0);
+    normalUv1 = float2(0.0, 0.0);
+    normalUv2 = float2(0.0, 0.0);
     c0 = float4(1.0, 1.0, 1.0, 1.0);
     c1 = float4(1.0, 1.0, 1.0, 1.0);
     c2 = float4(1.0, 1.0, 1.0, 1.0);
@@ -1850,6 +1856,7 @@ bool CleanGiLoadTriangleGeometryFull(
         p0 = v0.position.xyz; p1 = v1.position.xyz; p2 = v2.position.xyz;
         n0 = v0.normal.xyz; n1 = v1.normal.xyz; n2 = v2.normal.xyz;
         uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
+        normalUv0 = v0.texCoord.zw; normalUv1 = v1.texCoord.zw; normalUv2 = v2.texCoord.zw;
         c0 = v0.color; c1 = v1.color; c2 = v2.color;
         c20 = v0.color2; c21 = v1.color2; c22 = v2.color2;
         return true;
@@ -1877,6 +1884,7 @@ bool CleanGiLoadTriangleGeometryFull(
         p0 = v0.position.xyz; p1 = v1.position.xyz; p2 = v2.position.xyz;
         n0 = v0.normal.xyz; n1 = v1.normal.xyz; n2 = v2.normal.xyz;
         uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
+        normalUv0 = v0.texCoord.zw; normalUv1 = v1.texCoord.zw; normalUv2 = v2.texCoord.zw;
         c0 = v0.color; c1 = v1.color; c2 = v2.color;
         c20 = v0.color2; c21 = v1.color2; c22 = v2.color2;
         return true;
@@ -1914,6 +1922,7 @@ bool CleanGiLoadTriangleGeometryFull(
     n1 = CleanGiTransformRigidRouteVector(route, v1.normal.xyz);
     n2 = CleanGiTransformRigidRouteVector(route, v2.normal.xyz);
     uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
+    normalUv0 = v0.texCoord.zw; normalUv1 = v1.texCoord.zw; normalUv2 = v2.texCoord.zw;
     c0 = v0.color; c1 = v1.color; c2 = v2.color;
     c20 = v0.color2; c21 = v1.color2; c22 = v2.color2;
     return true;
@@ -2061,6 +2070,7 @@ bool CleanGiMaterialRejectsHit(uint2 pixel, uint instanceId, uint primitiveIndex
     float3 p0, p1, p2;
     float3 n0, n1, n2;
     float2 uv0, uv1, uv2;
+    float2 normalUv0, normalUv1, normalUv2;
     float4 c0, c1, c2;
     float4 c20, c21, c22;
     if (!CleanGiLoadTriangleGeometryFull(
@@ -2069,6 +2079,7 @@ bool CleanGiMaterialRejectsHit(uint2 pixel, uint instanceId, uint primitiveIndex
         p0, p1, p2,
         n0, n1, n2,
         uv0, uv1, uv2,
+        normalUv0, normalUv1, normalUv2,
         c0, c1, c2,
         c20, c21, c22))
     {
@@ -3209,11 +3220,13 @@ bool CleanGiTraceMaterialSurfaceRay(
     float3 p0, p1, p2;
     float3 n0, n1, n2;
     float2 uv0, uv1, uv2;
+    float2 normalUv0, normalUv1, normalUv2;
     float4 c0, c1, c2;
     float4 c20, c21, c22;
     float3 localGeometricNormal = -rayDirection;
     float3 hitShadingNormal = -rayDirection;
     float2 hitTexCoord = float2(0.0, 0.0);
+    float2 hitNormalTexCoord = float2(0.0, 0.0);
     float4 hitVertexColor = float4(1.0, 1.0, 1.0, 1.0);
     if (CleanGiLoadTriangleGeometryFull(
         payload.hitInstanceId,
@@ -3221,6 +3234,7 @@ bool CleanGiTraceMaterialSurfaceRay(
         p0, p1, p2,
         n0, n1, n2,
         uv0, uv1, uv2,
+        normalUv0, normalUv1, normalUv2,
         c0, c1, c2,
         c20, c21, c22))
     {
@@ -3234,6 +3248,7 @@ bool CleanGiTraceMaterialSurfaceRay(
         const float b2 = saturate(payload.hitBarycentrics.y);
         const float b0 = saturate(1.0 - b1 - b2);
         hitTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
+        hitNormalTexCoord = normalUv0 * b0 + normalUv1 * b1 + normalUv2 * b2;
         hitVertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
 
         const bool forceGeometricNormal = (hitTriangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
@@ -3267,7 +3282,7 @@ bool CleanGiTraceMaterialSurfaceRay(
         }
 
         hitShadingNormal = CleanGiConstrainShadingNormal(
-            CleanGiDecodeNormalTexture(hitMaterial, hitTexCoord, hitShadingNormal, hitTangent, hitBitangent),
+            CleanGiDecodeNormalTexture(hitMaterial, hitNormalTexCoord, hitShadingNormal, hitTangent, hitBitangent),
             localGeometricNormal);
     }
 
@@ -4107,11 +4122,13 @@ bool CleanGiBuildProducerSurfaceFromHit(
     float3 p0, p1, p2;
     float3 n0, n1, n2;
     float2 uv0, uv1, uv2;
+    float2 normalUv0, normalUv1, normalUv2;
     float4 c0, c1, c2;
     float4 c20, c21, c22;
     float3 hitGeometricNormal = -bounceDir;
     float3 hitShadingNormal = -bounceDir;
     float2 hitTexCoord = float2(0.0, 0.0);
+    float2 hitNormalTexCoord = float2(0.0, 0.0);
     float4 hitVertexColor = float4(1.0, 1.0, 1.0, 1.0);
     if (CleanGiLoadTriangleGeometryFull(
         hitInstanceId,
@@ -4119,6 +4136,7 @@ bool CleanGiBuildProducerSurfaceFromHit(
         p0, p1, p2,
         n0, n1, n2,
         uv0, uv1, uv2,
+        normalUv0, normalUv1, normalUv2,
         c0, c1, c2,
         c20, c21, c22))
     {
@@ -4132,6 +4150,7 @@ bool CleanGiBuildProducerSurfaceFromHit(
         const float b2 = saturate(hitBarycentrics.y);
         const float b0 = saturate(1.0 - b1 - b2);
         hitTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
+        hitNormalTexCoord = normalUv0 * b0 + normalUv1 * b1 + normalUv2 * b2;
         hitVertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
 
         const bool forceGeometricNormal = (hitTriangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
@@ -4165,7 +4184,7 @@ bool CleanGiBuildProducerSurfaceFromHit(
         }
 
         hitShadingNormal = CleanGiConstrainShadingNormal(
-            CleanGiDecodeNormalTexture(hitMaterial, hitTexCoord, hitShadingNormal, hitTangent, hitBitangent),
+            CleanGiDecodeNormalTexture(hitMaterial, hitNormalTexCoord, hitShadingNormal, hitTangent, hitBitangent),
             hitGeometricNormal);
     }
 

@@ -72,6 +72,39 @@ void CopyDrawSurfObjectToWorld(const drawSurf_t* drawSurf, float objectToWorld[1
     objectToWorld[15] = 1.0f;
 }
 
+void BuildRigidNormalTexMatrix(const idMaterial* material, const float* registers, float matrix[6])
+{
+    const float identity[6] = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+    memcpy(matrix, identity, sizeof(identity));
+    if (!material || !registers)
+    {
+        return;
+    }
+
+    const int registerCount = material->GetNumRegisters();
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || stage->lighting != SL_BUMP || !stage->texture.hasMatrix)
+        {
+            continue;
+        }
+
+        for (int row = 0; row < 2; ++row)
+        {
+            for (int column = 0; column < 3; ++column)
+            {
+                const int registerIndex = stage->texture.matrix[row][column];
+                if (registerIndex >= 0 && registerIndex < registerCount)
+                {
+                    matrix[row * 3 + column] = registers[registerIndex];
+                }
+            }
+        }
+        return;
+    }
+}
+
 uint32_t PtSourceFlagsForDrawSurf(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass)
 {
     uint32_t flags = 0;
@@ -551,6 +584,10 @@ void RecordPathTraceDrawSurfMirrorObservation(
         candidateObservation.numVerts = tri->numVerts;
         candidateObservation.numIndexes = tri->numIndexes;
         candidateObservation.localSpaceValid = meshObservation.localSpaceValid;
+        BuildRigidNormalTexMatrix(
+            drawSurf->material,
+            drawSurf->shaderRegisters ? drawSurf->shaderRegisters : drawSurf->material->ConstantRegisters(),
+            candidateObservation.normalTexMatrix);
         candidateObservation.materialName = meshObservation.materialName;
         candidateObservation.modelName = meshObservation.modelName;
         geometryUniverse->RecordRigidMeshCandidate(candidateObservation);

@@ -773,8 +773,8 @@ bool SmokeStageIsAdditiveOrGlowLike(const shaderStage_t* stage)
 
     const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
     const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-    return (stage->lighting == SL_AMBIENT && dstBlend == GLS_DSTBLEND_ONE) ||
-        (srcBlend == GLS_SRCBLEND_ONE && dstBlend == GLS_DSTBLEND_ONE);
+    return (srcBlend == GLS_SRCBLEND_ONE || srcBlend == GLS_SRCBLEND_SRC_ALPHA) &&
+        dstBlend == GLS_DSTBLEND_ONE;
 }
 
 bool SmokeStageTextureIsAnimatedOrViewDependent(const shaderStage_t* stage)
@@ -1289,18 +1289,24 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
         return nullptr;
     }
 
-    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    const bool allowTranslucentCutout =
-        material->Coverage() == MC_TRANSLUCENT &&
-        !classifier.hasScreenTexgen &&
-        !classifier.hasAddDefault0200Texture &&
-        !classifier.nameLooksGui &&
-        !classifier.nameLooksParticle &&
-        (classifier.nameLooksGlass || classifier.nameLooksSignage || classifier.nameLooksGlow);
-    if (material->Coverage() != MC_PERFORATED && !allowTranslucentCutout)
+    // The declaring alpha-test stage is the primary source. Do not require a
+    // filename category or MC_PERFORATED: explicit stage behavior is authoritative.
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
-        reason = "not perforated or translucent cutout";
-        return nullptr;
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || !stage->hasAlphaTest || stage->ignoreAlphaTest || !stage->texture.image)
+        {
+            continue;
+        }
+
+        // YCoCg DXT5 consumes the stored alpha channel for color reconstruction.
+        // Prefer a separately parsed coverage image below rather than treating it
+        // as authored opacity.
+        if (stage->texture.image->GetOpts().colorFormat != CFM_YCOCG_DXT5)
+        {
+            reason = va("stage %d authored alpha-test", stageIndex);
+            return stage->texture.image;
+        }
     }
 
     idImage* image = FindSmokeImageByUsageAndFormat(material, TD_COVERAGE, CFM_GREEN_ALPHA, SL_COVERAGE, reason);
@@ -1316,7 +1322,6 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
         {
             continue;
         }
-
         if (stage->lighting == SL_COVERAGE)
         {
             reason = va("stage %d SL_COVERAGE", stageIndex);
@@ -1324,30 +1329,18 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
         }
     }
 
+    if (material->Coverage() != MC_PERFORATED)
+    {
+        reason = "no authored alpha-test or coverage stage";
+        return nullptr;
+    }
+
+    // Legacy filename-code support is retained only as a compatibility fallback
+    // for perforated declarations whose parsed stages expose no usable alpha image.
     image = FindSmokeImageByTextureCode(material, RtSmokeTextureCodeHint::AlphaClip1000, reason);
     if (image)
     {
         return image;
-    }
-
-    if (allowTranslucentCutout)
-    {
-        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
-        {
-            const shaderStage_t* stage = material->GetStage(stageIndex);
-            if (!stage || !stage->hasAlphaTest || stage->ignoreAlphaTest || !stage->texture.image)
-            {
-                continue;
-            }
-
-            if (stage->texture.image->GetOpts().colorFormat == CFM_YCOCG_DXT5)
-            {
-                continue;
-            }
-
-            reason = va("stage %d translucent alpha-test", stageIndex);
-            return stage->texture.image;
-        }
     }
 
     reason = "no SL_COVERAGE image";
@@ -1569,14 +1562,12 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         info->additiveDecalWhiteKey = false;
         info->filterDecal = false;
         info->filterDecalBlackKey = false;
-        const bool preservePerforatedCoverage =
-            material &&
-            material->Coverage() == MC_PERFORATED &&
+        const bool preserveAuthoredAlphaTest =
             info->hasAlphaTest &&
             info->hasAlphaImage;
-        if (preservePerforatedCoverage)
+        if (preserveAuthoredAlphaTest)
         {
-            info->alphaReason = va("%s; preserved for perforated emissive overlay", alphaReason.c_str());
+            info->alphaReason = va("%s; preserved authored alpha-test with emissive stage", alphaReason.c_str());
         }
         else if (info->alphaFromDiffuseMagentaKey)
         {

@@ -107,6 +107,7 @@ struct RtPathTraceRigidMeshCandidateObservation
     int numVerts = 0;
     int numIndexes = 0;
     bool localSpaceValid = false;
+    float normalTexMatrix[6] = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
     idStr materialName;
     idStr modelName;
 };
@@ -744,6 +745,7 @@ public:
         int instanceCountThisFrame = 0;
         bool seenThisFrame = false;
         bool newlyCreatedThisFrame = false;
+        float normalTexMatrix[6] = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
         idBounds localBounds;
         bool localBoundsValid = false;
         std::vector<PathTraceSmokeVertex> cachedLocalVertices;

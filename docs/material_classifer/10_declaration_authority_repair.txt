@@ -1,0 +1,259 @@
+DECLARATION AUTHORITY REPAIR
+============================
+Authored: 2026-07-12.
+Status: active implementation plan. This document extends 00-09. Where older
+documents call ResolveSmokeMaterialAlphaInfo metadata-correct or allow a name
+token to override parsed compositing state, this document is authoritative.
+
+PURPOSE
+-------
+Make the path tracer consume the material behavior already parsed by idMaterial.
+The .mtr declaration is authoritative for how each stage combines with a
+surface. Names remain useful only for physical properties Doom 3 does not
+declare, narrowly documented content workarounds, and fallback classification
+when no authored surface type exists.
+
+CONFIRMED CURRENT STATE
+-----------------------
+1. r_pathTracingMatClassEnable defaults to 1, but the new classifier is an
+   overlay on RtSmokeMaterialTextureInfo. Texture discovery and compositing
+   flags are still produced by PathTraceDoomMaterialClassifier and
+   PathTraceMaterialTextureDiscovery before RtMaterialRecord is built.
+
+2. ResolveSmokeMaterialAlphaInfo and FindSmokeAlphaImage only accept an authored
+   alpha-test stage on MC_TRANSLUCENT materials when name tokens resemble glass,
+   signage, or glow. A valid alphatest declaration can therefore be discarded.
+
+3. Emissive discovery can reject declared additive stages because the material
+   name resembles GUI, particle, or glass. After emissive intent is selected,
+   registration can erase alpha/decal/filter state for the entire material.
+   This collapses separate stage behavior into one material-wide category.
+
+4. ResolveSurfaceClassCandidate runs several material/image name policies before
+   GetSurfaceType(). It can therefore override an authored surface class despite
+   02_classifier_architecture explicitly requiring the opposite precedence.
+
+5. RtSmokeMaterialTextureInfo and RtMaterialRecord retain one image per broad
+   role plus aggregate booleans/counts. They do not retain an ordered list of
+   active stages. Better heuristics alone cannot reproduce a multi-stage .mtr.
+
+TRUST HIERARCHY
+---------------
+Tier 1 - authored compositing facts (never overridden by a name):
+  stage order, condition, lighting role, exact drawStateBits blend pair,
+  alphatest expression/cutoff, coverage, stage color, texture matrix, texgen,
+  dynamic image/program identity, and the resolved stage image.
+
+Tier 2 - authored material identity:
+  GetSurfaceType(), GetSurfaceFlags(), sort, polygon offset, deform, contents,
+  two-sided/shadow flags, and other parsed surface parameters.
+
+Tier 3 - path-tracer physical policy:
+  roughness, metallic, IOR, transmission, subsurface behavior, hologram versus
+  glass, and promotion of visible emission to a sampled mesh light.
+
+Tier 4 - explicit compatibility overrides:
+  known content defects or encodings such as the 0200 placeholder, sterlight
+  magenta key, and absorbing-black material. These must be exact, named rules
+  with diagnostics, not generic filename inference of blend behavior.
+
+Tier 5 - low-confidence fallback:
+  material/image name inference only when the relevant authored fact is absent.
+
+ORDERED IMPLEMENTATION TASKS
+----------------------------
+MATCLASS-10A - Alpha declaration authority
+  - Scan active stages directly for hasAlphaTest and ignoreAlphaTest.
+  - Do not require MC_PERFORATED or a material-name category before honoring an
+    explicit alphatest stage.
+  - Preserve MC_PERFORATED 0.5 fallback only when no usable authored cutoff is
+    available.
+  - Select the alpha image from the authored alpha-test/coverage stage before
+    any texture-code compatibility hint.
+  - Keep runtime-dependent cutoff at 0.5 until per-surface registers are wired;
+    record that it is dynamic rather than pretending it is constant.
+
+MATCLASS-10B - Authored surface type precedence
+  - Resolve any non-NONE GetSurfaceType() before material/image name rules.
+  - Do not override CARDBOARD with a metal box token or industrial folders.
+  - Keep name/image inference only for SURFTYPE_NONE.
+  - Preserve authoritative stage-kind/sort classification for true effect
+    surfaces; do not use it to erase the separate physical surface class.
+
+MATCLASS-10C - Exact compositing operation facts
+  - Add an enum that distinguishes opaque replace, additive, multiply/filter,
+    inverted filter/black-key, source-alpha over, and authored alpha clip.
+  - Store exact source/destination blend bits and stage index in diagnostics.
+  - Replace material-wide guesses such as additiveDecalWhiteKey with compiled
+    facts from the stage that actually owns the image.
+
+MATCLASS-10D - Ordered stage representation
+  - Introduce a CPU declaration record containing active stages in declaration
+    order. Each entry owns role, image, blend operation, alpha expression,
+    condition/dynamic state, texgen, color and program identity.
+  - Group BUMP/DIFFUSE/SPECULAR stages into interaction packets without losing
+    intervening effect stages.
+  - Compile this record into a bounded GPU representation. Measure shipped
+    material stage counts before choosing the inline layer count and overflow
+    policy.
+
+MATCLASS-10E - Emissive separation
+  - Treat additive compositing and light-source promotion as separate facts.
+  - Do not erase alpha/filter stages because another stage emits.
+  - Use exact custom-program identity or an explicit override table where the
+    .mtr cannot describe physical intent.
+
+MATCLASS-10F - Dynamic expressions
+  - Carry register indices and dynamic flags in the declaration record.
+  - Evaluate alpha cutoff, stage condition, color and texture matrices from the
+    draw surface shaderRegisters, matching the raster path.
+  - The static 0.5 cutoff remains a labelled fallback only.
+
+RUNTIME FOLLOW-UP CONFIRMED 2026-07-12
+--------------------------------------
+Enabling declaration-authoritative alpha exposed character death/dissolve
+materials whose clip stage changes condition, cutoff and texture matrix at
+runtime. The existing dynamic framework was further along than doc 07 described,
+but remained incomplete:
+  - per-entity material variants existed, but their eligibility test omitted
+    texture-matrix-only animation;
+  - the evaluator collapsed all dynamic stages to one representative stage and
+    preferred emissive/bright stages over the authored alpha-test stage;
+  - the dynamic GPU record carried condition, alpha cutoff and texMatrix, but
+    material application consumed it only for emissive state;
+  - texMatrix was baked into captured vertices, while alpha cutoff/enable stayed
+    at the static material value.
+
+Immediate repair slice:
+  1. Prefer an authored alpha-test stage when selecting the current single
+     dynamic record, including when that stage is disabled this frame.
+  2. Include runtime texture-matrix registers in per-entity variant eligibility.
+  3. Apply evaluated alpha cutoff and stage enable to the entity-specific GPU
+     material row.
+  4. Disable the stable material-table shortcut for dynamic alpha rows until the
+     shader-side dynamic channel applies alpha as well as emission.
+
+This is a compatibility bridge, not the final multi-stage representation in
+MATCLASS-10D. It is sufficient for the currently exposed dissolve family while
+retaining an explicit boundary for materials with multiple independent dynamic
+effect stages.
+
+Character dissolve corpus finding:
+  models/characters/male_npc/jumpsuit/jumpsuit stage 0 is gated by `if parm7`
+  (parm7 is zero while alive and becomes the death start time). Its blend is
+  GL_ZERO,GL_ONE, explicitly a no-op, while alphaTest advances as
+  `0.05 + 2 * (time - parm7)`. The old glow helper incorrectly treated every
+  ambient stage with destination ONE as emissive, ignoring that this stage's
+  source factor is ZERO. Exact blend-pair interpretation is therefore required
+  even for effect/light promotion: GL_ZERO,GL_ONE must never emit.
+
+The safe static state for this exact stage family is opaque. A runtime-conditional
+GL_ZERO,GL_ONE alpha stage is a dormant visibility controller, not permanent
+material coverage. The material row therefore starts with alpha testing disabled;
+the per-entity dynamic record enables it only while its condition is true. Missing
+or delayed dynamic state must leave a living character intact, never masked by
+the dissolve texture.
+
+Material reconstruction must use the same live visibility decision. Merely
+clearing RT_SMOKE_MATERIAL_ALPHA_TEST is insufficient if RAB_Material.opacity is
+still sampled unconditionally from the bound alpha texture. The alpha texture
+remains resident for the later death transition, but opacity is 1.0 whenever
+the live alpha-test flag is off. Visibility any-hit and shading reconstruction
+must never disagree about that flag.
+
+ROLE-SPECIFIC STATIC UV MATRIX SLICE
+------------------------------------
+`textures/lab/vent_spiral` proves that a single material-wide UV is insufficient:
+its BUMP stage declares `scale 8,1`, while diffuse and specular intentionally use
+the base UVs. A first attempt to widen PathTraceSmokeMaterial with a dedicated
+2x3 normal-stage matrix hit DXC's existing SPIR-V ID-overflow limit in the clean
+DI library and was backed out. Do not replace this with a material-wide UV bake;
+that would incorrectly repeat the diffuse and specular stages.
+
+Implemented bridge:
+  - PathTraceSmokeVertex.texCoord.xy remains the authored base UV used by
+    diffuse, specular, alpha and emissive roles.
+  - The previously unused texCoord.zw carries the selected BUMP stage's UV after
+    evaluating its 2x3 matrix from the draw surface shader registers.
+  - Rigid-route mesh records carry the evaluated CPU matrix into their cached
+    local vertices and include it in the GPU upload signature, so persistent
+    BLAS data refreshes when the matrix changes.
+  - Static/dynamic hit reconstruction, clean DI transmission, GI and the main
+    path tracer interpolate zw separately and use it only for normal sampling.
+  - The shared RAB surface supplier and dedicated primary-surface producer must
+    consume that separate field as well. Carrying zw through the vertices is
+    ineffective if final surface reconstruction decodes the normal map with
+    base texCoord.xy; this final-consumer bypass was found and corrected during
+    runtime validation.
+  - Untransformed/fallback vertex builders initialize zw from xy. GPU skinning
+    already copies the complete float4 texCoord, preserving the extra channel.
+
+This bridge deliberately supports the selected bump role without widening the
+compiler-critical material structure. The ordered-stage representation in
+MATCLASS-10D remains necessary if multiple independent bump stages must coexist.
+
+Runtime rotation follow-up:
+  `textures/object/fanspin` uses the same `rotate parm4+(time*parm3)` matrix on
+  bump, diffuse, specular and cutout coverage. Its live registers and runtime
+  variant were correct. One bug was that the dynamic geometry rewrite passed
+  triangle material IDs to a function that indexed the dynamic-record array.
+  Large runtime IDs therefore always failed the bounds check; the rewrite now
+  consumes materialTable.dynamicMaterialIndexes, while triangle material IDs
+  remain reserved for identity and shader lookup.
+
+  That correction alone was insufficient after rigid-route promotion. Dynamic
+  material evaluation samples were produced as a side effect of appending the
+  fallback dynamic geometry. Once a surface was promoted, its geometry was
+  correctly absent from that fallback, but its live per-draw-surface material
+  state disappeared too. The resulting runtime material-table row existed with
+  no valid record (identity matrix, invalid material/stage indexes).
+
+  Record production is now independent of geometry retention: the builder
+  supplements capture samples from visible draw surfaces and evaluates their
+  live shaderRegisters for runtime material IDs that need non-static records.
+  Rigid promotion may change where geometry lives, but cannot suppress animated
+  texture matrices, stage conditions, or alpha-test state.
+
+  A rigid-route implementation was prototyped, then removed after ownership
+  diagnostics proved fanspin had zero rigid-route and fallback-dynamic matches.
+  Enabling alpha/material work for all rigid any-hit traffic was unrelated to
+  the fan and created a broad performance risk; do not restore that experiment
+  without a separately measured rigid alpha-test requirement.
+
+  Ownership diagnostics then identified the live fanspin triangles in the
+  persistent static route, not the rigid route or fallback dynamic geometry.
+  Persistent geometry keeps immutable authored vertices; each frame now makes
+  an upload copy and applies runtime-variant texture matrices to that copy.
+  Animated UV uploads do not alter positions or force a static BLAS rebuild,
+  and transforms cannot accumulate in the persistent vertex cache. Uploads are
+  restricted to the min/max transformed vertex range rather than rewriting the
+  complete static vertex buffer each frame.
+
+  Visible draw surfaces remain the authoritative source of new per-entity
+  matrices. Retaining the last visible matrix did not preserve off-camera
+  lighting and was removed. The remaining off-camera behavior belongs to scene
+  residency/TLAS-area ownership, not the material-record bridge.
+
+VALIDATION GATES
+----------------
+For each repaired material, diagnostics must show:
+  material name; authored coverage/surface type; ordered active stages; each
+  stage image/lighting/blend/alpha cutoff; compatibility override if any; final
+  PT interaction/effect mapping; and final physical BSDF policy.
+
+Required focused corpus cases:
+  - blend filter / GL_DST_COLOR,GL_ZERO: white is identity, texture darkens.
+  - GL_ZERO,GL_ONE_MINUS_SRC_COLOR: black-keyed/inverted darkening.
+  - blend add: black is identity and the stage remains additive regardless of
+    whether its filename contains glow, sign, decal, glass, or none of them.
+  - alphatest N: authored clipping survives arbitrary material names.
+  - authored SURFTYPE_*: name/image tokens cannot replace the class.
+  - multi-stage emissive plus alpha/filter material: one stage cannot erase the
+    compositing behavior of another.
+
+ROLLBACK AND SCOPE
+------------------
+r_pathTracingMatClassEnable 0 remains the rollback path during this repair.
+Initial patches intentionally preserve exact content compatibility overrides.
+Removing those overrides or widening the GPU material ABI is a later measured
+step, after the declaration-authority fixes have runtime coverage.

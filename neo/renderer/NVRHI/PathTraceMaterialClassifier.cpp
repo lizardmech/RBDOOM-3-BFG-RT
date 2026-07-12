@@ -1146,6 +1146,16 @@ bool RtMaterialSpecialFromStageFacts(const RtMaterialStageFacts& stageFacts, idS
 RtMaterialClassCandidate ResolveSurfaceClassCandidate(const idMaterial* material, const RtSmokeMaterialTextureInfo& info, const RtMaterialStageFacts& stageFacts)
 {
     RtMaterialClassCandidate candidate;
+    const RtMaterialSurfaceClass surfaceTypeClass = RtSurfaceClassFromSurfaceType(material ? material->GetSurfaceType() : SURFTYPE_NONE);
+    if (surfaceTypeClass != RtMaterialSurfaceClass::Unknown)
+    {
+        candidate.surfaceClass = surfaceTypeClass;
+        candidate.reason = RtMaterialSurfaceClassReason::SurfaceType;
+        candidate.confidence = RtMaterialClassConfidence::Authoritative;
+        candidate.evidence = va("surfaceType:%d", material ? static_cast<int>(material->GetSurfaceType()) : static_cast<int>(SURFTYPE_NONE));
+        return candidate;
+    }
+
     if (RtMaterialSortIsDecal(material))
     {
         candidate.surfaceClass = RtMaterialSurfaceClass::Special;
@@ -1187,39 +1197,11 @@ RtMaterialClassCandidate ResolveSurfaceClassCandidate(const idMaterial* material
         return candidate;
     }
 
-    const RtMaterialSurfaceClass surfaceTypeClass = RtSurfaceClassFromSurfaceType(material ? material->GetSurfaceType() : SURFTYPE_NONE);
-    if (surfaceTypeClass == RtMaterialSurfaceClass::Flesh ||
-        surfaceTypeClass == RtMaterialSurfaceClass::Glass ||
-        surfaceTypeClass == RtMaterialSurfaceClass::Liquid)
-    {
-        candidate.surfaceClass = surfaceTypeClass;
-        candidate.reason = RtMaterialSurfaceClassReason::SurfaceType;
-        candidate.confidence = RtMaterialClassConfidence::Authoritative;
-        candidate.evidence = va("surfaceType:%d", material ? static_cast<int>(material->GetSurfaceType()) : static_cast<int>(SURFTYPE_NONE));
-        return candidate;
-    }
-
     if (RtIndustrialMetalFamilyFromNames(info, candidate.evidence))
     {
         candidate.surfaceClass = RtMaterialSurfaceClass::Metal;
         candidate.reason = RtMaterialSurfaceClassReason::NameToken;
         candidate.confidence = RtMaterialClassConfidence::Heuristic;
-        return candidate;
-    }
-
-    if (surfaceTypeClass != RtMaterialSurfaceClass::Unknown)
-    {
-        if (surfaceTypeClass == RtMaterialSurfaceClass::Cardboard && RtCardboardSurfaceHasMetalPropEvidence(info, candidate.evidence))
-        {
-            candidate.surfaceClass = RtMaterialSurfaceClass::Metal;
-            candidate.reason = RtMaterialSurfaceClassReason::NameToken;
-            candidate.confidence = RtMaterialClassConfidence::Heuristic;
-            return candidate;
-        }
-        candidate.surfaceClass = surfaceTypeClass;
-        candidate.reason = RtMaterialSurfaceClassReason::SurfaceType;
-        candidate.confidence = RtMaterialClassConfidence::Authoritative;
-        candidate.evidence = va("surfaceType:%d", material ? static_cast<int>(material->GetSurfaceType()) : static_cast<int>(SURFTYPE_NONE));
         return candidate;
     }
 

@@ -446,7 +446,9 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     material.diffuseAlbedo = materialAlbedo;
     material.roughness = roughness;
     material.specularF0 = specularF0;
-    material.opacity = SmokeAlphaCoverage(smokeMaterial, payload.texCoord);
+    material.opacity = (smokeMaterial.flags & 0x00000001u) != 0u
+        ? SmokeAlphaCoverage(smokeMaterial, payload.texCoord)
+        : 1.0;
     material.emissiveRadiance = SampleSmokeEmissive(smokeMaterial, payload.texCoord, payload.surfaceClass, activeEmissiveStage) * max(ToyPathInfo.z, 0.0);
     material.emissiveTextureIndex = smokeMaterial.emissiveTextureIndex;
     return material;

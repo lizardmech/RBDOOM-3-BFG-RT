@@ -52,6 +52,7 @@ struct PathTraceCleanRtxdiDiTraceHitSurface
 {
     bool valid;
     float2 texCoord;
+    float2 normalTexCoord;
     float3 geometricNormal;
     float3 shadingNormal;
     float3 tangent;
@@ -126,6 +127,7 @@ PathTraceCleanRtxdiDiTraceHitSurface PathTraceCleanRtxdiDiEmptyTraceHitSurface()
     PathTraceCleanRtxdiDiTraceHitSurface surface;
     surface.valid = false;
     surface.texCoord = float2(0.0, 0.0);
+    surface.normalTexCoord = float2(0.0, 0.0);
     surface.geometricNormal = float3(0.0, 0.0, 1.0);
     surface.shadingNormal = float3(0.0, 0.0, 1.0);
     surface.tangent = float3(1.0, 0.0, 0.0);
@@ -167,6 +169,9 @@ bool PathTraceCleanRtxdiDiLoadTraceHitSurface(
         const float2 uv0 = (payload.hitInstanceId == 0u ? SmokeStaticVertices[i0].texCoord : SmokeDynamicVertices[i0].texCoord).xy;
         const float2 uv1 = (payload.hitInstanceId == 0u ? SmokeStaticVertices[i1].texCoord : SmokeDynamicVertices[i1].texCoord).xy;
         const float2 uv2 = (payload.hitInstanceId == 0u ? SmokeStaticVertices[i2].texCoord : SmokeDynamicVertices[i2].texCoord).xy;
+        const float2 normalUv0 = (payload.hitInstanceId == 0u ? SmokeStaticVertices[i0].texCoord : SmokeDynamicVertices[i0].texCoord).zw;
+        const float2 normalUv1 = (payload.hitInstanceId == 0u ? SmokeStaticVertices[i1].texCoord : SmokeDynamicVertices[i1].texCoord).zw;
+        const float2 normalUv2 = (payload.hitInstanceId == 0u ? SmokeStaticVertices[i2].texCoord : SmokeDynamicVertices[i2].texCoord).zw;
         const float3 p0 = (payload.hitInstanceId == 0u ? SmokeStaticVertices[i0].position : SmokeDynamicVertices[i0].position).xyz;
         const float3 p1 = (payload.hitInstanceId == 0u ? SmokeStaticVertices[i1].position : SmokeDynamicVertices[i1].position).xyz;
         const float3 p2 = (payload.hitInstanceId == 0u ? SmokeStaticVertices[i2].position : SmokeDynamicVertices[i2].position).xyz;
@@ -187,6 +192,7 @@ bool PathTraceCleanRtxdiDiLoadTraceHitSurface(
         const float4 b2 = payload.hitInstanceId == 0u ? SmokeStaticVertices[i2].bitangent : SmokeDynamicVertices[i2].bitangent;
 
         surface.texCoord = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
+        surface.normalTexCoord = normalUv0 * barycentrics.x + normalUv1 * barycentrics.y + normalUv2 * barycentrics.z;
         surface.vertexColor = c0 * barycentrics.x + c1 * barycentrics.y + c2 * barycentrics.z;
         surface.vertexColorAdd = c20 * barycentrics.x + c21 * barycentrics.y + c22 * barycentrics.z;
         surface.geometricNormal = RAB_SafeNormalize(cross(p1 - p0, p2 - p0), surface.geometricNormal);
@@ -235,6 +241,9 @@ bool PathTraceCleanRtxdiDiLoadTraceHitSurface(
     const float2 uv0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0].texCoord.xy;
     const float2 uv1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1].texCoord.xy;
     const float2 uv2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2].texCoord.xy;
+    const float2 normalUv0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0].texCoord.zw;
+    const float2 normalUv1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1].texCoord.zw;
+    const float2 normalUv2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2].texCoord.zw;
     const float3 p0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0].position.xyz;
     const float3 p1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1].position.xyz;
     const float3 p2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2].position.xyz;
@@ -268,6 +277,7 @@ bool PathTraceCleanRtxdiDiLoadTraceHitSurface(
         objectBitangent);
 
     surface.texCoord = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
+    surface.normalTexCoord = normalUv0 * barycentrics.x + normalUv1 * barycentrics.y + normalUv2 * barycentrics.z;
     surface.vertexColor = c0 * barycentrics.x + c1 * barycentrics.y + c2 * barycentrics.z;
     surface.vertexColorAdd = c20 * barycentrics.x + c21 * barycentrics.y + c22 * barycentrics.z;
     surface.geometricNormal = RAB_SafeNormalize(PathTraceCleanRtxdiDiTransformRouteVector(routeInstance, objectGeometricNormal), surface.geometricNormal);
@@ -678,7 +688,7 @@ bool PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
 
     float3 shadingNormal = PathTraceCleanRtxdiDiTraceHitDecodeNormal(
         material,
-        hitSurface.texCoord,
+        hitSurface.normalTexCoord,
         hitSurface.shadingNormal,
         hitSurface.tangent,
         hitSurface.bitangent);
@@ -702,7 +712,9 @@ bool PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
     rabMaterial.diffuseAlbedo = albedo;
     rabMaterial.specularF0 = specularF0;
     rabMaterial.roughness = saturate(roughness);
-    rabMaterial.opacity = saturate(PathTraceCleanRtxdiDiTraceHitAlphaCoverage(material, hitSurface.texCoord));
+    rabMaterial.opacity = (material.flags & 0x00000001u) != 0u
+        ? saturate(PathTraceCleanRtxdiDiTraceHitAlphaCoverage(material, hitSurface.texCoord))
+        : 1.0;
     rabMaterial.emissiveRadiance =
         PathTraceCleanRtxdiDiTraceHitSurfaceEmissive(material, hitSurface, payload.hitTriangleClassAndFlags) *
         max(CleanRtxdiDiToyPathInfo.z, 0.0);

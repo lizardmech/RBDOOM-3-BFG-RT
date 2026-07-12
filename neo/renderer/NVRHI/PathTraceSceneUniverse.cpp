@@ -118,8 +118,8 @@ bool SceneUniverseStageIsAdditiveOrGlowLike(const shaderStage_t* stage)
 
     const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
     const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-    return (stage->lighting == SL_AMBIENT && dstBlend == GLS_DSTBLEND_ONE) ||
-        (srcBlend == GLS_SRCBLEND_ONE && dstBlend == GLS_DSTBLEND_ONE);
+    return (srcBlend == GLS_SRCBLEND_ONE || srcBlend == GLS_SRCBLEND_SRC_ALPHA) &&
+        dstBlend == GLS_DSTBLEND_ONE;
 }
 
 float SceneUniverseDynamicEvalColorLuminance(const float color[4])
@@ -637,7 +637,7 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
         }
 
         const bool stageEmissive = SceneUniverseStageIsAdditiveOrGlowLike(stage);
-        const int stagePriority = (enabled ? 2 : 0) + (stageEmissive ? 1 : 0);
+        const int stagePriority = (stage->hasAlphaTest ? 8 : 0) + (enabled ? 4 : 0) + (stageEmissive ? 2 : 0);
         RtSmokeDynamicMaterialEvalSample stageSample;
         stageSample.valid = true;
         stageSample.stageIndex = stageIndex;
@@ -782,7 +782,7 @@ void SceneUniverseAddDynamicMaterialEvalStatsForId(
     SceneUniverseAccumulateDynamicMaterialEvalStats(stats, material, regs, indexes, materialId);
 }
 
-PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* entity, const srfTriangles_t* tri, int vertexIndex)
+PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* entity, const idMaterial* material, const srfTriangles_t* tri, int vertexIndex)
 {
     const idDrawVert& drawVert = tri->verts[vertexIndex];
     idVec3 worldPosition;
@@ -814,6 +814,38 @@ PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* e
     }
 
     const idVec2 texCoord = drawVert.GetTexCoord();
+    idVec2 normalTexCoord = texCoord;
+    const float* materialRegisters = material ? material->ConstantRegisters() : nullptr;
+    const int materialRegisterCount = material ? material->GetNumRegisters() : 0;
+    if (material && materialRegisters)
+    {
+        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = material->GetStage(stageIndex);
+            if (!stage || stage->lighting != SL_BUMP || !stage->texture.hasMatrix)
+            {
+                continue;
+            }
+
+            float matrix[2][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+            for (int row = 0; row < 2; ++row)
+            {
+                for (int column = 0; column < 3; ++column)
+                {
+                    SceneUniverseEvalRegister(
+                        materialRegisters,
+                        materialRegisterCount,
+                        stage->texture.matrix[row][column],
+                        row == column ? 1.0f : 0.0f,
+                        matrix[row][column]);
+                }
+            }
+            normalTexCoord.Set(
+                matrix[0][0] * texCoord.x + matrix[0][1] * texCoord.y + matrix[0][2],
+                matrix[1][0] * texCoord.x + matrix[1][1] * texCoord.y + matrix[1][2]);
+            break;
+        }
+    }
     PathTraceSmokeVertex vertex = {};
     vertex.position[0] = worldPosition.x;
     vertex.position[1] = worldPosition.y;
@@ -825,8 +857,8 @@ PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* e
     vertex.normal[3] = 0.0f;
     vertex.texCoord[0] = texCoord.x;
     vertex.texCoord[1] = texCoord.y;
-    vertex.texCoord[2] = 0.0f;
-    vertex.texCoord[3] = 0.0f;
+    vertex.texCoord[2] = normalTexCoord.x;
+    vertex.texCoord[3] = normalTexCoord.y;
     vertex.color[0] = drawVert.color[0] * (1.0f / 255.0f);
     vertex.color[1] = drawVert.color[1] * (1.0f / 255.0f);
     vertex.color[2] = drawVert.color[2] * (1.0f / 255.0f);
@@ -870,7 +902,7 @@ int AppendSceneUniverseStaticSurfaceGeometry(
 
     for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
     {
-        PathTraceSmokeVertex vertex = BuildSceneUniverseStaticVertex(entity, tri, vertexIndex);
+        PathTraceSmokeVertex vertex = BuildSceneUniverseStaticVertex(entity, material, tri, vertexIndex);
         const idVec3 normal = SmokeVertexNormal(vertex);
         const idVec2 texCoord = SmokeVertexTexCoord(vertex);
         if (!SmokeNormalIsUsable(normal))

@@ -160,8 +160,8 @@ bool SmokeRuntimeMaterialStageIsEmissiveLike(const shaderStage_t* stage)
 
     const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
     const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-    return (stage->lighting == SL_AMBIENT && dstBlend == GLS_DSTBLEND_ONE) ||
-        (srcBlend == GLS_SRCBLEND_ONE && dstBlend == GLS_DSTBLEND_ONE);
+    return (srcBlend == GLS_SRCBLEND_ONE || srcBlend == GLS_SRCBLEND_SRC_ALPHA) &&
+        dstBlend == GLS_DSTBLEND_ONE;
 }
 
 bool SmokeRuntimeMaterialCanApplyTableWide(const char* materialName)
@@ -246,6 +246,23 @@ bool SmokeTableMaterialIsResidentStatic(const RtSmokeMaterialTableBuild& table, 
     if (materialIndex < 0 || materialIndex >= static_cast<int>(table.materialInfos.size()))
     {
         return false;
+    }
+    if (materialIndex < static_cast<int>(table.materialIds.size()) &&
+        IsSmokeMaterialTextureVariant(table.materialIds[materialIndex]))
+    {
+        return false;
+    }
+    if (materialIndex < static_cast<int>(table.materials.size()))
+    {
+        const uint32_t dynamicFlags = table.materials[materialIndex].padding0 & (
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_ALPHA |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_CONDITION);
+        if (dynamicFlags != 0u)
+        {
+            return false;
+        }
     }
     const RtSmokeMaterialTextureInfo& info = table.materialInfos[materialIndex];
     return SmokeMaterialTextureInfoHasMaterialMetadata(info) && !info.isDynamic;
@@ -436,7 +453,57 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
     std::vector<RtSmokeSpectrumLight> spectrumLights;
     bool spectrumLightsBuilt = false;
 
-    for (const RtSmokeDynamicMaterialEvalSample& sample : materialStats.dynamicEvalMaterialSamples)
+    // Dynamic-material evaluation used to be fed only while geometry was
+    // appended to the dynamic fallback. Rigid-route promotion legitimately
+    // removes that geometry, but it must not remove the per-draw-surface
+    // shader registers that animate texture matrices, stage conditions, and
+    // alpha tests. Supplement the capture samples from the visible draw list
+    // so routed materials (for example textures/object/fanspin) retain their
+    // runtime record.
+    std::vector<RtSmokeDynamicMaterialEvalSample> dynamicSamples = materialStats.dynamicEvalMaterialSamples;
+    std::unordered_set<uint32_t> sampledMaterialIds;
+    for (const RtSmokeDynamicMaterialEvalSample& sample : dynamicSamples)
+    {
+        if (sample.valid)
+        {
+            sampledMaterialIds.insert(sample.id);
+        }
+    }
+    if (viewDef && viewDef->drawSurfs)
+    {
+        for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+        {
+            const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+            const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+            if (!material)
+            {
+                continue;
+            }
+
+            const uint32_t baseMaterialId = SmokeMaterialId(material);
+            const uint32_t runtimeMaterialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
+            if (sampledMaterialIds.find(runtimeMaterialId) != sampledMaterialIds.end())
+            {
+                continue;
+            }
+
+            const int materialIndex = FindSmokeMaterialTableIndexById(table, runtimeMaterialId);
+            if (materialIndex < 0 || SmokeTableMaterialIsResidentStatic(table, materialIndex))
+            {
+                continue;
+            }
+
+            RtSmokeDynamicMaterialEvalSample sample;
+            if (!BuildSmokeDynamicMaterialEvalSampleForDrawSurf(drawSurf, runtimeMaterialId, sample))
+            {
+                continue;
+            }
+            dynamicSamples.push_back(sample);
+            sampledMaterialIds.insert(runtimeMaterialId);
+        }
+    }
+
+    for (const RtSmokeDynamicMaterialEvalSample& sample : dynamicSamples)
     {
         if (!sample.valid)
         {
@@ -642,8 +709,18 @@ int ApplySmokeDynamicMaterialTexMatricesToVertices(
     std::vector<PathTraceSmokeVertex>& vertices,
     const std::vector<uint32_t>& indexes,
     const std::vector<uint32_t>& triangleMaterialIndexes,
-    const std::vector<PathTraceDynamicMaterialRecord>& records)
+    const std::vector<PathTraceDynamicMaterialRecord>& records,
+    int* firstTransformedVertex = nullptr,
+    int* lastTransformedVertex = nullptr)
 {
+    if (firstTransformedVertex)
+    {
+        *firstTransformedVertex = -1;
+    }
+    if (lastTransformedVertex)
+    {
+        *lastTransformedVertex = -1;
+    }
     if (vertices.empty() || indexes.empty() || triangleMaterialIndexes.empty() || records.empty())
     {
         return 0;
@@ -681,6 +758,14 @@ int ApplySmokeDynamicMaterialTexMatricesToVertices(
             vertex.texCoord[0] = transformed.x;
             vertex.texCoord[1] = transformed.y;
             transformedForMaterial = materialIndex;
+            if (firstTransformedVertex && (*firstTransformedVertex < 0 || static_cast<int>(vertexIndex) < *firstTransformedVertex))
+            {
+                *firstTransformedVertex = static_cast<int>(vertexIndex);
+            }
+            if (lastTransformedVertex && static_cast<int>(vertexIndex) > *lastTransformedVertex)
+            {
+                *lastTransformedVertex = static_cast<int>(vertexIndex);
+            }
             ++transformedVertices;
         }
     }
@@ -1692,6 +1777,34 @@ void ApplySmokeDynamicMaterialRecordToGpuMaterial(uint32_t materialIndex, const 
     }
 }
 
+void ApplySmokeDynamicAlphaRecordToGpuMaterial(uint32_t materialIndex, const std::vector<PathTraceDynamicMaterialRecord>& records, PathTraceSmokeMaterial& material)
+{
+    if (materialIndex >= records.size())
+    {
+        return;
+    }
+
+    const PathTraceDynamicMaterialRecord& record = records[materialIndex];
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
+        record.materialIndex != materialIndex ||
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST) == 0u)
+    {
+        return;
+    }
+
+    const bool stageEnabled =
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u &&
+        record.texMatrix0[3] != 0.0f;
+    if (!stageEnabled)
+    {
+        material.flags &= ~RT_SMOKE_MATERIAL_ALPHA_TEST;
+        return;
+    }
+
+    material.flags |= RT_SMOKE_MATERIAL_ALPHA_TEST;
+    material.alphaCutoff = idMath::ClampFloat(0.0f, 1.0f, record.texMatrix1[3]);
+}
+
 bool CanUploadStableSmokeMaterialTableWithDynamicOverrides(
     const std::vector<PathTraceSmokeMaterial>& stableMaterials,
     const std::vector<PathTraceSmokeMaterial>& liveMaterials,
@@ -1704,6 +1817,14 @@ bool CanUploadStableSmokeMaterialTableWithDynamicOverrides(
 
     for (int materialIndex = 0; materialIndex < static_cast<int>(liveMaterials.size()); ++materialIndex)
     {
+        if (materialIndex < static_cast<int>(dynamicRecords.size()) &&
+            (dynamicRecords[materialIndex].flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST) != 0u)
+        {
+            // Shader-side dynamic records currently overlay emission only. Keep
+            // dynamic alpha in the live per-variant material row until that ABI is
+            // generalized, otherwise the stable table restores the static cutoff.
+            return false;
+        }
         const PathTraceSmokeMaterial& stable = stableMaterials[materialIndex];
         const PathTraceSmokeMaterial& live = liveMaterials[materialIndex];
         PathTraceSmokeMaterial overlaid = stable;
@@ -2539,8 +2660,8 @@ PathTraceSkinnedSourceVertex BuildSmokeSkinnedSourceVertex(const idDrawVert& dra
     vertex.localTangent[3] = drawVert.GetBiTangentSign();
     vertex.texCoord[0] = texCoord.x;
     vertex.texCoord[1] = texCoord.y;
-    vertex.texCoord[2] = 0.0f;
-    vertex.texCoord[3] = 0.0f;
+    vertex.texCoord[2] = texCoord.x;
+    vertex.texCoord[3] = texCoord.y;
     for (int component = 0; component < 4; ++component)
     {
         vertex.color[component] = drawVert.color[component] * (1.0f / 255.0f);
@@ -4219,10 +4340,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Runtime Material Registers");
         ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable, materialStats, materialTextureTableMinimum);
     }
-    const std::vector<PathTraceDynamicMaterialRecord> dynamicMaterialRecords = [&]() {
+    std::vector<PathTraceDynamicMaterialRecord> dynamicMaterialRecords = [&]() {
         OPTICK_EVENT("PT Dynamic Material Records");
         return BuildSmokeDynamicMaterialRecords(materialTable, materialStats, viewDef);
     }();
+    // Persistent/static geometry owns immutable authored vertices. Runtime
+    // material variants can still live in that route (for example fanspin), so
+    // apply their matrices to a per-frame upload copy rather than accumulating
+    // transforms into the persistent cache.
+    std::vector<PathTraceSmokeVertex> staticVertexFrameData = staticVertexCache;
+    for (int materialIndex = 0; materialIndex < static_cast<int>(materialTable.materials.size()); ++materialIndex)
+    {
+        ApplySmokeDynamicAlphaRecordToGpuMaterial(
+            static_cast<uint32_t>(materialIndex),
+            dynamicMaterialRecords,
+            materialTable.materials[materialIndex]);
+    }
     const bool stableGpuMaterialTableCovered =
         r_pathTracingResidency.GetInteger() != 0 &&
         r_pathTracingResidencyMaterial.GetInteger() != 0 &&
@@ -4249,12 +4382,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     materialDiagnosticDesc.viewDef = viewDef;
     materialDiagnosticDesc.materialTable = &materialTable;
     materialDiagnosticDesc.materialStats = &materialStats;
+    materialDiagnosticDesc.dynamicMaterialRecords = &dynamicMaterialRecords;
+    materialDiagnosticDesc.dynamicTriangleMaterialIds = &dynamicTriangleMaterialData;
+    materialDiagnosticDesc.dynamicTriangleMaterialIndexes = &materialTable.dynamicMaterialIndexes;
+    materialDiagnosticDesc.staticTriangleMaterialIds = &staticTriangleMaterialCache;
+    materialDiagnosticDesc.staticTriangleMaterialIndexes = &materialTable.staticMaterialIndexes;
     materialDiagnosticDesc.enableTextureProbe = enableTextureProbe;
-    {
-        OPTICK_EVENT("PT Material Diagnostic Triggers");
-        RunSmokeMaterialDiagnosticTriggers(materialDiagnosticDesc);
-    }
-
     const bool buildRigidRouteBuffers = enableRigidRouteForMode;
     RtPathTraceRigidRouteBuild rigidRouteBuild;
     int rigidRouteBuildMs = 0;
@@ -4482,17 +4615,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return ApplySmokeDynamicMaterialTexMatricesToVertices(
             dynamicVertexData,
             dynamicIndexData,
-            dynamicTriangleMaterialData,
+            materialTable.dynamicMaterialIndexes,
             dynamicMaterialRecords);
     }();
-    const int rigidRouteTexMatrixVertices = [&]() {
-        OPTICK_EVENT("PT Rigid Route Tex Matrix Apply");
+    int staticTexMatrixFirstVertex = -1;
+    int staticTexMatrixLastVertex = -1;
+    const int staticTexMatrixVertices = [&]() {
+        OPTICK_EVENT("PT Static Route Tex Matrix Apply");
         return ApplySmokeDynamicMaterialTexMatricesToVertices(
-            rigidRouteBuild.vertices,
-            rigidRouteBuild.indexes,
-            rigidRouteBuild.triangleMaterialIndexes,
-            dynamicMaterialRecords);
+            staticVertexFrameData,
+            staticIndexCache,
+            materialTable.staticMaterialIndexes,
+            dynamicMaterialRecords,
+            &staticTexMatrixFirstVertex,
+            &staticTexMatrixLastVertex);
     }();
+    // Rigid geometry is shared across instances. Its runtime texture matrix is
+    // applied from PathTraceRigidRouteInstance.materialIndex during shader hit
+    // reconstruction; baking one variant into these vertices is incorrect when
+    // instances use different parm3/parm4 values.
+    const int rigidRouteTexMatrixVertices = 0;
     if (rigidRouteTexMatrixVertices > 0)
     {
         rigidRouteGeometryUploadSignatureValid = false;
@@ -4510,14 +4652,20 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         rigidRouteInstanceUploadSignatureValid = true;
     }
     if (r_pathTracingSmokeLog.GetInteger() != 0 &&
-        (dynamicTexMatrixVertices > 0 || rigidRouteTexMatrixVertices > 0) &&
+        (staticTexMatrixVertices > 0 || dynamicTexMatrixVertices > 0 || rigidRouteTexMatrixVertices > 0) &&
         (m_smokeGeometryFrameIndex % 120ull) == 1ull)
     {
         common->Printf(
-            "PathTracePrimaryPass: RT smoke dynamic material tex matrices applied dynamicVerts=%d rigidRouteVerts=%d records=%d\n",
+            "PathTracePrimaryPass: RT smoke dynamic material tex matrices applied staticVerts=%d dynamicVerts=%d rigidRouteVerts=%d records=%d\n",
+            staticTexMatrixVertices,
             dynamicTexMatrixVertices,
             rigidRouteTexMatrixVertices,
             static_cast<int>(dynamicMaterialRecords.size()));
+    }
+    materialDiagnosticDesc.rigidRouteBuild = &rigidRouteBuild;
+    {
+        OPTICK_EVENT("PT Material Diagnostic Triggers");
+        RunSmokeMaterialDiagnosticTriggers(materialDiagnosticDesc);
     }
 
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
@@ -6775,7 +6923,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         "skinnedPreviousJointMatrix"
     };
     const RtSmokeBufferUploadItem uploadItems[] = {
-        MakeSmokeVectorUploadItem(smokeStaticVertexBuffer, staticVertexCache, nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyVertexOffset : -1, geometryUniverseStats.staticDirtyVertexCount),
+        MakeSmokeVectorUploadItem(
+            smokeStaticVertexBuffer,
+            staticVertexFrameData,
+            nvrhi::ResourceStates::AccelStructBuildInput,
+            staticBlasCacheHit && staticTexMatrixVertices == 0,
+            staticTexMatrixVertices > 0 ? staticTexMatrixFirstVertex : (useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyVertexOffset : -1),
+            staticTexMatrixVertices > 0 ? (staticTexMatrixLastVertex - staticTexMatrixFirstVertex + 1) : geometryUniverseStats.staticDirtyVertexCount),
         MakeSmokeVectorUploadItem(smokeStaticIndexBuffer, staticIndexCache, nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyIndexOffset : -1, geometryUniverseStats.staticDirtyIndexCount),
         MakeSmokeVectorUploadItem(smokeStaticTriangleClassBuffer, staticTriangleClassCache, nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyTriangleOffset : -1, geometryUniverseStats.staticDirtyTriangleCount),
         MakeSmokeVectorUploadItem(smokeStaticTriangleMaterialBuffer, staticTriangleMaterialCache, nvrhi::ResourceStates::ShaderResource, skipStaticTriangleMaterialUpload),

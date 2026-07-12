@@ -34,7 +34,7 @@ RAB_Surface RAB_BuildSurfaceFromSmokePayload(PathTraceSmokePayload payload, floa
     const PathTraceSmokeMaterial smokeMaterial = LoadSmokeMaterial(payload.materialIndex);
     const float3 baseNormal = SafeNormalize(payload.normal, payload.geometricNormal);
     float3 shadingNormal = useNormalMap
-        ? DecodeSmokeNormalTexture(smokeMaterial, payload.texCoord, baseNormal, payload.tangent, payload.bitangent)
+        ? DecodeSmokeNormalTexture(smokeMaterial, payload.normalTexCoord, baseNormal, payload.tangent, payload.bitangent)
         : baseNormal;
     const float3 hitPosition = rayOrigin + rayDirection * payload.hitT;
     const float3 viewDir = SafeNormalize(rayOrigin - hitPosition, -rayDirection);
