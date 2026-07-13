@@ -224,6 +224,9 @@ RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent :
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
+#define RB_PATH_TRACE_FIXED_SKY_CUBE 1
+#include "pathtrace_sky_environment.hlsli"
+#undef RB_PATH_TRACE_FIXED_SKY_CUBE
 
 cbuffer PathTraceSmokeConstants : register(b2)
 {
@@ -304,6 +307,7 @@ static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL = 0x00002000u;
 static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC = 0x00004000u;
 static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT = 0x00008000u;
 static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_LIQUID_POOL = 0x00010000u;
+static const uint RT_SMOKE_MATERIAL_SKY_ENVIRONMENT = 0x00040000u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
@@ -898,6 +902,15 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
         material.emissiveRadiance = max(material.emissiveRadiance, materialAlbedo);
     }
     material.emissiveTextureIndex = smokeMaterial.emissiveTextureIndex;
+    if ((smokeMaterial.flags & RT_SMOKE_MATERIAL_SKY_ENVIRONMENT) != 0u)
+    {
+        material.diffuseAlbedo = float3(0.0, 0.0, 0.0);
+        material.specularF0 = float3(0.0, 0.0, 0.0);
+        material.roughness = 1.0;
+        material.opacity = 1.0;
+        material.emissiveRadiance = max(smokeMaterial.emissiveColor.rgb, float3(0.0, 0.0, 0.0));
+        material.emissiveTextureIndex = 0xffffffffu;
+    }
     return material;
 }
 
@@ -910,7 +923,16 @@ bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
 
 RAB_Surface BuildSurfaceFromPayload(PathTraceSmokePayload payload, float3 rayOrigin, float3 rayDirection)
 {
-    return RAB_BuildSurfaceFromSmokePayload(payload, rayOrigin, rayDirection, true);
+    RAB_Surface surface = RAB_BuildSurfaceFromSmokePayload(payload, rayOrigin, rayDirection, true);
+    if (surface.valid != 0u && (surface.material.flags & RT_SMOKE_MATERIAL_SKY_ENVIRONMENT) != 0u)
+    {
+        const float3 skyTexel = PathTraceSampleSkyEnvironment(rayDirection, TextureInfo) *
+            max(SafetyInfo.y, 0.0);
+        surface.material.emissiveRadiance = max(
+            skyTexel * max(surface.material.emissiveRadiance, float3(0.0, 0.0, 0.0)),
+            float3(0.0, 0.0, 0.0));
+    }
+    return surface;
 }
 
 bool SmokePayloadIsFilterDecal(PathTraceSmokePayload payload)

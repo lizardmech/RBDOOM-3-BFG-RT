@@ -49,7 +49,12 @@ static const uint RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER = 0x00000020
 static const uint RT_PATH_TRACE_MATERIAL_PASS_RR_GUIDE_EXPORT = 0x00000040u;
 static const uint RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER = 0x00000080u;
 
-static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION = 1u;
+static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION = 3u;
+static const uint RT_PATH_TRACE_ORDERED_STAGE_CAPACITY = 8u;
+static const uint RT_PATH_TRACE_ORDERED_STAGE_VALID_BIT = 1u << 23u;
+static const uint RT_PATH_TRACE_ORDERED_STAGE_OVERFLOW_BIT = 1u << 31u;
+static const uint RT_PATH_TRACE_ORDERED_STAGE_TEXTURE_VALID_BIT = 1u << 31u;
+static const uint RT_PATH_TRACE_ORDERED_STAGE_TEXTURE_INDEX_MASK = 0x7fffffffu;
 
 static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_WRITES_OUTPUT_COLOR = 0u;
 static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RUNTIME_READY = 1u;
@@ -118,7 +123,53 @@ struct PathTraceMaterialFeatureParameterRecord
 {
     float4 params0;
     float4 params1;
+    uint4 orderedStages0;
+    uint4 orderedStages1;
+    uint4 orderedStageTextures0;
+    uint4 orderedStageTextures1;
 };
+
+uint PathTraceMaterialOrderedStageWord(PathTraceMaterialFeatureParameterRecord record, uint stageSlot)
+{
+    if (stageSlot >= RT_PATH_TRACE_ORDERED_STAGE_CAPACITY)
+    {
+        return 0u;
+    }
+    return stageSlot < 4u
+        ? record.orderedStages0[stageSlot]
+        : record.orderedStages1[stageSlot - 4u];
+}
+
+uint PathTraceMaterialOrderedStageTextureWord(PathTraceMaterialFeatureParameterRecord record, uint stageSlot)
+{
+    if (stageSlot >= RT_PATH_TRACE_ORDERED_STAGE_CAPACITY)
+    {
+        return 0u;
+    }
+    return stageSlot < 4u
+        ? record.orderedStageTextures0[stageSlot]
+        : record.orderedStageTextures1[stageSlot - 4u];
+}
+
+bool PathTraceMaterialOrderedStageTextureValid(uint textureWord)
+{
+    return (textureWord & RT_PATH_TRACE_ORDERED_STAGE_TEXTURE_VALID_BIT) != 0u;
+}
+
+uint PathTraceMaterialOrderedStageTextureIndex(uint textureWord)
+{
+    return textureWord & RT_PATH_TRACE_ORDERED_STAGE_TEXTURE_INDEX_MASK;
+}
+
+bool PathTraceMaterialOrderedStageValid(uint stageWord)
+{
+    return (stageWord & RT_PATH_TRACE_ORDERED_STAGE_VALID_BIT) != 0u;
+}
+
+bool PathTraceMaterialOrderedStagesOverflowed(PathTraceMaterialFeatureParameterRecord record)
+{
+    return (record.orderedStages1.w & RT_PATH_TRACE_ORDERED_STAGE_OVERFLOW_BIT) != 0u;
+}
 
 PathTraceMaterialFeature PathTraceMaterialFeatureFromRecord(PathTraceMaterialFeatureRecord record)
 {

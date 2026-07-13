@@ -82,18 +82,21 @@ bool PathTraceCleanRtxdiDiMaterialSupportsOpaqueDirect(RAB_Surface surface)
     {
         return RAB_IsSurfaceValid(surface) && surface.material.opacity > 0.0;
     }
-    // Glass PSR replacement surfaces must be shadeable as opaque receivers even
-    // when the live feature table is conservative.
+    // The live material feature row remains authoritative after PSR. This
+    // keeps terminal/emissive-only materials terminal through glass, while
+    // ordinary backdrop rows continue to report opaque-direct support.
+    PathTraceMaterialFeature feature;
+    if (PathTraceCleanRtxdiDiLoadMaterialFeature(surface.materialIndex, feature))
+    {
+        return PathTraceMaterialFeatureSupportsOpaqueDirect(feature);
+    }
+    // Compatibility fallback for replacement surfaces which have no valid
+    // material feature row.
     if (RAB_IsSurfaceValid(surface) &&
         ((surface.flags & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u ||
             (surface.flags & CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED) != 0u))
     {
         return surface.material.opacity > 0.0;
-    }
-    PathTraceMaterialFeature feature;
-    if (PathTraceCleanRtxdiDiLoadMaterialFeature(surface.materialIndex, feature))
-    {
-        return PathTraceMaterialFeatureSupportsOpaqueDirect(feature);
     }
     return MaterialSupportsOpaqueDirect(surface);
 }

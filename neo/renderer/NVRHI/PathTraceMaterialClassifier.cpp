@@ -191,6 +191,158 @@ bool RtStageIsFilterBlend(const shaderStage_t* stage)
         (srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR && dstBlend == GLS_DSTBLEND_ONE);
 }
 
+bool RtStageConditionCanBeActive(const idMaterial* material, const shaderStage_t* stage);
+bool RtMaterialRegisterDependsOnRuntime(const idMaterial* material, int registerIndex);
+
+RtMaterialCompositingOp RtStageCompositingOperation(const shaderStage_t* stage)
+{
+    if (!stage)
+    {
+        return RtMaterialCompositingOp::Unknown;
+    }
+    if (stage->hasAlphaTest && !stage->ignoreAlphaTest)
+    {
+        return RtMaterialCompositingOp::AuthoredAlphaClip;
+    }
+    if (stage->lighting == SL_BUMP ||
+        stage->lighting == SL_DIFFUSE ||
+        stage->lighting == SL_SPECULAR ||
+        stage->lighting == SL_COVERAGE)
+    {
+        // Interaction blend encodings select an input to Doom's lighting
+        // packet; they are not framebuffer compositing equations.
+        return RtMaterialCompositingOp::InteractionInput;
+    }
+
+    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+    if (srcBlend != GLS_SRCBLEND_ZERO && dstBlend == GLS_DSTBLEND_ONE)
+    {
+        // Includes authored reflection overlays such as DST_COLOR,ONE and
+        // DST_ALPHA,ONE. The named family records that the source contribution
+        // is added; the raw factors above remain authoritative for evaluation.
+        return RtMaterialCompositingOp::Additive;
+    }
+    if ((srcBlend == GLS_SRCBLEND_DST_COLOR && dstBlend == GLS_DSTBLEND_ZERO) ||
+        (srcBlend == GLS_SRCBLEND_ZERO && dstBlend == GLS_DSTBLEND_SRC_COLOR))
+    {
+        return RtMaterialCompositingOp::MultiplyFilter;
+    }
+    if ((srcBlend == GLS_SRCBLEND_ZERO && dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_COLOR) ||
+        (srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR && dstBlend == GLS_DSTBLEND_ONE))
+    {
+        return RtMaterialCompositingOp::InvertedFilterBlackKey;
+    }
+    if (srcBlend == GLS_SRCBLEND_SRC_ALPHA && dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA)
+    {
+        return RtMaterialCompositingOp::SourceAlphaOver;
+    }
+    if (srcBlend == GLS_SRCBLEND_ONE && dstBlend == GLS_DSTBLEND_ZERO)
+    {
+        return RtMaterialCompositingOp::OpaqueReplace;
+    }
+    return RtMaterialCompositingOp::Unknown;
+}
+
+std::vector<RtMaterialCompositingStageFact> CompileRtMaterialCompositingStages(const idMaterial* material)
+{
+    std::vector<RtMaterialCompositingStageFact> stages;
+    if (!material)
+    {
+        return stages;
+    }
+    stages.reserve(material->GetNumStages());
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage)
+        {
+            continue;
+        }
+        RtMaterialCompositingStageFact fact;
+        fact.stageIndex = stageIndex;
+        fact.lighting = stage->lighting;
+        fact.operation = RtStageCompositingOperation(stage);
+        fact.srcBlendBits = stage->drawStateBits & GLS_SRCBLEND_BITS;
+        fact.dstBlendBits = stage->drawStateBits & GLS_DSTBLEND_BITS;
+        fact.hasAlphaTest = stage->hasAlphaTest;
+        fact.ignoreAlphaTest = stage->ignoreAlphaTest;
+        fact.alphaTestRegister = stage->alphaTestRegister;
+        fact.conditionRegister = stage->conditionRegister;
+        fact.conditionCanBeActive = RtStageConditionCanBeActive(material, stage);
+        fact.conditionIsDynamic = RtMaterialRegisterDependsOnRuntime(material, stage->conditionRegister);
+        for (int component = 0; component < 4; ++component)
+        {
+            fact.colorRegisters[component] = stage->color.registers[component];
+        }
+        fact.hasTextureMatrix = stage->texture.hasMatrix;
+        for (int row = 0; row < 2; ++row)
+        {
+            for (int column = 0; column < 3; ++column)
+            {
+                fact.textureMatrixRegisters[row][column] = stage->texture.hasMatrix
+                    ? stage->texture.matrix[row][column]
+                    : -1;
+            }
+        }
+        fact.texgen = stage->texture.texgen;
+        fact.dynamicImage = stage->texture.dynamic;
+        fact.dynamicFrameCount = stage->texture.dynamicFrameCount;
+        fact.vertexColor = stage->vertexColor;
+        if (stage->newStage)
+        {
+            fact.vertexProgram = stage->newStage->vertexProgram;
+            fact.fragmentProgram = stage->newStage->fragmentProgram;
+            fact.glslProgram = stage->newStage->glslProgram;
+        }
+        fact.imageName = stage->texture.image ? stage->texture.image->GetName() : "<none>";
+        stages.push_back(fact);
+    }
+    return stages;
+}
+
+std::vector<RtMaterialInteractionPacket> CompileRtMaterialInteractionPackets(
+    const std::vector<RtMaterialCompositingStageFact>& stages)
+{
+    std::vector<RtMaterialInteractionPacket> packets;
+    for (const RtMaterialCompositingStageFact& stage : stages)
+    {
+        if (stage.lighting != SL_BUMP && stage.lighting != SL_DIFFUSE && stage.lighting != SL_SPECULAR)
+        {
+            continue;
+        }
+
+        const bool startsPacket =
+            packets.empty() ||
+            stage.lighting == SL_BUMP ||
+            (stage.lighting == SL_DIFFUSE && packets.back().diffuseStageIndex >= 0) ||
+            (stage.lighting == SL_SPECULAR && packets.back().specularStageIndex >= 0);
+        if (startsPacket)
+        {
+            RtMaterialInteractionPacket packet;
+            packet.firstStageIndex = stage.stageIndex;
+            packet.lastStageIndex = stage.stageIndex;
+            packets.push_back(packet);
+        }
+
+        RtMaterialInteractionPacket& packet = packets.back();
+        packet.lastStageIndex = stage.stageIndex;
+        if (stage.lighting == SL_BUMP)
+        {
+            packet.bumpStageIndex = stage.stageIndex;
+        }
+        else if (stage.lighting == SL_DIFFUSE)
+        {
+            packet.diffuseStageIndex = stage.stageIndex;
+        }
+        else
+        {
+            packet.specularStageIndex = stage.stageIndex;
+        }
+    }
+    return packets;
+}
+
 bool RtStageConditionCanBeActive(const idMaterial* material, const shaderStage_t* stage)
 {
     if (!material || !stage)
@@ -317,6 +469,7 @@ RtMaterialStageFacts AnalyzeRtMaterialStages(const idMaterial* material)
         const bool additiveBlend = RtStageIsAdditiveBlend(stage);
         const bool filterBlend = RtStageIsFilterBlend(stage);
         const bool alphaBlend = RtStageBlendUsesSourceAlpha(stage);
+        const RtMaterialCompositingOp compositingOp = RtStageCompositingOperation(stage);
         const bool guiOrScreen =
             stage->texture.texgen == TG_SCREEN ||
             stage->texture.texgen == TG_SCREEN2 ||
@@ -338,6 +491,23 @@ RtMaterialStageFacts AnalyzeRtMaterialStages(const idMaterial* material)
         if (alphaBlend)
         {
             ++facts.alphaBlendStages;
+        }
+        switch (compositingOp)
+        {
+            case RtMaterialCompositingOp::OpaqueReplace:
+                ++facts.opaqueReplaceStages;
+                break;
+            case RtMaterialCompositingOp::InvertedFilterBlackKey:
+                ++facts.invertedFilterStages;
+                break;
+            case RtMaterialCompositingOp::AuthoredAlphaClip:
+                ++facts.authoredAlphaClipStages;
+                break;
+            case RtMaterialCompositingOp::Unknown:
+                ++facts.unknownCompositingStages;
+                break;
+            default:
+                break;
         }
         if (guiOrScreen)
         {
@@ -1478,6 +1648,8 @@ RtMaterialRecord BuildRtMaterialRecord(const idMaterial* material, const RtSmoke
     record.alphaTested = info.hasAlphaTest;
     record.emissiveIntent = info.emissive;
     record.stageFacts = AnalyzeRtMaterialStages(material);
+    record.compositingStages = CompileRtMaterialCompositingStages(material);
+    record.interactionPackets = CompileRtMaterialInteractionPackets(record.compositingStages);
     record.dynamicFacts = AnalyzeRtMaterialDynamicFacts(material);
 
     const RtMaterialClassCandidate surfaceCandidate = ResolveSurfaceClassCandidate(material, info, record.stageFacts);
@@ -1595,8 +1767,9 @@ void MaybeDumpRecordStages(const RtMaterialRecord& record)
         const float alphaTestValue = RtStageConstantRegisterValue(material, stage->alphaTestRegister, -1.0f);
         const textureUsage_t usage = image ? image->GetUsage() : TD_DEFAULT;
         const textureColor_t colorFormat = image ? image->GetOpts().colorFormat : CFM_DEFAULT;
+        const RtMaterialCompositingOp compositingOp = RtStageCompositingOperation(stage);
 
-        common->Printf("MatClass: stage id=%u index=%d active=%d conditionReg=%d condition=%.3f lighting=%s routeEvidence=%s image='%s' usage=%s color=%s drawState=0x%llx srcBlend=%llu dstBlend=%llu additive=%d filter=%d alphaBlend=%d alphaTest=%d alphaReg=%d alphaValue=%.3f guiScreen=%d dynamic=%d cinematic=%d cube=%d customProgram=%d texgen=%d\n",
+        common->Printf("MatClass: stage id=%u index=%d active=%d conditionReg=%d condition=%.3f lighting=%s routeEvidence=%s image='%s' usage=%s color=%s compositing=%s drawState=0x%llx srcBlendBits=0x%llx dstBlendBits=0x%llx additive=%d filter=%d alphaBlend=%d alphaTest=%d ignoreAlphaTest=%d alphaReg=%d alphaValue=%.3f guiScreen=%d dynamic=%d cinematic=%d cube=%d customProgram=%d texgen=%d\n",
             record.materialId,
             stageIndex,
             active ? 1 : 0,
@@ -1607,13 +1780,15 @@ void MaybeDumpRecordStages(const RtMaterialRecord& record)
             image ? image->GetName() : "<none>",
             RtTextureUsageName(usage),
             RtTextureColorFormatName(colorFormat),
+            RtMaterialCompositingOpName(compositingOp),
             static_cast<unsigned long long>(stage->drawStateBits),
-            static_cast<unsigned long long>((stage->drawStateBits & GLS_SRCBLEND_BITS) >> 0),
-            static_cast<unsigned long long>((stage->drawStateBits & GLS_DSTBLEND_BITS) >> 3),
+            static_cast<unsigned long long>(stage->drawStateBits & GLS_SRCBLEND_BITS),
+            static_cast<unsigned long long>(stage->drawStateBits & GLS_DSTBLEND_BITS),
             additive ? 1 : 0,
             filter ? 1 : 0,
             alphaBlend ? 1 : 0,
             stage->hasAlphaTest ? 1 : 0,
+            stage->ignoreAlphaTest ? 1 : 0,
             stage->alphaTestRegister,
             alphaTestValue,
             guiOrScreen ? 1 : 0,
@@ -1670,6 +1845,10 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.stageFacts.cinematicStages,
         record.stageFacts.cubeMapStages,
         record.stageFacts.customProgramStages);
+    common->Printf("MatClass: ordered id=%u declaredStages=%d interactionPackets=%d\n",
+        record.materialId,
+        static_cast<int>(record.compositingStages.size()),
+        static_cast<int>(record.interactionPackets.size()));
     const bool needsPerInstanceDynamic =
         record.dynamicFacts.materialUsesRuntimeRegisters ||
         record.dynamicFacts.conditionRegisterStages > 0 ||
@@ -1892,6 +2071,29 @@ const char* RtMaterialNormalDecodeModeName(RtMaterialNormalDecodeMode mode)
     }
 }
 
+const char* RtMaterialCompositingOpName(RtMaterialCompositingOp operation)
+{
+    switch (operation)
+    {
+        case RtMaterialCompositingOp::OpaqueReplace:
+            return "opaque-replace";
+        case RtMaterialCompositingOp::Additive:
+            return "additive";
+        case RtMaterialCompositingOp::MultiplyFilter:
+            return "multiply-filter";
+        case RtMaterialCompositingOp::InvertedFilterBlackKey:
+            return "inverted-filter-black-key";
+        case RtMaterialCompositingOp::SourceAlphaOver:
+            return "source-alpha-over";
+        case RtMaterialCompositingOp::AuthoredAlphaClip:
+            return "authored-alpha-clip";
+        case RtMaterialCompositingOp::InteractionInput:
+            return "interaction-input";
+        default:
+            return "unknown";
+    }
+}
+
 void BeginPathTraceMaterialClassifierFrame()
 {
     g_materialClassifierStats.frameHits = 0;
@@ -1904,6 +2106,18 @@ void BeginPathTraceMaterialClassifierFrame()
     g_materialClassifierStats.confidenceFlag = 0;
     g_materialClassifierStats.confidenceHeuristic = 0;
     g_materialClassifierStats.confidenceFallbackNone = 0;
+    g_materialClassifierStats.compositingStages = 0;
+    g_materialClassifierStats.maxCompositingStages = 0;
+    g_materialClassifierStats.materialsOverFourStages = 0;
+    g_materialClassifierStats.materialsOverEightStages = 0;
+    g_materialClassifierStats.compositingOpaque = 0;
+    g_materialClassifierStats.compositingAdditive = 0;
+    g_materialClassifierStats.compositingMultiply = 0;
+    g_materialClassifierStats.compositingInverted = 0;
+    g_materialClassifierStats.compositingAlphaOver = 0;
+    g_materialClassifierStats.compositingAlphaClip = 0;
+    g_materialClassifierStats.compositingInteraction = 0;
+    g_materialClassifierStats.compositingUnknown = 0;
     g_recordDebugLogs = 0;
 }
 
@@ -1955,6 +2169,61 @@ RtMaterialClassifierStats GetPathTraceMaterialClassifierStats()
 {
     RtMaterialClassifierStats stats = g_materialClassifierStats;
     stats.records = static_cast<int>(g_materialRecords.size());
+    stats.compositingStages = 0;
+    stats.maxCompositingStages = 0;
+    stats.materialsOverFourStages = 0;
+    stats.materialsOverEightStages = 0;
+    stats.compositingOpaque = 0;
+    stats.compositingAdditive = 0;
+    stats.compositingMultiply = 0;
+    stats.compositingInverted = 0;
+    stats.compositingAlphaOver = 0;
+    stats.compositingAlphaClip = 0;
+    stats.compositingInteraction = 0;
+    stats.compositingUnknown = 0;
+    for (const auto& entry : g_materialRecords)
+    {
+        const RtMaterialRecord& record = entry.second;
+        if (!record.valid)
+        {
+            continue;
+        }
+        const int compositingStageCount = static_cast<int>(record.compositingStages.size());
+        stats.compositingStages += compositingStageCount;
+        stats.maxCompositingStages = Max(stats.maxCompositingStages, compositingStageCount);
+        stats.materialsOverFourStages += compositingStageCount > 4 ? 1 : 0;
+        stats.materialsOverEightStages += compositingStageCount > 8 ? 1 : 0;
+        for (const RtMaterialCompositingStageFact& stage : record.compositingStages)
+        {
+            switch (stage.operation)
+            {
+                case RtMaterialCompositingOp::OpaqueReplace:
+                    ++stats.compositingOpaque;
+                    break;
+                case RtMaterialCompositingOp::Additive:
+                    ++stats.compositingAdditive;
+                    break;
+                case RtMaterialCompositingOp::MultiplyFilter:
+                    ++stats.compositingMultiply;
+                    break;
+                case RtMaterialCompositingOp::InvertedFilterBlackKey:
+                    ++stats.compositingInverted;
+                    break;
+                case RtMaterialCompositingOp::SourceAlphaOver:
+                    ++stats.compositingAlphaOver;
+                    break;
+                case RtMaterialCompositingOp::AuthoredAlphaClip:
+                    ++stats.compositingAlphaClip;
+                    break;
+                case RtMaterialCompositingOp::InteractionInput:
+                    ++stats.compositingInteraction;
+                    break;
+                default:
+                    ++stats.compositingUnknown;
+                    break;
+            }
+        }
+    }
     return stats;
 }
 

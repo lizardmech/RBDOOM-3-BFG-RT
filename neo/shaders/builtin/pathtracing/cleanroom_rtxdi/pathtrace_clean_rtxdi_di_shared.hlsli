@@ -33,6 +33,10 @@ struct PathTraceCleanRtxdiPayload
     uint hitTriangleClassAndFlags;
     float hitT;
     float2 hitBarycentrics;
+    // Ray-mode 3 blend-through accumulator. Additive emissive cards do not
+    // own the resolved behind-glass geometry, but their radiance must survive
+    // while traversal continues to the opaque receiver.
+    float3 passthroughEmissiveRadiance;
 #endif
 };
 

@@ -22,6 +22,7 @@
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceMaterialClassifier.h"
+#include "PathTraceSurfaceClassification.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceTextureRegistry.h"
 #include "../RenderCommon.h"
@@ -1015,6 +1016,7 @@ void ForceSmokeAbsorbingBlackMaterialInfo(RtSmokeMaterialTextureInfo& info)
     info.portalWindowFallback = false;
     info.objectGlassFallback = false;
     info.emissive = false;
+    info.emissiveLightCandidate = false;
     info.alphaCutoff = 0.0f;
     info.emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
     info.fallbackAlbedo = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -1171,9 +1173,37 @@ bool FindSmokeMaterialFallbackAlbedo(const idMaterial* material, idVec4& albedo)
     return true;
 }
 
-idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec4& emissiveColor)
+idImage* FindSmokeSkyEnvironmentImage(const idMaterial* material, idVec4& skyColor)
+{
+    skyColor = idVec4(1.0f, 1.0f, 1.0f, 1.0f);
+    if (!material)
+    {
+        return nullptr;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || !stage->texture.image ||
+            (stage->texture.texgen != TG_SKYBOX_CUBE && stage->texture.texgen != TG_WOBBLESKY_CUBE))
+        {
+            continue;
+        }
+
+        idVec4 stageColor;
+        if (SmokeStageConstantColor(material, stage, stageColor))
+        {
+            skyColor = stageColor;
+        }
+        return stage->texture.image;
+    }
+    return nullptr;
+}
+
+idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec4& emissiveColor, bool& lightCandidate)
 {
     emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    lightCandidate = false;
     if (!material)
     {
         reason = "null material";
@@ -1202,17 +1232,15 @@ idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec
     }
 
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    if (classifier.hasScreenTexgen ||
+    const bool allowLightPromotion = !(classifier.hasScreenTexgen ||
         classifier.hasAddDefault0200Texture ||
         classifier.sortIsGuiOrSubview ||
+        classifier.sortIsDecal ||
         classifier.sortIsPostProcess ||
         classifier.nameLooksGui ||
         classifier.nameLooksParticle ||
-        classifier.nameLooksGlass)
-    {
-        reason = "rejected gui/particle/glass/view-dependent material";
-        return nullptr;
-    }
+        classifier.nameLooksGlass ||
+        classifier.nameLooksDecal);
 
     const bool nameLooksEmissive = !classifier.hasAddDefault0200Texture && (classifier.nameLooksGlow || classifier.nameLooksSignage);
     const float* constantRegisters = material->ConstantRegisters();
@@ -1267,12 +1295,14 @@ idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec
         if (stage->texture.image)
         {
             reason = va("stage %d SL_AMBIENT glow/additive", stageIndex);
+            lightCandidate = allowLightPromotion;
             return stage->texture.image;
         }
 
         if (additiveStage && (emissiveColor.x > 0.0f || emissiveColor.y > 0.0f || emissiveColor.z > 0.0f))
         {
             reason = va("stage %d SL_AMBIENT constant glow/additive", stageIndex);
+            lightCandidate = allowLightPromotion;
             return nullptr;
         }
     }
@@ -1430,7 +1460,10 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     idImage* specularImage = FindSmokeSpecularImage(material, specularReason);
     idStr emissiveReason;
     idVec4 emissiveColor;
-    idImage* emissiveImage = FindSmokeEmissiveImage(material, emissiveReason, emissiveColor);
+    bool emissiveLightCandidate = false;
+    idImage* emissiveImage = FindSmokeEmissiveImage(material, emissiveReason, emissiveColor, emissiveLightCandidate);
+    idVec4 skyColor;
+    idImage* skyImage = FindSmokeSkyEnvironmentImage(material, skyColor);
     idVec4 fallbackAlbedo;
     const bool hasFallbackAlbedo = FindSmokeMaterialFallbackAlbedo(material, fallbackAlbedo);
     info->materialName = materialName;
@@ -1444,12 +1477,14 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     info->normalImage = normalImage;
     info->specularImage = specularImage;
     info->emissiveImage = emissiveImage;
+    info->skyImage = skyImage;
     info->coverage = material ? material->Coverage() : MC_BAD;
     info->hasDiffuseImage = diffuseImage != nullptr;
     info->hasAlphaImage = alphaImage != nullptr;
     info->hasNormalImage = normalImage != nullptr;
     info->hasSpecularImage = specularImage != nullptr;
     info->hasEmissiveImage = emissiveImage != nullptr;
+    info->skyEnvironment = skyImage != nullptr;
     info->hasTextureHandle = diffuseImage && diffuseImage->GetTextureHandle();
     info->hasAlphaTextureHandle = alphaImage && alphaImage->GetTextureHandle();
     info->hasNormalTextureHandle = normalImage && normalImage->GetTextureHandle();
@@ -1460,6 +1495,7 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     info->normalImageName = normalImage ? normalImage->GetName() : "<none>";
     info->specularImageName = specularImage ? specularImage->GetName() : "<none>";
     info->emissiveImageName = emissiveImage ? emissiveImage->GetName() : "<none>";
+    info->skyImageName = skyImage ? skyImage->GetName() : "<none>";
     info->diffuseUsage = diffuseImage ? diffuseImage->GetUsage() : TD_DEFAULT;
     info->alphaUsage = alphaImage ? alphaImage->GetUsage() : TD_DEFAULT;
     info->normalUsage = normalImage ? normalImage->GetUsage() : TD_DEFAULT;
@@ -1479,6 +1515,16 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     const bool particleOrSfxDiffuseLumaAlpha = ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(material, diffuseImage, alphaImage);
     info->filterDecal = !info->additiveDecal && (IsSmokeTranslucentOverlayCardMaterial(material, classifier) || rgbKeyedBlendDecal);
     info->detailDecal = IsSmokeDetailDecalCardMaterial(material, classifier);
+    if (info->skyEnvironment)
+    {
+        // A skybox stage is a terminal environment surface, not an additive
+        // decal layered over a receiver. Its geometry remains opaque so
+        // authored black sealing meshes can occlude it.
+        info->additiveDecal = false;
+        info->additiveDecalWhiteKey = false;
+        info->filterDecal = false;
+        info->detailDecal = false;
+    }
     info->detailDecalDynamic = info->detailDecal && material && material->ConstantRegisters() == NULL;
     info->filterDecalBlackKey = false;
     bool foundFilterBlend = false;
@@ -1530,6 +1576,14 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         info->filterDecal = false;
         info->filterDecalBlackKey = false;
     }
+    if (SmokeMaterialUsesOpaqueSwinglightCompatibility(material))
+    {
+        // This runtime light-switch material is authored as source-alpha-over,
+        // but the evaluated stage is the opaque emissive fixture shell. Do not
+        // reinterpret it as a receiver-modulating translucent card.
+        info->filterDecal = false;
+        info->filterDecalBlackKey = false;
+    }
     info->detailDecalLiquidPool =
         info->detailDecal &&
         IsSmokeLiquidPoolDetailDecalMaterial(material, *info);
@@ -1556,38 +1610,13 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     info->objectGlassFallback = IsSmokeObjectGlassFallbackMaterial(material);
     info->emissiveColor = emissiveColor;
     info->emissive = info->hasEmissiveImage || emissiveColor.x > 0.0f || emissiveColor.y > 0.0f || emissiveColor.z > 0.0f;
+    info->emissiveLightCandidate = info->emissive && emissiveLightCandidate;
+    info->skyColor = skyColor;
     if (info->emissive)
     {
-        info->additiveDecal = false;
-        info->additiveDecalWhiteKey = false;
-        info->filterDecal = false;
-        info->filterDecalBlackKey = false;
-        const bool preserveAuthoredAlphaTest =
-            info->hasAlphaTest &&
-            info->hasAlphaImage;
-        if (preserveAuthoredAlphaTest)
+        if (info->hasAlphaTest && info->hasAlphaImage)
         {
             info->alphaReason = va("%s; preserved authored alpha-test with emissive stage", alphaReason.c_str());
-        }
-        else if (info->alphaFromDiffuseMagentaKey)
-        {
-            info->alphaReason = "diffuse magenta key alpha-test with emissive overlay";
-        }
-        else
-        {
-            info->alphaImage = nullptr;
-            info->alphaTexture = nullptr;
-            info->alphaImageName = "<none>";
-            info->hasAlphaImage = false;
-            info->hasAlphaTextureHandle = false;
-            info->hasSafeAlphaTexture = false;
-            info->alphaUsage = TD_DEFAULT;
-            info->alphaColorFormat = CFM_DEFAULT;
-            info->hasAlphaTest = false;
-            info->alphaReason = "emissive stage ignores alpha/blend semantics";
-            info->alphaCutoff = 0.0f;
-            info->alphaFromDiffuseLuma = false;
-            info->alphaFromDiffuseDarkKey = false;
         }
     }
     info->fallbackAlbedo = fallbackAlbedo;

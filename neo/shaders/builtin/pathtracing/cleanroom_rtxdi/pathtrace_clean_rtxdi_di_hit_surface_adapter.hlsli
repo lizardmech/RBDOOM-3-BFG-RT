@@ -5,6 +5,7 @@
 
 static const uint RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS_RESOLVED_SURFACE = 0x00000001u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY_RESOLVED_SURFACE = 0x00000100u;
+static const uint RT_SMOKE_MATERIAL_SKY_ENVIRONMENT_RESOLVED_SURFACE = 0x00040000u;
 static const uint RT_SMOKE_TEXTURE_FLAG_TOY_FAKE_PBR_SPECULAR_RESOLVED_SURFACE = 0x00000080u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS_RESOLVED_SURFACE = 1u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW_RESOLVED_SURFACE = 4u;
@@ -727,6 +728,20 @@ bool PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
         rabMaterial.emissiveRadiance = max(rabMaterial.emissiveRadiance, albedo);
     }
     rabMaterial.emissiveTextureIndex = material.emissiveTextureIndex;
+    if ((material.flags & RT_SMOKE_MATERIAL_SKY_ENVIRONMENT_RESOLVED_SURFACE) != 0u)
+    {
+        rabMaterial.diffuseAlbedo = float3(0.0, 0.0, 0.0);
+        rabMaterial.specularF0 = float3(0.0, 0.0, 0.0);
+        rabMaterial.roughness = 1.0;
+        rabMaterial.opacity = 1.0;
+        // The PSR pass publishes authored stage color only.  A narrow compute
+        // stage resolves the renderer-owned cube before DI consumes this
+        // record; cube access inside this RT library is intentionally avoided.
+        rabMaterial.emissiveRadiance = max(
+            material.emissiveColor.rgb,
+            float3(0.0, 0.0, 0.0));
+        rabMaterial.emissiveTextureIndex = 0xffffffffu;
+    }
 
     surface.valid = 1u;
     surface.worldPos = worldPosition;

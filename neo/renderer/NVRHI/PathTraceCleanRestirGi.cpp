@@ -601,6 +601,91 @@ bool CleanRestirGiEnsureProducerRayQueryComputePipeline(PathTraceCleanRestirGiSt
     return true;
 }
 
+struct PathTraceCleanRestirGiSkyResolveConstants
+{
+    uint32_t width;
+    uint32_t height;
+    float brightness;
+    uint32_t mode;
+};
+static_assert(sizeof(PathTraceCleanRestirGiSkyResolveConstants) == 16, "GI sky resolve constants must match HLSL packing");
+
+bool CleanRestirGiEnsureSkyResolvePipeline(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
+{
+    if (state.skyResolvePipeline)
+    {
+        return true;
+    }
+    if (state.skyResolveInitAttempted || !inputs.isVulkan)
+    {
+        return false;
+    }
+    state.skyResolveInitAttempted = true;
+
+    const char* shaderPath =
+        "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_sky_resolve.cs.bin";
+    void* shaderData = nullptr;
+    ID_TIME_T shaderTimestamp = 0;
+    const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData, &shaderTimestamp);
+    if (shaderSize <= 0 || !shaderData)
+    {
+        common->Printf("PathTraceCleanRestirGi: couldn't read GI sky resolve shader %s\n", shaderPath);
+        return false;
+    }
+
+    nvrhi::ShaderDesc csDesc;
+    csDesc.shaderType = nvrhi::ShaderType::Compute;
+    csDesc.entryName = "main";
+    csDesc.debugName = "PathTraceCleanRestirGiSkyResolveCS";
+    state.skyResolveShader = inputs.device->createShader(csDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!state.skyResolveShader)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI sky resolve shader\n");
+        return false;
+    }
+
+    nvrhi::BufferDesc constantsDesc;
+    constantsDesc.byteSize = sizeof(PathTraceCleanRestirGiSkyResolveConstants);
+    constantsDesc.debugName = "PathTraceCleanRestirGiSkyResolveConstants";
+    constantsDesc.isConstantBuffer = true;
+    constantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+    constantsDesc.keepInitialState = true;
+    constantsDesc.debugName = "PathTraceCleanRestirGiSkyResolveRadianceConstants";
+    state.skyResolveRadianceConstantsBuffer = inputs.device->createBuffer(constantsDesc);
+    constantsDesc.debugName = "PathTraceCleanRestirGiSkyResolveSurfaceConstants";
+    state.skyResolveSurfaceConstantsBuffer = inputs.device->createBuffer(constantsDesc);
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets();
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
+    state.skyResolveBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!state.skyResolveRadianceConstantsBuffer ||
+        !state.skyResolveSurfaceConstantsBuffer ||
+        !state.skyResolveBindingLayout)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI sky resolve resources\n");
+        return false;
+    }
+
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = state.skyResolveShader;
+    pipelineDesc.bindingLayouts = { state.skyResolveBindingLayout };
+    state.skyResolvePipeline = inputs.device->createComputePipeline(pipelineDesc);
+    if (!state.skyResolvePipeline)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI sky resolve pipeline\n");
+        return false;
+    }
+    common->Printf("PathTraceCleanRestirGi: GI sky resolve compute pipeline initialized\n");
+    return true;
+}
+
 struct PathTraceCleanRestirGiBoilingFilterConstants
 {
     uint32_t width;
@@ -878,6 +963,12 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     producerRayQueryComputeBindingLayout = nullptr;
     producerRayQueryComputePipeline = nullptr;
     producerRayQueryComputeInitAttempted = false;
+    skyResolveRadianceConstantsBuffer = nullptr;
+    skyResolveSurfaceConstantsBuffer = nullptr;
+    skyResolveShader = nullptr;
+    skyResolveBindingLayout = nullptr;
+    skyResolvePipeline = nullptr;
+    skyResolveInitAttempted = false;
     temporalComputeShader = nullptr;
     temporalComputeBindingLayout = nullptr;
     temporalComputePipeline = nullptr;
@@ -1042,7 +1133,7 @@ bool PathTraceCleanRestirGiExecute(
         !inputs.staticTriangleClassBuffer || !inputs.dynamicTriangleClassBuffer ||
         !inputs.staticTriangleMaterialBuffer || !inputs.dynamicTriangleMaterialBuffer ||
         !inputs.staticTriangleMaterialIndexBuffer || !inputs.dynamicTriangleMaterialIndexBuffer ||
-        !inputs.materialTableBuffer || !inputs.fallbackTexture || !inputs.emissiveTriangleBuffer ||
+        !inputs.materialTableBuffer || !inputs.fallbackTexture || !inputs.skyEnvironmentCube || !inputs.emissiveTriangleBuffer ||
         !inputs.rigidRouteVertexBuffer || !inputs.rigidRouteIndexBuffer ||
         !inputs.rigidRouteTriangleMaterialBuffer ||
         !inputs.rigidRouteTriangleMaterialIndexBuffer || !inputs.rigidRouteInstanceBuffer ||
@@ -1252,6 +1343,7 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(inputs.dynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.materialTableBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setTextureState(inputs.fallbackTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+    commandList->setTextureState(inputs.skyEnvironmentCube, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
     commandList->setTextureState(state.blueNoise.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.emissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.emissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -1267,6 +1359,80 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(dynamicMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(neeCacheCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->commitBarriers();
+
+    nvrhi::BindingSetHandle skyResolveProducerBindingSet;
+    nvrhi::BindingSetHandle skyResolveContinuationBindingSet;
+    nvrhi::BindingSetHandle skyResolveProducerSurfaceBindingSet;
+    nvrhi::BindingSetHandle skyResolveContinuationSurfaceBindingSet;
+    const bool skyResolveRequested =
+        r_pathTracingSkyCubeEnvironment.GetInteger() != 0 &&
+        inputs.skyEnvironmentCube &&
+        CleanRestirGiEnsureSkyResolvePipeline(state, inputs);
+    if (skyResolveRequested)
+    {
+        auto createSkyResolveBindingSet = [&](nvrhi::ITexture* radianceTexture, nvrhi::IBuffer* constantsBuffer)
+        {
+            nvrhi::BindingSetDesc desc;
+            desc.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, constantsBuffer));
+            desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+                0,
+                inputs.skyEnvironmentCube,
+                nvrhi::Format::UNKNOWN,
+                nvrhi::AllSubresources,
+                nvrhi::TextureDimension::TextureCube));
+            desc.addItem(nvrhi::BindingSetItem::Texture_UAV(0, radianceTexture));
+            desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(1, state.producerSurfaceBuffer));
+            desc.addItem(nvrhi::BindingSetItem::Sampler(0, inputs.materialSampler));
+            return inputs.device->createBindingSet(desc, state.skyResolveBindingLayout);
+        };
+        skyResolveProducerBindingSet = createSkyResolveBindingSet(
+            state.producerRadianceTexture,
+            state.skyResolveRadianceConstantsBuffer);
+        skyResolveContinuationBindingSet = createSkyResolveBindingSet(
+            state.continuationRadianceTexture,
+            state.skyResolveRadianceConstantsBuffer);
+        skyResolveProducerSurfaceBindingSet = createSkyResolveBindingSet(
+            state.producerRadianceTexture,
+            state.skyResolveSurfaceConstantsBuffer);
+        skyResolveContinuationSurfaceBindingSet = createSkyResolveBindingSet(
+            state.continuationRadianceTexture,
+            state.skyResolveSurfaceConstantsBuffer);
+
+        PathTraceCleanRestirGiSkyResolveConstants radianceConstants = {};
+        radianceConstants.width = static_cast<uint32_t>(inputs.width);
+        radianceConstants.height = static_cast<uint32_t>(inputs.height);
+        radianceConstants.brightness = idMath::ClampFloat(0.0f, 64.0f, r_pathTracingSkyCubeBrightness.GetFloat());
+        radianceConstants.mode = 0u;
+        PathTraceCleanRestirGiSkyResolveConstants surfaceConstants = radianceConstants;
+        surfaceConstants.mode = 1u;
+        commandList->writeBuffer(
+            state.skyResolveRadianceConstantsBuffer,
+            &radianceConstants,
+            sizeof(radianceConstants));
+        commandList->writeBuffer(
+            state.skyResolveSurfaceConstantsBuffer,
+            &surfaceConstants,
+            sizeof(surfaceConstants));
+    }
+    auto dispatchSkyResolve = [&](nvrhi::IBindingSet* resolveBindingSet, nvrhi::ITexture* radianceTexture, const char* marker)
+    {
+        if (!resolveBindingSet)
+        {
+            return;
+        }
+        nvrhi::ComputeState resolveState;
+        resolveState.pipeline = state.skyResolvePipeline;
+        resolveState.bindings = { resolveBindingSet };
+        if (nsightGpuMarkers) { commandList->beginMarker(marker); }
+        commandList->setComputeState(resolveState);
+        commandList->dispatch(
+            static_cast<uint32_t>((inputs.width + 7) / 8),
+            static_cast<uint32_t>((inputs.height + 7) / 8),
+            1);
+        if (nsightGpuMarkers) { commandList->endMarker(); }
+        nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
+        nvrhi::utils::TextureUavBarrier(commandList, radianceTexture);
+    };
 
     const bool leanProducerActive =
         view != 22 &&
@@ -1323,6 +1489,10 @@ bool PathTraceCleanRestirGiExecute(
         commandList->dispatchRays(giArgs);
         if (nsightGpuMarkers) { commandList->endMarker(); }
         nvrhi::utils::TextureUavBarrier(commandList, state.continuationRadianceTexture);
+        dispatchSkyResolve(
+            skyResolveContinuationBindingSet,
+            state.continuationRadianceTexture,
+            "FirstIndirect ContinuationSkyResolve Dispatch");
     };
 
     auto dispatchSplitContinuation = [&]()
@@ -1336,6 +1506,11 @@ bool PathTraceCleanRestirGiExecute(
         if (nsightGpuMarkers) { commandList->endMarker(); }
         nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, state.continuationRadianceTexture);
+
+        dispatchSkyResolve(
+            skyResolveContinuationSurfaceBindingSet,
+            state.continuationRadianceTexture,
+            "FirstIndirect.0c2 ContinuationSkySurfaceResolve Dispatch");
 
         nvrhi::rt::State continuationShadeState;
         continuationShadeState.shaderTable = state.continuationShadeShaderTable;
@@ -1395,6 +1570,10 @@ bool PathTraceCleanRestirGiExecute(
         nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, state.producerHitPositionTexture);
         nvrhi::utils::TextureUavBarrier(commandList, state.producerHitNormalTexture);
+        dispatchSkyResolve(
+            skyResolveProducerSurfaceBindingSet,
+            state.producerRadianceTexture,
+            "FirstIndirect.0a3 LeanSkySurfaceResolve Dispatch");
 
         nvrhi::rt::State producerShadeState;
         producerShadeState.shaderTable = state.producerLeanShadeShaderTable;
@@ -1420,6 +1599,10 @@ bool PathTraceCleanRestirGiExecute(
         nvrhi::utils::TextureUavBarrier(commandList, state.producerRadianceTexture);
         nvrhi::utils::TextureUavBarrier(commandList, state.producerHitPositionTexture);
         nvrhi::utils::TextureUavBarrier(commandList, state.producerHitNormalTexture);
+        dispatchSkyResolve(
+            skyResolveProducerBindingSet,
+            state.producerRadianceTexture,
+            "FirstIndirect.0b SimpleSkyResolve Dispatch");
     }
     else
     {
@@ -1482,6 +1665,10 @@ bool PathTraceCleanRestirGiExecute(
         if (nsightGpuMarkers) { commandList->endMarker(); }
 
         nvrhi::utils::TextureUavBarrier(commandList, state.producerRadianceTexture);
+        dispatchSkyResolve(
+            skyResolveProducerBindingSet,
+            state.producerRadianceTexture,
+            "FirstIndirect.0b2 SkyResolve Dispatch");
 
         if (tail.maxBounces >= 2u)
         {
@@ -1513,6 +1700,10 @@ bool PathTraceCleanRestirGiExecute(
         commandList->dispatchRays(giArgs);
         if (nsightGpuMarkers) { commandList->endMarker(); }
         nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
+        dispatchSkyResolve(
+            skyResolveProducerSurfaceBindingSet,
+            state.producerRadianceTexture,
+            "FirstIndirect.0d2 SpecularSkySurfaceResolve Dispatch");
 
         if (tail.maxBounces >= 2u)
         {

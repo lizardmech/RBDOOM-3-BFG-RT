@@ -296,32 +296,42 @@ bool RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
     const bool oldHasNormalTextureHandle = info.hasNormalTextureHandle;
     const bool oldHasSpecularTextureHandle = info.hasSpecularTextureHandle;
     const bool oldHasEmissiveTextureHandle = info.hasEmissiveTextureHandle;
+    const bool oldHasSkyTextureHandle = info.hasSkyTextureHandle;
     const bool oldHasSafeTexture = info.hasSafeTexture;
     const bool oldHasSafeAlphaTexture = info.hasSafeAlphaTexture;
     const bool oldHasSafeNormalTexture = info.hasSafeNormalTexture;
     const bool oldHasSafeSpecularTexture = info.hasSafeSpecularTexture;
     const bool oldHasSafeEmissiveTexture = info.hasSafeEmissiveTexture;
+    const bool oldHasSafeSkyTexture = info.hasSafeSkyTexture;
     const nvrhi::TextureHandle oldDiffuseTexture = info.diffuseTexture;
     const nvrhi::TextureHandle oldAlphaTexture = info.alphaTexture;
     const nvrhi::TextureHandle oldNormalTexture = info.normalTexture;
     const nvrhi::TextureHandle oldSpecularTexture = info.specularTexture;
     const nvrhi::TextureHandle oldEmissiveTexture = info.emissiveTexture;
+    const nvrhi::TextureHandle oldSkyTexture = info.skyTexture;
 
     info.diffuseTexture = info.diffuseImage ? info.diffuseImage->GetTextureHandle() : nullptr;
     info.alphaTexture = info.alphaImage ? info.alphaImage->GetTextureHandle() : nullptr;
     info.normalTexture = info.normalImage ? info.normalImage->GetTextureHandle() : nullptr;
     info.specularTexture = info.specularImage ? info.specularImage->GetTextureHandle() : nullptr;
     info.emissiveTexture = info.emissiveImage ? info.emissiveImage->GetTextureHandle() : nullptr;
+    info.skyTexture = info.skyImage ? info.skyImage->GetTextureHandle() : nullptr;
     info.hasTextureHandle = info.diffuseTexture != nullptr;
     info.hasAlphaTextureHandle = info.alphaTexture != nullptr;
     info.hasNormalTextureHandle = info.normalTexture != nullptr;
     info.hasSpecularTextureHandle = info.specularTexture != nullptr;
     info.hasEmissiveTextureHandle = info.emissiveTexture != nullptr;
+    info.hasSkyTextureHandle = info.skyTexture != nullptr;
     info.hasSafeTexture = info.hasTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.diffuseImage);
     info.hasSafeAlphaTexture = info.hasAlphaTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.alphaImage);
     info.hasSafeNormalTexture = info.hasNormalTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.normalImage);
     info.hasSafeSpecularTexture = info.hasSpecularTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.specularImage);
     info.hasSafeEmissiveTexture = info.hasEmissiveTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.emissiveImage);
+    info.hasSafeSkyTexture =
+        info.hasSkyTextureHandle &&
+        info.skyImage &&
+        info.skyImage->GetOpts().textureType == DTT_CUBIC &&
+        info.skyTexture->getDesc().dimension == nvrhi::TextureDimension::TextureCube;
 
     const bool changed =
         oldHasTextureHandle != info.hasTextureHandle ||
@@ -329,16 +339,19 @@ bool RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
         oldHasNormalTextureHandle != info.hasNormalTextureHandle ||
         oldHasSpecularTextureHandle != info.hasSpecularTextureHandle ||
         oldHasEmissiveTextureHandle != info.hasEmissiveTextureHandle ||
+        oldHasSkyTextureHandle != info.hasSkyTextureHandle ||
         oldHasSafeTexture != info.hasSafeTexture ||
         oldHasSafeAlphaTexture != info.hasSafeAlphaTexture ||
         oldHasSafeNormalTexture != info.hasSafeNormalTexture ||
         oldHasSafeSpecularTexture != info.hasSafeSpecularTexture ||
         oldHasSafeEmissiveTexture != info.hasSafeEmissiveTexture ||
+        oldHasSafeSkyTexture != info.hasSafeSkyTexture ||
         oldDiffuseTexture.Get() != info.diffuseTexture.Get() ||
         oldAlphaTexture.Get() != info.alphaTexture.Get() ||
         oldNormalTexture.Get() != info.normalTexture.Get() ||
         oldSpecularTexture.Get() != info.specularTexture.Get() ||
-        oldEmissiveTexture.Get() != info.emissiveTexture.Get();
+        oldEmissiveTexture.Get() != info.emissiveTexture.Get() ||
+        oldSkyTexture.Get() != info.skyTexture.Get();
     if (changed)
     {
         ++g_smokeMaterialTextureRegistryGeneration;

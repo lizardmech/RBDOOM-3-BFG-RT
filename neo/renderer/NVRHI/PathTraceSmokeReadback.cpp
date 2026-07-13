@@ -412,8 +412,60 @@ void PathTracePrimaryPass::ReadBackDLSSRRInputColorDump()
         Sys_Milliseconds() - dumpStartMs);
 }
 
+void PathTracePrimaryPass::ReadBackSkyCubeProbe()
+{
+    if (!m_smokeSkyCubeProbeReadbackQueued || !m_smokeSkyCubeProbeReadbackTexture)
+    {
+        return;
+    }
+    if (m_smokeSkyCubeProbeReadbackDelayFrames > 0)
+    {
+        --m_smokeSkyCubeProbeReadbackDelayFrames;
+        return;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+
+    device->waitForIdle();
+    size_t rowPitch = 0;
+    void* readbackData = device->mapStagingTexture(
+        m_smokeSkyCubeProbeReadbackTexture,
+        nvrhi::TextureSlice(),
+        nvrhi::CpuAccessMode::Read,
+        &rowPitch);
+    if (!readbackData)
+    {
+        common->Printf("PathTracePrimaryPass: isolated sky-cube compute probe readback map failed\n");
+        m_smokeSkyCubeProbeReadbackQueued = false;
+        return;
+    }
+
+    static const char* const faceLabels[6] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
+    const float* samples = reinterpret_cast<const float*>(readbackData);
+    common->Printf(
+        "PathTracePrimaryPass: isolated sky-cube compute probe result source='%s' rowPitch=%llu\n",
+        m_smokeSkyEnvironmentSourceName.c_str(),
+        static_cast<unsigned long long>(rowPitch));
+    for (int faceIndex = 0; faceIndex < 6; ++faceIndex)
+    {
+        const float* rgba = samples + faceIndex * 4;
+        common->Printf(
+            "PathTracePrimaryPass: isolated sky-cube face %s rgba=(%.6f %.6f %.6f %.6f)\n",
+            faceLabels[faceIndex],
+            rgba[0], rgba[1], rgba[2], rgba[3]);
+    }
+
+    device->unmapStagingTexture(m_smokeSkyCubeProbeReadbackTexture);
+    m_smokeSkyCubeProbeReadbackQueued = false;
+}
+
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
+    ReadBackSkyCubeProbe();
     ReadBackDLSSRRInputColorDump();
 
     const int debugMode = idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());

@@ -58,6 +58,8 @@ struct RtRetiredSmokeScenePackage
     nvrhi::BindingSetHandle bindingSet;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     std::vector<nvrhi::TextureHandle> activeTextureTable;
+    nvrhi::TextureHandle skyEnvironmentCube;
+    nvrhi::BindingSetHandle skyCubeProbeBindingSet;
 };
 
 static constexpr int RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS = 3;
@@ -239,6 +241,7 @@ private:
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
     void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
     void ReadBackRayTracingSmokeTest();
+    void ReadBackSkyCubeProbe();
     void ReadBackDLSSRRInputColorDump();
     void QueueDLSSRRInputColorDump(nvrhi::ICommandList* commandList, nvrhi::ITexture* inputColor, int source, uint32_t frameIndex);
 
@@ -430,17 +433,27 @@ private:
     nvrhi::BindingLayoutHandle m_smokeNeeCachePrimarySurfaceUpdateBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeSkinnedGpuSkinningBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeCleanRtxdiDiBoilingFilterBindingLayout;
+    nvrhi::BindingLayoutHandle m_smokeSkyCubeProbeBindingLayout;
+    nvrhi::BindingLayoutHandle m_smokeSkySurfaceResolveBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
     nvrhi::BindingSetHandle m_smokeBindingSet;
     nvrhi::BindingSetHandle m_smokeSkinnedGpuSkinningBindingSet;
     nvrhi::BindingSetHandle m_smokeCleanRtxdiDiBoilingFilterBindingSet;
+    nvrhi::BindingSetHandle m_smokeSkyCubeProbeBindingSet;
     nvrhi::BufferHandle m_smokeSkinnedGpuSkinningOutputBuffer;
     nvrhi::BufferHandle m_smokeSkinnedGpuSkinningPreviousPositionBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiSentinelConstantsBuffer;
+    nvrhi::BufferHandle m_smokeSkySurfaceResolveConstantsBuffer;
     nvrhi::BufferHandle m_smokeMaterialFeatureRuntimeConstantsBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiBoilingFilterConstantsBuffer;
     nvrhi::TextureHandle m_smokeCleanRtxdiDiBoilingFilterInputTexture;
     nvrhi::TextureHandle m_smokeCleanRtxdiDiBoilingFilterOutputTexture;
+    nvrhi::TextureHandle m_smokeSkyEnvironmentCube;
+    nvrhi::TextureHandle m_smokeSkyCubeProbeOutputTexture;
+    nvrhi::StagingTextureHandle m_smokeSkyCubeProbeReadbackTexture;
+    bool m_smokeSkyCubeProbeReadbackQueued = false;
+    int m_smokeSkyCubeProbeReadbackDelayFrames = 0;
+    idStr m_smokeSkyEnvironmentSourceName;
     nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
     std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
@@ -514,9 +527,13 @@ private:
     RtPathTraceCleanRtxdiDiMaterialFeatureState m_smokeCleanRtxdiDiMaterialFeatures;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ShaderHandle m_smokeCleanRtxdiDiBoilingFilterShader;
+    nvrhi::ShaderHandle m_smokeSkyCubeProbeShader;
+    nvrhi::ShaderHandle m_smokeSkySurfaceResolveShader;
     nvrhi::ShaderHandle m_smokeNeeCachePrimarySurfaceUpdateShader;
     nvrhi::ComputePipelineHandle m_smokeSkinnedGpuSkinningPipeline;
     nvrhi::ComputePipelineHandle m_smokeCleanRtxdiDiBoilingFilterPipeline;
+    nvrhi::ComputePipelineHandle m_smokeSkyCubeProbePipeline;
+    nvrhi::ComputePipelineHandle m_smokeSkySurfaceResolvePipeline;
     nvrhi::ComputePipelineHandle m_smokeNeeCachePrimarySurfaceUpdatePipeline;
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirPipeline;

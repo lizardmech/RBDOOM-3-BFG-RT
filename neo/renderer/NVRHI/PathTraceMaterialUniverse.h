@@ -39,7 +39,9 @@ struct RtSmokeMaterialUniverseFacts
     bool alphaFromDiffuseMagentaKey = false;
     bool portalWindowFallback = false;
     bool objectGlassFallback = false;
+    bool skyEnvironment = false;
     bool emissive = false;
+    bool emissiveLightCandidate = false;
     idVec4 emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
     float emissiveLuminance = 0.0f;
     bool hasDiffuseImage = false;

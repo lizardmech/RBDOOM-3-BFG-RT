@@ -65,10 +65,120 @@ const int RT_SMOKE_GEOMETRY_RANGE_DUMP_RECORDS = 16;
 const int RT_PT_RESIDENT_BOUNDS_OVERLAY_SAFE_BOXES = 64;
 const float RT_SMOKE_SKINNED_TELEPORT_DISTANCE = 1024.0f;
 const int RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES = 64;
+const char* RT_SMOKE_SKY_ENVIRONMENT_FALLBACK_NAME = "<white-terminal-fallback>";
 
 int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
+
+nvrhi::TextureHandle CreateSmokeSkyEnvironmentCube(
+    nvrhi::ICommandList* commandList,
+    nvrhi::IDevice* device,
+    idImage* sourceImage)
+{
+    if (!commandList || !device)
+    {
+        return nullptr;
+    }
+
+    byte* facePixels[6] = {};
+    int faceSize = 0;
+    ID_TIME_T sourceTimestamp = 0;
+    const idStr requestedSourceName = sourceImage
+        ? sourceImage->GetName()
+        : RT_SMOKE_SKY_ENVIRONMENT_FALLBACK_NAME;
+    const int requestedCubeFiles = sourceImage
+        ? static_cast<int>(sourceImage->GetCubeFiles())
+        : 0;
+    const bool sourceLoaded = sourceImage && R_LoadCubeImages(
+        sourceImage->GetName(),
+        sourceImage->GetCubeFiles(),
+        facePixels,
+        &faceSize,
+        &sourceTimestamp) && faceSize > 0;
+    if (sourceImage && !sourceLoaded)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: isolated sky-cube upload couldn't load source='%s' cubeFiles=%d; binding white fallback\n",
+            requestedSourceName.c_str(),
+            requestedCubeFiles);
+        for (byte*& face : facePixels)
+        {
+            if (face)
+            {
+                Mem_Free(face);
+                face = nullptr;
+            }
+        }
+    }
+    byte fallbackPixel[4] = { 255, 255, 255, 255 };
+    if (!sourceLoaded)
+    {
+        faceSize = 1;
+        for (byte*& face : facePixels)
+        {
+            face = fallbackPixel;
+        }
+    }
+
+    nvrhi::TextureDesc cubeDesc;
+    cubeDesc.width = static_cast<uint32_t>(faceSize);
+    cubeDesc.height = static_cast<uint32_t>(faceSize);
+    cubeDesc.arraySize = 6;
+    cubeDesc.mipLevels = 1;
+    cubeDesc.format = nvrhi::Format::RGBA8_UNORM;
+    cubeDesc.dimension = nvrhi::TextureDimension::TextureCube;
+    cubeDesc.isShaderResource = true;
+    cubeDesc.initialState = nvrhi::ResourceStates::Common;
+    cubeDesc.keepInitialState = false;
+    cubeDesc.debugName = "PathTraceSkyEnvironmentCube";
+    nvrhi::TextureHandle cubeTexture = device->createTexture(cubeDesc);
+    if (cubeTexture)
+    {
+        commandList->beginTrackingTextureState(
+            cubeTexture,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::Common);
+        for (uint32_t faceIndex = 0; faceIndex < 6u; ++faceIndex)
+        {
+            commandList->writeTexture(
+                cubeTexture,
+                faceIndex,
+                0,
+                facePixels[faceIndex],
+                static_cast<size_t>(faceSize) * 4u);
+        }
+        commandList->setPermanentTextureState(cubeTexture, nvrhi::ResourceStates::ShaderResource);
+        commandList->commitBarriers();
+    }
+
+    for (byte*& face : facePixels)
+    {
+        if (sourceLoaded && face)
+        {
+            Mem_Free(face);
+            face = nullptr;
+        }
+    }
+
+    if (!cubeTexture)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: isolated sky-cube upload failed to create %dx%d cube source='%s'\n",
+            faceSize,
+            faceSize,
+            requestedSourceName.c_str());
+        return nullptr;
+    }
+
+    common->Printf(
+        "PathTracePrimaryPass: isolated sky-cube upload ready source='%s' size=%d cubeFiles=%d timestamp=%llu\n",
+        requestedSourceName.c_str(),
+        faceSize,
+        sourceLoaded ? requestedCubeFiles : 0,
+        static_cast<unsigned long long>(sourceTimestamp));
+    return cubeTexture;
+}
 
 struct RtSmokeRuntimeMaterialApplySample
 {
@@ -449,6 +559,7 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
     }
 
     records.resize(materialCount);
+    std::vector<std::vector<PathTraceDynamicMaterialRecord>> orderedStageRecords(materialCount);
     int validRecordCount = 0;
     std::vector<RtSmokeSpectrumLight> spectrumLights;
     bool spectrumLightsBuilt = false;
@@ -625,6 +736,51 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
             ++validRecordCount;
         }
         records[materialIndex] = record;
+        std::vector<PathTraceDynamicMaterialRecord>& materialStageRecords = orderedStageRecords[materialIndex];
+        materialStageRecords.clear();
+        materialStageRecords.reserve(sample.orderedStageCount);
+        for (int orderedIndex = 0; orderedIndex < sample.orderedStageCount; ++orderedIndex)
+        {
+            const RtSmokeDynamicStageEval& stage = sample.orderedStages[orderedIndex];
+            PathTraceDynamicMaterialRecord stageRecord;
+            for (int component = 0; component < 4; ++component)
+            {
+                stageRecord.color[component] = stage.color[component];
+            }
+            stageRecord.texMatrix0[0] = stage.texMatrix[0][0];
+            stageRecord.texMatrix0[1] = stage.texMatrix[0][1];
+            stageRecord.texMatrix0[2] = stage.texMatrix[0][2];
+            stageRecord.texMatrix0[3] = stage.condition;
+            stageRecord.texMatrix1[0] = stage.texMatrix[1][0];
+            stageRecord.texMatrix1[1] = stage.texMatrix[1][1];
+            stageRecord.texMatrix1[2] = stage.texMatrix[1][2];
+            stageRecord.texMatrix1[3] = stage.alphaTest;
+            stageRecord.materialIndex = static_cast<uint32_t>(materialIndex);
+            stageRecord.materialId = sample.id;
+            stageRecord.stageIndex = stage.stageIndex >= 0 ? static_cast<uint32_t>(stage.stageIndex) : UINT32_MAX;
+            stageRecord.flags = RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID | RT_SMOKE_DYNAMIC_MATERIAL_RECORD_ORDERED_STAGE_VALUE;
+            if (stage.enabled)
+            {
+                stageRecord.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
+            }
+            if (stage.emissive)
+            {
+                stageRecord.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE;
+            }
+            if (stage.hasTexMatrix)
+            {
+                stageRecord.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX;
+            }
+            if (stage.hasAlphaTest)
+            {
+                stageRecord.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST;
+            }
+            materialStageRecords.push_back(stageRecord);
+        }
+        if (sample.orderedStageOverflow)
+        {
+            records[materialIndex].stageIndex |= RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OVERFLOW;
+        }
     }
 
     // Synthesize records for spectrum detail decals with NO eval record
@@ -681,6 +837,38 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
     if (validRecordCount == 0)
     {
         records.clear();
+        return records;
+    }
+
+    size_t orderedRecordCount = 0;
+    for (const std::vector<PathTraceDynamicMaterialRecord>& materialStageRecords : orderedStageRecords)
+    {
+        orderedRecordCount += materialStageRecords.size();
+    }
+    records.reserve(records.size() + orderedRecordCount);
+    for (int materialIndex = 0; materialIndex < materialCount; ++materialIndex)
+    {
+        std::vector<PathTraceDynamicMaterialRecord>& materialStageRecords = orderedStageRecords[materialIndex];
+        if (materialStageRecords.empty())
+        {
+            continue;
+        }
+
+        PathTraceDynamicMaterialRecord& header = records[materialIndex];
+        const uint32_t selectedStageRaw = header.stageIndex & RT_SMOKE_DYNAMIC_MATERIAL_HEADER_SELECTED_STAGE_MASK;
+        const uint32_t selectedStage = selectedStageRaw == 0xffu ? 0xffu : Min(selectedStageRaw, 0xfeu);
+        const uint32_t stageCount = Min(static_cast<uint32_t>(materialStageRecords.size()), 0xfu);
+        const uint32_t stageOffset = Min(static_cast<uint32_t>(records.size()), 0xffffu);
+        const bool overflow =
+            (header.stageIndex & RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OVERFLOW) != 0u ||
+            records.size() > 0xffffu ||
+            materialStageRecords.size() > 0xfu;
+        header.stageIndex = selectedStage |
+            (stageCount << RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_COUNT_SHIFT) |
+            (stageOffset << RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OFFSET_SHIFT) |
+            (overflow ? RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OVERFLOW : 0u);
+        header.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ORDERED_STAGE_VALUES;
+        records.insert(records.end(), materialStageRecords.begin(), materialStageRecords.end());
     }
     return records;
 }
@@ -920,7 +1108,8 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
             for (int stageIndex = 0; stageIndex < materialDecl->GetNumStages(); ++stageIndex)
             {
                 const shaderStage_t* stage = materialDecl->GetStage(stageIndex);
-                if (!SmokeRuntimeMaterialStageIsEmissiveLike(stage))
+                if (!SmokeRuntimeMaterialStageIsEmissiveLike(stage) &&
+                    !(stageIndex == 0 && SmokeMaterialUsesOpaqueSwinglightCompatibility(materialDecl)))
                 {
                     continue;
                 }
@@ -945,7 +1134,7 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
 
         if (!activeEmissiveStage || selectedLuminance <= 1.0e-5f)
         {
-            material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+            material.flags &= ~(RT_SMOKE_MATERIAL_EMISSIVE | RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE);
             material.emissiveColor[0] = 0.0f;
             material.emissiveColor[1] = 0.0f;
             material.emissiveColor[2] = 0.0f;
@@ -970,7 +1159,7 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         material.emissiveColor[3] = selectedStageColor.w;
         if (SmokeRuntimeMaterialLuminance(idVec4(material.emissiveColor[0], material.emissiveColor[1], material.emissiveColor[2], material.emissiveColor[3])) <= 1.0e-5f)
         {
-            material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+            material.flags &= ~(RT_SMOKE_MATERIAL_EMISSIVE | RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE);
             ++stats.emissiveDisabled;
             AddSmokeRuntimeMaterialApplySample(stats, materialIndex, materialId, materialName, selectedStageColor, material, applySource, true);
         }
@@ -1024,7 +1213,7 @@ void LogSmokeMaterialClassifierLiveSummary(const RtSmokeMaterialTableBuild& tabl
         return;
     }
 
-    common->Printf("PathTracePrimaryPass: RT smoke material classifier live records=%d hits=%d misses=%d rebuilds=%d frame=%d/%d/%d frameRoutes(rmao/legacy/fallback)=%d/%d/%d frameConfidence(auth/flag/heur/fallback)=%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke material classifier live records=%d hits=%d misses=%d rebuilds=%d frame=%d/%d/%d frameRoutes(rmao/legacy/fallback)=%d/%d/%d frameConfidence(auth/flag/heur/fallback)=%d/%d/%d/%d compositing(stages/max/>4/>8)=%d/%d/%d/%d ops(opaque/add/mul/invert/over/clip/interaction/unknown)=%d/%d/%d/%d/%d/%d/%d/%d\n",
         stats.records,
         stats.hits,
         stats.misses,
@@ -1038,7 +1227,130 @@ void LogSmokeMaterialClassifierLiveSummary(const RtSmokeMaterialTableBuild& tabl
         stats.confidenceAuthoritative,
         stats.confidenceFlag,
         stats.confidenceHeuristic,
-        stats.confidenceFallbackNone);
+        stats.confidenceFallbackNone,
+        stats.compositingStages,
+        stats.maxCompositingStages,
+        stats.materialsOverFourStages,
+        stats.materialsOverEightStages,
+        stats.compositingOpaque,
+        stats.compositingAdditive,
+        stats.compositingMultiply,
+        stats.compositingInverted,
+        stats.compositingAlphaOver,
+        stats.compositingAlphaClip,
+        stats.compositingInteraction,
+        stats.compositingUnknown);
+
+    int orderedSafeMaterials = 0;
+    int orderedStageTextureMaterials = 0;
+    int orderedRuntimeValueMaterials = 0;
+    int orderedOverflowMaterials = 0;
+    int orderedUnhandledMaterials = 0;
+    std::vector<const RtMaterialRecord*> orderedStageTextureSamples;
+    std::vector<const RtMaterialRecord*> orderedUnhandledSamples;
+    for (uint32_t materialId : table.materialIds)
+    {
+        const RtMaterialRecord* record = FindPathTraceMaterialRecord(materialId);
+        if (!record || !record->valid)
+        {
+            continue;
+        }
+
+        std::vector<idStr> effectImageNames;
+        bool needsRuntimeValues = false;
+        bool hasUnhandledEquation = false;
+        for (const RtMaterialCompositingStageFact& stage : record->compositingStages)
+        {
+            const bool destinationPreserve =
+                stage.srcBlendBits == GLS_SRCBLEND_ZERO &&
+                stage.dstBlendBits == GLS_DSTBLEND_ONE;
+            switch (stage.operation)
+            {
+                case RtMaterialCompositingOp::Additive:
+                case RtMaterialCompositingOp::MultiplyFilter:
+                case RtMaterialCompositingOp::InvertedFilterBlackKey:
+                case RtMaterialCompositingOp::SourceAlphaOver:
+                    if (!stage.imageName.IsEmpty() &&
+                        std::find(effectImageNames.begin(), effectImageNames.end(), stage.imageName) == effectImageNames.end())
+                    {
+                        effectImageNames.push_back(stage.imageName);
+                    }
+                    break;
+                case RtMaterialCompositingOp::Unknown:
+                    hasUnhandledEquation |= !destinationPreserve;
+                    break;
+                default:
+                    break;
+            }
+            needsRuntimeValues |=
+                stage.conditionIsDynamic ||
+                stage.dynamicImage != DI_STATIC ||
+                stage.vertexProgram >= 0 ||
+                stage.fragmentProgram >= 0 ||
+                stage.glslProgram >= 0;
+        }
+
+        const bool overflow = record->compositingStages.size() > 8;
+        const bool needsStageTextures = effectImageNames.size() > 1;
+        orderedOverflowMaterials += overflow ? 1 : 0;
+        orderedUnhandledMaterials += hasUnhandledEquation ? 1 : 0;
+        orderedRuntimeValueMaterials += needsRuntimeValues ? 1 : 0;
+        orderedStageTextureMaterials += needsStageTextures ? 1 : 0;
+        orderedSafeMaterials += !overflow && !hasUnhandledEquation && !needsRuntimeValues && !needsStageTextures ? 1 : 0;
+        if (needsStageTextures && orderedStageTextureSamples.size() < 8)
+        {
+            orderedStageTextureSamples.push_back(record);
+        }
+        if (hasUnhandledEquation && orderedUnhandledSamples.size() < 8)
+        {
+            orderedUnhandledSamples.push_back(record);
+        }
+    }
+    common->Printf(
+        "PathTracePrimaryPass: RT smoke ordered consumer gate materials=%d safeSingleEffect=%d requireStageTextures=%d requireRuntimeValues=%d overflow=%d unhandledEquation=%d\n",
+        static_cast<int>(table.materialIds.size()),
+        orderedSafeMaterials,
+        orderedStageTextureMaterials,
+        orderedRuntimeValueMaterials,
+        orderedOverflowMaterials,
+        orderedUnhandledMaterials);
+    if (!orderedStageTextureSamples.empty() || !orderedUnhandledSamples.empty())
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke ordered consumer blocker samples stageTextures=");
+        for (int sampleIndex = 0; sampleIndex < static_cast<int>(orderedStageTextureSamples.size()); ++sampleIndex)
+        {
+            const RtMaterialRecord* record = orderedStageTextureSamples[sampleIndex];
+            common->Printf("%s%u:'%s'", sampleIndex > 0 ? ", " : "", record->materialId, record->materialName.c_str());
+        }
+        common->Printf(" unhandled=");
+        for (int sampleIndex = 0; sampleIndex < static_cast<int>(orderedUnhandledSamples.size()); ++sampleIndex)
+        {
+            const RtMaterialRecord* record = orderedUnhandledSamples[sampleIndex];
+            common->Printf("%s%u:'%s'", sampleIndex > 0 ? ", " : "", record->materialId, record->materialName.c_str());
+            common->Printf("[");
+            bool printedStage = false;
+            for (const RtMaterialCompositingStageFact& stage : record->compositingStages)
+            {
+                const bool destinationPreserve =
+                    stage.srcBlendBits == GLS_SRCBLEND_ZERO &&
+                    stage.dstBlendBits == GLS_DSTBLEND_ONE;
+                if (stage.operation != RtMaterialCompositingOp::Unknown || destinationPreserve)
+                {
+                    continue;
+                }
+                common->Printf("%sstage=%d lighting=%d blend=0x%llx/0x%llx image='%s'",
+                    printedStage ? ";" : "",
+                    stage.stageIndex,
+                    static_cast<int>(stage.lighting),
+                    static_cast<unsigned long long>(stage.srcBlendBits),
+                    static_cast<unsigned long long>(stage.dstBlendBits),
+                    stage.imageName.c_str());
+                printedStage = true;
+            }
+            common->Printf("]");
+        }
+        common->Printf("\n");
+    }
 
     const int materialCount = Min(static_cast<int>(table.materials.size()), static_cast<int>(table.materialIds.size()));
     int routeFallbackTotal = 0;
@@ -1710,6 +2022,57 @@ uint32_t SmokeDynamicMaterialDiffSampleId(const RtSmokeDynamicMaterialUploadDiff
     return sampleIndex < summary.sampleCount ? summary.sampleMaterialIds[sampleIndex] : 0;
 }
 
+const PathTraceDynamicMaterialRecord* FindSmokeOrderedDynamicStageRecord(
+    uint32_t materialIndex,
+    const std::vector<PathTraceDynamicMaterialRecord>& records,
+    const PathTraceDynamicMaterialRecord& header,
+    uint32_t requiredFlags,
+    bool preferBrightestEnabled)
+{
+    if ((header.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ORDERED_STAGE_VALUES) == 0u)
+    {
+        return nullptr;
+    }
+    const uint32_t stageCount =
+        (header.stageIndex & RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_COUNT_MASK) >>
+        RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_COUNT_SHIFT;
+    const uint32_t stageOffset =
+        (header.stageIndex & RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OFFSET_MASK) >>
+        RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OFFSET_SHIFT;
+    if (stageCount == 0u || stageOffset >= records.size() || stageCount > records.size() - stageOffset)
+    {
+        return nullptr;
+    }
+
+    const PathTraceDynamicMaterialRecord* selected = nullptr;
+    float selectedScore = -1.0f;
+    for (uint32_t stageSlot = 0; stageSlot < stageCount; ++stageSlot)
+    {
+        const PathTraceDynamicMaterialRecord& stage = records[stageOffset + stageSlot];
+        if (stage.materialIndex != materialIndex ||
+            (stage.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_ORDERED_STAGE_VALUE) == 0u ||
+            (stage.flags & requiredFlags) != requiredFlags)
+        {
+            continue;
+        }
+        if (!preferBrightestEnabled)
+        {
+            return &stage;
+        }
+
+        const bool enabled = (stage.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u;
+        const float luminance = SmokeRuntimeMaterialLuminance(
+            idVec4(stage.color[0], stage.color[1], stage.color[2], stage.color[3]));
+        const float score = (enabled ? 1000000.0f : 0.0f) + luminance;
+        if (!selected || score > selectedScore)
+        {
+            selected = &stage;
+            selectedScore = score;
+        }
+    }
+    return selected;
+}
+
 void ApplySmokeDynamicMaterialRecordToGpuMaterial(uint32_t materialIndex, const std::vector<PathTraceDynamicMaterialRecord>& records, PathTraceSmokeMaterial& material)
 {
     if (materialIndex >= records.size())
@@ -1717,13 +2080,28 @@ void ApplySmokeDynamicMaterialRecordToGpuMaterial(uint32_t materialIndex, const 
         return;
     }
 
-    const PathTraceDynamicMaterialRecord& record = records[materialIndex];
-    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
-        record.materialIndex != materialIndex ||
-        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) == 0u)
+    const PathTraceDynamicMaterialRecord& header = records[materialIndex];
+    if ((header.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
+        header.materialIndex != materialIndex)
     {
         return;
     }
+    const PathTraceDynamicMaterialRecord* orderedRecord = FindSmokeOrderedDynamicStageRecord(
+        materialIndex,
+        records,
+        header,
+        RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE,
+        true);
+    const PathTraceDynamicMaterialRecord* selectedRecord = orderedRecord;
+    if (!selectedRecord && (header.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) != 0u)
+    {
+        selectedRecord = &header;
+    }
+    if (!selectedRecord)
+    {
+        return;
+    }
+    const PathTraceDynamicMaterialRecord& record = *selectedRecord;
     const uint32_t dynamicFlags = material.padding0 & (
         RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS |
         RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR |
@@ -1744,7 +2122,7 @@ void ApplySmokeDynamicMaterialRecordToGpuMaterial(uint32_t materialIndex, const 
         material.emissiveColor[1] = 0.0f;
         material.emissiveColor[2] = 0.0f;
         material.emissiveColor[3] = 1.0f;
-        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+        material.flags &= ~(RT_SMOKE_MATERIAL_EMISSIVE | RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE);
         return;
     }
 
@@ -1754,7 +2132,7 @@ void ApplySmokeDynamicMaterialRecordToGpuMaterial(uint32_t materialIndex, const 
         Max(0.0f, record.color[1]) * stageAlpha,
         Max(0.0f, record.color[2]) * stageAlpha
     };
-    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE) != 0u)
+    if ((header.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE) != 0u)
     {
         material.emissiveColor[0] = stageScale[0];
         material.emissiveColor[1] = stageScale[1];
@@ -1769,7 +2147,7 @@ void ApplySmokeDynamicMaterialRecordToGpuMaterial(uint32_t materialIndex, const 
     material.emissiveColor[3] = stageAlpha;
     if (SmokeRuntimeMaterialLuminance(idVec4(material.emissiveColor[0], material.emissiveColor[1], material.emissiveColor[2], material.emissiveColor[3])) <= 1.0e-5f)
     {
-        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+        material.flags &= ~(RT_SMOKE_MATERIAL_EMISSIVE | RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE);
     }
     else
     {
@@ -1784,13 +2162,28 @@ void ApplySmokeDynamicAlphaRecordToGpuMaterial(uint32_t materialIndex, const std
         return;
     }
 
-    const PathTraceDynamicMaterialRecord& record = records[materialIndex];
-    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
-        record.materialIndex != materialIndex ||
-        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST) == 0u)
+    const PathTraceDynamicMaterialRecord& header = records[materialIndex];
+    if ((header.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
+        header.materialIndex != materialIndex)
     {
         return;
     }
+    const PathTraceDynamicMaterialRecord* orderedRecord = FindSmokeOrderedDynamicStageRecord(
+        materialIndex,
+        records,
+        header,
+        RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST,
+        false);
+    const PathTraceDynamicMaterialRecord* selectedRecord = orderedRecord;
+    if (!selectedRecord && (header.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST) != 0u)
+    {
+        selectedRecord = &header;
+    }
+    if (!selectedRecord)
+    {
+        return;
+    }
+    const PathTraceDynamicMaterialRecord& record = *selectedRecord;
 
     const bool stageEnabled =
         (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u &&
@@ -4335,6 +4728,71 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             material.specularTextureHeight = 1;
         }
     }
+
+    idImage* skyEnvironmentSource = nullptr;
+    for (const RtSmokeMaterialTextureInfo& materialInfo : materialTable.materialInfos)
+    {
+        if (materialInfo.skyEnvironment && materialInfo.skyImage)
+        {
+            skyEnvironmentSource = materialInfo.skyImage;
+            break;
+        }
+    }
+    const char* requestedSkyEnvironmentName = skyEnvironmentSource
+        ? skyEnvironmentSource->GetName()
+        : RT_SMOKE_SKY_ENVIRONMENT_FALLBACK_NAME;
+    const bool skyEnvironmentSourceUnchanged =
+        m_smokeSkyEnvironmentSourceName.Icmp(requestedSkyEnvironmentName) == 0;
+    nvrhi::TextureHandle skyEnvironmentCube = skyEnvironmentSourceUnchanged
+        ? m_smokeSkyEnvironmentCube
+        : nullptr;
+    nvrhi::BindingSetHandle skyCubeProbeBindingSet = skyEnvironmentSourceUnchanged
+        ? m_smokeSkyCubeProbeBindingSet
+        : nullptr;
+
+    if (!skyEnvironmentCube)
+    {
+        skyEnvironmentCube = CreateSmokeSkyEnvironmentCube(commandList, device, skyEnvironmentSource);
+    }
+    if (skyEnvironmentCube &&
+        !skyCubeProbeBindingSet &&
+        m_smokeSkyCubeProbeBindingLayout &&
+        m_smokeSkyCubeProbeOutputTexture &&
+        m_backend)
+    {
+        nvrhi::BindingSetDesc skyCubeProbeBindingSetDesc;
+        skyCubeProbeBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+            0,
+            skyEnvironmentCube,
+            nvrhi::Format::UNKNOWN,
+            nvrhi::AllSubresources,
+            nvrhi::TextureDimension::TextureCube));
+        skyCubeProbeBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+            1,
+            m_smokeSkyCubeProbeOutputTexture));
+        skyCubeProbeBindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(
+            0,
+            m_backend->GetCommonPasses().m_LinearClampSampler));
+        skyCubeProbeBindingSet = device->createBindingSet(
+            skyCubeProbeBindingSetDesc,
+            m_smokeSkyCubeProbeBindingLayout);
+        if (!skyCubeProbeBindingSet)
+        {
+            common->Printf("PathTracePrimaryPass: failed to create isolated sky-cube probe binding set\n");
+        }
+    }
+
+    if (m_smokeSkyEnvironmentSourceName.Icmp(requestedSkyEnvironmentName) != 0)
+    {
+        m_smokeSkyEnvironmentSourceName = requestedSkyEnvironmentName;
+        common->Printf(
+            "PathTracePrimaryPass: sky environment source='%s' live=%s cube=%d%s\n",
+            m_smokeSkyEnvironmentSourceName.c_str(),
+            r_pathTracingSkyCubeEnvironment.GetInteger() != 0 ? "primary-cube" : "white-fallback",
+            skyEnvironmentCube ? 1 : 0,
+            skyEnvironmentSource ? "" : " fallback");
+    }
+
     const std::vector<PathTraceSmokeMaterial> stableGpuMaterialTableMaterials = materialTable.materials;
     {
         OPTICK_EVENT("PT Runtime Material Registers");
@@ -4691,7 +5149,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             materialTable.dynamicMaterialIndexes,
             dynamicTriangleInstanceData,
             dynamicTriangleIdentityData,
-            RT_SMOKE_MATERIAL_EMISSIVE,
+            RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
             RT_SMOKE_TRIANGLE_CLASS_MASK,
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
@@ -4702,7 +5160,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 materialTable.materialIds,
                 materialTable.materials,
                 rigidRouteBuild,
-                RT_SMOKE_MATERIAL_EMISSIVE,
+                RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
                 maxEmissiveRecords,
                 emissiveTriangles,
                 emissiveInventoryStats);
@@ -4715,7 +5173,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 viewDef,
                 materialTable.materialIds,
                 materialTable.materials,
-                RT_SMOKE_MATERIAL_EMISSIVE,
+                RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
                 SmokeSurfaceClassId(RtSmokeSurfaceClass::StaticWorld),
                 fullLevelStaticSupplementLimit,
                 emissiveTriangles,
@@ -7145,6 +7603,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
+
     if (asyncRigidRouteSideBufferRing && rigidRouteSideBufferWriteSlot >= 0)
     {
         const RtSmokeRigidRouteSideBufferSlot& sideSlot =
@@ -7181,6 +7640,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.rrGuideResetMaskTexture = m_frameResources.rrGuideResetMaskTexture;
     bindingBuildDesc.rrGuidePositionTexture = m_frameResources.rrGuidePositionTexture;
     bindingBuildDesc.fallbackTexture = fallbackTexture;
+    bindingBuildDesc.skyEnvironmentCube = skyEnvironmentCube;
     bindingBuildDesc.constantsBuffer = m_smokeConstantsBuffer;
     bindingBuildDesc.restirPTConstantsBuffer = m_restirPTConstantsBuffer;
     bindingBuildDesc.boundsOverlayLineBuffer = m_smokeBoundsOverlayLineBuffer;
@@ -7918,6 +8378,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.bindingSet = bindingBuildResult.bindingSet;
     resourceCommitBuildDesc.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
     resourceCommitBuildDesc.activeTextureTable = &bindingBuildResult.activeTextureTable;
+    resourceCommitBuildDesc.skyEnvironmentCube = skyEnvironmentCube;
+    resourceCommitBuildDesc.skyCubeProbeBindingSet = skyCubeProbeBindingSet;
     resourceCommitBuildDesc.textureDescriptorTableCreated = bindingBuildResult.textureDescriptorTableCreated;
     resourceCommitBuildDesc.textureDescriptorTableWritten = bindingBuildResult.textureDescriptorTableWritten;
     resourceCommitBuildDesc.materialTableEntryCount = static_cast<int>(materialTable.materials.size());

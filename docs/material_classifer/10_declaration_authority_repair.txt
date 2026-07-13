@@ -234,6 +234,410 @@ Runtime rotation follow-up:
   lighting and was removed. The remaining off-camera behavior belongs to scene
   residency/TLAS-area ownership, not the material-record bridge.
 
+MATCLASS-10C CPU SLICE IMPLEMENTED
+---------------------------------
+RtMaterialRecord now retains an ordered CPU compositing fact for every declared
+stage. Each fact owns its declaration index, lighting role, resolved image,
+exact unshifted source/destination blend bits, alpha-test/ignore state and alpha
+register, plus one compiled operation:
+  opaque replace; additive; multiply/filter; inverted filter/black-key;
+  source-alpha over; authored alpha clip; or unknown.
+
+Authored alpha clip has operation precedence while the raw blend pair remains
+available, so diagnostics do not lose the underlying declaration. Classifier
+stage dumps and the crosshair material dump now print the compiled operation and
+hex blend masks. This is CPU metadata only: material-wide GPU compatibility
+flags remain in place until MATCLASS-10D defines a bounded ordered GPU layout.
+
+MATCLASS-10D MEASUREMENT SLICE IMPLEMENTED
+------------------------------------------
+The classifier summaries now report the unique cached declaration-record corpus
+as `compositing(stages/max/>4/>8)` followed by exact operation totals. These
+counts are recomputed from the record cache rather than material-table accesses,
+so frequently drawn materials cannot bias the stage-count distribution.
+
+This slice is deliberately measurement-only. The following runtime result uses
+its observed maximum and candidate-limit counts to choose the first GPU storage
+target; it does not itself add or bind the ordered GPU buffer.
+
+MATCLASS-10D FIRST CORPUS RESULT - 2026-07-12
+---------------------------------------------
+`matsmoke2.txt` captured 1,171 unique cached material records and 3,657 declared
+stages:
+  maximum stages in one record: 8
+  records above 4 stages:       98 (8.4 percent)
+  records above 8 stages:       0
+
+The operation totals were:
+  opaque replace 2985; additive 409; multiply/filter 19;
+  inverted filter 10; source-alpha over 10; authored alpha clip 142;
+  currently named unknown 82.
+
+Decision: four inline entries are rejected because they would truncate 98
+observed records. Eight entries cover this captured corpus and are the current
+bounded-storage target. Overflow must still be explicit and diagnosed rather
+than silently dropping a stage, because later expansion/custom material packs
+may exceed the shipped capture.
+
+The 82 `unknown` operations do not authorize fallback compositing. Their exact
+source and destination blend masks are already retained by the CPU record. The
+GPU layer ABI must carry those raw three-bit factors and implement the generic
+blend equation; the named operation remains an optimization/diagnostic label,
+not a lossy shader contract. This also covers the authored GL_ZERO,GL_ONE
+destination-preserve/no-op family used by dormant dissolve controllers.
+
+MATCLASS-10D ORDERED CPU CONTRACT IMPLEMENTED
+---------------------------------------------
+Each ordered stage fact now retains the remaining declaration-owned inputs
+needed by later compilation: condition register and dynamic status, four color
+registers, alpha register, the complete 2x3 texture-matrix register set, texgen,
+dynamic-image kind/frame count, vertex-color mode, and exact vertex/fragment/
+GLSL program identities. These sit beside stage order, role, image and raw blend
+bits rather than being inferred again downstream.
+
+The CPU record also compiles BUMP/DIFFUSE/SPECULAR stages into ordered
+interaction packets. Ambient, coverage and custom-effect stages remain in the
+original compositing list, so forming an interaction does not erase an
+intervening effect. GPU storage and consumer cutover remain separate gates.
+
+MATCLASS-10D EIGHT-WORD GPU ABI IMPLEMENTED
+-------------------------------------------
+The existing per-material feature-parameter record now appends eight packed
+ordered-stage words. Reusing this already uploaded and bound buffer avoids a new
+global descriptor/binding-layout mutation. The original `params0/params1`
+physical-material payload remains at the same offsets; the record ABI version
+and CPU/shader stride advance together from 32 to 64 bytes.
+
+Each word retains declaration index, lighting role, named operation, raw source
+and destination blend factors, alpha/ignore state, dynamic-condition status,
+possible-active state, texture-matrix/dynamic-image/custom-program flags,
+texgen, vertex-color mode and an explicit valid bit. Current shaders do not yet
+use these words to replace material-wide compositing. That consumer cutover is
+a separate validation gate; an absent/invalid word continues to use the proven
+legacy material row.
+
+The eighth word carries an explicit overflow bit when a record contains more
+than eight declared stages. Crosshair material diagnostics print all eight raw
+GPU words and this overflow state, preventing custom-content truncation from
+remaining silent.
+
+MATCLASS-10E EMISSIVE SEPARATION IMPLEMENTED
+--------------------------------------------
+Visible emissive radiance and promotion into the sampled emissive-triangle
+light domain are now separate material facts and flags. An authored additive
+ambient stage may remain visibly emissive on a GUI, particle, glass or decal
+surface without automatically becoming a mesh-light candidate. Promotion keeps
+the existing conservative physical-intent exclusions for those effect classes.
+
+Selecting an emissive stage no longer clears additive, filter or alpha-test
+metadata for the rest of the material. Authored alpha images, cutoffs and
+coverage encodings remain intact beside emission. Texture-binding failure and
+runtime emissive disable paths clear both visible emission and light promotion;
+the emissive inventory consumes only the new promotion flag. Crosshair metadata
+prints `emissive` and `lightCandidate` independently.
+
+MATCLASS-10F ORDERED RUNTIME PRODUCER IMPLEMENTED
+-------------------------------------------------
+Per-draw-surface shader registers are now evaluated for every dynamic stage up
+to the measured eight-stage bound, not only for the single compatibility stage.
+Each evaluated stage retains its declaration index, condition/enabled state,
+RGBA color, alpha-test cutoff and complete 2x3 texture matrix.
+
+The existing dynamic-material buffer remains ABI-compatible: its first
+`materialCount` rows are unchanged header records used by current shaders.
+Ordered runtime stage rows are appended with the same 64-byte stride, and each
+header packs their offset, count, selected compatibility-stage index and an
+explicit overflow bit. Current consumers continue using the proven header row;
+later ordered consumers can follow the appended rows without another global
+binding or widening the compiler-critical shader structure.
+
+Crosshair diagnostics decode the header and print each appended runtime stage.
+This makes fan-style shared rotation, dissolve alpha conditions and independent
+emissive colors directly comparable with the raster-evaluated shader registers
+before consumer cutover.
+
+MATCLASS-10F CPU CONSUMER BRIDGE IMPLEMENTED
+---------------------------------------------
+CPU material-row synthesis now follows the appended ordered values separately
+for alpha and emissive behavior. The first authored alpha-test row controls live
+coverage/cutoff, while the brightest enabled emissive row controls live emission.
+They no longer compete for the single compatibility-stage priority selection.
+
+Malformed offsets/counts fail closed to the existing header row. Geometry UV
+matrix baking deliberately remains on that proven compatibility row because the
+current vertex contract has only base and normal-role UV channels; consuming
+several independent stage matrices requires a later stage-texture consumer, not
+another material-wide vertex bake.
+
+SWINGLIGHT TRANSLUCENT-KEYWORD COMPATIBILITY
+--------------------------------------------
+The first source-text hypothesis (`swinglighttex2a`) was disproved by the live
+crosshair dump. The actual runtime variant is
+`models/mapobjects/swinglights/work/swinglighttex2`: one SL_AMBIENT
+SRC_ALPHA/ONE_MINUS_SRC_ALPHA stage, evaluated RGBA=(0.843,1.0,0.996,1.0), with
+no alpha test or glass intent. The broad `light` name token labelled it glow,
+while the source-alpha blend labelled it a modulate/translucent card; together
+those routes made the opaque emissive fixture shell look like glass/dissolve.
+
+The corrected exact predicate requires that runtime identity, one ambient stage,
+that exact blend pair, translucent coverage, no deform, no additive/diffuse/
+screen/default0200 behavior. It keeps the surface in opaque static/rigid geometry
+and suppresses filter-decal receiver modulation while retaining visible emission
+and emissive-light eligibility. A later content edit changing those stage facts
+automatically disables the override. Crosshair diagnostics report
+`opaqueSwinglightCompat=1` when active.
+
+Runtime validation then exposed a second half of the same exception: the stage
+uses `colored` entity parameters to switch/fade brightness, but its authored
+SRC_ALPHA/ONE_MINUS_SRC_ALPHA blend is not normally an emissive-stage signature.
+The exact compatibility predicate therefore also marks stage 0 as runtime
+emissive for register evaluation. Its live condition/RGBA now replaces emissive
+radiance while geometry remains opaque; this restores interactive brightness
+without restoring translucent/filter routing.
+
+MATCLASS-10D CONSUMER-CUTOVER GATE
+----------------------------------
+The first consumer audit confirmed that the eight packed declaration words are
+not yet a complete ordered compositor. They retain stage order and exact blend
+equations, but intentionally do not retain a texture descriptor or evaluated
+RGBA/matrix payload for every static stage. Treating those words as a complete
+shader contract would merely apply the correct equation to the wrong broad-role
+texture on multi-effect materials.
+
+Crosshair diagnostics now print a declaration projection with the first alpha,
+additive, multiply, inverted-filter, source-alpha-over, destination-preserve and
+unhandled stage, beside the material-wide compatibility routes actually consumed
+by shaders. `needsStageTextureConsumer=1` identifies declarations which cannot be
+cut over without a per-stage texture/value representation. This is the next
+measurement gate: use it to distinguish safe single-effect projections from
+materials that require the full ordered-stage resource, without changing proven
+runtime behavior.
+
+The live classifier summary performs the same projection across the current
+material table and reports `safeSingleEffect`, `requireStageTextures`,
+`requireRuntimeValues`, `overflow`, and `unhandledEquation` counts. This avoids
+choosing the next ABI from a single crosshair sample: the first active-level
+result must determine whether a compatibility-row cutover covers most materials
+or whether the per-stage texture/value resource must come first.
+
+First active-level result (2026-07-13): 443 table materials, 215 static
+single-effect-safe, 220 requiring runtime values, 10 requiring multiple stage
+textures, 13 containing a non-preserve unhandled equation, and zero overflow.
+Categories may overlap. The ordered runtime producer already covers the large
+runtime-value group for the currently consumed alpha/emissive roles. Therefore
+the next investigation is capped name/stage sampling of the 10 texture blockers
+and 13 equation blockers; a new global descriptor ABI is not justified before
+those small exceptional sets are identified.
+
+Blocker-sample audit corrected two measurement/model errors before ABI work.
+`blend bumpmap`, `blend diffusemap`, `blend specularmap`, and coverage stages
+are interaction inputs; their draw-state fields do not describe framebuffer
+compositing and must not be reported as unknown equations. The ordered operation
+enum now represents them explicitly as `interaction-input`. Multi-effect texture
+requirements are also counted by distinct resolved image, not stage count: the
+two conditional red/green door-lock stages share one image and need runtime
+colors, not two texture descriptors. Genuine layered examples remain the
+control panels with independent additive maps and the broken striplight's
+conditional intact/broken maps.
+
+The first corrected run reduced distinct stage-texture blockers from ten to
+four, exactly those layered control-panel/striplight declarations. Thirteen
+unhandled records remained and sampled as ordinary interaction materials, so
+the blocker diagnostic now includes only each offending stage's parsed lighting
+role, raw source/destination masks and resolved image. Do not add another blend
+fallback until those live parsed facts explain why the shorthand declarations
+did not classify as interaction inputs.
+
+The exact offending pairs were `GL_DST_COLOR,GL_ONE` and
+`GL_DST_ALPHA,GL_ONE`, exclusively on reflected environment cubemap stages.
+These are valid additive-composite equations: the source cubemap is modulated
+by destination color/alpha and then added to the destination. The named ordered
+operation now places every non-zero-source, destination-ONE equation in the
+additive family while retaining the raw factors for exact later evaluation.
+This classifier correction does not promote cubemaps to emissive intent and
+does not alter current BSDF or material routing.
+
+MATCLASS-10D ORDERED STAGE TEXTURE ABI PRODUCER
+-----------------------------------------------
+With blend decoding closed (`unknown=0`, `overflow=0`), the existing feature
+parameter record advances to ABI version 3 and appends one texture word for each
+of the eight ordered stages. A valid word carries that stage's descriptor index
+in the existing global material texture table. Texture-slot finalization now
+registers every safe resolved declaration-stage image after the broad-role slots,
+so layered additive maps can coexist without another descriptor binding.
+
+This slice is producer-only: shaders can decode the new words, but current
+material behavior remains on the compatibility rows until descriptor presence,
+table capacity and runtime-stage alignment are validated. Crosshair diagnostics
+print all eight texture words beside the ordered operation words.
+
+MATCLASS-10G AUTHORED SKY ENVIRONMENT SURFACES
+----------------------------------------------
+Direct Doom sky materials are declaration-identifiable: an active stage with
+TG_SKYBOX_CUBE or TG_WOBBLESKY_CUBE owns a cube image and stage color. They are
+not additive decals and must not be promoted into the emissive-light candidate
+domain. The stable first implementation marks only its sky material as a
+terminal environment surface and writes its authored stage color as constant
+unlit radiance into the primary-surface emissive channel.
+
+Do not turn generic ray misses into environment radiance. Doom maps use opaque
+black world geometry such as `textures/sfx/black` (authored `forceOpaque`,
+"will still seal levels") to prevent an outdoor sky from leaking into indoor
+regions. That geometry remains an ordinary opaque, zero-albedo, zero-emission
+occluder. Consequently the first sky slice is visible only where a traced ray
+actually commits authored sky geometry; black sealing surfaces continue to win
+normal closest-hit visibility.
+
+Current implemented scope is the direct primary-surface, clean transmission,
+and clean GI sky consumer using a renderer-owned direction-addressed cubemap
+multiplied by the authored stage color. Portal-sky indirection, multiple
+simultaneous sky cubes, wobblesky transform parity, and environment MIS remain
+later measured extensions. Crosshair
+diagnostics report `sky environment`, source cube handle/safety, stage color,
+`terminalSurface=1`, and `missEnvironment=0` so leakage cannot be mistaken for
+successful sky plumbing.
+
+Rejected implementation: directly binding and sampling the Doom-owned cubemap
+caused repeatable NVIDIA device removal when no-clip exposed a large authored
+sky surface. Adding explicit retention and ShaderResource transitions did not
+remove the fault. The live cube descriptor, layout entry and shader sample were
+therefore removed completely; do not restore them as another state-only fix.
+The replacement therefore never places the Doom-owned TextureCube view in an RT
+descriptor.
+An initial attempt to GPU-copy its six mip-zero faces also failed at launch:
+permanent Doom images such as `env/cloudy` are intentionally retained in
+ShaderResource state and NVRHI rejects transitioning them to CopySource.
+
+The subsequent CPU-atlas experiment removed that source transition: it reloaded
+the six authored faces, uploaded a private RGBA8 3x2 Texture2D, and published it
+late through the material bindless table. It reached gameplay, but the sky was
+blank and dereferencing the atlas when sky entered the camera caused another
+device removal. That late atlas publication is therefore also rejected and has
+been removed. A future textured implementation must own a normal renderer image
+and an explicit binding/lifetime contract established with the rest of the scene
+resources; do not inject a newly created texture into the finalized material
+table from scene-build orchestration.
+
+A second atlas candidate moved creation before descriptor-table finalization and
+used an engine-owned standalone `idImage`, normal `GenerateImage` upload,
+permanent ShaderResource state, and the existing active-texture retirement
+contract. This removed the first atlas's late-publication violation but did not
+make the approach safe. The large sky displayed through glass while retaining
+constant white lighting, a smaller local skylight corrupted when texture mode
+was enabled, and exposing either sky directly with no-clip caused repeatable GPU
+device removal. The cvar, atlas cache/upload, descriptor carrier and both shader
+consumers were therefore removed. Engine ownership alone is not sufficient;
+do not restore this 3x2 face-atlas route as another lifetime or ordering fix.
+
+The sky material sets both SKY_ENVIRONMENT and ordinary EMISSIVE material flags,
+but not EMISSIVE_LIGHT_CANDIDATE. Primary, clean transmission/resolved-hit and
+clean GI consumers enforce the same terminal contract: diffuse albedo and
+specular F0 are zero, roughness and opacity are one, and only environment
+emissive radiance survives. This prevents a sky hit from becoming an ordinary
+diffuse GI receiver at secondary vertices. The large sky shell cannot enter the
+triangle-light inventory or ReSTIR sampling domain.
+
+CURRENT SAFE SKY STATE AND REJECTED BINDLESS FACE ROUTE
+-------------------------------------------------------
+The six-face material-bindless experiment is rejected. Its descriptor base was
+first carried in high material-flag bits, which was invalid because those flags
+propagate through the RAB surface and reservoir contracts. Moving the base to a
+bounded global TextureInfo word removed that contamination and proved that all
+six descriptors occupied valid slots (830..835 in an 836-slot live table), but
+executing the first face sample still caused a repeatable NVIDIA device removal
+at level entry. Disabling only the advertised face base, while leaving the six
+descriptors resident and leaving all terminal-sky classification active,
+restored stable level loading. Therefore descriptor capacity, sky geometry,
+terminal emissive classification and DI/GI setup are not the crash trigger; the
+decomposed-face sampling route itself is.
+
+The deployed and default-safe behavior is consequently the constant white
+terminal sky multiplied by the authored stage color. The shared shader helper
+returns white without issuing a texture access. Do not re-enable the packed
+face base, put the base back into material flags, or attempt another 2D atlas or
+six-entry bindless variation.
+
+REFERENCE CONTRACT AND NEXT TEXTURED-SKY GATE
+----------------------------------------------
+Q2RTX and RTX Remix converge on a different resource contract. Q2RTX uploads
+all six faces into one cube-compatible 2D-array image, creates a CUBE image
+view, explicitly transitions every layer from transfer destination to
+shader-read-only, and publishes one dedicated combined cube-sampler binding.
+Remix likewise declares SkyProbe as a dedicated SamplerCube with an explicit
+CUBE view type in its direct, indirect and G-buffer layouts. Both sample that
+resource as environment radiance in miss/integrator resolution; neither routes
+the environment through the ordinary material bindless table.
+
+Any next implementation must follow that shape but must not bind the existing
+Doom-owned cube directly, because that exact route already removed the device.
+The allowed candidate is a renderer-owned cube-compatible image populated from
+CPU face data, retained as a first-class scene resource, exposed through one
+fixed CUBE view in every consuming layout, and retired with the scene package.
+It must be proven in two stages: first a tiny standalone compute lookup and
+readback that never enters a ray-tracing pipeline; only after that succeeds may
+the same fixed cube resource be consumed by a narrow environment integration
+stage. A compile, descriptor-layout match or SPIR-V validation alone is not an
+acceptance gate after the repeated driver removals.
+
+Portal-window visibility correction: the clean transmission any-hit path
+already skips consecutive glass surfaces, so the remaining location-dependent
+occlusion was not a double-pane continuation failure. It came from sticky
+reflection/transmission PSR primary ownership: an entire portal panel could
+remain reflection-owned and replace the behind-window surface. Materials with
+PORTAL_WINDOW_FALLBACK now force transmission primary ownership while retaining
+the dense reflection sidecar. Object-glass materials keep the general PSR lobe
+selection policy. Crosshair `transmissionActive` now reports the live clean
+transmission producer plus compose controls rather than the obsolete generic
+mode-18 transmission-bounce CVar.
+
+Follow-up from opposite-side `textures/glass/glass1` dumps: both variants were
+transmission-active and correctly classified, but the obstruction changed with
+viewing side. The remaining asymmetric input was the normal-dependent refracted
+PSR continuation. Portal windows are thin authored cards rather than modeled
+solid dielectric volumes, so they now use straight-through continuation from
+either side. Object glass retains the opt-in refracted direction. This keeps
+large windows from bending their visibility ray into nearby geometry and
+hiding small emissive surfaces depending on card orientation.
+
+Material-dependent behind-glass emissive correction: transmission debug view 3
+remained green while `models/mapobjects/doors/mcitydoorframeglow` disappeared.
+The material was correctly declared as additive emissive, but ray-mode 3 treated
+all additive cards as pure visibility no-ops and ignored the glow before
+resolving the opaque receiver. The transmission payload now uses its remaining
+64-byte payload budget to accumulate sampled additive-emissive card radiance in
+any-hit, continues traversal through the card, and adds that radiance to the
+resolved behind-glass surface. Non-emissive additive/filter cards retain their
+previous blend-through behavior, and an emissive card does not become opaque or
+replace the receiver geometry.
+
+GI GLASS VISIBILITY CONTRACT
+----------------------------
+The clean primary transmission PSR and clean ReSTIR GI previously disagreed
+about authored glass. Primary-camera rays replaced a portal/object-glass pane
+with the surface behind it, but `CleanGiMaterialRejectsHit` only rejected alpha
+coverage and decal holes. GI producer, shadow and reservoir-visibility rays
+therefore accepted a resident glass triangle as opaque. Because parts of the
+geometry feed remain visibility-driven, this presented as a camera-dependent
+failure: sky/emissive GI could reach an indoor receiver while the pane was not
+resident, then disappear as soon as the window and a pixel of sky entered the
+camera.
+
+The shared GI material-hit predicate now rejects object-glass and portal-window
+subtypes, with the corresponding material fallback flags as an identity backup,
+before paying for triangle attribute/texture reconstruction. This one predicate
+is consumed by both TraceRay any-hit and the active inline ray-query producer,
+and also makes GI shadow/validation rays continue through the same thin glass.
+No colored volumetric attenuation is invented: until GI owns a transmission
+throughput payload, authored thin glass is visibility-transparent and the
+primary transmission compose remains responsible for its tint/Fresnel result.
+
+The optional secondary-to-tertiary shortcut
+`r_pathTracingCleanRestirGiContinuationOpaqueTrace 1` still deliberately forces
+the second continuation opaque and bypasses any-hit. First-indirect sky
+transmission must validate with the default producer opaque control off. If a
+remaining two-bounce-only obstruction is proven, A/B the continuation control
+at 0 before changing its performance-oriented default.
+
 VALIDATION GATES
 ----------------
 For each repaired material, diagnostics must show:
@@ -257,3 +661,231 @@ r_pathTracingMatClassEnable 0 remains the rollback path during this repair.
 Initial patches intentionally preserve exact content compatibility overrides.
 Removing those overrides or widening the GPU material ABI is a later measured
 step, after the declaration-authority fixes have runtime coverage.
+Sky/environment terminal feature contract
+-----------------------------------------
+
+The declaration-authority path now preserves `skyEnvironment` as a persistent
+material-universe fact.  Its modular feature record is terminal emissive-only:
+kind `sky-or-environment`, emissive lobe, primary/path-integrator support, and
+no opaque DI/GI receiver or diffuse RR-guide capabilities.  This prevents a
+sky stage from being described downstream as both an ordinary diffuse surface
+and an emitter merely because it occupies authored geometry.
+
+Glass PSR preserves that terminal classification.  The compatibility rule
+which promotes ordinary transmission/reflection replacement hits to opaque DI
+receivers explicitly excludes a resolved sky environment, and the fallback
+target helper no longer injects its minimum diffuse albedo into sky hits.
+
+ISOLATED RENDERER-OWNED CUBE PROBE
+----------------------------------
+The first gate of the reference-shaped replacement is now implemented but is
+default-off and does not alter live sky shading.  The rejected six separate 2D
+faces are no longer appended to the material bindless table.  When
+`r_pathTracingSkyCubeProbe 1` is armed, scene build instead reloads the authored
+cube faces through `R_LoadCubeImages`, uploads them to one renderer-owned
+RGBA8 TextureCube (six array layers, CUBE view), and places that texture plus
+its fixed compute binding set in the normal scene commit/retirement package.
+
+The one-shot compute pass samples the six canonical cube axes into a 6x1
+RGBA32F texture, copies it to a staging texture, waits two frames, then prints
+the six RGBA values.  It has no TLAS, ray payload, DI, GI, material bindless, or
+live environment consumer.  The cvar resets to zero after dispatch.  The live
+primary/transmission/GI sky helper remains the stable constant-white terminal
+fallback regardless of probe success.
+
+The compiled Vulkan resource contract was checked directly in SPIR-V:
+  TextureCube t0 = descriptor set 0, binding 0;
+  Sampler s0 = descriptor set 0, binding 128;
+  RGBA32F UAV u1 = descriptor set 0, binding 385.
+The NVRHI layout deliberately uses the generic compute defaults
+(t=0,s=128,b=256,u=384), not the zero-shift RT-library layout.  `spirv-val`
+accepts the blob for Vulkan 1.2.
+
+Runtime acceptance sequence:
+  1. Load the previous crash-prone exterior level with the cvar at its default
+     zero.  Behavior must remain stable and the sky must remain white.
+  2. From a stable in-level position run `r_pathTracingSkyCubeProbe 1` once.
+  3. Confirm one upload line, one dispatch line and six finite, non-identical
+     face values in the console/log without device removal.
+  4. Move/no-clip to expose the large and local sky geometry.  No second probe
+     runs and live shading remains on the white fallback.
+
+Do not connect this cube to an RT layout until all four gates pass.  A probe
+failure rejects the private cube upload/view/sample contract itself and must be
+fixed here, outside the ray-tracing pipelines.
+
+PRIMARY TERMINAL SKY CUBE GATE
+------------------------------
+The isolated compute gate passed at runtime for `env/cloudy`: all six canonical
+axes produced finite, non-identical colors, a repeated dispatch produced the
+same values, and the second dispatch reused the existing cube without another
+upload.  The next gate therefore exposes that exact renderer-owned TextureCube
+to the main RT binding set at fixed SRV `t126`; it does not reintroduce the six
+2D-face material descriptors or their manual face/UV reconstruction.
+
+`r_pathTracingSkyCubeEnvironment` is default zero.  At zero, primary sky
+surfaces retain the constant-white terminal result.  At one, only the primary
+surface producer samples `TextureCube.SampleLevel` and converts the encoded
+RGB value to linear before multiplying the authored sky stage color.  Clean DI
+transmission and clean GI deliberately remain on the white fallback during this
+gate, so a sky seen through glass is not yet an acceptance requirement.
+
+The cube descriptor is always valid: scene build uploads the selected authored
+cube, or creates a 1x1 white cube when the scene has no sky source.  The main RT
+layout and every main binding set both declare `t126`, preventing a conditional
+descriptor-count mismatch.  The rebuilt primary-producer SPIR-V validates for
+Vulkan 1.2 and declares `PathTraceSkyEnvironmentCube` as descriptor set 0,
+binding 126, with a cube image type.  Clean DI and GI blobs do not declare it.
+
+Runtime acceptance sequence:
+  1. Launch and load the exterior level with
+     `r_pathTracingSkyCubeEnvironment 0`.  There must be no layout/binding
+     count error and no device removal; direct sky remains white.
+  2. Set `r_pathTracingSkyCubeEnvironment 1` while stationary.  Directly
+     visible terminal sky geometry should acquire the authored color without a
+     scene rebuild, DI/GI reset storm, or performance discontinuity.
+  3. Move and no-clip so the large sky occupies most of the view.  It must stay
+     stable and colored.  Report orientation errors separately (wrong face or
+     rotation); do not compensate by restoring manual 2D face selection.
+  4. A/B zero/one once more.  Sky seen through glass may remain white in this
+     gate because the transmission consumer has not yet received the cube.
+
+Only after these gates pass should the same fixed cube contract be added to the
+clean transmission and GI consumers, one pipeline at a time.
+
+Primary RT sampler ABI correction:
+The first live attempt produced black and then device removal as soon as a
+directly visible sky executed the cube sample.  The cube descriptor itself was
+not the failure: the isolated compute probe had already sampled it repeatedly.
+SPIR-V inspection exposed a latent producer-only sampler mismatch.  The
+`lib_6_6` custom command emitted `SmokeMaterialSampler` at set 0/binding 0,
+while the NVRHI main RT layout uses its default sampler offset and binds s0 at
+set 0/binding 128.  Binding 0 is also the TLAS.  Earlier producer code normally
+used `Texture.Load`, so it did not dereference the invalid sampler descriptor;
+the new `TextureCube.SampleLevel` was the first reliable trigger.
+
+The Vulkan primary-producer compile now passes `-fvk-s-shift 128 0`.  Acceptance
+requires disassembly to show the cube at binding 126 and the material sampler
+at binding 128 before deployment.  Do not work around this ABI error by changing
+cube format, face selection, radiance, or the environment direction.
+
+THIN-GLASS SKY CONSUMER AND BRIGHTNESS
+--------------------------------------
+The primary terminal-sky cube gate now passes with stable authored color when
+viewed directly.  A white sky behind thin glass is a separate consumer: the
+clean transmission producer reconstructs and shades its secondary terminal
+sky hit through the clean DI hit-surface adapter.  That adapter must use the
+same renderer-owned cube rather than retaining the earlier constant-white
+fallback.
+
+The clean base RT layout and per-frame binding set therefore also declare the
+fixed cube at SRV `t126`.  The transmission feature library uses the same
+sampler ABI as the primary producer: TLAS remains binding 0, the cube remains
+binding 126, and `SmokeMaterialSampler` must disassemble at binding 128.  This
+does not add a duplicate sky upload or a material-table texture route.
+
+`r_pathTracingSkyCubeBrightness` is a linear radiance multiplier, default 1.0,
+shared by direct terminal-sky shading and the thin-glass transmission result.
+It deliberately does not modify the uploaded texture or authored material
+stage color.  The primary producer receives it through its unused
+`SafetyInfo.y`; the clean transmission consumer receives it through the
+redundant `CameraUpAndTanY.w` component while `CameraLeftAndTanY.w` remains the
+authoritative tan-half-FOV value.  This preserves the clean DI/GI leading
+constant ABI at 480 bytes.
+
+Runtime acceptance sequence:
+  1. Set `r_pathTracingSkyCubeEnvironment 1` and
+     `r_pathTracingSkyCubeBrightness 1`.  Direct and glass-transmitted sky must
+     show the same authored cube color without a layout error or device loss.
+  2. A/B brightness 1 and 2 while stationary.  Both direct and transmitted sky
+     radiance must scale together immediately, without a scene rebuild.
+  3. Tune brightness only after color/transmission parity passes.  Brightness
+     compensation must not hide a white fallback, wrong descriptor, or wrong
+     cube orientation.
+
+Runtime rejection and compute-boundary correction:
+The first thin-glass implementation placed `TextureCube.SampleLevel` directly
+inside the transmission material-feature RT library.  Static validation and
+descriptor disassembly passed, but runtime rejected the route: a sky seen
+through glass became black and enabling the cube caused immediate NVIDIA device
+removal.  The primary RT cube path and isolated compute probe remained stable,
+so this is specifically an unsafe transmission-RT cube consumer, not bad face
+data or a failed renderer-owned cube upload.
+
+The clean RT base layout therefore no longer declares `t126`, the transmission
+library no longer declares or samples a cube, and the clean 480-byte constants
+again retain their original camera/FOV contents.  During transmission PSR it
+publishes only the authored sky-stage color into the resolved primary-surface
+record.  Immediately afterward, before DI/GI can consume the record, the
+dedicated `pathtrace_sky_surface_resolve` compute stage samples the proven cube
+and replaces emissive radiance only when both conditions hold:
+
+  - material flags identify a terminal sky environment; and
+  - surface flags identify a transmission-PSR-resolved record.
+
+This keeps direct exterior sky on the already-passing primary RT route and
+prevents double multiplication.  The compute stage also refreshes the RR
+specular-albedo chromatic guide for those pixels.  Its Vulkan ABI uses the
+normal compute offsets (`t0`, `s128`, `b256`, `u384`, `u385`), and the
+transmission SPIR-V must contain no `PathTraceSkyEnvironmentCube` declaration.
+
+REFLECTION AND GI SKY-COLOR FOLLOW-UP
+-------------------------------------
+Runtime accepted the compute boundary: sky geometry became visible and colored
+through glass without device removal.  The remaining white emission and white
+reflection were not a failed upload.  They were two consumers that do not read
+the transmission-owned primary-surface emissive field:
+
+  - hybrid glass/opaque-mirror reflection stores already-Fresnel-weighted RGB
+    in the reflection sidecar; and
+  - clean GI stores the secondary-hit radiance in its producer candidate.
+
+The primary sky resolver now also accepts reflection-PSR-resolved sky records.
+For hybrid reflection, transmission RT does not sample the cube.  It leaves the
+reflection ray direction in the RR position guide with a one-dispatch negative
+marker.  The immediately following compute resolver multiplies only the
+hybrid-radiance sidecar by cube color and linear brightness, then restores the
+RR position from the final primary-surface record before DI or RR can consume
+it.  Fresnel and glass throughput are not applied twice.
+
+GI uses a second compute-only resolver after its producer boundaries.  Every
+producer mode publishes the same 144-byte first-indirect candidate surface, so
+the resolver can identify terminal sky material flags and use `-viewDir` for
+the environment lookup whether trace was split RT, combined RT, or inline ray
+query.  It colors producer radiance after combined/shade routes and colors the
+candidate emissive field before continuation/specular shade routes.  The main
+GI RT library and ray-query producer deliberately contain no cube descriptor;
+the established 480-byte DI prefix and 176-byte GI constants tail stay intact.
+
+Vulkan proof requirements:
+  - `pathtrace_sky_surface_resolve.cs.bin`: cube/sampler/constants at bindings
+    0/128/256 and UAVs at 384..387;
+  - `pathtrace_clean_restir_gi_sky_resolve.cs.bin`: cube/sampler/constants at
+    0/128/256 and radiance/surface UAVs at 384/385;
+  - transmission RT, GI RT, and GI ray-query producer SPIR-V contain no sky
+    cube declaration; and
+  - all affected blobs pass `spirv-val --target-env vulkan1.2`.
+
+Runtime acceptance:
+  1. Load the known exterior area with the cube enabled and brightness 1.
+     Direct, glass-transmitted, reflected, and GI-emitted sky energy should all
+     carry the authored cube color.
+  2. A/B brightness 1 and 2 while stationary.  Visible sky, reflected sky, and
+     sky-driven GI should scale together without a rebuild or device removal.
+  3. Test both the default GI producer configuration and any ray-query override
+     in use.  Color parity must not depend on a diagnostic producer cvar.
+
+Scripted-camera black-frame correction:
+The first route-independent GI resolver updated both the packed surface
+emissive and its bound radiance texture in every dispatch.  That is invalid for
+the split continuation trace: before continuation shade, the texture named
+`ContinuationRadiance` contains compact secondary-BSDF throughput, not emitted
+radiance.  Multiplying both throughput and tertiary sky emissive squares cube
+color and brightness at bounce 2 and can collapse a moving scripted view.
+
+The resolver now has two explicit constant-buffer modes.  Surface mode runs
+only between trace and shade and modifies only packed sky emissive.  Radiance
+mode runs only after a combined/shade producer and modifies only final producer
+radiance.  Separate immutable per-frame constant buffers prevent later command
+recording from changing the mode of an earlier dispatch.  Each sky contribution
+is therefore multiplied by cube color and brightness exactly once.

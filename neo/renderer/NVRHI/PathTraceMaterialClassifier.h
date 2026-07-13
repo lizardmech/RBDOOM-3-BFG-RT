@@ -8,6 +8,8 @@
 
 #include "PathTraceTextureRegistry.h"
 
+#include <vector>
+
 class idMaterial;
 
 enum class RtMaterialSurfaceClass : uint8_t
@@ -70,6 +72,53 @@ enum class RtMaterialNormalDecodeMode : uint8_t
     CompressedWy
 };
 
+enum class RtMaterialCompositingOp : uint8_t
+{
+    Unknown = 0,
+    OpaqueReplace,
+    Additive,
+    MultiplyFilter,
+    InvertedFilterBlackKey,
+    SourceAlphaOver,
+    AuthoredAlphaClip,
+    InteractionInput
+};
+
+struct RtMaterialCompositingStageFact
+{
+    int stageIndex = -1;
+    stageLighting_t lighting = SL_AMBIENT;
+    RtMaterialCompositingOp operation = RtMaterialCompositingOp::Unknown;
+    uint64 srcBlendBits = 0;
+    uint64 dstBlendBits = 0;
+    bool hasAlphaTest = false;
+    bool ignoreAlphaTest = false;
+    int alphaTestRegister = -1;
+    int conditionRegister = -1;
+    bool conditionCanBeActive = false;
+    bool conditionIsDynamic = false;
+    int colorRegisters[4] = { -1, -1, -1, -1 };
+    bool hasTextureMatrix = false;
+    int textureMatrixRegisters[2][3] = { { -1, -1, -1 }, { -1, -1, -1 } };
+    texgen_t texgen = TG_EXPLICIT;
+    dynamicidImage_t dynamicImage = DI_STATIC;
+    int dynamicFrameCount = 0;
+    stageVertexColor_t vertexColor = SVC_IGNORE;
+    int vertexProgram = -1;
+    int fragmentProgram = -1;
+    int glslProgram = -1;
+    idStr imageName;
+};
+
+struct RtMaterialInteractionPacket
+{
+    int firstStageIndex = -1;
+    int lastStageIndex = -1;
+    int bumpStageIndex = -1;
+    int diffuseStageIndex = -1;
+    int specularStageIndex = -1;
+};
+
 struct RtMaterialStageFacts
 {
     int stageCount = 0;
@@ -82,6 +131,10 @@ struct RtMaterialStageFacts
     int additiveBlendStages = 0;
     int filterBlendStages = 0;
     int alphaBlendStages = 0;
+    int opaqueReplaceStages = 0;
+    int invertedFilterStages = 0;
+    int authoredAlphaClipStages = 0;
+    int unknownCompositingStages = 0;
     int coverageStages = 0;
     int guiOrScreenStages = 0;
     int dynamicImageStages = 0;
@@ -153,6 +206,8 @@ struct RtMaterialRecord
     RtMaterialBsdfRouteReason routeReason = RtMaterialBsdfRouteReason::Unknown;
     RtMaterialNormalDecodeMode normalDecodeMode = RtMaterialNormalDecodeMode::None;
     RtMaterialStageFacts stageFacts;
+    std::vector<RtMaterialCompositingStageFact> compositingStages;
+    std::vector<RtMaterialInteractionPacket> interactionPackets;
     RtMaterialDynamicFacts dynamicFacts;
     RtMaterialBsdfParams bsdf;
     textureUsage_t diffuseUsage = TD_DEFAULT;
@@ -187,6 +242,18 @@ struct RtMaterialClassifierStats
     int confidenceFlag = 0;
     int confidenceHeuristic = 0;
     int confidenceFallbackNone = 0;
+    int compositingStages = 0;
+    int maxCompositingStages = 0;
+    int materialsOverFourStages = 0;
+    int materialsOverEightStages = 0;
+    int compositingOpaque = 0;
+    int compositingAdditive = 0;
+    int compositingMultiply = 0;
+    int compositingInverted = 0;
+    int compositingAlphaOver = 0;
+    int compositingAlphaClip = 0;
+    int compositingInteraction = 0;
+    int compositingUnknown = 0;
 };
 
 const char* RtMaterialSurfaceClassName(RtMaterialSurfaceClass surfaceClass);
@@ -195,6 +262,7 @@ const char* RtMaterialBsdfRouteName(RtMaterialBsdfRoute route);
 const char* RtMaterialSurfaceClassReasonName(RtMaterialSurfaceClassReason reason);
 const char* RtMaterialBsdfRouteReasonName(RtMaterialBsdfRouteReason reason);
 const char* RtMaterialNormalDecodeModeName(RtMaterialNormalDecodeMode mode);
+const char* RtMaterialCompositingOpName(RtMaterialCompositingOp operation);
 
 void BeginPathTraceMaterialClassifierFrame();
 const RtMaterialRecord& RegisterPathTraceMaterialRecord(const idMaterial* material, const RtSmokeMaterialTextureInfo& info);

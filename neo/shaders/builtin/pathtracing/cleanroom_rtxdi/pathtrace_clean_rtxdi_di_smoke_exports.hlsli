@@ -208,6 +208,50 @@ bool PathTraceCleanRoomTriangleDoesNotOccludeTransmission(uint instanceId, uint 
          translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW);
 }
 
+void PathTraceCleanRoomAccumulateTransmissionEmissiveCard(
+    inout PathTraceCleanRtxdiPayload payload,
+    uint instanceId,
+    uint primitiveIndex,
+    uint materialIndex,
+    float2 hitBarycentrics)
+{
+    if (materialIndex >= (uint)TextureInfo.z)
+    {
+        return;
+    }
+
+    const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(materialIndex);
+    if ((material.flags & (RT_SMOKE_MATERIAL_ADDITIVE_DECAL | RT_SMOKE_MATERIAL_EMISSIVE)) !=
+        (RT_SMOKE_MATERIAL_ADDITIVE_DECAL | RT_SMOKE_MATERIAL_EMISSIVE))
+    {
+        return;
+    }
+
+    const uint triangleClassAndFlags =
+        PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(instanceId, primitiveIndex);
+    if ((triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) != 0u ||
+        ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS) == 0u))
+    {
+        return;
+    }
+
+    const float2 texCoord = PathTraceCleanRoomTransmissionInterpolateTexCoord(
+        instanceId,
+        primitiveIndex,
+        hitBarycentrics);
+    float3 radiance = max(material.emissiveColor.rgb, float3(0.0, 0.0, 0.0));
+    if (material.emissiveTextureIndex != 0xffffffffu)
+    {
+        radiance *= saturate(PathTraceCleanRoomSampleTexture(
+            material.emissiveTextureIndex,
+            material.emissiveTextureWidth,
+            material.emissiveTextureHeight,
+            texCoord,
+            float4(1.0, 1.0, 1.0, 1.0)).rgb);
+    }
+    payload.passthroughEmissiveRadiance += radiance * 1.75 * max(CleanRtxdiDiToyPathInfo.z, 0.0);
+}
+
 bool PathTraceCleanRoomTransmissionAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBarycentrics, uint materialIndex)
 {
     if (materialIndex >= (uint)TextureInfo.z)
@@ -250,8 +294,19 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
         const bool ignoredSource =
             instanceId == payload.ignoreInstanceId &&
             (primitiveIndex == payload.ignorePrimitiveIndex || materialIndex == payload.ignoreMaterialIndex);
+        const bool blendThrough =
+            PathTraceCleanRoomTriangleDoesNotOccludeTransmission(instanceId, primitiveIndex, materialIndex);
+        if (blendThrough)
+        {
+            PathTraceCleanRoomAccumulateTransmissionEmissiveCard(
+                payload,
+                instanceId,
+                primitiveIndex,
+                materialIndex,
+                attributes.barycentrics);
+        }
         if (ignoredSource ||
-            PathTraceCleanRoomTriangleDoesNotOccludeTransmission(instanceId, primitiveIndex, materialIndex) ||
+            blendThrough ||
             PathTraceCleanRoomTransmissionAlphaRejectsHit(instanceId, primitiveIndex, attributes.barycentrics, materialIndex))
         {
             IgnoreHit();

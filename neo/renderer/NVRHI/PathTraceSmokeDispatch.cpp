@@ -59,6 +59,7 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS = 1u << 26u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION = 1u << 27u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT = 9u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_MASK = 7u << RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT;
+const uint32_t RT_SMOKE_TEXTURE_FLAG_SKY_CUBE = 1u << 12u;
 const uint32_t CLEAN_RTXDI_DI_RESOLVE_BRDF_TARGET_ENABLE = 1u << 0u;
 const uint32_t CLEAN_RTXDI_DI_RESOLVE_BRDF_MODE_SHIFT = 8u;
 const uint32_t CLEAN_RTXDI_DI_RESOLVE_BRDF_MODE_MASK = 7u << CLEAN_RTXDI_DI_RESOLVE_BRDF_MODE_SHIFT;
@@ -99,6 +100,14 @@ struct PathTraceCleanRtxdiDiBoilingFilterConstants
     uint32_t width = 0;
     uint32_t height = 0;
     float threshold = 5.0f;
+    uint32_t enabled = 0;
+};
+
+struct PathTraceSkySurfaceResolveConstants
+{
+    uint32_t width = 0;
+    uint32_t height = 0;
+    float brightness = 1.0f;
     uint32_t enabled = 0;
 };
 
@@ -2442,6 +2451,70 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
     }
+
+    if (r_pathTracingSkyCubeProbe.GetInteger() != 0)
+    {
+        const bool skyCubeProbeReady =
+            device &&
+            m_smokeSkyEnvironmentCube &&
+            m_smokeSkyCubeProbeBindingSet &&
+            m_smokeSkyCubeProbePipeline &&
+            m_smokeSkyCubeProbeOutputTexture &&
+            m_smokeSkyCubeProbeReadbackTexture;
+        if (skyCubeProbeReady && !m_smokeSkyCubeProbeReadbackQueued)
+        {
+            commandList->setTextureState(
+                m_smokeSkyCubeProbeOutputTexture,
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+            commandList->clearTextureFloat(
+                m_smokeSkyCubeProbeOutputTexture,
+                nvrhi::AllSubresources,
+                nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+
+            nvrhi::ComputeState skyCubeProbeState;
+            skyCubeProbeState.pipeline = m_smokeSkyCubeProbePipeline;
+            skyCubeProbeState.bindings = { m_smokeSkyCubeProbeBindingSet };
+            commandList->setComputeState(skyCubeProbeState);
+            commandList->dispatch(6, 1, 1);
+            nvrhi::utils::TextureUavBarrier(commandList, m_smokeSkyCubeProbeOutputTexture);
+
+            commandList->setTextureState(
+                m_smokeSkyCubeProbeOutputTexture,
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::CopySource);
+            commandList->commitBarriers();
+            commandList->copyTexture(
+                m_smokeSkyCubeProbeReadbackTexture,
+                nvrhi::TextureSlice(),
+                m_smokeSkyCubeProbeOutputTexture,
+                nvrhi::TextureSlice());
+            commandList->setTextureState(
+                m_smokeSkyCubeProbeOutputTexture,
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+
+            m_smokeSkyCubeProbeReadbackQueued = true;
+            m_smokeSkyCubeProbeReadbackDelayFrames = 2;
+            common->Printf(
+                "PathTracePrimaryPass: isolated sky-cube compute probe dispatched source='%s'\n",
+                m_smokeSkyEnvironmentSourceName.c_str());
+        }
+        else if (!m_smokeSkyCubeProbeReadbackQueued)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: isolated sky-cube compute probe unavailable cube/binding/pipeline/output/readback=%d/%d/%d/%d/%d\n",
+                m_smokeSkyEnvironmentCube ? 1 : 0,
+                m_smokeSkyCubeProbeBindingSet ? 1 : 0,
+                m_smokeSkyCubeProbePipeline ? 1 : 0,
+                m_smokeSkyCubeProbeOutputTexture ? 1 : 0,
+                m_smokeSkyCubeProbeReadbackTexture ? 1 : 0);
+        }
+        r_pathTracingSkyCubeProbe.SetInteger(0);
+    }
+
     if (cleanRtxdiDiRouteRequested)
     {
         const bool cleanExternalPdfNeeCurrent = cleanExternalPdfNeeRequested || pdfNeeRluCurrentProducerRequested;
@@ -2671,9 +2744,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (cleanRtxdiDiResolveView == 16 || cleanRtxdiDiPsrMaskView) ? 32u : 0u) |
                 (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (cleanRtxdiDiResolveView == 16 || cleanRtxdiDiMaterialClassifierProofView || cleanRtxdiDiPsrMaskView) ? 128u : 0u) |
                 PackPathTraceOpenPbrBrdfMode();
+            if (r_pathTracingSkyCubeEnvironment.GetInteger() != 0 && m_smokeSkyEnvironmentCube)
+            {
+                primarySurfaceTextureFlags |= RT_SMOKE_TEXTURE_FLAG_SKY_CUBE;
+            }
             primarySurfaceConstants.textureInfo[3] = static_cast<float>(primarySurfaceTextureFlags);
             primarySurfaceConstants.safetyInfo[0] = static_cast<float>(BuildPathTraceSafetyDisableMask());
-            primarySurfaceConstants.safetyInfo[1] = primarySurfaceConstants.textureInfo[0];
+            primarySurfaceConstants.safetyInfo[1] =
+                idMath::ClampFloat(0.0f, 64.0f, r_pathTracingSkyCubeBrightness.GetFloat());
             primarySurfaceConstants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
             primarySurfaceConstants.geometryInfo0[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticIndexCount));
             primarySurfaceConstants.geometryInfo0[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticTriangleCount));
@@ -3937,7 +4015,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (r_pathTracingUseEmissiveMaps.GetInteger() != 0 ? 32u : 0u) |
             64u |
             (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 ? 128u : 0u) |
-            (r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 256u : 0u);
+            (r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 256u : 0u) |
+            (r_pathTracingSkyCubeEnvironment.GetInteger() != 0 && m_smokeSkyEnvironmentCube
+                ? RT_SMOKE_TEXTURE_FLAG_SKY_CUBE
+                : 0u);
         cleanConstants.textureInfo[0] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
         cleanConstants.textureInfo[1] = static_cast<float>(cleanTextureSampleMethod);
         cleanConstants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));
@@ -4152,6 +4233,84 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_frameResources,
                 nsightGpuMarkers);
             nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
+            if (r_pathTracingSkyCubeEnvironment.GetInteger() != 0 &&
+                m_smokeSkyEnvironmentCube &&
+                m_smokeSkySurfaceResolvePipeline &&
+                m_smokeSkySurfaceResolveBindingLayout &&
+                m_smokeSkySurfaceResolveConstantsBuffer &&
+                m_frameResources.rrGuideSpecularAlbedoTexture &&
+                m_frameResources.reflectionSidecarTexture &&
+                m_frameResources.rrGuidePositionTexture)
+            {
+                nvrhi::utils::TextureUavBarrier(
+                    commandList,
+                    m_frameResources.reflectionSidecarTexture);
+                nvrhi::utils::TextureUavBarrier(
+                    commandList,
+                    m_frameResources.rrGuidePositionTexture);
+                nvrhi::BindingSetDesc skySurfaceResolveBindingSetDesc;
+                skySurfaceResolveBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(
+                    0,
+                    m_smokeSkySurfaceResolveConstantsBuffer));
+                skySurfaceResolveBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+                    0,
+                    m_smokeSkyEnvironmentCube,
+                    nvrhi::Format::UNKNOWN,
+                    nvrhi::AllSubresources,
+                    nvrhi::TextureDimension::TextureCube));
+                skySurfaceResolveBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                    0,
+                    m_frameResources.primarySurfaceHistoryBuffers.current));
+                skySurfaceResolveBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+                    1,
+                    m_frameResources.rrGuideSpecularAlbedoTexture));
+                skySurfaceResolveBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+                    2,
+                    m_frameResources.reflectionSidecarTexture));
+                skySurfaceResolveBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+                    3,
+                    m_frameResources.rrGuidePositionTexture));
+                skySurfaceResolveBindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(
+                    0,
+                    m_backend->GetCommonPasses().m_LinearClampSampler));
+                const nvrhi::BindingSetHandle skySurfaceResolveBindingSet = device->createBindingSet(
+                    skySurfaceResolveBindingSetDesc,
+                    m_smokeSkySurfaceResolveBindingLayout);
+                if (skySurfaceResolveBindingSet)
+                {
+                    PathTraceSkySurfaceResolveConstants skySurfaceResolveConstants;
+                    skySurfaceResolveConstants.width = cleanArgs.width;
+                    skySurfaceResolveConstants.height = cleanArgs.height;
+                    skySurfaceResolveConstants.brightness =
+                        idMath::ClampFloat(0.0f, 64.0f, r_pathTracingSkyCubeBrightness.GetFloat());
+                    skySurfaceResolveConstants.enabled = 1u;
+                    commandList->writeBuffer(
+                        m_smokeSkySurfaceResolveConstantsBuffer,
+                        &skySurfaceResolveConstants,
+                        sizeof(skySurfaceResolveConstants));
+
+                    nvrhi::ComputeState skySurfaceResolveState;
+                    skySurfaceResolveState.pipeline = m_smokeSkySurfaceResolvePipeline;
+                    skySurfaceResolveState.bindings = { skySurfaceResolveBindingSet };
+                    commandList->setComputeState(skySurfaceResolveState);
+                    commandList->dispatch(
+                        (cleanArgs.width + 7u) / 8u,
+                        (cleanArgs.height + 7u) / 8u,
+                        1u);
+                    nvrhi::utils::BufferUavBarrier(
+                        commandList,
+                        m_frameResources.primarySurfaceHistoryBuffers.current);
+                    nvrhi::utils::TextureUavBarrier(
+                        commandList,
+                        m_frameResources.rrGuideSpecularAlbedoTexture);
+                    nvrhi::utils::TextureUavBarrier(
+                        commandList,
+                        m_frameResources.reflectionSidecarTexture);
+                    nvrhi::utils::TextureUavBarrier(
+                        commandList,
+                        m_frameResources.rrGuidePositionTexture);
+                }
+            }
             if (m_frameResources.transmissionTexture)
             {
                 nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.transmissionTexture);
@@ -4308,6 +4467,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
             giInputs.dynamicMaterialBuffer = m_smokeDynamicMaterialBuffer;
             giInputs.fallbackTexture = cleanFallbackTexture;
+            giInputs.skyEnvironmentCube = m_smokeSkyEnvironmentCube;
             const bool cleanGiNeedsEmissiveTriangles = cleanConstants.currentEmissiveTriangleCount > 0u;
             const bool cleanGiNeedsEmissiveDistribution = cleanEmissiveDistributionCount > 0u;
             const bool cleanGiNeedsDoomAnalyticLights =

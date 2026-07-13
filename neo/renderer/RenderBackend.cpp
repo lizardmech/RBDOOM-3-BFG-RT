@@ -5632,6 +5632,13 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 
 			case RC_POST_PROCESS:
 			{
+				// The path-traced image must enter the normal LDR/present chain before
+				// post processing.  Gameplay frames usually reach this through an
+				// overlay GUI command, but HUD-less cinematic frames do not.  Deferring
+				// the pending blit until the end of the backend command list leaves the
+				// already-presented swapchain image black; opening the console merely
+				// hid that ordering bug by adding a GUI command.
+				PresentPathTraceDebugIfPending();
 				// apply optional post processing
 				PostProcess( cmds );
 				break;

@@ -139,12 +139,20 @@ uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmok
     hash = HashSmokeMaterialUniverseValue(hash, info.portalWindowFallback ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.objectGlassFallback ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.emissive ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.emissiveLightCandidate ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.hasEmissiveImage ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.hasSafeEmissiveTexture ? 1u : 0u);
     hash = HashSmokeMaterialUniverseFloat(hash, info.emissiveColor.x);
     hash = HashSmokeMaterialUniverseFloat(hash, info.emissiveColor.y);
     hash = HashSmokeMaterialUniverseFloat(hash, info.emissiveColor.z);
     hash = HashSmokeMaterialUniverseFloat(hash, info.emissiveColor.w);
+    hash = HashSmokeMaterialUniverseValue(hash, info.skyEnvironment ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasSafeSkyTexture ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseString(hash, info.skyImageName);
+    hash = HashSmokeMaterialUniverseFloat(hash, info.skyColor.x);
+    hash = HashSmokeMaterialUniverseFloat(hash, info.skyColor.y);
+    hash = HashSmokeMaterialUniverseFloat(hash, info.skyColor.z);
+    hash = HashSmokeMaterialUniverseFloat(hash, info.skyColor.w);
     return hash;
 }
 
@@ -246,10 +254,27 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
     if (info.emissive && (info.hasSafeEmissiveTexture || !info.hasEmissiveImage))
     {
         record.material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
+        if (info.emissiveLightCandidate)
+        {
+            record.material.flags |= RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE;
+        }
         record.material.emissiveColor[0] = info.emissiveColor.x;
         record.material.emissiveColor[1] = info.emissiveColor.y;
         record.material.emissiveColor[2] = info.emissiveColor.z;
         record.material.emissiveColor[3] = info.emissiveColor.w;
+    }
+    if (info.skyEnvironment)
+    {
+        // Secondary/transmission material consumers already understand the
+        // ordinary emissive flag. Expose the constant sky radiance through
+        // that contract so authored transparent windows can see it, while
+        // deliberately leaving EMISSIVE_LIGHT_CANDIDATE clear: a sky shell is
+        // an environment terminal, not a triangle light to enter ReSTIR.
+        record.material.flags |= RT_SMOKE_MATERIAL_SKY_ENVIRONMENT | RT_SMOKE_MATERIAL_EMISSIVE;
+        record.material.emissiveColor[0] = info.skyColor.x;
+        record.material.emissiveColor[1] = info.skyColor.y;
+        record.material.emissiveColor[2] = info.skyColor.z;
+        record.material.emissiveColor[3] = info.skyColor.w;
     }
 
     record.facts.materialId = materialId;
@@ -274,7 +299,9 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
     record.facts.alphaFromDiffuseMagentaKey = (record.material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY) != 0;
     record.facts.portalWindowFallback = (record.material.flags & RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK) != 0;
     record.facts.objectGlassFallback = (record.material.flags & RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK) != 0;
+    record.facts.skyEnvironment = (record.material.flags & RT_SMOKE_MATERIAL_SKY_ENVIRONMENT) != 0;
     record.facts.emissive = (record.material.flags & RT_SMOKE_MATERIAL_EMISSIVE) != 0;
+    record.facts.emissiveLightCandidate = (record.material.flags & RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE) != 0;
     record.facts.emissiveColor = idVec4(record.material.emissiveColor[0], record.material.emissiveColor[1], record.material.emissiveColor[2], record.material.emissiveColor[3]);
     record.facts.emissiveLuminance = SmokeUniverseEmissiveLuminance(record.facts.emissiveColor);
     record.facts.hasDiffuseImage = info.hasDiffuseImage;
@@ -318,7 +345,9 @@ bool SmokePersistentMaterialRecordsEqual(const RtSmokePersistentMaterialRecord& 
         lhs.facts.alphaFromDiffuseMagentaKey == rhs.facts.alphaFromDiffuseMagentaKey &&
         lhs.facts.portalWindowFallback == rhs.facts.portalWindowFallback &&
         lhs.facts.objectGlassFallback == rhs.facts.objectGlassFallback &&
+        lhs.facts.skyEnvironment == rhs.facts.skyEnvironment &&
         lhs.facts.emissive == rhs.facts.emissive &&
+        lhs.facts.emissiveLightCandidate == rhs.facts.emissiveLightCandidate &&
         lhs.facts.emissiveColor == rhs.facts.emissiveColor &&
         lhs.facts.emissiveLuminance == rhs.facts.emissiveLuminance &&
         lhs.facts.hasDiffuseImage == rhs.facts.hasDiffuseImage &&

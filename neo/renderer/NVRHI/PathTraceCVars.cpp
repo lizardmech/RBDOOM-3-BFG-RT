@@ -1065,6 +1065,24 @@ idCVar r_pathTracingTextureBindlessEnable(
     CVAR_RENDERER | CVAR_INTEGER,
     "RT smoke debug mode 8: sample from the bindless texture table; 0 samples a regular fallback texture SRV for diagnostics" );
 
+idCVar r_pathTracingSkyCubeProbe(
+    "r_pathTracingSkyCubeProbe",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot isolated sky TextureCube probe: 0 off, 1 upload a renderer-owned cube and sample its six axes in a compute pass; never enables the live RT sky path" );
+
+idCVar r_pathTracingSkyCubeEnvironment(
+    "r_pathTracingSkyCubeEnvironment",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Use the renderer-owned TextureCube for primary terminal sky surfaces; 0 keeps the stable white fallback, 1 enables cube color sampling" );
+
+idCVar r_pathTracingSkyCubeBrightness(
+    "r_pathTracingSkyCubeBrightness",
+    "20.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Linear brightness multiplier for renderer-owned sky-cube radiance" );
+
 idCVar r_pathTracingTextureSampleMethod(
     "r_pathTracingTextureSampleMethod",
     "2",

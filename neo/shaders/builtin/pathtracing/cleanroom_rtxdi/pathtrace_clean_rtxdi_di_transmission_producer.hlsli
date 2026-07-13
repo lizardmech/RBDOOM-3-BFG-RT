@@ -674,6 +674,12 @@ bool PathTraceCleanRtxdiDiTryOpaqueMirrorReflection(
         reflectionRng) * fresnel;
     PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
         PathTraceCleanRtxdiDiReflectionSidecarRadiance(reflectionRadiance);
+    const uint textureFlags = (uint)max(TextureInfo.w, 0.0);
+    if ((textureFlags & (1u << 12u)) != 0u &&
+        (reflectionSurface.material.flags & RT_SMOKE_MATERIAL_SKY_ENVIRONMENT_RESOLVED_SURFACE) != 0u)
+    {
+        PathTraceRRGuidePosition[pixel] = float4(reflectionHit.rayDirection, -2.0);
+    }
     if (reflectionHit.hitT > 0.0)
     {
         PathTraceRRGuideHitDistance[pixel] = reflectionHit.hitT;
@@ -716,6 +722,14 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             : PathTraceCleanRtxdiDiGlassDistortionSidecarBuild(glassSurface, materialParams, glassPayload);
 
     const bool reflectionPsrEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION_PSR) != 0u;
+    // Large authored portal windows must remain reliably see-through. The
+    // sticky reflection/transmission PSR owner selection can otherwise make a
+    // whole panel reflection-owned at some locations and hide emissives or the
+    // sky directly behind it. Keep transmission as the primary owner for this
+    // material class; the dense reflection sidecar below still adds its mirror
+    // contribution without replacing the behind-window surface.
+    const bool forcePortalWindowTransmissionPrimary =
+        (glassSurface.material.flags & RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK) != 0u;
     const PathTraceCleanRtxdiDiReflectionPsrCandidate reflectionCandidate =
         PathTraceCleanRtxdiDiBuildReflectionPsrCandidate(glassSurface, glassPayload);
 
@@ -728,6 +742,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     RAB_Surface reflectionGuideSurface = RAB_EmptySurface();
     bool reflectionGuideSurfaceValid = false;
     float reflectionGuideHitT = 0.0;
+    float3 reflectionGuideRayDirection = float3(0.0, 0.0, 0.0);
     if (reflectionPsrEnabled)
     {
         PathTraceReflectionSecondaryHit reflectionHit;
@@ -743,6 +758,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                 reflectionGuideSurface = reflectionSurface;
                 reflectionGuideSurfaceValid = true;
                 reflectionGuideHitT = max(reflectionHit.hitT, 0.0);
+                reflectionGuideRayDirection = reflectionHit.rayDirection;
             }
         }
     }
@@ -753,7 +769,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         PathTraceCleanRtxdiDiTransmissionSidecarPending();
 
     PathTraceCleanRtxdiDiTransmissionPsrSample transmissionSample;
-    if ((CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFRACTED_PSR) != 0u)
+    if ((CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFRACTED_PSR) != 0u &&
+        !forcePortalWindowTransmissionPrimary)
     {
         transmissionSample = PathTraceCleanRtxdiDiTransmissionPsrSampleRefracted(
             glassSurface,
@@ -781,7 +798,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         const bool transmissionLaneValid =
             transmissionSample.performPsr &&
             PathTraceCleanRoomLuminance(max(glassPayload.transmission, float3(0.0, 0.0, 0.0))) > 1.0e-5;
-        const bool reflectionLaneValid = reflectionCandidate.valid;
+        const bool reflectionLaneValid =
+            reflectionCandidate.valid && !forcePortalWindowTransmissionPrimary;
 
         PathTracePrimarySurfaceRecord previousRecord;
         const bool previousRecordValid =
@@ -918,6 +936,8 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             behindGlassSurface))
     {
         behindGlassValid = true;
+        behindGlassSurface.material.emissiveRadiance +=
+            max(hitPayload.passthroughEmissiveRadiance, float3(0.0, 0.0, 0.0));
         if (transmissionSample.guidePolicy == CLEAN_RTXDI_DI_TRANSMISSION_GUIDE_POLICY_STRONG_REFRACTION)
         {
             behindGlassSurface.flags |= CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED;
@@ -995,6 +1015,13 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     const float overlayStrength = PathTraceCleanRtxdiDiGlassOverlayStrength(glassPayload);
     PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
         PathTraceCleanRtxdiDiTransmissionSidecarResolved(transmissionSample.attenuation, overlayStrength);
+    const uint textureFlags = (uint)max(TextureInfo.w, 0.0);
+    if (reflectionRadianceValid &&
+        (textureFlags & (1u << 12u)) != 0u &&
+        (reflectionGuideSurface.material.flags & RT_SMOKE_MATERIAL_SKY_ENVIRONMENT_RESOLVED_SURFACE) != 0u)
+    {
+        PathTraceRRGuidePosition[pixel] = float4(reflectionGuideRayDirection, -2.0);
+    }
 }
 
 [shader("raygeneration")]

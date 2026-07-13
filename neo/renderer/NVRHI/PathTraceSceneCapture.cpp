@@ -1441,7 +1441,34 @@ RtSmokeDynamicEvalBuildResult BuildSmokeDynamicMaterialEvalSampleForId(const dra
             ++surfaceSample.programStages;
         }
 
-        const bool stageEmissive = SmokeDynamicEvalStageIsEmissiveLike(stage);
+        const bool stageEmissive = SmokeDynamicEvalStageIsEmissiveLike(stage) ||
+            (stageIndex == 0 && SmokeMaterialUsesOpaqueSwinglightCompatibility(material));
+        if (surfaceSample.orderedStageCount < RT_SMOKE_DYNAMIC_ORDERED_STAGE_CAPACITY)
+        {
+            RtSmokeDynamicStageEval& orderedStage = surfaceSample.orderedStages[surfaceSample.orderedStageCount++];
+            orderedStage.stageIndex = stageIndex;
+            orderedStage.enabled = enabled;
+            orderedStage.emissive = stageEmissive;
+            orderedStage.hasAlphaTest = hasAlphaTest;
+            orderedStage.hasTexMatrix = hasTexMatrix;
+            orderedStage.condition = condition;
+            orderedStage.alphaTest = alphaTest;
+            for (int component = 0; component < 4; ++component)
+            {
+                orderedStage.color[component] = color[component];
+            }
+            for (int row = 0; row < 2; ++row)
+            {
+                for (int column = 0; column < 3; ++column)
+                {
+                    orderedStage.texMatrix[row][column] = texMatrix[row][column];
+                }
+            }
+        }
+        else
+        {
+            surfaceSample.orderedStageOverflow = true;
+        }
         // The single-record bridge must preserve the stage that owns clipping.
         // Give authored alpha-test stages priority even while disabled so their
         // condition can turn clipping off for this entity this frame.

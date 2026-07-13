@@ -16,15 +16,16 @@ bool SmokeMaterialLooksTransient(const idMaterial* material, bool guiSurface, fl
     }
 
     const deform_t deform = material->Deform();
+    const bool opaqueSwinglightCompatibility = SmokeMaterialUsesOpaqueSwinglightCompatibility(material);
     return
         guiSurface ||
-        material->Coverage() == MC_TRANSLUCENT ||
+        (!opaqueSwinglightCompatibility && material->Coverage() == MC_TRANSLUCENT) ||
         deform == DFRM_SPRITE ||
         deform == DFRM_TUBE ||
         deform == DFRM_FLARE ||
         deform == DFRM_PARTICLE ||
         deform == DFRM_PARTICLE2 ||
-        material->GetSort() >= SS_MEDIUM ||
+        (!opaqueSwinglightCompatibility && material->GetSort() >= SS_MEDIUM) ||
         modelDepthHack != 0.0f;
 }
 
@@ -120,6 +121,35 @@ bool SmokeMaterialCanPromoteRigidEmissiveCardInternal(const idMaterial* material
     return SmokeMaterialCanPromoteRigidEmissiveCardWithClassifierInternal(material, allowSwinglightRuntimeState, classifier);
 }
 
+}
+
+bool SmokeMaterialUsesOpaqueSwinglightCompatibility(const idMaterial* material)
+{
+    if (!material || material->Coverage() != MC_TRANSLUCENT || material->Deform() != DFRM_NONE || material->GetNumStages() != 1)
+    {
+        return false;
+    }
+    if (idStr::Icmp(material->GetName(), "models/mapobjects/swinglights/work/swinglighttex2") != 0)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    const shaderStage_t* stage = material->GetStage(0);
+    if (!stage)
+    {
+        return false;
+    }
+    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+    return stage->lighting == SL_AMBIENT &&
+        srcBlend == GLS_SRCBLEND_SRC_ALPHA &&
+        dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA &&
+        classifier.hasAmbientBlendStage &&
+        !classifier.hasDiffuseStage &&
+        !classifier.hasAdditiveBlend &&
+        !classifier.hasScreenTexgen &&
+        !classifier.hasAddDefault0200Texture;
 }
 
 bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
@@ -267,14 +297,15 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
     if (material)
     {
         const deform_t deform = material->Deform();
+        const bool opaqueSwinglightCompatibility = SmokeMaterialUsesOpaqueSwinglightCompatibility(material);
         if (IsSmokeGuiDrawSurface(drawSurf) ||
-            material->Coverage() == MC_TRANSLUCENT ||
+            (!opaqueSwinglightCompatibility && material->Coverage() == MC_TRANSLUCENT) ||
             deform == DFRM_SPRITE ||
             deform == DFRM_TUBE ||
             deform == DFRM_FLARE ||
             deform == DFRM_PARTICLE ||
             deform == DFRM_PARTICLE2 ||
-            material->GetSort() >= SS_MEDIUM ||
+            (!opaqueSwinglightCompatibility && material->GetSort() >= SS_MEDIUM) ||
             (space && space->modelDepthHack != 0.0f))
         {
             return RtSmokeSurfaceClass::ParticleAlpha;

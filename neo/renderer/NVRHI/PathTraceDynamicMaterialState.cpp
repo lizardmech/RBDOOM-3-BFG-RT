@@ -382,12 +382,85 @@ RtPathTraceMaterialModifierKind BuildSmokeMaterialFeatureModifierKind(const RtSm
     return RT_PATH_TRACE_MATERIAL_MODIFIER_NONE;
 }
 
+static const int RT_PATH_TRACE_ORDERED_STAGE_CAPACITY = 8;
+
+uint32_t PackSmokeMaterialOrderedStage(const RtMaterialCompositingStageFact& stage)
+{
+    const uint32_t stageIndex = static_cast<uint32_t>(idMath::ClampInt(0, 15, stage.stageIndex));
+    const uint32_t lighting = static_cast<uint32_t>(stage.lighting) & 0x7u;
+    const uint32_t operation = static_cast<uint32_t>(stage.operation) & 0x7u;
+    const uint32_t srcBlend = static_cast<uint32_t>(stage.srcBlendBits) & 0x7u;
+    const uint32_t dstBlend = (static_cast<uint32_t>(stage.dstBlendBits) >> 3u) & 0x7u;
+    const uint32_t texgen = static_cast<uint32_t>(stage.texgen) & 0xfu;
+    const uint32_t vertexColor = static_cast<uint32_t>(stage.vertexColor) & 0x3u;
+    const bool hasProgram = stage.vertexProgram >= 0 || stage.fragmentProgram >= 0 || stage.glslProgram >= 0;
+
+    return stageIndex |
+        (lighting << 4u) |
+        (operation << 7u) |
+        (srcBlend << 10u) |
+        (dstBlend << 13u) |
+        (stage.hasAlphaTest ? (1u << 16u) : 0u) |
+        (stage.ignoreAlphaTest ? (1u << 17u) : 0u) |
+        (stage.conditionIsDynamic ? (1u << 18u) : 0u) |
+        (stage.conditionCanBeActive ? (1u << 19u) : 0u) |
+        (stage.hasTextureMatrix ? (1u << 20u) : 0u) |
+        (stage.dynamicImage != DI_STATIC ? (1u << 21u) : 0u) |
+        (hasProgram ? (1u << 22u) : 0u) |
+        (1u << 23u) |
+        (texgen << 24u) |
+        (vertexColor << 28u);
+}
+
+void CompileSmokeMaterialOrderedStages(uint32_t materialId, RtPathTraceMaterialFeatureParameterRecord& parameters)
+{
+    const RtMaterialRecord* record = FindPathTraceMaterialRecord(materialId);
+    if (!record)
+    {
+        return;
+    }
+
+    const int stageCount = Min(static_cast<int>(record->compositingStages.size()), RT_PATH_TRACE_ORDERED_STAGE_CAPACITY);
+    for (int stageIndex = 0; stageIndex < stageCount; ++stageIndex)
+    {
+        parameters.orderedStageWords[stageIndex] = PackSmokeMaterialOrderedStage(record->compositingStages[stageIndex]);
+    }
+    if (static_cast<int>(record->compositingStages.size()) > RT_PATH_TRACE_ORDERED_STAGE_CAPACITY)
+    {
+        parameters.orderedStageWords[RT_PATH_TRACE_ORDERED_STAGE_CAPACITY - 1] |= 1u << 31u;
+    }
+}
+
+RtPathTraceMaterialFeatureParameterRecord BuildSmokeMaterialFeatureParameters(
+    uint32_t materialId,
+    const RtSmokeMaterialUniverseFacts& facts)
+{
+    RtPathTraceMaterialFeatureParameterRecord parameters = BuildSmokeMaterialFeatureParameterRecord(facts);
+    CompileSmokeMaterialOrderedStages(materialId, parameters);
+    return parameters;
+}
+
 RtPathTraceMaterialFeatureRecord BuildSmokeMaterialFeatureRecord(const RtSmokeMaterialUniverseFacts& facts, uint32_t tableIndex)
 {
     RtPathTraceMaterialFeatureRecord feature;
     feature.passSupport = RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER;
     feature.modifierKind = BuildSmokeMaterialFeatureModifierKind(facts);
     feature.parameterRecordIndex = tableIndex;
+
+    if (facts.skyEnvironment)
+    {
+        // A sky shell is terminal emitted radiance, not an opaque receiver
+        // which happens to glow.  In particular it must not enter the DI/GI
+        // reservoir domains or export diffuse RR guides.
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_SKY_OR_ENVIRONMENT;
+        feature.materialCaps = RT_PATH_TRACE_MATERIAL_CAP_SHADOW_OCCLUSION;
+        feature.lobeCaps = RT_PATH_TRACE_MATERIAL_LOBE_EMISSIVE;
+        feature.modifierKind = RT_PATH_TRACE_MATERIAL_MODIFIER_NONE;
+        feature.passSupport |=
+            RT_PATH_TRACE_MATERIAL_PASS_PRIMARY_SURFACE |
+            RT_PATH_TRACE_MATERIAL_PASS_PATH_INTEGRATOR;
+        return feature;
+    }
 
     if (facts.objectGlassFallback || facts.portalWindowFallback)
     {
@@ -485,7 +558,7 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
     table.materialInfos.push_back(info);
     table.materialFacts.push_back(record.facts);
     table.materialFeatures.push_back(BuildSmokeMaterialFeatureRecord(record.facts, static_cast<uint32_t>(table.materialFeatures.size())));
-    table.materialFeatureParameters.push_back(BuildSmokeMaterialFeatureParameterRecord(record.facts));
+    table.materialFeatureParameters.push_back(BuildSmokeMaterialFeatureParameters(materialId, record.facts));
     table.materialsAdditiveDecals += record.additiveDecalContribution;
     return static_cast<uint32_t>(table.materials.size() - 1);
 }
@@ -511,7 +584,7 @@ bool RefreshSmokeMaterialTableFrameRecords(RtSmokeMaterialTableBuild& table)
         table.materials[tableIndex] = BuildSmokeMaterialTableMaterial(materialId, info, record);
         table.materialFacts[tableIndex] = record.facts;
         table.materialFeatures[tableIndex] = BuildSmokeMaterialFeatureRecord(record.facts, static_cast<uint32_t>(tableIndex));
-        table.materialFeatureParameters[tableIndex] = BuildSmokeMaterialFeatureParameterRecord(record.facts);
+        table.materialFeatureParameters[tableIndex] = BuildSmokeMaterialFeatureParameters(materialId, record.facts);
         table.materialsAdditiveDecals += record.additiveDecalContribution;
     }
     return true;
@@ -693,6 +766,71 @@ uint32_t AddSmokeMaterialTextureSlot(RtSmokeMaterialTableBuild& table, nvrhi::Te
     const uint32_t descriptorIndex = static_cast<uint32_t>(table.diffuseTextures.size());
     table.diffuseTextures.push_back(texture);
     return descriptorIndex;
+}
+
+void PopulateSmokeOrderedStageTextureSlots(RtSmokeMaterialTableBuild& table, int textureTableLimit)
+{
+    for (RtPathTraceMaterialFeatureParameterRecord& parameters : table.materialFeatureParameters)
+    {
+        for (uint32_t& textureWord : parameters.orderedStageTextureWords)
+        {
+            textureWord = 0u;
+        }
+    }
+    if (textureTableLimit <= 0 || !declManager)
+    {
+        return;
+    }
+
+    int skippedUniqueTextures = 0;
+    std::vector<nvrhi::TextureHandle> skippedTextures;
+    const int materialCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materialFeatureParameters.size()));
+    for (int materialIndex = 0; materialIndex < materialCount; ++materialIndex)
+    {
+        const RtMaterialRecord* record = FindPathTraceMaterialRecord(table.materialIds[materialIndex]);
+        if (!record || !record->valid || materialIndex >= static_cast<int>(table.materialInfos.size()))
+        {
+            continue;
+        }
+        const idMaterial* material = declManager->FindMaterial(table.materialInfos[materialIndex].materialName.c_str(), false);
+        if (!material)
+        {
+            continue;
+        }
+
+        RtPathTraceMaterialFeatureParameterRecord& parameters = table.materialFeatureParameters[materialIndex];
+        const int stageCount = Min(static_cast<int>(record->compositingStages.size()), RT_PATH_TRACE_ORDERED_STAGE_CAPACITY);
+        for (int stageSlot = 0; stageSlot < stageCount; ++stageSlot)
+        {
+            const int declarationStageIndex = record->compositingStages[stageSlot].stageIndex;
+            if (declarationStageIndex < 0 || declarationStageIndex >= material->GetNumStages())
+            {
+                continue;
+            }
+            const shaderStage_t* stage = material->GetStage(declarationStageIndex);
+            idImage* image = stage ? stage->texture.image : nullptr;
+            if (!image || !IsSmokeDiffuseImageSafeForRayTracing(image))
+            {
+                continue;
+            }
+            const nvrhi::TextureHandle texture = image->GetTextureHandle();
+            if (!texture || !IsSmokeTextureHandleSafeForDescriptor(texture))
+            {
+                continue;
+            }
+            const uint32_t descriptorIndex = AddSmokeMaterialTextureSlot(
+                table,
+                texture,
+                textureTableLimit,
+                0,
+                skippedUniqueTextures,
+                skippedTextures);
+            if (descriptorIndex != UINT32_MAX)
+            {
+                parameters.orderedStageTextureWords[stageSlot] = 0x80000000u | descriptorIndex;
+            }
+        }
+    }
 }
 
 bool BindSmokeMaterialRuntimeEmissiveTexture(RtSmokeMaterialTableBuild& table, int tableIndex, idImage* image, int minimumTextureTableLimit)
@@ -981,13 +1119,14 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
             table.materials[safeIndex].emissiveTextureIndex == UINT32_MAX &&
             r_pathTracingEmissiveFallbackWithoutTexture.GetInteger() == 0)
         {
-            table.materials[safeIndex].flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+            table.materials[safeIndex].flags &= ~(RT_SMOKE_MATERIAL_EMISSIVE | RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE);
             table.materials[safeIndex].emissiveColor[0] = 0.0f;
             table.materials[safeIndex].emissiveColor[1] = 0.0f;
             table.materials[safeIndex].emissiveColor[2] = 0.0f;
             table.materials[safeIndex].emissiveColor[3] = 1.0f;
         }
     }
+    PopulateSmokeOrderedStageTextureSlots(table, textureTableLimit);
     g_smokeMaterialTableBuildStats.descriptorMs += Sys_Milliseconds() - descriptorStartMs;
     g_smokeMaterialTableBuildStats.descriptorTextures = static_cast<int>(table.diffuseTextures.size());
 
@@ -1297,13 +1436,14 @@ void PopulateSmokeMaterialTextureSlotsStable(RtSmokeMaterialTableBuild& table, u
             table.materials[safeIndex].emissiveTextureIndex == UINT32_MAX &&
             r_pathTracingEmissiveFallbackWithoutTexture.GetInteger() == 0)
         {
-            table.materials[safeIndex].flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+            table.materials[safeIndex].flags &= ~(RT_SMOKE_MATERIAL_EMISSIVE | RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE);
             table.materials[safeIndex].emissiveColor[0] = 0.0f;
             table.materials[safeIndex].emissiveColor[1] = 0.0f;
             table.materials[safeIndex].emissiveColor[2] = 0.0f;
             table.materials[safeIndex].emissiveColor[3] = 1.0f;
         }
     }
+    PopulateSmokeOrderedStageTextureSlots(table, textureTableLimit);
     g_smokeMaterialTableBuildStats.descriptorMs += Sys_Milliseconds() - descriptorStartMs;
     g_smokeMaterialTableBuildStats.descriptorTextures = static_cast<int>(table.diffuseTextures.size());
 
@@ -1565,7 +1705,7 @@ bool RefreshSmokeStableMaterialTableRows(RtSmokeMaterialTableBuild& table)
         PreserveSmokeMaterialTextureBindings(table.materials[tableIndex], previousMaterial);
         table.materialFacts[tableIndex] = record.facts;
         table.materialFeatures[tableIndex] = BuildSmokeMaterialFeatureRecord(record.facts, static_cast<uint32_t>(tableIndex));
-        table.materialFeatureParameters[tableIndex] = BuildSmokeMaterialFeatureParameterRecord(record.facts);
+        table.materialFeatureParameters[tableIndex] = BuildSmokeMaterialFeatureParameters(materialId, record.facts);
         table.materialsAdditiveDecals += record.additiveDecalContribution;
     }
     return true;

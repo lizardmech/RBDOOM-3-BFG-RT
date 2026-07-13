@@ -27,6 +27,112 @@ struct RtCrosshairMaterialFeatureDebug
     bool transmissionActive = false;
 };
 
+struct RtCrosshairOrderedCompositingProjection
+{
+    int alphaClipStage = -1;
+    int additiveStage = -1;
+    int multiplyStage = -1;
+    int invertedStage = -1;
+    int alphaOverStage = -1;
+    int destinationPreserveStage = -1;
+    int unknownStage = -1;
+    bool overflow = false;
+    bool needsStageTextureConsumer = false;
+};
+
+RtCrosshairOrderedCompositingProjection BuildCrosshairOrderedCompositingProjection(const RtMaterialRecord* record)
+{
+    RtCrosshairOrderedCompositingProjection projection;
+    if (!record)
+    {
+        return projection;
+    }
+
+    projection.overflow = record->compositingStages.size() > 8;
+    std::vector<idStr> effectImageNames;
+    for (const RtMaterialCompositingStageFact& stage : record->compositingStages)
+    {
+        const bool destinationPreserve =
+            stage.srcBlendBits == GLS_SRCBLEND_ZERO &&
+            stage.dstBlendBits == GLS_DSTBLEND_ONE;
+        if (destinationPreserve && projection.destinationPreserveStage < 0)
+        {
+            projection.destinationPreserveStage = stage.stageIndex;
+        }
+
+        switch (stage.operation)
+        {
+            case RtMaterialCompositingOp::AuthoredAlphaClip:
+                if (projection.alphaClipStage < 0)
+                {
+                    projection.alphaClipStage = stage.stageIndex;
+                }
+                break;
+            case RtMaterialCompositingOp::Additive:
+                if (projection.additiveStage < 0)
+                {
+                    projection.additiveStage = stage.stageIndex;
+                }
+                if (!stage.imageName.IsEmpty() &&
+                    std::find(effectImageNames.begin(), effectImageNames.end(), stage.imageName) == effectImageNames.end())
+                {
+                    effectImageNames.push_back(stage.imageName);
+                }
+                break;
+            case RtMaterialCompositingOp::MultiplyFilter:
+                if (projection.multiplyStage < 0)
+                {
+                    projection.multiplyStage = stage.stageIndex;
+                }
+                if (!stage.imageName.IsEmpty() &&
+                    std::find(effectImageNames.begin(), effectImageNames.end(), stage.imageName) == effectImageNames.end())
+                {
+                    effectImageNames.push_back(stage.imageName);
+                }
+                break;
+            case RtMaterialCompositingOp::InvertedFilterBlackKey:
+                if (projection.invertedStage < 0)
+                {
+                    projection.invertedStage = stage.stageIndex;
+                }
+                if (!stage.imageName.IsEmpty() &&
+                    std::find(effectImageNames.begin(), effectImageNames.end(), stage.imageName) == effectImageNames.end())
+                {
+                    effectImageNames.push_back(stage.imageName);
+                }
+                break;
+            case RtMaterialCompositingOp::SourceAlphaOver:
+                if (projection.alphaOverStage < 0)
+                {
+                    projection.alphaOverStage = stage.stageIndex;
+                }
+                if (!stage.imageName.IsEmpty() &&
+                    std::find(effectImageNames.begin(), effectImageNames.end(), stage.imageName) == effectImageNames.end())
+                {
+                    effectImageNames.push_back(stage.imageName);
+                }
+                break;
+            case RtMaterialCompositingOp::Unknown:
+                if (!destinationPreserve && projection.unknownStage < 0)
+                {
+                    projection.unknownStage = stage.stageIndex;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    // The packed eight-word record contains ordering and blend equations, but
+    // cannot execute more than one effect image because it intentionally has no
+    // per-stage texture descriptor/value payload yet.
+    projection.needsStageTextureConsumer =
+        effectImageNames.size() > 1 ||
+        projection.unknownStage >= 0 ||
+        projection.overflow;
+    return projection;
+}
+
 const char* RtPathTraceMaterialKindName(const RtPathTraceMaterialKind materialKind)
 {
     switch (materialKind)
@@ -119,7 +225,18 @@ RtCrosshairMaterialFeatureDebug BuildCrosshairMaterialFeatureDebug(
     const bool fallbackGlass = info.objectGlassFallback || info.portalWindowFallback;
     const bool glassLike = translucentGlass || fallbackGlass;
 
-    if (translucent && translucentSubtype == RtSmokeTranslucentSubtype::GuiScreen)
+    if (info.skyEnvironment)
+    {
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_SKY_OR_ENVIRONMENT;
+        feature.materialCaps = RT_PATH_TRACE_MATERIAL_CAP_SHADOW_OCCLUSION;
+        feature.lobeCaps = RT_PATH_TRACE_MATERIAL_LOBE_EMISSIVE;
+        feature.modifierKind = RT_PATH_TRACE_MATERIAL_MODIFIER_NONE;
+        feature.passSupport |=
+            RT_PATH_TRACE_MATERIAL_PASS_PRIMARY_SURFACE |
+            RT_PATH_TRACE_MATERIAL_PASS_PATH_INTEGRATOR;
+        return feature;
+    }
+    else if (translucent && translucentSubtype == RtSmokeTranslucentSubtype::GuiScreen)
     {
         feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_GUI_SCREEN;
     }
@@ -160,7 +277,9 @@ RtCrosshairMaterialFeatureDebug BuildCrosshairMaterialFeatureDebug(
             RT_PATH_TRACE_MATERIAL_PASS_PATH_INTEGRATOR |
             RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER;
         feature.transmissionCandidate = true;
-        feature.transmissionActive = r_pathTracingTransmissionBounceLimit.GetInteger() > 0;
+        feature.transmissionActive =
+            r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
+            r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
         return feature;
     }
 
@@ -358,7 +477,7 @@ void LogSmokeCrosshairMaterialDump(
         material->GetNumStages(),
         IsSmokeGuiDrawSurface(drawSurf) ? 1 : 0);
 
-    common->Printf("PathTracePrimaryPass: RT smoke crosshair classifiers guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addDefault0200=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair classifiers guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addDefault0200=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d opaqueSwinglightCompat=%d\n",
         classifier.sortIsGuiOrSubview ? 1 : 0,
         classifier.sortIsDecal ? 1 : 0,
         classifier.sortIsPostProcess ? 1 : 0,
@@ -374,7 +493,8 @@ void LogSmokeCrosshairMaterialDump(
         classifier.nameLooksDecal ? 1 : 0,
         classifier.nameLooksGlass ? 1 : 0,
         classifier.nameLooksGlow ? 1 : 0,
-        classifier.nameLooksSignage ? 1 : 0);
+        classifier.nameLooksSignage ? 1 : 0,
+        SmokeMaterialUsesOpaqueSwinglightCompatibility(material) ? 1 : 0);
 
     common->Printf("PathTracePrimaryPass: RT smoke crosshair detail-decal isDetailDecal=%d isDynamic=%d blendKind=%s spectrum=%d compositeStage=%d\n",
         info.detailDecal ? 1 : 0,
@@ -392,8 +512,10 @@ void LogSmokeCrosshairMaterialDump(
         (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_GI) != 0u &&
         (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_GI_RESERVOIR) != 0u &&
         (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u;
-    const int transmissionBounceRequest = r_pathTracingTransmissionBounceLimit.GetInteger();
-    const int transmissionBounceEffective = idMath::ClampInt(0, 1, transmissionBounceRequest);
+    const int transmissionBounceRequest =
+        (r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
+         r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0) ? 1 : 0;
+    const int transmissionBounceEffective = transmissionBounceRequest;
     common->Printf("PathTracePrimaryPass: RT smoke crosshair modular material kind=%s(%u) caps=0x%08x lobes=0x%08x passSupport=0x%08x modifier=%s(%u) transmissionCandidate=%d transmissionActive=%d transmissionBounceRequest=%d transmissionBounceEffective=%d directReservoir=%s giReservoir=%s unsupportedDebug=%s\n",
         RtPathTraceMaterialKindName(feature.materialKind),
         static_cast<uint32_t>(feature.materialKind),
@@ -410,7 +532,7 @@ void LogSmokeCrosshairMaterialDump(
         giReservoirSupported ? "supported" : "unsupported",
         RtPathTraceMaterialUnsupportedDebugName(feature));
 
-    common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' alpha='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d alphaMagentaKey=%d normal='%s' usage=%s color=%s safe=%d specular='%s' usage=%s color=%s safe=%d emissive='%s' usage=%s color=%s safe=%d emissive=%d additiveDecal=%d additiveWhiteKey=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' alpha='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d alphaMagentaKey=%d normal='%s' usage=%s color=%s safe=%d specular='%s' usage=%s color=%s safe=%d emissive='%s' usage=%s color=%s safe=%d emissive=%d lightCandidate=%d additiveDecal=%d additiveWhiteKey=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",
         info.diffuseImageName.c_str(),
         SmokeTextureUsageName(info.diffuseUsage),
         SmokeTextureColorFormatName(info.diffuseColorFormat),
@@ -443,6 +565,7 @@ void LogSmokeCrosshairMaterialDump(
         SmokeTextureColorFormatName(info.emissiveColorFormat),
         info.hasSafeEmissiveTexture ? 1 : 0,
         info.emissive ? 1 : 0,
+        info.emissiveLightCandidate ? 1 : 0,
         info.additiveDecal ? 1 : 0,
         info.additiveDecalWhiteKey ? 1 : 0,
         info.filterDecal ? 1 : 0,
@@ -454,6 +577,19 @@ void LogSmokeCrosshairMaterialDump(
         info.fallbackAlbedo.x,
         info.fallbackAlbedo.y,
         info.fallbackAlbedo.z);
+
+    if (info.skyEnvironment || info.hasSkyTextureHandle)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair sky environment=%d image='%s' handle=%d safeCube=%d color=(%.3f %.3f %.3f %.3f) terminalSurface=1 missEnvironment=0\n",
+            info.skyEnvironment ? 1 : 0,
+            info.skyImageName.c_str(),
+            info.hasSkyTextureHandle ? 1 : 0,
+            info.hasSafeSkyTexture ? 1 : 0,
+            info.skyColor.x,
+            info.skyColor.y,
+            info.skyColor.z,
+            info.skyColor.w);
+    }
 
     if (tableIndex >= 0 && tableIndex < static_cast<int>(table.materials.size()))
     {
@@ -473,6 +609,29 @@ void LogSmokeCrosshairMaterialDump(
             rtMaterial.specularTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.specularTextureIndex),
             rtMaterial.emissiveTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.emissiveTextureIndex),
             rtMaterial.alphaCutoff);
+        if (tableIndex < static_cast<int>(table.materialFeatureParameters.size()))
+        {
+            const RtPathTraceMaterialFeatureParameterRecord& parameters = table.materialFeatureParameters[tableIndex];
+            common->Printf("PathTracePrimaryPass: RT smoke crosshair orderedStages words=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x overflow=%d\n",
+                parameters.orderedStageWords[0],
+                parameters.orderedStageWords[1],
+                parameters.orderedStageWords[2],
+                parameters.orderedStageWords[3],
+                parameters.orderedStageWords[4],
+                parameters.orderedStageWords[5],
+                parameters.orderedStageWords[6],
+                parameters.orderedStageWords[7],
+                (parameters.orderedStageWords[7] & (1u << 31u)) != 0u ? 1 : 0);
+            common->Printf("PathTracePrimaryPass: RT smoke crosshair orderedStageTextures words=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
+                parameters.orderedStageTextureWords[0],
+                parameters.orderedStageTextureWords[1],
+                parameters.orderedStageTextureWords[2],
+                parameters.orderedStageTextureWords[3],
+                parameters.orderedStageTextureWords[4],
+                parameters.orderedStageTextureWords[5],
+                parameters.orderedStageTextureWords[6],
+                parameters.orderedStageTextureWords[7]);
+        }
     }
 
     if (tableIndex >= 0)
@@ -491,18 +650,55 @@ void LogSmokeCrosshairMaterialDump(
         if (dynamicRecords && tableIndex < static_cast<int>(dynamicRecords->size()))
         {
             const PathTraceDynamicMaterialRecord& record = (*dynamicRecords)[tableIndex];
-            common->Printf("PathTracePrimaryPass: RT smoke crosshair dynamicRecord count=%d tableIndex=%d recordMaterialId=%u recordMaterialIndex=%u stage=%u flags=0x%08x matrix=(%.4f %.4f %.4f;%.4f %.4f %.4f) condition=%.4f alpha=%.4f triangleMatches id/index=%d/%d\n",
+            const bool hasOrderedStages = (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ORDERED_STAGE_VALUES) != 0u;
+            const uint32_t selectedStage = hasOrderedStages
+                ? record.stageIndex & RT_SMOKE_DYNAMIC_MATERIAL_HEADER_SELECTED_STAGE_MASK
+                : record.stageIndex;
+            const uint32_t orderedStageCount = hasOrderedStages
+                ? (record.stageIndex & RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_COUNT_MASK) >> RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_COUNT_SHIFT
+                : 0u;
+            const uint32_t orderedStageOffset = hasOrderedStages
+                ? (record.stageIndex & RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OFFSET_MASK) >> RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OFFSET_SHIFT
+                : 0u;
+            const bool orderedStageOverflow = hasOrderedStages &&
+                (record.stageIndex & RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OVERFLOW) != 0u;
+            common->Printf("PathTracePrimaryPass: RT smoke crosshair dynamicRecord count=%d tableIndex=%d recordMaterialId=%u recordMaterialIndex=%u stage=%u flags=0x%08x orderedOffset/count/overflow=%u/%u/%d matrix=(%.4f %.4f %.4f;%.4f %.4f %.4f) condition=%.4f alpha=%.4f triangleMatches id/index=%d/%d\n",
                 static_cast<int>(dynamicRecords->size()),
                 tableIndex,
                 record.materialId,
                 record.materialIndex,
-                record.stageIndex,
+                selectedStage,
                 record.flags,
+                orderedStageOffset,
+                orderedStageCount,
+                orderedStageOverflow ? 1 : 0,
                 record.texMatrix0[0], record.texMatrix0[1], record.texMatrix0[2],
                 record.texMatrix1[0], record.texMatrix1[1], record.texMatrix1[2],
                 record.texMatrix0[3], record.texMatrix1[3],
                 idMatches,
                 indexMatches);
+            for (uint32_t orderedIndex = 0; orderedIndex < orderedStageCount; ++orderedIndex)
+            {
+                const uint32_t recordIndex = orderedStageOffset + orderedIndex;
+                if (recordIndex >= dynamicRecords->size())
+                {
+                    common->Printf("PathTracePrimaryPass: RT smoke crosshair dynamicStage[%u] invalidRecordIndex=%u recordCount=%d\n",
+                        orderedIndex,
+                        recordIndex,
+                        static_cast<int>(dynamicRecords->size()));
+                    break;
+                }
+                const PathTraceDynamicMaterialRecord& stage = (*dynamicRecords)[recordIndex];
+                common->Printf("PathTracePrimaryPass: RT smoke crosshair dynamicStage[%u] recordIndex=%u stage=%u flags=0x%08x color=(%.4f %.4f %.4f %.4f) matrix=(%.4f %.4f %.4f;%.4f %.4f %.4f) condition=%.4f alpha=%.4f\n",
+                    orderedIndex,
+                    recordIndex,
+                    stage.stageIndex,
+                    stage.flags,
+                    stage.color[0], stage.color[1], stage.color[2], stage.color[3],
+                    stage.texMatrix0[0], stage.texMatrix0[1], stage.texMatrix0[2],
+                    stage.texMatrix1[0], stage.texMatrix1[1], stage.texMatrix1[2],
+                    stage.texMatrix0[3], stage.texMatrix1[3]);
+            }
         }
         else
         {
@@ -647,6 +843,28 @@ void LogSmokeCrosshairMaterialDump(
 
     const float* regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
     const int registerCount = material->GetNumRegisters();
+    const RtMaterialRecord* materialClassRecord = FindPathTraceMaterialRecord(materialId);
+    const RtCrosshairOrderedCompositingProjection compositingProjection =
+        BuildCrosshairOrderedCompositingProjection(materialClassRecord);
+    const uint32_t compatibilityFlags =
+        tableIndex >= 0 && tableIndex < static_cast<int>(table.materials.size())
+        ? table.materials[tableIndex].flags
+        : 0u;
+    common->Printf(
+        "PathTracePrimaryPass: RT smoke crosshair declarationProjection alpha/add/multiply/invert/over/noop/unknown=%d/%d/%d/%d/%d/%d/%d overflow=%d needsStageTextureConsumer=%d compatibilityRoutes alpha/add/filter/blackKey=%d/%d/%d/%d\n",
+        compositingProjection.alphaClipStage,
+        compositingProjection.additiveStage,
+        compositingProjection.multiplyStage,
+        compositingProjection.invertedStage,
+        compositingProjection.alphaOverStage,
+        compositingProjection.destinationPreserveStage,
+        compositingProjection.unknownStage,
+        compositingProjection.overflow ? 1 : 0,
+        compositingProjection.needsStageTextureConsumer ? 1 : 0,
+        (compatibilityFlags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0u ? 1 : 0,
+        (compatibilityFlags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u ? 1 : 0,
+        (compatibilityFlags & RT_SMOKE_MATERIAL_FILTER_DECAL) != 0u ? 1 : 0,
+        (compatibilityFlags & RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY) != 0u ? 1 : 0);
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
@@ -689,7 +907,19 @@ void LogSmokeCrosshairMaterialDump(
         const bool imageSafe = image && IsSmokeDiffuseImageSafeForRayTracing(image);
         const textureUsage_t imageUsage = image ? image->GetUsage() : TD_DEFAULT;
         const textureColor_t imageColorFormat = image ? image->GetOpts().colorFormat : CFM_DEFAULT;
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair stage[%d] lighting=%s condition=%.3f color=(%.3f %.3f %.3f %.3f) drawState=0x%llx srcBlend=%llu dstBlend=%llu alphaTest=%d alphaReg=%d alphaValue=%.3f ignoreAlpha=%d alphaSemantic=%s texgen=%s dynamic=%d cinematic=%d image='%s' usage=%s color=%s safe=%d\n",
+        const RtMaterialCompositingStageFact* compositingFact = nullptr;
+        if (materialClassRecord)
+        {
+            for (const RtMaterialCompositingStageFact& candidate : materialClassRecord->compositingStages)
+            {
+                if (candidate.stageIndex == stageIndex)
+                {
+                    compositingFact = &candidate;
+                    break;
+                }
+            }
+        }
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair stage[%d] lighting=%s condition=%.3f color=(%.3f %.3f %.3f %.3f) compositing=%s drawState=0x%llx srcBlendBits=0x%llx dstBlendBits=0x%llx alphaTest=%d alphaReg=%d alphaValue=%.3f ignoreAlpha=%d alphaSemantic=%s texgen=%s dynamic=%d cinematic=%d image='%s' usage=%s color=%s safe=%d\n",
             stageIndex,
             SmokeStageLightingName(stage->lighting),
             condition,
@@ -697,9 +927,10 @@ void LogSmokeCrosshairMaterialDump(
             stageColor.y,
             stageColor.z,
             stageColor.w,
+            compositingFact ? RtMaterialCompositingOpName(compositingFact->operation) : "uncompiled",
             static_cast<unsigned long long>(stage->drawStateBits),
-            static_cast<unsigned long long>((stage->drawStateBits & GLS_SRCBLEND_BITS) >> 0),
-            static_cast<unsigned long long>((stage->drawStateBits & GLS_DSTBLEND_BITS) >> 3),
+            static_cast<unsigned long long>(stage->drawStateBits & GLS_SRCBLEND_BITS),
+            static_cast<unsigned long long>(stage->drawStateBits & GLS_DSTBLEND_BITS),
             stage->hasAlphaTest ? 1 : 0,
             stage->alphaTestRegister,
             alphaTest,

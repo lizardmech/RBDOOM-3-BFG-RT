@@ -20,6 +20,7 @@ struct RtSmokeMaterialTextureInfo
     idStr normalImageName;
     idStr specularImageName;
     idStr emissiveImageName;
+    idStr skyImageName;
     idStr fallbackReason;
     idStr alphaReason;
     idStr normalReason;
@@ -30,11 +31,13 @@ struct RtSmokeMaterialTextureInfo
     idImage* normalImage = nullptr;
     idImage* specularImage = nullptr;
     idImage* emissiveImage = nullptr;
+    idImage* skyImage = nullptr;
     nvrhi::TextureHandle diffuseTexture;
     nvrhi::TextureHandle alphaTexture;
     nvrhi::TextureHandle normalTexture;
     nvrhi::TextureHandle specularTexture;
     nvrhi::TextureHandle emissiveTexture;
+    nvrhi::TextureHandle skyTexture;
     bool hasDiffuseImage = false;
     bool hasAlphaImage = false;
     bool hasNormalImage = false;
@@ -50,6 +53,8 @@ struct RtSmokeMaterialTextureInfo
     bool hasSafeNormalTexture = false;
     bool hasSafeSpecularTexture = false;
     bool hasSafeEmissiveTexture = false;
+    bool hasSkyTextureHandle = false;
+    bool hasSafeSkyTexture = false;
     bool hasAlphaTest = false;
     bool additiveDecal = false;
     bool additiveDecalWhiteKey = false;
@@ -68,8 +73,11 @@ struct RtSmokeMaterialTextureInfo
     bool portalWindowFallback = false;
     bool objectGlassFallback = false;
     bool emissive = false;
+    bool emissiveLightCandidate = false;
+    bool skyEnvironment = false;
     float alphaCutoff = 0.0f;
     idVec4 emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    idVec4 skyColor = idVec4(1.0f, 1.0f, 1.0f, 1.0f);
     idVec4 fallbackAlbedo = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
     bool hasFallbackAlbedo = false;
     textureUsage_t diffuseUsage = TD_DEFAULT;

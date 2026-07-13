@@ -277,6 +277,7 @@ VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : registe
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
+#include "../pathtrace_sky_environment.hlsli"
 
 // The leading block mirrors PathTraceCleanRtxdiDiSentinelConstants exactly so
 // shared DI-lane helper code compiles unchanged; the C++ side copies the live
@@ -426,6 +427,7 @@ static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
+static const uint RT_SMOKE_MATERIAL_SKY_ENVIRONMENT = 0x00040000u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
@@ -1726,7 +1728,10 @@ float3 CleanGiSampleEmissiveRadiance(PathTraceSmokeMaterial material, float2 tex
         return float3(0.0, 0.0, 0.0);
     }
     float3 emissiveTexel = float3(1.0, 1.0, 1.0);
-    if (material.emissiveTextureIndex != 0xffffffffu)
+    // Sky surfaces use constant terminal radiance and never sample a material
+    // texture with mesh UVs.
+    if (material.emissiveTextureIndex != 0xffffffffu &&
+        (material.flags & RT_SMOKE_MATERIAL_SKY_ENVIRONMENT) == 0u)
     {
         emissiveTexel = saturate(CleanGiSampleTexture(material.emissiveTextureIndex, material.emissiveTextureWidth, material.emissiveTextureHeight, texCoord, float4(1.0, 1.0, 1.0, 1.0)).rgb);
     }
@@ -1738,6 +1743,7 @@ RAB_Material CleanGiBuildMaterialFromHit(
     uint materialIndex,
     PathTraceSmokeMaterial smokeMaterial,
     float2 texCoord,
+    float3 rayDirection,
     uint surfaceClass,
     uint translucentSubtype,
     uint triangleClassAndFlags,
@@ -1781,6 +1787,18 @@ RAB_Material CleanGiBuildMaterialFromHit(
         material.emissiveRadiance = max(material.emissiveRadiance, material.diffuseAlbedo);
     }
     material.emissiveTextureIndex = smokeMaterial.emissiveTextureIndex;
+    if ((smokeMaterial.flags & RT_SMOKE_MATERIAL_SKY_ENVIRONMENT) != 0u)
+    {
+        material.diffuseAlbedo = float3(0.0, 0.0, 0.0);
+        material.specularF0 = float3(0.0, 0.0, 0.0);
+        material.roughness = 1.0;
+        material.opacity = 1.0;
+        const float3 skyTexel = PathTraceSampleSkyEnvironment(rayDirection, TextureInfo);
+        material.emissiveRadiance = max(
+            skyTexel * max(smokeMaterial.emissiveColor.rgb, float3(0.0, 0.0, 0.0)),
+            float3(0.0, 0.0, 0.0));
+        material.emissiveTextureIndex = 0xffffffffu;
+    }
     return material;
 }
 
@@ -2067,6 +2085,29 @@ bool CleanGiMaterialRejectsHit(uint2 pixel, uint instanceId, uint primitiveIndex
         return false;
     }
 
+    const PathTraceSmokeMaterial material = CleanGiLoadSmokeMaterial(materialIndex);
+    const uint triangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(instanceId, primitiveIndex);
+    const uint surfaceClass = CleanGiTriangleSurfaceClass(triangleClassAndFlags);
+    const uint translucentSubtype = CleanGiTriangleTranslucentSubtype(triangleClassAndFlags);
+    const bool glassTransmissionSurface =
+        (surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+            (translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS ||
+                translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW)) ||
+        (material.flags &
+            (RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK |
+                RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK)) != 0u;
+    if (glassTransmissionSurface)
+    {
+        // Primary-camera glass is resolved by the transmission PSR, but GI has
+        // an independent visibility contract.  Accepting a resident pane here
+        // makes first-indirect and shadow rays opaque exactly when the window
+        // enters the camera/TLAS, so sky and emissive energy appears to switch
+        // off on-screen.  Thin authored glass has no volume absorption model in
+        // this GI lane yet; continue through it consistently in both TraceRay
+        // any-hit and inline ray-query paths.
+        return true;
+    }
+
     float3 p0, p1, p2;
     float3 n0, n1, n2;
     float2 uv0, uv1, uv2;
@@ -2091,10 +2132,6 @@ bool CleanGiMaterialRejectsHit(uint2 pixel, uint instanceId, uint primitiveIndex
     const float2 texCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
     const float4 vertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
 
-    const PathTraceSmokeMaterial material = CleanGiLoadSmokeMaterial(materialIndex);
-    const uint triangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(instanceId, primitiveIndex);
-    const uint surfaceClass = CleanGiTriangleSurfaceClass(triangleClassAndFlags);
-    const uint translucentSubtype = CleanGiTriangleTranslucentSubtype(triangleClassAndFlags);
     if (surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
         translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN &&
         vertexColor.a <= 0.03)
@@ -3294,6 +3331,7 @@ bool CleanGiTraceMaterialSurfaceRay(
         hitMaterialIndex,
         hitMaterial,
         hitTexCoord,
+        rayDirection,
         hitSurfaceClass,
         hitTranslucentSubtype,
         hitTriangleClassAndFlags,
@@ -4196,6 +4234,7 @@ bool CleanGiBuildProducerSurfaceFromHit(
         hitMaterialIndex,
         hitMaterial,
         hitTexCoord,
+        bounceDir,
         hitSurfaceClass,
         hitTranslucentSubtype,
         hitTriangleClassAndFlags,

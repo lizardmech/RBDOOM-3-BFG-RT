@@ -648,7 +648,7 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.materialUniverseTableCompareStats.textureHandleMismatches);
     if (r_pathTracingMatClassEnable.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: RT smoke material classifier records=%d hits=%d misses=%d rebuilds=%d frame=%d/%d/%d routes(rmao/legacy/fallback)=%d/%d/%d confidence(auth/flag/heur/fallback)=%d/%d/%d/%d\n",
+        common->Printf("PathTracePrimaryPass: RT smoke material classifier records=%d hits=%d misses=%d rebuilds=%d frame=%d/%d/%d routes(rmao/legacy/fallback)=%d/%d/%d confidence(auth/flag/heur/fallback)=%d/%d/%d/%d compositing(stages/max/>4/>8)=%d/%d/%d/%d ops(opaque/add/mul/invert/over/clip/unknown)=%d/%d/%d/%d/%d/%d/%d\n",
             desc.materialClassifierStats.records,
             desc.materialClassifierStats.hits,
             desc.materialClassifierStats.misses,
@@ -662,7 +662,18 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
             desc.materialClassifierStats.confidenceAuthoritative,
             desc.materialClassifierStats.confidenceFlag,
             desc.materialClassifierStats.confidenceHeuristic,
-            desc.materialClassifierStats.confidenceFallbackNone);
+            desc.materialClassifierStats.confidenceFallbackNone,
+            desc.materialClassifierStats.compositingStages,
+            desc.materialClassifierStats.maxCompositingStages,
+            desc.materialClassifierStats.materialsOverFourStages,
+            desc.materialClassifierStats.materialsOverEightStages,
+            desc.materialClassifierStats.compositingOpaque,
+            desc.materialClassifierStats.compositingAdditive,
+            desc.materialClassifierStats.compositingMultiply,
+            desc.materialClassifierStats.compositingInverted,
+            desc.materialClassifierStats.compositingAlphaOver,
+            desc.materialClassifierStats.compositingAlphaClip,
+            desc.materialClassifierStats.compositingUnknown);
     }
     if (desc.emissiveInventoryStats)
     {

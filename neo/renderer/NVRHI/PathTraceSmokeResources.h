@@ -154,6 +154,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::TextureHandle rrGuideResetMaskTexture;
     nvrhi::TextureHandle rrGuidePositionTexture;
     nvrhi::TextureHandle fallbackTexture;
+    nvrhi::TextureHandle skyEnvironmentCube;
     nvrhi::BufferHandle constantsBuffer;
     nvrhi::BufferHandle restirPTConstantsBuffer;
     nvrhi::BufferHandle boundsOverlayLineBuffer;
@@ -203,6 +204,8 @@ struct RtSmokeSceneResourceCommitDesc
     nvrhi::BindingSetHandle bindingSet;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     std::vector<nvrhi::TextureHandle> activeTextureTable;
+    nvrhi::TextureHandle skyEnvironmentCube;
+    nvrhi::BindingSetHandle skyCubeProbeBindingSet;
     bool textureDescriptorTableCreated = false;
     bool textureDescriptorTableWritten = false;
     int materialTableEntryCount = 0;
@@ -243,6 +246,8 @@ struct RtSmokeSceneResourceCommitBuildDesc
     nvrhi::BindingSetHandle bindingSet;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     const std::vector<nvrhi::TextureHandle>* activeTextureTable = nullptr;
+    nvrhi::TextureHandle skyEnvironmentCube;
+    nvrhi::BindingSetHandle skyCubeProbeBindingSet;
     bool textureDescriptorTableCreated = false;
     bool textureDescriptorTableWritten = false;
     int materialTableEntryCount = 0;

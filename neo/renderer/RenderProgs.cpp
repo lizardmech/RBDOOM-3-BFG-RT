@@ -947,6 +947,8 @@ void idRenderProgManager::Init( nvrhi::IDevice* device )
 		{ BUILTIN_EXPOSURE_CS, "builtin/post/exposure", "", { { "HISTOGRAM_BINS", "256" }, { "USE_PUSH_CONSTANTS", usePushConstants( BINDING_LAYOUT_EXPOSURE ) } }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_EXPOSURE },
 		{ BUILTIN_PT_SKINNING_CS, "builtin/pathtracing/pathtrace_skinning", "", { }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
 		{ BUILTIN_CLEAN_RTXDI_DI_BOILING_FILTER_CS, "builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_boiling_filter", "", { }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
+		{ BUILTIN_PT_SKY_CUBE_PROBE_CS, "builtin/pathtracing/pathtrace_sky_cube_probe", "", { }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
+		{ BUILTIN_PT_SKY_SURFACE_RESOLVE_CS, "builtin/pathtracing/pathtrace_sky_surface_resolve", "", { }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
 		{ BUILTIN_NEE_CACHE_PRIMARY_SURFACE_UPDATE_CS, "builtin/pathtracing/cleanroom_rtxdi/pathtrace_nee_cache_primary_surface_update", "", { }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
 		// SP end
 	};

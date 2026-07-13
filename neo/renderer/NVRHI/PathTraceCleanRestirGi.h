@@ -61,6 +61,12 @@ struct PathTraceCleanRestirGiState
     nvrhi::BindingLayoutHandle temporalComputeBindingLayout;
     nvrhi::ComputePipelineHandle temporalComputePipeline;
     bool temporalComputeInitAttempted = false;
+    nvrhi::BufferHandle skyResolveRadianceConstantsBuffer;
+    nvrhi::BufferHandle skyResolveSurfaceConstantsBuffer;
+    nvrhi::ShaderHandle skyResolveShader;
+    nvrhi::BindingLayoutHandle skyResolveBindingLayout;
+    nvrhi::ComputePipelineHandle skyResolvePipeline;
+    bool skyResolveInitAttempted = false;
     nvrhi::BufferHandle boilingFilterConstantsBuffer;
     nvrhi::ShaderHandle boilingFilterShader;
     nvrhi::BindingLayoutHandle boilingFilterBindingLayout;
@@ -108,6 +114,7 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* materialTableBuffer = nullptr;
     nvrhi::IBuffer* dynamicMaterialBuffer = nullptr;
     nvrhi::ITexture* fallbackTexture = nullptr;
+    nvrhi::ITexture* skyEnvironmentCube = nullptr;
     nvrhi::IBuffer* emissiveTriangleBuffer = nullptr;
     nvrhi::IBuffer* emissiveDistributionBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteVertexBuffer = nullptr;

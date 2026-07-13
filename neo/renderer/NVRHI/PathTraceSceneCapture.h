@@ -83,6 +83,21 @@ struct RtSmokeMaterialSample
     idStr name;
 };
 
+static const int RT_SMOKE_DYNAMIC_ORDERED_STAGE_CAPACITY = 8;
+
+struct RtSmokeDynamicStageEval
+{
+    int stageIndex = -1;
+    bool enabled = false;
+    bool emissive = false;
+    bool hasAlphaTest = false;
+    bool hasTexMatrix = false;
+    float condition = 1.0f;
+    float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    float alphaTest = 0.0f;
+    float texMatrix[2][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+};
+
 struct RtSmokeDynamicMaterialEvalSample
 {
     bool valid = false;
@@ -114,6 +129,9 @@ struct RtSmokeDynamicMaterialEvalSample
     bool hasDiffuseStageColor = false;
     float diffuseStageColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
     float diffuseStageCondition = 1.0f;
+    RtSmokeDynamicStageEval orderedStages[RT_SMOKE_DYNAMIC_ORDERED_STAGE_CAPACITY];
+    int orderedStageCount = 0;
+    bool orderedStageOverflow = false;
     bool hasSurfaceOrigin = false;
     idVec3 surfaceOrigin = idVec3(0.0f, 0.0f, 0.0f);
 };

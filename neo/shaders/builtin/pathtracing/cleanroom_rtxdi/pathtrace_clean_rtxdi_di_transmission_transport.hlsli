@@ -97,6 +97,7 @@ PathTraceCleanRtxdiPayload PathTraceCleanRtxdiDiEmptyTransmissionTracePayload(RA
     payload.hitTriangleClassAndFlags = 0u;
     payload.hitT = 0.0;
     payload.hitBarycentrics = float2(0.0, 0.0);
+    payload.passthroughEmissiveRadiance = float3(0.0, 0.0, 0.0);
     return payload;
 }
 

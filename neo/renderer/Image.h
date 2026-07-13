@@ -387,6 +387,16 @@ public:
 		return usage;
 	}
 
+	cubeFiles_t GetCubeFiles() const
+	{
+		return cubeFiles;
+	}
+
+	int GetCubeMapSize() const
+	{
+		return cubeMapSize;
+	}
+
 	bool				IsLoaded() const;
 
 	// Creates a sampler for this texture to use in the shader.
