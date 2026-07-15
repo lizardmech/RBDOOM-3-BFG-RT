@@ -1198,7 +1198,10 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
         {
             if (RayReconstructionInfo.z >= 0.5)
             {
-                motionPixels -= RayReconstructionInfo.xy;
+                // Streamline's positive jitter offset denotes a projection shift whose
+                // inverse primary ray lands at pixel - jitter.  Remove that sampling
+                // displacement from the exported unjittered motion vector.
+                motionPixels += RayReconstructionInfo.xy;
             }
             PathTraceMotionVectors[pixel] = float4(motionPixels, PathTraceCleanRtxdiDiRRMotionDepthDelta(surface, expectedPrevDepth), 0.0);
             PathTraceRRMotionVectors[pixel] = motionPixels;
@@ -1212,7 +1215,7 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
         {
             if (RayReconstructionInfo.z >= 0.5)
             {
-                motionPixels -= RayReconstructionInfo.xy;
+                motionPixels += RayReconstructionInfo.xy;
             }
             PathTraceMotionVectors[pixel] = float4(motionPixels, PathTraceCleanRtxdiDiRRMotionDepthDelta(surface, expectedPrevDepth), 0.0);
             PathTraceRRMotionVectors[pixel] = motionPixels;
@@ -1852,7 +1855,10 @@ void RayGen()
     }
 
     const float2 rrJitterPixels = RayReconstructionInfo.z >= 0.5 ? RayReconstructionInfo.xy : float2(0.0, 0.0);
-    const float2 uv = (float2(outputPixel) + 0.5 + rrJitterPixels) / float2(max(fullDimensions, uint2(1u, 1u)));
+    // Match Remix/Streamline projection jitter semantics: the reported positive
+    // jitter shifts the projection, so inverse primary-ray generation samples
+    // pixel - jitter.
+    const float2 uv = (float2(outputPixel) + 0.5 - rrJitterPixels) / float2(max(fullDimensions, uint2(1u, 1u)));
     const float2 ndc = uv * 2.0 - 1.0;
     RayDesc ray;
     ray.Origin = CameraOriginAndTMax.xyz;
