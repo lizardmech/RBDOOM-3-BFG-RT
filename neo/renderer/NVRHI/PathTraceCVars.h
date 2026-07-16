@@ -343,6 +343,7 @@ extern idCVar r_pathTracingCleanRtxdiDiTemporalAudit;
 extern idCVar r_pathTracingCleanRestirGiEnable;
 extern idCVar r_pathTracingCleanRestirGiView;
 extern idCVar r_pathTracingCleanRestirGiTemporal;
+extern idCVar r_pathTracingCleanRestirGiPermutationSampling;
 extern idCVar r_pathTracingCleanRestirGiSpatial;
 extern idCVar r_pathTracingCleanRestirGiSpatialVisibility;
 extern idCVar r_pathTracingCleanRestirGiTemporalBiasCorrection;

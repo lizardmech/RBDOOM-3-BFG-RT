@@ -81,8 +81,10 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t finalMixMode;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
+    uint32_t permutationSamplingEnabled;
+    uint32_t permutationSamplingPadding[3];
 };
-static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 176, "GI constants tail must match the HLSL cbuffer tail layout");
+static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 192, "GI constants tail must match the HLSL cbuffer tail layout");
 
 const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
 
@@ -1307,6 +1309,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.pageInfo[1] = oddFrame ? CLEAN_RESTIR_GI_PAGE_TEMPORAL_OUTPUT : CLEAN_RESTIR_GI_PAGE_TEMPORAL_INPUT;
     tail.pageInfo[2] = oddFrame ? CLEAN_RESTIR_GI_PAGE_TEMPORAL_INPUT : CLEAN_RESTIR_GI_PAGE_TEMPORAL_OUTPUT;
     tail.pageInfo[3] = CLEAN_RESTIR_GI_PAGE_SPATIAL_OUTPUT;
+    tail.permutationSamplingEnabled = r_pathTracingCleanRestirGiPermutationSampling.GetInteger() != 0 ? 1u : 0u;
     std::memcpy(constants + CLEAN_RESTIR_GI_DI_BLOB_SIZE, &tail, sizeof(tail));
     commandList->writeBuffer(state.constantsBuffer, constants, sizeof(constants));
 

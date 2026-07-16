@@ -2019,6 +2019,12 @@ idCVar r_pathTracingCleanRestirGiTemporal(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI temporal resampling: 0 = initial reservoir passes through to the temporal output page unchanged" );
 
+idCVar r_pathTracingCleanRestirGiPermutationSampling(
+    "r_pathTracingCleanRestirGiPermutationSampling",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI temporal permutation sampling: perturb the previous-frame reservoir address inside Remix-default 4x4 pixel blocks to produce denoiser-friendly temporal variation" );
+
 idCVar r_pathTracingCleanRestirGiSpatial(
     "r_pathTracingCleanRestirGiSpatial",
     "1",

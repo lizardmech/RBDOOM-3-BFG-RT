@@ -386,6 +386,8 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiFinalMixMode;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
+    uint CleanRestirGiPermutationSamplingEnabled;
+    uint3 CleanRestirGiPermutationSamplingPadding;
 };
 
 void CleanGiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)
@@ -5141,8 +5143,11 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     desc.maxReservoirAge = temporalMotionActive
         ? min(CleanRestirGiMaxReservoirAge, 8u)
         : CleanRestirGiMaxReservoirAge;
-    desc.enablePermutationSampling = 0u;
-    desc.uniformRandomNumber = 0u;
+    desc.enablePermutationSampling = CleanRestirGiPermutationSamplingEnabled;
+    // Permutation sampling uses one value shared by every pixel and changes it
+    // once per frame. It perturbs only the previous-reservoir address; this is
+    // intentionally independent of the per-pixel producer/blue-noise streams.
+    desc.uniformRandomNumber = RTXDI_JenkinsHash(CleanRestirGiFrameIndex ^ 0x711ad151u);
     desc.fireflyFilteringLuminanceThreshold = CleanRestirGiFireflyThreshold;
     return RemixRestirGIRunTemporalReuseContract(surface, desc);
 }
