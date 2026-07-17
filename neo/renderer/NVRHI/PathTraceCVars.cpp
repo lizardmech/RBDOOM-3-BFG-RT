@@ -2475,6 +2475,42 @@ idCVar r_pathTracingParticleDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "One-shot screen-space particle candidate audit: 1=summary plus candidates, 2=verbose stage details; does not change rendering" );
 
+idCVar r_pathTracingParticleComposite(
+    "r_pathTracingParticleComposite",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Screen-space particle lane: 0=off, 1=capture on, 2=capture with diagnostic tint requested; PC-T01 captures CPU records only" );
+
+idCVar r_pathTracingParticleAmbient(
+    "r_pathTracingParticleAmbient",
+    "0.16",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Ambient floor reserved for lit particle cards" );
+
+idCVar r_pathTracingParticleEmissiveScale(
+    "r_pathTracingParticleEmissiveScale",
+    "1.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Global scale recorded for emissive particle-card batches" );
+
+idCVar r_pathTracingParticleSoftDepth(
+    "r_pathTracingParticleSoftDepth",
+    "8.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "World-space soft-intersection depth recorded for particle-card batches" );
+
+idCVar r_pathTracingParticleShadowRays(
+    "r_pathTracingParticleShadowRays",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Visibility-ray count reserved for lit particle-card batches" );
+
+idCVar r_pathTracingParticleSortMode(
+    "r_pathTracingParticleSortMode",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Alpha particle ordering mode reserved for the composite: 0=none, 1=CPU back-to-front" );
+
 idCVar r_pathTracingSmokeParticleEdgeFade(
     "r_pathTracingSmokeParticleEdgeFade",
     "1",

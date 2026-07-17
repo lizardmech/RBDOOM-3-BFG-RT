@@ -4,6 +4,7 @@
 #include "PathTraceCVars.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomMaterialClassifier.h"
+#include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceParticleCapture.h"
 #include "PathTraceSceneCapture.h"
@@ -297,9 +298,359 @@ bool ParticleAuditModelLooksWeapon(const char* modelName)
          idStr::FindText(modelName, "hands", false) >= 0);
 }
 
+bool ParticleCompositeSurfaceAccepted(
+    const drawSurf_t* drawSurf,
+    const RtSmokeTranslucentClassifierInfo& classifier,
+    const std::vector<ParticleAuditStage>& activeStages,
+    int& supportedStageCount)
+{
+    supportedStageCount = 0;
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    if (!drawSurf || !material || !drawSurf->frontEndGeo)
+    {
+        return false;
+    }
+
+    for (const ParticleAuditStage& stage : activeStages)
+    {
+        supportedStageCount += ParticleAuditStageSupported(stage) ? 1 : 0;
+    }
+    const bool transientMaterialTrait =
+        ParticleAuditSupportedDeform(material->Deform()) ||
+        material->Coverage() == MC_TRANSLUCENT ||
+        classifier.nameLooksParticle ||
+        material->GetSort() >= SS_MEDIUM;
+    return transientMaterialTrait &&
+        supportedStageCount > 0 &&
+        !IsSmokeGuiDrawSurface(drawSurf) &&
+        !classifier.nameLooksGui &&
+        !classifier.nameLooksGlass &&
+        !classifier.sortIsDecal &&
+        !classifier.polygonOffsetDecal &&
+        !classifier.nameLooksDecal &&
+        !classifier.sortIsPostProcess &&
+        !classifier.sortIsGuiOrSubview &&
+        !classifier.hasScreenTexgen;
 }
 
-void AuditPathTraceParticleCompositeCandidates(const viewDef_t* viewDef)
+RtPathTraceParticleBlendClass ParticleCaptureBlendClass(ParticleAuditBlendClass blendClass)
+{
+    switch (blendClass)
+    {
+        case ParticleAuditBlendClass::AlphaEmissive:
+            return RtPathTraceParticleBlendClass::AlphaEmissive;
+        case ParticleAuditBlendClass::PureAdditiveEmissive:
+            return RtPathTraceParticleBlendClass::PureAdditiveEmissive;
+        default:
+            return RtPathTraceParticleBlendClass::AlphaLit;
+    }
+}
+
+const char* ParticleCaptureDepthPolicyName(RtPathTraceParticleDepthPolicy policy)
+{
+    switch (policy)
+    {
+        case RtPathTraceParticleDepthPolicy::WeaponProjection: return "weapon-projection";
+        case RtPathTraceParticleDepthPolicy::ModelProjection: return "model-projection";
+        case RtPathTraceParticleDepthPolicy::WorldMuzzleNearPlane: return "world-muzzle-near-plane";
+        default: return "world";
+    }
+}
+
+const char* ParticleCaptureSourceClassName(RtPathTraceParticleSourceClass sourceClass)
+{
+    switch (sourceClass)
+    {
+        case RtPathTraceParticleSourceClass::LocalWeapon: return "local-weapon";
+        case RtPathTraceParticleSourceClass::AttachedWeaponEmitter: return "attached-weapon-emitter";
+        case RtPathTraceParticleSourceClass::ProjectileTrail: return "projectile-trail";
+        case RtPathTraceParticleSourceClass::Impact: return "impact";
+        case RtPathTraceParticleSourceClass::Unknown: return "unknown";
+        default: return "world";
+    }
+}
+
+float ParticleCaptureRegisterValue(const idMaterial* material, const float* registers, int registerIndex, float fallback)
+{
+    return material && registers && registerIndex >= 0 && registerIndex < material->GetNumRegisters()
+        ? registers[registerIndex]
+        : fallback;
+}
+
+uint32_t ParticleCaptureTextureIndex(RtPathTraceParticleCapture& capture, const idImage* image)
+{
+    for (uint32_t textureIndex = 0; textureIndex < static_cast<uint32_t>(capture.textures.size()); ++textureIndex)
+    {
+        if (capture.textures[textureIndex] == image)
+        {
+            return textureIndex;
+        }
+    }
+    capture.textures.push_back(image);
+    return static_cast<uint32_t>(capture.textures.size() - 1);
+}
+
+uint32_t ParticleCapturePackColor(const PathTraceSmokeVertex& vertex, const shaderStage_t* stage, const idVec4& stageColor)
+{
+    idVec4 color(1.0f, 1.0f, 1.0f, 1.0f);
+    if (stage && stage->vertexColor == SVC_MODULATE)
+    {
+        color.Set(vertex.color[0], vertex.color[1], vertex.color[2], vertex.color[3]);
+    }
+    else if (stage && stage->vertexColor == SVC_INVERSE_MODULATE)
+    {
+        color.Set(
+            1.0f - vertex.color[0],
+            1.0f - vertex.color[1],
+            1.0f - vertex.color[2],
+            1.0f - vertex.color[3]);
+    }
+    for (int component = 0; component < 4; ++component)
+    {
+        color[component] = idMath::ClampFloat(0.0f, 1.0f, color[component] * stageColor[component]);
+    }
+    return PackColor(color);
+}
+
+void ParticleCaptureAppendQuads(
+    const viewDef_t* viewDef,
+    RtPathTraceParticleCapture& capture,
+    uint32_t batchIndex,
+    const ParticleCompositeBatch& batch)
+{
+    for (uint32_t localFirstIndex = 0; localFirstIndex + 5 < batch.indexCount; localFirstIndex += 6)
+    {
+        uint32_t uniqueVertexIndexes[6] = {};
+        int uniqueVertexCount = 0;
+        for (uint32_t corner = 0; corner < 6; ++corner)
+        {
+            const uint32_t vertexIndex = capture.indexes[batch.firstIndex + localFirstIndex + corner];
+            bool found = false;
+            for (int uniqueIndex = 0; uniqueIndex < uniqueVertexCount; ++uniqueIndex)
+            {
+                found |= uniqueVertexIndexes[uniqueIndex] == vertexIndex;
+            }
+            if (!found)
+            {
+                uniqueVertexIndexes[uniqueVertexCount++] = vertexIndex;
+            }
+        }
+        if (uniqueVertexCount < 3)
+        {
+            continue;
+        }
+
+        idVec3 center = vec3_origin;
+        for (int uniqueIndex = 0; uniqueIndex < uniqueVertexCount; ++uniqueIndex)
+        {
+            const ParticleCompositeVertex& vertex = capture.vertices[uniqueVertexIndexes[uniqueIndex]];
+            center += idVec3(vertex.worldPosition[0], vertex.worldPosition[1], vertex.worldPosition[2]);
+        }
+        center /= static_cast<float>(uniqueVertexCount);
+
+        ParticleCompositeQuad quad;
+        quad.centerWorld[0] = center.x;
+        quad.centerWorld[1] = center.y;
+        quad.centerWorld[2] = center.z;
+        quad.batchIndex = batchIndex;
+        quad.firstIndex = batch.firstIndex + localFirstIndex;
+        quad.viewDepth = viewDef ? (center - viewDef->renderView.vieworg) * viewDef->renderView.viewaxis[0] : 0.0f;
+        capture.quads.push_back(quad);
+        ++capture.stats.capturedDrawQuads;
+    }
+}
+
+bool ParticleCaptureAppendSurface(
+    const viewDef_t* viewDef,
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t* tri,
+    int surfaceIndex,
+    const std::vector<ParticleAuditStage>& activeStages,
+    int supportedStageCount,
+    RtPathTraceParticleCapture& capture)
+{
+    std::vector<PathTraceSmokeVertex> baseVertices;
+    std::vector<uint32_t> baseIndexes;
+    std::vector<uint32_t> baseClasses;
+    std::vector<uint32_t> baseMaterials;
+    RtSmokeSurfaceSkipStats skipStats;
+    RtSmokeAttributeStats attributeStats;
+    const uint32_t materialId = SmokeMaterialId(drawSurf->material);
+    const int emittedIndexes = AppendSmokeSurfaceGeometry(
+        drawSurf,
+        tri,
+        SmokeSurfaceClassId(RtSmokeSurfaceClass::ParticleAlpha),
+        materialId,
+        RT_SMOKE_CLASS_COUNT,
+        RT_SMOKE_TRIANGLE_CLASS_MASK,
+        SmokeSurfaceClassId(RtSmokeSurfaceClass::ParticleAlpha),
+        RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL,
+        baseVertices,
+        baseIndexes,
+        baseClasses,
+        baseMaterials,
+        skipStats,
+        attributeStats);
+    if (emittedIndexes <= 0 || baseVertices.empty() || baseIndexes.empty())
+    {
+        ++capture.stats.droppedGeometrySurfaces;
+        return false;
+    }
+    if ((emittedIndexes % 6) != 0)
+    {
+        ++capture.stats.droppedNonQuadSurfaces;
+        return false;
+    }
+
+    const idMaterial* material = drawSurf->material;
+    const float* registers = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
+    const viewEntity_t* space = drawSurf->space;
+    const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
+    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    const bool weaponDepthHack = space && space->weaponDepthHack;
+    const float modelDepthHack = space ? space->modelDepthHack : 0.0f;
+    const RtSmokeSurfaceClass currentClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+    const srfTriangles_t* validatedTri = nullptr;
+    const bool currentParticleAlphaBvh =
+        ValidateSmokeDrawSurface(viewDef, drawSurf, validatedTri, nullptr) &&
+        currentClass == RtSmokeSurfaceClass::ParticleAlpha;
+
+    bool appendedBatch = false;
+    for (const ParticleAuditStage& auditStage : activeStages)
+    {
+        if (!ParticleAuditStageSupported(auditStage))
+        {
+            continue;
+        }
+        const shaderStage_t* stage = material->GetStage(auditStage.stageIndex);
+        if (!stage || !stage->texture.image)
+        {
+            continue;
+        }
+
+        float textureMatrix[2][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+        if (stage->texture.hasMatrix)
+        {
+            for (int row = 0; row < 2; ++row)
+            {
+                for (int column = 0; column < 3; ++column)
+                {
+                    textureMatrix[row][column] = ParticleCaptureRegisterValue(
+                        material,
+                        registers,
+                        stage->texture.matrix[row][column],
+                        row == column ? 1.0f : 0.0f);
+                }
+            }
+        }
+        idVec4 stageColor;
+        for (int component = 0; component < 4; ++component)
+        {
+            stageColor[component] = ParticleCaptureRegisterValue(material, registers, stage->color.registers[component], 1.0f);
+        }
+
+        ParticleCompositeBatch batch;
+        batch.textureIndex = ParticleCaptureTextureIndex(capture, stage->texture.image);
+        batch.firstVertex = static_cast<uint32_t>(capture.vertices.size());
+        batch.vertexCount = static_cast<uint32_t>(baseVertices.size());
+        batch.firstIndex = static_cast<uint32_t>(capture.indexes.size());
+        batch.indexCount = static_cast<uint32_t>(baseIndexes.size());
+        batch.blendClass = ParticleCaptureBlendClass(auditStage.blendClass);
+        batch.depthPolicy = weaponDepthHack
+            ? RtPathTraceParticleDepthPolicy::WeaponProjection
+            : (modelDepthHack != 0.0f ? RtPathTraceParticleDepthPolicy::ModelProjection : RtPathTraceParticleDepthPolicy::World);
+        batch.sourceClass = weaponDepthHack
+            ? RtPathTraceParticleSourceClass::LocalWeapon
+            : RtPathTraceParticleSourceClass::World;
+        batch.sourceEntityId = entity ? entity->index : -1;
+        batch.allowSurfaceInViewId = renderEntity ? renderEntity->allowSurfaceInViewID : 0;
+        batch.modelDepthHack = modelDepthHack;
+        batch.emissiveScale = Max(0.0f, r_pathTracingParticleEmissiveScale.GetFloat());
+        batch.softDepth = Max(0.0f, r_pathTracingParticleSoftDepth.GetFloat());
+        batch.materialId = materialId;
+        batch.surfaceIndex = surfaceIndex;
+        batch.stageIndex = auditStage.stageIndex;
+        batch.flags = RT_PATH_TRACE_PARTICLE_BATCH_STABLE_ID_UNAVAILABLE;
+        batch.flags |= stage->texture.hasMatrix ? RT_PATH_TRACE_PARTICLE_BATCH_TEXTURE_MATRIX : 0u;
+        batch.flags |= stage->vertexColor == SVC_INVERSE_MODULATE ? RT_PATH_TRACE_PARTICLE_BATCH_INVERSE_VERTEX_COLOR : 0u;
+        batch.flags |= currentParticleAlphaBvh ? RT_PATH_TRACE_PARTICLE_BATCH_CURRENT_PARTICLE_ALPHA_BVH : 0u;
+        batch.flags |= supportedStageCount > 1 ? RT_PATH_TRACE_PARTICLE_BATCH_AMBIGUOUS_MATERIAL : 0u;
+        batch.flags |= weaponDepthHack ? RT_PATH_TRACE_PARTICLE_BATCH_WEAPON_DEPTH_HACK : 0u;
+        batch.flags |= modelDepthHack != 0.0f ? RT_PATH_TRACE_PARTICLE_BATCH_MODEL_DEPTH_HACK : 0u;
+
+        for (const PathTraceSmokeVertex& baseVertex : baseVertices)
+        {
+            ParticleCompositeVertex vertex;
+            vertex.worldPosition[0] = baseVertex.position[0];
+            vertex.worldPosition[1] = baseVertex.position[1];
+            vertex.worldPosition[2] = baseVertex.position[2];
+            vertex.texCoord[0] = textureMatrix[0][0] * baseVertex.texCoord[0] + textureMatrix[0][1] * baseVertex.texCoord[1] + textureMatrix[0][2];
+            vertex.texCoord[1] = textureMatrix[1][0] * baseVertex.texCoord[0] + textureMatrix[1][1] * baseVertex.texCoord[1] + textureMatrix[1][2];
+            vertex.packedColor = ParticleCapturePackColor(baseVertex, stage, stageColor);
+            capture.vertices.push_back(vertex);
+        }
+        for (uint32_t baseIndex : baseIndexes)
+        {
+            capture.indexes.push_back(batch.firstVertex + baseIndex);
+        }
+
+        const uint32_t batchIndex = static_cast<uint32_t>(capture.batches.size());
+        capture.batches.push_back(batch);
+        ParticleCaptureAppendQuads(viewDef, capture, batchIndex, capture.batches.back());
+        ++capture.stats.capturedBatches;
+        capture.stats.alphaLitBatches += batch.blendClass == RtPathTraceParticleBlendClass::AlphaLit ? 1 : 0;
+        capture.stats.alphaEmissiveBatches += batch.blendClass == RtPathTraceParticleBlendClass::AlphaEmissive ? 1 : 0;
+        capture.stats.pureAdditiveBatches += batch.blendClass == RtPathTraceParticleBlendClass::PureAdditiveEmissive ? 1 : 0;
+        appendedBatch = true;
+    }
+    if (appendedBatch)
+    {
+        ++capture.stats.capturedSurfaces;
+    }
+    return appendedBatch;
+}
+
+void CapturePathTraceParticleCompositeRecords(const viewDef_t* viewDef, RtPathTraceParticleCapture& capture)
+{
+    if (!viewDef || !viewDef->drawSurfs || viewDef->isSubview)
+    {
+        return;
+    }
+    for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+        const srfTriangles_t* tri = drawSurf ? drawSurf->frontEndGeo : nullptr;
+        if (!drawSurf || !material || !tri || !tri->verts || !tri->indexes || drawSurf->numIndexes < 3 || (drawSurf->numIndexes % 3) != 0)
+        {
+            continue;
+        }
+
+        std::vector<ParticleAuditStage> activeStages;
+        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = material->GetStage(stageIndex);
+            if (stage && ParticleAuditStageActive(material, drawSurf, stage))
+            {
+                activeStages.push_back(ParticleAuditInspectStage(drawSurf, stageIndex));
+            }
+        }
+        const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+        int supportedStageCount = 0;
+        if (!ParticleCompositeSurfaceAccepted(drawSurf, classifier, activeStages, supportedStageCount))
+        {
+            continue;
+        }
+
+        ++capture.stats.candidateSurfaces;
+        capture.stats.candidateQuads += (drawSurf->numIndexes % 6) == 0 ? drawSurf->numIndexes / 6 : 0;
+        ParticleCaptureAppendSurface(viewDef, drawSurf, tri, surfaceIndex, activeStages, supportedStageCount, capture);
+    }
+}
+
+}
+
+static void AuditPathTraceParticleCompositeCandidates(const viewDef_t* viewDef, const RtPathTraceParticleCapture& capture)
 {
     const int dumpMode = r_pathTracingParticleDump.GetInteger();
     if (dumpMode == 0)
@@ -626,6 +977,57 @@ void AuditPathTraceParticleCompositeCandidates(const viewDef_t* viewDef)
         weaponDepthHackSurfaces,
         modelDepthHackSurfaces,
         allowViewIdSurfaces);
+    common->Printf("PathTraceParticleAudit: capture enabled=%d debugTint=%d candidates=%d/%d quads=%d/%d capturedSurfaces=%d batches=%d drawQuads=%d vertices=%d indexes=%d textures=%d droppedGeometry=%d droppedNonQuad=%d parity=%s\n",
+        capture.enabled ? 1 : 0,
+        capture.debugTint ? 1 : 0,
+        capture.stats.candidateSurfaces,
+        candidateSurfaces,
+        capture.stats.candidateQuads,
+        candidateQuads,
+        capture.stats.capturedSurfaces,
+        capture.stats.capturedBatches,
+        capture.stats.capturedDrawQuads,
+        static_cast<int>(capture.vertices.size()),
+        static_cast<int>(capture.indexes.size()),
+        static_cast<int>(capture.textures.size()),
+        capture.stats.droppedGeometrySurfaces,
+        capture.stats.droppedNonQuadSurfaces,
+        capture.stats.candidateSurfaces == candidateSurfaces && capture.stats.candidateQuads == candidateQuads ? "match" : "MISMATCH");
+    common->Printf("PathTraceParticleAudit: capture blends alphaLit=%d alphaEmissive=%d pureAdditive=%d ambient=%.3f emissiveScale=%.3f softDepth=%.3f shadowRays=%d sortMode=%d\n",
+        capture.stats.alphaLitBatches,
+        capture.stats.alphaEmissiveBatches,
+        capture.stats.pureAdditiveBatches,
+        Max(0.0f, r_pathTracingParticleAmbient.GetFloat()),
+        Max(0.0f, r_pathTracingParticleEmissiveScale.GetFloat()),
+        Max(0.0f, r_pathTracingParticleSoftDepth.GetFloat()),
+        Max(0, r_pathTracingParticleShadowRays.GetInteger()),
+        idMath::ClampInt(0, 1, r_pathTracingParticleSortMode.GetInteger()));
+    if (dumpMode > 1)
+    {
+        for (int batchIndex = 0; batchIndex < static_cast<int>(capture.batches.size()); ++batchIndex)
+        {
+            const ParticleCompositeBatch& batch = capture.batches[batchIndex];
+            const idImage* image = batch.textureIndex < capture.textures.size() ? capture.textures[batch.textureIndex] : nullptr;
+            common->Printf("PathTraceParticleAudit: capture batch=%d surface=%d stage=%d materialId=%u texture=%u('%s') blend=%u depth=%s source=%s entity=%d allowViewID=%d modelDepthHack=%.3f firstVertex=%u vertices=%u firstIndex=%u indexes=%u flags=0x%08x\n",
+                batchIndex,
+                batch.surfaceIndex,
+                batch.stageIndex,
+                batch.materialId,
+                batch.textureIndex,
+                image ? image->GetName() : "<none>",
+                static_cast<uint32_t>(batch.blendClass),
+                ParticleCaptureDepthPolicyName(batch.depthPolicy),
+                ParticleCaptureSourceClassName(batch.sourceClass),
+                batch.sourceEntityId,
+                batch.allowSurfaceInViewId,
+                batch.modelDepthHack,
+                batch.firstVertex,
+                batch.vertexCount,
+                batch.firstIndex,
+                batch.indexCount,
+                batch.flags);
+        }
+    }
     common->Printf("PathTraceParticleAudit: exclusions gui=%d glass=%d decal=%d postOrSubview=%d screenTexgen=%d noSupportedStage=%d\n",
         excludedGui,
         excludedGlass,
@@ -680,4 +1082,30 @@ void AuditPathTraceParticleCompositeCandidates(const viewDef_t* viewDef)
         loggedSurfaces,
         static_cast<int>(materialCounts.size()),
         static_cast<int>(entityCounts.size()));
+}
+
+void RtPathTraceParticleCapture::Clear()
+{
+    vertices.clear();
+    indexes.clear();
+    batches.clear();
+    quads.clear();
+    textures.clear();
+    stats = RtPathTraceParticleCaptureStats();
+    enabled = false;
+    debugTint = false;
+}
+
+void BuildPathTraceParticleCompositeCapture(const viewDef_t* viewDef, RtPathTraceParticleCapture& capture)
+{
+    capture.Clear();
+    const int compositeMode = idMath::ClampInt(0, 2, r_pathTracingParticleComposite.GetInteger());
+    const bool dumpRequested = r_pathTracingParticleDump.GetInteger() != 0;
+    capture.enabled = compositeMode != 0;
+    capture.debugTint = compositeMode == 2;
+    if (capture.enabled || dumpRequested)
+    {
+        CapturePathTraceParticleCompositeRecords(viewDef, capture);
+    }
+    AuditPathTraceParticleCompositeCandidates(viewDef, capture);
 }

@@ -3656,7 +3656,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 {
     OPTICK_EVENT("PT Build Scene");
 
-    AuditPathTraceParticleCompositeCandidates(viewDef);
+    BuildPathTraceParticleCompositeCapture(viewDef, m_particleCapture);
 
     const int sceneStartMs = Sys_Milliseconds();
     const int mode18Preset = r_pathTracingMode18TestPreset.GetInteger();

@@ -17,6 +17,7 @@
 #include "PathTraceCleanRestirGi.h"
 #include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceNeeCache.h"
+#include "PathTraceParticleCapture.h"
 #include "PathTraceReGIR.h"
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceRemixLightManager.h"
@@ -314,6 +315,7 @@ private:
 	int m_pathTracePostLutHeight = 0;
     bool m_pathTracePostLutInvalidLogged = false;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
+    RtPathTraceParticleCapture m_particleCapture;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokePreviousSkinnedSurfaceRecords;
     std::vector<PathTraceSmokeVertex> m_smokePreviousSkinnedVertexData;
