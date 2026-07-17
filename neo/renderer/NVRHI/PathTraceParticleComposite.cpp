@@ -7,6 +7,8 @@
 #include "../RenderCommon.h"
 #include "../../sys/DeviceManager.h"
 
+#include <algorithm>
+
 extern DeviceManager* deviceManager;
 
 namespace {
@@ -74,6 +76,57 @@ nvrhi::BufferHandle ParticleCompositeEnsureBuffer(
     desc.keepInitialState = false;
     desc.debugName = name;
     return device->createBuffer(desc);
+}
+
+std::vector<uint32_t> ParticleCompositeBuildUploadIndexes(const RtPathTraceParticleCapture& capture)
+{
+    std::vector<uint32_t> uploadIndexes = capture.indexes;
+    if (r_pathTracingParticleSortMode.GetInteger() == 0)
+    {
+        return uploadIndexes;
+    }
+
+    for (uint32_t batchIndex = 0; batchIndex < static_cast<uint32_t>(capture.batches.size()); ++batchIndex)
+    {
+        const ParticleCompositeBatch& batch = capture.batches[batchIndex];
+        if (batch.blendClass != RtPathTraceParticleBlendClass::AlphaLit)
+        {
+            continue;
+        }
+
+        std::vector<const ParticleCompositePrimitive*> primitives;
+        uint32_t primitiveIndexCount = 0;
+        for (const ParticleCompositePrimitive& primitive : capture.primitives)
+        {
+            if (primitive.batchIndex == batchIndex)
+            {
+                primitives.push_back(&primitive);
+                primitiveIndexCount += primitive.indexCount;
+            }
+        }
+        if (primitives.size() < 2 || primitiveIndexCount != batch.indexCount)
+        {
+            continue;
+        }
+
+        std::stable_sort(
+            primitives.begin(),
+            primitives.end(),
+            [](const ParticleCompositePrimitive* a, const ParticleCompositePrimitive* b)
+            {
+                return a->viewDepth > b->viewDepth;
+            });
+
+        uint32_t destinationIndex = batch.firstIndex;
+        for (const ParticleCompositePrimitive* primitive : primitives)
+        {
+            for (uint32_t localIndex = 0; localIndex < primitive->indexCount; ++localIndex)
+            {
+                uploadIndexes[destinationIndex++] = capture.indexes[primitive->firstIndex + localIndex];
+            }
+        }
+    }
+    return uploadIndexes;
 }
 
 }
@@ -149,8 +202,9 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         m_particleCompositePipelines[blendIndex] = device->createGraphicsPipeline(pipelineDesc, m_particleCompositeFramebuffer);
     }
 
+    const std::vector<uint32_t> uploadIndexes = ParticleCompositeBuildUploadIndexes(m_particleCapture);
     const uint64_t vertexBytes = m_particleCapture.vertices.size() * sizeof(ParticleCompositeVertex);
-    const uint64_t indexBytes = m_particleCapture.indexes.size() * sizeof(uint32_t);
+    const uint64_t indexBytes = uploadIndexes.size() * sizeof(uint32_t);
     m_particleCompositeVertexBuffer = ParticleCompositeEnsureBuffer(
         device, m_particleCompositeVertexBuffer, "PathTraceParticleCompositeVertices", vertexBytes, sizeof(ParticleCompositeVertex), false);
     m_particleCompositeIndexBuffer = ParticleCompositeEnsureBuffer(
@@ -161,7 +215,7 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
     }
 
     commandList->writeBuffer(m_particleCompositeVertexBuffer, m_particleCapture.vertices.data(), vertexBytes);
-    commandList->writeBuffer(m_particleCompositeIndexBuffer, m_particleCapture.indexes.data(), indexBytes);
+    commandList->writeBuffer(m_particleCompositeIndexBuffer, uploadIndexes.data(), indexBytes);
     commandList->setBufferState(m_particleCompositeVertexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(m_particleCompositeIndexBuffer, nvrhi::ResourceStates::IndexBuffer);
     commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
