@@ -50,6 +50,15 @@ nvrhi::BlendState::RenderTarget ParticleCompositeBlendState(RtPathTraceParticleB
         blend.setSrcBlendAlpha(nvrhi::BlendFactor::One);
         blend.setDestBlendAlpha(nvrhi::BlendFactor::One);
     }
+    else if (blendClass == RtPathTraceParticleBlendClass::MultiplicativeDarken)
+    {
+        // Legacy black smoke uses GL_ZERO, GL_ONE_MINUS_SRC_COLOR: retain the
+        // resolved scene and attenuate it by the smoke card's RGB coverage.
+        blend.setSrcBlend(nvrhi::BlendFactor::Zero);
+        blend.setDestBlend(nvrhi::BlendFactor::OneMinusSrcColor);
+        blend.setSrcBlendAlpha(nvrhi::BlendFactor::Zero);
+        blend.setDestBlendAlpha(nvrhi::BlendFactor::One);
+    }
     else
     {
         blend.setSrcBlend(nvrhi::BlendFactor::One);
@@ -191,7 +200,7 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         return;
     }
 
-    for (int blendIndex = 0; blendIndex < 3; ++blendIndex)
+    for (int blendIndex = 0; blendIndex < static_cast<int>(RtPathTraceParticleBlendClass::Count); ++blendIndex)
     {
         if (m_particleCompositePipelines[blendIndex])
         {
@@ -258,7 +267,10 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         }
         const idImage* image = m_particleCapture.textures[batch.textureIndex];
         nvrhi::TextureHandle texture = image ? const_cast<idImage*>(image)->GetTextureHandle() : nullptr;
-        const int blendIndex = idMath::ClampInt(0, 2, static_cast<int>(batch.blendClass));
+        const int blendIndex = idMath::ClampInt(
+            0,
+            static_cast<int>(RtPathTraceParticleBlendClass::Count) - 1,
+            static_cast<int>(batch.blendClass));
         if (!texture || !m_particleCompositePipelines[blendIndex])
         {
             continue;

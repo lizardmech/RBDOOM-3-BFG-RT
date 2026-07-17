@@ -320,7 +320,7 @@ private:
     nvrhi::BindingLayoutHandle m_particleCompositeBindingLayout;
     nvrhi::ShaderHandle m_particleCompositeVertexShader;
     nvrhi::ShaderHandle m_particleCompositePixelShader;
-    nvrhi::GraphicsPipelineHandle m_particleCompositePipelines[3];
+    nvrhi::GraphicsPipelineHandle m_particleCompositePipelines[static_cast<int>(RtPathTraceParticleBlendClass::Count)];
     nvrhi::FramebufferHandle m_particleCompositeFramebuffer;
     nvrhi::TextureHandle m_particleCompositeFramebufferTexture;
     nvrhi::BufferHandle m_particleCompositeVertexBuffer;

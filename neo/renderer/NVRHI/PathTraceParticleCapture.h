@@ -23,7 +23,9 @@ enum class RtPathTraceParticleBlendClass : uint32_t
 {
     AlphaLit = 0,
     AlphaEmissive = 1,
-    PureAdditiveEmissive = 2
+    PureAdditiveEmissive = 2,
+    MultiplicativeDarken = 3,
+    Count = 4
 };
 
 enum class RtPathTraceParticleDepthPolicy : uint32_t
@@ -122,6 +124,7 @@ struct RtPathTraceParticleCaptureStats
     int alphaLitBatches = 0;
     int alphaEmissiveBatches = 0;
     int pureAdditiveBatches = 0;
+    int multiplicativeDarkenBatches = 0;
 };
 
 struct RtPathTraceParticleCapture

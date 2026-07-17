@@ -65,6 +65,7 @@ float4 main(PS_IN input) : SV_Target0
             else
             {
                 const bool weaponProjection = depthPolicy == 1u;
+                const bool coverageBlend = blendClass == 0u || blendClass == 3u;
                 // Additive projectile cards commonly surround a small rigid
                 // core. Permit world-space cards to sit slightly behind that
                 // core while retaining ordinary world occlusion at larger
@@ -73,7 +74,7 @@ float4 main(PS_IN input) : SV_Target0
                 // barrel cannot paint over the already-resolved gun.
                 const float occlusionTolerance = weaponProjection
                     ? 0.02
-                    : (blendClass == 0u ? 0.02 : max(ParticleConstants.batchInfo.z, 0.02));
+                    : (coverageBlend ? 0.02 : max(ParticleConstants.batchInfo.z, 0.02));
                 if (depthGap < -occlusionTolerance)
                 {
                     discard;
@@ -83,7 +84,7 @@ float4 main(PS_IN input) : SV_Target0
                 // fading every blend class here erases the visible projectile.
                 // Attached weapon cards are ordered against the gun, but do not
                 // fade merely because the barrel is close behind them.
-                if (blendClass == 0u && !weaponProjection)
+                if (coverageBlend && !weaponProjection)
                 {
                     softFade = saturate(depthGap / max(ParticleConstants.batchInfo.z, 1.0e-3));
                 }
@@ -94,16 +95,32 @@ float4 main(PS_IN input) : SV_Target0
     // Particle RGB is authored in sRGB space, but particle opacity/fade values
     // are linear coverage. Converting alpha through the sRGB curve makes smoke
     // disappear long before its authored fade completes.
-    const float4 authoredTexel = ParticleTexture.Sample(ParticleSampler, input.texCoord) * input.color;
-    float4 texel = float4(sRGBToLinearRGB(authoredTexel.rgb), authoredTexel.a);
+    const float4 sampledTexel = ParticleTexture.Sample(ParticleSampler, input.texCoord);
+    const float4 authoredTexel = sampledTexel * input.color;
+    // Additive and multiplicative particle vertex colors are intensity/fade
+    // controls. Applying the sRGB curve after multiplying them makes a 0.25
+    // smoke tint contribute only about 0.05 and erases most of its lifetime.
+    // Decode the authored texture first, then apply that linear control.
+    const bool rgbCoverageBlend = blendClass == 2u || blendClass == 3u;
+    const float3 linearRgb = rgbCoverageBlend
+        ? sRGBToLinearRGB(sampledTexel.rgb) * input.color.rgb
+        : sRGBToLinearRGB(authoredTexel.rgb);
+    float4 texel = float4(linearRgb, authoredTexel.a);
     if (blendClass != 2u)
     {
-        texel.a *= softFade * ParticleConstants.modelInfo.z;
+        if (blendClass == 3u)
+        {
+            texel.rgb *= softFade * ParticleConstants.modelInfo.z;
+        }
+        else
+        {
+            texel.a *= softFade * ParticleConstants.modelInfo.z;
+        }
     }
-    const bool emptyAlpha = blendClass != 2u && texel.a <= (1.0 / 255.0);
-    const bool emptyAdditive = blendClass == 2u &&
+    const bool emptyAlpha = blendClass < 2u && texel.a <= (1.0 / 255.0);
+    const bool emptyRgbCoverage = blendClass >= 2u &&
         max(max(abs(texel.r), abs(texel.g)), abs(texel.b)) <= (1.0 / 255.0);
-    if (!debugTint && (emptyAlpha || emptyAdditive))
+    if (!debugTint && (emptyAlpha || emptyRgbCoverage))
     {
         discard;
     }
@@ -119,11 +136,13 @@ float4 main(PS_IN input) : SV_Target0
     }
     else
     {
-        rgb = texel.rgb * ParticleConstants.cameraUpAndEmissiveScale.w;
+        rgb = blendClass == 2u
+            ? texel.rgb * ParticleConstants.cameraUpAndEmissiveScale.w
+            : texel.rgb;
     }
     if (debugTint)
     {
         rgb = float3(1.0, 0.0, 1.0);
     }
-    return float4(rgb, debugTint ? 1.0 : (blendClass == 2u ? 0.0 : texel.a));
+    return float4(rgb, debugTint ? 1.0 : (blendClass >= 2u ? 0.0 : texel.a));
 }

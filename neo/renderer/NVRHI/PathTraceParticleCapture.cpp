@@ -20,6 +20,7 @@ enum class ParticleAuditBlendClass
     AlphaLit,
     AlphaEmissive,
     PureAdditiveEmissive,
+    MultiplicativeDarken,
     Unsupported
 };
 
@@ -101,6 +102,8 @@ const char* ParticleAuditBlendClassName(ParticleAuditBlendClass blendClass)
             return "alpha-emissive";
         case ParticleAuditBlendClass::PureAdditiveEmissive:
             return "pure-additive-emissive";
+        case ParticleAuditBlendClass::MultiplicativeDarken:
+            return "multiplicative-darken";
         default:
             return "unsupported";
     }
@@ -151,6 +154,10 @@ ParticleAuditBlendClass ParticleAuditClassifyBlend(uint64 srcBlend, uint64 dstBl
     if (srcBlend == GLS_SRCBLEND_ONE && dstBlend == GLS_DSTBLEND_ONE)
     {
         return ParticleAuditBlendClass::PureAdditiveEmissive;
+    }
+    if (srcBlend == GLS_SRCBLEND_ZERO && dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_COLOR)
+    {
+        return ParticleAuditBlendClass::MultiplicativeDarken;
     }
     return ParticleAuditBlendClass::Unsupported;
 }
@@ -452,6 +459,8 @@ RtPathTraceParticleBlendClass ParticleCaptureBlendClass(ParticleAuditBlendClass 
             return RtPathTraceParticleBlendClass::AlphaEmissive;
         case ParticleAuditBlendClass::PureAdditiveEmissive:
             return RtPathTraceParticleBlendClass::PureAdditiveEmissive;
+        case ParticleAuditBlendClass::MultiplicativeDarken:
+            return RtPathTraceParticleBlendClass::MultiplicativeDarken;
         default:
             return RtPathTraceParticleBlendClass::AlphaLit;
     }
@@ -759,6 +768,7 @@ bool ParticleCaptureAppendSurface(
         capture.stats.alphaLitBatches += batch.blendClass == RtPathTraceParticleBlendClass::AlphaLit ? 1 : 0;
         capture.stats.alphaEmissiveBatches += batch.blendClass == RtPathTraceParticleBlendClass::AlphaEmissive ? 1 : 0;
         capture.stats.pureAdditiveBatches += batch.blendClass == RtPathTraceParticleBlendClass::PureAdditiveEmissive ? 1 : 0;
+        capture.stats.multiplicativeDarkenBatches += batch.blendClass == RtPathTraceParticleBlendClass::MultiplicativeDarken ? 1 : 0;
         appendedBatch = true;
     }
     if (appendedBatch)
@@ -1140,10 +1150,11 @@ static void AuditPathTraceParticleCompositeCandidates(
         capture.stats.candidateSurfaces == candidateSurfaces &&
             capture.stats.candidateQuads == candidateQuads &&
             capture.stats.candidateTriangles == candidateTriangles ? "match" : "MISMATCH");
-    common->Printf("PathTraceParticleAudit: capture blends alphaLit=%d alphaEmissive=%d pureAdditive=%d ambient=%.3f emissiveScale=%.3f softDepth=%.3f shadowRays=%d sortMode=%d\n",
+    common->Printf("PathTraceParticleAudit: capture blends alphaLit=%d alphaEmissive=%d pureAdditive=%d multiplicativeDarken=%d ambient=%.3f emissiveScale=%.3f softDepth=%.3f shadowRays=%d sortMode=%d\n",
         capture.stats.alphaLitBatches,
         capture.stats.alphaEmissiveBatches,
         capture.stats.pureAdditiveBatches,
+        capture.stats.multiplicativeDarkenBatches,
         Max(0.0f, r_pathTracingParticleAmbient.GetFloat()),
         Max(0.0f, r_pathTracingParticleEmissiveScale.GetFloat()),
         Max(0.0f, r_pathTracingParticleSoftDepth.GetFloat()),
