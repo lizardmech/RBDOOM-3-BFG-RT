@@ -19,11 +19,8 @@
 // Fixed Remix-like material blend (not angle-dependent Fresnel).
 static const float RT_CLEAN_RTXDI_DI_GLASS_RR_REFLECTION_MATERIAL_BLEND = 0.35;
 
-float PathTraceCleanRtxdiDiResolvedSurfaceRRDepth(RAB_Surface surface)
+float PathTraceCleanRtxdiDiResolvedSurfaceRRDepthFromViewZ(float viewZ)
 {
-    const float viewZ = dot(
-        surface.worldPos - CleanRtxdiDiCameraOriginAndValid.xyz,
-        CleanRtxdiDiCameraForwardAndTanX.xyz);
     // Match primary-producer default DLSS-RR depth mode 2 (hyperbolic hardware
     // depth). near comes from CleanRtxdiDiToyPathInfo.y when host packed it;
     // far defaults to the same 100000 used by the clean-path RR contract.
@@ -34,17 +31,106 @@ float PathTraceCleanRtxdiDiResolvedSurfaceRRDepth(RAB_Surface surface)
     return saturate((zFar / max(zFar - zNear, 1.0e-4)) * (1.0 - zNear / safeViewZ));
 }
 
+float PathTraceCleanRtxdiDiResolvedSurfaceRRDepth(RAB_Surface surface)
+{
+    const float viewZ = dot(
+        surface.worldPos - CleanRtxdiDiCameraOriginAndValid.xyz,
+        CleanRtxdiDiCameraForwardAndTanX.xyz);
+    return PathTraceCleanRtxdiDiResolvedSurfaceRRDepthFromViewZ(viewZ);
+}
+
+uint PathTraceCleanRtxdiDiResolvedSurfaceMotionSource(RAB_Surface surface)
+{
+    if (surface.instanceId == 0u && surface.surfaceClass == 0u)
+    {
+        return 1u;
+    }
+    if (surface.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
+    {
+        return 2u;
+    }
+    if (surface.surfaceClass == RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+    {
+        return 3u;
+    }
+    return 4u;
+}
+
+void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrMotion(
+    uint2 pixel,
+    RAB_Surface surface)
+{
+    if (CleanRtxdiDiMotionVectorInfo.x < 0.5)
+    {
+        return;
+    }
+
+    const uint sourceKind = PathTraceCleanRtxdiDiResolvedSurfaceMotionSource(surface);
+    const uint sourceBits = (sourceKind & 0x0fu) << PT_MOTION_VECTOR_MASK_SOURCE_SHIFT;
+    if (!RAB_IsSurfaceValid(surface) || CleanRtxdiDiPrevCameraOriginAndValid.w < 0.5)
+    {
+        PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
+        PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
+        PathTraceMotionVectorMask[pixel] = sourceBits |
+            (RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS_CAMERA << PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT);
+        return;
+    }
+
+    const float3 delta = surface.worldPos - CleanRtxdiDiPrevCameraOriginAndValid.xyz;
+    const float previousViewZ = dot(delta, CleanRtxdiDiPrevCameraForwardAndTanX.xyz);
+    const float3 currentDelta = surface.worldPos - CleanRtxdiDiCameraOriginAndValid.xyz;
+    const float currentViewZ = dot(currentDelta, CleanRtxdiDiCameraForwardAndTanX.xyz);
+    if (previousViewZ <= 0.05 || currentViewZ <= 0.05)
+    {
+        PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
+        PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
+        PathTraceMotionVectorMask[pixel] = sourceBits |
+            (RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_BEHIND_CAMERA << PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT);
+        return;
+    }
+
+    const float ndcX = -dot(delta, CleanRtxdiDiPrevCameraLeftAndTanY.xyz) /
+        max(previousViewZ * CleanRtxdiDiPrevCameraForwardAndTanX.w, 1.0e-5);
+    const float ndcY = -dot(delta, CleanRtxdiDiPrevCameraUpAndTanY.xyz) /
+        max(previousViewZ * CleanRtxdiDiPrevCameraLeftAndTanY.w, 1.0e-5);
+    const float currentNdcX = -dot(currentDelta, CleanRtxdiDiCameraLeftAndTanY.xyz) /
+        max(currentViewZ * CleanRtxdiDiCameraForwardAndTanX.w, 1.0e-5);
+    const float currentNdcY = -dot(currentDelta, CleanRtxdiDiCameraUpAndTanY.xyz) /
+        max(currentViewZ * CleanRtxdiDiCameraLeftAndTanY.w, 1.0e-5);
+    const uint2 dimensions = uint2(CleanRtxdiDiWidth, CleanRtxdiDiHeight);
+    const float2 previousPixelFloat =
+        (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(max(dimensions, uint2(1u, 1u)));
+    const float2 currentPixelFloat =
+        (float2(currentNdcX, currentNdcY) * 0.5 + 0.5) * float2(max(dimensions, uint2(1u, 1u)));
+    // A refracted continuation hit is generally not on the original glass
+    // pixel's camera ray. Project the resolved world point through both
+    // cameras; otherwise the refraction offset itself looks like motion while
+    // the camera is stationary.
+    const float2 motionPixels = previousPixelFloat - currentPixelFloat;
+
+    if (!all(motionPixels == motionPixels))
+    {
+        PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
+        PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
+        PathTraceMotionVectorMask[pixel] = sourceBits |
+            (RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS << PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT);
+        return;
+    }
+
+    const float previousDepth = PathTraceCleanRtxdiDiResolvedSurfaceRRDepthFromViewZ(previousViewZ);
+    const float currentDepth = PathTraceCleanRtxdiDiResolvedSurfaceRRDepth(surface);
+    PathTraceMotionVectors[pixel] = float4(motionPixels, previousDepth - currentDepth, 0.0);
+    PathTraceRRMotionVectors[pixel] = motionPixels;
+    PathTraceMotionVectorMask[pixel] = PT_MOTION_VECTOR_MASK_VALID | sourceBits;
+}
+
 // RR guides for a PSR-resolved replacement surface (transmission or reflection
 // as DI primary). Geometry guides come from this surface; for clear glass the
 // producer should pass the behind-glass surface here and then blend reflection
 // materials separately.
 //
-// Motion vectors: intentionally NOT written here. The primary-surface producer
-// already exported correct current-to-previous pixel motion (with RR jitter
-// correction). Glass PSR used to zero them (looked like motion disabled) or
-// recompute with a half-baked projector that dumped garbage / "translucent"
-// looking values into the RR motion input. Leave primary motion alone until a
-// full primary-equivalent behind-glass motion path exists.
+// Motion is rebuilt from this resolved surface below. The original primary
+// vector belongs to the glass pane and is inconsistent with these guides.
 //
 // reflectionRayDistance:
 //   > 0  -> write PathTraceRRGuideHitDistance as the mirror ray length.
@@ -89,6 +175,7 @@ void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(
         saturate(surface.material.roughness));
     PathTraceRRGuideDepth[pixel] = PathTraceCleanRtxdiDiResolvedSurfaceRRDepth(surface);
     PathTraceRRGuidePosition[pixel] = float4(surface.worldPos, 1.0);
+    PathTraceCleanRtxdiDiWriteResolvedSurfaceRrMotion(pixel, surface);
 
     uint resetMask = 0u;
     if (!RAB_IsSurfaceValid(surface))

@@ -17,6 +17,9 @@ struct RTXDI_GITemporalResamplingParameters
     uint enableFallbackSampling;
     uint enablePermutationSampling;
     uint uniformRandomNumber;
+    uint enableDlssRrCompatibility;
+    float dlssRrTemporalRandomizationRadius;
+    float dlssRrDiffuseProbability;
 };
 
 // Field set matches the staged rbdoom GI spatial replacement
@@ -34,6 +37,10 @@ struct RTXDI_GISpatialResamplingParameters
     uint biasCorrectionMode;   // RTXDI_BIAS_CORRECTION_*
     float jacobianCutoff;      // reject shifts with J outside
                                // [1/cutoff, cutoff]; 0 = default (10.0)
+    float pairwiseCentralWeight; // pairwise technique prior for the canonical
+                                 // temporal reservoir; 1 = equal prior
+    uint fastHistoryLength;      // confidence below this uses recovery search
+    uint sharedTilePattern;      // share neighbor locations over mature 4x4 tiles
 };
 
 #endif

@@ -127,6 +127,7 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* neeCacheProviderResultBuffer = nullptr;
     nvrhi::IBuffer* neeCacheCellBuffer = nullptr;
     nvrhi::IBuffer* neeCacheCandidateBuffer = nullptr;
+    nvrhi::IBuffer* diReservoirBuffer = nullptr;
     nvrhi::IBuffer* primarySurfaceCurrentBuffer = nullptr;
     nvrhi::IBuffer* primarySurfacePreviousBuffer = nullptr;
     nvrhi::ITexture* motionVectorTexture = nullptr;
@@ -140,6 +141,11 @@ struct PathTraceCleanRestirGiDispatchInputs
     // In that route the beauty resolve must also update PathTraceRRInputColor
     // so RR consumes the combined DI+GI signal instead of seeing DI only.
     bool resolveToRrInputColor = false;
+
+    // True only on the pre-evaluation dispatch scheduled by the active clean
+    // DLSS-RR route. GI temporal compatibility must not alter native/raw
+    // output merely because the global RR cvar is enabled.
+    bool dlssRrActive = false;
 };
 
 // Runs the GI lane for this frame if its cvars request it. Returns true when

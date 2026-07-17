@@ -15,13 +15,14 @@
 //
 // io_whitelist: reads GI-I-01 (current primary surface), GI-I-04 (current
 // light universe, secondary vertex only), GI-I-05 (TLAS rays), GI-I-06
-// (NEE-cache query), GI-I-09 (parameters). Writes GI-O-01 (producer textures),
-// GI-O-06 (debug views).
-// Never reads DI reservoir pages.
+// (NEE-cache query), GI-I-09 (parameters), plus the finalized current DI
+// reservoir selected by the host for optional projected sample stealing.
+// Writes GI-O-01 (producer textures), GI-O-06 (debug views).
 
 #include "../../../vulkan.hlsli"
 #include "../PathTracePrimarySurface.hlsli"
 #include "../cleanroom_common/pathtrace_first_indirect_candidate.hlsli"
+#include "../cleanroom_common/restir_di_reservoir.hlsli"
 #include "Rtxdi/RtxdiParameters.h"
 #include "Rtxdi/GI/ReSTIRGIParameters.h"
 #include "Rtxdi/Utils/RandomSamplerState.hlsli"
@@ -237,6 +238,7 @@ StructuredBuffer<PathTraceNeeCacheProviderResult> CleanRestirGiNeeCacheProviderR
 StructuredBuffer<PathTraceNeeCacheCellRecord> CleanRestirGiNeeCacheCells : register(t75);
 StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t76);
 StructuredBuffer<PathTraceNeeCacheCandidateRecord> CleanRestirGiNeeCacheCandidates : register(t77);
+RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRestirGiDiReservoirs : register(u69);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceMotionVectors : register(u39);
@@ -387,8 +389,20 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
     uint CleanRestirGiPermutationSamplingEnabled;
-    uint3 CleanRestirGiPermutationSamplingPadding;
+    uint CleanRestirGiSpatialRemixProfileEnabled;
+    float CleanRestirGiSpatialPairwiseCentralWeight;
+    uint CleanRestirGiProducerFeatureFlags;
 };
+
+static const uint CLEAN_RESTIR_GI_FEATURE_DI_SAMPLE_STEALING = 1u;
+static const uint CLEAN_RESTIR_GI_FEATURE_TYPED_STRIDED_RIS = 2u;
+static const uint CLEAN_RESTIR_GI_FEATURE_LOCALITY_RIS = 4u;
+static const uint CLEAN_RESTIR_GI_FEATURE_DLSS_RR_COMPATIBILITY = 8u;
+
+bool CleanGiProducerFeatureEnabled(uint featureBit)
+{
+    return (CleanRestirGiProducerFeatureFlags & featureBit) != 0u;
+}
 
 void CleanGiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)
 {
@@ -588,6 +602,7 @@ RAB_Surface RemixRAB_LoadSurface(int2 pixel, bool previousFrame)
 
 #define REMIX_RAB_GI_INITIAL_SAMPLE_EXTERNAL_CALLBACKS 1
 #define REMIX_RAB_GI_TEMPORAL_VALIDATION_EXTERNAL_CALLBACKS 1
+// Temporal selection deliberately uses white noise; see the contract include.
 #include "restir_gi_temporal_reuse.rt.hlsl"
 
 // GI target pdf (RAB_GetGISampleTargetPdfForSurface): lobe-weighted luminance
@@ -885,8 +900,13 @@ bool CleanGiSpecularProducerNeedsReuseQuarantine(RAB_Surface surface)
 // validation/gradient path exists, neighbor candidates are conservatively
 // visibility-tested from the current receiver so spatial reuse cannot blur
 // through contact-shadow blockers.
-RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI_GIReservoir inputReservoir)
+RTXDI_GIReservoir CleanGiRunSpatialReuse(
+    uint2 pixel,
+    RAB_Surface surface,
+    RTXDI_GIReservoir inputReservoir,
+    out uint4 debugStats)
 {
+    debugStats = uint4(0u, 0u, 0u, 0u);
     if (!RAB_IsSurfaceValid(surface))
     {
         return inputReservoir;
@@ -906,16 +926,38 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
     RTXDI_RuntimeParameters params = (RTXDI_RuntimeParameters)0;
     params.activeCheckerboardField = 0u;
     params.neighborOffsetMask = CLEAN_RESTIR_GI_NEIGHBOR_OFFSET_MASK;
+    params.frameIndex = CleanRestirGiFrameIndex;
 
     const bool historyStarved = inputReservoir.M < CleanRestirGiMaxHistoryLength;
+    const bool remixSpatialProfile = CleanRestirGiSpatialRemixProfileEnabled != 0u;
+    const bool broadRemixSearch = historyStarved ||
+        (((CleanRestirGiFrameIndex + pixel.x / 16u + pixel.y / 8u) & 1u) == 0u);
+    const float viewNormalCosine = max(
+        dot(
+            CleanGiSafeNormalize(RAB_GetSurfaceViewDir(surface), RAB_GetSurfaceNormal(surface)),
+            CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), RAB_GetSurfaceNormal(surface))),
+        0.1);
 
     RTXDI_GISpatialResamplingParameters sparams = (RTXDI_GISpatialResamplingParameters)0;
-    sparams.samplingRadius = historyStarved ? 96.0 : 48.0;
-    sparams.numSamples = historyStarved ? 2u : 1u;
-    sparams.depthThreshold = 0.14;
-    sparams.normalThreshold = 0.88;
-    sparams.biasCorrectionMode = min(CleanRestirGiBiasCorrection, uint(RTXDI_BIAS_CORRECTION_BASIC));
+    sparams.samplingRadius = remixSpatialProfile
+        ? (broadRemixSearch ? 200.0 : 85.0)
+        : (historyStarved ? 96.0 : 48.0);
+    sparams.numSamples = remixSpatialProfile
+        ? (historyStarved ? 4u : 1u)
+        : (historyStarved ? 2u : 1u);
+    sparams.depthThreshold = remixSpatialProfile
+        ? min((historyStarved ? 0.20 : 0.05) / viewNormalCosine, 1.0)
+        : 0.14;
+    sparams.normalThreshold = remixSpatialProfile ? 0.50 : 0.88;
+    sparams.biasCorrectionMode = remixSpatialProfile
+        ? uint(RTXDI_BIAS_CORRECTION_PAIRWISE)
+        : min(CleanRestirGiBiasCorrection, uint(RTXDI_BIAS_CORRECTION_BASIC));
     sparams.jacobianCutoff = 0.0;
+    sparams.pairwiseCentralWeight = remixSpatialProfile
+        ? max(CleanRestirGiSpatialPairwiseCentralWeight, 0.01)
+        : 1.0;
+    sparams.fastHistoryLength = CleanRestirGiMaxHistoryLength;
+    sparams.sharedTilePattern = remixSpatialProfile ? 1u : 0u;
 
     return RTXDI_GISpatialResampling(
         pixel,
@@ -925,7 +967,8 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
         rng,
         params,
         RemixRAB_GIReservoirParams,
-        sparams);
+        sparams,
+        debugStats);
 }
 
 static const uint CLEAN_RESTIR_GI_PRODUCER_RNG_PASS = 0x52525810u;
@@ -2535,7 +2578,223 @@ bool CleanGiAccumulateSelectedLightSample(
     return true;
 }
 
-bool CleanGiAccumulateRluRisLightSample(
+bool CleanGiProjectSecondaryHitToCurrentPrimary(
+    RAB_Surface secondarySurface,
+    out uint2 projectedPixel)
+{
+    projectedPixel = uint2(0u, 0u);
+    const uint2 dimensions = uint2(CleanRtxdiDiWidth, CleanRtxdiDiHeight);
+    if (!CleanGiProducerFeatureEnabled(CLEAN_RESTIR_GI_FEATURE_DI_SAMPLE_STEALING) ||
+        CleanRtxdiDiCameraOriginAndValid.w < 0.5 ||
+        dimensions.x == 0u || dimensions.y == 0u ||
+        secondarySurface.material.opacity < 0.999)
+    {
+        return false;
+    }
+
+    const float3 secondaryPosition = RAB_GetSurfaceWorldPos(secondarySurface);
+    const float3 delta = secondaryPosition - CleanRtxdiDiCameraOriginAndValid.xyz;
+    const float forwardDistance = dot(delta, CleanRtxdiDiCameraForwardAndTanX.xyz);
+    if (!CleanGiAllFinite3(delta) || forwardDistance <= 0.05)
+    {
+        return false;
+    }
+
+    const float ndcX = -dot(delta, CleanRtxdiDiCameraLeftAndTanY.xyz) /
+        max(forwardDistance * CleanRtxdiDiCameraForwardAndTanX.w, 1.0e-5);
+    const float ndcY = -dot(delta, CleanRtxdiDiCameraUpAndTanY.xyz) /
+        max(forwardDistance * CleanRtxdiDiCameraLeftAndTanY.w, 1.0e-5);
+    if (abs(ndcX) > 1.0 || abs(ndcY) > 1.0)
+    {
+        return false;
+    }
+
+    const float2 pixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(dimensions);
+    if (!all(pixelFloat == pixelFloat) ||
+        pixelFloat.x < 0.0 || pixelFloat.y < 0.0 ||
+        pixelFloat.x >= (float)dimensions.x || pixelFloat.y >= (float)dimensions.y)
+    {
+        return false;
+    }
+    projectedPixel = min(uint2(pixelFloat), dimensions - 1u);
+
+    PathTracePrimarySurfaceRecord primaryRecord;
+    if (!CleanGiLoadSurfaceRecord(projectedPixel, dimensions, primaryRecord))
+    {
+        return false;
+    }
+
+    const float3 primaryPosition = primaryRecord.worldPositionAndViewDepth.xyz;
+    const float3 primaryNormal = CleanGiSafeNormalize(
+        primaryRecord.geometricNormalAndRoughness.xyz,
+        float3(0.0, 0.0, 1.0));
+    const float3 secondaryNormal = CleanGiSafeNormalize(
+        RAB_GetSurfaceGeoNormal(secondarySurface),
+        float3(0.0, 0.0, 1.0));
+    if (dot(primaryNormal, secondaryNormal) <= 0.8)
+    {
+        return false;
+    }
+
+    const float3 relativePosition = primaryPosition - secondaryPosition;
+    const float relativeLength = length(relativePosition);
+    const float cameraDistance = max(length(delta), 1.0e-4);
+    const float planeDistance = abs(dot(relativePosition, secondaryNormal));
+    return relativeLength < cameraDistance * 0.01 ||
+        planeDistance < 0.1 * max(relativeLength, 1.0e-4);
+}
+
+// Replays the finalized DI sample selected at the compatible projected primary
+// pixel. Once a valid reservoir sample is found it owns this proposal even when
+// the replay is back-facing or occluded; falling back in those cases would add
+// positive energy conditionally and bias the estimator.
+bool CleanGiAccumulateProjectedDiSample(
+    inout float3 radiance,
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal)
+{
+    uint2 projectedPixel;
+    if (!CleanGiProjectSecondaryHitToCurrentPrimary(secondarySurface, projectedPixel))
+    {
+        return false;
+    }
+
+    const uint reservoirIndex = projectedPixel.y * CleanRtxdiDiWidth + projectedPixel.x;
+    if (reservoirIndex >= CleanRtxdiDiReservoirCount)
+    {
+        return false;
+    }
+
+    const RTXDI_DIReservoir reservoir = RTXDI_UnpackDIReservoir(
+        CleanRestirGiDiReservoirs[reservoirIndex]);
+    if (!RTXDI_IsValidDIReservoir(reservoir))
+    {
+        return false;
+    }
+
+    const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
+    if (lightIndex >= CleanRtxdiDiRluCurrentLightCount)
+    {
+        return false;
+    }
+
+    const RAB_LightInfo lightInfo = CleanGiLoadCurrentRluLightInfo(lightIndex);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return false;
+    }
+
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+        lightInfo,
+        secondarySurface,
+        RTXDI_GetDIReservoirSampleUV(reservoir));
+    const float inverseSelectionPdf = RTXDI_GetDIReservoirInvPdf(reservoir);
+    if (!RAB_IsReplayableLightSample(lightSample) ||
+        lightSample.solidAnglePdf <= 1.0e-8 ||
+        inverseSelectionPdf <= 0.0 || inverseSelectionPdf != inverseSelectionPdf)
+    {
+        return false;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(secondarySurface, lightSample, lightDir, lightDistance);
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(secondarySurface), lightDir));
+    const float3 brdf = RAB_EvaluateSurfaceBrdf(
+        secondarySurface,
+        lightDir,
+        RAB_GetSurfaceViewDir(secondarySurface));
+    if (ndotl <= 0.0 || CleanGiLuminance(brdf) <= 0.0 ||
+        CleanGiLuminance(lightSample.radiance) <= 0.0)
+    {
+        return true;
+    }
+
+    const float visibility = CleanGiTraceVisibility(
+        RAB_GetSurfaceWorldPos(secondarySurface), hitGeometricNormal, lightSample.position);
+    if (visibility <= 0.0)
+    {
+        return true;
+    }
+
+    const float misWeight = CleanGiSecondaryNeeMisWeight(secondarySurface, lightSample, lightDir);
+    radiance += brdf * lightSample.radiance * ndotl * visibility * misWeight *
+        inverseSelectionPdf / max(lightSample.solidAnglePdf, 1.0e-6);
+    return true;
+}
+
+// View-21 diagnostic for the projected DI branch. The colors classify the
+// first contract that prevents a stolen sample from contributing:
+// red projection/surface mismatch, orange invalid DI reservoir, yellow stale
+// light identity, magenta unreplayable light sample, cyan zero BRDF/NdotL,
+// blue shadowed, green non-zero contribution.
+float3 CleanGiProjectedDiSampleDebugColor(
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal)
+{
+    uint2 projectedPixel;
+    if (!CleanGiProjectSecondaryHitToCurrentPrimary(secondarySurface, projectedPixel))
+    {
+        return float3(1.0, 0.0, 0.0);
+    }
+
+    const uint reservoirIndex = projectedPixel.y * CleanRtxdiDiWidth + projectedPixel.x;
+    if (reservoirIndex >= CleanRtxdiDiReservoirCount)
+    {
+        return float3(1.0, 0.4, 0.0);
+    }
+    const RTXDI_DIReservoir reservoir = RTXDI_UnpackDIReservoir(
+        CleanRestirGiDiReservoirs[reservoirIndex]);
+    if (!RTXDI_IsValidDIReservoir(reservoir))
+    {
+        return float3(1.0, 0.4, 0.0);
+    }
+
+    const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
+    if (lightIndex >= CleanRtxdiDiRluCurrentLightCount)
+    {
+        return float3(1.0, 1.0, 0.0);
+    }
+    const RAB_LightInfo lightInfo = CleanGiLoadCurrentRluLightInfo(lightIndex);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return float3(1.0, 1.0, 0.0);
+    }
+
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+        lightInfo,
+        secondarySurface,
+        RTXDI_GetDIReservoirSampleUV(reservoir));
+    const float inverseSelectionPdf = RTXDI_GetDIReservoirInvPdf(reservoir);
+    if (!RAB_IsReplayableLightSample(lightSample) ||
+        lightSample.solidAnglePdf <= 1.0e-8 ||
+        inverseSelectionPdf <= 0.0 || inverseSelectionPdf != inverseSelectionPdf)
+    {
+        return float3(1.0, 0.0, 1.0);
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(secondarySurface, lightSample, lightDir, lightDistance);
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(secondarySurface), lightDir));
+    const float3 brdf = RAB_EvaluateSurfaceBrdf(
+        secondarySurface,
+        lightDir,
+        RAB_GetSurfaceViewDir(secondarySurface));
+    if (ndotl <= 0.0 || CleanGiLuminance(brdf) <= 0.0 ||
+        CleanGiLuminance(lightSample.radiance) <= 0.0)
+    {
+        return float3(0.0, 1.0, 1.0);
+    }
+
+    const float visibility = CleanGiTraceVisibility(
+        RAB_GetSurfaceWorldPos(secondarySurface), hitGeometricNormal, lightSample.position);
+    return visibility > 0.0
+        ? float3(0.0, 1.0, 0.0)
+        : float3(0.0, 0.15, 1.0);
+}
+
+bool CleanGiAccumulateUniformRluRisLightSample(
     inout float3 radiance,
     RAB_Surface secondarySurface,
     float3 hitGeometricNormal,
@@ -2592,6 +2851,235 @@ bool CleanGiAccumulateRluRisLightSample(
         hitGeometricNormal,
         selectedSample,
         selectedSourcePdf);
+}
+
+bool CleanGiSelectEmissiveDistributionSample(
+    inout RTXDI_RandomSamplerState rng,
+    out uint sourceIndex,
+    out float sourcePdf);
+
+bool CleanGiAccumulateTypedStridedRluRisLightSample(
+    inout float3 radiance,
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal,
+    inout RTXDI_RandomSamplerState rng)
+{
+    const uint lightCount = CleanRtxdiDiRluCurrentLightCount;
+    if (lightCount == 0u)
+    {
+        return false;
+    }
+
+    const uint emissiveOffset = min((uint)max(CleanRtxdiDiRluRangeInfo.x, 0.0), lightCount);
+    const uint emissiveCount = min((uint)max(CleanRtxdiDiRluRangeInfo.y, 0.0), lightCount - emissiveOffset);
+    const uint analyticOffset = min((uint)max(CleanRtxdiDiRluRangeInfo.z, 0.0), lightCount);
+    const uint analyticCount = min((uint)max(CleanRtxdiDiRluRangeInfo.w, 0.0), lightCount - analyticOffset);
+    const uint nonEmptyRangeCount = (emissiveCount > 0u ? 1u : 0u) + (analyticCount > 0u ? 1u : 0u);
+    const uint candidateCount = clamp(CleanRestirGiSecondaryRluCandidateCount, 1u, 16u);
+
+    // A typed proposal needs at least one stratum for each populated range.
+    // With the shipping/default budget of two this means one emissive and one
+    // analytic candidate, rather than two arbitrary picks from their union.
+    if (nonEmptyRangeCount == 0u || candidateCount < nonEmptyRangeCount)
+    {
+        return false;
+    }
+
+    uint emissiveSampleCount = 0u;
+    uint analyticSampleCount = 0u;
+    if (emissiveCount > 0u && analyticCount > 0u)
+    {
+        emissiveSampleCount = max(1u, candidateCount / 2u);
+        analyticSampleCount = candidateCount - emissiveSampleCount;
+    }
+    else if (emissiveCount > 0u)
+    {
+        emissiveSampleCount = candidateCount;
+    }
+    else
+    {
+        analyticSampleCount = candidateCount;
+    }
+
+    const uint totalSampleCount = emissiveSampleCount + analyticSampleCount;
+    const float2 sampleUv = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+    const bool localityRis = CleanGiProducerFeatureEnabled(CLEAN_RESTIR_GI_FEATURE_LOCALITY_RIS);
+    float weightSum = 0.0;
+    float selectedTargetPdf = 0.0;
+    RAB_LightSample selectedSample = RAB_EmptyLightSample();
+
+    [loop]
+    for (uint rangeIndex = 0u; rangeIndex < 2u; ++rangeIndex)
+    {
+        const uint rangeOffset = rangeIndex == 0u ? emissiveOffset : analyticOffset;
+        const uint rangeCount = rangeIndex == 0u ? emissiveCount : analyticCount;
+        const uint rangeSampleCount = rangeIndex == 0u ? emissiveSampleCount : analyticSampleCount;
+        if (rangeCount == 0u || rangeSampleCount == 0u)
+        {
+            continue;
+        }
+
+        const float stride = (float)rangeCount / (float)rangeSampleCount;
+        const float inverseSourcePdf =
+            (float)rangeCount * (float)totalSampleCount / (float)rangeSampleCount;
+
+        [loop]
+        for (uint sampleIndex = 0u; sampleIndex < rangeSampleCount; ++sampleIndex)
+        {
+            if (localityRis && rangeIndex == 0u)
+            {
+                uint emissiveSourceIndex;
+                float emissiveIdentityPdf;
+                if (!CleanGiSelectEmissiveDistributionSample(
+                    rng, emissiveSourceIndex, emissiveIdentityPdf))
+                {
+                    continue;
+                }
+
+                const RAB_LightInfo weightedEmissiveInfo =
+                    CleanGiBuildEmissiveLightInfo(emissiveSourceIndex, emissiveSourceIndex);
+                if (!RAB_IsLightInfoValid(weightedEmissiveInfo))
+                {
+                    continue;
+                }
+
+                const RAB_LightSample candidateSample =
+                    RAB_SamplePolymorphicLight(weightedEmissiveInfo, secondarySurface, sampleUv);
+                float targetPdf;
+                if (!CleanGiEvaluateDirectLightSampleTarget(secondarySurface, candidateSample, targetPdf))
+                {
+                    continue;
+                }
+
+                const float classProbability =
+                    (float)rangeSampleCount / max((float)totalSampleCount, 1.0);
+                const float sourcePdf = classProbability * emissiveIdentityPdf;
+                const float risWeight = targetPdf / max(sourcePdf, 1.0e-8);
+                weightSum += risWeight;
+                if (RAB_GetNextRandom(rng) * weightSum <= risWeight)
+                {
+                    selectedSample = candidateSample;
+                    selectedTargetPdf = targetPdf;
+                }
+                continue;
+            }
+
+            if (localityRis && rangeIndex == 1u)
+            {
+                // Doom's analytic array is portal-depth then distance sorted.
+                // Prefer the depth-zero prefix, but retain a global component
+                // and evaluate the full mixture PDF for unbiased selection.
+                const uint localCount = min(CleanRtxdiDiAnalyticLightCount, rangeCount);
+                const bool distinctLocalDomain = localCount > 0u && localCount < rangeCount;
+                const float localProbability = distinctLocalDomain ? 0.75 : 0.0;
+                const bool chooseLocal = distinctLocalDomain &&
+                    RAB_GetNextRandom(rng) < localProbability;
+                const uint proposalCount = chooseLocal ? localCount : rangeCount;
+                const uint localIndex = min(
+                    (uint)(RAB_GetNextRandom(rng) * (float)proposalCount),
+                    proposalCount - 1u);
+
+                float analyticIdentityPdf = (1.0 - localProbability) / max((float)rangeCount, 1.0);
+                if (localIndex < localCount)
+                {
+                    analyticIdentityPdf += localProbability / max((float)localCount, 1.0);
+                }
+
+                const RAB_LightInfo localAnalyticInfo =
+                    CleanGiLoadCurrentRluLightInfo(rangeOffset + localIndex);
+                if (!RAB_IsLightInfoValid(localAnalyticInfo))
+                {
+                    continue;
+                }
+
+                const RAB_LightSample candidateSample =
+                    RAB_SamplePolymorphicLight(localAnalyticInfo, secondarySurface, sampleUv);
+                float targetPdf;
+                if (!CleanGiEvaluateDirectLightSampleTarget(secondarySurface, candidateSample, targetPdf))
+                {
+                    continue;
+                }
+
+                const float classProbability =
+                    (float)rangeSampleCount / max((float)totalSampleCount, 1.0);
+                const float sourcePdf = classProbability * analyticIdentityPdf;
+                const float risWeight = targetPdf / max(sourcePdf, 1.0e-8);
+                weightSum += risWeight;
+                if (RAB_GetNextRandom(rng) * weightSum <= risWeight)
+                {
+                    selectedSample = candidateSample;
+                    selectedTargetPdf = targetPdf;
+                }
+                continue;
+            }
+
+            const float stratumPosition = ((float)sampleIndex + RAB_GetNextRandom(rng)) * stride;
+            const uint localIndex = min((uint)stratumPosition, rangeCount - 1u);
+            const RAB_LightInfo lightInfo = CleanGiLoadCurrentRluLightInfo(rangeOffset + localIndex);
+            if (!RAB_IsLightInfoValid(lightInfo))
+            {
+                continue;
+            }
+
+            const RAB_LightSample candidateSample =
+                RAB_SamplePolymorphicLight(lightInfo, secondarySurface, sampleUv);
+            float targetPdf;
+            if (!CleanGiEvaluateDirectLightSampleTarget(secondarySurface, candidateSample, targetPdf))
+            {
+                continue;
+            }
+
+            const float risWeight = targetPdf * inverseSourcePdf;
+            weightSum += risWeight;
+            if (RAB_GetNextRandom(rng) * weightSum <= risWeight)
+            {
+                selectedSample = candidateSample;
+                selectedTargetPdf = targetPdf;
+            }
+        }
+    }
+
+    if (selectedTargetPdf <= 1.0e-8 || weightSum <= 1.0e-8)
+    {
+        return false;
+    }
+
+    const float selectedSourcePdf =
+        selectedTargetPdf * (float)totalSampleCount / max(weightSum, 1.0e-8);
+    return CleanGiAccumulateSelectedLightSample(
+        radiance,
+        secondarySurface,
+        hitGeometricNormal,
+        selectedSample,
+        selectedSourcePdf);
+}
+
+bool CleanGiAccumulateRluRisLightSample(
+    inout float3 radiance,
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal,
+    inout RTXDI_RandomSamplerState rng)
+{
+    const uint lightCount = CleanRtxdiDiRluCurrentLightCount;
+    const uint emissiveOffset = min((uint)max(CleanRtxdiDiRluRangeInfo.x, 0.0), lightCount);
+    const uint emissiveCount = min((uint)max(CleanRtxdiDiRluRangeInfo.y, 0.0), lightCount - emissiveOffset);
+    const uint analyticOffset = min((uint)max(CleanRtxdiDiRluRangeInfo.z, 0.0), lightCount);
+    const uint analyticCount = min((uint)max(CleanRtxdiDiRluRangeInfo.w, 0.0), lightCount - analyticOffset);
+    const uint nonEmptyRangeCount = (emissiveCount > 0u ? 1u : 0u) + (analyticCount > 0u ? 1u : 0u);
+    const uint candidateCount = clamp(CleanRestirGiSecondaryRluCandidateCount, 1u, 16u);
+    const bool typedMetadataUsable = nonEmptyRangeCount > 0u && candidateCount >= nonEmptyRangeCount;
+
+    if (CleanGiProducerFeatureEnabled(CLEAN_RESTIR_GI_FEATURE_TYPED_STRIDED_RIS) &&
+        typedMetadataUsable)
+    {
+        // A valid typed proposal that finds no contributing candidate is still
+        // a valid zero result. Do not silently spend a second uniform RIS pass.
+        return CleanGiAccumulateTypedStridedRluRisLightSample(
+            radiance, secondarySurface, hitGeometricNormal, rng);
+    }
+
+    return CleanGiAccumulateUniformRluRisLightSample(
+        radiance, secondarySurface, hitGeometricNormal, rng);
 }
 
 bool CleanGiSelectEmissiveDistributionSample(
@@ -3402,6 +3890,12 @@ float3 CleanGiShadeDirectVertex(
     for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
     {
         float3 directRadiance = float3(0.0, 0.0, 0.0);
+        if (allowNeeCache && CleanGiAccumulateProjectedDiSample(
+                directRadiance, secondarySurface, hitGeometricNormal))
+        {
+            radiance += directRadiance * sampleWeight;
+            continue;
+        }
         if (allowNeeCache &&
             CleanRestirGiNeeCacheSecondaryEnabled != 0u &&
             CleanGiAccumulateNeeCacheProviderSample(directRadiance, secondarySurface, hitGeometricNormal, primarySampledSpecular, rng))
@@ -3466,6 +3960,11 @@ float3 CleanGiShadeDirectVertexDefaultOneSample(
 {
     float3 radiance = secondaryEmissive;
     float3 directRadiance = float3(0.0, 0.0, 0.0);
+
+    if (CleanGiAccumulateProjectedDiSample(directRadiance, secondarySurface, hitGeometricNormal))
+    {
+        return radiance + directRadiance;
+    }
 
     if (CleanGiAccumulateRluRisLightSample(directRadiance, secondarySurface, hitGeometricNormal, rng))
     {
@@ -5148,6 +5647,18 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     // once per frame. It perturbs only the previous-reservoir address; this is
     // intentionally independent of the per-pixel producer/blue-noise streams.
     desc.uniformRandomNumber = RTXDI_JenkinsHash(CleanRestirGiFrameIndex ^ 0x711ad151u);
+    float diffuseProbability = 1.0;
+    float specularProbability = 0.0;
+    if (surfaceValid)
+    {
+        CleanGiProducerMixtureProbabilities(surface, diffuseProbability, specularProbability);
+    }
+    desc.enableDlssRrCompatibility = CleanGiProducerFeatureEnabled(
+        CLEAN_RESTIR_GI_FEATURE_DLSS_RR_COMPATIBILITY) ? 1u : 0u;
+    const float dlssRrRadiusAt960 = float((CleanRestirGiProducerFeatureFlags >> 8u) & 0xffu);
+    desc.dlssRrTemporalRandomizationRadius = dlssRrRadiusAt960 *
+        (float(dimensions.x) / 960.0);
+    desc.dlssRrDiffuseProbability = diffuseProbability;
     desc.fireflyFilteringLuminanceThreshold = CleanRestirGiFireflyThreshold;
     return RemixRestirGIRunTemporalReuseContract(surface, desc);
 }
@@ -6642,7 +7153,9 @@ void FirstIndirectShadeRayGen()
         }
         else if (gbuf.valid == 0u)
         {
-            color = float3(0.25, 0.0, 0.0);
+            // View 21 isolates the producer shade gates. Keep trace/query misses
+            // visually distinct from gate 6 (bright red: shadow visibility failed).
+            color = float3(0.0, 0.15, 1.0);
         }
         else
         {
@@ -6652,10 +7165,14 @@ void FirstIndirectShadeRayGen()
                 CleanRestirGiFrameIndex,
                 CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
             CleanGiSkipFirstIndirectCandidateRaySampleRandoms(gbuf, debugRng);
-            color = CleanGiProducerShadeGateDebugColor(
-                secondarySurface,
-                gbuf.primarySampledSpecular != 0u,
-                debugRng);
+            color = CleanGiProducerFeatureEnabled(CLEAN_RESTIR_GI_FEATURE_DI_SAMPLE_STEALING)
+                ? CleanGiProjectedDiSampleDebugColor(
+                    secondarySurface,
+                    secondarySurface.geometryNormal)
+                : CleanGiProducerShadeGateDebugColor(
+                    secondarySurface,
+                    gbuf.primarySampledSpecular != 0u,
+                    debugRng);
         }
     }
 
@@ -6917,9 +7434,11 @@ void ReuseRayGen()
         RTXDI_GIReservoir spatialInput = RAB_LoadGIReservoir(
             int2(pixel), int(RemixRAB_GetGITemporalOutputReservoirIndex()));
         RTXDI_GIReservoir spatialReservoir = spatialInput;
+        uint4 spatialDebugStats = uint4(0u, 0u, 0u, 0u);
         if (CleanRestirGiSpatialEnabled != 0u)
         {
-            spatialReservoir = CleanGiRunSpatialReuse(pixel, spatialSurface, spatialInput);
+            spatialReservoir = CleanGiRunSpatialReuse(
+                pixel, spatialSurface, spatialInput, spatialDebugStats);
         }
         RAB_StoreGIReservoir(spatialReservoir, int2(pixel), int(RemixRAB_GetGISpatialOutputReservoirIndex()));
 
@@ -6978,6 +7497,31 @@ void ReuseRayGen()
                 spatialColor = CleanGiToneMap(spatialReservoir.radiance * max(spatialReservoir.weightSum, 0.0));
             }
             SmokeOutput[pixel] = float4(spatialColor, 1.0);
+        }
+        else if (view == 25u)
+        {
+            const float requested = max(float(spatialDebugStats.w), 1.0);
+            SmokeOutput[pixel] = float4(
+                float3(
+                    float(spatialDebugStats.x) / requested,
+                    float(spatialDebugStats.y) / requested,
+                    spatialDebugStats.z != 0u ? 1.0 : 0.0),
+                1.0);
+        }
+        else if (view == 26u)
+        {
+            // Match Remix's DEBUG_VIEW_RESTIR_GI_SPATIAL_REUSE payload and
+            // default Standard presentation: result radiance * finalized
+            // reservoir weight, scale 1, min 0, max 1, gamma correction off.
+            float3 remixComparableSpatial = float3(0.0, 0.0, 0.0);
+            if (spatialSurfaceValid && RTXDI_IsValidGIReservoir(spatialReservoir) &&
+                CleanGiAllFinite3(spatialReservoir.radiance) &&
+                spatialReservoir.weightSum == spatialReservoir.weightSum)
+            {
+                remixComparableSpatial = saturate(
+                    spatialReservoir.radiance * max(spatialReservoir.weightSum, 0.0));
+            }
+            SmokeOutput[pixel] = float4(remixComparableSpatial, 1.0);
         }
         return;
     }

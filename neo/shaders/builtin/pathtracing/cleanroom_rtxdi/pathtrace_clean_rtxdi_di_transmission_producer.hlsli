@@ -769,8 +769,11 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         PathTraceCleanRtxdiDiTransmissionSidecarPending();
 
     PathTraceCleanRtxdiDiTransmissionPsrSample transmissionSample;
-    if ((CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFRACTED_PSR) != 0u &&
-        !forcePortalWindowTransmissionPrimary)
+    // Portal windows must stay transmission-owned so their backdrop is never
+    // hidden by sticky reflection ownership.  That ownership policy is
+    // independent of the transmission ray direction: authored window glass
+    // may still use the refracted continuation below.
+    if ((CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFRACTED_PSR) != 0u)
     {
         transmissionSample = PathTraceCleanRtxdiDiTransmissionPsrSampleRefracted(
             glassSurface,

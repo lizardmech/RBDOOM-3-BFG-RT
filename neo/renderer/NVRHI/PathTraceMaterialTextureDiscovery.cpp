@@ -1509,11 +1509,22 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     ResolveSmokeMaterialAlphaInfo(material, info->hasAlphaTest, info->alphaCutoff);
     info->additiveDecal = IsSmokeAdditiveDecalMaterial(material);
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    const bool portalWindowFallback = IsSmokePortalWindowFallbackMaterial(material);
+    const bool objectGlassFallback = IsSmokeObjectGlassFallbackMaterial(material);
     info->additiveDecalWhiteKey = IsSmokeAdditiveWhiteKeyMaterial(material, classifier);
     const bool rgbKeyedBlendDecal = IsSmokeRgbKeyedBlendDecalMaterial(material, classifier);
     const bool yCoCgDiffuseMapDecal = IsSmokeYCoCgDiffuseMapDecalMaterial(material, classifier);
     const bool particleOrSfxDiffuseLumaAlpha = ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(material, diffuseImage, alphaImage);
-    info->filterDecal = !info->additiveDecal && (IsSmokeTranslucentOverlayCardMaterial(material, classifier) || rgbKeyedBlendDecal);
+    // Glass can use the same ambient blend shapes as receiver-modulating cards,
+    // but it owns a transmission/reflection PSR and must remain the committed
+    // primary hit.  Marking it as a filter decal makes the decal-composite ray
+    // replace it with the receiver behind the pane before glass transport runs,
+    // while the legacy stochastic path can reject it entirely.
+    info->filterDecal =
+        !info->additiveDecal &&
+        !portalWindowFallback &&
+        !objectGlassFallback &&
+        (IsSmokeTranslucentOverlayCardMaterial(material, classifier) || rgbKeyedBlendDecal);
     info->detailDecal = IsSmokeDetailDecalCardMaterial(material, classifier);
     if (info->skyEnvironment)
     {
@@ -1606,8 +1617,8 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         ShouldSmokeAlphaTestUseDiffuseMagentaKey(material, diffuseImage, alphaImage);
     info->forceFallbackAlbedo = IsSmokeReflectiveEyewearMaterial(material);
     info->alphaFromDiffuseDarkKey = info->alphaFromDiffuseLuma && info->forceFallbackAlbedo;
-    info->portalWindowFallback = IsSmokePortalWindowFallbackMaterial(material);
-    info->objectGlassFallback = IsSmokeObjectGlassFallbackMaterial(material);
+    info->portalWindowFallback = portalWindowFallback;
+    info->objectGlassFallback = objectGlassFallback;
     info->emissiveColor = emissiveColor;
     info->emissive = info->hasEmissiveImage || emissiveColor.x > 0.0f || emissiveColor.y > 0.0f || emissiveColor.z > 0.0f;
     info->emissiveLightCandidate = info->emissive && emissiveLightCandidate;

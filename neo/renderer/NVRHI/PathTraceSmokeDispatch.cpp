@@ -4436,7 +4436,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nsightGpuMarkers);
         };
         dispatchCleanMaterialFeatureCompose();
-        auto dispatchCleanRestirGi = [&](bool resolveToRrInputColor) -> bool
+        auto dispatchCleanRestirGi = [&](bool resolveToRrInputColor, bool dlssRrActive) -> bool
         {
             PathTraceCleanRestirGiDispatchInputs giInputs;
             giInputs.device = device;
@@ -4493,6 +4493,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.neeCacheProviderResultBuffer = cleanNeeCacheProviderSrv;
             giInputs.neeCacheCellBuffer = cleanNeeCacheCellSrv;
             giInputs.neeCacheCandidateBuffer = cleanNeeCacheCandidateSrv;
+            giInputs.diReservoirBuffer = cleanSpatialRoute
+                ? m_smokeCleanRtxdiDiSpatialReservoirBuffer
+                : (cleanRtxdiDiTemporalEnabled
+                    ? m_smokeCleanRtxdiDiTemporalReservoirBuffer
+                    : m_smokeCleanRtxdiDiCurrentReservoirBuffer);
             giInputs.primarySurfaceCurrentBuffer = m_frameResources.primarySurfaceHistoryBuffers.current;
             giInputs.primarySurfacePreviousBuffer = m_frameResources.primarySurfaceHistoryBuffers.previous;
             giInputs.motionVectorTexture = m_frameResources.motionVectorTexture;
@@ -4502,6 +4507,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.rrGuideHitDistanceTexture = m_frameResources.rrGuideHitDistanceTexture;
             giInputs.materialSampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
             giInputs.resolveToRrInputColor = resolveToRrInputColor;
+            giInputs.dlssRrActive = dlssRrActive;
             return PathTraceCleanRestirGiExecute(m_cleanRestirGiState, giInputs);
         };
         const bool cleanDlssRrEvaluateRequested =
@@ -4611,7 +4617,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
             if (cleanGiPreDlssRequested)
             {
-                dispatchCleanRestirGi(cleanGiView0ResolveRequested);
+                dispatchCleanRestirGi(cleanGiView0ResolveRequested, true);
                 dispatchCleanMaterialFeatureCompose();
                 cleanGiDispatchedBeforeRr = true;
             }
@@ -4711,7 +4717,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             // GI temporal reuse samples the previous-frame surface buffer,
             // and copying current->previous first turns camera-motion
             // reprojection into current-frame lookups.
-            dispatchCleanRestirGi(false);
+            dispatchCleanRestirGi(false, false);
             dispatchCleanMaterialFeatureCompose();
         }
         if (cleanRtxdiDiRrGuideDebugView)

@@ -8,10 +8,10 @@
 // rbdoom-owned GI temporal resampling, replacing
 // Rtxdi/GI/TemporalResampling.hlsli. Math: Ouyang et al. 2021 (ReSTIR GI) -
 // two-candidate streaming merge of the fresh initial sample with the
-// back-projected history sample. Conventions match RTXDI GI temporal:
-// candidate weight = m * p-hat_q(T(s)) * W; OFF finalizes by 1/M, BASIC
-// finalizes with the selected sample's shifted target pdf over the
-// target-pdf-weighted candidate sum.
+// back-projected history sample. Candidate weight is
+// m * p-hat_q(T(s)) * W. Mode 0 finalizes by 1/M, mode 1 retains the local
+// support-count BASIC normalization, and mode 2 uses the Remix-shaped
+// selected-target numerator over the target-pdf-weighted domain sum.
 //
 // The including shader must define, before this header:
 //   RAB_GetGBufferSurface(int2 pixel, bool previousFrame)   (bounds-safe)
@@ -22,10 +22,9 @@
 //   reservoir bridge with RTXDI_GI_RESERVOIR_BUFFER set up)
 //
 // Scope notes:
-//   - biasCorrectionMode: OFF = 1/M, BASIC+ = 1/Z. PAIRWISE/RAY_TRACED clamp
-//     to BASIC (the only caller clamps to BASIC anyway; a temporal pairwise
-//     MIS over two candidates adds nothing, and ray-traced revalidation of
-//     the history sample belongs to the deferred lighting-validation slice).
+//   - biasCorrectionMode: 0 = 1/M, 1 = local support-count BASIC, 2 =
+//     Remix-shaped target-PDF MIS normalization. Ray-traced temporal
+//     revalidation remains deferred to the lighting-validation slice.
 //   - enableFallbackSampling: when the back-projected pixel fails its gates,
 //     one extra candidate pixel is tried from a small jitter disc around it
 //     (recovers history across small reprojection misses at thin geometry).
@@ -112,6 +111,7 @@ bool RBPT_GITemporalFindHistory(
     RTXDI_RuntimeParameters runtimeParams,
     RTXDI_ReservoirBufferParameters reservoirParams,
     RTXDI_GITemporalResamplingParameters tparams,
+    bool useDlssRrRandomizedReprojection,
     inout RTXDI_RandomSamplerState rng,
     out RTXDI_GIReservoir historyReservoir,
     out float3 historySurfacePos,
@@ -125,6 +125,17 @@ bool RBPT_GITemporalFindHistory(
     if (tparams.enablePermutationSampling != 0u)
     {
         RTXDI_ApplyPermutationSampling(basePixel, tparams.uniformRandomNumber);
+    }
+    if (useDlssRrRandomizedReprojection && tparams.dlssRrTemporalRandomizationRadius > 0.0)
+    {
+        // A wide stochastic reprojection deliberately trades coherent history
+        // islands for high-frequency temporal error that RR can reconstruct.
+        // sqrt(r) keeps samples uniform over the disc rather than clustering
+        // them at the reprojected center.
+        const float angle = RTXDI_GetNextRandom(rng) * 6.28318530718;
+        const float radius = sqrt(RTXDI_GetNextRandom(rng)) *
+            tparams.dlssRrTemporalRandomizationRadius;
+        basePixel += int2(round(float2(cos(angle), sin(angle)) * radius));
     }
     const float expectedPreviousDepth =
         RAB_GetSurfaceLinearDepth(surface) + screenSpaceMotion.z;
@@ -187,6 +198,17 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
         return inputReservoir;
     }
 
+    // Remix's RR compatibility mode only decorrelates the diffuse share. The
+    // fresh candidate receives more effective confidence at the same time so
+    // a randomly fetched coherent history sample cannot dominate the merge.
+    const bool useDlssRrRandomizedReprojection =
+        tparams.enableDlssRrCompatibility != 0u &&
+        RTXDI_GetNextRandom(rng) < saturate(tparams.dlssRrDiffuseProbability);
+    if (useDlssRrRandomizedReprojection && RTXDI_IsValidGIReservoir(inputReservoir))
+    {
+        inputReservoir.M = min((uint)((float)inputReservoir.M / 0.26), 255u);
+    }
+
     RTXDI_GIReservoir historyReservoir;
     float3 historySurfacePos;
     int2 historyPixel;
@@ -198,6 +220,7 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
         runtimeParams,
         reservoirParams,
         tparams,
+        useDlssRrRandomizedReprojection,
         rng,
         historyReservoir,
         historySurfacePos,
@@ -279,8 +302,31 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     }
 
     const float mergedM = canonicalM + historyM;
-    float normalization = max(mergedM, 1.0);
-    if (min(tparams.biasCorrectionMode, uint(RTXDI_BIAS_CORRECTION_BASIC)) >= RTXDI_BIAS_CORRECTION_BASIC)
+    float normalizationNumerator = 1.0;
+    float normalizationDenominator = selectedTargetAtCurrent * max(mergedM, 1.0);
+    if (tparams.biasCorrectionMode >= 2u)
+    {
+        // Remix-shaped temporal MIS normalization. Evaluate the selected
+        // sample in both the current and previous receiver domains, then use
+        // the selected source-domain target as the numerator and the
+        // confidence-weighted target sum as the denominator.
+        const RAB_Surface historySurface = RAB_GetGBufferSurface(historyPixel, true);
+        const float selectedTargetAtHistory = RAB_IsSurfaceValid(historySurface)
+            ? RAB_GetGISampleTargetPdfForSurface(selected.position, selected.radiance, historySurface)
+            : 0.0;
+        const float piSum =
+            selectedTargetAtCurrent * canonicalM +
+            selectedTargetAtHistory * historyM;
+        normalizationNumerator = selectedHistory
+            ? selectedTargetAtHistory
+            : selectedTargetAtCurrent;
+        normalizationDenominator = piSum * selectedTargetAtCurrent;
+        if (!(normalizationNumerator > 0.0) || !(normalizationDenominator > 0.0))
+        {
+            return inputReservoir;
+        }
+    }
+    else if (tparams.biasCorrectionMode >= uint(RTXDI_BIAS_CORRECTION_BASIC))
     {
         // 1/Z: count each temporal domain that could have generated the
         // selected sample. The winning source domain is always counted; that
@@ -317,11 +363,11 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
         {
             return inputReservoir;
         }
-        normalization = max(Z, 1.0);
+        normalizationDenominator = max(Z, 1.0) * selectedTargetAtCurrent;
     }
 
     RTXDI_GIReservoir result = selected;
-    result.weightSum = wSum / (normalization * selectedTargetAtCurrent);
+    result.weightSum = (wSum * normalizationNumerator) / normalizationDenominator;
     if (!(result.weightSum > 0.0 && result.weightSum < 1.0e20))
     {
         return inputReservoir;

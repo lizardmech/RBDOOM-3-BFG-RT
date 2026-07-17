@@ -49,6 +49,10 @@
 #define RBPT_GI_GET_SURFACE(pixel) RAB_GetGBufferSurface(pixel, false)
 #endif
 
+#ifndef RBPT_GI_CLAMP_NEIGHBOR_PIXEL
+#define RBPT_GI_CLAMP_NEIGHBOR_PIXEL(pixel) (pixel)
+#endif
+
 // Linear view depth used only for the relative-depth similarity gate.
 // Default: distance from surface position to a camera origin the including
 // shader must expose. Override with the lane's own accessor if one exists.
@@ -314,8 +318,10 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
     inout RTXDI_RandomSamplerState rng,
     RTXDI_RuntimeParameters runtimeParams,
     RTXDI_ReservoirBufferParameters reservoirParams,
-    RTXDI_GISpatialResamplingParameters sparams)
+    RTXDI_GISpatialResamplingParameters sparams,
+    out uint4 debugStats)
 {
+    debugStats = uint4(0u, 0u, 0u, 0u);
     const float3 receiverPos = RAB_GetSurfaceWorldPos(surface);
     const uint k = max(sparams.numSamples, 1u);
 
@@ -326,8 +332,27 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
 
     const bool pairwise =
         sparams.biasCorrectionMode == RTXDI_BIAS_CORRECTION_PAIRWISE;
+    const float centralTechniqueWeight = pairwise
+        ? max(sparams.pairwiseCentralWeight, 0.01)
+        : 1.0;
+    const float pairwiseCentralM = Mc * centralTechniqueWeight;
 
     RBPT_GIStream stream = RBPT_GIStreamInit();
+
+    // Mature history uses one neighbor, so sharing only the neighbor-location
+    // stream over a 4x4 tile lets a whole small region replace a coherent bad
+    // temporal sample consistently. Winner selection remains per pixel.
+    RTXDI_RandomSamplerState neighborRng = rng;
+    if (sparams.sharedTilePattern != 0u &&
+        inputReservoir.M >= max(sparams.fastHistoryLength, 1u))
+    {
+        neighborRng = RTXDI_InitRandomSamplerForPass(
+            pixel / 4u,
+            runtimeParams.frameIndex,
+            0x52525821u,
+            0u);
+        neighborRng.useBlueNoise = rng.useBlueNoise;
+    }
 
     // Pass 1 over neighbors: gather valid candidates and (for pairwise)
     // accumulate the canonical MIS weight terms.
@@ -344,6 +369,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
     float3 neighborPos[RBPT_GI_MAX_SPATIAL_SAMPLES];
     int2   neighborPixels[RBPT_GI_MAX_SPATIAL_SAMPLES];
     uint   acceptedCount = 0;
+    uint   similarCount = 0;
     uint   pairsSeen = 0; // pairwise: neighbor techniques that exist at all
 
     for (uint i = 0; i < k && i < RBPT_GI_MAX_SPATIAL_SAMPLES; ++i)
@@ -353,9 +379,9 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
             i, pixel, RBPT_GI_REUSE_TRANSFORM_BITS);
 #else
         const int2 delta = RBPT_GIDiscNeighborDelta(
-            rng, sparams.samplingRadius, runtimeParams.neighborOffsetMask);
+            neighborRng, sparams.samplingRadius, runtimeParams.neighborOffsetMask);
 #endif
-        const int2 neighborPixel = int2(pixel) + delta;
+        const int2 neighborPixel = RBPT_GI_CLAMP_NEIGHBOR_PIXEL(int2(pixel) + delta);
         if (all(neighborPixel == int2(pixel)))
         {
             continue;
@@ -371,6 +397,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
         {
             continue;
         }
+        similarCount++;
 
         const RTXDI_GIReservoir neighbor = RBPT_GI_LOAD_RESERVOIR(
             neighborPixel, int(sourceReservoirIndex));
@@ -396,11 +423,11 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
                     jCanToNeighbor;
             }
             const float denom =
-                k * Mi * targetCanAtNeighbor + Mc * canonicalTarget;
+                k * Mi * targetCanAtNeighbor + pairwiseCentralM * canonicalTarget;
             // Neighbor cannot represent the canonical sample (denominator
             // collapses to the canonical term): full pair weight to c.
             canonicalMis += (denom > 0.0)
-                ? (Mc * canonicalTarget) / denom
+                ? (pairwiseCentralM * canonicalTarget) / denom
                 : 1.0;
         }
 
@@ -440,7 +467,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
             const float pOwn =
                 RBPT_GITargetPdf(neighborSurface, neighbor);
             const float pCan = targetAtReceiver * jNeighborToCan;
-            const float denom = k * Mi * pOwn + Mc * pCan;
+            const float denom = k * Mi * pOwn + pairwiseCentralM * pCan;
             mis = (denom > 0.0) ? (Mi * pOwn) / denom : 0.0;
         }
         else
@@ -489,6 +516,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
         !RTXDI_IsValidGIReservoir(stream.selected))
     {
         // Nothing usable: pass the input through unchanged.
+        debugStats = uint4(similarCount, acceptedCount, 0u, k);
         return inputReservoir;
     }
 
@@ -539,6 +567,11 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
         stream.wSum / (normalization * stream.selectedTargetAtReceiver);
     result.M = min(stream.M, 65504.0); // fp16-safe confidence cap upstream of
                                        // the history clamp applied elsewhere
+    debugStats = uint4(
+        similarCount,
+        acceptedCount,
+        stream.selectedSourceSlot >= 0 ? 1u : 0u,
+        k);
     return result;
 }
 

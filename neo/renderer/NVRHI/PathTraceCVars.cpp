@@ -1859,7 +1859,7 @@ idCVar r_pathTracingCleanRtxdiDiResolveSolidAnglePdf(
 
 idCVar r_pathTracingCleanRtxdiDiInitialVisibility(
     "r_pathTracingCleanRtxdiDiInitialVisibility",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI diagnostic: trace selected initial DI sample visibility and discard invisible selected samples before temporal/spatial reuse" );
 
@@ -2011,7 +2011,7 @@ idCVar r_pathTracingCleanRestirGiView(
     "r_pathTracingCleanRestirGiView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect GI (diffuse+specular isolated), 7 reservoir M/age diagnostics, 8 route sentinel, 9 secondary material albedo, 10 secondary material texture-source flags, 11 final diffuse lobe, 12 final specular lobe, 13 specular producer radiance, 14 specular producer hit geometry, 15 specular producer PDF health, 16 specular lobe hit distance, 17 specular producer eligibility, 18 specular reuse state, 19 stored specular output, 20 NEE-cache provider state, 21 producer shade gate, 22 producer ray-query vs TraceRay compare, 23 producer-to-reservoir path classifier, 24 transmission PSR primary-surface mask. Reads GI lane resources only" );
+    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect GI (diffuse+specular isolated), 7 reservoir M/age diagnostics, 8 route sentinel, 9 secondary material albedo, 10 secondary material texture-source flags, 11 final diffuse lobe, 12 final specular lobe, 13 specular producer radiance, 14 specular producer hit geometry, 15 specular producer PDF health, 16 specular lobe hit distance, 17 specular producer eligibility, 18 specular reuse state, 19 stored specular output, 20 NEE-cache provider state, 21 producer shade gate, 22 producer ray-query vs TraceRay compare, 23 producer-to-reservoir path classifier, 24 transmission PSR primary-surface mask, 25 spatial authority (R similar candidates, G accepted reservoirs, B neighbor selected), 26 Remix-comparable raw spatial radiance*W clamped to 0..1. Reads GI lane resources only" );
 
 idCVar r_pathTracingCleanRestirGiTemporal(
     "r_pathTracingCleanRestirGiTemporal",
@@ -2025,11 +2025,35 @@ idCVar r_pathTracingCleanRestirGiPermutationSampling(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI temporal permutation sampling: perturb the previous-frame reservoir address inside Remix-default 4x4 pixel blocks to produce denoiser-friendly temporal variation" );
 
+idCVar r_pathTracingCleanRestirGiDlssRrCompatibility(
+    "r_pathTracingCleanRestirGiDlssRrCompatibility",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI DLSS-RR compatibility A/B: while DLSS-RR evaluation is active, decorrelate diffuse temporal history with a broad randomized reprojection and increase the fresh sample's temporal authority" );
+
+idCVar r_pathTracingCleanRestirGiDlssRrCompatibilityRadius(
+    "r_pathTracingCleanRestirGiDlssRrCompatibilityRadius",
+    "80",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI DLSS-RR compatibility temporal randomization radius at 960-pixel render width; scales with the active render width" );
+
 idCVar r_pathTracingCleanRestirGiSpatial(
     "r_pathTracingCleanRestirGiSpatial",
     "1",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI spatial resampling: 0 = spatial input passes through to the spatial output page unchanged" );
+
+idCVar r_pathTracingCleanRestirGiSpatialRemixProfile(
+    "r_pathTracingCleanRestirGiSpatialRemixProfile",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI spatial A/B: use broad alternating searches, history-starved four-neighbor recovery, grazing-aware gates, and pairwise central-sample suppression" );
+
+idCVar r_pathTracingCleanRestirGiSpatialCentralWeight(
+    "r_pathTracingCleanRestirGiSpatialCentralWeight",
+    "0.1",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI Remix-profile pairwise importance of the central temporal reservoir; lower values let current-frame spatial neighbors replace coherent temporal artifacts more aggressively" );
 
 idCVar r_pathTracingCleanRestirGiSpatialVisibility(
     "r_pathTracingCleanRestirGiSpatialVisibility",
@@ -2041,7 +2065,7 @@ idCVar r_pathTracingCleanRestirGiTemporalBiasCorrection(
     "r_pathTracingCleanRestirGiTemporalBiasCorrection",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI temporal bias correction: 0 off, 1 BASIC. Values above BASIC are deferred and clamp down" );
+    "Clean-room ReSTIR GI temporal normalization: 0 off/count-M, 1 local BASIC support-count, 2 Remix-shaped target-PDF MIS normalization" );
 
 idCVar r_pathTracingCleanRestirGiJacobian(
     "r_pathTracingCleanRestirGiJacobian",
@@ -2077,7 +2101,7 @@ idCVar r_pathTracingCleanRestirGiBlueNoise(
     "r_pathTracingCleanRestirGiBlueNoise",
     "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room ReSTIR GI: feed spatiotemporal blue noise to eligible producer, initial-sample, spatial reuse, and temporal reuse RNG dimensions instead of white noise. Requires the STBN mask at textures/bluenoise/stbn_scalar_128x128x64.raw; falls back to white noise if absent." );
+    "Clean-room ReSTIR GI: feed spatiotemporal blue noise to eligible producer, initial-sample, and spatial-reuse RNG dimensions instead of white noise. Temporal reservoir selection remains white-noise to avoid imprinting structured history. Requires the STBN mask at textures/bluenoise/stbn_scalar_128x128x64.raw; falls back to white noise if absent." );
 
 idCVar r_pathTracingCleanRestirGiMaxBounces(
     "r_pathTracingCleanRestirGiMaxBounces",
@@ -2126,6 +2150,24 @@ idCVar r_pathTracingCleanRestirGiSecondaryRluCandidates(
     "2",
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room ReSTIR GI RLU RIS candidate count for each first-secondary direct-light proposal; 8 matches the DI candidate-count legacy behavior" );
+
+idCVar r_pathTracingCleanRestirGiDiSampleStealing(
+    "r_pathTracingCleanRestirGiDiSampleStealing",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI A/B: project compatible first-secondary hits into the current primary surface and replay its finalized DI reservoir sample before falling back to RLU RIS" );
+
+idCVar r_pathTracingCleanRestirGiTypedStridedRis(
+    "r_pathTracingCleanRestirGiTypedStridedRis",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI A/B: stratify the fixed secondary RLU RIS budget across the emissive and analytic light ranges instead of sampling the combined RLU uniformly" );
+
+idCVar r_pathTracingCleanRestirGiLocalityRis(
+    "r_pathTracingCleanRestirGiLocalityRis",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI A/B: make typed secondary RIS resist large indoor light-set dilution using the emissive power distribution and a PDF-correct portal-local/global analytic mixture" );
 
 idCVar r_pathTracingCleanRestirGiContinuationOpaqueTrace(
     "r_pathTracingCleanRestirGiContinuationOpaqueTrace",

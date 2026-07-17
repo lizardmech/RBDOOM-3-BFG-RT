@@ -51,6 +51,9 @@ struct RemixRestirGITemporalReuseDesc
     uint maxReservoirAge;
     uint enablePermutationSampling;
     uint uniformRandomNumber;
+    uint enableDlssRrCompatibility;
+    float dlssRrTemporalRandomizationRadius;
+    float dlssRrDiffuseProbability;
 };
 
 struct RemixRestirGITemporalReuseResult
@@ -85,10 +88,16 @@ RTXDI_GITemporalResamplingParameters RemixRestirGITemporalParameters(RemixRestir
     params.normalThreshold = desc.normalThreshold;
     params.maxHistoryLength = desc.maxHistoryLength;
     params.enableFallbackSampling = desc.enableFallbackSampling;
-    params.biasCorrectionMode = min(desc.biasCorrectionMode, uint(RTXDI_BIAS_CORRECTION_BASIC));
+    // Mode 2 is the rbdoom clean-room target-PDF MIS normalization A/B. Keep
+    // it intact for the local temporal implementation instead of clamping it
+    // to the support-count BASIC mode here.
+    params.biasCorrectionMode = min(desc.biasCorrectionMode, 2u);
     params.maxReservoirAge = desc.maxReservoirAge;
     params.enablePermutationSampling = desc.enablePermutationSampling;
     params.uniformRandomNumber = desc.uniformRandomNumber;
+    params.enableDlssRrCompatibility = desc.enableDlssRrCompatibility;
+    params.dlssRrTemporalRandomizationRadius = desc.dlssRrTemporalRandomizationRadius;
+    params.dlssRrDiffuseProbability = desc.dlssRrDiffuseProbability;
     return params;
 }
 
@@ -99,7 +108,9 @@ uint RemixRestirGIGetDeferredFeatureMask(RemixRestirGITemporalReuseDesc desc)
     mask |= desc.enableReflectionReprojection != 0u ? REMIX_RESTIR_GI_DEFERRED_REFLECTION_REPROJECTION : 0u;
     mask |= desc.enableVirtualSamples != 0u ? REMIX_RESTIR_GI_DEFERRED_VIRTUAL_SAMPLES : 0u;
     mask |= desc.enablePortalTransform != 0u ? REMIX_RESTIR_GI_DEFERRED_PORTAL_TRANSFORM : 0u;
-    mask |= desc.biasCorrectionMode > uint(RTXDI_BIAS_CORRECTION_BASIC) ? REMIX_RESTIR_GI_DEFERRED_VISIBILITY : 0u;
+    // Local mode 2 is target-PDF MIS normalization, not the higher RTXDI
+    // ray-traced bias-correction mode that would request deferred visibility.
+    mask |= desc.biasCorrectionMode > 2u ? REMIX_RESTIR_GI_DEFERRED_VISIBILITY : 0u;
     return mask;
 }
 
@@ -159,7 +170,12 @@ RemixRestirGITemporalReuseResult RemixRestirGIRunTemporalReuseContract(
             desc.frameIndex,
             REMIX_RESTIR_GI_TEMPORAL_RNG_PASS,
             0u);
-        CleanGiApplyBlueNoiseToggle(rng);
+        // Keep the temporal winner-selection coin flip white-noise. Feeding
+        // the producer STBN mask into this recursive decision imprints its
+        // frame-to-frame structure into reservoir history, turning the
+        // producer's fine blue-noise error into persistent low-frequency
+        // islands. Producer/initial and spatial sampling retain STBN.
+        CleanGiDisableBlueNoise(rng);
 
         result.temporalReservoir = RTXDI_GITemporalResampling(
             desc.pixel,

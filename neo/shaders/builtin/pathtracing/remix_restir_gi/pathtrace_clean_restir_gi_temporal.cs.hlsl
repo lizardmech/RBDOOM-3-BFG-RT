@@ -4,6 +4,7 @@
 // reservoir contract as compute instead of DXR raygen when the normal beauty
 // path has spatial reuse enabled. Other views stay on the RT fallback.
 
+// Root dependency marker: temporal reservoir selection stays white-noise.
 #include "pathtrace_clean_restir_gi.rt.hlsl"
 
 static const uint CLEAN_GI_TEMPORAL_GROUP_SIZE_X = 16u;
