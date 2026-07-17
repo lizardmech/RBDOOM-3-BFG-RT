@@ -85,13 +85,27 @@ struct ParticleCompositeQuad
     float viewDepth = 0.0f;
 };
 
+struct ParticleCompositePrimitive
+{
+    float centerWorld[3] = {};
+    uint32_t stableParticleId = 0;
+    uint32_t batchIndex = 0;
+    uint32_t firstIndex = 0;
+    uint32_t indexCount = 0;
+    float viewDepth = 0.0f;
+};
+
 struct RtPathTraceParticleCaptureStats
 {
     int candidateSurfaces = 0;
     int candidateQuads = 0;
+    int candidateTriangles = 0;
+    int cardOnlySurfaces = 0;
+    int mixedStageSurfaces = 0;
     int capturedSurfaces = 0;
     int capturedBatches = 0;
     int capturedDrawQuads = 0;
+    int capturedTrianglePrimitives = 0;
     int droppedGeometrySurfaces = 0;
     int droppedNonQuadSurfaces = 0;
     int alphaLitBatches = 0;
@@ -105,6 +119,7 @@ struct RtPathTraceParticleCapture
     std::vector<uint32_t> indexes;
     std::vector<ParticleCompositeBatch> batches;
     std::vector<ParticleCompositeQuad> quads;
+    std::vector<ParticleCompositePrimitive> primitives;
     std::vector<const idImage*> textures;
     RtPathTraceParticleCaptureStats stats;
     bool enabled = false;
