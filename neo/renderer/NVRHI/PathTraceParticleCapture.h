@@ -58,6 +58,7 @@ enum RtPathTraceParticleBatchFlags : uint32_t
 struct ParticleCompositeVertex
 {
     float worldPosition[3] = {};
+    float worldPositionPadding = 0.0f;
     float texCoord[2] = {};
     uint32_t packedColor = 0xffffffffu;
     uint32_t particleIdLow = 0;

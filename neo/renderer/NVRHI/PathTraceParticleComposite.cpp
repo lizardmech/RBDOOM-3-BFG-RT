@@ -8,6 +8,7 @@
 #include "../../sys/DeviceManager.h"
 
 #include <algorithm>
+#include <cstddef>
 
 extern DeviceManager* deviceManager;
 
@@ -24,7 +25,11 @@ struct ParticleCompositeConstants
     idVec4 modelInfo;
 };
 
-static_assert(sizeof(ParticleCompositeVertex) == 28, "Particle composite vertex ABI mismatch");
+// DXC's Vulkan StructuredBuffer layout aligns float3 to 16 bytes. Keep this
+// record at the reflected offsets 0/16/24/28 and ArrayStride 32.
+static_assert(offsetof(ParticleCompositeVertex, texCoord) == 16, "Particle composite texcoord ABI mismatch");
+static_assert(offsetof(ParticleCompositeVertex, packedColor) == 24, "Particle composite color ABI mismatch");
+static_assert(sizeof(ParticleCompositeVertex) == 32, "Particle composite vertex ABI mismatch");
 static_assert(sizeof(ParticleCompositeConstants) == 112, "Particle composite constants ABI mismatch");
 
 nvrhi::BlendState::RenderTarget ParticleCompositeBlendState(RtPathTraceParticleBlendClass blendClass)
