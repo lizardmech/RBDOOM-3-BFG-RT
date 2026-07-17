@@ -245,6 +245,7 @@ private:
     void ReadBackSkyCubeProbe();
     void ReadBackDLSSRRInputColorDump();
     void QueueDLSSRRInputColorDump(nvrhi::ICommandList* commandList, nvrhi::ITexture* inputColor, int source, uint32_t frameIndex);
+    void ExecutePathTraceParticleComposite(nvrhi::ICommandList* commandList, const viewDef_t* viewDef);
 
     idRenderBackend* m_backend;
     bool m_reportedMode;
@@ -316,6 +317,14 @@ private:
     bool m_pathTracePostLutInvalidLogged = false;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
     RtPathTraceParticleCapture m_particleCapture;
+    nvrhi::BindingLayoutHandle m_particleCompositeBindingLayout;
+    nvrhi::ShaderHandle m_particleCompositeVertexShader;
+    nvrhi::ShaderHandle m_particleCompositePixelShader;
+    nvrhi::GraphicsPipelineHandle m_particleCompositePipelines[3];
+    nvrhi::FramebufferHandle m_particleCompositeFramebuffer;
+    nvrhi::TextureHandle m_particleCompositeFramebufferTexture;
+    nvrhi::BufferHandle m_particleCompositeVertexBuffer;
+    nvrhi::BufferHandle m_particleCompositeIndexBuffer;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokePreviousSkinnedSurfaceRecords;
     std::vector<PathTraceSmokeVertex> m_smokePreviousSkinnedVertexData;

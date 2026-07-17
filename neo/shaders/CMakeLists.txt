@@ -20,6 +20,10 @@ list(REMOVE_ITEM usershaders ${globalshaders})
 
 set(shaders ${globalshaders} ${builtins} ${debug} ${fog} ${legacy} ${lighting} ${post} ${pathtracing} ${cleanroom_rtxdi} ${remix_restir_gi} ${ssao} ${ssgi} ${video} ${vr} ${usershaders})
 
+set(PARTICLE_COMPOSITE_SHADER_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_particle_composite.vs.hlsl
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_particle_composite.ps.hlsl)
+
 source_group("builtin" FILES ${builtins})
 source_group("builtin/debug" FILES ${debug})
 source_group("builtin/fog" FILES ${fog})
@@ -54,6 +58,17 @@ else()
         SOURCES ${shaders}
     )
 endif()
+
+# This lane is Vulkan-only. Keep it out of the all-platform ShaderMake pass so
+# adding or editing the particle shaders never invokes the unused DXIL compiler.
+compile_shaders(
+    TARGET ParticleCompositeShaders
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/particle_composite_shaders.cfg
+    FOLDER "Shaders"
+    SPIRV_DXC ${CMAKE_CURRENT_SOURCE_DIR}/../../base/renderprogs2/spirv
+    SHADER_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
+    SOURCES ${PARTICLE_COMPOSITE_SHADER_SOURCES})
+add_dependencies(Shaders ParticleCompositeShaders)
 
 set(PATH_TRACING_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_smoke.rt.hlsl)
 set(PATH_TRACING_MODE18_RESTIR_HYBRID_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_smoke_mode18_restir_hybrid.rt.hlsl)

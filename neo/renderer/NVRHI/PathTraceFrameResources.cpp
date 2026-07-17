@@ -219,6 +219,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     outputDesc.format = nvrhi::Format::RGBA32_FLOAT;
     outputDesc.dimension = nvrhi::TextureDimension::Texture2D;
     outputDesc.isUAV = true;
+    outputDesc.isRenderTarget = true;
     outputDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
     outputDesc.keepInitialState = true;
     outputDesc.debugName = "PathTraceSmokeOutput";

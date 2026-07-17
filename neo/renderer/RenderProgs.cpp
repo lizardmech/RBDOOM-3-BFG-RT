@@ -950,6 +950,7 @@ void idRenderProgManager::Init( nvrhi::IDevice* device )
 		{ BUILTIN_PT_SKY_CUBE_PROBE_CS, "builtin/pathtracing/pathtrace_sky_cube_probe", "", { }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
 		{ BUILTIN_PT_SKY_SURFACE_RESOLVE_CS, "builtin/pathtracing/pathtrace_sky_surface_resolve", "", { }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
 		{ BUILTIN_NEE_CACHE_PRIMARY_SURFACE_UPDATE_CS, "builtin/pathtracing/cleanroom_rtxdi/pathtrace_nee_cache_primary_surface_update", "", { }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
+		{ BUILTIN_PT_PARTICLE_COMPOSITE, "builtin/pathtracing/pathtrace_particle_composite", "", { }, false, SHADER_STAGE_DEFAULT, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
 		// SP end
 	};
 	int numBuiltins = sizeof( builtins ) / sizeof( builtins[0] );

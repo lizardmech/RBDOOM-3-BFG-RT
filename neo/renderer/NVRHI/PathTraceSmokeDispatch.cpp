@@ -4748,6 +4748,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
         }
+        ExecutePathTraceParticleComposite(commandList, viewDef);
         if (cleanRtxdiDiView >= 2 && cleanPromoteSubviewSurface)
         {
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::CopySource);
@@ -7266,6 +7267,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->commitBarriers();
         }
     }
+    ExecutePathTraceParticleComposite(commandList, viewDef);
     const uint64 dlssRrCompleteUs = Sys_Microseconds();
     const uint64 historyCopyStartUs = dlssRrCompleteUs;
     if (!standaloneDebugRouteRequested && !disablePrimarySurfaceHistory)
