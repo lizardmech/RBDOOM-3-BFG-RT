@@ -73,7 +73,10 @@ nvrhi::BufferHandle ParticleCompositeEnsureBuffer(
     desc.structStride = indexBuffer ? 0u : stride;
     desc.isIndexBuffer = indexBuffer;
     desc.initialState = indexBuffer ? nvrhi::ResourceStates::IndexBuffer : nvrhi::ResourceStates::ShaderResource;
-    desc.keepInitialState = false;
+    // These upload buffers persist across command lists. NVRHI validation needs
+    // their declared state retained so writeBuffer/setBufferState can begin from
+    // a known state on the first composite frame and every frame thereafter.
+    desc.keepInitialState = true;
     desc.debugName = name;
     return device->createBuffer(desc);
 }
