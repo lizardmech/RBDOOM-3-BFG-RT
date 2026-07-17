@@ -97,14 +97,12 @@ float4 main(PS_IN input) : SV_Target0
     // disappear long before its authored fade completes.
     const float4 sampledTexel = ParticleTexture.Sample(ParticleSampler, input.texCoord);
     const float4 authoredTexel = sampledTexel * input.color;
-    // Additive and multiplicative particle vertex colors are intensity/fade
-    // controls. Applying the sRGB curve after multiplying them makes a 0.25
-    // smoke tint contribute only about 0.05 and erases most of its lifetime.
-    // Decode the authored texture first, then apply that linear control.
-    const bool rgbCoverageBlend = blendClass == 2u || blendClass == 3u;
-    const float3 linearRgb = rgbCoverageBlend
-        ? sRGBToLinearRGB(sampledTexel.rgb) * input.color.rgb
-        : sRGBToLinearRGB(authoredTexel.rgb);
+    // Particle vertex/stage colors are intensity and fade controls. Applying
+    // the sRGB curve after multiplying them makes barrelpoof's roughly 0.2
+    // tint contribute only about 0.03 and turns gray alpha smoke black.
+    // Decode the authored texture first, then apply that linear control for
+    // every blend class.
+    const float3 linearRgb = sRGBToLinearRGB(sampledTexel.rgb) * input.color.rgb;
     float4 texel = float4(linearRgb, authoredTexel.a);
     if (blendClass != 2u)
     {

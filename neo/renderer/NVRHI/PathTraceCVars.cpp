@@ -2483,9 +2483,9 @@ idCVar r_pathTracingParticleComposite(
 
 idCVar r_pathTracingParticleAmbient(
     "r_pathTracingParticleAmbient",
-    "0.16",
+    "1.0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Ambient floor reserved for lit particle cards" );
+    "Unlit fallback multiplier for alpha particle cards; this becomes the ambient floor when direct particle lighting is enabled" );
 
 idCVar r_pathTracingParticleEmissiveScale(
     "r_pathTracingParticleEmissiveScale",
