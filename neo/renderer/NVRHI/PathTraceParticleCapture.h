@@ -9,7 +9,15 @@
 #include <vector>
 
 struct viewDef_t;
+struct drawSurf_t;
+struct srfTriangles_t;
 class idImage;
+
+enum class RtPathTraceParticleSurfaceRoute : uint32_t
+{
+    LegacyBvh = 0,
+    CompositeOnly = 1
+};
 
 enum class RtPathTraceParticleBlendClass : uint32_t
 {
@@ -102,6 +110,8 @@ struct RtPathTraceParticleCaptureStats
     int candidateTriangles = 0;
     int cardOnlySurfaces = 0;
     int mixedStageSurfaces = 0;
+    int routedCompositeOnlySurfaces = 0;
+    int retainedBvhCandidateSurfaces = 0;
     int capturedSurfaces = 0;
     int capturedBatches = 0;
     int capturedDrawQuads = 0;
@@ -129,3 +139,6 @@ struct RtPathTraceParticleCapture
 };
 
 void BuildPathTraceParticleCompositeCapture(const viewDef_t* viewDef, RtPathTraceParticleCapture& capture);
+RtPathTraceParticleSurfaceRoute PathTraceParticleCompositeSurfaceRoute(
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t* tri);

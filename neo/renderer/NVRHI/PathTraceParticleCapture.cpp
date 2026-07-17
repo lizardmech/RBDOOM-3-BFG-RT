@@ -318,6 +318,17 @@ bool ParticleAuditModelLooksWeapon(const char* modelName)
          idStr::FindText(modelName, "hands", false) >= 0);
 }
 
+bool ParticleCompositeHasExplicitEffectContext(const drawSurf_t* drawSurf)
+{
+    const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
+    const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
+    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    const char* modelName = renderEntity && renderEntity->hModel ? renderEntity->hModel->Name() : nullptr;
+    return (space && space->weaponDepthHack) ||
+        (renderEntity && renderEntity->allowSurfaceInViewID != 0) ||
+        (modelName && idStr::FindText(modelName, ".prt", false) >= 0);
+}
+
 bool ParticleCompositeSurfaceAccepted(
     const drawSurf_t* drawSurf,
     const RtSmokeTranslucentClassifierInfo& classifier,
@@ -339,7 +350,7 @@ bool ParticleCompositeSurfaceAccepted(
         ParticleAuditSupportedDeform(material->Deform()) ||
         material->Coverage() == MC_TRANSLUCENT ||
         classifier.nameLooksParticle ||
-        material->GetSort() >= SS_MEDIUM;
+        ParticleCompositeHasExplicitEffectContext(drawSurf);
     return transientMaterialTrait &&
         supportedStageCount > 0 &&
         !IsSmokeGuiDrawSurface(drawSurf) &&
@@ -353,6 +364,66 @@ bool ParticleCompositeSurfaceAccepted(
         !classifier.hasScreenTexgen;
 }
 
+ParticleCompositeSurfaceInspection ParticleCompositeInspectSurface(
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t* tri,
+    int surfaceIndex)
+{
+    ParticleCompositeSurfaceInspection inspection;
+    inspection.surfaceIndex = surfaceIndex;
+    inspection.drawSurf = drawSurf;
+    inspection.tri = tri;
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    if (!drawSurf || !material || !tri || !tri->verts || !tri->indexes ||
+        drawSurf->numIndexes < 3 || (drawSurf->numIndexes % 3) != 0)
+    {
+        return inspection;
+    }
+
+    inspection.valid = true;
+    inspection.classifier = BuildSmokeTranslucentClassifierInfo(material);
+    inspection.supportedDeform = ParticleAuditSupportedDeform(material->Deform());
+        inspection.transientMaterialTrait =
+            inspection.supportedDeform ||
+            material->Coverage() == MC_TRANSLUCENT ||
+            inspection.classifier.nameLooksParticle ||
+            ParticleCompositeHasExplicitEffectContext(drawSurf);
+    inspection.excludedGui = IsSmokeGuiDrawSurface(drawSurf) || inspection.classifier.nameLooksGui;
+    inspection.excludedGlass = inspection.classifier.nameLooksGlass;
+    inspection.excludedDecal = inspection.classifier.sortIsDecal || inspection.classifier.polygonOffsetDecal || inspection.classifier.nameLooksDecal;
+    inspection.excludedPostOrSubview = inspection.classifier.sortIsPostProcess || inspection.classifier.sortIsGuiOrSubview;
+    inspection.excludedScreenTexgen = inspection.classifier.hasScreenTexgen;
+
+    bool hasActiveNonCompositeStage = false;
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || !ParticleAuditStageActive(material, drawSurf, stage))
+        {
+            continue;
+        }
+        ParticleAuditStage auditStage = ParticleAuditInspectStage(drawSurf, stageIndex);
+        if (ParticleAuditStageSupported(auditStage))
+        {
+            ++inspection.supportedStageCount;
+        }
+        else
+        {
+            hasActiveNonCompositeStage = true;
+        }
+        inspection.activeStages.push_back(auditStage);
+    }
+
+    int acceptedStageCount = 0;
+    inspection.accepted = ParticleCompositeSurfaceAccepted(
+        drawSurf,
+        inspection.classifier,
+        inspection.activeStages,
+        acceptedStageCount);
+    inspection.cardOnly = inspection.accepted && !hasActiveNonCompositeStage;
+    return inspection;
+}
+
 std::vector<ParticleCompositeSurfaceInspection> ParticleCompositeInspectSurfaces(const viewDef_t* viewDef)
 {
     std::vector<ParticleCompositeSurfaceInspection> inspections;
@@ -364,58 +435,11 @@ std::vector<ParticleCompositeSurfaceInspection> ParticleCompositeInspectSurfaces
     inspections.resize(viewDef->numDrawSurfs);
     for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
     {
-        ParticleCompositeSurfaceInspection& inspection = inspections[surfaceIndex];
-        inspection.surfaceIndex = surfaceIndex;
-        inspection.drawSurf = viewDef->drawSurfs[surfaceIndex];
-        const idMaterial* material = inspection.drawSurf ? inspection.drawSurf->material : nullptr;
-        inspection.tri = inspection.drawSurf ? inspection.drawSurf->frontEndGeo : nullptr;
-        if (!inspection.drawSurf || !material || !inspection.tri || !inspection.tri->verts || !inspection.tri->indexes ||
-            inspection.drawSurf->numIndexes < 3 || (inspection.drawSurf->numIndexes % 3) != 0)
-        {
-            continue;
-        }
-
-        inspection.valid = true;
-        inspection.classifier = BuildSmokeTranslucentClassifierInfo(material);
-        inspection.supportedDeform = ParticleAuditSupportedDeform(material->Deform());
-        inspection.transientMaterialTrait =
-            inspection.supportedDeform ||
-            material->Coverage() == MC_TRANSLUCENT ||
-            inspection.classifier.nameLooksParticle ||
-            material->GetSort() >= SS_MEDIUM;
-        inspection.excludedGui = IsSmokeGuiDrawSurface(inspection.drawSurf) || inspection.classifier.nameLooksGui;
-        inspection.excludedGlass = inspection.classifier.nameLooksGlass;
-        inspection.excludedDecal = inspection.classifier.sortIsDecal || inspection.classifier.polygonOffsetDecal || inspection.classifier.nameLooksDecal;
-        inspection.excludedPostOrSubview = inspection.classifier.sortIsPostProcess || inspection.classifier.sortIsGuiOrSubview;
-        inspection.excludedScreenTexgen = inspection.classifier.hasScreenTexgen;
-
-        bool hasActiveNonCompositeStage = false;
-        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
-        {
-            const shaderStage_t* stage = material->GetStage(stageIndex);
-            if (!stage || !ParticleAuditStageActive(material, inspection.drawSurf, stage))
-            {
-                continue;
-            }
-            ParticleAuditStage auditStage = ParticleAuditInspectStage(inspection.drawSurf, stageIndex);
-            if (ParticleAuditStageSupported(auditStage))
-            {
-                ++inspection.supportedStageCount;
-            }
-            else
-            {
-                hasActiveNonCompositeStage = true;
-            }
-            inspection.activeStages.push_back(auditStage);
-        }
-
-        int acceptedStageCount = 0;
-        inspection.accepted = ParticleCompositeSurfaceAccepted(
-            inspection.drawSurf,
-            inspection.classifier,
-            inspection.activeStages,
-            acceptedStageCount);
-        inspection.cardOnly = inspection.accepted && !hasActiveNonCompositeStage;
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        inspections[surfaceIndex] = ParticleCompositeInspectSurface(
+            drawSurf,
+            drawSurf ? drawSurf->frontEndGeo : nullptr,
+            surfaceIndex);
     }
     return inspections;
 }
@@ -760,6 +784,13 @@ void CapturePathTraceParticleCompositeRecords(
         capture.stats.candidateQuads += (inspection.drawSurf->numIndexes % 6) == 0 ? inspection.drawSurf->numIndexes / 6 : 0;
         capture.stats.cardOnlySurfaces += inspection.cardOnly ? 1 : 0;
         capture.stats.mixedStageSurfaces += inspection.cardOnly ? 0 : 1;
+        const bool compositeOnly = capture.enabled && inspection.cardOnly;
+        capture.stats.routedCompositeOnlySurfaces += compositeOnly ? 1 : 0;
+        capture.stats.retainedBvhCandidateSurfaces += compositeOnly ? 0 : 1;
+        if (capture.enabled && !inspection.cardOnly)
+        {
+            continue;
+        }
         ParticleCaptureAppendSurface(
             viewDef,
             inspection.drawSurf,
@@ -1084,7 +1115,7 @@ static void AuditPathTraceParticleCompositeCandidates(
         weaponDepthHackSurfaces,
         modelDepthHackSurfaces,
         allowViewIdSurfaces);
-    common->Printf("PathTraceParticleAudit: capture enabled=%d debugTint=%d candidates=%d/%d quads=%d/%d triangles=%d/%d ownership=card-only:%d,mixed-stage:%d capturedSurfaces=%d batches=%d drawQuads=%d trianglePrimitives=%d vertices=%d indexes=%d textures=%d droppedGeometry=%d droppedNonQuad=%d parity=%s\n",
+    common->Printf("PathTraceParticleAudit: capture enabled=%d debugTint=%d candidates=%d/%d quads=%d/%d triangles=%d/%d ownership=card-only:%d,mixed-stage:%d route=composite-only:%d,bvh-retained:%d capturedSurfaces=%d batches=%d drawQuads=%d trianglePrimitives=%d vertices=%d indexes=%d textures=%d droppedGeometry=%d droppedNonQuad=%d parity=%s\n",
         capture.enabled ? 1 : 0,
         capture.debugTint ? 1 : 0,
         capture.stats.candidateSurfaces,
@@ -1095,6 +1126,8 @@ static void AuditPathTraceParticleCompositeCandidates(
         candidateTriangles,
         capture.stats.cardOnlySurfaces,
         capture.stats.mixedStageSurfaces,
+        capture.stats.routedCompositeOnlySurfaces,
+        capture.stats.retainedBvhCandidateSurfaces,
         capture.stats.capturedSurfaces,
         capture.stats.capturedBatches,
         capture.stats.capturedDrawQuads,
@@ -1209,6 +1242,20 @@ void RtPathTraceParticleCapture::Clear()
     stats = RtPathTraceParticleCaptureStats();
     enabled = false;
     debugTint = false;
+}
+
+RtPathTraceParticleSurfaceRoute PathTraceParticleCompositeSurfaceRoute(
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t* tri)
+{
+    if (r_pathTracingParticleComposite.GetInteger() == 0)
+    {
+        return RtPathTraceParticleSurfaceRoute::LegacyBvh;
+    }
+    const ParticleCompositeSurfaceInspection inspection = ParticleCompositeInspectSurface(drawSurf, tri, -1);
+    return inspection.cardOnly
+        ? RtPathTraceParticleSurfaceRoute::CompositeOnly
+        : RtPathTraceParticleSurfaceRoute::LegacyBvh;
 }
 
 void BuildPathTraceParticleCompositeCapture(const viewDef_t* viewDef, RtPathTraceParticleCapture& capture)

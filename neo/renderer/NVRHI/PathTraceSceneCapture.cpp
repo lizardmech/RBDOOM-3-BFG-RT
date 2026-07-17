@@ -15,6 +15,7 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceMaterialTextureDiscovery.h"
+#include "PathTraceParticleCapture.h"
 #include "PathTraceRigidIdentity.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSurfaceClassification.h"
@@ -2130,6 +2131,11 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
 
+            if (PathTraceParticleCompositeSurfaceRoute(drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
+            {
+                continue;
+            }
+
             const int classifyStartMs = Sys_Milliseconds();
             const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
             captureTiming.staticPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
@@ -2229,6 +2235,11 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 continue;
             }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
+
+            if (PathTraceParticleCompositeSurfaceRoute(drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
+            {
+                continue;
+            }
 
             if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES)
             {

@@ -9,6 +9,7 @@
 #include "PathTraceGeometryLifecycle.h"
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceGuiSurfaces.h"
+#include "PathTraceParticleCapture.h"
 #include "PathTraceRestirPasses.h"
 #include "PathTraceRigidIdentity.h"
 #include "PathTraceSceneCapture.h"
@@ -897,6 +898,11 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 continue;
             }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
+
+            if (PathTraceParticleCompositeSurfaceRoute(drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
+            {
+                continue;
+            }
 
             const int classifyStartMs = Sys_Milliseconds();
             const RtSmokeSurfaceClass classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
