@@ -38,7 +38,7 @@ float4 main(PS_IN input) : SV_Target0
     // Diagnostic mode must expose captured geometry independently of the
     // manual guide-depth policy. Otherwise a missing card cannot be separated
     // from an over-aggressive occlusion rejection.
-    if (!debugTint && depthPolicy != 1u)
+    if (!debugTint)
     {
         const float2 outputSize = max(ParticleConstants.outputAndRenderSize.xy, float2(1.0, 1.0));
         const float2 renderSize = max(ParticleConstants.outputAndRenderSize.zw, float2(1.0, 1.0));
@@ -64,12 +64,16 @@ float4 main(PS_IN input) : SV_Target0
             }
             else
             {
+                const bool weaponProjection = depthPolicy == 1u;
                 // Additive projectile cards commonly surround a small rigid
-                // core. Permit the card to sit slightly behind that core while
-                // retaining ordinary world occlusion at larger separations.
-                const float occlusionTolerance = blendClass == 0u
+                // core. Permit world-space cards to sit slightly behind that
+                // core while retaining ordinary world occlusion at larger
+                // separations. First-person weapon cards need a tight compare
+                // against the weapon guide surface so a muzzle card behind the
+                // barrel cannot paint over the already-resolved gun.
+                const float occlusionTolerance = weaponProjection
                     ? 0.02
-                    : max(ParticleConstants.batchInfo.z, 0.02);
+                    : (blendClass == 0u ? 0.02 : max(ParticleConstants.batchInfo.z, 0.02));
                 if (depthGap < -occlusionTolerance)
                 {
                     discard;
@@ -77,7 +81,9 @@ float4 main(PS_IN input) : SV_Target0
                 // Only smoke-style alpha cards use soft intersections. Emissive
                 // projectile shells commonly coincide with their rigid core;
                 // fading every blend class here erases the visible projectile.
-                if (blendClass == 0u)
+                // Attached weapon cards are ordered against the gun, but do not
+                // fade merely because the barrel is close behind them.
+                if (blendClass == 0u && !weaponProjection)
                 {
                     softFade = saturate(depthGap / max(ParticleConstants.batchInfo.z, 1.0e-3));
                 }

@@ -220,14 +220,17 @@ static drawSurf_t* R_TubeDeform( drawSurf_t* surf )
 	// we could precalculate a lot if it is an issue, but it would mess up the shader abstraction
 	for( int i = 0, indexes = 0; i < srcTri->numVerts; i += 4, indexes += 6 )
 	{
+		// edgeVerts addresses the six indexes for this quad.  The vertex and
+		// index streams advance at different rates (4 versus 6), so using i
+		// here corrupts every tube after the first one on a multi-quad surface.
 		// identify the two shortest edges out of the six defined by the indexes
 		int nums[2] = { 0, 0 };
 		float lengths[2] = { 999999.0f, 999999.0f };
 
 		for( int j = 0; j < 6; j++ )
 		{
-			const idVec3 v1 = idDrawVert::GetSkinnedDrawVertPosition( srcTri->verts[srcTri->indexes[i + edgeVerts[j][0]]], joints );
-			const idVec3 v2 = idDrawVert::GetSkinnedDrawVertPosition( srcTri->verts[srcTri->indexes[i + edgeVerts[j][1]]], joints );
+			const idVec3 v1 = idDrawVert::GetSkinnedDrawVertPosition( srcTri->verts[srcTri->indexes[indexes + edgeVerts[j][0]]], joints );
+			const idVec3 v2 = idDrawVert::GetSkinnedDrawVertPosition( srcTri->verts[srcTri->indexes[indexes + edgeVerts[j][1]]], joints );
 
 			const float l = ( v1 - v2 ).Length();
 			if( l < lengths[0] )
@@ -249,8 +252,8 @@ static drawSurf_t* R_TubeDeform( drawSurf_t* surf )
 		idVec3 mid[2];
 		for( int j = 0; j < 2; j++ )
 		{
-			const idVec3 v1 = idDrawVert::GetSkinnedDrawVertPosition( srcTri->verts[srcTri->indexes[i + edgeVerts[nums[j]][0]]], joints );
-			const idVec3 v2 = idDrawVert::GetSkinnedDrawVertPosition( srcTri->verts[srcTri->indexes[i + edgeVerts[nums[j]][1]]], joints );
+			const idVec3 v1 = idDrawVert::GetSkinnedDrawVertPosition( srcTri->verts[srcTri->indexes[indexes + edgeVerts[nums[j]][0]]], joints );
+			const idVec3 v2 = idDrawVert::GetSkinnedDrawVertPosition( srcTri->verts[srcTri->indexes[indexes + edgeVerts[nums[j]][1]]], joints );
 
 			mid[j][0] = 0.5f * ( v1[0] + v2[0] );
 			mid[j][1] = 0.5f * ( v1[1] + v2[1] );
@@ -263,8 +266,8 @@ static drawSurf_t* R_TubeDeform( drawSurf_t* surf )
 		// re-project the points
 		for( int j = 0; j < 2; j++ )
 		{
-			const int i1 = srcTri->indexes[i + edgeVerts[nums[j]][0]];
-			const int i2 = srcTri->indexes[i + edgeVerts[nums[j]][1]];
+			const int i1 = srcTri->indexes[indexes + edgeVerts[nums[j]][0]];
+			const int i2 = srcTri->indexes[indexes + edgeVerts[nums[j]][1]];
 
 			newVerts[i1] = idDrawVert::GetSkinnedDrawVert( srcTri->verts[i1], joints );
 			newVerts[i2] = idDrawVert::GetSkinnedDrawVert( srcTri->verts[i2], joints );
