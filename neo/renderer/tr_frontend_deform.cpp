@@ -48,8 +48,21 @@ R_FinishDeform
 */
 static drawSurf_t* R_FinishDeform( drawSurf_t* surf, srfTriangles_t* newTri, const idDrawVert* newVerts, const triIndex_t* newIndexes, nvrhi::ICommandList* commandList )
 {
-	newTri->ambientCache = vertexCache.AllocVertex( newVerts, newTri->numVerts, sizeof( idDrawVert ), commandList );
-	newTri->indexCache = vertexCache.AllocIndex( newIndexes, newTri->numIndexes, sizeof( triIndex_t ), commandList );
+	// Deform builders use temporary stack arrays. Keep a frame-lifetime CPU copy
+	// alongside the GPU cache so late consumers such as the path-traced particle
+	// composite can capture the actual autosprite/tube/flare geometry instead of
+	// rejecting the deformed surface because verts/indexes are null.
+	idDrawVert* retainedVerts = static_cast<idDrawVert*>( R_FrameAlloc(
+		newTri->numVerts * sizeof( idDrawVert ), FRAME_ALLOC_SURFACE_TRIANGLES ) );
+	triIndex_t* retainedIndexes = static_cast<triIndex_t*>( R_FrameAlloc(
+		newTri->numIndexes * sizeof( triIndex_t ), FRAME_ALLOC_SURFACE_TRIANGLES ) );
+	memcpy( retainedVerts, newVerts, newTri->numVerts * sizeof( idDrawVert ) );
+	memcpy( retainedIndexes, newIndexes, newTri->numIndexes * sizeof( triIndex_t ) );
+	newTri->verts = retainedVerts;
+	newTri->indexes = retainedIndexes;
+
+	newTri->ambientCache = vertexCache.AllocVertex( retainedVerts, newTri->numVerts, sizeof( idDrawVert ), commandList );
+	newTri->indexCache = vertexCache.AllocIndex( retainedIndexes, newTri->numIndexes, sizeof( triIndex_t ), commandList );
 
 	surf->frontEndGeo = newTri;
 	surf->numIndexes = newTri->numIndexes;
