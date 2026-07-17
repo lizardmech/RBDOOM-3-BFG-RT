@@ -22,6 +22,7 @@
 #include "PathTraceMaterialClassifier.h"
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
+#include "PathTraceParticleCapture.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceRemixLightManager.h"
@@ -3654,6 +3655,8 @@ void DumpSource3CaptureCompare(
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
 {
     OPTICK_EVENT("PT Build Scene");
+
+    AuditPathTraceParticleCompositeCandidates(viewDef);
 
     const int sceneStartMs = Sys_Milliseconds();
     const int mode18Preset = r_pathTracingMode18TestPreset.GetInteger();

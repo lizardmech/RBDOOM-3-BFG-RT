@@ -2469,6 +2469,12 @@ idCVar r_pathTracingSmokeParticleAlphaScale(
     CVAR_RENDERER | CVAR_FLOAT,
     "Opacity scale for RT smoke particle-card alpha dithering" );
 
+idCVar r_pathTracingParticleDump(
+    "r_pathTracingParticleDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot screen-space particle candidate audit: 1=summary plus candidates, 2=verbose stage details; does not change rendering" );
+
 idCVar r_pathTracingSmokeParticleEdgeFade(
     "r_pathTracingSmokeParticleEdgeFade",
     "1",

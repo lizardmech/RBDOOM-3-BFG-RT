@@ -444,6 +444,7 @@ extern idCVar r_pathTracingDisableReservoirWrites;
 extern idCVar r_pathTracingDisableRestirVisibilityRay;
 extern idCVar r_pathTracingSmokeParticleDither;
 extern idCVar r_pathTracingSmokeParticleAlphaScale;
+extern idCVar r_pathTracingParticleDump;
 extern idCVar r_pathTracingSmokeParticleEdgeFade;
 extern idCVar r_pathTracingPortalWindowStochastic;
 extern idCVar r_pathTracingPortalWindowAlphaScale;
