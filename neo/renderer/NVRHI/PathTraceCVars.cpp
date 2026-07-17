@@ -2493,6 +2493,12 @@ idCVar r_pathTracingParticleEmissiveScale(
     CVAR_RENDERER | CVAR_FLOAT,
     "Global scale recorded for emissive particle-card batches" );
 
+idCVar r_pathTracingParticleOpacity(
+    "r_pathTracingParticleOpacity",
+    "0.7",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Global opacity scale for alpha-blended particle cards; pure additive cards are unaffected" );
+
 idCVar r_pathTracingParticleSoftDepth(
     "r_pathTracingParticleSoftDepth",
     "8.0",

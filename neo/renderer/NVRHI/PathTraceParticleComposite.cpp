@@ -281,7 +281,11 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
             static_cast<float>(batch.blendClass),
             Max(batch.softDepth, 1.0e-3f),
             m_particleCapture.debugTint ? 1.0f : 0.0f);
-        constants.modelInfo.Set(batch.modelDepthHack, Max(r_znear.GetFloat(), 1.0e-4f), 0.0f, 0.0f);
+        constants.modelInfo.Set(
+            batch.modelDepthHack,
+            Max(r_znear.GetFloat(), 1.0e-4f),
+            idMath::ClampFloat(0.0f, 1.0f, r_pathTracingParticleOpacity.GetFloat()),
+            0.0f);
 
         nvrhi::GraphicsState state;
         state.pipeline = m_particleCompositePipelines[blendIndex];

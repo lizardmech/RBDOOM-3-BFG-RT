@@ -47,14 +47,13 @@ VS_OUT main(uint vertexId : SV_VertexID)
     ParticleCompositeVertex vertex = ParticleVertices[vertexId];
     const float3 relative = vertex.worldPosition - ParticleConstants.cameraOriginAndTanX.xyz;
     const float viewDepth = dot(relative, ParticleConstants.cameraForwardAndTanY.xyz);
-    const float safeDepth = max(viewDepth, 1.0e-3);
 
     VS_OUT result;
     result.position = float4(
         -dot(relative, ParticleConstants.cameraLeftAndAmbient.xyz) / max(ParticleConstants.cameraOriginAndTanX.w, 1.0e-5),
         dot(relative, ParticleConstants.cameraUpAndEmissiveScale.xyz) / max(ParticleConstants.cameraForwardAndTanY.w, 1.0e-5),
         0.0,
-        safeDepth);
+        viewDepth);
     result.texCoord = vertex.texCoord;
     result.color = UnpackParticleColor(vertex.packedColor);
     result.viewDepth = viewDepth;

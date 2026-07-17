@@ -1,3 +1,5 @@
+#include "global_inc.hlsl"
+
 struct ParticleCompositeConstants
 {
     float4 cameraOriginAndTanX;
@@ -31,7 +33,12 @@ float4 main(PS_IN input) : SV_Target0
 {
     float softFade = 1.0;
     const uint depthPolicy = uint(ParticleConstants.batchInfo.x + 0.5);
-    if (depthPolicy != 1u)
+    const uint blendClass = uint(ParticleConstants.batchInfo.y + 0.5);
+    const bool debugTint = ParticleConstants.batchInfo.w > 0.5;
+    // Diagnostic mode must expose captured geometry independently of the
+    // manual guide-depth policy. Otherwise a missing card cannot be separated
+    // from an over-aggressive occlusion rejection.
+    if (!debugTint && depthPolicy != 1u)
     {
         const float2 outputSize = max(ParticleConstants.outputAndRenderSize.xy, float2(1.0, 1.0));
         const float2 renderSize = max(ParticleConstants.outputAndRenderSize.zw, float2(1.0, 1.0));
@@ -57,20 +64,40 @@ float4 main(PS_IN input) : SV_Target0
             }
             else
             {
-                if (depthGap < -0.02)
+                // Additive projectile cards commonly surround a small rigid
+                // core. Permit the card to sit slightly behind that core while
+                // retaining ordinary world occlusion at larger separations.
+                const float occlusionTolerance = blendClass == 0u
+                    ? 0.02
+                    : max(ParticleConstants.batchInfo.z, 0.02);
+                if (depthGap < -occlusionTolerance)
                 {
                     discard;
                 }
-                softFade = saturate(depthGap / max(ParticleConstants.batchInfo.z, 1.0e-3));
+                // Only smoke-style alpha cards use soft intersections. Emissive
+                // projectile shells commonly coincide with their rigid core;
+                // fading every blend class here erases the visible projectile.
+                if (blendClass == 0u)
+                {
+                    softFade = saturate(depthGap / max(ParticleConstants.batchInfo.z, 1.0e-3));
+                }
             }
         }
     }
 
-    float4 texel = ParticleTexture.Sample(ParticleSampler, input.texCoord) * input.color;
-    texel.a *= softFade;
-    const uint blendClass = uint(ParticleConstants.batchInfo.y + 0.5);
-    if ((blendClass != 2u && texel.a <= (1.0 / 255.0)) ||
-        (blendClass == 2u && max(max(abs(texel.r), abs(texel.g)), abs(texel.b)) <= (1.0 / 255.0)))
+    // Particle RGB is authored in sRGB space, but particle opacity/fade values
+    // are linear coverage. Converting alpha through the sRGB curve makes smoke
+    // disappear long before its authored fade completes.
+    const float4 authoredTexel = ParticleTexture.Sample(ParticleSampler, input.texCoord) * input.color;
+    float4 texel = float4(sRGBToLinearRGB(authoredTexel.rgb), authoredTexel.a);
+    if (blendClass != 2u)
+    {
+        texel.a *= softFade * ParticleConstants.modelInfo.z;
+    }
+    const bool emptyAlpha = blendClass != 2u && texel.a <= (1.0 / 255.0);
+    const bool emptyAdditive = blendClass == 2u &&
+        max(max(abs(texel.r), abs(texel.g)), abs(texel.b)) <= (1.0 / 255.0);
+    if (!debugTint && (emptyAlpha || emptyAdditive))
     {
         discard;
     }
@@ -86,11 +113,11 @@ float4 main(PS_IN input) : SV_Target0
     }
     else
     {
-        rgb = texel.rgb * ParticleConstants.cameraUpAndEmissiveScale.w * softFade;
+        rgb = texel.rgb * ParticleConstants.cameraUpAndEmissiveScale.w;
     }
-    if (ParticleConstants.batchInfo.w > 0.5)
+    if (debugTint)
     {
-        rgb = lerp(rgb, float3(1.0, 0.0, 1.0), 0.65);
+        rgb = float3(1.0, 0.0, 1.0);
     }
-    return float4(rgb, blendClass == 2u ? 0.0 : texel.a);
+    return float4(rgb, debugTint ? 1.0 : (blendClass == 2u ? 0.0 : texel.a));
 }
