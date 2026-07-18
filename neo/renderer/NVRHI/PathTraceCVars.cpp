@@ -2477,7 +2477,7 @@ idCVar r_pathTracingParticleDump(
 
 idCVar r_pathTracingParticleComposite(
     "r_pathTracingParticleComposite",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Screen-space particle lane: 0=off, 1=capture on, 2=capture with diagnostic tint requested; PC-T01 captures CPU records only" );
 
@@ -2492,6 +2492,12 @@ idCVar r_pathTracingParticleEmissiveScale(
     "1.0",
     CVAR_RENDERER | CVAR_FLOAT,
     "Global scale recorded for emissive particle-card batches" );
+
+idCVar r_pathTracingParticleFlares(
+    "r_pathTracingParticleFlares",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Composite legacy deform-flare glow geometry; set 0 to hide screen-space fake volumetric light flares while retaining particle effects" );
 
 idCVar r_pathTracingParticleOpacity(
     "r_pathTracingParticleOpacity",

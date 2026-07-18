@@ -51,6 +51,11 @@ static_assert(sizeof(ParticleCompositeConstants) == 112, "Particle composite con
 static_assert(sizeof(ParticleCompositeLightingTask) == 16, "Particle lighting-task ABI mismatch");
 static_assert(sizeof(ParticleLightingConstants) == 48, "Particle lighting constants ABI mismatch");
 
+bool ParticleCompositeIsFlare(const ParticleCompositeBatch& batch)
+{
+    return (batch.flags & RT_PATH_TRACE_PARTICLE_BATCH_FLARE_DEFORM) != 0u;
+}
+
 nvrhi::BlendState::RenderTarget ParticleCompositeBlendState(RtPathTraceParticleBlendClass blendClass)
 {
     nvrhi::BlendState::RenderTarget blend;
@@ -433,6 +438,10 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
             continue;
         }
         const idImage* image = m_particleCapture.textures[batch.textureIndex];
+        if (!r_pathTracingParticleFlares.GetBool() && ParticleCompositeIsFlare(batch))
+        {
+            continue;
+        }
         nvrhi::TextureHandle texture = image ? const_cast<idImage*>(image)->GetTextureHandle() : nullptr;
         const int blendIndex = idMath::ClampInt(
             0,

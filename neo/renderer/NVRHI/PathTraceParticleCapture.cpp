@@ -815,6 +815,7 @@ bool ParticleCaptureAppendSurface(
         batch.flags |= supportedStageCount > 1 ? RT_PATH_TRACE_PARTICLE_BATCH_AMBIGUOUS_MATERIAL : 0u;
         batch.flags |= weaponDepthHack ? RT_PATH_TRACE_PARTICLE_BATCH_WEAPON_DEPTH_HACK : 0u;
         batch.flags |= modelDepthHack != 0.0f ? RT_PATH_TRACE_PARTICLE_BATCH_MODEL_DEPTH_HACK : 0u;
+        batch.flags |= material->Deform() == DFRM_FLARE ? RT_PATH_TRACE_PARTICLE_BATCH_FLARE_DEFORM : 0u;
 
         for (const PathTraceSmokeVertex& baseVertex : baseVertices)
         {
