@@ -4,6 +4,7 @@ struct ParticleCompositeVertex
     float2 texCoord;
     uint packedColor;
     uint particleMetadata;
+    uint4 lightingInfo;
 };
 
 struct ParticleCompositeConstants
@@ -24,6 +25,7 @@ ConstantBuffer<ParticleCompositeConstants> ParticleConstants : register(b0);
 #endif
 
 StructuredBuffer<ParticleCompositeVertex> ParticleVertices : register(t0);
+StructuredBuffer<float4> ParticleLighting : register(t3);
 
 struct VS_OUT
 {
@@ -32,6 +34,7 @@ struct VS_OUT
     float4 color : COLOR0;
     float viewDepth : TEXCOORD1;
     nointerpolation uint particleMetadata : TEXCOORD2;
+    nointerpolation float3 lighting : TEXCOORD3;
 };
 
 float4 UnpackParticleColor(uint packedColor)
@@ -59,5 +62,9 @@ VS_OUT main(uint vertexId : SV_VertexID)
     result.color = UnpackParticleColor(vertex.packedColor);
     result.viewDepth = viewDepth;
     result.particleMetadata = vertex.particleMetadata;
+    const bool lightingEnabled = ParticleConstants.modelInfo.w > 0.5 && vertex.lightingInfo.x != 0xffffffffu;
+    result.lighting = lightingEnabled
+        ? max(ParticleLighting[vertex.lightingInfo.x].rgb, float3(0.0, 0.0, 0.0))
+        : ParticleConstants.cameraLeftAndAmbient.www;
     return result;
 }

@@ -632,6 +632,22 @@ void ParticleCaptureAppendPrimitives(
             primitive.sourceClass = RtPathTraceParticleMetadataSource(metadata);
             primitive.depthPolicy = RtPathTraceParticleMetadataDepth(metadata);
         }
+
+        if (batch.blendClass == RtPathTraceParticleBlendClass::AlphaLit)
+        {
+            ParticleCompositeLightingTask lightingTask;
+            lightingTask.centerWorld[0] = center.x;
+            lightingTask.centerWorld[1] = center.y;
+            lightingTask.centerWorld[2] = center.z;
+            lightingTask.stableParticleId = primitive.stableParticleId;
+            const uint32_t lightingTaskIndex = static_cast<uint32_t>(capture.lightingTasks.size());
+            capture.lightingTasks.push_back(lightingTask);
+            for (int uniqueIndex = 0; uniqueIndex < uniqueVertexCount; ++uniqueIndex)
+            {
+                capture.vertices[uniqueVertexIndexes[uniqueIndex]].lightingTaskIndex = lightingTaskIndex;
+            }
+            ++capture.stats.alphaLitLightingTasks;
+        }
         capture.primitives.push_back(primitive);
 
         if (primitiveIndexCount == 6)
@@ -1184,11 +1200,14 @@ static void AuditPathTraceParticleCompositeCandidates(
         capture.stats.candidateSurfaces == candidateSurfaces &&
             capture.stats.candidateQuads == candidateQuads &&
             capture.stats.candidateTriangles == candidateTriangles ? "match" : "MISMATCH");
-    common->Printf("PathTraceParticleAudit: capture blends alphaLit=%d alphaEmissive=%d pureAdditive=%d multiplicativeDarken=%d ambient=%.3f emissiveScale=%.3f softDepth=%.3f shadowRays=%d sortMode=%d\n",
+    common->Printf("PathTraceParticleAudit: capture blends alphaLit=%d alphaEmissive=%d pureAdditive=%d multiplicativeDarken=%d lighting=%d tasks=%d candidates=%d ambient=%.3f emissiveScale=%.3f softDepth=%.3f shadowRays=%d sortMode=%d\n",
         capture.stats.alphaLitBatches,
         capture.stats.alphaEmissiveBatches,
         capture.stats.pureAdditiveBatches,
         capture.stats.multiplicativeDarkenBatches,
+        r_pathTracingParticleLighting.GetBool() ? 1 : 0,
+        capture.stats.alphaLitLightingTasks,
+        idMath::ClampInt(1, 32, r_pathTracingParticleLightCandidates.GetInteger()),
         Max(0.0f, r_pathTracingParticleAmbient.GetFloat()),
         Max(0.0f, r_pathTracingParticleEmissiveScale.GetFloat()),
         Max(0.0f, r_pathTracingParticleSoftDepth.GetFloat()),
@@ -1290,6 +1309,7 @@ void RtPathTraceParticleCapture::Clear()
     batches.clear();
     quads.clear();
     primitives.clear();
+    lightingTasks.clear();
     textures.clear();
     stats = RtPathTraceParticleCaptureStats();
     enabled = false;

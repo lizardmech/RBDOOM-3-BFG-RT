@@ -450,6 +450,8 @@ extern idCVar r_pathTracingParticleAmbient;
 extern idCVar r_pathTracingParticleEmissiveScale;
 extern idCVar r_pathTracingParticleOpacity;
 extern idCVar r_pathTracingParticleSoftDepth;
+extern idCVar r_pathTracingParticleLighting;
+extern idCVar r_pathTracingParticleLightCandidates;
 extern idCVar r_pathTracingParticleShadowRays;
 extern idCVar r_pathTracingParticleSortMode;
 extern idCVar r_pathTracingSmokeParticleEdgeFade;

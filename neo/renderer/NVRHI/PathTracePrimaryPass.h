@@ -317,6 +317,11 @@ private:
     bool m_pathTracePostLutInvalidLogged = false;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
     RtPathTraceParticleCapture m_particleCapture;
+    nvrhi::BindingLayoutHandle m_particleLightingBindingLayout;
+    nvrhi::ShaderHandle m_particleLightingShader;
+    nvrhi::ComputePipelineHandle m_particleLightingPipeline;
+    nvrhi::BufferHandle m_particleLightingTaskBuffer;
+    nvrhi::BufferHandle m_particleLightingOutputBuffer;
     nvrhi::BindingLayoutHandle m_particleCompositeBindingLayout;
     nvrhi::ShaderHandle m_particleCompositeVertexShader;
     nvrhi::ShaderHandle m_particleCompositePixelShader;

@@ -28,6 +28,7 @@ struct PS_IN
     float4 color : COLOR0;
     float viewDepth : TEXCOORD1;
     nointerpolation uint particleMetadata : TEXCOORD2;
+    nointerpolation float3 lighting : TEXCOORD3;
 };
 
 float4 main(PS_IN input) : SV_Target0
@@ -139,7 +140,7 @@ float4 main(PS_IN input) : SV_Target0
     float3 rgb;
     if (blendClass == 0u)
     {
-        rgb = texel.rgb * ParticleConstants.cameraLeftAndAmbient.w;
+        rgb = texel.rgb * input.lighting;
     }
     else if (blendClass == 1u)
     {

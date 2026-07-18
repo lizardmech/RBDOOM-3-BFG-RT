@@ -2483,7 +2483,7 @@ idCVar r_pathTracingParticleComposite(
 
 idCVar r_pathTracingParticleAmbient(
     "r_pathTracingParticleAmbient",
-    "1.0",
+    "0.16",
     CVAR_RENDERER | CVAR_FLOAT,
     "Unlit fallback multiplier for alpha particle cards; this becomes the ambient floor when direct particle lighting is enabled" );
 
@@ -2505,11 +2505,23 @@ idCVar r_pathTracingParticleSoftDepth(
     CVAR_RENDERER | CVAR_FLOAT,
     "World-space soft-intersection depth recorded for particle-card batches" );
 
+idCVar r_pathTracingParticleLighting(
+    "r_pathTracingParticleLighting",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Enable per-card direct lighting for AlphaLit particle cards from the current Remix light universe" );
+
+idCVar r_pathTracingParticleLightCandidates(
+    "r_pathTracingParticleLightCandidates",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Bounded unified-light candidates sampled per AlphaLit particle card" );
+
 idCVar r_pathTracingParticleShadowRays(
     "r_pathTracingParticleShadowRays",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Visibility-ray count reserved for lit particle-card batches" );
+    "Particle-card visibility: 0=unshadowed direct light, 1 or greater=one selected-light visibility ray" );
 
 idCVar r_pathTracingParticleSortMode(
     "r_pathTracingParticleSortMode",

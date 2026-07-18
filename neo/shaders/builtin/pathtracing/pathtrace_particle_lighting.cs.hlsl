@@ -1,0 +1,197 @@
+#include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
+
+struct ParticleLightingConstants
+{
+    uint taskCount;
+    uint lightCount;
+    uint candidateCount;
+    uint traceVisibility;
+    float ambientFloor;
+    float rayTMin;
+    float rayTMaxBias;
+    float directClamp;
+};
+
+struct ParticleCompositeLightingTask
+{
+    float3 centerWorld;
+    uint stableParticleId;
+};
+
+#ifdef SPIRV
+[[vk::push_constant]] ConstantBuffer<ParticleLightingConstants> ParticleLightingParams;
+#else
+ConstantBuffer<ParticleLightingConstants> ParticleLightingParams : register(b0);
+#endif
+
+RaytracingAccelerationStructure ParticleScene : register(t0);
+StructuredBuffer<ParticleCompositeLightingTask> ParticleLightingTasks : register(t1);
+StructuredBuffer<PathTraceUnifiedLightRecord> ParticleLights : register(t2);
+RWStructuredBuffer<float4> ParticleLightingOutput : register(u3);
+
+static const float PARTICLE_LIGHT_PI = 3.14159265358979323846;
+
+uint ParticleHash(uint value)
+{
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    value ^= value >> 16u;
+    return value;
+}
+
+float ParticleRandom01(inout uint state)
+{
+    state = ParticleHash(state + 0x9e3779b9u);
+    return float(state & 0x00ffffffu) * (1.0 / 16777216.0);
+}
+
+float ParticleLuminance(float3 value)
+{
+    return dot(max(value, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
+}
+
+bool ParticleEvaluateLight(
+    PathTraceUnifiedLightRecord light,
+    float3 center,
+    out float3 contribution,
+    out float3 direction,
+    out float traceDistance)
+{
+    contribution = float3(0.0, 0.0, 0.0);
+    direction = float3(0.0, 0.0, 1.0);
+    traceDistance = 0.0;
+    if (light.sourceIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX || light.sourceWeight <= 0.0)
+    {
+        return false;
+    }
+
+    const float3 toLight = light.positionAndRadius.xyz - center;
+    const float distanceSquared = max(dot(toLight, toLight), 1.0e-4);
+    const float distance = sqrt(distanceSquared);
+    direction = toLight / distance;
+    const float3 radiance = max(light.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0));
+
+    if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        const float influenceRadius = light.uvOrDoomParams.x;
+        const float sphereRadius = min(max(light.positionAndRadius.w, 0.01), max(influenceRadius, 0.01));
+        if (influenceRadius <= 0.0 || distance > influenceRadius || ParticleLuminance(radiance) <= 0.0)
+        {
+            return false;
+        }
+        const float radiusFraction = saturate(distance / influenceRadius);
+        const float influence = saturate(1.0 - radiusFraction * radiusFraction);
+        const float sinTheta = saturate(sphereRadius / distance);
+        const float solidAngle = 2.0 * PARTICLE_LIGHT_PI * (1.0 - sqrt(max(0.0, 1.0 - sinTheta * sinTheta)));
+        contribution = radiance * influence * (solidAngle / (4.0 * PARTICLE_LIGHT_PI));
+        traceDistance = max(distance - sphereRadius - ParticleLightingParams.rayTMaxBias, ParticleLightingParams.rayTMin);
+        return ParticleLuminance(contribution) > 0.0;
+    }
+
+    if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        const float area = light.normalAndArea.w;
+        const float normalLengthSquared = dot(light.normalAndArea.xyz, light.normalAndArea.xyz);
+        if (normalLengthSquared <= 1.0e-8)
+        {
+            return false;
+        }
+        const float3 normal = light.normalAndArea.xyz * rsqrt(normalLengthSquared);
+        const float facing = saturate(dot(normal, -direction));
+        if (area <= 1.0e-6 || facing <= 0.0 || ParticleLuminance(radiance) <= 0.0)
+        {
+            return false;
+        }
+        contribution = radiance * (area * facing / max(distanceSquared, 1.0e-4)) / (4.0 * PARTICLE_LIGHT_PI);
+        traceDistance = max(distance - ParticleLightingParams.rayTMaxBias, ParticleLightingParams.rayTMin);
+        return ParticleLuminance(contribution) > 0.0;
+    }
+
+    return false;
+}
+
+bool ParticleVisible(float3 center, float3 direction, float traceDistance)
+{
+    if (ParticleLightingParams.traceVisibility == 0u || traceDistance <= ParticleLightingParams.rayTMin)
+    {
+        return true;
+    }
+    RayDesc ray;
+    ray.Origin = center + direction * ParticleLightingParams.rayTMin;
+    ray.Direction = direction;
+    ray.TMin = ParticleLightingParams.rayTMin;
+    ray.TMax = traceDistance;
+    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_OPAQUE> query;
+    query.TraceRayInline(
+        ParticleScene,
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_OPAQUE,
+        0xff,
+        ray);
+    while (query.Proceed())
+    {
+    }
+    return query.CommittedStatus() == COMMITTED_NOTHING;
+}
+
+[numthreads(64, 1, 1)]
+void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    const uint taskIndex = dispatchThreadId.x;
+    if (taskIndex >= ParticleLightingParams.taskCount)
+    {
+        return;
+    }
+
+    const ParticleCompositeLightingTask task = ParticleLightingTasks[taskIndex];
+    float3 direct = float3(0.0, 0.0, 0.0);
+    if (ParticleLightingParams.lightCount > 0u && ParticleLightingParams.candidateCount > 0u)
+    {
+        const uint sampleCount = min(ParticleLightingParams.candidateCount, ParticleLightingParams.lightCount);
+        uint randomState = ParticleHash(task.stableParticleId ^ (taskIndex * 0x85ebca6bu) ^ 0xc2b2ae35u);
+        float weightSum = 0.0;
+        float selectedTarget = 0.0;
+        float3 selectedContribution = float3(0.0, 0.0, 0.0);
+        float3 selectedDirection = float3(0.0, 0.0, 1.0);
+        float selectedDistance = 0.0;
+
+        for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
+        {
+            const uint lightIndex = ParticleLightingParams.lightCount <= sampleCount
+                ? sampleIndex
+                : min(uint(ParticleRandom01(randomState) * ParticleLightingParams.lightCount), ParticleLightingParams.lightCount - 1u);
+            float3 candidateContribution;
+            float3 candidateDirection;
+            float candidateDistance;
+            if (!ParticleEvaluateLight(
+                ParticleLights[lightIndex],
+                task.centerWorld,
+                candidateContribution,
+                candidateDirection,
+                candidateDistance))
+            {
+                continue;
+            }
+            const float target = ParticleLuminance(candidateContribution);
+            const float weight = target * float(ParticleLightingParams.lightCount);
+            weightSum += weight;
+            if (ParticleRandom01(randomState) * weightSum <= weight)
+            {
+                selectedTarget = target;
+                selectedContribution = candidateContribution;
+                selectedDirection = candidateDirection;
+                selectedDistance = candidateDistance;
+            }
+        }
+
+        if (selectedTarget > 0.0 && weightSum > 0.0 &&
+            ParticleVisible(task.centerWorld, selectedDirection, selectedDistance))
+        {
+            direct = (selectedContribution / selectedTarget) * (weightSum / float(sampleCount));
+        }
+    }
+
+    direct = min(max(direct, float3(0.0, 0.0, 0.0)), ParticleLightingParams.directClamp.xxx);
+    ParticleLightingOutput[taskIndex] = float4(ParticleLightingParams.ambientFloor.xxx + direct, 1.0);
+}

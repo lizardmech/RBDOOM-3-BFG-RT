@@ -48,6 +48,14 @@ struct ParticleCompositeVertex
     float texCoord[2] = {};
     uint32_t packedColor = 0xffffffffu;
     uint32_t particleMetadata = 0;
+    uint32_t lightingTaskIndex = UINT32_MAX;
+    uint32_t lightingPadding[3] = {};
+};
+
+struct ParticleCompositeLightingTask
+{
+    float centerWorld[3] = {};
+    uint32_t stableParticleId = 0;
 };
 
 struct ParticleCompositeBatch
@@ -119,6 +127,7 @@ struct RtPathTraceParticleCaptureStats
     int projectileTrailQuads = 0;
     int impactQuads = 0;
     int worldMuzzleNearPlaneQuads = 0;
+    int alphaLitLightingTasks = 0;
 };
 
 struct RtPathTraceParticleCapture
@@ -128,6 +137,7 @@ struct RtPathTraceParticleCapture
     std::vector<ParticleCompositeBatch> batches;
     std::vector<ParticleCompositeQuad> quads;
     std::vector<ParticleCompositePrimitive> primitives;
+    std::vector<ParticleCompositeLightingTask> lightingTasks;
     std::vector<const idImage*> textures;
     RtPathTraceParticleCaptureStats stats;
     bool enabled = false;

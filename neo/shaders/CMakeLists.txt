@@ -23,6 +23,8 @@ set(shaders ${globalshaders} ${builtins} ${debug} ${fog} ${legacy} ${lighting} $
 set(PARTICLE_COMPOSITE_SHADER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_particle_composite.vs.hlsl
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_particle_composite.ps.hlsl)
+set(PARTICLE_LIGHTING_SHADER_SOURCE
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_particle_lighting.cs.hlsl)
 
 source_group("builtin" FILES ${builtins})
 source_group("builtin/debug" FILES ${debug})
@@ -69,6 +71,24 @@ compile_shaders(
     SHADER_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
     SOURCES ${PARTICLE_COMPOSITE_SHADER_SOURCES})
 add_dependencies(Shaders ParticleCompositeShaders)
+
+# RayQuery requires shader model 6.6 and the Vulkan ray-query extension. Keep
+# this particle-lighting pass Vulkan-only and independent of the DXIL graph.
+if(USE_VULKAN)
+    set(PARTICLE_LIGHTING_SPIRV_OUTPUT
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../base/renderprogs2/spirv/builtin/pathtracing/pathtrace_particle_lighting.cs.bin)
+    add_custom_command(
+        OUTPUT ${PARTICLE_LIGHTING_SPIRV_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_SOURCE_DIR}/../../base/renderprogs2/spirv/builtin/pathtracing
+        COMMAND ${DXC_SPIRV_PATH} -T cs_6_6 -E main -spirv -fspv-target-env=vulkan1.2 -fspv-extension=SPV_KHR_ray_query -D SPIRV -Zpr -O3 -Fo ${PARTICLE_LIGHTING_SPIRV_OUTPUT} ${PARTICLE_LIGHTING_SHADER_SOURCE}
+        DEPENDS ${PARTICLE_LIGHTING_SHADER_SOURCE} ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/RtxdiBridge/RAB_UnifiedLightRecord.hlsli
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Compiling particle-card lighting ray-query CS (SPIR-V)"
+        VERBATIM)
+    add_custom_target(ParticleLightingShader DEPENDS ${PARTICLE_LIGHTING_SPIRV_OUTPUT})
+    set_target_properties(ParticleLightingShader PROPERTIES FOLDER "Shaders")
+    add_dependencies(ParticleCompositeShaders ParticleLightingShader)
+endif()
 
 set(PATH_TRACING_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_smoke.rt.hlsl)
 set(PATH_TRACING_MODE18_RESTIR_HYBRID_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_smoke_mode18_restir_hybrid.rt.hlsl)
