@@ -356,7 +356,6 @@ bool ParticleCompositeSurfaceAccepted(
     }
     const bool transientMaterialTrait =
         ParticleAuditSupportedDeform(material->Deform()) ||
-        material->Coverage() == MC_TRANSLUCENT ||
         classifier.nameLooksParticle ||
         ParticleCompositeHasExplicitEffectContext(drawSurf);
     return transientMaterialTrait &&
@@ -393,7 +392,6 @@ ParticleCompositeSurfaceInspection ParticleCompositeInspectSurface(
     inspection.supportedDeform = ParticleAuditSupportedDeform(material->Deform());
         inspection.transientMaterialTrait =
             inspection.supportedDeform ||
-            material->Coverage() == MC_TRANSLUCENT ||
             inspection.classifier.nameLooksParticle ||
             ParticleCompositeHasExplicitEffectContext(drawSurf);
     inspection.excludedGui = IsSmokeGuiDrawSurface(drawSurf) || inspection.classifier.nameLooksGui;
@@ -795,6 +793,7 @@ bool ParticleCaptureAppendSurface(
         }
 
         ParticleCompositeBatch batch;
+        batch.material = material;
         batch.textureIndex = ParticleCaptureTextureIndex(capture, stage->texture.image);
         batch.firstVertex = static_cast<uint32_t>(capture.vertices.size());
         batch.vertexCount = static_cast<uint32_t>(baseVertices.size());

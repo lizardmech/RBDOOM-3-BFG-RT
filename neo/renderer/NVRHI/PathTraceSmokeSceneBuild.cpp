@@ -3650,6 +3650,178 @@ void DumpSource3CaptureCompare(
         source3SkipStats.callbackEntity);
 }
 
+bool PathTraceParticleMaterialLooksLikePersistentFire(const char* materialName)
+{
+    if (!materialName || !materialName[0])
+    {
+        return false;
+    }
+
+    const bool fireLike =
+        idStr::FindText(materialName, "flame", false) >= 0 ||
+        idStr::FindText(materialName, "fire", false) >= 0;
+    const bool transientLike =
+        idStr::FindText(materialName, "trail", false) >= 0 ||
+        idStr::FindText(materialName, "muzzle", false) >= 0 ||
+        idStr::FindText(materialName, "mflash", false) >= 0 ||
+        idStr::FindText(materialName, "impact", false) >= 0 ||
+        idStr::FindText(materialName, "spark", false) >= 0 ||
+        idStr::FindText(materialName, "projectile", false) >= 0;
+    return fireLike && !transientLike;
+}
+
+float PathTraceParticlePrimitiveArea(
+    const RtPathTraceParticleCapture& capture,
+    const ParticleCompositePrimitive& primitive)
+{
+    float area = 0.0f;
+    const uint32_t endIndex = primitive.firstIndex + primitive.indexCount;
+    if (endIndex > capture.indexes.size())
+    {
+        return 0.0f;
+    }
+
+    for (uint32_t firstIndex = primitive.firstIndex; firstIndex + 2 < endIndex; firstIndex += 3)
+    {
+        const uint32_t i0 = capture.indexes[firstIndex + 0];
+        const uint32_t i1 = capture.indexes[firstIndex + 1];
+        const uint32_t i2 = capture.indexes[firstIndex + 2];
+        if (i0 >= capture.vertices.size() || i1 >= capture.vertices.size() || i2 >= capture.vertices.size())
+        {
+            continue;
+        }
+
+        const ParticleCompositeVertex& v0 = capture.vertices[i0];
+        const ParticleCompositeVertex& v1 = capture.vertices[i1];
+        const ParticleCompositeVertex& v2 = capture.vertices[i2];
+        const idVec3 p0(v0.worldPosition[0], v0.worldPosition[1], v0.worldPosition[2]);
+        const idVec3 p1(v1.worldPosition[0], v1.worldPosition[1], v1.worldPosition[2]);
+        const idVec3 p2(v2.worldPosition[0], v2.worldPosition[1], v2.worldPosition[2]);
+        idVec3 cross;
+        cross.Cross(p1 - p0, p2 - p0);
+        area += 0.5f * cross.Length();
+    }
+    return area;
+}
+
+void DumpPathTraceParticleFireLightCandidates(
+    const RtPathTraceParticleCapture& capture,
+    const std::vector<PathTraceDoomAnalyticLightCandidate>& analyticLights)
+{
+    const int dumpMode = r_pathTracingParticleFireLightDump.GetInteger();
+    if (dumpMode == 0)
+    {
+        return;
+    }
+    r_pathTracingParticleFireLightDump.SetInteger(0);
+
+    int fireBatches = 0;
+    int firePrimitives = 0;
+    int eligiblePrimitives = 0;
+    int nearbyAnalyticPrimitives = 0;
+    int loggedPrimitives = 0;
+    static const int maxLoggedPrimitives = 96;
+
+    common->Printf("PathTraceParticleFireLightAudit: begin batches=%d primitives=%d analyticLights=%d mode=%d\n",
+        static_cast<int>(capture.batches.size()),
+        static_cast<int>(capture.primitives.size()),
+        static_cast<int>(analyticLights.size()),
+        dumpMode);
+
+    for (uint32_t batchIndex = 0; batchIndex < capture.batches.size(); ++batchIndex)
+    {
+        const ParticleCompositeBatch& batch = capture.batches[batchIndex];
+        const char* materialName = batch.material ? batch.material->GetName() : "<none>";
+        if (!PathTraceParticleMaterialLooksLikePersistentFire(materialName))
+        {
+            continue;
+        }
+        ++fireBatches;
+
+        const bool additive =
+            batch.blendClass == RtPathTraceParticleBlendClass::AlphaEmissive ||
+            batch.blendClass == RtPathTraceParticleBlendClass::PureAdditiveEmissive;
+        // modelDepthHack changes projection/ordering but does not transfer
+        // ownership to a weapon lane. Persistent world effects commonly use it.
+        const bool worldOwned = batch.sourceClass == RtPathTraceParticleSourceClass::World &&
+            batch.depthPolicy != RtPathTraceParticleDepthPolicy::WeaponProjection;
+        const bool stable = (batch.flags & RT_PATH_TRACE_PARTICLE_BATCH_STABLE_ID_UNAVAILABLE) == 0;
+
+        for (const ParticleCompositePrimitive& primitive : capture.primitives)
+        {
+            if (primitive.batchIndex != batchIndex)
+            {
+                continue;
+            }
+            ++firePrimitives;
+
+            const idVec3 center(primitive.centerWorld[0], primitive.centerWorld[1], primitive.centerWorld[2]);
+            const float area = PathTraceParticlePrimitiveArea(capture, primitive);
+            float nearestAnalyticDistance = 1.0e30f;
+            float nearestAnalyticInfluence = 0.0f;
+            int nearbyAnalyticCount = 0;
+            for (const PathTraceDoomAnalyticLightCandidate& analyticLight : analyticLights)
+            {
+                const idVec3 lightOrigin(
+                    analyticLight.originAndRadius[0],
+                    analyticLight.originAndRadius[1],
+                    analyticLight.originAndRadius[2]);
+                const float distance = (center - lightOrigin).Length();
+                const float influence = Max(analyticLight.doomRadiusAndArea[0], analyticLight.originAndRadius[3]);
+                if (distance < nearestAnalyticDistance)
+                {
+                    nearestAnalyticDistance = distance;
+                    nearestAnalyticInfluence = influence;
+                }
+                if (influence > 0.0f && distance <= influence)
+                {
+                    ++nearbyAnalyticCount;
+                }
+            }
+
+            const bool largeEnough = area >= 64.0f;
+            const bool eligible = additive && worldOwned && stable && largeEnough && nearbyAnalyticCount == 0;
+            eligiblePrimitives += eligible ? 1 : 0;
+            nearbyAnalyticPrimitives += nearbyAnalyticCount > 0 ? 1 : 0;
+
+            if ((dumpMode >= 2 || eligible || nearbyAnalyticCount > 0) && loggedPrimitives < maxLoggedPrimitives)
+            {
+                common->Printf("PathTraceParticleFireLightAudit: candidate material='%s' batch=%u primitiveStableId=%u entity=%d stage=%d blend=%u source=%u depth=%u area=%.2f center=(%.1f %.1f %.1f) nearestAnalytic=%.1f influence=%.1f nearby=%d gates(additive/world/stable/large/noAnalytic)=%d/%d/%d/%d/%d eligible=%d\n",
+                    materialName,
+                    batchIndex,
+                    primitive.stableParticleId,
+                    batch.sourceEntityId,
+                    batch.stageIndex,
+                    static_cast<uint32_t>(batch.blendClass),
+                    static_cast<uint32_t>(batch.sourceClass),
+                    static_cast<uint32_t>(batch.depthPolicy),
+                    area,
+                    center.x,
+                    center.y,
+                    center.z,
+                    nearestAnalyticDistance,
+                    nearestAnalyticInfluence,
+                    nearbyAnalyticCount,
+                    additive ? 1 : 0,
+                    worldOwned ? 1 : 0,
+                    stable ? 1 : 0,
+                    largeEnough ? 1 : 0,
+                    nearbyAnalyticCount == 0 ? 1 : 0,
+                    eligible ? 1 : 0);
+                ++loggedPrimitives;
+            }
+        }
+    }
+
+    common->Printf("PathTraceParticleFireLightAudit: summary fireBatches=%d firePrimitives=%d eligible=%d nearbyAnalytic=%d logged=%d truncated=%d\n",
+        fireBatches,
+        firePrimitives,
+        eligiblePrimitives,
+        nearbyAnalyticPrimitives,
+        loggedPrimitives,
+        firePrimitives > loggedPrimitives ? 1 : 0);
+}
+
 }
 
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
@@ -5272,6 +5444,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         ApplyCleanRtxdiDiAnalyticDomainFreeze(viewDef, doomAnalyticLights, doomAnalyticRemap);
     }
+
+    DumpPathTraceParticleFireLightCandidates(m_particleCapture, doomAnalyticLights);
 
     int doomAnalyticPortalRegionLightCount = 0;
     for (const PathTraceDoomAnalyticLightCandidate& light : doomAnalyticLights)

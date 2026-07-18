@@ -2483,15 +2483,21 @@ idCVar r_pathTracingParticleComposite(
 
 idCVar r_pathTracingParticleAmbient(
     "r_pathTracingParticleAmbient",
-    "0.16",
+    "0.0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Broad fill multiplier for alpha particle cards; prevents legacy smoke from collapsing to black outside direct light" );
+    "Optional broad fill multiplier for alpha particle cards; 0 preserves visible response to the live light domain" );
 
 idCVar r_pathTracingParticleEmissiveScale(
     "r_pathTracingParticleEmissiveScale",
     "1.0",
     CVAR_RENDERER | CVAR_FLOAT,
     "Global scale recorded for emissive particle-card batches" );
+
+idCVar r_pathTracingParticleFireLightDump(
+    "r_pathTracingParticleFireLightDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot PC-T08 audit of fire/flame particle cards and nearby analytic-light ownership" );
 
 idCVar r_pathTracingParticleFlares(
     "r_pathTracingParticleFlares",

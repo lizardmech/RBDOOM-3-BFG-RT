@@ -14,6 +14,7 @@ struct viewDef_t;
 struct drawSurf_t;
 struct srfTriangles_t;
 class idImage;
+class idMaterial;
 
 enum class RtPathTraceParticleSurfaceRoute : uint32_t
 {
@@ -70,6 +71,7 @@ struct ParticleCompositeLightingTask
 
 struct ParticleCompositeBatch
 {
+    const idMaterial* material = nullptr;
     uint32_t textureIndex = UINT32_MAX;
     uint32_t firstVertex = 0;
     uint32_t vertexCount = 0;
