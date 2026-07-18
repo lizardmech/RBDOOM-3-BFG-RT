@@ -324,7 +324,7 @@ bool idSmokeParticles::EmitSmoke( const idDeclParticle* smoke, const int systemS
 			newSmoke->privateStartTime = systemStartTime + prevCount * finalParticleTime / stage->totalParticles;
 			newSmoke->pathTraceStableId = nextPathTraceStableId;
 			newSmoke->pathTraceProvenance = pathTraceProvenance;
-			nextPathTraceStableId = ( nextPathTraceStableId % RT_PATH_TRACE_PARTICLE_STABLE_ID_MASK ) + 1u;
+			nextPathTraceStableId = ( nextPathTraceStableId % RT_PATH_TRACE_PARTICLE_STABLE_ID_VALUE_MASK ) + 1u;
 			newSmoke->next = active->smokes;
 			active->smokes = newSmoke;
 

@@ -12,14 +12,18 @@ struct ParticleLightingConstants
     float directClamp;
     float emissiveScale;
     float analyticScale;
-    float padding0;
-    float padding1;
+    float temporalWeight;
+    uint historyTaskCount;
 };
 
 struct ParticleCompositeLightingTask
 {
     float3 centerWorld;
     uint stableParticleId;
+    uint stablePrimitiveIndex;
+    uint materialId;
+    uint compatibility;
+    uint historyIndex;
 };
 
 #ifdef SPIRV
@@ -32,6 +36,7 @@ RaytracingAccelerationStructure ParticleScene : register(t0);
 StructuredBuffer<ParticleCompositeLightingTask> ParticleLightingTasks : register(t1);
 StructuredBuffer<PathTraceUnifiedLightRecord> ParticleLights : register(t2);
 RWStructuredBuffer<float4> ParticleLightingOutput : register(u3);
+StructuredBuffer<float4> ParticleLightingHistory : register(t4);
 
 static const float PARTICLE_LIGHT_PI = 3.14159265358979323846;
 
@@ -242,8 +247,30 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // direct illumination so bright lamps cannot drive white smoke to the same
     // value as its background and make the card appear to dissolve.
     const float3 compressedDirect = 0.65 * direct / (direct + 0.5);
-    const float3 localFill = min(
+    float3 localFill = min(
         ParticleLightingParams.ambientFloor.xxx + compressedDirect,
         float3(0.85, 0.85, 0.85));
+    if (ParticleLightingParams.temporalWeight > 0.0 &&
+        task.stableParticleId != 0u &&
+        task.historyIndex < ParticleLightingParams.historyTaskCount)
+    {
+        const float3 previousFill = max(
+            ParticleLightingHistory[task.historyIndex].rgb,
+            float3(0.0, 0.0, 0.0));
+        const float currentLuminance = ParticleLuminance(localFill);
+        const float previousLuminance = ParticleLuminance(previousFill);
+        // Preserve temporal stability for ordinary candidate variation while
+        // rejecting history when a light switches on/off or changes strongly.
+        const bool energyCompatible =
+            previousLuminance <= currentLuminance * 4.0 + 0.05 &&
+            currentLuminance <= previousLuminance * 4.0 + 0.05;
+        if (energyCompatible)
+        {
+            localFill = lerp(
+                localFill,
+                previousFill,
+                saturate(ParticleLightingParams.temporalWeight));
+        }
+    }
     ParticleLightingOutput[taskIndex] = float4(localFill, 1.0);
 }

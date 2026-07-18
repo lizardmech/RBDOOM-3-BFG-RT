@@ -45,6 +45,8 @@ struct RtPathTraceParticleProvenance
 };
 
 static constexpr uint32_t RT_PATH_TRACE_PARTICLE_STABLE_ID_MASK = 0x00ffffffu;
+static constexpr uint32_t RT_PATH_TRACE_PARTICLE_STABLE_ID_VALUE_MASK = 0x007fffffu;
+static constexpr uint32_t RT_PATH_TRACE_PARTICLE_PARAMETRIC_ID_NAMESPACE = 0x00800000u;
 static constexpr uint32_t RT_PATH_TRACE_PARTICLE_SOURCE_SHIFT = 24u;
 static constexpr uint32_t RT_PATH_TRACE_PARTICLE_DEPTH_SHIFT = 27u;
 static constexpr uint32_t RT_PATH_TRACE_PARTICLE_METADATA_MAGIC_MASK = 0xe0000000u;

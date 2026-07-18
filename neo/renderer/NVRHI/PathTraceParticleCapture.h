@@ -62,6 +62,10 @@ struct ParticleCompositeLightingTask
 {
     float centerWorld[3] = {};
     uint32_t stableParticleId = 0;
+    uint32_t stablePrimitiveIndex = 0;
+    uint32_t materialId = 0;
+    uint32_t compatibility = 0;
+    uint32_t historyIndex = UINT32_MAX;
 };
 
 struct ParticleCompositeBatch

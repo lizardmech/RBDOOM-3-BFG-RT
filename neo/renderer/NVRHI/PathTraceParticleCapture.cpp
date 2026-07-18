@@ -11,6 +11,7 @@
 #include "PathTraceSurfaceClassification.h"
 #include "../RenderCommon.h"
 
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -590,6 +591,7 @@ void ParticleCaptureAppendPrimitives(
     uint32_t batchIndex,
     const ParticleCompositeBatch& batch)
 {
+    std::unordered_map<uint32_t, uint32_t> stablePrimitiveCounts;
     for (uint32_t localFirstIndex = 0; localFirstIndex + 2 < batch.indexCount;)
     {
         uint32_t uniqueVertexIndexes[6] = {};
@@ -648,6 +650,12 @@ void ParticleCaptureAppendPrimitives(
             primitive.depthPolicy = RtPathTraceParticleMetadataDepth(metadata);
         }
 
+        uint32_t stablePrimitiveIndex = 0u;
+        if (primitive.stableParticleId != 0u)
+        {
+            stablePrimitiveIndex = stablePrimitiveCounts[primitive.stableParticleId]++;
+        }
+
         if (ParticleCaptureIsAlphaLit(batch.blendClass))
         {
             ParticleCompositeLightingTask lightingTask;
@@ -655,6 +663,12 @@ void ParticleCaptureAppendPrimitives(
             lightingTask.centerWorld[1] = center.y;
             lightingTask.centerWorld[2] = center.z;
             lightingTask.stableParticleId = primitive.stableParticleId;
+            lightingTask.stablePrimitiveIndex = stablePrimitiveIndex;
+            lightingTask.materialId = batch.materialId;
+            lightingTask.compatibility =
+                (static_cast<uint32_t>(batch.blendClass) & 0xffu) |
+                ((static_cast<uint32_t>(primitive.sourceClass) & 0xffu) << 8u) |
+                ((static_cast<uint32_t>(primitive.depthPolicy) & 0xffu) << 16u);
             const uint32_t lightingTaskIndex = static_cast<uint32_t>(capture.lightingTasks.size());
             capture.lightingTasks.push_back(lightingTask);
             for (int uniqueIndex = 0; uniqueIndex < uniqueVertexCount; ++uniqueIndex)
@@ -817,6 +831,7 @@ bool ParticleCaptureAppendSurface(
         batch.flags |= modelDepthHack != 0.0f ? RT_PATH_TRACE_PARTICLE_BATCH_MODEL_DEPTH_HACK : 0u;
         batch.flags |= material->Deform() == DFRM_FLARE ? RT_PATH_TRACE_PARTICLE_BATCH_FLARE_DEFORM : 0u;
 
+        bool batchHasStableParticleIds = false;
         for (const PathTraceSmokeVertex& baseVertex : baseVertices)
         {
             ParticleCompositeVertex vertex;
@@ -827,7 +842,12 @@ bool ParticleCaptureAppendSurface(
             vertex.texCoord[1] = textureMatrix[1][0] * baseVertex.texCoord[0] + textureMatrix[1][1] * baseVertex.texCoord[1] + textureMatrix[1][2];
             vertex.packedColor = ParticleCapturePackColor(baseVertex, stage, stageColor);
             vertex.particleMetadata = ParticleCaptureMetadata(baseVertex);
+            batchHasStableParticleIds |= RtPathTraceParticleStableId(vertex.particleMetadata) != 0u;
             capture.vertices.push_back(vertex);
+        }
+        if (batchHasStableParticleIds)
+        {
+            batch.flags &= ~RT_PATH_TRACE_PARTICLE_BATCH_STABLE_ID_UNAVAILABLE;
         }
         for (uint32_t baseIndex : baseIndexes)
         {

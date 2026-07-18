@@ -456,6 +456,8 @@ extern idCVar r_pathTracingParticleLightingDebug;
 extern idCVar r_pathTracingParticleLightingDump;
 extern idCVar r_pathTracingParticleLightCandidates;
 extern idCVar r_pathTracingParticleShadowRays;
+extern idCVar r_pathTracingParticleTemporalLighting;
+extern idCVar r_pathTracingParticleTemporalWeight;
 extern idCVar r_pathTracingParticleSortMode;
 extern idCVar r_pathTracingSmokeParticleEdgeFade;
 extern idCVar r_pathTracingPortalWindowStochastic;

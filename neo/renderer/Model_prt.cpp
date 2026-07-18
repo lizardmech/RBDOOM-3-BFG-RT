@@ -31,8 +31,44 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "RenderCommon.h"
 #include "Model_local.h"
+#include "PathTraceParticleProvenance.h"
 
 static const char* parametricParticle_SnapshotName = "_ParametricParticle_Snapshot_";
+
+static uint32_t PathTraceParametricParticleHashValue( uint32_t hash, uint32_t value )
+{
+	hash ^= value;
+	return hash * 16777619u;
+}
+
+static uint32_t PathTraceParametricParticleStableId(
+	const renderEntity_t* renderEntity,
+	const char* particleModelName,
+	int stageNum,
+	int particleIndex,
+	int particleCycle )
+{
+	uint32_t hash = 2166136261u;
+	hash = PathTraceParametricParticleHashValue( hash, static_cast<uint32_t>( renderEntity->entityNum ) );
+	hash = PathTraceParametricParticleHashValue( hash, static_cast<uint32_t>( renderEntity->bodyId ) );
+	hash = PathTraceParametricParticleHashValue( hash, static_cast<uint32_t>( renderEntity->allowSurfaceInViewID ) );
+	hash = PathTraceParametricParticleHashValue( hash, static_cast<uint32_t>( renderEntity->timeGroup ) );
+	hash = PathTraceParametricParticleHashValue( hash, static_cast<uint32_t>( stageNum ) );
+	hash = PathTraceParametricParticleHashValue( hash, static_cast<uint32_t>( particleIndex ) );
+	hash = PathTraceParametricParticleHashValue( hash, static_cast<uint32_t>( particleCycle ) );
+	hash = PathTraceParametricParticleHashValue(
+		hash,
+		static_cast<uint32_t>( idMath::Ftoi( renderEntity->shaderParms[SHADERPARM_TIMEOFFSET] * 1000.0f ) ) );
+	hash = PathTraceParametricParticleHashValue(
+		hash,
+		static_cast<uint32_t>( idMath::Ftoi( renderEntity->shaderParms[SHADERPARM_DIVERSITY] * idRandom::MAX_RAND ) ) );
+	for( const char* character = particleModelName; character && *character; ++character )
+	{
+		hash = PathTraceParametricParticleHashValue( hash, static_cast<uint8_t>( *character ) );
+	}
+	return RT_PATH_TRACE_PARTICLE_PARAMETRIC_ID_NAMESPACE |
+		( hash & RT_PATH_TRACE_PARTICLE_STABLE_ID_VALUE_MASK );
+}
 
 /*
 ====================
@@ -235,8 +271,29 @@ idRenderModel* idRenderModelPrt::InstantiateDynamicModel( const struct renderEnt
 
 			g.age = g.frac * stage->particleLife;
 
-			// if the particle doesn't get drawn because it is faded out or beyond a kill region, don't increment the verts
-			numVerts += stage->CreateParticle( &g, verts + numVerts );
+			// If the particle doesn't get drawn because it is faded out or beyond a kill region, don't increment the verts.
+			const int firstVertex = numVerts;
+			const int createdVertices = stage->CreateParticle( &g, verts + firstVertex );
+			if( createdVertices > 0 )
+			{
+				const RtPathTraceParticleSourceClass sourceClass = renderEntity->weaponDepthHack
+					? RtPathTraceParticleSourceClass::LocalWeapon
+					: RtPathTraceParticleSourceClass::World;
+				const RtPathTraceParticleDepthPolicy depthPolicy = renderEntity->weaponDepthHack
+					? RtPathTraceParticleDepthPolicy::WeaponProjection
+					: ( renderEntity->modelDepthHack != 0.0f
+						? RtPathTraceParticleDepthPolicy::ModelProjection
+						: RtPathTraceParticleDepthPolicy::World );
+				const uint32_t pathTraceMetadata = PackRtPathTraceParticleMetadata(
+					PathTraceParametricParticleStableId( renderEntity, name.c_str(), stageNum, index, particleCycle ),
+					sourceClass,
+					depthPolicy );
+				for( int vertexIndex = 0; vertexIndex < createdVertices; ++vertexIndex )
+				{
+					verts[firstVertex + vertexIndex].SetColor2( pathTraceMetadata );
+				}
+			}
+			numVerts += createdVertices;
 		}
 
 		// numVerts must be a multiple of 4

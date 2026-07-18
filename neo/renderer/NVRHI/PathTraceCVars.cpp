@@ -2541,6 +2541,18 @@ idCVar r_pathTracingParticleShadowRays(
     CVAR_RENDERER | CVAR_INTEGER,
     "Particle-card visibility diagnostic: 0=soft unshadowed local fill, 1 or greater=one hard selected-light visibility ray" );
 
+idCVar r_pathTracingParticleTemporalLighting(
+    "r_pathTracingParticleTemporalLighting",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Reuse compatible previous-frame particle irradiance by stable smoke-particle identity" );
+
+idCVar r_pathTracingParticleTemporalWeight(
+    "r_pathTracingParticleTemporalWeight",
+    "0.85",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Previous-frame weight for compatible particle irradiance history; large lighting changes reject history" );
+
 idCVar r_pathTracingParticleSortMode(
     "r_pathTracingParticleSortMode",
     "1",

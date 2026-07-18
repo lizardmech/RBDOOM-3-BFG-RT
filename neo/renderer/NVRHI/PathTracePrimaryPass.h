@@ -322,6 +322,11 @@ private:
     nvrhi::ComputePipelineHandle m_particleLightingPipeline;
     nvrhi::BufferHandle m_particleLightingTaskBuffer;
     nvrhi::BufferHandle m_particleLightingOutputBuffer;
+    nvrhi::BufferHandle m_particleLightingHistoryBuffer;
+    std::vector<ParticleCompositeLightingTask> m_particleLightingPreviousTasks;
+    uint64 m_particleLightingHistoryMapLoadSerial = 0;
+    uint64 m_particleLightingHistorySettingsSignature = 0;
+    int m_particleLightingHistoryFrame = -1;
     nvrhi::BindingLayoutHandle m_particleCompositeBindingLayout;
     nvrhi::ShaderHandle m_particleCompositeVertexShader;
     nvrhi::ShaderHandle m_particleCompositePixelShader;
