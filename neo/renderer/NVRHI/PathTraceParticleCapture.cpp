@@ -466,6 +466,21 @@ RtPathTraceParticleBlendClass ParticleCaptureBlendClass(ParticleAuditBlendClass 
     }
 }
 
+bool ParticleCaptureIsSmokepuffBlackKey(const idMaterial* material)
+{
+    // The smokepuff family is authored as additive black-background imagery,
+    // but semantically represents environmental smoke/steam rather than emitted
+    // light. Match the material identity, not the stage image: muzzle-flash
+    // materials can deliberately reuse smokepuff imagery and must stay emissive.
+    return material && idStr::FindText(material->GetName(), "smokepuff", false) >= 0;
+}
+
+bool ParticleCaptureIsAlphaLit(RtPathTraceParticleBlendClass blendClass)
+{
+    return blendClass == RtPathTraceParticleBlendClass::AlphaLit ||
+        blendClass == RtPathTraceParticleBlendClass::AlphaLitBlackKey;
+}
+
 const char* ParticleCaptureDepthPolicyName(RtPathTraceParticleDepthPolicy policy)
 {
     switch (policy)
@@ -633,7 +648,7 @@ void ParticleCaptureAppendPrimitives(
             primitive.depthPolicy = RtPathTraceParticleMetadataDepth(metadata);
         }
 
-        if (batch.blendClass == RtPathTraceParticleBlendClass::AlphaLit)
+        if (ParticleCaptureIsAlphaLit(batch.blendClass))
         {
             ParticleCompositeLightingTask lightingTask;
             lightingTask.centerWorld[0] = center.x;
@@ -772,6 +787,13 @@ bool ParticleCaptureAppendSurface(
         batch.firstIndex = static_cast<uint32_t>(capture.indexes.size());
         batch.indexCount = static_cast<uint32_t>(baseIndexes.size());
         batch.blendClass = ParticleCaptureBlendClass(auditStage.blendClass);
+        const bool additiveSmokeStage =
+            batch.blendClass == RtPathTraceParticleBlendClass::AlphaEmissive ||
+            batch.blendClass == RtPathTraceParticleBlendClass::PureAdditiveEmissive;
+        if (additiveSmokeStage && ParticleCaptureIsSmokepuffBlackKey(material))
+        {
+            batch.blendClass = RtPathTraceParticleBlendClass::AlphaLitBlackKey;
+        }
         batch.depthPolicy = weaponDepthHack
             ? RtPathTraceParticleDepthPolicy::WeaponProjection
             : (modelDepthHack != 0.0f ? RtPathTraceParticleDepthPolicy::ModelProjection : RtPathTraceParticleDepthPolicy::World);
@@ -815,7 +837,7 @@ bool ParticleCaptureAppendSurface(
         capture.batches.push_back(batch);
         ParticleCaptureAppendPrimitives(viewDef, capture, batchIndex, capture.batches.back());
         ++capture.stats.capturedBatches;
-        capture.stats.alphaLitBatches += batch.blendClass == RtPathTraceParticleBlendClass::AlphaLit ? 1 : 0;
+        capture.stats.alphaLitBatches += ParticleCaptureIsAlphaLit(batch.blendClass) ? 1 : 0;
         capture.stats.alphaEmissiveBatches += batch.blendClass == RtPathTraceParticleBlendClass::AlphaEmissive ? 1 : 0;
         capture.stats.pureAdditiveBatches += batch.blendClass == RtPathTraceParticleBlendClass::PureAdditiveEmissive ? 1 : 0;
         capture.stats.multiplicativeDarkenBatches += batch.blendClass == RtPathTraceParticleBlendClass::MultiplicativeDarken ? 1 : 0;
@@ -1207,7 +1229,7 @@ static void AuditPathTraceParticleCompositeCandidates(
         capture.stats.multiplicativeDarkenBatches,
         r_pathTracingParticleLighting.GetBool() ? 1 : 0,
         capture.stats.alphaLitLightingTasks,
-        idMath::ClampInt(1, 32, r_pathTracingParticleLightCandidates.GetInteger()),
+        idMath::ClampInt(1, 4096, r_pathTracingParticleLightCandidates.GetInteger()),
         Max(0.0f, r_pathTracingParticleAmbient.GetFloat()),
         Max(0.0f, r_pathTracingParticleEmissiveScale.GetFloat()),
         Max(0.0f, r_pathTracingParticleSoftDepth.GetFloat()),

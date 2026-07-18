@@ -79,7 +79,7 @@ float4 main(PS_IN input) : SV_Target0
             else
             {
                 const bool weaponProjection = depthPolicy == 1u;
-                const bool coverageBlend = blendClass == 0u || blendClass == 3u;
+                const bool coverageBlend = blendClass == 0u || blendClass == 3u || blendClass == 4u;
                 // Additive projectile cards commonly surround a small rigid
                 // core. Permit world-space cards to sit slightly behind that
                 // core while retaining ordinary world occlusion at larger
@@ -118,6 +118,23 @@ float4 main(PS_IN input) : SV_Target0
     // every blend class.
     const float3 linearRgb = sRGBToLinearRGB(sampledTexel.rgb) * input.color.rgb;
     float4 texel = float4(linearRgb, authoredTexel.a);
+    if (blendClass == 4u)
+    {
+        // Doom 3's smokepuff stages use additive ONE,ONE blending. Their vertex
+        // RGB is therefore source intensity (and lifetime fade), not a dark
+        // surface albedo; vertex alpha does not control the original RGB blend.
+        // Preserve hue separately and convert the original additive energy into
+        // bounded optical coverage for the lit composite.
+        const float rgbCoverage = max(max(sampledTexel.r, sampledTexel.g), sampledTexel.b);
+        const float3 textureChroma = sampledTexel.rgb / max(rgbCoverage, 1.0e-4);
+        const float vertexIntensity = max(max(input.color.r, input.color.g), input.color.b);
+        const float3 vertexTint = input.color.rgb / max(vertexIntensity, 1.0e-4);
+        texel.rgb = sRGBToLinearRGB(textureChroma) * vertexTint;
+        // At the default 0.16 broad fill, the small-signal response is close to
+        // the legacy additive energy. The exponential remains bounded as cards
+        // overlap, while RGB fadeColor now removes the tail at the authored rate.
+        texel.a = 1.0 - exp2(-8.0 * rgbCoverage * vertexIntensity);
+    }
     if (blendClass != 2u)
     {
         if (blendClass == 3u)
@@ -129,8 +146,9 @@ float4 main(PS_IN input) : SV_Target0
             texel.a *= softFade * ParticleConstants.modelInfo.z;
         }
     }
-    const bool emptyAlpha = blendClass < 2u && texel.a <= (1.0 / 255.0);
-    const bool emptyRgbCoverage = blendClass >= 2u &&
+    const bool alphaCoverageClass = blendClass < 2u || blendClass == 4u;
+    const bool emptyAlpha = alphaCoverageClass && texel.a <= (1.0 / 255.0);
+    const bool emptyRgbCoverage = !alphaCoverageClass &&
         max(max(abs(texel.r), abs(texel.g)), abs(texel.b)) <= (1.0 / 255.0);
     if (!debugTint && (emptyAlpha || emptyRgbCoverage))
     {
@@ -138,7 +156,7 @@ float4 main(PS_IN input) : SV_Target0
     }
 
     float3 rgb;
-    if (blendClass == 0u)
+    if (blendClass == 0u || blendClass == 4u)
     {
         rgb = texel.rgb * input.lighting;
     }
@@ -156,5 +174,5 @@ float4 main(PS_IN input) : SV_Target0
     {
         rgb = float3(1.0, 0.0, 1.0);
     }
-    return float4(rgb, debugTint ? 1.0 : (blendClass >= 2u ? 0.0 : texel.a));
+    return float4(rgb, debugTint ? 1.0 : (alphaCoverageClass ? texel.a : 0.0));
 }

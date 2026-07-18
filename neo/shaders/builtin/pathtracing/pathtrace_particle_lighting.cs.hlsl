@@ -10,6 +10,10 @@ struct ParticleLightingConstants
     float rayTMin;
     float rayTMaxBias;
     float directClamp;
+    float emissiveScale;
+    float analyticScale;
+    float padding0;
+    float padding1;
 };
 
 struct ParticleCompositeLightingTask
@@ -71,7 +75,17 @@ bool ParticleEvaluateLight(
     const float distanceSquared = max(dot(toLight, toLight), 1.0e-4);
     const float distance = sqrt(distanceSquared);
     direction = toLight / distance;
-    const float3 radiance = max(light.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0));
+    float radianceScale = 0.0;
+    if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        radianceScale = ParticleLightingParams.analyticScale;
+    }
+    else if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        radianceScale = ParticleLightingParams.emissiveScale;
+    }
+    const float3 radiance =
+        max(light.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * radianceScale;
 
     if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
     {
@@ -149,49 +163,87 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (ParticleLightingParams.lightCount > 0u && ParticleLightingParams.candidateCount > 0u)
     {
         const uint sampleCount = min(ParticleLightingParams.candidateCount, ParticleLightingParams.lightCount);
-        uint randomState = ParticleHash(task.stableParticleId ^ (taskIndex * 0x85ebca6bu) ^ 0xc2b2ae35u);
-        float weightSum = 0.0;
-        float selectedTarget = 0.0;
-        float3 selectedContribution = float3(0.0, 0.0, 0.0);
-        float3 selectedDirection = float3(0.0, 0.0, 1.0);
-        float selectedDistance = 0.0;
-
-        for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
+        if (ParticleLightingParams.traceVisibility == 0u)
         {
-            const uint lightIndex = ParticleLightingParams.lightCount <= sampleCount
-                ? sampleIndex
-                : min(uint(ParticleRandom01(randomState) * ParticleLightingParams.lightCount), ParticleLightingParams.lightCount - 1u);
-            float3 candidateContribution;
-            float3 candidateDirection;
-            float candidateDistance;
-            if (!ParticleEvaluateLight(
-                ParticleLights[lightIndex],
-                task.centerWorld,
-                candidateContribution,
-                candidateDirection,
-                candidateDistance))
+            // Legacy smoke needs a stable, low-frequency estimate rather than
+            // one stochastic visible light. The default visits the complete
+            // active domain. Lower diagnostic caps use an evenly spaced,
+            // compensated subset so task reordering cannot make cards flicker.
+            const float subsetScale = float(ParticleLightingParams.lightCount) / float(sampleCount);
+            for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
             {
-                continue;
-            }
-            const float target = ParticleLuminance(candidateContribution);
-            const float weight = target * float(ParticleLightingParams.lightCount);
-            weightSum += weight;
-            if (ParticleRandom01(randomState) * weightSum <= weight)
-            {
-                selectedTarget = target;
-                selectedContribution = candidateContribution;
-                selectedDirection = candidateDirection;
-                selectedDistance = candidateDistance;
+                const uint lightIndex = ParticleLightingParams.lightCount <= sampleCount
+                    ? sampleIndex
+                    : min(
+                        uint((float(sampleIndex) + 0.5) * float(ParticleLightingParams.lightCount) / float(sampleCount)),
+                        ParticleLightingParams.lightCount - 1u);
+                float3 candidateContribution;
+                float3 candidateDirection;
+                float candidateDistance;
+                if (ParticleEvaluateLight(
+                    ParticleLights[lightIndex],
+                    task.centerWorld,
+                    candidateContribution,
+                    candidateDirection,
+                    candidateDistance))
+                {
+                    direct += candidateContribution * subsetScale;
+                }
             }
         }
-
-        if (selectedTarget > 0.0 && weightSum > 0.0 &&
-            ParticleVisible(task.centerWorld, selectedDirection, selectedDistance))
+        else
         {
-            direct = (selectedContribution / selectedTarget) * (weightSum / float(sampleCount));
+            uint randomState = ParticleHash(task.stableParticleId ^ (taskIndex * 0x85ebca6bu) ^ 0xc2b2ae35u);
+            float weightSum = 0.0;
+            float selectedTarget = 0.0;
+            float3 selectedContribution = float3(0.0, 0.0, 0.0);
+            float3 selectedDirection = float3(0.0, 0.0, 1.0);
+            float selectedDistance = 0.0;
+
+            for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
+            {
+                const uint lightIndex = ParticleLightingParams.lightCount <= sampleCount
+                    ? sampleIndex
+                    : min(uint(ParticleRandom01(randomState) * ParticleLightingParams.lightCount), ParticleLightingParams.lightCount - 1u);
+                float3 candidateContribution;
+                float3 candidateDirection;
+                float candidateDistance;
+                if (!ParticleEvaluateLight(
+                    ParticleLights[lightIndex],
+                    task.centerWorld,
+                    candidateContribution,
+                    candidateDirection,
+                    candidateDistance))
+                {
+                    continue;
+                }
+                const float target = ParticleLuminance(candidateContribution);
+                const float weight = target * float(ParticleLightingParams.lightCount);
+                weightSum += weight;
+                if (ParticleRandom01(randomState) * weightSum <= weight)
+                {
+                    selectedTarget = target;
+                    selectedContribution = candidateContribution;
+                    selectedDirection = candidateDirection;
+                    selectedDistance = candidateDistance;
+                }
+            }
+
+            if (selectedTarget > 0.0 && weightSum > 0.0 &&
+                ParticleVisible(task.centerWorld, selectedDirection, selectedDistance))
+            {
+                direct = (selectedContribution / selectedTarget) * (weightSum / float(sampleCount));
+            }
         }
     }
 
     direct = min(max(direct, float3(0.0, 0.0, 0.0)), ParticleLightingParams.directClamp.xxx);
-    ParticleLightingOutput[taskIndex] = float4(ParticleLightingParams.ambientFloor.xxx + direct, 1.0);
+    // Legacy cards need broad local color, not HDR surface radiance. Compress
+    // direct illumination so bright lamps cannot drive white smoke to the same
+    // value as its background and make the card appear to dissolve.
+    const float3 compressedDirect = 0.65 * direct / (direct + 0.5);
+    const float3 localFill = min(
+        ParticleLightingParams.ambientFloor.xxx + compressedDirect,
+        float3(0.85, 0.85, 0.85));
+    ParticleLightingOutput[taskIndex] = float4(localFill, 1.0);
 }

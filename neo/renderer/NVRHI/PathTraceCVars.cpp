@@ -2485,7 +2485,7 @@ idCVar r_pathTracingParticleAmbient(
     "r_pathTracingParticleAmbient",
     "0.16",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Unlit fallback multiplier for alpha particle cards; this becomes the ambient floor when direct particle lighting is enabled" );
+    "Broad fill multiplier for alpha particle cards; prevents legacy smoke from collapsing to black outside direct light" );
 
 idCVar r_pathTracingParticleEmissiveScale(
     "r_pathTracingParticleEmissiveScale",
@@ -2509,19 +2509,31 @@ idCVar r_pathTracingParticleLighting(
     "r_pathTracingParticleLighting",
     "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Enable per-card direct lighting for AlphaLit particle cards from the current Remix light universe" );
+    "Enable approximate local lighting for AlphaLit particle cards from the current Remix light universe" );
+
+idCVar r_pathTracingParticleLightingDebug(
+    "r_pathTracingParticleLightingDebug",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Particle lighting diagnostic: 0=off, 1=force AlphaLit cards red without reading the lighting buffer" );
+
+idCVar r_pathTracingParticleLightingDump(
+    "r_pathTracingParticleLightingDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot particle-lighting runtime gate and unified-light range dump" );
 
 idCVar r_pathTracingParticleLightCandidates(
     "r_pathTracingParticleLightCandidates",
-    "8",
+    "4096",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Bounded unified-light candidates sampled per AlphaLit particle card" );
+    "Unified-light records evaluated for deterministic particle local fill; the default covers the active domain" );
 
 idCVar r_pathTracingParticleShadowRays(
     "r_pathTracingParticleShadowRays",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Particle-card visibility: 0=unshadowed direct light, 1 or greater=one selected-light visibility ray" );
+    "Particle-card visibility diagnostic: 0=soft unshadowed local fill, 1 or greater=one hard selected-light visibility ray" );
 
 idCVar r_pathTracingParticleSortMode(
     "r_pathTracingParticleSortMode",

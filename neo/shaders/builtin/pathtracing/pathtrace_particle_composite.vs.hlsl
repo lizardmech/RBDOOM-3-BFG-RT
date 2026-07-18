@@ -62,9 +62,12 @@ VS_OUT main(uint vertexId : SV_VertexID)
     result.color = UnpackParticleColor(vertex.packedColor);
     result.viewDepth = viewDepth;
     result.particleMetadata = vertex.particleMetadata;
+    const bool forceLightingDebug = ParticleConstants.modelInfo.w > 1.5;
     const bool lightingEnabled = ParticleConstants.modelInfo.w > 0.5 && vertex.lightingInfo.x != 0xffffffffu;
-    result.lighting = lightingEnabled
-        ? max(ParticleLighting[vertex.lightingInfo.x].rgb, float3(0.0, 0.0, 0.0))
-        : ParticleConstants.cameraLeftAndAmbient.www;
+    result.lighting = forceLightingDebug
+        ? float3(4.0, 0.0, 0.0)
+        : (lightingEnabled
+            ? max(ParticleLighting[vertex.lightingInfo.x].rgb, float3(0.0, 0.0, 0.0))
+            : ParticleConstants.cameraLeftAndAmbient.www);
     return result;
 }

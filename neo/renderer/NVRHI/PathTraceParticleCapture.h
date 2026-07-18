@@ -27,7 +27,12 @@ enum class RtPathTraceParticleBlendClass : uint32_t
     AlphaEmissive = 1,
     PureAdditiveEmissive = 2,
     MultiplicativeDarken = 3,
-    Count = 4
+    // Doom 3 commonly stores smoke opacity as grayscale RGB on a black
+    // background and renders it additively. In the path-traced composite that
+    // content needs alpha coverage derived from RGB so it can receive light
+    // without turning every genuinely additive effect into a lit card.
+    AlphaLitBlackKey = 4,
+    Count = 5
 };
 
 enum RtPathTraceParticleBatchFlags : uint32_t

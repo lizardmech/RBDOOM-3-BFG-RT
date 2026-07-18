@@ -35,6 +35,10 @@ struct ParticleLightingConstants
     float rayTMin = 0.1f;
     float rayTMaxBias = 0.2f;
     float directClamp = 8.0f;
+    float emissiveScale = 1.0f;
+    float analyticScale = 1.0f;
+    float padding0 = 0.0f;
+    float padding1 = 0.0f;
 };
 
 // DXC's Vulkan StructuredBuffer layout aligns float3 to 16 bytes. Keep this
@@ -45,13 +49,14 @@ static_assert(offsetof(ParticleCompositeVertex, lightingTaskIndex) == 32, "Parti
 static_assert(sizeof(ParticleCompositeVertex) == 48, "Particle composite vertex ABI mismatch");
 static_assert(sizeof(ParticleCompositeConstants) == 112, "Particle composite constants ABI mismatch");
 static_assert(sizeof(ParticleCompositeLightingTask) == 16, "Particle lighting-task ABI mismatch");
-static_assert(sizeof(ParticleLightingConstants) == 32, "Particle lighting constants ABI mismatch");
+static_assert(sizeof(ParticleLightingConstants) == 48, "Particle lighting constants ABI mismatch");
 
 nvrhi::BlendState::RenderTarget ParticleCompositeBlendState(RtPathTraceParticleBlendClass blendClass)
 {
     nvrhi::BlendState::RenderTarget blend;
     blend.blendEnable = true;
-    if (blendClass == RtPathTraceParticleBlendClass::AlphaLit)
+    if (blendClass == RtPathTraceParticleBlendClass::AlphaLit ||
+        blendClass == RtPathTraceParticleBlendClass::AlphaLitBlackKey)
     {
         blend.setSrcBlend(nvrhi::BlendFactor::SrcAlpha);
         blend.setDestBlend(nvrhi::BlendFactor::OneMinusSrcAlpha);
@@ -141,7 +146,8 @@ std::vector<uint32_t> ParticleCompositeBuildUploadIndexes(const RtPathTraceParti
     for (uint32_t batchIndex = 0; batchIndex < static_cast<uint32_t>(capture.batches.size()); ++batchIndex)
     {
         const ParticleCompositeBatch& batch = capture.batches[batchIndex];
-        if (batch.blendClass != RtPathTraceParticleBlendClass::AlphaLit)
+        if (batch.blendClass != RtPathTraceParticleBlendClass::AlphaLit &&
+            batch.blendClass != RtPathTraceParticleBlendClass::AlphaLitBlackKey)
         {
             continue;
         }
@@ -336,9 +342,16 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
                 lightingConstants.taskCount = static_cast<uint32_t>(m_particleCapture.lightingTasks.size());
                 lightingConstants.lightCount = static_cast<uint32_t>(m_smokeRestirLightManagerCurrentPayloadCount);
                 lightingConstants.candidateCount = static_cast<uint32_t>(idMath::ClampInt(
-                    1, 32, r_pathTracingParticleLightCandidates.GetInteger()));
+                    1, 4096, r_pathTracingParticleLightCandidates.GetInteger()));
                 lightingConstants.traceVisibility = r_pathTracingParticleShadowRays.GetInteger() > 0 ? 1u : 0u;
                 lightingConstants.ambientFloor = Max(0.0f, r_pathTracingParticleAmbient.GetFloat());
+                lightingConstants.emissiveScale = idMath::ClampFloat(
+                    0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
+                lightingConstants.analyticScale = idMath::ClampFloat(
+                    0.0f,
+                    16.0f,
+                    r_pathTracingAnalyticLightIntensityScale.GetFloat() *
+                        r_pathTracingToyLightScale.GetFloat());
 
                 nvrhi::ComputeState lightingState;
                 lightingState.pipeline = m_particleLightingPipeline;
@@ -351,6 +364,40 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
                 particleLightingReady = true;
             }
         }
+    }
+
+    if (r_pathTracingParticleLightingDump.GetInteger() != 0)
+    {
+        const PathTraceRemixLightManagerStats& lightStats = m_remixLightManager.GetStats();
+        common->Printf(
+            "PathTraceParticleLighting: requested=%d ready=%d tasks=%u payloadCount=%d managerEnabled=%u managerCurrent=%u emissiveRange=%u+%u analyticRange=%u+%u layout=%d shader=%d pipeline=%d taskBuffer=%d outputBuffer=%d tlas=%d candidates=%d shadowRay=%d ambient=%.3f emissiveScale=%.3f analyticScale=%.3f debug=%d\n",
+            particleLightingRequested ? 1 : 0,
+            particleLightingReady ? 1 : 0,
+            static_cast<uint32_t>(m_particleCapture.lightingTasks.size()),
+            m_smokeRestirLightManagerCurrentPayloadCount,
+            lightStats.enabled,
+            lightStats.currentLightCount,
+            lightStats.emissiveRangeOffset,
+            lightStats.emissiveRangeCount,
+            lightStats.doomAnalyticRangeOffset,
+            lightStats.doomAnalyticRangeCount,
+            m_particleLightingBindingLayout ? 1 : 0,
+            m_particleLightingShader ? 1 : 0,
+            m_particleLightingPipeline ? 1 : 0,
+            m_particleLightingTaskBuffer ? 1 : 0,
+            m_particleLightingOutputBuffer ? 1 : 0,
+            m_smokeTlas ? 1 : 0,
+            idMath::ClampInt(1, 4096, r_pathTracingParticleLightCandidates.GetInteger()),
+            r_pathTracingParticleShadowRays.GetInteger() > 0 ? 1 : 0,
+            Max(0.0f, r_pathTracingParticleAmbient.GetFloat()),
+            idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat()),
+            idMath::ClampFloat(
+                0.0f,
+                16.0f,
+                r_pathTracingAnalyticLightIntensityScale.GetFloat() *
+                    r_pathTracingToyLightScale.GetFloat()),
+            idMath::ClampInt(0, 1, r_pathTracingParticleLightingDebug.GetInteger()));
+        r_pathTracingParticleLightingDump.SetInteger(0);
     }
 
     commandList->setBufferState(m_particleCompositeVertexBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -418,7 +465,9 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
             batch.modelDepthHack,
             Max(r_znear.GetFloat(), 1.0e-4f),
             idMath::ClampFloat(0.0f, 1.0f, r_pathTracingParticleOpacity.GetFloat()),
-            particleLightingReady ? 1.0f : 0.0f);
+            r_pathTracingParticleLightingDebug.GetInteger() != 0
+                ? 2.0f
+                : (particleLightingReady ? 1.0f : 0.0f));
 
         nvrhi::GraphicsState state;
         state.pipeline = m_particleCompositePipelines[blendIndex];
