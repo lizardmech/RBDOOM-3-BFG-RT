@@ -2493,6 +2493,12 @@ idCVar r_pathTracingParticleEmissiveScale(
     CVAR_RENDERER | CVAR_FLOAT,
     "Global scale recorded for emissive particle-card batches" );
 
+idCVar r_pathTracingParticleFireEmissiveScale(
+    "r_pathTracingParticleFireEmissiveScale",
+    "3.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Additional HDR emissive multiplier for textures/particles/pfiresmall and pfiresmall2; 1 restores the global particle emissive scale" );
+
 idCVar r_pathTracingParticleFireLightDump(
     "r_pathTracingParticleFireLightDump",
     "0",

@@ -628,6 +628,7 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
             static_cast<float>(batch.blendClass),
             Max(batch.softDepth, 1.0e-3f),
             m_particleCapture.debugTint ? 1.0f : 0.0f);
+        constants.cameraUpAndEmissiveScale.w = Max(0.0f, batch.emissiveScale);
         constants.modelInfo.Set(
             batch.modelDepthHack,
             Max(r_znear.GetFloat(), 1.0e-4f),

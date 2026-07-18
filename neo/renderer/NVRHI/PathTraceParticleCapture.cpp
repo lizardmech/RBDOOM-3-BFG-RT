@@ -474,6 +474,17 @@ bool ParticleCaptureIsSmokepuffBlackKey(const idMaterial* material)
     return material && idStr::FindText(material->GetName(), "smokepuff", false) >= 0;
 }
 
+bool ParticleCaptureIsPfireSmall(const idMaterial* material)
+{
+    if (!material)
+    {
+        return false;
+    }
+    const char* materialName = material->GetName();
+    return idStr::Icmp(materialName, "textures/particles/pfiresmall") == 0 ||
+        idStr::Icmp(materialName, "textures/particles/pfiresmall2") == 0;
+}
+
 bool ParticleCaptureIsAlphaLit(RtPathTraceParticleBlendClass blendClass)
 {
     return blendClass == RtPathTraceParticleBlendClass::AlphaLit ||
@@ -816,7 +827,10 @@ bool ParticleCaptureAppendSurface(
         batch.sourceEntityId = entity ? entity->index : -1;
         batch.allowSurfaceInViewId = renderEntity ? renderEntity->allowSurfaceInViewID : 0;
         batch.modelDepthHack = modelDepthHack;
-        batch.emissiveScale = Max(0.0f, r_pathTracingParticleEmissiveScale.GetFloat());
+        batch.emissiveScale = Max(0.0f, r_pathTracingParticleEmissiveScale.GetFloat()) *
+            (ParticleCaptureIsPfireSmall(material)
+                ? Max(0.0f, r_pathTracingParticleFireEmissiveScale.GetFloat())
+                : 1.0f);
         batch.softDepth = Max(0.0f, r_pathTracingParticleSoftDepth.GetFloat());
         batch.materialId = materialId;
         batch.surfaceIndex = surfaceIndex;
@@ -1268,7 +1282,7 @@ static void AuditPathTraceParticleCompositeCandidates(
         {
             const ParticleCompositeBatch& batch = capture.batches[batchIndex];
             const idImage* image = batch.textureIndex < capture.textures.size() ? capture.textures[batch.textureIndex] : nullptr;
-            common->Printf("PathTraceParticleAudit: capture batch=%d surface=%d stage=%d materialId=%u texture=%u('%s') blend=%u depth=%s source=%s entity=%d allowViewID=%d modelDepthHack=%.3f firstVertex=%u vertices=%u firstIndex=%u indexes=%u flags=0x%08x\n",
+            common->Printf("PathTraceParticleAudit: capture batch=%d surface=%d stage=%d materialId=%u texture=%u('%s') blend=%u depth=%s source=%s entity=%d allowViewID=%d modelDepthHack=%.3f emissiveScale=%.3f firstVertex=%u vertices=%u firstIndex=%u indexes=%u flags=0x%08x\n",
                 batchIndex,
                 batch.surfaceIndex,
                 batch.stageIndex,
@@ -1281,6 +1295,7 @@ static void AuditPathTraceParticleCompositeCandidates(
                 batch.sourceEntityId,
                 batch.allowSurfaceInViewId,
                 batch.modelDepthHack,
+                batch.emissiveScale,
                 batch.firstVertex,
                 batch.vertexCount,
                 batch.firstIndex,
