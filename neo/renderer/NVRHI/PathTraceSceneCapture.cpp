@@ -266,6 +266,7 @@ static PathTraceSmokeVertex BuildSmokeSurfaceVertexFromSource(
     const idDrawVert* sourceVertices,
     int vertexIndex,
     const idJointMat* rtCpuSkinningJoints);
+static bool SmokeTryCopyMemory(void* destination, const void* source, size_t byteCount);
 
 bool SmokeSurfaceBoundsMayHitRay(const drawSurf_t* drawSurf, const srfTriangles_t* tri, const idVec3& rayOrigin, const idVec3& rayDirection)
 {
@@ -345,9 +346,14 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
                 {
                     ++captureTiming->anchorTriangleTests;
                 }
-                const int i0 = sourceIndexes[index + 0];
-                const int i1 = sourceIndexes[index + 1];
-                const int i2 = sourceIndexes[index + 2];
+                triIndex_t sourceTriangle[3];
+                if (!SmokeTryCopyMemory(sourceTriangle, sourceIndexes + index, sizeof(sourceTriangle)))
+                {
+                    break;
+                }
+                const int i0 = sourceTriangle[0];
+                const int i1 = sourceTriangle[1];
+                const int i2 = sourceTriangle[2];
                 if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
                 {
                     continue;
@@ -383,9 +389,35 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
     return foundHit;
 }
 
+static bool SmokeTryCopyMemory(void* destination, const void* source, size_t byteCount)
+{
+#if defined(_MSC_VER) && defined(_WIN32)
+    __try
+    {
+        memcpy(destination, source, byteCount);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+#else
+    memcpy(destination, source, byteCount);
+    return true;
+#endif
+}
+
 static PathTraceSmokeVertex BuildSmokeSurfaceVertexFromSource(const drawSurf_t* drawSurf, const idDrawVert* sourceVertices, int vertexIndex, const idJointMat* rtCpuSkinningJoints)
 {
-    const idDrawVert& drawVert = sourceVertices[vertexIndex];
+    idDrawVert drawVert;
+    if (!sourceVertices || vertexIndex < 0 ||
+        !SmokeTryCopyMemory(&drawVert, sourceVertices + vertexIndex, sizeof(drawVert)))
+    {
+        // Dynamic frontend geometry can be retired while the backend draw
+        // surface still retains its CPU fallback pointer. Treat that surface as
+        // degenerate for this capture instead of allowing an access violation.
+        return {};
+    }
     idVec3 localPosition = drawVert.xyz;
     idVec3 localNormal = drawVert.GetNormal();
     idVec3 localTangent = drawVert.GetTangent();
@@ -921,18 +953,40 @@ int AppendSmokeSurfaceGeometry(
 
     for (int sourceIndex = 0; sourceIndex + 2 < drawSurf->numIndexes; sourceIndex += 3)
     {
-        const int i0 = sourceIndexes[sourceIndex + 0];
-        const int i1 = sourceIndexes[sourceIndex + 1];
-        const int i2 = sourceIndexes[sourceIndex + 2];
+        triIndex_t sourceTriangle[3];
+        if (!SmokeTryCopyMemory(sourceTriangle, sourceIndexes + sourceIndex, sizeof(sourceTriangle)))
+        {
+            ++skipStats.missingGeometry;
+            vertices.resize(vertexStart);
+            indexes.resize(indexStart);
+            triangleClasses.resize(classStart);
+            triangleMaterials.resize(materialStart);
+            return 0;
+        }
+        const int i0 = sourceTriangle[0];
+        const int i1 = sourceTriangle[1];
+        const int i2 = sourceTriangle[2];
         if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
         {
             ++skipStats.invalidIndexCount;
             continue;
         }
 
-        const PathTraceSmokeVertex& v0 = vertices[indexBase + static_cast<uint32_t>(i0)];
-        const PathTraceSmokeVertex& v1 = vertices[indexBase + static_cast<uint32_t>(i1)];
-        const PathTraceSmokeVertex& v2 = vertices[indexBase + static_cast<uint32_t>(i2)];
+        PathTraceSmokeVertex v0;
+        PathTraceSmokeVertex v1;
+        PathTraceSmokeVertex v2;
+        const PathTraceSmokeVertex* vertexData = vertices.data();
+        if (!SmokeTryCopyMemory(&v0, vertexData + indexBase + static_cast<uint32_t>(i0), sizeof(v0)) ||
+            !SmokeTryCopyMemory(&v1, vertexData + indexBase + static_cast<uint32_t>(i1), sizeof(v1)) ||
+            !SmokeTryCopyMemory(&v2, vertexData + indexBase + static_cast<uint32_t>(i2), sizeof(v2)))
+        {
+            ++skipStats.missingGeometry;
+            vertices.resize(vertexStart);
+            indexes.resize(indexStart);
+            triangleClasses.resize(classStart);
+            triangleMaterials.resize(materialStart);
+            return 0;
+        }
         const idVec3 p0 = SmokeVertexPosition(v0);
         const idVec3 p1 = SmokeVertexPosition(v1);
         const idVec3 p2 = SmokeVertexPosition(v2);
