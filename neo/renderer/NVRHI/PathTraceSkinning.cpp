@@ -5,14 +5,48 @@
 #include "../RenderCommon.h"
 #include "../Model_local.h"
 
+namespace {
+
+bool SmokeRtCpuPointerLooksPlausible(const void* pointer)
+{
+    const uintptr_t address = reinterpret_cast<uintptr_t>(pointer);
+    if (address < 0x10000u || (address & (alignof(void*) - 1u)) != 0u)
+    {
+        return false;
+    }
+    // Captured draw surfaces can outlive frontend-owned dynamic-model memory.
+    // Reject poison/sentinel values before following staticModelWithJoints.
+    // Current supported 64-bit targets use the lower canonical user range.
+    if (sizeof(uintptr_t) == 8 && address > static_cast<uintptr_t>(0x00007FFFFFFFFFFFull))
+    {
+        return false;
+    }
+    return true;
+}
+
+}
+
 const idJointMat* GetSmokeRtCpuSkinningJoints(const srfTriangles_t* tri)
 {
-    if (!r_useGPUSkinning.GetBool() || !tri || !tri->staticModelWithJoints || !tri->staticModelWithJoints->jointsInverted)
+    if (!r_useGPUSkinning.GetBool() || !tri)
     {
         return nullptr;
     }
 
-    return tri->staticModelWithJoints->jointsInverted;
+    const idRenderModelStatic* model = tri->staticModelWithJoints;
+    if (!SmokeRtCpuPointerLooksPlausible(model))
+    {
+        return nullptr;
+    }
+
+    const idJointMat* joints = model->jointsInverted;
+    if (model->numInvertedJoints <= 0 ||
+        model->numInvertedJoints > 4096 ||
+        !SmokeRtCpuPointerLooksPlausible(joints))
+    {
+        return nullptr;
+    }
+    return joints;
 }
 
 idVec3 TransformSmokeSkinnedVertexPosition(const idDrawVert& base, const idJointMat* joints)
