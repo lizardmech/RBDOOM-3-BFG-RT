@@ -8,6 +8,8 @@
 #include <stdint.h>
 #include <vector>
 
+#include "../PathTraceParticleProvenance.h"
+
 struct viewDef_t;
 struct drawSurf_t;
 struct srfTriangles_t;
@@ -28,24 +30,6 @@ enum class RtPathTraceParticleBlendClass : uint32_t
     Count = 4
 };
 
-enum class RtPathTraceParticleDepthPolicy : uint32_t
-{
-    World = 0,
-    WeaponProjection = 1,
-    ModelProjection = 2,
-    WorldMuzzleNearPlane = 3
-};
-
-enum class RtPathTraceParticleSourceClass : uint32_t
-{
-    World = 0,
-    LocalWeapon = 1,
-    AttachedWeaponEmitter = 2,
-    ProjectileTrail = 3,
-    Impact = 4,
-    Unknown = 5
-};
-
 enum RtPathTraceParticleBatchFlags : uint32_t
 {
     RT_PATH_TRACE_PARTICLE_BATCH_TEXTURE_MATRIX = 1u << 0,
@@ -63,7 +47,7 @@ struct ParticleCompositeVertex
     float worldPositionPadding = 0.0f;
     float texCoord[2] = {};
     uint32_t packedColor = 0xffffffffu;
-    uint32_t particleIdLow = 0;
+    uint32_t particleMetadata = 0;
 };
 
 struct ParticleCompositeBatch
@@ -94,6 +78,8 @@ struct ParticleCompositeQuad
     uint32_t batchIndex = 0;
     uint32_t firstIndex = 0;
     float viewDepth = 0.0f;
+    RtPathTraceParticleSourceClass sourceClass = RtPathTraceParticleSourceClass::Unknown;
+    RtPathTraceParticleDepthPolicy depthPolicy = RtPathTraceParticleDepthPolicy::World;
 };
 
 struct ParticleCompositePrimitive
@@ -104,6 +90,8 @@ struct ParticleCompositePrimitive
     uint32_t firstIndex = 0;
     uint32_t indexCount = 0;
     float viewDepth = 0.0f;
+    RtPathTraceParticleSourceClass sourceClass = RtPathTraceParticleSourceClass::Unknown;
+    RtPathTraceParticleDepthPolicy depthPolicy = RtPathTraceParticleDepthPolicy::World;
 };
 
 struct RtPathTraceParticleCaptureStats
@@ -125,6 +113,12 @@ struct RtPathTraceParticleCaptureStats
     int alphaEmissiveBatches = 0;
     int pureAdditiveBatches = 0;
     int multiplicativeDarkenBatches = 0;
+    int provenanceQuads = 0;
+    int localWeaponQuads = 0;
+    int attachedWeaponEmitterQuads = 0;
+    int projectileTrailQuads = 0;
+    int impactQuads = 0;
+    int worldMuzzleNearPlaneQuads = 0;
 };
 
 struct RtPathTraceParticleCapture

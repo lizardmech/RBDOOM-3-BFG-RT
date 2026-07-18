@@ -532,6 +532,20 @@ uint32_t ParticleCapturePackColor(const PathTraceSmokeVertex& vertex, const shad
     return PackColor(color);
 }
 
+uint32_t ParticleCaptureMetadata(const PathTraceSmokeVertex& vertex)
+{
+    uint32_t metadata = 0u;
+    for (int component = 0; component < 4; ++component)
+    {
+        const uint32_t byteValue = static_cast<uint32_t>(idMath::ClampInt(
+            0,
+            255,
+            idMath::Ftoi(vertex.color2[component] * 255.0f + 0.5f)));
+        metadata |= byteValue << (component * 8);
+    }
+    return IsRtPathTraceParticleMetadata(metadata) ? metadata : 0u;
+}
+
 int ParticleCaptureUniqueVertexIndexes(
     const RtPathTraceParticleCapture& capture,
     uint32_t firstIndex,
@@ -611,6 +625,13 @@ void ParticleCaptureAppendPrimitives(
         primitive.firstIndex = batch.firstIndex + localFirstIndex;
         primitive.indexCount = primitiveIndexCount;
         primitive.viewDepth = viewDepth;
+        const uint32_t metadata = capture.vertices[uniqueVertexIndexes[0]].particleMetadata;
+        if (IsRtPathTraceParticleMetadata(metadata))
+        {
+            primitive.stableParticleId = RtPathTraceParticleStableId(metadata);
+            primitive.sourceClass = RtPathTraceParticleMetadataSource(metadata);
+            primitive.depthPolicy = RtPathTraceParticleMetadataDepth(metadata);
+        }
         capture.primitives.push_back(primitive);
 
         if (primitiveIndexCount == 6)
@@ -622,8 +643,20 @@ void ParticleCaptureAppendPrimitives(
             quad.batchIndex = batchIndex;
             quad.firstIndex = primitive.firstIndex;
             quad.viewDepth = viewDepth;
+            quad.stableParticleId = primitive.stableParticleId;
+            quad.sourceClass = primitive.sourceClass;
+            quad.depthPolicy = primitive.depthPolicy;
             capture.quads.push_back(quad);
             ++capture.stats.capturedDrawQuads;
+            if (quad.stableParticleId != 0u)
+            {
+                ++capture.stats.provenanceQuads;
+                capture.stats.localWeaponQuads += quad.sourceClass == RtPathTraceParticleSourceClass::LocalWeapon ? 1 : 0;
+                capture.stats.attachedWeaponEmitterQuads += quad.sourceClass == RtPathTraceParticleSourceClass::AttachedWeaponEmitter ? 1 : 0;
+                capture.stats.projectileTrailQuads += quad.sourceClass == RtPathTraceParticleSourceClass::ProjectileTrail ? 1 : 0;
+                capture.stats.impactQuads += quad.sourceClass == RtPathTraceParticleSourceClass::Impact ? 1 : 0;
+                capture.stats.worldMuzzleNearPlaneQuads += quad.depthPolicy == RtPathTraceParticleDepthPolicy::WorldMuzzleNearPlane ? 1 : 0;
+            }
         }
         else
         {
@@ -754,6 +787,7 @@ bool ParticleCaptureAppendSurface(
             vertex.texCoord[0] = textureMatrix[0][0] * baseVertex.texCoord[0] + textureMatrix[0][1] * baseVertex.texCoord[1] + textureMatrix[0][2];
             vertex.texCoord[1] = textureMatrix[1][0] * baseVertex.texCoord[0] + textureMatrix[1][1] * baseVertex.texCoord[1] + textureMatrix[1][2];
             vertex.packedColor = ParticleCapturePackColor(baseVertex, stage, stageColor);
+            vertex.particleMetadata = ParticleCaptureMetadata(baseVertex);
             capture.vertices.push_back(vertex);
         }
         for (uint32_t baseIndex : baseIndexes)
@@ -1160,6 +1194,13 @@ static void AuditPathTraceParticleCompositeCandidates(
         Max(0.0f, r_pathTracingParticleSoftDepth.GetFloat()),
         Max(0, r_pathTracingParticleShadowRays.GetInteger()),
         idMath::ClampInt(0, 1, r_pathTracingParticleSortMode.GetInteger()));
+    common->Printf("PathTraceParticleAudit: provenance quads=%d source(localWeapon/attachedWeapon/projectileTrail/impact)=%d/%d/%d/%d worldMuzzleNearPlane=%d\n",
+        capture.stats.provenanceQuads,
+        capture.stats.localWeaponQuads,
+        capture.stats.attachedWeaponEmitterQuads,
+        capture.stats.projectileTrailQuads,
+        capture.stats.impactQuads,
+        capture.stats.worldMuzzleNearPlaneQuads);
     if (dumpMode > 1)
     {
         for (int batchIndex = 0; batchIndex < static_cast<int>(capture.batches.size()); ++batchIndex)

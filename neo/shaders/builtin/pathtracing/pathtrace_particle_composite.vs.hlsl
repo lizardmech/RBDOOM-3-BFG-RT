@@ -3,7 +3,7 @@ struct ParticleCompositeVertex
     float3 worldPosition;
     float2 texCoord;
     uint packedColor;
-    uint particleIdLow;
+    uint particleMetadata;
 };
 
 struct ParticleCompositeConstants
@@ -31,6 +31,7 @@ struct VS_OUT
     float2 texCoord : TEXCOORD0;
     float4 color : COLOR0;
     float viewDepth : TEXCOORD1;
+    nointerpolation uint particleMetadata : TEXCOORD2;
 };
 
 float4 UnpackParticleColor(uint packedColor)
@@ -57,5 +58,6 @@ VS_OUT main(uint vertexId : SV_VertexID)
     result.texCoord = vertex.texCoord;
     result.color = UnpackParticleColor(vertex.packedColor);
     result.viewDepth = viewDepth;
+    result.particleMetadata = vertex.particleMetadata;
     return result;
 }

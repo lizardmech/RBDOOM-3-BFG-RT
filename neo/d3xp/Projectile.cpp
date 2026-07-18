@@ -200,7 +200,8 @@ void idProjectile::Restore( idRestoreGame* savefile )
 		idVec3 dir;
 		dir = physicsObj.GetLinearVelocity();
 		dir.NormalizeFast();
-		gameLocal.smokeParticles->EmitSmoke( smokeFly, gameLocal.time, gameLocal.random.RandomFloat(), GetPhysics()->GetOrigin(), GetPhysics()->GetAxis(), timeGroup /*_D3XP*/ );
+		gameLocal.smokeParticles->EmitSmoke( smokeFly, gameLocal.time, gameLocal.random.RandomFloat(), GetPhysics()->GetOrigin(), GetPhysics()->GetAxis(), timeGroup /*_D3XP*/,
+			RtPathTraceParticleProvenance( RtPathTraceParticleSourceClass::ProjectileTrail, RtPathTraceParticleDepthPolicy::World, entityNumber ) );
 	}
 
 	if( lightDefHandle >= 0 )
@@ -564,7 +565,8 @@ void idProjectile::AddParticlesAndLight()
 		dir.Normalize();
 		SetTimeState ts( originalTimeGroup );
 
-		if( !gameLocal.smokeParticles->EmitSmoke( smokeFly, smokeFlyTime, gameLocal.random.RandomFloat(), GetPhysics()->GetOrigin(), dir.ToMat3(), timeGroup /*_D3XP*/ ) )
+		if( !gameLocal.smokeParticles->EmitSmoke( smokeFly, smokeFlyTime, gameLocal.random.RandomFloat(), GetPhysics()->GetOrigin(), dir.ToMat3(), timeGroup /*_D3XP*/,
+			RtPathTraceParticleProvenance( RtPathTraceParticleSourceClass::ProjectileTrail, RtPathTraceParticleDepthPolicy::World, entityNumber ) ) )
 		{
 			smokeFlyTime = gameLocal.time;
 		}
@@ -2156,7 +2158,8 @@ void idSoulCubeMissile::Think()
 			// orbit the mob, cascading down
 			if( gameLocal.time < orbitTime + 1500 )
 			{
-				if( !gameLocal.smokeParticles->EmitSmoke( smokeKill, smokeKillTime, gameLocal.random.CRandomFloat(), orbitOrg, mat3_identity, timeGroup /*_D3XP*/ ) )
+				if( !gameLocal.smokeParticles->EmitSmoke( smokeKill, smokeKillTime, gameLocal.random.CRandomFloat(), orbitOrg, mat3_identity, timeGroup /*_D3XP*/,
+					RtPathTraceParticleProvenance( RtPathTraceParticleSourceClass::Impact, RtPathTraceParticleDepthPolicy::World, entityNumber ) ) )
 				{
 					smokeKillTime = gameLocal.time;
 				}
@@ -3007,7 +3010,8 @@ void idDebris::Launch()
 	{
 		smokeFly = static_cast<const idDeclParticle*>( declManager->FindType( DECL_PARTICLE, smokeName ) );
 		smokeFlyTime = gameLocal.time;
-		gameLocal.smokeParticles->EmitSmoke( smokeFly, smokeFlyTime, gameLocal.random.CRandomFloat(), GetPhysics()->GetOrigin(), GetPhysics()->GetAxis(), timeGroup /*_D3XP*/ );
+		gameLocal.smokeParticles->EmitSmoke( smokeFly, smokeFlyTime, gameLocal.random.CRandomFloat(), GetPhysics()->GetOrigin(), GetPhysics()->GetAxis(), timeGroup /*_D3XP*/,
+			RtPathTraceParticleProvenance( RtPathTraceParticleSourceClass::ProjectileTrail, RtPathTraceParticleDepthPolicy::World, entityNumber ) );
 	}
 
 	const char* sndName = spawnArgs.GetString( "snd_bounce" );
@@ -3033,7 +3037,8 @@ void idDebris::Think()
 
 	if( smokeFly && smokeFlyTime )
 	{
-		if( !gameLocal.smokeParticles->EmitSmoke( smokeFly, smokeFlyTime, gameLocal.random.CRandomFloat(), GetPhysics()->GetOrigin(), GetPhysics()->GetAxis(), timeGroup /*_D3XP*/ ) )
+		if( !gameLocal.smokeParticles->EmitSmoke( smokeFly, smokeFlyTime, gameLocal.random.CRandomFloat(), GetPhysics()->GetOrigin(), GetPhysics()->GetAxis(), timeGroup /*_D3XP*/,
+			RtPathTraceParticleProvenance( RtPathTraceParticleSourceClass::ProjectileTrail, RtPathTraceParticleDepthPolicy::World, entityNumber ) ) )
 		{
 			smokeFlyTime = 0;
 		}
@@ -3095,7 +3100,8 @@ void idDebris::Fizzle()
 	{
 		smokeFly = static_cast<const idDeclParticle*>( declManager->FindType( DECL_PARTICLE, smokeName ) );
 		smokeFlyTime = gameLocal.time;
-		gameLocal.smokeParticles->EmitSmoke( smokeFly, smokeFlyTime, gameLocal.random.CRandomFloat(), GetPhysics()->GetOrigin(), GetPhysics()->GetAxis(), timeGroup /*_D3XP*/ );
+		gameLocal.smokeParticles->EmitSmoke( smokeFly, smokeFlyTime, gameLocal.random.CRandomFloat(), GetPhysics()->GetOrigin(), GetPhysics()->GetAxis(), timeGroup /*_D3XP*/,
+			RtPathTraceParticleProvenance( RtPathTraceParticleSourceClass::ProjectileTrail, RtPathTraceParticleDepthPolicy::World, entityNumber ) );
 	}
 
 	fl.takedamage = false;
@@ -3139,7 +3145,8 @@ void idDebris::Explode()
 	{
 		smokeFly = static_cast<const idDeclParticle*>( declManager->FindType( DECL_PARTICLE, smokeName ) );
 		smokeFlyTime = gameLocal.time;
-		gameLocal.smokeParticles->EmitSmoke( smokeFly, smokeFlyTime, gameLocal.random.CRandomFloat(), GetPhysics()->GetOrigin(), GetPhysics()->GetAxis(), timeGroup /*_D3XP*/ );
+		gameLocal.smokeParticles->EmitSmoke( smokeFly, smokeFlyTime, gameLocal.random.CRandomFloat(), GetPhysics()->GetOrigin(), GetPhysics()->GetAxis(), timeGroup /*_D3XP*/,
+			RtPathTraceParticleProvenance( RtPathTraceParticleSourceClass::Impact, RtPathTraceParticleDepthPolicy::World, entityNumber ) );
 	}
 
 	fl.takedamage = false;

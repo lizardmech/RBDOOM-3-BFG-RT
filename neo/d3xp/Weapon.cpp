@@ -2725,7 +2725,8 @@ void idWeapon::PresentWeapon( bool showViewModel )
 			muzzleAxis = playerViewAxis;
 		}
 		// spit out a particle
-		if( !gameLocal.smokeParticles->EmitSmoke( weaponSmoke, weaponSmokeStartTime, gameLocal.random.RandomFloat(), muzzleOrigin, muzzleAxis, timeGroup /*_D3XP*/ ) )
+		if( !gameLocal.smokeParticles->EmitSmoke( weaponSmoke, weaponSmokeStartTime, gameLocal.random.RandomFloat(), muzzleOrigin, muzzleAxis, timeGroup /*_D3XP*/,
+			RtPathTraceParticleProvenance( RtPathTraceParticleSourceClass::LocalWeapon, RtPathTraceParticleDepthPolicy::WorldMuzzleNearPlane, entityNumber ) ) )
 		{
 			weaponSmokeStartTime = ( continuousSmoke ) ? gameLocal.time : 0;
 		}
@@ -2734,7 +2735,8 @@ void idWeapon::PresentWeapon( bool showViewModel )
 	if( showViewModel && strikeSmoke && strikeSmokeStartTime != 0 )
 	{
 		// spit out a particle
-		if( !gameLocal.smokeParticles->EmitSmoke( strikeSmoke, strikeSmokeStartTime, gameLocal.random.RandomFloat(), strikePos, strikeAxis, timeGroup /*_D3XP*/ ) )
+		if( !gameLocal.smokeParticles->EmitSmoke( strikeSmoke, strikeSmokeStartTime, gameLocal.random.RandomFloat(), strikePos, strikeAxis, timeGroup /*_D3XP*/,
+			RtPathTraceParticleProvenance( RtPathTraceParticleSourceClass::Impact, RtPathTraceParticleDepthPolicy::World, entityNumber ) ) )
 		{
 			strikeSmokeStartTime = 0;
 		}
@@ -2761,7 +2763,8 @@ void idWeapon::PresentWeapon( bool showViewModel )
 						muzzleOrigin = playerViewOrigin;
 						muzzleAxis = playerViewAxis;
 					}
-					if( !gameLocal.smokeParticles->EmitSmoke( part->particle, part->startTime, gameLocal.random.RandomFloat(), muzzleOrigin, muzzleAxis, timeGroup /*_D3XP*/ ) )
+					if( !gameLocal.smokeParticles->EmitSmoke( part->particle, part->startTime, gameLocal.random.RandomFloat(), muzzleOrigin, muzzleAxis, timeGroup /*_D3XP*/,
+						RtPathTraceParticleProvenance( RtPathTraceParticleSourceClass::AttachedWeaponEmitter, RtPathTraceParticleDepthPolicy::WorldMuzzleNearPlane, entityNumber ) ) )
 					{
 						part->active = false;	// all done
 						part->startTime = 0;

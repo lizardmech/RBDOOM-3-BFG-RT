@@ -47,6 +47,7 @@ idSmokeParticles::idSmokeParticles()
 	freeSmokes = NULL;
 	numActiveSmokes = 0;
 	currentParticleTime = -1;
+	nextPathTraceStableId = 1;
 }
 
 /*
@@ -69,6 +70,7 @@ void idSmokeParticles::Init()
 	smokes[MAX_SMOKE_PARTICLES - 1].next = NULL;
 	freeSmokes = &smokes[0];
 	numActiveSmokes = 0;
+	nextPathTraceStableId = 1;
 
 	activeStages.Clear();
 
@@ -186,7 +188,7 @@ idSmokeParticles::EmitSmoke
 Called by game code to drop another particle into the list
 ================
 */
-bool idSmokeParticles::EmitSmoke( const idDeclParticle* smoke, const int systemStartTime, const float diversity, const idVec3& origin, const idMat3& axis, int timeGroup /*_D3XP*/ )
+bool idSmokeParticles::EmitSmoke( const idDeclParticle* smoke, const int systemStartTime, const float diversity, const idVec3& origin, const idMat3& axis, int timeGroup /*_D3XP*/, const RtPathTraceParticleProvenance& pathTraceProvenance )
 {
 	bool	continues = false;
 	SetTimeState ts( timeGroup );
@@ -320,6 +322,9 @@ bool idSmokeParticles::EmitSmoke( const idDeclParticle* smoke, const int systemS
 			newSmoke->origin = origin;
 			newSmoke->random = steppingRandom;
 			newSmoke->privateStartTime = systemStartTime + prevCount * finalParticleTime / stage->totalParticles;
+			newSmoke->pathTraceStableId = nextPathTraceStableId;
+			newSmoke->pathTraceProvenance = pathTraceProvenance;
+			nextPathTraceStableId = ( nextPathTraceStableId % RT_PATH_TRACE_PARTICLE_STABLE_ID_MASK ) + 1u;
 			newSmoke->next = active->smokes;
 			active->smokes = newSmoke;
 
@@ -434,7 +439,17 @@ bool idSmokeParticles::UpdateRenderEntity( renderEntity_s* renderEntity, const r
 			g.originalRandom = g.random;
 			g.age = g.frac * stage->particleLife;
 
-			tri->numVerts += stage->CreateParticle( &g, tri->verts + tri->numVerts );
+			const int firstVertex = tri->numVerts;
+			const int createdVertices = stage->CreateParticle( &g, tri->verts + firstVertex );
+			const uint32_t pathTraceMetadata = PackRtPathTraceParticleMetadata(
+				smoke->pathTraceStableId,
+				smoke->pathTraceProvenance.sourceClass,
+				smoke->pathTraceProvenance.depthPolicy );
+			for( int vertexIndex = 0; vertexIndex < createdVertices; ++vertexIndex )
+			{
+				tri->verts[firstVertex + vertexIndex].SetColor2( pathTraceMetadata );
+			}
+			tri->numVerts += createdVertices;
 
 			last = smoke;
 		}

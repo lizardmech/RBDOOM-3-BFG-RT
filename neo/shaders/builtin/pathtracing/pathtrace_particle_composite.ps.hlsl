@@ -27,14 +27,27 @@ struct PS_IN
     float2 texCoord : TEXCOORD0;
     float4 color : COLOR0;
     float viewDepth : TEXCOORD1;
+    nointerpolation uint particleMetadata : TEXCOORD2;
 };
 
 float4 main(PS_IN input) : SV_Target0
 {
     float softFade = 1.0;
-    const uint depthPolicy = uint(ParticleConstants.batchInfo.x + 0.5);
+    const bool hasParticleMetadata = (input.particleMetadata & 0xe0000000u) == 0xa0000000u;
+    const uint depthPolicy = hasParticleMetadata
+        ? ((input.particleMetadata >> 27u) & 0x3u)
+        : uint(ParticleConstants.batchInfo.x + 0.5);
     const uint blendClass = uint(ParticleConstants.batchInfo.y + 0.5);
     const bool debugTint = ParticleConstants.batchInfo.w > 0.5;
+    if (depthPolicy == 3u)
+    {
+        const float zNear = max(ParticleConstants.modelInfo.y, 1.0e-4);
+        if (input.viewDepth <= zNear)
+        {
+            discard;
+        }
+        softFade *= saturate((input.viewDepth - zNear) / max(zNear * 2.0, 1.0));
+    }
     // Diagnostic mode must expose captured geometry independently of the
     // manual guide-depth policy. Otherwise a missing card cannot be separated
     // from an over-aggressive occlusion rejection.
@@ -86,7 +99,7 @@ float4 main(PS_IN input) : SV_Target0
                 // fade merely because the barrel is close behind them.
                 if (coverageBlend && !weaponProjection)
                 {
-                    softFade = saturate(depthGap / max(ParticleConstants.batchInfo.z, 1.0e-3));
+                    softFade *= saturate(depthGap / max(ParticleConstants.batchInfo.z, 1.0e-3));
                 }
             }
         }

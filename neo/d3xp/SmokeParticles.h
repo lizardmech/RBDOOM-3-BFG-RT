@@ -29,6 +29,8 @@ If you have questions concerning this license or the applicable additional terms
 #ifndef __SMOKEPARTICLES_H__
 #define __SMOKEPARTICLES_H__
 
+#include "../renderer/PathTraceParticleProvenance.h"
+
 /*
 ===============================================================================
 
@@ -60,6 +62,8 @@ typedef struct singleSmoke_s
 	idVec3						origin;
 	idMat3						axis;
 	int							timeGroup;
+	uint32_t					pathTraceStableId;
+	RtPathTraceParticleProvenance pathTraceProvenance;
 } singleSmoke_t;
 
 typedef struct
@@ -80,7 +84,8 @@ public:
 
 	// spits out a particle, returning false if the system will not emit any more particles in the future
 	bool						EmitSmoke( const idDeclParticle* smoke, const int startTime, const float diversity,
-										   const idVec3& origin, const idMat3& axis, int timeGroup /*_D3XP*/ );
+										   const idVec3& origin, const idMat3& axis, int timeGroup /*_D3XP*/,
+										   const RtPathTraceParticleProvenance& pathTraceProvenance = RtPathTraceParticleProvenance() );
 
 	// free old smokes
 	void						FreeSmokes();
@@ -98,6 +103,7 @@ private:
 	singleSmoke_t* 				freeSmokes;
 	int							numActiveSmokes;
 	int							currentParticleTime;	// don't need to recalculate if == view time
+	uint32_t					nextPathTraceStableId;
 
 	bool						UpdateRenderEntity( renderEntity_s* renderEntity, const renderView_t* renderView );
 	static bool					ModelCallback( renderEntity_s* renderEntity, const renderView_t* renderView );
