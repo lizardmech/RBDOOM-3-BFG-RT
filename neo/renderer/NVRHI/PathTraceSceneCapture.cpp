@@ -787,21 +787,20 @@ static void SmokeDynamicEvalAddMaterialSample(RtSmokeMaterialStats& stats, const
 
 // DECAL-02 (docs/decal_cards/04): lift detail-decal cards along their outward face
 // normal so coplanar any-hit accumulation is deterministic and stacked decals
-// separate. Baked into the captured static vertex positions; view-independent.
-// The offset index derives from the persistent static-surface key instead of a
-// global submission counter so a re-captured surface keeps the same lift and the
-// static BVH stays temporally stable.
+// separate. Baked into captured vertex positions; view-independent. Persistent
+// cards use their static-surface key, while switchable per-frame cards use a
+// stable entity/material key so both routes keep the same lift across frames.
 void ApplySmokeDetailDecalNormalOffset(
     const idMaterial* material,
     uint64 surfaceOffsetKey,
-    bool liquidOnlyStaticRouteEligible,
+    bool liquidRouteEligible,
     std::vector<PathTraceSmokeVertex>& vertices,
     const std::vector<uint32_t>& indexes,
     size_t vertexStart,
     size_t indexStart)
 {
     const bool genericOffsetEnabled = r_pathTracingDecalComposite.GetInteger() > 0;
-    const bool liquidOffsetRequested = liquidOnlyStaticRouteEligible && r_pathTracingLiquidPoolMode.GetInteger() != 0;
+    const bool liquidOffsetRequested = liquidRouteEligible && r_pathTracingLiquidPoolMode.GetInteger() != 0;
     if (!genericOffsetEnabled && !liquidOffsetRequested)
     {
         return;
@@ -2397,7 +2396,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 drawSurf->material,
                 (static_cast<uint64>(baseMaterialId) << 32) ^
                     (static_cast<uint64>(static_cast<uint32_t>(entityIndex + 1)) * 2654435761ull),
-                false,
+                true,
                 bucketVertices,
                 bucketIndexes,
                 static_cast<size_t>(bucketVertexStart),

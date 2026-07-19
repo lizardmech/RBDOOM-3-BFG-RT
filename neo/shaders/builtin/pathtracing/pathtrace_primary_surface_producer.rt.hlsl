@@ -42,12 +42,14 @@ struct PathTraceSmokePayload
     uint decalPackedTexCoord[RT_SMOKE_DECAL_BIN_SIZE];
     uint decalSortKey[RT_SMOKE_DECAL_BIN_SIZE];
     float decalHitT[RT_SMOKE_DECAL_BIN_SIZE];
-    // LPD-04 static-world candidate transport. Instance 0 is implicit; dynamic
-    // and rigid routes remain fail-closed until their ownership is audited.
+    // LPD-04 candidate transport. Static authored cards use instance 0;
+    // switchable authored cards use the per-frame dynamic BLAS at instance 1.
+    // Routed-rigid instances remain fail-closed.
     uint liquidRawCount;
     uint liquidRetainedCount;
     uint liquidStatusMask;
     uint liquidRejectionCount;
+    uint liquidInstanceId[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
     uint liquidMaterialIndex[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
     uint liquidPrimitiveIndex[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
     uint liquidBarycentricXBits[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
@@ -1064,6 +1066,7 @@ bool ResolvePrimaryFilterDecalReceiver(inout PathTraceSmokePayload payload, RayD
     [unroll]
     for (uint liquidSlot = 0u; liquidSlot < RT_LIQUID_POOL_CANDIDATE_CAPACITY; ++liquidSlot)
     {
+        receiverPayload.liquidInstanceId[liquidSlot] = payload.liquidInstanceId[liquidSlot];
         receiverPayload.liquidMaterialIndex[liquidSlot] = payload.liquidMaterialIndex[liquidSlot];
         receiverPayload.liquidPrimitiveIndex[liquidSlot] = payload.liquidPrimitiveIndex[liquidSlot];
         receiverPayload.liquidBarycentricXBits[liquidSlot] = payload.liquidBarycentricXBits[liquidSlot];
@@ -1398,6 +1401,7 @@ PathTraceSmokePayload InitSmokePayload()
     [unroll]
     for (uint liquidSlot = 0u; liquidSlot < RT_LIQUID_POOL_CANDIDATE_CAPACITY; ++liquidSlot)
     {
+        payload.liquidInstanceId[liquidSlot] = 0xffffffffu;
         payload.liquidMaterialIndex[liquidSlot] = 0xffffffffu;
         payload.liquidPrimitiveIndex[liquidSlot] = 0xffffffffu;
         payload.liquidBarycentricXBits[liquidSlot] = 0u;
@@ -1812,19 +1816,52 @@ bool TryGetLiquidPoolStageColor(uint materialIndex, out float4 stageColor)
     return stageColor.a > 0.0;
 }
 
+bool PathTraceLiquidPoolUsesInvertedFilterBlackKey(
+    PathTraceMaterialFeatureParameterRecord parameters,
+    PathTraceSmokeMaterial material)
+{
+    static const uint RT_PATH_TRACE_ORDERED_STAGE_OPERATION_SHIFT = 7u;
+    static const uint RT_PATH_TRACE_ORDERED_STAGE_OPERATION_MASK = 0x7u;
+    static const uint RT_PATH_TRACE_ORDERED_STAGE_OPERATION_INVERTED_FILTER_BLACK_KEY = 4u;
+
+    [unroll]
+    for (uint stageSlot = 0u; stageSlot < RT_PATH_TRACE_ORDERED_STAGE_CAPACITY; ++stageSlot)
+    {
+        const uint stageWord = PathTraceMaterialOrderedStageWord(parameters, stageSlot);
+        const uint textureWord = PathTraceMaterialOrderedStageTextureWord(parameters, stageSlot);
+        if (!PathTraceMaterialOrderedStageValid(stageWord) ||
+            !PathTraceMaterialOrderedStageTextureValid(textureWord) ||
+            PathTraceMaterialOrderedStageTextureIndex(textureWord) != material.diffuseTextureIndex)
+        {
+            continue;
+        }
+
+        const uint operation =
+            (stageWord >> RT_PATH_TRACE_ORDERED_STAGE_OPERATION_SHIFT) &
+            RT_PATH_TRACE_ORDERED_STAGE_OPERATION_MASK;
+        if (operation == RT_PATH_TRACE_ORDERED_STAGE_OPERATION_INVERTED_FILTER_BLACK_KEY)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void ConditionallyStoreLiquidPoolCandidate(
     inout PathTraceSmokePayload payload,
+    uint instanceId,
     uint materialIndex,
     uint primitiveIndex,
     float2 barycentrics)
 {
-    const LiquidPoolContributorKey key = LiquidPoolMakeContributorKey(0u, primitiveIndex, materialIndex, barycentrics);
+    const LiquidPoolContributorKey key = LiquidPoolMakeContributorKey(instanceId, primitiveIndex, materialIndex, barycentrics);
     payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
 
     [unroll]
     for (uint existingSlot = 0u; existingSlot < RT_LIQUID_POOL_CANDIDATE_CAPACITY; ++existingSlot)
     {
         if (existingSlot < payload.liquidRetainedCount &&
+            payload.liquidInstanceId[existingSlot] == key.instanceId &&
             payload.liquidPrimitiveIndex[existingSlot] == key.primitiveIndex &&
             payload.liquidMaterialIndex[existingSlot] == key.materialIndex &&
             payload.liquidBarycentricXBits[existingSlot] == key.barycentricXBits &&
@@ -1845,6 +1882,7 @@ void ConditionallyStoreLiquidPoolCandidate(
     }
 
     const uint slot = payload.liquidRetainedCount++;
+    payload.liquidInstanceId[slot] = key.instanceId;
     payload.liquidMaterialIndex[slot] = key.materialIndex;
     payload.liquidPrimitiveIndex[slot] = key.primitiveIndex;
     payload.liquidBarycentricXBits[slot] = key.barycentricXBits;
@@ -1852,7 +1890,8 @@ void ConditionallyStoreLiquidPoolCandidate(
     payload.liquidHitT[slot] = RayTCurrent();
 }
 
-bool TryBuildStaticLiquidPoolCardEvidence(
+bool TryBuildLiquidPoolCardEvidence(
+    uint instanceId,
     uint primitiveIndex,
     float2 barycentrics,
     out float3 cardPosition,
@@ -1862,23 +1901,36 @@ bool TryBuildStaticLiquidPoolCardEvidence(
     cardPosition = 0.0;
     cardPlaneNormal = 0.0;
     cardTexCoord = 0.0;
-    if (!SmokeTriangleIndexRangeValid(0u, primitiveIndex))
+    if (instanceId > 1u || !SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
     {
         return false;
     }
 
     const uint indexOffset = primitiveIndex * 3u;
-    const uint i0 = SmokeStaticIndices[indexOffset + 0u];
-    const uint i1 = SmokeStaticIndices[indexOffset + 1u];
-    const uint i2 = SmokeStaticIndices[indexOffset + 2u];
-    if (i0 >= PathTraceStaticVertexCount() || i1 >= PathTraceStaticVertexCount() || i2 >= PathTraceStaticVertexCount())
+    const uint i0 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 0u] : SmokeDynamicIndices[indexOffset + 0u];
+    const uint i1 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 1u] : SmokeDynamicIndices[indexOffset + 1u];
+    const uint i2 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 2u] : SmokeDynamicIndices[indexOffset + 2u];
+    const uint vertexCount = instanceId == 0u ? PathTraceStaticVertexCount() : PathTraceDynamicVertexCount();
+    if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
     {
         return false;
     }
 
-    const PathTraceSmokeVertex v0 = SmokeStaticVertices[i0];
-    const PathTraceSmokeVertex v1 = SmokeStaticVertices[i1];
-    const PathTraceSmokeVertex v2 = SmokeStaticVertices[i2];
+    PathTraceSmokeVertex v0;
+    PathTraceSmokeVertex v1;
+    PathTraceSmokeVertex v2;
+    if (instanceId == 0u)
+    {
+        v0 = SmokeStaticVertices[i0];
+        v1 = SmokeStaticVertices[i1];
+        v2 = SmokeStaticVertices[i2];
+    }
+    else
+    {
+        v0 = SmokeDynamicVertices[i0];
+        v1 = SmokeDynamicVertices[i1];
+        v2 = SmokeDynamicVertices[i2];
+    }
     const float3 bary = float3(1.0 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y);
     cardPosition = v0.position.xyz * bary.x + v1.position.xyz * bary.y + v2.position.xyz * bary.z;
     cardPlaneNormal = cross(v1.position.xyz - v0.position.xyz, v2.position.xyz - v0.position.xyz);
@@ -1937,6 +1989,7 @@ LiquidPoolPrimaryResolve ResolvePrimaryLiquidPool(
     [loop]
     for (uint slot = 0u; slot < min(payload.liquidRetainedCount, RT_LIQUID_POOL_CANDIDATE_CAPACITY); ++slot)
     {
+        const uint instanceId = payload.liquidInstanceId[slot];
         const uint materialIndex = payload.liquidMaterialIndex[slot];
         const uint primitiveIndex = payload.liquidPrimitiveIndex[slot];
         const float2 barycentrics = float2(
@@ -1945,7 +1998,8 @@ LiquidPoolPrimaryResolve ResolvePrimaryLiquidPool(
         float3 cardPosition;
         float3 cardPlaneNormal;
         float2 cardTexCoord;
-        const bool cardValid = TryBuildStaticLiquidPoolCardEvidence(
+        const bool cardValid = TryBuildLiquidPoolCardEvidence(
+            instanceId,
             primitiveIndex,
             barycentrics,
             cardPosition,
@@ -1958,8 +2012,10 @@ LiquidPoolPrimaryResolve ResolvePrimaryLiquidPool(
         evidence.receiverPosition = surface.worldPos;
         evidence.receiverGeometryNormal = surface.geometryNormal;
         evidence.rayDirection = rayDirection;
-        evidence.domainAccepted = cardValid && surface.instanceId == 0u;
-        evidence.identityAccepted = cardValid && surface.instanceId == 0u;
+        // Switchable authored cards are world-space geometry rebuilt in the
+        // dynamic BLAS. They may modify only a committed static receiver.
+        evidence.domainAccepted = cardValid && instanceId <= 1u && surface.instanceId == 0u;
+        evidence.identityAccepted = cardValid && instanceId <= 1u && surface.instanceId == 0u;
         evidence.receiverOpaque = receiverOpaque;
         evidence.receiverPathTransmission = receiverTransmission;
         if (!LiquidPoolAcceptsReceiver(evidence))
@@ -1983,13 +2039,21 @@ LiquidPoolPrimaryResolve ResolvePrimaryLiquidPool(
         LiquidPoolReducerCandidate candidate = (LiquidPoolReducerCandidate)0;
         candidate.coverage = saturate(SmokeAlphaCoverage(material, cardTexCoord)) * saturate(stageColor.a);
         candidate.height = 1.0;
-        candidate.decalRgb = max(SampleSmokeDecodedDiffuseTexture(material, cardTexCoord).rgb, 0.0) * max(stageColor.rgb, 0.0);
+        const float3 authoredSourceRgb = saturate(
+            max(SampleSmokeDecodedDiffuseTexture(material, cardTexCoord).rgb, 0.0) *
+            max(stageColor.rgb, 0.0));
+        const bool invertedFilterBlackKey = PathTraceLiquidPoolUsesInvertedFilterBlackKey(parameters, material);
+        // GL_ZERO, GL_ONE_MINUS_SRC_COLOR splats store the complement of the
+        // visible blood color (usually cyan source art for red attenuation).
+        // The film reducer consumes substrate transmittance, so reproduce the
+        // authored blend factor rather than treating source RGB as the tint.
+        candidate.decalRgb = invertedFilterBlackKey ? 1.0 - authoredSourceRgb : authoredSourceRgb;
         candidate.referenceTransmittance = parameters.params0.xyz;
         candidate.opticalDepthScale = parameters.params0.w;
         candidate.coatRoughness = parameters.params1.x;
         candidate.dielectricIor = parameters.params1.y;
         candidate.authoredNormalStrength = parameters.params1.z;
-        candidate.key = LiquidPoolMakeContributorKey(0u, primitiveIndex, materialIndex, barycentrics);
+        candidate.key = LiquidPoolMakeContributorKey(instanceId, primitiveIndex, materialIndex, barycentrics);
         candidate.diagnosticHash = LiquidPoolDiagnosticHash(candidate.key);
         candidate.valid = candidate.coverage > 0.0 ? 1u : 0u;
         if (candidate.valid == 0u)
@@ -2158,6 +2222,52 @@ void WritePrimaryLiquidPoolDebug(
     else if (debug == 6u && page == 1u)
     {
         tuple = 0.0;
+        validPage = true;
+    }
+    else if (debug == 6u && page == 2u)
+    {
+        float3 authoredSourceRgb = 0.0;
+        float semanticFlags = 0.0;
+        if (resolved.film.valid != 0u && resolved.film.winnerKey.instanceId <= 1u)
+        {
+            const float2 barycentrics = float2(
+                asfloat(resolved.film.winnerKey.barycentricXBits),
+                asfloat(resolved.film.winnerKey.barycentricYBits));
+            float3 cardPosition;
+            float3 cardPlaneNormal;
+            float2 cardTexCoord;
+            float4 stageColor;
+            if (TryBuildLiquidPoolCardEvidence(
+                resolved.film.winnerKey.instanceId,
+                resolved.film.winnerKey.primitiveIndex,
+                    barycentrics,
+                    cardPosition,
+                    cardPlaneNormal,
+                    cardTexCoord) &&
+                TryGetLiquidPoolStageColor(resolved.film.winnerKey.materialIndex, stageColor))
+            {
+                const PathTraceSmokeMaterial material = LoadSmokeMaterial(resolved.film.winnerKey.materialIndex);
+                authoredSourceRgb = saturate(
+                    max(SampleSmokeDecodedDiffuseTexture(material, cardTexCoord).rgb, 0.0) *
+                    max(stageColor.rgb, 0.0));
+                PathTraceMaterialFeatureParameterRecord parameters;
+                if (TryLoadPathTraceLiquidPoolMaterialFeatureParameters(
+                        resolved.film.winnerKey.materialIndex,
+                        parameters))
+                {
+                    semanticFlags = PathTraceLiquidPoolUsesInvertedFilterBlackKey(parameters, material) ? 4.0 : 0.0;
+                }
+            }
+        }
+        // xyz = the live GPU-decoded authored source; w = the authoritative
+        // ordered-stage compositing op (4 = inverted-filter-black-key).
+        tuple = float4(authoredSourceRgb, semanticFlags);
+        validPage = true;
+    }
+    else if (debug == 6u && page == 3u)
+    {
+        // xyz = the color actually retained by the film reducer; w = coverage.
+        tuple = float4(resolved.film.decalRgb, resolved.film.coverage);
         validPage = true;
     }
 
@@ -2506,13 +2616,13 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
         const uint materialIndex = LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
         if (PathTraceMaterialIsSemanticLiquidPool(materialIndex))
         {
-            // Instance 0 is the authoritative static-route BLAS.  Preserve the
-            // captured semantic surface class: authored world decal cards are
-            // particle/alpha surfaces even though their geometry is static.
-            if (instanceId == 0u)
+            // Instance 0 contains persistent authored cards. Instance 1 also
+            // contains authored cards whose trigger-controlled visibility is
+            // rebuilt per frame. Both preserve particle/alpha semantic class.
+            if (instanceId <= 1u)
             {
                 // Classification status describes observation of a semantic
-                // static-route card, independently of whether its evaluated
+                // supported-route card, independently of whether its evaluated
                 // coverage is zero. Raw/retained counts remain positive-
                 // coverage-only so zero-alpha cards stay reducer identities.
                 payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
@@ -2524,7 +2634,7 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                     const float coverage = saturate(SmokeAlphaCoverage(material, texCoord)) * saturate(stageColor.a);
                     if (coverage > 0.0)
                     {
-                        ConditionallyStoreLiquidPoolCandidate(payload, materialIndex, primitiveIndex, attributes.barycentrics);
+                        ConditionallyStoreLiquidPoolCandidate(payload, instanceId, materialIndex, primitiveIndex, attributes.barycentrics);
                     }
                 }
                 else
@@ -2538,7 +2648,7 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                 return;
             }
 
-            // Dynamic/rigid liquid ownership is deliberately parked. Preserve
+            // Routed-rigid liquid ownership is deliberately parked. Preserve
             // its old traversal behavior and make the unsupported route visible.
             payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED | RT_LIQUID_POOL_STATUS_INVALID_ROUTE;
         }
@@ -2569,7 +2679,7 @@ void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleInte
     const uint instanceId = InstanceID();
     const uint primitiveIndex = PrimitiveIndex();
     if (PathTraceLiquidPoolCollectionEnabled() &&
-        instanceId == 0u &&
+        instanceId <= 1u &&
         SmokeTriangleIndexRangeValid(instanceId, primitiveIndex) &&
         PathTraceMaterialIsSemanticLiquidPool(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex)))
     {

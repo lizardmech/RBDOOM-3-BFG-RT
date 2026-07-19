@@ -1,7 +1,9 @@
 #ifndef RB_PATH_TRACE_CLEAN_RTXDI_DI_SMOKE_EXPORTS_HLSLI
 #define RB_PATH_TRACE_CLEAN_RTXDI_DI_SMOKE_EXPORTS_HLSLI
 
-bool PathTraceCleanRoomMaterialDoesNotOccludeVisibility(uint materialIndex)
+static const uint CLEAN_FLAG_LIQUID_MODIFIER_VISIBILITY = 1u << 21u;
+
+bool PathTraceCleanRoomMaterialDoesNotOccludeVisibility(uint instanceId, uint materialIndex)
 {
     if (materialIndex >= (uint)TextureInfo.z)
     {
@@ -13,6 +15,18 @@ bool PathTraceCleanRoomMaterialDoesNotOccludeVisibility(uint materialIndex)
     if (PathTraceCleanRtxdiDiLoadMaterialFeature(materialIndex, feature) &&
         feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS &&
         (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION) != 0u)
+    {
+        return true;
+    }
+    if (instanceId <= 1u &&
+        (CleanRtxdiDiFlags & CLEAN_FLAG_LIQUID_MODIFIER_VISIBILITY) != 0u &&
+        PathTraceCleanRtxdiDiLoadMaterialFeature(materialIndex, feature) &&
+        feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER &&
+        feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION &&
+        (feature.materialCaps & (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+            RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND)) ==
+            (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+                RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND))
     {
         return true;
     }
@@ -345,7 +359,7 @@ void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInter
 
     const uint primitiveIndex = PrimitiveIndex();
     const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(instanceId, primitiveIndex);
-    if (PathTraceCleanRoomMaterialDoesNotOccludeVisibility(materialIndex))
+    if (PathTraceCleanRoomMaterialDoesNotOccludeVisibility(instanceId, materialIndex))
     {
         IgnoreHit();
     }

@@ -133,6 +133,7 @@ VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(
 VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceRRMotionVectors : register(u78);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
+StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokePreviousEmissiveTriangles : register(t57);
 StructuredBuffer<PathTraceEmissiveLightRemap> SmokeEmissiveRemap : register(t58);
@@ -560,22 +561,39 @@ bool RestirPTReservoirHasUsefulSample(RTXDI_PTReservoir reservoir)
     return RTXDI_IsValidPTReservoir(reservoir) && reservoir.WeightSum > 0.0 && targetLuminance > 0.0;
 }
 
-bool RestirPTCombinedResolveStaticLiquidModifier(uint instanceId, uint primitiveIndex)
+bool RestirPTCombinedResolveLiquidModifier(uint instanceId, uint primitiveIndex)
 {
-    if (LiquidPoolInfo.x < 0.5 || instanceId != 0u || primitiveIndex >= (uint)max(GeometryInfo0.z, 0.0))
+    if (LiquidPoolInfo.x < 0.5 || instanceId > 1u)
+    {
+        return false;
+    }
+
+    const uint triangleCount = instanceId == 0u
+        ? (uint)max(GeometryInfo0.z, 0.0)
+        : (uint)max(GeometryInfo1.y, 0.0);
+    if (primitiveIndex >= triangleCount)
     {
         return false;
     }
 
     uint triangleMaterialCount = 0u;
     uint triangleMaterialStride = 0u;
-    SmokeStaticTriangleMaterialIndexes.GetDimensions(triangleMaterialCount, triangleMaterialStride);
+    if (instanceId == 0u)
+    {
+        SmokeStaticTriangleMaterialIndexes.GetDimensions(triangleMaterialCount, triangleMaterialStride);
+    }
+    else
+    {
+        SmokeDynamicTriangleMaterialIndexes.GetDimensions(triangleMaterialCount, triangleMaterialStride);
+    }
     if (triangleMaterialStride != 4u || primitiveIndex >= triangleMaterialCount)
     {
         return false;
     }
 
-    const uint materialIndex = SmokeStaticTriangleMaterialIndexes[primitiveIndex];
+    const uint materialIndex = instanceId == 0u
+        ? SmokeStaticTriangleMaterialIndexes[primitiveIndex]
+        : SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
     uint featureRecordCount = 0u;
     uint featureRecordStride = 0u;
     PathTraceMaterialFeatures.GetDimensions(featureRecordCount, featureRecordStride);
@@ -983,7 +1001,7 @@ void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleInte
         IgnoreHit();
         return;
     }
-    if (RestirPTCombinedResolveStaticLiquidModifier(InstanceID(), PrimitiveIndex()))
+    if (RestirPTCombinedResolveLiquidModifier(InstanceID(), PrimitiveIndex()))
     {
         // A liquid card modifies the opaque receiver reconstructed by the
         // primary producer. It is not standalone occluding geometry; allowing

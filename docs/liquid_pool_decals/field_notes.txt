@@ -982,3 +982,153 @@ SPIR-V were deployed. Runtime visual confirmation remains pending.
 In-game testing with the generic compositor disabled and liquid mode 2
 confirmed that the transparent black portion no longer darkens the receiver.
 This closes the combined-resolve visibility correction.
+
+
+LPD-04 Inverted-Filter Transmittance Correction - 2026-07-19
+==============================================================
+
+The reported blue/cyan liquid color is not a TGA channel-order failure. Direct
+inspection of the shipped source TGAs shows that most splat art is intentionally
+cyan. Their authored ambient stage uses `GL_ZERO, GL_ONE_MINUS_SRC_COLOR`, so
+raster multiplies the receiver by one minus that source color and produces red
+blood attenuation. Feeding raw source RGB into the film transmittance inverted
+the authored result.
+
+Primary candidate construction now derives the destination multiplier from the
+existing exact material blend flags. An inverted-filter black-key material uses
+`1 - saturate(decodedTextureRgb * stageColor.rgb)`; multiply-filter and other
+accepted sources retain direct saturated RGB. Coverage remains independently
+owned by the accepted makealpha image and stage alpha. This is blend-semantic,
+not a splat-name list or an R/B channel swap.
+
+The commissioned design/ABI and forward parity task text has been corrected to
+define candidate RGB as blend-decoded substrate transmittance. The shared reducer
+formula remains unchanged: params0 reference transmittance multiplies that
+authored destination factor.
+
+The rebuilt primary Vulkan SPIR-V is newer than its source, passes spirv-val,
+and exactly matches an independent direct DXC compile at SHA-256
+D8D262BB37A5C80781F981A53FBFCB3D14A19DD82A7B978A8375E8EE0D43274A. The full
+release build succeeds, PathTraceLiquidPoolReducerHarness passes 1/1, and with
+the game closed the unchanged-hash executable plus only this rebuilt primary
+Vulkan SPIR-V were deployed. Runtime visual confirmation remains pending.
+
+Runtime testing reported no visible color change: the affected splats remained
+cyan. That disproves the simple source-inspection-to-visible-output assumption;
+it does not yet establish whether the live GPU source is already decoded to red,
+whether the legacy filter flags are absent on the retained material variant, or
+whether a later material term dominates the visible result. The correction is
+therefore not accepted or checkpointed. Debug 6 pages 2 and 3 now expose the
+live authored RGB plus filter/black-key bits, and the retained reducer RGB plus
+coverage, respectively. Debug 5 pages remain the effective-material evidence.
+The diagnostic-only rebuilt SPIR-V hash is
+9E3C4F8C60CA05FC8CF2C4A40F4D5967EF62C05AA292BCA3893A0318AF2F0371.
+
+The follow-up crosshair dump found the concrete live-contract mismatch. The
+retained splat5 row reports legacy `filterDecal=0` and `blackKey=0`, but ABI-4
+ordered stage 0 reports `compositing=inverted-filter-black-key`, with its stage
+texture index matching the material diffuse texture. Debug 2 simultaneously
+reported `(raw,retained,capacity,status)=(1,1,4,7)`, proving the film was applied.
+The legacy flags were therefore the wrong authority for this material family.
+
+Primary liquid candidate construction now scans the bounded ABI-4 ordered-stage
+record and recognizes inverted filtering only when the valid stage texture is
+the same texture bound as the candidate diffuse source. This avoids material
+name matching and leaves multiply/over sources unchanged. Debug 6 page 2 now
+reports ordered compositing op 4 in W for this route. The rebuilt Vulkan SPIR-V
+is newer than source, passes spirv-val, and matches an independent direct DXC
+compile at SHA-256
+C26EC314AEA242E6518175CB10BDE684F607E3B0D9E5442766F596C86777F065. Runtime
+color confirmation remains pending before checkpointing.
+
+Runtime confirmed the ordered-stage correction restored the intended red color,
+but the card-shaped shadow returned. The earlier combined-resolve visibility
+blob remained deployed and byte-identical, so this was a second consumer rather
+than a rollback. Clean ReSTIR DI sentinel/spatial visibility still identified
+transparent cards only from legacy smoke-material flags. splat5 has neither
+legacy filter flag even though its ABI-4 feature row is a liquid receiver
+modifier, so clean-DI shadow rays treated the static card as opaque.
+
+Clean-DI visibility now consults the existing t80 feature sidecar and ignores a
+card only when liquid mode is nonzero, instanceId is static route 0, and the row
+satisfies the complete liquid kind/modifier plus receiver/idempotent capability
+contract. A new clean-DI flag transports the effective liquid-mode policy from
+the host without changing the constant-buffer ABI. Mode 0 remains unchanged;
+dynamic and rigid liquid routes remain parked. The common sentinel export and
+the spatial library both apply this rule.
+
+The full release build and PathTraceLiquidPoolReducerHarness pass. All six
+Vulkan clean-DI libraries regenerated by the dependency graph pass spirv-val;
+the spatial generated blob exactly matches an independent DXC compile. Generated
+and deployed hashes match for the executable and every affected SPIR-V. Runtime
+shadow confirmation remains pending before checkpointing.
+
+
+LPD-04 Color/Visibility Runtime Confirmation and Switchable Cards - 2026-07-19
+===============================================================================
+
+Runtime confirmed both prior corrections together: authored splats retain the
+intended red attenuation and their transparent card area no longer darkens or
+shadows the receiver. The ordered-stage color correction and clean-DI visibility
+sidecar are therefore accepted as a combined checkpoint candidate.
+
+A later level section exposed a distinct missing batch. Crosshair dumps covered
+six two-triangle occurrences across splat6, splat7, splat8, and splat16. Every
+row was already a valid ABI-4 liquid-pool modifier, but each reported dynamic
+triangle material ID/index matches of 2/2 and static plus routed-rigid matches
+of 0/0. The user identified the level behavior: these cards are enabled by a
+backtracking trigger over a previously clean route. They are authored level
+content, but their switchable visibility makes the renderer rebuild them in
+dynamic BLAS instance 1. The static-only contract could never observe them.
+
+LPD-04 is narrowed and reopened for semantic card geometry in instances 0 and 1:
+
+  - the payload now retains the actual instance ID for the full five-word
+    contributor/occurrence key;
+  - evidence reconstruction selects the matching static or dynamic vertex/index
+    buffers;
+  - instance-1 cards can modify only a committed static opaque receiver;
+  - dynamic capture applies the liquid-aware normal offset even when the generic
+    decal compositor is disabled;
+  - primary, combined-resolve, clean-DI sentinel, and clean-DI spatial shadow
+    visibility all ignore semantic liquid cards in instances 0 and 1;
+  - routed-rigid instances 2+ remain diagnosed and fail-closed.
+
+Because the geometry namespace does not encode whether an instance-1 card came
+from a map trigger or ProjectDecal, already-captured semantic projected cards are
+mechanically eligible too. No decal spawning or fixture behavior was added; the
+current goal remains the authored switchable batch. Build, SPIR-V, deployment,
+and runtime confirmation follow below after validation.
+
+The prescribed release build succeeds after forcing every affected Vulkan blob
+to regenerate. `PathTraceLiquidPoolReducerHarness` passes 1/1 and all eight
+affected blobs pass `spirv-val --target-env vulkan1.2`. The primary generated
+blob exactly matches an independent direct DXC compile. Generated and deployed
+SHA-256 values are:
+
+  primary producer
+    737AEAD6F9E0ABBAB31BD9051B5F224DAD6E3E3C1B2699F4138CA17063BEB560
+  combined resolve
+    7BE2085E42EF8F866B347B6AFD5D9529196AC4B7DE952E11F700D2D7037DBCCA
+  clean-DI glass
+    C0E73A13A5F54331787A88DF1F0079FA9B2BEE08E6A776FD61B88BC9749EDB86
+  clean-DI initial
+    BF1F1187DCEEC310A540FA5700AA8BC490F215015B24933C1CACAD751FF1BAF0
+  clean-DI sentinel
+    B7CEDB59939730397D59747FA1CEA2BAB773B9025ADA94B4FC6EF7512D66E7ED
+  clean-DI spatial
+    081B066D4548F19A2662A2424B3498230FCA57334236BA0719E6E85EA20C1CC0
+  clean-DI temporal
+    F15519197E2838DD66F418C18FEE67BFA0A7B2D0F6105DE24840B6F808407FC4
+  clean-DI transmission producer
+    4FE9C960C6EE609520B49348249837380D2E8F7F6B0D89B94D2ADE68C0C6219A
+  executable
+    AD47D6522A003B4C77E8AE42333D802FD19CDE44C8CA1F5ACF18C6FCAC0606E6
+
+Every shader blob mtime is newer than its edited source/include. Deployment
+copied only these Vulkan blobs plus the executable and verified exact source /
+runtime hash equality. Runtime confirmation of the trigger-switched batch is
+complete: the user confirmed the formerly missed backtracking-trigger batch now
+renders correctly, while the previously accepted static color and shadow cases
+remain good. This closes the instance-1 authored-switchable checkpoint and is
+ready for a scoped commit.

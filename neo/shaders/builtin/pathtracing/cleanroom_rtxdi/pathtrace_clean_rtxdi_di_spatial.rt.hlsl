@@ -1,5 +1,6 @@
 #include "../../../vulkan.hlsli"
 #include "../PathTracePrimarySurface.hlsli"
+#include "../PathTraceMaterialFeatureTypes.hlsli"
 #include "Rtxdi/DI/Reservoir.hlsli"
 #include "Rtxdi/RtxdiParameters.h"
 #include "Rtxdi/DI/ReSTIRDIParameters.h"
@@ -136,6 +137,8 @@ RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent :
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiPreviousReservoirs : register(u71);
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiSpatialReservoirs : register(u72);
 StructuredBuffer<PathTraceUnifiedLightRecord> CleanRtxdiDiRluCurrentLights : register(t66);
+StructuredBuffer<PathTraceMaterialFeatureRecord> PathTraceMaterialFeatures : register(t80);
+#define RB_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_SIDECAR 1
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
@@ -250,6 +253,7 @@ static const uint CLEAN_RAB_DIAGNOSTIC_RELAX_BRDF_GATES = 1u << 8u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DOOM_TARGET_FLOOR = 1u << 9u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
 static const uint CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
+static const uint CLEAN_FLAG_LIQUID_MODIFIER_VISIBILITY = 1u << 21u;
 static const uint CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED = 0x80000000u;
 static const uint CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED = 0x40000000u;
 static const uint CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED = 0x20000000u;
@@ -857,11 +861,25 @@ PathTraceSmokeMaterial CleanLoadSmokeMaterial(uint materialIndex)
     return material;
 }
 
-bool CleanMaterialDoesNotOccludeVisibility(uint materialIndex)
+bool CleanMaterialDoesNotOccludeVisibility(uint instanceId, uint materialIndex)
 {
     if (materialIndex >= (uint)CleanRtxdiDiTextureInfo.z)
     {
         return false;
+    }
+
+    PathTraceMaterialFeature feature;
+    if (instanceId <= 1u &&
+        (CleanRtxdiDiFlags & CLEAN_FLAG_LIQUID_MODIFIER_VISIBILITY) != 0u &&
+        PathTraceCleanRtxdiDiLoadMaterialFeature(materialIndex, feature) &&
+        feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER &&
+        feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION &&
+        (feature.materialCaps & (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+            RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND)) ==
+            (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+                RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND))
+    {
+        return true;
     }
 
     const PathTraceSmokeMaterial material = CleanLoadSmokeMaterial(materialIndex);
@@ -1437,7 +1455,7 @@ void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInter
     const uint instanceId = InstanceID();
     const uint primitiveIndex = PrimitiveIndex();
     const uint materialIndex = CleanLoadTriangleMaterialIndex(instanceId, primitiveIndex);
-    if (CleanMaterialDoesNotOccludeVisibility(materialIndex))
+    if (CleanMaterialDoesNotOccludeVisibility(instanceId, materialIndex))
     {
         IgnoreHit();
     }
