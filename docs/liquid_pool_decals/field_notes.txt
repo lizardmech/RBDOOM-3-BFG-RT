@@ -952,3 +952,33 @@ mode 0 to 1, and logged the expected static-cache policy invalidation
 `liquidOffset=0->1`. Page 0 then remained stable at `(1,1,4,3)`. This closes the
 brush/static-world checkpoint without a generic-compositor dependency. The
 rigid-prop 0xC0 case remains the next explicitly separate route.
+
+
+LPD-04 Combined-Resolve Visibility Ownership - 2026-07-19
+===========================================================
+
+Runtime follow-up reported that an overlapping liquid card darkened the
+receiver across texels whose black key should be invisible. The primary shadow
+any-hit already ignores semantic static liquid cards because they are receiver
+modifiers, not standalone occluders. The active ReSTIR combined-resolve
+visibility any-hit instead marked every first triangle hit opaque and did not
+consult material features, producing a card-shaped direct-light shadow.
+
+The combined-resolve visibility consumer now reads the static triangle material
+index and ABI-4 feature row from the existing bindings. In liquid modes 1-3 it
+ignores only instance-0 materials that satisfy the same liquid-union kind,
+modifier, and receiver/idempotent capability contract as the primary producer.
+Mode 0 remains unchanged, as do dynamic and rigid routes. The lookup treats
+TextureInfo.z as the logical row count and permits larger reusable buffer
+capacity, matching the corrected primary contract.
+
+The rebuilt combined-resolve Vulkan SPIR-V is newer than its source, passes
+spirv-val, and exactly matches an independent direct DXC compile at SHA-256
+82DB4C71DEB32DE24A3C7C0E7AC1FF1EE4C4A13ADFF82AF0BA4022AFD45DA51A. The full
+release build succeeds, PathTraceLiquidPoolReducerHarness passes 1/1, and with
+the game closed the unchanged-hash executable plus only this rebuilt Vulkan
+SPIR-V were deployed. Runtime visual confirmation remains pending.
+
+In-game testing with the generic compositor disabled and liquid mode 2
+confirmed that the transparent black portion no longer darkens the receiver.
+This closes the combined-resolve visibility correction.

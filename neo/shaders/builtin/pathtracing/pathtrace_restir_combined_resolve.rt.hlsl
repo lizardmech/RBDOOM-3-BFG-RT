@@ -116,6 +116,7 @@ struct PathTraceRestirPreviousLightRecord
 #include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 
 #include "PathTracePrimarySurface.hlsli"
+#include "PathTraceMaterialFeatureTypes.hlsli"
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15);
@@ -131,6 +132,7 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideSpecularAlbedo : 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceRRMotionVectors : register(u78);
 RaytracingAccelerationStructure SmokeScene : register(t0);
+StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokePreviousEmissiveTriangles : register(t57);
 StructuredBuffer<PathTraceEmissiveLightRemap> SmokeEmissiveRemap : register(t58);
@@ -148,6 +150,7 @@ StructuredBuffer<uint> PathTraceRestirLightManagerCurrentToPrevious : register(t
 StructuredBuffer<uint> PathTraceRestirLightManagerPreviousToCurrent : register(t65);
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerCurrentPayload : register(t66);
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerPreviousPayload : register(t67);
+StructuredBuffer<PathTraceMaterialFeatureRecord> PathTraceMaterialFeatures : register(t80);
 ConstantBuffer<RtRestirPTParameters> RestirPTParamsFlat : register(b28);
 RWStructuredBuffer<RtRestirPTPackedReservoir> RestirPTReservoirs : register(u29);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
@@ -213,6 +216,13 @@ cbuffer PathTraceSmokeConstants : register(b2)
     uint4 RestirPTRemixDiReservoirInfo;
     uint4 RestirPTRemixDiReservoirPageInfo;
     float4 RestirPTGiDebugInfo;
+    // Padding spans the ReGIR and NEE-cache fields of the CPU constants.
+    float4 CombinedResolveReservedTail[10];
+    float4 DecalInfo;
+    float4 DecalInfo2;
+    // x=effective liquid-pool mode. Remaining lanes are diagnostics owned by
+    // the primary producer.
+    float4 LiquidPoolInfo;
 };
 
 static const uint RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY = 1u;
@@ -548,6 +558,42 @@ bool RestirPTReservoirHasUsefulSample(RTXDI_PTReservoir reservoir)
 {
     const float targetLuminance = RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0)));
     return RTXDI_IsValidPTReservoir(reservoir) && reservoir.WeightSum > 0.0 && targetLuminance > 0.0;
+}
+
+bool RestirPTCombinedResolveStaticLiquidModifier(uint instanceId, uint primitiveIndex)
+{
+    if (LiquidPoolInfo.x < 0.5 || instanceId != 0u || primitiveIndex >= (uint)max(GeometryInfo0.z, 0.0))
+    {
+        return false;
+    }
+
+    uint triangleMaterialCount = 0u;
+    uint triangleMaterialStride = 0u;
+    SmokeStaticTriangleMaterialIndexes.GetDimensions(triangleMaterialCount, triangleMaterialStride);
+    if (triangleMaterialStride != 4u || primitiveIndex >= triangleMaterialCount)
+    {
+        return false;
+    }
+
+    const uint materialIndex = SmokeStaticTriangleMaterialIndexes[primitiveIndex];
+    uint featureRecordCount = 0u;
+    uint featureRecordStride = 0u;
+    PathTraceMaterialFeatures.GetDimensions(featureRecordCount, featureRecordStride);
+    const uint materialCount = (uint)max(TextureInfo.z, 0.0);
+    if (featureRecordCount < materialCount || featureRecordStride != 32u || materialIndex >= materialCount)
+    {
+        return false;
+    }
+
+    const PathTraceMaterialFeatureRecord feature = PathTraceMaterialFeatures[materialIndex];
+    return feature.recordAbiVersion == RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION &&
+        feature.parameterRecordIndex == materialIndex &&
+        feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER &&
+        feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION &&
+        (feature.materialCaps & (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+            RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND)) ==
+            (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+                RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND);
 }
 
 float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId)
@@ -933,6 +979,16 @@ void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleInte
         InstanceID() == payload.ignoreInstanceId &&
         PrimitiveIndex() == payload.ignorePrimitiveIndex)
     {
+        payload.hit = 0u;
+        IgnoreHit();
+        return;
+    }
+    if (RestirPTCombinedResolveStaticLiquidModifier(InstanceID(), PrimitiveIndex()))
+    {
+        // A liquid card modifies the opaque receiver reconstructed by the
+        // primary producer. It is not standalone occluding geometry; allowing
+        // this card to terminate the visibility ray produces a rectangular
+        // black shadow from its transparent texels.
         payload.hit = 0u;
         IgnoreHit();
         return;
