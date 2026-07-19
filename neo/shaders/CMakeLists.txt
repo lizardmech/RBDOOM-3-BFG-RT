@@ -173,6 +173,8 @@ set(PATH_TRACING_CLEAN_RTXDI_DI_SHARED_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_output.hlsli)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/vulkan.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTraceMaterialFeature.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTraceMaterialFeatureTypes.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTracePrimarySurface.hlsli
     ${PATH_TRACING_RANDOM_SAMPLER_INCLUDES}
     ${PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES}
