@@ -1,0 +1,96 @@
+LPD-02 STALE SPIR-V CORRECTION MANIFEST
+=======================================
+
+Task: LPD-02 post-acceptance regression correction
+Worker: Codex /root
+Timestamp: 2026-07-19 16:11:49 +10:00
+Starting HEAD: 799eb8fcc
+Dependency-fix checkpoint: 58d4edafb9a32290fb168e294eefd1491491a9e6
+
+Superseded claim
+----------------
+
+The earlier 20260719-154412 acceptance correctly recorded the eight blobs that
+were copied, but incorrectly treated that list as the complete set affected by
+the material-feature ABI change. It also accepted the glass negative from CPU
+feature-row diagnostics before verifying the actual clean-DI glass/transmission
+SPIR-V consumers had advanced.
+
+Root cause
+----------
+
+CPU and newly rebuilt shaders published material-feature ABI 4. Six clean-DI
+Vulkan libraries remained dated 2026-07-15 and still contained the prior ABI
+contract because PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES omitted both:
+
+  PathTraceMaterialFeature.hlsli
+  PathTraceMaterialFeatureTypes.hlsli
+
+The normal PathTracingShaders target therefore reported the glass and
+transmission libraries up to date. The stale shader-side ABI check rejected ABI
+4 feature rows and visibly displaced the window from its correct prior result.
+
+Correction
+----------
+
+Both shared material-feature headers are now explicit clean-DI dependencies in
+neo/shaders/CMakeLists.txt. The build was reconfigured. Exactly six known-stale
+clean-DI Vulkan blobs were deleted, rebuilt, and confirmed newer:
+
+  pathtrace_clean_rtxdi_di_glass.rt.bin
+    5351126B307B9B08EB0AE405A20001E492236990417FAB743C02DD8D270CCCC2
+  pathtrace_clean_rtxdi_di_initial.rt.bin
+    D75B73187A8B4A92BFB78F8B507779E765E499E4003DD583D5A4EAB1DD3A5A18
+  pathtrace_clean_rtxdi_di_sentinel.rt.bin
+    B52576C9647BFF6EAB6AA64E6A7E683B7B76EAC872B00013F5E2560D65AA8E40
+  pathtrace_clean_rtxdi_di_spatial.rt.bin
+    E70ECC0899F76DC7443D9870E6BF69542CEBE2C17734071D3C9E0B824D4BE1B5
+  pathtrace_clean_rtxdi_di_temporal.rt.bin
+    8E170649D8F29D07BB655A51E1B217D0D716ADFB8ADB405555CE099C1FC3B464
+  pathtrace_clean_rtxdi_di_transmission_producer.rt.bin
+    DF959054577754A83C0AAA4C8F21837B6816810E6BFF2A89C1F394F166DC25E0
+
+Four Vulkan outputs that had advanced during the earlier timed-out shader pass
+but were omitted from the first deployment were also validated and copied:
+
+  pathtrace_nee_cache_debug.rt.bin
+    6120D824D55E46BF48894BE5BDEBB0A442DE450D80066F64E21A7B9AE046BF8F
+  pathtrace_pdf_nee_verifier.rt.bin
+    EC666DD946D9460E79A03F905C6A114B30C71BB5F36E8B24E526A0B955456B9E
+  pathtrace_regir_debug.rt.bin
+    698144491C49969E772A257B1B6FC128A17805DBB250DB7E9671C87373E8A64F
+  pathtrace_nee_cache_primary_surface_update.cs.bin
+    0646BCB246BBBD04A5067B84A0496E9C016C7FE576C4BA85AEE552ECBF583D0D
+
+Commands and proof
+------------------
+
+  cmake --preset win64-pt-dev
+  cmake --build '..\build-win64-pt-dev' --config Release --target PathTracingShaders
+  cmake --build --preset win64-pt-dev-release
+
+All passed. All ten listed Vulkan blobs passed:
+
+  spirv-val --target-env vulkan1.2
+
+Generated/deployed SHA-256 matches for all ten blobs. Built/deployed executable
+also matches:
+
+  603E321F359C0CEDD86ED34D4223FD784E87A21B308C0686E5B0F6A857BE9B98
+
+Runtime result
+--------------
+
+The supervisor retested the same window after deployment and confirmed:
+
+  fixed now
+
+Disposition
+-----------
+
+PASS, superseding the original LPD-02 glass-regression disposition. The source
+feature row was correct throughout; the actual fault was stale consumer SPIR-V.
+Future material-feature ABI/header changes now invalidate the clean-DI sentinel,
+initial, temporal, spatial, glass, and transmission-producer build graph.
+
+Pre-existing unrelated dirty shader sources were preserved and not committed.

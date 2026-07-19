@@ -559,3 +559,28 @@ ingestion and the normal-mode restartMap no-op remain parked.
 
 Artifact set:
   docs/liquid_pool_decals/artifacts/LPD-02/20260719-154412/.
+
+
+LPD-02 Stale-SPIR-V Correction - 2026-07-19 16:11:49 +10:00
+================================================================
+
+Supersedes the original LPD-02 glass-regression disposition. The first LPD-02
+deployment raised CPU/material-feature ABI to 4 but left six clean-DI Vulkan
+libraries at their July 15 ABI because the clean-DI dependency list omitted
+PathTraceMaterialFeature.hlsli and PathTraceMaterialFeatureTypes.hlsli. The CPU
+glass dump was correct, but the stale glass/transmission consumer rejected the
+new feature row and the supervisor reported a visible regression.
+
+Checkpoint 58d4edafb adds both shared headers to the explicit clean-DI sentinel
+dependency list. After reconfigure, the six stale blobs were deleted and rebuilt:
+sentinel, initial, temporal, spatial, glass, and transmission producer. Four
+additional Vulkan outputs advanced during the earlier timed-out build but missed
+from its deployment were also copied. All ten pass spirv-val for Vulkan 1.2 and
+all generated/deployed SHA-256 values match. The executable remains hash-matched
+at 603E321F359C0CEDD86ED34D4223FD784E87A21B308C0686E5B0F6A857BE9B98.
+
+The supervisor retested the same window and confirmed "fixed now". Corrected
+decision: LPD-02 PASS. The root cause was stale shader-side ABI, not classifier
+or glass feature publication. The full correction hashes and commands are in:
+
+  docs/liquid_pool_decals/artifacts/LPD-02/20260719-161149/manifest.txt
