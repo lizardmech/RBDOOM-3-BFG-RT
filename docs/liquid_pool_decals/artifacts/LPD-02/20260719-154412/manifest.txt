@@ -1,0 +1,155 @@
+LPD-02 STATIC-FIRST PARAMETER / CAPABILITY VALIDATION MANIFEST
+==============================================================
+
+Task: LPD-02 - parameters and material-feature capabilities
+Worker: Codex /root
+Timestamp: 2026-07-19 15:44:12 +10:00
+Starting HEAD: 67184d092
+Implementation checkpoint: 9f1576587942cd39f2ff3afb832838d4a1aee6c4
+
+Scope
+-----
+
+This acceptance follows the supervisor's static-authored-decal priority. It
+validates the authored textures/decals/splat5 card and uses an object/portal
+glass window as a live negative control. Dynamic ProjectDecal ingestion and the
+known normal-mode restartMap no-op remain parked.
+
+Published ABI
+-------------
+
+  feature-record ABI: 4
+  feature-record size: 32 bytes
+  parameter-record size/stride: 96 bytes
+  liquid-parameter ABI: 1
+  parameterRecordIndex contract: materialIndex
+  primary parameter binding: StructuredBuffer SRV t81
+
+Liquid parameter lanes, defaults, and clamps:
+
+  params0.x reference transmittance R: default 1, [1/1024, 1]
+  params0.y reference transmittance G: default 1, [1/1024, 1]
+  params0.z reference transmittance B: default 1, [1/1024, 1]
+  params0.w optical-depth scale: default 1, [0, 8]
+  params1.x coat roughness: default 0.18, [0.02, 1]
+  params1.y dielectric IOR: default 1.5, [1, 2.5]
+  params1.z authored-normal strength: default 0, [0, 1]
+  params1.w reserved: forced zero
+
+Nonfinite inputs fall back to the lane default. The CPU contract test injects
+NaN, infinity, negative and out-of-range values and checks deterministic
+fallback/clamping. HLSL carries the same constants and sanitizer.
+
+Liquid feature row:
+
+  material kind: LIQUID_POOL_MODIFIER (4)
+  material caps: RECEIVER_MODIFIER | IDEMPOTENT_MODIFIER_BLEND (0x00000180)
+  lobe caps: 0
+  pass support: DEBUG_VISUALIZER only (0x00000080)
+  modifier kind: LIQUID_POOL_UNION (5)
+
+The candidate owns no opaque direct/GI/shadow, geometry, emissive,
+transmission, volume, RR, or independent beauty pass. The receiver's material
+index and dry capabilities are not replaced. No shader calls the liquid loader
+or applies the modifier in LPD-02.
+
+Build and Vulkan validation
+---------------------------
+
+Commands, from neo/:
+
+  cmake --build '..\build-win64-pt-dev' --config Release --target PathTracingShaders
+  cmake --build --preset win64-pt-dev-release
+
+Both passed. The first host retry encountered only an overlapping MSBuild object
+lock left by a short wrapper timeout; a single retry after the stale process
+exited passed with no source error.
+
+Every advanced Vulkan blob passed:
+
+  spirv-val --target-env vulkan1.2
+
+Generated and deployed SPIR-V SHA-256 values match:
+
+  pathtrace_primary_surface_producer.rt.bin
+    C155BB19F4A00AD29ACEB0682F53EF4B318CF6E9AAD1CB5D2B12B7A200267A2E
+  pathtrace_restir_combined_resolve.rt.bin
+    206A842C9C8C32CE14278109B4B6DDB59574E840D8328FE4E3B0B150865E37CE
+  pathtrace_restir_direct_spatial_reservoir_producer.rt.bin
+    E4143C2145216B0B12FD5CB3BDEEB6B838FF78C16330F00D64AAB947B07F21AB
+  pathtrace_restir_direct_temporal_producer.rt.bin
+    250C079DECF7970AA48219A020239C8336AD3C12BBF520BE314AC5D5BBC0D412
+  pathtrace_restir_indirect_initial_producer.rt.bin
+    D9BF775FFE1F25B6E8ACB3685351AC8E01F6C73DB29ADC3F11B3665B6B6B33F0
+  pathtrace_restir_pdf_nee_rlu_current.rt.bin
+    D37B8507058A104B36AF7BD7C7EA34DD93D3D47F9D181031349592366B403CB5
+  pathtrace_restir_reflection_producer.rt.bin
+    CA458443968D634B921255CD3E59E5F049E5E9B0047619B2D850C8BE3EBE66CA
+  pathtrace_smoke.rt.bin
+    8E87DF2A31330ED675D4D29A2340B5BF65F6DA382D69A5805ACC7C8A87F6B5A8
+
+A post-capture host-only diagnostic precedence correction rebuilt no shader;
+all shader targets were reported up to date. Final built/deployed executable:
+
+  SHA-256 603E321F359C0CEDD86ED34D4223FD784E87A21B308C0686E5B0F6A857BE9B98
+
+Runtime evidence
+----------------
+
+External capture:
+
+  C:/Users/lizard/.codex/attachments/
+    0172eb0f-e4bb-4a6c-ae58-ec7a0e33f444/pasted-text.txt
+  SHA-256 8DBA170C5701BB16982F4B6EE67924D07CC4B6AE56B4F9C9578F5B95DCC71821
+
+Positive authored-static card, textures/decals/splat5:
+
+  candidate=1, reason=accept-active-reflect2
+  parameterRecordIndex=302, materialIndex=302, indexMatch=1
+  recordAbi=4, expectedAbi=4
+  kind=LIQUID_POOL_MODIFIER (4)
+  caps=0x00000180, lobes=0, passSupport=0x80
+  modifier=LIQUID_POOL_UNION (5)
+  material/feature/parameter row counts=420/420/420
+  params0=(1,1,1,1)
+  params1=(0.18,1.5,0,0)
+  valid=1, source=candidate-row, override=0
+  staticRoute runtimeIdMatches=2
+
+Live object/portal-glass negative, textures/sfx/mc_medglass:
+
+  candidate=0, reason=reject-not-detail-decal
+  parameterRecordIndex=327, materialIndex=327, indexMatch=1
+  recordAbi=4, expectedAbi=4
+  kind=TRANSLUCENT_GLASS (5), caps=0x10
+  modifier=NONE (0), transmissionCandidate=1, transmissionActive=1
+  material/feature/parameter row counts=437/437/437
+  liquid parameters active=0
+
+This proves LPD-02 did not reclassify the window or push it out of the glass
+feature path. Its parameter row is the pre-existing glass layout and the liquid
+labels in the generic dump are inactive and non-applicable.
+
+The capture exposed one diagnostics-only mismatch: the reconstructed modular
+summary evaluated translucent surface class before the liquid modifier and
+printed UNKNOWN/fail-closed for splat5, while the authoritative uploaded feature
+row was correct. PathTraceSurfaceDebugDumps.cpp now gives the typed liquid fact
+the same precedence as production. This does not affect feature publication,
+shading, or SPIR-V.
+
+Disposition
+-----------
+
+PASS for static-first LPD-02. The supervisor reported "I think it works" after
+identifying the first hit as the glass window and the second as splat5. LPD-01's
+modes 0-3 visual-neutral test remains applicable; LPD-02 adds no liquid beauty
+consumer and the live capture is mode 0. Dynamic ProjectDecal validation and
+restartMap remain explicitly parked.
+
+Artifact files:
+
+  manifest.txt          this contract/build/runtime record
+  runtime_excerpts.txt  curated authoritative feature-row excerpts
+
+Pre-existing unrelated dirty shader sources were preserved and were not staged
+or committed.

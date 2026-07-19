@@ -237,6 +237,12 @@ RtCrosshairMaterialFeatureDebug BuildCrosshairMaterialFeatureDebug(
             RT_PATH_TRACE_MATERIAL_PASS_PATH_INTEGRATOR;
         return feature;
     }
+    else if (feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION)
+    {
+        // Match the production feature-row precedence: a classified liquid
+        // card is a receiver modifier even when its draw surface is translucent.
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER;
+    }
     else if (translucent && translucentSubtype == RtSmokeTranslucentSubtype::GuiScreen)
     {
         feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_GUI_SCREEN;
@@ -252,10 +258,6 @@ RtCrosshairMaterialFeatureDebug BuildCrosshairMaterialFeatureDebug(
     else if (translucent)
     {
         feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_UNKNOWN;
-    }
-    else if (feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION)
-    {
-        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER;
     }
     else if (feature.modifierKind != RT_PATH_TRACE_MATERIAL_MODIFIER_NONE)
     {

@@ -1,0 +1,46 @@
+LPD-02 RUNTIME EXCERPTS
+=======================
+
+Source capture SHA-256:
+  8DBA170C5701BB16982F4B6EE67924D07CC4B6AE56B4F9C9578F5B95DCC71821
+
+Negative object/portal glass
+----------------------------
+
+material='textures/sfx/mc_medglass' tableIndex=327
+liquid-film candidate=0 detail=0 reflect2=0 coverage=0
+reason='reject-not-detail-decal'
+modular material kind=translucent-glass(5) caps=0x00000010
+modifier=none(0) transmissionCandidate=1 transmissionActive=1
+feature-row materialIndex=327 parameterRecordIndex=327 indexMatch=1
+recordAbi=4 expectedAbi=4 kind=translucent-glass(5) caps=0x00000010
+lobes=0x00000008 passSupport=0x000000a2 modifier=none(0)
+rowCounts material/feature/params=437/437/437
+liquid-film-params active=0 paramAbi=1 valid=0 source='not-liquid'
+
+Positive authored-static liquid card
+------------------------------------
+
+material='textures/decals/splat5' tableIndex=302
+liquid-film candidate=1 detail=1 blood=0 reflect2=1 coverage=1
+reason='accept-active-reflect2'
+feature-row materialIndex=302 parameterRecordIndex=302 indexMatch=1
+recordAbi=4 expectedAbi=4 kind=liquid-pool-modifier(4)
+caps=0x00000180 lobes=0x00000000 passSupport=0x00000080
+modifier=liquid-pool-union(5)
+rowCounts material/feature/params=420/420/420
+liquid-film-params active=1 paramAbi=1
+params0 referenceTransmittance=(1.000000 1.000000 1.000000)
+opticalDepthScale=1.000000
+params1 coatRoughness=0.180000 dielectricIor=1.500000
+authoredNormalStrength=0.000000 reservedZero=0.000000
+valid=1 source='candidate-row' override=0 reason='frozen-v1-default'
+staticRoute runtime/baseIdMatches=2/0 runtime/baseIndexMatches=2/0
+
+Diagnostic correction
+---------------------
+
+The capture's older reconstructed `modular material` line for splat5 printed
+unknown/fail-closed because translucent surface class was checked before the
+liquid modifier. The authoritative uploaded feature-row above is correct. The
+host-only correction makes the reconstructed line use production precedence.

@@ -513,3 +513,49 @@ known no-op and the supervisor explicitly instructed this lane to ignore it.
 
 Artifact set:
   docs/liquid_pool_decals/artifacts/LPD-01/20260719-150832/.
+
+
+LPD-02 Static-First Parameter / Capability Acceptance - 2026-07-19 15:44:12 +10:00
+===================================================================================
+
+Task: LPD-02 optical parameter ABI and truthful receiver-modifier capability
+publication. Starting HEAD 67184d092; implementation checkpoint 9f1576587.
+
+CPU and HLSL now share feature ABI 4, liquid parameter ABI 1, a 96-byte
+parameter record, frozen params0=(1,1,1,1), params1=(0.18,1.5,0,0), and exact
+finite clamping/fallback rules. Candidate rows publish only liquid modifier kind
+4, receiver-plus-idempotent caps 0x180, no lobes, debug pass 0x80, and liquid
+union modifier 5. parameterRecordIndex is validated equal to materialIndex and
+material/feature/parameter row counts are validated equal. Primary host layout,
+binding set, fail-closed resource checks, lifecycle invalidation, and every
+direct/PT56 transition now carry the existing parameter buffer at t81. No liquid
+application call or beauty-path reducer was added.
+
+Vulkan PathTracingShaders and the release host passed. Eight advanced SPIR-V
+blobs passed spirv-val for Vulkan 1.2 and were the only shader blobs deployed;
+their generated/deployed hashes match the LPD-02 manifest. After a host-only
+diagnostic correction, final built/deployed RBDoom3BFG.exe hashes match:
+603E321F359C0CEDD86ED34D4223FD784E87A21B308C0686E5B0F6A857BE9B98.
+
+Live positive textures/decals/splat5 reports candidate=1, ABI 4, indexMatch=1,
+equal row counts 420/420/420, kind 4, caps 0x180, no lobes, debug pass 0x80,
+modifier 5, exact frozen params and valid=1. The first hit in the same capture,
+textures/sfx/mc_medglass, is a live negative: candidate=0 and remains
+translucent-glass with path-transmission cap, specular-transmission lobe,
+transmission active, modifier none, ABI/index/count agreement, and liquid params
+inactive. LPD-02 therefore did not displace it from the glass feature path.
+
+The capture exposed an older reconstructed debug-summary precedence mismatch:
+it printed UNKNOWN for the translucent splat even though the authoritative
+uploaded feature row was correct. The diagnostic now checks the typed liquid
+modifier before generic translucent classification. This host-only correction
+does not affect shading or shader blobs.
+
+Decision: PASS for the supervisor-requested static-first path. The supervisor
+reported "I think it works" after identifying the glass and splat5 hits. Modes
+0-3 remain beauty-neutral because no liquid consumer exists; LPD-01 already
+recorded the interactive modes 0-3 visual-neutral pass. Dynamic ProjectDecal
+ingestion and the normal-mode restartMap no-op remain parked.
+
+Artifact set:
+  docs/liquid_pool_decals/artifacts/LPD-02/20260719-154412/.
