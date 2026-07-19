@@ -412,3 +412,60 @@ Decision: SOURCE/BUILD/DEPLOY/HELP PASS; FIXTURE MANIFEST BLOCKED. LPD-04 fixtur
   prerequisites remain blocked. Do not advance to LPD-01 or LPD-04 until an
   interactive fixed map/getviewpos capture is accepted and the reset contract is
   resolved. This task does not claim liquid-rendering validation.
+
+
+LPD-00F Interactive Runtime Correction - 2026-07-19 14:19:55 +10:00
+===================================================================
+
+Task: LPD-00F positive fixture validation and determinism correction.
+Starting HEAD: 96003add7de2692219d579afc8e86a3c752bf977.
+Map/view: maps/game/mars_city1;
+  setviewpos -2566.97 -3200.49 252.13 329.0.
+
+Supersedes:
+  - The 20260719-132555 candidate fixture material
+    textures/decals/splat7. The actual visible gameplay dynamic splat used by
+    the damage/BloodSplat producer is textures/decals/dsplat7. Directly
+    projecting dsplat7 was visibly confirmed in raster; splat7 can remain
+    invisible because its authored `colored` stages expect entity color parms.
+  - The original rendered-view trace and first no-bob-only determinism claim.
+    Rendered view inherited bob; GetEyePosition could still settle by 0.017579
+    world units. The final command uses no-bob view angles plus a receiver-plane
+    0.125-unit surface-coordinate grid. It prints traceBasis and originGrid.
+
+Build/deploy: `cmake --build --preset win64-pt-dev-release` from neo passed.
+  No shader changed. Built/deployed executable hashes match:
+  4F2E1131A0C224AE0383D75ABC69027EB3F3659BA7AB6FE0CC7FFA61FBF73EA2.
+
+Final canonical receiver:
+  origin=(-2464.000000 -3262.250000 252.500000),
+  receiverNormal=(-1,0,0), projectionDirection=(1,0,0),
+  receiverMaterial=textures/mcity/minwall11, receiverEntity=4094.
+
+Final-build runtime results:
+  B3 aligned 2 serial e229b4c339dcae1e, projected 2.
+  B6 aligned 32 serial 232cb559cbc0a045, projected 32.
+  B8 perpendicular serial 8d9e16b26d67e80a, projected 2. The second plane is
+    textures/base_trim/stemettrim at (-2464.5,-3232.25,252.5), normal (0,-1,0),
+    same entity 4094, normalDot 0.
+  mixedFilter serial 6ddb772bcf6cdbf9, projected exact dsplat7 plus stainwall.
+
+Supervisor visual confirmation:
+  dsplat7 is visible in raster; aligned four is slightly glitchy from exact
+  multiplicative stacking; partial two/offset 16 shows two sideways-offset
+  splats with a darker overlap; mixedFilter shows a splat and grime overlay.
+
+External B8 conDump:
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/liquid.txt,
+  114158 bytes, SHA-256
+  74C852334BF3A5F9964468BBA37B25F58F2878A15D63143DCDE40ACDC83E82DE.
+
+Known limitations/verdict:
+  Source/build/deploy/positive geometry pass. Strict LPD-00F closure remains
+  blocked on required final-build screenshots/B4-B5 recapture and the existing
+  restartMap normal-mode no-op. Interactive validation used devmap of the same
+  map as the operational reset, but no explicit waiver or out-of-scope fix is
+  claimed. LPD-04 fixture gate remains blocked.
+
+Artifact set:
+  docs/liquid_pool_decals/artifacts/LPD-00F/20260719-141955/.

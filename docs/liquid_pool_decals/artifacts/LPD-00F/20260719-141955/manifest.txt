@@ -1,0 +1,138 @@
+LPD-00F RUNTIME CORRECTION MANIFEST
+===================================
+
+Task: LPD-00F deterministic fixture provisioning
+Worker: Codex with supervisor-operated runtime validation
+Timestamp: 2026-07-19 14:19:55 +10:00
+Starting HEAD: 96003add7de2692219d579afc8e86a3c752bf977
+Branch: restir-development
+
+Purpose and supersession
+------------------------
+
+This artifact set records interactive positive-fixture evidence and supersedes
+the candidate-material and view-trace assumptions in the earlier
+20260719-132555 artifact set. The earlier source/build/negative-test evidence
+remains valid.
+
+The gameplay dynamic splat declaration is textures/decals/dsplat7. The earlier
+textures/decals/splat7 candidate is an authored/fixed decal material whose
+`colored` stages can make a direct ProjectDecal invocation invisible without
+matching entity color parameters. Runtime projection with dsplat7 was visibly
+confirmed in raster mode.
+
+Implementation correction
+-------------------------
+
+The original fixture used the rendered view and inherited view bob. A first
+correction used GetEyePosition plus viewAngles/gravity/nodal offsets, but the
+player eye height could still settle by about 0.018 world units after teleport
+or map load. The final implementation retains that no-bob/no-kick trace basis,
+then canonicalizes the two receiver-plane coordinates to a 0.125-unit grid
+while retaining the collision plane distance. This removes sub-grid player
+settling without moving the fixture off the contacted plane.
+
+Final printed contract includes:
+  traceBasis=noBobEyeViewAngles
+  originGrid=0.125000
+
+Build and deployment
+--------------------
+
+Command, cwd neo/:
+  cmake --build --preset win64-pt-dev-release
+
+Result: PASS. SysCmds.cpp compiled and RBDoom3BFG.exe linked. Build reported all
+SPIR-V shaders up to date. No shader source or generated blob was changed or
+deployed. DXIL was only reported up to date; no DX12 shader compilation was
+needed for this source-only correction.
+
+Built and deployed executable SHA-256:
+  4F2E1131A0C224AE0383D75ABC69027EB3F3659BA7AB6FE0CC7FFA61FBF73EA2
+
+Only E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe was copied after the game
+process had closed. Built and deployed hashes match.
+
+Fixed runtime fixture
+---------------------
+
+Map:
+  maps/game/mars_city1
+
+setviewpos input:
+  setviewpos -2566.97 -3200.49 252.13 329.0
+
+Canonical base receiver:
+  origin=(-2464.000000 -3262.250000 252.500000)
+  receiverNormal=(-1.000000 0.000000 0.000000)
+  projectionDirection=(1.000000 0.000000 0.000000)
+  receiverMaterial=textures/mcity/minwall11
+  receiverEntity=4094
+  tangent=(0.000000 -1.000000 0.000000)
+  size=64, depth=8, angle=pi/8, originGrid=0.125
+
+Runtime positive results:
+  B3 aligned 2: serial=e229b4c339dcae1e, projected=2
+  B6 aligned 32: serial=232cb559cbc0a045, projected=32
+  B8 perpendicular: serial=8d9e16b26d67e80a, projected=2
+  mixed filter: serial=6ddb772bcf6cdbf9, projected=2
+
+B8 second receiver:
+  origin=(-2464.500000 -3232.250000 252.500000)
+  normal=(0.000000 -1.000000 0.000000)
+  material=textures/base_trim/stemettrim
+  entity=4094
+  normalDot=0.000000
+
+The B8 geometry is an exact perpendicular plane about 30 units from the base
+fixture and is valid wrong-plane rejection evidence for the later reducer.
+
+Visual observations supplied by the supervisor
+-----------------------------------------------
+
+  - textures/decals/dsplat7 is visible when projected dynamically in raster.
+  - Four exactly aligned dsplat7 projections visibly stack and are slightly
+    glitchy; this is expected legacy multiplicative overlap behavior and the
+    duplicate-idempotence failure the future liquid union must address.
+  - Partial 2 with offset 16 visibly produces two sideways-offset splats with a
+    darker overlapping region.
+  - MixedFilter visibly produces the splat and a grime overlay over each other.
+
+Console artifact
+----------------
+
+External file:
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/liquid.txt
+  bytes=114158
+  SHA-256=74C852334BF3A5F9964468BBA37B25F58F2878A15D63143DCDE40ACDC83E82DE
+  purpose=B8 Vulkan runtime console dump with map load, fixed view, exact
+    primary/perpendicular receiver evidence, serial, and projected count
+
+CVar changes
+------------
+
+No renderer, liquid, decal, or path-tracing CVar was changed by the fixture
+implementation or the accepted interactive commands. The command remained
+CMD_FL_GAME | CMD_FL_CHEAT and inert unless invoked.
+
+Remaining formal evidence gaps
+------------------------------
+
+  - Current-final-build screenshots were not captured for B3/B4/B5/B6/B8.
+  - B4/B5 were visibly validated before the final 0.125-unit canonicalization;
+    their command behavior is unchanged, but final-build console/screenshot
+    recapture remains pending for strict ticket closure.
+  - B8 console geometry passes; explicit user visual confirmation of both
+    perpendicular faces and its screenshot remain pending.
+  - Normal restartMap remains a no-op unless g_demoMode is true in the live
+    out-of-scope Common_load.cpp implementation. Interactive validation used
+    devmap game/mars_city1 as the operational reset substitute, but the ticket's
+    restartMap contract has not been repaired or explicitly waived.
+
+Verdict
+-------
+
+SOURCE/BUILD/DEPLOY/POSITIVE GEOMETRY: PASS.
+GAMEPLAY FIXTURE MATERIAL CORRECTION: PASS (dsplat7).
+FORMAL LPD-00F MANIFEST ACCEPTANCE: BLOCKED on required final screenshots and
+restartMap repair/explicit devmap waiver. Do not claim LPD-04 fixture gate open.

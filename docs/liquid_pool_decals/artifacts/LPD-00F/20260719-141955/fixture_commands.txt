@@ -1,0 +1,62 @@
+LPD-00F CORRECTED FIXTURE COMMANDS
+=================================
+
+Map and fixed view
+------------------
+
+  devmap game/mars_city1
+  setviewpos -2566.97 -3200.49 252.13 329.0
+
+Final gameplay liquid material:
+  textures/decals/dsplat7
+
+Ordinary filter control:
+  textures/decals/stainwall
+
+The earlier textures/decals/splat7 candidate is superseded. It is not the
+dynamic gameplay splat material used by the damage/BloodSplat path.
+
+B3 aligned duplicates:
+  liquidPoolFixture aligned 2 textures/decals/dsplat7
+  screenshot screenshots/liquid_pool_B3
+  conDump liquid_pool_B3
+
+B4 four aligned duplicates:
+  liquidPoolFixture aligned 4 textures/decals/dsplat7
+  screenshot screenshots/liquid_pool_B4
+  conDump liquid_pool_B4
+
+B5 partial overlap:
+  liquidPoolFixture partial 2 16 textures/decals/dsplat7
+  screenshot screenshots/liquid_pool_B5
+  conDump liquid_pool_B5
+
+B6 over-capacity stress:
+  liquidPoolFixture aligned 32 textures/decals/dsplat7
+  screenshot screenshots/liquid_pool_B6
+  conDump liquid_pool_B6
+
+B8 perpendicular wrong-plane case:
+  liquidPoolFixture perpendicular textures/decals/dsplat7
+  screenshot screenshots/liquid_pool_B8
+  conDump liquid_pool_B8
+
+Mixed liquid/filter control:
+  liquidPoolFixture mixedFilter textures/decals/dsplat7 textures/decals/stainwall
+  screenshot screenshots/liquid_pool_mixed_filter
+  conDump liquid_pool_mixed_filter
+
+Repeat procedure
+----------------
+
+Until restartMap is repaired or its requirement is explicitly waived:
+
+  devmap game/mars_city1
+  setviewpos -2566.97 -3200.49 252.13 329.0
+  <repeat exact fixture command>
+
+Compare canonical origin, originGrid, receiver normal/direction/material/entity,
+size/depth/angle/count/offset/tangent, exact requested materials, and serial.
+The final build canonical base origin is expected to be exactly:
+
+  (-2464.000000 -3262.250000 252.500000)

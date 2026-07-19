@@ -1,0 +1,55 @@
+LPD-00F POSITIVE RUNTIME EXCERPTS
+=================================
+
+B3 final build
+--------------
+
+  liquidPoolFixture: PROJECT serial=e229b4c339dcae1e mode=aligned
+  origin=(-2464.000000 -3262.250000 252.500000) originGrid=0.125000
+  count=2 material='textures/decals/dsplat7'
+  receiverMaterial='textures/mcity/minwall11' receiverEntity=4094
+  traceBasis=noBobEyeViewAngles
+  liquidPoolFixture: DONE serial=e229b4c339dcae1e projected=2
+
+B6 final build
+--------------
+
+  liquidPoolFixture: PROJECT serial=232cb559cbc0a045 mode=aligned
+  origin=(-2464.000000 -3262.250000 252.500000) originGrid=0.125000
+  count=32 material='textures/decals/dsplat7'
+  receiverMaterial='textures/mcity/minwall11' receiverEntity=4094
+  traceBasis=noBobEyeViewAngles
+  liquidPoolFixture: DONE serial=232cb559cbc0a045 projected=32
+
+B8 final build
+--------------
+
+  liquidPoolFixture: PROJECT serial=8d9e16b26d67e80a mode=perpendicular
+  origin=(-2464.000000 -3262.250000 252.500000) originGrid=0.125000
+  receiverNormal=(-1.000000 0.000000 0.000000)
+  receiverMaterial='textures/mcity/minwall11' receiverEntity=4094
+  perpendicularOrigin=(-2464.500000 -3232.250000 252.500000)
+  perpendicularNormal=(0.000000 -1.000000 0.000000)
+  receiverMaterial='textures/base_trim/stemettrim' receiverEntity=4094
+  normalDot=0.000000
+  liquidPoolFixture: DONE serial=8d9e16b26d67e80a projected=2
+
+MixedFilter final build
+-----------------------
+
+  liquidPoolFixture: PROJECT serial=6ddb772bcf6cdbf9 mode=mixedFilter
+  origin=(-2464.000000 -3262.250000 252.500000) originGrid=0.125000
+  material='textures/decals/dsplat7'
+  filterMaterial='textures/decals/stainwall'
+  receiverMaterial='textures/mcity/minwall11' receiverEntity=4094
+  liquidPoolFixture: DONE serial=6ddb772bcf6cdbf9 projected=2
+
+Earlier drift that activated the final correction
+-------------------------------------------------
+
+  aligned 2 origin Z=252.475967
+  aligned 32 origin Z=252.493546
+
+The 0.017579 difference remained after view-bob removal because the player eye
+height could settle. The final receiver-plane canonicalization maps both traces
+to the same Z=252.500000 and common surface coordinate set.

@@ -810,6 +810,7 @@ static const float LIQUID_POOL_FIXTURE_TRACE_DISTANCE = 4096.0f;
 static const float LIQUID_POOL_FIXTURE_SIZE = 64.0f;
 static const float LIQUID_POOL_FIXTURE_DEPTH = 8.0f;
 static const float LIQUID_POOL_FIXTURE_ANGLE = idMath::PI * 0.125f;
+static const float LIQUID_POOL_FIXTURE_ORIGIN_GRID = 0.125f;
 
 static void LiquidPoolFixtureUsage()
 {
@@ -948,6 +949,34 @@ static uint64 LiquidPoolFixtureSerial( const char* text )
 	return hash;
 }
 
+static void LiquidPoolFixtureGetStableViewPos( const idPlayer* player, idVec3& origin, idMat3& axis )
+{
+	const idVec3& gravityNormal = player->GetPhysics()->GetGravityNormal();
+	idMat3 gravityAxis;
+	if( gravityNormal[ 2 ] == -1.0f || gravityNormal == vec3_zero )
+	{
+		gravityAxis.Identity();
+	}
+	else
+	{
+		gravityAxis[ 2 ] = -gravityNormal;
+		gravityAxis[ 2 ].NormalVectors( gravityAxis[ 0 ], gravityAxis[ 1 ] );
+		gravityAxis[ 1 ] = -gravityAxis[ 1 ];
+	}
+
+	axis = player->viewAngles.ToMat3() * gravityAxis;
+	origin = player->GetEyePosition();
+	origin += gravityNormal * g_viewNodalZ.GetFloat();
+	origin += axis[ 0 ] * g_viewNodalX.GetFloat() + axis[ 2 ] * g_viewNodalZ.GetFloat();
+}
+
+static idVec3 LiquidPoolFixtureCanonicalizeReceiverPoint( const trace_t& trace, const idVec3& normal, const idVec3& tangent, const idVec3& bitangent )
+{
+	const float tangentCoordinate = idMath::Rint( ( trace.c.point * tangent ) / LIQUID_POOL_FIXTURE_ORIGIN_GRID ) * LIQUID_POOL_FIXTURE_ORIGIN_GRID;
+	const float bitangentCoordinate = idMath::Rint( ( trace.c.point * bitangent ) / LIQUID_POOL_FIXTURE_ORIGIN_GRID ) * LIQUID_POOL_FIXTURE_ORIGIN_GRID;
+	return normal * trace.c.dist + tangent * tangentCoordinate + bitangent * bitangentCoordinate;
+}
+
 /*
 ========================
 Cmd_LiquidPoolFixture_f
@@ -1063,16 +1092,7 @@ static void Cmd_LiquidPoolFixture_f( const idCmdArgs& args )
 
 	idVec3 viewOrigin;
 	idMat3 viewAxis;
-	const renderView_t* view = player->GetRenderView();
-	if( view != NULL )
-	{
-		viewOrigin = view->vieworg;
-		viewAxis = view->viewaxis;
-	}
-	else
-	{
-		player->GetViewPos( viewOrigin, viewAxis );
-	}
+	LiquidPoolFixtureGetStableViewPos( player, viewOrigin, viewAxis );
 
 	trace_t receiverTrace;
 	gameLocal.clip.TracePoint( receiverTrace, viewOrigin, viewOrigin + viewAxis[ 0 ] * LIQUID_POOL_FIXTURE_TRACE_DISTANCE, MASK_SHOT_RENDERMODEL, player );
@@ -1089,11 +1109,12 @@ static void Cmd_LiquidPoolFixture_f( const idCmdArgs& args )
 	idVec3 receiverTangent;
 	idVec3 receiverBitangent;
 	receiverNormal.NormalVectors( receiverTangent, receiverBitangent );
+	const idVec3 receiverOrigin = LiquidPoolFixtureCanonicalizeReceiverPoint( receiverTrace, receiverNormal, receiverTangent, receiverBitangent );
 
 	idVec3 projectionOrigins[ LIQUID_POOL_FIXTURE_MAX_COUNT ];
 	for( int i = 0; i < count; ++i )
 	{
-		projectionOrigins[ i ] = receiverTrace.c.point;
+		projectionOrigins[ i ] = receiverOrigin;
 	}
 
 	trace_t perpendicularTrace;
@@ -1122,7 +1143,7 @@ static void Cmd_LiquidPoolFixture_f( const idCmdArgs& args )
 	else if( mode == FIXTURE_PERPENDICULAR )
 	{
 		const idVec3 probeDirections[ 4 ] = { receiverTangent, -receiverTangent, receiverBitangent, -receiverBitangent };
-		const idVec3 probeStart = receiverTrace.c.point + receiverNormal * 0.5f;
+		const idVec3 probeStart = receiverOrigin + receiverNormal * 0.5f;
 		float bestDistanceSqr = 1e30f;
 		bool found = false;
 		for( int i = 0; i < 4; ++i )
@@ -1140,7 +1161,7 @@ static void Cmd_LiquidPoolFixture_f( const idCmdArgs& args )
 			{
 				continue;
 			}
-			const float distanceSqr = ( candidateTrace.c.point - receiverTrace.c.point ).LengthSqr();
+			const float distanceSqr = ( candidateTrace.c.point - receiverOrigin ).LengthSqr();
 			if( distanceSqr < 1.0f || distanceSqr >= bestDistanceSqr )
 			{
 				continue;
@@ -1162,7 +1183,7 @@ static void Cmd_LiquidPoolFixture_f( const idCmdArgs& args )
 	serialInput.Format(
 		"%s|%s|%s|%s|%d|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f",
 		gameLocal.GetMapName(), modeName, materialName, filterMaterialName ? filterMaterialName : "-", count, offset,
-		receiverTrace.c.point.x, receiverTrace.c.point.y, receiverTrace.c.point.z,
+		receiverOrigin.x, receiverOrigin.y, receiverOrigin.z,
 		receiverNormal.x, receiverNormal.y, receiverNormal.z,
 		projectionDirection.x, projectionDirection.y, projectionDirection.z,
 		LIQUID_POOL_FIXTURE_SIZE, LIQUID_POOL_FIXTURE_DEPTH, LIQUID_POOL_FIXTURE_ANGLE,
@@ -1177,14 +1198,14 @@ static void Cmd_LiquidPoolFixture_f( const idCmdArgs& args )
 
 	gameLocal.Printf( "liquidPoolFixture: PROJECT serial=%016llx mode=%s map='%s'\n",
 		static_cast<unsigned long long>( fixtureSerial ), modeName, gameLocal.GetMapName() );
-	gameLocal.Printf( "  origin=(%.6f %.6f %.6f) receiverNormal=(%.6f %.6f %.6f) projectionDirection=(%.6f %.6f %.6f)\n",
-		receiverTrace.c.point.x, receiverTrace.c.point.y, receiverTrace.c.point.z,
+	gameLocal.Printf( "  origin=(%.6f %.6f %.6f) originGrid=%.6f receiverNormal=(%.6f %.6f %.6f) projectionDirection=(%.6f %.6f %.6f)\n",
+		receiverOrigin.x, receiverOrigin.y, receiverOrigin.z, LIQUID_POOL_FIXTURE_ORIGIN_GRID,
 		receiverNormal.x, receiverNormal.y, receiverNormal.z,
 		projectionDirection.x, projectionDirection.y, projectionDirection.z );
 	gameLocal.Printf( "  size=%.6f depth=%.6f angle=%.6f count=%d offset=%.6f tangent=(%.6f %.6f %.6f)\n",
 		LIQUID_POOL_FIXTURE_SIZE, LIQUID_POOL_FIXTURE_DEPTH, LIQUID_POOL_FIXTURE_ANGLE, count, offset,
 		receiverTangent.x, receiverTangent.y, receiverTangent.z );
-	gameLocal.Printf( "  material='%s' filterMaterial='%s' receiverMaterial='%s' receiverEntity=%d reset=restartMap\n",
+	gameLocal.Printf( "  material='%s' filterMaterial='%s' receiverMaterial='%s' receiverEntity=%d traceBasis=noBobEyeViewAngles reset=restartMap\n",
 		materialName, filterMaterialName ? filterMaterialName : "-", receiverTrace.c.material->GetName(), receiverTrace.c.entityNum );
 	if( mode == FIXTURE_PERPENDICULAR )
 	{
