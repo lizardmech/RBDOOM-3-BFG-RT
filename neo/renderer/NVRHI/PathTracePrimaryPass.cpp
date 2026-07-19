@@ -220,6 +220,10 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeConstantsBuffer = nullptr;
     m_restirPTConstantsBuffer = nullptr;
     m_smokeBoundsOverlayLineBuffer = nullptr;
+    m_liquidPoolStatusBuffer = nullptr;
+    m_liquidPoolStatusReadbackBuffer = nullptr;
+    m_liquidPoolStatusReadbackQueued = false;
+    m_liquidPoolStatusReadbackDelayFrames = 0;
     m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiTemporalReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiPreviousReservoirBuffer = nullptr;

@@ -799,7 +799,9 @@ static void ApplySmokeDetailDecalNormalOffset(
     size_t vertexStart,
     size_t indexStart)
 {
-    if (r_pathTracingDecalComposite.GetInteger() <= 0)
+    const bool genericOffsetEnabled = r_pathTracingDecalComposite.GetInteger() > 0;
+    const bool liquidOffsetRequested = r_pathTracingLiquidPoolMode.GetInteger() != 0;
+    if (!genericOffsetEnabled && !liquidOffsetRequested)
     {
         return;
     }
@@ -819,6 +821,20 @@ static void ApplySmokeDetailDecalNormalOffset(
     if (!IsSmokeDetailDecalCardMaterial(material, classifier))
     {
         return;
+    }
+    if (!genericOffsetEnabled)
+    {
+        const uint32_t materialId = SmokeMaterialId(material);
+        const RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfo(materialId);
+        if (!info || !SmokeMaterialTextureInfoHasMaterialMetadata(*info))
+        {
+            RegisterSmokeMaterialTextureInfo(material);
+            info = FindSmokeMaterialTextureInfo(materialId);
+        }
+        if (!info || !SmokeMaterialTextureInfoHasMaterialMetadata(*info) || !info->liquidFilmCandidate)
+        {
+            return;
+        }
     }
 
     const float step = Max(0.0f, r_pathTracingDecalOffsetStep.GetFloat());

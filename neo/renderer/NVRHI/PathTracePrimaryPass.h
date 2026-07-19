@@ -243,6 +243,7 @@ private:
     void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
     void ReadBackRayTracingSmokeTest();
     void ReadBackSkyCubeProbe();
+    void ReadBackLiquidPoolStatus();
     void ReadBackDLSSRRInputColorDump();
     void QueueDLSSRRInputColorDump(nvrhi::ICommandList* commandList, nvrhi::ITexture* inputColor, int source, uint32_t frameIndex);
     void ExecutePathTraceParticleComposite(nvrhi::ICommandList* commandList, const viewDef_t* viewDef);
@@ -407,6 +408,12 @@ private:
     nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::BufferHandle m_restirPTConstantsBuffer;
     nvrhi::BufferHandle m_smokeBoundsOverlayLineBuffer;
+    nvrhi::BufferHandle m_liquidPoolStatusBuffer;
+    nvrhi::BufferHandle m_liquidPoolStatusReadbackBuffer;
+    bool m_liquidPoolStatusReadbackQueued = false;
+    int m_liquidPoolStatusReadbackDelayFrames = 0;
+    uint32_t m_liquidPoolLastExceptionalMask[8] = {};
+    uint32_t m_liquidPoolLastOverflowCount[8] = {};
     nvrhi::BufferHandle m_smokeCleanRtxdiDiCurrentReservoirBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiTemporalReservoirBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiPreviousReservoirBuffer;

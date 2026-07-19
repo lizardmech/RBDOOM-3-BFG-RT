@@ -633,3 +633,97 @@ Decision: PASS. LPD-04 is next, subject to its fixture/performance gates.
 
 Artifact set:
   docs/liquid_pool_decals/artifacts/LPD-03/20260719-163932/.
+
+
+LPD-04 Static-Primary Implementation Checkpoint - 2026-07-19 17:10 +10:00
+============================================================================
+
+LPD-04 is intentionally narrowed to the authored static-world route requested by
+the supervisor. Dynamic ProjectDecal/dsplat and rigid liquid ownership remain
+parked; a semantic liquid occurrence on those routes records fail-closed/invalid-
+route status and otherwise retains its pre-LPD-04 traversal behavior.
+
+The original precondition that capacity must come from measured shipped overlap
+cannot currently be satisfied: B3/B4/B5/B6/B8 interactive fixtures exist, but no
+shipped overlap histogram was captured. This checkpoint therefore uses a
+NON-SHIPPING provisional capacity of four. B3/B4 fit; B6 (32 aligned cards) is
+the deliberate overflow proof. Any fifth unique exact occurrence sets overflow,
+mode 2 leaves the receiver dry, debug output is magenta, and the primary status
+counter records one overflow event per ray. Mode 0 remains the default.
+
+The apparent 64-byte Vulkan payload precondition is also corrected. The generated
+SPIR-V already contains the complete pre-LPD-04 29-member payload, while NVRHI's
+Vulkan backend never consumes PipelineDesc::maxPayloadSize; only its D3D12 backend
+uses that field. LPD-04 therefore does not change the host value. The Vulkan
+payload gains four implicit-instance static candidates, each carrying material,
+primitive, exact barycentric x/y words, and hitT, plus four aggregate words.
+
+The primary producer now binds the semantic material-feature rows at t80 rather
+than widening the legacy name-based pool bit. It binds optical parameters at t81
+and a 16-uint exceptional-status UAV at u82. Candidate sets are seeded into the
+legacy filter receiver retrace and deduplicated by the accepted five-word key
+before capacity accounting. Static candidates IgnoreHit before generic/filter
+stochastic logic, validate only after the receiver is committed, reduce through
+the LPD-03 helper, and apply after ordinary receiver modifiers but before primary
+record/guide storage. Shadow any-hit ignores semantic static liquid cards in
+modes 1-3. The scene-capture offset gate is independently liquid-aware.
+
+Direct DXC and generated Vulkan blobs match SHA-256
+287B325F88F8255E112D120E1ABA45A9571C99F69801B9CF9B738E5C510EC677 and pass
+spirv-val for Vulkan 1.2. Source UTC mtime 07:07:34 precedes generated blob UTC
+mtime 07:08:34. The full release host build and reducer CTest pass. Executable
+and only the primary SPIR-V were deployed with matching hashes; executable hash
+is B0386077CC61DE7E538D12C54B833D83112D28337CF37BEF61BE6DF133433971.
+
+Runtime pipeline initialization, B3/B4/B5/B6/B8 output, negative controls, and
+timing remain pending. This is an implementation checkpoint, not LPD-04
+acceptance and not a shipping/default-flip decision.
+
+
+LPD-04 Contract/Evidence Correction - 2026-07-19
+================================================
+
+The preceding checkpoint entry incorrectly described dynamic B3/B4/B6
+`liquidPoolFixture` commands as proof for the authored static-world transport.
+Those commands create ProjectDecal/dsplat surfaces, which this checkpoint
+deliberately parks and diagnoses as unsupported rather than loading through the
+static geometry domain. They cannot validate static collection, duplicate
+equality, or overflow.
+
+Capacity four remains a NON-SHIPPING provisional implementation choice, but its
+GPU overflow acceptance is pending an authored static overlap case or the later
+dynamic-route implementation. The old hash/timestamp/deployment evidence is
+also superseded because the shader diagnostics and static offset metadata
+hydration changed afterward. Fresh build/deploy evidence follows in a later
+entry; no prior hash should be treated as the checkpoint's final artifact.
+
+
+LPD-04 Static-Primary Rebuild and Deploy - 2026-07-19
+=====================================================
+
+The static offset gate now hydrates missing material metadata before testing the
+semantic liquid-film flag, so a newly captured authored card does not depend on
+a previous frame's discovery pass. Filter receiver retraces deduplicate the
+authoritative five-word key before both retained capacity and raw unique-
+occurrence accounting. Diagnostic status channels use numeric floats except the
+two explicitly lossless asfloat key pages.
+
+Direct Vulkan DXC and generated primary SPIR-V match SHA-256
+30E97D96DF3D0639A133668A14F16B88A911AA5A01D67179781F04E2382049D6 and
+spirv-val passes for Vulkan 1.2. Source UTC mtime
+2026-07-19T07:18:12.1729894Z precedes generated blob UTC mtime
+2026-07-19T07:18:53.0956184Z. Disassembly confirms material-feature t80,
+liquid-status u82, LiquidPoolInfo constant member 41, and the expanded
+RayPayloadKHR type. NVRHI Vulkan still has no maxPayloadSize consumer; the
+D3D12-only 64-byte host field remains unchanged.
+
+`cmake --build --preset win64-pt-dev-release` succeeds from neo and the reducer
+CTest passes 1/1. The executable SHA-256 is
+29511F4272CE294704FC3D93AD16E6A305C46D68CC33D92CC4C8626FE24C0E4F. With the
+game closed, that executable and only
+`spirv/builtin/pathtracing/pathtrace_primary_surface_producer.rt.bin` were
+deployed; source/destination hashes and timestamps match exactly.
+
+Runtime authored-static splat5 collection, receiver validation, coat appearance,
+mode-0 regression, and timing remain pending. Dynamic fixtures and GPU overflow
+acceptance remain explicitly deferred rather than counted as static proof.

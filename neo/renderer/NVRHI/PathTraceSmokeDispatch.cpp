@@ -724,7 +724,32 @@ struct PathTraceSmokeConstants
     float neeCacheConsumerInfo[4];
     float decalInfo[4];
     float decalInfo2[4];
+    float liquidPoolInfo[4];
 };
+
+static_assert(offsetof(PathTraceSmokeConstants, liquidPoolInfo) == offsetof(PathTraceSmokeConstants, decalInfo2) + sizeof(float) * 4,
+    "PathTraceSmokeConstants liquid-pool control offset must mirror HLSL");
+static_assert(sizeof(PathTraceSmokeConstants) == offsetof(PathTraceSmokeConstants, liquidPoolInfo) + sizeof(float) * 4,
+    "PathTraceSmokeConstants liquid-pool control must remain the final float4");
+
+static void PopulatePathTraceDecalAndLiquidPoolControls(
+    PathTraceSmokeConstants& constants,
+    int effectiveLiquidPoolMode,
+    bool liquidPoolTelemetryReady,
+    int dynamicMaterialRecordCount,
+    int materialOverlayRecordCount)
+{
+    constants.decalInfo[0] = static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingDecalComposite.GetInteger()));
+    constants.decalInfo[1] = Max(0.0f, r_pathTracingDecalOffsetStep.GetFloat());
+    constants.decalInfo[2] = static_cast<float>(Max(1, r_pathTracingDecalMaxOffsetIndex.GetInteger()));
+    constants.decalInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingDecalModulateFloor.GetFloat());
+    constants.decalInfo2[0] = static_cast<float>(Max(0, dynamicMaterialRecordCount));
+    constants.decalInfo2[1] = static_cast<float>(Max(0, materialOverlayRecordCount));
+    constants.liquidPoolInfo[0] = static_cast<float>(idMath::ClampInt(0, 3, effectiveLiquidPoolMode));
+    constants.liquidPoolInfo[1] = static_cast<float>(idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger()));
+    constants.liquidPoolInfo[2] = static_cast<float>(idMath::ClampInt(0, 3, r_pathTracingLiquidPoolDebugPage.GetInteger()));
+    constants.liquidPoolInfo[3] = liquidPoolTelemetryReady ? 1.0f : 0.0f;
+}
 
 struct PathTraceIntegratorSettings
 {
@@ -2798,14 +2823,26 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.toyPathInfo[2] = cleanRtxdiDiResolveView == 16
                 ? idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat())
                 : 0.0f;
-            primarySurfaceConstants.decalInfo[0] = static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingDecalComposite.GetInteger()));
-            primarySurfaceConstants.decalInfo[1] = Max(0.0f, r_pathTracingDecalOffsetStep.GetFloat());
-            primarySurfaceConstants.decalInfo[2] = static_cast<float>(Max(1, r_pathTracingDecalMaxOffsetIndex.GetInteger()));
-            primarySurfaceConstants.decalInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingDecalModulateFloor.GetFloat());
             const int primarySurfaceDynamicRecordCount = Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount);
             const int primarySurfaceMaterialOverlayRecordCount = m_sceneInputs.materials.materialTableGpuStable ? primarySurfaceDynamicRecordCount : 0;
-            primarySurfaceConstants.decalInfo2[0] = static_cast<float>(primarySurfaceDynamicRecordCount);
-            primarySurfaceConstants.decalInfo2[1] = static_cast<float>(primarySurfaceMaterialOverlayRecordCount);
+            const int requestedLiquidPoolMode = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger());
+            const bool liquidPoolTelemetryReady = m_liquidPoolStatusBuffer && m_liquidPoolStatusReadbackBuffer;
+            const int effectiveLiquidPoolMode = liquidPoolTelemetryReady ? requestedLiquidPoolMode : 0;
+            PopulatePathTraceDecalAndLiquidPoolControls(
+                primarySurfaceConstants,
+                effectiveLiquidPoolMode,
+                liquidPoolTelemetryReady,
+                primarySurfaceDynamicRecordCount,
+                primarySurfaceMaterialOverlayRecordCount);
+            if (requestedLiquidPoolMode != 0 && !liquidPoolTelemetryReady)
+            {
+                static bool liquidPoolTelemetryWarningPrinted = false;
+                if (!liquidPoolTelemetryWarningPrinted)
+                {
+                    liquidPoolTelemetryWarningPrinted = true;
+                    common->Printf("PathTracePrimaryPass: liquid-pool mode requested but status telemetry is unavailable; primary producer fails closed to mode 0\n");
+                }
+            }
             {
                 static int lastLoggedDecalStage = -1;
                 const int decalStageNow = static_cast<int>(primarySurfaceConstants.decalInfo[0]);
@@ -2865,6 +2902,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->commitBarriers();
             commandList->writeBuffer(m_smokeConstantsBuffer, &primarySurfaceConstants, sizeof(primarySurfaceConstants));
+            if (effectiveLiquidPoolMode != 0)
+            {
+                commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->commitBarriers();
+                commandList->clearBufferUInt(m_liquidPoolStatusBuffer, 0u);
+            }
 
             nvrhi::rt::State primarySurfaceState;
             primarySurfaceState.shaderTable = m_smokePrimarySurfaceProducerShaderTable;
@@ -2876,6 +2919,36 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceArgs.height = m_frameResources.height;
             primarySurfaceArgs.depth = 1;
             commandList->dispatchRays(primarySurfaceArgs);
+
+            if (effectiveLiquidPoolMode != 0)
+            {
+                nvrhi::utils::BufferUavBarrier(commandList, m_liquidPoolStatusBuffer);
+                if (!m_liquidPoolStatusReadbackQueued)
+                {
+                    commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::CopySource);
+                    commandList->setBufferState(m_liquidPoolStatusReadbackBuffer, nvrhi::ResourceStates::CopyDest);
+                    commandList->commitBarriers();
+                    commandList->copyBuffer(m_liquidPoolStatusReadbackBuffer, 0, m_liquidPoolStatusBuffer, 0, sizeof(uint32_t) * 16u);
+                    commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
+                    commandList->commitBarriers();
+                    m_liquidPoolStatusReadbackQueued = true;
+                    m_liquidPoolStatusReadbackDelayFrames = 3;
+                }
+                const int liquidDebug = idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger());
+                if (liquidDebug != 0 && r_pathTracingReadbackEnable.GetInteger() != 0 &&
+                    !m_frameResources.readbackQueued && m_frameResources.readbackTexture)
+                {
+                    nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+                    commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+                    commandList->commitBarriers();
+                    commandList->copyTexture(m_frameResources.readbackTexture, nvrhi::TextureSlice(), m_frameResources.outputTexture, nvrhi::TextureSlice());
+                    commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                    commandList->commitBarriers();
+                    m_frameResources.readbackQueued = true;
+                    m_frameResources.readbackDelayFrames = 2;
+                    m_frameResources.readbackCooldownFrames = 0;
+                }
+            }
 
             nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
@@ -5860,6 +5933,36 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.emissiveDistributionInfo[2] = static_cast<float>(Max(0, m_sceneInputs.lights.emissiveDistributionFallbackIndex));
     constants.emissiveDistributionInfo[3] = static_cast<float>(
         m_sceneInputs.materials.materialTableGpuStable ? Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount) : 0);
+    const int requestedLiquidPoolMode = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger());
+    const bool liquidPoolTelemetryReady = m_liquidPoolStatusBuffer && m_liquidPoolStatusReadbackBuffer;
+    const bool liquidPoolPrimaryProducerRoute = restirPTStandalonePrimarySurfacePrepass && m_smokePrimarySurfaceProducerShaderTable;
+    const int effectiveLiquidPoolMode = liquidPoolTelemetryReady && liquidPoolPrimaryProducerRoute
+        ? requestedLiquidPoolMode
+        : 0;
+    PopulatePathTraceDecalAndLiquidPoolControls(
+        constants,
+        effectiveLiquidPoolMode,
+        liquidPoolTelemetryReady,
+        Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount),
+        m_sceneInputs.materials.materialTableGpuStable ? Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount) : 0);
+    if (requestedLiquidPoolMode != 0 && stagedRestirDirectLightingMode && !liquidPoolPrimaryProducerRoute)
+    {
+        static bool liquidPoolPrepassWarningPrinted = false;
+        if (!liquidPoolPrepassWarningPrinted)
+        {
+            liquidPoolPrepassWarningPrinted = true;
+            common->Printf("PathTracePrimaryPass: liquid-pool mode requested on a ReSTIR route without the standalone primary prepass; effective mode is 0 (set r_pathTracingRestirPTPrimarySurfacePrepass 1)\n");
+        }
+    }
+    if (requestedLiquidPoolMode != 0 && !liquidPoolTelemetryReady)
+    {
+        static bool liquidPoolTelemetryWarningPrinted = false;
+        if (!liquidPoolTelemetryWarningPrinted)
+        {
+            liquidPoolTelemetryWarningPrinted = true;
+            common->Printf("PathTracePrimaryPass: liquid-pool mode requested but status telemetry is unavailable; effective mode is 0\n");
+        }
+    }
     const bool enableGpuBoundsOverlay = r_pathTracingSceneBoundsOverlayGpu.GetInteger() != 0;
     const bool enableBoundsBoxDebugMode = debugMode == 21 || debugMode == 22;
     const int gpuBoundsOverlayLineCount = (enableGpuBoundsOverlay || enableBoundsBoxDebugMode) ? idMath::ClampInt(0, RT_PT_BOUNDS_OVERLAY_MAX_LINES, m_smokeBoundsOverlayLineCount) : 0;
@@ -6923,6 +7026,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         : RT_RESTIR_PT_SHADER_DISPATCH_FULL;
     if (restirPTStandalonePrimarySurfacePrepass && m_smokePrimarySurfaceProducerShaderTable)
     {
+        if (effectiveLiquidPoolMode != 0)
+        {
+            commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+            commandList->clearBufferUInt(m_liquidPoolStatusBuffer, 0u);
+        }
         nvrhi::rt::State primarySurfacePrepassState = state;
         primarySurfacePrepassState.shaderTable = m_smokePrimarySurfaceProducerShaderTable;
         {
@@ -6938,6 +7047,36 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 commandList->setRayTracingState(primarySurfacePrepassState);
                 dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_PRIMARY_SURFACE_ONLY);
+            }
+        }
+
+        if (effectiveLiquidPoolMode != 0)
+        {
+            nvrhi::utils::BufferUavBarrier(commandList, m_liquidPoolStatusBuffer);
+            if (!m_liquidPoolStatusReadbackQueued)
+            {
+                commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::CopySource);
+                commandList->setBufferState(m_liquidPoolStatusReadbackBuffer, nvrhi::ResourceStates::CopyDest);
+                commandList->commitBarriers();
+                commandList->copyBuffer(m_liquidPoolStatusReadbackBuffer, 0, m_liquidPoolStatusBuffer, 0, sizeof(uint32_t) * 16u);
+                commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->commitBarriers();
+                m_liquidPoolStatusReadbackQueued = true;
+                m_liquidPoolStatusReadbackDelayFrames = 3;
+            }
+            const int liquidDebug = idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger());
+            if (liquidDebug != 0 && r_pathTracingReadbackEnable.GetInteger() != 0 &&
+                !m_frameResources.readbackQueued && m_frameResources.readbackTexture)
+            {
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+                commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+                commandList->commitBarriers();
+                commandList->copyTexture(m_frameResources.readbackTexture, nvrhi::TextureSlice(), m_frameResources.outputTexture, nvrhi::TextureSlice());
+                commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->commitBarriers();
+                m_frameResources.readbackQueued = true;
+                m_frameResources.readbackDelayFrames = 2;
+                m_frameResources.readbackCooldownFrames = 0;
             }
         }
 

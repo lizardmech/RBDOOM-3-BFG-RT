@@ -6,6 +6,7 @@
 #endif
 
 #define RT_SMOKE_DECAL_BIN_SIZE 3
+#define RT_LIQUID_POOL_CANDIDATE_CAPACITY 4
 
 struct PathTraceSmokePayload
 {
@@ -41,6 +42,17 @@ struct PathTraceSmokePayload
     uint decalPackedTexCoord[RT_SMOKE_DECAL_BIN_SIZE];
     uint decalSortKey[RT_SMOKE_DECAL_BIN_SIZE];
     float decalHitT[RT_SMOKE_DECAL_BIN_SIZE];
+    // LPD-04 static-world candidate transport. Instance 0 is implicit; dynamic
+    // and rigid routes remain fail-closed until their ownership is audited.
+    uint liquidRawCount;
+    uint liquidRetainedCount;
+    uint liquidStatusMask;
+    uint liquidRejectionCount;
+    uint liquidMaterialIndex[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint liquidPrimitiveIndex[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint liquidBarycentricXBits[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint liquidBarycentricYBits[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
+    float liquidHitT[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
 };
 
 struct PathTraceSmokeShadowPayload
@@ -221,9 +233,9 @@ StructuredBuffer<uint> SmokePreviousStaticTriangleMaterials : register(t37);
 StructuredBuffer<uint> SmokePreviousStaticTriangleMaterialIndexes : register(t38);
 StructuredBuffer<uint> SmokeSkinnedTriangleDispatchIndexes : register(t41);
 StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t76);
-// LPD-02 transports liquid candidate optical parameters only. No beauty path
-// calls the loader or applies the film until the shared reducer lands.
+StructuredBuffer<PathTraceMaterialFeatureRecord> PathTraceMaterialFeatures : register(t80);
 StructuredBuffer<PathTraceMaterialFeatureParameterRecord> PathTraceMaterialFeatureParameters : register(t81);
+RWStructuredBuffer<uint> PathTraceLiquidPoolStatusCounters : register(u82);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
@@ -278,6 +290,8 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 ProducerReservedTail[20];
     float4 DecalInfo;
     float4 DecalInfo2;
+    // x=effective mode, y=debug, z=debug page, w=status telemetry bound/ready.
+    float4 LiquidPoolInfo;
 };
 
 bool TryLoadPathTraceLiquidPoolMaterialFeatureParameters(
@@ -299,6 +313,39 @@ bool TryLoadPathTraceLiquidPoolMaterialFeatureParameters(
     parameters = PathTraceSanitizeLiquidPoolMaterialFeatureParameters(
         PathTraceMaterialFeatureParameters[materialIndex]);
     return true;
+}
+
+bool TryLoadPathTraceMaterialFeatureRecord(
+    uint materialIndex,
+    out PathTraceMaterialFeatureRecord feature)
+{
+    feature = (PathTraceMaterialFeatureRecord)0;
+    uint featureRecordCount = 0u;
+    uint featureRecordStride = 0u;
+    PathTraceMaterialFeatures.GetDimensions(featureRecordCount, featureRecordStride);
+    const uint materialCount = (uint)max(TextureInfo.z, 0.0);
+    if (featureRecordCount != materialCount ||
+        featureRecordStride != 32u ||
+        materialIndex >= materialCount)
+    {
+        return false;
+    }
+
+    feature = PathTraceMaterialFeatures[materialIndex];
+    return feature.recordAbiVersion == RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION &&
+        feature.parameterRecordIndex == materialIndex;
+}
+
+bool PathTraceMaterialIsSemanticLiquidPool(uint materialIndex)
+{
+    PathTraceMaterialFeatureRecord feature;
+    return TryLoadPathTraceMaterialFeatureRecord(materialIndex, feature) &&
+        feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER &&
+        feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION &&
+        (feature.materialCaps & (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+            RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND)) ==
+            (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+                RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND);
 }
 
 #define RB_PATH_TRACE_PRIMARY_SURFACE_HAS_RR_PROJECTION_DEPTH_INFO
@@ -367,6 +414,15 @@ static const uint RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 0x00000040u;
 static const uint RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE = 3u;
 static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
+static const uint RT_LIQUID_POOL_STATUS_CANDIDATE = 1u << 0u;
+static const uint RT_LIQUID_POOL_STATUS_RECEIVER_VALID = 1u << 1u;
+static const uint RT_LIQUID_POOL_STATUS_APPLIED = 1u << 2u;
+static const uint RT_LIQUID_POOL_STATUS_OVERFLOW = 1u << 3u;
+static const uint RT_LIQUID_POOL_STATUS_RECEIVER_REJECTED = 1u << 4u;
+static const uint RT_LIQUID_POOL_STATUS_DUPLICATE_APPLY = 1u << 5u;
+static const uint RT_LIQUID_POOL_STATUS_FAIL_CLOSED = 1u << 6u;
+static const uint RT_LIQUID_POOL_STATUS_INVALID_ROUTE = 1u << 7u;
+static const uint RT_LIQUID_POOL_SOURCE_PRIMARY = 1u;
 
 #include "pathtrace_material_classifier.hlsli"
 
@@ -415,6 +471,26 @@ uint PathTraceDecalCompositeStage()
 bool PathTraceDecalCollectEnabled(uint stage)
 {
     return stage == 1u || stage == 3u || stage == 4u;
+}
+
+uint PathTraceLiquidPoolMode()
+{
+    return (uint)clamp(LiquidPoolInfo.x, 0.0, 3.0);
+}
+
+uint PathTraceLiquidPoolDebug()
+{
+    return (uint)clamp(LiquidPoolInfo.y, 0.0, 6.0);
+}
+
+uint PathTraceLiquidPoolDebugPage()
+{
+    return (uint)clamp(LiquidPoolInfo.z, 0.0, 3.0);
+}
+
+bool PathTraceLiquidPoolCollectionEnabled()
+{
+    return PathTraceLiquidPoolMode() != 0u && LiquidPoolInfo.w >= 0.5;
 }
 
 float3 SafeNormalize(float3 value, float3 fallback)
@@ -976,6 +1052,21 @@ bool ResolvePrimaryFilterDecalReceiver(inout PathTraceSmokePayload payload, RayD
     }
 
     PathTraceSmokePayload receiverPayload = InitSmokePayload();
+    // Seed the retrace with the first trace's dedicated set. Any-hit deduplicates
+    // the exact five-word occurrence key before capacity accounting.
+    receiverPayload.liquidRawCount = payload.liquidRawCount;
+    receiverPayload.liquidRetainedCount = payload.liquidRetainedCount;
+    receiverPayload.liquidStatusMask = payload.liquidStatusMask;
+    receiverPayload.liquidRejectionCount = payload.liquidRejectionCount;
+    [unroll]
+    for (uint liquidSlot = 0u; liquidSlot < RT_LIQUID_POOL_CANDIDATE_CAPACITY; ++liquidSlot)
+    {
+        receiverPayload.liquidMaterialIndex[liquidSlot] = payload.liquidMaterialIndex[liquidSlot];
+        receiverPayload.liquidPrimitiveIndex[liquidSlot] = payload.liquidPrimitiveIndex[liquidSlot];
+        receiverPayload.liquidBarycentricXBits[liquidSlot] = payload.liquidBarycentricXBits[liquidSlot];
+        receiverPayload.liquidBarycentricYBits[liquidSlot] = payload.liquidBarycentricYBits[liquidSlot];
+        receiverPayload.liquidHitT[liquidSlot] = payload.liquidHitT[liquidSlot];
+    }
     receiverPayload.value = 2u;
     receiverPayload.shadowIgnoreInstanceId = payload.instanceId;
     receiverPayload.shadowIgnorePrimitiveIndex = payload.primitiveIndex;
@@ -1296,6 +1387,19 @@ PathTraceSmokePayload InitSmokePayload()
         payload.decalPackedTexCoord[decalSlot] = 0u;
         payload.decalSortKey[decalSlot] = 0u;
         payload.decalHitT[decalSlot] = 0.0;
+    }
+    payload.liquidRawCount = 0u;
+    payload.liquidRetainedCount = 0u;
+    payload.liquidStatusMask = 0u;
+    payload.liquidRejectionCount = 0u;
+    [unroll]
+    for (uint liquidSlot = 0u; liquidSlot < RT_LIQUID_POOL_CANDIDATE_CAPACITY; ++liquidSlot)
+    {
+        payload.liquidMaterialIndex[liquidSlot] = 0xffffffffu;
+        payload.liquidPrimitiveIndex[liquidSlot] = 0xffffffffu;
+        payload.liquidBarycentricXBits[liquidSlot] = 0u;
+        payload.liquidBarycentricYBits[liquidSlot] = 0u;
+        payload.liquidHitT[liquidSlot] = 0.0;
     }
     return payload;
 }
@@ -1680,6 +1784,390 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBaryce
     return SmokeAlphaCoverage(material, texCoord) < material.alphaCutoff;
 }
 
+bool TryGetLiquidPoolStageColor(uint materialIndex, out float4 stageColor)
+{
+    stageColor = float4(1.0, 1.0, 1.0, 1.0);
+    const uint dynamicRecordCount = (uint)max(DecalInfo2.x, 0.0);
+    if (materialIndex >= dynamicRecordCount)
+    {
+        return true;
+    }
+
+    const PathTraceDynamicMaterialRecord dynamicRecord = SmokeDynamicMaterials[materialIndex];
+    if ((dynamicRecord.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
+        dynamicRecord.materialIndex != materialIndex)
+    {
+        return true;
+    }
+    if ((dynamicRecord.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) == 0u ||
+        dynamicRecord.texMatrix0.w == 0.0)
+    {
+        return false;
+    }
+
+    stageColor = float4(max(dynamicRecord.color.rgb, 0.0), saturate(dynamicRecord.color.a));
+    return stageColor.a > 0.0;
+}
+
+void ConditionallyStoreLiquidPoolCandidate(
+    inout PathTraceSmokePayload payload,
+    uint materialIndex,
+    uint primitiveIndex,
+    float2 barycentrics)
+{
+    const LiquidPoolContributorKey key = LiquidPoolMakeContributorKey(0u, primitiveIndex, materialIndex, barycentrics);
+    payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
+
+    [unroll]
+    for (uint existingSlot = 0u; existingSlot < RT_LIQUID_POOL_CANDIDATE_CAPACITY; ++existingSlot)
+    {
+        if (existingSlot < payload.liquidRetainedCount &&
+            payload.liquidPrimitiveIndex[existingSlot] == key.primitiveIndex &&
+            payload.liquidMaterialIndex[existingSlot] == key.materialIndex &&
+            payload.liquidBarycentricXBits[existingSlot] == key.barycentricXBits &&
+            payload.liquidBarycentricYBits[existingSlot] == key.barycentricYBits)
+        {
+            return;
+        }
+    }
+
+    // Count unique observed occurrences. A filter-receiver retrace can visit the
+    // same card again; that transport duplicate must not inflate the raw tuple.
+    payload.liquidRawCount = payload.liquidRawCount == 0xffffffffu ? 0xffffffffu : payload.liquidRawCount + 1u;
+
+    if (payload.liquidRetainedCount >= RT_LIQUID_POOL_CANDIDATE_CAPACITY)
+    {
+        payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_OVERFLOW;
+        return;
+    }
+
+    const uint slot = payload.liquidRetainedCount++;
+    payload.liquidMaterialIndex[slot] = key.materialIndex;
+    payload.liquidPrimitiveIndex[slot] = key.primitiveIndex;
+    payload.liquidBarycentricXBits[slot] = key.barycentricXBits;
+    payload.liquidBarycentricYBits[slot] = key.barycentricYBits;
+    payload.liquidHitT[slot] = RayTCurrent();
+}
+
+bool TryBuildStaticLiquidPoolCardEvidence(
+    uint primitiveIndex,
+    float2 barycentrics,
+    out float3 cardPosition,
+    out float3 cardPlaneNormal,
+    out float2 cardTexCoord)
+{
+    cardPosition = 0.0;
+    cardPlaneNormal = 0.0;
+    cardTexCoord = 0.0;
+    if (!SmokeTriangleIndexRangeValid(0u, primitiveIndex))
+    {
+        return false;
+    }
+
+    const uint indexOffset = primitiveIndex * 3u;
+    const uint i0 = SmokeStaticIndices[indexOffset + 0u];
+    const uint i1 = SmokeStaticIndices[indexOffset + 1u];
+    const uint i2 = SmokeStaticIndices[indexOffset + 2u];
+    if (i0 >= PathTraceStaticVertexCount() || i1 >= PathTraceStaticVertexCount() || i2 >= PathTraceStaticVertexCount())
+    {
+        return false;
+    }
+
+    const PathTraceSmokeVertex v0 = SmokeStaticVertices[i0];
+    const PathTraceSmokeVertex v1 = SmokeStaticVertices[i1];
+    const PathTraceSmokeVertex v2 = SmokeStaticVertices[i2];
+    const float3 bary = float3(1.0 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y);
+    cardPosition = v0.position.xyz * bary.x + v1.position.xyz * bary.y + v2.position.xyz * bary.z;
+    cardPlaneNormal = cross(v1.position.xyz - v0.position.xyz, v2.position.xyz - v0.position.xyz);
+    cardTexCoord = v0.texCoord.xy * bary.x + v1.texCoord.xy * bary.y + v2.texCoord.xy * bary.z;
+    return LiquidPoolFinite3(cardPosition) && LiquidPoolFinite3(cardPlaneNormal) && LiquidPoolFinite2(cardTexCoord);
+}
+
+uint LiquidPoolDiagnosticHash(LiquidPoolContributorKey key)
+{
+    uint hash = 2166136261u;
+    hash = (hash ^ key.instanceId) * 16777619u;
+    hash = (hash ^ key.primitiveIndex) * 16777619u;
+    hash = (hash ^ key.materialIndex) * 16777619u;
+    hash = (hash ^ key.barycentricXBits) * 16777619u;
+    return (hash ^ key.barycentricYBits) * 16777619u;
+}
+
+struct LiquidPoolPrimaryResolve
+{
+    LiquidPoolResolvedFilm film;
+    LiquidPoolEffectiveReceiverMaterial effective;
+    uint validatedCount;
+    uint rejectionCount;
+    uint statusMask;
+};
+
+LiquidPoolPrimaryResolve ResolvePrimaryLiquidPool(
+    inout RAB_Surface surface,
+    PathTraceSmokePayload payload,
+    float3 rayDirection)
+{
+    LiquidPoolPrimaryResolve result = (LiquidPoolPrimaryResolve)0;
+    result.film = LiquidPoolResolvedFilmIdentity();
+    result.statusMask = payload.liquidStatusMask;
+    result.rejectionCount = payload.liquidRejectionCount;
+    result.effective = LiquidPoolApplyResolvedFilm(
+        surface.material.diffuseAlbedo,
+        surface.material.specularF0,
+        surface.material.roughness,
+        result.film,
+        0u);
+
+    if (!PathTraceLiquidPoolCollectionEnabled() || !RAB_IsSurfaceValid(surface) || payload.liquidRetainedCount == 0u)
+    {
+        return result;
+    }
+
+    PathTraceMaterialFeatureRecord receiverFeature;
+    const bool receiverFeatureValid = TryLoadPathTraceMaterialFeatureRecord(surface.materialIndex, receiverFeature);
+    const uint receiverOpaque = receiverFeatureValid &&
+        (receiverFeature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_DIRECT) != 0u &&
+        surface.surfaceClass != RT_SMOKE_SURFACE_CLASS_TRANSLUCENT;
+    const uint receiverTransmission = !receiverFeatureValid ||
+        (receiverFeature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION) != 0u;
+
+    [loop]
+    for (uint slot = 0u; slot < min(payload.liquidRetainedCount, RT_LIQUID_POOL_CANDIDATE_CAPACITY); ++slot)
+    {
+        const uint materialIndex = payload.liquidMaterialIndex[slot];
+        const uint primitiveIndex = payload.liquidPrimitiveIndex[slot];
+        const float2 barycentrics = float2(
+            asfloat(payload.liquidBarycentricXBits[slot]),
+            asfloat(payload.liquidBarycentricYBits[slot]));
+        float3 cardPosition;
+        float3 cardPlaneNormal;
+        float2 cardTexCoord;
+        const bool cardValid = TryBuildStaticLiquidPoolCardEvidence(
+            primitiveIndex,
+            barycentrics,
+            cardPosition,
+            cardPlaneNormal,
+            cardTexCoord);
+
+        LiquidPoolReceiverEvidence evidence = (LiquidPoolReceiverEvidence)0;
+        evidence.cardPosition = cardPosition;
+        evidence.cardPlaneNormal = cardPlaneNormal;
+        evidence.receiverPosition = surface.worldPos;
+        evidence.receiverGeometryNormal = surface.geometryNormal;
+        evidence.rayDirection = rayDirection;
+        evidence.domainAccepted = cardValid && surface.instanceId == 0u;
+        evidence.identityAccepted = cardValid && surface.instanceId == 0u;
+        evidence.receiverOpaque = receiverOpaque;
+        evidence.receiverPathTransmission = receiverTransmission;
+        if (!LiquidPoolAcceptsReceiver(evidence))
+        {
+            result.rejectionCount += 1u;
+            result.statusMask |= RT_LIQUID_POOL_STATUS_RECEIVER_REJECTED;
+            continue;
+        }
+
+        PathTraceMaterialFeatureParameterRecord parameters;
+        float4 stageColor;
+        if (!TryLoadPathTraceLiquidPoolMaterialFeatureParameters(materialIndex, parameters) ||
+            !TryGetLiquidPoolStageColor(materialIndex, stageColor))
+        {
+            result.rejectionCount += 1u;
+            result.statusMask |= RT_LIQUID_POOL_STATUS_RECEIVER_REJECTED;
+            continue;
+        }
+
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(materialIndex);
+        LiquidPoolReducerCandidate candidate = (LiquidPoolReducerCandidate)0;
+        candidate.coverage = saturate(SmokeAlphaCoverage(material, cardTexCoord)) * saturate(stageColor.a);
+        candidate.height = 1.0;
+        candidate.decalRgb = max(SampleSmokeDecodedDiffuseTexture(material, cardTexCoord).rgb, 0.0) * max(stageColor.rgb, 0.0);
+        candidate.referenceTransmittance = parameters.params0.xyz;
+        candidate.opticalDepthScale = parameters.params0.w;
+        candidate.coatRoughness = parameters.params1.x;
+        candidate.dielectricIor = parameters.params1.y;
+        candidate.authoredNormalStrength = parameters.params1.z;
+        candidate.key = LiquidPoolMakeContributorKey(0u, primitiveIndex, materialIndex, barycentrics);
+        candidate.diagnosticHash = LiquidPoolDiagnosticHash(candidate.key);
+        candidate.valid = candidate.coverage > 0.0 ? 1u : 0u;
+        if (candidate.valid == 0u)
+        {
+            continue;
+        }
+        result.film = LiquidPoolReduceCandidate(result.film, candidate);
+        result.validatedCount += 1u;
+    }
+
+    if (result.validatedCount > 0u)
+    {
+        result.statusMask |= RT_LIQUID_POOL_STATUS_RECEIVER_VALID;
+    }
+    result.film.overflowed = (result.statusMask & RT_LIQUID_POOL_STATUS_OVERFLOW) != 0u ? 1u : 0u;
+    if (result.film.overflowed == 0u)
+    {
+        result.effective = LiquidPoolApplyResolvedFilm(
+            surface.material.diffuseAlbedo,
+            surface.material.specularF0,
+            surface.material.roughness,
+            result.film,
+            0u);
+        if (PathTraceLiquidPoolMode() >= 2u && result.effective.applied != 0u)
+        {
+            surface.material.diffuseAlbedo = result.effective.albedo;
+            surface.material.specularF0 = result.effective.specularF0;
+            surface.material.roughness = result.effective.roughness;
+            result.statusMask |= RT_LIQUID_POOL_STATUS_APPLIED;
+        }
+    }
+    return result;
+}
+
+void LiquidPoolSaturatingIncrement(uint counterIndex)
+{
+    uint observed;
+    InterlockedCompareExchange(PathTraceLiquidPoolStatusCounters[counterIndex], 0xffffffffu, 0xffffffffu, observed);
+    while (observed != 0xffffffffu)
+    {
+        uint previous;
+        InterlockedCompareExchange(PathTraceLiquidPoolStatusCounters[counterIndex], observed, observed + 1u, previous);
+        if (previous == observed)
+        {
+            return;
+        }
+        observed = previous;
+    }
+}
+
+void PublishLiquidPoolExceptionalStatus(uint statusMask)
+{
+    const uint exceptionalMask = statusMask &
+        (RT_LIQUID_POOL_STATUS_OVERFLOW |
+            RT_LIQUID_POOL_STATUS_DUPLICATE_APPLY |
+            RT_LIQUID_POOL_STATUS_FAIL_CLOSED |
+            RT_LIQUID_POOL_STATUS_INVALID_ROUTE);
+    if (exceptionalMask == 0u || LiquidPoolInfo.w < 0.5)
+    {
+        return;
+    }
+    uint ignored;
+    InterlockedOr(PathTraceLiquidPoolStatusCounters[RT_LIQUID_POOL_SOURCE_PRIMARY], exceptionalMask, ignored);
+    if ((exceptionalMask & RT_LIQUID_POOL_STATUS_OVERFLOW) != 0u)
+    {
+        LiquidPoolSaturatingIncrement(8u + RT_LIQUID_POOL_SOURCE_PRIMARY);
+    }
+}
+
+float3 LiquidPoolStatusColor(uint statusMask)
+{
+    if ((statusMask & (RT_LIQUID_POOL_STATUS_OVERFLOW | RT_LIQUID_POOL_STATUS_INVALID_ROUTE)) != 0u) return float3(1.0, 0.0, 1.0);
+    if ((statusMask & RT_LIQUID_POOL_STATUS_APPLIED) != 0u) return float3(0.0, 1.0, 0.0);
+    if ((statusMask & RT_LIQUID_POOL_STATUS_RECEIVER_VALID) != 0u) return float3(0.0, 1.0, 1.0);
+    if ((statusMask & RT_LIQUID_POOL_STATUS_RECEIVER_REJECTED) != 0u) return float3(1.0, 0.2, 0.0);
+    if ((statusMask & RT_LIQUID_POOL_STATUS_CANDIDATE) != 0u) return float3(1.0, 1.0, 0.0);
+    return float3(0.0, 0.0, 0.0);
+}
+
+void WritePrimaryLiquidPoolDebug(
+    uint2 outputPixel,
+    inout RAB_Surface surface,
+    PathTraceSmokePayload payload,
+    inout LiquidPoolPrimaryResolve resolved)
+{
+    const uint debug = PathTraceLiquidPoolDebug();
+    const uint page = PathTraceLiquidPoolDebugPage();
+    if (PathTraceLiquidPoolMode() == 0u)
+    {
+        return;
+    }
+    if (PathTraceLiquidPoolMode() == 1u || debug != 0u)
+    {
+        surface.material.diffuseAlbedo = LiquidPoolStatusColor(resolved.statusMask);
+        surface.material.emissiveRadiance = max(surface.material.emissiveRadiance, surface.material.diffuseAlbedo);
+    }
+    if (debug == 0u)
+    {
+        return;
+    }
+
+    float4 tuple = 0.0;
+    bool validPage = false;
+    if (debug == 1u && page == 0u)
+    {
+        tuple = float4(LiquidPoolStatusColor(resolved.statusMask), (float)resolved.statusMask);
+        validPage = true;
+    }
+    else if (debug == 2u && page == 0u)
+    {
+        tuple = float4((float)payload.liquidRawCount, (float)payload.liquidRetainedCount,
+            (float)RT_LIQUID_POOL_CANDIDATE_CAPACITY, (float)resolved.statusMask);
+        validPage = true;
+    }
+    else if (debug == 3u && page == 0u)
+    {
+        tuple = float4((float)resolved.validatedCount, resolved.film.coverage, resolved.film.height, (float)resolved.statusMask);
+        validPage = true;
+    }
+    else if (debug == 4u && page == 0u)
+    {
+        tuple = float4(asfloat(resolved.film.winnerKey.instanceId), asfloat(resolved.film.winnerKey.primitiveIndex),
+            asfloat(resolved.film.winnerKey.materialIndex), asfloat(resolved.statusMask));
+        validPage = true;
+    }
+    else if (debug == 4u && page == 1u)
+    {
+        tuple = float4(asfloat(resolved.film.winnerKey.barycentricXBits), asfloat(resolved.film.winnerKey.barycentricYBits),
+            asfloat(resolved.film.diagnosticHash), asfloat(resolved.statusMask));
+        validPage = true;
+    }
+    else if (debug == 4u && page == 2u)
+    {
+        tuple = float4((float)resolved.rejectionCount, resolved.film.coverage,
+            (float)RT_LIQUID_POOL_SOURCE_PRIMARY, (float)resolved.statusMask);
+        validPage = true;
+    }
+    else if (debug == 5u && page == 0u)
+    {
+        tuple = float4(resolved.effective.albedo, (float)resolved.effective.applied);
+        validPage = true;
+    }
+    else if (debug == 5u && page == 1u)
+    {
+        tuple = float4(resolved.effective.specularF0, resolved.effective.roughness);
+        validPage = true;
+    }
+    else if (debug == 5u && page == 2u)
+    {
+        tuple = float4(resolved.effective.transmittance, resolved.film.height);
+        validPage = true;
+    }
+    else if (debug == 5u && page == 3u)
+    {
+        const float coatF0 = LiquidPoolDielectricF0(resolved.film.dielectricIor);
+        const float opticalDepth = clamp(resolved.film.opticalDepthScale * resolved.film.height, 0.0, LIQUID_POOL_D_MAX);
+        tuple = float4(resolved.film.coverage, coatF0, resolved.film.coatRoughness, opticalDepth);
+        validPage = true;
+    }
+    else if (debug == 6u && page == 0u)
+    {
+        tuple = float4((float)RT_LIQUID_POOL_SOURCE_PRIMARY, (float)resolved.statusMask,
+            (resolved.statusMask & RT_LIQUID_POOL_STATUS_APPLIED) != 0u ? 1.0 : 0.0, 0.0);
+        validPage = true;
+    }
+    else if (debug == 6u && page == 1u)
+    {
+        tuple = 0.0;
+        validPage = true;
+    }
+
+    if (!validPage)
+    {
+        resolved.statusMask |= RT_LIQUID_POOL_STATUS_INVALID_ROUTE;
+        tuple = float4(7.0, (float)resolved.statusMask, 0.0, 0.0);
+        surface.material.diffuseAlbedo = float3(1.0, 0.0, 1.0);
+        surface.material.emissiveRadiance = max(surface.material.emissiveRadiance, surface.material.diffuseAlbedo);
+    }
+    SmokeOutput[outputPixel] = tuple;
+}
+
 // DECAL-05 (docs/decal_cards/03): deterministic blend-through composite. The bin
 // is sorted ascending by draw-order sort key and each surviving layer composites
 // onto the base material -- over / modulate / additive -- using the decal card's
@@ -1737,6 +2225,11 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
         const PathTraceSmokeMaterial decalMaterial = LoadSmokeMaterial(decalMaterialIndex);
         if ((decalMaterial.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) == 0u)
         {
+            continue;
+        }
+        if (PathTraceLiquidPoolCollectionEnabled() && PathTraceMaterialIsSemanticLiquidPool(decalMaterialIndex))
+        {
+            // The dedicated union owns semantic liquid cards in modes 1-3.
             continue;
         }
 
@@ -1917,6 +2410,9 @@ void RayGen()
             ApplyDetailDecalComposite(surface, payload, ray.Direction);
         }
     }
+    LiquidPoolPrimaryResolve liquidResolve = ResolvePrimaryLiquidPool(surface, payload, ray.Direction);
+    WritePrimaryLiquidPoolDebug(outputPixel, surface, payload, liquidResolve);
+    PublishLiquidPoolExceptionalStatus(liquidResolve.statusMask);
     StorePrimarySurfaceRecord(pixel, surface);
     StoreRayReconstructionGuides(pixel, surface);
     StoreRayReconstructionMotionGuides(pixel, surface);
@@ -2002,6 +2498,33 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             return;
         }
     }
+    if (PathTraceLiquidPoolCollectionEnabled() && SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+    {
+        const uint materialIndex = LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
+        if (PathTraceMaterialIsSemanticLiquidPool(materialIndex))
+        {
+            if (instanceId == 0u)
+            {
+                const PathTraceSmokeMaterial material = LoadSmokeMaterial(materialIndex);
+                const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, attributes.barycentrics);
+                float4 stageColor;
+                if (TryGetLiquidPoolStageColor(materialIndex, stageColor))
+                {
+                    const float coverage = saturate(SmokeAlphaCoverage(material, texCoord)) * saturate(stageColor.a);
+                    if (coverage > 0.0)
+                    {
+                        ConditionallyStoreLiquidPoolCandidate(payload, materialIndex, primitiveIndex, attributes.barycentrics);
+                    }
+                }
+                IgnoreHit();
+                return;
+            }
+
+            // Dynamic/rigid liquid ownership is deliberately parked. Preserve
+            // its old traversal behavior and make the unsupported route visible.
+            payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED | RT_LIQUID_POOL_STATUS_INVALID_ROUTE;
+        }
+    }
     if (payload.value == 0u &&
         instanceId < 2u &&
         PathTraceDecalCollectEnabled(PathTraceDecalCompositeStage()) &&
@@ -2025,8 +2548,19 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
 [shader("anyhit")]
 void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
+    const uint instanceId = InstanceID();
+    const uint primitiveIndex = PrimitiveIndex();
+    if (PathTraceLiquidPoolCollectionEnabled() &&
+        instanceId == 0u &&
+        SmokeTriangleIndexRangeValid(instanceId, primitiveIndex) &&
+        PathTraceMaterialIsSemanticLiquidPool(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex)))
+    {
+        payload.hit = 0u;
+        IgnoreHit();
+        return;
+    }
     payload.hit = 1u;
-    if (SmokeAlphaRejectsHit(InstanceID(), PrimitiveIndex(), attributes.barycentrics, payload.rayMode))
+    if (SmokeAlphaRejectsHit(instanceId, primitiveIndex, attributes.barycentrics, payload.rayMode))
     {
         payload.hit = 0u;
         IgnoreHit();

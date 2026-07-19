@@ -463,10 +463,58 @@ void PathTracePrimaryPass::ReadBackSkyCubeProbe()
     m_smokeSkyCubeProbeReadbackQueued = false;
 }
 
+void PathTracePrimaryPass::ReadBackLiquidPoolStatus()
+{
+    if (!m_liquidPoolStatusReadbackQueued || !m_liquidPoolStatusReadbackBuffer)
+    {
+        return;
+    }
+    if (m_liquidPoolStatusReadbackDelayFrames > 0)
+    {
+        --m_liquidPoolStatusReadbackDelayFrames;
+        return;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+    const uint32_t* counters = static_cast<const uint32_t*>(
+        device->mapBuffer(m_liquidPoolStatusReadbackBuffer, nvrhi::CpuAccessMode::Read));
+    if (!counters)
+    {
+        common->Printf("PathTracePrimaryPass: liquid-pool status readback map failed\n");
+        m_liquidPoolStatusReadbackQueued = false;
+        return;
+    }
+
+    for (uint32_t source = 0u; source < 8u; ++source)
+    {
+        const uint32_t exceptionalMask = counters[source];
+        const uint32_t overflowCount = counters[8u + source];
+        if ((exceptionalMask != 0u || overflowCount != 0u) &&
+            (exceptionalMask != m_liquidPoolLastExceptionalMask[source] ||
+                overflowCount != m_liquidPoolLastOverflowCount[source]))
+        {
+            common->Printf(
+                "PathTracePrimaryPass: liquid-pool status source=%u exceptionalMask=0x%08x overflowRays=%u\n",
+                source,
+                exceptionalMask,
+                overflowCount);
+        }
+        m_liquidPoolLastExceptionalMask[source] = exceptionalMask;
+        m_liquidPoolLastOverflowCount[source] = overflowCount;
+    }
+    device->unmapBuffer(m_liquidPoolStatusReadbackBuffer);
+    m_liquidPoolStatusReadbackQueued = false;
+}
+
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
     ReadBackSkyCubeProbe();
     ReadBackDLSSRRInputColorDump();
+    ReadBackLiquidPoolStatus();
 
     const int debugMode = idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
@@ -555,6 +603,21 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     const int sampleY = m_frameResources.height / 2;
     const byte* readbackBytes = static_cast<const byte*>(readbackData);
     const float* centerRgba = reinterpret_cast<const float*>(readbackBytes + rowPitch * sampleY + sizeof(float) * 4 * sampleX);
+    const int liquidPoolMode = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger());
+    const int liquidPoolDebug = idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger());
+    const int liquidPoolPage = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolDebugPage.GetInteger());
+    if (liquidPoolMode != 0 && liquidPoolDebug != 0)
+    {
+        uint32_t centerWords[4] = {};
+        memcpy(centerWords, centerRgba, sizeof(centerWords));
+        common->Printf(
+            "PathTracePrimaryPass: liquid-pool raw mode=%d debug=%d page=%d center=(%.9g %.9g %.9g %.9g) bits=(0x%08x 0x%08x 0x%08x 0x%08x)\n",
+            liquidPoolMode,
+            liquidPoolDebug,
+            liquidPoolPage,
+            centerRgba[0], centerRgba[1], centerRgba[2], centerRgba[3],
+            centerWords[0], centerWords[1], centerWords[2], centerWords[3]);
+    }
 
     int greenHits = 0;
     int redMisses = 0;

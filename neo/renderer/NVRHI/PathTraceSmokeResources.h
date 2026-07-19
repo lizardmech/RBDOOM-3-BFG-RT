@@ -158,6 +158,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::BufferHandle constantsBuffer;
     nvrhi::BufferHandle restirPTConstantsBuffer;
     nvrhi::BufferHandle boundsOverlayLineBuffer;
+    nvrhi::BufferHandle liquidPoolStatusBuffer;
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::BindingLayoutHandle textureBindlessLayout;
     nvrhi::DescriptorTableHandle existingTextureDescriptorTable;

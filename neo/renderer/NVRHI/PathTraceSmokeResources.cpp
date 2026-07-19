@@ -931,7 +931,12 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(41, desc.buffers.skinnedTriangleDispatchIndexBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(76, desc.buffers.dynamicMaterialBuffer ? desc.buffers.dynamicMaterialBuffer : desc.buffers.lightCandidateBuffer));
         RtPathTraceMaterialFeatureInputResources materialFeatureInputs;
+        materialFeatureInputs.materialFeatureBuffer = desc.buffers.materialFeatureBuffer;
         materialFeatureInputs.materialFeatureParameterBuffer = desc.buffers.materialFeatureParameterBuffer;
+        AddPathTraceMaterialFeatureInputBinding(
+            bindingSetDesc,
+            materialFeatureInputs,
+            RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR);
         AddPathTraceMaterialFeatureInputBinding(
             bindingSetDesc,
             materialFeatureInputs,
@@ -951,6 +956,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(55, desc.restirPTGiReservoirBuffers.reservoirs));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(56, desc.restirPTDiReservoirBuffers.reservoirs));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(68, desc.remixRtxdiDiReservoirBuffer ? desc.remixRtxdiDiReservoirBuffer : desc.restirPTDiReservoirBuffers.reservoirs));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(82, desc.liquidPoolStatusBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(
             126,
             desc.skyEnvironmentCube,
@@ -1192,6 +1198,28 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BufferDesc liquidPoolStatusDesc;
+    liquidPoolStatusDesc.byteSize = sizeof(uint32_t) * 16u;
+    liquidPoolStatusDesc.structStride = sizeof(uint32_t);
+    liquidPoolStatusDesc.canHaveUAVs = true;
+    liquidPoolStatusDesc.debugName = "PathTraceLiquidPoolStatusCounters";
+    liquidPoolStatusDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    liquidPoolStatusDesc.keepInitialState = true;
+    m_liquidPoolStatusBuffer = device->createBuffer(liquidPoolStatusDesc);
+
+    nvrhi::BufferDesc liquidPoolReadbackDesc;
+    liquidPoolReadbackDesc.byteSize = sizeof(uint32_t) * 16u;
+    liquidPoolReadbackDesc.structStride = sizeof(uint32_t);
+    liquidPoolReadbackDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+    liquidPoolReadbackDesc.debugName = "PathTraceLiquidPoolStatusReadback";
+    liquidPoolReadbackDesc.initialState = nvrhi::ResourceStates::CopyDest;
+    liquidPoolReadbackDesc.keepInitialState = true;
+    m_liquidPoolStatusReadbackBuffer = device->createBuffer(liquidPoolReadbackDesc);
+    if (!m_liquidPoolStatusBuffer || !m_liquidPoolStatusReadbackBuffer)
+    {
+        common->Printf("PathTracePrimaryPass: liquid-pool status telemetry unavailable; modes 1-3 fail closed\n");
+    }
+
     nvrhi::BufferDesc restirPTConstantsDesc;
     restirPTConstantsDesc.byteSize = GetRestirPTParametersSize();
     restirPTConstantsDesc.debugName = "PathTraceRestirPTParameters";
@@ -1340,6 +1368,9 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(76));
     AddPathTraceMaterialFeatureInputLayoutBinding(
         bindingLayoutDesc,
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR);
+    AddPathTraceMaterialFeatureInputLayoutBinding(
+        bindingLayoutDesc,
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS);
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
@@ -1356,6 +1387,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(55));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(56));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(68));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(82));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(126));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
