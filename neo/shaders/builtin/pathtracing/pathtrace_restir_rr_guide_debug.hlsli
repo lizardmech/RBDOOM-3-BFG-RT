@@ -101,7 +101,10 @@ float4 EvaluateRayReconstructionGuideDebug(uint2 pixel, uint view)
         const float3 guideSpecular = PathTraceRRGuideSpecularAlbedo[pixel].rgb;
         const float3 historySpecular = RAB_IsSurfaceValid(surface) ? surface.material.specularF0 : float3(0.0, 0.0, 0.0);
         const float3 specularAlbedo = max(max(guideSpecular.r, guideSpecular.g), guideSpecular.b) > 0.0 ? guideSpecular : historySpecular;
-        return float4(saturate(specularAlbedo), 1.0);
+        // Dielectric F0 normally occupies roughly 0.04-0.12. Displaying that
+        // range raw made valid coat changes look uniformly black, so view 8 is
+        // an amplified diagnostic only; the stored RR guide remains untouched.
+        return float4(saturate(specularAlbedo * 8.0), 1.0);
     }
     if (view == 3u)
     {

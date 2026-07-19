@@ -1179,3 +1179,17 @@ match exactly:
 
 Deployment copied only those two Vulkan blobs and the executable. Focused
 in-game history/guide confirmation remains pending.
+
+Runtime confirmed that the applied film is present in primary albedo/raw-color
+and roughness guide views, with no visible history instability. View 8 did not
+visibly distinguish the film because it displayed ordinary dielectric F0 values
+raw; the valid 0.04-0.12 range appeared nearly black. The view-8 diagnostic now
+uses 8x display gain while leaving the stored specular guide byte-for-byte
+unchanged. This is visualization-only and does not enable or evaluate DLSS RR.
+
+After deployment, runtime confirmed the amplified view 8 visibly distinguishes
+the wet specular/F0 footprint. Together with the earlier albedo, raw-color,
+roughness, and stable reset views, this accepts the LPD-05 primary history and RR
+guide contract. The main beauty path remains only mildly glossy at this point;
+secondary reflection parity is intentionally owned by LPD-06A/LPD-06B after the
+ordered LPD-05C control-transport task.
