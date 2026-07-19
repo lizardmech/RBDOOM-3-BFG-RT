@@ -1193,3 +1193,66 @@ roughness, and stable reset views, this accepts the LPD-05 primary history and R
 guide contract. The main beauty path remains only mildly glossy at this point;
 secondary reflection parity is intentionally owned by LPD-06A/LPD-06B after the
 ordered LPD-05C control-transport task.
+
+
+LPD-05C Secondary Control Transport Build Checkpoint - 2026-07-20
+=================================================================
+
+The secondary control ABI is now implemented without liquid collection, reducer,
+material-parameter reads, traversal changes, or beauty shading. One shared include
+owns source IDs 0..7, status bits 0..7, control flags, debug/page validation, and
+the `(6,0)` route tuple.
+
+ReSTIR reflection mirrors the existing 1968-byte smoke b2 tail at byte 1952 and
+uses existing t80/t81 plus status u82. Clean-DI retains its exact 480-byte b2 and
+packs mode/debug/page/control into temporalFlags bits 2..12, with status u94.
+Clean GI now has a 224-byte tail and 704-byte total b2; liquid fields occupy bytes
+672..700. Both GI RT and query layouts bind the future read-only parameter table
+at t87 and status at u94. Host dispatches upload source 4 for GI TraceRay, source
+6 for active ray-query compute, and source 5 around continuation dispatches before
+restoring the active producer source. u81 remains producerRadiance.
+
+Status clearing now occurs before the first participating producer and delayed
+copy occurs only after the complete clean-DI/GI or ReSTIR route. Invalid-route
+visual output uses source 7 while exception counters stay indexed by the owning
+route. Synthetic route exceptions are limited to pixel (0,0); normal wet pixels
+and normal route diagnostics issue no status atomics.
+
+The prescribed release build succeeds and reports all SPIR-V and host outputs up
+to date on a confirmation build. `PathTraceLiquidPoolReducerHarness` passes all
+receiver, reducer, material, and guard checks. All ten forced Vulkan blobs pass
+`spirv-val --target-env vulkan1.2`, every generated mtime is newer than its edited
+source/include, and generated/deployed SHA-256 values match:
+
+  pathtrace_smoke.rt.bin
+    981CE1029A01444C6F447E756EE09A33CA51FAF936B6741FF95115C0FC95DCF8
+  pathtrace_primary_surface_producer.rt.bin
+    0E61EA5D573253D011E4461D6A2397EBB770C012AF0562B3BE15C9A64841517D
+  pathtrace_restir_reflection_producer.rt.bin
+    9A9BBE130E65971DA45BA9806ADC1D546387CDE6D9476E2407695485BAFCB2BB
+  pathtrace_clean_rtxdi_di_sentinel.rt.bin
+    007C57BB1531AA94C46F66EE033219C9A7CA4716A38DC2505E2671BF76F58455
+  pathtrace_clean_rtxdi_di_initial.rt.bin
+    875EC3431551B73C10A57C641AC693E7623DB7F81048E8AE17B2017D136981A7
+  pathtrace_clean_rtxdi_di_temporal.rt.bin
+    23D90DE86DBB392EF30EFB8E98A4FFA00925D0B2EE3E7954E59D90F3E326AE32
+  pathtrace_clean_rtxdi_di_spatial.rt.bin
+    BF8C5B02E9D388C912DBE030EBB1A8197864ED258F2D8A32C7C5F786D6BAD918
+  pathtrace_clean_restir_gi.rt.bin
+    63157DFA7D4D30D737020D9248CF54CBF87FE5E341593672B30BB5045A8BFC06
+  pathtrace_clean_restir_gi_producer_rayquery.cs.bin
+    3D2E65852F575D454EFDEB0B493069F6AF2920D9D8942A401B11025EE2561E5D
+  pathtrace_clean_restir_gi_temporal.cs.bin
+    537747F7BE88F9F134B7A1123756E463FFD6DE3A093E4403A25E5C5F3314E5D1
+  RBDoom3BFG.exe
+    4938C61DB187871C1D3404A45D20E0996AC16B50FE80DBEE8A3B3E45235334AB
+
+SPIR-V disassembly confirms ReSTIR status binding 82, clean-DI/GI status binding
+94, GI liquid offsets 672..700, and all three continuation entry points consuming
+the transported producer-source field. t87 is absent from optimized shader code
+because this task forbids reading it; CPU layout/set binding is present for both
+GI RT and query pipelines.
+
+Runtime clamp/source/reset, prepass-off fail-closed, synthetic exception, and
+mode-0 beauty-equality matrices remain pending. This is a build/deploy checkpoint,
+not runtime acceptance of LPD-05C.

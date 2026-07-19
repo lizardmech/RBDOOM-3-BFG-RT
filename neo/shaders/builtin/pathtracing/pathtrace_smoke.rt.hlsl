@@ -1,4 +1,6 @@
 #include "../../vulkan.hlsli"
+#include "PathTraceMaterialFeatureTypes.hlsli"
+#include "cleanroom_common/pathtrace_liquid_pool_control.hlsli"
 #ifndef __cplusplus
 #ifndef uint16_t
 #define uint16_t uint
@@ -359,6 +361,9 @@ StructuredBuffer<PathTraceNeeCacheProviderResult> PathTraceNeeCacheProviderResul
 StructuredBuffer<PathTraceNeeCacheCellRecord> PathTraceNeeCacheCells : register(t75);
 StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t76);
 StructuredBuffer<PathTraceNeeCacheCandidateRecord> PathTraceNeeCacheCandidates : register(t77);
+StructuredBuffer<PathTraceMaterialFeatureRecord> PathTraceMaterialFeatures : register(t80);
+StructuredBuffer<PathTraceMaterialFeatureParameterRecord> PathTraceMaterialFeatureParameters : register(t81);
+RWStructuredBuffer<uint> PathTraceLiquidPoolStatusCounters : register(u82);
 
 #ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
 #include "Rtxdi/DI/Reservoir.hlsli"
@@ -448,7 +453,61 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 NeeCacheInfo2;
     float4 NeeCacheInfo3;
     float4 NeeCacheConsumerInfo;
+    float4 DecalInfo;
+    float4 DecalInfo2;
+    float4 LiquidPoolInfo;
 };
+
+uint PathTraceSecondaryLiquidPoolMode()
+{
+    return (uint)clamp(LiquidPoolInfo.x, 0.0, 3.0);
+}
+
+uint PathTraceSecondaryLiquidPoolDebug()
+{
+    return (uint)clamp(LiquidPoolInfo.y, 0.0, 6.0);
+}
+
+uint PathTraceSecondaryLiquidPoolPage()
+{
+    return (uint)clamp(LiquidPoolInfo.z, 0.0, 3.0);
+}
+
+uint PathTraceSecondaryLiquidPoolControlFlags()
+{
+    return (uint)max(LiquidPoolInfo.w, 0.0);
+}
+
+bool PathTraceWriteRestirReflectionLiquidPoolRouteDiagnostic(uint2 pixel)
+{
+    const uint debug = PathTraceSecondaryLiquidPoolDebug();
+    if (debug != 6u)
+    {
+        return false;
+    }
+    const uint page = PathTraceSecondaryLiquidPoolPage();
+    const uint status = PathTraceLiquidPoolControlInitialStatus(
+        PathTraceSecondaryLiquidPoolControlFlags(), debug, page);
+    const uint source = (status & RT_LIQUID_POOL_STATUS_INVALID_ROUTE) != 0u
+        ? RT_LIQUID_POOL_SOURCE_INVALID
+        : RT_LIQUID_POOL_SOURCE_RESTIR_REFLECTION;
+    RestirPTReflectionOutput[pixel] = PathTraceLiquidPoolRouteDiagnostic(source, status);
+    const uint exceptional = status &
+        (RT_LIQUID_POOL_STATUS_OVERFLOW |
+            RT_LIQUID_POOL_STATUS_DUPLICATE_APPLY |
+            RT_LIQUID_POOL_STATUS_FAIL_CLOSED |
+            RT_LIQUID_POOL_STATUS_INVALID_ROUTE);
+    if (all(pixel == uint2(0u, 0u)) && exceptional != 0u &&
+        (PathTraceSecondaryLiquidPoolControlFlags() & RT_LIQUID_POOL_CONTROL_TELEMETRY_READY) != 0u)
+    {
+        uint ignored;
+        InterlockedOr(
+            PathTraceLiquidPoolStatusCounters[RT_LIQUID_POOL_SOURCE_RESTIR_REFLECTION],
+            exceptional,
+            ignored);
+    }
+    return true;
+}
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
@@ -4933,6 +4992,10 @@ void RayGen()
 #endif
 
 #ifdef RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY
+    if (PathTraceWriteRestirReflectionLiquidPoolRouteDiagnostic(pixel))
+    {
+        return;
+    }
     RestirPTReflectionOutput[pixel] = EvaluateRestirPTTracedReflectionFromSurface(primaryHistorySurface, pixel);
     return;
 #endif

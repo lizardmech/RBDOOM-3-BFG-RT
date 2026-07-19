@@ -2426,6 +2426,11 @@ void RayGen()
         return;
     }
 
+    if (PathTraceCleanRtxdiDiWriteLiquidPoolRouteDiagnostic(pixel))
+    {
+        return;
+    }
+
     const uint view = CleanRtxdiDiView;
     if (view < 1u || view > 25u)
     {
@@ -2455,6 +2460,12 @@ void RayGen()
         return;
     }
 
+
+    if (PathTraceCleanRtxdiDiWriteLiquidPoolRouteDiagnostic(pixel))
+    {
+        return;
+    }
+
     const uint view = CleanRtxdiDiView;
     if (PathTraceCleanRoomTemporalRayGenView(view))
     {
@@ -2468,6 +2479,12 @@ void RayGen()
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+
+    if (PathTraceCleanRtxdiDiWriteLiquidPoolRouteDiagnostic(pixel))
     {
         return;
     }

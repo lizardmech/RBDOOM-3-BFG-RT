@@ -197,6 +197,7 @@ struct RAB_Surface
 #include "PathTracePrimarySurface.hlsli"
 #include "PathTraceMaterialFeatureTypes.hlsli"
 #include "cleanroom_common/pathtrace_liquid_pool_modifier.hlsli"
+#include "cleanroom_common/pathtrace_liquid_pool_control.hlsli"
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
@@ -419,16 +420,6 @@ static const uint RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 0x00000040u;
 static const uint RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE = 3u;
 static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
-static const uint RT_LIQUID_POOL_STATUS_CANDIDATE = 1u << 0u;
-static const uint RT_LIQUID_POOL_STATUS_RECEIVER_VALID = 1u << 1u;
-static const uint RT_LIQUID_POOL_STATUS_APPLIED = 1u << 2u;
-static const uint RT_LIQUID_POOL_STATUS_OVERFLOW = 1u << 3u;
-static const uint RT_LIQUID_POOL_STATUS_RECEIVER_REJECTED = 1u << 4u;
-static const uint RT_LIQUID_POOL_STATUS_DUPLICATE_APPLY = 1u << 5u;
-static const uint RT_LIQUID_POOL_STATUS_FAIL_CLOSED = 1u << 6u;
-static const uint RT_LIQUID_POOL_STATUS_INVALID_ROUTE = 1u << 7u;
-static const uint RT_LIQUID_POOL_SOURCE_PRIMARY = 1u;
-
 #include "pathtrace_material_classifier.hlsli"
 
 uint PathTraceStaticVertexCount() { return (uint)max(GeometryInfo0.x, 0.0); }
@@ -495,7 +486,9 @@ uint PathTraceLiquidPoolDebugPage()
 
 bool PathTraceLiquidPoolCollectionEnabled()
 {
-    return PathTraceLiquidPoolMode() != 0u && LiquidPoolInfo.w >= 0.5;
+    const uint controlFlags = (uint)max(LiquidPoolInfo.w, 0.0);
+    return PathTraceLiquidPoolMode() != 0u &&
+        (controlFlags & RT_LIQUID_POOL_CONTROL_TELEMETRY_READY) != 0u;
 }
 
 float3 SafeNormalize(float3 value, float3 fallback)

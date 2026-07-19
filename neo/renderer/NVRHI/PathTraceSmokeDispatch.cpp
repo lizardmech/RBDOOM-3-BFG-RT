@@ -58,6 +58,14 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_BLUE_NOISE = 1u << 24u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR = 1u << 25u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS = 1u << 26u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION = 1u << 27u;
+const uint32_t LIQUID_POOL_CONTROL_TELEMETRY_READY = 1u << 0u;
+const uint32_t LIQUID_POOL_CONTROL_REQUESTED = 1u << 1u;
+const uint32_t LIQUID_POOL_CONTROL_ROUTE_DISABLED = 1u << 2u;
+const uint32_t LIQUID_POOL_CONTROL_PARAMETERS_READY = 1u << 3u;
+const uint32_t CLEAN_RTXDI_DI_LIQUID_MODE_SHIFT = 2u;
+const uint32_t CLEAN_RTXDI_DI_LIQUID_DEBUG_SHIFT = 4u;
+const uint32_t CLEAN_RTXDI_DI_LIQUID_PAGE_SHIFT = 7u;
+const uint32_t CLEAN_RTXDI_DI_LIQUID_CONTROL_SHIFT = 9u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT = 9u;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_MASK = 7u << RT_SMOKE_TEXTURE_FLAG_OPENPBR_BRDF_MODE_SHIFT;
 const uint32_t RT_SMOKE_TEXTURE_FLAG_SKY_CUBE = 1u << 12u;
@@ -749,7 +757,30 @@ static void PopulatePathTraceDecalAndLiquidPoolControls(
     constants.liquidPoolInfo[0] = static_cast<float>(idMath::ClampInt(0, 3, effectiveLiquidPoolMode));
     constants.liquidPoolInfo[1] = static_cast<float>(idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger()));
     constants.liquidPoolInfo[2] = static_cast<float>(idMath::ClampInt(0, 3, r_pathTracingLiquidPoolDebugPage.GetInteger()));
-    constants.liquidPoolInfo[3] = liquidPoolTelemetryReady ? 1.0f : 0.0f;
+    const int requestedLiquidPoolMode = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger());
+    uint32_t controlFlags = liquidPoolTelemetryReady ? LIQUID_POOL_CONTROL_TELEMETRY_READY : 0u;
+    controlFlags |= requestedLiquidPoolMode != 0 ? LIQUID_POOL_CONTROL_REQUESTED : 0u;
+    controlFlags |= requestedLiquidPoolMode != 0 && effectiveLiquidPoolMode == 0
+        ? LIQUID_POOL_CONTROL_ROUTE_DISABLED
+        : 0u;
+    controlFlags |= materialOverlayRecordCount > 0 ? LIQUID_POOL_CONTROL_PARAMETERS_READY : 0u;
+    constants.liquidPoolInfo[3] = static_cast<float>(controlFlags);
+}
+
+uint32_t PackCleanRtxdiDiLiquidPoolControls(int effectiveMode, bool telemetryReady, bool parametersReady)
+{
+    const uint32_t mode = static_cast<uint32_t>(idMath::ClampInt(0, 3, effectiveMode));
+    const uint32_t debug = static_cast<uint32_t>(idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger()));
+    const uint32_t page = static_cast<uint32_t>(idMath::ClampInt(0, 3, r_pathTracingLiquidPoolDebugPage.GetInteger()));
+    const int requestedMode = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger());
+    uint32_t controlFlags = telemetryReady ? LIQUID_POOL_CONTROL_TELEMETRY_READY : 0u;
+    controlFlags |= requestedMode != 0 ? LIQUID_POOL_CONTROL_REQUESTED : 0u;
+    controlFlags |= requestedMode != 0 && mode == 0u ? LIQUID_POOL_CONTROL_ROUTE_DISABLED : 0u;
+    controlFlags |= parametersReady ? LIQUID_POOL_CONTROL_PARAMETERS_READY : 0u;
+    return (mode << CLEAN_RTXDI_DI_LIQUID_MODE_SHIFT) |
+        (debug << CLEAN_RTXDI_DI_LIQUID_DEBUG_SHIFT) |
+        (page << CLEAN_RTXDI_DI_LIQUID_PAGE_SHIFT) |
+        (controlFlags << CLEAN_RTXDI_DI_LIQUID_CONTROL_SHIFT);
 }
 
 struct PathTraceIntegratorSettings
@@ -2903,7 +2934,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->commitBarriers();
             commandList->writeBuffer(m_smokeConstantsBuffer, &primarySurfaceConstants, sizeof(primarySurfaceConstants));
-            if (effectiveLiquidPoolMode != 0)
+            if (requestedLiquidPoolMode != 0 && liquidPoolTelemetryReady)
             {
                 commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
                 commandList->commitBarriers();
@@ -2920,36 +2951,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceArgs.height = m_frameResources.height;
             primarySurfaceArgs.depth = 1;
             commandList->dispatchRays(primarySurfaceArgs);
-
-            if (effectiveLiquidPoolMode != 0)
-            {
-                nvrhi::utils::BufferUavBarrier(commandList, m_liquidPoolStatusBuffer);
-                if (!m_liquidPoolStatusReadbackQueued)
-                {
-                    commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::CopySource);
-                    commandList->setBufferState(m_liquidPoolStatusReadbackBuffer, nvrhi::ResourceStates::CopyDest);
-                    commandList->commitBarriers();
-                    commandList->copyBuffer(m_liquidPoolStatusReadbackBuffer, 0, m_liquidPoolStatusBuffer, 0, sizeof(uint32_t) * 16u);
-                    commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
-                    commandList->commitBarriers();
-                    m_liquidPoolStatusReadbackQueued = true;
-                    m_liquidPoolStatusReadbackDelayFrames = 3;
-                }
-                const int liquidDebug = idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger());
-                if (liquidDebug != 0 && r_pathTracingReadbackEnable.GetInteger() != 0 &&
-                    !m_frameResources.readbackQueued && m_frameResources.readbackTexture)
-                {
-                    nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
-                    commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
-                    commandList->commitBarriers();
-                    commandList->copyTexture(m_frameResources.readbackTexture, nvrhi::TextureSlice(), m_frameResources.outputTexture, nvrhi::TextureSlice());
-                    commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-                    commandList->commitBarriers();
-                    m_frameResources.readbackQueued = true;
-                    m_frameResources.readbackDelayFrames = 2;
-                    m_frameResources.readbackCooldownFrames = 0;
-                }
-            }
 
             nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
@@ -3091,6 +3092,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanRtxdiDiResolveView == 16 ||
             (cleanRtxdiDiView == 8 && cleanRtxdiDiTemporalEnabled);
         const bool cleanRtxdiDiBindingInputsValid =
+            m_liquidPoolStatusBuffer &&
             (!cleanRtxdiDiNeedsPrimarySurface ||
                 (m_frameResources.primarySurfaceHistoryBuffers.current && m_frameResources.primarySurfaceHistoryBuffers.previous &&
                     m_frameResources.motionVectorTexture && m_frameResources.rrMotionVectorTexture && m_frameResources.motionVectorMaskTexture)) &&
@@ -3692,6 +3694,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, cleanNeeCacheCellSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cleanNeeCacheCandidateSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(94, m_liquidPoolStatusBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING, m_smokeCleanRtxdiDiBlueNoise.texture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
         nvrhi::BindingSetHandle cleanBindingSet = device->createBindingSet(cleanBindingSetDesc, m_smokeCleanRtxdiDiSentinelBindingLayout);
@@ -3712,6 +3715,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         PathTraceUploadBlueNoise(m_smokeCleanRtxdiDiBlueNoise, commandList);
         commandList->setTextureState(m_smokeCleanRtxdiDiBlueNoise.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -3932,6 +3936,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16)))) &&
             cleanPromoteSubviewReservoir &&
             m_smokeCleanRtxdiDiSpatialShaderTable != nullptr;
+        const int cleanRequestedLiquidPoolMode = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger());
+        const bool cleanLiquidPoolTelemetryReady = m_liquidPoolStatusBuffer && m_liquidPoolStatusReadbackBuffer;
+        const bool cleanLiquidPoolParametersReady =
+            m_smokeMaterialFeatureParameterBuffer &&
+            m_sceneInputs.materials.materialFeatureParameterRecordCount > 0;
+        const int cleanEffectiveLiquidPoolMode = cleanLiquidPoolTelemetryReady && cleanLiquidPoolParametersReady
+            ? cleanRequestedLiquidPoolMode
+            : 0;
+        cleanTemporalFlags |= PackCleanRtxdiDiLiquidPoolControls(
+            cleanEffectiveLiquidPoolMode,
+            cleanLiquidPoolTelemetryReady,
+            cleanLiquidPoolParametersReady);
         uint32_t cleanFlags = 0u;
         if (r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0 || pdfNeeRluCurrentProducerRequested)
         {
@@ -3965,7 +3981,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_RESOLVE_SOLID_ANGLE_PDF;
         }
-        if (idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger()) != 0)
+        if (cleanEffectiveLiquidPoolMode != 0)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_LIQUID_MODIFIER_VISIBILITY;
         }
@@ -4545,6 +4561,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
             giInputs.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
             giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
+            giInputs.materialFeatureParameterBuffer = m_smokeMaterialFeatureParameterBuffer;
+            giInputs.materialFeatureParameterCount = static_cast<uint32_t>(
+                Max(0, m_sceneInputs.materials.materialFeatureParameterRecordCount));
+            giInputs.liquidPoolStatusBuffer = m_liquidPoolStatusBuffer;
             giInputs.dynamicMaterialBuffer = m_smokeDynamicMaterialBuffer;
             giInputs.fallbackTexture = cleanFallbackTexture;
             giInputs.skyEnvironmentCube = m_smokeSkyEnvironmentCube;
@@ -4869,6 +4889,44 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             common->Printf("PathTracePrimaryPass: dispatched clean-room RTXDI DI sentinel raygen (%dx%d, view=%d)\n", m_frameResources.width, m_frameResources.height, cleanRtxdiDiView);
         }
         m_smokeTestDispatched = true;
+        if (cleanRequestedLiquidPoolMode != 0 && cleanLiquidPoolTelemetryReady)
+        {
+            nvrhi::utils::BufferUavBarrier(commandList, m_liquidPoolStatusBuffer);
+            if (!m_liquidPoolStatusReadbackQueued)
+            {
+                commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::CopySource);
+                commandList->setBufferState(m_liquidPoolStatusReadbackBuffer, nvrhi::ResourceStates::CopyDest);
+                commandList->commitBarriers();
+                commandList->copyBuffer(
+                    m_liquidPoolStatusReadbackBuffer,
+                    0,
+                    m_liquidPoolStatusBuffer,
+                    0,
+                    sizeof(uint32_t) * 16u);
+                commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->commitBarriers();
+                m_liquidPoolStatusReadbackQueued = true;
+                m_liquidPoolStatusReadbackDelayFrames = 3;
+            }
+        }
+        const int cleanLiquidDebug = idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger());
+        if (cleanLiquidDebug != 0 && r_pathTracingReadbackEnable.GetInteger() != 0 &&
+            !m_frameResources.readbackQueued && m_frameResources.readbackTexture)
+        {
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+            commandList->commitBarriers();
+            commandList->copyTexture(
+                m_frameResources.readbackTexture,
+                nvrhi::TextureSlice(),
+                m_frameResources.outputTexture,
+                nvrhi::TextureSlice());
+            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+            m_frameResources.readbackQueued = true;
+            m_frameResources.readbackDelayFrames = 2;
+            m_frameResources.readbackCooldownFrames = 0;
+        }
         if (r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger() != 0)
         {
             if (!m_frameResources.readbackQueued && m_frameResources.readbackTexture)
@@ -7029,14 +7087,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int finalDispatchMode = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode
         ? RT_RESTIR_PT_SHADER_DISPATCH_FULL_CONSUME_PRIMARY
         : RT_RESTIR_PT_SHADER_DISPATCH_FULL;
+    if (requestedLiquidPoolMode != 0 && liquidPoolTelemetryReady)
+    {
+        commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->commitBarriers();
+        commandList->clearBufferUInt(m_liquidPoolStatusBuffer, 0u);
+    }
     if (restirPTStandalonePrimarySurfacePrepass && m_smokePrimarySurfaceProducerShaderTable)
     {
-        if (effectiveLiquidPoolMode != 0)
-        {
-            commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->commitBarriers();
-            commandList->clearBufferUInt(m_liquidPoolStatusBuffer, 0u);
-        }
         nvrhi::rt::State primarySurfacePrepassState = state;
         primarySurfacePrepassState.shaderTable = m_smokePrimarySurfaceProducerShaderTable;
         {
@@ -7052,36 +7110,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 commandList->setRayTracingState(primarySurfacePrepassState);
                 dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_PRIMARY_SURFACE_ONLY);
-            }
-        }
-
-        if (effectiveLiquidPoolMode != 0)
-        {
-            nvrhi::utils::BufferUavBarrier(commandList, m_liquidPoolStatusBuffer);
-            if (!m_liquidPoolStatusReadbackQueued)
-            {
-                commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::CopySource);
-                commandList->setBufferState(m_liquidPoolStatusReadbackBuffer, nvrhi::ResourceStates::CopyDest);
-                commandList->commitBarriers();
-                commandList->copyBuffer(m_liquidPoolStatusReadbackBuffer, 0, m_liquidPoolStatusBuffer, 0, sizeof(uint32_t) * 16u);
-                commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
-                commandList->commitBarriers();
-                m_liquidPoolStatusReadbackQueued = true;
-                m_liquidPoolStatusReadbackDelayFrames = 3;
-            }
-            const int liquidDebug = idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger());
-            if (liquidDebug != 0 && r_pathTracingReadbackEnable.GetInteger() != 0 &&
-                !m_frameResources.readbackQueued && m_frameResources.readbackTexture)
-            {
-                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
-                commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
-                commandList->commitBarriers();
-                commandList->copyTexture(m_frameResources.readbackTexture, nvrhi::TextureSlice(), m_frameResources.outputTexture, nvrhi::TextureSlice());
-                commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-                commandList->commitBarriers();
-                m_frameResources.readbackQueued = true;
-                m_frameResources.readbackDelayFrames = 2;
-                m_frameResources.readbackCooldownFrames = 0;
             }
         }
 
@@ -7416,6 +7444,26 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     ExecutePathTraceParticleComposite(commandList, viewDef);
+    if (requestedLiquidPoolMode != 0 && liquidPoolTelemetryReady)
+    {
+        nvrhi::utils::BufferUavBarrier(commandList, m_liquidPoolStatusBuffer);
+        if (!m_liquidPoolStatusReadbackQueued)
+        {
+            commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(m_liquidPoolStatusReadbackBuffer, nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyBuffer(
+                m_liquidPoolStatusReadbackBuffer,
+                0,
+                m_liquidPoolStatusBuffer,
+                0,
+                sizeof(uint32_t) * 16u);
+            commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+            m_liquidPoolStatusReadbackQueued = true;
+            m_liquidPoolStatusReadbackDelayFrames = 3;
+        }
+    }
     const uint64 dlssRrCompleteUs = Sys_Microseconds();
     const uint64 historyCopyStartUs = dlssRrCompleteUs;
     if (!standaloneDebugRouteRequested && !disablePrimarySurfaceHistory)

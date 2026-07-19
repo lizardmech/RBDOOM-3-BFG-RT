@@ -4,6 +4,7 @@
 #include "../../../vulkan.hlsli"
 #include "../PathTracePrimarySurface.hlsli"
 #include "../PathTraceMaterialFeatureTypes.hlsli"
+#include "../cleanroom_common/pathtrace_liquid_pool_control.hlsli"
 #ifdef RTXDI_ENABLE_PRESAMPLING
 #undef RTXDI_ENABLE_PRESAMPLING
 #endif
@@ -250,6 +251,7 @@ StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticPreviousLights
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokePreviousEmissiveTriangles : register(t57);
 StructuredBuffer<PathTraceMaterialFeatureRecord> PathTraceMaterialFeatures : register(t80);
 StructuredBuffer<PathTraceMaterialFeatureParameterRecord> PathTraceMaterialFeatureParameters : register(t81);
+RWStructuredBuffer<uint> PathTraceLiquidPoolStatusCounters : register(u94);
 #define RB_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_SIDECAR 1
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiCurrentReservoirs : register(u69);
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiTemporalReservoirs : register(u70);
@@ -330,6 +332,61 @@ cbuffer PathTraceMaterialFeatureRuntimeConstants : register(b88)
 };
 
 static const uint CLEAN_FLAG_BLUE_NOISE = 1u << 24u;
+static const uint CLEAN_LIQUID_MODE_SHIFT = 2u;
+static const uint CLEAN_LIQUID_DEBUG_SHIFT = 4u;
+static const uint CLEAN_LIQUID_PAGE_SHIFT = 7u;
+static const uint CLEAN_LIQUID_CONTROL_SHIFT = 9u;
+
+uint PathTraceCleanRtxdiDiLiquidPoolMode()
+{
+    return (CleanRtxdiDiTemporalFlags >> CLEAN_LIQUID_MODE_SHIFT) & 3u;
+}
+
+uint PathTraceCleanRtxdiDiLiquidPoolDebug()
+{
+    return (CleanRtxdiDiTemporalFlags >> CLEAN_LIQUID_DEBUG_SHIFT) & 7u;
+}
+
+uint PathTraceCleanRtxdiDiLiquidPoolPage()
+{
+    return (CleanRtxdiDiTemporalFlags >> CLEAN_LIQUID_PAGE_SHIFT) & 3u;
+}
+
+uint PathTraceCleanRtxdiDiLiquidPoolControlFlags()
+{
+    return (CleanRtxdiDiTemporalFlags >> CLEAN_LIQUID_CONTROL_SHIFT) & 15u;
+}
+
+bool PathTraceCleanRtxdiDiWriteLiquidPoolRouteDiagnostic(uint2 pixel)
+{
+    const uint debug = PathTraceCleanRtxdiDiLiquidPoolDebug();
+    if (debug != 6u)
+    {
+        return false;
+    }
+    const uint page = PathTraceCleanRtxdiDiLiquidPoolPage();
+    const uint status = PathTraceLiquidPoolControlInitialStatus(
+        PathTraceCleanRtxdiDiLiquidPoolControlFlags(), debug, page);
+    const uint source = (status & RT_LIQUID_POOL_STATUS_INVALID_ROUTE) != 0u
+        ? RT_LIQUID_POOL_SOURCE_INVALID
+        : RT_LIQUID_POOL_SOURCE_CLEAN_DI_REFLECTION;
+    SmokeOutput[pixel] = PathTraceLiquidPoolRouteDiagnostic(source, status);
+    const uint exceptional = status &
+        (RT_LIQUID_POOL_STATUS_OVERFLOW |
+            RT_LIQUID_POOL_STATUS_DUPLICATE_APPLY |
+            RT_LIQUID_POOL_STATUS_FAIL_CLOSED |
+            RT_LIQUID_POOL_STATUS_INVALID_ROUTE);
+    if (all(pixel == uint2(0u, 0u)) && exceptional != 0u &&
+        (PathTraceCleanRtxdiDiLiquidPoolControlFlags() & RT_LIQUID_POOL_CONTROL_TELEMETRY_READY) != 0u)
+    {
+        uint ignored;
+        InterlockedOr(
+            PathTraceLiquidPoolStatusCounters[RT_LIQUID_POOL_SOURCE_CLEAN_DI_REFLECTION],
+            exceptional,
+            ignored);
+    }
+    return true;
+}
 
 void PathTraceCleanRtxdiDiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)
 {

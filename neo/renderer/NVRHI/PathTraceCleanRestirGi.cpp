@@ -33,6 +33,10 @@ const uint32_t CLEAN_RESTIR_GI_PAGE_TEMPORAL_INPUT = 1u;
 const uint32_t CLEAN_RESTIR_GI_PAGE_TEMPORAL_OUTPUT = 2u;
 const uint32_t CLEAN_RESTIR_GI_PAGE_SPATIAL_OUTPUT = 3u;
 const uint32_t CLEAN_RESTIR_GI_PAGE_COUNT = 4u;
+const uint32_t LIQUID_POOL_CONTROL_TELEMETRY_READY = 1u << 0u;
+const uint32_t LIQUID_POOL_CONTROL_REQUESTED = 1u << 1u;
+const uint32_t LIQUID_POOL_CONTROL_ROUTE_DISABLED = 1u << 2u;
+const uint32_t LIQUID_POOL_CONTROL_PARAMETERS_READY = 1u << 3u;
 
 // Must match the DI sentinel constants blob size mirrored at the head of the
 // GI cbuffer (PathTraceCleanRtxdiDiSentinelConstants).
@@ -85,8 +89,18 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t spatialRemixProfileEnabled;
     float spatialPairwiseCentralWeight;
     uint32_t producerFeatureFlags;
+    uint32_t liquidPoolMode;
+    uint32_t liquidPoolDebug;
+    uint32_t liquidPoolDebugPage;
+    uint32_t liquidPoolControlFlags;
+    uint32_t liquidPoolParameterCount;
+    uint32_t liquidPoolRequestedProducerOpaque;
+    uint32_t liquidPoolRequestedContinuationOpaque;
+    uint32_t liquidPoolProducerSource;
 };
-static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 192, "GI constants tail must match the HLSL cbuffer tail layout");
+static_assert(offsetof(PathTraceCleanRestirGiConstantsTail, liquidPoolMode) == 192,
+    "GI liquid-pool controls must begin at the frozen aligned tail offset");
+static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 224, "GI constants tail must match the HLSL cbuffer tail layout");
 
 const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
 
@@ -169,6 +183,7 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(76));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(87));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(69));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
@@ -183,6 +198,7 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(85));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(86));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(93));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(94));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(48));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(51));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
@@ -424,6 +440,7 @@ void CleanRestirGiAddCommonComputeBindingLayoutItems(nvrhi::BindingLayoutDesc& l
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(76));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(87));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(69));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
@@ -438,6 +455,7 @@ void CleanRestirGiAddCommonComputeBindingLayoutItems(nvrhi::BindingLayoutDesc& l
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(85));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(86));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(93));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(94));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(48));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(51));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
@@ -1088,6 +1106,7 @@ bool PathTraceCleanRestirGiExecute(
         if (!inputs.staticTriangleMaterialIndexBuffer) return "static-triangle-material-index";
         if (!inputs.dynamicTriangleMaterialIndexBuffer) return "dynamic-triangle-material-index";
         if (!inputs.materialTableBuffer) return "material-table";
+        if (!inputs.liquidPoolStatusBuffer) return "liquid-pool-status";
         if (!inputs.fallbackTexture) return "fallback-texture";
         if (!inputs.emissiveTriangleBuffer) return "emissive-triangles";
         if (!inputs.emissiveDistributionBuffer) return "emissive-distribution";
@@ -1140,7 +1159,8 @@ bool PathTraceCleanRestirGiExecute(
         !inputs.staticTriangleClassBuffer || !inputs.dynamicTriangleClassBuffer ||
         !inputs.staticTriangleMaterialBuffer || !inputs.dynamicTriangleMaterialBuffer ||
         !inputs.staticTriangleMaterialIndexBuffer || !inputs.dynamicTriangleMaterialIndexBuffer ||
-        !inputs.materialTableBuffer || !inputs.fallbackTexture || !inputs.skyEnvironmentCube || !inputs.emissiveTriangleBuffer ||
+        !inputs.materialTableBuffer || !inputs.liquidPoolStatusBuffer ||
+        !inputs.fallbackTexture || !inputs.skyEnvironmentCube || !inputs.emissiveTriangleBuffer ||
         !inputs.rigidRouteVertexBuffer || !inputs.rigidRouteIndexBuffer ||
         !inputs.rigidRouteTriangleMaterialBuffer ||
         !inputs.rigidRouteTriangleMaterialIndexBuffer || !inputs.rigidRouteInstanceBuffer ||
@@ -1213,10 +1233,14 @@ bool PathTraceCleanRestirGiExecute(
     nvrhi::IBuffer* neeCacheCellBuffer = inputs.neeCacheCellBuffer ? inputs.neeCacheCellBuffer : state.placeholderSrvBuffer.Get();
     nvrhi::IBuffer* dynamicMaterialBuffer = inputs.dynamicMaterialBuffer ? inputs.dynamicMaterialBuffer : state.placeholderSrvBuffer.Get();
     nvrhi::IBuffer* neeCacheCandidateBuffer = inputs.neeCacheCandidateBuffer ? inputs.neeCacheCandidateBuffer : state.placeholderSrvBuffer.Get();
+    nvrhi::IBuffer* materialFeatureParameterBuffer = inputs.materialFeatureParameterBuffer
+        ? inputs.materialFeatureParameterBuffer
+        : state.placeholderSrvBuffer.Get();
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, neeCacheProviderResultBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, neeCacheCellBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(76, dynamicMaterialBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, neeCacheCandidateBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(87, materialFeatureParameterBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(69, inputs.diReservoirBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, inputs.primarySurfaceCurrentBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, inputs.primarySurfacePreviousBuffer));
@@ -1231,6 +1255,7 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(85, state.indirectDiffuseLobeTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(86, state.indirectSpecularLobeTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(93, state.continuationRadianceTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(94, inputs.liquidPoolStatusBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(48, inputs.rrGuideAlbedoTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(51, inputs.rrGuideHitDistanceTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, inputs.rrInputColorTexture));
@@ -1326,6 +1351,30 @@ bool PathTraceCleanRestirGiExecute(
         (inputs.dlssRrActive && r_pathTracingCleanRestirGiDlssRrCompatibility.GetInteger() != 0 ? 8u : 0u) |
         (static_cast<uint32_t>(idMath::ClampInt(
             1, 160, r_pathTracingCleanRestirGiDlssRrCompatibilityRadius.GetInteger())) << 8u);
+    const uint32_t requestedLiquidPoolMode = static_cast<uint32_t>(
+        idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger()));
+    const bool liquidPoolTelemetryReady = inputs.liquidPoolStatusBuffer != nullptr;
+    const bool liquidPoolParametersReady =
+        inputs.materialFeatureParameterBuffer != nullptr &&
+        inputs.materialFeatureParameterCount > 0u;
+    const bool liquidPoolControlsReady = liquidPoolTelemetryReady && liquidPoolParametersReady;
+    tail.liquidPoolMode = liquidPoolControlsReady ? requestedLiquidPoolMode : 0u;
+    tail.liquidPoolDebug = static_cast<uint32_t>(
+        idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger()));
+    tail.liquidPoolDebugPage = static_cast<uint32_t>(
+        idMath::ClampInt(0, 3, r_pathTracingLiquidPoolDebugPage.GetInteger()));
+    tail.liquidPoolControlFlags = liquidPoolTelemetryReady ? LIQUID_POOL_CONTROL_TELEMETRY_READY : 0u;
+    tail.liquidPoolControlFlags |= requestedLiquidPoolMode != 0u ? LIQUID_POOL_CONTROL_REQUESTED : 0u;
+    tail.liquidPoolControlFlags |= requestedLiquidPoolMode != 0u && !liquidPoolControlsReady
+        ? LIQUID_POOL_CONTROL_ROUTE_DISABLED
+        : 0u;
+    tail.liquidPoolControlFlags |= liquidPoolParametersReady ? LIQUID_POOL_CONTROL_PARAMETERS_READY : 0u;
+    tail.liquidPoolParameterCount = liquidPoolParametersReady
+        ? inputs.materialFeatureParameterCount
+        : 0u;
+    tail.liquidPoolRequestedProducerOpaque = tail.producerOpaqueTrace != 0u ? 1u : 0u;
+    tail.liquidPoolRequestedContinuationOpaque = tail.continuationOpaqueTrace != 0u ? 1u : 0u;
+    tail.liquidPoolProducerSource = 4u;
     std::memcpy(constants + CLEAN_RESTIR_GI_DI_BLOB_SIZE, &tail, sizeof(tail));
     commandList->writeBuffer(state.constantsBuffer, constants, sizeof(constants));
 
@@ -1378,6 +1427,8 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(neeCacheCellBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(dynamicMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(neeCacheCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(materialFeatureParameterBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->commitBarriers();
 
     nvrhi::BindingSetHandle skyResolveProducerBindingSet;
@@ -1475,6 +1526,10 @@ bool PathTraceCleanRestirGiExecute(
         }
     }
     const bool producerRayQueryComputeActive = producerRayQueryComputeBindingSet != nullptr;
+    const uint32_t activeLiquidPoolProducerSource = producerRayQueryComputeActive ? 6u : 4u;
+    tail.liquidPoolProducerSource = activeLiquidPoolProducerSource;
+    std::memcpy(constants + CLEAN_RESTIR_GI_DI_BLOB_SIZE, &tail, sizeof(tail));
+    commandList->writeBuffer(state.constantsBuffer, constants, sizeof(constants));
 
     nvrhi::BindingSetHandle temporalComputeBindingSet;
     const bool temporalComputeRequested = view == 0 && tail.spatialEnabled != 0u;
@@ -1499,8 +1554,20 @@ bool PathTraceCleanRestirGiExecute(
     giArgs.height = inputs.height;
     giArgs.depth = 1;
 
+    auto writeLiquidPoolProducerSource = [&](uint32_t source)
+    {
+        if (tail.liquidPoolProducerSource == source)
+        {
+            return;
+        }
+        tail.liquidPoolProducerSource = source;
+        std::memcpy(constants + CLEAN_RESTIR_GI_DI_BLOB_SIZE, &tail, sizeof(tail));
+        commandList->writeBuffer(state.constantsBuffer, constants, sizeof(constants));
+    };
+
     auto dispatchContinuation = [&](const char* marker)
     {
+        writeLiquidPoolProducerSource(5u);
         nvrhi::rt::State continuationState;
         continuationState.shaderTable = state.continuationShaderTable;
         continuationState.bindings = { bindingSet, inputs.textureDescriptorTable };
@@ -1508,6 +1575,7 @@ bool PathTraceCleanRestirGiExecute(
         commandList->setRayTracingState(continuationState);
         commandList->dispatchRays(giArgs);
         if (nsightGpuMarkers) { commandList->endMarker(); }
+        writeLiquidPoolProducerSource(activeLiquidPoolProducerSource);
         nvrhi::utils::TextureUavBarrier(commandList, state.continuationRadianceTexture);
         dispatchSkyResolve(
             skyResolveContinuationBindingSet,
@@ -1517,6 +1585,7 @@ bool PathTraceCleanRestirGiExecute(
 
     auto dispatchSplitContinuation = [&]()
     {
+        writeLiquidPoolProducerSource(5u);
         nvrhi::rt::State continuationTraceState;
         continuationTraceState.shaderTable = state.continuationTraceShaderTable;
         continuationTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
@@ -1539,6 +1608,7 @@ bool PathTraceCleanRestirGiExecute(
         commandList->setRayTracingState(continuationShadeState);
         commandList->dispatchRays(giArgs);
         if (nsightGpuMarkers) { commandList->endMarker(); }
+        writeLiquidPoolProducerSource(activeLiquidPoolProducerSource);
         nvrhi::utils::TextureUavBarrier(commandList, state.producerRadianceTexture);
     };
 

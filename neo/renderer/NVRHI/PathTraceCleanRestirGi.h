@@ -112,6 +112,9 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* staticTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* dynamicTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* materialTableBuffer = nullptr;
+    nvrhi::IBuffer* materialFeatureParameterBuffer = nullptr;
+    uint32_t materialFeatureParameterCount = 0;
+    nvrhi::IBuffer* liquidPoolStatusBuffer = nullptr;
     nvrhi::IBuffer* dynamicMaterialBuffer = nullptr;
     nvrhi::ITexture* fallbackTexture = nullptr;
     nvrhi::ITexture* skyEnvironmentCube = nullptr;

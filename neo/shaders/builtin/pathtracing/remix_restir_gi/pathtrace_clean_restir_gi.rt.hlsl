@@ -21,6 +21,8 @@
 
 #include "../../../vulkan.hlsli"
 #include "../PathTracePrimarySurface.hlsli"
+#include "../PathTraceMaterialFeatureTypes.hlsli"
+#include "../cleanroom_common/pathtrace_liquid_pool_control.hlsli"
 #include "../cleanroom_common/pathtrace_first_indirect_candidate.hlsli"
 #include "../cleanroom_common/restir_di_reservoir.hlsli"
 #include "Rtxdi/RtxdiParameters.h"
@@ -238,6 +240,7 @@ StructuredBuffer<PathTraceNeeCacheProviderResult> CleanRestirGiNeeCacheProviderR
 StructuredBuffer<PathTraceNeeCacheCellRecord> CleanRestirGiNeeCacheCells : register(t75);
 StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t76);
 StructuredBuffer<PathTraceNeeCacheCandidateRecord> CleanRestirGiNeeCacheCandidates : register(t77);
+StructuredBuffer<PathTraceMaterialFeatureParameterRecord> PathTraceMaterialFeatureParameters : register(t87);
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRestirGiDiReservoirs : register(u69);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
@@ -251,6 +254,7 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuse : re
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuseLobe : register(u85);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectSpecularLobe : register(u86);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiContinuationRadiance : register(u93);
+RWStructuredBuffer<uint> PathTraceLiquidPoolStatusCounters : register(u94);
 
 // CleanGI currently owns the first consumer, but the trace->shade payload is a
 // first-indirect candidate surface rather than a GI-specific contract.
@@ -392,7 +396,58 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiSpatialRemixProfileEnabled;
     float CleanRestirGiSpatialPairwiseCentralWeight;
     uint CleanRestirGiProducerFeatureFlags;
+    uint CleanRestirGiLiquidPoolMode;
+    uint CleanRestirGiLiquidPoolDebug;
+    uint CleanRestirGiLiquidPoolDebugPage;
+    uint CleanRestirGiLiquidPoolControlFlags;
+    uint CleanRestirGiLiquidPoolParameterCount;
+    uint CleanRestirGiLiquidPoolRequestedProducerOpaque;
+    uint CleanRestirGiLiquidPoolRequestedContinuationOpaque;
+    uint CleanRestirGiLiquidPoolProducerSource;
 };
+
+bool CleanGiWriteLiquidPoolRouteDiagnostic(uint2 pixel, uint routeSource)
+{
+    if (CleanRestirGiLiquidPoolDebug != 6u)
+    {
+        return false;
+    }
+    const uint status = PathTraceLiquidPoolControlInitialStatus(
+        CleanRestirGiLiquidPoolControlFlags,
+        CleanRestirGiLiquidPoolDebug,
+        CleanRestirGiLiquidPoolDebugPage);
+    const uint owningSource = clamp(routeSource,
+        RT_LIQUID_POOL_SOURCE_GI_FIRST_INDIRECT,
+        RT_LIQUID_POOL_SOURCE_GI_RAY_QUERY);
+    const uint source = (status & RT_LIQUID_POOL_STATUS_INVALID_ROUTE) != 0u
+        ? RT_LIQUID_POOL_SOURCE_INVALID
+        : owningSource;
+    if (CleanRestirGiLiquidPoolDebugPage == 1u &&
+        (status & RT_LIQUID_POOL_STATUS_INVALID_ROUTE) == 0u)
+    {
+        SmokeOutput[pixel] = float4(
+            (float)CleanRestirGiLiquidPoolRequestedProducerOpaque,
+            CleanRestirGiLiquidPoolMode != 0u ? 1.0 : 0.0,
+            (float)CleanRestirGiLiquidPoolRequestedContinuationOpaque,
+            CleanRestirGiLiquidPoolMode != 0u ? 1.0 : 0.0);
+    }
+    else
+    {
+        SmokeOutput[pixel] = PathTraceLiquidPoolRouteDiagnostic(source, status);
+    }
+    const uint exceptional = status &
+        (RT_LIQUID_POOL_STATUS_OVERFLOW |
+            RT_LIQUID_POOL_STATUS_DUPLICATE_APPLY |
+            RT_LIQUID_POOL_STATUS_FAIL_CLOSED |
+            RT_LIQUID_POOL_STATUS_INVALID_ROUTE);
+    if (all(pixel == uint2(0u, 0u)) && exceptional != 0u &&
+        (CleanRestirGiLiquidPoolControlFlags & RT_LIQUID_POOL_CONTROL_TELEMETRY_READY) != 0u)
+    {
+        uint ignored;
+        InterlockedOr(PathTraceLiquidPoolStatusCounters[owningSource], exceptional, ignored);
+    }
+    return true;
+}
 
 static const uint CLEAN_RESTIR_GI_FEATURE_DI_SAMPLE_STEALING = 1u;
 static const uint CLEAN_RESTIR_GI_FEATURE_TYPED_STRIDED_RIS = 2u;
@@ -6867,6 +6922,11 @@ void FirstIndirectContinuationTraceRayGen()
         return;
     }
 
+    if (CleanGiWriteLiquidPoolRouteDiagnostic(pixel, CleanRestirGiLiquidPoolProducerSource))
+    {
+        return;
+    }
+
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
     const CleanGiProducerSurface secondaryGbuf = CleanGiProducerSurfaceBuffer[flatIndex];
     CleanGiProducerSurface tertiaryGbuf = (CleanGiProducerSurface)0;
@@ -6957,6 +7017,12 @@ void FirstIndirectContinuationShadeRayGen()
         return;
     }
 
+
+    if (CleanGiWriteLiquidPoolRouteDiagnostic(pixel, CleanRestirGiLiquidPoolProducerSource))
+    {
+        return;
+    }
+
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
     const CleanGiProducerSurface tertiaryGbuf = CleanGiProducerSurfaceBuffer[flatIndex];
     const float3 throughput = CleanRestirGiContinuationRadiance[pixel].rgb;
@@ -6995,6 +7061,12 @@ void FirstIndirectContinuationRayGen()
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+
+    if (CleanGiWriteLiquidPoolRouteDiagnostic(pixel, CleanRestirGiLiquidPoolProducerSource))
     {
         return;
     }
@@ -7409,6 +7481,11 @@ void ReuseRayGen()
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    if (CleanGiWriteLiquidPoolRouteDiagnostic(pixel, CleanRestirGiLiquidPoolProducerSource))
     {
         return;
     }
