@@ -727,3 +727,228 @@ deployed; source/destination hashes and timestamps match exactly.
 Runtime authored-static splat5 collection, receiver validation, coat appearance,
 mode-0 regression, and timing remain pending. Dynamic fixtures and GPU overflow
 acceptance remain explicitly deferred rather than counted as static proof.
+
+
+LPD-04 Runtime Flicker Diagnosis and Candidate Fix - 2026-07-19
+================================================================
+
+Supervisor runtime report: pool debug intermittently flashed cyan/yellow/purple,
+then returned to black with camera movement. Audit found that active scene source
+2 skips the draw-surface static capture path and builds authored static geometry
+through PathTraceSceneUniverse. That builder did not call the deterministic
+detail-decal normal-offset helper, leaving its cards coplanar with receivers and
+making candidate intersection camera-direction dependent.
+
+The offset helper is now shared with both scene-universe static append sites.
+Liquid-only offset admission is explicitly static-route-only; generic decal
+offset behavior remains unchanged. The primary any-hit/shadow-any-hit collector
+also checks the stored surface class, so rigid geometry packed in instance 0 by
+scene source 2 is diagnosed unsupported rather than mistaken for authored static
+world geometry.
+
+Direct DXC/generated SPIR-V match SHA-256
+BDA0D424B11DCF590D5C8B5DD5C9DFC50D62B33C3ED87696F3EAC2F2F76BF460 and
+spirv-val passes. Source UTC mtime 2026-07-19T07:31:21.3492987Z precedes generated
+blob UTC mtime 2026-07-19T07:31:55.9551088Z. Full release build and reducer CTest
+pass. Executable SHA-256 is
+E03EDAB6D5046A7EEF02F3B5F02FB2BBC490FADE7B29541FF960FA26B76E84D0. With the
+game closed, only the executable and corrected primary SPIR-V were redeployed
+with exact source/destination hash equality. Runtime stability validation is
+pending before this correction is committed.
+
+
+LPD-04 NPC-Correlated Classification Root Cause - 2026-07-19
+============================================================
+
+Supervisor reported that source 0 and source 3 both remained black, except that
+an NPC walking near the authored splat could make liquid debug flash briefly.
+This disproved scene-source-specific offset/TLAS lifetime as the complete cause.
+
+The accepted LPD-01/02 evidence already records splat5 as a runtime material
+variant with two runtime-ID/index static matches and zero base-ID/index matches.
+The draw-surface static capture nevertheless stored the base material ID and, on
+a cache hit, never refreshed that material identity. Source-3 area residency
+could transiently refresh the same persistent surface to its runtime variant,
+explaining the NPC-correlated classification flash.
+
+Static draw-surface capture now resolves `SmokeRuntimeMaterialTableIdForDrawSurf`
+before append and calls `RefreshStaticSurfaceMaterial` on cached geometry. This
+keeps runtime-register authored static cards associated with the feature row
+that carries their accepted liquid semantic. The full release build and reducer
+CTest pass. Only the executable changed and was deployed with matching SHA-256
+3278DA3BF81380F28D8D91AC981B1C8674F9ED1209F739A3E9442D0028A92A09; the already
+deployed corrected primary SPIR-V remains unchanged. Runtime confirmation is
+pending and the correction remains uncommitted.
+
+
+LPD-04 Exact Coverage-Descriptor Correction - 2026-07-19
+=========================================================
+
+The subsequent mode-1/debug-2 readback remained deterministically empty:
+status=0, rawCount=0, retainedCount=0, capacity=4. The same crosshair dump
+proved that the runtime material identity and feature row were now stable:
+`textures/decals/splat5`, runtime table index 505, candidate=1, two static-route
+runtime ID/index matches, and no base matches.
+
+The decisive mismatch was in the GPU material row. Discovery had accepted
+`makealpha( textures/decals/splat5)` as the exact semantic coverage image, with
+a safe live handle, but the uploaded row reported diffuseSlot=512,
+alphaSlot=-1, normalSlot=513. This was not descriptor exhaustion. The material
+table builder only bound an alpha texture when `hasAlphaTest` was true;
+splat5 is a translucent liquid-film decal and therefore hasAlphaTest=0 even
+though its pool coverage is authored in the makealpha stage. The shader then
+fell back to the diffuse alpha channel and reduced the candidate to zero.
+
+The binding predicate now treats an accepted liquid-film candidate as a second
+exact reason to upload its alpha texture. Ordinary non-liquid translucent
+materials retain the old rule, and no approximate diffuse-RGB coverage fallback
+was added. The existing primary shader and SPIR-V are unchanged by this
+correction; runtime should now show a nonnegative alphaSlot for splat5 and a
+nonzero raw candidate/status at the authored card.
+
+`cmake --build --preset win64-pt-dev-release` succeeds and the liquid-pool
+reducer CTest passes 1/1. With the game closed, the rebuilt executable was
+deployed with matching source/destination SHA-256
+D0BCA570F99B070B356D522A372359FCE15AE6D7CC88665DD7BF4A7573DE4B28.
+The already deployed primary SPIR-V remains byte-identical at SHA-256
+BDA0D424B11DCF590D5C8B5DD5C9DFC50D62B33C3ED87696F3EAC2F2F76BF460.
+Runtime confirmation remains pending before the combined corrective changes
+are committed.
+
+
+LPD-04 Static Route Is Not Static Surface Class - 2026-07-19
+============================================================
+
+The next runtime dump proved the coverage-descriptor correction worked:
+splat5 changed from alphaSlot=-1 to alphaSlot=462, with diffuse/normal at
+461/463. Raw and retained counts nevertheless remained zero. The same dump
+reported two runtime-ID/index matches in the static route while preserving the
+card's semantic class as particle/alpha.
+
+The remaining collector gate incorrectly required both instance 0 and
+surfaceClass=static-world. Those are different contracts. Instance 0 is the
+authoritative static BLAS namespace; authored world decal cards retain their
+particle/alpha semantic class inside that route. Requiring static-world class
+therefore rejected the exact authored static cards this task targets before
+coverage sampling or candidate accounting. Dynamic BLAS instance 1 and rigid
+TLAS instances 2+ are already separate namespaces and remain excluded.
+
+Primary and shadow any-hit now admit semantic liquid candidates from instance 0
+without rewriting or testing their semantic surface class. Direct Vulkan DXC,
+the generated primary SPIR-V, and spirv-val all succeed. The direct/generated
+artifact is byte-identical with SHA-256
+30E97D96DF3D0639A133668A14F16B88A911AA5A01D67179781F04E2382049D6; source UTC
+mtime 2026-07-19T09:27:38.6540321Z precedes generated UTC mtime
+2026-07-19T09:28:03.1583415Z. The hash exactly matches the earlier artifact
+before the erroneous surface-class restriction, providing a useful regression
+cross-check. The reducer CTest passes 1/1. With the game closed, the rebuilt
+executable and only the primary Vulkan SPIR-V were deployed; the deployed blob
+hash matches exactly. Runtime confirmation remains pending before commit.
+
+
+LPD-04 Semantic-Observation Checkpoint - 2026-07-19
+====================================================
+
+With `r_pathTracingDecalComposite 1`, the authored splat can be made visible,
+but the dedicated pool page-0 tuple remains exactly `(0,0,4,0)`. Therefore the
+visible result is not evidence that the dedicated liquid reducer retained a
+candidate; the generic detail-decal compositor is a separate working route.
+
+The primary any-hit diagnostics now set the CANDIDATE status bit immediately
+after observing a semantic liquid material in static-route instance 0, before
+stage-color and coverage filtering. Raw and retained counts remain unchanged
+until coverage is positive, preserving zero-alpha identity and overflow
+semantics. A failed evaluated stage also sets FAIL_CLOSED and increments the
+existing rejection count. This checkpoint is diagnostic-only with respect to
+beauty behavior:
+
+  status 0: the primary any-hit semantic/static branch was never reached;
+  status 1 with raw 0: the branch was reached but sampled coverage was zero;
+  status 65 with raw 0: the branch was reached but evaluated stage state failed.
+
+Direct and generated Vulkan SPIR-V match SHA-256
+CD45CEB6370CCFB4C25FE5C520923701549D3632074747E9CDF08CEF730A3154 and
+spirv-val passes. Source UTC mtime 2026-07-19T09:43:54.8164681Z precedes
+generated UTC mtime 2026-07-19T09:44:16.5003982Z. The prescribed release build
+and reducer CTest pass, and with the game closed the executable plus only the
+primary SPIR-V were deployed with exact source/destination hash equality.
+
+The first observation-checkpoint runtime remained status 0 even with generic
+decal composite stage 1. An additional upstream bit now records instance-0
+detail-decal any-hit observation before the material-feature lookup. Page-0
+status values distinguish: 0=no detail-decal any-hit, 256=detail any-hit but
+feature-row rejection, 257=semantic row accepted but zero coverage, and
+321=semantic row accepted but evaluated stage rejected. This remains diagnostic
+only and does not alter beauty or reducer admission. Direct/generated Vulkan
+SPIR-V match SHA-256
+12EB9CB165BF271D17BAD56277BEEB847D2A020DE689260B6C8BFC2BE415E5B2;
+spirv-val, the release build, reducer CTest, and exact-file deployment pass.
+
+Runtime returned stable status 256. This proves the standalone primary any-hit
+observes the instance-0 detail card, while the GPU modular feature lookup alone
+rejects it. The lookup required StructuredBuffer.GetDimensions element count to
+equal TextureInfo.z, but reusable GPU buffers retain an allocated capacity from
+larger earlier material tables. Logical table count can therefore be smaller
+than buffer capacity even though the requested row, stride, ABI, and parameter
+index are all valid. NPC/camera-driven table-size churn explains the earlier
+brief classifications when logical count happened to match capacity.
+
+The corrected primary feature and parameter lookups treat TextureInfo.z as the
+authoritative logical row count and require allocated capacity to be at least
+that count rather than exactly equal. Stride, logical index bounds, row ABI, and
+parameter-record index validation remain unchanged. This matches the existing
+clean material-feature consumer contract and removes the accidental dependency
+on historical allocation size.
+
+Direct/generated Vulkan SPIR-V match SHA-256
+D6E493674FAB12C5E033A587CBD51F742F779E59F659B7F7A47886781D24B004 and
+spirv-val passes. Source UTC mtime 2026-07-19T09:56:35.2541534Z precedes
+generated UTC mtime 2026-07-19T09:56:55.7447088Z. The prescribed release build,
+reducer CTest, and exact-file executable/primary-SPIR-V deployment pass. Runtime
+confirmation is pending; the temporary 256 observation bit remains enabled
+until the corrected lookup is proven in game, then should be removed before the
+checkpoint commit.
+
+
+LPD-04 Brush Proof and Offset-Policy Recapture - 2026-07-19
+============================================================
+
+Runtime with the corrected logical-count lookup returned page-0 center
+`(1,1,4,259)` repeatedly on an authored splat attached to level brush geometry.
+The temporary 256 observation bit plus CANDIDATE and RECEIVER_VALID account for
+259; raw=1 and retained=1 prove that the static collector, exact coverage row,
+receiver validation, and deterministic reducer all succeed. Mode 1 intentionally
+does not apply the beauty coat.
+
+An authored splat attached to a rigid prop remains outside this checkpoint's
+static-world route. Mode 2 reported exceptionalMask=0x000000c0, the intentional
+FAIL_CLOSED | INVALID_ROUTE result. Rigid-prop collection must be implemented as
+a separate route rather than weakening the instance-0 ownership contract.
+
+The temporary 256 observation bit has now been removed. The durable page-0
+status for the validated brush case is therefore expected to be 3
+(CANDIDATE | RECEIVER_VALID) in mode 1.
+
+Static decal-card normal offset is baked while the static geometry cache is
+captured. A liquid mode changed live after map entry could therefore retain the
+mode-0 geometry and appear to depend on the generic decal compositor. The
+static-cache policy key now includes whether liquid-pool offset is enabled.
+Crossing mode 0/nonzero clears and recaptures static geometry automatically;
+switching mode 1/2 does not recapture because both use the same offset policy.
+This preserves the mode-0 baseline while removing any intended dependency on
+`r_pathTracingDecalComposite 1` for brush liquid pools.
+
+The rebuilt primary Vulkan SPIR-V is newer than its source, validates with
+spirv-val, and exactly matches an independent direct DXC compile at SHA-256
+7D91EB63B43808BD6C51828A188F8E8EDDBDC549CD71BA2F0C7F1096FDD8F3E0. The full
+release build succeeds and PathTraceLiquidPoolReducerHarness passes 1/1. With
+the game closed, the executable and only the rebuilt primary Vulkan SPIR-V were
+deployed. Deployed SHA-256 values are
+212BDE2AE9106D9E3C63A90480D23D6F814A7AEA15DF11004E2509023547EA29 for the
+executable and the SPIR-V hash above.
+
+Final in-game confirmation used `r_pathTracingDecalComposite 0`, crossed liquid
+mode 0 to 1, and logged the expected static-cache policy invalidation
+`liquidOffset=0->1`. Page 0 then remained stable at `(1,1,4,3)`. This closes the
+brush/static-world checkpoint without a generic-compositor dependency. The
+rigid-prop 0xC0 case remains the next explicitly separate route.

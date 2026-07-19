@@ -791,21 +791,21 @@ static void SmokeDynamicEvalAddMaterialSample(RtSmokeMaterialStats& stats, const
 // The offset index derives from the persistent static-surface key instead of a
 // global submission counter so a re-captured surface keeps the same lift and the
 // static BVH stays temporally stable.
-static void ApplySmokeDetailDecalNormalOffset(
-    const drawSurf_t* drawSurf,
+void ApplySmokeDetailDecalNormalOffset(
+    const idMaterial* material,
     uint64 surfaceOffsetKey,
+    bool liquidOnlyStaticRouteEligible,
     std::vector<PathTraceSmokeVertex>& vertices,
     const std::vector<uint32_t>& indexes,
     size_t vertexStart,
     size_t indexStart)
 {
     const bool genericOffsetEnabled = r_pathTracingDecalComposite.GetInteger() > 0;
-    const bool liquidOffsetRequested = r_pathTracingLiquidPoolMode.GetInteger() != 0;
+    const bool liquidOffsetRequested = liquidOnlyStaticRouteEligible && r_pathTracingLiquidPoolMode.GetInteger() != 0;
     if (!genericOffsetEnabled && !liquidOffsetRequested)
     {
         return;
     }
-    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
     if (!material)
     {
         return;
@@ -2216,7 +2216,8 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
 
             const RtSmokeTranslucentSubtype translucentSubtype = RtSmokeTranslucentSubtype::Unknown;
             const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
-            const uint32_t materialId = SmokeMaterialId(drawSurf->material);
+            const uint32_t baseMaterialId = SmokeMaterialId(drawSurf->material);
+            const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
             const uint64 staticSurfaceKey = BuildSmokeStaticSurfaceKey(drawSurf, tri);
             const int cacheLookupStartMs = Sys_Milliseconds();
             RtSmokePersistentStaticSurfaceRecord* staticSurfaceRecord = geometryUniverse.TouchStaticSurface(staticSurfaceKey);
@@ -2228,6 +2229,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
 
             if (staticSurfaceRecord)
             {
+                // Authored static cards can use runtime register variants (for
+                // example colored wet splats). Keep the persistent geometry's
+                // material identity current even when no vertices are appended.
+                geometryUniverse.RefreshStaticSurfaceMaterial(staticSurfaceKey, materialId);
                 ++captureTiming.staticCachedSurfaces;
                 sourceVerts += tri->numVerts;
                 sourceIndexes += tri->numIndexes;
@@ -2271,8 +2276,9 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             }
 
             ApplySmokeDetailDecalNormalOffset(
-                drawSurf,
+                drawSurf->material,
                 staticSurfaceKey,
+                true,
                 staticVertexCache,
                 staticIndexCache,
                 static_cast<size_t>(staticAppend.vertexOffset),
@@ -2388,9 +2394,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             // stable per held instance (entity + material), so the offset index
             // does not churn frame to frame.
             ApplySmokeDetailDecalNormalOffset(
-                drawSurf,
+                drawSurf->material,
                 (static_cast<uint64>(baseMaterialId) << 32) ^
                     (static_cast<uint64>(static_cast<uint32_t>(entityIndex + 1)) * 2654435761ull),
+                false,
                 bucketVertices,
                 bucketIndexes,
                 static_cast<size_t>(bucketVertexStart),

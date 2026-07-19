@@ -4082,6 +4082,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRigidResidency.GetInteger() != 0 &&
         (enableRigidRouteForMode || rigidResidencyBoundsDebug);
     const int source2RigidEntities = sceneSource == 2 ? idMath::ClampInt(0, 2, r_pathTracingSceneSource2RigidEntities.GetInteger()) : 0;
+    const int liquidPoolOffsetEnabled = r_pathTracingLiquidPoolMode.GetInteger() != 0 ? 1 : 0;
     const bool dumpSceneUniverse = r_pathTracingSceneUniverseDump.GetInteger() != 0;
     const bool dumpInstanceUniverse = r_pathTracingInstanceUniverseDump.GetInteger() != 0;
     const bool dumpRigidMeshUniverse = r_pathTracingRigidMeshUniverseDump.GetInteger() != 0;
@@ -4092,13 +4093,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         DumpEntityFeedReachableCandidateStats(viewDef);
     }
     const RtSmokeStaticDrawSurfCounts currentStaticDrawSurfs = useSceneUniverseStaticGeometry ? CountCurrentStaticDrawSurfs(viewDef) : RtSmokeStaticDrawSurfCounts();
-    if (sceneSource != m_smokeSceneSourceLast || (useSceneUniverseStaticGeometry && source2RigidEntities != m_smokeSceneSource2RigidEntitiesLast))
+    if (sceneSource != m_smokeSceneSourceLast ||
+        (useSceneUniverseStaticGeometry && source2RigidEntities != m_smokeSceneSource2RigidEntitiesLast) ||
+        liquidPoolOffsetEnabled != m_smokeLiquidPoolOffsetEnabledLast)
     {
-        common->Printf("PathTracePrimaryPass: PT scene source changed %d/%d -> %d/%d; clearing static geometry cache\n",
+        common->Printf("PathTracePrimaryPass: PT static geometry policy changed source=%d/%d->%d/%d liquidOffset=%d->%d; clearing static geometry cache\n",
             m_smokeSceneSourceLast,
             m_smokeSceneSource2RigidEntitiesLast,
             sceneSource,
-            source2RigidEntities);
+            source2RigidEntities,
+            m_smokeLiquidPoolOffsetEnabledLast,
+            liquidPoolOffsetEnabled);
         m_smokeGeometryUniverse.Clear();
         m_smokeSkinnedSurfaceRecords.clear();
         m_smokePreviousSkinnedSurfaceRecords.clear();
@@ -4118,6 +4123,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSceneRebuildLogged = false;
         m_smokeSceneSourceLast = sceneSource;
         m_smokeSceneSource2RigidEntitiesLast = source2RigidEntities;
+        m_smokeLiquidPoolOffsetEnabledLast = liquidPoolOffsetEnabled;
     }
     uint64 sceneUniverseGeneration = 0;
     if (useSceneUniverseStaticGeometry && m_sceneUniverse.EnsureBuilt(viewDef))

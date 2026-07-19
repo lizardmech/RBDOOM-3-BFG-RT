@@ -264,6 +264,7 @@ private:
     uint64 m_smokeGeometryFrameIndex;
     int m_smokeSceneSourceLast;
     int m_smokeSceneSource2RigidEntitiesLast;
+    int m_smokeLiquidPoolOffsetEnabledLast;
     uint64 m_smokeSceneUniverseStaticBuildGeneration;
     RtPathTraceCpuWorkState m_smokeCpuWorkState;
     RtPathTraceCpuWorkState m_smokeRigidTlasCpuWorkState;

@@ -303,7 +303,10 @@ bool TryLoadPathTraceLiquidPoolMaterialFeatureParameters(
     uint parameterRecordStride = 0u;
     PathTraceMaterialFeatureParameters.GetDimensions(parameterRecordCount, parameterRecordStride);
     const uint materialCount = (uint)max(TextureInfo.z, 0.0);
-    if (parameterRecordCount != materialCount ||
+    // Reusable GPU buffers retain capacity from larger earlier material tables.
+    // TextureInfo.z is the authoritative logical row count for this frame;
+    // allocated capacity may exceed it but must never be smaller.
+    if (parameterRecordCount < materialCount ||
         parameterRecordStride != RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_RECORD_STRIDE ||
         materialIndex >= materialCount)
     {
@@ -324,7 +327,7 @@ bool TryLoadPathTraceMaterialFeatureRecord(
     uint featureRecordStride = 0u;
     PathTraceMaterialFeatures.GetDimensions(featureRecordCount, featureRecordStride);
     const uint materialCount = (uint)max(TextureInfo.z, 0.0);
-    if (featureRecordCount != materialCount ||
+    if (featureRecordCount < materialCount ||
         featureRecordStride != 32u ||
         materialIndex >= materialCount)
     {
@@ -2503,8 +2506,16 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
         const uint materialIndex = LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
         if (PathTraceMaterialIsSemanticLiquidPool(materialIndex))
         {
+            // Instance 0 is the authoritative static-route BLAS.  Preserve the
+            // captured semantic surface class: authored world decal cards are
+            // particle/alpha surfaces even though their geometry is static.
             if (instanceId == 0u)
             {
+                // Classification status describes observation of a semantic
+                // static-route card, independently of whether its evaluated
+                // coverage is zero. Raw/retained counts remain positive-
+                // coverage-only so zero-alpha cards stay reducer identities.
+                payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
                 const PathTraceSmokeMaterial material = LoadSmokeMaterial(materialIndex);
                 const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, attributes.barycentrics);
                 float4 stageColor;
@@ -2515,6 +2526,13 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                     {
                         ConditionallyStoreLiquidPoolCandidate(payload, materialIndex, primitiveIndex, attributes.barycentrics);
                     }
+                }
+                else
+                {
+                    payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED;
+                    payload.liquidRejectionCount = payload.liquidRejectionCount == 0xffffffffu
+                        ? 0xffffffffu
+                        : payload.liquidRejectionCount + 1u;
                 }
                 IgnoreHit();
                 return;

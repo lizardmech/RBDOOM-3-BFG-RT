@@ -20,6 +20,7 @@ struct viewDef_t;
 class idRenderEntityLocal;
 class idJointMat;
 class idImage;
+class idMaterial;
 
 const int RT_SMOKE_MAX_SURFACES = 128;
 const int RT_SMOKE_MAX_VERTS = 65536;
@@ -412,6 +413,14 @@ struct RtSmokeTranslucentClassifierInfo;
 
 void TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& localPoint, idVec3& worldPoint);
 void TransformSurfaceVectorToWorld(const drawSurf_t* drawSurf, const idVec3& localVector, idVec3& worldVector);
+void ApplySmokeDetailDecalNormalOffset(
+    const idMaterial* material,
+    uint64 surfaceOffsetKey,
+    bool liquidOnlyStaticRouteEligible,
+    std::vector<PathTraceSmokeVertex>& vertices,
+    const std::vector<uint32_t>& indexes,
+    size_t vertexStart,
+    size_t indexStart);
 bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t*& tri, RtSmokeSurfaceSkipStats* skipStats);
 uint64 BuildSmokeStaticSurfaceKeyForDiagnostics(const drawSurf_t* drawSurf, const srfTriangles_t* tri);
 void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes);

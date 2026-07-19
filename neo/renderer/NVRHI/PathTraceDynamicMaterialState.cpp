@@ -1082,6 +1082,7 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
         }
 
         const RtSmokeMaterialTextureInfo& info = materialInfos[safeIndex];
+        const RtSmokeMaterialUniverseFacts& facts = materialFacts[safeIndex];
         const nvrhi::TextureHandle texture = info.hasSafeTexture ? info.diffuseTexture : nullptr;
         if (texture && IsSmokeTextureHandleSafeForDescriptor(texture))
         {
@@ -1097,7 +1098,13 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
         }
 
         const nvrhi::TextureHandle alphaTexture = info.hasSafeAlphaTexture ? info.alphaTexture : nullptr;
-        if (info.hasAlphaTest && alphaTexture && IsSmokeTextureHandleSafeForDescriptor(alphaTexture))
+        // Liquid-film coverage is an authored material input even when the
+        // declaration is translucent rather than alpha-tested.  In particular,
+        // the splat family carries its footprint in a makealpha stage; skipping
+        // that descriptor leaves SmokeAlphaCoverage reading the diffuse alpha
+        // channel and deterministically reduces the pool candidate to zero.
+        const bool needsAlphaCoverageTexture = info.hasAlphaTest || facts.liquidFilmCandidate;
+        if (needsAlphaCoverageTexture && alphaTexture && IsSmokeTextureHandleSafeForDescriptor(alphaTexture))
         {
             const uint32_t alphaDescriptorIndex = AddSmokeMaterialTextureSlot(table, alphaTexture, textureTableLimit, textureTableStart, skippedUniqueTextures, skippedTextures);
             if (alphaDescriptorIndex != UINT32_MAX)
@@ -1159,7 +1166,6 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
             ++table.materialsWithEmissiveTextures;
         }
 
-        const RtSmokeMaterialUniverseFacts& facts = materialFacts[safeIndex];
         if (facts.hasEmissiveImage &&
             table.materials[safeIndex].emissiveTextureIndex == UINT32_MAX &&
             r_pathTracingEmissiveFallbackWithoutTexture.GetInteger() == 0)

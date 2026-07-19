@@ -1350,6 +1350,15 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                 continue;
             }
 
+            ApplySmokeDetailDecalNormalOffset(
+                material,
+                key,
+                !isRigidEntityModel,
+                staticVertices,
+                staticIndexes,
+                static_cast<size_t>(append.vertexOffset),
+                static_cast<size_t>(append.indexOffset));
+
             geometryUniverse.CompleteStaticSurfaceAppend(append, emittedIndexes);
             ++bucketRanges.buckets[0].surfaceCount;
             ++buildStats.surfaces;
@@ -1650,6 +1659,15 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             ++buildStats.skippedZeroArea;
             return;
         }
+
+        ApplySmokeDetailDecalNormalOffset(
+            material,
+            key,
+            true,
+            staticVertices,
+            staticIndexes,
+            static_cast<size_t>(append.vertexOffset),
+            static_cast<size_t>(append.indexOffset));
 
         geometryUniverse.CompleteStaticSurfaceAppend(append, emittedIndexes);
         ++bucketRanges.buckets[0].surfaceCount;
