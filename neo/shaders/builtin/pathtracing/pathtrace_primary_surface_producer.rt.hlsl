@@ -1231,7 +1231,12 @@ uint RayReconstructionResetMaskFromStatus(RAB_Surface surface, bool motionValid,
         mask |= RT_RR_RESET_REJECTED_PREVIOUS;
     }
     else if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_MATERIAL_MISMATCH ||
-        debugStatus == RT_PRIMARY_SURFACE_DEBUG_STATIC_MATERIAL_CLASS_MISMATCH)
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_STATIC_MATERIAL_CLASS_MISMATCH ||
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_LIQUID_FILM_TRANSITION ||
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_LIQUID_ALBEDO_MISMATCH ||
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_LIQUID_F0_MISMATCH ||
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_LIQUID_ROUGHNESS_MISMATCH ||
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_LIQUID_NORMAL_MISMATCH)
     {
         mask |= RT_RR_RESET_MATERIAL_MISMATCH;
     }
@@ -2082,6 +2087,7 @@ LiquidPoolPrimaryResolve ResolvePrimaryLiquidPool(
             surface.material.diffuseAlbedo = result.effective.albedo;
             surface.material.specularF0 = result.effective.specularF0;
             surface.material.roughness = result.effective.roughness;
+            surface.flags |= RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED;
             result.statusMask |= RT_LIQUID_POOL_STATUS_APPLIED;
         }
     }

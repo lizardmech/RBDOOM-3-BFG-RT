@@ -123,6 +123,8 @@ PathTraceMaterialFeature BuildMaterialFeatureFromPrimarySurface(RAB_Surface surf
 
     const bool opacityVisible = surface.material.opacity > 0.0;
     const bool opaqueCompatible = opacityVisible && !PathTraceMaterialFeatureIsTranslucent(surface);
+    const bool liquidFilmApplied =
+        (surface.flags & RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED) != 0u;
     if (opaqueCompatible)
     {
         feature.materialCaps =
@@ -145,6 +147,19 @@ PathTraceMaterialFeature BuildMaterialFeatureFromPrimarySurface(RAB_Surface surf
         if ((surface.material.flags & RT_PATH_TRACE_FEATURE_MATERIAL_EMISSIVE) != 0u)
         {
             feature.lobeCaps |= RT_PATH_TRACE_MATERIAL_LOBE_EMISSIVE;
+        }
+        if (liquidFilmApplied)
+        {
+            // The once-resolved wet receiver stays an opaque receiver. Its
+            // effective coat augments specular/reflection and RR-guide support;
+            // it is never reclassified as a liquid modifier card.
+            feature.materialCaps |=
+                RT_PATH_TRACE_MATERIAL_CAP_PATH_SPECULAR_REFLECTION |
+                RT_PATH_TRACE_MATERIAL_CAP_RR_SPECULAR_GUIDE;
+            feature.lobeCaps |=
+                RT_PATH_TRACE_MATERIAL_LOBE_SPECULAR_REFLECTION |
+                RT_PATH_TRACE_MATERIAL_LOBE_GLOSSY_REFLECTION;
+            feature.passSupport |= RT_PATH_TRACE_MATERIAL_PASS_REFLECTION_PRODUCER;
         }
         if (feature.modifierKind != RT_PATH_TRACE_MATERIAL_MODIFIER_NONE)
         {

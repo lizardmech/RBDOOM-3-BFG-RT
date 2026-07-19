@@ -29,6 +29,11 @@ static const uint RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME = 15u;
 static const uint RT_PRIMARY_SURFACE_DEBUG_STATIC_RANGE_MISMATCH = 16u;
 static const uint RT_PRIMARY_SURFACE_DEBUG_STATIC_MATERIAL_CLASS_MISMATCH = 17u;
 static const uint RT_PRIMARY_SURFACE_DEBUG_PACKED_OBJECT_MISSING_PREVIOUS_MOTION = 18u;
+static const uint RT_PRIMARY_SURFACE_DEBUG_LIQUID_FILM_TRANSITION = 19u;
+static const uint RT_PRIMARY_SURFACE_DEBUG_LIQUID_ALBEDO_MISMATCH = 20u;
+static const uint RT_PRIMARY_SURFACE_DEBUG_LIQUID_F0_MISMATCH = 21u;
+static const uint RT_PRIMARY_SURFACE_DEBUG_LIQUID_ROUGHNESS_MISMATCH = 22u;
+static const uint RT_PRIMARY_SURFACE_DEBUG_LIQUID_NORMAL_MISMATCH = 23u;
 
 struct PathTracePrimarySurfaceRecord
 {
@@ -453,10 +458,6 @@ bool PathTracePrimarySurfacesAreSimilar(RAB_Surface a, RAB_Surface b, out uint d
         return false;
     }
 
-    const float3 aGeometryNormal = SafeNormalize(a.geometryNormal, a.shadingNormal);
-    const float3 bGeometryNormal = SafeNormalize(b.geometryNormal, b.shadingNormal);
-    const float normalSimilarity = dot(aGeometryNormal, bGeometryNormal);
-    const float roughnessDelta = abs(GetRoughness(a.material) - GetRoughness(b.material));
     const bool materialMatch = a.materialId == b.materialId &&
         a.materialIndex == b.materialIndex &&
         a.surfaceClass == b.surfaceClass;
@@ -465,11 +466,61 @@ bool PathTracePrimarySurfacesAreSimilar(RAB_Surface a, RAB_Surface b, out uint d
         debugStatus = RT_PRIMARY_SURFACE_DEBUG_MATERIAL_MISMATCH;
         return false;
     }
+
+    const bool aWet = (a.flags & RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED) != 0u;
+    const bool bWet = (b.flags & RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED) != 0u;
+    if (aWet != bWet)
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_LIQUID_FILM_TRANSITION;
+        return false;
+    }
+
+    const float3 aGeometryNormal = SafeNormalize(a.geometryNormal, a.shadingNormal);
+    const float3 bGeometryNormal = SafeNormalize(b.geometryNormal, b.shadingNormal);
+    const float normalSimilarity = dot(aGeometryNormal, bGeometryNormal);
     if (normalSimilarity < 0.85)
     {
         debugStatus = RT_PRIMARY_SURFACE_DEBUG_NORMAL_MISMATCH;
         return false;
     }
+
+    const float roughnessDelta = abs(GetRoughness(a.material) - GetRoughness(b.material));
+    if (aWet)
+    {
+        const float3 albedoAbsDelta = abs(a.material.diffuseAlbedo - b.material.diffuseAlbedo);
+        const float albedoDelta = max(max(albedoAbsDelta.x, albedoAbsDelta.y), albedoAbsDelta.z);
+        if (albedoDelta > (1.0 / 64.0))
+        {
+            debugStatus = RT_PRIMARY_SURFACE_DEBUG_LIQUID_ALBEDO_MISMATCH;
+            return false;
+        }
+
+        const float3 f0AbsDelta = abs(a.material.specularF0 - b.material.specularF0);
+        const float f0Delta = max(max(f0AbsDelta.x, f0AbsDelta.y), f0AbsDelta.z);
+        if (f0Delta > (1.0 / 128.0))
+        {
+            debugStatus = RT_PRIMARY_SURFACE_DEBUG_LIQUID_F0_MISMATCH;
+            return false;
+        }
+        if (roughnessDelta > (1.0 / 64.0))
+        {
+            debugStatus = RT_PRIMARY_SURFACE_DEBUG_LIQUID_ROUGHNESS_MISMATCH;
+            return false;
+        }
+
+        if (((a.flags | b.flags) & RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_NORMAL_APPLIED) != 0u)
+        {
+            const float3 aShadingNormal = SafeNormalize(a.shadingNormal, aGeometryNormal);
+            const float3 bShadingNormal = SafeNormalize(b.shadingNormal, bGeometryNormal);
+            if (dot(aShadingNormal, bShadingNormal) < 0.995)
+            {
+                debugStatus = RT_PRIMARY_SURFACE_DEBUG_LIQUID_NORMAL_MISMATCH;
+                return false;
+            }
+        }
+        return true;
+    }
+
     if (roughnessDelta > 0.20)
     {
         debugStatus = RT_PRIMARY_SURFACE_DEBUG_ROUGHNESS_MISMATCH;
@@ -558,6 +609,26 @@ float4 PathTracePrimarySurfaceDebugColor(uint debugStatus, RAB_Surface currentSu
     if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_PACKED_OBJECT_MISSING_PREVIOUS_MOTION)
     {
         return float4(0.10, 0.28, 0.30, 1.0);
+    }
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_LIQUID_FILM_TRANSITION)
+    {
+        return float4(0.02, 0.78, 0.92, 1.0);
+    }
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_LIQUID_ALBEDO_MISMATCH)
+    {
+        return float4(0.06, 0.34, 0.92, 1.0);
+    }
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_LIQUID_F0_MISMATCH)
+    {
+        return float4(0.92, 0.82, 0.04, 1.0);
+    }
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_LIQUID_ROUGHNESS_MISMATCH)
+    {
+        return float4(0.92, 0.38, 0.04, 1.0);
+    }
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_LIQUID_NORMAL_MISMATCH)
+    {
+        return float4(0.72, 0.04, 0.92, 1.0);
     }
 
     const float currentRoughness = saturate(GetRoughness(currentSurface.material));

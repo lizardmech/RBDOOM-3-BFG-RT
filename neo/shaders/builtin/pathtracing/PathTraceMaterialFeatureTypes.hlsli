@@ -105,6 +105,14 @@ static const uint RT_PATH_TRACE_FEATURE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE = 2u;
 static const uint RT_PATH_TRACE_FEATURE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW = 4u;
 static const uint RT_PATH_TRACE_FEATURE_TRANSLUCENT_SUBTYPE_GUI_SCREEN = 5u;
 
+// Primary-surface semantic state. These bits share RAB_Surface::flags with the
+// captured triangle flags, translucent subtype, and PSR resolved-state bits.
+// Bit 28 is the highest currently unowned bit below the PSR range (29-31).
+static const uint RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED = 0x10000000u;
+// Reserved for LPD-08: set only when the liquid resolver actually perturbs the
+// receiver shading normal, not merely when the mode-3 cvar is selected.
+static const uint RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_NORMAL_APPLIED = 0x00100000u;
+
 static const uint RT_PATH_TRACE_FEATURE_MATERIAL_ALPHA_TEST = 0x00000001u;
 static const uint RT_PATH_TRACE_FEATURE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
 static const uint RT_PATH_TRACE_FEATURE_MATERIAL_EMISSIVE = 0x00000008u;

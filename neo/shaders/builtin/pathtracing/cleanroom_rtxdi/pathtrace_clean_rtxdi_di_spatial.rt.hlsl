@@ -650,8 +650,10 @@ bool CleanLoadSurfaceTriangleGeometry(PathTracePrimarySurfaceRecord record, out 
 float3 CleanSurfaceFallbackAlbedo(PathTracePrimarySurfaceRecord record)
 {
     float3 albedo = saturate(record.albedoAndAlphaCutoff.xyz);
+    const bool liquidFilmApplied =
+        (record.header.w & RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED) != 0u;
     const bool invalidDebugAlbedo = all(abs(albedo - float3(1.0, 0.0, 1.0)) < float3(0.001, 0.001, 0.001));
-    if (CleanLuminance(albedo) <= 1.0e-5 || invalidDebugAlbedo)
+    if ((!liquidFilmApplied && CleanLuminance(albedo) <= 1.0e-5) || invalidDebugAlbedo)
     {
         albedo = float3(0.5, 0.5, 0.5);
     }
@@ -707,6 +709,8 @@ void CleanApplyLiveMaterialClassifierBsdf(
 float3 CleanTexturedSurfaceAlbedo(PathTracePrimarySurfaceRecord record)
 {
     const float3 fallbackAlbedo = CleanSurfaceFallbackAlbedo(record);
+    const bool liquidFilmApplied =
+        (record.header.w & RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED) != 0u;
     if ((record.header.w &
             (CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED |
                 CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED)) != 0u)
@@ -720,7 +724,7 @@ float3 CleanTexturedSurfaceAlbedo(PathTracePrimarySurfaceRecord record)
     {
         const float3 guideAlbedo = saturate(PathTraceRRGuideAlbedo[pixel].rgb);
         const bool invalidGuideAlbedo = all(abs(guideAlbedo - float3(1.0, 0.0, 1.0)) < float3(0.001, 0.001, 0.001));
-        if (CleanLuminance(guideAlbedo) > 1.0e-5 && !invalidGuideAlbedo)
+        if ((liquidFilmApplied || CleanLuminance(guideAlbedo) > 1.0e-5) && !invalidGuideAlbedo)
         {
             return guideAlbedo;
         }

@@ -1132,3 +1132,50 @@ complete: the user confirmed the formerly missed backtracking-trigger batch now
 renders correctly, while the previously accepted static color and shadow cases
 remain good. This closes the instance-1 authored-switchable checkpoint and is
 ready for a scoped commit.
+
+
+LPD-05 Primary History and Guide Audit - 2026-07-19
+===================================================
+
+The primary producer already applies effective liquid albedo, F0, and roughness
+before both the version-2/176-byte history record and RR guide stores. Existing
+record lanes also already preserve receiver geometry, identity, depth, and
+motion. The missing contract was a stable applied semantic in `header.w`, wet
+history thresholds, wet receiver feature caps, and near-zero absorption handling
+in the clean-DI spatial fallback.
+
+Bit 28 of `RAB_Surface::flags` is now the typed liquid-film-applied semantic. It
+does not overlap the low captured triangle flags, bits 24-27 translucent subtype,
+or bits 29-31 PSR state. A separate bit-20 normal-applied semantic is reserved for
+LPD-08. The LPD-05 wording is corrected accordingly: the 0.995 wet shading-normal
+test keys off actual normal application, not selecting mode 3 while that staged
+mode still has no normal implementation.
+
+The GI guide audit found no equivalent gray corruption: its near-zero guide
+fallback returns the packed primary albedo. Therefore GI remains untouched. The
+clean-DI spatial fallback was the only audited consumer that replaced a valid
+near-black wet albedo with gray 0.5.
+
+Implementation keeps the primary record at CPU/HLSL version 2 and stride 176.
+Dry/dry history retains the existing material, geometric-normal 0.85, and
+roughness 0.20 tests. A dry/wet transition rejects immediately. Wet/wet retains
+only when receiver identity and geometric normal still match, max albedo delta is
+at most 1/64, max F0 delta is at most 1/128, roughness delta is at most 1/64,
+and any future normal-applied pair has shading-normal dot at least 0.995. No
+candidate count, traversal order, or winner identity participates.
+
+The prescribed release build succeeds. `PathTraceLiquidPoolReducerHarness`
+passes, both affected Vulkan blobs pass `spirv-val --target-env vulkan1.2`, and
+each canonical blob exactly matches an independent direct DXC compile. Blob
+mtimes are newer than every edited source/include. Generated and deployed hashes
+match exactly:
+
+  primary producer
+    09C50281C2A830EF632AFBC08C64A2786DCC87014547F25D92B57089CB61749D
+  clean-DI spatial
+    0080FBEAFF352151AA127C331D5838ED8ACCF5D92BB1E556C2248763EA0EAA1D
+  executable
+    4A315548410242B290CAA90A47CE46FF05208940A4ECE542B7CC6EB20E728D91
+
+Deployment copied only those two Vulkan blobs and the executable. Focused
+in-game history/guide confirmation remains pending.
