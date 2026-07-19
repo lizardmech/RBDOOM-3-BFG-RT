@@ -1,0 +1,55 @@
+LPD-00F RUNTIME EXCERPTS
+========================
+
+Deployed Vulkan/RT startup
+--------------------------
+
+  PathTraceDLSSRR: slInit api=vulkan result=Result::eOk
+  Created Vulkan device: NVIDIA GeForce RTX 4090
+  PathTracePrimaryPass: initialized, ray tracing available
+
+Command registration/help
+-------------------------
+
+  usage:
+    liquidPoolFixture one <exactMaterial>
+    liquidPoolFixture aligned <count> <exactMaterial>
+    liquidPoolFixture partial <count> <offset> <exactMaterial>
+    liquidPoolFixture perpendicular <exactMaterial>
+    liquidPoolFixture mixedFilter <liquidMaterial> <filterMaterial>
+  count range: 1..32; partial requires count >= 2 and a non-zero overlapping offset
+
+Negative runtime checks
+-----------------------
+
+  liquidPoolFixture: ERROR exact material declaration
+    'textures/decals/not_a_real_fixture_material' was not found or did not parse;
+    nothing projected
+
+  liquidPoolFixture: ERROR invalid syntax; nothing projected
+    (wildcard input passed through the startup-command tokenizer)
+
+  liquidPoolFixture: ERROR material 'C:\temp\bad.mtr' is not a safe exact
+    declaration name; wildcards, filesystem paths, extensions, and traversal are
+    rejected; nothing projected
+
+  liquidPoolFixture: ERROR count '0' must be an integer in [1,32]; nothing projected
+  liquidPoolFixture: ERROR count '-1' must be an integer in [1,32]; nothing projected
+  liquidPoolFixture: ERROR count '33' must be an integer in [1,32]; nothing projected
+
+  liquidPoolFixture: ERROR offset '0' must be finite, non-zero, and keep the
+    complete partial fixture within one 64.0-unit footprint; nothing projected
+
+  liquidPoolFixture: ERROR no map is loaded; nothing projected
+
+Positive automation attempts
+----------------------------
+
+  +map game/mars_city1 ... liquidPoolFixture one textures/decals/splat7
+    result: ERROR no map is loaded; nothing projected
+
+  +devmap testmaps/test_box_valve220 ... liquidPoolFixture one textures/decals/splat7
+    result: ERROR no map is loaded; nothing projected
+
+Both executions exited 0 and created no fixture. No screenshot from those runs is
+credited as positive evidence.

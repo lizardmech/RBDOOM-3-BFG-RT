@@ -1,0 +1,104 @@
+LPD-00F FIXTURE COMMAND MANIFEST
+================================
+
+Status: commands are implemented and built, but the map/getviewpos and positive
+captures below remain pending supervisor/manual runtime acceptance.
+
+Candidate material declarations
+-------------------------------
+
+Liquid:
+  textures/decals/splat7
+
+Ordinary filter negative control:
+  textures/decals/stainwall
+
+The command performs exact declaration lookup and rejects wildcard, extension,
+traversal, drive-path, unknown, and case-mismatched inputs.
+
+Common setup (pending fixed interactive location)
+-------------------------------------------------
+
+  devmap game/mars_city1
+  setviewpos <accepted-x> <accepted-y> <accepted-z> <accepted-yaw>
+  getviewpos
+  r_pathTracingCrosshairMaterialDump 1
+
+Aim at a broad opaque concrete/stone receiver. For B8, aim within 48 units of an
+opaque perpendicular plane. The command rejects translucent, glass-surface-type,
+area-portal, no-impact, no-hit, and degenerate-normal receivers.
+
+B3: two identical aligned cards
+--------------------------------
+
+  liquidPoolFixture aligned 2 textures/decals/splat7
+  screenshot screenshots/liquid_pool_B3.png
+  conDump liquid_pool_B3
+
+B4: four identical aligned cards
+---------------------------------
+
+  liquidPoolFixture aligned 4 textures/decals/splat7
+  screenshot screenshots/liquid_pool_B4.png
+  conDump liquid_pool_B4
+
+B5: two partially overlapping cards
+-------------------------------------
+
+  liquidPoolFixture partial 2 16 textures/decals/splat7
+  screenshot screenshots/liquid_pool_B5.png
+  conDump liquid_pool_B5
+
+The second footprint is exactly 16 world units along the printed deterministic
+receiver tangent. All shifted centers must retrace to the same entity, material,
+and plane before either decal is emitted.
+
+B6: deliberately over-capacity fixture
+---------------------------------------
+
+  liquidPoolFixture aligned 32 textures/decals/splat7
+  screenshot screenshots/liquid_pool_B6.png
+  conDump liquid_pool_B6
+
+32 is the documented safe developer maximum and is intentionally above the
+current generic three-entry bin. Replace 32 with accepted plannedCapacity+1 only
+after LPD-04 freezes a lower capacity; never exceed 32.
+
+B8: nearby incompatible receiver planes
+----------------------------------------
+
+  liquidPoolFixture perpendicular textures/decals/splat7
+  screenshot screenshots/liquid_pool_B8.png
+  conDump liquid_pool_B8
+
+The command first validates the crosshair receiver and probes four deterministic
+tangent directions for the nearest safe plane whose absolute normal dot is <=
+0.25 within 48 units. It emits nothing unless both receivers are found.
+
+Mixed liquid/filter receiver-retrace control
+--------------------------------------------
+
+  liquidPoolFixture mixedFilter textures/decals/splat7 textures/decals/stainwall
+  screenshot screenshots/liquid_pool_mixed_filter.png
+  conDump liquid_pool_mixed_filter
+
+Reset/repeat procedure (not yet accepted)
+-----------------------------------------
+
+The packet requests:
+  restartMap
+  setviewpos <same accepted values>
+  repeat command and compare every printed input plus 16-hex-digit serial
+
+Live source shows restartMap is a normal-mode no-op unless g_demoMode is true.
+Until that is separately fixed or waived, use of `devmap game/mars_city1` as the
+reset is only a proposed substitute and cannot be credited as accepted proof.
+
+Required remaining captures
+---------------------------
+
+For one accepted map/getviewpos, capture one, aligned 2, aligned 4, partial 2,
+aligned plannedCapacity+1, perpendicular, and mixedFilter. Repeat each after the
+accepted reset and compare printed origin, normals, direction, size/depth/angle,
+material names, count/offset, tangent, receiver identity, and fixture serial.
+Crosshair material dumps must identify the requested exact declarations.

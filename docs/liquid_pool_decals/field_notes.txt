@@ -1,0 +1,414 @@
+LIQUID-POOL FIELD NOTES - APPEND ONLY
+=====================================
+
+Purpose
+-------
+
+Workers append accepted audit, build, runtime, parameter, performance, and
+escalation evidence here. Do not rewrite an older entry. A correction appends a
+new dated entry naming the superseded statement.
+
+
+Current Packet State - 2026-07-19
+---------------------------------
+
+  packet prepared
+  implementation tasks run: none
+  current start task: LPD-00
+  candidate default: mode 0 (current behavior)
+  runtime validation: pending
+  X01 receiver-space fallback: blocked; no gate evidence
+  X02 geometry/SDF study: blocked; no gate evidence
+  X03 dual-lobe ABI study: blocked; no gate evidence
+  performance budget owner/thresholds: UNSET; LPD-04/default flip blocked until accepted
+
+
+Entry Template
+--------------
+
+Date/time and worker:
+Task:
+Starting HEAD:
+Relevant pre-existing dirty files:
+Anchors verified:
+Contract IDs addressed:
+Files changed:
+CVar values:
+Build/configure commands and result:
+Generated blob hashes and spirv-val:
+Deployment hashes:
+Map/view/getviewpos:
+Positive evidence:
+Negative evidence:
+Gate-off evidence:
+Performance median/p95:
+User visual confirmation:
+Known limitations:
+Decision/default:
+Supersedes entry, if any:
+Next permitted task:
+
+
+LPD-00 Static Audit - 2026-07-19 13:01:12 +10:00
+---------------------------------------------------
+
+Date/time and worker: 2026-07-19 13:01:12 +10:00, Codex
+Task: LPD-00 only - read-only live contract audit
+Starting HEAD: 012a041960e6ce3d0768842a77e25ee84d91eaca on restir-development
+Relevant pre-existing dirty files:
+  modified, preserved: neo/shaders/builtin/pathtracing/cleanroom_common/restir_gi_reservoir.hlsli
+  modified, preserved: neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_shared.hlsli
+  modified, preserved: neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_output.hlsli
+  untracked, preserved: .claude/* and the existing docs trees reported by
+    `git status --short --untracked-files=all`, including this untracked packet.
+  No pre-existing dirty file was staged, reverted, reformatted, or overwritten.
+
+Anchors verified:
+  - Legacy classification is still broad-name based. The live function is
+    IsSmokeLiquidPoolDetailDecalMaterial at
+    PathTraceMaterialTextureDiscovery.cpp:1089-1111. Its token set includes
+    `pool`; publication remains info.detailDecal && name-token at 1598-1600.
+  - Material.cpp:327 parses `blood` as CONTENTS_BLOOD; Material.h:163 defines
+    TG_REFLECT_CUBE2; Material.cpp:1952 parses `texgen reflect2`.
+  - The general material classifier counts reflect/reflect2 only as a generic
+    cube-map stage (PathTraceMaterialClassifier.cpp around 481). It does not
+    publish the required hasWetReflectStage/coverage/normal/exactOverride facts.
+  - PathTraceMaterialUniverse.cpp:216-228 publishes existing detail/decal/liquid
+    flags; PathTraceDynamicMaterialState.cpp:443-521 publishes feature records.
+    Current liquid rows are incorrectly full opaque/direct/GI/diffuse/shadow
+    rows plus RECEIVER_MODIFIER; they do not carry
+    IDEMPOTENT_MODIFIER_BLEND and are not modifier-only.
+  - ResolveReceiverModifiers remains a no-op at
+    PathTraceMaterialFeature.hlsli:175-178.
+  - Primary payload is PathTraceSmokePayload at
+    pathtrace_primary_surface_producer.rt.hlsl:10-44. The generated SPIR-V
+    RayPayloadKHR type contains all 29 declared members, including four
+    three-entry decal arrays; the apparent scalar footprint is 224 bytes.
+    The shared host pipeline builder still configures maxPayloadSize=64,
+    maxAttributeSize=8, maxRecursionDepth=1 at
+    PathTraceSmokeResources.cpp:1100-1102. Vulkan exposes no max-payload-size
+    property analogous to that host number; the audited device reports
+    maxRayRecursionDepth=31 and maxRayHitAttributeSize=32.
+  - Generic primary decal capacity is exactly 3 via RT_SMOKE_DECAL_BIN_SIZE.
+    ApplyDetailDecalComposite is at 1661; ConditionallyStoreDetailDecal at 1914;
+    AnyHit at 1964. Liquid currently shares the ordinary top-three bin,
+    coverage uses max, and tint uses forbidden component-wise max at 1746-1750.
+  - Current receiver guard is only
+    offsetEnvelope = step * maxIndex * 1.5 + 0.05 and
+    abs(baseHitT-cardHitT)*abs(dot(rayDir,receiverGeomNormal)); it has no card
+    plane-normal, domain/identity, or opaque-receiver test. Defaults are step
+    0.15 world units and maxIndex 8, yielding a 1.85-unit inclusive envelope.
+  - Primary any-hit collection is gated to instanceId < 2 at 1980. Routed-rigid
+    candidates (instanceId >= 2) bypass the current detail/liquid collection.
+  - Primary record CPU/HLSL constants agree: version 2, stride 176. Pack/unpack
+    already carries resolved albedo, roughness, F0, shading normal, receiver
+    material/index/flags, instance and primitive. Reserved lanes remain zero.
+    PathTracePrimarySurfacesAreSimilar currently compares receiver IDs/class,
+    geometry-normal dot >= 0.85, and roughness delta <= 0.20 only; it has no
+    resolved-film transition/effective-albedo/F0 rule.
+  - Material feature CPU/HLSL constants agree: ABI version 3, 32-byte feature
+    row, 96-byte parameter row, liquid kind 4, receiver-modifier cap 0x80,
+    idempotent cap 0x100, liquid modifier kind 5. Current liquid parameter rows
+    are all-zero default rows. parameterRecordIndex == material table index is
+    constructed explicitly and table/feature/parameter counts are checked.
+  - Existing legacy liquid material flag is 0x00010000 on CPU and the primary
+    HLSL/feature-type contract. Main material bits 0x00020000 and 0x00040000 are
+    already emissive-light-candidate and sky-environment. No separate semantic
+    candidate bit or resolved-film-applied bit is allocated. LPD-01/02 must audit
+    a non-colliding typed domain instead of assuming the next bit is globally free.
+  - No r_pathTracingLiquidPoolMode/Debug/DebugPage CVar exists. The documented
+    stale r_pathTracingDecalDebugList CVar also does not exist.
+  - The canonical material-feature subsystem owns t80/t81 and clean DI declares
+    PathTraceMaterialFeatureParameters at t81
+    (pathtrace_clean_rtxdi_di_shared.hlsli:252). Contrary to shorthand packet
+    wording, the current primary producer declares only SmokeMaterials at t13
+    and its host binding layout has no t80/t81 entries. Primary t81 is therefore
+    a future LPD-02/04 binding, not a current producer binding.
+  - Clean-DI reflection service payload is exactly 64 bytes when
+    CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER is active: base control/ignore
+    fields, committed hit ids/material/class/hitT/barycentrics, and passthrough
+    emissive. AnyHit rayMode 3 currently blend-throughs only its existing
+    transmission/effect policy. ClosestHit commits receiver evidence, and
+    PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit reconstructs the dry
+    RAB_Surface. No liquid candidate transport/reducer exists.
+  - ReSTIR reflection producer is the real wrapper
+    pathtrace_restir_reflection_producer.rt.hlsl, defining
+    RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY and including pathtrace_smoke.rt.hlsl.
+    Its payload has no decal candidate fields. The traced hit is rebuilt through
+    RAB_BuildSurfaceFromSmokePayload and shaded by NEE as a dry surface.
+  - Clean GI RT and producer-ray-query share
+    pathtrace_clean_restir_gi.rt.hlsl. TraceRay payload is 40 bytes. Both routes
+    call CleanGiBuildProducerSurfaceFromHit, which reconstructs one committed dry
+    RAB_Surface from instance/primitive/hitT/barycentrics. Neither route collects
+    or applies liquid candidates.
+  - GI RT and compute layouts both use zero Vulkan SRV/CBV/UAV binding offsets.
+    u81 is CleanRestirGiProducerRadiance. Existing GI slots are t3-14, t16,
+    t22-27, t46, t66, t74-77, t127; u1,u30,u31,u39,u40,u48,u51,u54,u69,u80-86,
+    u92,u93; b2; s0; TLAS 0. Per-pipeline slot 87 is absent from both GI layouts
+    and is the proposed material-parameter StructuredBuffer SRV slot for LPD-05C.
+    This does not claim global slot 87 is free: clean DI already uses t87/u87 in
+    its own separate layouts.
+
+Contract IDs addressed: audit evidence for C-01 through C-19 and C-21; no
+  implementation contract is marked complete.
+
+Deployed material corpus:
+  - Authoritative pack:
+    E:/prog/rbdoom-3-BFG-prebuilt/base/_rbdoom_blood.pk4
+    size 23829660, UTC mtime 2025-05-03T18:40:11,
+    SHA-256 2F6153FFFB2B27CE2225456D25F7B851DBA13F6F6E3C967B1C1B8146B398755B.
+  - Internal declaration file: materials/_rbdoom_decals_blood.mtr.
+  - Exact wet declarations (31): textures/decals/bloodpool1; dsplat2, dsplat5,
+    dsplat7, dsplat11; handprint01, handprint02; hurt02; splat1 through splat17;
+    smear01; textures/decals2/blood_18, blood_19; and
+    textures/decalsd3xp/blood_18, blood_19, blood_20.
+  - Every one of those declarations has a makealpha coverage stage,
+    heightmap-derived bump normal, and texgen reflect2 wet stage. bloodpool1 and
+    dsplat* also carry explicit `blood`; reflect2, not the name, is the common
+    structural wet evidence. heightmap remains a normal-image program, not
+    physical thickness.
+  - Current name-token liquid routing recognizes bloodpool1 but misses dsplat*,
+    handprint*, hurt02, splat*, smear01 and expansion blood_18/19/20 families.
+  - Static negative declaration evidence from deployed loose materials:
+      N1 OVER: textures/decals/dglowsplat7, DECAL_MACRO + blend blend, no reflect2.
+      N2 MODULATE: textures/decals/stainwall, gl_dst_color/gl_zero, no reflect2.
+      N3 ADDITIVE/DIFFUSE: textures/decals/ind_logo2 blend add and
+         textures/decals/alphabet4 blend diffuseMap, neither reflect2.
+      N4 EFFECT: textures/decals/smoke01, translucent scrolling filter stages,
+         no reflect2.
+      N5 GLASS: textures/glass/glass1, translucent `glass`, heat-haze/current
+         render plus ordinary reflect, not reflect2 liquid-film evidence.
+      N6 DRY BLOOD: textures/decals/bloodspray, colored diffuseMap only, no
+         DECAL_MACRO wet reflect2 stage.
+    These declarations fail the proposed structural predicate statically.
+    Runtime feature/crosshair dumps for positives and negatives remain missing;
+    no runtime-classification pass is claimed.
+
+Generated/deployed Vulkan inventory (repo hash == runtime hash for every row):
+  primary pathtrace_primary_surface_producer.rt.bin
+    532812 bytes, SHA-256 3B7B7779B4666072F677D7887DEA32564DC7DA97CC5F7C5E6822999DE0CC6E86
+  clean-DI pathtrace_clean_rtxdi_di_transmission_producer.rt.bin
+    985424 bytes, SHA-256 4A93D88D879208AB5B62094B075490834AC93228E8D27829067F56B4AE3EF3F3
+  ReSTIR reflection pathtrace_restir_reflection_producer.rt.bin
+    500528 bytes, SHA-256 9217E8FD38D52F79F3BB57A0FDF105D8F2331EFA8A7600F1773BE54B378C1B56
+  GI TraceRay pathtrace_clean_restir_gi.rt.bin
+    9683784 bytes, SHA-256 856F32C193EBF8EEF0441BEAE226B828052EB90DFE27196039DA8E33E45B42BC
+  GI ray query pathtrace_clean_restir_gi_producer_rayquery.cs.bin
+    218740 bytes, SHA-256 C9D58641D6132DFAABA07C5086B57252BB9E76E4739A0C9BD4AE47451DE90996
+  Existing blobs all pass spirv-val --target-env vulkan1.2. No blob was built,
+  deleted, copied, or deployed in LPD-00.
+  build and deployed RBDoom3BFG.exe also match:
+    SHA-256 DFC08948386367046C78D059AA64FFB78B36A19144F405B28C1530F18D307531.
+
+Reference observations:
+  - RTX Remix reference checkout remains commit
+    0c9668865ef42efa3dfcfc4f0507ed3c0c19dd40.
+  - rbdoom fact: current primary cards are collected in any-hit and applied to
+    the receiver; current liquid prototype is limited to that primary route.
+  - Remix fact from resolve.slangh conditionallyStoreDecal and resolve paths:
+    bounded primary bins are draw/opacity ordered; indirect resolution uses a
+    sampled approximation; the resulting decal interaction is later blended
+    onto an opaque/translucent interaction.
+  - Remix fact from decal_material_interaction.slangh: albedo, reflectivity,
+    roughness, normal, emissive, and opacity use conventional opacity blending.
+  - Remix fact from geometry_resolver.slangh: unordered decals are resolved as
+    material interactions around receiver resolution rather than owning the
+    final opaque surface.
+  - Inference: receiver-owned resolution is reusable architecture, but its
+    opacity/alpha-over and sampled-indirect policies do not satisfy rbdoom's
+    duplicate-idempotent max-union contract. No reference implementation text
+    was copied.
+
+CVar values: no runtime session run. Source defaults only:
+  r_pathTracingDecalComposite=0, r_pathTracingDecalOffsetStep=0.15,
+  r_pathTracingDecalMaxOffsetIndex=8, r_pathTracingDecalModulateFloor=0.12.
+
+Build/configure commands and result: none, forbidden by LPD-00.
+Generated blob hashes and spirv-val: inventory above; validation exit 0 for all
+  five existing Vulkan blobs.
+Deployment hashes: comparison only; no copy. Repo/runtime shader hashes and
+  build/runtime executable hashes match as listed above.
+
+Map/view/getviewpos: MISSING. No liquid_pool_* screenshot/conDump/CVar snapshot,
+  accepted map/getviewpos fixture manifest, raw candidate count, or per-route
+  timing sample was found.
+
+V-00 fixture table:
+  B1-B2: deployed wet materials proven; reproducible map/getviewpos not proven.
+  B3 aligned 2, B4 aligned 4, B5 partial, B6 > capacity, B8 wrong-plane:
+    MISSING. These mandatory deterministic fixtures activate LPD-00F.
+  B7 grazing floor/vertical smear: material corpus exists; location pending.
+  B9 dynamic dsplat/fade: dsplat declarations exist; runtime command/location
+    and current TLAS route pending.
+  B10-CDI/B10-RR/B11: no route-distinguishing reflection/GI fixtures found.
+  Candidate counts/capacity distribution: not measured; capacity must not be
+    selected from the current generic value 3.
+  Routed-rigid caveat: primary any-hit's instanceId < 2 gate proves any pool
+    captured on instanceId >= 2 currently bypasses collection. A fixture must
+    explicitly cover or fail-closed this route before LPD-04.
+
+Receiver predicate proposal, NOT ACCEPTED:
+  - face-forward finite card and receiver geometric normals against the ray;
+  - signed card-minus-receiver separation along receiver normal inclusive in
+    [-0.05, step*maxIndex*1.5+0.05] world units, currently [-0.05,1.85];
+  - card/receiver face-forward plane-normal dot >= 0.95;
+  - receiver must be valid opaque/non-transmitting, not object/portal glass;
+  - static/dynamic domain compatibility and rigid same-instance requirements
+    must be fixed from B8/routed-rigid evidence rather than guessed;
+  - all nonfinite/degenerate inputs reject, boundaries are inclusive.
+  B8 evidence and supervisor acceptance are missing, so LPD-03/04 may not freeze
+  or route-tune these provisional constants.
+
+Canonical-key result, BLOCKER:
+  `(instanceId, primitiveIndex, materialIndex)` identifies a triangle/material,
+  not one canonical hit: the same tuple can be intersected at different
+  barycentrics/UV/hitT by primary, retrace, reflection, and GI rays. Proposed
+  correction is to keep uint3 only as contributor identity and define the one
+  shared occurrence/dedup key as uint4(instanceId, primitiveIndex,
+  materialIndex, packUnorm2x16(saturated barycentrics)); hitT remains separate
+  receiver-validation evidence. This widening and its quantization must be
+  supervisor-accepted and mirrored in every route/debug schema before LPD-03.
+
+Performance baseline and budgets:
+  hardware currently reports NVIDIA GeForce RTX 4090, driver 596.49, Vulkan
+  device API 1.4.329. Resolution/render settings/fixed cameras/raw samples are
+  missing. Legacy pre-implementation samples for primary, clean-DI reflection,
+  ReSTIR reflection, GI RT, GI ray query, and total are not present.
+  Proposed median/p95 delta budgets remain UNSET pending a fixed fixture and
+  supervisor decision. LPD-04 acceptance/default flip is blocked; no threshold
+  was invented.
+
+Exact proposed follow-on write ownership:
+  LPD-01: PathTraceCVars.{h,cpp}; PathTraceMaterialClassifier.{h,cpp};
+    PathTraceMaterialTextureDiscovery.cpp; PathTraceTextureRegistry.h;
+    PathTraceMaterialUniverse.{h,cpp}; PathTraceDynamicMaterialState.{h,cpp};
+    PathTraceSurfaceDebugDumps.cpp; only proven non-colliding CPU/HLSL flag files.
+  LPD-02: PathTraceMaterialFeatureParameters.{h,cpp};
+    PathTraceDynamicMaterialState.cpp; PathTracePrimarySurface.h;
+    PathTraceMaterialFeatureTypes.hlsli; PathTraceMaterialFeature.hlsli; exact
+    primary feature-parameter binding metadata/resources.
+  LPD-03: new cleanroom_common/pathtrace_liquid_pool_modifier.hlsli;
+    primary producer include/compile probe only; neo/shaders/CMakeLists.txt;
+    neo/tests/pathtrace_liquid_pool_reducer_harness.cpp; neo/CMakeLists.txt.
+  LPD-04: pathtrace_primary_surface_producer.rt.hlsl; PathTraceSceneCapture.cpp;
+    PathTraceSmokeDispatch.cpp; PathTraceSmokeResources.cpp;
+    PathTraceSmokeReadback.cpp; PathTraceFrameResources.{h,cpp};
+    PathTracePrimaryPass.{h,cpp}; exact primary binding/layout declarations.
+  LPD-05: PathTracePrimarySurface.h; PathTracePrimarySurface.hlsli;
+    PathTraceMaterialFeature.hlsli; clean-DI spatial shader; primary producer;
+    exact RR guide helper/include consuming resolved RAB_Surface.
+  LPD-05C: PathTraceSmokeDispatch.cpp; pathtrace_smoke.rt.hlsl; clean-DI shared
+    constants; PathTraceCleanRestirGi.{h,cpp}; clean GI shader; one shared
+    route/status include; shader CMake dependencies; status-counter owners.
+  LPD-06A: named clean-DI smoke-export/hit-adapter/reflection/transmission
+    includes; exact host payload descriptor only if measured payload requires it.
+  LPD-06B: pathtrace_smoke.rt.hlsl; pathtrace_nee.hlsli; exact host payload
+    descriptor only if measured payload requires it.
+  LPD-07: clean GI RT/ray-query shared shader consumption only; LPD-05C retains
+    host binding/layout ownership.
+  LPD-08: shared reducer, already-owned candidate reconstruction helpers, and
+    exact material texture/table normal-source fields only.
+  LPD-09: PathTraceCVars.cpp default only after all gates; diagnostics for a
+    concrete failed gate; this field_notes file and accepted task status.
+
+Positive evidence: static source, ABI, deployed pack, reference, blob/hash, and
+  existing-SPIR-V validation evidence above.
+Negative evidence: static N1-N6 declarations above; runtime feature dumps pending.
+Gate-off evidence: not run; mode CVar does not exist.
+Performance median/p95: missing/unset.
+User visual confirmation: pending.
+Known limitations:
+  runtime classifier/fixture/candidate-count proof absent; B3/B4/B5/B6/B8 absent;
+  receiver predicate unaccepted; canonical key unaccepted; legacy timing baseline
+  absent; performance budgets/owner unset; primary t81 is not currently bound;
+  current liquid feature caps violate the intended modifier-only contract;
+  secondary routes remain dry; routed-rigid primary collection is bypassed.
+Decision/default: GO TO LPD-00F. Keep mode 0/current behavior. LPD-01 and all
+  implementation remain blocked until the LPD-00F manifest is accepted; LPD-03
+  additionally waits for the key/predicate decisions; LPD-04/default flip waits
+  for traceable legacy timings and accepted numeric budgets.
+Supersedes entry, if any: none.
+Next permitted task: LPD-00F only, after supervisor accepts this audit verdict.
+
+
+LPD-00F IMPLEMENTATION / VALIDATION ENTRY - 2026-07-19 13:25:55 +10:00
+===========================================================================
+
+Task: LPD-00F deterministic fixture provisioning, explicitly activated by the
+  supervisor after the accepted LPD-00 fixture-gap verdict.
+Starting HEAD: 012a041960e6ce3d0768842a77e25ee84d91eaca
+Branch: restir-development
+Allowed writes observed: neo/d3xp/gamesys/SysCmds.cpp, this field-notes file,
+  and docs/liquid_pool_decals/artifacts/LPD-00F/20260719-132555 only.
+Unrelated modified shaders and untracked documentation were preserved.
+
+Implementation result:
+  Added one CMD_FL_GAME | CMD_FL_CHEAT command, `liquidPoolFixture`, in
+  neo/d3xp/gamesys/SysCmds.cpp. It implements exact one/aligned/partial/
+  perpendicular/mixedFilter forms and calls idGameLocal::ProjectDecal only after
+  every argument, material, base receiver, and mode-specific placement is valid.
+  Fixed size/depth/angle are 64/8/pi-over-8. The nonzero angle prevents
+  ProjectDecal's random fallback. Count is bounded at 32. Aligned origins and
+  orientations are byte-identical. Partial offsets follow one deterministic
+  receiver tangent and prevalidate every shifted point against the same entity,
+  exact collision material, and plane. Perpendicular probes four fixed local
+  directions and requires a second safe plane within 48 units with abs normal
+  dot <= 0.25 before projecting either card. MixedFilter emits the exact liquid
+  then filter material at one origin/orientation.
+
+Safety result:
+  Exact declaration lookup uses FindMaterial(name,false), exact spelling/case,
+  parsed/valid declaration state, and a narrow declaration-name grammar. Missing,
+  wildcard/extension/traversal/drive-path inputs fail without projection.
+  Counts 0, negative, above 32, malformed counts, zero/nonfinite/unsafe-span
+  offsets, multiplayer, no map, no local player, cheats disabled, g_decals off,
+  no hit, translucent/glass/area-portal/no-impact receivers, and degenerate
+  normals all fail closed. No CVar, savegame state, renderer hook, clear/delete
+  lifecycle, material, or gameplay spawn path was added.
+
+Build and artifact result:
+  `cmake --build --preset win64-pt-dev-release` from neo/ passed, exit 0.
+  SysCmds.cpp compiled and RBDoom3BFG.exe linked. All 165 repo Vulkan blobs had
+  the same aggregate path/hash/mtime manifest before and after build:
+  AA2BC0C1BCCC7880ED772AE098C9D65F95AD66BF007F754DE598FC9857C57147.
+  No SPIR-V changed and none was deployed.
+
+Deployment result:
+  The game process was confirmed closed. Built and deployed executable hashes
+  match: 3AA16C9154D8EE759BE2B446DE7518F2FBE3EE62DA3BA878128717C8BD9D7A53.
+  Only E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe was copied. No nested
+  renderprogs2/renderprogs2 exists.
+
+Runtime result:
+  The deployed executable restarted on Vulkan/RTX 4090, initialized the real RT
+  path, printed all five command help forms and max count 32, and exited 0.
+  Runtime negative checks rejected missing material, wildcard startup input,
+  C:\temp\bad.mtr, counts 0/-1/33, partial offset 0, and valid material with no
+  map. Full console paths/hashes and curated excerpts are in the artifact set.
+
+Positive-fixture blocker:
+  Automated +map game/mars_city1 and +devmap testmaps/test_box_valve220 attempts
+  both remained at no-map state when the fixture command ran, so the command
+  correctly emitted nothing. No accepted map/getviewpos, positive PROJECT/DONE
+  line, repeated fixture serial, crosshair material dump, B3/B4/B5/B6/B8 image,
+  or intended-plane proof exists yet.
+
+Reset-contract blocker:
+  LPD-00F requires normal `restartMap` as the deterministic decal reset, but the
+  live command body at neo/framework/Common_load.cpp:1440-1445 reloads only when
+  g_demoMode is true; its default is 0, so normal restartMap is otherwise a no-op.
+  Common_load.cpp is outside LPD-00F's allowed write set. Per the ticket, this was
+  not widened or patched. Supervisor must either authorize a separately scoped
+  restartMap fix or explicitly accept `devmap <sameMap>` as the reset substitute.
+
+Artifact manifest:
+  docs/liquid_pool_decals/artifacts/LPD-00F/20260719-132555/manifest.txt
+Fixture commands:
+  docs/liquid_pool_decals/artifacts/LPD-00F/20260719-132555/fixture_commands.txt
+Runtime excerpts:
+  docs/liquid_pool_decals/artifacts/LPD-00F/20260719-132555/runtime_excerpts.txt
+
+Decision: SOURCE/BUILD/DEPLOY/HELP PASS; FIXTURE MANIFEST BLOCKED. LPD-04 fixture
+  prerequisites remain blocked. Do not advance to LPD-01 or LPD-04 until an
+  interactive fixed map/getviewpos capture is accepted and the reset contract is
+  resolved. This task does not claim liquid-rendering validation.

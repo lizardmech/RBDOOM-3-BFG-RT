@@ -1,0 +1,170 @@
+LPD-00F ARTIFACT MANIFEST
+=========================
+
+Task: LPD-00F deterministic fixture provisioning
+Worker: Codex
+Timestamp: 2026-07-19 13:25:55 +10:00
+Starting HEAD: 012a041960e6ce3d0768842a77e25ee84d91eaca
+Branch: restir-development
+
+Starting dirty state preserved
+------------------------------
+
+Modified before this task:
+  neo/shaders/builtin/pathtracing/cleanroom_common/restir_gi_reservoir.hlsli
+  neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_shared.hlsli
+  neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_output.hlsli
+
+The checkout also contained the pre-existing untracked documentation trees shown
+by `git status --short`, including the complete docs/liquid_pool_decals packet.
+Those files and all unrelated untracked files were left untouched. LPD-00F wrote
+only SysCmds.cpp, this task artifact directory, and field_notes.txt.
+
+Implementation
+--------------
+
+Changed source:
+  neo/d3xp/gamesys/SysCmds.cpp
+
+Registered command:
+  liquidPoolFixture (CMD_FL_GAME | CMD_FL_CHEAT)
+
+Syntax:
+  liquidPoolFixture one <exactMaterial>
+  liquidPoolFixture aligned <count> <exactMaterial>
+  liquidPoolFixture partial <count> <offset> <exactMaterial>
+  liquidPoolFixture perpendicular <exactMaterial>
+  liquidPoolFixture mixedFilter <liquidMaterial> <filterMaterial>
+
+Fixed projection constants:
+  size=64.0
+  depth=8.0
+  angle=pi/8 (non-zero, so ProjectDecal cannot select random rotation)
+  maximum count=32
+  crosshair trace distance=4096
+
+Build and deployment
+--------------------
+
+Command (cwd neo/):
+  cmake --build --preset win64-pt-dev-release
+
+Result: PASS, exit 0. SysCmds.cpp compiled and RBDoom3BFG.exe linked.
+Build reported all SPIR-V shaders up to date. No shader compiler ran for an
+affected source because this task changed no shader source.
+
+Repo Vulkan blob manifest before and after build:
+  file count=165
+  aggregate SHA-256=AA2BC0C1BCCC7880ED772AE098C9D65F95AD66BF007F754DE598FC9857C57147
+  result=UNCHANGED
+
+Built executable:
+  E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+  SHA-256=3AA16C9154D8EE759BE2B446DE7518F2FBE3EE62DA3BA878128717C8BD9D7A53
+  mtime UTC=2026-07-19T03:15:37.2175870Z
+
+Deployed executable:
+  E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+  SHA-256=3AA16C9154D8EE759BE2B446DE7518F2FBE3EE62DA3BA878128717C8BD9D7A53
+  mtime UTC=2026-07-19T03:15:37.2175870Z
+
+Deployment precondition/result:
+  RBDoom3BFG process was not running before copy.
+  Executable only was copied. No SPIR-V was copied.
+  Nested base/renderprogs2/renderprogs2 is absent.
+
+Runtime registration and negative evidence
+------------------------------------------
+
+Runtime API: Vulkan
+Runtime device: NVIDIA GeForce RTX 4090
+Runtime log: `PathTracePrimaryPass: initialized, ray tracing available`
+
+Help/registration: PASS. The deployed executable launched, printed all five
+forms and count range 1..32, dumped the console, and exited 0.
+
+Negative runtime checks captured at no-map state:
+  missing exact declaration: rejected
+  wildcard command-line input: failed closed as invalid syntax
+  arbitrary C:\temp\bad.mtr input: rejected as unsafe declaration name
+  aligned count 0: rejected
+  aligned count -1: rejected
+  aligned count 33: rejected
+  partial offset 0: rejected
+  valid exact material with no map/local player: rejected before projection
+
+The full runtime console dumps are retained outside source control because each
+contains the complete 83 KB engine startup log. Their absolute paths and hashes
+are listed below as authorized by artifacts/README.txt.
+
+External artifacts
+------------------
+
+  C:\Users\lizard\Saved Games\id Software\RBDOOM 3 BFG\base\liquid_pool_fixture_help.txt
+    bytes=83317
+    SHA-256=4D5DB268C62BAD28181F93384CD3333ACAE4B7ADD2019AF7550792906A242231
+    purpose=deployed Vulkan startup, RT initialization, command help/registration
+
+  C:\Users\lizard\Saved Games\id Software\RBDOOM 3 BFG\base\liquid_pool_fixture_negative.txt
+    bytes=84332
+    SHA-256=14C04CBB14CB4D91945E93534A3ECD426514407F2C403E764753A1F66D906A6C
+    purpose=fail-closed material/count/offset/no-map checks
+
+  C:\Users\lizard\Saved Games\id Software\RBDOOM 3 BFG\base\liquid_pool_fixture_probe.txt
+    bytes=83461
+    SHA-256=29370D45ED6A4D0DCD7997BA93D69499EE32D6926D87F2ABF1EB4A3FD2FA53E2
+    purpose=failed automated game/mars_city1 positive-fixture attempt
+
+  C:\Users\lizard\Saved Games\id Software\RBDOOM 3 BFG\base\liquid_pool_fixture_probe2.txt
+    bytes=83463
+    SHA-256=E6EB735726D3469D1C1B91D76F5343396CC723EFFEE47D1BBD614FF150752987
+    purpose=failed automated testmaps/test_box_valve220 positive-fixture attempt
+
+Map/getviewpos and CVar status
+-----------------------------
+
+Map/getviewpos: MISSING. Automated +map game/mars_city1 and +devmap
+testmaps/test_box_valve220 launches both remained in the no-map state when the
+fixture command ran. Their screenshots show menu/no-map state and are not
+credited as fixture evidence.
+
+Process-only startup overrides used for automation:
+  com_skipIntroVideos=1
+  r_fullscreen=0
+  r_windowWidth=640
+  r_windowHeight=480
+
+No renderer/liquid/path-tracing CVar was changed by source or runtime testing.
+No accepted baseline CVar snapshot exists because no map fixture was reached.
+
+Reset contract mismatch
+-----------------------
+
+The task requires normal `restartMap` as the deterministic decal reset. The live
+implementation at neo/framework/Common_load.cpp:1440-1445 appends a devmap only
+when g_demoMode is true (default is 0); it is otherwise a no-op. That file is not
+in LPD-00F's allowed write set. The command therefore prints the task-specified
+reset token, but normal-mode reset proof is BLOCKED pending a supervisor choice:
+
+  A. authorize/fix Common_load.cpp in a separately scoped task; or
+  B. explicitly accept `devmap <sameMap>` as the LPD-00F reset substitute.
+
+Artifact files in this directory
+--------------------------------
+
+  manifest.txt -> authoritative task/build/deploy/runtime/blocker record
+  fixture_commands.txt -> exact B3/B4/B5/B6/B8 command manifest and capture steps
+  runtime_excerpts.txt -> concise help and negative-test console evidence
+
+Status
+------
+
+Source implementation: PASS
+Build: PASS
+Vulkan artifact non-change: PASS
+Executable deployment/hash: PASS
+Deployed command registration/help: PASS
+Negative fail-closed subset: PASS
+B3/B4/B5/B6/B8 positive captures: PENDING/BLOCKED
+restartMap deterministic reset: BLOCKED by live out-of-scope implementation
+LPD-04 fixture verdict: BLOCKED; do not advance to LPD-01 or LPD-04.

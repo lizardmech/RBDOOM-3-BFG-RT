@@ -801,6 +801,422 @@ void Cmd_GetViewpos_f( const idCmdArgs& args )
 }
 
 /*
+========================
+Liquid pool fixture helpers
+========================
+*/
+static const int LIQUID_POOL_FIXTURE_MAX_COUNT = 32;
+static const float LIQUID_POOL_FIXTURE_TRACE_DISTANCE = 4096.0f;
+static const float LIQUID_POOL_FIXTURE_SIZE = 64.0f;
+static const float LIQUID_POOL_FIXTURE_DEPTH = 8.0f;
+static const float LIQUID_POOL_FIXTURE_ANGLE = idMath::PI * 0.125f;
+
+static void LiquidPoolFixtureUsage()
+{
+	gameLocal.Printf( "usage:\n" );
+	gameLocal.Printf( "  liquidPoolFixture one <exactMaterial>\n" );
+	gameLocal.Printf( "  liquidPoolFixture aligned <count> <exactMaterial>\n" );
+	gameLocal.Printf( "  liquidPoolFixture partial <count> <offset> <exactMaterial>\n" );
+	gameLocal.Printf( "  liquidPoolFixture perpendicular <exactMaterial>\n" );
+	gameLocal.Printf( "  liquidPoolFixture mixedFilter <liquidMaterial> <filterMaterial>\n" );
+	gameLocal.Printf( "count range: 1..%d; partial requires count >= 2 and a non-zero overlapping offset\n", LIQUID_POOL_FIXTURE_MAX_COUNT );
+}
+
+static bool LiquidPoolFixtureParseCount( const char* text, int minimum, int& value )
+{
+	char* end = NULL;
+	const long parsed = strtol( text, &end, 10 );
+	if( text[ 0 ] == '\0' || end == NULL || end[ 0 ] != '\0' || parsed < minimum || parsed > LIQUID_POOL_FIXTURE_MAX_COUNT )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR count '%s' must be an integer in [%d,%d]; nothing projected\n", text, minimum, LIQUID_POOL_FIXTURE_MAX_COUNT );
+		return false;
+	}
+	value = static_cast<int>( parsed );
+	return true;
+}
+
+static bool LiquidPoolFixtureParseOffset( const char* text, int count, float& value )
+{
+	char* end = NULL;
+	const double parsed = strtod( text, &end );
+	const double span = parsed * static_cast<double>( count - 1 );
+	if( text[ 0 ] == '\0' || end == NULL || end[ 0 ] != '\0' ||
+		!( parsed >= -LIQUID_POOL_FIXTURE_SIZE && parsed <= LIQUID_POOL_FIXTURE_SIZE ) ||
+		parsed == 0.0 || !( span > -LIQUID_POOL_FIXTURE_SIZE && span < LIQUID_POOL_FIXTURE_SIZE ) )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR offset '%s' must be finite, non-zero, and keep the complete partial fixture within one %.1f-unit footprint; nothing projected\n", text, LIQUID_POOL_FIXTURE_SIZE );
+		return false;
+	}
+	value = static_cast<float>( parsed );
+	return true;
+}
+
+static bool LiquidPoolFixtureMaterialNameIsSafe( const char* name )
+{
+	if( name == NULL || name[ 0 ] == '\0' || name[ 0 ] == '/' || idStr::Length( name ) > 127 )
+	{
+		return false;
+	}
+
+	for( int i = 0; name[ i ] != '\0'; ++i )
+	{
+		const char c = name[ i ];
+		const bool alphaNumeric = ( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' ) || ( c >= '0' && c <= '9' );
+		if( !alphaNumeric && c != '_' && c != '-' && c != '/' )
+		{
+			return false;
+		}
+		if( c == '/' && ( name[ i + 1 ] == '/' || name[ i + 1 ] == '\0' ) )
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool LiquidPoolFixtureValidateMaterial( const char* name )
+{
+	if( !LiquidPoolFixtureMaterialNameIsSafe( name ) )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR material '%s' is not a safe exact declaration name; wildcards, filesystem paths, extensions, and traversal are rejected; nothing projected\n", name ? name : "<null>" );
+		return false;
+	}
+
+	const idMaterial* material = declManager->FindMaterial( name, false );
+	if( material == NULL || !material->IsValid() || material->GetState() == DS_DEFAULTED )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR exact material declaration '%s' was not found or did not parse; nothing projected\n", name );
+		return false;
+	}
+	if( idStr::Cmp( material->GetName(), name ) != 0 )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR material spelling/case is not exact: requested '%s', declaration is '%s'; nothing projected\n", name, material->GetName() );
+		return false;
+	}
+	return true;
+}
+
+static bool LiquidPoolFixtureReceiverIsSafe( const trace_t& trace, const char*& reason )
+{
+	if( trace.fraction >= 1.0f )
+	{
+		reason = "no trace hit";
+		return false;
+	}
+	if( trace.c.material == NULL )
+	{
+		reason = "receiver has no exact collision material";
+		return false;
+	}
+	if( trace.c.material->Coverage() == MC_TRANSLUCENT )
+	{
+		reason = "translucent receiver";
+		return false;
+	}
+	if( trace.c.material->GetSurfaceType() == SURFTYPE_GLASS )
+	{
+		reason = "glass receiver";
+		return false;
+	}
+	if( ( trace.c.material->GetContentFlags() & CONTENTS_AREAPORTAL ) != 0 )
+	{
+		reason = "area-portal receiver";
+		return false;
+	}
+	if( ( trace.c.material->GetSurfaceFlags() & SURF_NOIMPACT ) != 0 )
+	{
+		reason = "no-impact receiver";
+		return false;
+	}
+	if( trace.c.normal.LengthSqr() < 0.9f )
+	{
+		reason = "degenerate receiver normal";
+		return false;
+	}
+	reason = "ok";
+	return true;
+}
+
+static uint64 LiquidPoolFixtureSerial( const char* text )
+{
+	uint64 hash = 14695981039346656037ULL;
+	for( int i = 0; text[ i ] != '\0'; ++i )
+	{
+		hash ^= static_cast<unsigned char>( text[ i ] );
+		hash *= 1099511628211ULL;
+	}
+	return hash;
+}
+
+/*
+========================
+Cmd_LiquidPoolFixture_f
+
+Deterministic developer-only projected decal fixtures for the liquid-pool
+validation packet. restartMap is deliberately the only reset lifecycle.
+========================
+*/
+static void Cmd_LiquidPoolFixture_f( const idCmdArgs& args )
+{
+	enum fixtureMode_t
+	{
+		FIXTURE_ONE,
+		FIXTURE_ALIGNED,
+		FIXTURE_PARTIAL,
+		FIXTURE_PERPENDICULAR,
+		FIXTURE_MIXED_FILTER
+	};
+
+	if( args.Argc() < 2 )
+	{
+		LiquidPoolFixtureUsage();
+		return;
+	}
+
+	fixtureMode_t mode;
+	const char* modeName = args.Argv( 1 );
+	const char* materialName = NULL;
+	const char* filterMaterialName = NULL;
+	int count = 1;
+	float offset = 0.0f;
+
+	if( idStr::Icmp( modeName, "one" ) == 0 && args.Argc() == 3 )
+	{
+		mode = FIXTURE_ONE;
+		materialName = args.Argv( 2 );
+	}
+	else if( idStr::Icmp( modeName, "aligned" ) == 0 && args.Argc() == 4 )
+	{
+		mode = FIXTURE_ALIGNED;
+		if( !LiquidPoolFixtureParseCount( args.Argv( 2 ), 1, count ) )
+		{
+			return;
+		}
+		materialName = args.Argv( 3 );
+	}
+	else if( idStr::Icmp( modeName, "partial" ) == 0 && args.Argc() == 5 )
+	{
+		mode = FIXTURE_PARTIAL;
+		if( !LiquidPoolFixtureParseCount( args.Argv( 2 ), 2, count ) || !LiquidPoolFixtureParseOffset( args.Argv( 3 ), count, offset ) )
+		{
+			return;
+		}
+		materialName = args.Argv( 4 );
+	}
+	else if( idStr::Icmp( modeName, "perpendicular" ) == 0 && args.Argc() == 3 )
+	{
+		mode = FIXTURE_PERPENDICULAR;
+		count = 2;
+		materialName = args.Argv( 2 );
+	}
+	else if( idStr::Icmp( modeName, "mixedFilter" ) == 0 && args.Argc() == 4 )
+	{
+		mode = FIXTURE_MIXED_FILTER;
+		count = 2;
+		materialName = args.Argv( 2 );
+		filterMaterialName = args.Argv( 3 );
+	}
+	else
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR invalid syntax; nothing projected\n" );
+		LiquidPoolFixtureUsage();
+		return;
+	}
+
+	if( !LiquidPoolFixtureValidateMaterial( materialName ) ||
+		( filterMaterialName != NULL && !LiquidPoolFixtureValidateMaterial( filterMaterialName ) ) )
+	{
+		return;
+	}
+	if( filterMaterialName != NULL && idStr::Cmp( materialName, filterMaterialName ) == 0 )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR mixedFilter requires two different exact material declarations; nothing projected\n" );
+		return;
+	}
+	if( common->IsMultiplayer() )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR multiplayer/non-local invocation is forbidden; nothing projected\n" );
+		return;
+	}
+	if( gameLocal.GetMapName()[ 0 ] == '\0' )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR no map is loaded; nothing projected\n" );
+		return;
+	}
+
+	idPlayer* player = gameLocal.GetLocalPlayer();
+	if( player == NULL )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR no local player; nothing projected\n" );
+		return;
+	}
+	if( !gameLocal.CheatsOk( false ) )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR cheats are not permitted; nothing projected\n" );
+		return;
+	}
+	if( !g_decals.GetBool() )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR g_decals is disabled; nothing projected\n" );
+		return;
+	}
+
+	idVec3 viewOrigin;
+	idMat3 viewAxis;
+	const renderView_t* view = player->GetRenderView();
+	if( view != NULL )
+	{
+		viewOrigin = view->vieworg;
+		viewAxis = view->viewaxis;
+	}
+	else
+	{
+		player->GetViewPos( viewOrigin, viewAxis );
+	}
+
+	trace_t receiverTrace;
+	gameLocal.clip.TracePoint( receiverTrace, viewOrigin, viewOrigin + viewAxis[ 0 ] * LIQUID_POOL_FIXTURE_TRACE_DISTANCE, MASK_SHOT_RENDERMODEL, player );
+	const char* receiverReason = NULL;
+	if( !LiquidPoolFixtureReceiverIsSafe( receiverTrace, receiverReason ) )
+	{
+		gameLocal.Printf( "liquidPoolFixture: ERROR crosshair receiver rejected (%s); nothing projected\n", receiverReason );
+		return;
+	}
+
+	idVec3 receiverNormal = receiverTrace.c.normal;
+	receiverNormal.Normalize();
+	const idVec3 projectionDirection = -receiverNormal;
+	idVec3 receiverTangent;
+	idVec3 receiverBitangent;
+	receiverNormal.NormalVectors( receiverTangent, receiverBitangent );
+
+	idVec3 projectionOrigins[ LIQUID_POOL_FIXTURE_MAX_COUNT ];
+	for( int i = 0; i < count; ++i )
+	{
+		projectionOrigins[ i ] = receiverTrace.c.point;
+	}
+
+	trace_t perpendicularTrace;
+	idVec3 perpendicularNormal = vec3_zero;
+	if( mode == FIXTURE_PARTIAL )
+	{
+		for( int i = 1; i < count; ++i )
+		{
+			projectionOrigins[ i ] += receiverTangent * ( offset * i );
+			trace_t placementTrace;
+			const idVec3 probeStart = projectionOrigins[ i ] + receiverNormal * 2.0f;
+			const idVec3 probeEnd = projectionOrigins[ i ] - receiverNormal * 2.0f;
+			gameLocal.clip.TracePoint( placementTrace, probeStart, probeEnd, MASK_SHOT_RENDERMODEL, player );
+			const char* placementReason = NULL;
+			const bool placementSafe = LiquidPoolFixtureReceiverIsSafe( placementTrace, placementReason );
+			if( !placementSafe ||
+				placementTrace.c.entityNum != receiverTrace.c.entityNum ||
+				placementTrace.c.material != receiverTrace.c.material ||
+				placementTrace.c.normal * receiverNormal < 0.999f )
+			{
+				gameLocal.Printf( "liquidPoolFixture: ERROR partial placement %d leaves the original receiver plane (%s); nothing projected\n", i, placementSafe ? "receiver identity/normal mismatch" : placementReason );
+				return;
+			}
+		}
+	}
+	else if( mode == FIXTURE_PERPENDICULAR )
+	{
+		const idVec3 probeDirections[ 4 ] = { receiverTangent, -receiverTangent, receiverBitangent, -receiverBitangent };
+		const idVec3 probeStart = receiverTrace.c.point + receiverNormal * 0.5f;
+		float bestDistanceSqr = 1e30f;
+		bool found = false;
+		for( int i = 0; i < 4; ++i )
+		{
+			trace_t candidateTrace;
+			gameLocal.clip.TracePoint( candidateTrace, probeStart, probeStart + probeDirections[ i ] * ( LIQUID_POOL_FIXTURE_SIZE * 0.75f ), MASK_SHOT_RENDERMODEL, player );
+			const char* candidateReason = NULL;
+			if( !LiquidPoolFixtureReceiverIsSafe( candidateTrace, candidateReason ) )
+			{
+				continue;
+			}
+			idVec3 candidateNormal = candidateTrace.c.normal;
+			candidateNormal.Normalize();
+			if( idMath::Fabs( candidateNormal * receiverNormal ) > 0.25f )
+			{
+				continue;
+			}
+			const float distanceSqr = ( candidateTrace.c.point - receiverTrace.c.point ).LengthSqr();
+			if( distanceSqr < 1.0f || distanceSqr >= bestDistanceSqr )
+			{
+				continue;
+			}
+			bestDistanceSqr = distanceSqr;
+			perpendicularTrace = candidateTrace;
+			perpendicularNormal = candidateNormal;
+			found = true;
+		}
+		if( !found )
+		{
+			gameLocal.Printf( "liquidPoolFixture: ERROR perpendicular requires an opaque non-glass plane within %.1f units and <= 0.25 absolute normal dot of the crosshair receiver; nothing projected\n", LIQUID_POOL_FIXTURE_SIZE * 0.75f );
+			return;
+		}
+		projectionOrigins[ 1 ] = perpendicularTrace.c.point;
+	}
+
+	idStr serialInput;
+	serialInput.Format(
+		"%s|%s|%s|%s|%d|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f",
+		gameLocal.GetMapName(), modeName, materialName, filterMaterialName ? filterMaterialName : "-", count, offset,
+		receiverTrace.c.point.x, receiverTrace.c.point.y, receiverTrace.c.point.z,
+		receiverNormal.x, receiverNormal.y, receiverNormal.z,
+		projectionDirection.x, projectionDirection.y, projectionDirection.z,
+		LIQUID_POOL_FIXTURE_SIZE, LIQUID_POOL_FIXTURE_DEPTH, LIQUID_POOL_FIXTURE_ANGLE,
+		receiverTangent.x, receiverTangent.y, receiverTangent.z );
+	if( mode == FIXTURE_PERPENDICULAR )
+	{
+		serialInput.Append( va( "|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f",
+			perpendicularTrace.c.point.x, perpendicularTrace.c.point.y, perpendicularTrace.c.point.z,
+			perpendicularNormal.x, perpendicularNormal.y, perpendicularNormal.z ) );
+	}
+	const uint64 fixtureSerial = LiquidPoolFixtureSerial( serialInput.c_str() );
+
+	gameLocal.Printf( "liquidPoolFixture: PROJECT serial=%016llx mode=%s map='%s'\n",
+		static_cast<unsigned long long>( fixtureSerial ), modeName, gameLocal.GetMapName() );
+	gameLocal.Printf( "  origin=(%.6f %.6f %.6f) receiverNormal=(%.6f %.6f %.6f) projectionDirection=(%.6f %.6f %.6f)\n",
+		receiverTrace.c.point.x, receiverTrace.c.point.y, receiverTrace.c.point.z,
+		receiverNormal.x, receiverNormal.y, receiverNormal.z,
+		projectionDirection.x, projectionDirection.y, projectionDirection.z );
+	gameLocal.Printf( "  size=%.6f depth=%.6f angle=%.6f count=%d offset=%.6f tangent=(%.6f %.6f %.6f)\n",
+		LIQUID_POOL_FIXTURE_SIZE, LIQUID_POOL_FIXTURE_DEPTH, LIQUID_POOL_FIXTURE_ANGLE, count, offset,
+		receiverTangent.x, receiverTangent.y, receiverTangent.z );
+	gameLocal.Printf( "  material='%s' filterMaterial='%s' receiverMaterial='%s' receiverEntity=%d reset=restartMap\n",
+		materialName, filterMaterialName ? filterMaterialName : "-", receiverTrace.c.material->GetName(), receiverTrace.c.entityNum );
+	if( mode == FIXTURE_PERPENDICULAR )
+	{
+		gameLocal.Printf( "  perpendicularOrigin=(%.6f %.6f %.6f) perpendicularNormal=(%.6f %.6f %.6f) perpendicularProjectionDirection=(%.6f %.6f %.6f) receiverMaterial='%s' receiverEntity=%d normalDot=%.6f\n",
+			perpendicularTrace.c.point.x, perpendicularTrace.c.point.y, perpendicularTrace.c.point.z,
+			perpendicularNormal.x, perpendicularNormal.y, perpendicularNormal.z,
+			-perpendicularNormal.x, -perpendicularNormal.y, -perpendicularNormal.z,
+			perpendicularTrace.c.material->GetName(), perpendicularTrace.c.entityNum, perpendicularNormal * receiverNormal );
+	}
+
+	if( mode == FIXTURE_PERPENDICULAR )
+	{
+		gameLocal.ProjectDecal( projectionOrigins[ 0 ], projectionDirection, LIQUID_POOL_FIXTURE_DEPTH, true, LIQUID_POOL_FIXTURE_SIZE, materialName, LIQUID_POOL_FIXTURE_ANGLE );
+		gameLocal.ProjectDecal( projectionOrigins[ 1 ], -perpendicularNormal, LIQUID_POOL_FIXTURE_DEPTH, true, LIQUID_POOL_FIXTURE_SIZE, materialName, LIQUID_POOL_FIXTURE_ANGLE );
+	}
+	else if( mode == FIXTURE_MIXED_FILTER )
+	{
+		gameLocal.ProjectDecal( projectionOrigins[ 0 ], projectionDirection, LIQUID_POOL_FIXTURE_DEPTH, true, LIQUID_POOL_FIXTURE_SIZE, materialName, LIQUID_POOL_FIXTURE_ANGLE );
+		gameLocal.ProjectDecal( projectionOrigins[ 0 ], projectionDirection, LIQUID_POOL_FIXTURE_DEPTH, true, LIQUID_POOL_FIXTURE_SIZE, filterMaterialName, LIQUID_POOL_FIXTURE_ANGLE );
+	}
+	else
+	{
+		for( int i = 0; i < count; ++i )
+		{
+			gameLocal.ProjectDecal( projectionOrigins[ i ], projectionDirection, LIQUID_POOL_FIXTURE_DEPTH, true, LIQUID_POOL_FIXTURE_SIZE, materialName, LIQUID_POOL_FIXTURE_ANGLE );
+		}
+	}
+	gameLocal.Printf( "liquidPoolFixture: DONE serial=%016llx projected=%d deterministicReset=restartMap\n",
+		static_cast<unsigned long long>( fixtureSerial ), count );
+}
+
+/*
 =================
 Cmd_SetViewpos_f
 =================
@@ -2801,6 +3217,7 @@ void idGameLocal::InitConsoleCommands()
 	cmdSystem->AddCommand( "noclip",				Cmd_Noclip_f,				CMD_FL_GAME | CMD_FL_CHEAT,	"disables collision detection for the player" );
 	cmdSystem->AddCommand( "where",					Cmd_GetViewpos_f,			CMD_FL_GAME | CMD_FL_CHEAT,	"prints the current view position" );
 	cmdSystem->AddCommand( "getviewpos",			Cmd_GetViewpos_f,			CMD_FL_GAME | CMD_FL_CHEAT,	"prints the current view position" );
+	cmdSystem->AddCommand( "liquidPoolFixture",		Cmd_LiquidPoolFixture_f,	CMD_FL_GAME | CMD_FL_CHEAT,	"projects deterministic liquid-pool decal validation fixtures; invoke without arguments for syntax" );
 	cmdSystem->AddCommand( "setviewpos",			Cmd_SetViewpos_f,			CMD_FL_GAME | CMD_FL_CHEAT,	"sets the current view position" );
 	cmdSystem->AddCommand( "teleport",				Cmd_Teleport_f,				CMD_FL_GAME | CMD_FL_CHEAT,	"teleports the player to an entity location", idGameLocal::ArgCompletion_EntityName );
 	cmdSystem->AddCommand( "trigger",				Cmd_Trigger_f,				CMD_FL_GAME | CMD_FL_CHEAT,	"triggers an entity", idGameLocal::ArgCompletion_EntityName );
