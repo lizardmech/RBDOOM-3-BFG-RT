@@ -525,6 +525,10 @@ RtMaterialStageFacts AnalyzeRtMaterialStages(const idMaterial* material)
         {
             ++facts.cubeMapStages;
         }
+        if (stage->texture.texgen == TG_REFLECT_CUBE2)
+        {
+            ++facts.reflectCube2Stages;
+        }
         if (stage->newStage != nullptr)
         {
             ++facts.customProgramStages;
@@ -1533,6 +1537,9 @@ uint64 ComputeRtMaterialRecordSignature(const idMaterial* material, const RtSmok
     hash = HashRtMaterialString(hash, info.normalReason);
     hash = HashRtMaterialString(hash, info.specularReason);
     hash = HashRtMaterialString(hash, info.emissiveReason);
+    hash = HashRtMaterialString(hash, info.liquidFilmCoverageImageName);
+    hash = HashRtMaterialString(hash, info.liquidFilmOverrideReason);
+    hash = HashRtMaterialString(hash, info.liquidFilmReason);
     hash = HashRtMaterialValue(hash, material ? static_cast<uint64>(material->GetSurfaceType()) : 0u);
     hash = HashRtMaterialValue(hash, material ? static_cast<uint64>(material->GetSurfaceFlags()) : 0u);
     hash = HashRtMaterialFloat(hash, material ? material->GetSort() : 0.0f);
@@ -1549,6 +1556,16 @@ uint64 ComputeRtMaterialRecordSignature(const idMaterial* material, const RtSmok
     hash = HashRtMaterialValue(hash, info.alphaFromDiffuseLuma ? 1u : 0u);
     hash = HashRtMaterialValue(hash, info.alphaFromDiffuseDarkKey ? 1u : 0u);
     hash = HashRtMaterialValue(hash, info.alphaFromDiffuseMagentaKey ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.detailDecal ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.detailDecalLiquidPool ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.liquidFilmHasBloodSemantic ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.liquidFilmHasWetReflectStage ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.liquidFilmHasCoverageSource ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.liquidFilmHasWetNormalSource ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.liquidFilmExactOverride ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.liquidFilmCandidate ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, IsSmokeMaterialTextureVariant(info.materialId) ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.isDynamic ? 1u : 0u);
     hash = HashRtMaterialValue(hash, material ? static_cast<uint64>(material->GetNumStages()) : 0u);
     if (material)
     {
@@ -1629,6 +1646,9 @@ RtMaterialRecord BuildRtMaterialRecord(const idMaterial* material, const RtSmoke
     record.normalReason = info.normalReason;
     record.specularReason = info.specularReason;
     record.emissiveReason = info.emissiveReason;
+    record.liquidFilmCoverageImageName = info.liquidFilmCoverageImageName;
+    record.liquidFilmOverrideReason = info.liquidFilmOverrideReason;
+    record.liquidFilmReason = info.liquidFilmReason;
     record.rawSurfaceType = material ? static_cast<int>(material->GetSurfaceType()) : static_cast<int>(SURFTYPE_NONE);
     record.surfaceFlags = material ? material->GetSurfaceFlags() : 0;
     record.sort = material ? material->GetSort() : 0.0f;
@@ -1647,6 +1667,16 @@ RtMaterialRecord BuildRtMaterialRecord(const idMaterial* material, const RtSmoke
     record.emissiveColorFormat = info.emissiveColorFormat;
     record.alphaTested = info.hasAlphaTest;
     record.emissiveIntent = info.emissive;
+    record.liquidFilmIsDetailDecal = info.detailDecal;
+    record.liquidFilmHasBloodSemantic = info.liquidFilmHasBloodSemantic;
+    record.liquidFilmHasWetReflectStage = info.liquidFilmHasWetReflectStage;
+    record.liquidFilmHasCoverageSource = info.liquidFilmHasCoverageSource;
+    record.liquidFilmHasWetNormalSource = info.liquidFilmHasWetNormalSource;
+    record.liquidFilmExactOverride = info.liquidFilmExactOverride;
+    record.liquidFilmLegacyPool = info.detailDecalLiquidPool;
+    record.liquidFilmCandidate = info.liquidFilmCandidate;
+    record.liquidFilmVariant = IsSmokeMaterialTextureVariant(info.materialId);
+    record.liquidFilmDynamic = info.isDynamic;
     record.stageFacts = AnalyzeRtMaterialStages(material);
     record.compositingStages = CompileRtMaterialCompositingStages(material);
     record.interactionPackets = CompileRtMaterialInteractionPackets(record.compositingStages);
@@ -1826,7 +1856,7 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.surfaceClassEvidence.c_str(),
         RtMaterialClassConfidenceName(record.surfaceClassConfidence),
         RtMaterialNormalDecodeModeName(record.normalDecodeMode));
-    common->Printf("MatClass: stages id=%u total=%d bump=%d diffuse=%d specular=%d rmao=%d legacySpec=%d ambient=%d effect=%d additive=%d filter=%d alphaBlend=%d coverage=%d guiScreen=%d dynamic=%d cinematic=%d cube=%d program=%d\n",
+    common->Printf("MatClass: stages id=%u total=%d bump=%d diffuse=%d specular=%d rmao=%d legacySpec=%d ambient=%d effect=%d additive=%d filter=%d alphaBlend=%d coverage=%d guiScreen=%d dynamic=%d cinematic=%d cube=%d reflect2=%d program=%d\n",
         record.materialId,
         record.stageFacts.stageCount,
         record.stageFacts.bumpStages,
@@ -1844,7 +1874,27 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.stageFacts.dynamicImageStages,
         record.stageFacts.cinematicStages,
         record.stageFacts.cubeMapStages,
+        record.stageFacts.reflectCube2Stages,
         record.stageFacts.customProgramStages);
+    common->Printf("MatClass: liquidFilm id=%u candidate=%d detail=%d blood=%d reflect2=%d coverage=%d coverageImage='%s' wetNormal=%d normalImage='%s' exactOverride=%d overrideReason='%s' legacyPool=%d variant=%d dynamic=%d reason='%s' mode=%d debug=%d page=%d\n",
+        record.materialId,
+        record.liquidFilmCandidate ? 1 : 0,
+        record.liquidFilmIsDetailDecal ? 1 : 0,
+        record.liquidFilmHasBloodSemantic ? 1 : 0,
+        record.liquidFilmHasWetReflectStage ? 1 : 0,
+        record.liquidFilmHasCoverageSource ? 1 : 0,
+        record.liquidFilmCoverageImageName.c_str(),
+        record.liquidFilmHasWetNormalSource ? 1 : 0,
+        record.normalImageName.c_str(),
+        record.liquidFilmExactOverride ? 1 : 0,
+        record.liquidFilmOverrideReason.c_str(),
+        record.liquidFilmLegacyPool ? 1 : 0,
+        record.liquidFilmVariant ? 1 : 0,
+        record.liquidFilmDynamic ? 1 : 0,
+        record.liquidFilmReason.c_str(),
+        r_pathTracingLiquidPoolMode.GetInteger(),
+        r_pathTracingLiquidPoolDebug.GetInteger(),
+        r_pathTracingLiquidPoolDebugPage.GetInteger());
     common->Printf("MatClass: ordered id=%u declaredStages=%d interactionPackets=%d\n",
         record.materialId,
         static_cast<int>(record.compositingStages.size()),

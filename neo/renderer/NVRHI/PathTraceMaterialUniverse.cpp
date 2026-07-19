@@ -131,6 +131,15 @@ uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmok
     hash = HashSmokeMaterialUniverseValue(hash, info.isDynamic ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.detailDecalDiffuseLit ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.detailDecalLiquidPool ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.liquidFilmHasBloodSemantic ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.liquidFilmHasWetReflectStage ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.liquidFilmHasCoverageSource ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.liquidFilmHasWetNormalSource ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.liquidFilmExactOverride ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.liquidFilmCandidate ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseString(hash, info.liquidFilmCoverageImageName);
+    hash = HashSmokeMaterialUniverseString(hash, info.liquidFilmOverrideReason);
+    hash = HashSmokeMaterialUniverseString(hash, info.liquidFilmReason);
     hash = HashSmokeMaterialUniverseValue(hash, static_cast<uint64>(Max(0, info.detailDecalSpectrum)));
     hash = HashSmokeMaterialUniverseValue(hash, info.alphaFromDiffuseLuma ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.forceFallbackAlbedo ? 1u : 0u);
@@ -293,6 +302,12 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
     record.facts.detailDecal = (record.material.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0;
     record.facts.detailDecalDynamic = (record.material.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC) != 0;
     record.facts.detailDecalLiquidPool = (record.material.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL_LIQUID_POOL) != 0;
+    record.facts.liquidFilmHasBloodSemantic = info.liquidFilmHasBloodSemantic;
+    record.facts.liquidFilmHasWetReflectStage = info.liquidFilmHasWetReflectStage;
+    record.facts.liquidFilmHasCoverageSource = info.liquidFilmHasCoverageSource;
+    record.facts.liquidFilmHasWetNormalSource = info.liquidFilmHasWetNormalSource;
+    record.facts.liquidFilmExactOverride = info.liquidFilmExactOverride;
+    record.facts.liquidFilmCandidate = info.liquidFilmCandidate;
     record.facts.alphaFromDiffuseLuma = (record.material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA) != 0;
     record.facts.forceFallbackAlbedo = (record.material.flags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0;
     record.facts.alphaFromDiffuseDarkKey = (record.material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY) != 0;
@@ -339,6 +354,12 @@ bool SmokePersistentMaterialRecordsEqual(const RtSmokePersistentMaterialRecord& 
         lhs.facts.detailDecal == rhs.facts.detailDecal &&
         lhs.facts.detailDecalDynamic == rhs.facts.detailDecalDynamic &&
         lhs.facts.detailDecalLiquidPool == rhs.facts.detailDecalLiquidPool &&
+        lhs.facts.liquidFilmHasBloodSemantic == rhs.facts.liquidFilmHasBloodSemantic &&
+        lhs.facts.liquidFilmHasWetReflectStage == rhs.facts.liquidFilmHasWetReflectStage &&
+        lhs.facts.liquidFilmHasCoverageSource == rhs.facts.liquidFilmHasCoverageSource &&
+        lhs.facts.liquidFilmHasWetNormalSource == rhs.facts.liquidFilmHasWetNormalSource &&
+        lhs.facts.liquidFilmExactOverride == rhs.facts.liquidFilmExactOverride &&
+        lhs.facts.liquidFilmCandidate == rhs.facts.liquidFilmCandidate &&
         lhs.facts.alphaFromDiffuseLuma == rhs.facts.alphaFromDiffuseLuma &&
         lhs.facts.forceFallbackAlbedo == rhs.facts.forceFallbackAlbedo &&
         lhs.facts.alphaFromDiffuseDarkKey == rhs.facts.alphaFromDiffuseDarkKey &&

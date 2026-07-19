@@ -503,6 +503,25 @@ void LogSmokeCrosshairMaterialDump(
         info.detailDecalSpectrum,
         r_pathTracingDecalComposite.GetInteger());
 
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair liquid-film candidate=%d detail=%d blood=%d reflect2=%d coverage=%d coverageImage='%s' wetNormal=%d normalImage='%s' exactOverride=%d overrideReason='%s' legacyPool=%d variant=%d dynamic=%d reason='%s' mode=%d debug=%d page=%d\n",
+        info.liquidFilmCandidate ? 1 : 0,
+        info.detailDecal ? 1 : 0,
+        info.liquidFilmHasBloodSemantic ? 1 : 0,
+        info.liquidFilmHasWetReflectStage ? 1 : 0,
+        info.liquidFilmHasCoverageSource ? 1 : 0,
+        info.liquidFilmCoverageImageName.c_str(),
+        info.liquidFilmHasWetNormalSource ? 1 : 0,
+        info.normalImageName.c_str(),
+        info.liquidFilmExactOverride ? 1 : 0,
+        info.liquidFilmOverrideReason.c_str(),
+        info.detailDecalLiquidPool ? 1 : 0,
+        IsSmokeMaterialTextureVariant(materialId) ? 1 : 0,
+        info.isDynamic ? 1 : 0,
+        info.liquidFilmReason.c_str(),
+        r_pathTracingLiquidPoolMode.GetInteger(),
+        r_pathTracingLiquidPoolDebug.GetInteger(),
+        r_pathTracingLiquidPoolDebugPage.GetInteger());
+
     const RtCrosshairMaterialFeatureDebug feature = BuildCrosshairMaterialFeatureDebug(surfaceClass, translucentSubtype, info);
     const bool directReservoirSupported =
         (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_OPAQUE_DIRECT) != 0u &&

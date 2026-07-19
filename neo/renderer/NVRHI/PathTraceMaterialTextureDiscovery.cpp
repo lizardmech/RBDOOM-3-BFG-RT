@@ -61,7 +61,9 @@ RtSmokeMaterialHydrationSetCache g_smokeMaterialHydrationSetCache;
 bool PathTraceMaterialClassifierRequested()
 {
     return r_pathTracingMatClassEnable.GetInteger() != 0 ||
-        r_pathTracingMatClassDebugList.GetInteger() != 0;
+        r_pathTracingMatClassDebugList.GetInteger() != 0 ||
+        r_pathTracingLiquidPoolMode.GetInteger() != 0 ||
+        r_pathTracingLiquidPoolDebug.GetInteger() != 0;
 }
 
 void CountSmokeResidentMaterialDynamicSplit(int& residentStatic, int& residentDynamic)
@@ -331,6 +333,7 @@ uint64 ComputeSmokeResidentMaterialGeneration(const idMaterial* material, uint32
     hash = HashSmokeResidentMaterialString(hash, materialName);
     hash = HashSmokeResidentMaterialValue(hash, material ? static_cast<uint64>(material->Coverage()) : 0u);
     hash = HashSmokeResidentMaterialValue(hash, material ? static_cast<uint64>(material->GetNumStages()) : 0u);
+    hash = HashSmokeResidentMaterialValue(hash, material ? static_cast<uint64>(material->GetContentFlags()) : 0u);
     hash = HashSmokeResidentMaterialValue(hash, material && material->HasGui() ? 1u : 0u);
     hash = HashSmokeResidentMaterialValue(hash, material ? static_cast<uint64>(material->Spectrum()) : 0u);
     hash = HashSmokeResidentMaterialValue(hash, material && material->ConstantRegisters() ? 1u : 0u);
@@ -340,6 +343,21 @@ uint64 ComputeSmokeResidentMaterialGeneration(const idMaterial* material, uint32
     hash = HashSmokeResidentMaterialValue(hash, r_pathTracingForceTextureCodeUse.GetInteger() != 0 ? 1u : 0u);
     hash = HashSmokeResidentMaterialValue(hash, r_pathTracingSceneSource2RigidEntities.GetInteger() != 0 ? 1u : 0u);
     hash = HashSmokeResidentMaterialValue(hash, static_cast<uint64>(GetPathTraceMaterialClassifierGeneration()));
+    if (material)
+    {
+        const float* constantRegisters = material->ConstantRegisters();
+        const int registerCount = material->GetNumRegisters();
+        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = material->GetStage(stageIndex);
+            hash = HashSmokeResidentMaterialValue(hash, stage ? static_cast<uint64>(stage->texture.texgen) : 0u);
+            hash = HashSmokeResidentMaterialString(hash, stage && stage->texture.image ? stage->texture.image->GetName() : "<none>");
+            if (stage && constantRegisters && stage->conditionRegister >= 0 && stage->conditionRegister < registerCount)
+            {
+                hash = HashSmokeResidentMaterialFloat(hash, constantRegisters[stage->conditionRegister]);
+            }
+        }
+    }
     return hash;
 }
 
@@ -1008,6 +1026,15 @@ void ForceSmokeAbsorbingBlackMaterialInfo(RtSmokeMaterialTextureInfo& info)
     info.detailDecal = false;
     info.detailDecalDynamic = false;
     info.detailDecalLiquidPool = false;
+    info.liquidFilmHasBloodSemantic = false;
+    info.liquidFilmHasWetReflectStage = false;
+    info.liquidFilmHasCoverageSource = false;
+    info.liquidFilmHasWetNormalSource = false;
+    info.liquidFilmExactOverride = false;
+    info.liquidFilmCandidate = false;
+    info.liquidFilmCoverageImageName = "<none>";
+    info.liquidFilmOverrideReason = "none";
+    info.liquidFilmReason = "reject-absorbing-black";
     info.isDynamic = false;
     info.alphaFromDiffuseLuma = false;
     info.forceFallbackAlbedo = true;
@@ -1109,6 +1136,77 @@ bool IsSmokeLiquidPoolDetailDecalMaterial(const idMaterial* material, const RtSm
 
     return SmokeNameContainsAny(info.diffuseImageName, liquidPoolTokens, sizeof(liquidPoolTokens) / sizeof(liquidPoolTokens[0])) ||
         SmokeNameContainsAny(info.alphaImageName, liquidPoolTokens, sizeof(liquidPoolTokens) / sizeof(liquidPoolTokens[0]));
+}
+
+bool SmokeLiquidFilmImageIsSafeSource(const idImage* image)
+{
+    if (!image || !IsSmokeImageNameSafeForRayTracing(image->GetName()))
+    {
+        return false;
+    }
+
+    const idImageOpts& opts = image->GetOpts();
+    return opts.samples == 1 && opts.textureType == DTT_2D && !opts.isRenderTarget && !opts.isUAV;
+}
+
+bool IsSmokeLiquidFilmExactOverride(const idMaterial* material, idStr& reason)
+{
+    // LPD-00 found no deployed positive that requires an override: all audited
+    // wet families expose an active reflect2 stage. Keep the zero-entry policy
+    // explicit so a future exception must add one exact declaration and reason.
+    (void)material;
+    reason = "none-no-audited-override";
+    return false;
+}
+
+void ResolveSmokeLiquidFilmCandidateFacts(const idMaterial* material, RtSmokeMaterialTextureInfo& info)
+{
+    info.liquidFilmHasBloodSemantic = material && (material->GetContentFlags() & CONTENTS_BLOOD) != 0;
+    info.liquidFilmHasWetReflectStage = false;
+    if (material)
+    {
+        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = material->GetStage(stageIndex);
+            if (stage && SmokeStageConditionCanBeActive(material, stage) && stage->texture.texgen == TG_REFLECT_CUBE2)
+            {
+                info.liquidFilmHasWetReflectStage = true;
+                break;
+            }
+        }
+    }
+
+    const bool safeAlphaSource = SmokeLiquidFilmImageIsSafeSource(info.alphaImage);
+    const bool safeDiffuseSource = SmokeLiquidFilmImageIsSafeSource(info.diffuseImage);
+    info.liquidFilmHasCoverageSource = safeAlphaSource || safeDiffuseSource;
+    info.liquidFilmCoverageImageName = safeAlphaSource
+        ? info.alphaImageName
+        : (safeDiffuseSource ? info.diffuseImageName : idStr("<none>"));
+    info.liquidFilmHasWetNormalSource = SmokeLiquidFilmImageIsSafeSource(info.normalImage);
+    info.liquidFilmExactOverride = IsSmokeLiquidFilmExactOverride(material, info.liquidFilmOverrideReason);
+
+    info.liquidFilmCandidate = false;
+    if (!material)
+    {
+        info.liquidFilmReason = "reject-null-material";
+    }
+    else if (!info.detailDecal)
+    {
+        info.liquidFilmReason = "reject-not-detail-decal";
+    }
+    else if (!info.liquidFilmHasCoverageSource)
+    {
+        info.liquidFilmReason = "reject-no-safe-coverage";
+    }
+    else if (!info.liquidFilmHasWetReflectStage && !info.liquidFilmExactOverride)
+    {
+        info.liquidFilmReason = "reject-no-reflect2-or-override";
+    }
+    else
+    {
+        info.liquidFilmCandidate = true;
+        info.liquidFilmReason = info.liquidFilmExactOverride ? "accept-exact-override" : "accept-active-reflect2";
+    }
 }
 
 bool FindSmokeMaterialFallbackAlbedo(const idMaterial* material, idVec4& albedo)
@@ -1695,6 +1793,7 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
             break;
         }
     }
+    ResolveSmokeLiquidFilmCandidateFacts(material, *info);
     if (info->hasDiffuseImage && !info->hasSafeTexture)
     {
         if (diffuseImage && !IsSmokeImageNameSafeForRayTracing(diffuseImage->GetName()))

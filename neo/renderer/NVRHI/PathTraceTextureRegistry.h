@@ -64,6 +64,15 @@ struct RtSmokeMaterialTextureInfo
     bool detailDecalDynamic = false;
     bool detailDecalDiffuseLit = false;
     bool detailDecalLiquidPool = false;
+    bool liquidFilmHasBloodSemantic = false;
+    bool liquidFilmHasWetReflectStage = false;
+    bool liquidFilmHasCoverageSource = false;
+    bool liquidFilmHasWetNormalSource = false;
+    bool liquidFilmExactOverride = false;
+    bool liquidFilmCandidate = false;
+    idStr liquidFilmCoverageImageName;
+    idStr liquidFilmOverrideReason;
+    idStr liquidFilmReason;
     bool isDynamic = true;
     int detailDecalSpectrum = 0;
     bool alphaFromDiffuseLuma = false;

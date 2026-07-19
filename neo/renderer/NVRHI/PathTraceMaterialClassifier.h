@@ -140,6 +140,7 @@ struct RtMaterialStageFacts
     int dynamicImageStages = 0;
     int cinematicStages = 0;
     int cubeMapStages = 0;
+    int reflectCube2Stages = 0;
     int customProgramStages = 0;
     int effectStages = 0;
     int firstDiffuseStage = -1;
@@ -193,6 +194,9 @@ struct RtMaterialRecord
     idStr normalReason;
     idStr specularReason;
     idStr emissiveReason;
+    idStr liquidFilmCoverageImageName;
+    idStr liquidFilmOverrideReason;
+    idStr liquidFilmReason;
     idStr surfaceClassEvidence;
     idStr bsdfEvidence;
     int rawSurfaceType = 0;
@@ -224,6 +228,16 @@ struct RtMaterialRecord
     bool hasEmissiveImage = false;
     bool alphaTested = false;
     bool emissiveIntent = false;
+    bool liquidFilmIsDetailDecal = false;
+    bool liquidFilmHasBloodSemantic = false;
+    bool liquidFilmHasWetReflectStage = false;
+    bool liquidFilmHasCoverageSource = false;
+    bool liquidFilmHasWetNormalSource = false;
+    bool liquidFilmExactOverride = false;
+    bool liquidFilmLegacyPool = false;
+    bool liquidFilmCandidate = false;
+    bool liquidFilmVariant = false;
+    bool liquidFilmDynamic = false;
 };
 
 struct RtMaterialClassifierStats

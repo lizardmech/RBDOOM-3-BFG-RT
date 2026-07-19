@@ -2631,6 +2631,27 @@ idCVar r_pathTracingDecalModulateFloor(
     CVAR_RENDERER | CVAR_FLOAT,
     "Per-channel floor for the filter/modulate decal multiply factor. Prevents exact-zero albedo, which the DI/RR pipeline treats as an invalid surface (reads as holes)" );
 
+idCVar r_pathTracingLiquidPoolMode(
+    "r_pathTracingLiquidPoolMode",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Liquid-pool receiver modifier: 0=current behavior, 1=classification/collection diagnostic, 2=effective smooth coat, 3=effective coat plus optional authored normal",
+    0, 3, idCmdSystem::ArgCompletion_Integer<0, 3> );
+
+idCVar r_pathTracingLiquidPoolDebug(
+    "r_pathTracingLiquidPoolDebug",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Liquid-pool debug: 0=off, 1=classification, 2=raw candidates, 3=validated union, 4=winner/rejection/overflow, 5=resolved optics, 6=secondary route",
+    0, 6, idCmdSystem::ArgCompletion_Integer<0, 6> );
+
+idCVar r_pathTracingLiquidPoolDebugPage(
+    "r_pathTracingLiquidPoolDebugPage",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Liquid-pool raw diagnostic tuple page; ignored when the selected debug mode has no additional page",
+    0, 3, idCmdSystem::ArgCompletion_Integer<0, 3> );
+
 idCVar r_pathTracingAllowGuiTextures(
     "r_pathTracingAllowGuiTextures",
     "0",

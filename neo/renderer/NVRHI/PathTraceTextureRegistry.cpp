@@ -224,6 +224,29 @@ bool RegisterSmokeMaterialTextureVariant(uint32_t variantMaterialId, uint32_t ba
         {
             return false;
         }
+        const bool liquidFilmFactsChanged =
+            existing->liquidFilmHasBloodSemantic != baseInfo->liquidFilmHasBloodSemantic ||
+            existing->liquidFilmHasWetReflectStage != baseInfo->liquidFilmHasWetReflectStage ||
+            existing->liquidFilmHasCoverageSource != baseInfo->liquidFilmHasCoverageSource ||
+            existing->liquidFilmHasWetNormalSource != baseInfo->liquidFilmHasWetNormalSource ||
+            existing->liquidFilmExactOverride != baseInfo->liquidFilmExactOverride ||
+            existing->liquidFilmCandidate != baseInfo->liquidFilmCandidate ||
+            existing->liquidFilmCoverageImageName != baseInfo->liquidFilmCoverageImageName ||
+            existing->liquidFilmOverrideReason != baseInfo->liquidFilmOverrideReason ||
+            existing->liquidFilmReason != baseInfo->liquidFilmReason;
+        existing->liquidFilmHasBloodSemantic = baseInfo->liquidFilmHasBloodSemantic;
+        existing->liquidFilmHasWetReflectStage = baseInfo->liquidFilmHasWetReflectStage;
+        existing->liquidFilmHasCoverageSource = baseInfo->liquidFilmHasCoverageSource;
+        existing->liquidFilmHasWetNormalSource = baseInfo->liquidFilmHasWetNormalSource;
+        existing->liquidFilmExactOverride = baseInfo->liquidFilmExactOverride;
+        existing->liquidFilmCandidate = baseInfo->liquidFilmCandidate;
+        existing->liquidFilmCoverageImageName = baseInfo->liquidFilmCoverageImageName;
+        existing->liquidFilmOverrideReason = baseInfo->liquidFilmOverrideReason;
+        existing->liquidFilmReason = baseInfo->liquidFilmReason;
+        if (liquidFilmFactsChanged)
+        {
+            ++g_smokeMaterialTextureRegistryGeneration;
+        }
         RefreshSmokeMaterialTextureHandleState(*existing);
         return true;
     }

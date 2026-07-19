@@ -33,6 +33,12 @@ struct RtSmokeMaterialUniverseFacts
     bool detailDecal = false;
     bool detailDecalDynamic = false;
     bool detailDecalLiquidPool = false;
+    bool liquidFilmHasBloodSemantic = false;
+    bool liquidFilmHasWetReflectStage = false;
+    bool liquidFilmHasCoverageSource = false;
+    bool liquidFilmHasWetNormalSource = false;
+    bool liquidFilmExactOverride = false;
+    bool liquidFilmCandidate = false;
     bool alphaFromDiffuseLuma = false;
     bool forceFallbackAlbedo = false;
     bool alphaFromDiffuseDarkKey = false;
