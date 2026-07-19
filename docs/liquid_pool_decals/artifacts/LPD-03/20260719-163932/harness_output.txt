@@ -1,0 +1,60 @@
+PathTraceLiquidPoolReducerHarness raw result
+============================================
+
+[PASS] receiver predicate accepts aligned opaque receiver
+[PASS] receiver predicate includes minimum offset boundary
+[PASS] receiver predicate includes maximum offset boundary
+[PASS] receiver predicate rejects out-of-envelope card
+[PASS] receiver predicate rejects perpendicular plane
+[PASS] receiver predicate rejects PATH_TRANSMISSION glass
+[PASS] receiver predicate rejects unaccepted identity evidence
+[PASS] identity + A = A
+[PASS] A + A = A
+[PASS] reduce(A,B) = reduce(B,A)
+[PASS] grouping does not change resolved result
+[PASS] identical candidate count 1
+[PASS] identical candidate count 2
+[PASS] identical candidate count 4
+[PASS] identical candidate count 32
+[PASS] partial overlap uses max coverage
+[PASS] partial overlap is not alpha-over
+[PASS] stable key winner independent of traversal order
+[PASS] smallest identity tuple wins diagnostic-hash collision
+[PASS] selected tint is one whole source tint
+[PASS] full barycentric occurrence key resolves same uint3 collision
+[PASS] same-key malformed payload collision remains deterministic
+[PASS] IOR 1 gives F0 0
+[PASS] default IOR 1.5 gives F0 0.04
+[PASS] neutral Tref remains neutral (d=0)
+[PASS] neutral Tref remains neutral (d=1)
+[PASS] neutral Tref remains neutral (d=8)
+[PASS] d=0 gives unit transmittance
+[PASS] d=1 gives Tref
+[PASS] d=2 gives squared Tref
+golden.full.albedo=(0.400000,0.150000,0.400000)
+golden.full.f0=(0.076864,0.076864,0.076864)
+[PASS] coverage 1 effective albedo golden
+[PASS] coverage 1 effective F0 golden
+[PASS] coverage 1 roughness golden
+golden.half.albedo=(0.600000,0.375000,0.400000)
+golden.half.f0=(0.058432,0.058432,0.058432)
+[PASS] coverage 0.5 effective albedo golden
+[PASS] coverage 0.5 effective F0 golden
+[PASS] coverage 0.5 roughness golden
+[PASS] default coat roughness exactly 0.18
+[PASS] explicit invalid candidate is identity
+[PASS] zero alpha is identity
+[PASS] NaN coverage is identity
+[PASS] infinite height is identity
+[PASS] finite out-of-range coverage/height clamp
+[PASS] nonfinite/negative Tref uses defaults and clamps
+[PASS] nonfinite scalar parameters sanitize deterministically
+[PASS] darkest allowed T/d remains finite and applied
+[PASS] applied-state guard prevents double application
+[PASS] application leaves receiver-owned fields bit-identical
+PathTrace liquid-pool reducer harness passed
+
+CTest:
+
+  Test #2: PathTraceLiquidPoolReducerHarness ... Passed
+  100% tests passed, 0 tests failed out of 1

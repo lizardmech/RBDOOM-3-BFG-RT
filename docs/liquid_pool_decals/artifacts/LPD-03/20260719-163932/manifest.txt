@@ -1,0 +1,179 @@
+LPD-03 SHARED PURE LIQUID-FILM REDUCER MANIFEST
+================================================
+
+Task: LPD-03 - shared pure liquid-film reducer
+Worker: Codex /root
+Timestamp: 2026-07-19 16:39:32 +10:00
+Starting HEAD: f69685f43
+Implementation checkpoint: a0c331b871169d407e26449aa558183f5a0d703f
+
+Supervisor contract correction
+------------------------------
+
+The supervisor authorized correcting unreasonable prerequisites. This
+supersedes the earlier field-note statements that the predicate/key were
+unaccepted and corrects the ticket's incomplete uint3 claim.
+
+Frozen receiver predicate:
+
+  finite, nondegenerate card normal, receiver geometry normal, and ray direction
+  face-forward card/receiver plane dot >= 0.95
+  signed dot(cardPosition-receiverPosition, receiverNormal) in inclusive
+    [-0.05, 1.85]
+  route supplies explicit accepted domain and identity evidence
+  receiver is opaque and does not advertise PATH_TRANSMISSION
+
+Frozen occurrence/winner key, lexicographically smallest on metric ties:
+
+  instanceId
+  primitiveIndex
+  materialIndex
+  barycentricXBits
+  barycentricYBits
+
+The barycentric words are full finite saturated positive-float bit patterns.
+They are not packed, truncated, or hashed. A diagnostic hash is carried only to
+prove deliberate hash collisions cannot affect authoritative winner selection.
+An exact same-key malformed data collision uses a deterministic lexicographic
+comparison of the entire sanitized contributor payload as a final safety rule.
+
+Implementation contract
+-----------------------
+
+Created pure HLSL include:
+
+  neo/shaders/builtin/pathtracing/cleanroom_common/
+    pathtrace_liquid_pool_modifier.hlsli
+
+Types:
+
+  LiquidPoolTransportCandidate
+  LiquidPoolContributorKey
+  LiquidPoolReceiverEvidence
+  LiquidPoolReducerCandidate
+  LiquidPoolResolvedFilm
+  LiquidPoolEffectiveReceiverMaterial
+
+Principal pure functions:
+
+  LiquidPoolAcceptsReceiver(evidence)
+  LiquidPoolMakeContributorKey(instance, primitive, material, barycentrics)
+  LiquidPoolResolvedFilmIdentity()
+  LiquidPoolReduceCandidate(film, candidate)
+  LiquidPoolDielectricF0(ior)
+  LiquidPoolApplyResolvedFilm(receiverAlbedo, receiverF0,
+    receiverRoughness, film, alreadyApplied)
+
+The reducer reads no resources and uses no traversal intrinsics, random values,
+derivatives, bindings, payloads, output UAVs, CVars, or screen-space state.
+Coverage and height are independent scalar maxima. Winner data always comes
+from one whole sanitized contributor. Invalid/nonfinite coverage, height, RGB,
+and zero coverage are identity. Finite coverage/height clamp to [0,1]. Optical
+parameter NaN/Inf values use the LPD-02 defaults/clamps.
+
+Application is guarded by alreadyApplied. It computes exactly:
+
+  Tunit = clamp(referenceTransmittance * decalRgb, 1/1024, 1)
+  d = clamp(opticalDepthScale * height, 0, 8)
+  T = exp(log(Tunit) * d)
+  Fc = ((ior-1)/(ior+1))^2
+  Acoat = receiverAlbedo * T
+  Fcoat = Fc + (1-Fc)^2 * receiverF0
+  effective fields = coverage lerp(dry, coated)
+
+No second Fresnel multiplier, transmission/refraction ray, normal application,
+or receiver position/depth/identity/geometry-normal/motion mutation exists.
+Darkest allowed film remains applied and finite; no albedo eligibility floor is
+introduced.
+
+The primary producer includes the reducer only as an unused compile probe. `rg`
+finds reducer/application/receiver calls only at their definitions. No live
+beauty or traversal path invokes the reducer in LPD-03.
+
+CPU correctness harness
+-----------------------
+
+Created and registered with CTest:
+
+  PathTraceLiquidPoolReducerHarness
+  SHA-256 162DB459B3197C1F7D0A25094ACEC42855633E4470CC1BB3EB898723B7F56EAB
+
+Commands:
+
+  cmake --preset win64-pt-dev
+  cmake --build '..\build-win64-pt-dev' --config Release
+    --target PathTraceLiquidPoolReducerHarness
+  & '..\build-win64-pt-dev\Release\PathTraceLiquidPoolReducerHarness.exe'
+  ctest -C Release -R PathTraceLiquidPoolReducerHarness --output-on-failure
+
+All passed. Raw results are in harness_output.txt. Covered cases include
+identity, idempotence, commutativity, grouping, 1/2/4/32 duplicates, max not
+alpha-over, order-independent key/hash/barycentric collisions, whole tint,
+receiver acceptance/rejection, F0, Tref d=0/1/2, exact full/half goldens,
+NaN/Inf/default/clamp behavior, darkest T/d, apply-once, and bit-identical
+receiver-owned fields.
+
+Exact optical goldens:
+
+  full Aeff=(0.400000,0.150000,0.400000)
+  full F0eff=(0.076864,0.076864,0.076864), roughness=0.12
+  half Aeff=(0.600000,0.375000,0.400000)
+  half F0eff=(0.058432,0.058432,0.058432), roughness=0.36
+
+Shader build and validation
+---------------------------
+
+Commands:
+
+  direct DXC primary compile with lib_6_6, SPIR-V Vulkan 1.2,
+    fvk-s-shift 128 0, SPIRV define, and pathtracing include root
+  cmake --build '..\build-win64-pt-dev' --config Release
+    --target PathTracingShaders
+  cmake --build --preset win64-pt-dev-release
+
+All passed. Direct and generated primary blobs are byte-identical:
+
+  89DFB0DFA9F65F1DAA1FCDA7378804B8D8CF8BBBFAED3401371C9A4A89169877
+
+Reducer source UTC mtime: 2026-07-19T06:21:05.0401939Z
+Direct primary UTC mtime: 2026-07-19T06:26:34.6096833Z
+Generated primary UTC mtime: 2026-07-19T06:30:51.5313637Z
+
+Twenty-one Vulkan output mtimes advanced and every one passed spirv-val
+--target-env vulkan1.2. Full hashes are in shader_validation.txt. Required
+dependency proof:
+
+  clean-DI transmission producer
+    before 2026-07-19T05:54:02.7588445Z
+    after  2026-07-19T06:30:17.1284530Z
+  clean-GI TraceRay
+    before 2026-07-16T23:08:39.1283361Z
+    after  2026-07-19T06:36:28.1085662Z
+  clean-GI producer ray query
+    before 2026-07-16T23:08:40.4939282Z
+    after  2026-07-19T06:36:29.4986755Z
+
+The clean-DI material-feature foreach now has an explicit shared dependency set
+containing the reducer plus smoke-export, surface-adapter, and hit-surface-adapter
+chains. Clean-DI sentinel and clean-GI dependency lists explicitly contain the
+reducer.
+
+Deployment/runtime
+------------------
+
+None required or performed. LPD-03 has no live invocation and therefore no
+beauty change. Generated blobs and executable were not copied to the runtime
+tree. LPD-04 owns the first GPU numeric readback and live film application.
+
+Disposition
+-----------
+
+PASS. The pure shared algebra/optics contract is frozen and compiled, with the
+corrected receiver predicate and complete non-lossy occurrence key. LPD-04 is
+the next sequential task, subject to its own fixture/performance preconditions.
+
+Pre-existing unrelated dirty shader sources were preserved and not staged:
+
+  cleanroom_common/restir_gi_reservoir.hlsli
+  cleanroom_rtxdi/pathtrace_clean_rtxdi_di_shared.hlsli
+  cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_output.hlsli

@@ -584,3 +584,52 @@ decision: LPD-02 PASS. The root cause was stale shader-side ABI, not classifier
 or glass feature publication. The full correction hashes and commands are in:
 
   docs/liquid_pool_decals/artifacts/LPD-02/20260719-161149/manifest.txt
+
+
+LPD-03 Shared Pure Reducer Acceptance - 2026-07-19 16:39:32 +10:00
+====================================================================
+
+Task: LPD-03 shared pure liquid-film reducer. Starting HEAD f69685f43;
+implementation checkpoint a0c331b87.
+
+The supervisor authorized correcting unreasonable prerequisites. This entry
+supersedes the earlier unaccepted receiver-predicate and uint3-key statements.
+The accepted receiver predicate requires finite/nondegenerate evidence,
+face-forward card/receiver plane dot >= 0.95, signed offset inclusive in
+[-0.05,1.85], explicit route-supplied domain and identity acceptance, an opaque
+receiver, and no PATH_TRANSMISSION.
+
+The authoritative winner key is five full uint words: instanceId,
+primitiveIndex, materialIndex, and the exact canonical positive-float bit
+patterns of barycentric x/y. Barycentrics are not packed, truncated, or hashed.
+A diagnostic hash never participates in order. This corrects the unreasonable
+claim that uint3 alone identifies one occurrence on a triangle.
+
+The new cleanroom-common HLSL include owns compact transport/evidence types,
+receiver acceptance, max coverage/height reduction, whole-contributor stable
+selection, dielectric F0, frozen transmittance math, and guarded one-time
+effective albedo/F0/roughness application. It contains no traversal, resource,
+binding, payload, random, derivative, output, CVar, or screen-space operation.
+Primary includes it only as a type-checked compile probe; there are no reducer
+call sites outside its definitions and no beauty behavior changes.
+
+The self-contained PathTraceLiquidPoolReducerHarness passes directly and under
+CTest. It proves identity/idempotence/commutativity/grouping, 1/2/4/32 duplicate
+equality, max not alpha-over, traversal-independent hash and same-uint3/different-
+barycentric ties, one-source tint, receiver negatives, all frozen optical
+vectors, parameter fallback/clamps, darkest allowed film, apply-once, and
+bit-identical receiver-owned state. Exact full-coverage goldens are
+Aeff=(0.4,0.15,0.4), F0eff=(0.076864 repeated), Reff=0.12; half coverage is
+Aeff=(0.6,0.375,0.4), F0eff=(0.058432 repeated), Reff=0.36.
+
+Reconfigure, harness, PathTracingShaders, direct DXC primary, spirv-val, CTest,
+and the full release host build pass. Direct and generated primary hashes match:
+89DFB0DFA9F65F1DAA1FCDA7378804B8D8CF8BBBFAED3401371C9A4A89169877.
+All 21 advanced Vulkan outputs pass spirv-val. Explicit dependency proof advances
+the clean-DI transmission producer and both clean-GI TraceRay/ray-query entries.
+
+No deployment was required or performed because LPD-03 has no live invocation.
+Decision: PASS. LPD-04 is next, subject to its fixture/performance gates.
+
+Artifact set:
+  docs/liquid_pool_decals/artifacts/LPD-03/20260719-163932/.
