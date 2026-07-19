@@ -171,11 +171,19 @@ set(PATH_TRACING_CLEAN_RTXDI_DI_SHARED_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_smoke_exports.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_surface_adapter.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_output.hlsli)
+set(PATH_TRACING_LIQUID_POOL_REDUCER_INCLUDE
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/pathtrace_liquid_pool_modifier.hlsli)
+set(PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_SHARED_DEPENDENCIES
+    ${PATH_TRACING_LIQUID_POOL_REDUCER_INCLUDE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_smoke_exports.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_surface_adapter.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_hit_surface_adapter.hlsli)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/vulkan.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTraceMaterialFeature.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTraceMaterialFeatureTypes.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    ${PATH_TRACING_LIQUID_POOL_REDUCER_INCLUDE}
     ${PATH_TRACING_RANDOM_SAMPLER_INCLUDES}
     ${PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES}
     ${PATH_TRACING_CLEAN_RTXDI_DI_SHARED_INCLUDES})
@@ -185,6 +193,7 @@ file(GLOB_RECURSE PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES
 set(PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/vulkan.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    ${PATH_TRACING_LIQUID_POOL_REDUCER_INCLUDE}
     ${PATH_TRACING_RANDOM_SAMPLER_INCLUDES}
     ${PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES}
     ${PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES}
@@ -671,7 +680,9 @@ if(USE_VULKAN)
             BLOB_PATH builtin/pathtracing/cleanroom_rtxdi/${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM}.rt.bin
             SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM}.rt.hlsl
             DEFINES -D RBPT_ENABLE_BLUE_NOISE
-            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM}.hlsli
+            DEPENDS
+                ${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_SHARED_DEPENDENCIES}
+                ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_STEM}.hlsli
             COMMENT "Compiling ${PATH_TRACING_CLEAN_RTXDI_DI_MATERIAL_FEATURE_LABEL} RT shader library (SPIR-V)")
     endforeach()
     add_custom_command(

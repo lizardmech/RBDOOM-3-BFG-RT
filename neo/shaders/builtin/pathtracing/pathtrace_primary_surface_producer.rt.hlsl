@@ -182,6 +182,7 @@ struct RAB_Surface
 
 #include "PathTracePrimarySurface.hlsli"
 #include "PathTraceMaterialFeatureTypes.hlsli"
+#include "cleanroom_common/pathtrace_liquid_pool_modifier.hlsli"
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);

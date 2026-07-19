@@ -1510,6 +1510,13 @@ if(BUILD_TESTING)
 	add_test(NAME PathTraceCpuPlanningHarness COMMAND $<TARGET_FILE:PathTraceCpuPlanningHarness>)
 endif()
 
+add_executable(PathTraceLiquidPoolReducerHarness
+	tests/pathtrace_liquid_pool_reducer_harness.cpp
+	)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceLiquidPoolReducerHarness COMMAND $<TARGET_FILE:PathTraceLiquidPoolReducerHarness>)
+endif()
+
 if(WIN32 AND PATH_TRACING_ENABLE_STREAMLINE_DLSS_RR)
 	set(PATH_TRACING_STREAMLINE_INCLUDE_DIR "${PATH_TRACING_STREAMLINE_SDK_ROOT}/include")
 	set(PATH_TRACING_STREAMLINE_LIB "${PATH_TRACING_STREAMLINE_SDK_ROOT}/lib/x64/sl.interposer.lib")
