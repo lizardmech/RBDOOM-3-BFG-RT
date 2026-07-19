@@ -181,6 +181,7 @@ struct RAB_Surface
 };
 
 #include "PathTracePrimarySurface.hlsli"
+#include "PathTraceMaterialFeatureTypes.hlsli"
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
@@ -219,6 +220,9 @@ StructuredBuffer<uint> SmokePreviousStaticTriangleMaterials : register(t37);
 StructuredBuffer<uint> SmokePreviousStaticTriangleMaterialIndexes : register(t38);
 StructuredBuffer<uint> SmokeSkinnedTriangleDispatchIndexes : register(t41);
 StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t76);
+// LPD-02 transports liquid candidate optical parameters only. No beauty path
+// calls the loader or applies the film until the shared reducer lands.
+StructuredBuffer<PathTraceMaterialFeatureParameterRecord> PathTraceMaterialFeatureParameters : register(t81);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
@@ -274,6 +278,27 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 DecalInfo;
     float4 DecalInfo2;
 };
+
+bool TryLoadPathTraceLiquidPoolMaterialFeatureParameters(
+    uint materialIndex,
+    out PathTraceMaterialFeatureParameterRecord parameters)
+{
+    parameters = PathTraceDefaultLiquidPoolMaterialFeatureParameters();
+    uint parameterRecordCount = 0u;
+    uint parameterRecordStride = 0u;
+    PathTraceMaterialFeatureParameters.GetDimensions(parameterRecordCount, parameterRecordStride);
+    const uint materialCount = (uint)max(TextureInfo.z, 0.0);
+    if (parameterRecordCount != materialCount ||
+        parameterRecordStride != RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_RECORD_STRIDE ||
+        materialIndex >= materialCount)
+    {
+        return false;
+    }
+
+    parameters = PathTraceSanitizeLiquidPoolMaterialFeatureParameters(
+        PathTraceMaterialFeatureParameters[materialIndex]);
+    return true;
+}
 
 #define RB_PATH_TRACE_PRIMARY_SURFACE_HAS_RR_PROJECTION_DEPTH_INFO
 #define RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_PROJECTION_HELPERS

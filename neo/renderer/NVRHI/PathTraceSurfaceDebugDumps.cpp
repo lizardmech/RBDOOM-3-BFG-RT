@@ -7,6 +7,7 @@
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceGeometryUniverse.h"
+#include "PathTraceMaterialFeatureParameters.h"
 #include "PathTracePrimarySurface.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSurfaceClassification.h"
@@ -186,7 +187,7 @@ const char* RtPathTraceMaterialUnsupportedDebugName(const RtCrosshairMaterialFea
 
 RtPathTraceMaterialModifierKind BuildCrosshairMaterialModifierKind(const RtSmokeMaterialTextureInfo& info)
 {
-    if (info.detailDecalLiquidPool)
+    if (info.liquidFilmCandidate)
     {
         return RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION;
     }
@@ -280,6 +281,16 @@ RtCrosshairMaterialFeatureDebug BuildCrosshairMaterialFeatureDebug(
         feature.transmissionActive =
             r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
             r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
+        return feature;
+    }
+
+    if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER)
+    {
+        feature.materialCaps =
+            RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+            RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND;
+        feature.lobeCaps = 0u;
+        feature.passSupport = RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER;
         return feature;
     }
 
@@ -551,6 +562,30 @@ void LogSmokeCrosshairMaterialDump(
         giReservoirSupported ? "supported" : "unsupported",
         RtPathTraceMaterialUnsupportedDebugName(feature));
 
+    if (tableIndex >= 0 && tableIndex < static_cast<int>(table.materialFeatures.size()))
+    {
+        const RtPathTraceMaterialFeatureRecord& featureRow = table.materialFeatures[tableIndex];
+        const bool parameterIndexMatches =
+            featureRow.parameterRecordIndex == static_cast<uint32_t>(tableIndex) &&
+            featureRow.parameterRecordIndex < table.materialFeatureParameters.size();
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair feature-row materialIndex=%d parameterRecordIndex=%u indexMatch=%d recordAbi=%u expectedAbi=%u kind=%s(%u) caps=0x%08x lobes=0x%08x passSupport=0x%08x modifier=%s(%u) rowCounts material/feature/params=%d/%d/%d\n",
+            tableIndex,
+            featureRow.parameterRecordIndex,
+            parameterIndexMatches ? 1 : 0,
+            featureRow.recordAbiVersion,
+            RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION,
+            RtPathTraceMaterialKindName(static_cast<RtPathTraceMaterialKind>(featureRow.materialKind)),
+            featureRow.materialKind,
+            featureRow.materialCaps,
+            featureRow.lobeCaps,
+            featureRow.passSupport,
+            RtPathTraceMaterialModifierName(static_cast<RtPathTraceMaterialModifierKind>(featureRow.modifierKind)),
+            featureRow.modifierKind,
+            static_cast<int>(table.materials.size()),
+            static_cast<int>(table.materialFeatures.size()),
+            static_cast<int>(table.materialFeatureParameters.size()));
+    }
+
     common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' alpha='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d alphaMagentaKey=%d normal='%s' usage=%s color=%s safe=%d specular='%s' usage=%s color=%s safe=%d emissive='%s' usage=%s color=%s safe=%d emissive=%d lightCandidate=%d additiveDecal=%d additiveWhiteKey=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",
         info.diffuseImageName.c_str(),
         SmokeTextureUsageName(info.diffuseUsage),
@@ -631,6 +666,19 @@ void LogSmokeCrosshairMaterialDump(
         if (tableIndex < static_cast<int>(table.materialFeatureParameters.size()))
         {
             const RtPathTraceMaterialFeatureParameterRecord& parameters = table.materialFeatureParameters[tableIndex];
+            common->Printf("PathTracePrimaryPass: RT smoke crosshair liquid-film-params active=%d paramAbi=%u params0 referenceTransmittance=(%.6f %.6f %.6f) opticalDepthScale=%.6f params1 coatRoughness=%.6f dielectricIor=%.6f authoredNormalStrength=%.6f reservedZero=%.6f valid=%d source='%s' override=0 reason='frozen-v1-default'\n",
+                info.liquidFilmCandidate ? 1 : 0,
+                RT_PATH_TRACE_LIQUID_POOL_PARAMETER_ABI_VERSION,
+                parameters.params0[RT_PATH_TRACE_LIQUID_POOL_PARAM0_REFERENCE_TRANSMITTANCE_R],
+                parameters.params0[RT_PATH_TRACE_LIQUID_POOL_PARAM0_REFERENCE_TRANSMITTANCE_G],
+                parameters.params0[RT_PATH_TRACE_LIQUID_POOL_PARAM0_REFERENCE_TRANSMITTANCE_B],
+                parameters.params0[RT_PATH_TRACE_LIQUID_POOL_PARAM0_OPTICAL_DEPTH_SCALE],
+                parameters.params1[RT_PATH_TRACE_LIQUID_POOL_PARAM1_COAT_ROUGHNESS],
+                parameters.params1[RT_PATH_TRACE_LIQUID_POOL_PARAM1_DIELECTRIC_IOR],
+                parameters.params1[RT_PATH_TRACE_LIQUID_POOL_PARAM1_AUTHORED_NORMAL_STRENGTH],
+                parameters.params1[RT_PATH_TRACE_LIQUID_POOL_PARAM1_RESERVED_ZERO],
+                info.liquidFilmCandidate && PathTraceLiquidPoolMaterialFeatureParametersAreValid(parameters) ? 1 : 0,
+                info.liquidFilmCandidate ? "candidate-row" : "not-liquid");
             common->Printf("PathTracePrimaryPass: RT smoke crosshair orderedStages words=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x overflow=%d\n",
                 parameters.orderedStageWords[0],
                 parameters.orderedStageWords[1],

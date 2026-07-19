@@ -11,7 +11,8 @@
 
 static constexpr uint32_t RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION = 2;
 static constexpr uint32_t RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE = 176;
-static constexpr uint32_t RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION = 3;
+static constexpr uint32_t RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION = 4;
+static constexpr uint32_t RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_RECORD_STRIDE = 96;
 
 enum RtPathTracePrimarySurfaceValidFlags : uint32_t
 {
@@ -137,7 +138,7 @@ struct RtPathTraceMaterialFeatureParameterRecord
     uint32_t orderedStageWords[8] = {};
     uint32_t orderedStageTextureWords[8] = {};
 };
-static_assert(sizeof(RtPathTraceMaterialFeatureParameterRecord) == 96, "Material feature parameter CPU/shader record stride mismatch");
+static_assert(sizeof(RtPathTraceMaterialFeatureParameterRecord) == RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_RECORD_STRIDE, "Material feature parameter CPU/shader record stride mismatch");
 
 struct RtPathTracePrimarySurfaceHistoryState
 {

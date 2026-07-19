@@ -13,6 +13,7 @@
 #include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceMaterialFeatureParameters.h"
 #include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceMaterialFeaturePasses.h"
 #include "PathTraceMaterialUniverse.h"
@@ -929,6 +930,12 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, desc.buffers.lightCandidateBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(41, desc.buffers.skinnedTriangleDispatchIndexBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(76, desc.buffers.dynamicMaterialBuffer ? desc.buffers.dynamicMaterialBuffer : desc.buffers.lightCandidateBuffer));
+        RtPathTraceMaterialFeatureInputResources materialFeatureInputs;
+        materialFeatureInputs.materialFeatureParameterBuffer = desc.buffers.materialFeatureParameterBuffer;
+        AddPathTraceMaterialFeatureInputBinding(
+            bindingSetDesc,
+            materialFeatureInputs,
+            RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS);
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(39, desc.motionVectorTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(40, desc.motionVectorMaskTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(47, desc.restirPTReflectionTexture));
@@ -1331,6 +1338,9 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(41));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(76));
+    AddPathTraceMaterialFeatureInputLayoutBinding(
+        bindingLayoutDesc,
+        RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_PARAMETERS);
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(47));
@@ -1924,13 +1934,23 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_combined.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_combined.rt.bin");
     case 9:
-        return initLibrary(
+    {
+        const bool initialized = initLibrary(
             m_smokePrimarySurfaceProducerShaderLibrary,
             m_smokePrimarySurfaceProducerPipeline,
             m_smokePrimarySurfaceProducerShaderTable,
             "primary-surface producer",
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_primary_surface_producer.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_primary_surface_producer.rt.bin");
+        if (initialized)
+        {
+            common->Printf("PathTracePrimaryPass: primary-surface producer material-feature parameters bound=t81 stride=%u featureAbi=%u liquidParamAbi=%u\n",
+                RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_RECORD_STRIDE,
+                RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION,
+                RT_PATH_TRACE_LIQUID_POOL_PARAMETER_ABI_VERSION);
+        }
+        return initialized;
+    }
     case 10:
         return initLibrary(
             m_smokeRestirCombinedResolveShaderLibrary,

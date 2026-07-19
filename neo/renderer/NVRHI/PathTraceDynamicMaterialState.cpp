@@ -84,6 +84,8 @@ uint64 ComputeSmokeMaterialIdSetSignature(const std::vector<uint32_t>& staticMat
 uint64 ComputeSmokeMaterialTableSignatureFromIdSet(uint64 materialIdSetSignature, bool enableTextureProbe, int minimumTextureTableLimit, uint32_t latchedTextureProbeMaterialId, int latchedTextureProbeRequestedIndex)
 {
     uint64 hash = materialIdSetSignature;
+    hash = HashSmokeMaterialCacheValue(hash, RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION);
+    hash = HashSmokeMaterialCacheValue(hash, RT_PATH_TRACE_LIQUID_POOL_PARAMETER_ABI_VERSION);
     hash = HashSmokeMaterialCacheValue(hash, enableTextureProbe ? 1u : 0u);
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(GetSmokeTextureTableEffectiveLimitWithMinimum(minimumTextureTableLimit)));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(Max(0, r_pathTracingTextureTableStart.GetInteger())));
@@ -359,7 +361,7 @@ PathTraceSmokeMaterial BuildSmokeMaterialTableMaterial(uint32_t materialId, cons
 
 RtPathTraceMaterialModifierKind BuildSmokeMaterialFeatureModifierKind(const RtSmokeMaterialUniverseFacts& facts)
 {
-    if (facts.detailDecalLiquidPool)
+    if (facts.liquidFilmCandidate)
     {
         return RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION;
     }
@@ -473,6 +475,18 @@ RtPathTraceMaterialFeatureRecord BuildSmokeMaterialFeatureRecord(const RtSmokeMa
         return feature;
     }
 
+    if (facts.liquidFilmCandidate)
+    {
+        feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER;
+        feature.materialCaps =
+            RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+            RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND;
+        feature.lobeCaps = 0;
+        feature.passSupport = RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER;
+        feature.modifierKind = RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION;
+        return feature;
+    }
+
     if (feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION)
     {
         feature.materialKind = RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER;
@@ -527,14 +541,45 @@ bool SmokeMaterialFeatureRecordAbiValid(const RtPathTraceMaterialFeatureRecord& 
 
 bool ValidateSmokeMaterialFeatureRecords(const RtSmokeMaterialTableBuild& table)
 {
-    if (table.materialFeatures.size() != table.materials.size())
+    if (table.materialFeatures.size() != table.materials.size() ||
+        table.materialFeatureParameters.size() != table.materials.size() ||
+        table.materialFacts.size() != table.materials.size() ||
+        !ValidatePathTraceLiquidPoolMaterialFeatureParameterContract())
     {
         return false;
     }
 
-    for (const RtPathTraceMaterialFeatureRecord& feature : table.materialFeatures)
+    for (size_t materialIndex = 0; materialIndex < table.materialFeatures.size(); ++materialIndex)
     {
+        const RtPathTraceMaterialFeatureRecord& feature = table.materialFeatures[materialIndex];
         if (!SmokeMaterialFeatureRecordAbiValid(feature))
+        {
+            return false;
+        }
+        if (feature.parameterRecordIndex != materialIndex)
+        {
+            return false;
+        }
+
+        const bool liquidCandidate = table.materialFacts[materialIndex].liquidFilmCandidate;
+        if (liquidCandidate)
+        {
+            const uint32_t expectedCaps =
+                RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+                RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND;
+            if (feature.materialKind != RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER ||
+                feature.materialCaps != expectedCaps ||
+                feature.lobeCaps != 0u ||
+                feature.passSupport != RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER ||
+                feature.modifierKind != RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION ||
+                !PathTraceLiquidPoolMaterialFeatureParametersAreValid(table.materialFeatureParameters[materialIndex]))
+            {
+                return false;
+            }
+        }
+        else if (feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER ||
+            feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION ||
+            (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND) != 0u)
         {
             return false;
         }

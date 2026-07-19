@@ -49,7 +49,25 @@ static const uint RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER = 0x00000020
 static const uint RT_PATH_TRACE_MATERIAL_PASS_RR_GUIDE_EXPORT = 0x00000040u;
 static const uint RT_PATH_TRACE_MATERIAL_PASS_DEBUG_VISUALIZER = 0x00000080u;
 
-static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION = 3u;
+static const uint RT_PATH_TRACE_MATERIAL_FEATURE_RECORD_ABI_VERSION = 4u;
+static const uint RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_RECORD_STRIDE = 96u;
+static const uint RT_PATH_TRACE_LIQUID_POOL_PARAMETER_ABI_VERSION = 1u;
+static const uint RT_PATH_TRACE_LIQUID_POOL_PARAM0_REFERENCE_TRANSMITTANCE_R = 0u;
+static const uint RT_PATH_TRACE_LIQUID_POOL_PARAM0_REFERENCE_TRANSMITTANCE_G = 1u;
+static const uint RT_PATH_TRACE_LIQUID_POOL_PARAM0_REFERENCE_TRANSMITTANCE_B = 2u;
+static const uint RT_PATH_TRACE_LIQUID_POOL_PARAM0_OPTICAL_DEPTH_SCALE = 3u;
+static const uint RT_PATH_TRACE_LIQUID_POOL_PARAM1_COAT_ROUGHNESS = 0u;
+static const uint RT_PATH_TRACE_LIQUID_POOL_PARAM1_DIELECTRIC_IOR = 1u;
+static const uint RT_PATH_TRACE_LIQUID_POOL_PARAM1_AUTHORED_NORMAL_STRENGTH = 2u;
+static const uint RT_PATH_TRACE_LIQUID_POOL_PARAM1_RESERVED_ZERO = 3u;
+static const float RT_PATH_TRACE_LIQUID_POOL_TRANSMITTANCE_MIN = 1.0 / 1024.0;
+static const float RT_PATH_TRACE_LIQUID_POOL_OPTICAL_DEPTH_MAX = 8.0;
+static const float RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MIN = 0.02;
+static const float RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MAX = 1.0;
+static const float RT_PATH_TRACE_LIQUID_POOL_DIELECTRIC_IOR_MIN = 1.0;
+static const float RT_PATH_TRACE_LIQUID_POOL_DIELECTRIC_IOR_MAX = 2.5;
+static const float RT_PATH_TRACE_LIQUID_POOL_AUTHORED_NORMAL_STRENGTH_MIN = 0.0;
+static const float RT_PATH_TRACE_LIQUID_POOL_AUTHORED_NORMAL_STRENGTH_MAX = 1.0;
 static const uint RT_PATH_TRACE_ORDERED_STAGE_CAPACITY = 8u;
 static const uint RT_PATH_TRACE_ORDERED_STAGE_VALID_BIT = 1u << 23u;
 static const uint RT_PATH_TRACE_ORDERED_STAGE_OVERFLOW_BIT = 1u << 31u;
@@ -128,6 +146,41 @@ struct PathTraceMaterialFeatureParameterRecord
     uint4 orderedStageTextures0;
     uint4 orderedStageTextures1;
 };
+
+float PathTraceSanitizeLiquidPoolParameter(float value, float defaultValue, float minimumValue, float maximumValue)
+{
+    return isfinite(value) ? clamp(value, minimumValue, maximumValue) : defaultValue;
+}
+
+PathTraceMaterialFeatureParameterRecord PathTraceDefaultLiquidPoolMaterialFeatureParameters()
+{
+    PathTraceMaterialFeatureParameterRecord result = (PathTraceMaterialFeatureParameterRecord)0;
+    result.params0 = float4(1.0, 1.0, 1.0, 1.0);
+    result.params1 = float4(0.18, 1.5, 0.0, 0.0);
+    return result;
+}
+
+PathTraceMaterialFeatureParameterRecord PathTraceSanitizeLiquidPoolMaterialFeatureParameters(
+    PathTraceMaterialFeatureParameterRecord record)
+{
+    const PathTraceMaterialFeatureParameterRecord defaults = PathTraceDefaultLiquidPoolMaterialFeatureParameters();
+    record.params0.x = PathTraceSanitizeLiquidPoolParameter(
+        record.params0.x, defaults.params0.x, RT_PATH_TRACE_LIQUID_POOL_TRANSMITTANCE_MIN, 1.0);
+    record.params0.y = PathTraceSanitizeLiquidPoolParameter(
+        record.params0.y, defaults.params0.y, RT_PATH_TRACE_LIQUID_POOL_TRANSMITTANCE_MIN, 1.0);
+    record.params0.z = PathTraceSanitizeLiquidPoolParameter(
+        record.params0.z, defaults.params0.z, RT_PATH_TRACE_LIQUID_POOL_TRANSMITTANCE_MIN, 1.0);
+    record.params0.w = PathTraceSanitizeLiquidPoolParameter(
+        record.params0.w, defaults.params0.w, 0.0, RT_PATH_TRACE_LIQUID_POOL_OPTICAL_DEPTH_MAX);
+    record.params1.x = PathTraceSanitizeLiquidPoolParameter(
+        record.params1.x, defaults.params1.x, RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MIN, RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MAX);
+    record.params1.y = PathTraceSanitizeLiquidPoolParameter(
+        record.params1.y, defaults.params1.y, RT_PATH_TRACE_LIQUID_POOL_DIELECTRIC_IOR_MIN, RT_PATH_TRACE_LIQUID_POOL_DIELECTRIC_IOR_MAX);
+    record.params1.z = PathTraceSanitizeLiquidPoolParameter(
+        record.params1.z, defaults.params1.z, RT_PATH_TRACE_LIQUID_POOL_AUTHORED_NORMAL_STRENGTH_MIN, RT_PATH_TRACE_LIQUID_POOL_AUTHORED_NORMAL_STRENGTH_MAX);
+    record.params1.w = 0.0;
+    return record;
+}
 
 uint PathTraceMaterialOrderedStageWord(PathTraceMaterialFeatureParameterRecord record, uint stageSlot)
 {
