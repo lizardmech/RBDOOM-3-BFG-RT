@@ -469,3 +469,47 @@ Known limitations/verdict:
 
 Artifact set:
   docs/liquid_pool_decals/artifacts/LPD-00F/20260719-141955/.
+
+
+LPD-01 Static-First Classifier Acceptance - 2026-07-19 15:08:32 +10:00
+======================================================================
+
+Task: LPD-01 semantic classifier and debug inventory.
+Starting HEAD: 85bb5015b2b1b9b0070409829b68e8c8a74452bf.
+Implementation checkpoint: 20097935039c4b46527e66c463134ae2f07bbb64.
+
+The production liquid-film candidate is now an explicit typed CPU fact. Its
+rule is detail decal + safe coverage + (active reflect2 or exact override).
+CONTENTS_BLOOD is evidence only. The audited override set is empty. The old
+detailDecalLiquidPool/name-token flag remains unchanged for legacy mode-0
+compatibility and is not production policy. No new main material flag was
+allocated and no resolved-film-applied state is written by this ticket.
+
+The fact and evidence participate in generation, universe, and classifier
+hash/equality and are inherited by runtime material variants. New mode/debug/
+debug-page CVars and reasoned list/crosshair output are beauty-neutral.
+
+Build/deploy passed. Built and deployed executable SHA-256 values match:
+8544C21D1535481782E0F3AF835C79641DE85879B5AD17FBF75A8B70CF71BE01.
+No shader source or SPIR-V changed; only the executable was deployed.
+
+Runtime positive: authored-static textures/decals/splat5 is candidate=1 with
+detail=1, coverage=1, reflect2=1, blood=0, exactOverride=0, legacyPool=0,
+variant=1, reason=accept-active-reflect2. Its static route reports two matching
+triangles. Runtime negative: authored-static textures/decals/stainwall is
+candidate=0 with detail=1, coverage=1, reflect2=0 and reason
+reject-no-reflect2-or-override; its static route reports 421 matching triangles.
+The supervisor tested modes 0..3 on splat5 and reported no visual changes.
+
+The shipped wet-content source audit found 31/31 declarations with reflect2,
+makealpha coverage, and heightmap normal sources, so no override is necessary.
+Representative dry/detail, additive, smoke, and object-glass negatives lack the
+required structural pair.
+
+Decision: PASS for the explicitly requested static-first path and ready for
+LPD-02. Dynamic ProjectDecal ingestion, exhaustive runtime traversal of every
+declaration, and restartMap proof remain parked. Normal-mode restartMap is a
+known no-op and the supervisor explicitly instructed this lane to ignore it.
+
+Artifact set:
+  docs/liquid_pool_decals/artifacts/LPD-01/20260719-150832/.

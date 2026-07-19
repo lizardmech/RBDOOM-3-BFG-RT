@@ -1,0 +1,47 @@
+LPD-01 CURATED RUNTIME EXCERPTS
+===============================
+
+Positive: textures/decals/splat5
+--------------------------------
+
+  liquid-film candidate=1 detail=1 blood=0 reflect2=1 coverage=1
+  coverageImage='makealpha( textures/decals/splat5)' wetNormal=1
+  normalImage='heightmap( textures/decals/splat5, 1)' exactOverride=0
+  overrideReason='none-no-audited-override' legacyPool=0 variant=1 dynamic=1
+  reason='accept-active-reflect2' mode=0 debug=1 page=0
+
+  staticRoute triangles=36565 runtime/baseIdMatches=2/0
+  runtime/baseIndexMatches=2/0
+
+  stage[2] ... texgen=reflect-cube2 ... image='env/genb'
+
+Interpretation: this is authored static geometry. The runtime material variant
+inherits the candidate. It is accepted without CONTENTS_BLOOD, without an exact
+override, and despite the old legacy name-token fact being false.
+
+Negative: textures/decals/stainwall
+-----------------------------------
+
+  liquid-film candidate=0 detail=1 blood=0 reflect2=0 coverage=1
+  coverageImage='textures/decals/stainwall' wetNormal=0 normalImage='<none>'
+  exactOverride=0 overrideReason='none-no-audited-override' legacyPool=0
+  variant=0 dynamic=0 reason='reject-no-reflect2-or-override'
+  mode=0 debug=0 page=0
+
+  staticRoute triangles=38853 runtime/baseIdMatches=421/421
+  runtime/baseIndexMatches=421/421
+
+  stage[0] ... compositing=multiply-filter ... texgen=explicit ...
+  image='textures/decals/stainwall' ... safe=1
+
+Interpretation: this is a close authored-static negative, not an unrelated
+opaque wall. Detail and safe coverage pass; the decision rejects only because
+the material lacks the wet reflect2 stage and has no exact override.
+
+Beauty-neutral supervisor observation
+-------------------------------------
+
+At the splat5 view, r_pathTracingLiquidPoolMode values 0, 1, 2, 3, then 0 were
+tested. The supervisor reported no visual changes. This is expected because
+LPD-01 publishes CPU facts and diagnostics only; it adds no shader consumer or
+film shading.

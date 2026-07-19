@@ -1,0 +1,131 @@
+LPD-01 STATIC-FIRST CLASSIFIER VALIDATION MANIFEST
+==================================================
+
+Task: LPD-01 - semantic classifier and debug inventory
+Worker: Codex /root
+Timestamp: 2026-07-19 15:08:32 +10:00
+Starting HEAD: 85bb5015b2b1b9b0070409829b68e8c8a74452bf
+Implementation checkpoint: 20097935039c4b46527e66c463134ae2f07bbb64
+
+Scope decision
+--------------
+
+The supervisor explicitly prioritized authored static decal geometry and parked
+dynamic ProjectDecal ingestion and the known normal-mode restartMap no-op. This
+artifact therefore accepts LPD-01 for the static-first path. It does not claim
+that the LPD-00F dynamic fixture or restart contract is closed.
+
+Implementation
+--------------
+
+The production candidate is a typed CPU fact named liquidFilmCandidate; no new
+bit was allocated in the already-full 32-bit main material flag word. The
+existing legacy detailDecalLiquidPool bit remains unchanged at 0x00010000 and is
+not used by the production predicate. A distinct resolved-film-applied state is
+not written by this ticket. Primary valid-flag bit 4 was identified as an
+available later allocation, but remains unmodified until LPD-04/05.
+
+Predicate:
+
+  isDetailDecal && hasCoverageSource &&
+    (hasActiveReflectCube2Stage || exactMaterialOverride)
+
+CONTENTS_BLOOD is recorded only as supporting evidence. The audited exact
+override set is empty because all 31 shipped wet declarations contain active
+reflect2 and safe coverage. Deterministic reject/accept reasons are recorded in
+classification_inventory.txt.
+
+Variant facts are copied from the base discovery record, and candidate/evidence
+participate in material generation, universe, and classifier hash/equality
+inputs. Crosshair and list diagnostics expose all predicate inputs and reasons.
+
+CVars
+-----
+
+  r_pathTracingLiquidPoolMode      default 0, range 0..3
+  r_pathTracingLiquidPoolDebug     default 0, range 0..6
+  r_pathTracingLiquidPoolDebugPage default 0, range 0..3
+
+All three are diagnostic/control declarations only in LPD-01. They have no
+shader consumer and do not alter beauty.
+
+Build and deployment
+--------------------
+
+Command, from neo/:
+  cmake --build --preset win64-pt-dev-release
+
+Result: PASS. Vulkan build completed. All existing SPIR-V outputs were reported
+up to date; no shader source or blob was changed or deployed.
+
+Built executable:
+  E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+  SHA-256 8544C21D1535481782E0F3AF835C79641DE85879B5AD17FBF75A8B70CF71BE01
+
+Deployed executable:
+  E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+  SHA-256 8544C21D1535481782E0F3AF835C79641DE85879B5AD17FBF75A8B70CF71BE01
+
+Audited content pack:
+  E:/prog/rbdoom-3-BFG-prebuilt/base/_rbdoom_blood.pk4
+  SHA-256 2F6153FFFB2B27CE2225456D25F7B851DBA13F6F6E3C967B1C1B8146B398755B
+
+Runtime evidence
+----------------
+
+Positive capture, authored static card:
+  material textures/decals/splat5
+  external path C:/Users/lizard/.codex/attachments/
+    cb96a2dd-622b-4bc2-981f-7992da88b717/pasted-text.txt
+  SHA-256 44017D823F0D5AB1FC13EF5DF13064BD2C7900BF336EAD491B1D06B6453F72D8
+  candidate=1, detail=1, blood=0, reflect2=1, coverage=1,
+  wetNormal=1, exactOverride=0, legacyPool=0,
+  reason=accept-active-reflect2.
+  staticRoute runtimeIdMatches=2 proves authored static geometry is present.
+  variant=1/dynamic=1 describes its runtime material variant record, not a
+  dynamically projected geometry route.
+
+Negative capture, authored static card:
+  material textures/decals/stainwall
+  external path C:/Users/lizard/.codex/attachments/
+    78916dc5-77cd-4a05-8ce8-553b073b099a/pasted-text.txt
+  SHA-256 BB2D1630067BA2FFB96155B63F56581FD23F9DA4CE905156539DF4AFE564A177
+  candidate=0, detail=1, blood=0, reflect2=0, coverage=1,
+  wetNormal=0, exactOverride=0, legacyPool=0,
+  reason=reject-no-reflect2-or-override.
+  staticRoute runtime/base ID matches=421/421 proves authored static geometry.
+
+The supervisor changed r_pathTracingLiquidPoolMode through 0, 1, 2, and 3 on
+the splat5 view and reported no visual changes. This is the required LPD-01
+beauty-neutral result. DebugPage has no beauty or shader consumer in this ticket.
+
+Validation disposition
+----------------------
+
+PASS for static-first LPD-01 and ready for LPD-02:
+  - representative live wet positive and close dry-detail negative pass;
+  - all 31 shipped wet declarations pass the structural source audit;
+  - representative negative families remain structurally outside the rule;
+  - a runtime material variant inherits the accepted candidate;
+  - modes 0..3 are visually neutral;
+  - build/deploy hashes match.
+
+Explicitly parked, not silently claimed:
+  - dynamic ProjectDecal geometry ingestion;
+  - strict runtime traversal of every declaration in the corpus;
+  - restartMap stability, because normal-mode restartMap is a known no-op and
+    the supervisor instructed this lane to ignore it for now.
+
+Artifact files
+--------------
+
+  manifest.txt                 this manifest and acceptance boundary
+  classification_inventory.txt predicate truth table and material corpus
+  runtime_excerpts.txt         curated positive/negative live evidence
+
+Pre-existing unrelated dirty files preserved and not staged:
+  neo/shaders/builtin/pathtracing/cleanroom_common/restir_gi_reservoir.hlsli
+  neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+    pathtrace_clean_rtxdi_di_shared.hlsli
+  neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+    pathtrace_clean_rtxdi_di_temporal_output.hlsli

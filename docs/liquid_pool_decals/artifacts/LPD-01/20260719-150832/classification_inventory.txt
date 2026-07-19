@@ -1,0 +1,89 @@
+LPD-01 LIQUID-FILM CLASSIFICATION INVENTORY
+===========================================
+
+Production truth table
+----------------------
+
+detail coverage reflect2 override | candidate | deterministic reason
+  0      any       any      any    |     0     | reject-not-detail-decal
+  1       0        any      any    |     0     | reject-no-safe-coverage
+  1       1         0        0     |     0     | reject-no-reflect2-or-override
+  1       1         0        1     |     1     | accept-exact-override
+  1       1         1       any    |     1     | accept-active-reflect2
+
+A null material produces reject-null-material before the table. CONTENTS_BLOOD
+does not change any row. The audited override table is empty and reports
+overrideReason=none-no-audited-override.
+
+Typed representation and identity
+---------------------------------
+
+  candidate fact: liquidFilmCandidate (CPU bool, no packed flag number)
+  evidence: liquidFilmHasBloodSemantic
+            liquidFilmHasWetReflectStage
+            liquidFilmHasCoverageSource
+            liquidFilmHasWetNormalSource
+            liquidFilmExactOverride
+            coverage image, normal image, override reason, decision reason
+  legacy compatibility flag: detailDecalLiquidPool = 0x00010000, unchanged
+  resolved-film-applied semantic: separate and intentionally unwritten here
+
+The candidate/evidence inputs participate in resident generation, persistent
+material-universe signature/equality, and classifier signature/record identity.
+RegisterSmokeMaterialTextureVariant copies the facts from the base record before
+applying variant-specific updates.
+
+Audited shipped wet declarations
+--------------------------------
+
+Source: materials/_rbdoom_decals_blood.mtr in _rbdoom_blood.pk4.
+Counts: 31 reflect2 stages, 31 makealpha coverage sources, 31 heightmap normal
+sources. Therefore all 31 satisfy the structural positive rule without an exact
+override:
+
+  textures/decals/bloodpool1
+  textures/decals/dsplat2
+  textures/decals/dsplat5
+  textures/decals/dsplat7
+  textures/decals/dsplat11
+  textures/decals/handprint01
+  textures/decals/handprint02
+  textures/decals/hurt02
+  textures/decals/smear01
+  textures/decals/splat1
+  textures/decals/splat2
+  textures/decals/splat3
+  textures/decals/splat4
+  textures/decals/splat5
+  textures/decals/splat6
+  textures/decals/splat7
+  textures/decals/splat8
+  textures/decals/splat9
+  textures/decals/splat10
+  textures/decals/splat11
+  textures/decals/splat12
+  textures/decals/splat13
+  textures/decals/splat14
+  textures/decals/splat15
+  textures/decals/splat16
+  textures/decals/splat17
+  textures/decals2/blood_18
+  textures/decals2/blood_19
+  textures/decalsd3xp/blood_18
+  textures/decalsd3xp/blood_19
+  textures/decalsd3xp/blood_20
+
+Negative-family source checks
+-----------------------------
+
+  textures/decals/stainwall    detail + coverage, no reflect2; live negative
+  textures/decals/dglowsplat7  ordinary alpha-over detail decal, no reflect2
+  textures/decals/ind_logo2    additive card, no reflect2
+  textures/decals/alphabet4    diffuse alpha-over card, no reflect2
+  textures/decals/smoke01      scrolling filter decal, no reflect2
+  textures/decals/bloodspray   dry alpha-over material, no reflect2
+  textures/glass/glass1        object glass; ordinary reflect, not reflect2,
+                               and not a detail decal
+
+No wildcard name policy exists in the production decision. Names containing
+"blood", "splat", or "pool" cannot pass without the structural evidence.
