@@ -19,6 +19,10 @@
 #define RTXDI_ALLOWED_BIAS_CORRECTION RTXDI_BIAS_CORRECTION_RAY_TRACED
 #endif
 
+#if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
+static const uint RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY = 4u;
+#endif
+
 struct PathTraceCleanRtxdiPayload
 {
     uint value;
@@ -38,6 +42,18 @@ struct PathTraceCleanRtxdiPayload
     // own the resolved behind-glass geometry, but their radiance must survive
     // while traversal continues to the opaque receiver.
     float3 passthroughEmissiveRadiance;
+    // LPD-06A candidate transport. Keep the complete five-word contributor
+    // identity plus hit distance until the committed receiver is known.
+    uint liquidRawCount;
+    uint liquidRetainedCount;
+    uint liquidStatusMask;
+    uint liquidRejectionCount;
+    uint liquidInstanceId[RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint liquidMaterialIndex[RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint liquidPrimitiveIndex[RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint liquidBarycentricXBits[RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint liquidBarycentricYBits[RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY];
+    float liquidHitT[RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY];
 #endif
 };
 
@@ -386,6 +402,19 @@ bool PathTraceCleanRtxdiDiWriteLiquidPoolRouteDiagnostic(uint2 pixel)
             ignored);
     }
     return true;
+}
+
+bool PathTraceCleanRtxdiDiLiquidPoolCollectionEnabled()
+{
+    const uint controlFlags = PathTraceCleanRtxdiDiLiquidPoolControlFlags();
+    return PathTraceCleanRtxdiDiLiquidPoolMode() != 0u &&
+        (controlFlags & (RT_LIQUID_POOL_CONTROL_TELEMETRY_READY |
+            RT_LIQUID_POOL_CONTROL_REQUESTED |
+            RT_LIQUID_POOL_CONTROL_PARAMETERS_READY)) ==
+            (RT_LIQUID_POOL_CONTROL_TELEMETRY_READY |
+                RT_LIQUID_POOL_CONTROL_REQUESTED |
+                RT_LIQUID_POOL_CONTROL_PARAMETERS_READY) &&
+        (controlFlags & RT_LIQUID_POOL_CONTROL_ROUTE_DISABLED) == 0u;
 }
 
 void PathTraceCleanRtxdiDiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)

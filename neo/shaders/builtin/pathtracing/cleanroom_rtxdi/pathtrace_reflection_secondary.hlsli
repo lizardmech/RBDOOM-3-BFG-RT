@@ -203,7 +203,7 @@ float PathTraceReflectionSecondaryTraceVisibility(RAB_Surface surface, float3 sa
     shadowRay.TMin = 0.01;
     shadowRay.TMax = max(distance - 0.5, 0.01);
 
-    PathTraceCleanRtxdiPayload shadowPayload;
+    PathTraceCleanRtxdiPayload shadowPayload = (PathTraceCleanRtxdiPayload)0;
     shadowPayload.value = 0u;
     shadowPayload.rayMode = 1u;
     shadowPayload.ignoreInstanceId = 0xffffffffu;
@@ -216,6 +216,7 @@ float PathTraceReflectionSecondaryTraceVisibility(RAB_Surface surface, float3 sa
     shadowPayload.hitTriangleClassAndFlags = 0u;
     shadowPayload.hitT = 0.0;
     shadowPayload.hitBarycentrics = float2(0.0, 0.0);
+    shadowPayload.passthroughEmissiveRadiance = float3(0.0, 0.0, 0.0);
 
     TraceRay(
         SmokeScene,

@@ -656,13 +656,23 @@ bool PathTraceCleanRtxdiDiTryOpaqueMirrorReflection(
     }
 
     RAB_Surface reflectionSurface;
+    PathTraceCleanRtxdiDiLiquidPoolResolve reflectionLiquidResolve;
     if (!PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
         reflectionHit.payload,
         reflectionHit.hitPosition,
         reflectionHit.rayDirection,
-        reflectionSurface))
+        reflectionSurface,
+        reflectionLiquidResolve))
     {
         return true;
+    }
+    if (PathTraceCleanRtxdiDiLiquidPoolDebug() != 0u)
+    {
+        const float4 liquidDiagnostic = PathTraceCleanRtxdiDiLiquidPoolDiagnosticTuple(
+            reflectionHit.payload,
+            reflectionLiquidResolve);
+        SmokeOutput[pixel] = liquidDiagnostic;
+        PathTraceRRInputColor[pixel] = liquidDiagnostic;
     }
 
     RTXDI_RandomSamplerState reflectionRng =
@@ -743,22 +753,34 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     bool reflectionGuideSurfaceValid = false;
     float reflectionGuideHitT = 0.0;
     float3 reflectionGuideRayDirection = float3(0.0, 0.0, 0.0);
+    bool liquidReflectionDiagnosticWritten = false;
     if (reflectionPsrEnabled)
     {
         PathTraceReflectionSecondaryHit reflectionHit;
         if (PathTraceReflectionSecondaryTraceMirrorFromSurface(glassSurface, reflectionHit))
         {
             RAB_Surface reflectionSurface;
+            PathTraceCleanRtxdiDiLiquidPoolResolve reflectionLiquidResolve;
             if (PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
                 reflectionHit.payload,
                 reflectionHit.hitPosition,
                 reflectionHit.rayDirection,
-                reflectionSurface))
+                reflectionSurface,
+                reflectionLiquidResolve))
             {
                 reflectionGuideSurface = reflectionSurface;
                 reflectionGuideSurfaceValid = true;
                 reflectionGuideHitT = max(reflectionHit.hitT, 0.0);
                 reflectionGuideRayDirection = reflectionHit.rayDirection;
+                if (PathTraceCleanRtxdiDiLiquidPoolDebug() != 0u)
+                {
+                    const float4 liquidDiagnostic = PathTraceCleanRtxdiDiLiquidPoolDiagnosticTuple(
+                        reflectionHit.payload,
+                        reflectionLiquidResolve);
+                    SmokeOutput[pixel] = liquidDiagnostic;
+                    PathTraceRRInputColor[pixel] = liquidDiagnostic;
+                    liquidReflectionDiagnosticWritten = true;
+                }
             }
         }
     }
@@ -925,6 +947,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     float3 hitPosition;
     float3 rayDirection;
     RAB_Surface behindGlassSurface = RAB_EmptySurface();
+    PathTraceCleanRtxdiDiLiquidPoolResolve behindGlassLiquidResolve;
     bool behindGlassValid = false;
     if (PathTraceCleanRtxdiDiTraceTransmissionHit(
         glassSurface,
@@ -936,9 +959,19 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             hitPayload,
             hitPosition,
             rayDirection,
-            behindGlassSurface))
+            behindGlassSurface,
+            behindGlassLiquidResolve))
     {
         behindGlassValid = true;
+        if (!liquidReflectionDiagnosticWritten &&
+            PathTraceCleanRtxdiDiLiquidPoolDebug() != 0u)
+        {
+            const float4 liquidDiagnostic = PathTraceCleanRtxdiDiLiquidPoolDiagnosticTuple(
+                hitPayload,
+                behindGlassLiquidResolve);
+            SmokeOutput[pixel] = liquidDiagnostic;
+            PathTraceRRInputColor[pixel] = liquidDiagnostic;
+        }
         behindGlassSurface.material.emissiveRadiance +=
             max(hitPayload.passthroughEmissiveRadiance, float3(0.0, 0.0, 0.0));
         if (transmissionSample.guidePolicy == CLEAN_RTXDI_DI_TRANSMISSION_GUIDE_POLICY_STRONG_REFRACTION)
@@ -1050,6 +1083,12 @@ void RayGen()
     // separate glass-pass t90 SRV.
     const PathTraceMaterialFeatureRuntimeInfo runtimeInfo =
         PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeInfo();
+    // The PSR phase writes the authoritative LPD secondary tuple. Do not let
+    // the post-DI glass compose overwrite it before raw readback/presentation.
+    if (PathTraceCleanRtxdiDiLiquidPoolDebug() != 0u)
+    {
+        return;
+    }
     if (runtimeInfo.writesOutputColor && runtimeInfo.debugMode >= 0.5)
     {
         // Route debug output through the composed-color store so it also lands

@@ -84,7 +84,7 @@ PathTraceCleanRtxdiDiTransmissionPsrSample PathTraceCleanRtxdiDiTransmissionPsrS
 
 PathTraceCleanRtxdiPayload PathTraceCleanRtxdiDiEmptyTransmissionTracePayload(RAB_Surface surface)
 {
-    PathTraceCleanRtxdiPayload payload;
+    PathTraceCleanRtxdiPayload payload = (PathTraceCleanRtxdiPayload)0;
     payload.value = 0u;
     payload.rayMode = 3u;
     payload.ignoreInstanceId = surface.instanceId;
@@ -98,6 +98,10 @@ PathTraceCleanRtxdiPayload PathTraceCleanRtxdiDiEmptyTransmissionTracePayload(RA
     payload.hitT = 0.0;
     payload.hitBarycentrics = float2(0.0, 0.0);
     payload.passthroughEmissiveRadiance = float3(0.0, 0.0, 0.0);
+    payload.liquidStatusMask = PathTraceLiquidPoolControlInitialStatus(
+        PathTraceCleanRtxdiDiLiquidPoolControlFlags(),
+        PathTraceCleanRtxdiDiLiquidPoolDebug(),
+        PathTraceCleanRtxdiDiLiquidPoolPage());
     return payload;
 }
 

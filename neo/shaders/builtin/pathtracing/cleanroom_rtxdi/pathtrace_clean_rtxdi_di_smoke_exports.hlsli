@@ -3,6 +3,18 @@
 
 static const uint CLEAN_FLAG_LIQUID_MODIFIER_VISIBILITY = 1u << 21u;
 
+bool PathTraceCleanRtxdiDiMaterialIsSemanticLiquidPool(uint materialIndex)
+{
+    PathTraceMaterialFeature feature;
+    return PathTraceCleanRtxdiDiLoadMaterialFeature(materialIndex, feature) &&
+        feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER &&
+        feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION &&
+        (feature.materialCaps & (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+            RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND)) ==
+            (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+                RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND);
+}
+
 bool PathTraceCleanRoomMaterialDoesNotOccludeVisibility(uint instanceId, uint materialIndex)
 {
     if (materialIndex >= (uint)TextureInfo.z)
@@ -205,6 +217,179 @@ float PathTraceCleanRoomTransmissionAlphaCoverage(PathTraceSmokeMaterial materia
     return fallback.a;
 }
 
+float4 PathTraceCleanRtxdiDiLiquidPoolSampleDecodedDiffuse(
+    PathTraceSmokeMaterial material,
+    float2 texCoord)
+{
+    float4 texel = PathTraceCleanRoomSampleTexture(
+        material.diffuseTextureIndex,
+        material.textureWidth,
+        material.textureHeight,
+        texCoord,
+        material.debugAlbedo);
+    const bool textureDecodeEnabled = (((uint)TextureInfo.w) & 4u) != 0u;
+    if (textureDecodeEnabled && (material.flags & RT_SMOKE_MATERIAL_DIFFUSE_YCOCG) != 0u)
+    {
+        texel.rgb = PathTraceCleanRoomTransmissionConvertYCoCgToRGB(texel);
+    }
+    return texel;
+}
+
+float PathTraceCleanRtxdiDiLiquidPoolAlphaCoverage(
+    PathTraceSmokeMaterial material,
+    float2 texCoord)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY_TRANSMISSION) != 0u)
+    {
+        const float3 decoded = PathTraceCleanRtxdiDiLiquidPoolSampleDecodedDiffuse(material, texCoord).rgb;
+        return 1.0 - max(max(decoded.r, decoded.g), decoded.b);
+    }
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA) != 0u)
+    {
+        const float3 decoded = PathTraceCleanRtxdiDiLiquidPoolSampleDecodedDiffuse(material, texCoord).rgb;
+        return max(max(decoded.r, decoded.g), decoded.b);
+    }
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY) != 0u)
+    {
+        const float3 decoded = PathTraceCleanRtxdiDiLiquidPoolSampleDecodedDiffuse(material, texCoord).rgb;
+        const float keyDistance = max(abs(decoded.r - 1.0), max(abs(decoded.g), abs(decoded.b - 1.0)));
+        return keyDistance <= 0.08 ? 0.0 : 1.0;
+    }
+
+    const float4 decodedDiffuse = PathTraceCleanRtxdiDiLiquidPoolSampleDecodedDiffuse(material, texCoord);
+    const float4 diffuse = (material.flags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u
+        ? material.debugAlbedo
+        : decodedDiffuse;
+    if (material.alphaTextureIndex != 0xffffffffu)
+    {
+        return PathTraceCleanRoomSampleTexture(
+            material.alphaTextureIndex,
+            material.alphaTextureWidth,
+            material.alphaTextureHeight,
+            texCoord,
+            diffuse).a;
+    }
+    return diffuse.a;
+}
+
+bool PathTraceCleanRtxdiDiTryGetLiquidPoolStageColor(uint materialIndex, out float4 stageColor)
+{
+    stageColor = float4(1.0, 1.0, 1.0, 1.0);
+    uint dynamicRecordCount = 0u;
+    uint dynamicRecordStride = 0u;
+    SmokeDynamicMaterials.GetDimensions(dynamicRecordCount, dynamicRecordStride);
+    if (materialIndex >= dynamicRecordCount)
+    {
+        return true;
+    }
+
+    const PathTraceDynamicMaterialRecord dynamicRecord = SmokeDynamicMaterials[materialIndex];
+    if ((dynamicRecord.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
+        dynamicRecord.materialIndex != materialIndex)
+    {
+        return true;
+    }
+    if ((dynamicRecord.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) == 0u ||
+        dynamicRecord.texMatrix0.w == 0.0)
+    {
+        return false;
+    }
+
+    stageColor = float4(max(dynamicRecord.color.rgb, 0.0), saturate(dynamicRecord.color.a));
+    return stageColor.a > 0.0;
+}
+
+void PathTraceCleanRtxdiDiStoreLiquidPoolCandidate(
+    inout PathTraceCleanRtxdiPayload payload,
+    uint instanceId,
+    uint materialIndex,
+    uint primitiveIndex,
+    float2 barycentrics)
+{
+    const LiquidPoolContributorKey key =
+        LiquidPoolMakeContributorKey(instanceId, primitiveIndex, materialIndex, barycentrics);
+    payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
+
+    [unroll]
+    for (uint existingSlot = 0u;
+        existingSlot < RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY;
+        ++existingSlot)
+    {
+        if (existingSlot < payload.liquidRetainedCount &&
+            payload.liquidInstanceId[existingSlot] == key.instanceId &&
+            payload.liquidPrimitiveIndex[existingSlot] == key.primitiveIndex &&
+            payload.liquidMaterialIndex[existingSlot] == key.materialIndex &&
+            payload.liquidBarycentricXBits[existingSlot] == key.barycentricXBits &&
+            payload.liquidBarycentricYBits[existingSlot] == key.barycentricYBits)
+        {
+            return;
+        }
+    }
+
+    payload.liquidRawCount = payload.liquidRawCount == 0xffffffffu
+        ? 0xffffffffu
+        : payload.liquidRawCount + 1u;
+    if (payload.liquidRetainedCount >= RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY)
+    {
+        payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_OVERFLOW;
+        return;
+    }
+
+    const uint slot = payload.liquidRetainedCount++;
+    payload.liquidInstanceId[slot] = key.instanceId;
+    payload.liquidMaterialIndex[slot] = key.materialIndex;
+    payload.liquidPrimitiveIndex[slot] = key.primitiveIndex;
+    payload.liquidBarycentricXBits[slot] = key.barycentricXBits;
+    payload.liquidBarycentricYBits[slot] = key.barycentricYBits;
+    payload.liquidHitT[slot] = RayTCurrent();
+}
+
+bool PathTraceCleanRtxdiDiCollectLiquidPoolCandidate(
+    inout PathTraceCleanRtxdiPayload payload,
+    uint instanceId,
+    uint primitiveIndex,
+    uint materialIndex,
+    float2 barycentrics)
+{
+    if (!PathTraceCleanRtxdiDiLiquidPoolCollectionEnabled() ||
+        instanceId > 1u ||
+        !PathTraceCleanRtxdiDiMaterialIsSemanticLiquidPool(materialIndex))
+    {
+        return false;
+    }
+
+    payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
+    const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(materialIndex);
+    const float2 texCoord = PathTraceCleanRoomTransmissionInterpolateTexCoord(
+        instanceId,
+        primitiveIndex,
+        barycentrics);
+    float4 stageColor;
+    if (PathTraceCleanRtxdiDiTryGetLiquidPoolStageColor(materialIndex, stageColor))
+    {
+        const float coverage =
+            saturate(PathTraceCleanRtxdiDiLiquidPoolAlphaCoverage(material, texCoord)) *
+            saturate(stageColor.a);
+        if (coverage > 0.0)
+        {
+            PathTraceCleanRtxdiDiStoreLiquidPoolCandidate(
+                payload,
+                instanceId,
+                materialIndex,
+                primitiveIndex,
+                barycentrics);
+        }
+    }
+    else
+    {
+        payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED;
+        payload.liquidRejectionCount = payload.liquidRejectionCount == 0xffffffffu
+            ? 0xffffffffu
+            : payload.liquidRejectionCount + 1u;
+    }
+    return true;
+}
+
 bool PathTraceCleanRoomTriangleDoesNotOccludeTransmission(uint instanceId, uint primitiveIndex, uint materialIndex)
 {
     if (PathTraceCleanRoomTransmissionMaterialAlwaysTransmits(materialIndex))
@@ -305,6 +490,16 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
         const uint instanceId = InstanceID();
         const uint primitiveIndex = PrimitiveIndex();
         const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(instanceId, primitiveIndex);
+        if (PathTraceCleanRtxdiDiCollectLiquidPoolCandidate(
+            payload,
+            instanceId,
+            primitiveIndex,
+            materialIndex,
+            attributes.barycentrics))
+        {
+            IgnoreHit();
+            return;
+        }
         const bool ignoredSource =
             instanceId == payload.ignoreInstanceId &&
             (primitiveIndex == payload.ignorePrimitiveIndex || materialIndex == payload.ignoreMaterialIndex);
@@ -359,6 +554,13 @@ void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInter
 
     const uint primitiveIndex = PrimitiveIndex();
     const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(instanceId, primitiveIndex);
+    if (PathTraceCleanRtxdiDiLiquidPoolCollectionEnabled() &&
+        instanceId <= 1u &&
+        PathTraceCleanRtxdiDiMaterialIsSemanticLiquidPool(materialIndex))
+    {
+        IgnoreHit();
+        return;
+    }
     if (PathTraceCleanRoomMaterialDoesNotOccludeVisibility(instanceId, materialIndex))
     {
         IgnoreHit();
