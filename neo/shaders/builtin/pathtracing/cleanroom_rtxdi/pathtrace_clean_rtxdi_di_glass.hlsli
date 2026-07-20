@@ -254,7 +254,7 @@ void RayGen()
 
     // The pre-DI PSR producer owns liquid debug output. Composing glass after
     // clean DI would otherwise replace its authoritative secondary-hit tuple.
-    if (PathTraceCleanRtxdiDiLiquidPoolDebug() == 6u)
+    if (PathTraceCleanRtxdiDiLiquidPoolDebug() != 0u)
     {
         return;
     }

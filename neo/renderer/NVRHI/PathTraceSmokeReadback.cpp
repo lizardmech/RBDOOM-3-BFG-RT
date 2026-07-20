@@ -40,6 +40,14 @@ int g_smokeLastReadbackTimingLogMs = -1000000;
 int g_view68LastInactiveLogFrame = -1000000;
 int g_view68LastWaitingLogFrame = -1000000;
 int g_dlssRrInputDumpLastWaitingFrame = -1000000;
+int g_liquidPoolProbeX = -1;
+int g_liquidPoolProbeY = -1;
+int g_liquidPoolProbeWidth = 0;
+int g_liquidPoolProbeHeight = 0;
+uint32_t g_liquidPoolProbeStatus = 0u;
+
+const uint32_t LIQUID_POOL_STATUS_RECEIVER_VALID = 1u << 1u;
+const uint32_t LIQUID_POOL_STATUS_APPLIED = 1u << 2u;
 
 const char* DLSSRRInputDumpSourceName(int source)
 {
@@ -621,6 +629,11 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 
     int greenHits = 0;
     int redMisses = 0;
+    int liquidProbeX = -1;
+    int liquidProbeY = -1;
+    int liquidProbeDistanceSquared = 0x7fffffff;
+    uint32_t liquidProbeStatus = 0u;
+    float liquidProbeRgba[4] = {};
     RigidRouteOverlapCounts fullFrameOverlap;
     RigidRouteOverlapCounts centerRegionOverlap;
     int centerRegionPixels = 0;
@@ -672,6 +685,60 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
             else if (rgba[0] > 0.5f)
             {
                 ++redMisses;
+            }
+
+            if (liquidPoolMode != 0 && liquidPoolDebug != 0 && liquidPoolDebug != 5)
+            {
+                uint32_t statusMask = 0u;
+                bool statusAvailable = false;
+                if (liquidPoolDebug == 4 && liquidPoolPage <= 1)
+                {
+                    memcpy(&statusMask, &rgba[3], sizeof(statusMask));
+                    statusAvailable = true;
+                }
+                else if (liquidPoolDebug == 1 || liquidPoolDebug == 2 ||
+                    liquidPoolDebug == 3 || liquidPoolDebug == 4)
+                {
+                    statusMask = rgba[3] >= 0.0f && rgba[3] <= 255.0f
+                        ? static_cast<uint32_t>(rgba[3] + 0.5f)
+                        : 0u;
+                    statusAvailable = true;
+                }
+                else if (liquidPoolDebug == 6)
+                {
+                    const float statusValue = x == sampleX && y == sampleY ? rgba[1] : rgba[3];
+                    statusMask = statusValue >= 0.0f && statusValue <= 255.0f
+                        ? static_cast<uint32_t>(statusValue + 0.5f)
+                        : 0u;
+                    statusAvailable = true;
+                }
+
+                if (statusAvailable &&
+                    (statusMask & (LIQUID_POOL_STATUS_RECEIVER_VALID | LIQUID_POOL_STATUS_APPLIED)) != 0u)
+                {
+                    const int dx = x - sampleX;
+                    const int dy = y - sampleY;
+                    const int distanceSquared = dx * dx + dy * dy;
+                    if (distanceSquared < liquidProbeDistanceSquared)
+                    {
+                        liquidProbeX = x;
+                        liquidProbeY = y;
+                        liquidProbeDistanceSquared = distanceSquared;
+                        liquidProbeStatus = statusMask;
+                        if (liquidPoolDebug == 6)
+                        {
+                            liquidProbeRgba[0] = 2.0f;
+                            liquidProbeRgba[1] = static_cast<float>(statusMask);
+                            liquidProbeRgba[2] =
+                                (statusMask & LIQUID_POOL_STATUS_APPLIED) != 0u ? 1.0f : 0.0f;
+                            liquidProbeRgba[3] = 0.0f;
+                        }
+                        else
+                        {
+                            memcpy(liquidProbeRgba, rgba, sizeof(liquidProbeRgba));
+                        }
+                    }
+                }
             }
 
             if (cleanTemporalAuditRequested)
@@ -757,6 +824,61 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
                     ++view68RightPixels;
                 }
             }
+        }
+    }
+
+    if (liquidPoolMode != 0 && liquidPoolDebug != 0)
+    {
+        if (liquidPoolDebug != 5)
+        {
+            if (liquidProbeX >= 0 && liquidProbeY >= 0)
+            {
+                g_liquidPoolProbeX = liquidProbeX;
+                g_liquidPoolProbeY = liquidProbeY;
+                g_liquidPoolProbeWidth = m_frameResources.width;
+                g_liquidPoolProbeHeight = m_frameResources.height;
+                g_liquidPoolProbeStatus = liquidProbeStatus;
+            }
+            else
+            {
+                g_liquidPoolProbeX = -1;
+                g_liquidPoolProbeY = -1;
+            }
+        }
+        else if (g_liquidPoolProbeX >= 0 && g_liquidPoolProbeY >= 0 &&
+            g_liquidPoolProbeWidth == m_frameResources.width &&
+            g_liquidPoolProbeHeight == m_frameResources.height)
+        {
+            liquidProbeX = g_liquidPoolProbeX;
+            liquidProbeY = g_liquidPoolProbeY;
+            liquidProbeStatus = g_liquidPoolProbeStatus;
+            const float* probeRow = reinterpret_cast<const float*>(
+                readbackBytes + rowPitch * liquidProbeY);
+            memcpy(liquidProbeRgba, probeRow + liquidProbeX * 4, sizeof(liquidProbeRgba));
+        }
+
+        if (liquidProbeX >= 0 && liquidProbeY >= 0)
+        {
+            uint32_t probeWords[4] = {};
+            memcpy(probeWords, liquidProbeRgba, sizeof(probeWords));
+            common->Printf(
+                "PathTracePrimaryPass: liquid-pool probe mode=%d debug=%d page=%d xy=(%d %d) value=(%.9g %.9g %.9g %.9g) bits=(0x%08x 0x%08x 0x%08x 0x%08x) status=0x%02x\n",
+                liquidPoolMode,
+                liquidPoolDebug,
+                liquidPoolPage,
+                liquidProbeX,
+                liquidProbeY,
+                liquidProbeRgba[0], liquidProbeRgba[1], liquidProbeRgba[2], liquidProbeRgba[3],
+                probeWords[0], probeWords[1], probeWords[2], probeWords[3],
+                liquidProbeStatus);
+        }
+        else
+        {
+            common->Printf(
+                "PathTracePrimaryPass: liquid-pool probe mode=%d debug=%d page=%d none\n",
+                liquidPoolMode,
+                liquidPoolDebug,
+                liquidPoolPage);
         }
     }
 

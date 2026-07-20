@@ -40,7 +40,9 @@ float4 PathTraceCleanRtxdiDiPresentLiquidPoolSecondaryDiagnostic(
     const bool liquidFootprintValid =
         (status & (RT_LIQUID_POOL_STATUS_RECEIVER_VALID | RT_LIQUID_POOL_STATUS_APPLIED)) != 0u;
     const float intensity = liquidFootprintValid ? 1.0 : (secondaryReceiverResolved ? 0.25 : 0.03);
-    return float4(0.0, intensity, intensity, 1.0);
+    // Alpha carries the numeric status only for the host's full-frame debug
+    // probe scan. RGB remains the source-2 locator visualization.
+    return float4(0.0, intensity, intensity, (float)status);
 }
 
 void PathTraceCleanRtxdiDiInitializeLiquidPoolSecondaryDiagnostic(
@@ -48,7 +50,7 @@ void PathTraceCleanRtxdiDiInitializeLiquidPoolSecondaryDiagnostic(
     uint2 dimensions)
 {
     const uint debug = PathTraceCleanRtxdiDiLiquidPoolDebug();
-    if (debug != 6u)
+    if (debug == 0u)
     {
         return;
     }
@@ -59,7 +61,24 @@ void PathTraceCleanRtxdiDiInitializeLiquidPoolSecondaryDiagnostic(
     const uint source = (status & RT_LIQUID_POOL_STATUS_INVALID_ROUTE) != 0u
         ? RT_LIQUID_POOL_SOURCE_INVALID
         : RT_LIQUID_POOL_SOURCE_CLEAN_DI_REFLECTION;
-    const float4 rawTuple = PathTraceLiquidPoolRouteDiagnostic(source, status);
+    float4 rawTuple = float4(0.0, 0.0, 0.0, 0.0);
+    if ((status & RT_LIQUID_POOL_STATUS_INVALID_ROUTE) != 0u)
+    {
+        rawTuple = PathTraceLiquidPoolRouteDiagnostic(source, status);
+    }
+    else if (debug == 2u && page == 0u)
+    {
+        rawTuple = float4(0.0, 0.0,
+            (float)RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY, 0.0);
+    }
+    else if (debug == 6u && page == 0u)
+    {
+        rawTuple = PathTraceLiquidPoolRouteDiagnostic(source, status);
+    }
+    else if (debug == 6u && page == 1u)
+    {
+        rawTuple = float4(0.0, 1.0, 0.0, 1.0);
+    }
 
     const float4 presentedDiagnostic =
         PathTraceCleanRtxdiDiPresentLiquidPoolSecondaryDiagnostic(
@@ -74,7 +93,7 @@ void PathTraceCleanRtxdiDiInitializeLiquidPoolSecondaryDiagnostic(
 
 void PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(uint2 pixel)
 {
-    if (PathTraceCleanRtxdiDiLiquidPoolDebug() != 6u)
+    if (PathTraceCleanRtxdiDiLiquidPoolDebug() == 0u)
     {
         return;
     }

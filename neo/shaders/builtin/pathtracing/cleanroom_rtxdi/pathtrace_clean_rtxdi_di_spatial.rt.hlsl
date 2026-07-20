@@ -239,19 +239,17 @@ uint PathTraceCleanRtxdiDiLiquidPoolControlFlags()
 bool PathTraceCleanRtxdiDiWriteLiquidPoolRouteDiagnostic(uint2 pixel)
 {
     const uint debug = PathTraceCleanRtxdiDiLiquidPoolDebug();
-    if (debug != 6u)
+    if (debug == 0u)
     {
         return false;
     }
     const uint page = PathTraceCleanRtxdiDiLiquidPoolPage();
     const uint status = PathTraceLiquidPoolControlInitialStatus(
         PathTraceCleanRtxdiDiLiquidPoolControlFlags(), debug, page);
-    const uint source = (status & RT_LIQUID_POOL_STATUS_INVALID_ROUTE) != 0u
-        ? RT_LIQUID_POOL_SOURCE_INVALID
-        : RT_LIQUID_POOL_SOURCE_CLEAN_DI_REFLECTION;
     // Spatial is the last clean-DI reservoir dispatch. Forward the tuple sealed
     // by the pre-DI producer in its route-owned sidecar. RR input is shared with
-    // lighting/GI and cannot be used as persistent diagnostic transport.
+    // lighting/GI and cannot be used as persistent diagnostic transport. This
+    // applies to every liquid debug page, not only the source/status page.
     const float4 diagnostic = PathTraceCleanRtxdiDiTransmissionOutput[pixel];
     SmokeOutput[pixel] = diagnostic;
     PathTraceRRInputColor[pixel] = diagnostic;
