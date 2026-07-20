@@ -19,6 +19,8 @@ constexpr float kDefaultRoughness = 0.0f;
 constexpr float kDefaultIor = 1.5f;
 constexpr float kSingleScatterStrength = 0.30f;
 constexpr float kClearcoatFullCoverage = 0.35f;
+constexpr float kSingleLobeMetalF0Start = 0.08f;
+constexpr float kSingleLobeMetalF0Full = 0.25f;
 constexpr float kOffsetMin = -0.05f;
 constexpr float kOffsetMax = 1.85f;
 constexpr float kPlaneDotMin = 0.95f;
@@ -352,10 +354,22 @@ EffectiveMaterial Apply(Vec3 receiverAlbedo, Vec3 receiverF0, float receiverRoug
         Clamp(coatedAlbedoUnclamped.y, 0.0f, 1.0f),
         Clamp(coatedAlbedoUnclamped.z, 0.0f, 1.0f)
     };
+    const float maximumTransmittance = std::max(transmittance.x, std::max(transmittance.y, transmittance.z));
+    const Vec3 normalizedFilmTint = maximumTransmittance > 1.0e-5f
+        ? Mul(transmittance, 1.0f / maximumTransmittance)
+        : Vec3{ 1.0f, 1.0f, 1.0f };
+    const float receiverSpecularMaximum = std::max(receiverF0.x, std::max(receiverF0.y, receiverF0.z));
+    const float metalTintUnit = Clamp(
+        (receiverSpecularMaximum - kSingleLobeMetalF0Start) /
+            (kSingleLobeMetalF0Full - kSingleLobeMetalF0Start),
+        0.0f,
+        1.0f);
+    const float metalTintWeight = metalTintUnit * metalTintUnit * (3.0f - 2.0f * metalTintUnit);
+    const Vec3 tintedReceiverF0 = Mul(receiverF0, Lerp({ 1.0f, 1.0f, 1.0f }, normalizedFilmTint, metalTintWeight));
     const Vec3 coatedF0 = {
-        Clamp(coatF0 + (1.0f - coatF0) * (1.0f - coatF0) * receiverF0.x, 0.0f, 1.0f),
-        Clamp(coatF0 + (1.0f - coatF0) * (1.0f - coatF0) * receiverF0.y, 0.0f, 1.0f),
-        Clamp(coatF0 + (1.0f - coatF0) * (1.0f - coatF0) * receiverF0.z, 0.0f, 1.0f)
+        Clamp(coatF0 + (1.0f - coatF0) * (1.0f - coatF0) * tintedReceiverF0.x, 0.0f, 1.0f),
+        Clamp(coatF0 + (1.0f - coatF0) * (1.0f - coatF0) * tintedReceiverF0.y, 0.0f, 1.0f),
+        Clamp(coatF0 + (1.0f - coatF0) * (1.0f - coatF0) * tintedReceiverF0.z, 0.0f, 1.0f)
     };
     const float coatRoughness = Sanitize(film.coatRoughness, kDefaultRoughness, 0.0f, 1.0f);
     const float clearcoatUnit = Clamp(coverage / kClearcoatFullCoverage, 0.0f, 1.0f);
@@ -528,6 +542,20 @@ void TestOpticalGoldens()
         false);
     Check(Near(bloodResult.albedo, { 0.325f, 0.005f, 0.005f }), "selective scatter preserves saturated blood on a dim receiver");
 
+    const EffectiveMaterial bloodOnMetal = Apply(
+        { 0.0f, 0.0f, 0.0f },
+        { 0.85f, 0.85f, 0.85f },
+        0.2f,
+        Fold({ blood }),
+        false);
+    Check(
+        bloodOnMetal.specularF0.x > bloodOnMetal.specularF0.y * 4.0f &&
+            Near(bloodOnMetal.specularF0.y, bloodOnMetal.specularF0.z),
+        "temporary single-lobe approximation tints high-F0 metal by liquid pigment");
+    Check(
+        Near(bloodResult.specularF0, { 0.076864f, 0.076864f, 0.076864f }),
+        "temporary metal tint leaves low-F0 dielectric clearcoat neutral");
+
     Candidate neutralDark = MakeCandidate(1.0f, { 0.25f, 0.25f, 0.25f }, MakeKey(1, 1, 4, 0.2f, 0.3f));
     const EffectiveMaterial neutralDarkResult = Apply(
         { 0.1f, 0.1f, 0.1f },
@@ -536,6 +564,16 @@ void TestOpticalGoldens()
         Fold({ neutralDark }),
         false);
     Check(Near(neutralDarkResult.albedo, { 0.025f, 0.025f, 0.025f }), "neutral attenuation does not invent a pigment hue");
+    const EffectiveMaterial neutralOnMetal = Apply(
+        { 0.0f, 0.0f, 0.0f },
+        { 0.85f, 0.85f, 0.85f },
+        0.2f,
+        Fold({ neutralDark }),
+        false);
+    Check(
+        Near(neutralOnMetal.specularF0.x, neutralOnMetal.specularF0.y) &&
+            Near(neutralOnMetal.specularF0.y, neutralOnMetal.specularF0.z),
+        "neutral film does not invent a metal specular hue");
 }
 
 void TestInvalidAndApplyOnce()

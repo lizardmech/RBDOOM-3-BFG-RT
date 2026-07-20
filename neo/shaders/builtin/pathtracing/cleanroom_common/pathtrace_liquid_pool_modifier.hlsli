@@ -10,6 +10,8 @@ static const float LIQUID_POOL_DEFAULT_COAT_ROUGHNESS = 0.0;
 static const float LIQUID_POOL_DEFAULT_DIELECTRIC_IOR = 1.5;
 static const float LIQUID_POOL_DEFAULT_SINGLE_SCATTER_STRENGTH = 0.30;
 static const float LIQUID_POOL_CLEARCOAT_FULL_COVERAGE = 0.35;
+static const float LIQUID_POOL_SINGLE_LOBE_METAL_F0_START = 0.08;
+static const float LIQUID_POOL_SINGLE_LOBE_METAL_F0_FULL = 0.25;
 static const float LIQUID_POOL_RECEIVER_OFFSET_MIN = -0.05;
 static const float LIQUID_POOL_RECEIVER_OFFSET_MAX = 1.85;
 static const float LIQUID_POOL_RECEIVER_PLANE_DOT_MIN = 0.95;
@@ -370,7 +372,26 @@ LiquidPoolEffectiveReceiverMaterial LiquidPoolApplyResolvedFilm(
     const float singleScatterAmount =
         (1.0 - minimumTransmittance) * LIQUID_POOL_DEFAULT_SINGLE_SCATTER_STRENGTH;
     const float3 coatedAlbedo = saturate(receiverAlbedo * transmittance + pigmentTint * singleScatterAmount);
-    const float3 coatedF0 = saturate(coatF0 + ((1.0 - coatF0) * (1.0 - coatF0)) * receiverSpecularF0);
+    // Temporary single-lobe metal approximation.  The proper solution is a
+    // neutral dielectric coat plus a separately evaluated substrate lobe.  In
+    // the collapsed ABI, retain neutral coat F0 but tint high-F0 receiver
+    // energy by the film chroma so pools do not lose their color on metals.
+    // Normalizing the transmittance preserves the strongest specular channel;
+    // low-F0 dielectric receivers remain unchanged.
+    const float maximumTransmittance = max(transmittance.x, max(transmittance.y, transmittance.z));
+    const float3 normalizedFilmTint = maximumTransmittance > 1.0e-5
+        ? saturate(transmittance / maximumTransmittance)
+        : float3(1.0, 1.0, 1.0);
+    const float receiverSpecularMaximum = max(receiverSpecularF0.x, max(receiverSpecularF0.y, receiverSpecularF0.z));
+    const float metalTintWeight = smoothstep(
+        LIQUID_POOL_SINGLE_LOBE_METAL_F0_START,
+        LIQUID_POOL_SINGLE_LOBE_METAL_F0_FULL,
+        receiverSpecularMaximum);
+    const float3 tintedReceiverSpecularF0 = receiverSpecularF0 * lerp(
+        float3(1.0, 1.0, 1.0),
+        normalizedFilmTint,
+        metalTintWeight);
+    const float3 coatedF0 = saturate(coatF0 + ((1.0 - coatF0) * (1.0 - coatF0)) * tintedReceiverSpecularF0);
     const float coatRoughness = LiquidPoolSanitizeParameter(
         film.coatRoughness,
         LIQUID_POOL_DEFAULT_COAT_ROUGHNESS,
