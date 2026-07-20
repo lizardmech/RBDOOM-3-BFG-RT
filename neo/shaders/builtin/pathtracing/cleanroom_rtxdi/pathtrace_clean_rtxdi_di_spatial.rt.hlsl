@@ -119,6 +119,7 @@ struct PathTraceSmokeEmissiveTriangle
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiTransmissionOutput : register(u87);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
@@ -248,7 +249,12 @@ bool PathTraceCleanRtxdiDiWriteLiquidPoolRouteDiagnostic(uint2 pixel)
     const uint source = (status & RT_LIQUID_POOL_STATUS_INVALID_ROUTE) != 0u
         ? RT_LIQUID_POOL_SOURCE_INVALID
         : RT_LIQUID_POOL_SOURCE_CLEAN_DI_REFLECTION;
-    SmokeOutput[pixel] = PathTraceLiquidPoolRouteDiagnostic(source, status);
+    // Spatial is the last clean-DI reservoir dispatch. Forward the tuple sealed
+    // by the pre-DI producer in its route-owned sidecar. RR input is shared with
+    // lighting/GI and cannot be used as persistent diagnostic transport.
+    const float4 diagnostic = PathTraceCleanRtxdiDiTransmissionOutput[pixel];
+    SmokeOutput[pixel] = diagnostic;
+    PathTraceRRInputColor[pixel] = diagnostic;
     const uint exceptional = status &
         (RT_LIQUID_POOL_STATUS_OVERFLOW |
             RT_LIQUID_POOL_STATUS_DUPLICATE_APPLY |

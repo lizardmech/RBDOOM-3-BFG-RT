@@ -252,6 +252,13 @@ void RayGen()
         return;
     }
 
+    // The pre-DI PSR producer owns liquid debug output. Composing glass after
+    // clean DI would otherwise replace its authoritative secondary-hit tuple.
+    if (PathTraceCleanRtxdiDiLiquidPoolDebug() == 6u)
+    {
+        return;
+    }
+
     const PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams =
         PathTraceCleanRtxdiDiLoadMaterialFeatureRuntimeParams();
     const bool sidecarComposeEnabled = PathTraceCleanRtxdiDiGlassSidecarComposeEnabled(runtimeInfo);

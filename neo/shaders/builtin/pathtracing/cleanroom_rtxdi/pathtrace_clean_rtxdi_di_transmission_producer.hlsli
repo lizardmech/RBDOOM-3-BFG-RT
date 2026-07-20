@@ -14,6 +14,77 @@ static const float RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_MAX_PIXELS = 12.0
 static const float RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_MAX_BLEND = 0.85;
 static const float RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_PRESENTATION_SCALE = 2.0;
 
+float4 PathTraceCleanRtxdiDiPresentLiquidPoolSecondaryDiagnostic(
+    uint2 pixel,
+    uint2 dimensions,
+    float4 rawTuple,
+    uint status,
+    bool secondaryReceiverResolved)
+{
+    if (PathTraceCleanRtxdiDiLiquidPoolDebug() != 6u || all(pixel == dimensions / 2u))
+    {
+        return rawTuple;
+    }
+    const bool invalid = (status &
+        (RT_LIQUID_POOL_STATUS_OVERFLOW | RT_LIQUID_POOL_STATUS_INVALID_ROUTE)) != 0u;
+    if (invalid)
+    {
+        return float4(1.0, 0.0, 1.0, 1.0);
+    }
+
+    // Keep source 2 cyan, but vary its intensity so a valid reflected fixture
+    // can be located without changing the authoritative center-pixel tuple.
+    // Near-black teal: no resolved secondary receiver. Mid cyan: dry receiver
+    // or a semantic card texel whose sampled coverage is zero/rejected. Bright
+    // cyan: the sampled decal footprint validated against the receiver.
+    const bool liquidFootprintValid =
+        (status & (RT_LIQUID_POOL_STATUS_RECEIVER_VALID | RT_LIQUID_POOL_STATUS_APPLIED)) != 0u;
+    const float intensity = liquidFootprintValid ? 1.0 : (secondaryReceiverResolved ? 0.25 : 0.03);
+    return float4(0.0, intensity, intensity, 1.0);
+}
+
+void PathTraceCleanRtxdiDiInitializeLiquidPoolSecondaryDiagnostic(
+    uint2 pixel,
+    uint2 dimensions)
+{
+    const uint debug = PathTraceCleanRtxdiDiLiquidPoolDebug();
+    if (debug != 6u)
+    {
+        return;
+    }
+
+    const uint page = PathTraceCleanRtxdiDiLiquidPoolPage();
+    const uint status = PathTraceLiquidPoolControlInitialStatus(
+        PathTraceCleanRtxdiDiLiquidPoolControlFlags(), debug, page);
+    const uint source = (status & RT_LIQUID_POOL_STATUS_INVALID_ROUTE) != 0u
+        ? RT_LIQUID_POOL_SOURCE_INVALID
+        : RT_LIQUID_POOL_SOURCE_CLEAN_DI_REFLECTION;
+    const float4 rawTuple = PathTraceLiquidPoolRouteDiagnostic(source, status);
+
+    const float4 presentedDiagnostic =
+        PathTraceCleanRtxdiDiPresentLiquidPoolSecondaryDiagnostic(
+            pixel,
+            dimensions,
+            rawTuple,
+            status,
+            false);
+    SmokeOutput[pixel] = presentedDiagnostic;
+    PathTraceRRInputColor[pixel] = presentedDiagnostic;
+}
+
+void PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(uint2 pixel)
+{
+    if (PathTraceCleanRtxdiDiLiquidPoolDebug() != 6u)
+    {
+        return;
+    }
+
+    // RR input is only scratch within this producer. Seal the completed tuple
+    // into the producer-owned rgba32f sidecar before later clean-DI passes can
+    // replace RR input with lighting or GI data.
+    PathTraceCleanRtxdiDiTransmissionOutput[pixel] = PathTraceRRInputColor[pixel];
+}
+
 float4 PathTraceCleanRtxdiDiGlassDistortionSidecarEmpty()
 {
     return float4(0.0, 0.0, 0.0, 0.0);
@@ -671,8 +742,14 @@ bool PathTraceCleanRtxdiDiTryOpaqueMirrorReflection(
         const float4 liquidDiagnostic = PathTraceCleanRtxdiDiLiquidPoolDiagnosticTuple(
             reflectionHit.payload,
             reflectionLiquidResolve);
-        SmokeOutput[pixel] = liquidDiagnostic;
-        PathTraceRRInputColor[pixel] = liquidDiagnostic;
+        const float4 presentedDiagnostic = PathTraceCleanRtxdiDiPresentLiquidPoolSecondaryDiagnostic(
+            pixel,
+            DispatchRaysDimensions().xy,
+            liquidDiagnostic,
+            reflectionLiquidResolve.statusMask,
+            true);
+        SmokeOutput[pixel] = presentedDiagnostic;
+        PathTraceRRInputColor[pixel] = presentedDiagnostic;
     }
 
     RTXDI_RandomSamplerState reflectionRng =
@@ -702,6 +779,11 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     uint2 dimensions,
     PathTraceCleanRtxdiDiMaterialFeatureRuntimeParams runtimeParams)
 {
+    // Seed every pixel before eligibility checks. Actual reflection or
+    // transmission hits overwrite this short-lived scratch value; each exit
+    // seals the completed tuple into the producer-owned transmission sidecar.
+    PathTraceCleanRtxdiDiInitializeLiquidPoolSecondaryDiagnostic(pixel, dimensions);
+
     PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
         PathTraceCleanRtxdiDiTransmissionSidecarEmpty();
     PathTraceCleanRtxdiDiReflectionSidecarOutput[pixel] =
@@ -712,11 +794,13 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     RAB_Surface glassSurface;
     if (!PathTraceCleanRtxdiDiLoadGlassMaterialSurface(pixel, dimensions, glassSurface))
     {
+        PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(pixel);
         return;
     }
     if (!PathTraceCleanRtxdiDiGlassSurfaceSupported(glassSurface))
     {
         PathTraceCleanRtxdiDiTryOpaqueMirrorReflection(pixel, glassSurface);
+        PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(pixel);
         return;
     }
 
@@ -777,8 +861,14 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                     const float4 liquidDiagnostic = PathTraceCleanRtxdiDiLiquidPoolDiagnosticTuple(
                         reflectionHit.payload,
                         reflectionLiquidResolve);
-                    SmokeOutput[pixel] = liquidDiagnostic;
-                    PathTraceRRInputColor[pixel] = liquidDiagnostic;
+                    const float4 presentedDiagnostic = PathTraceCleanRtxdiDiPresentLiquidPoolSecondaryDiagnostic(
+                        pixel,
+                        dimensions,
+                        liquidDiagnostic,
+                        reflectionLiquidResolve.statusMask,
+                        true);
+                    SmokeOutput[pixel] = presentedDiagnostic;
+                    PathTraceRRInputColor[pixel] = presentedDiagnostic;
                     liquidReflectionDiagnosticWritten = true;
                 }
             }
@@ -969,8 +1059,14 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             const float4 liquidDiagnostic = PathTraceCleanRtxdiDiLiquidPoolDiagnosticTuple(
                 hitPayload,
                 behindGlassLiquidResolve);
-            SmokeOutput[pixel] = liquidDiagnostic;
-            PathTraceRRInputColor[pixel] = liquidDiagnostic;
+            const float4 presentedDiagnostic = PathTraceCleanRtxdiDiPresentLiquidPoolSecondaryDiagnostic(
+                pixel,
+                dimensions,
+                liquidDiagnostic,
+                behindGlassLiquidResolve.statusMask,
+                true);
+            SmokeOutput[pixel] = presentedDiagnostic;
+            PathTraceRRInputColor[pixel] = presentedDiagnostic;
         }
         behindGlassSurface.material.emissiveRadiance +=
             max(hitPayload.passthroughEmissiveRadiance, float3(0.0, 0.0, 0.0));
@@ -1002,11 +1098,13 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
                 reflectionHitT,
                 glassPsrLaneChanged);
         }
+        PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(pixel);
         return;
     }
 
     if (!behindGlassValid)
     {
+        PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(pixel);
         return;
     }
 
@@ -1035,6 +1133,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         0.0,
         transmissionPublishLaneChanged))
     {
+        PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(pixel);
         return;
     }
 
@@ -1058,6 +1157,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     {
         PathTraceRRGuidePosition[pixel] = float4(reflectionGuideRayDirection, -2.0);
     }
+    PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(pixel);
 }
 
 [shader("raygeneration")]
