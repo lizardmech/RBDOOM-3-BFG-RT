@@ -6,8 +6,10 @@
 
 static const float LIQUID_POOL_T_MIN = 1.0 / 1024.0;
 static const float LIQUID_POOL_D_MAX = 8.0;
-static const float LIQUID_POOL_DEFAULT_COAT_ROUGHNESS = 0.18;
+static const float LIQUID_POOL_DEFAULT_COAT_ROUGHNESS = 0.0;
 static const float LIQUID_POOL_DEFAULT_DIELECTRIC_IOR = 1.5;
+static const float LIQUID_POOL_DEFAULT_SINGLE_SCATTER_STRENGTH = 0.30;
+static const float LIQUID_POOL_CLEARCOAT_FULL_COVERAGE = 0.35;
 static const float LIQUID_POOL_RECEIVER_OFFSET_MIN = -0.05;
 static const float LIQUID_POOL_RECEIVER_OFFSET_MAX = 1.85;
 static const float LIQUID_POOL_RECEIVER_PLANE_DOT_MIN = 0.95;
@@ -201,7 +203,7 @@ LiquidPoolReducerCandidate LiquidPoolCanonicalCandidate(LiquidPoolReducerCandida
     candidate.referenceTransmittance.y = LiquidPoolSanitizeParameter(candidate.referenceTransmittance.y, 1.0, LIQUID_POOL_T_MIN, 1.0);
     candidate.referenceTransmittance.z = LiquidPoolSanitizeParameter(candidate.referenceTransmittance.z, 1.0, LIQUID_POOL_T_MIN, 1.0);
     candidate.opticalDepthScale = LiquidPoolSanitizeParameter(candidate.opticalDepthScale, 1.0, 0.0, LIQUID_POOL_D_MAX);
-    candidate.coatRoughness = LiquidPoolSanitizeParameter(candidate.coatRoughness, LIQUID_POOL_DEFAULT_COAT_ROUGHNESS, 0.02, 1.0);
+    candidate.coatRoughness = LiquidPoolSanitizeParameter(candidate.coatRoughness, LIQUID_POOL_DEFAULT_COAT_ROUGHNESS, 0.0, 1.0);
     candidate.dielectricIor = LiquidPoolSanitizeParameter(candidate.dielectricIor, LIQUID_POOL_DEFAULT_DIELECTRIC_IOR, 1.0, 2.5);
     candidate.authoredNormalStrength = LiquidPoolSanitizeParameter(candidate.authoredNormalStrength, 0.0, 0.0, 1.0);
     candidate.valid = candidate.coverage > 0.0 ? 1u : 0u;
@@ -354,18 +356,39 @@ LiquidPoolEffectiveReceiverMaterial LiquidPoolApplyResolvedFilm(
         LIQUID_POOL_D_MAX);
     const float3 transmittance = exp(log(transmittanceUnit) * opticalDepth);
     const float coatF0 = LiquidPoolDielectricF0(film.dielectricIor);
-    const float3 coatedAlbedo = receiverAlbedo * transmittance;
+    // The legacy filter decal only attenuates its destination.  Reusing that
+    // rule literally on a dim path-traced receiver collapses saturated blood
+    // toward black.  A shallow pigmented liquid also returns a small amount of
+    // selectively scattered light, so recover the least-absorbed hue and add a
+    // bounded single-scatter term.  Neutral attenuation remains absorption-only.
+    const float minimumTransmittance = min(transmittance.x, min(transmittance.y, transmittance.z));
+    const float3 selectiveTransmittance = max(transmittance - minimumTransmittance, 0.0);
+    const float selectiveMaximum = max(selectiveTransmittance.x, max(selectiveTransmittance.y, selectiveTransmittance.z));
+    const float3 pigmentTint = selectiveMaximum > 1.0e-5
+        ? selectiveTransmittance / selectiveMaximum
+        : float3(0.0, 0.0, 0.0);
+    const float singleScatterAmount =
+        (1.0 - minimumTransmittance) * LIQUID_POOL_DEFAULT_SINGLE_SCATTER_STRENGTH;
+    const float3 coatedAlbedo = saturate(receiverAlbedo * transmittance + pigmentTint * singleScatterAmount);
     const float3 coatedF0 = saturate(coatF0 + ((1.0 - coatF0) * (1.0 - coatF0)) * receiverSpecularF0);
     const float coatRoughness = LiquidPoolSanitizeParameter(
         film.coatRoughness,
         LIQUID_POOL_DEFAULT_COAT_ROUGHNESS,
-        0.02,
+        0.0,
         1.0);
+    // Pigment opacity and liquid-interface presence are not the same signal.
+    // Keep the authored footprint for albedo, but let the clear interface reach
+    // full strength through most of the visible pool.  smoothstep preserves a
+    // soft zero-slope transition at the transparent card boundary.
+    const float clearcoatCoverage = smoothstep(
+        0.0,
+        LIQUID_POOL_CLEARCOAT_FULL_COVERAGE,
+        coverage);
 
     result.albedo = lerp(receiverAlbedo, coatedAlbedo, coverage);
     result.transmittance = lerp(float3(1.0, 1.0, 1.0), transmittance, coverage);
-    result.specularF0 = lerp(receiverSpecularF0, coatedF0, coverage);
-    result.roughness = lerp(receiverRoughness, coatRoughness, coverage);
+    result.specularF0 = lerp(receiverSpecularF0, coatedF0, clearcoatCoverage);
+    result.roughness = lerp(receiverRoughness, coatRoughness, clearcoatCoverage);
     result.applied = 1u;
     return result;
 }

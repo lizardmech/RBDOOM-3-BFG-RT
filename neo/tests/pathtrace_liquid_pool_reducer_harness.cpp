@@ -15,8 +15,10 @@ namespace {
 
 constexpr float kTMin = 1.0f / 1024.0f;
 constexpr float kDMax = 8.0f;
-constexpr float kDefaultRoughness = 0.18f;
+constexpr float kDefaultRoughness = 0.0f;
 constexpr float kDefaultIor = 1.5f;
+constexpr float kSingleScatterStrength = 0.30f;
+constexpr float kClearcoatFullCoverage = 0.35f;
 constexpr float kOffsetMin = -0.05f;
 constexpr float kOffsetMax = 1.85f;
 constexpr float kPlaneDotMin = 0.95f;
@@ -205,7 +207,7 @@ Candidate CanonicalCandidate(Candidate candidate)
         Sanitize(candidate.referenceTransmittance.z, 1.0f, kTMin, 1.0f)
     };
     candidate.opticalDepthScale = Sanitize(candidate.opticalDepthScale, 1.0f, 0.0f, kDMax);
-    candidate.coatRoughness = Sanitize(candidate.coatRoughness, kDefaultRoughness, 0.02f, 1.0f);
+    candidate.coatRoughness = Sanitize(candidate.coatRoughness, kDefaultRoughness, 0.0f, 1.0f);
     candidate.dielectricIor = Sanitize(candidate.dielectricIor, kDefaultIor, 1.0f, 2.5f);
     candidate.authoredNormalStrength = Sanitize(candidate.authoredNormalStrength, 0.0f, 0.0f, 1.0f);
     candidate.valid = candidate.coverage > 0.0f;
@@ -333,17 +335,35 @@ EffectiveMaterial Apply(Vec3 receiverAlbedo, Vec3 receiverF0, float receiverRoug
     const float depth = Clamp(Sanitize(film.opticalDepthScale, 1.0f, 0.0f, kDMax) * height, 0.0f, kDMax);
     const Vec3 transmittance = { std::exp(std::log(unit.x) * depth), std::exp(std::log(unit.y) * depth), std::exp(std::log(unit.z) * depth) };
     const float coatF0 = DielectricF0(film.dielectricIor);
-    const Vec3 coatedAlbedo = Mul(receiverAlbedo, transmittance);
+    const float minimumTransmittance = std::min(transmittance.x, std::min(transmittance.y, transmittance.z));
+    const Vec3 selectiveTransmittance = {
+        std::max(transmittance.x - minimumTransmittance, 0.0f),
+        std::max(transmittance.y - minimumTransmittance, 0.0f),
+        std::max(transmittance.z - minimumTransmittance, 0.0f)
+    };
+    const float selectiveMaximum = std::max(selectiveTransmittance.x, std::max(selectiveTransmittance.y, selectiveTransmittance.z));
+    const Vec3 pigmentTint = selectiveMaximum > 1.0e-5f
+        ? Mul(selectiveTransmittance, 1.0f / selectiveMaximum)
+        : Vec3{};
+    const float singleScatterAmount = (1.0f - minimumTransmittance) * kSingleScatterStrength;
+    const Vec3 coatedAlbedoUnclamped = Add(Mul(receiverAlbedo, transmittance), Mul(pigmentTint, singleScatterAmount));
+    const Vec3 coatedAlbedo = {
+        Clamp(coatedAlbedoUnclamped.x, 0.0f, 1.0f),
+        Clamp(coatedAlbedoUnclamped.y, 0.0f, 1.0f),
+        Clamp(coatedAlbedoUnclamped.z, 0.0f, 1.0f)
+    };
     const Vec3 coatedF0 = {
         Clamp(coatF0 + (1.0f - coatF0) * (1.0f - coatF0) * receiverF0.x, 0.0f, 1.0f),
         Clamp(coatF0 + (1.0f - coatF0) * (1.0f - coatF0) * receiverF0.y, 0.0f, 1.0f),
         Clamp(coatF0 + (1.0f - coatF0) * (1.0f - coatF0) * receiverF0.z, 0.0f, 1.0f)
     };
-    const float coatRoughness = Sanitize(film.coatRoughness, kDefaultRoughness, 0.02f, 1.0f);
+    const float coatRoughness = Sanitize(film.coatRoughness, kDefaultRoughness, 0.0f, 1.0f);
+    const float clearcoatUnit = Clamp(coverage / kClearcoatFullCoverage, 0.0f, 1.0f);
+    const float clearcoatCoverage = clearcoatUnit * clearcoatUnit * (3.0f - 2.0f * clearcoatUnit);
     result.albedo = Lerp(receiverAlbedo, coatedAlbedo, coverage);
     result.transmittance = Lerp({ 1.0f, 1.0f, 1.0f }, transmittance, coverage);
-    result.specularF0 = Lerp(receiverF0, coatedF0, coverage);
-    result.roughness = receiverRoughness * (1.0f - coverage) + coatRoughness * coverage;
+    result.specularF0 = Lerp(receiverF0, coatedF0, clearcoatCoverage);
+    result.roughness = receiverRoughness * (1.0f - clearcoatCoverage) + coatRoughness * clearcoatCoverage;
     result.applied = true;
     return result;
 }
@@ -477,7 +497,7 @@ void TestOpticalGoldens()
     const EffectiveMaterial full = Apply({ 0.8f, 0.6f, 0.4f }, { 0.04f, 0.04f, 0.04f }, 0.6f, Fold({ optical }), false);
     PrintVector("golden.full.albedo", full.albedo);
     PrintVector("golden.full.f0", full.specularF0);
-    Check(Near(full.albedo, { 0.4f, 0.15f, 0.4f }), "coverage 1 effective albedo golden");
+    Check(Near(full.albedo, { 0.475f, 0.15f, 0.625f }), "coverage 1 effective albedo golden");
     Check(Near(full.specularF0, { 0.076864f, 0.076864f, 0.076864f }), "coverage 1 effective F0 golden");
     Check(Near(full.roughness, 0.12f), "coverage 1 roughness golden");
 
@@ -485,10 +505,37 @@ void TestOpticalGoldens()
     const EffectiveMaterial half = Apply({ 0.8f, 0.6f, 0.4f }, { 0.04f, 0.04f, 0.04f }, 0.6f, Fold({ optical }), false);
     PrintVector("golden.half.albedo", half.albedo);
     PrintVector("golden.half.f0", half.specularF0);
-    Check(Near(half.albedo, { 0.6f, 0.375f, 0.4f }), "coverage 0.5 effective albedo golden");
-    Check(Near(half.specularF0, { 0.058432f, 0.058432f, 0.058432f }), "coverage 0.5 effective F0 golden");
-    Check(Near(half.roughness, 0.36f), "coverage 0.5 roughness golden");
-    Check(Near(kDefaultRoughness, 0.18f), "default coat roughness exactly 0.18");
+    Check(Near(half.albedo, { 0.6375f, 0.375f, 0.5125f }), "coverage 0.5 effective albedo golden");
+    Check(Near(half.specularF0, { 0.076864f, 0.076864f, 0.076864f }), "coverage 0.5 reaches full clearcoat F0");
+    Check(Near(half.roughness, 0.12f), "coverage 0.5 reaches full clearcoat roughness");
+    Check(Near(kDefaultRoughness, 0.0f), "default coat roughness exactly zero");
+
+    optical.coverage = kClearcoatFullCoverage * 0.5f;
+    const EffectiveMaterial softEdge = Apply(
+        { 0.8f, 0.6f, 0.4f },
+        { 0.04f, 0.04f, 0.04f },
+        0.6f,
+        Fold({ optical }),
+        false);
+    Check(Near(softEdge.roughness, 0.36f), "clearcoat edge ramp is half strength at its midpoint");
+
+    Candidate blood = MakeCandidate(1.0f, { 0.4f, 0.05f, 0.05f }, MakeKey(1, 1, 3, 0.2f, 0.3f));
+    const EffectiveMaterial bloodResult = Apply(
+        { 0.1f, 0.1f, 0.1f },
+        { 0.04f, 0.04f, 0.04f },
+        0.6f,
+        Fold({ blood }),
+        false);
+    Check(Near(bloodResult.albedo, { 0.325f, 0.005f, 0.005f }), "selective scatter preserves saturated blood on a dim receiver");
+
+    Candidate neutralDark = MakeCandidate(1.0f, { 0.25f, 0.25f, 0.25f }, MakeKey(1, 1, 4, 0.2f, 0.3f));
+    const EffectiveMaterial neutralDarkResult = Apply(
+        { 0.1f, 0.1f, 0.1f },
+        { 0.04f, 0.04f, 0.04f },
+        0.6f,
+        Fold({ neutralDark }),
+        false);
+    Check(Near(neutralDarkResult.albedo, { 0.025f, 0.025f, 0.025f }), "neutral attenuation does not invent a pigment hue");
 }
 
 void TestInvalidAndApplyOnce()
@@ -517,7 +564,7 @@ void TestInvalidAndApplyOnce()
     params.authoredNormalStrength = std::numeric_limits<float>::quiet_NaN();
     const Film sanitized = Fold({ params });
     Check(Near(sanitized.referenceTransmittance, { 1.0f, 1.0f, kTMin }), "nonfinite/negative Tref uses defaults and clamps");
-    Check(Near(sanitized.opticalDepthScale, 1.0f) && Near(sanitized.coatRoughness, 0.18f) && Near(sanitized.dielectricIor, 1.0f), "nonfinite scalar parameters sanitize deterministically");
+    Check(Near(sanitized.opticalDepthScale, 1.0f) && Near(sanitized.coatRoughness, 0.0f) && Near(sanitized.dielectricIor, 1.0f), "nonfinite scalar parameters sanitize deterministically");
 
     Candidate darkest = MakeCandidate(1.0f, { kTMin, kTMin, kTMin }, MakeKey(1, 1, 4, 0, 0));
     darkest.referenceTransmittance = { kTMin, kTMin, kTMin };

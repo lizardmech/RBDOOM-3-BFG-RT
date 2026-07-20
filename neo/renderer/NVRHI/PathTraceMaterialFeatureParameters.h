@@ -43,7 +43,7 @@ enum RtPathTraceLiquidPoolMaterialFeatureParam1Lane : uint8_t
 static constexpr uint32_t RT_PATH_TRACE_LIQUID_POOL_PARAMETER_ABI_VERSION = 1;
 static constexpr float RT_PATH_TRACE_LIQUID_POOL_TRANSMITTANCE_MIN = 1.0f / 1024.0f;
 static constexpr float RT_PATH_TRACE_LIQUID_POOL_OPTICAL_DEPTH_MAX = 8.0f;
-static constexpr float RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MIN = 0.02f;
+static constexpr float RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MIN = 0.0f;
 static constexpr float RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MAX = 1.0f;
 static constexpr float RT_PATH_TRACE_LIQUID_POOL_DIELECTRIC_IOR_MIN = 1.0f;
 static constexpr float RT_PATH_TRACE_LIQUID_POOL_DIELECTRIC_IOR_MAX = 2.5f;

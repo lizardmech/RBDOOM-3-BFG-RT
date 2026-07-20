@@ -62,7 +62,7 @@ static const uint RT_PATH_TRACE_LIQUID_POOL_PARAM1_AUTHORED_NORMAL_STRENGTH = 2u
 static const uint RT_PATH_TRACE_LIQUID_POOL_PARAM1_RESERVED_ZERO = 3u;
 static const float RT_PATH_TRACE_LIQUID_POOL_TRANSMITTANCE_MIN = 1.0 / 1024.0;
 static const float RT_PATH_TRACE_LIQUID_POOL_OPTICAL_DEPTH_MAX = 8.0;
-static const float RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MIN = 0.02;
+static const float RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MIN = 0.0;
 static const float RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MAX = 1.0;
 static const float RT_PATH_TRACE_LIQUID_POOL_DIELECTRIC_IOR_MIN = 1.0;
 static const float RT_PATH_TRACE_LIQUID_POOL_DIELECTRIC_IOR_MAX = 2.5;
@@ -164,7 +164,7 @@ PathTraceMaterialFeatureParameterRecord PathTraceDefaultLiquidPoolMaterialFeatur
 {
     PathTraceMaterialFeatureParameterRecord result = (PathTraceMaterialFeatureParameterRecord)0;
     result.params0 = float4(1.0, 1.0, 1.0, 1.0);
-    result.params1 = float4(0.18, 1.5, 0.0, 0.0);
+    result.params1 = float4(0.0, 1.5, 0.0, 0.0);
     return result;
 }
 
