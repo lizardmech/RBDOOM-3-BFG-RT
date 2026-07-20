@@ -30,8 +30,7 @@ bool PathTraceCleanRoomMaterialDoesNotOccludeVisibility(uint instanceId, uint ma
     {
         return true;
     }
-    if (instanceId <= 1u &&
-        (CleanRtxdiDiFlags & CLEAN_FLAG_LIQUID_MODIFIER_VISIBILITY) != 0u &&
+    if ((CleanRtxdiDiFlags & CLEAN_FLAG_LIQUID_MODIFIER_VISIBILITY) != 0u &&
         PathTraceCleanRtxdiDiLoadMaterialFeature(materialIndex, feature) &&
         feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER &&
         feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION &&
@@ -352,7 +351,6 @@ bool PathTraceCleanRtxdiDiCollectLiquidPoolCandidate(
     float2 barycentrics)
 {
     if (!PathTraceCleanRtxdiDiLiquidPoolCollectionEnabled() ||
-        instanceId > 1u ||
         !PathTraceCleanRtxdiDiMaterialIsSemanticLiquidPool(materialIndex))
     {
         return false;
@@ -555,7 +553,6 @@ void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInter
     const uint primitiveIndex = PrimitiveIndex();
     const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(instanceId, primitiveIndex);
     if (PathTraceCleanRtxdiDiLiquidPoolCollectionEnabled() &&
-        instanceId <= 1u &&
         PathTraceCleanRtxdiDiMaterialIsSemanticLiquidPool(materialIndex))
     {
         IgnoreHit();

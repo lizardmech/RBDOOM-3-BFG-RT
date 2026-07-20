@@ -1899,9 +1899,58 @@ bool TryBuildLiquidPoolCardEvidence(
     cardPosition = 0.0;
     cardPlaneNormal = 0.0;
     cardTexCoord = 0.0;
-    if (instanceId > 1u || !SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+    if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
     {
         return false;
+    }
+
+    if (instanceId >= 2u)
+    {
+        const uint routeInstanceIndex = instanceId - 2u;
+        if (routeInstanceIndex >= PathTraceRigidRouteInstanceCount())
+        {
+            return false;
+        }
+        const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+        if (primitiveIndex >= routeInstance.triangleCount)
+        {
+            return false;
+        }
+        const uint routeIndexOffset = routeInstance.indexOffset + primitiveIndex * 3u;
+        if (routeIndexOffset + 2u >= PathTraceRigidRouteIndexCount())
+        {
+            return false;
+        }
+        const uint i0 = SmokeRigidRouteIndices[routeIndexOffset + 0u];
+        const uint i1 = SmokeRigidRouteIndices[routeIndexOffset + 1u];
+        const uint i2 = SmokeRigidRouteIndices[routeIndexOffset + 2u];
+        if (i0 >= routeInstance.vertexCount || i1 >= routeInstance.vertexCount || i2 >= routeInstance.vertexCount ||
+            routeInstance.vertexOffset + i0 >= PathTraceRigidRouteVertexCount() ||
+            routeInstance.vertexOffset + i1 >= PathTraceRigidRouteVertexCount() ||
+            routeInstance.vertexOffset + i2 >= PathTraceRigidRouteVertexCount())
+        {
+            return false;
+        }
+        const PathTraceSmokeVertex v0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0];
+        const PathTraceSmokeVertex v1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1];
+        const PathTraceSmokeVertex v2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2];
+        const float3 p0 = float3(
+            dot(routeInstance.currentObjectToWorld0, float4(v0.position.xyz, 1.0)),
+            dot(routeInstance.currentObjectToWorld1, float4(v0.position.xyz, 1.0)),
+            dot(routeInstance.currentObjectToWorld2, float4(v0.position.xyz, 1.0)));
+        const float3 p1 = float3(
+            dot(routeInstance.currentObjectToWorld0, float4(v1.position.xyz, 1.0)),
+            dot(routeInstance.currentObjectToWorld1, float4(v1.position.xyz, 1.0)),
+            dot(routeInstance.currentObjectToWorld2, float4(v1.position.xyz, 1.0)));
+        const float3 p2 = float3(
+            dot(routeInstance.currentObjectToWorld0, float4(v2.position.xyz, 1.0)),
+            dot(routeInstance.currentObjectToWorld1, float4(v2.position.xyz, 1.0)),
+            dot(routeInstance.currentObjectToWorld2, float4(v2.position.xyz, 1.0)));
+        const float3 bary = float3(1.0 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y);
+        cardPosition = p0 * bary.x + p1 * bary.y + p2 * bary.z;
+        cardPlaneNormal = cross(p1 - p0, p2 - p0);
+        cardTexCoord = v0.texCoord.xy * bary.x + v1.texCoord.xy * bary.y + v2.texCoord.xy * bary.z;
+        return LiquidPoolFinite3(cardPosition) && LiquidPoolFinite3(cardPlaneNormal) && LiquidPoolFinite2(cardTexCoord);
     }
 
     const uint indexOffset = primitiveIndex * 3u;
@@ -2010,10 +2059,13 @@ LiquidPoolPrimaryResolve ResolvePrimaryLiquidPool(
         evidence.receiverPosition = surface.worldPos;
         evidence.receiverGeometryNormal = surface.geometryNormal;
         evidence.rayDirection = rayDirection;
-        // Switchable authored cards are world-space geometry rebuilt in the
-        // dynamic BLAS. They may modify only a committed static receiver.
-        evidence.domainAccepted = cardValid && instanceId <= 1u && surface.instanceId == 0u;
-        evidence.identityAccepted = cardValid && instanceId <= 1u && surface.instanceId == 0u;
+        // idTech projected decals and their receivers can independently land
+        // in static, dynamic, or routed-rigid geometry domains.  The trace
+        // establishes card-before-receiver ordering; the shared receiver
+        // predicate supplies the authoritative tight offset, normal, opacity,
+        // and transmission proof.  Geometry-domain identity is not ownership.
+        evidence.domainAccepted = cardValid;
+        evidence.identityAccepted = cardValid;
         evidence.receiverOpaque = receiverOpaque;
         evidence.receiverPathTransmission = receiverTransmission;
         if (!LiquidPoolAcceptsReceiver(evidence))
@@ -2615,10 +2667,10 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
         const uint materialIndex = LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
         if (PathTraceMaterialIsSemanticLiquidPool(materialIndex))
         {
-            // Instance 0 contains persistent authored cards. Instance 1 also
-            // contains authored cards whose trigger-controlled visibility is
-            // rebuilt per frame. Both preserve particle/alpha semantic class.
-            if (instanceId <= 1u)
+            // Semantic pool cards are receiver modifiers in every supported
+            // geometry domain. Routed-rigid cards retain their own local
+            // geometry and owner identity for resolve-time validation.
+            if (instanceId < 2u || instanceId - 2u < PathTraceRigidRouteInstanceCount())
             {
                 // Classification status describes observation of a semantic
                 // supported-route card, independently of whether its evaluated
@@ -2647,8 +2699,6 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                 return;
             }
 
-            // Routed-rigid liquid ownership is deliberately parked. Preserve
-            // its old traversal behavior and make the unsupported route visible.
             payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED | RT_LIQUID_POOL_STATUS_INVALID_ROUTE;
         }
     }
@@ -2678,7 +2728,6 @@ void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleInte
     const uint instanceId = InstanceID();
     const uint primitiveIndex = PrimitiveIndex();
     if (PathTraceLiquidPoolCollectionEnabled() &&
-        instanceId <= 1u &&
         SmokeTriangleIndexRangeValid(instanceId, primitiveIndex) &&
         PathTraceMaterialIsSemanticLiquidPool(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex)))
     {

@@ -118,6 +118,28 @@ struct PathTraceRestirPreviousLightRecord
 #include "PathTracePrimarySurface.hlsli"
 #include "PathTraceMaterialFeatureTypes.hlsli"
 
+struct PathTraceRigidRouteInstance
+{
+    uint vertexOffset;
+    uint indexOffset;
+    uint triangleOffset;
+    uint materialId;
+    uint materialIndex;
+    uint vertexCount;
+    uint indexCount;
+    uint triangleCount;
+    uint flags;
+    uint instanceIdLo;
+    uint instanceIdHi;
+    uint padding0;
+    float4 currentObjectToWorld0;
+    float4 currentObjectToWorld1;
+    float4 currentObjectToWorld2;
+    float4 previousObjectToWorld0;
+    float4 previousObjectToWorld1;
+    float4 previousObjectToWorld2;
+};
+
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceMotionVectors : register(u39);
@@ -134,6 +156,8 @@ VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceRRMotionVectors : register
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
+StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
+StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokePreviousEmissiveTriangles : register(t57);
 StructuredBuffer<PathTraceEmissiveLightRemap> SmokeEmissiveRemap : register(t58);
@@ -563,37 +587,65 @@ bool RestirPTReservoirHasUsefulSample(RTXDI_PTReservoir reservoir)
 
 bool RestirPTCombinedResolveLiquidModifier(uint instanceId, uint primitiveIndex)
 {
-    if (LiquidPoolInfo.x < 0.5 || instanceId > 1u)
+    if (LiquidPoolInfo.x < 0.5)
     {
         return false;
     }
 
-    const uint triangleCount = instanceId == 0u
-        ? (uint)max(GeometryInfo0.z, 0.0)
-        : (uint)max(GeometryInfo1.y, 0.0);
+    uint triangleCount = 0u;
+    uint materialIndex = 0xffffffffu;
+    if (instanceId <= 1u)
+    {
+        triangleCount = instanceId == 0u
+            ? (uint)max(GeometryInfo0.z, 0.0)
+            : (uint)max(GeometryInfo1.y, 0.0);
+
+        uint triangleMaterialCount = 0u;
+        uint triangleMaterialStride = 0u;
+        if (instanceId == 0u)
+        {
+            SmokeStaticTriangleMaterialIndexes.GetDimensions(triangleMaterialCount, triangleMaterialStride);
+        }
+        else
+        {
+            SmokeDynamicTriangleMaterialIndexes.GetDimensions(triangleMaterialCount, triangleMaterialStride);
+        }
+        if (triangleMaterialStride != 4u || primitiveIndex >= triangleMaterialCount)
+        {
+            return false;
+        }
+        materialIndex = instanceId == 0u
+            ? SmokeStaticTriangleMaterialIndexes[primitiveIndex]
+            : SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
+    }
+    else
+    {
+        uint routeInstanceCount = 0u;
+        uint routeInstanceStride = 0u;
+        SmokeRigidRouteInstances.GetDimensions(routeInstanceCount, routeInstanceStride);
+        const uint routeInstanceIndex = instanceId - 2u;
+        if (routeInstanceStride != 160u || routeInstanceIndex >= routeInstanceCount)
+        {
+            return false;
+        }
+
+        const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+        triangleCount = routeInstance.triangleCount;
+        uint routeMaterialCount = 0u;
+        uint routeMaterialStride = 0u;
+        SmokeRigidRouteTriangleMaterialIndexes.GetDimensions(routeMaterialCount, routeMaterialStride);
+        const uint routeTriangleIndex = routeInstance.triangleOffset + primitiveIndex;
+        if (routeMaterialStride != 4u || routeTriangleIndex >= routeMaterialCount)
+        {
+            return false;
+        }
+        materialIndex = SmokeRigidRouteTriangleMaterialIndexes[routeTriangleIndex];
+    }
+
     if (primitiveIndex >= triangleCount)
     {
         return false;
     }
-
-    uint triangleMaterialCount = 0u;
-    uint triangleMaterialStride = 0u;
-    if (instanceId == 0u)
-    {
-        SmokeStaticTriangleMaterialIndexes.GetDimensions(triangleMaterialCount, triangleMaterialStride);
-    }
-    else
-    {
-        SmokeDynamicTriangleMaterialIndexes.GetDimensions(triangleMaterialCount, triangleMaterialStride);
-    }
-    if (triangleMaterialStride != 4u || primitiveIndex >= triangleMaterialCount)
-    {
-        return false;
-    }
-
-    const uint materialIndex = instanceId == 0u
-        ? SmokeStaticTriangleMaterialIndexes[primitiveIndex]
-        : SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
     uint featureRecordCount = 0u;
     uint featureRecordStride = 0u;
     PathTraceMaterialFeatures.GetDimensions(featureRecordCount, featureRecordStride);

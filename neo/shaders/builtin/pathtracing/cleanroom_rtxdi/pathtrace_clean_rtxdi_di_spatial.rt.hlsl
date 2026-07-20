@@ -935,8 +935,7 @@ bool CleanMaterialDoesNotOccludeVisibility(uint instanceId, uint materialIndex)
     }
 
     PathTraceMaterialFeature feature;
-    if (instanceId <= 1u &&
-        (CleanRtxdiDiFlags & CLEAN_FLAG_LIQUID_MODIFIER_VISIBILITY) != 0u &&
+    if ((CleanRtxdiDiFlags & CLEAN_FLAG_LIQUID_MODIFIER_VISIBILITY) != 0u &&
         PathTraceCleanRtxdiDiLoadMaterialFeature(materialIndex, feature) &&
         feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER &&
         feature.modifierKind == RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION &&

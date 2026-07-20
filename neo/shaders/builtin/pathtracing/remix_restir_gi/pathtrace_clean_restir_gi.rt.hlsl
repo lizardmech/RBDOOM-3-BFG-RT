@@ -3930,7 +3930,7 @@ bool CleanGiTryBuildLiquidPoolCardEvidence(
     cardPosition = 0.0;
     cardPlaneNormal = 0.0;
     cardTexCoord = 0.0;
-    if (instanceId > 1u || !CleanGiHitMetadataInRange(instanceId, primitiveIndex))
+    if (!CleanGiHitMetadataInRange(instanceId, primitiveIndex))
     {
         return false;
     }
@@ -4013,7 +4013,6 @@ bool CleanGiCollectLiquidPoolCandidate(
     float hitT)
 {
     if (!CleanGiLiquidPoolCollectionEnabled() ||
-        instanceId > 1u ||
         !CleanGiMaterialIsSemanticLiquidPool(materialIndex))
     {
         return false;
@@ -4161,8 +4160,11 @@ CleanGiLiquidPoolResolve CleanGiResolveLiquidPool(
         evidence.receiverPosition = surface.worldPos;
         evidence.receiverGeometryNormal = surface.geometryNormal;
         evidence.rayDirection = rayDirection;
-        evidence.domainAccepted = cardValid && instanceId <= 1u && surface.instanceId == 0u;
-        evidence.identityAccepted = evidence.domainAccepted;
+        // Projected cards and receivers may use different geometry routes.
+        // The ordered ray hit and shared geometric/material predicate are the
+        // receiver proof, matching primary and clean DI.
+        evidence.domainAccepted = cardValid;
+        evidence.identityAccepted = cardValid;
         evidence.receiverOpaque = receiverOpaque;
         evidence.receiverPathTransmission = receiverTransmitting;
         if (!LiquidPoolAcceptsReceiver(evidence))
@@ -8455,7 +8457,6 @@ void ShadowAnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIn
     const uint primitiveIndex = PrimitiveIndex();
     const uint materialIndex = CleanGiLoadTriangleMaterialIndex(instanceId, primitiveIndex);
     if (CleanGiLiquidPoolCollectionEnabled() &&
-        instanceId <= 1u &&
         CleanGiMaterialIsSemanticLiquidPool(materialIndex))
     {
         IgnoreHit();

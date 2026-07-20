@@ -191,9 +191,45 @@ bool PtMirrorCanPromoteRigidEmissiveCard(const drawSurf_t* drawSurf, const srfTr
     return SmokeMaterialCanPromoteRigidEmissiveCard(material);
 }
 
+bool PtMirrorCanPromoteRigidLiquidPoolCard(const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass)
+{
+    if ((r_pathTracingLiquidPoolMode.GetInteger() == 0 && r_pathTracingLiquidPoolDebug.GetInteger() == 0) ||
+        surfaceClass != RtSmokeSurfaceClass::ParticleAlpha ||
+        !drawSurf ||
+        !tri ||
+        !drawSurf->space ||
+        !drawSurf->material)
+    {
+        return false;
+    }
+
+    const viewEntity_t* space = drawSurf->space;
+    const idRenderEntityLocal* entity = space->entityDef;
+    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    const idMaterial* material = drawSurf->material;
+    if (!entity ||
+        IsSmokeGuiDrawSurface(drawSurf) ||
+        drawSurf->jointCache != 0 ||
+        tri->staticModelWithJoints != nullptr ||
+        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0) ||
+        (renderEntity && (renderEntity->callback != nullptr || renderEntity->forceUpdate != 0)) ||
+        entity->dynamicModel != nullptr ||
+        entity->cachedDynamicModel != nullptr ||
+        material->Deform() != DFRM_NONE ||
+        space->modelDepthHack != 0.0f)
+    {
+        return false;
+    }
+
+    const uint32_t materialId = SmokeMaterialId(material);
+    const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
+    return info.detailDecalLiquidPool;
+}
+
 RtSmokeSurfaceClass PtMirrorEffectiveSurfaceClass(const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass)
 {
-    return PtMirrorCanPromoteRigidEmissiveCard(drawSurf, tri, surfaceClass)
+    return (PtMirrorCanPromoteRigidEmissiveCard(drawSurf, tri, surfaceClass) ||
+        PtMirrorCanPromoteRigidLiquidPoolCard(drawSurf, tri, surfaceClass))
         ? RtSmokeSurfaceClass::RigidEntity
         : surfaceClass;
 }

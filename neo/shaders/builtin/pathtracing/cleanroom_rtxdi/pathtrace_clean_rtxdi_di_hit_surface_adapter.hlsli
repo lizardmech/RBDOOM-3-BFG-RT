@@ -739,11 +739,6 @@ bool PathTraceCleanRtxdiDiTryBuildLiquidPoolCardEvidence(
     cardPosition = 0.0;
     cardPlaneNormal = 0.0;
     cardTexCoord = 0.0;
-    if (instanceId > 1u)
-    {
-        return false;
-    }
-
     PathTraceCleanRtxdiPayload cardPayload = receiverPayload;
     cardPayload.hitInstanceId = instanceId;
     cardPayload.hitPrimitiveIndex = primitiveIndex;
@@ -878,8 +873,11 @@ PathTraceCleanRtxdiDiLiquidPoolResolve PathTraceCleanRtxdiDiResolveLiquidPool(
         evidence.receiverPosition = surface.worldPos;
         evidence.receiverGeometryNormal = surface.geometryNormal;
         evidence.rayDirection = rayDirection;
-        evidence.domainAccepted = cardValid && instanceId <= 1u && surface.instanceId == 0u;
-        evidence.identityAccepted = cardValid && instanceId <= 1u && surface.instanceId == 0u;
+        // Geometry routing is independent for projected cards and receivers.
+        // Trace ordering plus the shared plane/material predicate proves the
+        // receiver consistently with primary visibility.
+        evidence.domainAccepted = cardValid;
+        evidence.identityAccepted = cardValid;
         evidence.receiverOpaque = receiverOpaque;
         evidence.receiverPathTransmission = receiverTransmission;
         if (!LiquidPoolAcceptsReceiver(evidence))
