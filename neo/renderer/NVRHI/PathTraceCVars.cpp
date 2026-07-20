@@ -2633,9 +2633,9 @@ idCVar r_pathTracingDecalModulateFloor(
 
 idCVar r_pathTracingLiquidPoolMode(
     "r_pathTracingLiquidPoolMode",
-    "0",
+    "3",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Liquid-pool receiver modifier: 0=current behavior, 1=classification/collection diagnostic, 2=effective smooth coat, 3=effective coat plus optional authored normal",
+    "Liquid-pool receiver modifier: 0=legacy rollback, 1=classification/collection diagnostic, 2=effective smooth coat, 3=effective coat plus generated film-owned normal (default)",
     0, 3, idCmdSystem::ArgCompletion_Integer<0, 3> );
 
 idCVar r_pathTracingLiquidPoolDebug(
