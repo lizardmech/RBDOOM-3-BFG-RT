@@ -83,7 +83,9 @@ RtPathTraceMaterialFeatureParameterRecord BuildPathTraceLiquidPoolMaterialFeatur
     params.params0[RT_PATH_TRACE_LIQUID_POOL_PARAM0_OPTICAL_DEPTH_SCALE] = 1.0f;
     params.params1[RT_PATH_TRACE_LIQUID_POOL_PARAM1_COAT_ROUGHNESS] = 0.0f;
     params.params1[RT_PATH_TRACE_LIQUID_POOL_PARAM1_DIELECTRIC_IOR] = 1.5f;
-    params.params1[RT_PATH_TRACE_LIQUID_POOL_PARAM1_AUTHORED_NORMAL_STRENGTH] = 0.0f;
+    // Preserve the frozen ABI lane while using it as generated film-normal
+    // strength in liquid-pool mode 3.  Mode 2 does not consume this value.
+    params.params1[RT_PATH_TRACE_LIQUID_POOL_PARAM1_AUTHORED_NORMAL_STRENGTH] = 1.0f;
     params.params1[RT_PATH_TRACE_LIQUID_POOL_PARAM1_RESERVED_ZERO] = 0.0f;
     return params;
 }

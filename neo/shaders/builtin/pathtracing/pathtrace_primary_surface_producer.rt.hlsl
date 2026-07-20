@@ -799,6 +799,20 @@ float SmokeAlphaCoverage(PathTraceSmokeMaterial material, float2 texCoord)
     return SampleSmokeAlphaTexture(material, texCoord).a;
 }
 
+float2 LiquidPoolCoverageTexelSize(PathTraceSmokeMaterial material)
+{
+    const uint diffuseCoverageFlags =
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
+    const bool coverageUsesDiffuse =
+        (material.flags & diffuseCoverageFlags) != 0u ||
+        material.alphaTextureIndex == 0xffffffffu;
+    const uint width = coverageUsesDiffuse ? material.textureWidth : material.alphaTextureWidth;
+    const uint height = coverageUsesDiffuse ? material.textureHeight : material.alphaTextureHeight;
+    return rcp(float2(max(width, 1u), max(height, 1u)));
+}
+
 float3 DecodeSmokeNormalTexture(PathTraceSmokeMaterial material, float2 texCoord, float3 normal, float3 tangent, float3 bitangent)
 {
     if ((material.normalTextureIndex == 0xffffffffu) || ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS) == 0u))
@@ -1894,11 +1908,15 @@ bool TryBuildLiquidPoolCardEvidence(
     float2 barycentrics,
     out float3 cardPosition,
     out float3 cardPlaneNormal,
-    out float2 cardTexCoord)
+    out float2 cardTexCoord,
+    out float3 cardTangent,
+    out float3 cardBitangent)
 {
     cardPosition = 0.0;
     cardPlaneNormal = 0.0;
     cardTexCoord = 0.0;
+    cardTangent = 0.0;
+    cardBitangent = 0.0;
     if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
     {
         return false;
@@ -1950,6 +1968,15 @@ bool TryBuildLiquidPoolCardEvidence(
         cardPosition = p0 * bary.x + p1 * bary.y + p2 * bary.z;
         cardPlaneNormal = cross(p1 - p0, p2 - p0);
         cardTexCoord = v0.texCoord.xy * bary.x + v1.texCoord.xy * bary.y + v2.texCoord.xy * bary.z;
+        const float2 uvEdge1 = v1.texCoord.xy - v0.texCoord.xy;
+        const float2 uvEdge2 = v2.texCoord.xy - v0.texCoord.xy;
+        const float uvDeterminant = uvEdge1.x * uvEdge2.y - uvEdge1.y * uvEdge2.x;
+        if (abs(uvDeterminant) > 1.0e-10)
+        {
+            const float inverseDeterminant = rcp(uvDeterminant);
+            cardTangent = ((p1 - p0) * uvEdge2.y - (p2 - p0) * uvEdge1.y) * inverseDeterminant;
+            cardBitangent = ((p2 - p0) * uvEdge1.x - (p1 - p0) * uvEdge2.x) * inverseDeterminant;
+        }
         return LiquidPoolFinite3(cardPosition) && LiquidPoolFinite3(cardPlaneNormal) && LiquidPoolFinite2(cardTexCoord);
     }
 
@@ -1982,6 +2009,17 @@ bool TryBuildLiquidPoolCardEvidence(
     cardPosition = v0.position.xyz * bary.x + v1.position.xyz * bary.y + v2.position.xyz * bary.z;
     cardPlaneNormal = cross(v1.position.xyz - v0.position.xyz, v2.position.xyz - v0.position.xyz);
     cardTexCoord = v0.texCoord.xy * bary.x + v1.texCoord.xy * bary.y + v2.texCoord.xy * bary.z;
+    const float2 uvEdge1 = v1.texCoord.xy - v0.texCoord.xy;
+    const float2 uvEdge2 = v2.texCoord.xy - v0.texCoord.xy;
+    const float uvDeterminant = uvEdge1.x * uvEdge2.y - uvEdge1.y * uvEdge2.x;
+    if (abs(uvDeterminant) > 1.0e-10)
+    {
+        const float inverseDeterminant = rcp(uvDeterminant);
+        cardTangent = ((v1.position.xyz - v0.position.xyz) * uvEdge2.y -
+            (v2.position.xyz - v0.position.xyz) * uvEdge1.y) * inverseDeterminant;
+        cardBitangent = ((v2.position.xyz - v0.position.xyz) * uvEdge1.x -
+            (v1.position.xyz - v0.position.xyz) * uvEdge2.x) * inverseDeterminant;
+    }
     return LiquidPoolFinite3(cardPosition) && LiquidPoolFinite3(cardPlaneNormal) && LiquidPoolFinite2(cardTexCoord);
 }
 
@@ -2045,13 +2083,17 @@ LiquidPoolPrimaryResolve ResolvePrimaryLiquidPool(
         float3 cardPosition;
         float3 cardPlaneNormal;
         float2 cardTexCoord;
+        float3 cardTangent;
+        float3 cardBitangent;
         const bool cardValid = TryBuildLiquidPoolCardEvidence(
             instanceId,
             primitiveIndex,
             barycentrics,
             cardPosition,
             cardPlaneNormal,
-            cardTexCoord);
+            cardTexCoord,
+            cardTangent,
+            cardBitangent);
 
         LiquidPoolReceiverEvidence evidence = (LiquidPoolReceiverEvidence)0;
         evidence.cardPosition = cardPosition;
@@ -2134,6 +2176,66 @@ LiquidPoolPrimaryResolve ResolvePrimaryLiquidPool(
             surface.material.roughness = result.effective.roughness;
             surface.flags |= RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED;
             result.statusMask |= RT_LIQUID_POOL_STATUS_APPLIED;
+
+            if (PathTraceLiquidPoolMode() == 3u &&
+                (surface.flags & RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_NORMAL_APPLIED) == 0u)
+            {
+                const float2 winnerBarycentrics = float2(
+                    asfloat(result.film.winnerKey.barycentricXBits),
+                    asfloat(result.film.winnerKey.barycentricYBits));
+                float3 winnerPosition;
+                float3 winnerPlaneNormal;
+                float2 winnerTexCoord;
+                float3 winnerTangent;
+                float3 winnerBitangent;
+                if (TryBuildLiquidPoolCardEvidence(
+                    result.film.winnerKey.instanceId,
+                    result.film.winnerKey.primitiveIndex,
+                    winnerBarycentrics,
+                    winnerPosition,
+                    winnerPlaneNormal,
+                    winnerTexCoord,
+                    winnerTangent,
+                    winnerBitangent))
+                {
+                    const PathTraceSmokeMaterial winnerMaterial =
+                        LoadSmokeMaterial(result.film.winnerKey.materialIndex);
+                    float4 winnerStageColor;
+                    if (TryGetLiquidPoolStageColor(
+                        result.film.winnerKey.materialIndex,
+                        winnerStageColor))
+                    {
+                        const float2 texelSize = LiquidPoolCoverageTexelSize(winnerMaterial);
+                        const float stageAlpha = saturate(winnerStageColor.a);
+                        const float coverageLeft = saturate(SmokeAlphaCoverage(
+                            winnerMaterial, winnerTexCoord - float2(texelSize.x, 0.0))) * stageAlpha;
+                        const float coverageRight = saturate(SmokeAlphaCoverage(
+                            winnerMaterial, winnerTexCoord + float2(texelSize.x, 0.0))) * stageAlpha;
+                        const float coverageDown = saturate(SmokeAlphaCoverage(
+                            winnerMaterial, winnerTexCoord - float2(0.0, texelSize.y))) * stageAlpha;
+                        const float coverageUp = saturate(SmokeAlphaCoverage(
+                            winnerMaterial, winnerTexCoord + float2(0.0, texelSize.y))) * stageAlpha;
+                        const float2 coverageGradient = 0.5 * float2(
+                            coverageRight - coverageLeft,
+                            coverageUp - coverageDown);
+                        const LiquidPoolEffectiveFilmNormal filmNormal =
+                            LiquidPoolApplyFilmOwnedNormal(
+                                surface.shadingNormal,
+                                surface.geometryNormal,
+                                winnerTangent,
+                                winnerBitangent,
+                                coverageGradient,
+                                result.film.coverage,
+                                result.film.authoredNormalStrength,
+                                0u);
+                        if (filmNormal.applied != 0u)
+                        {
+                            surface.shadingNormal = filmNormal.shadingNormal;
+                            surface.flags |= RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_NORMAL_APPLIED;
+                        }
+                    }
+                }
+            }
         }
     }
     return result;
@@ -2287,6 +2389,8 @@ void WritePrimaryLiquidPoolDebug(
             float3 cardPosition;
             float3 cardPlaneNormal;
             float2 cardTexCoord;
+            float3 cardTangent;
+            float3 cardBitangent;
             float4 stageColor;
             if (TryBuildLiquidPoolCardEvidence(
                 resolved.film.winnerKey.instanceId,
@@ -2294,7 +2398,9 @@ void WritePrimaryLiquidPoolDebug(
                     barycentrics,
                     cardPosition,
                     cardPlaneNormal,
-                    cardTexCoord) &&
+                    cardTexCoord,
+                    cardTangent,
+                    cardBitangent) &&
                 TryGetLiquidPoolStageColor(resolved.film.winnerKey.materialIndex, stageColor))
             {
                 const PathTraceSmokeMaterial material = LoadSmokeMaterial(resolved.film.winnerKey.materialIndex);

@@ -4235,6 +4235,18 @@ CleanGiLiquidPoolResolve CleanGiResolveLiquidPool(
             surface.material.roughness = result.effective.roughness;
             surface.flags |= RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED;
             result.statusMask |= RT_LIQUID_POOL_STATUS_APPLIED;
+
+            if (CleanRestirGiLiquidPoolMode == 3u &&
+                result.film.authoredNormalStrength > 0.0 &&
+                (surface.flags & RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_NORMAL_APPLIED) == 0u)
+            {
+                // The clean-GI library is at DXC's SPIR-V ID ceiling.  Keep the
+                // transport-critical film interior normal here; primary and DI
+                // own the alpha-gradient meniscus sampled for visible/reflected
+                // surfaces.
+                surface.shadingNormal = normalize(surface.geometryNormal);
+                surface.flags |= RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_NORMAL_APPLIED;
+            }
         }
     }
     CleanGiPublishLiquidPoolExceptionalStatus(routeSource, result.statusMask);

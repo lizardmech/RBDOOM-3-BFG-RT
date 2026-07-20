@@ -10,6 +10,8 @@ static const float LIQUID_POOL_DEFAULT_COAT_ROUGHNESS = 0.0;
 static const float LIQUID_POOL_DEFAULT_DIELECTRIC_IOR = 1.5;
 static const float LIQUID_POOL_DEFAULT_SINGLE_SCATTER_STRENGTH = 0.30;
 static const float LIQUID_POOL_CLEARCOAT_FULL_COVERAGE = 0.35;
+static const float LIQUID_POOL_FILM_NORMAL_RIM_SLOPE = 1.25;
+static const float LIQUID_POOL_FILM_NORMAL_MIN_GEOMETRY_DOT = 0.05;
 static const float LIQUID_POOL_SINGLE_LOBE_METAL_F0_START = 0.08;
 static const float LIQUID_POOL_SINGLE_LOBE_METAL_F0_FULL = 0.25;
 static const float LIQUID_POOL_RECEIVER_OFFSET_MIN = -0.05;
@@ -88,6 +90,12 @@ struct LiquidPoolEffectiveReceiverMaterial
     float3 transmittance;
     float3 specularF0;
     float roughness;
+    uint applied;
+};
+
+struct LiquidPoolEffectiveFilmNormal
+{
+    float3 shadingNormal;
     uint applied;
 };
 
@@ -410,6 +418,75 @@ LiquidPoolEffectiveReceiverMaterial LiquidPoolApplyResolvedFilm(
     result.transmittance = lerp(float3(1.0, 1.0, 1.0), transmittance, coverage);
     result.specularF0 = lerp(receiverSpecularF0, coatedF0, clearcoatCoverage);
     result.roughness = lerp(receiverRoughness, coatRoughness, clearcoatCoverage);
+    result.applied = 1u;
+    return result;
+}
+
+// Build a liquid-owned shading normal from the receiver geometry plane and the
+// winning card's coverage gradient.  The pool interior deliberately ignores
+// the substrate shading normal: a zero-roughness film over a noisy normal map
+// otherwise behaves like a rough surface.  The substrate normal is retained
+// only through the soft coverage transition at the card edge.
+LiquidPoolEffectiveFilmNormal LiquidPoolApplyFilmOwnedNormal(
+    float3 receiverShadingNormal,
+    float3 receiverGeometryNormal,
+    float3 cardTangent,
+    float3 cardBitangent,
+    float2 coverageGradient,
+    float coverage,
+    float strength,
+    uint alreadyApplied)
+{
+    LiquidPoolEffectiveFilmNormal result;
+    result.shadingNormal = receiverShadingNormal;
+    result.applied = 0u;
+
+    const float normalStrength = LiquidPoolSanitizeParameter(strength, 0.0, 0.0, 1.0);
+    const float canonicalCoverage = LiquidPoolCanonicalUnit(coverage);
+    if (alreadyApplied != 0u || normalStrength <= 0.0 || canonicalCoverage <= 0.0 ||
+        !LiquidPoolFinite3(receiverShadingNormal) || !LiquidPoolFinite3(receiverGeometryNormal) ||
+        !LiquidPoolFinite3(cardTangent) || !LiquidPoolFinite3(cardBitangent) ||
+        !LiquidPoolFinite2(coverageGradient))
+    {
+        return result;
+    }
+
+    const float geometryLengthSquared = dot(receiverGeometryNormal, receiverGeometryNormal);
+    float3 tangent = cardTangent - receiverGeometryNormal *
+        (dot(cardTangent, receiverGeometryNormal) / max(geometryLengthSquared, 1.0e-20));
+    if (geometryLengthSquared <= 1.0e-20 || dot(tangent, tangent) <= 1.0e-20)
+    {
+        return result;
+    }
+
+    const float3 geometryNormal = receiverGeometryNormal * rsqrt(geometryLengthSquared);
+    float3 substrateNormal = normalize(receiverShadingNormal);
+    substrateNormal = dot(substrateNormal, geometryNormal) < 0.0 ? -substrateNormal : substrateNormal;
+    tangent = normalize(tangent);
+    float3 bitangent = normalize(cross(geometryNormal, tangent));
+    bitangent = dot(bitangent, cardBitangent) < 0.0 ? -bitangent : bitangent;
+
+    // Coverage is treated as a shallow height field.  Central differences are
+    // expressed in texels by the callers, making the rim independent of the
+    // decal texture resolution.
+    const float2 gradient = clamp(coverageGradient, -1.0, 1.0);
+    const float3 filmNormal = normalize(geometryNormal -
+        LIQUID_POOL_FILM_NORMAL_RIM_SLOPE *
+        (tangent * gradient.x + bitangent * gradient.y));
+    if (dot(filmNormal, geometryNormal) < LIQUID_POOL_FILM_NORMAL_MIN_GEOMETRY_DOT)
+        return result;
+
+    const float filmWeight = normalStrength * smoothstep(
+        0.0,
+        LIQUID_POOL_CLEARCOAT_FULL_COVERAGE,
+        canonicalCoverage);
+    const float3 blendedNormal = normalize(lerp(substrateNormal, filmNormal, filmWeight));
+    if (dot(blendedNormal, geometryNormal) <= 0.0)
+    {
+        return result;
+    }
+
+    result.shadingNormal = blendedNormal;
     result.applied = 1u;
     return result;
 }

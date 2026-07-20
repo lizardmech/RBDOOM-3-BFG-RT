@@ -734,11 +734,15 @@ bool PathTraceCleanRtxdiDiTryBuildLiquidPoolCardEvidence(
     float3 rayDirection,
     out float3 cardPosition,
     out float3 cardPlaneNormal,
-    out float2 cardTexCoord)
+    out float2 cardTexCoord,
+    out float3 cardTangent,
+    out float3 cardBitangent)
 {
     cardPosition = 0.0;
     cardPlaneNormal = 0.0;
     cardTexCoord = 0.0;
+    cardTangent = 0.0;
+    cardBitangent = 0.0;
     PathTraceCleanRtxdiPayload cardPayload = receiverPayload;
     cardPayload.hitInstanceId = instanceId;
     cardPayload.hitPrimitiveIndex = primitiveIndex;
@@ -753,9 +757,25 @@ bool PathTraceCleanRtxdiDiTryBuildLiquidPoolCardEvidence(
     cardPosition = receiverPosition + normalizedRay * (candidateHitT - receiverPayload.hitT);
     cardPlaneNormal = cardSurface.geometricNormal;
     cardTexCoord = cardSurface.texCoord;
+    cardTangent = cardSurface.tangent;
+    cardBitangent = cardSurface.bitangent;
     return LiquidPoolFinite3(cardPosition) &&
         LiquidPoolFinite3(cardPlaneNormal) &&
         LiquidPoolFinite2(cardTexCoord);
+}
+
+float2 PathTraceCleanRtxdiDiLiquidPoolCoverageTexelSize(PathTraceSmokeMaterial material)
+{
+    const uint diffuseCoverageFlags =
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY_TRANSMISSION |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
+    const bool coverageUsesDiffuse =
+        (material.flags & diffuseCoverageFlags) != 0u ||
+        material.alphaTextureIndex == 0xffffffffu;
+    const uint width = coverageUsesDiffuse ? material.textureWidth : material.alphaTextureWidth;
+    const uint height = coverageUsesDiffuse ? material.textureHeight : material.alphaTextureHeight;
+    return rcp(float2(max(width, 1u), max(height, 1u)));
 }
 
 void PathTraceCleanRtxdiDiLiquidPoolSaturatingIncrement(uint counterIndex)
@@ -855,6 +875,8 @@ PathTraceCleanRtxdiDiLiquidPoolResolve PathTraceCleanRtxdiDiResolveLiquidPool(
         float3 cardPosition;
         float3 cardPlaneNormal;
         float2 cardTexCoord;
+        float3 cardTangent;
+        float3 cardBitangent;
         const bool cardValid = PathTraceCleanRtxdiDiTryBuildLiquidPoolCardEvidence(
             payload,
             instanceId,
@@ -865,7 +887,9 @@ PathTraceCleanRtxdiDiLiquidPoolResolve PathTraceCleanRtxdiDiResolveLiquidPool(
             rayDirection,
             cardPosition,
             cardPlaneNormal,
-            cardTexCoord);
+            cardTexCoord,
+            cardTangent,
+            cardBitangent);
 
         LiquidPoolReceiverEvidence evidence = (LiquidPoolReceiverEvidence)0;
         evidence.cardPosition = cardPosition;
@@ -955,6 +979,96 @@ PathTraceCleanRtxdiDiLiquidPoolResolve PathTraceCleanRtxdiDiResolveLiquidPool(
             surface.material.roughness = result.effective.roughness;
             surface.flags |= RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED;
             result.statusMask |= RT_LIQUID_POOL_STATUS_APPLIED;
+
+            if (PathTraceCleanRtxdiDiLiquidPoolMode() == 3u &&
+                (surface.flags & RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_NORMAL_APPLIED) == 0u)
+            {
+                float winnerHitT = 0.0;
+                uint winnerFound = 0u;
+                [loop]
+                for (uint slot = 0u;
+                    slot < min(payload.liquidRetainedCount, RT_CLEAN_RTXDI_DI_LIQUID_POOL_CANDIDATE_CAPACITY);
+                    ++slot)
+                {
+                    if (payload.liquidInstanceId[slot] == result.film.winnerKey.instanceId &&
+                        payload.liquidPrimitiveIndex[slot] == result.film.winnerKey.primitiveIndex &&
+                        payload.liquidMaterialIndex[slot] == result.film.winnerKey.materialIndex &&
+                        payload.liquidBarycentricXBits[slot] == result.film.winnerKey.barycentricXBits &&
+                        payload.liquidBarycentricYBits[slot] == result.film.winnerKey.barycentricYBits)
+                    {
+                        winnerHitT = payload.liquidHitT[slot];
+                        winnerFound = 1u;
+                        break;
+                    }
+                }
+
+                if (winnerFound != 0u)
+                {
+                    const float2 winnerBarycentrics = float2(
+                        asfloat(result.film.winnerKey.barycentricXBits),
+                        asfloat(result.film.winnerKey.barycentricYBits));
+                    float3 winnerPosition;
+                    float3 winnerPlaneNormal;
+                    float2 winnerTexCoord;
+                    float3 winnerTangent;
+                    float3 winnerBitangent;
+                    if (PathTraceCleanRtxdiDiTryBuildLiquidPoolCardEvidence(
+                        payload,
+                        result.film.winnerKey.instanceId,
+                        result.film.winnerKey.primitiveIndex,
+                        winnerBarycentrics,
+                        winnerHitT,
+                        surface.worldPos,
+                        rayDirection,
+                        winnerPosition,
+                        winnerPlaneNormal,
+                        winnerTexCoord,
+                        winnerTangent,
+                        winnerBitangent))
+                    {
+                        const PathTraceSmokeMaterial winnerMaterial =
+                            PathTraceCleanRoomLoadSmokeMaterial(result.film.winnerKey.materialIndex);
+                        float4 winnerStageColor;
+                        if (PathTraceCleanRtxdiDiTryGetLiquidPoolStageColor(
+                            result.film.winnerKey.materialIndex,
+                            winnerStageColor))
+                        {
+                            const float2 texelSize =
+                                PathTraceCleanRtxdiDiLiquidPoolCoverageTexelSize(winnerMaterial);
+                            const float stageAlpha = saturate(winnerStageColor.a);
+                            const float coverageLeft = saturate(
+                                PathTraceCleanRtxdiDiLiquidPoolAlphaCoverage(
+                                    winnerMaterial, winnerTexCoord - float2(texelSize.x, 0.0))) * stageAlpha;
+                            const float coverageRight = saturate(
+                                PathTraceCleanRtxdiDiLiquidPoolAlphaCoverage(
+                                    winnerMaterial, winnerTexCoord + float2(texelSize.x, 0.0))) * stageAlpha;
+                            const float coverageDown = saturate(
+                                PathTraceCleanRtxdiDiLiquidPoolAlphaCoverage(
+                                    winnerMaterial, winnerTexCoord - float2(0.0, texelSize.y))) * stageAlpha;
+                            const float coverageUp = saturate(
+                                PathTraceCleanRtxdiDiLiquidPoolAlphaCoverage(
+                                    winnerMaterial, winnerTexCoord + float2(0.0, texelSize.y))) * stageAlpha;
+                            const LiquidPoolEffectiveFilmNormal filmNormal =
+                                LiquidPoolApplyFilmOwnedNormal(
+                                    surface.shadingNormal,
+                                    surface.geometryNormal,
+                                    winnerTangent,
+                                    winnerBitangent,
+                                    0.5 * float2(
+                                        coverageRight - coverageLeft,
+                                        coverageUp - coverageDown),
+                                    result.film.coverage,
+                                    result.film.authoredNormalStrength,
+                                    0u);
+                            if (filmNormal.applied != 0u)
+                            {
+                                surface.shadingNormal = filmNormal.shadingNormal;
+                                surface.flags |= RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_NORMAL_APPLIED;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     PathTraceCleanRtxdiDiPublishLiquidPoolExceptionalStatus(result.statusMask);

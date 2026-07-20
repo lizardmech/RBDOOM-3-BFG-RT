@@ -164,7 +164,9 @@ PathTraceMaterialFeatureParameterRecord PathTraceDefaultLiquidPoolMaterialFeatur
 {
     PathTraceMaterialFeatureParameterRecord result = (PathTraceMaterialFeatureParameterRecord)0;
     result.params0 = float4(1.0, 1.0, 1.0, 1.0);
-    result.params1 = float4(0.0, 1.5, 0.0, 0.0);
+    // params1.z is the legacy authored-normal lane.  Mode 3 now uses it as the
+    // strength of the generated film-owned normal; mode 2 ignores it.
+    result.params1 = float4(0.0, 1.5, 1.0, 0.0);
     return result;
 }
 
