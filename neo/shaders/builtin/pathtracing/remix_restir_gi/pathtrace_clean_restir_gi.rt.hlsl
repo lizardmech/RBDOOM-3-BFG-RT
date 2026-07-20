@@ -3755,6 +3755,124 @@ struct CleanGiSpecularProducerDebug
     uint sampledDirection;
 };
 
+bool CleanGiBuildDrySurfaceFromHit(
+    float3 rayOrigin,
+    float3 rayDirection,
+    float hitT,
+    uint hitInstanceId,
+    uint hitPrimitiveIndex,
+    float2 hitBarycentrics,
+    out RAB_Surface hitSurface)
+{
+    hitSurface = RAB_EmptySurface();
+
+    const float3 hitPosition = rayOrigin + rayDirection * hitT;
+
+    // Load hit material / class+flags once; both the normal-map decode and the
+    // material-surface build reuse these values.
+    const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(hitInstanceId, hitPrimitiveIndex);
+    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(hitInstanceId, hitPrimitiveIndex);
+    const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
+
+    float3 p0, p1, p2;
+    float3 n0, n1, n2;
+    float2 uv0, uv1, uv2;
+    float2 normalUv0, normalUv1, normalUv2;
+    float4 c0, c1, c2;
+    float4 c20, c21, c22;
+    float3 hitGeometricNormal = -rayDirection;
+    float3 hitShadingNormal = -rayDirection;
+    float2 hitTexCoord = float2(0.0, 0.0);
+    float2 hitNormalTexCoord = float2(0.0, 0.0);
+    float4 hitVertexColor = float4(1.0, 1.0, 1.0, 1.0);
+    if (CleanGiLoadTriangleGeometryFull(
+        hitInstanceId,
+        hitPrimitiveIndex,
+        p0, p1, p2,
+        n0, n1, n2,
+        uv0, uv1, uv2,
+        normalUv0, normalUv1, normalUv2,
+        c0, c1, c2,
+        c20, c21, c22))
+    {
+        const float3 crossValue = cross(p1 - p0, p2 - p0);
+        hitGeometricNormal = CleanGiSafeNormalize(crossValue, -rayDirection);
+        if (dot(hitGeometricNormal, rayDirection) > 0.0)
+        {
+            hitGeometricNormal = -hitGeometricNormal;
+        }
+        const float b1 = saturate(hitBarycentrics.x);
+        const float b2 = saturate(hitBarycentrics.y);
+        const float b0 = saturate(1.0 - b1 - b2);
+        hitTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
+        hitNormalTexCoord = normalUv0 * b0 + normalUv1 * b1 + normalUv2 * b2;
+        hitVertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
+
+        const bool forceGeometricNormal = (hitTriangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
+        float3 interpolatedNormal = CleanGiSafeNormalize(n0 * b0 + n1 * b1 + n2 * b2, hitGeometricNormal);
+        if (dot(interpolatedNormal, hitGeometricNormal) < 0.0)
+        {
+            interpolatedNormal = -interpolatedNormal;
+        }
+        hitShadingNormal = forceGeometricNormal ? hitGeometricNormal : interpolatedNormal;
+
+        const float3 tangentFallback = CleanGiBuildPerpendicular(hitShadingNormal);
+        const float3 bitangentFallback = CleanGiSafeNormalize(cross(hitShadingNormal, tangentFallback), float3(0.0, 1.0, 0.0));
+        float3 hitTangent = tangentFallback;
+        float3 hitBitangent = bitangentFallback;
+        const float3 dp1 = p1 - p0;
+        const float3 dp2 = p2 - p0;
+        const float2 duv1 = uv1 - uv0;
+        const float2 duv2 = uv2 - uv0;
+        const float uvDeterminant = duv1.x * duv2.y - duv1.y * duv2.x;
+        if (abs(uvDeterminant) > 1.0e-8)
+        {
+            const float inverseDeterminant = 1.0 / uvDeterminant;
+            const float3 rawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
+            const float3 rawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
+            hitTangent = CleanGiSafeNormalize(rawTangent - hitShadingNormal * dot(hitShadingNormal, rawTangent), tangentFallback);
+            hitBitangent = CleanGiSafeNormalize(rawBitangent - hitShadingNormal * dot(hitShadingNormal, rawBitangent) - hitTangent * dot(hitTangent, rawBitangent), bitangentFallback);
+            if (dot(cross(hitTangent, hitBitangent), hitShadingNormal) < 0.0)
+            {
+                hitBitangent = -hitBitangent;
+            }
+        }
+
+        hitShadingNormal = CleanGiConstrainShadingNormal(
+            CleanGiDecodeNormalTexture(hitMaterial, hitNormalTexCoord, hitShadingNormal, hitTangent, hitBitangent),
+            hitGeometricNormal);
+    }
+
+    const uint hitMaterialId = CleanGiLoadTriangleMaterialId(hitInstanceId, hitPrimitiveIndex);
+    const uint hitSurfaceClass = CleanGiTriangleSurfaceClass(hitTriangleClassAndFlags);
+    const uint hitTranslucentSubtype = CleanGiTriangleTranslucentSubtype(hitTriangleClassAndFlags);
+    const RAB_Material hitRabMaterial = CleanGiBuildMaterialFromHit(
+        hitMaterialId,
+        hitMaterialIndex,
+        hitMaterial,
+        hitTexCoord,
+        rayDirection,
+        hitSurfaceClass,
+        hitTranslucentSubtype,
+        hitTriangleClassAndFlags,
+        hitVertexColor);
+
+    hitSurface.valid = 1u;
+    hitSurface.worldPos = hitPosition;
+    hitSurface.linearDepth = hitT;
+    hitSurface.geometryNormal = hitGeometricNormal;
+    hitSurface.shadingNormal = hitShadingNormal;
+    hitSurface.viewDir = -rayDirection;
+    hitSurface.materialId = hitMaterialId;
+    hitSurface.materialIndex = hitMaterialIndex;
+    hitSurface.instanceId = hitInstanceId;
+    hitSurface.primitiveIndex = hitPrimitiveIndex;
+    hitSurface.surfaceClass = hitSurfaceClass;
+    hitSurface.flags = hitTriangleClassAndFlags;
+    hitSurface.material = hitRabMaterial;
+    return true;
+}
+
 bool CleanGiTraceMaterialSurfaceRay(
     float3 origin,
     float3 originGeometricNormal,
@@ -3791,114 +3909,16 @@ bool CleanGiTraceMaterialSurfaceRay(
         return false;
     }
 
-    const float3 hitPosition = ray.Origin + rayDirection * payload.hitT;
-
-    // Load hit material / class+flags once and reuse for the normal-map decode
-    // and shading (previously loaded twice per hit).
-    const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
-    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
-    const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
-
-    float3 p0, p1, p2;
-    float3 n0, n1, n2;
-    float2 uv0, uv1, uv2;
-    float2 normalUv0, normalUv1, normalUv2;
-    float4 c0, c1, c2;
-    float4 c20, c21, c22;
-    float3 localGeometricNormal = -rayDirection;
-    float3 hitShadingNormal = -rayDirection;
-    float2 hitTexCoord = float2(0.0, 0.0);
-    float2 hitNormalTexCoord = float2(0.0, 0.0);
-    float4 hitVertexColor = float4(1.0, 1.0, 1.0, 1.0);
-    if (CleanGiLoadTriangleGeometryFull(
+    CleanGiBuildDrySurfaceFromHit(
+        ray.Origin,
+        rayDirection,
+        payload.hitT,
         payload.hitInstanceId,
         payload.hitPrimitiveIndex,
-        p0, p1, p2,
-        n0, n1, n2,
-        uv0, uv1, uv2,
-        normalUv0, normalUv1, normalUv2,
-        c0, c1, c2,
-        c20, c21, c22))
-    {
-        const float3 crossValue = cross(p1 - p0, p2 - p0);
-        localGeometricNormal = CleanGiSafeNormalize(crossValue, -rayDirection);
-        if (dot(localGeometricNormal, rayDirection) > 0.0)
-        {
-            localGeometricNormal = -localGeometricNormal;
-        }
-        const float b1 = saturate(payload.hitBarycentrics.x);
-        const float b2 = saturate(payload.hitBarycentrics.y);
-        const float b0 = saturate(1.0 - b1 - b2);
-        hitTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
-        hitNormalTexCoord = normalUv0 * b0 + normalUv1 * b1 + normalUv2 * b2;
-        hitVertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
-
-        const bool forceGeometricNormal = (hitTriangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
-        float3 interpolatedNormal = CleanGiSafeNormalize(n0 * b0 + n1 * b1 + n2 * b2, localGeometricNormal);
-        if (dot(interpolatedNormal, localGeometricNormal) < 0.0)
-        {
-            interpolatedNormal = -interpolatedNormal;
-        }
-        hitShadingNormal = forceGeometricNormal ? localGeometricNormal : interpolatedNormal;
-
-        const float3 tangentFallback = CleanGiBuildPerpendicular(hitShadingNormal);
-        const float3 bitangentFallback = CleanGiSafeNormalize(cross(hitShadingNormal, tangentFallback), float3(0.0, 1.0, 0.0));
-        float3 hitTangent = tangentFallback;
-        float3 hitBitangent = bitangentFallback;
-        const float3 dp1 = p1 - p0;
-        const float3 dp2 = p2 - p0;
-        const float2 duv1 = uv1 - uv0;
-        const float2 duv2 = uv2 - uv0;
-        const float uvDeterminant = duv1.x * duv2.y - duv1.y * duv2.x;
-        if (abs(uvDeterminant) > 1.0e-8)
-        {
-            const float inverseDeterminant = 1.0 / uvDeterminant;
-            const float3 rawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
-            const float3 rawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
-            hitTangent = CleanGiSafeNormalize(rawTangent - hitShadingNormal * dot(hitShadingNormal, rawTangent), tangentFallback);
-            hitBitangent = CleanGiSafeNormalize(rawBitangent - hitShadingNormal * dot(hitShadingNormal, rawBitangent) - hitTangent * dot(hitTangent, rawBitangent), bitangentFallback);
-            if (dot(cross(hitTangent, hitBitangent), hitShadingNormal) < 0.0)
-            {
-                hitBitangent = -hitBitangent;
-            }
-        }
-
-        hitShadingNormal = CleanGiConstrainShadingNormal(
-            CleanGiDecodeNormalTexture(hitMaterial, hitNormalTexCoord, hitShadingNormal, hitTangent, hitBitangent),
-            localGeometricNormal);
-    }
-
-    const uint hitMaterialId = CleanGiLoadTriangleMaterialId(payload.hitInstanceId, payload.hitPrimitiveIndex);
-    const uint hitSurfaceClass = CleanGiTriangleSurfaceClass(hitTriangleClassAndFlags);
-    const uint hitTranslucentSubtype = CleanGiTriangleTranslucentSubtype(hitTriangleClassAndFlags);
-    const RAB_Material hitRabMaterial = CleanGiBuildMaterialFromHit(
-        hitMaterialId,
-        hitMaterialIndex,
-        hitMaterial,
-        hitTexCoord,
-        rayDirection,
-        hitSurfaceClass,
-        hitTranslucentSubtype,
-        hitTriangleClassAndFlags,
-        hitVertexColor);
-
-    hitSurface = RAB_EmptySurface();
-    hitSurface.valid = 1u;
-    hitSurface.worldPos = hitPosition;
-    hitSurface.linearDepth = payload.hitT;
-    hitSurface.geometryNormal = localGeometricNormal;
-    hitSurface.shadingNormal = hitShadingNormal;
-    hitSurface.viewDir = -rayDirection;
-    hitSurface.materialId = hitMaterialId;
-    hitSurface.materialIndex = hitMaterialIndex;
-    hitSurface.instanceId = payload.hitInstanceId;
-    hitSurface.primitiveIndex = payload.hitPrimitiveIndex;
-    hitSurface.surfaceClass = hitSurfaceClass;
-    hitSurface.flags = hitTriangleClassAndFlags;
-    hitSurface.material = hitRabMaterial;
-
-    hitGeometricNormal = localGeometricNormal;
-    hitEmissive = hitRabMaterial.emissiveRadiance;
+        payload.hitBarycentrics,
+        hitSurface);
+    hitGeometricNormal = hitSurface.geometryNormal;
+    hitEmissive = hitSurface.material.emissiveRadiance;
     hitT = payload.hitT;
     return true;
 }
@@ -4705,111 +4725,14 @@ bool CleanGiBuildProducerSurfaceFromHit(
         return false;
     }
 
-    const float3 hitPosition = rayOrigin + bounceDir * hitT;
-
-    // Load hit material / class+flags once; both the normal-map decode (inside
-    // the geometry block below) and the surface build reuse these.
-    const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(hitInstanceId, hitPrimitiveIndex);
-    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(hitInstanceId, hitPrimitiveIndex);
-    const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
-
-    float3 p0, p1, p2;
-    float3 n0, n1, n2;
-    float2 uv0, uv1, uv2;
-    float2 normalUv0, normalUv1, normalUv2;
-    float4 c0, c1, c2;
-    float4 c20, c21, c22;
-    float3 hitGeometricNormal = -bounceDir;
-    float3 hitShadingNormal = -bounceDir;
-    float2 hitTexCoord = float2(0.0, 0.0);
-    float2 hitNormalTexCoord = float2(0.0, 0.0);
-    float4 hitVertexColor = float4(1.0, 1.0, 1.0, 1.0);
-    if (CleanGiLoadTriangleGeometryFull(
+    return CleanGiBuildDrySurfaceFromHit(
+        rayOrigin,
+        bounceDir,
+        hitT,
         hitInstanceId,
         hitPrimitiveIndex,
-        p0, p1, p2,
-        n0, n1, n2,
-        uv0, uv1, uv2,
-        normalUv0, normalUv1, normalUv2,
-        c0, c1, c2,
-        c20, c21, c22))
-    {
-        const float3 crossValue = cross(p1 - p0, p2 - p0);
-        hitGeometricNormal = CleanGiSafeNormalize(crossValue, -bounceDir);
-        if (dot(hitGeometricNormal, bounceDir) > 0.0)
-        {
-            hitGeometricNormal = -hitGeometricNormal;
-        }
-        const float b1 = saturate(hitBarycentrics.x);
-        const float b2 = saturate(hitBarycentrics.y);
-        const float b0 = saturate(1.0 - b1 - b2);
-        hitTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
-        hitNormalTexCoord = normalUv0 * b0 + normalUv1 * b1 + normalUv2 * b2;
-        hitVertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
-
-        const bool forceGeometricNormal = (hitTriangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
-        float3 interpolatedNormal = CleanGiSafeNormalize(n0 * b0 + n1 * b1 + n2 * b2, hitGeometricNormal);
-        if (dot(interpolatedNormal, hitGeometricNormal) < 0.0)
-        {
-            interpolatedNormal = -interpolatedNormal;
-        }
-        hitShadingNormal = forceGeometricNormal ? hitGeometricNormal : interpolatedNormal;
-
-        const float3 tangentFallback = CleanGiBuildPerpendicular(hitShadingNormal);
-        const float3 bitangentFallback = CleanGiSafeNormalize(cross(hitShadingNormal, tangentFallback), float3(0.0, 1.0, 0.0));
-        float3 hitTangent = tangentFallback;
-        float3 hitBitangent = bitangentFallback;
-        const float3 dp1 = p1 - p0;
-        const float3 dp2 = p2 - p0;
-        const float2 duv1 = uv1 - uv0;
-        const float2 duv2 = uv2 - uv0;
-        const float uvDeterminant = duv1.x * duv2.y - duv1.y * duv2.x;
-        if (abs(uvDeterminant) > 1.0e-8)
-        {
-            const float inverseDeterminant = 1.0 / uvDeterminant;
-            const float3 rawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
-            const float3 rawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
-            hitTangent = CleanGiSafeNormalize(rawTangent - hitShadingNormal * dot(hitShadingNormal, rawTangent), tangentFallback);
-            hitBitangent = CleanGiSafeNormalize(rawBitangent - hitShadingNormal * dot(hitShadingNormal, rawBitangent) - hitTangent * dot(hitTangent, rawBitangent), bitangentFallback);
-            if (dot(cross(hitTangent, hitBitangent), hitShadingNormal) < 0.0)
-            {
-                hitBitangent = -hitBitangent;
-            }
-        }
-
-        hitShadingNormal = CleanGiConstrainShadingNormal(
-            CleanGiDecodeNormalTexture(hitMaterial, hitNormalTexCoord, hitShadingNormal, hitTangent, hitBitangent),
-            hitGeometricNormal);
-    }
-
-    const uint hitMaterialId = CleanGiLoadTriangleMaterialId(hitInstanceId, hitPrimitiveIndex);
-    const uint hitSurfaceClass = CleanGiTriangleSurfaceClass(hitTriangleClassAndFlags);
-    const uint hitTranslucentSubtype = CleanGiTriangleTranslucentSubtype(hitTriangleClassAndFlags);
-    const RAB_Material hitRabMaterial = CleanGiBuildMaterialFromHit(
-        hitMaterialId,
-        hitMaterialIndex,
-        hitMaterial,
-        hitTexCoord,
-        bounceDir,
-        hitSurfaceClass,
-        hitTranslucentSubtype,
-        hitTriangleClassAndFlags,
-        hitVertexColor);
-
-    secondarySurface.valid = 1u;
-    secondarySurface.worldPos = hitPosition;
-    secondarySurface.linearDepth = hitT;
-    secondarySurface.geometryNormal = hitGeometricNormal;
-    secondarySurface.shadingNormal = hitShadingNormal;
-    secondarySurface.viewDir = -bounceDir;
-    secondarySurface.materialId = hitMaterialId;
-    secondarySurface.materialIndex = hitMaterialIndex;
-    secondarySurface.instanceId = hitInstanceId;
-    secondarySurface.primitiveIndex = hitPrimitiveIndex;
-    secondarySurface.surfaceClass = hitSurfaceClass;
-    secondarySurface.flags = hitTriangleClassAndFlags;
-    secondarySurface.material = hitRabMaterial;
-    return true;
+        hitBarycentrics,
+        secondarySurface);
 }
 
 bool CleanGiBuildProducerSurface(
