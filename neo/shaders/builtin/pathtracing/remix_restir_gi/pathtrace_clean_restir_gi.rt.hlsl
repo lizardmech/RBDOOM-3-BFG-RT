@@ -23,12 +23,29 @@
 #include "../PathTracePrimarySurface.hlsli"
 #include "../PathTraceMaterialFeatureTypes.hlsli"
 #include "../cleanroom_common/pathtrace_liquid_pool_control.hlsli"
+#include "../cleanroom_common/pathtrace_liquid_pool_modifier.hlsli"
 #include "../cleanroom_common/pathtrace_first_indirect_candidate.hlsli"
 #include "../cleanroom_common/restir_di_reservoir.hlsli"
 #include "Rtxdi/RtxdiParameters.h"
 #include "Rtxdi/GI/ReSTIRGIParameters.h"
 #include "Rtxdi/Utils/RandomSamplerState.hlsli"
 #include "Rtxdi/Utils/Math.hlsli"
+
+static const uint CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY = 4u;
+
+struct CleanGiLiquidPoolCandidateSet
+{
+    uint rawCount;
+    uint retainedCount;
+    uint statusMask;
+    uint rejectionCount;
+    uint instanceId[CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint materialIndex[CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint primitiveIndex[CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint barycentricXBits[CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY];
+    uint barycentricYBits[CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY];
+    float hitT[CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY];
+};
 
 struct PathTraceCleanRestirGiPayload
 {
@@ -41,6 +58,7 @@ struct PathTraceCleanRestirGiPayload
     uint hitPrimitiveIndex;
     float hitT;
     float2 hitBarycentrics;
+    CleanGiLiquidPoolCandidateSet liquidPool;
 };
 
 #if defined(CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_CS)
@@ -3755,6 +3773,472 @@ struct CleanGiSpecularProducerDebug
     uint sampledDirection;
 };
 
+bool CleanGiLiquidPoolCollectionEnabled()
+{
+    const uint required = RT_LIQUID_POOL_CONTROL_REQUESTED |
+        RT_LIQUID_POOL_CONTROL_PARAMETERS_READY;
+    return CleanRestirGiLiquidPoolMode != 0u &&
+        (CleanRestirGiLiquidPoolControlFlags & required) == required &&
+        (CleanRestirGiLiquidPoolControlFlags & RT_LIQUID_POOL_CONTROL_ROUTE_DISABLED) == 0u;
+}
+
+uint CleanGiLiquidPoolMaterialRayFlags(bool requestedOpaque)
+{
+    if (CleanGiLiquidPoolCollectionEnabled())
+    {
+        return RAY_FLAG_FORCE_NON_OPAQUE;
+    }
+    return requestedOpaque ? RAY_FLAG_FORCE_OPAQUE : RAY_FLAG_FORCE_NON_OPAQUE;
+}
+
+bool CleanGiLiquidPoolParameterRowIsTyped(
+    PathTraceMaterialFeatureParameterRecord parameters)
+{
+    // Non-liquid/default parameter rows are zero initialized. Candidate rows
+    // are built from the liquid-v1 defaults before optional author overrides.
+    return all(isfinite(parameters.params0)) &&
+        all(isfinite(parameters.params1)) &&
+        all(parameters.params0.xyz >= RT_PATH_TRACE_LIQUID_POOL_TRANSMITTANCE_MIN) &&
+        all(parameters.params0.xyz <= 1.0) &&
+        parameters.params0.w >= 0.0 &&
+        parameters.params0.w <= RT_PATH_TRACE_LIQUID_POOL_OPTICAL_DEPTH_MAX &&
+        parameters.params1.x >= RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MIN &&
+        parameters.params1.x <= RT_PATH_TRACE_LIQUID_POOL_COAT_ROUGHNESS_MAX &&
+        parameters.params1.y >= RT_PATH_TRACE_LIQUID_POOL_DIELECTRIC_IOR_MIN &&
+        parameters.params1.y <= RT_PATH_TRACE_LIQUID_POOL_DIELECTRIC_IOR_MAX;
+}
+
+bool CleanGiMaterialIsSemanticLiquidPool(uint materialIndex)
+{
+    uint allocatedCount = 0u;
+    uint allocatedStride = 0u;
+    PathTraceMaterialFeatureParameters.GetDimensions(allocatedCount, allocatedStride);
+    const uint materialCount = (uint)max(TextureInfo.z, 0.0);
+    if (CleanRestirGiLiquidPoolParameterCount != materialCount ||
+        allocatedCount < materialCount ||
+        allocatedStride != RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_RECORD_STRIDE ||
+        materialIndex >= materialCount)
+    {
+        return false;
+    }
+    const PathTraceSmokeMaterial material = CleanGiLoadSmokeMaterial(materialIndex);
+    const PathTraceMaterialFeatureParameterRecord parameters =
+        PathTraceMaterialFeatureParameters[materialIndex];
+    // GI does not bind the full feature-row table. The captured liquid bit is
+    // therefore paired with the typed liquid-v1 row at frozen t87; legacy-only
+    // pool-like rows retain zero/default parameters and fail this predicate.
+    return (material.flags & RT_PATH_TRACE_FEATURE_MATERIAL_DETAIL_DECAL_LIQUID_POOL) != 0u &&
+        CleanGiLiquidPoolParameterRowIsTyped(parameters);
+}
+
+bool CleanGiTryLoadLiquidPoolParameters(
+    uint materialIndex,
+    out PathTraceMaterialFeatureParameterRecord parameters)
+{
+    parameters = PathTraceDefaultLiquidPoolMaterialFeatureParameters();
+    uint allocatedCount = 0u;
+    uint allocatedStride = 0u;
+    PathTraceMaterialFeatureParameters.GetDimensions(allocatedCount, allocatedStride);
+    const uint materialCount = (uint)max(TextureInfo.z, 0.0);
+    if (CleanRestirGiLiquidPoolParameterCount != materialCount ||
+        allocatedCount < materialCount ||
+        allocatedStride != RT_PATH_TRACE_MATERIAL_FEATURE_PARAMETER_RECORD_STRIDE ||
+        materialIndex >= materialCount)
+    {
+        return false;
+    }
+    const PathTraceMaterialFeatureParameterRecord rawParameters =
+        PathTraceMaterialFeatureParameters[materialIndex];
+    if (!CleanGiLiquidPoolParameterRowIsTyped(rawParameters))
+    {
+        return false;
+    }
+    parameters = PathTraceSanitizeLiquidPoolMaterialFeatureParameters(rawParameters);
+    return true;
+}
+
+bool CleanGiTryGetLiquidPoolStageColor(uint materialIndex, out float4 stageColor)
+{
+    stageColor = float4(1.0, 1.0, 1.0, 1.0);
+    uint recordCount = 0u;
+    uint recordStride = 0u;
+    SmokeDynamicMaterials.GetDimensions(recordCount, recordStride);
+    if (materialIndex >= recordCount)
+    {
+        return true;
+    }
+    const PathTraceDynamicMaterialRecord record = SmokeDynamicMaterials[materialIndex];
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
+        record.materialIndex != materialIndex)
+    {
+        return true;
+    }
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) == 0u ||
+        record.texMatrix0.w == 0.0)
+    {
+        return false;
+    }
+    stageColor = float4(max(record.color.rgb, 0.0), saturate(record.color.a));
+    return stageColor.a > 0.0;
+}
+
+bool CleanGiLiquidPoolUsesInvertedFilterBlackKey(
+    PathTraceMaterialFeatureParameterRecord parameters,
+    PathTraceSmokeMaterial material)
+{
+    static const uint OPERATION_SHIFT = 7u;
+    static const uint OPERATION_MASK = 0x7u;
+    static const uint INVERTED_FILTER_BLACK_KEY = 4u;
+    [unroll]
+    for (uint stageSlot = 0u; stageSlot < RT_PATH_TRACE_ORDERED_STAGE_CAPACITY; ++stageSlot)
+    {
+        const uint stageWord = PathTraceMaterialOrderedStageWord(parameters, stageSlot);
+        const uint textureWord = PathTraceMaterialOrderedStageTextureWord(parameters, stageSlot);
+        if (!PathTraceMaterialOrderedStageValid(stageWord) ||
+            !PathTraceMaterialOrderedStageTextureValid(textureWord) ||
+            PathTraceMaterialOrderedStageTextureIndex(textureWord) != material.diffuseTextureIndex)
+        {
+            continue;
+        }
+        const uint operation = (stageWord >> OPERATION_SHIFT) & OPERATION_MASK;
+        if (operation == INVERTED_FILTER_BLACK_KEY)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+uint CleanGiLiquidPoolDiagnosticHash(LiquidPoolContributorKey key)
+{
+    uint hash = 2166136261u;
+    hash = (hash ^ key.instanceId) * 16777619u;
+    hash = (hash ^ key.primitiveIndex) * 16777619u;
+    hash = (hash ^ key.materialIndex) * 16777619u;
+    hash = (hash ^ key.barycentricXBits) * 16777619u;
+    return (hash ^ key.barycentricYBits) * 16777619u;
+}
+
+bool CleanGiTryBuildLiquidPoolCardEvidence(
+    uint instanceId,
+    uint primitiveIndex,
+    float2 barycentrics,
+    out float3 cardPosition,
+    out float3 cardPlaneNormal,
+    out float2 cardTexCoord)
+{
+    cardPosition = 0.0;
+    cardPlaneNormal = 0.0;
+    cardTexCoord = 0.0;
+    if (instanceId > 1u || !CleanGiHitMetadataInRange(instanceId, primitiveIndex))
+    {
+        return false;
+    }
+    float3 p0, p1, p2;
+    float3 n0, n1, n2;
+    float2 uv0, uv1, uv2;
+    float2 normalUv0, normalUv1, normalUv2;
+    float4 c0, c1, c2;
+    float4 c20, c21, c22;
+    if (!CleanGiLoadTriangleGeometryFull(
+        instanceId,
+        primitiveIndex,
+        p0, p1, p2,
+        n0, n1, n2,
+        uv0, uv1, uv2,
+        normalUv0, normalUv1, normalUv2,
+        c0, c1, c2,
+        c20, c21, c22))
+    {
+        return false;
+    }
+    const float b1 = saturate(barycentrics.x);
+    const float b2 = saturate(barycentrics.y);
+    const float b0 = saturate(1.0 - b1 - b2);
+    cardPosition = p0 * b0 + p1 * b1 + p2 * b2;
+    cardPlaneNormal = cross(p1 - p0, p2 - p0);
+    cardTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
+    return LiquidPoolFinite3(cardPosition) &&
+        LiquidPoolFinite3(cardPlaneNormal) &&
+        LiquidPoolFinite2(cardTexCoord);
+}
+
+void CleanGiStoreLiquidPoolCandidate(
+    inout CleanGiLiquidPoolCandidateSet candidates,
+    uint instanceId,
+    uint materialIndex,
+    uint primitiveIndex,
+    float2 barycentrics,
+    float hitT)
+{
+    const LiquidPoolContributorKey key = LiquidPoolMakeContributorKey(
+        instanceId, primitiveIndex, materialIndex, barycentrics);
+    candidates.statusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
+    [unroll]
+    for (uint slot = 0u; slot < CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY; ++slot)
+    {
+        if (slot < candidates.retainedCount &&
+            candidates.instanceId[slot] == key.instanceId &&
+            candidates.primitiveIndex[slot] == key.primitiveIndex &&
+            candidates.materialIndex[slot] == key.materialIndex &&
+            candidates.barycentricXBits[slot] == key.barycentricXBits &&
+            candidates.barycentricYBits[slot] == key.barycentricYBits)
+        {
+            return;
+        }
+    }
+    candidates.rawCount = candidates.rawCount == 0xffffffffu
+        ? 0xffffffffu
+        : candidates.rawCount + 1u;
+    if (candidates.retainedCount >= CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY)
+    {
+        candidates.statusMask |= RT_LIQUID_POOL_STATUS_OVERFLOW;
+        return;
+    }
+    const uint slot = candidates.retainedCount++;
+    candidates.instanceId[slot] = key.instanceId;
+    candidates.materialIndex[slot] = key.materialIndex;
+    candidates.primitiveIndex[slot] = key.primitiveIndex;
+    candidates.barycentricXBits[slot] = key.barycentricXBits;
+    candidates.barycentricYBits[slot] = key.barycentricYBits;
+    candidates.hitT[slot] = hitT;
+}
+
+bool CleanGiCollectLiquidPoolCandidate(
+    inout CleanGiLiquidPoolCandidateSet candidates,
+    uint instanceId,
+    uint primitiveIndex,
+    uint materialIndex,
+    float2 barycentrics,
+    float hitT)
+{
+    if (!CleanGiLiquidPoolCollectionEnabled() ||
+        instanceId > 1u ||
+        !CleanGiMaterialIsSemanticLiquidPool(materialIndex))
+    {
+        return false;
+    }
+    candidates.statusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
+    float3 cardPosition;
+    float3 cardPlaneNormal;
+    float2 cardTexCoord;
+    if (!CleanGiTryBuildLiquidPoolCardEvidence(
+        instanceId, primitiveIndex, barycentrics,
+        cardPosition, cardPlaneNormal, cardTexCoord))
+    {
+        candidates.statusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED;
+        candidates.rejectionCount = candidates.rejectionCount == 0xffffffffu
+            ? 0xffffffffu
+            : candidates.rejectionCount + 1u;
+        return true;
+    }
+    const PathTraceSmokeMaterial material = CleanGiLoadSmokeMaterial(materialIndex);
+    float4 stageColor;
+    if (!CleanGiTryGetLiquidPoolStageColor(materialIndex, stageColor))
+    {
+        candidates.statusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED;
+        candidates.rejectionCount = candidates.rejectionCount == 0xffffffffu
+            ? 0xffffffffu
+            : candidates.rejectionCount + 1u;
+        return true;
+    }
+    const float coverage = saturate(CleanGiAlphaCoverage(material, cardTexCoord)) *
+        saturate(stageColor.a);
+    if (coverage > 0.0)
+    {
+        CleanGiStoreLiquidPoolCandidate(
+            candidates, instanceId, materialIndex, primitiveIndex,
+            barycentrics, hitT);
+    }
+    return true;
+}
+
+struct CleanGiLiquidPoolResolve
+{
+    LiquidPoolResolvedFilm film;
+    LiquidPoolEffectiveReceiverMaterial effective;
+    uint validatedCount;
+    uint rejectionCount;
+    uint statusMask;
+};
+
+void CleanGiLiquidPoolSaturatingIncrement(uint counterIndex)
+{
+    uint observed;
+    InterlockedCompareExchange(PathTraceLiquidPoolStatusCounters[counterIndex], 0xffffffffu, 0xffffffffu, observed);
+    while (observed != 0xffffffffu)
+    {
+        uint previous;
+        InterlockedCompareExchange(PathTraceLiquidPoolStatusCounters[counterIndex], observed, observed + 1u, previous);
+        if (previous == observed)
+        {
+            return;
+        }
+        observed = previous;
+    }
+}
+
+void CleanGiPublishLiquidPoolExceptionalStatus(uint routeSource, uint statusMask)
+{
+    const uint exceptional = statusMask &
+        (RT_LIQUID_POOL_STATUS_OVERFLOW |
+            RT_LIQUID_POOL_STATUS_DUPLICATE_APPLY |
+            RT_LIQUID_POOL_STATUS_FAIL_CLOSED |
+            RT_LIQUID_POOL_STATUS_INVALID_ROUTE);
+    if (exceptional == 0u ||
+        (CleanRestirGiLiquidPoolControlFlags & RT_LIQUID_POOL_CONTROL_TELEMETRY_READY) == 0u)
+    {
+        return;
+    }
+    const uint source = clamp(routeSource,
+        RT_LIQUID_POOL_SOURCE_GI_FIRST_INDIRECT,
+        RT_LIQUID_POOL_SOURCE_GI_RAY_QUERY);
+    uint ignored;
+    InterlockedOr(PathTraceLiquidPoolStatusCounters[source], exceptional, ignored);
+    if ((exceptional & RT_LIQUID_POOL_STATUS_OVERFLOW) != 0u)
+    {
+        CleanGiLiquidPoolSaturatingIncrement(8u + source);
+    }
+}
+
+CleanGiLiquidPoolResolve CleanGiResolveLiquidPool(
+    inout RAB_Surface surface,
+    CleanGiLiquidPoolCandidateSet candidates,
+    float3 rayDirection,
+    uint routeSource)
+{
+    CleanGiLiquidPoolResolve result = (CleanGiLiquidPoolResolve)0;
+    result.film = LiquidPoolResolvedFilmIdentity();
+    result.statusMask = candidates.statusMask |
+        PathTraceLiquidPoolControlInitialStatus(
+            CleanRestirGiLiquidPoolControlFlags,
+            CleanRestirGiLiquidPoolDebug,
+            CleanRestirGiLiquidPoolDebugPage);
+    result.rejectionCount = candidates.rejectionCount;
+    result.effective = LiquidPoolApplyResolvedFilm(
+        surface.material.diffuseAlbedo,
+        surface.material.specularF0,
+        surface.material.roughness,
+        result.film,
+        0u);
+
+    if (!CleanGiLiquidPoolCollectionEnabled() ||
+        !RAB_IsSurfaceValid(surface) ||
+        candidates.retainedCount == 0u)
+    {
+        CleanGiPublishLiquidPoolExceptionalStatus(routeSource, result.statusMask);
+        return result;
+    }
+
+    const uint receiverSubtype = CleanGiTriangleTranslucentSubtype(surface.flags);
+    const uint receiverTransmitting =
+        surface.surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT ||
+        receiverSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS ||
+        receiverSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW;
+    const uint receiverOpaque = receiverTransmitting == 0u &&
+        surface.material.opacity >= 0.999 ? 1u : 0u;
+
+    [loop]
+    for (uint slot = 0u;
+        slot < min(candidates.retainedCount, CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY);
+        ++slot)
+    {
+        const uint instanceId = candidates.instanceId[slot];
+        const uint materialIndex = candidates.materialIndex[slot];
+        const uint primitiveIndex = candidates.primitiveIndex[slot];
+        const float2 barycentrics = float2(
+            asfloat(candidates.barycentricXBits[slot]),
+            asfloat(candidates.barycentricYBits[slot]));
+        float3 cardPosition;
+        float3 cardPlaneNormal;
+        float2 cardTexCoord;
+        const bool cardValid = CleanGiTryBuildLiquidPoolCardEvidence(
+            instanceId, primitiveIndex, barycentrics,
+            cardPosition, cardPlaneNormal, cardTexCoord);
+        LiquidPoolReceiverEvidence evidence = (LiquidPoolReceiverEvidence)0;
+        evidence.cardPosition = cardPosition;
+        evidence.cardPlaneNormal = cardPlaneNormal;
+        evidence.receiverPosition = surface.worldPos;
+        evidence.receiverGeometryNormal = surface.geometryNormal;
+        evidence.rayDirection = rayDirection;
+        evidence.domainAccepted = cardValid && instanceId <= 1u && surface.instanceId == 0u;
+        evidence.identityAccepted = evidence.domainAccepted;
+        evidence.receiverOpaque = receiverOpaque;
+        evidence.receiverPathTransmission = receiverTransmitting;
+        if (!LiquidPoolAcceptsReceiver(evidence))
+        {
+            result.rejectionCount += 1u;
+            result.statusMask |= RT_LIQUID_POOL_STATUS_RECEIVER_REJECTED;
+            continue;
+        }
+
+        PathTraceMaterialFeatureParameterRecord parameters;
+        float4 stageColor;
+        if (!CleanGiTryLoadLiquidPoolParameters(materialIndex, parameters) ||
+            !CleanGiTryGetLiquidPoolStageColor(materialIndex, stageColor))
+        {
+            result.rejectionCount += 1u;
+            result.statusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED;
+            continue;
+        }
+        const PathTraceSmokeMaterial material = CleanGiLoadSmokeMaterial(materialIndex);
+        LiquidPoolReducerCandidate candidate = (LiquidPoolReducerCandidate)0;
+        candidate.coverage = saturate(CleanGiAlphaCoverage(material, cardTexCoord)) * saturate(stageColor.a);
+        candidate.height = 1.0;
+        const float3 authoredRgb = saturate(
+            max(CleanGiSampleDecodedDiffuseTexture(material, cardTexCoord).rgb, 0.0) *
+            max(stageColor.rgb, 0.0));
+        candidate.decalRgb = CleanGiLiquidPoolUsesInvertedFilterBlackKey(parameters, material)
+            ? 1.0 - authoredRgb
+            : authoredRgb;
+        candidate.referenceTransmittance = parameters.params0.xyz;
+        candidate.opticalDepthScale = parameters.params0.w;
+        candidate.coatRoughness = parameters.params1.x;
+        candidate.dielectricIor = parameters.params1.y;
+        candidate.authoredNormalStrength = parameters.params1.z;
+        candidate.key = LiquidPoolMakeContributorKey(
+            instanceId, primitiveIndex, materialIndex, barycentrics);
+        candidate.diagnosticHash = CleanGiLiquidPoolDiagnosticHash(candidate.key);
+        candidate.valid = candidate.coverage > 0.0 ? 1u : 0u;
+        if (candidate.valid == 0u)
+        {
+            continue;
+        }
+        result.film = LiquidPoolReduceCandidate(result.film, candidate);
+        result.validatedCount += 1u;
+    }
+
+    if (result.validatedCount > 0u)
+    {
+        result.statusMask |= RT_LIQUID_POOL_STATUS_RECEIVER_VALID;
+    }
+    result.film.overflowed = (result.statusMask & RT_LIQUID_POOL_STATUS_OVERFLOW) != 0u ? 1u : 0u;
+    const uint alreadyApplied = (surface.flags & RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED) != 0u ? 1u : 0u;
+    if (alreadyApplied != 0u && result.film.valid != 0u)
+    {
+        result.statusMask |= RT_LIQUID_POOL_STATUS_DUPLICATE_APPLY;
+    }
+    if (result.film.overflowed == 0u)
+    {
+        result.effective = LiquidPoolApplyResolvedFilm(
+            surface.material.diffuseAlbedo,
+            surface.material.specularF0,
+            surface.material.roughness,
+            result.film,
+            alreadyApplied);
+        if (CleanRestirGiLiquidPoolMode >= 2u && result.effective.applied != 0u)
+        {
+            surface.material.diffuseAlbedo = result.effective.albedo;
+            surface.material.specularF0 = result.effective.specularF0;
+            surface.material.roughness = result.effective.roughness;
+            surface.flags |= RT_PATH_TRACE_SURFACE_FLAG_LIQUID_FILM_APPLIED;
+            result.statusMask |= RT_LIQUID_POOL_STATUS_APPLIED;
+        }
+    }
+    CleanGiPublishLiquidPoolExceptionalStatus(routeSource, result.statusMask);
+    return result;
+}
+
 bool CleanGiBuildDrySurfaceFromHit(
     float3 rayOrigin,
     float3 rayDirection,
@@ -3762,6 +4246,8 @@ bool CleanGiBuildDrySurfaceFromHit(
     uint hitInstanceId,
     uint hitPrimitiveIndex,
     float2 hitBarycentrics,
+    CleanGiLiquidPoolCandidateSet liquidPoolCandidates,
+    uint liquidPoolRouteSource,
     out RAB_Surface hitSurface)
 {
     hitSurface = RAB_EmptySurface();
@@ -3870,6 +4356,11 @@ bool CleanGiBuildDrySurfaceFromHit(
     hitSurface.surfaceClass = hitSurfaceClass;
     hitSurface.flags = hitTriangleClassAndFlags;
     hitSurface.material = hitRabMaterial;
+    CleanGiResolveLiquidPool(
+        hitSurface,
+        liquidPoolCandidates,
+        rayDirection,
+        liquidPoolRouteSource);
     return true;
 }
 
@@ -3898,11 +4389,11 @@ bool CleanGiTraceMaterialSurfaceRay(
     ray.TMax = 100000.0;
 
     PathTraceCleanRestirGiPayload payload = (PathTraceCleanRestirGiPayload)0;
-    payload.rayMode = 1u;
+    payload.rayMode = forceOpaqueTrace ? 1u : 0u;
     payload.ignoreInstanceId = ignoreInstanceId;
     payload.ignorePrimitiveIndex = ignorePrimitiveIndex;
     payload.ignoreMaterialIndex = ignoreMaterialIndex;
-    const uint traceFlags = forceOpaqueTrace ? RAY_FLAG_FORCE_OPAQUE : RAY_FLAG_FORCE_NON_OPAQUE;
+    const uint traceFlags = CleanGiLiquidPoolMaterialRayFlags(forceOpaqueTrace);
     TraceRay(SmokeScene, traceFlags, 0xff, 0, 1, 0, ray, payload);
     if (payload.value == 0u)
     {
@@ -3916,6 +4407,8 @@ bool CleanGiTraceMaterialSurfaceRay(
         payload.hitInstanceId,
         payload.hitPrimitiveIndex,
         payload.hitBarycentrics,
+        payload.liquidPool,
+        CleanRestirGiLiquidPoolProducerSource,
         hitSurface);
     hitGeometricNormal = hitSurface.geometryNormal;
     hitEmissive = hitSurface.material.emissiveRadiance;
@@ -4716,6 +5209,8 @@ bool CleanGiBuildProducerSurfaceFromHit(
     uint hitInstanceId,
     uint hitPrimitiveIndex,
     float2 hitBarycentrics,
+    CleanGiLiquidPoolCandidateSet liquidPoolCandidates,
+    uint liquidPoolRouteSource,
     out RAB_Surface secondarySurface)
 {
     secondarySurface = RAB_EmptySurface();
@@ -4732,6 +5227,8 @@ bool CleanGiBuildProducerSurfaceFromHit(
         hitInstanceId,
         hitPrimitiveIndex,
         hitBarycentrics,
+        liquidPoolCandidates,
+        liquidPoolRouteSource,
         secondarySurface);
 }
 
@@ -4756,11 +5253,11 @@ bool CleanGiBuildProducerSurface(
     bounceRay.TMax = 100000.0;
 
     PathTraceCleanRestirGiPayload payload = (PathTraceCleanRestirGiPayload)0;
-    payload.rayMode = 1u;
+    payload.rayMode = CleanRestirGiProducerOpaqueTrace != 0u ? 1u : 0u;
     payload.ignoreInstanceId = 0xffffffffu;
     payload.ignorePrimitiveIndex = 0xffffffffu;
     payload.ignoreMaterialIndex = 0xffffffffu;
-    const uint rayFlags = CleanRestirGiProducerOpaqueTrace != 0u ? RAY_FLAG_FORCE_OPAQUE : RAY_FLAG_FORCE_NON_OPAQUE;
+    const uint rayFlags = CleanGiLiquidPoolMaterialRayFlags(CleanRestirGiProducerOpaqueTrace != 0u);
     TraceRay(SmokeScene, rayFlags, 0xff, 0, 1, 0, bounceRay, payload);
     if (payload.value == 0u)
     {
@@ -4774,6 +5271,8 @@ bool CleanGiBuildProducerSurface(
         payload.hitInstanceId,
         payload.hitPrimitiveIndex,
         payload.hitBarycentrics,
+        payload.liquidPool,
+        CleanRestirGiLiquidPoolProducerSource,
         secondarySurface);
 }
 
@@ -4868,7 +5367,9 @@ bool CleanGiBuildProducerSurfaceRayQuery(
     bounceRay.TMin = 0.01;
     bounceRay.TMax = 100000.0;
 
-    const uint rayFlags = CleanRestirGiProducerOpaqueTrace != 0u ? RAY_FLAG_FORCE_OPAQUE : RAY_FLAG_FORCE_NON_OPAQUE;
+    const bool requestedOpaque = CleanRestirGiProducerOpaqueTrace != 0u;
+    const uint rayFlags = CleanGiLiquidPoolMaterialRayFlags(requestedOpaque);
+    CleanGiLiquidPoolCandidateSet liquidPoolCandidates = (CleanGiLiquidPoolCandidateSet)0;
     RayQuery<RAY_FLAG_NONE> query;
     query.TraceRayInline(SmokeScene, rayFlags, 0xff, bounceRay);
     bool sawCandidate = false;
@@ -4882,7 +5383,24 @@ bool CleanGiBuildProducerSurfaceRayQuery(
             const uint candidateInstanceId = query.CandidateInstanceID();
             const uint candidatePrimitiveIndex = query.CandidatePrimitiveIndex();
             const float2 candidateBarycentrics = query.CandidateTriangleBarycentrics();
-            if (CleanGiMaterialRejectsHit(pixel, candidateInstanceId, candidatePrimitiveIndex, candidateBarycentrics, false))
+            const uint candidateMaterialIndex = CleanGiLoadTriangleMaterialIndex(
+                candidateInstanceId, candidatePrimitiveIndex);
+            if (CleanGiCollectLiquidPoolCandidate(
+                liquidPoolCandidates,
+                candidateInstanceId,
+                candidatePrimitiveIndex,
+                candidateMaterialIndex,
+                candidateBarycentrics,
+                query.CandidateTriangleRayT()))
+            {
+                continue;
+            }
+            if (!requestedOpaque && CleanGiMaterialRejectsHit(
+                pixel,
+                candidateInstanceId,
+                candidatePrimitiveIndex,
+                candidateBarycentrics,
+                false))
             {
                 sawRejectedCandidate = true;
             }
@@ -4937,6 +5455,8 @@ bool CleanGiBuildProducerSurfaceRayQuery(
         hitInstanceId,
         hitPrimitiveIndex,
         query.CommittedTriangleBarycentrics(),
+        liquidPoolCandidates,
+        RT_LIQUID_POOL_SOURCE_GI_RAY_QUERY,
         secondarySurface);
     traceStatus = surfaceBuilt
         ? CLEAN_GI_PRODUCER_TRACE_STATUS_OK
@@ -7896,7 +8416,33 @@ void ShadowMiss(inout PathTraceCleanRestirGiPayload payload)
 [shader("anyhit")]
 void AnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    if (CleanGiMaterialRejectsHit(DispatchRaysIndex().xy, InstanceID(), PrimitiveIndex(), attributes.barycentrics, false))
+    const uint instanceId = InstanceID();
+    const uint primitiveIndex = PrimitiveIndex();
+    const uint materialIndex = CleanGiLoadTriangleMaterialIndex(instanceId, primitiveIndex);
+    if (CleanGiCollectLiquidPoolCandidate(
+        payload.liquidPool,
+        instanceId,
+        primitiveIndex,
+        materialIndex,
+        attributes.barycentrics,
+        RayTCurrent()))
+    {
+        IgnoreHit();
+        return;
+    }
+    // Liquid-capable traversal uses FORCE_NON_OPAQUE even when the caller
+    // requested opaque semantics. Non-liquid candidates therefore bypass the
+    // ordinary alpha rejection in that requested-opaque case.
+    if (payload.rayMode != 0u)
+    {
+        return;
+    }
+    if (CleanGiMaterialRejectsHit(
+        DispatchRaysIndex().xy,
+        instanceId,
+        primitiveIndex,
+        attributes.barycentrics,
+        false))
     {
         IgnoreHit();
     }
@@ -7905,7 +8451,22 @@ void AnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersec
 [shader("anyhit")]
 void ShadowAnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    if (CleanGiMaterialRejectsHit(DispatchRaysIndex().xy, InstanceID(), PrimitiveIndex(), attributes.barycentrics, true))
+    const uint instanceId = InstanceID();
+    const uint primitiveIndex = PrimitiveIndex();
+    const uint materialIndex = CleanGiLoadTriangleMaterialIndex(instanceId, primitiveIndex);
+    if (CleanGiLiquidPoolCollectionEnabled() &&
+        instanceId <= 1u &&
+        CleanGiMaterialIsSemanticLiquidPool(materialIndex))
+    {
+        IgnoreHit();
+        return;
+    }
+    if (CleanGiMaterialRejectsHit(
+        DispatchRaysIndex().xy,
+        instanceId,
+        primitiveIndex,
+        attributes.barycentrics,
+        true))
     {
         IgnoreHit();
     }
