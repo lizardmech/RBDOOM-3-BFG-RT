@@ -138,7 +138,6 @@ extern idCVar r_pathTracingReGIRCenterMode;
 extern idCVar r_pathTracingReGIRManualCenterX;
 extern idCVar r_pathTracingReGIRManualCenterY;
 extern idCVar r_pathTracingReGIRManualCenterZ;
-extern idCVar r_pathTracingReGIRDump;
 extern idCVar r_pathTracingNeeCacheEnable;
 extern idCVar r_pathTracingNeeCacheMode;
 extern idCVar r_pathTracingNeeCacheDebugView;

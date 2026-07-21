@@ -58,6 +58,3 @@ struct PathTraceReGIRState
 
 PathTraceReGIRSettings BuildPathTraceReGIRSettingsFromCVars();
 PathTraceReGIRResourceDesc BuildPathTraceReGIRResourceDesc(const PathTraceReGIRSettings& settings, const PathTraceReGIRLightCounts& lightCounts);
-const char* PathTraceReGIRModeName(int mode);
-const char* PathTraceReGIRLightDomainName(int lightDomain);
-const char* PathTraceReGIRCenterModeName(int centerMode);

@@ -273,19 +273,6 @@ idVec3 SnapPathTraceReGIRCenterToCell(const idVec3& center, const PathTraceReGIR
         SnapPathTraceReGIRCenterCoord(center.z, settings.cellSize));
 }
 
-const char* PathTraceReGIRCenterPolicyName(const PathTraceReGIRSettings& settings)
-{
-    if (settings.centerMode == 2)
-    {
-        return "manual";
-    }
-    if (settings.centerMode == 1)
-    {
-        return "map-bounds-clamp-to-view-when-grid-smaller-than-map-cell-snapped";
-    }
-    return "camera-cell-snapped";
-}
-
 idVec3 ResolvePathTraceReGIRCenter(const RtSmokeGeometryUniverse& geometryUniverse, const PathTraceReGIRSettings& settings, const idVec3& fallbackCenter)
 {
     if (settings.centerMode == 2)
@@ -1461,80 +1448,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (regirSettings.debugView >= 1 && regirSettings.debugView <= 10);
     const bool standaloneDebugRouteRequested = regirDebugRouteRequested || neeCacheDebugRouteRequested;
     const idVec3 regirResolvedCenter = ResolvePathTraceReGIRCenter(m_smokeGeometryUniverse, regirSettings, m_smokeSceneOrigin);
-    auto printReGIRDump = [&](const char* stage, const char* earlyReturn)
-    {
-        const bool regirCandidateDebugView =
-            regirSettings.debugView >= 4 && regirSettings.debugView <= 10;
-        const char* regirSourceDistribution =
-            regirSettings.debugView == 9
-                ? (regirUseCurrentRabLightUniverse
-                    ? "view9DeterministicDenseSource:slotClass=deterministicParity,selectedIndex=hash(cell,slot)%selectedClassRangeCount,noRadianceOrSourceWeightRIS,sourcePdf=classMass/rangeCount,globalIdentity=RABLightManagerDenseIndex"
-                    : "rluRequired:legacyFallbackDisabled,emptyReason=no-current-rlu-source")
-            : regirUseCurrentRabLightUniverse
-                ? (regirSettings.lightDomain == 0 ? "analyticBoundedRIS:proposalCount=min(RLU.doomAnalyticSampleCount,currentRabDoomAnalyticRangeCount),proposalInvPdf=rangeCount/proposalCount,stableCellInfluenceReservoir(noPayloadRadianceOrSourceWeight),storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=RABLightManagerDenseIndex" :
-                    (regirSettings.lightDomain == 1 ? "emissiveBoundedRIS:proposalCount=min(RLU.emissiveSampleCount,currentRabEmissiveRangeCount),proposalInvPdf=rangeCount/proposalCount,stableCellInfluenceReservoir(noPayloadRadianceOrSourceWeight),storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=RABLightManagerDenseIndex" :
-                    "splitBoundedRIS:slotClass=deterministicParity,analyticClassMass=analyticSlotCount/lightsPerCell,emissiveClassMass=emissiveSlotCount/lightsPerCell,singlePresentClassMass=1,stableSlot=cellHash%lightsPerCellNoFallback,proposalCount=min(RLU.selectedTypeSampleCount,selectedClassRangeCount),proposalInvPdf=rangeCount/(classMass*proposalCount),stableCellInfluenceReservoir(noPayloadRadianceOrSourceWeight),storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,consumerMustUseSameSlotClassMass,globalIdentity=RABLightManagerDenseIndex"))
-                : (regirLegacyFallbackDisabled ? "rluRequired:legacyFallbackDisabled,emptyReason=no-current-rlu-source" : (regirSettings.lightDomain == 0 ? "analyticBoundedRIS:proposalCount=min(buildSamples,currentDoomAnalyticCount),proposalInvPdf=currentDoomAnalyticCount/proposalCount,cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=emissiveCount+analyticIndex" :
-                    (regirSettings.lightDomain == 1 ? "emissiveBoundedRIS:proposalCount=min(buildSamples,currentEmissiveTriangleCount),proposalInvPdf=currentEmissiveTriangleCount/proposalCount,cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=emissiveIndex" :
-                    "splitBoundedRIS:slotClass=deterministicParity,analyticClassMass=analyticSlotCount/lightsPerCell,emissiveClassMass=emissiveSlotCount/lightsPerCell,singlePresentClassMass=1,stableSlot=cellHash%lightsPerCellNoFallback,proposalCount=min(buildSamples,selectedClassCount),proposalInvPdf=selectedClassCount/(classMass*proposalCount),cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,consumerMustUseSameSlotClassMass,globalIdentity=RABSplitIndex")));
-        const char* firstMissingContract =
-            regirLegacyFallbackDisabled && !regirUseCurrentRabLightUniverse ? "current-remix-rab-light-universe" :
-            !regirResourceReady && regirDesc.requested && regirDesc.structuralValid ? "candidate-cache-buffer" :
-            (earlyReturn && idStr::Icmp(earlyReturn, "none") != 0 && regirDesc.requested ? earlyReturn : regirDesc.firstMissingContract);
-        common->Printf(
-            "PathTracePrimaryPass: ReGIR clean-room shell dump stage=%s earlyReturn=%s enable=%d debugView=%d debugRoute=%d mode=%d(%s) centerMode=%d(%s) centerPolicy=%s center=(%.2f,%.2f,%.2f) cellSize=%.2f grid=%ux%ux%u cellCount=%u lightsPerCell=%u buildSamples=%u lightDomain=%d(%s) lightSource=%s legacyFallback=%s rluCurrent=%u rluRanges emissive=%u+%u doomAnalytic=%u+%u rluSamples emissive/doom/total/nonEmpty=%u/%u/%u/%u selectedDenseCurrentIndex=shaderCandidate.lightIndex selectedType=shaderCandidate.lightClassFromRLUPayload counts analytic=%u emissive=%u split=%u unified=%u candidateStride=%u candidateSlots=%u candidateBytes=%llu bufferReady=%d allocationSerial=%llu dispatchSlots=%u selectedSlotPolicy=view9:cellHash%%lightsPerCell-no-frameIndex consumerOverrides=none sourceDistribution=%s rabReplay=view7/view10:primaryHitSurface+RAB_LoadActiveRrxLightInfo+RAB_SamplePolymorphicLight+RAB_GetLightSampleTargetPdfForSurface firstMissingContract=%s forbiddenPdfNee=0 temporal=0 spatial=0 bestLights=0 mode56=0 rrxPages=0 output=%s task=%s\n",
-            stage ? stage : "unknown",
-            earlyReturn ? earlyReturn : "none",
-            regirSettings.enabled ? 1 : 0,
-            regirSettings.debugView,
-            regirDebugRouteRequested ? 1 : 0,
-            regirSettings.mode,
-            PathTraceReGIRModeName(regirSettings.mode),
-            regirSettings.centerMode,
-            PathTraceReGIRCenterModeName(regirSettings.centerMode),
-            PathTraceReGIRCenterPolicyName(regirSettings),
-            regirResolvedCenter.x,
-            regirResolvedCenter.y,
-            regirResolvedCenter.z,
-            regirSettings.cellSize,
-            regirSettings.gridX,
-            regirSettings.gridY,
-            regirSettings.gridZ,
-            regirDesc.cellCount,
-            regirSettings.lightsPerCell,
-            regirSettings.buildSamples,
-            regirSettings.lightDomain,
-            PathTraceReGIRLightDomainName(regirSettings.lightDomain),
-            regirUseCurrentRabLightUniverse ? "current-remix-rab-light-universe" : (regirLegacyFallbackDisabled ? "current-remix-rab-light-universe-unavailable" : "legacy-split-current-light-buffers"),
-            regirLegacyFallbackDisabled ? "disabled" : "available-for-cell-only-debug-views",
-            regirRemixLightManagerStats.currentLightCount,
-            regirRemixLightManagerStats.emissiveRangeOffset,
-            regirRemixLightManagerStats.emissiveRangeCount,
-            regirRemixLightManagerStats.doomAnalyticRangeOffset,
-            regirRemixLightManagerStats.doomAnalyticRangeCount,
-            regirRemixLightManagerStats.emissiveSampleCount,
-            regirRemixLightManagerStats.doomAnalyticSampleCount,
-            regirRemixLightManagerStats.totalSampleCount,
-            regirRemixLightManagerStats.nonEmptyRangeCount,
-            regirLightCounts.analyticCount,
-            regirLightCounts.emissiveCount,
-            regirLightCounts.analyticCount + regirLightCounts.emissiveCount,
-            regirLightCounts.unifiedCount,
-            regirDesc.candidateStride,
-            regirDesc.slotCount,
-            static_cast<unsigned long long>(regirDesc.candidateBytes),
-            m_smokeReGIRState.candidateCacheBuffer ? 1 : 0,
-            static_cast<unsigned long long>(m_smokeReGIRState.allocationSerial),
-            regirDesc.slotCount,
-            regirSourceDistribution,
-            firstMissingContract,
-            regirDebugRouteRequested ? "SmokeOutput" : "none",
-            regirDebugRouteRequested
-                ? ((regirSettings.debugView == 7 || regirSettings.debugView == 9 || regirSettings.debugView == 10)
-                    ? "REGIR-08"
-                    : (regirSettings.lightDomain == 2 && regirCandidateDebugView ? "REGIR-05" : (regirSettings.lightDomain == 1 && regirCandidateDebugView ? "REGIR-04" : (regirCandidateDebugView ? "REGIR-03" : "REGIR-02"))))
-                : "REGIR-01");
-    };
     auto printCleanRtxdiDiDump = [&](const char* stage, const char* earlyReturn, int selectedCleanShaderTable)
     {
         const bool cleanEnabledNow = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
@@ -1980,11 +1893,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             printNeeCacheDump("dispatch-entry", "base-resource");
             r_pathTracingNeeCacheDump.SetInteger(0);
         }
-        if (r_pathTracingReGIRDump.GetInteger() != 0)
-        {
-            printReGIRDump("dispatch-entry", "base-resource");
-            r_pathTracingReGIRDump.SetInteger(0);
-        }
         if (cleanRtxdiDiDumpRequested)
         {
             printCleanRtxdiDiDump("dispatch-entry", "base-resource", 0);
@@ -1999,11 +1907,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     if (!standaloneDebugRouteRequested && !cleanRtxdiDiRouteRequested && !pdfNeeRluCurrentProducerRequested && !m_frameResources.primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height)))
     {
-        if (r_pathTracingReGIRDump.GetInteger() != 0)
-        {
-            printReGIRDump("dispatch-entry", "primary-history");
-            r_pathTracingReGIRDump.SetInteger(0);
-        }
         if (cleanRtxdiDiDumpRequested)
         {
             printCleanRtxdiDiDump("dispatch-entry", "primary-history", 0);
@@ -2024,11 +1927,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             printNeeCacheDump("dispatch-entry", "command-list");
             r_pathTracingNeeCacheDump.SetInteger(0);
-        }
-        if (r_pathTracingReGIRDump.GetInteger() != 0)
-        {
-            printReGIRDump("dispatch-entry", "command-list");
-            r_pathTracingReGIRDump.SetInteger(0);
         }
         if (cleanRtxdiDiDumpRequested)
         {
@@ -4391,11 +4289,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 printPdfNeeVerifierDump("dispatch-entry", "regir-build-shader");
                 r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
             }
-            if (r_pathTracingReGIRDump.GetInteger() != 0)
-            {
-                printReGIRDump("dispatch-entry", "regir-debug-shader");
-                r_pathTracingReGIRDump.SetInteger(0);
-            }
             return;
         }
     }
@@ -4496,11 +4389,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 printPdfNeeVerifierDump("dispatch-entry", "device");
                 r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
             }
-            if (r_pathTracingReGIRDump.GetInteger() != 0)
-            {
-                printReGIRDump("dispatch-entry", "device");
-                r_pathTracingReGIRDump.SetInteger(0);
-            }
             return;
         }
         if (!m_smokeReGIRState.candidateCacheBuffer)
@@ -4509,11 +4397,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 printPdfNeeVerifierDump("dispatch-entry", "regir-candidate-cache");
                 r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
-            }
-            if (r_pathTracingReGIRDump.GetInteger() != 0)
-            {
-                printReGIRDump("dispatch-entry", "candidate-cache-buffer");
-                r_pathTracingReGIRDump.SetInteger(0);
             }
             return;
         }
@@ -4565,11 +4448,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 printPdfNeeVerifierDump("dispatch-entry", "regir-build-binding-set");
                 r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
-            }
-            if (r_pathTracingReGIRDump.GetInteger() != 0)
-            {
-                printReGIRDump("dispatch-entry", "regir-debug-binding-set");
-                r_pathTracingReGIRDump.SetInteger(0);
             }
             return;
         }
@@ -5215,11 +5093,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         printNeeCacheSecondaryDump();
         r_pathTracingNeeCacheSecondaryDump.SetInteger(0);
-    }
-    if (r_pathTracingReGIRDump.GetInteger() != 0)
-    {
-        printReGIRDump("pre-dispatch", "none");
-        r_pathTracingReGIRDump.SetInteger(0);
     }
     constants.regirInfo0[0] = regirSettings.enabled ? 1.0f : 0.0f;
     constants.regirInfo0[1] = static_cast<float>(regirSettings.debugView);

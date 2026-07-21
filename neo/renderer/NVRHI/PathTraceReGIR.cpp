@@ -212,49 +212,6 @@ PathTraceReGIRResourceDesc BuildPathTraceReGIRResourceDesc(const PathTraceReGIRS
     return desc;
 }
 
-const char* PathTraceReGIRModeName(int mode)
-{
-    switch (mode)
-    {
-    case 1:
-        return "grid";
-    case 2:
-        return "onion";
-    default:
-        return "disabled";
-    }
-}
-
-const char* PathTraceReGIRLightDomainName(int lightDomain)
-{
-    switch (lightDomain)
-    {
-    case 0:
-        return "analytic";
-    case 1:
-        return "emissive";
-    case 2:
-        return "analytic-plus-emissive-split";
-    default:
-        return "invalid";
-    }
-}
-
-const char* PathTraceReGIRCenterModeName(int centerMode)
-{
-    switch (centerMode)
-    {
-    case 0:
-        return "camera";
-    case 1:
-        return "map-bounds";
-    case 2:
-        return "manual";
-    default:
-        return "invalid";
-    }
-}
-
 void PathTraceReGIRState::Clear()
 {
     candidateCacheBuffer = nullptr;

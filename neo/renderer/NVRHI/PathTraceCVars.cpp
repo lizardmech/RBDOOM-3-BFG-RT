@@ -789,12 +789,6 @@ idCVar r_pathTracingReGIRManualCenterZ(
     CVAR_RENDERER | CVAR_FLOAT,
     "Standalone ReGIR manual center Z used when r_pathTracingReGIRCenterMode is 2" );
 
-idCVar r_pathTracingReGIRDump(
-    "r_pathTracingReGIRDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump standalone ReGIR mode, cells, domain counts, resource size, dispatch slots, and first missing contract once" );
-
 idCVar r_pathTracingNeeCacheEnable(
     "r_pathTracingNeeCacheEnable",
     "0",

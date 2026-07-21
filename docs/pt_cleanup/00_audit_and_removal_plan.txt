@@ -1037,3 +1037,20 @@ Working rule for every deletion slice:
     remain up to date and no DXIL command runs. Deploy only the executable;
     source and deployed SHA-256 both equal
     0680052CBADB16E3BAEB8628BC8F757DC732C7FA0C871E12670250C2C3231570.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit ad5b535c6. T4.2a/T4.3i runtime gate closed.
+  - T4.3j removes the one-shot standalone ReGIR bring-up dump. Its CVar, large
+    console formatter, and repeated early-return print/reset blocks do not feed
+    route selection, resource creation, binding construction, constants, or
+    dispatch. Removing the formatter also orphans three public enum-to-string
+    helpers and one local center-policy label helper; remove those declarations
+    and definitions in the same ownership slice. Preserve the live ReGIR debug
+    views, center resolver, resource state, RLU inputs, binding set, constants,
+    candidate build, and dispatch. The last-day history for this dump is
+    cleanup-only and does not intersect the recent rendering-feature changes.
+  - T4.3j verification: whole-neo sweeps for r_pathTracingReGIRDump,
+    printReGIRDump, and the four retired label helpers are empty. The full
+    win64-pt-dev-release build passes; both SPIR-V targets remain up to date and
+    no DXIL command runs. This is a C++-only slice, so deploy only the executable;
+    source and deployed SHA-256 both equal
+    B9D6144E8ADB43467DAB89632D67E8735F3BA056E2833C1FC8859112F99B8563.
