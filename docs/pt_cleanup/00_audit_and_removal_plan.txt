@@ -770,3 +770,22 @@ Working rule for every deletion slice:
     62D770978A36D28D0B5CB631220C5B9B59B980454E6374E1D9647D05DEC4C3FA;
     the preserved deployed SHA-256 is
     B37497B23E99827A03BBA14B281260DB23E40743D0BCC2E4CC9AAF4BEBADFBB2.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    fbaf52595. T3.1h runtime gate closed.
+  - T4.3a begins the second CVar-pruning pass with ten controls whose only code
+    tokens are their definition string, idCVar symbol, and extern declaration.
+    Whole-repository search finds no runtime lookup by symbol or string. Remove
+    ClassSummary, the explicitly legacy SceneBoundsDepthTest, the reserved RLU
+    debug selector, two unwired material-classifier policy controls, three
+    superseded clean-DI spatial tuning names, the reserved glass-guide selector,
+    and the inactive DLSS-RR ReverseZ selector.
+  - These definitions date from May through early July and none belongs to the
+    preceding 24-hour feature work. Preserve the live clean-DI spatial enable
+    and r_cleanDiSpatial tuning family, all glass production controls, the RLU
+    domain/provider controls, current material-feature inputs, RR depth mode and
+    camera planes, the retained debug-mode set, and all residency/entity-feed
+    declarations involved in the separate dirty geometry worktree lane.
+  - The full win64-pt-dev-release build passes. All SPIR-V and DXIL targets stay
+    up to date because this slice changes no shader source or dependency. Deploy
+    only the rebuilt EXE; source and destination SHA-256 match at
+    ADB719BD6BCA5F2EEBC92C134D1E1E65771AD16220917283373DDDAD90D6C847.

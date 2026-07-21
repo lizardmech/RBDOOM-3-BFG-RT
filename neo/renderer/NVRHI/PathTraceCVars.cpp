@@ -21,12 +21,6 @@ idCVar r_pathTracingClassDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump sampled RT smoke surface classification reasons once" );
 
-idCVar r_pathTracingClassSummary(
-    "r_pathTracingClassSummary",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to include RT smoke class counts in the throttled scene-capture summary" );
-
 idCVar r_pathTracingDebugWidth(
     "r_pathTracingDebugWidth",
     "320",
@@ -525,12 +519,6 @@ idCVar r_pathTracingSceneBoundsOverlayMax(
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum PT drawSurf mirror bounds boxes drawn per frame" );
 
-idCVar r_pathTracingSceneBoundsDepthTest(
-    "r_pathTracingSceneBoundsDepthTest",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Legacy no-op for the PT drawSurf bounds overlay; overlay is now blended inside the PT output" );
-
 idCVar r_pathTracingSceneBoundsOverlayGpu(
     "r_pathTracingSceneBoundsOverlayGpu",
     "0",
@@ -668,12 +656,6 @@ idCVar r_pathTracingRemixLightUniverseUseForCleanRtxdiDi(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Allow clean RTXDI DI real-light routes to request and consume the Remix-shaped dense Doom analytic light domain" );
-
-idCVar r_pathTracingRemixLightUniverseDebugView(
-    "r_pathTracingRemixLightUniverseDebugView",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Reserved RLU debug view selector: 0 off, 1 route/status, 2 current identity, 3 previous identity, 4 current-to-previous map, 5 previous-to-current map, 6 classification, 7 payload signatures, 8 spawn/despawn, 9 RAB replay validity" );
 
 idCVar r_pathTracingRemixLightUniverseDomain(
     "r_pathTracingRemixLightUniverseDomain",
@@ -1095,23 +1077,11 @@ idCVar r_pathTracingMatClassDriveLegacySpec(
     CVAR_RENDERER | CVAR_INTEGER,
     "Material classifier Route B opt-in: promote classified Ricochet legacy spec materials to metallic F0 while preserving specmap roughness" );
 
-idCVar r_pathTracingMatClassGlossRoughnessMode(
-    "r_pathTracingMatClassGlossRoughnessMode",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Material classifier Route B roughness mode reserved for diagnostics; no active effect while shader-per-pixel spec roughness is used" );
-
 idCVar r_pathTracingMatClassNormalDecodeMode(
     "r_pathTracingMatClassNormalDecodeMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Material classifier normal decode: 0=image-format swizzle, 1=force RGB8 rg, 2=force compressed wy" );
-
-idCVar r_pathTracingMatClassAoIndirectOnly(
-    "r_pathTracingMatClassAoIndirectOnly",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Material classifier Route A: treat RMAO blue AO as indirect-only modulation" );
 
 idCVar r_pathTracingMatClassDebugList(
     "r_pathTracingMatClassDebugList",
@@ -1425,24 +1395,6 @@ idCVar r_pathTracingCleanRtxdiDiSpatial(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI path: default-on basic spatial reservoir reuse after the temporal producer pass; set 0 for temporal-only diagnostics" );
 
-idCVar r_pathTracingCleanRtxdiDiSpatialSamples(
-    "r_pathTracingCleanRtxdiDiSpatialSamples",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI spatial reuse: neighbor sample count for converged pixels; basic lane clamps to 1..16" );
-
-idCVar r_pathTracingCleanRtxdiDiSpatialDisocclusionSamples(
-    "r_pathTracingCleanRtxdiDiSpatialDisocclusionSamples",
-    "4",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI spatial reuse: neighbor sample count when the center reservoir has short history; basic lane clamps to 1..16" );
-
-idCVar r_pathTracingCleanRtxdiDiSpatialRadius(
-    "r_pathTracingCleanRtxdiDiSpatialRadius",
-    "30",
-    CVAR_RENDERER | CVAR_FLOAT,
-    "Clean-room Remix DI spatial reuse: screen-space neighbor sampling radius in pixels" );
-
 idCVar r_pathTracingCleanRtxdiDiBlueNoise(
     "r_pathTracingCleanRtxdiDiBlueNoise",
     "0",
@@ -1520,12 +1472,6 @@ idCVar r_pathTracingCleanRtxdiDiGlassDebugView(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 glass material-feature debug output: 0 off, 1 sidecar status, 2 transmission RGB, 3 overlay energy; producer-only no-ops here, use transmission debug view for PSR producer/reflection status" );
-
-idCVar r_pathTracingCleanRtxdiDiGlassGuideDebugView(
-    "r_pathTracingCleanRtxdiDiGlassGuideDebugView",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Reserved for future clean RTXDI DI glass RR guide diagnostics; ignored by the basic glass visual shader" );
 
 idCVar r_pathTracingCleanRtxdiDiGlassReflectionBoost(
     "r_pathTracingCleanRtxdiDiGlassReflectionBoost",
@@ -2579,12 +2525,6 @@ idCVar r_pathTracingDLSSRRCameraFar(
     "2048",
     CVAR_RENDERER | CVAR_FLOAT,
     "DLSS RR cameraFar (world units) for the finite-far RR depth projection. Sets the far plane the depth buffer + cameraViewToClip reach 1.0/0.0 at. <=znear falls back to 100000. 2048 validated for Doom 3 BFG (depth-overlay parity with reference DLSS-RR games)" );
-
-idCVar r_pathTracingDLSSRRReverseZ(
-    "r_pathTracingDLSSRRReverseZ",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "DLSS RR reverse-Z depth (only affects the legacy hyperbolic matrix path; inactive while r_pathTracingDLSSRRDepthMode selects linear depth)" );
 
 idCVar r_pathTracingDLSSRRDepthMode(
     "r_pathTracingDLSSRRDepthMode",
