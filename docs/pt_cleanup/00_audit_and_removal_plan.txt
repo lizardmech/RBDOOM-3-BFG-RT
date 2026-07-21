@@ -608,3 +608,25 @@ Working rule for every deletion slice:
     is due for deployment and no DXIL artifact was selected. Only the rebuilt
     EXE was copied to the prebuilt runtime. Source and destination SHA-256 both
     equal B6411F5114D47B57ED8B72A989D14BC18D11FA7630D3F06C22B52A93195B8715.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    e69ab8f73. T3.1b runtime gate closed.
+  - T3.1c removes the host resource island left after the PT shader bridge was
+    severed. A full shader-tree audit found no declarations at b28, u29, u55,
+    u56, or u68, while the host still allocated three full-resolution packed
+    reservoir sets, uploaded a dedicated PT parameter constant buffer, and
+    added all five dead slots to shared and producer-specific binding sets.
+  - Remove those allocations, descriptors, state transitions, unreachable clear
+    path, validity gates, resize/reset counters, and diagnostics. Delete the
+    now-unreferenced PathTraceRestirPT context/parameter implementation and
+    retain only primary-surface history ownership in
+    PathTraceRestirPTReservoirs. Six temporal/spatial CVars whose sole consumer
+    was the deleted parameter packer are removed with it.
+  - Preserve the live smoke reservoirs u18-u20, primary-surface history u30-u31,
+    clean DI reservoirs u69-u71, current-RLU output u69, Remix RTXDI resource
+    domains, and reflection/sidecar texture u47. This slice changes no shader
+    source or constant-buffer layout.
+  - The first compile identified two stale checkerboard arguments in the frame
+    resize implementation. Removing those completed the type severance. The
+    subsequent full win64-pt-dev-release build passed; all SPIR-V remained up
+    to date, so only the EXE was deployed. Source and destination SHA-256 both
+    equal A81348C1C59DE531CB7D82FAD49A6601DACF29EBE6BE0310341CB3A39B2BD69D.

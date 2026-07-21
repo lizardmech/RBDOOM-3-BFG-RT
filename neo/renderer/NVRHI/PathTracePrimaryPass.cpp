@@ -219,7 +219,6 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     ResetRayTracingSmokeSceneResources();
     m_frameResources.ResetOutputSizedResources(RT_FRAME_RESET_SCENE_RESOURCES);
     m_smokeConstantsBuffer = nullptr;
-    m_restirPTConstantsBuffer = nullptr;
     m_smokeBoundsOverlayLineBuffer = nullptr;
     m_liquidPoolStatusBuffer = nullptr;
     m_liquidPoolStatusReadbackBuffer = nullptr;
@@ -338,7 +337,6 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
     renderHeight = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_HEIGHT, RT_SMOKE_MAX_OUTPUT_HEIGHT, renderHeight);
     m_frameResources.ClearResetReasons();
     m_frameResources.settings.debugMode = debugMode;
-    m_frameResources.settings.checkerboardMode = RtRestirPTCheckerboardMode::Off;
     m_frameResources.settings.frameIndex = m_frameResources.restirPTFrameIndex;
     m_frameResources.settings.width = renderWidth;
     m_frameResources.settings.height = renderHeight;

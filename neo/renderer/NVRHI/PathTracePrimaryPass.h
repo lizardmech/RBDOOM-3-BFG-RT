@@ -407,7 +407,6 @@ private:
     nvrhi::BufferHandle m_smokeSkinnedCurrentJointMatrixBuffer;
     nvrhi::BufferHandle m_smokeSkinnedPreviousJointMatrixBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
-    nvrhi::BufferHandle m_restirPTConstantsBuffer;
     nvrhi::BufferHandle m_smokeBoundsOverlayLineBuffer;
     nvrhi::BufferHandle m_liquidPoolStatusBuffer;
     nvrhi::BufferHandle m_liquidPoolStatusReadbackBuffer;

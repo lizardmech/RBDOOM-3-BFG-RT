@@ -8,7 +8,6 @@
 // consume the same NVRHI handles.
 
 #include "PathTraceReservoirs.h"
-#include "PathTraceRestirPT.h"
 #include "PathTraceRestirPTReservoirs.h"
 
 #include <nvrhi/nvrhi.h>
@@ -49,7 +48,6 @@ struct RtPathTraceFrameSettings
     int outputWidth = 0;
     int outputHeight = 0;
     int debugMode = 0;
-    RtRestirPTCheckerboardMode checkerboardMode = RtRestirPTCheckerboardMode::Off;
     uint32_t frameIndex = 0;
     RtPathTraceFrameCameraState currentCamera;
     RtPathTraceFrameCameraState previousCamera;
@@ -64,8 +62,6 @@ struct RtPathTraceFrameResourceDiagnostics
     int diagnosticReadbackResourcesCreated = 0;
     int smokeReservoirBuffersReused = 0;
     int smokeReservoirBuffersRecreated = 0;
-    int restirPTReservoirBuffersReused = 0;
-    int restirPTReservoirBuffersRecreated = 0;
     int primarySurfaceHistoryBuffersReused = 0;
     int primarySurfaceHistoryBuffersRecreated = 0;
     int motionVectorTexturesCreated = 0;
@@ -78,9 +74,6 @@ struct RtPathTraceFrameResourceDiagnostics
     int readbacksUnmapped = 0;
     uint64_t outputTextureBytes = 0;
     uint64_t smokeReservoirBytes = 0;
-    uint64_t restirPTReservoirBytes = 0;
-    uint64_t restirPTDiReservoirBytes = 0;
-    uint64_t restirPTGiReservoirBytes = 0;
     uint64_t primarySurfaceHistoryBytes = 0;
     uint64_t motionVectorBytes = 0;
     uint64_t motionVectorMaskBytes = 0;
@@ -118,27 +111,17 @@ struct RtPathTraceFrameResources
     int outputHeight = 0;
 
     RtSmokeReservoirBufferHandles smokeReservoirBuffers;
-    RtRestirPTReservoirBufferHandles restirPTReservoirBuffers;
-    RtRestirPTReservoirBufferHandles restirPTDiReservoirBuffers;
-    RtRestirPTReservoirBufferHandles restirPTGiReservoirBuffers;
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
-    RtRestirPTContextState restirPTContextState;
     uint32_t restirPTFrameIndex = 0;
 
     uint64 smokeReservoirSceneSignature = 0;
     uint64 smokeReservoirDispatchSignature = 0;
     bool smokeReservoirNeedsClear = false;
-    bool restirPTReservoirNeedsClear = true;
-    bool restirPTDiReservoirNeedsClear = true;
-    bool restirPTGiReservoirNeedsClear = true;
     bool primarySurfaceHistoryNeedsClear = true;
     RtPathTracePrimarySurfaceHistoryState primarySurfaceHistoryState;
     RtPathTraceFrameCameraState primarySurfaceHistoryView;
     int smokeReservoirResetCount = 0;
     int smokeReservoirClearCount = 0;
-    int restirPTReservoirClearCount = 0;
-    int restirPTDiReservoirClearCount = 0;
-    int restirPTGiReservoirClearCount = 0;
     uint64 smokeAccumulationSignature = 0;
     int smokeAccumulationFrameCount = 0;
 
@@ -154,9 +137,9 @@ struct RtPathTraceFrameResources
     RtPathTraceFrameSettings settings;
     RtPathTraceFrameResourceDiagnostics diagnostics;
 
-    bool IsValidFor(int requestedWidth, int requestedHeight, int requestedOutputWidth, int requestedOutputHeight, RtRestirPTCheckerboardMode checkerboardMode) const;
+    bool IsValidFor(int requestedWidth, int requestedHeight, int requestedOutputWidth, int requestedOutputHeight) const;
     bool HasAnyOutputSizedResource() const;
-    bool ResizeOutputSizedResources(nvrhi::IDevice* device, int requestedWidth, int requestedHeight, int requestedOutputWidth, int requestedOutputHeight, RtRestirPTCheckerboardMode checkerboardMode);
+    bool ResizeOutputSizedResources(nvrhi::IDevice* device, int requestedWidth, int requestedHeight, int requestedOutputWidth, int requestedOutputHeight);
     void ResetOutputSizedResources(uint32_t reasonFlags);
     void ResetSceneDependentState();
     void ResetReadbackQueue();

@@ -723,7 +723,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
     RtSmokeBindingBuildResult result;
     result.textureDescriptorTable = desc.existingTextureDescriptorTable;
 
-    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.restirPTReflectionTexture || !desc.rrInputColorTexture || !desc.motionVectorTexture || !desc.rrMotionVectorTexture || !desc.motionVectorMaskTexture || !desc.rrGuideAlbedoTexture || !desc.rrGuideSpecularAlbedoTexture || !desc.rrGuideNormalRoughnessTexture || !desc.rrGuideDepthTexture || !desc.rrGuideHitDistanceTexture || !desc.rrGuideResetMaskTexture || !desc.rrGuidePositionTexture || !desc.fallbackTexture || !desc.skyEnvironmentCube || !desc.constantsBuffer || !desc.restirPTConstantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.restirPTReservoirBuffers.IsValidFor(desc.restirPTReservoirBuffers.width, desc.restirPTReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.restirPTDiReservoirBuffers.IsValidFor(desc.restirPTDiReservoirBuffers.width, desc.restirPTDiReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.restirPTGiReservoirBuffers.IsValidFor(desc.restirPTGiReservoirBuffers.width, desc.restirPTGiReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.primarySurfaceHistoryBuffers.IsValidFor(desc.primarySurfaceHistoryBuffers.width, desc.primarySurfaceHistoryBuffers.height))
+    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.restirPTReflectionTexture || !desc.rrInputColorTexture || !desc.motionVectorTexture || !desc.rrMotionVectorTexture || !desc.motionVectorMaskTexture || !desc.rrGuideAlbedoTexture || !desc.rrGuideSpecularAlbedoTexture || !desc.rrGuideNormalRoughnessTexture || !desc.rrGuideDepthTexture || !desc.rrGuideHitDistanceTexture || !desc.rrGuideResetMaskTexture || !desc.rrGuidePositionTexture || !desc.fallbackTexture || !desc.skyEnvironmentCube || !desc.constantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.primarySurfaceHistoryBuffers.IsValidFor(desc.primarySurfaceHistoryBuffers.width, desc.primarySurfaceHistoryBuffers.height))
     {
         result.errorMessage = "failed to create RT smoke binding set";
         return result;
@@ -902,8 +902,6 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, desc.buffers.rigidRouteInstanceBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, desc.buffers.doomAnalyticLightBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(45, desc.buffers.doomAnalyticPreviousLightBuffer));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(28, desc.restirPTConstantsBuffer));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(29, desc.restirPTReservoirBuffers.reservoirs));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, desc.primarySurfaceHistoryBuffers.current));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, desc.primarySurfaceHistoryBuffers.previous));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(32, desc.buffers.skinnedPreviousPositionBuffer));
@@ -953,9 +951,6 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, desc.rrInputColorTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, desc.rrMotionVectorTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(79, desc.rrGuidePositionTexture));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(55, desc.restirPTGiReservoirBuffers.reservoirs));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(56, desc.restirPTDiReservoirBuffers.reservoirs));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(68, desc.remixRtxdiDiReservoirBuffer ? desc.remixRtxdiDiReservoirBuffer : desc.restirPTDiReservoirBuffers.reservoirs));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(82, desc.liquidPoolStatusBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(
             126,
@@ -1220,20 +1215,6 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         common->Printf("PathTracePrimaryPass: liquid-pool status telemetry unavailable; modes 1-3 fail closed\n");
     }
 
-    nvrhi::BufferDesc restirPTConstantsDesc;
-    restirPTConstantsDesc.byteSize = GetRestirPTParametersSize();
-    restirPTConstantsDesc.debugName = "PathTraceRestirPTParameters";
-    restirPTConstantsDesc.isConstantBuffer = true;
-    restirPTConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
-    restirPTConstantsDesc.keepInitialState = true;
-    m_restirPTConstantsBuffer = device->createBuffer(restirPTConstantsDesc);
-
-    if (!m_restirPTConstantsBuffer)
-    {
-        common->Printf("PathTracePrimaryPass: failed to create RT ReSTIR PT parameters buffer\n");
-        return;
-    }
-
     nvrhi::BufferDesc cleanRtxdiDiSentinelConstantsDesc;
     cleanRtxdiDiSentinelConstantsDesc.byteSize = 480;
     cleanRtxdiDiSentinelConstantsDesc.debugName = "PathTraceCleanRtxdiDiSentinelConstants";
@@ -1338,8 +1319,6 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(45));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(28));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(29));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
@@ -1384,9 +1363,6 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(78));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(79));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(55));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(56));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(68));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(82));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(126));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
@@ -1988,14 +1964,14 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height, in
         return false;
     }
 
-    const bool alreadyValid = m_frameResources.IsValidFor(width, height, outputWidth, outputHeight, RtRestirPTCheckerboardMode::Off);
+    const bool alreadyValid = m_frameResources.IsValidFor(width, height, outputWidth, outputHeight);
     if (alreadyValid)
     {
         return true;
     }
 
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
-    if (!m_frameResources.ResizeOutputSizedResources(device, width, height, outputWidth, outputHeight, RtRestirPTCheckerboardMode::Off))
+    if (!m_frameResources.ResizeOutputSizedResources(device, width, height, outputWidth, outputHeight))
     {
         return false;
     }
@@ -2627,9 +2603,6 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     {
         m_frameResources.smokeReservoirSceneSignature = desc.reservoirSceneSignature;
         m_frameResources.smokeReservoirNeedsClear = true;
-        m_frameResources.restirPTReservoirNeedsClear = true;
-        m_frameResources.restirPTDiReservoirNeedsClear = true;
-        m_frameResources.restirPTGiReservoirNeedsClear = true;
         m_frameResources.MarkResetReason(RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE);
     }
     const uint64_t uploadBytes =

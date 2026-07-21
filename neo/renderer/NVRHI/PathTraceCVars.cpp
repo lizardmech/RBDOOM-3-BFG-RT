@@ -1335,30 +1335,6 @@ idCVar r_pathTracingRestirPTPreviewExposure(
     CVAR_RENDERER | CVAR_FLOAT,
     "Mode 32 ReSTIR PT rough lighting preview exposure multiplier" );
 
-idCVar r_pathTracingRestirPTTemporalDepthThreshold(
-    "r_pathTracingRestirPTTemporalDepthThreshold",
-    "0.1",
-    CVAR_RENDERER | CVAR_FLOAT,
-    "ReSTIR PT temporal/spatial neighbor relative depth threshold for modes 31-33 and 50-51" );
-
-idCVar r_pathTracingRestirPTTemporalNormalThreshold(
-    "r_pathTracingRestirPTTemporalNormalThreshold",
-    "0.35",
-    CVAR_RENDERER | CVAR_FLOAT,
-    "ReSTIR PT temporal/spatial neighbor normal dot threshold for modes 31-33 and 50-51; softened from RTXDI default for Doom normal-map stability" );
-
-idCVar r_pathTracingRestirPTTemporalReservoirReuse(
-    "r_pathTracingRestirPTTemporalReservoirReuse",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Diagnostic gate for ReSTIR PT modes 31-33 and 50-51: 0 rejects previous-frame PT reservoirs while still generating current initial samples" );
-
-idCVar r_pathTracingRestirPTTemporalFallbackSampling(
-    "r_pathTracingRestirPTTemporalFallbackSampling",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Allow RTXDI ReSTIR PT temporal zero-motion fallback sampling for modes 31-33 and 50-51; set 0 to isolate same-material wrong-surface history reuse" );
-
 idCVar r_pathTracingRestirPTTemporalAnalyticNeeReuse(
     "r_pathTracingRestirPTTemporalAnalyticNeeReuse",
     "1",
@@ -1418,18 +1394,6 @@ idCVar r_pathTracingRestirPTVisibilityPolicy(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "ReSTIR PT NEE visibility policy: 0 = final/preview visibility only, 1 = selected NEE sample producer visibility, 2 = strict proposal-stream visibility" );
-
-idCVar r_pathTracingRestirPTSpatialSamples(
-    "r_pathTracingRestirPTSpatialSamples",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 50 ReSTIR PT spatial neighbor samples per pixel; low by default for early Vulkan/driver stability" );
-
-idCVar r_pathTracingRestirPTSpatialRadius(
-    "r_pathTracingRestirPTSpatialRadius",
-    "16",
-    CVAR_RENDERER | CVAR_FLOAT,
-    "Mode 50 ReSTIR PT spatial neighbor sampling radius in pixels" );
 
 idCVar r_pathTracingRestirPTCombinedSpatialRadius(
     "r_pathTracingRestirPTCombinedSpatialRadius",

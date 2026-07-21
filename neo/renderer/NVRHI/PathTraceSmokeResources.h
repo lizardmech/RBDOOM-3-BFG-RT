@@ -156,7 +156,6 @@ struct RtSmokeBindingBuildDesc
     nvrhi::TextureHandle fallbackTexture;
     nvrhi::TextureHandle skyEnvironmentCube;
     nvrhi::BufferHandle constantsBuffer;
-    nvrhi::BufferHandle restirPTConstantsBuffer;
     nvrhi::BufferHandle boundsOverlayLineBuffer;
     nvrhi::BufferHandle liquidPoolStatusBuffer;
     nvrhi::BindingLayoutHandle bindingLayout;
@@ -166,10 +165,6 @@ struct RtSmokeBindingBuildDesc
     nvrhi::SamplerHandle sampler;
     RtSmokeSceneBufferHandles buffers;
     RtSmokeReservoirBufferHandles reservoirBuffers;
-    RtRestirPTReservoirBufferHandles restirPTReservoirBuffers;
-    RtRestirPTReservoirBufferHandles restirPTDiReservoirBuffers;
-    RtRestirPTReservoirBufferHandles restirPTGiReservoirBuffers;
-    nvrhi::BufferHandle remixRtxdiDiReservoirBuffer;
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     bool enableTextureProbe = false;
     bool forceFallbackTexture = false;

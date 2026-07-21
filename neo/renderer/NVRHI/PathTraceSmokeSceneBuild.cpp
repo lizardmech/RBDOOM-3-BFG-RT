@@ -5672,7 +5672,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const PathTraceRemixRtxdiDiClearSource remixDiClearSource = PathTraceRemixRtxdiResourceGateDiClearSource(remixRtxdiResourceGateDesc);
         const PathTraceRemixRtxdiReservoirDomain& remixDiDomain = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI);
         const PathTraceRemixRtxdiReservoirDomain& remixGiDomain = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_GI);
-        common->Printf("PathTracePrimaryPass: Remix RTXDI resources frame=%llu output=%ux%u checkerboard=%u enabled=%u ready=%u reset input/allowed/ignoredSmoke=0x%x/0x%x/0x%x oldSmokeNeedsClear smoke/restir/di/gi=%u/%u/%u/%u DI recreate/reuse/clearPending/clearReason/reset=%u/%u/%u/%u/0x%x GI recreate/reuse/clearPending/clearReason/reset=%u/%u/%u/%u/0x%x arrays DI/stride/elements/bytes=%u/%u/%u/%llu GI/stride/elements/bytes=%u/%u/%u/%llu lightSignatures structural/mapping/payload=%llu/%llu/%llu structuralSignatureChanged=%u mappingSignatureChanged=%u payloadSignatureChanged=%u payloadOnlyChange=%u oldSmokeReservoirSignatureConsulted=%u smokeDoomAnalyticLightCountConsulted=%u activeDiClearSource=%u activeDiClearRequested=%u shaderRoutes=%u bindingHandoffs=%u behavior=rrx-clear-firewall\n",
+        common->Printf("PathTracePrimaryPass: Remix RTXDI resources frame=%llu output=%ux%u checkerboard=%u enabled=%u ready=%u reset input/allowed/ignoredSmoke=0x%x/0x%x/0x%x oldSmokeNeedsClear=%u DI recreate/reuse/clearPending/clearReason/reset=%u/%u/%u/%u/0x%x GI recreate/reuse/clearPending/clearReason/reset=%u/%u/%u/%u/0x%x arrays DI/stride/elements/bytes=%u/%u/%u/%llu GI/stride/elements/bytes=%u/%u/%u/%llu lightSignatures structural/mapping/payload=%llu/%llu/%llu structuralSignatureChanged=%u mappingSignatureChanged=%u payloadSignatureChanged=%u payloadOnlyChange=%u oldSmokeReservoirSignatureConsulted=%u smokeDoomAnalyticLightCountConsulted=%u activeDiClearSource=%u activeDiClearRequested=%u shaderRoutes=%u bindingHandoffs=%u behavior=rrx-clear-firewall\n",
             static_cast<unsigned long long>(remixRtxdiStats.frameIndex),
             remixRtxdiStats.outputWidth,
             remixRtxdiStats.outputHeight,
@@ -5683,9 +5683,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixRtxdiStats.allowedResetReasonFlags,
             remixRtxdiStats.ignoredSmokeResetReasonFlags,
             m_frameResources.smokeReservoirNeedsClear ? 1u : 0u,
-            m_frameResources.restirPTReservoirNeedsClear ? 1u : 0u,
-            m_frameResources.restirPTDiReservoirNeedsClear ? 1u : 0u,
-            m_frameResources.restirPTGiReservoirNeedsClear ? 1u : 0u,
             remixRtxdiStats.diRecreated,
             remixRtxdiStats.diReused,
             remixRtxdiStats.diClearPending,
@@ -7783,7 +7780,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.fallbackTexture = fallbackTexture;
     bindingBuildDesc.skyEnvironmentCube = skyEnvironmentCube;
     bindingBuildDesc.constantsBuffer = m_smokeConstantsBuffer;
-    bindingBuildDesc.restirPTConstantsBuffer = m_restirPTConstantsBuffer;
     bindingBuildDesc.boundsOverlayLineBuffer = m_smokeBoundsOverlayLineBuffer;
     bindingBuildDesc.liquidPoolStatusBuffer = m_liquidPoolStatusBuffer;
     bindingBuildDesc.bindingLayout = m_smokeBindingLayout;
@@ -7795,10 +7791,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.sampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
     bindingBuildDesc.buffers = smokeBuffers;
     bindingBuildDesc.reservoirBuffers = m_frameResources.smokeReservoirBuffers;
-    bindingBuildDesc.restirPTReservoirBuffers = m_frameResources.restirPTReservoirBuffers;
-    bindingBuildDesc.restirPTDiReservoirBuffers = m_frameResources.restirPTDiReservoirBuffers;
-    bindingBuildDesc.restirPTGiReservoirBuffers = m_frameResources.restirPTGiReservoirBuffers;
-    bindingBuildDesc.remixRtxdiDiReservoirBuffer = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs;
     bindingBuildDesc.primarySurfaceHistoryBuffers = m_frameResources.primarySurfaceHistoryBuffers;
     bindingBuildDesc.enableTextureProbe = enableTextureProbe;
     bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
