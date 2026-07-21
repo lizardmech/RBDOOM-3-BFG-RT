@@ -581,3 +581,30 @@ Working rule for every deletion slice:
     (630,276 bytes, 2026-07-21 19:20:24). Both are newer than their source edits;
     DXIL remained up to date. The EXE and only those two SPIR-V files were
     deployed, with source/destination SHA-256 pairs matching.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    b53b98b9a. T3.1a runtime gate closed.
+  - T3.1b follows the now-severed include graph instead of deleting by filename
+    family. The 31-file candidate set has 32 internal include edges and zero
+    incoming includes from any surviving HLSL/HLSLI source. No host or CMake
+    source names an individual candidate. All candidates are tracked and none
+    carried local modifications before deletion.
+  - Delete the closed 10,960-line / 416,032-byte island: the six retired ReSTIR
+    diagnostic headers, nine cleanroom restir_pt algorithm headers, eight
+    Rtxdi/PT forwarding shims, two old Remix temporal/spatial reuse sources,
+    the obsolete umbrella PathTraceRtxdiBridge and MIS callback, and its four
+    PathTracer bridge headers. These sources only referenced members of the
+    same dead island after T3.1a removed their final live root.
+  - Preserve the live smoke RAB policy/material/visibility/surface/motion and
+    environment suppliers, the native NEE reservoir preview, the RLU-current
+    light/material replay bridge, and the separate primary-surface producer's
+    surface/motion supplier path. Similar RAB and ReSTIR names are not evidence
+    that those surviving contracts are dead.
+  - The first post-delete build passed but exposed stale MSBuild dependency
+    lists from the already-generated project, producing MSB8064 warnings for
+    removed files. Regenerating with `cmake --preset win64-pt-dev` refreshed the
+    recursive shader-include glob; the subsequent full
+    win64-pt-dev-release build passed without missing-dependency warnings.
+  - All active SPIR-V remained up to date after regeneration, so no shader blob
+    is due for deployment and no DXIL artifact was selected. Only the rebuilt
+    EXE was copied to the prebuilt runtime. Source and destination SHA-256 both
+    equal B6411F5114D47B57ED8B72A989D14BC18D11FA7630D3F06C22B52A93195B8715.
