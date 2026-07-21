@@ -20,7 +20,6 @@
 #include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"
-#include "PathTraceRemixRtxdiResourceGate.h"
 #include "PathTraceRestirPasses.h"
 #include "PathTraceDLSSRRBridge.h"
 #include "../RenderBackend.h"
@@ -717,10 +716,10 @@ struct PathTraceSmokeConstants
     float restirLightManagerSampleInfo[4];
     float reservedRestirPdfNeeInfo[4];
     float restirPdfNeeRluCurrentControlInfo[4];
-    float restirPTDiDebugInfo[4];
-    uint32_t restirPTRemixDiReservoirInfo[4];
-    uint32_t restirPTRemixDiReservoirPageInfo[4];
-    float restirPTGiDebugInfo[4];
+    float reservedRestirPTDiDebugInfo[4];
+    uint32_t reservedRestirPTRemixDiReservoirInfo[4];
+    uint32_t reservedRestirPTRemixDiReservoirPageInfo[4];
+    float reservedRestirPTGiDebugInfo[4];
     float regirInfo0[4];
     float regirInfo1[4];
     float regirInfo2[4];
@@ -5524,7 +5523,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTInfo[0] = static_cast<float>(restirPTFrameIndex);
     constants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
     constants.restirPTInfo[2] = 0.0f;
-    constants.restirPTInfo[3] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingRestirPTPreviewExposure.GetFloat());
     constants.integratorInfo[0] = static_cast<float>(integratorSettings.samplesPerPixel);
     constants.integratorInfo[1] = static_cast<float>(integratorSettings.maxPathDepth);
     constants.integratorInfo[2] = static_cast<float>(integratorSettings.diffuseBounceLimit);
@@ -5542,7 +5540,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.motionVectorInfo[2] = static_cast<float>(idMath::ClampInt(1, 128, r_pathTracingRestirPTAnalyticLightTrials.GetInteger()));
     constants.motionVectorInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
     constants.restirPTSurfaceInfo[0] = static_cast<float>(idMath::ClampInt(0, 5, r_pathTracingRestirPTMaterialSimilarityMode.GetInteger()));
-    constants.restirPTSurfaceInfo[1] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTTemporalNeighborDebugMode.GetInteger()));
     constants.restirPTSurfaceInfo[2] = r_pathTracingRestirPTUnifiedPrevToCurrentScan.GetBool() ? 1.0f : 0.0f;
     constants.restirPTSurfaceInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
     constants.rayReconstructionInfo[0] = static_cast<float>(idMath::ClampInt(0, 10, r_pathTracingDLSSRRGuideDebugView.GetInteger()));
@@ -5643,55 +5640,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         printReGIRDump("pre-dispatch", "none");
         r_pathTracingReGIRDump.SetInteger(0);
     }
-    constants.restirPTDiDebugInfo[0] = 0.0f;
-    constants.restirPTDiDebugInfo[1] = 0.0f;
-    uint32_t rrxDebugBypassFlags = 0u;
-    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassMotion.GetBool() ? (1u << 0) : 0u;
-    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassDepth.GetBool() ? (1u << 1) : 0u;
-    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassNormal.GetBool() ? (1u << 2) : 0u;
-    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassSurfaceSimilarity.GetBool() ? (1u << 3) : 0u;
-    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassResetMask.GetBool() ? (1u << 4) : 0u;
-    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassPortal.GetBool() ? (1u << 5) : 0u;
-    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxTemporalPermutation.GetBool() ? (1u << 6) : 0u;
-    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDisablePreviousBest.GetBool() ? (1u << 7) : 0u;
-    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxSyntheticPrimaryPatch.GetBool() ? (1u << 8) : 0u;
-    constants.restirPTDiDebugInfo[2] = static_cast<float>(rrxDebugBypassFlags);
-    constants.restirPTDiDebugInfo[3] = r_pathTracingRestirPTRrxDebugFlatContribution.GetBool() ? 1.0f : 0.0f;
-    auto updateRemixDiReservoirProbeConstants = [&]()
-    {
-        const PathTraceRemixRtxdiReservoirDomain& remixDiDomain = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI);
-        const bool remixDiValid = remixDiDomain.IsValidFor(
-            static_cast<uint32_t>(Max(0, m_frameResources.width)),
-            static_cast<uint32_t>(Max(0, m_frameResources.height)),
-            rtxdi::CheckerboardMode::Off,
-            rtxdi::c_NumReSTIRDIReservoirBuffers,
-            static_cast<uint32_t>(sizeof(RTXDI_PackedDIReservoir)));
-        uint32_t remixDiFlags = remixDiValid ? 1u : 0u;
-        if (remixDiDomain.clearPending || disableReservoirWrites)
-        {
-            remixDiFlags |= 2u;
-        }
-        if (!remixDiValid)
-        {
-            remixDiFlags |= 4u;
-        }
-        const uint32_t currentDiagnosticPage = static_cast<uint32_t>(restirPTFrameIndex & 1u);
-        const uint32_t previousDiagnosticPage = currentDiagnosticPage ^ 1u;
-        const uint32_t spatialOutputPage = remixDiDomain.reservoirArrayCount > 2u ? 2u : currentDiagnosticPage;
-        constants.restirPTRemixDiReservoirInfo[0] = remixDiDomain.reservoirParams.reservoirBlockRowPitch;
-        constants.restirPTRemixDiReservoirInfo[1] = remixDiDomain.reservoirParams.reservoirArrayPitch;
-        constants.restirPTRemixDiReservoirInfo[2] = remixDiDomain.reservoirArrayCount;
-        constants.restirPTRemixDiReservoirInfo[3] = remixDiFlags;
-        constants.restirPTRemixDiReservoirPageInfo[0] = currentDiagnosticPage;
-        constants.restirPTRemixDiReservoirPageInfo[1] = previousDiagnosticPage;
-        constants.restirPTRemixDiReservoirPageInfo[2] = spatialOutputPage;
-        constants.restirPTRemixDiReservoirPageInfo[3] = spatialOutputPage;
-    };
-    updateRemixDiReservoirProbeConstants();
-    constants.restirPTGiDebugInfo[0] = 0.0f;
-    constants.restirPTGiDebugInfo[1] = r_pathTracingRestirPTRrxFinalConsumerCurrentOnly.GetBool() ? 1.0f : 0.0f;
-    constants.restirPTGiDebugInfo[2] = r_pathTracingRestirPTRrxFinalConsumerOutput.GetBool() ? 1.0f : 0.0f;
-    constants.restirPTGiDebugInfo[3] = 0.0f;
     constants.regirInfo0[0] = regirSettings.enabled ? 1.0f : 0.0f;
     constants.regirInfo0[1] = static_cast<float>(regirSettings.debugView);
     constants.regirInfo0[2] = static_cast<float>(regirSettings.mode);
@@ -5744,9 +5692,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int restirPTVisibilityPolicy = pdfNeeRluCurrentProducerRequested
         ? pdfNeeVerifierSelectedVisibilityPolicy
         : idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger());
-    constants.safetyInfo[2] =
-        static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTSpatialDiagnosticView.GetInteger())) +
-        static_cast<float>(restirPTVisibilityPolicy * 16);
+    constants.safetyInfo[2] = static_cast<float>(restirPTVisibilityPolicy * 16);
     constants.safetyInfo[3] = 0.0f;
     constants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
     constants.geometryInfo0[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticIndexCount));

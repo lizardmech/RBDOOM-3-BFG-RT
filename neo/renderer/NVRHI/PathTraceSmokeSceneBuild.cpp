@@ -26,7 +26,6 @@
 #include "PathTracePrimaryPass.h"
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceRemixLightManager.h"
-#include "PathTraceRemixRtxdiResourceGate.h"
 #include "PathTraceRemixRtxdiResources.h"
 #include "PathTraceRestirLightManager.h"
 #include "PathTraceRestirPasses.h"
@@ -5507,7 +5506,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixFrameStats.shaderRouteCount);
         r_pathTracingRemixFramePrepareDump.SetInteger(0);
     }
-    const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 77, r_pathTracingRestirPTDiDebugView.GetInteger());
     const bool regirLightUniverseRequested =
         r_pathTracingReGIREnable.GetInteger() != 0 &&
         r_pathTracingReGIRMode.GetInteger() != 0;
@@ -5640,15 +5638,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     const bool dumpRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesDump.GetInteger() != 0;
-    PathTraceRemixRtxdiResourceGateDesc remixRtxdiResourceGateDesc;
-    remixRtxdiResourceGateDesc.restirPTDiDebugView = requestedRestirPTDiDebugView;
-    remixRtxdiResourceGateDesc.remixRtxdiResourcesEnabled = r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0;
-    remixRtxdiResourceGateDesc.debugFlatContribution = r_pathTracingRestirPTRrxDebugFlatContribution.GetInteger() != 0;
-    remixRtxdiResourceGateDesc.rrxFinalConsumerOutput = r_pathTracingRestirPTRrxFinalConsumerOutput.GetInteger() != 0;
     const bool useRemixRtxdiResources =
         r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0 ||
-        dumpRemixRtxdiResources ||
-        PathTraceRemixRtxdiResourceGateRequestsDiResources(remixRtxdiResourceGateDesc);
+        dumpRemixRtxdiResources;
     bool remixRtxdiResourcesReady = false;
     if (useRemixRtxdiResources)
     {
@@ -5669,7 +5661,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (dumpRemixRtxdiResources)
     {
         const PathTraceRemixRtxdiResourceStats& remixRtxdiStats = m_remixRtxdiResources.GetStats();
-        const PathTraceRemixRtxdiDiClearSource remixDiClearSource = PathTraceRemixRtxdiResourceGateDiClearSource(remixRtxdiResourceGateDesc);
+        const uint32_t remixDiClearSource = 0u;
         const PathTraceRemixRtxdiReservoirDomain& remixDiDomain = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI);
         const PathTraceRemixRtxdiReservoirDomain& remixGiDomain = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_GI);
         common->Printf("PathTracePrimaryPass: Remix RTXDI resources frame=%llu output=%ux%u checkerboard=%u enabled=%u ready=%u reset input/allowed/ignoredSmoke=0x%x/0x%x/0x%x oldSmokeNeedsClear=%u DI recreate/reuse/clearPending/clearReason/reset=%u/%u/%u/%u/0x%x GI recreate/reuse/clearPending/clearReason/reset=%u/%u/%u/%u/0x%x arrays DI/stride/elements/bytes=%u/%u/%u/%llu GI/stride/elements/bytes=%u/%u/%u/%llu lightSignatures structural/mapping/payload=%llu/%llu/%llu structuralSignatureChanged=%u mappingSignatureChanged=%u payloadSignatureChanged=%u payloadOnlyChange=%u oldSmokeReservoirSignatureConsulted=%u smokeDoomAnalyticLightCountConsulted=%u activeDiClearSource=%u activeDiClearRequested=%u shaderRoutes=%u bindingHandoffs=%u behavior=rrx-clear-firewall\n",
@@ -5711,7 +5703,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixRtxdiStats.oldSmokeReservoirSignatureConsulted,
             remixRtxdiStats.smokeDoomAnalyticLightCountConsulted,
             static_cast<uint32_t>(remixDiClearSource),
-            (remixDiClearSource != PATH_TRACE_REMIX_RTXDI_DI_CLEAR_SOURCE_NONE && remixDiDomain.clearPending) ? 1u : 0u,
+            (remixDiClearSource != 0u && remixDiDomain.clearPending) ? 1u : 0u,
             remixRtxdiStats.shaderRouteCount,
             remixRtxdiStats.bindingHandoffCount);
         r_pathTracingRemixRtxdiResourcesDump.SetInteger(0);

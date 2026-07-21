@@ -1329,12 +1329,6 @@ idCVar r_pathTracingRestirPTPreviewMaxPixels(
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 32 ReSTIR PT preview safety cap in pixels; default is 1280x720, 0 disables the cap" );
 
-idCVar r_pathTracingRestirPTPreviewExposure(
-    "r_pathTracingRestirPTPreviewExposure",
-    "1",
-    CVAR_RENDERER | CVAR_FLOAT,
-    "Mode 32 ReSTIR PT rough lighting preview exposure multiplier" );
-
 idCVar r_pathTracingRestirPTTemporalAnalyticNeeReuse(
     "r_pathTracingRestirPTTemporalAnalyticNeeReuse",
     "1",
@@ -1352,12 +1346,6 @@ idCVar r_pathTracingRestirPTMaterialSimilarityMode(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "ReSTIR PT temporal material similarity: 0 = legacy Doom material id/flags, 1 = RTXDI roughness/specular/diffuse, 2 = ignore diffuse, 3 = ignore specular, 4 = ignore roughness, 5 = accept all materials" );
-
-idCVar r_pathTracingRestirPTTemporalNeighborDebugMode(
-    "r_pathTracingRestirPTTemporalNeighborDebugMode",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DI debug view 12 classifier: 0 = detailed status palette, 1 = temporal reuse bucket summary, 2 = NEE/light-remap bucket summary" );
 
 idCVar r_pathTracingRestirPTUnifiedPrevToCurrentScan(
     "r_pathTracingRestirPTUnifiedPrevToCurrentScan",
@@ -1394,90 +1382,6 @@ idCVar r_pathTracingRestirPTVisibilityPolicy(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "ReSTIR PT NEE visibility policy: 0 = final/preview visibility only, 1 = selected NEE sample producer visibility, 2 = strict proposal-stream visibility" );
-
-idCVar r_pathTracingRestirPTSpatialDiagnosticView(
-    "r_pathTracingRestirPTSpatialDiagnosticView",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 51 spatial diagnostic view: 0 = source attribution, 1 = spatial acceptance/source-change status, 2 = temporal-vs-spatial source compare with local NEE replay check" );
-
-idCVar r_pathTracingRestirPTDiDebugView(
-    "r_pathTracingRestirPTDiDebugView",
-    "72",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DI comparison view: 72 = active default RRX DI Remix-style temporal final consumer, 0 = legacy normal view-0 comparison, 1 = raw DI reservoir estimate, 2 = DI temporal accumulator, 3 = DI spatial candidate, 4 = DI reservoir validity/M/WeightSum, 5 = DI spatial/temporal status, 6 = RTXDI final-shading input as TargetFunction*WeightSum, 7 = RTXDI final-shading input validity/target/weight/M, 8 = RTXDI page-chain state quadrants, 9 = RTXDI page-chain contribution quadrants, 10 = RTXDI temporal readiness/rejection proxy, 11 = RTXDI temporal page-flow classifier, 12 = RTXDI temporal neighbor classifier, 13 = RAB BRDF contract classifier, 14 = RTXDI initial NEE sampled-light payload classifier, 15 = RTXDI initial path metadata classifier, 16 = RTXDI final-shading input contract classifier, 17 = RTXDI final-shading target replay classifier, 18 = environment MIS contract classifier, 19 = RTXDI final-shading sampled-light payload classifier, 20 = RTXDI final-shading path metadata classifier, 21 = RTXDI final-shading random-replay metadata classifier, 22 = RAB random sampler bridge classifier, 23 = RAB path-tracer user-data bridge classifier, 24 = RAB visibility policy classifier, 25 = RAB light-sample numeric contract classifier, 26 = emissive hit-to-light map classifier, 27 = RAB light-domain load classifier, 28 = RAB light-domain sample classifier, 29 = RAB light-domain visibility classifier, 30 = initial NEE record scalar classifier, 31 = RAB path-tracer entry contract classifier, 32 = PSR denoiser payload classifier, 33 = RAB path continuation policy classifier, 34 = final shading output contract classifier, 35 = remaining supplier gap summary, 36 = unified light type/validity, 37 = unified light radiance heat, 38 = unified light current-to-previous remap, 39 = unified light source numeric sanity, 40 = CPU unified light type/validity, 41 = CPU unified versus virtual compare, 42 = CPU unified remap classifier, 43 = unified RAB load current A/B, 44 = unified RAB load previous A/B, 45 = unified RAB sample A/B, 46 = unified RAB sample numeric, 47 = RTXDI DI initial sample validity/type, 48 = RTXDI DI initial contribution preview, 49 = RTXDI DI initial reservoir numeric state, 50 = RTXDI DI initial visibility state, 51 = old NEE record versus RTXDI DI contribution split, 52 = old NEE record versus RTXDI DI selected-light compare, 53 = old NEE record versus RTXDI DI contribution ratio, 54 = PT initial versus final-shading-input contribution split, 55 = PT initial versus temporal-output contribution split, 56 = PT initial versus temporal-output state/history split, 57 = ReSTIR light-manager CPU map status, 58 = binary temporal keep mask, 59 = light-manager reservoir persistence probe, 60 = RRX DI reservoir single-light heartbeat, 61 = RRX DI initial survivor/replay light-type attribution, 62 = RRX DI legacy view-0 branch audit, 63 = RRX DI raw reservoir heartbeat, 64 = RRX DI same-dispatch echo, 65 = RRX DI same-page raw fields, 66 = RRX DI previous-page raw fields, 67 = active RAB translation parity, 68 = RRX DI temporal local invalidation, 69 = RRX DI temporal raw light-index tuple, 70 = RRX DI temporal input evidence, 71 = RRX DI synthetic temporal-core proof, 73 = RRX DI final-consumer full-screen classifier, 74 = RRX DI selected light identity hash, 75 = RRX DI weight-chain audit, 76 = RRX DI selected-light weight audit, 77 = RRX DI spatial proof bands" );
-
-idCVar r_pathTracingRestirPTRrxDebugBypassMotion(
-    "r_pathTracingRestirPTRrxDebugBypassMotion",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Debug-only RRX DI temporal probe: force previous pixel to current pixel and ignore motion-vector availability" );
-
-idCVar r_pathTracingRestirPTRrxDebugBypassDepth(
-    "r_pathTracingRestirPTRrxDebugBypassDepth",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Debug-only RRX DI temporal probe: relax RTXDI temporal depth similarity threshold" );
-
-idCVar r_pathTracingRestirPTRrxDebugBypassNormal(
-    "r_pathTracingRestirPTRrxDebugBypassNormal",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Debug-only RRX DI temporal probe: relax RTXDI temporal shading-normal similarity threshold" );
-
-idCVar r_pathTracingRestirPTRrxDebugBypassSurfaceSimilarity(
-    "r_pathTracingRestirPTRrxDebugBypassSurfaceSimilarity",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Debug-only local ReSTIR helpers: bypass rbdoom primary-surface material/geometry-normal similarity checks" );
-
-idCVar r_pathTracingRestirPTRrxDebugBypassResetMask(
-    "r_pathTracingRestirPTRrxDebugBypassResetMask",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Debug-only RRX DI temporal probe: ignore primary-surface RR reset-mask rejection before temporal reuse" );
-
-idCVar r_pathTracingRestirPTRrxDebugBypassPortal(
-    "r_pathTracingRestirPTRrxDebugBypassPortal",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Debug-only RRX DI temporal probe: reserved portal-space bypass bit; current rbdoom RRX DI surface bridge carries no portal index" );
-
-idCVar r_pathTracingRestirPTRrxDebugFlatContribution(
-    "r_pathTracingRestirPTRrxDebugFlatContribution",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Debug-only RRX DI combined output: replace valid temporal DI lighting with a fixed color after reservoir generation" );
-
-idCVar r_pathTracingRestirPTRrxFinalConsumerOutput(
-    "r_pathTracingRestirPTRrxFinalConsumerOutput",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "RRX DI view-0 replacement switch; the active proof uses r_pathTracingRestirPTDiDebugView 72 by default" );
-
-idCVar r_pathTracingRestirPTRrxFinalConsumerCurrentOnly(
-    "r_pathTracingRestirPTRrxFinalConsumerCurrentOnly",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Debug-only RRX DI final-consumer probe: consume the current-frame reservoir before temporal reuse" );
-
-idCVar r_pathTracingRestirPTRrxSyntheticPrimaryPatch(
-    "r_pathTracingRestirPTRrxSyntheticPrimaryPatch",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Debug-only RRX DI final-consumer output patch: show synthetic RTXDI temporal-core reservoir history in the primary preview" );
-
-idCVar r_pathTracingRestirPTRrxTemporalPermutation(
-    "r_pathTracingRestirPTRrxTemporalPermutation",
-    "1",
-    CVAR_RENDERER | CVAR_BOOL,
-    "RRX DI temporal reuse: enable RTXDI permutation sampling by default for active Remix-style temporal descriptors; set 0 for debug comparison" );
-
-idCVar r_pathTracingRestirPTRrxDisablePreviousBest(
-    "r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Debug-only non-Remix RRX DI A/B: feed the projected previous temporal reservoir as the previous-best candidate; off by default" );
 
 idCVar r_pathTracingRestirPdfNeeVerifierEnable(
     "r_pathTracingRestirPdfNeeVerifierEnable",

@@ -418,10 +418,10 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirLightManagerSampleInfo;
     float4 ReservedRestirPdfNeeInfo;
     float4 RestirPdfNeeRluCurrentControlInfo;
-    float4 RestirPTDiDebugInfo;
-    uint4 RestirPTRemixDiReservoirInfo;
-    uint4 RestirPTRemixDiReservoirPageInfo;
-    float4 RestirPTGiDebugInfo;
+    float4 ReservedRestirPTDiDebugInfo;
+    uint4 ReservedRestirPTRemixDiReservoirInfo;
+    uint4 ReservedRestirPTRemixDiReservoirPageInfo;
+    float4 ReservedRestirPTGiDebugInfo;
     float4 RegirInfo0;
     float4 RegirInfo1;
     float4 RegirInfo2;

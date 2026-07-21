@@ -226,11 +226,11 @@ PHASE 3 - strip the monolith to the retained debug views:
   T3.1: remove all RB_PT_ENABLE_RESTIR* regions and modes 18-20/26-37/50-51/53-56
         from pathtrace_smoke.rt.hlsl; drop now-unused includes (pathtrace_nee,
         pathtrace_emissive_sampling, remaining RtxdiBridge legacy headers).
-  T3.2: delete pathtrace_pdf_nee_verifier.rt.hlsl + its verifier-only dispatch and
-        cvars (r_pathTracingRestirPdfNeeVerifier*). Do not delete the external
-        PDFNEE producer or ReGIR build shader merely because they share old names
-        or initializer infrastructure with the verifier. Remove legacy bridge
-        headers only after their last includer disappears; keep section 2A.
+  T3.2: the standalone pathtrace_pdf_nee_verifier.rt.hlsl library was already
+        deleted in commit 0fe6147aa. The surviving verifier-named CVars now drive
+        the live RLU-current producer used by the clean route; preserve that
+        producer and its controls until a deliberate rename or retirement.
+        Remove legacy bridge headers only after their last includer disappears.
   T3.3: rename survivor to pathtrace_debug_views.rt.hlsl (optional but clarifying);
         clamp r_pathTracingDebugMode range to the keep-list and renumber only if
         cheap (renumbering breaks muscle memory - consider keeping numbers and
@@ -675,3 +675,26 @@ Working rule for every deletion slice:
     edits; DXIL remained up to date. Only those three SPIR-V files and the EXE
     were deployed. Every source/destination SHA-256 pair matches; the EXE hash
     is BC141A2F94C36A94D98BE55989A5EE1EAB6B2C3A5E19CFB8195281B7A566EDE9.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    99e44d8b6. T3.1e runtime gate closed.
+  - T3.1f audits the remaining ReSTIR diagnostic transport rather than following
+    the stale T3.2 filename plan. The standalone verifier shader is already gone;
+    its surviving controls belong to the live RLU-current clean-route producer
+    and are explicitly preserved.
+  - Four consecutive smoke constant blocks have declarations but zero shader
+    reads: old DI debug flags, Remix DI reservoir geometry/pages, and GI final-
+    consumer flags. Preserve their ABI offsets as reserved slots, remove their
+    host population and 16 sole-purpose CVars, and keep all clean DI constants,
+    RLU controls, RAB material/light inputs, and mode-18 integrator controls.
+  - The small Remix RTXDI resource-gate helper is also closed: its required
+    combined-mode field is never set after that producer's removal, so every
+    diagnostic request and clear-source query is constant false/none. Delete the
+    helper while retaining the explicit resource enable/dump controls and the
+    resource owner itself for a later independent T2.3b audit.
+  - Regenerate win64-pt-dev after deleting the gate source, then the full
+    win64-pt-dev-release build passes. Forced Vulkan rebuilds produce smoke
+    (1,251,964 bytes, 20:44:28) and RLU-current (628,644 bytes, 20:44:12), both
+    newer than the 20:43:09 shader edit; DXIL remains up to date. Only those two
+    SPIR-V files and the EXE are deployed, with every source/destination SHA-256
+    pair matching. The EXE hash is
+    7EF64475831D2E1E28F346FDE831095FF5113A62CF428C9BDC79A49F8C974F62.
