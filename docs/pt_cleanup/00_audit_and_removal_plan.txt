@@ -806,3 +806,18 @@ Working rule for every deletion slice:
     remain up to date. Deploy only the rebuilt EXE, whose source/destination
     SHA-256 matches at
     91ED2B173316647C76226307D32CBB3FB45D73D5C16F6986D499F1ED30FA8EE8.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    78e73a355. T4.3b runtime gate closed.
+  - T4.3c removes the old six-stage ReSTIR-PT GPU timestamp diagnostic. Five
+    stages have no instrumentation sites after the retired producer passes were
+    deleted; the sole survivor wraps the final monolith dispatch and is already
+    covered by the retained CPU pass timing plus Optick/Nsight marker controls.
+    Delete its query ring, poll/allocate/capture helpers, stage scope, and CVar.
+  - The CPU timing record also carries a restirContext interval whose end is
+    assigned directly from its start, making it identically zero. Remove that
+    field and log column. The May-era diagnostic island predates the recent
+    feature work and does not touch shader, DI/GI, mode-18, or marker behavior.
+  - The full win64-pt-dev-release build passes and every shader target remains
+    up to date. Deploy only the rebuilt EXE; source and destination SHA-256
+    match at
+    AADDA4E0C0C29803E7AC8ABE19DD29E5264E8ECA527497EE5596622DCBDE7D41.

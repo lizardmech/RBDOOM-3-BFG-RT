@@ -35,7 +35,6 @@ struct RtPathTraceDispatchTimingLogDesc
 {
     double totalSubmitMs = 0.0;
     double setupMs = 0.0;
-    double restirContextMs = 0.0;
     double constantsMs = 0.0;
     double barrierMs = 0.0;
     double reservoirClearMs = 0.0;

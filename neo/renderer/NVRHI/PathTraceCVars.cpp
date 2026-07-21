@@ -2418,12 +2418,6 @@ idCVar r_pathTracingNsightGpuMarkers(
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable NVRHI GPU debug markers around RT smoke/path tracing dispatches for Nsight captures" );
 
-idCVar r_pathTracingRestirPTGpuTimingDump(
-    "r_pathTracingRestirPTGpuTimingDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to capture and print one frame of ReSTIR PT per-dispatch GPU timestamp timings" );
-
 idCVar r_pathTracingReservoirDump(
     "r_pathTracingReservoirDump",
     "0",

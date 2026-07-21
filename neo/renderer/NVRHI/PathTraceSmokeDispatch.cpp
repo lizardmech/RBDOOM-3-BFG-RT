@@ -437,38 +437,6 @@ uint32_t RrxDiBoundedRangeSampleCount(uint32_t rangeCount, uint32_t totalLightCo
     return std::min(rangeCount, nonEmptyRangeSamples);
 }
 
-enum PathTraceGpuTimingStage
-{
-    PT_GPU_TIMING_PRIMARY_SURFACE = 0,
-    PT_GPU_TIMING_GI_INITIAL,
-    PT_GPU_TIMING_DIRECT_TEMPORAL,
-    PT_GPU_TIMING_DIRECT_SPATIAL,
-    PT_GPU_TIMING_REFLECTION,
-    PT_GPU_TIMING_FINAL_RESOLVE,
-    PT_GPU_TIMING_COUNT
-};
-
-struct PathTraceGpuTimingFrame
-{
-    bool pending = false;
-    uint64 serial = 0;
-    int debugMode = 0;
-    int width = 0;
-    int height = 0;
-    char restirPassLabel[64] = {};
-    bool stageUsed[PT_GPU_TIMING_COUNT] = {};
-    nvrhi::TimerQueryHandle queries[PT_GPU_TIMING_COUNT];
-};
-
-struct PathTraceGpuTimingCapture
-{
-    PathTraceGpuTimingFrame* frame = nullptr;
-};
-
-PathTraceGpuTimingFrame g_pathTraceGpuTimingFrames[4];
-int g_pathTraceGpuTimingWriteIndex = 0;
-uint64 g_pathTraceGpuTimingSerial = 0;
-
 nvrhi::ObjectType GetPathTraceCommandObjectType()
 {
     if (deviceManager && deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
@@ -476,145 +444,6 @@ nvrhi::ObjectType GetPathTraceCommandObjectType()
         return nvrhi::ObjectTypes::VK_CommandBuffer;
     }
     return nvrhi::ObjectTypes::D3D12_GraphicsCommandList;
-}
-
-void PollPathTraceGpuTimingResults()
-{
-    if (!deviceManager || !deviceManager->GetDevice())
-    {
-        return;
-    }
-
-    for (PathTraceGpuTimingFrame& frame : g_pathTraceGpuTimingFrames)
-    {
-        if (!frame.pending)
-        {
-            continue;
-        }
-
-        bool ready = true;
-        for (int stage = 0; stage < PT_GPU_TIMING_COUNT; ++stage)
-        {
-            if (frame.stageUsed[stage] && (!frame.queries[stage] || !deviceManager->GetDevice()->pollTimerQuery(frame.queries[stage])))
-            {
-                ready = false;
-                break;
-            }
-        }
-        if (!ready)
-        {
-            continue;
-        }
-
-        float stageMs[PT_GPU_TIMING_COUNT] = {};
-        float measuredTotalMs = 0.0f;
-        for (int stage = 0; stage < PT_GPU_TIMING_COUNT; ++stage)
-        {
-            if (!frame.stageUsed[stage])
-            {
-                continue;
-            }
-            stageMs[stage] = deviceManager->GetDevice()->getTimerQueryTime(frame.queries[stage]) * 1000.0f;
-            measuredTotalMs += stageMs[stage];
-        }
-
-        common->Printf(
-            "PathTracePrimaryPass: ReSTIR PT GPU timing serial=%llu mode=%d pass=%s output=%dx%d measuredTotal=%.3fms primarySurface=%.3f giInitial=%.3f directTemporal=%.3f directSpatial=%.3f reflection=%.3f finalResolve=%.3f usedMask=0x%02x\n",
-            static_cast<unsigned long long>(frame.serial),
-            frame.debugMode,
-            frame.restirPassLabel[0] ? frame.restirPassLabel : "unknown",
-            frame.width,
-            frame.height,
-            measuredTotalMs,
-            stageMs[PT_GPU_TIMING_PRIMARY_SURFACE],
-            stageMs[PT_GPU_TIMING_GI_INITIAL],
-            stageMs[PT_GPU_TIMING_DIRECT_TEMPORAL],
-            stageMs[PT_GPU_TIMING_DIRECT_SPATIAL],
-            stageMs[PT_GPU_TIMING_REFLECTION],
-            stageMs[PT_GPU_TIMING_FINAL_RESOLVE],
-            (frame.stageUsed[PT_GPU_TIMING_PRIMARY_SURFACE] ? (1u << PT_GPU_TIMING_PRIMARY_SURFACE) : 0u) |
-            (frame.stageUsed[PT_GPU_TIMING_GI_INITIAL] ? (1u << PT_GPU_TIMING_GI_INITIAL) : 0u) |
-            (frame.stageUsed[PT_GPU_TIMING_DIRECT_TEMPORAL] ? (1u << PT_GPU_TIMING_DIRECT_TEMPORAL) : 0u) |
-            (frame.stageUsed[PT_GPU_TIMING_DIRECT_SPATIAL] ? (1u << PT_GPU_TIMING_DIRECT_SPATIAL) : 0u) |
-            (frame.stageUsed[PT_GPU_TIMING_REFLECTION] ? (1u << PT_GPU_TIMING_REFLECTION) : 0u) |
-            (frame.stageUsed[PT_GPU_TIMING_FINAL_RESOLVE] ? (1u << PT_GPU_TIMING_FINAL_RESOLVE) : 0u));
-
-        frame.pending = false;
-        for (int stage = 0; stage < PT_GPU_TIMING_COUNT; ++stage)
-        {
-            frame.stageUsed[stage] = false;
-        }
-    }
-}
-
-bool EnsurePathTraceGpuTimingQueries(PathTraceGpuTimingFrame& frame)
-{
-    if (!deviceManager || !deviceManager->GetDevice())
-    {
-        return false;
-    }
-    for (int stage = 0; stage < PT_GPU_TIMING_COUNT; ++stage)
-    {
-        if (!frame.queries[stage])
-        {
-            frame.queries[stage] = deviceManager->GetDevice()->createTimerQuery();
-            if (!frame.queries[stage])
-            {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-PathTraceGpuTimingCapture BeginPathTraceGpuTimingCapture(int debugMode, int width, int height, const char* restirPassLabel)
-{
-    PathTraceGpuTimingCapture capture;
-    if (r_pathTracingRestirPTGpuTimingDump.GetInteger() == 0)
-    {
-        return capture;
-    }
-    r_pathTracingRestirPTGpuTimingDump.SetInteger(0);
-
-    if (!glConfig.timerQueryAvailable)
-    {
-        common->Printf("PathTracePrimaryPass: ReSTIR PT GPU timing unavailable because timer queries are disabled\n");
-        return capture;
-    }
-
-    PathTraceGpuTimingFrame& frame = g_pathTraceGpuTimingFrames[g_pathTraceGpuTimingWriteIndex];
-    g_pathTraceGpuTimingWriteIndex = (g_pathTraceGpuTimingWriteIndex + 1) % static_cast<int>(sizeof(g_pathTraceGpuTimingFrames) / sizeof(g_pathTraceGpuTimingFrames[0]));
-    if (frame.pending)
-    {
-        common->Printf("PathTracePrimaryPass: ReSTIR PT GPU timing skipped because the query ring still has pending results\n");
-        return capture;
-    }
-    if (!EnsurePathTraceGpuTimingQueries(frame))
-    {
-        common->Printf("PathTracePrimaryPass: ReSTIR PT GPU timing skipped because timer query allocation failed\n");
-        return capture;
-    }
-
-    frame.pending = true;
-    frame.serial = ++g_pathTraceGpuTimingSerial;
-    frame.debugMode = debugMode;
-    frame.width = width;
-    frame.height = height;
-    idStr::Copynz(frame.restirPassLabel, restirPassLabel ? restirPassLabel : "unknown", sizeof(frame.restirPassLabel));
-    for (int stage = 0; stage < PT_GPU_TIMING_COUNT; ++stage)
-    {
-        frame.stageUsed[stage] = false;
-    }
-
-    common->Printf("PathTracePrimaryPass: ReSTIR PT GPU timing capture queued serial=%llu mode=%d pass=%s output=%dx%d\n",
-        static_cast<unsigned long long>(frame.serial),
-        frame.debugMode,
-        frame.restirPassLabel,
-        frame.width,
-        frame.height);
-
-    capture.frame = &frame;
-    return capture;
 }
 
 class PathTraceGpuMarkerScope
@@ -639,37 +468,6 @@ public:
 
 private:
     nvrhi::ICommandList* m_commandList = nullptr;
-};
-
-class PathTraceGpuTimingStageScope
-{
-public:
-    PathTraceGpuTimingStageScope(const PathTraceGpuTimingCapture& capture, nvrhi::ICommandList* commandList, PathTraceGpuTimingStage stage)
-        : m_frame(capture.frame)
-        , m_commandList(commandList)
-        , m_stage(stage)
-    {
-        if (!m_frame || !m_commandList || m_stage < 0 || m_stage >= PT_GPU_TIMING_COUNT)
-        {
-            m_frame = nullptr;
-            return;
-        }
-        m_frame->stageUsed[m_stage] = true;
-        m_commandList->beginTimerQuery(m_frame->queries[m_stage]);
-    }
-
-    ~PathTraceGpuTimingStageScope()
-    {
-        if (m_frame && m_commandList)
-        {
-            m_commandList->endTimerQuery(m_frame->queries[m_stage]);
-        }
-    }
-
-private:
-    PathTraceGpuTimingFrame* m_frame = nullptr;
-    nvrhi::ICommandList* m_commandList = nullptr;
-    PathTraceGpuTimingStage m_stage = PT_GPU_TIMING_COUNT;
 };
 
 struct PathTraceSmokeConstants
@@ -2276,7 +2074,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         return;
     }
-    PollPathTraceGpuTimingResults();
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
     const bool optickGpuMarkers = r_pathTracingOptickGpuMarkers.GetInteger() != 0;
     const bool nsightGpuMarkers = r_pathTracingNsightGpuMarkers.GetInteger() != 0;
@@ -5292,13 +5089,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint64 setupCompleteUs = Sys_Microseconds();
     const uint32_t restirPTFrameIndex = m_frameResources.restirPTFrameIndex++;
     m_frameResources.settings.frameIndex = restirPTFrameIndex;
-    const uint64 restirContextCompleteUs = setupCompleteUs;
-
-    PathTraceGpuTimingCapture gpuTimingCapture = BeginPathTraceGpuTimingCapture(
-        debugMode,
-        m_frameResources.width,
-        m_frameResources.height,
-        "legacyDebug");
 
     PathTraceSmokeConstants constants = {};
     constants.cameraOriginAndTMax[0] = cameraOrigin.x;
@@ -6242,7 +6032,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint64 dispatchRaysStartUs = setStateCompleteUs;
     {
         PathTraceGpuMarkerScope finalDispatchNsightMarker(commandList, "PT Final DispatchRays", nsightGpuMarkers);
-        PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_FINAL_RESOLVE);
         if (regirDebugRouteRequested)
         {
             PathTraceSmokeConstants regirBuildConstants = constants;
@@ -6425,7 +6214,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         RtPathTraceDispatchTimingLogDesc timingDesc;
         timingDesc.totalSubmitMs = PathTraceMicrosecondsToMilliseconds(totalSubmitUs);
         timingDesc.setupMs = PathTraceMicrosecondsToMilliseconds(setupCompleteUs - executeStartUs);
-        timingDesc.restirContextMs = PathTraceMicrosecondsToMilliseconds(restirContextCompleteUs - setupCompleteUs);
         timingDesc.constantsMs = PathTraceMicrosecondsToMilliseconds(constantsCompleteUs - constantsStartUs);
         timingDesc.barrierMs = PathTraceMicrosecondsToMilliseconds(barrierCompleteUs - barrierStartUs);
         timingDesc.reservoirClearMs = PathTraceMicrosecondsToMilliseconds(reservoirClearCompleteUs - reservoirClearStartUs);
