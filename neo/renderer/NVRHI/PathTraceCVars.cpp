@@ -2301,30 +2301,6 @@ idCVar r_pathTracingCleanRestirGiDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room ReSTIR GI one-shot CPU dump of route state, resource/page roles, and dispatch dimensions; auto-clears" );
 
-idCVar r_pathTracingRestirPTView68Dump(
-    "r_pathTracingRestirPTView68Dump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DI view 68/69 terminal dump: 0 off, 1 one-shot, 2 continuous; forces a readback and classifies view-68 colors or aggregates view-69 raw tuples around the selected pixel" );
-
-idCVar r_pathTracingRestirPTView68DumpX(
-    "r_pathTracingRestirPTView68DumpX",
-    "-1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DI view 68/69 dump X pixel; -1 samples the center of the left diagnostic half" );
-
-idCVar r_pathTracingRestirPTView68DumpY(
-    "r_pathTracingRestirPTView68DumpY",
-    "-1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DI view 68/69 dump Y pixel; -1 samples the screen center" );
-
-idCVar r_pathTracingRestirPTView68DumpRadius(
-    "r_pathTracingRestirPTView68DumpRadius",
-    "32",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DI view 68/69 dump neighborhood radius in pixels" );
-
 idCVar r_pathTracingRestirPTGiDebugView(
     "r_pathTracingRestirPTGiDebugView",
     "0",

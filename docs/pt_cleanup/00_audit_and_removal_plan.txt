@@ -353,6 +353,15 @@ Working rule for every deletion slice:
     clean-route call sites after the edit.
   - Full win64-pt-dev-release build passed. No shader source changed, so no
     SPIR-V blob needed regeneration for this slice.
-  - Runtime acceptance pending for the deployed executable.
-  - Next slice: T2.2 mode-56 pass-plan/context/readback diagnostics, keeping the
-    generic retained-debug pass-plan behavior until its consumers are audited.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    18cf82adb. T2.1b runtime gate closed.
+  - T2.2a removed the four mode-56 view-68/69 dump CVars, their dispatch-entry
+    logging and forced-readback scheduling, and the dedicated CPU color/tuple
+    classifiers, ROI scans, and terminal reports in PathTraceSmokeReadback.cpp.
+  - Re-proved that the retained readback paths still cover liquid-pool probes,
+    rigid-route overlap, clean temporal audit, and the generic smoke readback.
+  - Full win64-pt-dev-release build passed. No shader source changed and the
+    build reported all SPIR-V shaders up to date, so no blob deployment is due.
+  - Runtime acceptance for T2.2a is pending on the deployed executable.
+  - Next slice after acceptance: audit T2.2 pass-plan/context consumers before
+    removing them; retained debug-mode consumers remain out of scope meanwhile.
