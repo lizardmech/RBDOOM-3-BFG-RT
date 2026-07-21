@@ -698,3 +698,26 @@ Working rule for every deletion slice:
     SPIR-V files and the EXE are deployed, with every source/destination SHA-256
     pair matching. The EXE hash is
     7EF64475831D2E1E28F346FDE831095FF5113A62CF428C9BDC79A49F8C974F62.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    c6bb5b5f4. T3.1f runtime gate closed.
+  - T2.3b now has a stronger post-T3.1 proof. PathTraceRemixRtxdiResources owns
+    output-sized DI/GI reservoir allocations, but its header explicitly states
+    that it binds no shader and dispatches no pass. Whole-tree search confirms
+    that only its optional allocation/dump block, reset calls, and two legacy
+    UAV state transitions remain; no binding-set item references either buffer.
+  - The two state transitions occur after the clean-route return. Clean DI binds
+    its m_smokeCleanRtxdiDi current/temporal/previous/spatial reservoirs, and
+    clean GI owns its resources in PathTraceCleanRestirGi. The orphan owner is
+    enabled by default, so deleting it also avoids allocating unused full-frame
+    DI and GI arrays without changing either clean lane's resource contract.
+  - Remove the owner, its member/reset/transition/dump plumbing, and its enable
+    and dump CVars. Preserve PathTraceRemixFramePrepare, RemixLightManager, the
+    live local Rtxdi host ABI, clean DI buffers, and clean GI resources.
+  - Regenerate win64-pt-dev after deleting the owner source. The first compile
+    exposes one transitive include: smoke dispatch still sizes live clean-DI
+    reservoirs with RTXDI_PackedDIReservoir, previously obtained through the
+    deleted owner header. Add the direct local <Rtxdi/DI/ReSTIRDI.h> include to
+    that real consumer; the subsequent full win64-pt-dev-release build passes.
+  - Every SPIR-V target remains up to date, so no shader artifact is deployed.
+    Only the EXE is copied to the prebuilt runtime; source and destination hashes
+    match at 342876CF2A766DA00B34C69F0F2C28D2C1116D75649C4AEA69D919FF483F2BA9.

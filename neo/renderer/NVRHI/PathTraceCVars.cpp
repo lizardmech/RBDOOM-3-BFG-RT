@@ -711,18 +711,6 @@ idCVar r_pathTracingRemixLightManagerRAB(
     CVAR_RENDERER | CVAR_INTEGER,
     "Active RRX RAB light source: Remix Light Universe only; legacy ReSTIR manager fallback has been purged" );
 
-idCVar r_pathTracingRemixRtxdiResourcesEnable(
-    "r_pathTracingRemixRtxdiResourcesEnable",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Enable the Remix-shaped RTXDI reservoir resource owner for the normal active RRX route; 0 disables it except explicit dump/probe allocation" );
-
-idCVar r_pathTracingRemixRtxdiResourcesDump(
-    "r_pathTracingRemixRtxdiResourcesDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the Remix-shaped RTXDI reservoir resource owner once" );
-
 idCVar r_pathTracingRestirLightManagerDump(
     "r_pathTracingRestirLightManagerDump",
     "0",

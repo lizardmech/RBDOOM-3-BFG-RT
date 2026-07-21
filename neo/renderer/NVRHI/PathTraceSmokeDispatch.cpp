@@ -23,6 +23,8 @@
 #include "PathTraceRestirPasses.h"
 #include "PathTraceDLSSRRBridge.h"
 #include "../RenderBackend.h"
+
+#include <Rtxdi/DI/ReSTIRDI.h>
 #include "../RenderCommon.h"
 #include "../../sys/DeviceManager.h"
 
@@ -5934,10 +5936,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         }
-        if (m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs)
-        {
-            commandList->setBufferState(m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs, nvrhi::ResourceStates::UnorderedAccess);
-        }
         if (m_smokeReGIRState.candidateCacheBuffer)
         {
             commandList->setBufferState(m_smokeReGIRState.candidateCacheBuffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -6036,10 +6034,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
-        }
-        if (m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs)
-        {
-            commandList->setBufferState(m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs, nvrhi::ResourceStates::UnorderedAccess);
         }
         if (m_smokeReGIRState.candidateCacheBuffer)
         {

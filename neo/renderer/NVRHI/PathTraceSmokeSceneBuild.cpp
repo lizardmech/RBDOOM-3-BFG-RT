@@ -26,7 +26,6 @@
 #include "PathTracePrimaryPass.h"
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceRemixLightManager.h"
-#include "PathTraceRemixRtxdiResources.h"
 #include "PathTraceRestirLightManager.h"
 #include "PathTraceRestirPasses.h"
 #include "PathTraceSceneCapture.h"
@@ -3941,7 +3940,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeLightUniverse.Clear();
         m_remixFramePrepare.Clear();
         m_remixLightManager.Clear();
-        m_remixRtxdiResources.Clear();
         m_restirLightManager.Clear();
         m_smokeLightUniverseRenderWorld = viewDef->renderWorld;
     }
@@ -5636,77 +5634,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             r_pathTracingRemixLightUniverseDump.SetInteger(0);
         }
-    }
-    const bool dumpRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesDump.GetInteger() != 0;
-    const bool useRemixRtxdiResources =
-        r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0 ||
-        dumpRemixRtxdiResources;
-    bool remixRtxdiResourcesReady = false;
-    if (useRemixRtxdiResources)
-    {
-        PathTraceRemixRtxdiResourcePrepareDesc remixRtxdiResourceDesc;
-        remixRtxdiResourceDesc.device = device;
-        remixRtxdiResourceDesc.framePackage = m_remixFramePrepare.GetObservationPackage();
-        remixRtxdiResourceDesc.lightManagerStats = m_remixLightManager.GetStats();
-        remixRtxdiResourceDesc.checkerboardMode = rtxdi::CheckerboardMode::Off;
-        {
-            OPTICK_EVENT("PT Remix RTXDI Resources Prepare");
-            remixRtxdiResourcesReady = m_remixRtxdiResources.PrepareOutputSizedResources(remixRtxdiResourceDesc);
-        }
-    }
-    else
-    {
-        m_remixRtxdiResources.Clear();
-    }
-    if (dumpRemixRtxdiResources)
-    {
-        const PathTraceRemixRtxdiResourceStats& remixRtxdiStats = m_remixRtxdiResources.GetStats();
-        const uint32_t remixDiClearSource = 0u;
-        const PathTraceRemixRtxdiReservoirDomain& remixDiDomain = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI);
-        const PathTraceRemixRtxdiReservoirDomain& remixGiDomain = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_GI);
-        common->Printf("PathTracePrimaryPass: Remix RTXDI resources frame=%llu output=%ux%u checkerboard=%u enabled=%u ready=%u reset input/allowed/ignoredSmoke=0x%x/0x%x/0x%x oldSmokeNeedsClear=%u DI recreate/reuse/clearPending/clearReason/reset=%u/%u/%u/%u/0x%x GI recreate/reuse/clearPending/clearReason/reset=%u/%u/%u/%u/0x%x arrays DI/stride/elements/bytes=%u/%u/%u/%llu GI/stride/elements/bytes=%u/%u/%u/%llu lightSignatures structural/mapping/payload=%llu/%llu/%llu structuralSignatureChanged=%u mappingSignatureChanged=%u payloadSignatureChanged=%u payloadOnlyChange=%u oldSmokeReservoirSignatureConsulted=%u smokeDoomAnalyticLightCountConsulted=%u activeDiClearSource=%u activeDiClearRequested=%u shaderRoutes=%u bindingHandoffs=%u behavior=rrx-clear-firewall\n",
-            static_cast<unsigned long long>(remixRtxdiStats.frameIndex),
-            remixRtxdiStats.outputWidth,
-            remixRtxdiStats.outputHeight,
-            remixRtxdiStats.checkerboardMode,
-            useRemixRtxdiResources ? 1u : 0u,
-            remixRtxdiResourcesReady ? 1u : 0u,
-            remixRtxdiStats.resetReasonFlags,
-            remixRtxdiStats.allowedResetReasonFlags,
-            remixRtxdiStats.ignoredSmokeResetReasonFlags,
-            m_frameResources.smokeReservoirNeedsClear ? 1u : 0u,
-            remixRtxdiStats.diRecreated,
-            remixRtxdiStats.diReused,
-            remixRtxdiStats.diClearPending,
-            remixRtxdiStats.diClearReason,
-            remixDiDomain.resetReasonFlags,
-            remixRtxdiStats.giRecreated,
-            remixRtxdiStats.giReused,
-            remixRtxdiStats.giClearPending,
-            remixRtxdiStats.giClearReason,
-            remixGiDomain.resetReasonFlags,
-            remixRtxdiStats.diArrayCount,
-            remixRtxdiStats.diStructStride,
-            remixRtxdiStats.diElementCount,
-            static_cast<unsigned long long>(remixRtxdiStats.diReservoirBytes),
-            remixRtxdiStats.giArrayCount,
-            remixRtxdiStats.giStructStride,
-            remixRtxdiStats.giElementCount,
-            static_cast<unsigned long long>(remixRtxdiStats.giReservoirBytes),
-            static_cast<unsigned long long>(remixRtxdiStats.lightStructuralSignature),
-            static_cast<unsigned long long>(remixRtxdiStats.lightMappingSignature),
-            static_cast<unsigned long long>(remixRtxdiStats.lightPayloadSignature),
-            remixRtxdiStats.lightStructuralSignatureChanged,
-            remixRtxdiStats.lightMappingSignatureChanged,
-            remixRtxdiStats.lightPayloadSignatureChanged,
-            remixRtxdiStats.lightPayloadOnlyChange,
-            remixRtxdiStats.oldSmokeReservoirSignatureConsulted,
-            remixRtxdiStats.smokeDoomAnalyticLightCountConsulted,
-            static_cast<uint32_t>(remixDiClearSource),
-            (remixDiClearSource != 0u && remixDiDomain.clearPending) ? 1u : 0u,
-            remixRtxdiStats.shaderRouteCount,
-            remixRtxdiStats.bindingHandoffCount);
-        r_pathTracingRemixRtxdiResourcesDump.SetInteger(0);
     }
     // Legacy ReSTIR light-manager ownership is purged. The buffers named
     // PathTraceRestirLightManager* remain as a shader ABI bridge, but their

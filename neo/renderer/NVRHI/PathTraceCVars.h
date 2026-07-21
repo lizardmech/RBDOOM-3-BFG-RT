@@ -125,8 +125,6 @@ extern idCVar r_pathTracingRemixLightUniverseDump;
 extern idCVar r_pathTracingRemixLightUniverseStrictRemixMapping;
 extern idCVar r_pathTracingRemixLightManagerDump;
 extern idCVar r_pathTracingRemixLightManagerRAB;
-extern idCVar r_pathTracingRemixRtxdiResourcesEnable;
-extern idCVar r_pathTracingRemixRtxdiResourcesDump;
 extern idCVar r_pathTracingRestirLightManagerDump;
 extern idCVar r_pathTracingRestirLightManagerRAB;
 extern idCVar r_pathTracingReGIREnable;

@@ -2296,7 +2296,6 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     ClearSmokeMaterialTableCache();
     m_remixFramePrepare.Clear();
     m_remixLightManager.Clear();
-    m_remixRtxdiResources.Clear();
     m_restirLightManager.Clear();
     m_smokeSceneRenderWorld = nullptr;
     m_smokeSceneMapName.Clear();
