@@ -932,3 +932,27 @@ Working rule for every deletion slice:
     source or blob changed, so deployment correctly copied only RBDoom3BFG.exe.
     Source and deployed SHA-256 both equal
     DFB5CE7362FDD741EC1387C1801F1EA5C25ECF81639D362D14912E00E7FEF6CB.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit c199adc03. BUILD-01 runtime gate closed.
+  - T4.3e follows the shader include graph after the earlier zero-consumer shim
+    cleanup. Deleting Rtxdi/DI/SpatialResampling.hlsli and the BrdfRaySample and
+    Color utility shims in fbaf52595 left their three cleanroom_common backing
+    implementations with no include directive anywhere in neo/shaders. Every
+    exported function/type in these files occurs only in its definition; their
+    remaining CMake entries are dependency-list residue, not compilation roots.
+    None of the three files changed during the recent feature window, and none
+    intersects the dirty geometry/residency worktree lane. Delete the three
+    orphaned implementations and their inert CMake dependency entries. Because
+    no compiled shader includes them, require the normal Vulkan build but do not
+    force unrelated SPIR-V outputs solely to prove an already-empty include graph.
+  - T4.3e verification: the final symbol/filename sweep is empty and the full
+    win64-pt-dev-release build passes with no DXIL compile. Regenerating the
+    shortened dependency list conservatively rebuilds 15 SPIR-V outputs; every
+    output is newer than the CMake edit. Fourteen are byte-identical to their
+    deployed predecessors and are copied with the unchanged executable. Their
+    source/deployment hash pairs all match. The unrelated dirty GI-reservoir edit
+    again changes only pathtrace_clean_restir_gi_temporal.cs.bin, so that source
+    blob is deliberately not deployed; the prebuilt tree retains the known-good
+    B37497B23E99827A03BBA14B281260DB23E40743D0BCC2E4CC9AAF4BEBADFBB2.
+    Source and deployed EXE SHA-256 remain
+    DFB5CE7362FDD741EC1387C1801F1EA5C25ECF81639D362D14912E00E7FEF6CB.
