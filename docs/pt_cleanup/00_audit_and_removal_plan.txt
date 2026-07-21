@@ -560,3 +560,24 @@ Working rule for every deletion slice:
     2026-07-21 18:58:53), both newer than the shader edit at 18:57:47. No DXIL
     shader rebuilt. The EXE and only those two SPIR-V files were deployed and
     source/destination SHA-256 pairs match.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    3f4c6c7d6. T2.2m runtime gate closed.
+  - T3.1a severs the live RLU-current wrapper from the broad
+    RB_PT_ENABLE_RESTIR monolith permutation. An audit-only wrapper without that
+    define compiled successfully; stripped and compacted SPIR-V differed from
+    the prior output only in the declaration order of integer constants 11 and
+    12, with identical size, entry points, instructions, and bindings.
+  - With that proof in hand, remove the monolith-only PT parameter/reservoir
+    resources, PathTracer bridge and restir_pt algorithm region, its fallback
+    stubs, the retired mode-18 ReSTIR override, and the direct/indirect/sparse
+    producer selection that host policy now fixes off. Preserve native mode-18
+    pathtrace_nee, the producer-specific RLU-current region, RAB material/light
+    replay, and primary-surface history writes used by the two surviving entry
+    paths. The similarly named macro around the separate primary-surface
+    supplier remains live and is not part of this monolith deletion.
+  - Full win64-pt-dev-release build passed. The edited shader forced exactly two
+    Vulkan rebuilds: pathtrace_smoke.rt.bin (1,265,600 bytes,
+    2026-07-21 19:20:36) and pathtrace_restir_pdf_nee_rlu_current.rt.bin
+    (630,276 bytes, 2026-07-21 19:20:24). Both are newer than their source edits;
+    DXIL remained up to date. The EXE and only those two SPIR-V files were
+    deployed, with source/destination SHA-256 pairs matching.

@@ -1,4 +1,3 @@
-#define RB_PT_ENABLE_RESTIR 1
 #define RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB 1
 #define RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY 1
 #include "pathtrace_smoke.rt.hlsl"
