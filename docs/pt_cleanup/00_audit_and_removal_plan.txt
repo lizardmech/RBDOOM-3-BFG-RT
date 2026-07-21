@@ -821,3 +821,25 @@ Working rule for every deletion slice:
     up to date. Deploy only the rebuilt EXE; source and destination SHA-256
     match at
     AADDA4E0C0C29803E7AC8ABE19DD29E5264E8ECA527497EE5596622DCBDE7D41.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    3bb3f2ffe. T4.3c runtime gate closed.
+  - T3.1i begins removal of the old native smoke-reservoir owner at the shader
+    boundary. The 171-line native NEE reservoir-preview include has no caller:
+    its exported evaluator and every subordinate helper occur only in that file.
+    The monolith u18-u20 reservoir UAV declarations, reservoir struct, and count
+    helper are referenced exclusively by that dead include.
+  - Delete the include and those declarations while deliberately retaining the
+    host buffers/bindings for one runtime gate. Clean DI uses its independent
+    RTXDI reservoir bindings beginning at u69, clean GI owns separate resources,
+    and native mode 18 calls EvaluateSmokeToyPathTrace rather than the deleted
+    preview evaluator. Neither shader file changed during recent feature work.
+  - Delete smoke and RLU-current Vulkan blobs before building. The first build
+    compiles successfully but exposes the deleted include in generated CMake
+    dependencies; regenerate win64-pt-dev and repeat the full release build to
+    leave incremental dependencies clean. DXIL remains up to date.
+  - The dependency refresh rebuilds NEE-cache debug, primary-surface producer,
+    ReGIR debug, RLU-current, and smoke. All five outputs are newer than the
+    shader edit and byte-identical to their deployed predecessors, independently
+    proving that the removed source reached no compiled entry point. Deploy the
+    five verified SPIR-V files and unchanged EXE; all hashes match. EXE SHA-256
+    remains AADDA4E0C0C29803E7AC8ABE19DD29E5264E8ECA527497EE5596622DCBDE7D41.

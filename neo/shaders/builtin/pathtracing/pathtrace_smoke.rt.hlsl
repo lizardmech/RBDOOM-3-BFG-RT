@@ -207,16 +207,6 @@ struct PathTraceDoomAnalyticLightRemap
 
 #include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 
-struct PathTraceSmokeReservoir
-{
-    float4 radianceAndTargetPdf;
-    float4 weightSumAndSampleCount;
-    uint lightCandidateIndex;
-    uint emissiveTriangleIndex;
-    uint flags;
-    uint padding0;
-};
-
 struct PathTraceSkinnedPreviousPosition
 {
     float4 previousPosition;
@@ -301,9 +291,6 @@ StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerCurrent
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerPreviousPayload : register(t67);
 StructuredBuffer<PathTraceEmissiveDistributionEntry> SmokeEmissiveDistribution : register(t46);
 StructuredBuffer<PathTraceSmokeLightCandidate> SmokeLightCandidates : register(t17);
-RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirCurrent : register(u18);
-RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirPrevious : register(u19);
-RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirSpatialScratch : register(u20);
 StructuredBuffer<PathTraceBoundsOverlayLine> SmokeBoundsOverlayLines : register(t21);
 #include "RtxdiBridge/RAB_NeeCache.hlsli"
 struct PathTraceNeeCacheProviderResult
@@ -564,7 +551,6 @@ uint PathTraceRigidRouteIndexCount() { return (uint)max(GeometryInfo1.w, 0.0); }
 uint PathTraceRigidRouteTriangleCount() { return (uint)max(GeometryInfo2.x, 0.0); }
 uint PathTraceRigidRouteInstanceCount() { return (uint)max(GeometryInfo2.y, 0.0); }
 uint PathTracePrimarySurfaceHistoryCount() { return (uint)max(GeometryInfo2.z, 0.0); }
-uint PathTraceSmokeReservoirCount() { return (uint)max(GeometryInfo2.w, 0.0); }
 uint PathTraceSkinnedPreviousPositionCount() { return (uint)max(GeometryInfo3.x, 0.0); }
 uint PathTraceSkinnedSurfaceDispatchCount() { return (uint)max(GeometryInfo3.y, 0.0); }
 uint PathTraceSkinnedTriangleDispatchIndexCount() { return (uint)max(GeometryInfo3.z, 0.0); }
@@ -1837,8 +1823,6 @@ bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload)
 
 #ifdef RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE
 #include "pathtrace_nee.hlsli"
-
-#include "pathtrace_smoke_native_nee_reservoir_preview.hlsli"
 
 static const uint RT_PT_TOY_FLAG_DIFFUSE_HIT = 0x00000001u;
 static const uint RT_PT_TOY_FLAG_REFLECTION_HIT = 0x00000002u;
