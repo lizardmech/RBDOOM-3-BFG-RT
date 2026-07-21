@@ -407,8 +407,8 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 NeeInfo;
     float4 MotionVectorInfo;
     float4 RestirPTSurfaceInfo;
-    float4 RestirPTDirectInfo;
-    float4 RestirPTSparsityInfo;
+    float4 ReservedRestirPTDirectInfo;
+    float4 ReservedRestirPTSparsityInfo;
     float4 ReservedRestirPTIndirectInfo;
     float4 RayReconstructionInfo;
     float4 UnifiedLightInfo;
@@ -584,114 +584,6 @@ uint2 PathTraceFullOutputSize()
     return (size.x > 0u && size.y > 0u) ? size : DispatchRaysDimensions().xy;
 }
 
-uint2 PathTraceRestirDirectSize()
-{
-    const uint2 size = uint2((uint)max(RestirPTDirectInfo.x, 0.0), (uint)max(RestirPTDirectInfo.y, 0.0));
-    return (size.x > 0u && size.y > 0u) ? size : PathTraceFullOutputSize();
-}
-
-bool PathTraceRestirDirectDispatchActive()
-{
-    const uint dispatchMode = (uint)max(RestirPTDirectInfo.z, 0.0);
-    return dispatchMode == 1u || dispatchMode == 3u || dispatchMode == 5u || dispatchMode == 6u;
-}
-
-bool PathTraceRestirDirectSparseProducerDispatch()
-{
-    const uint dispatchMode = (uint)max(RestirPTDirectInfo.z, 0.0);
-    return dispatchMode == 5u || dispatchMode == 6u;
-}
-
-bool PathTraceRestirPTPrimarySurfaceProducerDispatch()
-{
-    return (uint)max(RestirPTDirectInfo.z, 0.0) == 2u;
-}
-
-bool PathTraceRestirPTConsumePrimarySurfaceHistory()
-{
-    const uint dispatchMode = (uint)max(RestirPTDirectInfo.z, 0.0);
-    return dispatchMode == 3u || dispatchMode == 4u || dispatchMode == 6u;
-}
-
-uint PathTraceRestirSparsityRate()
-{
-    return clamp((uint)max(RestirPTSparsityInfo.x, 1.0), 1u, 8u);
-}
-
-bool PathTraceRestirSparsityEnabled()
-{
-    return RestirPTSparsityInfo.z >= 0.5 && PathTraceRestirSparsityRate() > 1u;
-}
-
-uint PathTraceRestirSparsityPhase(bool previousFrame)
-{
-    const uint rate = PathTraceRestirSparsityRate();
-    const float phaseValue = previousFrame ? RestirPTSparsityInfo.w : RestirPTSparsityInfo.y;
-    return rate > 1u ? (uint)max(phaseValue, 0.0) % rate : 0u;
-}
-
-bool PathTraceRestirSparseActivePixel(uint2 pixel, bool previousFrame)
-{
-    if (!PathTraceRestirSparsityEnabled())
-    {
-        return true;
-    }
-    const uint rate = PathTraceRestirSparsityRate();
-    const uint phase = PathTraceRestirSparsityPhase(previousFrame);
-    return ((pixel.x + pixel.y * 3u + phase) % rate) == 0u;
-}
-
-uint2 PathTraceRestirSparseDispatchSize()
-{
-    const uint2 dimensions = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
-    const uint rate = PathTraceRestirSparsityRate();
-    return uint2((dimensions.x + rate - 1u) / rate, dimensions.y);
-}
-
-uint2 PathTraceRestirSparseProducerPixelToDirectPixel(uint2 sparsePixel)
-{
-    const uint2 dimensions = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
-    const uint rate = PathTraceRestirSparsityRate();
-    const uint phase = PathTraceRestirSparsityPhase(false);
-    const uint firstX = (rate - ((sparsePixel.y * 3u + phase) % rate)) % rate;
-    return uint2(firstX + sparsePixel.x * rate, sparsePixel.y);
-}
-
-uint2 PathTraceRestirSparseRepresentativePixel(uint2 pixel, bool previousFrame)
-{
-    const uint2 dimensions = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
-    pixel = min(pixel, dimensions - uint2(1u, 1u));
-    if (!PathTraceRestirSparsityEnabled())
-    {
-        return pixel;
-    }
-
-    const uint rate = PathTraceRestirSparsityRate();
-    const uint phase = PathTraceRestirSparsityPhase(previousFrame);
-    const uint residue = (pixel.x + pixel.y * 3u + phase) % rate;
-    const int dxBack = -int(residue);
-    const int dxForward = int((rate - residue) % rate);
-    const int xBack = int(pixel.x) + dxBack;
-    const int xForward = int(pixel.x) + dxForward;
-    const bool backValid = xBack >= 0;
-    const bool forwardValid = xForward < int(dimensions.x);
-    int chosenX = int(pixel.x);
-    if (backValid && forwardValid)
-    {
-        chosenX = abs(dxBack) <= abs(dxForward) ? xBack : xForward;
-    }
-    else if (backValid)
-    {
-        chosenX = xBack;
-    }
-    else if (forwardValid)
-    {
-        chosenX = xForward;
-    }
-
-    return uint2(uint(clamp(chosenX, 0, int(dimensions.x) - 1)), pixel.y);
-}
-
 uint PathTraceDebugMode()
 {
 #ifdef RB_PT_FORCE_DEBUG_MODE
@@ -701,46 +593,14 @@ uint PathTraceDebugMode()
 #endif
 }
 
-uint2 PathTraceFullPixelToRestirDirectPixel(uint2 fullPixel)
-{
-    const uint2 fullSize = max(PathTraceFullOutputSize(), uint2(1u, 1u));
-    const uint2 directSize = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
-    const float2 directPixel = floor(((float2(fullPixel) + 0.5) * float2(directSize)) / float2(fullSize));
-    return PathTraceRestirSparseRepresentativePixel(min(uint2(directPixel), directSize - uint2(1u, 1u)), false);
-}
-
-float2 PathTraceFullPixelFloatToRestirDirectPixelFloat(float2 fullPixelFloat)
-{
-    const uint2 fullSize = max(PathTraceFullOutputSize(), uint2(1u, 1u));
-    const uint2 directSize = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
-    return ((fullPixelFloat + 0.5) * float2(directSize)) / float2(fullSize) - 0.5;
-}
-
-uint2 PathTraceRestirDirectPixelToRepresentativeFullPixel(uint2 directPixel)
-{
-    const uint2 fullSize = max(PathTraceFullOutputSize(), uint2(1u, 1u));
-    const uint2 directSize = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
-    const float2 fullPixel = floor(((float2(directPixel) + 0.5) * float2(fullSize)) / float2(directSize));
-    return min(uint2(fullPixel), fullSize - uint2(1u, 1u));
-}
-
 uint2 PathTracePrimarySurfaceStorePixel(uint2 pixel)
 {
-    return PathTraceRestirDirectDispatchActive() ? PathTraceRestirDirectPixelToRepresentativeFullPixel(pixel) : pixel;
+    return pixel;
 }
 
 int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame)
 {
-    if (!PathTraceRestirDirectDispatchActive())
-    {
-        return pixelPosition;
-    }
-    if (pixelPosition.x < 0 || pixelPosition.y < 0)
-    {
-        return pixelPosition;
-    }
-    const uint2 directPixel = PathTraceRestirSparseRepresentativePixel(uint2(pixelPosition), previousFrame);
-    return int2(PathTraceRestirDirectPixelToRepresentativeFullPixel(directPixel));
+    return pixelPosition;
 }
 
 #include "RtxdiBridge/RAB_Material.hlsli"

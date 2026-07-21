@@ -706,8 +706,8 @@ struct PathTraceSmokeConstants
     float neeInfo[4];
     float motionVectorInfo[4];
     float restirPTSurfaceInfo[4];
-    float restirPTDirectInfo[4];
-    float restirPTSparsityInfo[4];
+    float reservedRestirPTDirectInfo[4];
+    float reservedRestirPTSparsityInfo[4];
     float reservedRestirPTIndirectInfo[4];
     float rayReconstructionInfo[4];
     float unifiedLightInfo[4];
@@ -809,17 +809,6 @@ struct PathTraceDispatchTileSettings
     int tileCount = 1;
     uint64 estimatedRaysPerTile = 0;
     uint64 estimatedRaysFullFrame = 0;
-};
-
-enum RtRestirPTShaderDispatchMode
-{
-    RT_RESTIR_PT_SHADER_DISPATCH_FULL = 0,
-    RT_RESTIR_PT_SHADER_DISPATCH_DIRECT_TRACE_PRIMARY = 1,
-    RT_RESTIR_PT_SHADER_DISPATCH_PRIMARY_SURFACE_ONLY = 2,
-    RT_RESTIR_PT_SHADER_DISPATCH_DIRECT_CONSUME_PRIMARY = 3,
-    RT_RESTIR_PT_SHADER_DISPATCH_FULL_CONSUME_PRIMARY = 4,
-    RT_RESTIR_PT_SHADER_DISPATCH_DIRECT_TRACE_PRIMARY_SPARSE = 5,
-    RT_RESTIR_PT_SHADER_DISPATCH_DIRECT_CONSUME_PRIMARY_SPARSE = 6
 };
 
 enum PathTraceSafetyDisableBits : uint32_t
@@ -5556,14 +5545,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTSurfaceInfo[1] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTTemporalNeighborDebugMode.GetInteger()));
     constants.restirPTSurfaceInfo[2] = r_pathTracingRestirPTUnifiedPrevToCurrentScan.GetBool() ? 1.0f : 0.0f;
     constants.restirPTSurfaceInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
-    constants.restirPTDirectInfo[0] = static_cast<float>(m_frameResources.width);
-    constants.restirPTDirectInfo[1] = static_cast<float>(m_frameResources.height);
-    constants.restirPTDirectInfo[2] = 0.0f;
-    constants.restirPTDirectInfo[3] = 1.0f;
-    constants.restirPTSparsityInfo[0] = 1.0f;
-    constants.restirPTSparsityInfo[1] = 0.0f;
-    constants.restirPTSparsityInfo[2] = 0.0f;
-    constants.restirPTSparsityInfo[3] = 0.0f;
     constants.rayReconstructionInfo[0] = static_cast<float>(idMath::ClampInt(0, 10, r_pathTracingDLSSRRGuideDebugView.GetInteger()));
     constants.rayReconstructionInfo[1] = 0.0f;
     constants.rayReconstructionInfo[2] = 0.0f;
@@ -6267,7 +6248,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     int timingDispatchWidth = args.width;
     int timingDispatchHeight = args.height;
 
-    auto dispatchSmokeRays = [&](const nvrhi::rt::DispatchRaysArguments& dispatchArgs, int domainWidth, int domainHeight, int restirShaderDispatchMode)
+    auto dispatchSmokeRays = [&](const nvrhi::rt::DispatchRaysArguments& dispatchArgs, int domainWidth, int domainHeight)
     {
         if (dispatchTileSettings.enabled)
         {
@@ -6280,7 +6261,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     PathTraceSmokeConstants tileConstants = constants;
                     tileConstants.dispatchTileInfo[0] = static_cast<float>(tileX);
                     tileConstants.dispatchTileInfo[1] = static_cast<float>(tileY);
-                    tileConstants.restirPTDirectInfo[2] = static_cast<float>(restirShaderDispatchMode);
                     commandList->writeBuffer(m_smokeConstantsBuffer, &tileConstants, sizeof(tileConstants));
 
                     nvrhi::rt::DispatchRaysArguments tileArgs;
@@ -6296,14 +6276,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             PathTraceSmokeConstants dispatchConstants = constants;
             dispatchConstants.dispatchTileInfo[0] = 0.0f;
             dispatchConstants.dispatchTileInfo[1] = 0.0f;
-            dispatchConstants.restirPTDirectInfo[2] = static_cast<float>(restirShaderDispatchMode);
             commandList->writeBuffer(m_smokeConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
             commandList->dispatchRays(dispatchArgs);
         }
     };
 
     const uint64 setStateStartUs = targetClearCompleteUs;
-    const int finalDispatchMode = RT_RESTIR_PT_SHADER_DISPATCH_FULL;
     if (requestedLiquidPoolMode != 0 && liquidPoolTelemetryReady)
     {
         commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -6393,18 +6371,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 OPTICK_GPU_EVENT("PT GPU Dispatch Ray Tiles");
             }
-            dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, finalDispatchMode);
+            dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height);
         }
         else
         {
             if (optickGpuMarkers)
             {
                 OPTICK_GPU_EVENT("PT GPU Dispatch Rays");
-                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, finalDispatchMode);
+                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height);
             }
             else
             {
-                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, finalDispatchMode);
+                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height);
             }
         }
     }
