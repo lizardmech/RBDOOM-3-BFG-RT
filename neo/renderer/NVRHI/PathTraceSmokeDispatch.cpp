@@ -619,7 +619,6 @@ enum PathTraceSafetyDisableBits : uint32_t
     RT_PT_SAFETY_DISABLE_DIFFUSE_SECONDARY_RAY = 1u << 4,
     RT_PT_SAFETY_DISABLE_REFLECTION_RAY = 1u << 5,
     RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 1u << 6,
-    RT_PT_SAFETY_DISABLE_RESERVOIR_WRITES = 1u << 7,
     RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY = 1u << 8,
 };
 
@@ -657,7 +656,6 @@ uint32_t BuildPathTraceSafetyDisableMask()
     mask |= r_pathTracingDisableDiffuseSecondaryRay.GetInteger() != 0 ? RT_PT_SAFETY_DISABLE_DIFFUSE_SECONDARY_RAY : 0u;
     mask |= r_pathTracingDisableReflectionRay.GetInteger() != 0 ? RT_PT_SAFETY_DISABLE_REFLECTION_RAY : 0u;
     mask |= r_pathTracingDisablePrimarySurfaceHistory.GetInteger() != 0 ? RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY : 0u;
-    mask |= r_pathTracingDisableReservoirWrites.GetInteger() != 0 ? RT_PT_SAFETY_DISABLE_RESERVOIR_WRITES : 0u;
     mask |= r_pathTracingDisableRestirVisibilityRay.GetInteger() != 0 ? RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY : 0u;
     return mask;
 }
@@ -2010,25 +2008,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         return;
     }
-    if (!standaloneDebugRouteRequested && !cleanRtxdiDiRouteRequested && !pdfNeeRluCurrentProducerRequested && !m_frameResources.smokeReservoirBuffers.IsValidFor(m_frameResources.width, m_frameResources.height))
-    {
-        if (r_pathTracingReGIRDump.GetInteger() != 0)
-        {
-            printReGIRDump("dispatch-entry", "smoke-reservoir");
-            r_pathTracingReGIRDump.SetInteger(0);
-        }
-        if (cleanRtxdiDiDumpRequested)
-        {
-            printCleanRtxdiDiDump("dispatch-entry", "smoke-reservoir", 0);
-            r_pathTracingCleanRtxdiDiDump.SetInteger(0);
-        }
-        if (pdfNeeVerifierDumpRequested)
-        {
-            printPdfNeeVerifierDump("dispatch-entry", "smoke-reservoir");
-            r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
-        }
-        return;
-    }
     if (!standaloneDebugRouteRequested && !cleanRtxdiDiRouteRequested && !pdfNeeRluCurrentProducerRequested && !m_frameResources.primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height)))
     {
         if (r_pathTracingReGIRDump.GetInteger() != 0)
@@ -2846,9 +2825,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(58, m_smokeEmissiveRemapBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(46, m_smokeEmissiveDistributionBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(17, m_smokeLightCandidateBuffer),
-                nvrhi::BindingSetItem::StructuredBuffer_UAV(18, m_frameResources.smokeReservoirBuffers.current),
-                nvrhi::BindingSetItem::StructuredBuffer_UAV(19, m_frameResources.smokeReservoirBuffers.previous),
-                nvrhi::BindingSetItem::StructuredBuffer_UAV(20, m_frameResources.smokeReservoirBuffers.spatialScratch),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(21, m_smokeBoundsOverlayLineBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(22, m_smokeRigidRouteVertexBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(23, m_smokeRigidRouteIndexBuffer),
@@ -3040,7 +3016,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             pdfNeeProducerConstants.geometryInfo2[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteTriangleCount));
             pdfNeeProducerConstants.geometryInfo2[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
             pdfNeeProducerConstants.geometryInfo2[2] = static_cast<float>(m_frameResources.primarySurfaceHistoryBuffers.surfaceCount);
-            pdfNeeProducerConstants.geometryInfo2[3] = static_cast<float>(m_frameResources.smokeReservoirBuffers.reservoirCount);
+            pdfNeeProducerConstants.geometryInfo2[3] = 0.0f;
             pdfNeeProducerConstants.geometryInfo3[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedPreviousPositionCount));
             pdfNeeProducerConstants.geometryInfo3[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedSurfaceDispatchCount));
             pdfNeeProducerConstants.geometryInfo3[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedTriangleDispatchIndexCount));
@@ -3079,9 +3055,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
-            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_smokeCleanRtxdiDiCurrentReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -4836,9 +4809,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::BindingSetItem::StructuredBuffer_SRV(58, m_smokeEmissiveRemapBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(46, m_smokeEmissiveDistributionBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(17, m_smokeLightCandidateBuffer),
-            nvrhi::BindingSetItem::StructuredBuffer_UAV(18, m_frameResources.smokeReservoirBuffers.current),
-            nvrhi::BindingSetItem::StructuredBuffer_UAV(19, m_frameResources.smokeReservoirBuffers.previous),
-            nvrhi::BindingSetItem::StructuredBuffer_UAV(20, m_frameResources.smokeReservoirBuffers.spatialScratch),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(21, m_smokeBoundsOverlayLineBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(22, m_smokeRigidRouteVertexBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(23, m_smokeRigidRouteIndexBuffer),
@@ -4914,7 +4884,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool disableAnalyticLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
     const bool disableEmissiveTriangleSampling = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING);
     const bool disablePrimarySurfaceHistory = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY);
-    const bool disableReservoirWrites = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_RESERVOIR_WRITES);
     const bool motionVectorExportEnabled = r_pathTracingMotionVectorExport.GetInteger() != 0;
     nvrhi::rt::State state;
     if (neeCacheDebugRouteRequested && m_smokeNeeCacheDebugShaderTable)
@@ -5030,61 +4999,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         ? Min(m_frameResources.smokeAccumulationFrameCount, accumulationMaxFrames - 1)
         : 0;
     const bool accumulationTextureActive = mode18AccumulationActive;
-
-    uint64 reservoirDispatchSignature = 1469598103934665603ull;
-    reservoirDispatchSignature = HashSmokeBytes(reservoirDispatchSignature, &m_frameResources.smokeReservoirSceneSignature, sizeof(m_frameResources.smokeReservoirSceneSignature));
-    reservoirDispatchSignature = HashSmokeBytes(reservoirDispatchSignature, &m_frameResources.width, sizeof(m_frameResources.width));
-    reservoirDispatchSignature = HashSmokeBytes(reservoirDispatchSignature, &m_frameResources.height, sizeof(m_frameResources.height));
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraOrigin.x, 100.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraOrigin.y, 100.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraOrigin.z, 100.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraForward.x, 10000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraForward.y, 10000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraForward.z, 10000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraLeft.x, 10000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraLeft.y, 10000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraLeft.z, 10000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraUp.x, 10000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraUp.y, 10000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraUp.z, 10000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, viewDef->renderView.fov_x, 100.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, viewDef->renderView.fov_y, 100.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, toyLightScale, 1000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, toyEmissiveScale, 1000.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, effectiveAnalyticLightIntensityScale, 1000.0f);
-    reservoirDispatchSignature = HashSmokeDispatchValue(reservoirDispatchSignature, static_cast<uint64>(m_smokeDoomAnalyticLightCount));
-    reservoirDispatchSignature = HashSmokeDispatchValue(reservoirDispatchSignature, static_cast<uint64>(idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger())));
-    if (reservoirDispatchSignature != m_frameResources.smokeReservoirDispatchSignature)
-    {
-        m_frameResources.smokeReservoirDispatchSignature = reservoirDispatchSignature;
-        m_frameResources.smokeReservoirNeedsClear = true;
-        ++m_frameResources.smokeReservoirResetCount;
-        m_frameResources.MarkResetReason(RT_FRAME_RESET_RESERVOIR_DISPATCH_SIGNATURE);
-    }
-
-    if (r_pathTracingReservoirDump.GetInteger() != 0)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke reservoirs output=%dx%d records=%d bytes=%d sceneSig=%llu dispatchSig=%llu needsClear=%d resets=%d clears=%d emissive=%d/%d/%d lightCandidates=%d/%d(%db) doomAnalytic=%d(%db)\n",
-            m_frameResources.width,
-            m_frameResources.height,
-            m_frameResources.smokeReservoirBuffers.reservoirCount,
-            m_frameResources.smokeReservoirBuffers.reservoirBytes,
-            static_cast<unsigned long long>(m_frameResources.smokeReservoirSceneSignature),
-            static_cast<unsigned long long>(m_frameResources.smokeReservoirDispatchSignature),
-            m_frameResources.smokeReservoirNeedsClear ? 1 : 0,
-            m_frameResources.smokeReservoirResetCount,
-            m_frameResources.smokeReservoirClearCount,
-            m_smokeEmissiveTriangleCount,
-            m_smokeEmissiveStaticTriangleCount,
-            m_smokeEmissiveDynamicTriangleCount,
-            m_smokeLightCandidateCount,
-            m_smokeTexturedLightCandidateCount,
-            m_smokeLightCandidateBytes,
-            m_smokeDoomAnalyticLightCount,
-            m_smokeDoomAnalyticLightBytes);
-        m_frameResources.PrintDiagnostics("PathTracePrimaryPass");
-        r_pathTracingReservoirDump.SetInteger(0);
-    }
 
     const uint64 setupCompleteUs = Sys_Microseconds();
     const uint32_t restirPTFrameIndex = m_frameResources.restirPTFrameIndex++;
@@ -5497,7 +5411,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.geometryInfo2[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteTriangleCount));
     constants.geometryInfo2[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
     constants.geometryInfo2[2] = static_cast<float>(m_frameResources.primarySurfaceHistoryBuffers.surfaceCount);
-    constants.geometryInfo2[3] = static_cast<float>(m_frameResources.smokeReservoirBuffers.reservoirCount);
+    constants.geometryInfo2[3] = 0.0f;
     constants.geometryInfo3[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedPreviousPositionCount));
     constants.geometryInfo3[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedSurfaceDispatchCount));
     constants.geometryInfo3[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedTriangleDispatchIndexCount));
@@ -5541,7 +5455,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         const int activeDescriptorCount = Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1);
         common->Printf(
-            "PathTracePrimaryPass: PT safety pre-dispatch output=%dx%d debugMode=%d spp=%d maxDepth=%d bounce diffuse/spec/trans=%d/%d/%d reflectionMode=%d rrDepth=%d nee=%d secondaryNeeMode=%d secondaryNeeVisibility=%d secondaryAnalyticNeeMode=%d secondaryAnalyticNeeSamples=%d killMask=0x%08x selectedLights actual/effective=%d/%d analytic actual/effective=%d/%d emissive actual/effective=%d/%d lightCandidates actual/effective=%d/%d materialEntries=%d activeTextureDescriptors=%d activeTextureTableSize=%d geometry static(v/i/t)=%d/%d/%d dynamic(v/i/t)=%d/%d/%d rigid(v/i/t/inst)=%d/%d/%d/%d AS tlas/static/dynamic=%d/%d/%d primaryHistory count/bytes=%u/%llu smokeReservoir count/bytes=%d/%llu bindingSet=%d textureTable=%d\n",
+            "PathTracePrimaryPass: PT safety pre-dispatch output=%dx%d debugMode=%d spp=%d maxDepth=%d bounce diffuse/spec/trans=%d/%d/%d reflectionMode=%d rrDepth=%d nee=%d secondaryNeeMode=%d secondaryNeeVisibility=%d secondaryAnalyticNeeMode=%d secondaryAnalyticNeeSamples=%d killMask=0x%08x selectedLights actual/effective=%d/%d analytic actual/effective=%d/%d emissive actual/effective=%d/%d lightCandidates actual/effective=%d/%d materialEntries=%d activeTextureDescriptors=%d activeTextureTableSize=%d geometry static(v/i/t)=%d/%d/%d dynamic(v/i/t)=%d/%d/%d rigid(v/i/t/inst)=%d/%d/%d/%d AS tlas/static/dynamic=%d/%d/%d primaryHistory count/bytes=%u/%llu bindingSet=%d textureTable=%d\n",
             m_frameResources.width,
             m_frameResources.height,
             debugMode,
@@ -5584,8 +5498,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeDynamicBlas ? 1 : 0,
             m_frameResources.primarySurfaceHistoryBuffers.surfaceCount,
             static_cast<unsigned long long>(m_frameResources.primarySurfaceHistoryBuffers.surfaceBytes),
-            m_frameResources.smokeReservoirBuffers.reservoirCount,
-            static_cast<unsigned long long>(m_frameResources.smokeReservoirBuffers.reservoirBytes),
             m_smokeBindingSet ? 1 : 0,
             m_smokeTextureDescriptorTable ? 1 : 0);
         r_pathTracingSafetyDump.SetInteger(0);
@@ -5713,12 +5625,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
         }
-        if (!standaloneDebugRouteRequested)
-        {
-            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
-        }
         if (m_smokeCleanRtxdiDiCurrentReservoirBuffer)
         {
             commandList->setBufferState(m_smokeCleanRtxdiDiCurrentReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -5812,12 +5718,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
         }
-        if (!standaloneDebugRouteRequested)
-        {
-            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
-        }
         if (m_smokeCleanRtxdiDiCurrentReservoirBuffer)
         {
             commandList->setBufferState(m_smokeCleanRtxdiDiCurrentReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -5879,10 +5779,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_smokeNeeCacheState.pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
         m_smokeNeeCacheState.taskClearPending = false;
     }
-    if (!standaloneDebugRouteRequested && disableReservoirWrites)
-    {
-        m_frameResources.smokeReservoirNeedsClear = true;
-    }
     if (!standaloneDebugRouteRequested && disablePrimarySurfaceHistory &&
         (!m_frameResources.primarySurfaceHistoryNeedsClear ||
             m_frameResources.primarySurfaceHistoryView.valid ||
@@ -5891,23 +5787,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         m_frameResources.InvalidatePrimarySurfaceHistory(RT_FRAME_RESET_PRIMARY_HISTORY);
     }
-    const bool reservoirClearRequested = !standaloneDebugRouteRequested && !disableReservoirWrites && m_frameResources.smokeReservoirNeedsClear;
-    const uint64 reservoirClearStartUs = barrierCompleteUs;
-    if (reservoirClearRequested)
-    {
-        if (optickGpuMarkers)
-        {
-            OPTICK_GPU_EVENT("PT GPU Clear Reservoirs");
-        }
-        if (ClearSmokeReservoirBuffers(commandList, m_frameResources.smokeReservoirBuffers))
-        {
-            m_frameResources.smokeReservoirNeedsClear = false;
-            ++m_frameResources.smokeReservoirClearCount;
-        }
-    }
-    const uint64 reservoirClearCompleteUs = Sys_Microseconds();
     const bool primaryHistoryClearRequested = !standaloneDebugRouteRequested && !disablePrimarySurfaceHistory && m_frameResources.primarySurfaceHistoryNeedsClear;
-    const uint64 primaryHistoryClearStartUs = reservoirClearCompleteUs;
+    const uint64 primaryHistoryClearStartUs = barrierCompleteUs;
     if (primaryHistoryClearRequested)
     {
         if (optickGpuMarkers)
@@ -6216,7 +6097,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         timingDesc.setupMs = PathTraceMicrosecondsToMilliseconds(setupCompleteUs - executeStartUs);
         timingDesc.constantsMs = PathTraceMicrosecondsToMilliseconds(constantsCompleteUs - constantsStartUs);
         timingDesc.barrierMs = PathTraceMicrosecondsToMilliseconds(barrierCompleteUs - barrierStartUs);
-        timingDesc.reservoirClearMs = PathTraceMicrosecondsToMilliseconds(reservoirClearCompleteUs - reservoirClearStartUs);
         timingDesc.primaryHistoryClearMs = PathTraceMicrosecondsToMilliseconds(primaryHistoryClearCompleteUs - primaryHistoryClearStartUs);
         timingDesc.targetClearMs = PathTraceMicrosecondsToMilliseconds(targetClearCompleteUs - targetClearStartUs);
         timingDesc.setStateMs = PathTraceMicrosecondsToMilliseconds(setStateCompleteUs - setStateStartUs);
@@ -6233,7 +6113,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         timingDesc.estimatedRaysPerPixel = estimatedRaysPerPixel;
         timingDesc.selectedLights = selectedLightRequestCount;
         timingDesc.analyticLights = analyticLightTraceCount;
-        timingDesc.reservoirClearRequested = reservoirClearRequested;
         timingDesc.primaryHistoryClearRequested = primaryHistoryClearRequested;
         timingDesc.readbackQueued = readbackQueuedThisFrame;
         timingDesc.optickGpuMarkers = optickGpuMarkers;

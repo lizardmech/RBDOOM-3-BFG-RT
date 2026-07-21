@@ -15,13 +15,6 @@ uint32_t RemixStructuralResetFlags(uint32_t resetReasonFlags)
         RT_FRAME_RESET_GPU_IDLE_WAIT);
 }
 
-uint32_t RemixReservoirResetFlags(uint32_t resetReasonFlags)
-{
-    return resetReasonFlags & (
-        RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE |
-        RT_FRAME_RESET_RESERVOIR_DISPATCH_SIGNATURE);
-}
-
 }
 
 void PathTraceRemixFramePrepare::Clear()
@@ -45,12 +38,10 @@ void PathTraceRemixFramePrepare::BeginFrame(const PathTraceRemixFramePrepareDesc
     m_stats.preparedFrameIndex = desc.frameIndex;
     ++m_stats.beginFrameCount;
     m_stats.structuralResetReasonFlags = RemixStructuralResetFlags(desc.resetReasonFlags);
-    m_stats.reservoirResetReasonFlags = RemixReservoirResetFlags(desc.resetReasonFlags);
     m_stats.payloadObservationCount = 0;
     m_stats.mappingObservationCount = 0;
     m_stats.outputWidth = static_cast<uint32_t>(desc.outputWidth > 0 ? desc.outputWidth : 0);
     m_stats.outputHeight = static_cast<uint32_t>(desc.outputHeight > 0 ? desc.outputHeight : 0);
-    m_stats.oldSmokeReservoirSignatureConsulted = 0;
     m_stats.resourceAllocationCount = 0;
     m_stats.shaderRouteCount = 0;
     m_frameOpen = true;

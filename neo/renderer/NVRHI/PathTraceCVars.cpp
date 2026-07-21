@@ -2127,12 +2127,6 @@ idCVar r_pathTracingDisablePrimarySurfaceHistory(
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic kill switch: disable primary surface history writes, clears, copies, and previous-camera history validity" );
 
-idCVar r_pathTracingDisableReservoirWrites(
-    "r_pathTracingDisableReservoirWrites",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Diagnostic kill switch: disable smoke and ReSTIR PT reservoir writes from the ray tracing shader" );
-
 idCVar r_pathTracingDisableRestirVisibilityRay(
     "r_pathTracingDisableRestirVisibilityRay",
     "0",
@@ -2417,12 +2411,6 @@ idCVar r_pathTracingNsightGpuMarkers(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable NVRHI GPU debug markers around RT smoke/path tracing dispatches for Nsight captures" );
-
-idCVar r_pathTracingReservoirDump(
-    "r_pathTracingReservoirDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump current RT smoke reservoir ownership/reset state once" );
 
 idCVar r_pathTracingSceneInputsDump(
     "r_pathTracingSceneInputsDump",

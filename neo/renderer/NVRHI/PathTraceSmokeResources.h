@@ -7,7 +7,6 @@
 // descriptor consumed by PathTracePrimaryPass state.
 
 #include "PathTraceDynamicMaterialState.h"
-#include "PathTraceReservoirs.h"
 #include "PathTraceRestirPTReservoirs.h"
 #include "PathTraceSceneInputs.h"
 
@@ -164,7 +163,6 @@ struct RtSmokeBindingBuildDesc
     const std::vector<nvrhi::TextureHandle>* existingActiveTextureTable = nullptr;
     nvrhi::SamplerHandle sampler;
     RtSmokeSceneBufferHandles buffers;
-    RtSmokeReservoirBufferHandles reservoirBuffers;
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     bool enableTextureProbe = false;
     bool forceFallbackTexture = false;
@@ -225,7 +223,6 @@ struct RtSmokeSceneResourceCommitDesc
     int unifiedLightRemapCount = 0;
     int restirLightManagerCurrentPayloadCount = 0;
     int restirLightManagerPreviousPayloadCount = 0;
-    uint64 reservoirSceneSignature = 0;
 };
 
 struct RtSmokeSceneResourceCommitBuildDesc
@@ -267,7 +264,6 @@ struct RtSmokeSceneResourceCommitBuildDesc
     int unifiedLightRemapCount = 0;
     int restirLightManagerCurrentPayloadCount = 0;
     int restirLightManagerPreviousPayloadCount = 0;
-    uint64 reservoirSceneSignature = 0;
 };
 
 RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc);

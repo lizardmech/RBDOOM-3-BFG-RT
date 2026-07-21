@@ -843,3 +843,26 @@ Working rule for every deletion slice:
     proving that the removed source reached no compiled entry point. Deploy the
     five verified SPIR-V files and unchanged EXE; all hashes match. EXE SHA-256
     remains AADDA4E0C0C29803E7AC8ABE19DD29E5264E8ECA527497EE5596622DCBDE7D41.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    87c85e766. T3.1i shader-side runtime gate closed.
+  - T3.1j removes the host half of the now-proven-dead native smoke-reservoir
+    island: three full-frame structured buffers, u18-u20 layouts and bindings,
+    barriers and clears, scene/dispatch reset bookkeeping, timing and dump
+    diagnostics, and the PathTraceReservoirs implementation. Remove the now
+    inert ReservoirDump and DisableReservoirWrites CVars and the unused shader
+    safety bit as part of the same ownership boundary.
+  - Preserve the independently owned clean-DI reservoirs at u69 and above,
+    clean-GI resources, primary-surface history, mode 18, and the existing
+    reservoirScene member in the general scene-transition hash. The last item
+    remains because it participates in broader transition policy even though it
+    no longer controls allocation or clearing of the deleted native buffers.
+  - Delete pathtrace_smoke.rt.bin before building. CMake's glob refresh removes
+    the deleted C++ files from the generated project; the full
+    win64-pt-dev-release build passes and DXIL stays up to date. The regenerated
+    smoke blob is newer than the shader edit and remains byte-identical at
+    48C24BCEFD2E4DDB83861F342B5F577712270467F6CEC8A5AB8CA03C3782EEA5,
+    confirming that the removed safety constant had no compiled consumer.
+  - Deploy the rebuilt EXE plus the two Vulkan blobs refreshed by the dependency
+    check (smoke and RLU-current). Source/destination SHA-256 pairs match. EXE
+    SHA-256 is
+    4EFA489A3F1463DBB6C7A6FC1BC5E39F6AB00B0ED178A0A007336B5BDE2106BC.

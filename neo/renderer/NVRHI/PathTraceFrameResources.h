@@ -7,7 +7,6 @@
 // reset bookkeeping together while existing scene build and raygen code still
 // consume the same NVRHI handles.
 
-#include "PathTraceReservoirs.h"
 #include "PathTraceRestirPTReservoirs.h"
 
 #include <nvrhi/nvrhi.h>
@@ -20,8 +19,6 @@ enum RtPathTraceFrameResetReason : uint32_t
     RT_FRAME_RESET_OUTPUT_RESIZE = 1u << 0,
     RT_FRAME_RESET_BACKBUFFER_RESIZE = 1u << 1,
     RT_FRAME_RESET_SCENE_RESOURCES = 1u << 2,
-    RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE = 1u << 3,
-    RT_FRAME_RESET_RESERVOIR_DISPATCH_SIGNATURE = 1u << 4,
     RT_FRAME_RESET_PRIMARY_HISTORY = 1u << 5,
     RT_FRAME_RESET_GPU_IDLE_WAIT = 1u << 6
 };
@@ -60,8 +57,6 @@ struct RtPathTraceFrameResourceDiagnostics
     const char* lastWaitForIdleReason = "";
     int outputTexturesCreated = 0;
     int diagnosticReadbackResourcesCreated = 0;
-    int smokeReservoirBuffersReused = 0;
-    int smokeReservoirBuffersRecreated = 0;
     int primarySurfaceHistoryBuffersReused = 0;
     int primarySurfaceHistoryBuffersRecreated = 0;
     int motionVectorTexturesCreated = 0;
@@ -73,7 +68,6 @@ struct RtPathTraceFrameResourceDiagnostics
     int readbacksMapped = 0;
     int readbacksUnmapped = 0;
     uint64_t outputTextureBytes = 0;
-    uint64_t smokeReservoirBytes = 0;
     uint64_t primarySurfaceHistoryBytes = 0;
     uint64_t motionVectorBytes = 0;
     uint64_t motionVectorMaskBytes = 0;
@@ -110,18 +104,12 @@ struct RtPathTraceFrameResources
     int outputWidth = 0;
     int outputHeight = 0;
 
-    RtSmokeReservoirBufferHandles smokeReservoirBuffers;
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     uint32_t restirPTFrameIndex = 0;
 
-    uint64 smokeReservoirSceneSignature = 0;
-    uint64 smokeReservoirDispatchSignature = 0;
-    bool smokeReservoirNeedsClear = false;
     bool primarySurfaceHistoryNeedsClear = true;
     RtPathTracePrimarySurfaceHistoryState primarySurfaceHistoryState;
     RtPathTraceFrameCameraState primarySurfaceHistoryView;
-    int smokeReservoirResetCount = 0;
-    int smokeReservoirClearCount = 0;
     uint64 smokeAccumulationSignature = 0;
     int smokeAccumulationFrameCount = 0;
 

@@ -91,15 +91,12 @@ void RtPathTraceFrameResourceDiagnostics::ResetResizeStats()
     lastWaitForIdleReason = "";
     outputTexturesCreated = 0;
     diagnosticReadbackResourcesCreated = 0;
-    smokeReservoirBuffersReused = 0;
-    smokeReservoirBuffersRecreated = 0;
     primarySurfaceHistoryBuffersReused = 0;
     primarySurfaceHistoryBuffersRecreated = 0;
     motionVectorTexturesCreated = 0;
     motionVectorMaskTexturesCreated = 0;
     rrGuideTexturesCreated = 0;
     outputTextureBytes = 0;
-    smokeReservoirBytes = 0;
     primarySurfaceHistoryBytes = 0;
     motionVectorBytes = 0;
     motionVectorMaskBytes = 0;
@@ -129,7 +126,6 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         TextureSizeMatches(rrGuidePositionTexture, requestedWidth, requestedHeight) &&
         readbackTexture &&
         rrInputColorDumpReadbackTexture &&
-        smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight) &&
         primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight)) &&
         width == requestedWidth &&
         height == requestedHeight &&
@@ -160,9 +156,6 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         rrGuidePositionTexture ||
         readbackTexture ||
         rrInputColorDumpReadbackTexture ||
-        smokeReservoirBuffers.current ||
-        smokeReservoirBuffers.previous ||
-        smokeReservoirBuffers.spatialScratch ||
         primarySurfaceHistoryBuffers.current ||
         primarySurfaceHistoryBuffers.previous;
 }
@@ -405,7 +398,6 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
-    const bool smokeReservoirWasValid = smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight);
     const bool primaryHistoryWasValid = primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight));
 
     outputTexture = newOutputTexture;
@@ -449,28 +441,6 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         EstimateR32FloatTextureBytes(width, height) * 2ull +
         EstimateR32UintTextureBytes(width, height);
     MarkResetReason(RT_FRAME_RESET_OUTPUT_RESIZE);
-
-    RtSmokeReservoirBufferCreateDesc reservoirDesc;
-    reservoirDesc.device = device;
-    reservoirDesc.existingBuffers = smokeReservoirBuffers;
-    reservoirDesc.width = requestedWidth;
-    reservoirDesc.height = requestedHeight;
-    const RtSmokeReservoirBufferCreateResult reservoirResult = CreateSmokeReservoirBuffers(reservoirDesc);
-    if (!reservoirResult.Succeeded())
-    {
-        common->Printf("PathTraceFrameResources: %s (%dx%d)\n", reservoirResult.errorMessage ? reservoirResult.errorMessage : "failed to create RT smoke reservoir buffers", requestedWidth, requestedHeight);
-        return false;
-    }
-    smokeReservoirBuffers = reservoirResult.buffers;
-    diagnostics.smokeReservoirBytes = static_cast<uint64_t>(smokeReservoirBuffers.reservoirBytes);
-    if (smokeReservoirWasValid)
-    {
-        diagnostics.smokeReservoirBuffersReused += 3;
-    }
-    else
-    {
-        diagnostics.smokeReservoirBuffersRecreated += 3;
-    }
 
     RtRestirPTPrimarySurfaceHistoryBufferCreateDesc primaryHistoryDesc;
     primaryHistoryDesc.device = device;
@@ -553,16 +523,10 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     height = 0;
     outputWidth = 0;
     outputHeight = 0;
-    smokeReservoirBuffers.Reset();
     primarySurfaceHistoryBuffers.Reset();
-    smokeReservoirSceneSignature = 0;
-    smokeReservoirDispatchSignature = 0;
-    smokeReservoirNeedsClear = false;
     primarySurfaceHistoryNeedsClear = true;
     primarySurfaceHistoryState.Reset(reasonFlags);
     primarySurfaceHistoryView.Reset();
-    smokeReservoirResetCount = 0;
-    smokeReservoirClearCount = 0;
     smokeAccumulationSignature = 0;
     smokeAccumulationFrameCount = 0;
     ResetReadbackQueue();
@@ -573,14 +537,9 @@ void RtPathTraceFrameResources::ResetSceneDependentState()
 {
     smokeAccumulationSignature = 0;
     smokeAccumulationFrameCount = 0;
-    smokeReservoirSceneSignature = 0;
-    smokeReservoirDispatchSignature = 0;
-    smokeReservoirNeedsClear = false;
     primarySurfaceHistoryNeedsClear = true;
     primarySurfaceHistoryState.Reset(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_PRIMARY_HISTORY);
     primarySurfaceHistoryView.Reset();
-    smokeReservoirResetCount = 0;
-    smokeReservoirClearCount = 0;
     ResetReadbackQueue();
     MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_PRIMARY_HISTORY);
 }
@@ -674,14 +633,6 @@ void RtPathTraceFrameResources::DescribeResetReasons(idStr& out) const
     {
         AppendReason(out, "scene-resources");
     }
-    if ((reasons & RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE) != 0)
-    {
-        AppendReason(out, "reservoir-scene-signature");
-    }
-    if ((reasons & RT_FRAME_RESET_RESERVOIR_DISPATCH_SIGNATURE) != 0)
-    {
-        AppendReason(out, "reservoir-dispatch-signature");
-    }
     if ((reasons & RT_FRAME_RESET_PRIMARY_HISTORY) != 0)
     {
         AppendReason(out, "primary-history");
@@ -697,7 +648,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
     idStr resetReasons;
     DescribeResetReasons(resetReasons);
 
-    common->Printf("%s: PT frame resources render=%dx%d output=%dx%d debugMode=%d frame=%u resetReasons=%s valid output/accum/rrInput/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d/%d/%d smokeReservoir=%d primaryHistory=%d primaryState current/previous/samePixel/reproject/objectMotion=%d/%d/%d/%d/%d bytes output=%llu motion=%llu motionMask=%llu rrGuides=%llu smokeReservoir=%llu primaryHistory=%llu sceneUpload=%llu recreate output/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d buffers smoke(reuse/recreate)=%d/%d primaryHistory(reuse/recreate)=%d/%d descriptors=%d blasTlas=%d readback queued/mapped/unmapped=%d/%d/%d waitForIdle=%d reason=%s\n",
+    common->Printf("%s: PT frame resources render=%dx%d output=%dx%d debugMode=%d frame=%u resetReasons=%s valid output/accum/rrInput/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d/%d/%d primaryHistory=%d primaryState current/previous/samePixel/reproject/objectMotion=%d/%d/%d/%d/%d bytes output=%llu motion=%llu motionMask=%llu rrGuides=%llu primaryHistory=%llu sceneUpload=%llu recreate output/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d primaryHistoryBuffers(reuse/recreate)=%d/%d descriptors=%d blasTlas=%d readback queued/mapped/unmapped=%d/%d/%d waitForIdle=%d reason=%s\n",
         prefix ? prefix : "PathTraceFrameResources",
         width,
         height,
@@ -713,7 +664,6 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         motionVectorMaskTexture ? 1 : 0,
         (rrGuideAlbedoTexture && rrGuideSpecularAlbedoTexture && rrGuideNormalRoughnessTexture && rrGuideDepthTexture && rrGuideHitDistanceTexture && rrGuideResetMaskTexture && rrGuidePositionTexture) ? 1 : 0,
         readbackTexture ? 1 : 0,
-        smokeReservoirBuffers.IsValidFor(width, height) ? 1 : 0,
         primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(width), static_cast<uint32_t>(height)) ? 1 : 0,
         primarySurfaceHistoryState.currentValid ? 1 : 0,
         primarySurfaceHistoryState.previousValid ? 1 : 0,
@@ -724,7 +674,6 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),
         static_cast<unsigned long long>(diagnostics.motionVectorMaskBytes),
         static_cast<unsigned long long>(diagnostics.rrGuideBytes),
-        static_cast<unsigned long long>(diagnostics.smokeReservoirBytes),
         static_cast<unsigned long long>(diagnostics.primarySurfaceHistoryBytes),
         static_cast<unsigned long long>(diagnostics.sceneUploadBytes),
         diagnostics.outputTexturesCreated,
@@ -732,8 +681,6 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         diagnostics.motionVectorMaskTexturesCreated,
         diagnostics.rrGuideTexturesCreated,
         diagnostics.diagnosticReadbackResourcesCreated,
-        diagnostics.smokeReservoirBuffersReused,
-        diagnostics.smokeReservoirBuffersRecreated,
         diagnostics.primarySurfaceHistoryBuffersReused,
         diagnostics.primarySurfaceHistoryBuffersRecreated,
         diagnostics.descriptorBindingSetRebuilds,

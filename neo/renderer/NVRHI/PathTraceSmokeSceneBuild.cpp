@@ -3902,7 +3902,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
             ResetRayTracingSmokeSceneResources();
             m_smokeGeometryUniverse.ClearRetiredRigidBlas();
-            m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE);
+            m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES);
         }
         return;
     }
@@ -3926,10 +3926,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         ResetRayTracingSmokeSceneResources();
         m_smokeGeometryUniverse.ClearRetiredRigidBlas();
-        m_frameResources.smokeReservoirNeedsClear = true;
-        m_frameResources.smokeReservoirResetCount = 0;
-        m_frameResources.smokeReservoirClearCount = 0;
-        m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE);
+        m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES);
         m_smokeSceneRenderWorld = renderWorld;
         m_smokeSceneMapName = renderWorld->mapName;
         m_smokeSceneMapTimeStamp = renderWorld->mapTimeStamp;
@@ -5477,7 +5474,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         const PathTraceRemixFramePrepareObservationPackage& remixFramePackage = m_remixFramePrepare.GetObservationPackage();
         const PathTraceRemixFramePrepareStats& remixFrameStats = m_remixFramePrepare.GetStats();
-        common->Printf("PathTracePrimaryPass: Remix frame prepare frame=%llu source=%d debugMode=%d output=%dx%d previousScene=%d resetFlags=0x%x structuralReset=0x%x reservoirReset=0x%x lights emissive current/previous=%u/%u doomAnalytic current/previous=%u/%u identities current/previous=%u/%u restirObservations=%u counts begin/end/lightUpdates=%u/%u/%u payloadObservations=%u mappingObservations=%u oldSmokeReservoirSignatureConsulted=%u resourceAllocations=%u shaderRoutes=%u behavior=cpu-diagnostics-only\n",
+        common->Printf("PathTracePrimaryPass: Remix frame prepare frame=%llu source=%d debugMode=%d output=%dx%d previousScene=%d resetFlags=0x%x structuralReset=0x%x lights emissive current/previous=%u/%u doomAnalytic current/previous=%u/%u identities current/previous=%u/%u restirObservations=%u counts begin/end/lightUpdates=%u/%u/%u payloadObservations=%u mappingObservations=%u resourceAllocations=%u shaderRoutes=%u behavior=cpu-diagnostics-only\n",
             static_cast<unsigned long long>(remixFramePackage.frameIndex),
             remixFramePackage.sceneSource,
             remixFramePackage.debugMode,
@@ -5486,7 +5483,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixFramePackage.previousSceneInputsValid ? 1 : 0,
             remixFramePackage.resetReasonFlags,
             remixFrameStats.structuralResetReasonFlags,
-            remixFrameStats.reservoirResetReasonFlags,
             remixFramePackage.lights.emissiveObservationCount,
             remixFramePackage.lights.previousEmissiveObservationCount,
             remixFramePackage.lights.doomAnalyticObservationCount,
@@ -5499,7 +5495,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixFrameStats.lightInputUpdateCount,
             remixFrameStats.payloadObservationCount,
             remixFrameStats.mappingObservationCount,
-            remixFrameStats.oldSmokeReservoirSignatureConsulted,
             remixFrameStats.resourceAllocationCount,
             remixFrameStats.shaderRouteCount);
         r_pathTracingRemixFramePrepareDump.SetInteger(0);
@@ -7709,7 +7704,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.allowExistingTextureDescriptorTableWrites = sceneRetireFrames <= 0;
     bindingBuildDesc.sampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
     bindingBuildDesc.buffers = smokeBuffers;
-    bindingBuildDesc.reservoirBuffers = m_frameResources.smokeReservoirBuffers;
     bindingBuildDesc.primarySurfaceHistoryBuffers = m_frameResources.primarySurfaceHistoryBuffers;
     bindingBuildDesc.enableTextureProbe = enableTextureProbe;
     bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
@@ -8448,7 +8442,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.unifiedLightRemapCount = sceneInputs.lights.unifiedLightRemapCount;
     resourceCommitBuildDesc.restirLightManagerCurrentPayloadCount = sceneInputs.lights.restirLightManagerCurrentPayloadCount;
     resourceCommitBuildDesc.restirLightManagerPreviousPayloadCount = sceneInputs.lights.restirLightManagerPreviousPayloadCount;
-    resourceCommitBuildDesc.reservoirSceneSignature = reservoirSceneSignature;
     RtSmokeSceneResourceCommitDesc resourceCommitDesc;
     {
         OPTICK_EVENT("PT Commit Scene Desc Build");

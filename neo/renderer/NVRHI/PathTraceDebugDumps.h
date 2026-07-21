@@ -37,7 +37,6 @@ struct RtPathTraceDispatchTimingLogDesc
     double setupMs = 0.0;
     double constantsMs = 0.0;
     double barrierMs = 0.0;
-    double reservoirClearMs = 0.0;
     double primaryHistoryClearMs = 0.0;
     double targetClearMs = 0.0;
     double setStateMs = 0.0;
@@ -54,7 +53,6 @@ struct RtPathTraceDispatchTimingLogDesc
     int estimatedRaysPerPixel = 1;
     int selectedLights = 0;
     int analyticLights = 0;
-    bool reservoirClearRequested = false;
     bool primaryHistoryClearRequested = false;
     bool readbackQueued = false;
     bool optickGpuMarkers = false;

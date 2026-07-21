@@ -48,12 +48,10 @@ struct PathTraceRemixFramePrepareStats
     uint32_t endFrameCount = 0;
     uint32_t lightInputUpdateCount = 0;
     uint32_t structuralResetReasonFlags = 0;
-    uint32_t reservoirResetReasonFlags = 0;
     uint32_t payloadObservationCount = 0;
     uint32_t mappingObservationCount = 0;
     uint32_t outputWidth = 0;
     uint32_t outputHeight = 0;
-    uint32_t oldSmokeReservoirSignatureConsulted = 0;
     uint32_t resourceAllocationCount = 0;
     uint32_t shaderRouteCount = 0;
 };
