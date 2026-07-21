@@ -540,10 +540,6 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeMode18RestirHybridShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirCombinedShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokePrimarySurfaceProducerShaderLibrary;
-    nvrhi::ShaderLibraryHandle m_smokeRestirIndirectInitialProducerShaderLibrary;
-    nvrhi::ShaderLibraryHandle m_smokeRestirDirectTemporalProducerShaderLibrary;
-    nvrhi::ShaderLibraryHandle m_smokeRestirDirectSpatialReservoirProducerShaderLibrary;
-    nvrhi::ShaderLibraryHandle m_smokeRestirReflectionProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirCombinedResolveShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirPdfNeeRluCurrentShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokePdfNeeVerifierShaderLibrary;
@@ -575,10 +571,6 @@ private:
     nvrhi::rt::PipelineHandle m_smokeMode18RestirHybridPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirCombinedPipeline;
     nvrhi::rt::PipelineHandle m_smokePrimarySurfaceProducerPipeline;
-    nvrhi::rt::PipelineHandle m_smokeRestirIndirectInitialProducerPipeline;
-    nvrhi::rt::PipelineHandle m_smokeRestirDirectTemporalProducerPipeline;
-    nvrhi::rt::PipelineHandle m_smokeRestirDirectSpatialReservoirProducerPipeline;
-    nvrhi::rt::PipelineHandle m_smokeRestirReflectionProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirCombinedResolvePipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirPdfNeeRluCurrentPipeline;
     nvrhi::rt::PipelineHandle m_smokePdfNeeVerifierPipeline;
@@ -599,10 +591,6 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokeMode18RestirHybridShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirCombinedShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokePrimarySurfaceProducerShaderTable;
-    nvrhi::rt::ShaderTableHandle m_smokeRestirIndirectInitialProducerShaderTable;
-    nvrhi::rt::ShaderTableHandle m_smokeRestirDirectTemporalProducerShaderTable;
-    nvrhi::rt::ShaderTableHandle m_smokeRestirDirectSpatialReservoirProducerShaderTable;
-    nvrhi::rt::ShaderTableHandle m_smokeRestirReflectionProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirCombinedResolveShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirPdfNeeRluCurrentShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokePdfNeeVerifierShaderTable;

@@ -1443,12 +1443,6 @@ idCVar r_pathTracingRestirPTVisibilityPolicy(
     CVAR_RENDERER | CVAR_INTEGER,
     "ReSTIR PT NEE visibility policy: 0 = final/preview visibility only, 1 = selected NEE sample producer visibility, 2 = strict proposal-stream visibility" );
 
-idCVar r_pathTracingRestirPTReflectionMode(
-    "r_pathTracingRestirPTReflectionMode",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 ReSTIR PT reflection preview: 0 off, 1 sharp screen-space primary-surface lookup, 2 rough diagnostic screen-space lookup" );
-
 idCVar r_pathTracingRestirPTSpatialSamples(
     "r_pathTracingRestirPTSpatialSamples",
     "1",

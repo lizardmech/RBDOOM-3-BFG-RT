@@ -1992,38 +1992,6 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "ReSTIR combined resolve",
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.bin");
-    case 11:
-        return initLibrary(
-            m_smokeRestirIndirectInitialProducerShaderLibrary,
-            m_smokeRestirIndirectInitialProducerPipeline,
-            m_smokeRestirIndirectInitialProducerShaderTable,
-            "ReSTIR indirect initial producer",
-            "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_indirect_initial_producer.rt.bin",
-            "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_indirect_initial_producer.rt.bin");
-    case 12:
-        return initLibrary(
-            m_smokeRestirDirectTemporalProducerShaderLibrary,
-            m_smokeRestirDirectTemporalProducerPipeline,
-            m_smokeRestirDirectTemporalProducerShaderTable,
-            "ReSTIR direct temporal producer",
-            "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_direct_temporal_producer.rt.bin",
-            "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_direct_temporal_producer.rt.bin");
-    case 13:
-        return initLibrary(
-            m_smokeRestirDirectSpatialReservoirProducerShaderLibrary,
-            m_smokeRestirDirectSpatialReservoirProducerPipeline,
-            m_smokeRestirDirectSpatialReservoirProducerShaderTable,
-            "ReSTIR direct spatial-reservoir producer",
-            "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_direct_spatial_reservoir_producer.rt.bin",
-            "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_direct_spatial_reservoir_producer.rt.bin");
-    case 14:
-        return initLibrary(
-            m_smokeRestirReflectionProducerShaderLibrary,
-            m_smokeRestirReflectionProducerPipeline,
-            m_smokeRestirReflectionProducerShaderTable,
-            "ReSTIR reflection producer",
-            "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.bin",
-            "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.bin");
     case 15:
     {
         const bool sentinelOk = initLibrary(

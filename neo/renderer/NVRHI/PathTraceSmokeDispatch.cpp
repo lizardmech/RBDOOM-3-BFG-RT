@@ -5392,9 +5392,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
     const bool restirPTRequiresMotionVectors = restirPTCombinedMode && !disablePrimarySurfaceHistory;
     const bool motionVectorExportEnabled = r_pathTracingMotionVectorExport.GetInteger() != 0 || dlssRrRuntimeRequested || restirPTRequiresMotionVectors;
-    const int restirPTReflectionMode = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_REFLECTION_RAY)
-        ? 0
-        : idMath::ClampInt(0, 2, r_pathTracingRestirPTReflectionMode.GetInteger());
     const bool restirPTCombinedResolveRequested =
         restirPTCombinedMode &&
         !disablePrimarySurfaceHistory &&
@@ -5419,14 +5416,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         InitRayTracingSmokeRestirPipeline(3);
     }
-    if (restirPTCombinedResolveRequested && !m_smokeRestirDirectSpatialReservoirProducerShaderTable)
-    {
-        InitRayTracingSmokeRestirPipeline(13);
-    }
-    const bool restirPTStandaloneDirectSpatialReservoirProducerAvailable =
-        restirPTCombinedResolveRequested && m_smokeRestirDirectSpatialReservoirProducerShaderTable;
-    if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode ||
-        (restirPTCombinedMode && !restirPTStandaloneDirectSpatialReservoirProducerAvailable)) &&
+    if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode || restirPTCombinedMode) &&
         !m_smokeRestirSpatialReservoirShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(4);
@@ -5439,26 +5429,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         InitRayTracingSmokeRestirPipeline(6);
     }
-    if (restirPTCombinedResolveRequested && !m_smokeRestirDirectTemporalProducerShaderTable)
-    {
-        InitRayTracingSmokeRestirPipeline(12);
-    }
-    const bool restirPTStandaloneDirectTemporalProducerAvailable =
-        restirPTCombinedResolveRequested && m_smokeRestirDirectTemporalProducerShaderTable;
-    if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode ||
-        (restirPTCombinedMode && !restirPTStandaloneDirectTemporalProducerAvailable)) &&
+    if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode || restirPTCombinedMode) &&
         !m_smokeRestirShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(1);
     }
-    if (restirPTCombinedResolveRequested && !m_smokeRestirIndirectInitialProducerShaderTable)
-    {
-        InitRayTracingSmokeRestirPipeline(11);
-    }
-    const bool restirPTStandaloneIndirectInitialProducerAvailable =
-        restirPTCombinedResolveRequested && m_smokeRestirIndirectInitialProducerShaderTable;
     if ((debugMode >= 53 && debugMode <= 56) &&
-        !restirPTStandaloneIndirectInitialProducerAvailable &&
         !m_smokeRestirInitialShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(0);
@@ -5466,10 +5442,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     if (restirPTCombinedResolveRequested && m_smokePrimarySurfaceProducerShaderTable && !m_smokeRestirCombinedResolveShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(10);
-    }
-    if (restirPTCombinedResolveRequested && restirPTReflectionMode > 0 && !m_smokeRestirReflectionProducerShaderTable)
-    {
-        InitRayTracingSmokeRestirPipeline(14);
     }
     if (restirPTCombinedMode && !m_smokeRestirCombinedResolveShaderTable && !m_smokeRestirCombinedShaderTable)
     {
@@ -5808,11 +5780,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     if (r_pathTracingRestirPTPassDump.GetInteger() != 0)
     {
         const bool giConsumesPrimary = restirPTPrimarySurfacePrepassEnabled && stagedRestirGiInitialMode;
-        const bool giInitialStandalone = giConsumesPrimary && restirPTCombinedMode && m_smokeRestirIndirectInitialProducerShaderTable;
-        const bool directTemporalStandalone = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && m_smokeRestirDirectTemporalProducerShaderTable;
-        const bool directSpatialStandalone = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && m_smokeRestirDirectSpatialReservoirProducerShaderTable;
         const bool finalUsesStandaloneResolve = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedResolveActive;
-        const bool reflectionProducer = finalUsesStandaloneResolve && restirPTReflectionMode > 0 && m_smokeRestirReflectionProducerShaderTable;
         const bool finalConsumesPrimary = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode;
         const int restirPTVisibilityPolicy = idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger());
         common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d reflectionProducer=%d rrGuideDebug=%d diDebugView=%d giDebugView=%d nsightMarkers=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d reflectionMode=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d materialSimilarity=%d temporalNeighborDebug=%d unifiedPrevToCurrentScan=%d spatial samples=%u radius=%.1f\n",
@@ -5839,13 +5807,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             restirPTPrimarySurfacePrepassEnabled ? 1 : 0,
             restirPTStandalonePrimarySurfacePrepass ? 1 : 0,
             giConsumesPrimary ? 1 : 0,
-            giInitialStandalone ? 1 : 0,
+            0,
             restirPTPrimarySurfacePrepassEnabled ? 1 : 0,
-            directTemporalStandalone ? 1 : 0,
-            directSpatialStandalone ? 1 : 0,
+            0,
+            0,
             finalConsumesPrimary ? 1 : 0,
             finalUsesStandaloneResolve ? 1 : 0,
-            reflectionProducer ? 1 : 0,
+            0,
             idMath::ClampInt(0, 10, r_pathTracingDLSSRRGuideDebugView.GetInteger()),
             restirPTDiDebugView,
             idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger()),
@@ -5859,7 +5827,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             restirPTBufferSelection.debugInput,
             (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1 : 0,
             restirPTVisibilityPolicy,
-            restirPTReflectionMode,
+            0,
             toyLightScale,
             toyEmissiveScale,
             effectiveAnalyticLightIntensityScale,
@@ -6449,7 +6417,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.geometryInfo3[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedPreviousPositionCount));
     constants.geometryInfo3[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedSurfaceDispatchCount));
     constants.geometryInfo3[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedTriangleDispatchIndexCount));
-    constants.geometryInfo3[3] = static_cast<float>(restirPTReflectionMode);
+    constants.geometryInfo3[3] = 0.0f;
     constants.geometryInfo4[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticVertexCount));
     constants.geometryInfo4[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticIndexCount));
     constants.geometryInfo4[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticTriangleCount));
@@ -7040,25 +7008,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint64 setStateStartUs = targetClearCompleteUs;
     const bool spatialNeedsTemporalPrepass =
         PathTraceRestirPassRequiresTemporalPrepass(restirPTPassPlan);
-    nvrhi::rt::ShaderTableHandle temporalPrepassShaderTable =
-        restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && m_smokeRestirDirectTemporalProducerShaderTable
-            ? m_smokeRestirDirectTemporalProducerShaderTable
-            : m_smokeRestirShaderTable;
+    nvrhi::rt::ShaderTableHandle temporalPrepassShaderTable = m_smokeRestirShaderTable;
     const bool temporalPrepassNeeded =
         spatialNeedsTemporalPrepass &&
         temporalPrepassShaderTable &&
         state.shaderTable != temporalPrepassShaderTable;
-    nvrhi::rt::ShaderTableHandle indirectInitialShaderTable =
-        restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && m_smokeRestirIndirectInitialProducerShaderTable
-            ? m_smokeRestirIndirectInitialProducerShaderTable
-            : m_smokeRestirInitialShaderTable;
+    nvrhi::rt::ShaderTableHandle indirectInitialShaderTable = m_smokeRestirInitialShaderTable;
     const bool indirectNeedsInitialPrepass =
         PathTraceRestirPassRequiresInitialPrepass(restirPTPassPlan) &&
         indirectInitialShaderTable;
-    nvrhi::rt::ShaderTableHandle spatialPrepassShaderTable =
-        restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && m_smokeRestirDirectSpatialReservoirProducerShaderTable
-            ? m_smokeRestirDirectSpatialReservoirProducerShaderTable
-            : m_smokeRestirSpatialReservoirShaderTable;
+    nvrhi::rt::ShaderTableHandle spatialPrepassShaderTable = m_smokeRestirSpatialReservoirShaderTable;
     const bool spatialNeedsSpatialPrepass =
         PathTraceRestirPassRequiresSpatialPrepass(restirPTPassPlan) &&
         spatialPrepassShaderTable &&
@@ -7215,33 +7174,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         nvrhi::utils::BufferUavBarrier(commandList, rrxDiSpatialTemporalPrepassNeeded && prepassRemixDiDomain.reservoirs
             ? prepassRemixDiDomain.reservoirs
             : m_frameResources.restirPTDiReservoirBuffers.reservoirs);
-    }
-    const bool reflectionProducerNeeded =
-        restirPTPrimarySurfacePrepassEnabled &&
-        restirPTCombinedMode &&
-        restirPTReflectionMode > 0 &&
-        m_smokeRestirReflectionProducerShaderTable;
-    if (reflectionProducerNeeded)
-    {
-        nvrhi::rt::State reflectionProducerState = state;
-        reflectionProducerState.shaderTable = m_smokeRestirReflectionProducerShaderTable;
-        {
-            PathTraceGpuMarkerScope nsightMarker(commandList, "PT56.4 ReflectionProducer DispatchRays", nsightGpuMarkers);
-            PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_REFLECTION);
-            if (optickGpuMarkers)
-            {
-                OPTICK_GPU_EVENT("PT GPU ReSTIR Reflection Producer");
-                commandList->setRayTracingState(reflectionProducerState);
-                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_FULL_CONSUME_PRIMARY);
-            }
-            else
-            {
-                commandList->setRayTracingState(reflectionProducerState);
-                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_FULL_CONSUME_PRIMARY);
-            }
-        }
-
-        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.restirPTReflectionTexture);
     }
     if (optickGpuMarkers)
     {

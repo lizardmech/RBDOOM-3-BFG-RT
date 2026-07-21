@@ -335,5 +335,24 @@ Working rule for every deletion slice:
   - Forced pathtrace_restir_combined_resolve.rt.bin SPIR-V rebuild; blob mtime
     2026-07-21 11:02:40 is newer than shader edit 2026-07-21 10:56:20.
   - Full win64-pt-dev-release build passed. DXIL RT shaders remained disabled.
+  - Runtime acceptance 2026-07-21: user confirmed the deployed build looks fine
+    in game. This closes the view-16/recent-feature regression gate for commits
+    214e0ab0b and 69658715c.
   - Next slice: T2.1b standalone mode-56 producer dispatch/table plumbing. Do not
     remove the shared primary-surface producer or clean-route initializer cases.
+
+2026-07-21 - T2.1b STANDALONE MODE-56 PRODUCER PLUMBING COMPLETE
+  - Removed dedicated indirect-initial, direct-temporal,
+    direct-spatial-reservoir, and reflection shader-library/pipeline/table
+    handles plus initializer cases 11-14.
+  - Removed the dedicated reflection dispatch and its mode-56-only CVar.
+  - Retained the generic initial/temporal/spatial prepass tables used by other
+    debug modes. Mode 56 can no longer select any of the removed dedicated
+    producer binaries.
+  - Re-proved clean/shared initializer cases 9, 15, 17, 18, and 20 and their
+    clean-route call sites after the edit.
+  - Full win64-pt-dev-release build passed. No shader source changed, so no
+    SPIR-V blob needed regeneration for this slice.
+  - Runtime acceptance pending for the deployed executable.
+  - Next slice: T2.2 mode-56 pass-plan/context/readback diagnostics, keeping the
+    generic retained-debug pass-plan behavior until its consumers are audited.
