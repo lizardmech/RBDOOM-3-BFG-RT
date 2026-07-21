@@ -4946,22 +4946,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
     }
-    else if (pdfNeeVerifierRouteRequested)
-    {
-        if (!m_smokePdfNeeVerifierShaderTable)
-        {
-            InitRayTracingSmokeRestirPipeline(16);
-        }
-        if (!m_smokePdfNeeVerifierShaderTable)
-        {
-            if (pdfNeeVerifierDumpRequested)
-            {
-                printPdfNeeVerifierDump("dispatch-entry", "pdfnee-shader");
-                r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
-            }
-            return;
-        }
-    }
     if (regirDebugRouteRequested || pdfNeeReGIRBuildPrepassRequested)
     {
         if (!m_smokeReGIRDebugShaderTable)
@@ -5366,10 +5350,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else if (pdfNeeRluCurrentProducerRequested && m_smokeRestirPdfNeeRluCurrentShaderTable)
     {
         state.shaderTable = m_smokeRestirPdfNeeRluCurrentShaderTable;
-    }
-    else if (pdfNeeVerifierRouteRequested && m_smokePdfNeeVerifierShaderTable)
-    {
-        state.shaderTable = m_smokePdfNeeVerifierShaderTable;
     }
     else
     {

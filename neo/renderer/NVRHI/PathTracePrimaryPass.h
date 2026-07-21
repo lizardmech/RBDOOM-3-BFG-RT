@@ -532,7 +532,6 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokePrimarySurfaceProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirPdfNeeRluCurrentShaderLibrary;
-    nvrhi::ShaderLibraryHandle m_smokePdfNeeVerifierShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSentinelShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiInitialShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiTemporalShaderLibrary;
@@ -553,7 +552,6 @@ private:
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::PipelineHandle m_smokePrimarySurfaceProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirPdfNeeRluCurrentPipeline;
-    nvrhi::rt::PipelineHandle m_smokePdfNeeVerifierPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiSentinelPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiInitialPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiTemporalPipeline;
@@ -563,7 +561,6 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokePrimarySurfaceProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirPdfNeeRluCurrentShaderTable;
-    nvrhi::rt::ShaderTableHandle m_smokePdfNeeVerifierShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiSentinelShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiInitialShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiTemporalShaderTable;

@@ -506,3 +506,21 @@ Working rule for every deletion slice:
     ReSTIR helper definitions needed by RLU-current or gated by its standalone
     build; the next shader slice must classify those definitions by preprocessed
     consumer rather than bulk-delete the region.
+  - Runtime acceptance 2026-07-21: user reported no issues in clean DI and old
+    native mode 18 on deployed commit 50bdf39a6. T2.2j runtime gate closed.
+  - T2.2k corrected the verifier classification above: the standalone
+    pathtrace_pdf_nee_verifier route is hard-disabled by a literal `false &&`
+    at its only request boundary. Its case-16 initializer is referenced only by
+    that unreachable branch. The live PDFNEE implementation is the separate
+    case-18 pathtrace_restir_pdf_nee_rlu_current producer; it shares the PDFNEE
+    binding layout but none of the verifier library/pipeline/shader-table handles.
+  - Delete the 5.9K-line copied verifier source, case-16 loader, three dead GPU
+    handles, and its Vulkan plus dormant DXIL CMake commands/output entries.
+    Preserve m_smokePdfNeeVerifierBindingLayout because the live case-18 RLU
+    current producer and its binding sets still consume that ABI. Existing
+    verifier blobs become inert orphan artifacts and are not deployed.
+  - Full win64-pt-dev-release configure/build passed. All active SPIR-V and
+    dormant DXIL outputs reported up to date, so no shader artifact changed or
+    is due for deployment. Only the rebuilt EXE is deployed. The two C4819
+    warnings remain the pre-existing encoding warnings in RenderBackend.cpp and
+    PathTraceSmokeDispatch.cpp.

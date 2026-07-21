@@ -1949,15 +1949,6 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout);
-    case 16:
-        return initLibrary(
-            m_smokePdfNeeVerifierShaderLibrary,
-            m_smokePdfNeeVerifierPipeline,
-            m_smokePdfNeeVerifierShaderTable,
-            "PDF+NEE verifier",
-            "renderprogs2/dxil/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin",
-            "renderprogs2/spirv/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin",
-            m_smokePdfNeeVerifierBindingLayout);
     case 17:
         return initLibrary(
             m_smokeReGIRDebugShaderLibrary,
