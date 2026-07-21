@@ -8385,7 +8385,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.sceneInputs = sceneInputs;
     resourceCommitBuildDesc.buffers = smokeBuffers;
     resourceCommitBuildDesc.staticBlasDesc = smokeStaticBlasDesc;
-    resourceCommitBuildDesc.dynamicBlasDesc = smokeDynamicBlasDesc;
     resourceCommitBuildDesc.staticBlas = smokeStaticBlas;
     resourceCommitBuildDesc.dynamicBlas = smokeDynamicBlas;
     resourceCommitBuildDesc.tlas = m_smokeTlas;
@@ -8401,18 +8400,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
     resourceCommitBuildDesc.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
     resourceCommitBuildDesc.emissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
-    resourceCommitBuildDesc.emissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
     resourceCommitBuildDesc.lightCandidateCount = emissiveInventoryStats.candidateMaterials;
-    resourceCommitBuildDesc.texturedLightCandidateCount = emissiveInventoryStats.texturedCandidateMaterials;
-    resourceCommitBuildDesc.lightCandidateBytes = static_cast<int>(lightCandidates.size() * sizeof(lightCandidates[0]));
     resourceCommitBuildDesc.doomAnalyticLightCount = static_cast<int>(doomAnalyticLights.size());
     resourceCommitBuildDesc.doomAnalyticPortalRegionLightCount = doomAnalyticPortalRegionLightCount;
-    resourceCommitBuildDesc.doomAnalyticLightBytes = static_cast<int>(doomAnalyticLights.size() * sizeof(PathTraceDoomAnalyticLightCandidate));
     resourceCommitBuildDesc.doomAnalyticPreviousLightCount = static_cast<int>(doomAnalyticRemap.previousCandidates.size());
     resourceCommitBuildDesc.doomAnalyticCurrentIdentityCount = static_cast<int>(doomAnalyticRemap.currentCandidateIdentities.size());
     resourceCommitBuildDesc.doomAnalyticPreviousIdentityCount = static_cast<int>(doomAnalyticRemap.previousCandidateIdentities.size());
     resourceCommitBuildDesc.doomAnalyticRemapCount = static_cast<int>(doomAnalyticRemap.universeRemap.size());
-    resourceCommitBuildDesc.doomAnalyticInvalidRemapCount = doomAnalyticRemap.invalidRemapCount;
     resourceCommitBuildDesc.previousEmissiveTriangleCount = sceneInputs.lights.previousEmissiveTriangleCount;
     resourceCommitBuildDesc.unifiedLightCount = sceneInputs.lights.unifiedLightCount;
     resourceCommitBuildDesc.unifiedPreviousLightCount = sceneInputs.lights.unifiedPreviousLightCount;

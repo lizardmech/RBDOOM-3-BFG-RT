@@ -992,3 +992,19 @@ Working rule for every deletion slice:
     no DXIL command runs. Deploy only the rebuilt executable; source and deployed
     SHA-256 both equal
     840C99538D6B2065D6121836B8837C356B7075664FBDDF3400E4A2598B8C1881.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 5fe662d5e. T4.3g runtime gate closed.
+  - T4.3h follows the T4.3g write-only members upstream. Six fields now travel
+    only from scene build through RtSmokeSceneResourceCommitBuildDesc into
+    RtSmokeSceneResourceCommitDesc and have no consumer: dynamic BLAS descriptor,
+    dynamic-emissive count, textured-light count, light-candidate bytes, Doom
+    analytic bytes, and invalid-remap count. Remove this redundant transport from
+    both descriptors and the conversion function. Preserve the independently
+    live acceleration-submit descriptor, buffer byte sizes, scene-input
+    diagnostics, and debug-dump inputs.
+  - T4.3h verification: scoped transport sweeps find only the intentionally
+    retained buffer-create fields with similar names. The full
+    win64-pt-dev-release build passes; both shader targets stay up to date and no
+    DXIL command runs. Deploy only the executable. Source and deployed SHA-256
+    both equal
+    5DA20694A8A2B3FF1FBDC466139F90C5170B14A22CEB367A299238BFE64B29EC.

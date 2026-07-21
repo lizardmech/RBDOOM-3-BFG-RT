@@ -974,7 +974,6 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.sceneInputs = desc.sceneInputs;
     commitDesc.buffers = desc.buffers;
     commitDesc.staticBlasDesc = desc.staticBlasDesc;
-    commitDesc.dynamicBlasDesc = desc.dynamicBlasDesc;
     commitDesc.staticBlas = desc.staticBlas;
     commitDesc.dynamicBlas = desc.dynamicBlas;
     commitDesc.tlas = desc.tlas;
@@ -993,18 +992,13 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.materialTableEntryCount = desc.materialTableEntryCount;
     commitDesc.emissiveTriangleCount = desc.emissiveTriangleCount;
     commitDesc.emissiveStaticTriangleCount = desc.emissiveStaticTriangleCount;
-    commitDesc.emissiveDynamicTriangleCount = desc.emissiveDynamicTriangleCount;
     commitDesc.lightCandidateCount = desc.lightCandidateCount;
-    commitDesc.texturedLightCandidateCount = desc.texturedLightCandidateCount;
-    commitDesc.lightCandidateBytes = desc.lightCandidateBytes;
     commitDesc.doomAnalyticLightCount = desc.doomAnalyticLightCount;
     commitDesc.doomAnalyticPortalRegionLightCount = desc.doomAnalyticPortalRegionLightCount;
-    commitDesc.doomAnalyticLightBytes = desc.doomAnalyticLightBytes;
     commitDesc.doomAnalyticPreviousLightCount = desc.doomAnalyticPreviousLightCount;
     commitDesc.doomAnalyticCurrentIdentityCount = desc.doomAnalyticCurrentIdentityCount;
     commitDesc.doomAnalyticPreviousIdentityCount = desc.doomAnalyticPreviousIdentityCount;
     commitDesc.doomAnalyticRemapCount = desc.doomAnalyticRemapCount;
-    commitDesc.doomAnalyticInvalidRemapCount = desc.doomAnalyticInvalidRemapCount;
     commitDesc.previousEmissiveTriangleCount = desc.previousEmissiveTriangleCount;
     commitDesc.unifiedLightCount = desc.unifiedLightCount;
     commitDesc.unifiedPreviousLightCount = desc.unifiedPreviousLightCount;
