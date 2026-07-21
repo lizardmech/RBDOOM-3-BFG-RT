@@ -903,3 +903,32 @@ Working rule for every deletion slice:
     Deploy the rebuilt EXE and the other 14 SPIR-V outputs; every copied hash
     matches. EXE SHA-256 is
     318AB1E20B45E99FF8B8B59D0C2C0BDAA85FBEA31EF713AEEC3758CB725D18F8.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit e9b491469. T4.3d runtime gate closed.
+  - BUILD-01 audits the unexpected DXIL compile from T4.3d. The existing build
+    cache already has PATH_TRACING_BUILD_DXIL_RT_SHADERS=OFF, so bespoke PT RT
+    libraries are not the source. USE_DX12 remains ON, which keeps the generic
+    all-platform RenderProgs DXIL lane and NVRHI D3D12 backend in the PT build.
+  - The first BUILD-01 attempt made the shared PT preset USE_DX12=OFF. Configure
+    proof was clean (zero DXIL outputs in Shaders.vcxproj and
+    PathTracingShaders.vcxproj, and no nvrhi_d3d12 target in the solution), but
+    the full build failed at link with 103 unresolved renderer/NVRHI symbols.
+    The legacy USE_DX12 switch still owns source selection for implementation
+    used by Vulkan, so disabling the whole backend is not a viable cleanup-sized
+    change.
+  - Correct BUILD-01 to separate shader compilation from that legacy source
+    selection. BUILD_DXIL_SHADERS defaults ON for existing configurations and
+    gates the generic RenderProgs DXIL command. The shared win64 PT preset sets
+    BUILD_DXIL_SHADERS=OFF and PATH_TRACING_BUILD_DXIL_RT_SHADERS=OFF while
+    retaining USE_DX12=ON solely to preserve the current engine link graph.
+    Verify from a reconfigured preset that the shader projects contain no DXIL
+    outputs, then require a successful full build with no DXIL compile command.
+  - BUILD-01 verification 2026-07-22: preset configure records
+    BUILD_DXIL_SHADERS=OFF, PATH_TRACING_BUILD_DXIL_RT_SHADERS=OFF,
+    USE_DX12=ON, and USE_VULKAN=ON. Generated Shaders.vcxproj and
+    PathTracingShaders.vcxproj each contain zero DXIL output references. The
+    full win64-pt-dev-release build succeeds; shader output contains only two
+    "All SPIRV shaders are up to date" checks and no DXIL compile. No shader
+    source or blob changed, so deployment correctly copied only RBDoom3BFG.exe.
+    Source and deployed SHA-256 both equal
+    DFB5CE7362FDD741EC1387C1801F1EA5C25ECF81639D362D14912E00E7FEF6CB.

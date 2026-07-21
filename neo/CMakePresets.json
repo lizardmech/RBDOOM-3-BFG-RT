@@ -15,7 +15,10 @@
       "cacheVariables": {
         "BINKDEC": "ON",
         "FFMPEG": "OFF",
-        "ISPC_EXECUTABLE": "${sourceParentDir}/tools/ispc/bin/ispc.exe"
+        "ISPC_EXECUTABLE": "${sourceParentDir}/tools/ispc/bin/ispc.exe",
+        "BUILD_DXIL_SHADERS": "OFF",
+        "PATH_TRACING_BUILD_DXIL_RT_SHADERS": "OFF",
+        "USE_DX12": "ON"
       }
     },
     {

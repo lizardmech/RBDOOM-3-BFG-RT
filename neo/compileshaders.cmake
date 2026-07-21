@@ -28,6 +28,8 @@
 #                        [DXBC <dxbc-output-path>]
 #                        [SPIRV_DXC <spirv-output-path>])
 
+option(BUILD_DXIL_SHADERS "Build generic DirectX DXIL shaders. Disable for Vulkan-only iteration." ON)
+
 function(compile_shaders)
     set(options "")
     set(oneValueArgs TARGET CONFIG FOLDER DXIL DXBC SPIRV_DXC CFLAGS SHADER_INCLUDE_DIR)
@@ -56,7 +58,7 @@ function(compile_shaders)
         DEPENDS ShaderMake
         SOURCES ${params_SOURCES})
 
-    if (params_DXIL AND (USE_DX12 AND USE_DXIL_ON_DX12))
+    if (params_DXIL AND BUILD_DXIL_SHADERS AND (USE_DX12 AND USE_DXIL_ON_DX12))
         if (NOT DXC_PATH)
             message(FATAL_ERROR "compile_shaders: DXC not found --- please set DXC_PATH to the full path to the DXC binary")
         endif()
