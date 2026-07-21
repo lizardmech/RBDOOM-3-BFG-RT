@@ -122,10 +122,6 @@ set(PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/ReSTIRDIParameters.h
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/InitialSampling.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/TemporalResampling.hlsli
-    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/SpatialResampling.hlsli
-    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/Color.hlsli
-    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/SampledLightData.hlsli
-    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/BrdfRaySample.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/ReservoirAddressing.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/Math.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_parameters.hlsli

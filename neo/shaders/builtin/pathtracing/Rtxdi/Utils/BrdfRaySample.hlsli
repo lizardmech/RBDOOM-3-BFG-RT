@@ -1,6 +1,0 @@
-#ifndef RB_PATH_TRACING_RTXDI_UTILS_BRDF_RAY_SAMPLE_HLSLI
-#define RB_PATH_TRACING_RTXDI_UTILS_BRDF_RAY_SAMPLE_HLSLI
-
-#include "cleanroom_common/restir_shared_brdf_ray_sample.hlsli"
-
-#endif

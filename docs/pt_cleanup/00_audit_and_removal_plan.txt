@@ -743,3 +743,30 @@ Working rule for every deletion slice:
   - The full win64-pt-dev-release build passes and DXIL stays up to date. Copy
     exactly those five refreshed SPIR-V files and the unchanged EXE; all six
     source/destination SHA-256 pairs match.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    8c7b732ee. T3.1g runtime gate closed.
+  - T3.1h extends the graph audit across all neo/shaders roots and finds nine
+    remaining path-tracing headers with zero incoming shader edges. None changed
+    in the last month and none has a worktree edit, so the last-24-hours feature
+    set does not depend on this candidate group.
+  - Delete the unintegrated adaptive GI M-cap header; four Remix bridge headers
+    that explicitly identify themselves as inactive/future contracts; and four
+    zero-consumer Rtxdi DI/utility forwarding shims. Remove the four shim paths
+    from PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES. Preserve the live cleanroom
+    GI reservoir/temporal path, active Remix GI bridges, and all Rtxdi shims with
+    real incoming edges.
+  - CMake configure and the full win64-pt-dev-release build pass. The first build
+    client timed out while MSBuild continued normally in the background; after
+    that process exited, a second build completed with every target up to date.
+    DXIL remains up to date.
+  - The shared dependency-list change conservatively refreshed 15 Vulkan blobs.
+    Fourteen are byte-identical to the already deployed copies and are deployed
+    again with matching SHA-256 hashes. The EXE is unchanged and also matches.
+  - pathtrace_clean_restir_gi_temporal.cs.bin is the sole rebuilt blob that does
+    not match the known-good deployment. Its dependency graph includes an
+    unrelated pre-existing worktree edit in restir_gi_reservoir.hlsli, so this
+    cleanup deliberately quarantines that output instead of silently deploying
+    another lane's unfinished work. Rebuilt SHA-256 is
+    62D770978A36D28D0B5CB631220C5B9B59B980454E6374E1D9647D05DEC4C3FA;
+    the preserved deployed SHA-256 is
+    B37497B23E99827A03BBA14B281260DB23E40743D0BCC2E4CC9AAF4BEBADFBB2.
