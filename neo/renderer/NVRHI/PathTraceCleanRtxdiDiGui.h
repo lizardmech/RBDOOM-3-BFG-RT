@@ -11,7 +11,6 @@ struct PathTraceCleanRtxdiDiGuiSnapshot
     bool denoiser = false;
     bool fallback = false;
     bool externalPdfNeeCurrent = false;
-    bool externalPdfNeeMode9 = false;
     bool regirEnabled = false;
     bool subview = false;
     bool mirror = false;

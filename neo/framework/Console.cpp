@@ -667,9 +667,8 @@ float idConsoleLocal::DrawFPS( float y )
 				cleanGui.bindingSet ? 1 : 0,
 				cleanGui.textureTable ? 1 : 0,
 				cleanGui.outputTexture ? 1 : 0 );
-			ImGui::Text( "externalPdfNee=%d mode9=%d ReGIR=%d mode=%d missing=%s",
+			ImGui::Text( "externalPdfNee=%d ReGIR=%d mode=%d missing=%s",
 				cleanGui.externalPdfNeeCurrent ? 1 : 0,
-				cleanGui.externalPdfNeeMode9 ? 1 : 0,
 				cleanGui.regirEnabled ? 1 : 0,
 				cleanGui.regirMode,
 				cleanGui.regirFirstMissing );

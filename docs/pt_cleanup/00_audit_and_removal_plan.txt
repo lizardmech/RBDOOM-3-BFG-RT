@@ -956,3 +956,21 @@ Working rule for every deletion slice:
     B37497B23E99827A03BBA14B281260DB23E40743D0BCC2E4CC9AAF4BEBADFBB2.
     Source and deployed EXE SHA-256 remain
     DFB5CE7362FDD741EC1387C1801F1EA5C25ECF81639D362D14912E00E7FEF6CB.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 8a8c1ae79. T4.3e runtime gate closed.
+  - T4.3f audits constant-false clean-route residue. The obsolete external
+    PDFNEE mode-9 ReGIR build selector has been hardcoded false since 2026-05-28,
+    but still owns shader initialization checks, a large optional binding set,
+    resource barriers, a full-screen ReGIR dispatch, one GUI field, and fixed-zero
+    dump fields. The current external-PDFNEE RLU producer and clean ReGIR build
+    paths are independently selected and remain live. A second hardcoded-false
+    GI NEE-cache live-refresh flag only decorates conditions; simplify those
+    expressions to their existing effective policy. Neither constant-false lane
+    was touched by the recent feature window. The first compile catches the
+    retired snapshot field's console display consumer outside the NVRHI tree;
+    remove that fixed-zero display column as part of the same ownership slice.
+  - T4.3f verification: the post-fix whole-neo symbol sweep is empty. The full
+    win64-pt-dev-release build passes; both shader targets stay up to date and no
+    DXIL command runs. This is a C++-only slice, so deploy only RBDoom3BFG.exe.
+    Source and deployed SHA-256 both equal
+    60833F305E92B13E1557F38630E1BCD564532B69BB40A6AA3B61C1446416068E.
