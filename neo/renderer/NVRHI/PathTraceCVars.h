@@ -8,7 +8,6 @@
 class idCVar;
 
 extern idCVar r_pathTracingDebugMode;
-extern idCVar r_pathTracingMode20TestPreset;
 extern idCVar r_pathTracingMode18TestPreset;
 extern idCVar r_pathTracingClassDump;
 extern idCVar r_pathTracingClassSummary;
@@ -56,7 +55,6 @@ extern idCVar r_pathTracingRigidBlasGpuDump;
 extern idCVar r_pathTracingRigidTlasPlanDump;
 extern idCVar r_pathTracingRigidTlasRoute;
 extern idCVar r_pathTracingRigidRouteMode18;
-extern idCVar r_pathTracingRigidRouteMode20;
 extern idCVar r_pathTracingRigidRouteDump;
 extern idCVar r_pathTracingRigidRouteOverlapDump;
 extern idCVar r_pathTracingRigidRouteRemoveDynamic;
@@ -163,7 +161,6 @@ extern idCVar r_pathTracingDoomLightProbeDump;
 extern idCVar r_pathTracingDoomLightDumpMax;
 extern idCVar r_pathTracingDoomLightProbeMax;
 extern idCVar r_pathTracingAnalyticLightCandidates;
-extern idCVar r_pathTracingRestirPTAnalyticLightCandidates;
 extern idCVar r_pathTracingAnalyticLightCandidateDump;
 extern idCVar r_pathTracingAnalyticLightMaxGpu;
 extern idCVar r_pathTracingAnalyticLightIntensityScale;

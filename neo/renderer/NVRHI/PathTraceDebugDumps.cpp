@@ -269,25 +269,11 @@ RtPathTraceDebugModeInfo GetPathTraceDebugModeInfo(int debugMode)
     case 16: info.name = "normal map preview"; info.category = "material-texture-diagnostic"; info.output = "decoded normal map"; break;
     case 17: info.name = "specular map preview"; info.category = "material-texture-diagnostic"; info.output = "decoded specular map"; break;
     case 18: info.name = "toy path trace"; info.category = "temporary-behavior-experiment"; info.output = "path tracer color"; info.owner = "path-tracer-core"; info.behaviorChanging = true; info.temporary = true; break;
-    case 19: info.name = "emissive triangle inventory"; info.category = "light-diagnostic"; info.output = "emissive candidate inventory"; break;
-    case 20: info.name = "single-frame reservoir direct lighting"; info.category = "temporary-behavior-experiment"; info.output = "smoke reservoir direct light"; info.owner = "smoke-reservoir"; info.behaviorChanging = true; info.temporary = true; break;
     case 21: info.name = "solid drawSurf mirror bounds boxes"; info.category = "scene-geometry-diagnostic"; info.output = "drawSurf bounds"; break;
     case 22: info.name = "wireframe drawSurf mirror bounds boxes"; info.category = "scene-geometry-diagnostic"; info.output = "drawSurf bounds wireframe"; break;
     case 23: info.name = "experimental routed rigid TLAS instances"; info.category = "scene-geometry-diagnostic"; info.output = "rigid route instances"; info.temporary = true; break;
     case 24: info.name = "fallback-vs-rigid-route overlap"; info.category = "scene-geometry-diagnostic"; info.output = "route overlap validation"; break;
     case 25: info.name = "routed rigid lighting"; info.category = "scene-geometry-diagnostic"; info.output = "rigid route lighting validation"; break;
-    case 26: info.name = "ReSTIR PT initial reservoir diagnostics"; info.category = "pass-output-visualizer"; info.output = "initial reservoir metadata"; info.owner = "restir-pt"; break;
-    case 27: info.name = "ReSTIR PT initial reservoir shading"; info.category = "pass-output-visualizer"; info.output = "initial reservoir shading"; info.owner = "restir-pt"; break;
-    case 28: info.name = "ReSTIR PT initial visibility preview"; info.category = "pass-output-visualizer"; info.output = "initial reservoir visibility/shading"; info.owner = "restir-pt"; break;
-    case 29: info.name = "ReSTIR PT primary-surface history"; info.category = "pass-output-visualizer"; info.output = "primary surface history fields"; info.owner = "primary-surface"; break;
-    case 30: info.name = "ReSTIR PT screen-space reprojection"; info.category = "temporary-behavior-experiment"; info.output = "primary surface reprojection"; info.owner = "primary-surface"; info.temporary = true; break;
-    case 31: info.name = "ReSTIR PT temporal reservoir"; info.category = "pass-output-visualizer"; info.output = "temporal reservoir metadata"; info.owner = "restir-pt"; break;
-    case 32: info.name = "ReSTIR PT temporal reservoir shading"; info.category = "temporary-behavior-experiment"; info.output = "temporal reservoir shading"; info.owner = "restir-pt"; info.temporary = true; break;
-    case 33: info.name = "ReSTIR PT temporal light-source attribution"; info.category = "pass-output-visualizer"; info.output = "temporal reservoir source attribution"; info.owner = "restir-pt"; break;
-    case 34: info.name = "path tracer path-depth visualizer"; info.category = "pass-output-visualizer"; info.output = "path depth / SPP / bounce state"; info.owner = "path-tracer-core"; break;
-    case 35: info.name = "path tracer reflection hit/miss"; info.category = "pass-output-visualizer"; info.output = "reflection hit/miss"; info.owner = "path-tracer-core"; break;
-    case 36: info.name = "path tracer reflection roughness/F0 gate"; info.category = "pass-output-visualizer"; info.output = "reflection/specular gate"; info.owner = "path-tracer-core"; break;
-    case 37: info.name = "path tracer max-depth / Russian roulette"; info.category = "pass-output-visualizer"; info.output = "depth limit / Russian-roulette state"; info.owner = "path-tracer-core"; break;
     case 38: info.name = "skinned object-motion vector"; info.category = "pass-output-visualizer"; info.output = "skinned current-to-previous object motion"; info.owner = "primary-surface"; break;
     case 39: info.name = "routed-rigid object-motion eligibility"; info.category = "scene-geometry-diagnostic"; info.output = "routed rigid previous-transform eligibility"; info.owner = "primary-surface"; break;
     case 40: info.name = "routed-rigid object-motion vector"; info.category = "pass-output-visualizer"; info.output = "routed rigid current-to-previous object motion"; info.owner = "primary-surface"; break;
@@ -300,12 +286,7 @@ RtPathTraceDebugModeInfo GetPathTraceDebugModeInfo(int debugMode)
     case 47: info.name = "combined geometry motion vector"; info.category = "pass-output-visualizer"; info.output = "static, skinned, and routed rigid current-to-previous motion"; info.owner = "primary-surface"; break;
     case 48: info.name = "combined geometry reprojection match"; info.category = "pass-output-visualizer"; info.output = "static, skinned, and routed rigid previous primary-surface match"; info.owner = "primary-surface"; break;
     case 49: info.name = "combined geometry motion source"; info.category = "pass-output-visualizer"; info.output = "static, skinned, and routed rigid motion source coverage"; info.owner = "primary-surface"; break;
-    case 50: info.name = "ReSTIR PT spatial reservoir shading"; info.category = "temporary-behavior-experiment"; info.output = "temporal plus spatial reservoir shading"; info.owner = "restir-pt"; info.temporary = true; break;
-    case 51: info.name = "ReSTIR PT spatial source attribution"; info.category = "pass-output-visualizer"; info.output = "spatial reservoir source attribution"; info.owner = "restir-pt"; break;
     case 52: info.name = "routed-rigid transform parity"; info.category = "scene-geometry-diagnostic"; info.output = "routed metadata transform vs TLAS hit transform error"; info.owner = "primary-surface"; break;
-    case 53: info.name = "ReSTIR PT indirect reservoir diagnostics"; info.category = "pass-output-visualizer"; info.output = "indirect/GI initial reservoir metadata"; info.owner = "restir-pt"; break;
-    case 54: info.name = "ReSTIR PT indirect reservoir shading"; info.category = "temporary-behavior-experiment"; info.output = "indirect/GI initial reservoir shading"; info.owner = "restir-pt"; info.temporary = true; break;
-    case 55: info.name = "ReSTIR PT indirect path attribution"; info.category = "pass-output-visualizer"; info.output = "indirect/GI source and path attribution"; info.owner = "restir-pt"; break;
     case 57: info.name = "material classifier GPU decode"; info.category = "material-texture-diagnostic"; info.output = "classifier route/class/roughness/F0 packed fields"; info.owner = "material-classifier"; break;
     default: break;
     }

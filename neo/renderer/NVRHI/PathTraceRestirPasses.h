@@ -1,8 +1,7 @@
 #pragma once
 
 // Retired ReSTIR PT diagnostic modes normalize to the production route at
-// every public boundary. Keep this policy helper until those callers are
-// collapsed; the old pass-plan and material-feature descriptions are gone.
+// every public boundary.
 
 inline int NormalizePathTraceDebugMode(int debugMode)
 {
@@ -14,9 +13,4 @@ inline int NormalizePathTraceDebugMode(int debugMode)
         return 0;
     }
     return debugMode;
-}
-
-inline bool IsPathTraceRestirPTDebugMode(int debugMode)
-{
-    return false;
 }

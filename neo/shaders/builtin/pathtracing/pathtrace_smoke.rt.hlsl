@@ -15,7 +15,7 @@
 #define RB_PT_RESTIR_PRODUCER_ONLY 1
 #endif
 
-#if !defined(RB_PT_RESTIR_PRODUCER_ONLY) || defined(RB_PT_ENABLE_LEGACY_RESTIR_DEBUG_VIEWS)
+#if !defined(RB_PT_RESTIR_PRODUCER_ONLY)
 #define RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE 1
 #endif
 
@@ -1643,9 +1643,7 @@ void ApplyPrimaryFilterDecalToSurface(inout RAB_Surface surface, PathTraceSmokeP
 bool SmokePrimaryFilterDecalCompositeEnabled(uint debugMode)
 {
     return debugMode == 0u ||
-        debugMode == 18u ||
-        (debugMode >= 26u && debugMode <= 37u) ||
-        (debugMode >= 50u && debugMode <= 56u);
+        debugMode == 18u;
 }
 
 #define RB_PATH_TRACE_OPAQUE_DIRECT_ENABLE_OPENPBR 1
@@ -5027,13 +5025,6 @@ void RayGen()
         return;
     }
 #endif
-    if (restirDirectDispatch && debugMode == 31u)
-    {
-        float4 temporalRejectionColor;
-        bool temporalSelectedPrevSample;
-        GenerateRestirPTTemporalReservoir(primaryHistorySurface, pixel, temporalRejectionColor, temporalSelectedPrevSample);
-        return;
-    }
 #endif
 
 #ifdef RB_PT_RESTIR_SPATIAL_PRODUCER
@@ -5044,9 +5035,8 @@ void RayGen()
     return;
 #endif
 
-#if defined(RB_PT_RESTIR_PRODUCER_ONLY) && !defined(RB_PT_ENABLE_LEGACY_RESTIR_DEBUG_VIEWS)
-    // Producer-only wrappers stop here; the legacy ReSTIR debug/integrator cascade
-    // remains recoverable by defining RB_PT_ENABLE_LEGACY_RESTIR_DEBUG_VIEWS.
+#ifdef RB_PT_RESTIR_PRODUCER_ONLY
+    // Producer-only wrappers stop before the standalone visualization cascade.
     return;
 #else
     if (payload.value == 0)
@@ -5055,67 +5045,9 @@ void RayGen()
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
         }
-        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49 || debugMode == 52 || (debugMode >= 34 && debugMode <= 37))
+        else if (debugMode == 18 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49 || debugMode == 52)
         {
             SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
-        }
-        else if (debugMode == 26)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTInitialReservoirDebug(ray.Origin, ray.Direction, payload, pixel);
-        }
-        else if (debugMode == 27)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTInitialReservoirShading(ray.Origin, ray.Direction, payload, pixel, false);
-        }
-        else if (debugMode == 28)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTInitialReservoirShading(ray.Origin, ray.Direction, payload, pixel, true);
-        }
-        else if (debugMode == 29)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceHistoryDebug(primaryHistorySurface, pixel);
-        }
-        else if (debugMode == 30)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceReprojectionDebug(primaryHistorySurface);
-        }
-        else if (debugMode == 31)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTTemporalReservoirDebug(primaryHistorySurface, pixel);
-        }
-        else if (debugMode == 32)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTTemporalReservoirShading(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5);
-        }
-        else if (debugMode == 33)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTTemporalLightSourceAttribution(primaryHistorySurface, pixel);
-        }
-        else if (debugMode == 50)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTSpatialReservoirShading(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5);
-        }
-        else if (debugMode == 51)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTSpatialLightSourceAttribution(primaryHistorySurface, pixel);
-        }
-        else if (debugMode == 53)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTIndirectReservoirDebug(ray.Origin, ray.Direction, payload, pixel);
-        }
-        else if (debugMode == 54)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTIndirectReservoirShading(ray.Origin, ray.Direction, payload, pixel);
-        }
-        else if (debugMode == 55)
-        {
-            SmokeOutput[pixel] = EvaluateRestirPTIndirectPathAttribution(ray.Origin, ray.Direction, payload, pixel);
-        }
-        else if (debugMode == 56)
-        {
-            SmokeOutput[pixel] = consumePrimarySurfaceHistory
-                ? EvaluateRestirPTCombinedDirectGiPreviewFromSurface(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5)
-                : EvaluateRestirPTCombinedDirectGiPreview(ray.Origin, ray.Direction, payload, pixel, RestirPTInfo.z >= 0.5);
         }
         else if (debugMode == 57)
         {
@@ -5197,64 +5129,6 @@ void RayGen()
             color = saturate(color + float3(0.0, 0.08, 0.10));
         }
         SmokeOutput[pixel] = float4(saturate(color), 1.0);
-    }
-    else if (debugMode == 26)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTInitialReservoirDebug(ray.Origin, ray.Direction, payload, pixel);
-    }
-    else if (debugMode == 27)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTInitialReservoirShading(ray.Origin, ray.Direction, payload, pixel, false);
-    }
-    else if (debugMode == 28)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTInitialReservoirShading(ray.Origin, ray.Direction, payload, pixel, true);
-    }
-    else if (debugMode == 29)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceHistoryDebug(primaryHistorySurface, pixel);
-    }
-    else if (debugMode == 30)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceReprojectionDebug(primaryHistorySurface);
-    }
-    else if (debugMode == 31)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTTemporalReservoirDebug(primaryHistorySurface, pixel);
-    }
-    else if (debugMode == 32)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTTemporalReservoirShading(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5);
-    }
-    else if (debugMode == 33)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTTemporalLightSourceAttribution(primaryHistorySurface, pixel);
-    }
-    else if (debugMode == 50)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTSpatialReservoirShading(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5);
-    }
-    else if (debugMode == 51)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTSpatialLightSourceAttribution(primaryHistorySurface, pixel);
-    }
-    else if (debugMode == 53)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTIndirectReservoirDebug(ray.Origin, ray.Direction, payload, pixel);
-    }
-    else if (debugMode == 54)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTIndirectReservoirShading(ray.Origin, ray.Direction, payload, pixel);
-    }
-    else if (debugMode == 55)
-    {
-        SmokeOutput[pixel] = EvaluateRestirPTIndirectPathAttribution(ray.Origin, ray.Direction, payload, pixel);
-    }
-    else if (debugMode == 56)
-    {
-        SmokeOutput[pixel] = consumePrimarySurfaceHistory
-            ? EvaluateRestirPTCombinedDirectGiPreviewFromSurface(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5)
-            : EvaluateRestirPTCombinedDirectGiPreview(ray.Origin, ray.Direction, payload, pixel, RestirPTInfo.z >= 0.5);
     }
     else if (debugMode == 57)
     {
@@ -5517,100 +5391,6 @@ void RayGen()
                 const float3 lightSprites = EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, payload.hitT);
                 SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct + emissive + lightSprites), 1.0);
             }
-        }
-    }
-    else if (debugMode == 20)
-    {
-        const float4 sampleColor = EvaluateSmokeReservoirDirectLighting(ray.Origin, ray.Direction, payload, pixel);
-        SmokeOutput[pixel] = sampleColor;
-    }
-    else if (debugMode >= 34 && debugMode <= 37)
-    {
-        uint pathDepth = 0u;
-        uint pathFlags = 0u;
-        EvaluateSmokeToyPathTrace(ray.Origin, ray.Direction, payload, pixel, 0u, pathDepth, pathFlags);
-
-        if (debugMode == 34)
-        {
-            const float t = saturate((float)pathDepth / max((float)PathTraceIntegratorMaxPathDepth(), 1.0));
-            SmokeOutput[pixel] = float4(lerp(float3(0.05, 0.10, 0.18), float3(0.05, 0.95, 0.35), t), 1.0);
-        }
-        else if (debugMode == 35)
-        {
-            if ((pathFlags & RT_PT_TOY_FLAG_TRANSMISSION_HIT) != 0u)
-            {
-                SmokeOutput[pixel] = float4(0.05, 0.75, 1.0, 1.0);
-            }
-            else if ((pathFlags & RT_PT_TOY_FLAG_TRANSMISSION_MISS) != 0u)
-            {
-                SmokeOutput[pixel] = float4(0.10, 0.20, 0.45, 1.0);
-            }
-            else if ((pathFlags & RT_PT_TOY_FLAG_TRANSMISSION_GATED) != 0u)
-            {
-                SmokeOutput[pixel] = float4(0.95, 0.05, 0.85, 1.0);
-            }
-            else if ((pathFlags & RT_PT_TOY_FLAG_REFLECTION_HIT) != 0u)
-            {
-                SmokeOutput[pixel] = float4(0.0, 0.85, 1.0, 1.0);
-            }
-            else if ((pathFlags & RT_PT_TOY_FLAG_REFLECTION_MISS) != 0u)
-            {
-                SmokeOutput[pixel] = float4(1.0, 0.55, 0.05, 1.0);
-            }
-            else if ((pathFlags & RT_PT_TOY_FLAG_REFLECTION_GATED) != 0u)
-            {
-                SmokeOutput[pixel] = float4(0.95, 0.05, 0.05, 1.0);
-            }
-            else
-            {
-                SmokeOutput[pixel] = float4(0.08, 0.08, 0.08, 1.0);
-            }
-        }
-        else if (debugMode == 36)
-        {
-            SmokeOutput[pixel] = (pathFlags & RT_PT_TOY_FLAG_TRANSMISSION_GATED) != 0u
-                ? float4(0.95, 0.05, 0.85, 1.0)
-                : ((pathFlags & RT_PT_TOY_FLAG_TRANSMISSION_HIT) != 0u ? float4(0.05, 0.75, 1.0, 1.0) :
-                ((pathFlags & RT_PT_TOY_FLAG_REFLECTION_GATED) != 0u
-                ? float4(0.95, 0.05, 0.05, 1.0)
-                : ((pathFlags & RT_PT_TOY_FLAG_REFLECTION_HIT) != 0u ? float4(0.05, 0.95, 0.20, 1.0) : float4(0.08, 0.08, 0.08, 1.0))));
-        }
-        else
-        {
-            if ((pathFlags & RT_PT_TOY_FLAG_MAX_DEPTH_TERMINATED) != 0u)
-            {
-                SmokeOutput[pixel] = float4(1.0, 0.1, 0.0, 1.0);
-            }
-            else if ((pathFlags & RT_PT_TOY_FLAG_RR_CONFIGURED) != 0u)
-            {
-                SmokeOutput[pixel] = float4(0.75, 0.15, 1.0, 1.0);
-            }
-            else
-            {
-                SmokeOutput[pixel] = float4(0.05, 0.65, 0.2, 1.0);
-            }
-        }
-    }
-    else if (debugMode == 19)
-    {
-        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
-        const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
-        const bool activeEmissiveStage = (payload.triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
-        const float3 emissive = SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass, activeEmissiveStage) * max(ToyPathInfo.z, 0.0);
-        const float luminance = dot(max(emissive, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
-        if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
-            payload.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED ||
-            luminance <= 0.01)
-        {
-            SmokeOutput[pixel] = float4(albedo * 0.04, 1.0);
-        }
-        else
-        {
-            const float heat = saturate(log2(1.0 + luminance) * 0.25);
-            const float stripe = frac((payload.texCoord.x + payload.texCoord.y) * 16.0) > 0.5 ? 1.0 : 0.0;
-            const float3 heatColor = lerp(float3(0.05, 0.25, 1.0), float3(1.0, 0.85, 0.08), heat);
-            const float inventoryPresent = EmissiveInfo.x > 0.0 ? 1.0 : 0.0;
-            SmokeOutput[pixel] = float4(saturate(heatColor * (0.35 + stripe * 0.15) + emissive * 0.65 + inventoryPresent * 0.05), 1.0);
         }
     }
     else if (debugMode == 18)

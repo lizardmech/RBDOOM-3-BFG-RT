@@ -478,3 +478,31 @@ Working rule for every deletion slice:
     this route checkpoint passes runtime validation.
   - Full win64-pt-dev-release build passed. All SPIR-V remained up to date, so
     this route-only checkpoint deploys the EXE only.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    0c8f96d70. T2.2i runtime gate closed.
+  - T2.2j removes the newly unreachable mode 19-20, 26-37, 50-51, and 53-56
+    selection branches from the monolithic smoke shader. Native mode 18 keeps
+    EvaluateSmokeToyPathTrace and its material/integrator controls; clean DI,
+    PDFNEE RLU-current, ReGIR, and NEE-cache library-kind values 19/20 are not
+    debug-mode identifiers and remain untouched.
+  - Matching host policy is gone: retired debug metadata, mode-20 preset/rigid
+    route CVars, false ReSTIR/integrator mode tests, mode-specific texture and
+    emissive setup, the mode-56 RLU request, and stale route labels/descriptions
+    were removed. Draw-surface capture now consumes normalized debug values at
+    its boundary, consistent with scene build and dispatch.
+  - The first compile found three stale PDFNEE dump references to the deleted
+    mode-56 guard; removing those diagnostic-only fields completed the host
+    severance. The subsequent full win64-pt-dev-release build passed with only
+    the pre-existing C4819 warning in PathTraceSmokeDispatch.cpp.
+  - The edited monolith forced exactly two active Vulkan outputs to rebuild:
+    pathtrace_smoke.rt.bin (1,288,320 bytes, 2026-07-21 18:02:09) and
+    pathtrace_restir_pdf_nee_rlu_current.rt.bin (650,244 bytes,
+    2026-07-21 18:01:51). Both blob mtimes are newer than the source edit at
+    17:57:44. No DXIL shader was compiled or selected for deployment.
+  - The separate active pathtrace_pdf_nee_verifier.rt.hlsl source still carries
+    its own copied legacy visualization cascade. Do not treat the monolith strip
+    as proof that those definitions are deletable there; audit that verifier's
+    dedicated entry contract before a later removal. The monolith also retains
+    ReSTIR helper definitions needed by RLU-current or gated by its standalone
+    build; the next shader slice must classify those definitions by preprocessed
+    consumer rather than bulk-delete the region.

@@ -886,16 +886,13 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     int routedRigidDynamicPromotedEmissive = 0;
     int routedRigidDynamicReadyByMesh = 0;
     int routedRigidDynamicReadyByResident = 0;
-    const int requestedDebugMode = r_pathTracingDebugMode.GetInteger();
+    const int requestedDebugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     const bool routeMode18 = requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0;
-    const bool routeMode20 = requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0;
-    const bool routeRestirPTMode = IsPathTraceRestirPTDebugMode(requestedDebugMode);
-    const bool routeIntegratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
     const bool routeResidencyV2Mode =
         r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
         r_pathTracingRigidResidency.GetInteger() != 0;
     const bool removeRoutedRigidDynamic =
-        (routeResidencyV2Mode || requestedDebugMode == 24 || requestedDebugMode == 25 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 52 || requestedDebugMode == 42 || requestedDebugMode == 43 || routeMode18 || routeMode20 || routeRestirPTMode || routeIntegratorDebugMode) &&
+        (routeResidencyV2Mode || requestedDebugMode == 24 || requestedDebugMode == 25 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 52 || requestedDebugMode == 42 || requestedDebugMode == 43 || routeMode18) &&
         r_pathTracingRigidRouteRemoveDynamic.GetInteger() != 0 &&
         r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&

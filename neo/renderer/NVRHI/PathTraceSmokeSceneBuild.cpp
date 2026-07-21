@@ -3282,9 +3282,7 @@ int SmokeSkinnedGpuComputeMaxVertexCount(const std::vector<PathTraceSkinnedSurfa
 void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char* label)
 {
     const int preset = idMath::ClampInt(0, 4, requestedPreset);
-    const bool mode18 = debugMode == 18;
-    const bool mode20 = debugMode == 20;
-    if (!mode18 && !mode20)
+    if (debugMode != 18)
     {
         return;
     }
@@ -3294,8 +3292,7 @@ void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char*
     r_pathTracingRigidBlasGpuScaffold.SetInteger(1);
     r_pathTracingRigidBlasGpuBuild.SetInteger(1);
     r_pathTracingRigidTlasRoute.SetInteger(1);
-    r_pathTracingRigidRouteMode18.SetInteger(mode18 ? 1 : r_pathTracingRigidRouteMode18.GetInteger());
-    r_pathTracingRigidRouteMode20.SetInteger(mode20 ? 1 : r_pathTracingRigidRouteMode20.GetInteger());
+    r_pathTracingRigidRouteMode18.SetInteger(1);
     r_pathTracingRigidRouteRemoveDynamic.SetInteger(1);
     r_pathTracingRigidRouteEmissiveCards.SetInteger(1);
     r_pathTracingRigidResidency.SetInteger(1);
@@ -3308,10 +3305,10 @@ void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char*
     r_pathTracingStaticAreaPreloadPortalSteps.SetInteger(portalSteps);
     r_pathTracingLightAreaPortalSteps.SetInteger(portalSteps);
 
-    r_pathTracingLightAreaFilter.SetInteger(mode20 && preset >= 2 ? 1 : 0);
-    r_pathTracingLightAreaFilterApply.SetInteger(mode20 && preset == 3 ? 1 : 0);
+    r_pathTracingLightAreaFilter.SetInteger(0);
+    r_pathTracingLightAreaFilterApply.SetInteger(0);
     r_pathTracingLightAreaOverflowMax.SetInteger(512);
-    r_pathTracingLightUniverseChurn.SetInteger(mode20 && preset >= 2 ? 1 : 0);
+    r_pathTracingLightUniverseChurn.SetInteger(0);
 
     const int presetRigidRouteMaxInstances = 510;
     if (r_pathTracingRigidRouteMaxInstances.GetInteger() < presetRigidRouteMaxInstances)
@@ -3323,10 +3320,10 @@ void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char*
         label ? label : "mode test",
         preset,
         portalSteps,
-        mode20 && preset >= 2 ? 1 : 0,
-        mode20 && preset == 3 ? 1 : 0,
+        0,
+        0,
         preset == 4 ? 1 : 0,
-        mode20 && preset >= 2 ? 1 : 0,
+        0,
         r_pathTracingRigidRouteMaxInstances.GetInteger());
 }
 
@@ -3837,19 +3834,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         ApplySmokeRoutedScenePreset(18, mode18Preset, "mode18 test");
         r_pathTracingMode18TestPreset.SetInteger(0);
     }
-    const int mode20Preset = r_pathTracingMode20TestPreset.GetInteger();
-    if (mode20Preset != 0)
-    {
-        ApplySmokeRoutedScenePreset(20, mode20Preset, "mode20 test");
-        r_pathTracingMode20TestPreset.SetInteger(0);
-    }
     m_smokeSceneBuilt = false;
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
     const int requestedDebugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
-    const bool restirPTDebugMode = IsPathTraceRestirPTDebugMode(requestedDebugMode);
-    const bool integratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
     const int pdfNeeVerifierSceneBuildView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
     const int pdfNeeVerifierSceneBuildLightMode = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
     const bool pdfNeeVerifierStaticEmissiveProducerPolicy =
@@ -3898,13 +3887,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingNeeCacheEnable.GetInteger() != 0 &&
         r_pathTracingNeeCacheMode.GetInteger() != 0 &&
         (neeCacheSceneBuildSourceDomain == 0 || neeCacheSceneBuildSourceDomain == 1 || neeCacheSceneBuildSourceDomain == 3);
-    const bool currentFrameStaticEmissiveProducerPolicy =
-        restirPTDebugMode || pdfNeeVerifierStaticEmissiveProducerPolicy;
+    const bool currentFrameStaticEmissiveProducerPolicy = pdfNeeVerifierStaticEmissiveProducerPolicy;
     const bool cleanRtxdiDiMaterialValidationRoute =
         requestedDebugMode == 0 &&
         r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
         (cleanRtxdiDiSceneBuildResolveView == 16 || cleanRtxdiDiMaterialClassifierProofRoute || cleanRtxdiDiPsrMaskRoute);
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || currentFrameStaticEmissiveProducerPolicy || cleanRtxdiDiSceneBuildRluEmissives || cleanRtxdiDiMaterialValidationRoute || neeCacheSceneBuildRluEmissives || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 57;
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 18) || currentFrameStaticEmissiveProducerPolicy || cleanRtxdiDiSceneBuildRluEmissives || cleanRtxdiDiMaterialValidationRoute || neeCacheSceneBuildRluEmissives || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 57;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.rrMotionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_frameResources.rrGuidePositionTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
@@ -4073,10 +4061,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             requestedDebugMode == 42 ||
             requestedDebugMode == 43 ||
             cleanRtxdiDiSceneBuildRluEmissives ||
-            restirPTDebugMode ||
-            integratorDebugMode ||
-            (requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0) ||
-            (requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0));
+            (requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0));
     const bool rigidResidencyBoundsDebug = requestedDebugMode == 21 || requestedDebugMode == 22;
     const bool rigidResidencyEnabled =
         r_pathTracingRigidResidency.GetInteger() != 0 &&
@@ -5331,7 +5316,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
             emissiveInventoryStats);
-        if (enableRigidRouteForMode && (requestedDebugMode == 20 || cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives || restirPTDebugMode || integratorDebugMode))
+        if (enableRigidRouteForMode && (cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives))
         {
             AppendSmokeRigidRouteEmissiveTriangleInventory(
                 materialTable.materialIds,
@@ -5397,7 +5382,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Emissive Light Remap");
         return BuildSmokeEmissiveLightRemap(emissiveTriangles, previousEmissiveTriangles);
     }();
-    const bool restirPTAnalyticLightCandidates = restirPTDebugMode && r_pathTracingRestirPTAnalyticLightCandidates.GetInteger() != 0;
     const int cleanRtxdiDiView = r_pathTracingCleanRtxdiDiView.GetInteger();
     const int cleanRtxdiDiResolveView =
         (cleanRtxdiDiView >= 18 && cleanRtxdiDiView <= 23) ? 16 : cleanRtxdiDiView;
@@ -5410,16 +5394,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingReGIREnable.GetInteger() != 0 &&
         r_pathTracingReGIRMode.GetInteger() != 0 &&
         (regirSceneLightDomain == 0 || regirSceneLightDomain == 2);
-    const bool enableDoomAnalyticLightCandidates = r_pathTracingAnalyticLightCandidates.GetInteger() != 0 || restirPTAnalyticLightCandidates;
+    const bool enableDoomAnalyticLightCandidates = r_pathTracingAnalyticLightCandidates.GetInteger() != 0;
     PathTraceDoomAnalyticLightBuildOptions doomAnalyticBuildOptions;
-    if (restirPTAnalyticLightCandidates)
-    {
-        doomAnalyticBuildOptions.forceBuild = true;
-        doomAnalyticBuildOptions.preserveZeroRadianceSlots = true;
-        doomAnalyticBuildOptions.stableReservoirOrder = true;
-        doomAnalyticBuildOptions.includeOutOfSelectedArea = true;
-        doomAnalyticBuildOptions.ignoreConfiguredCandidateCap = true;
-    }
     if (cleanRtxdiDiRealAnalyticRoute)
     {
         doomAnalyticBuildOptions.forceBuild = true;
@@ -5540,10 +5516,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRemixFramePrepareDump.SetInteger(0);
     }
     const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 77, r_pathTracingRestirPTDiDebugView.GetInteger());
-    const bool rrxDiLightUniverseRequested =
-        requestedDebugMode == 56 &&
-        ((requestedRestirPTDiDebugView >= 60 && requestedRestirPTDiDebugView <= 77) ||
-            r_pathTracingRestirPTRrxFinalConsumerOutput.GetInteger() != 0);
     const bool regirLightUniverseRequested =
         r_pathTracingReGIREnable.GetInteger() != 0 &&
         r_pathTracingReGIRMode.GetInteger() != 0;
@@ -5559,7 +5531,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingNeeCacheMode.GetInteger() != 0;
     const bool remixLightUniverseEnabled =
         r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
-        rrxDiLightUniverseRequested ||
         regirLightUniverseRequested ||
         cleanRtxdiDiRluRequested ||
         pdfNeeRluCurrentProducerRequested ||
@@ -5571,7 +5542,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint32_t remixLightUniverseDomain = static_cast<uint32_t>(
         idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
             ? r_pathTracingRemixLightUniverseDomain.GetInteger()
-            : (currentRluDenseProducerRequested ? 2 : (rrxDiLightUniverseRequested ? 2 : regirSceneLightDomain))));
+            : (currentRluDenseProducerRequested ? 2 : regirSceneLightDomain)));
     const bool remixLightUniverseStrictMapping =
         r_pathTracingRemixLightUniverseStrictRemixMapping.GetInteger() != 0;
     const bool remixLightUniverseIncludeAnalytic =
@@ -7738,7 +7709,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 common->Printf("PathTracePrimaryPass: PT rigid TLAS route debug mode active mode=%d routedInstances=%d renderPath=dynamicFallback traceMask=%s\n",
                     requestedDebugMode,
                     routedRigidInstances,
-                    requestedDebugMode == 23 ? "rigidOnly" : (requestedDebugMode == 24 ? "fallbackAndRigidValidation" : (requestedDebugMode == 25 ? "fallbackAndRigidLighting" : (requestedDebugMode == 29 ? "mode29RestirPTPrimaryHistory" : (requestedDebugMode == 28 ? "mode28RestirPTInitialVisibility" : (requestedDebugMode == 27 ? "mode27RestirPTInitialShading" : (requestedDebugMode == 26 ? "mode26RestirPTInitial" : (requestedDebugMode == 20 ? "mode20Integration" : "mode18Integration"))))))));
+                    requestedDebugMode == 23 ? "rigidOnly" : (requestedDebugMode == 24 ? "fallbackAndRigidValidation" : (requestedDebugMode == 25 ? "fallbackAndRigidLighting" : "routedIntegration")));
             }
         }
     }
@@ -8506,9 +8477,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.capabilityFlags = RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED;
     if (r_pathTracingEmissiveBridgeDump.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: RT smoke emissive bridge producerPolicy pdfNeeStaticEmissive=%d restirPT=%d enableTextureProbe=%d staticAreaPreloadCvar=%d portalFullMapCvar=%d fullWorldStaticEmissivesCvar=%d fullWorldAppended=%d rigidRouteEnabled=%d routedRigidAppended=%d captured=%d static=%d dynamic=%d distribution=%d unifiedCurrent=%d managerCurrentPayload=%d lightUniverseGeneration=%llu behavior=current-frame-producer-diagnostics-only\n",
+        common->Printf("PathTracePrimaryPass: RT smoke emissive bridge producerPolicy pdfNeeStaticEmissive=%d enableTextureProbe=%d staticAreaPreloadCvar=%d portalFullMapCvar=%d fullWorldStaticEmissivesCvar=%d fullWorldAppended=%d rigidRouteEnabled=%d routedRigidAppended=%d captured=%d static=%d dynamic=%d distribution=%d unifiedCurrent=%d managerCurrentPayload=%d lightUniverseGeneration=%llu behavior=current-frame-producer-diagnostics-only\n",
             pdfNeeVerifierStaticEmissiveProducerPolicy ? 1 : 0,
-            restirPTDebugMode ? 1 : 0,
             enableTextureProbe ? 1 : 0,
             r_pathTracingStaticAreaPreload.GetInteger() != 0 ? 1 : 0,
             r_pathTracingPortalBruteforceFullMap.GetInteger() != 0 ? 1 : 0,

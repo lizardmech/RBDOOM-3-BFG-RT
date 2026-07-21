@@ -7,13 +7,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 19 = emissive triangle inventory, 20 = single-frame reservoir direct lighting, 21 = solid drawSurf bounds boxes, 22 = wireframe drawSurf bounds boxes, 23 = experimental routed rigid TLAS instances, 24 = fallback-vs-rigid-route overlap validation, 25 = routed rigid lighting validation, 26 = ReSTIR PT initial reservoir diagnostics, 27 = ReSTIR PT initial reservoir shading preview, 28 = ReSTIR PT initial reservoir visibility preview, 29 = ReSTIR PT primary-surface history validation, 30 = ReSTIR PT reprojection validation, 31 = ReSTIR PT temporal reservoir validation, 32 = ReSTIR PT temporal shading preview, 33 = temporal light-source attribution, 34-37 = path-tracer core visualizers, 38 = skinned object-motion vector diagnostic, 39 = routed-rigid object-motion eligibility, 40 = routed-rigid object-motion vector diagnostic, 41 = combined skinned/routed-rigid object-motion vector diagnostic, 42 = packed primary object-motion flags, 43 = packed object-motion reprojection match, 44 = previous static snapshot binding, 45 = previous static reprojection match, 46 = previous static motion-vector diagnostic, 47 = combined geometry motion-vector diagnostic, 48 = combined geometry reprojection-match diagnostic, 49 = combined geometry motion-source diagnostic, 50 = ReSTIR PT spatial reservoir shading preview, 51 = ReSTIR PT spatial source attribution, 52 = routed-rigid transform parity, 53 = ReSTIR PT indirect reservoir diagnostics, 54 = ReSTIR PT indirect reservoir shading, 55 = ReSTIR PT indirect path attribution, 56 = ReSTIR PT combined direct+GI preview, 57 = material classifier GPU route/class/BSDF" );
-
-idCVar r_pathTracingMode20TestPreset(
-    "r_pathTracingMode20TestPreset",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot mode 20 PT test preset: 1 = source3 routed rigid mode20, 2 = plus light-area diagnostics, 3 = plus light-area apply, 4 = BVH validation stack with no light-area apply" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 21 = solid drawSurf bounds boxes, 22 = wireframe drawSurf bounds boxes, 23 = experimental routed rigid TLAS instances, 24 = fallback-vs-rigid-route overlap validation, 25 = routed rigid lighting validation, 38 = skinned object-motion vector diagnostic, 39 = routed-rigid object-motion eligibility, 40 = routed-rigid object-motion vector diagnostic, 41 = combined skinned/routed-rigid object-motion vector diagnostic, 42 = packed primary object-motion flags, 43 = packed object-motion reprojection match, 44 = previous static snapshot binding, 45 = previous static reprojection match, 46 = previous static motion-vector diagnostic, 47 = combined geometry motion-vector diagnostic, 48 = combined geometry reprojection-match diagnostic, 49 = combined geometry motion-source diagnostic, 52 = routed-rigid transform parity, 57 = material classifier GPU route/class/BSDF. Retired values select production mode 0" );
 
 idCVar r_pathTracingMode18TestPreset(
     "r_pathTracingMode18TestPreset",
@@ -289,19 +283,13 @@ idCVar r_pathTracingRigidTlasRoute(
     "r_pathTracingRigidTlasRoute",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Source3 rigid TLAS route gate; active in debug modes 23/24/25 and modes 18/20 unless per-mode gates are disabled" );
+    "Source3 rigid TLAS route gate; active in debug modes 23/24/25 and mode 18 unless its per-mode gate is disabled" );
 
 idCVar r_pathTracingRigidRouteMode18(
     "r_pathTracingRigidRouteMode18",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 18 routed rigid integration gate; set 0 to force legacy dynamic fallback behavior" );
-
-idCVar r_pathTracingRigidRouteMode20(
-    "r_pathTracingRigidRouteMode20",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 20 routed rigid integration gate; set 0 to force legacy dynamic fallback behavior" );
 
 idCVar r_pathTracingRigidRouteDump(
     "r_pathTracingRigidRouteDump",
@@ -649,7 +637,7 @@ idCVar r_pathTracingLightAreaFilter(
     "r_pathTracingLightAreaFilter",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Diagnostic-only RT smoke emissive light-area selector gate; 0 leaves mode 20 uploads unchanged" );
+    "Diagnostic-only RT smoke emissive light-area selector gate; 0 leaves emissive uploads unchanged" );
 
 idCVar r_pathTracingLightAreaFilterApply(
     "r_pathTracingLightAreaFilterApply",
@@ -751,7 +739,7 @@ idCVar r_pathTracingReGIREnable(
     "r_pathTracingReGIREnable",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Enable the standalone clean-room ReGIR resource shell; does not route PDFNEE, temporal, spatial, RRX, best-light, or mode 56" );
+    "Enable the standalone clean-room ReGIR resource shell; does not route PDFNEE, temporal, spatial, RRX, or best-light" );
 
 idCVar r_pathTracingReGIRDebugView(
     "r_pathTracingReGIRDebugView",
@@ -841,7 +829,7 @@ idCVar r_pathTracingNeeCacheEnable(
     "r_pathTracingNeeCacheEnable",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Enable the Remix-style NEE cache proposal-provider resource shell; does not route PDFNEE, temporal, spatial, RRX, best-light, or mode 56" );
+    "Enable the Remix-style NEE cache proposal-provider resource shell; does not route PDFNEE, temporal, spatial, RRX, or best-light" );
 
 idCVar r_pathTracingNeeCacheMode(
     "r_pathTracingNeeCacheMode",
@@ -938,12 +926,6 @@ idCVar r_pathTracingAnalyticLightCandidates(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Build, upload, and shade analytic sphere-light candidates from active Doom lights" );
-
-idCVar r_pathTracingRestirPTAnalyticLightCandidates(
-    "r_pathTracingRestirPTAnalyticLightCandidates",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Allow ReSTIR PT debug modes 26-33 and 50-51 to build and shade analytic Doom light candidates when the global analytic-light CVar is off; set 0 for emissive-only ReSTIR validation" );
 
 idCVar r_pathTracingAnalyticLightCandidateDump(
     "r_pathTracingAnalyticLightCandidateDump",
@@ -1333,13 +1315,13 @@ idCVar r_pathTracingReservoirTwoSidedEmissives(
     "r_pathTracingReservoirTwoSidedEmissives",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Treat clean DI, mode 20, and PDFNEE lightmode 7 emissive triangle samples as two-sided for Doom panel winding compatibility" );
+    "Treat clean DI and PDFNEE lightmode 7 emissive triangle samples as two-sided for Doom panel winding compatibility" );
 
 idCVar r_pathTracingReservoirCandidateTrials(
     "r_pathTracingReservoirCandidateTrials",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 20 emissive reservoir candidate trials per pixel; higher values improve off-screen light selection at extra shader cost" );
+    "Emissive reservoir candidate trials per pixel; higher values improve off-screen light selection at extra shader cost" );
 
 idCVar r_pathTracingRestirPTPreviewMaxPixels(
     "r_pathTracingRestirPTPreviewMaxPixels",
@@ -1513,7 +1495,7 @@ idCVar r_pathTracingRestirPTRrxFinalConsumerOutput(
     "r_pathTracingRestirPTRrxFinalConsumerOutput",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Legacy/debug mode 56 view-0 replacement switch; active RRX proof uses r_pathTracingRestirPTDiDebugView 72 by default" );
+    "RRX DI view-0 replacement switch; the active proof uses r_pathTracingRestirPTDiDebugView 72 by default" );
 
 idCVar r_pathTracingRestirPTRrxFinalConsumerCurrentOnly(
     "r_pathTracingRestirPTRrxFinalConsumerCurrentOnly",
@@ -1591,7 +1573,7 @@ idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
     "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room Remix DI path: default-on clean material-classifier view-12 route; set 0 to opt out for diagnostics; does not route through mode 56 or existing RRX debug views" );
+    "Clean-room Remix DI path: default-on clean material-classifier view-12 route; set 0 to opt out for diagnostics; independent of existing RRX debug views" );
 
 idCVar r_pathTracingCleanRtxdiDiView(
     "r_pathTracingCleanRtxdiDiView",
@@ -2353,7 +2335,7 @@ idCVar r_pathTracingDisableEmissiveTriangleSampling(
     "r_pathTracingDisableEmissiveTriangleSampling",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Diagnostic kill switch: disable emissive triangle sampling loops for mode 20 and ReSTIR PT validation paths" );
+    "Diagnostic kill switch: disable emissive triangle sampling loops for clean DI and PDFNEE validation paths" );
 
 idCVar r_pathTracingEmissiveDistribution(
     "r_pathTracingEmissiveDistribution",
@@ -2728,7 +2710,7 @@ idCVar r_pathTracingDLSSRR(
     "r_pathTracingDLSSRR",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental DLSS Ray Reconstruction evaluation gate for mode 56 primary-prepass output" );
+    "Experimental DLSS Ray Reconstruction evaluation gate for path-traced primary-prepass output" );
 
 idCVar r_pathTracingDLSSRRMode(
     "r_pathTracingDLSSRRMode",
@@ -2746,19 +2728,19 @@ idCVar r_pathTracingDLSSRRColorBuffersHDR(
     "r_pathTracingDLSSRRColorBuffersHDR",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "DLSS RR colorBuffersHDR option for mode 56; default 1 because the current Streamline/NGX RR path rejects the SDR-tagged option" );
+    "DLSS RR colorBuffersHDR option; default 1 because the current Streamline/NGX RR path rejects the SDR-tagged option" );
 
 idCVar r_pathTracingDLSSRRPreExposure(
     "r_pathTracingDLSSRRPreExposure",
     "1.0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "DLSS RR preExposure option for mode 56; keep 1.0 unless the input color has already been pre-exposed" );
+    "DLSS RR preExposure option; keep 1.0 unless the input color has already been pre-exposed" );
 
 idCVar r_pathTracingDLSSRRExposureScale(
     "r_pathTracingDLSSRRExposureScale",
     "1.0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "DLSS RR exposureScale option for mode 56; diagnostic color/exposure tuning for the experimental RR bridge" );
+    "DLSS RR exposureScale option for diagnostic color/exposure tuning of the experimental RR bridge" );
 
 idCVar r_pathTracingDLSSRRForceReset(
     "r_pathTracingDLSSRRForceReset",
@@ -2824,7 +2806,7 @@ idCVar r_pathTracingDLSSRRSharpness(
     "r_pathTracingDLSSRRSharpness",
     "0.0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "DLSS RR sharpness option for mode 56, clamped 0..1" );
+    "DLSS RR sharpness option, clamped 0..1" );
 
 idCVar r_pathTracingDLSSRRDenoiserPreset(
     "r_pathTracingDLSSRRDenoiserPreset",

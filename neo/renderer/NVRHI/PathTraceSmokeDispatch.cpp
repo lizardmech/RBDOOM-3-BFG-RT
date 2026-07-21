@@ -5343,12 +5343,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     int debugMode = standaloneDebugRouteRequested ? 0 : NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = RtRestirPTCheckerboardMode::Off;
-    const bool requestedIntegratorDebugMode = debugMode >= 34 && debugMode <= 37;
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49 || requestedIntegratorDebugMode) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
-    const bool integratorDebugMode = debugMode >= 34 && debugMode <= 37;
     const uint32_t safetyDisableMask = BuildPathTraceSafetyDisableMask();
     const bool disableSelectedLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP);
     const bool disableAnalyticLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
@@ -5582,16 +5580,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.textureInfo[1] = static_cast<float>(textureSampleMethod);
     constants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));
     const bool integratorUsesSpecular = integratorSettings.reflectionMode > 0 || r_pathTracingToyFakePBRSpecular.GetInteger() != 0;
-    const bool toyFakePBRSpecularEnabled = r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (debugMode == 18 || integratorDebugMode);
+    const bool toyFakePBRSpecularEnabled = r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && debugMode == 18;
     const bool pdfNeeEmissiveVerifierRoute = pdfNeeVerifierRouteRequested && pdfNeeVerifierEntryLightMode == 7;
     const uint32_t textureFlags =
         (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
         (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
-        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || integratorDebugMode) ? 8u : 0u) |
-        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 57 || (integratorUsesSpecular && (debugMode == 18 || integratorDebugMode))) ? 16u : 0u) |
-        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || integratorDebugMode || cleanRtxdiDiRouteRequested) ? 32u : 0u) |
-        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 18 || debugMode == 20 || pdfNeeEmissiveVerifierRoute || cleanRtxdiDiRouteRequested) ? 64u : 0u) |
+        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18) ? 8u : 0u) |
+        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 57 || (integratorUsesSpecular && debugMode == 18)) ? 16u : 0u) |
+        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || cleanRtxdiDiRouteRequested) ? 32u : 0u) |
+        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 18 || pdfNeeEmissiveVerifierRoute || cleanRtxdiDiRouteRequested) ? 64u : 0u) |
         (toyFakePBRSpecularEnabled ? 128u : 0u) |
         PackPathTraceOpenPbrBrdfMode();
     constants.textureInfo[3] = static_cast<float>(textureFlags);
@@ -5838,17 +5836,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int pdfNeeVerifierSamples = idMath::ClampInt(1, 64, r_pathTracingRestirPdfNeeVerifierSamples.GetInteger());
     const int pdfNeeVerifierVisibility = pdfNeeVerifierEntryVisibility;
     const int pdfNeeVerifierSourcePolicy = idMath::ClampInt(0, 2, r_pathTracingRestirPdfNeeVerifierSourcePolicy.GetInteger());
-    const bool pdfNeeVerifierForbiddenMode = debugMode == 56;
-    const bool pdfNeeRluCurrentProducerEnabled =
-        r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 &&
-        !pdfNeeVerifierForbiddenMode;
-    const bool pdfNeeVerifierRouteEnabled =
-        pdfNeeRluCurrentProducerEnabled ||
-        (r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 &&
-            pdfNeeVerifierView > 0 &&
-            pdfNeeVerifierLightMode != 8 &&
-            pdfNeeVerifierLightMode != 9 &&
-            !pdfNeeVerifierForbiddenMode);
+    const bool pdfNeeRluCurrentProducerEnabled = r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0;
+    const bool pdfNeeVerifierRouteEnabled = pdfNeeRluCurrentProducerEnabled;
     constants.restirPdfNeeVerifierInfo[0] = pdfNeeVerifierRouteEnabled ? 1.0f : 0.0f;
     constants.restirPdfNeeVerifierInfo[1] = static_cast<float>(pdfNeeVerifierView);
     constants.restirPdfNeeVerifierInfo[2] = static_cast<float>(pdfNeeVerifierLightMode);
@@ -5878,14 +5867,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             ? (emissiveCount > 0 ? 0.5f : 1.0f)
             : 0.0f;
         const char* firstMissingContract =
-            pdfNeeVerifierForbiddenMode ? "forbidden-mode-56" :
             (pdfNeeNeeCacheProviderRequested && !pdfNeeNeeCacheProviderReady ? "nee-cache-provider-not-ready-neecache-07" :
             (managerCount <= 0 ? "current-rlu-dense-domain" : "none"));
         const char* sourcePolicyName = pdfNeeNeeCacheProviderRequested
             ? "nee-cache-provider"
             : (typedPolicy ? "typed-stratified-rlu" : "full-domain-uniform-rlu");
         common->Printf(
-            "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer route enable=%d requestedEnable=%d samples=%d visibility=%d sourcePolicy=%d(%s) debugMode=%d rluDomain=%u managerCount=%d previousCount=%d rluRanges emissive=%d+%d doomAnalytic=%d+%d rluSampleInfo emissive/doom/total/nonEmpty=%d/%d/%d/%d neeCacheProvider requested/ready=%d/%d providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 classProbability emissive=%.3f doomAnalytic=%.3f sourcePdf=%s sourcePdfFormula=%s invSourcePdfFormula=%s producerHelperSequence=RTXDI_DIInitialSamplingParameters,RTXDI_RandomSamplerState,nee-cache-ris-candidate-or-fallback,RTXDI_StreamSample,RTXDI_FinalizeResampling reservoirM=1 normalizationDenominator=requestedLocalSamples selectedLightIdentity=dense-current-rlu-lightIndex solidAnglePdf=RAB_SampleActiveRrxPolymorphicLight targetPdf=RAB_GetLightSampleTargetPdfForSurface finalContribution=RAB_GetReflectedBsdfRadianceForSurface*reservoirInvPdf/solidAnglePdf*visibility cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanReservoirPage=u69 firstMissingContract=%s temporal=0 spatial=0 bestLights=0 denoiser=0 mode56=%d oldPdfNee=discarded task=%s\n",
+            "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer route enable=%d requestedEnable=%d samples=%d visibility=%d sourcePolicy=%d(%s) debugMode=%d rluDomain=%u managerCount=%d previousCount=%d rluRanges emissive=%d+%d doomAnalytic=%d+%d rluSampleInfo emissive/doom/total/nonEmpty=%d/%d/%d/%d neeCacheProvider requested/ready=%d/%d providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 classProbability emissive=%.3f doomAnalytic=%.3f sourcePdf=%s sourcePdfFormula=%s invSourcePdfFormula=%s producerHelperSequence=RTXDI_DIInitialSamplingParameters,RTXDI_RandomSamplerState,nee-cache-ris-candidate-or-fallback,RTXDI_StreamSample,RTXDI_FinalizeResampling reservoirM=1 normalizationDenominator=requestedLocalSamples selectedLightIdentity=dense-current-rlu-lightIndex solidAnglePdf=RAB_SampleActiveRrxPolymorphicLight targetPdf=RAB_GetLightSampleTargetPdfForSurface finalContribution=RAB_GetReflectedBsdfRadianceForSurface*reservoirInvPdf/solidAnglePdf*visibility cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanReservoirPage=u69 firstMissingContract=%s temporal=0 spatial=0 bestLights=0 denoiser=0 oldPdfNee=discarded task=%s\n",
             idStr::Icmp(firstMissingContract, "none") == 0 ? 1 : 0,
             r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
             pdfNeeVerifierSamples,
@@ -5915,7 +5903,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeCleanRtxdiDiTemporalReservoirBuffer ? 1 : 0,
             m_smokeCleanRtxdiDiPreviousReservoirBuffer ? 1 : 0,
             firstMissingContract,
-            pdfNeeVerifierForbiddenMode ? 1 : 0,
             "PDFNEE-RLU-04");
         r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
     }
@@ -5939,7 +5926,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             pdfNeeVerifierDomain == 0 ? splitCount :
             (pdfNeeVerifierDomain == 1 ? unifiedCount : managerCount)))))));
         const char* firstMissingContract =
-            pdfNeeVerifierForbiddenMode ? "forbidden-mode-56" :
             (pdfNeeVerifierLightMode == 9 ? "regir-consume-disabled-standalone-lane" :
             (pdfNeeVerifierLightMode == 8 ? "quarantined-failed-rlu-direct-diagnostic" :
             (!pdfNeeVerifierRouteEnabled ? "route-disabled" :
