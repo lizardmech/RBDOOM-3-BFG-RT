@@ -1,0 +1,318 @@
+PT GPU-SIDE CLEANUP: AUDIT OF DEFUNCT SHADER/C++ SURFACES AND PHASED REMOVAL PLAN
+==================================================================================
+Date: 2026-07-19
+Reviewed against branch restir-development: 2026-07-21
+Scope: neo/shaders/builtin/pathtracing/** and the NVRHI C++ files that drive them.
+Goal: retire defunct render lanes (debug mode 56 ReSTIR PT lane and friends), keep
+CleanRtxdiDiView 16 as the primary renderer, and separate retained basic debug
+views from the production ReSTIR PT pathway.
+
+----------------------------------------------------------------------------------
+1. HOW THE FRAME IS ROUTED TODAY (ground truth)
+----------------------------------------------------------------------------------
+Entry: PathTracePrimaryPass (PathTracePrimaryPass.cpp:360-400)
+  InitRayTracingSmokeTest -> BuildRayTracingSmokeTestScene (PathTraceSmokeSceneBuild.cpp,
+  8,973 lines) -> ExecuteRayTracingSmokeTest (PathTraceSmokeDispatch.cpp:964, the
+  function is ~6,400 lines) -> ReadBackRayTracingSmokeTest (PathTraceSmokeReadback.cpp).
+
+Two routes live inside ExecuteRayTracingSmokeTest:
+
+  A) CLEAN ROUTE (production). Gate: r_pathTracingCleanRtxdiDiEnable != 0 and
+     r_pathTracingCleanRtxdiDiView in 1..25 (cleanRtxdiDiRouteRequested,
+     SmokeDispatch:1203). Pass chain:
+       primary-surface producer raygen (dispatch at :2878)
+       -> NEE-cache primary-surface update CS
+       -> optional clean ReGIR build + external PDFNEE prepass (:3493/:3513)
+       -> PSR/glass/transmission producers
+       -> CleanDI.0 Initial / CleanDI.1 Temporal / CleanDI.2 Spatial raygen (:4350-4402)
+       -> material-feature compose passes (glass, transmission, liquid, decals)
+       -> clean ReSTIR GI (PathTraceCleanRestirGi.cpp, dispatched from :4443 lambda)
+       -> DI boiling filter, GI sky resolve, particle composite, DLSS-RR
+     The clean route RETURNS at SmokeDispatch:4814. Nothing after that line runs in
+     production.
+
+  B) LEGACY ROUTE (everything after :4814). Only reachable when the clean route is
+     off/invalid. Contains: pdfNee RLU producer, PDFNEE verifier, ReGIR debug raygen,
+     the 57-mode monolith dispatch (r_pathTracingDebugMode 0..57, tile + full
+     dispatches at :6872/:6885), and the mode-56 standalone producer chain
+     (:7123/:7152/:7178: indirect-initial, direct-temporal, direct-spatial,
+     reflection, combined-resolve).
+
+Key entanglement: both routes share the same file, the same m_smoke* resource
+namespace, the same PathTraceSmokeConstants buffer, the same binding sets, and
+scene build has requestedDebugMode == NN gates sprinkled through all 8,973 lines.
+PathTraceCVars.cpp declares 500 idCVars; r_pathTracingRestirPTDiDebugView alone
+documents 78 values, all of them mode-56-only.
+
+----------------------------------------------------------------------------------
+2. SHADER INVENTORY (195 files under builtin/pathtracing)
+----------------------------------------------------------------------------------
+Compile mechanisms (three, all must be touched when deleting):
+  (1) bespoke DXC custom commands in neo/shaders/CMakeLists.txt (raygen + GI CS)
+  (2) engine RenderProgs builtins (RenderProgs.cpp:948-952: skinning, DI boiling
+      filter, sky cube probe, NEE-cache primary-surface update CS)
+  (3) generated material-feature variants via
+      cleanroom_rtxdi/pathtrace_clean_rtxdi_di_material_features.cmake
+      (glass + transmission producers compile through this)
+
+A. LIVE - production view-16 lane (keep):
+   cleanroom_rtxdi/**                       (~13,600 LOC; DI initial/temporal/spatial,
+                                             sentinel, glass, transmission, NEE cache,
+                                             material adapters, RR guide export)
+   cleanroom_common/** EXCEPT restir_pt_*   (clean DI/GI resampling cores, shared math)
+   remix_restir_gi/pathtrace_clean_restir_gi*.{rt,cs}.hlsl  (5 files, GI lane)
+   remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl (directly included by the
+                                             live clean GI raygen; KEEP)
+   pathtrace_primary_surface_producer.rt.hlsl (2,238 LOC production prepass)
+   pathtrace_material_classifier.hlsli, PathTracePrimarySurface.hlsli,
+   PathTraceMaterialFeature*.hlsli, PathTraceMaterialLightTarget.hlsli,
+   PathTraceOpaqueDirectMaterial.hlsli, PathTraceOpenPbrEonGgxVndf.hlsli
+   pathtrace_sky_environment.hlsli, pathtrace_sky_cube_probe.cs.hlsl,
+   pathtrace_sky_surface_resolve.cs.hlsl, pathtrace_skinning.cs.hlsl,
+   pathtrace_particle_*.hlsl
+   Rtxdi/ shim tree DI/GI/Utils (all now clean shims into cleanroom_common - the
+   license remediation is COMPLETE for these; Rtxdi/PT/* shims are legacy-only)
+   RtxdiBridge SUBSET actually included by clean lanes:
+     RAB_UnifiedLightRecord.hlsli, RAB_LightTarget.hlsli, RAB_NeeCache.hlsli
+   remix_bridge SUBSET included by clean GI:
+     RAB_GIInitialSampleBridge, RAB_GIReservoirBridge,
+     RAB_GITemporalValidationBridge, RAB_SurfaceBridge
+     plus RAB_GradientBridge and RAB_TemporalOutputBridge, which are reached
+     transitively through RAB_GITemporalValidationBridge (KEEP until that live
+     bridge is deliberately refactored).
+
+B. PROVEN DEAD ON DISK - no current includers or compile entries (delete first):
+   remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+   remix_rtxdi/rtxdi_gradients.rt.hlsl
+   pathtrace_smoke_restir.rt.hlsl
+   These three files are the corrected Phase 1 set. Verify with a final grep
+   immediately before deletion.
+
+C. LEGACY - compiled but only reachable through the legacy route:
+   pathtrace_smoke.rt.hlsl                  5,892 LOC monolith, 57 debug modes +
+                                            RB_PT_ENABLE_RESTIR macro forest
+   pathtrace_pdf_nee_verifier.rt.hlsl       5,914 LOC near-copy of the monolith
+   pathtrace_regir_debug.rt.hlsl            1,611 LOC
+   pathtrace_nee_cache_debug.rt.hlsl        1,841 LOC (NEE cache itself is live;
+                                            only this debug raygen is legacy)
+   pathtrace_restir_combined_resolve.rt.hlsl  952 LOC (mode 56 final resolve)
+   10 thin #define wrappers re-including the monolith:
+     pathtrace_smoke_mode18_restir_hybrid, pathtrace_smoke_restir_{initial,temporal,
+     temporal_shading,attribution,spatial_reservoir,spatial,spatial_attribution,
+     combined}, pathtrace_restir_{indirect_initial,direct_temporal,
+     direct_spatial_reservoir,reflection}_producer, pathtrace_restir_pdf_nee_rlu_current
+   Mode-56 debug hlsli set (~9,460 LOC):
+     pathtrace_smoke_rab_*.hlsli, pathtrace_restir_reference_*.hlsli,
+     pathtrace_restir_local_*.hlsli, pathtrace_restir_di_initial_debug.hlsli,
+     pathtrace_smoke_native_nee_reservoir_preview.hlsli,
+     pathtrace_restir_rr_guide_debug.hlsli,
+     pathtrace_restir_combined_resolve_reservoir_pages.hlsli
+   cleanroom_common/restir_pt_*.hlsli (1,784 LOC) + Rtxdi/PT/* shims (mode-56 PT lane)
+   remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl and rtxdi_spatial_reuse.rt.hlsl
+     (included by pathtrace_restir_local_debug_reservoirs, which is included by
+     pathtrace_restir_combined_resolve; remove with the mode-56 shader slice,
+     not as dead-on-disk files)
+   RtxdiBridge legacy majority (~everything not in the live subset above:
+     RAB_PathTracer*, RAB_Surface, RAB_Brdf*, RAB_ReGIR, RAB_DuplicationMap,
+     RAB_LightInfo*, RAB_LightSampling*, Debug/*, PathTraceRtxdiBridge*, etc.)
+     NOTE: RAB_LightTarget includes PathTraceMaterialLightTarget ->
+     PathTraceOpaqueDirectMaterial -> PathTraceOpenPbrEonGgxVndf; that chain is live.
+   pathtrace_nee.hlsli + pathtrace_emissive_sampling.hlsli are included ONLY by the
+     monolith + verifier -> legacy once those go (confirm at deletion time).
+
+D. RETAINED DEBUG CANDIDATES (currently inside the monolith):
+   Basic geometry/material/motion views worth keeping per user intent:
+     modes 0-17 (hit/miss, depth, normals, surface class, UV, material ID/table,
+     textures, albedo, translucency, normal/specular map)
+     modes 21-25 (bounds boxes, routed-rigid TLAS validation)
+     modes 38-49 (motion-vector / reprojection diagnostics)
+     mode 52 (routed-rigid transform parity), mode 57 (material classifier GPU route)
+   ReSTIR-PT-specific modes 18-20, 26-37, 50-51, 53-56 are defunct with the lane.
+
+----------------------------------------------------------------------------------
+3. C++ INVENTORY
+----------------------------------------------------------------------------------
+LEGACY-ONLY modules (removable with the mode-56 lane):
+   PathTraceRestirPT.cpp/.h, PathTraceRestirPTReservoirs.cpp/.h,
+   PathTraceRestirPasses.h, PathTraceRestirPTParameters.h
+     (pass plan, context state, reservoir pages - only consumed after the clean
+      route's early return; UpdateRestirPTContextState at SmokeDispatch:5680)
+   PathTraceReGIR.cpp/.h is NOT legacy-only. The clean route owns and allocates
+     its state and can dispatch its build shader. Keep the module and separate
+     its production/build path from the optional debug presentation later.
+   Mode-56 sections of PathTraceSmokeReadback.cpp (view 68/69 dumps, :473-495)
+   Large parts of PathTraceDebugDumps.cpp / PathTraceSurfaceDebugDumps.cpp keyed to
+     removed modes (audit per-function at execution time)
+   Legacy cases inside InitRayTracingSmokeRestirPipeline and their matching
+   m_smokeRestir* shader tables/pipelines in PathTraceSmokeResources.cpp.
+   The initializer itself is shared: cases 9, 15, 17, 18, and 20 service the
+   primary-surface producer, Clean DI, ReGIR, external-PDFNEE, and Clean DI
+   spatial paths and must remain until they are mechanically renamed/split.
+
+LIVE but ENTANGLED (keep, do not delete; needs untangling only):
+   PathTraceSmokeDispatch.cpp - production dispatch lives here (lines ~1188-4814)
+   PathTraceSmokeSceneBuild.cpp - one scene builder for both routes; debugMode gates
+     (e.g. :3907 enableTextureProbe chain, :5332 rigid-route enable) must collapse to
+     clean-route policy once modes die
+   PathTraceSmokeResources.cpp - shared m_smoke* buffers/textures
+   PathTraceRestirLightManager.cpp - RLU emissives feed the clean route
+     (cleanRtxdiDiSceneBuildRluEmissives, SceneBuild:3891) and NEE cache; live
+   PathTraceNeeCache.cpp - live (clean NEE cache build prepass)
+   PathTraceCleanRestirGi.cpp - already well isolated; model to imitate
+   PathTraceDLSSRRBridge.cpp - live for the clean lane despite "mode 56" wording in
+     its cvar help strings
+   PathTraceCVars.cpp - 500 cvars; large minority are mode-56/verifier-only
+
+----------------------------------------------------------------------------------
+4. PHASED REMOVAL PLAN (checkpoint after each meaningful slice)
+----------------------------------------------------------------------------------
+Verification per phase: Vulkan only. Force affected SPIR-V recompilation by
+deleting the corresponding .rt.bin before building whenever an edited include or
+raygen may not retrigger DXC. Build with cmake --build --preset
+win64-pt-dev-release, confirm each rebuilt SPIR-V blob is newer than its source
+edit, deploy only RBDoom3BFG.exe plus rebuilt files under base/renderprogs2/spirv,
+then launch a map, confirm view 16 renders identically, confirm one retained debug
+view still works, and skim the console for new warnings. DX12/DXIL compilation is
+not an acceptance requirement for this Vulkan-only branch.
+
+PHASE 0 - decisions (no code):
+  D1: final keep-list of basic debug views (proposal in section 2D).
+  D2: KEEP PathTraceReGIR. It participates in clean-route resource/build plumbing.
+      Keep pathtrace_nee_cache_debug as runway unless a later isolated audit proves
+      its presentation shader has no value. Move optional debug presentation
+      behind its own cvars, out of the monolith.
+  D3: which CleanRtxdiDiView bring-up proofs (views 1-11, 13-15) to prune from the
+      clean shaders themselves; 12/16/17-25 stay.
+
+PHASE 1 - delete only the three proven dead-on-disk shaders in section 2B. No
+  CMake edits are expected. This is low risk, not "zero risk": grep immediately
+  before deletion and run the normal Vulkan build afterward.
+
+PHASE 2 - remove the mode-56 ReSTIR PT lane, C++ first:
+  T2.1: delete the standalone producer chain dispatch block (SmokeDispatch
+        ~:7100-7205) and mode56 accumulation plumbing (:5578-5600, FrameResources
+        fields, r_pathTracingRestirPTMode56Accumulation*).
+  T2.2: delete restirPTCombinedMode/restirPTPassPlan usage, the pass-plan printf
+        block (:5690-5700), UpdateRestirPTContextState call site, and the
+        view68/69 readback in SmokeReadback.
+  T2.3: delete PathTraceRestirPT.cpp/.h, PathTraceRestirPTReservoirs.cpp/.h,
+        PathTraceRestirPasses.h, PathTraceRestirPTParameters.h; remove from
+        project CMake.
+  T2.3b (LEGACY RESOURCE CLEANUP): delete PathTraceRemixRtxdiResources.cpp/.h only
+        after proving every clean-route reference safely falls back to the owned
+        frame resources. The <Rtxdi/...> host headers now resolve to rbdoom-owned
+        files under neo/Rtxdi; external RTXDI runtime severance was already
+        completed on 2026-06-14. Do not describe this as a new license win and do
+        not make the containment allow-list empty while active local host-ABI
+        includes remain.
+  T2.4: prune only legacy cases 0-8 and 10-14 plus their matching
+        m_smokeRestir* pipelines/shader tables/buffers. Keep shared initializer
+        cases 9, 15, 17, 18, and 20. Rename or split the survivor later, after
+        call sites are stable.
+  T2.5: delete r_pathTracingRestirPT* cvars (approx 80+) incl. the 78-value
+        r_pathTracingRestirPTDiDebugView, RrxDebug* bypass family, spatial
+        diagnostic cvars.
+  T2.6: delete shader wrappers + mode-56 debug hlsli set + combined_resolve +
+        cleanroom_common/restir_pt_* + Rtxdi/PT shims; remove their CMake custom
+        commands and include-list entries. This is where the legacy
+        remix_rtxdi temporal/spatial reuse files and their now-unreferenced bridge
+        dependencies are reconsidered. Keep the live clean-GI temporal file and
+        its Gradient/TemporalOutput bridge chain.
+
+PHASE 3 - strip the monolith to the retained debug views:
+  T3.1: remove all RB_PT_ENABLE_RESTIR* regions and modes 18-20/26-37/50-51/53-56
+        from pathtrace_smoke.rt.hlsl; drop now-unused includes (pathtrace_nee,
+        pathtrace_emissive_sampling, remaining RtxdiBridge legacy headers).
+  T3.2: delete pathtrace_pdf_nee_verifier.rt.hlsl + its verifier-only dispatch and
+        cvars (r_pathTracingRestirPdfNeeVerifier*). Do not delete the external
+        PDFNEE producer or ReGIR build shader merely because they share old names
+        or initializer infrastructure with the verifier. Remove legacy bridge
+        headers only after their last includer disappears; keep section 2A.
+  T3.3: rename survivor to pathtrace_debug_views.rt.hlsl (optional but clarifying);
+        clamp r_pathTracingDebugMode range to the keep-list and renumber only if
+        cheap (renumbering breaks muscle memory - consider keeping numbers and
+        rejecting removed ones with a console message).
+
+PHASE 4 - structural separation (production vs debug):
+  T4.1: split ExecuteRayTracingSmokeTest: extract the clean route (lines ~1188-4814
+        today) into ExecutePathTraceCleanFrame in its own file
+        (PathTraceCleanFrame.cpp); ExecuteDebugViewFrame keeps the monolith
+        dispatch. Entry picks one route; no shared 6,000-line body.
+  T4.2: collapse requestedDebugMode gates in SceneBuild to two policies
+        (production policy = current cleanRtxdiDiSceneBuildRluEmissives behavior;
+        debug policy = what the keep-list needs).
+  T4.3: prune cvars again (bring-up proofs from D3, dead diagnostics); goal is to
+        cut PathTraceCVars.cpp roughly in half.
+  T4.4 (RESTIR HYGIENE - key for Enhanced ReSTIR PT upgrades): split the clean-lane
+        debug views out of the production shader binaries via compile-time
+        permutations. Today the DI initial/temporal wrappers #include the 2,561-line
+        sentinel and the view is a RUNTIME uint switch (sentinel:2489-2553 is a
+        25-way else-if chain); the production view-16 binary statically carries all
+        25 views, temporal_output.hlsli (1,362 LOC viewer), diagnostics.hlsli (616),
+        rr_debug.hlsli (318) and the audit/GUI counter plumbing. Because raygen
+        occupancy is the measured GI bound, dead branches cost real registers.
+        Mechanism (matches existing #define-entry + material-features .cmake
+        pattern):
+          - compile each clean DI/GI/spatial raygen twice: production permutation
+            with CLEAN_DI_VIEW_STATIC=16 (view is a literal; DXC dead-strips other
+            branches; debug hlsli includes #if'd out) and a debug permutation that
+            keeps the runtime switch unchanged;
+          - C++ selects the shader table by view: 16 -> production, else -> debug;
+          - temporal-audit readback + GUI snapshot stay debug-permutation-only;
+          - resampling math stays in cleanroom_common (view-free) - that is the
+            surface where paper upgrades (shift mappings, MIS changes) land.
+        Do this AFTER Phase 2/3 so the shader CMake is already minimal.
+  T4.5 (optional, last): mechanical rename of the SmokeTest/m_smoke* naming to
+        PathTraceFrame naming - huge diff, do only when the tree is otherwise quiet.
+
+Ordering rationale: files that nothing compiles go first (free); mode-56 C++ next
+because every branch is explicitly keyed on debugMode==56/restirPTCombinedMode and
+is after the production early-return (mechanical, low risk); the monolith strip
+only after its wrappers are gone; the structural split last, when the code that
+would have to move is already minimal.
+
+Estimated removal: ~35-40k LOC of HLSL (monolith regions, verifier, debug hlsli,
+PT lane, dead bridges) plus several thousand lines of C++ and ~150+ cvars.
+
+----------------------------------------------------------------------------------
+5. 2026-07-21 VIABILITY REVIEW AND RECENT-FEATURE GUARDRAILS
+----------------------------------------------------------------------------------
+Verdict: the overall cleanup direction is viable after the corrections above.
+The original Phase 1 and wholesale pipeline-removal wording was not viable.
+
+Live-contract corrections proven by the include/call graph:
+  - remix_restir_gi/pathtrace_clean_restir_gi.rt.hlsl directly includes
+    restir_gi_temporal_reuse.rt.hlsl.
+  - that temporal file reaches RAB_GITemporalValidationBridge, which reaches
+    RAB_GradientBridge and RAB_TemporalOutputBridge.
+  - pathtrace_restir_combined_resolve includes
+    pathtrace_restir_local_debug_reservoirs, which reaches the remix_rtxdi
+    temporal/spatial reuse files. Those files are legacy, but not dead-on-disk.
+  - the clean route calls InitRayTracingSmokeRestirPipeline for live shader kinds;
+    remove legacy cases, not the shared function.
+  - PathTraceReGIR state is created and consumed before the clean-route early
+    return. Keep the module; separate optional debug presentation later.
+
+Last-24-hour feature audit (nine commits, all liquid-pool work):
+  - production ownership lives in the retained primary-surface producer,
+    cleanroom_rtxdi DI adapters/producers/spatial shader, clean ReSTIR GI shader,
+    material-feature ABI/parameters, draw-surface capture, and liquid modifier.
+  - PathTraceSmokeReadback contains new clean liquid-pool probe selection and
+    reporting. When deleting view-68/69 mode-56 readback, preserve the liquid
+    globals, status-buffer readback, probe scan, and printout.
+  - PathTraceCVars contains the new default r_pathTracingLiquidPoolMode=3 plus
+    liquid debug/page controls. CVar pruning must preserve all three.
+  - pathtrace_restir_combined_resolve received routed-rigid liquid support in
+    commit b7c30aae. Deleting the defunct mode-56 lane intentionally deletes
+    that legacy copy; it must not be mistaken for the production implementation.
+  - no cleanup slice may delete or rename shared liquid material ABI fields,
+    LiquidPoolInfo constant transport, primary-surface liquid status buffers, or
+    the clean DI/GI modifier include chain without a separate feature audit.
+
+Working rule for every deletion slice:
+  1. enumerate direct and transitive includers/callers;
+  2. distinguish production clean-route use from legacy mode-56 use;
+  3. list any symbol/file changed during the preceding 24 hours;
+  4. delete only the proven legacy surface;
+  5. force affected Vulkan blobs, build, verify mtimes, deploy, runtime-check;
+  6. checkpoint the meaningful slice without staging unrelated worktree files.
