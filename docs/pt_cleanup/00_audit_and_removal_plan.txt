@@ -721,3 +721,25 @@ Working rule for every deletion slice:
   - Every SPIR-V target remains up to date, so no shader artifact is deployed.
     Only the EXE is copied to the prebuilt runtime; source and destination hashes
     match at 342876CF2A766DA00B34C69F0F2C28D2C1116D75649C4AEA69D919FF483F2BA9.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    fbd55a227. T2.3b runtime gate closed.
+  - T3.1g follows the remaining RtxdiBridge include graph. Of 27 headers, 18 are
+    reachable from current shader sources. Nine form a closed 946-line island
+    with no incoming edge from outside the island: the two old Debug headers,
+    PathTraceRtxdiBridgeCore, DuplicationMap, EnvironmentSamplingStub,
+    HitToLightIndex, the broad LightSampling compatibility wrapper, RayPayload,
+    and the broad Surface compatibility wrapper.
+  - Whole-repo filename hits outside this island are historical docs or comments,
+    not compile entries or includes. Delete the nine tracked, unmodified headers.
+    Preserve the reachable core/material/light/load/sample/target/visibility,
+    ReGIR, NEE-cache, random-sampler, and unified-light bridge contracts.
+  - Regenerate win64-pt-dev to remove the deleted headers from generated shader
+    dependencies. The refresh recompiles five Vulkan roots despite the absence of
+    include edges: NEE-cache debug (337,148 bytes, 20:59:49), primary-surface
+    producer (843,044 bytes, 20:59:55), ReGIR debug (231,920 bytes, 20:59:57),
+    RLU-current (628,644 bytes, 21:00:02), and smoke (1,251,964 bytes, 21:00:13).
+    Every rebuilt hash is byte-identical to its prior deployed counterpart,
+    independently confirming that the removed island affected no compiled code.
+  - The full win64-pt-dev-release build passes and DXIL stays up to date. Copy
+    exactly those five refreshed SPIR-V files and the unchanged EXE; all six
+    source/destination SHA-256 pairs match.
