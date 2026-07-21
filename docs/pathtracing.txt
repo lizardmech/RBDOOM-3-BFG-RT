@@ -1576,26 +1576,23 @@ Denoise/upscale/Ray Reconstruction reservation:
   bridge validation only; it does not change RTXDI math or reservoir policy.
 
 - r_pathTracingRestirPdfNeeVerifierEnable /
-  r_pathTracingRestirPdfNeeVerifierView /
-  r_pathTracingRestirPdfNeeVerifierLightMode /
   r_pathTracingRestirPdfNeeVerifierSamples /
   r_pathTracingRestirPdfNeeVerifierVisibility /
-  r_pathTracingRestirPdfNeeVerifierDomain /
+  r_pathTracingRestirPdfNeeVerifierSourcePolicy /
   r_pathTracingRestirPdfNeeVerifierDump
-  Standalone PDF + NEE verifier route. It uses the separate
-  `pathtrace_pdf_nee_verifier.rt` shader library when enabled in debug mode 0
-  with a nonzero verifier view, and it remains explicitly forbidden in
-  debugMode 56. This route is for current-frame estimator validation only: it
-  does not enable mode-56 dispatch planning, RRX reservoirs, spatial reuse,
-  best lights, denoising, or the old rbdoom NEE records.
+  Live RLU-current PDF + NEE producer. The public CVar prefix retains its legacy
+  `Verifier` name for console/config compatibility, but the standalone verifier
+  shader and its View/LightMode/Domain recipes have been removed. Enabling this
+  route selects from the dense current RLU domain, replays the selected light
+  through the active RRX RAB bridge, and writes the clean DI current reservoir
+  page at `u69` with dense RLU identity.
 
-  These verifier modes predate the working RLU -> clean RTXDI DI path and are
-  discarded as replacement implementation routes. The replacement
-  current-frame producer must select from the RLU dense current domain, replay
-  the selected light through the active RRX RAB bridge, and write a clean DI
-  current reservoir page at `u69` with dense RLU identity. Do not use the old
-  PDFNEE-09 handoff, split-domain analytic identity, or old rbdoom NEE records
-  as proof for the replacement path.
+  Samples controls candidate proposals per pixel (1..64). Visibility selects
+  forced-visible diagnostics or the active RAB NEE visibility policy.
+  SourcePolicy selects dense-current uniform, typed range-stratified, or the
+  NEE-cache provider/fallback source. Dump reports the live producer contract
+  once. The route does not restore mode-56 planning, the discarded PDFNEE-09
+  handoff, split-domain analytic identity, or old rbdoom NEE records.
 
 - r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent
   Defaults to 0. Historical clean-room consume-mode diagnostic for the old

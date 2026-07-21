@@ -540,3 +540,23 @@ Working rule for every deletion slice:
     for deployment. The rebuilt EXE was copied to the prebuilt runtime; source
     and destination SHA-256 both equal
     20134E303B8867186E5447F606C422658B6693C751B4E28E04E5FA2A5B87B7CD.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    a9db7c05a. T2.2l runtime gate closed.
+  - T2.2m removes the standalone verifier's final View, LightMode, and Domain
+    recipe CVars. Their remaining consumers were stale early-return text, the
+    discarded split-domain dump, and a superseded scene-build emissive policy;
+    none fed the live RLU-current shader. docs/pathtracing.txt now describes the
+    five surviving public controls as the live RLU-current producer contract.
+  - The shared constant-buffer layout is deliberately unchanged because fixed
+    pack offsets in the other shader libraries depend on it. The unused verifier
+    metadata float4 is now an explicit reserved slot, while the adjacent live
+    vector is named RestirPdfNeeRluCurrentControlInfo on both CPU and HLSL sides.
+    It still carries samples, visibility, source policy, and NEE-cache-provider
+    readiness at the same offsets.
+  - Full win64-pt-dev-release build passed with the two pre-existing C4819
+    warnings. Forced Vulkan rebuilds produced pathtrace_smoke.rt.bin (1,288,324
+    bytes, 2026-07-21 18:59:07) and
+    pathtrace_restir_pdf_nee_rlu_current.rt.bin (650,248 bytes,
+    2026-07-21 18:58:53), both newer than the shader edit at 18:57:47. No DXIL
+    shader rebuilt. The EXE and only those two SPIR-V files were deployed and
+    source/destination SHA-256 pairs match.

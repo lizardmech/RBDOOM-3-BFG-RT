@@ -318,9 +318,8 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
         if (r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0)
         {
             common->Printf(
-                "PathTracePrimaryPass: PDFNEE verifier execute earlyReturn=rt-unsupported enable=%d view=%d r_pathTracing=%d output=none temporal=0 spatial=0 mode56=0 task=PDFNEE-01\n",
+                "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer execute earlyReturn=rt-unsupported enable=%d r_pathTracing=%d output=none temporal=0 spatial=0 task=PDFNEE-RLU-04\n",
                 r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
-                idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger()),
                 r_pathTracing.GetInteger());
             r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
         }
@@ -350,9 +349,8 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
         if (r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0)
         {
             common->Printf(
-                "PathTracePrimaryPass: PDFNEE verifier execute earlyReturn=resize-output enable=%d view=%d r_pathTracing=%d requestedRender=%dx%d requestedOutput=%dx%d output=none temporal=0 spatial=0 mode56=0 task=PDFNEE-01\n",
+                "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer execute earlyReturn=resize-output enable=%d r_pathTracing=%d requestedRender=%dx%d requestedOutput=%dx%d output=none temporal=0 spatial=0 task=PDFNEE-RLU-04\n",
                 r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
-                idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger()),
                 r_pathTracing.GetInteger(),
                 renderWidth,
                 renderHeight,

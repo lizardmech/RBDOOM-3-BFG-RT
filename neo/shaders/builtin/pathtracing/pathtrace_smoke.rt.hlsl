@@ -437,8 +437,8 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirLightManagerControlInfo;
     float4 RestirLightManagerRangeInfo;
     float4 RestirLightManagerSampleInfo;
-    float4 RestirPdfNeeVerifierInfo;
-    float4 RestirPdfNeeVerifierControlInfo;
+    float4 ReservedRestirPdfNeeInfo;
+    float4 RestirPdfNeeRluCurrentControlInfo;
     float4 RestirPTDiDebugInfo;
     uint4 RestirPTRemixDiReservoirInfo;
     uint4 RestirPTRemixDiReservoirPageInfo;
@@ -4240,7 +4240,7 @@ uint PathTraceRestirPdfNeeRluTypedRangeSampleCount(uint rangeCount, uint totalRa
 
 bool PathTraceRestirPdfNeeRluNeeCacheProviderReady()
 {
-    return RestirPdfNeeVerifierControlInfo.w >= 0.5 &&
+    return RestirPdfNeeRluCurrentControlInfo.w >= 0.5 &&
         NeeCacheInfo0.x >= 0.5 &&
         NeeCacheInfo1.w > 0.0 &&
         NeeCacheInfo2.z > 0.0 &&
@@ -4610,9 +4610,9 @@ RTXDI_DIReservoir PathTraceRestirPdfNeeRluBuildCurrentReservoir(
     }
 
     const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
-    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 64u);
-    const bool tracedVisibility = RestirPdfNeeVerifierControlInfo.y >= 0.5;
-    const uint sourcePolicy = (uint)clamp(floor(RestirPdfNeeVerifierControlInfo.z + 0.5), 0.0, 2.0);
+    const uint sampleCount = clamp((uint)max(RestirPdfNeeRluCurrentControlInfo.x, 1.0), 1u, 64u);
+    const bool tracedVisibility = RestirPdfNeeRluCurrentControlInfo.y >= 0.5;
+    const uint sourcePolicy = (uint)clamp(floor(RestirPdfNeeRluCurrentControlInfo.z + 0.5), 0.0, 2.0);
     RTXDI_DIInitialSamplingParameters sampleParams = PathTraceRestirPdfNeeRluBuildInitialSamplingParameters(sampleCount);
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, frameIndex, 0x4d534449u);
     uint totalProposalSampleCount = sampleParams.numLocalLightSamples;

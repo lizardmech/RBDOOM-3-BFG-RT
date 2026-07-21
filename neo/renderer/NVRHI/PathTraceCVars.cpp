@@ -1527,18 +1527,6 @@ idCVar r_pathTracingRestirPdfNeeVerifierEnable(
     CVAR_RENDERER | CVAR_BOOL,
     "Replacement ReSTIR PDF + NEE RLU current producer: one-CVar current-frame direct lighting and clean current-reservoir output; diagnostics are optional" );
 
-idCVar r_pathTracingRestirPdfNeeVerifierView(
-    "r_pathTracingRestirPdfNeeVerifierView",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Legacy diagnostic only; replacement RLU current producer does not require a view recipe" );
-
-idCVar r_pathTracingRestirPdfNeeVerifierLightMode(
-    "r_pathTracingRestirPdfNeeVerifierLightMode",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Legacy diagnostic only; replacement RLU current producer always uses the dense current RLU lightIndex domain" );
-
 idCVar r_pathTracingRestirPdfNeeVerifierSamples(
     "r_pathTracingRestirPdfNeeVerifierSamples",
     "32",
@@ -1556,12 +1544,6 @@ idCVar r_pathTracingRestirPdfNeeVerifierSourcePolicy(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Replacement RLU current producer source policy: 0 full dense RLU uniform baseline, 1 RLU-04 range-stratified typed ranges using rangeSampleCount/(rangeCount*totalProposalSamples)" );
-
-idCVar r_pathTracingRestirPdfNeeVerifierDomain(
-    "r_pathTracingRestirPdfNeeVerifierDomain",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Legacy diagnostic only; replacement RLU current producer ignores this and uses full-domain uniform over the active dense RLU current page" );
 
 idCVar r_pathTracingRestirPdfNeeVerifierDump(
     "r_pathTracingRestirPdfNeeVerifierDump",
