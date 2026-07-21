@@ -1269,7 +1269,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
     const int pdfNeeVerifierEntryLightMode = idMath::ClampInt(0, 9, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
     const int pdfNeeVerifierEntryDomain = idMath::ClampInt(0, 2, r_pathTracingRestirPdfNeeVerifierDomain.GetInteger());
-    const int pdfNeeVerifierEntryDebugMode = idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());
+    const int pdfNeeVerifierEntryDebugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     const int pdfNeeVerifierEntryVisibility = idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierVisibility.GetInteger());
     const int pdfNeeVerifierSelectedVisibilityPolicy = pdfNeeVerifierEntryVisibility != 0
         ? Max(1, idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger()))
@@ -5349,7 +5349,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
 
-    int debugMode = standaloneDebugRouteRequested ? 0 : idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());
+    int debugMode = standaloneDebugRouteRequested ? 0 : NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = RtRestirPTCheckerboardMode::Off;
     const bool requestedRestirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);

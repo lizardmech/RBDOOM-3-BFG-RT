@@ -3847,7 +3847,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());
+    const int requestedDebugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     const bool restirPTDebugMode = IsPathTraceRestirPTDebugMode(requestedDebugMode);
     const bool integratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
     const int pdfNeeVerifierSceneBuildView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());

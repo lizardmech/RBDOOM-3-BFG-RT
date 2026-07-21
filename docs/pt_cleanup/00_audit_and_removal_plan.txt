@@ -132,11 +132,13 @@ D. RETAINED DEBUG CANDIDATES (currently inside the monolith):
 ----------------------------------------------------------------------------------
 3. C++ INVENTORY
 ----------------------------------------------------------------------------------
-LEGACY-ONLY modules (removable with the mode-56 lane):
+SHARED LEGACY-DEBUG modules (not removable with mode 56 alone):
    PathTraceRestirPT.cpp/.h, PathTraceRestirPTReservoirs.cpp/.h,
    PathTraceRestirPasses.h, PathTraceRestirPTParameters.h
-     (pass plan, context state, reservoir pages - only consumed after the clean
-      route's early return; UpdateRestirPTContextState at SmokeDispatch:5680)
+     The 2026-07-21 execution audit disproved the original legacy-only claim.
+     Modes 26-33, 50-51, 53-55 and the optional mode-18 ReSTIR hybrid still use
+     the pass plan, context parameters, buffer-page selection, and prepass flags.
+     Keep these modules until those consumers have their own removal gates.
    PathTraceReGIR.cpp/.h is NOT legacy-only. The clean route owns and allocates
      its state and can dispatch its build shader. Keep the module and separate
      its production/build path from the optional debug presentation later.
@@ -192,12 +194,13 @@ PHASE 2 - remove the mode-56 ReSTIR PT lane, C++ first:
   T2.1: delete the standalone producer chain dispatch block (SmokeDispatch
         ~:7100-7205) and mode56 accumulation plumbing (:5578-5600, FrameResources
         fields, r_pathTracingRestirPTMode56Accumulation*).
-  T2.2: delete restirPTCombinedMode/restirPTPassPlan usage, the pass-plan printf
-        block (:5690-5700), UpdateRestirPTContextState call site, and the
-        view68/69 readback in SmokeReadback.
-  T2.3: delete PathTraceRestirPT.cpp/.h, PathTraceRestirPTReservoirs.cpp/.h,
-        PathTraceRestirPasses.h, PathTraceRestirPTParameters.h; remove from
-        project CMake.
+  T2.2: retire mode 56 at the C++ route boundary; remove its pass-plan case,
+        combined-mode dispatch/resource selection, pass-plan logging fields that
+        are mode-56-only, and view68/69 readback. Preserve the shared pass-plan
+        and UpdateRestirPTContextState path for retained legacy-debug consumers.
+  T2.3: delete the four shared ReSTIR PT modules only after modes 18-20, 26-37,
+        50-51, and 53-55 have separately been removed or proven independent.
+        Until then, limit this phase to mode-56-only wrappers/resources.
   T2.3b (LEGACY RESOURCE CLEANUP): delete PathTraceRemixRtxdiResources.cpp/.h only
         after proving every clean-route reference safely falls back to the owned
         frame resources. The <Rtxdi/...> host headers now resolve to rbdoom-owned
@@ -362,6 +365,17 @@ Working rule for every deletion slice:
     rigid-route overlap, clean temporal audit, and the generic smoke readback.
   - Full win64-pt-dev-release build passed. No shader source changed and the
     build reported all SPIR-V shaders up to date, so no blob deployment is due.
-  - Runtime acceptance for T2.2a is pending on the deployed executable.
-  - Next slice after acceptance: audit T2.2 pass-plan/context consumers before
-    removing them; retained debug-mode consumers remain out of scope meanwhile.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    452f2cebe. T2.2a runtime gate closed.
+  - T2.2b audit found the pass-plan/context deletion proposed above was not
+    viable as written: modes 26-33, 50-51, 53-55 and mode-18 hybrid still consume
+    it for parameters, reservoir-page selection, and prepass scheduling.
+  - T2.2b therefore seals only the retired mode-56 route: debug value 56
+    normalizes to production value 0 at frame, scene-build, dispatch, and
+    readback boundaries; mode 56 is removed from ReSTIR debug classification,
+    pass-plan construction, and debug metadata.
+  - Full win64-pt-dev-release build passed. No shader source changed and all
+    SPIR-V shaders remained up to date, so this checkpoint deploys the EXE only.
+  - Runtime acceptance for T2.2b is pending. After acceptance, remove the now-
+    unreachable combined shader libraries/pipelines/tables and their initializer
+    cases without touching shared pass-plan/context state.

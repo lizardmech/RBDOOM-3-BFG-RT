@@ -367,7 +367,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     ReadBackDLSSRRInputColorDump();
     ReadBackLiquidPoolStatus();
 
-    const int debugMode = idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());
+    const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
     const bool cleanTemporalAuditRequested = r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger() != 0;
     if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested && !cleanTemporalAuditRequested)

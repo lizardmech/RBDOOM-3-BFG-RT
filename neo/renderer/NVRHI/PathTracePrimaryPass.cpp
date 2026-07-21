@@ -357,7 +357,7 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
     InitRayTracingSmokeTest();
     int outputWidth = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_WIDTH, RT_SMOKE_MAX_OUTPUT_WIDTH, r_pathTracingDebugWidth.GetInteger());
     int outputHeight = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_HEIGHT, RT_SMOKE_MAX_OUTPUT_HEIGHT, r_pathTracingDebugHeight.GetInteger());
-    const int debugMode = idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());
+    const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     ApplyRestirPTPreviewResolutionCap(debugMode, outputWidth, outputHeight);
     int renderWidth = outputWidth;
     int renderHeight = outputHeight;

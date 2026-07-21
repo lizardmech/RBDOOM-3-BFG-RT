@@ -138,9 +138,14 @@ inline RtPathTraceMaterialFeaturePassDesc BuildPathTraceRestirFeaturePassDesc(co
     return desc;
 }
 
+inline int NormalizePathTraceDebugMode(int debugMode)
+{
+    return debugMode == 56 ? 0 : debugMode;
+}
+
 inline bool IsPathTraceRestirPTDebugMode(int debugMode)
 {
-    return (debugMode >= 26 && debugMode <= 33) || debugMode == 50 || debugMode == 51 || (debugMode >= 53 && debugMode <= 56);
+    return (debugMode >= 26 && debugMode <= 33) || debugMode == 50 || debugMode == 51 || (debugMode >= 53 && debugMode <= 55);
 }
 
 inline const char* PathTraceRestirPassKindName(RtPathTraceRestirPassKind pass)
@@ -260,13 +265,6 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
         plan.output = RtPathTraceRestirPassKind::DebugVisualize;
         plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_REQUIRES_INITIAL_PREPASS;
         plan.label = "mode55IndirectPathAttribution";
-        break;
-    case 56:
-        plan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
-        plan.output = RtPathTraceRestirPassKind::ReservoirShading;
-        plan.resamplingMode = RtRestirPTResamplingMode::TemporalAndSpatial;
-        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SHADES_RESERVOIR | RT_RESTIR_PASS_TRACES_VISIBILITY | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP | RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS | RT_RESTIR_PASS_REQUIRES_SPATIAL_PREPASS | RT_RESTIR_PASS_REQUIRES_INITIAL_PREPASS;
-        plan.label = "mode56CombinedDirectGiPreview";
         break;
     default:
         break;
