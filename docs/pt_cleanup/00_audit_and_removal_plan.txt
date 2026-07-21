@@ -417,6 +417,18 @@ Working rule for every deletion slice:
     removed. Legacy resources remain allocated/compiled until the next slice.
   - Full win64-pt-dev-release build passed. No shader source changed and all
     SPIR-V shaders remained up to date, so this checkpoint deploys the EXE only.
-  - Runtime acceptance for T2.2e is pending. Once accepted, delete initializer
-    cases 0-7, their C++ handles, and their eight legacy diagnostic shader
-    wrappers/build entries.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    41fcec790. T2.2e runtime gate closed.
+  - T2.2f removes initializer cases 0-7 and the matching shader-library,
+    pipeline, and shader-table handles. It also removes the unreachable legacy
+    state selection plus initial, temporal, and spatial prepass dispatches that
+    depended on those tables.
+  - Deleted the eight retired wrapper sources (mode-18 hybrid; initial;
+    temporal; temporal-shading; attribution; spatial-reservoir; spatial; and
+    spatial-attribution) and removed their Vulkan and dormant DXIL CMake graph.
+    The monolithic shader's now-unreachable internal branches remain for a
+    separate audited strip; this slice does not modify pathtrace_smoke.rt.hlsl.
+  - Full win64-pt-dev-release configure/build passed. No shader source in the
+    active graph changed and the confirming build reported all SPIR-V up to
+    date, so no shader artifact is due for deployment. DXIL was not compiled or
+    deployed; this checkpoint deploys the EXE only.

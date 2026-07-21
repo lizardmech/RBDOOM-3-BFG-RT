@@ -1,5 +1,0 @@
-#define RB_PT_ENABLE_RESTIR 1
-#define RB_PT_ENABLE_RESTIR_TEMPORAL 1
-#define RB_PT_ENABLE_RESTIR_TEMPORAL_SHADING 1
-#define RB_PT_FORCE_DEBUG_MODE 32u
-#include "pathtrace_smoke.rt.hlsl"
