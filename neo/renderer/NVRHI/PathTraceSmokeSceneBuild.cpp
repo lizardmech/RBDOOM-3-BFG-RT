@@ -5682,7 +5682,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     const bool dumpRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesDump.GetInteger() != 0;
     PathTraceRemixRtxdiResourceGateDesc remixRtxdiResourceGateDesc;
-    remixRtxdiResourceGateDesc.restirPTCombinedMode = requestedDebugMode == 56;
     remixRtxdiResourceGateDesc.restirPTDiDebugView = requestedRestirPTDiDebugView;
     remixRtxdiResourceGateDesc.remixRtxdiResourcesEnabled = r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0;
     remixRtxdiResourceGateDesc.debugFlatContribution = r_pathTracingRestirPTRrxDebugFlatContribution.GetInteger() != 0;

@@ -376,6 +376,18 @@ Working rule for every deletion slice:
     pass-plan construction, and debug metadata.
   - Full win64-pt-dev-release build passed. No shader source changed and all
     SPIR-V shaders remained up to date, so this checkpoint deploys the EXE only.
-  - Runtime acceptance for T2.2b is pending. After acceptance, remove the now-
-    unreachable combined shader libraries/pipelines/tables and their initializer
-    cases without touching shared pass-plan/context state.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    20b0cf4d6. T2.2b runtime gate closed.
+  - T2.2c removed the unreachable combined and combined-resolve shader-library,
+    pipeline, and shader-table handles; initializer cases 8 and 10; combined
+    state selection; mode-56-only DI temporal debug prepass; Remix DI clear;
+    and the duplicate legacy DLSS-RR evaluation block. The clean-route DLSS-RR
+    evaluation before its early return remains intact.
+  - Shared primary-surface, GI-initial, direct-temporal, and direct-spatial
+    prepasses remain for mode 18 and modes 50-55; their stale PT56 marker labels
+    were made route-neutral.
+  - Full win64-pt-dev-release build passed. No shader source changed and all
+    SPIR-V shaders remained up to date, so this checkpoint deploys the EXE only.
+  - Runtime acceptance for T2.2c is pending. The next slice deletes the two now-
+    unloadable combined shader sources and their build entries, without touching
+    shared pass-plan/context state.

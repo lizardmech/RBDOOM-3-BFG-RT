@@ -243,9 +243,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeCleanRtxdiDiHistoryResetCount = 0;
     m_smokeCleanRtxdiDiBlueNoise.Release();
     m_smokeTlas = nullptr;
-    m_smokeRestirCombinedShaderTable = nullptr;
     m_smokePrimarySurfaceProducerShaderTable = nullptr;
-    m_smokeRestirCombinedResolveShaderTable = nullptr;
     m_smokeRestirPdfNeeRluCurrentShaderTable = nullptr;
     m_smokePdfNeeVerifierShaderTable = nullptr;
     m_smokeCleanRtxdiDiSentinelShaderTable = nullptr;
@@ -276,9 +274,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeSkinnedGpuSkinningShader = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterShader = nullptr;
     m_smokeNeeCachePrimarySurfaceUpdateShader = nullptr;
-    m_smokeRestirCombinedPipeline = nullptr;
     m_smokePrimarySurfaceProducerPipeline = nullptr;
-    m_smokeRestirCombinedResolvePipeline = nullptr;
     m_smokeRestirPdfNeeRluCurrentPipeline = nullptr;
     m_smokePdfNeeVerifierPipeline = nullptr;
     m_smokeCleanRtxdiDiSentinelPipeline = nullptr;
@@ -301,9 +297,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeReGIRDebugBindingLayout = nullptr;
     m_smokeBindingLayout = nullptr;
     m_smokeTextureBindlessLayout = nullptr;
-    m_smokeRestirCombinedShaderLibrary = nullptr;
     m_smokePrimarySurfaceProducerShaderLibrary = nullptr;
-    m_smokeRestirCombinedResolveShaderLibrary = nullptr;
     m_smokeRestirPdfNeeRluCurrentShaderLibrary = nullptr;
     m_smokePdfNeeVerifierShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiSentinelShaderLibrary = nullptr;
