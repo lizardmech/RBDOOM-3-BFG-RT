@@ -388,6 +388,23 @@ Working rule for every deletion slice:
     were made route-neutral.
   - Full win64-pt-dev-release build passed. No shader source changed and all
     SPIR-V shaders remained up to date, so this checkpoint deploys the EXE only.
-  - Runtime acceptance for T2.2c is pending. The next slice deletes the two now-
-    unloadable combined shader sources and their build entries, without touching
-    shared pass-plan/context state.
+  - Runtime acceptance 2026-07-21: clean RTXDI DI primary view 16 had no issues
+    on deployed commit e8b44a8ae. Modes 50 and 53 rendered purple, but the user
+    explicitly classified those legacy diagnostics as non-blocking and placed
+    the preservation priority on clean RTXDI DI plus still-useful basic modes
+    around 1-18. Future cleanup does not need to preserve modes 50/53.
+  - T2.2d removed all six now-unloadable mode-56 shader libraries from the build:
+    combined, combined-resolve, indirect-initial producer, direct-temporal
+    producer, direct-spatial-reservoir producer, and reflection producer. It also
+    deleted the two include files owned only by combined-resolve.
+  - Both Vulkan and dormant DXIL CMake declarations/commands/output-list entries
+    were removed, but only the Vulkan build is validated or deployed. Existing
+    orphan blobs are inert because no C++ loader remains; do not copy them.
+  - Full win64-pt-dev-release configure/build passed. CMake graph regeneration
+    rebuilt six still-active SPIR-V libraries: smoke core, primary-surface,
+    PDFNEE verifier, PDFNEE RLU-current, ReGIR debug, and NEE-cache debug. Their
+    blob mtimes are 2026-07-21 12:46:12 through 12:47:13 and they are the only
+    shader artifacts due for deployment; no DXIL artifact is copied.
+  - Runtime acceptance for T2.2d is pending after deployment. Next, audit the
+    legacy shader permutations and strip producer-only/mode-56 macro branches
+    from pathtrace_smoke.rt.hlsl without touching the clean RTXDI DI graph.
