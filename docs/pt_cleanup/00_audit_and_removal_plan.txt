@@ -524,3 +524,19 @@ Working rule for every deletion slice:
     is due for deployment. Only the rebuilt EXE is deployed. The two C4819
     warnings remain the pre-existing encoding warnings in RenderBackend.cpp and
     PathTraceSmokeDispatch.cpp.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    0fe6147aa. T2.2k runtime gate closed.
+  - T2.2l collapses the remaining host policy for that deleted standalone
+    verifier. The literal-false route and its mode-56 guards, split-RAB source
+    override, ReGIR source/prepass bridge, resource/binding alternatives, and
+    obsolete fallback diagnostic body are removed from PathTraceSmokeDispatch.
+  - The live pathtrace_restir_pdf_nee_rlu_current producer remains independently
+    requested by r_pathTracingRestirPdfNeeVerifierEnable and retains its case-18
+    shader table, PDFNEE binding layout, current-RLU source policies, and dump.
+    Clean RTXDI DI, ReGIR debug, NEE-cache, and native mode 18 keep their own
+    route/resource policy without the deleted verifier's constant-false gates.
+  - Full win64-pt-dev-release build passed. All SPIR-V outputs were already up
+    to date, so no shader blob is due for deployment and DXIL was not selected
+    for deployment. The rebuilt EXE was copied to the prebuilt runtime; source
+    and destination SHA-256 both equal
+    20134E303B8867186E5447F606C422658B6693C751B4E28E04E5FA2A5B87B7CD.
