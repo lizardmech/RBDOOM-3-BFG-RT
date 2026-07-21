@@ -3870,7 +3870,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         requestedDebugMode == 0 &&
         r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
         (cleanRtxdiDiSceneBuildResolveView == 16 || cleanRtxdiDiMaterialClassifierProofRoute || cleanRtxdiDiPsrMaskRoute);
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 18) || cleanRtxdiDiSceneBuildRluEmissives || cleanRtxdiDiMaterialValidationRoute || neeCacheSceneBuildRluEmissives || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 57;
+    const bool enableTextureProbe =
+        PathTraceDebugModeNeedsTextureProbe(requestedDebugMode) ||
+        cleanRtxdiDiSceneBuildRluEmissives ||
+        cleanRtxdiDiMaterialValidationRoute ||
+        neeCacheSceneBuildRluEmissives;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.rrMotionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_frameResources.rrGuidePositionTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
@@ -4015,19 +4019,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuBuild.GetInteger() != 0 &&
         (routeResidencyV2Mode ||
-            requestedDebugMode == 23 || requestedDebugMode == 24 || requestedDebugMode == 25 ||
-            requestedDebugMode == 39 ||
-            requestedDebugMode == 40 ||
-            requestedDebugMode == 41 ||
-            requestedDebugMode == 47 ||
-            requestedDebugMode == 48 ||
-            requestedDebugMode == 49 ||
-            requestedDebugMode == 52 ||
-            requestedDebugMode == 42 ||
-            requestedDebugMode == 43 ||
+            PathTraceDebugModeUsesRigidRoute(requestedDebugMode) ||
             cleanRtxdiDiSceneBuildRluEmissives ||
             (requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0));
-    const bool rigidResidencyBoundsDebug = requestedDebugMode == 21 || requestedDebugMode == 22;
+    const bool rigidResidencyBoundsDebug = IsPathTraceBoundsOverlayDebugMode(requestedDebugMode);
     const bool rigidResidencyEnabled =
         r_pathTracingRigidResidency.GetInteger() != 0 &&
         (enableRigidRouteForMode || rigidResidencyBoundsDebug);
@@ -8118,7 +8113,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.rigidRouteTriangleCount = rigidRouteBuild.stats.triangles;
     sceneInputs.geometry.rigidRouteInstanceCount = rigidRouteBuild.stats.emittedInstances;
     sceneInputs.geometry.rigidRoutePreviousTransformCount = rigidRouteBuild.stats.previousTransformInstances;
-    sceneInputs.geometry.rigidRouteTransformContinuousCount = rigidRouteBuild.stats.transformContinuousInstances;
     sceneInputs.geometry.skinnedSurfaceCount = classStats.skinnedDeformedSurfaces;
     sceneInputs.geometry.skinnedTriangleCount = classStats.skinnedDeformedTriangles;
     sceneInputs.geometry.skinnedRtCpuSurfaceCount = m_smokeSkinnedPreviousStats.currentRtCpuSkinnedSurfaceCount;

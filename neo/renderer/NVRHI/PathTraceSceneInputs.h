@@ -165,7 +165,6 @@ struct RtPathTraceSceneInputGeometry
     int rigidRouteTriangleCount = 0;
     int rigidRouteInstanceCount = 0;
     int rigidRoutePreviousTransformCount = 0;
-    int rigidRouteTransformContinuousCount = 0;
     int skinnedSurfaceCount = 0;
     int skinnedTriangleCount = 0;
     int skinnedRtCpuSurfaceCount = 0;
@@ -204,8 +203,6 @@ struct RtPathTraceSceneInputGeometry
     int skinnedGpuComputeMaxVertexCount = 0;
     bool currentGeometryValid = false;
     bool previousTransformAvailable = false;
-    bool previousVertexDataAvailable = false;
-    bool skinnedPreviousVertexDataAvailable = false;
     bool skinnedPreviousCpuVertexDataRetained = false;
     bool skinnedSourceGeometryAvailable = false;
     bool skinnedGpuSkinningAvailable = false;

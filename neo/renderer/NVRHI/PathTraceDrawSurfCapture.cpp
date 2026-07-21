@@ -658,7 +658,7 @@ void CapturePathTraceDrawSurfMirror(
     }
 
     instanceUniverse.SetObservedDrawSurfCount(viewDef->numDrawSurfs);
-    const int boundsOverlayMode = (r_pathTracingDebugMode.GetInteger() == 21 || r_pathTracingDebugMode.GetInteger() == 22)
+    const int boundsOverlayMode = IsPathTraceBoundsOverlayDebugMode(r_pathTracingDebugMode.GetInteger())
         ? Max(1, r_pathTracingSceneBoundsOverlay.GetInteger())
         : r_pathTracingSceneBoundsOverlay.GetInteger();
     const int boundsOverlayMax = Max(0, r_pathTracingSceneBoundsOverlayMax.GetInteger());
@@ -845,7 +845,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     if (instanceUniverse)
     {
         instanceUniverse->SetObservedDrawSurfCount(viewDef->numDrawSurfs);
-        boundsOverlayMode = (r_pathTracingDebugMode.GetInteger() == 21 || r_pathTracingDebugMode.GetInteger() == 22)
+        boundsOverlayMode = IsPathTraceBoundsOverlayDebugMode(r_pathTracingDebugMode.GetInteger())
             ? Max(1, r_pathTracingSceneBoundsOverlay.GetInteger())
             : r_pathTracingSceneBoundsOverlay.GetInteger();
         boundsOverlayMax = Max(0, r_pathTracingSceneBoundsOverlayMax.GetInteger());
@@ -892,7 +892,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
         r_pathTracingRigidResidency.GetInteger() != 0;
     const bool removeRoutedRigidDynamic =
-        (routeResidencyV2Mode || requestedDebugMode == 24 || requestedDebugMode == 25 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 52 || requestedDebugMode == 42 || requestedDebugMode == 43 || routeMode18) &&
+        (routeResidencyV2Mode || PathTraceDebugModeRemovesRoutedRigidDynamic(requestedDebugMode) || routeMode18) &&
         r_pathTracingRigidRouteRemoveDynamic.GetInteger() != 0 &&
         r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&

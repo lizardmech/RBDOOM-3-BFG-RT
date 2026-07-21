@@ -14,3 +14,38 @@ inline int NormalizePathTraceDebugMode(int debugMode)
     }
     return debugMode;
 }
+
+inline bool IsPathTraceBoundsOverlayDebugMode(int debugMode)
+{
+    return debugMode == 21 || debugMode == 22;
+}
+
+inline bool PathTraceDebugModeNeedsTextureProbe(int debugMode)
+{
+    return (debugMode >= 8 && debugMode <= 18) ||
+        (debugMode >= 38 && debugMode <= 49) ||
+        debugMode == 57;
+}
+
+inline bool PathTraceDebugModeNeedsTextureTable(int debugMode)
+{
+    return (debugMode >= 8 && debugMode <= 15) ||
+        debugMode == 18 ||
+        (debugMode >= 38 && debugMode <= 49);
+}
+
+inline bool PathTraceDebugModeUsesRigidRoute(int debugMode)
+{
+    return (debugMode >= 23 && debugMode <= 25) ||
+        (debugMode >= 39 && debugMode <= 43) ||
+        (debugMode >= 47 && debugMode <= 49) ||
+        debugMode == 52;
+}
+
+inline bool PathTraceDebugModeRemovesRoutedRigidDynamic(int debugMode)
+{
+    return debugMode == 24 || debugMode == 25 ||
+        (debugMode >= 39 && debugMode <= 43) ||
+        (debugMode >= 47 && debugMode <= 49) ||
+        debugMode == 52;
+}

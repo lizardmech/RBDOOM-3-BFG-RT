@@ -1008,3 +1008,32 @@ Working rule for every deletion slice:
     DXIL command runs. Deploy only the executable. Source and deployed SHA-256
     both equal
     5DA20694A8A2B3FF1FBDC466139F90C5170B14A22CEB367A299238BFE64B29EC.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 211886445. T4.3h runtime gate closed.
+  - T4.1 boundary re-audit: a direct extraction of either the clean-route body
+    or the post-clean debug tail is not yet a safe mechanical move. Both consume
+    dozens of handles, settings, and lambdas created by the shared prelude in
+    ExecuteRayTracingSmokeTest. Moving either side now would require a large
+    parameter list or a new context object, turning the cleanup into a behavioral
+    refactor. Defer the file split until the route-policy inputs have been
+    centralized and a narrow frame-context contract can be introduced and
+    reviewed separately.
+  - T4.2a centralizes four exact retained-debug policies in
+    PathTraceDebugModes.h: bounds overlays, texture-probe construction, texture
+    table requirement, and rigid-route participation/removal. The replacement
+    truth-table comparison is empty for modes 0-57. Keep the separate rigid-route
+    and routed-dynamic predicates because mode 23 intentionally participates in
+    the route without removing the mirrored dynamic surface.
+  - T4.3i completes the scene-input member audit. Two previous-vertex booleans
+    were never assigned and therefore remained fixed false in the dump; one
+    rigid transform-continuity count was assigned but never read. Remove the
+    three members, their dump columns, and the lone assignment. Preserve all
+    adjacent temporal counters and capability flags.
+  - T4.2a/T4.3i verification: the old/new policy truth-table comparisons are
+    empty for every mode from 0 through 57, the three retired scene-input symbols
+    have no remaining neo reference, and git diff --check passes. The full
+    win64-pt-dev-release build passes after one retry for a transient compiler
+    object lock left by an intentionally short build timeout. Both SPIR-V targets
+    remain up to date and no DXIL command runs. Deploy only the executable;
+    source and deployed SHA-256 both equal
+    0680052CBADB16E3BAEB8628BC8F757DC732C7FA0C871E12670250C2C3231570.
