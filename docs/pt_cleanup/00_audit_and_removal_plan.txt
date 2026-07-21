@@ -432,3 +432,23 @@ Working rule for every deletion slice:
     active graph changed and the confirming build reported all SPIR-V up to
     date, so no shader artifact is due for deployment. DXIL was not compiled or
     deployed; this checkpoint deploys the EXE only.
+  - Runtime acceptance 2026-07-21: user reported no problems with deployed
+    commit ae2d80bf8. T2.2f runtime gate closed.
+  - The T3.1 monolith pre-strip audit found one remaining live consumer of its
+    general ReSTIR region: pathtrace_restir_pdf_nee_rlu_current.rt.hlsl defines
+    RB_PT_ENABLE_RESTIR and includes pathtrace_smoke.rt.hlsl. Native mode 18
+    also shares the adjacent pathtrace_nee/toy-path block. Do not bulk-delete
+    either region; first isolate the RLU-current producer or remove only macro
+    branches proven absent from both preprocessed active libraries.
+  - T2.2g removes the pass-plan seam that was retained for modes 26-33, 50-51,
+    and 53-55. PathTraceRestirPasses.h now contains only route normalization;
+    the obsolete pass enums, feature descriptions, builders, buffer selection,
+    dump path, and preview-visibility/pass-dump CVars are gone.
+  - The surviving legacy debug dispatch still initializes its existing local
+    ReSTIR context with an explicit resamplingMode=None descriptor. This keeps
+    ordinary debug modes and native mode 18 on the same resource contract while
+    removing the retired mode-dependent policy layer.
+  - Full win64-pt-dev-release build passed. The build reported all SPIR-V up to
+    date, so no shader artifact is due for deployment; this checkpoint deploys
+    the EXE only. The two C4819 warnings are pre-existing encoding warnings in
+    RenderBackend.cpp and PathTraceSmokeDispatch.cpp, not cleanup failures.

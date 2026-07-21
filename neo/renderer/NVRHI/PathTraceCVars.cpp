@@ -1341,12 +1341,6 @@ idCVar r_pathTracingReservoirCandidateTrials(
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 20 emissive reservoir candidate trials per pixel; higher values improve off-screen light selection at extra shader cost" );
 
-idCVar r_pathTracingRestirPTPreviewVisibility(
-    "r_pathTracingRestirPTPreviewVisibility",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 32 ReSTIR PT preview visibility gate: 0 = shade temporal reservoir only, 1 = trace an extra conservative visibility ray" );
-
 idCVar r_pathTracingRestirPTPreviewMaxPixels(
     "r_pathTracingRestirPTPreviewMaxPixels",
     "921600",
@@ -2330,12 +2324,6 @@ idCVar r_pathTracingRestirPTPrimarySurfacePrepass(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "ReSTIR PT path: use the standalone primary-surface producer/resolve path so mode 56 avoids the combined monolithic shader; set 0 for legacy fallback testing" );
-
-idCVar r_pathTracingRestirPTPassDump(
-    "r_pathTracingRestirPTPassDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the current ReSTIR PT pass plan and RTXDI reservoir buffer indices once" );
 
 idCVar r_pathTracingSafetyDump(
     "r_pathTracingSafetyDump",

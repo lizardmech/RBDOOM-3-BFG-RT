@@ -5405,12 +5405,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             : (regirDebugRouteRequested && regirDebugBindingSet
             ? regirDebugBindingSet
             : ((pdfNeeVerifierRouteRequested || pdfNeeRluCurrentProducerRequested) && pdfNeeVerifierBindingSet
-            ? pdfNeeVerifierBindingSet
-            : (neeCacheSecondaryBindingSet ? neeCacheSecondaryBindingSet : m_smokeBindingSet)));
+             ? pdfNeeVerifierBindingSet
+             : (neeCacheSecondaryBindingSet ? neeCacheSecondaryBindingSet : m_smokeBindingSet)));
     state.bindings = { activeBindingSet, m_smokeTextureDescriptorTable };
-    const bool restirPTPreviewVisibility = r_pathTracingRestirPTPreviewVisibility.GetInteger() != 0 && !PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY);
-    RtPathTraceRestirPassPlan restirPTPassPlan = BuildPathTraceRestirPassPlan(debugMode, restirPTPreviewVisibility);
-    const bool stagedRestirDirectLightingMode = restirPTPassPlan.resamplingMode == RtRestirPTResamplingMode::TemporalAndSpatial;
+    const bool stagedRestirDirectLightingMode = false;
     const float restirPTDirectResolutionScale = stagedRestirDirectLightingMode
         ? idMath::ClampFloat(0.25f, 1.0f, r_pathTracingRestirPTDirectResolutionScale.GetFloat())
         : 1.0f;
@@ -5432,7 +5430,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int restirPTDirectProducerWidth = restirPTRaySparsity > 1
         ? (restirPTDirectWidth + restirPTRaySparsity - 1) / restirPTRaySparsity
         : restirPTDirectWidth;
-    const bool stagedRestirGiInitialMode = PathTraceRestirPassRequiresInitialPrepass(restirPTPassPlan);
+    const bool stagedRestirGiInitialMode = false;
     const int restirPTGiRaySparsity = stagedRestirGiInitialMode
         ? idMath::ClampInt(1, 8, r_pathTracingRestirPTGiRaySparsity.GetInteger())
         : 1;
@@ -5590,96 +5588,29 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint32_t restirPTFrameIndex = m_frameResources.restirPTFrameIndex++;
     m_frameResources.settings.frameIndex = restirPTFrameIndex;
     const float restirPTSpatialRadius = idMath::ClampFloat(1.0f, 128.0f, r_pathTracingRestirPTSpatialRadius.GetFloat());
-    const RtRestirPTContextUpdateDesc restirPTContextDesc = BuildRestirPTContextUpdateDesc(
-        restirPTPassPlan,
-        static_cast<uint32_t>(restirPTDirectWidth),
-        static_cast<uint32_t>(restirPTDirectHeight),
-        restirPTFrameIndex,
-        RtRestirPTCheckerboardMode::Off,
-        idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalDepthThreshold.GetFloat()),
-        idMath::ClampFloat(-1.0f, 1.0f, r_pathTracingRestirPTTemporalNormalThreshold.GetFloat()),
-        r_pathTracingRestirPTTemporalReservoirReuse.GetInteger() != 0,
-        r_pathTracingRestirPTTemporalFallbackSampling.GetInteger() != 0,
-        static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingRestirPTSpatialSamples.GetInteger())),
-        restirPTSpatialRadius);
+    RtRestirPTContextUpdateDesc restirPTContextDesc;
+    restirPTContextDesc.width = static_cast<uint32_t>(restirPTDirectWidth);
+    restirPTContextDesc.height = static_cast<uint32_t>(restirPTDirectHeight);
+    restirPTContextDesc.frameIndex = restirPTFrameIndex;
+    restirPTContextDesc.checkerboardMode = RtRestirPTCheckerboardMode::Off;
+    restirPTContextDesc.resamplingMode = RtRestirPTResamplingMode::None;
+    restirPTContextDesc.temporalDepthThreshold = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalDepthThreshold.GetFloat());
+    restirPTContextDesc.temporalNormalThreshold = idMath::ClampFloat(-1.0f, 1.0f, r_pathTracingRestirPTTemporalNormalThreshold.GetFloat());
+    restirPTContextDesc.temporalReservoirReuse = r_pathTracingRestirPTTemporalReservoirReuse.GetInteger() != 0;
+    restirPTContextDesc.temporalFallbackSampling = r_pathTracingRestirPTTemporalFallbackSampling.GetInteger() != 0;
+    restirPTContextDesc.spatialSamples = static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingRestirPTSpatialSamples.GetInteger()));
+    restirPTContextDesc.spatialRadius = restirPTSpatialRadius;
     if (!UpdateRestirPTContextState(m_frameResources.restirPTContextState, restirPTContextDesc))
     {
         return;
     }
     const uint64 restirContextCompleteUs = Sys_Microseconds();
-    const RtPathTraceRestirPassBufferSelection restirPTBufferSelection = ResolveRestirPTPassBufferSelection(
-        restirPTPassPlan,
-        m_frameResources.restirPTContextState.parameters);
-    if (r_pathTracingRestirPTPassDump.GetInteger() != 0)
-    {
-        const bool giConsumesPrimary = restirPTPrimarySurfacePrepassEnabled && stagedRestirGiInitialMode;
-        const int restirPTVisibilityPolicy = idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger());
-        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d reflectionProducer=%d rrGuideDebug=%d diDebugView=%d giDebugView=%d nsightMarkers=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d reflectionMode=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d materialSimilarity=%d temporalNeighborDebug=%d unifiedPrevToCurrentScan=%d spatial samples=%u radius=%.1f\n",
-            debugMode,
-            restirPTPassPlan.label,
-            PathTraceRestirPassKindName(restirPTPassPlan.producer),
-            PathTraceRestirPassKindName(restirPTPassPlan.output),
-            restirPTPassPlan.flags,
-            static_cast<int>(restirPTPassPlan.resamplingMode),
-            m_frameResources.width,
-            m_frameResources.height,
-            restirPTDirectWidth,
-            restirPTDirectHeight,
-            restirPTDirectProducerWidth,
-            restirPTDirectHeight,
-            restirPTDirectResolutionScale,
-            restirPTRaySparsity,
-            restirPTRaySparsityPhase,
-            restirPTRaySparsityPreviousPhase,
-            restirPTGiProducerWidth,
-            m_frameResources.height,
-            restirPTGiRaySparsity,
-            restirPTGiRaySparsityPhase,
-            restirPTPrimarySurfacePrepassEnabled ? 1 : 0,
-            restirPTStandalonePrimarySurfacePrepass ? 1 : 0,
-            giConsumesPrimary ? 1 : 0,
-            0,
-            restirPTPrimarySurfacePrepassEnabled ? 1 : 0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            idMath::ClampInt(0, 10, r_pathTracingDLSSRRGuideDebugView.GetInteger()),
-            0,
-            idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger()),
-            nsightGpuMarkers ? 1 : 0,
-            restirPTBufferSelection.initialOutput,
-            restirPTBufferSelection.temporalInput,
-            restirPTBufferSelection.temporalOutput,
-            restirPTBufferSelection.spatialInput,
-            restirPTBufferSelection.spatialOutput,
-            restirPTBufferSelection.finalShadingInput,
-            restirPTBufferSelection.debugInput,
-            (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1 : 0,
-            restirPTVisibilityPolicy,
-            0,
-            toyLightScale,
-            toyEmissiveScale,
-            effectiveAnalyticLightIntensityScale,
-            r_pathTracingRestirPTPreviewMaxPixels.GetInteger(),
-            restirPTContextDesc.temporalDepthThreshold,
-            restirPTContextDesc.temporalNormalThreshold,
-            restirPTContextDesc.temporalReservoirReuse ? 1 : 0,
-            restirPTContextDesc.temporalFallbackSampling ? 1 : 0,
-            idMath::ClampInt(0, 5, r_pathTracingRestirPTMaterialSimilarityMode.GetInteger()),
-            idMath::ClampInt(0, 2, r_pathTracingRestirPTTemporalNeighborDebugMode.GetInteger()),
-            r_pathTracingRestirPTUnifiedPrevToCurrentScan.GetBool() ? 1 : 0,
-            restirPTContextDesc.spatialSamples,
-            restirPTContextDesc.spatialRadius);
-        r_pathTracingRestirPTPassDump.SetInteger(0);
-    }
 
     PathTraceGpuTimingCapture gpuTimingCapture = BeginPathTraceGpuTimingCapture(
         debugMode,
         m_frameResources.width,
         m_frameResources.height,
-        restirPTPassPlan.label);
+        "legacyDebug");
 
     PathTraceSmokeConstants constants = {};
     constants.cameraOriginAndTMax[0] = cameraOrigin.x;
@@ -5922,7 +5853,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirLightManagerSampleInfo[3] = static_cast<float>(shaderNonEmptyRangeCount);
     constants.restirPTInfo[0] = static_cast<float>(restirPTFrameIndex);
     constants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
-    constants.restirPTInfo[2] = (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1.0f : 0.0f;
+    constants.restirPTInfo[2] = 0.0f;
     constants.restirPTInfo[3] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingRestirPTPreviewExposure.GetFloat());
     constants.integratorInfo[0] = static_cast<float>(integratorSettings.samplesPerPixel);
     constants.integratorInfo[1] = static_cast<float>(integratorSettings.maxPathDepth);
@@ -7085,8 +7016,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         timingDesc.estimatedRaysPerPixel = estimatedRaysPerPixel;
         timingDesc.selectedLights = selectedLightRequestCount;
         timingDesc.analyticLights = analyticLightTraceCount;
-        timingDesc.restirResamplingMode = static_cast<int>(restirPTPassPlan.resamplingMode);
-        timingDesc.restirPreviewVisibility = (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1 : 0;
+        timingDesc.restirResamplingMode = static_cast<int>(RtRestirPTResamplingMode::None);
+        timingDesc.restirPreviewVisibility = 0;
         timingDesc.restirPreviewMaxPixels = r_pathTracingRestirPTPreviewMaxPixels.GetInteger();
         timingDesc.reservoirClearRequested = reservoirClearRequested;
         timingDesc.primaryHistoryClearRequested = primaryHistoryClearRequested;
@@ -7094,7 +7025,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         timingDesc.optickGpuMarkers = optickGpuMarkers;
         timingDesc.nsightGpuMarkers = nsightGpuMarkers;
         timingDesc.debugModeInfo = &debugModeInfo;
-        timingDesc.restirPassLabel = restirPTPassPlan.label;
+        timingDesc.restirPassLabel = "legacyDebug";
         LogPathTraceDispatchTiming(timingDesc);
         if (forcePassTimingDump)
         {
