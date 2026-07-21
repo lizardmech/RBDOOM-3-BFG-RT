@@ -452,3 +452,17 @@ Working rule for every deletion slice:
     date, so no shader artifact is due for deployment; this checkpoint deploys
     the EXE only. The two C4819 warnings are pre-existing encoding warnings in
     RenderBackend.cpp and PathTraceSmokeDispatch.cpp, not cleanup failures.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    a86f69f5a. T2.2g runtime gate closed.
+  - T2.2h removes the constant-false staged direct/GI domains, sparse producer
+    dimensions, legacy primary-surface prepass dispatch, mode-56 skinned-history
+    request, and four dedicated scale/sparsity/prepass CVars. The legacy shader
+    constants now receive the same explicit default values the dead path had
+    produced: full resolution, no staging, sparsity 1, and no indirect producer.
+  - The shared primary-surface producer is deliberately retained. The clean
+    route still initializes case 9 and dispatches its shader table before the
+    clean early return; only the unreachable second dispatch was removed.
+  - The first compile exposed one stale rrGuideHistory field in the skinned
+    diagnostic print. Removing that field completed the mode-56 scene-build
+    severance; the subsequent full win64-pt-dev-release build passed. All
+    SPIR-V remained up to date, so this checkpoint deploys the EXE only.

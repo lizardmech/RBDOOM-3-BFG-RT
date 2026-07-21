@@ -966,15 +966,6 @@ double PathTraceMicrosecondsToMilliseconds(uint64 elapsedUs)
     return static_cast<double>(elapsedUs) / 1000.0;
 }
 
-int PathTraceScaledRestirDimension(int fullDimension, float scale)
-{
-    if (fullDimension <= 0)
-    {
-        return 1;
-    }
-    return Max(1, static_cast<int>(idMath::Ceil(static_cast<float>(fullDimension) * scale)));
-}
-
 }
 
 void PathTracePrimaryPass::QueueDLSSRRInputColorDump(nvrhi::ICommandList* commandList, nvrhi::ITexture* inputColor, int source, uint32_t frameIndex)
@@ -5408,51 +5399,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
              ? pdfNeeVerifierBindingSet
              : (neeCacheSecondaryBindingSet ? neeCacheSecondaryBindingSet : m_smokeBindingSet)));
     state.bindings = { activeBindingSet, m_smokeTextureDescriptorTable };
-    const bool stagedRestirDirectLightingMode = false;
-    const float restirPTDirectResolutionScale = stagedRestirDirectLightingMode
-        ? idMath::ClampFloat(0.25f, 1.0f, r_pathTracingRestirPTDirectResolutionScale.GetFloat())
-        : 1.0f;
-    const int restirPTDirectWidth = stagedRestirDirectLightingMode
-        ? PathTraceScaledRestirDimension(m_frameResources.width, restirPTDirectResolutionScale)
-        : m_frameResources.width;
-    const int restirPTDirectHeight = stagedRestirDirectLightingMode
-        ? PathTraceScaledRestirDimension(m_frameResources.height, restirPTDirectResolutionScale)
-        : m_frameResources.height;
-    const int restirPTRaySparsity = stagedRestirDirectLightingMode
-        ? idMath::ClampInt(1, 8, r_pathTracingRestirPTRaySparsity.GetInteger())
-        : 1;
-    const int restirPTRaySparsityPhase = restirPTRaySparsity > 1
-        ? static_cast<int>(m_frameResources.restirPTFrameIndex % static_cast<uint32_t>(restirPTRaySparsity))
-        : 0;
-    const int restirPTRaySparsityPreviousPhase = restirPTRaySparsity > 1
-        ? (restirPTRaySparsityPhase + restirPTRaySparsity - 1) % restirPTRaySparsity
-        : 0;
-    const int restirPTDirectProducerWidth = restirPTRaySparsity > 1
-        ? (restirPTDirectWidth + restirPTRaySparsity - 1) / restirPTRaySparsity
-        : restirPTDirectWidth;
-    const bool stagedRestirGiInitialMode = false;
-    const int restirPTGiRaySparsity = stagedRestirGiInitialMode
-        ? idMath::ClampInt(1, 8, r_pathTracingRestirPTGiRaySparsity.GetInteger())
-        : 1;
-    const int restirPTGiRaySparsityPhase = restirPTGiRaySparsity > 1
-        ? static_cast<int>(m_frameResources.restirPTFrameIndex % static_cast<uint32_t>(restirPTGiRaySparsity))
-        : 0;
-    const int restirPTGiProducerWidth = restirPTGiRaySparsity > 1
-        ? (m_frameResources.width + restirPTGiRaySparsity - 1) / restirPTGiRaySparsity
-        : m_frameResources.width;
-    const bool restirPTPrimarySurfacePrepassRequested =
-        stagedRestirDirectLightingMode &&
-        !disablePrimarySurfaceHistory &&
-        r_pathTracingRestirPTPrimarySurfacePrepass.GetInteger() != 0;
-    if (restirPTPrimarySurfacePrepassRequested && !m_smokePrimarySurfaceProducerShaderTable)
-    {
-        InitRayTracingSmokeRestirPipeline(9);
-    }
-    const bool restirPTPrimarySurfacePrepassEnabled =
-        restirPTPrimarySurfacePrepassRequested &&
-        m_smokePrimarySurfaceProducerShaderTable;
-    const bool restirPTStandalonePrimarySurfacePrepass =
-        restirPTPrimarySurfacePrepassEnabled;
     const PathTraceIntegratorSettings integratorSettings = ApplyPathTraceSafetyKillSwitches(BuildPathTraceIntegratorSettings(), safetyDisableMask);
     const RtPathTraceDebugModeInfo debugModeInfo = GetPathTraceDebugModeInfo(debugMode);
 
@@ -5589,8 +5535,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     m_frameResources.settings.frameIndex = restirPTFrameIndex;
     const float restirPTSpatialRadius = idMath::ClampFloat(1.0f, 128.0f, r_pathTracingRestirPTSpatialRadius.GetFloat());
     RtRestirPTContextUpdateDesc restirPTContextDesc;
-    restirPTContextDesc.width = static_cast<uint32_t>(restirPTDirectWidth);
-    restirPTContextDesc.height = static_cast<uint32_t>(restirPTDirectHeight);
+    restirPTContextDesc.width = static_cast<uint32_t>(m_frameResources.width);
+    restirPTContextDesc.height = static_cast<uint32_t>(m_frameResources.height);
     restirPTContextDesc.frameIndex = restirPTFrameIndex;
     restirPTContextDesc.checkerboardMode = RtRestirPTCheckerboardMode::Off;
     restirPTContextDesc.resamplingMode = RtRestirPTResamplingMode::None;
@@ -5712,25 +5658,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_sceneInputs.materials.materialTableGpuStable ? Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount) : 0);
     const int requestedLiquidPoolMode = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger());
     const bool liquidPoolTelemetryReady = m_liquidPoolStatusBuffer && m_liquidPoolStatusReadbackBuffer;
-    const bool liquidPoolPrimaryProducerRoute = restirPTStandalonePrimarySurfacePrepass && m_smokePrimarySurfaceProducerShaderTable;
-    const int effectiveLiquidPoolMode = liquidPoolTelemetryReady && liquidPoolPrimaryProducerRoute
-        ? requestedLiquidPoolMode
-        : 0;
+    const int effectiveLiquidPoolMode = 0;
     PopulatePathTraceDecalAndLiquidPoolControls(
         constants,
         effectiveLiquidPoolMode,
         liquidPoolTelemetryReady,
         Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount),
         m_sceneInputs.materials.materialTableGpuStable ? Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount) : 0);
-    if (requestedLiquidPoolMode != 0 && stagedRestirDirectLightingMode && !liquidPoolPrimaryProducerRoute)
-    {
-        static bool liquidPoolPrepassWarningPrinted = false;
-        if (!liquidPoolPrepassWarningPrinted)
-        {
-            liquidPoolPrepassWarningPrinted = true;
-            common->Printf("PathTracePrimaryPass: liquid-pool mode requested on a ReSTIR route without the standalone primary prepass; effective mode is 0 (set r_pathTracingRestirPTPrimarySurfacePrepass 1)\n");
-        }
-    }
     if (requestedLiquidPoolMode != 0 && !liquidPoolTelemetryReady)
     {
         static bool liquidPoolTelemetryWarningPrinted = false;
@@ -5875,18 +5809,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTSurfaceInfo[1] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTTemporalNeighborDebugMode.GetInteger()));
     constants.restirPTSurfaceInfo[2] = r_pathTracingRestirPTUnifiedPrevToCurrentScan.GetBool() ? 1.0f : 0.0f;
     constants.restirPTSurfaceInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
-    constants.restirPTDirectInfo[0] = static_cast<float>(restirPTDirectWidth);
-    constants.restirPTDirectInfo[1] = static_cast<float>(restirPTDirectHeight);
+    constants.restirPTDirectInfo[0] = static_cast<float>(m_frameResources.width);
+    constants.restirPTDirectInfo[1] = static_cast<float>(m_frameResources.height);
     constants.restirPTDirectInfo[2] = 0.0f;
-    constants.restirPTDirectInfo[3] = restirPTDirectResolutionScale;
-    constants.restirPTSparsityInfo[0] = static_cast<float>(restirPTRaySparsity);
-    constants.restirPTSparsityInfo[1] = static_cast<float>(restirPTRaySparsityPhase);
-    constants.restirPTSparsityInfo[2] = stagedRestirDirectLightingMode ? 1.0f : 0.0f;
-    constants.restirPTSparsityInfo[3] = static_cast<float>(restirPTRaySparsityPreviousPhase);
+    constants.restirPTDirectInfo[3] = 1.0f;
+    constants.restirPTSparsityInfo[0] = 1.0f;
+    constants.restirPTSparsityInfo[1] = 0.0f;
+    constants.restirPTSparsityInfo[2] = 0.0f;
+    constants.restirPTSparsityInfo[3] = 0.0f;
     constants.restirPTIndirectInfo[0] = 0.0f;
-    constants.restirPTIndirectInfo[1] = stagedRestirGiInitialMode ? 1.0f : 0.0f;
-    constants.restirPTIndirectInfo[2] = static_cast<float>(restirPTGiRaySparsity);
-    constants.restirPTIndirectInfo[3] = static_cast<float>(restirPTGiRaySparsityPhase);
+    constants.restirPTIndirectInfo[1] = 0.0f;
+    constants.restirPTIndirectInfo[2] = 1.0f;
+    constants.restirPTIndirectInfo[3] = 0.0f;
     constants.rayReconstructionInfo[0] = static_cast<float>(idMath::ClampInt(0, 10, r_pathTracingDLSSRRGuideDebugView.GetInteger()));
     constants.rayReconstructionInfo[1] = 0.0f;
     constants.rayReconstructionInfo[2] = 0.0f;
@@ -6696,14 +6630,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     args.width = m_frameResources.width;
     args.height = m_frameResources.height;
     args.depth = 1;
-    nvrhi::rt::DispatchRaysArguments restirDirectProducerArgs;
-    restirDirectProducerArgs.width = restirPTDirectProducerWidth;
-    restirDirectProducerArgs.height = restirPTDirectHeight;
-    restirDirectProducerArgs.depth = 1;
-    nvrhi::rt::DispatchRaysArguments restirGiProducerArgs;
-    restirGiProducerArgs.width = restirPTGiProducerWidth;
-    restirGiProducerArgs.height = m_frameResources.height;
-    restirGiProducerArgs.depth = 1;
     int timingDispatchWidth = args.width;
     int timingDispatchHeight = args.height;
 
@@ -6753,36 +6679,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
         commandList->clearBufferUInt(m_liquidPoolStatusBuffer, 0u);
-    }
-    if (restirPTStandalonePrimarySurfacePrepass && m_smokePrimarySurfaceProducerShaderTable)
-    {
-        nvrhi::rt::State primarySurfacePrepassState = state;
-        primarySurfacePrepassState.shaderTable = m_smokePrimarySurfaceProducerShaderTable;
-        {
-            PathTraceGpuMarkerScope nsightMarker(commandList, "PT PrimarySurfacePrepass DispatchRays", nsightGpuMarkers);
-            PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_PRIMARY_SURFACE);
-            if (optickGpuMarkers)
-            {
-                OPTICK_GPU_EVENT("PT GPU ReSTIR Primary Surface Prepass");
-                commandList->setRayTracingState(primarySurfacePrepassState);
-                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_PRIMARY_SURFACE_ONLY);
-            }
-            else
-            {
-                commandList->setRayTracingState(primarySurfacePrepassState);
-                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_PRIMARY_SURFACE_ONLY);
-            }
-        }
-
-        nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
-        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
-        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorMaskTexture);
-        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
-        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
-        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
-        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
-        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
-        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
     }
     if (optickGpuMarkers)
     {

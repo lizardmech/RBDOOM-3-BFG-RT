@@ -2301,30 +2301,6 @@ idCVar r_pathTracingRestirPTGiDebugView(
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 56 GI comparison view: 0 = normal output, 1 = raw GI initial estimate, 2 = GI temporal accumulator, 3 = reserved GI spatial, 4 = initial reservoir validity/M/WeightSum" );
 
-idCVar r_pathTracingRestirPTDirectResolutionScale(
-    "r_pathTracingRestirPTDirectResolutionScale",
-    "1",
-    CVAR_RENDERER | CVAR_FLOAT,
-    "Scale for staged ReSTIR direct-lighting reservoir domain in modes 50-51 and mode 18 ReSTIR direct; clamps to 0.25..1.0" );
-
-idCVar r_pathTracingRestirPTRaySparsity(
-    "r_pathTracingRestirPTRaySparsity",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Interleaved sparse update rate for staged ReSTIR direct-lighting producer rays; 1 disables, 2-8 updates roughly 1/N reservoir pixels per frame and reconstructs from active representatives" );
-
-idCVar r_pathTracingRestirPTGiRaySparsity(
-    "r_pathTracingRestirPTGiRaySparsity",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Interleaved sparse update rate for staged ReSTIR GI initial-reservoir producer rays in modes 53-56; 1 disables, 2-8 updates roughly 1/N full-resolution reservoir pixels per frame" );
-
-idCVar r_pathTracingRestirPTPrimarySurfacePrepass(
-    "r_pathTracingRestirPTPrimarySurfacePrepass",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "ReSTIR PT path: use the standalone primary-surface producer/resolve path so mode 56 avoids the combined monolithic shader; set 0 for legacy fallback testing" );
-
 idCVar r_pathTracingSafetyDump(
     "r_pathTracingSafetyDump",
     "0",
