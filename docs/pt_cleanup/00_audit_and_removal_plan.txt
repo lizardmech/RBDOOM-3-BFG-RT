@@ -466,3 +466,15 @@ Working rule for every deletion slice:
     diagnostic print. Removing that field completed the mode-56 scene-build
     severance; the subsequent full win64-pt-dev-release build passed. All
     SPIR-V remained up to date, so this checkpoint deploys the EXE only.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    c4fe6bad9. T2.2h runtime gate closed.
+  - The next context/resource audit found that b28 and the legacy PT reservoir
+    buffer are still part of the shared monolith/PDF-verifier binding ABI. They
+    cannot be deleted before the remaining legacy shader consumers are retired.
+  - T2.2i therefore completes the route prerequisite: modes 19-20 and 34-37 now
+    normalize to production mode 0 alongside the previously retired ReSTIR
+    modes. Native mode 18 and modes 1-17 remain selectable. Remove their C++
+    policy, CVars, shader branches, and context/resource consumers only after
+    this route checkpoint passes runtime validation.
+  - Full win64-pt-dev-release build passed. All SPIR-V remained up to date, so
+    this route-only checkpoint deploys the EXE only.

@@ -6,7 +6,8 @@
 
 inline int NormalizePathTraceDebugMode(int debugMode)
 {
-    if ((debugMode >= 26 && debugMode <= 33) ||
+    if (debugMode == 19 || debugMode == 20 ||
+        (debugMode >= 26 && debugMode <= 37) ||
         debugMode == 50 || debugMode == 51 ||
         (debugMode >= 53 && debugMode <= 56))
     {
