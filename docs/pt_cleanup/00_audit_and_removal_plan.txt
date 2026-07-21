@@ -316,3 +316,24 @@ Working rule for every deletion slice:
   4. delete only the proven legacy surface;
   5. force affected Vulkan blobs, build, verify mtimes, deploy, runtime-check;
   6. checkpoint the meaningful slice without staging unrelated worktree files.
+
+----------------------------------------------------------------------------------
+6. EXECUTION LOG
+----------------------------------------------------------------------------------
+2026-07-21 - CORRECTED PHASE 1 COMPLETE - commit 214e0ab0b
+  - Added this reviewed cleanup packet to source control.
+  - Deleted only the three proven unreferenced shader files from section 2B.
+  - Final reference sweep found no surviving non-document references.
+  - win64-pt-dev-release build passed; no shader blob rebuild was required because
+    none of the deleted files participated in the configured compile graph.
+
+2026-07-21 - T2.1a MODE-56 ACCUMULATION PLUMBING COMPLETE
+  - Removed r_pathTracingRestirPTMode56Accumulation and MaxFrames.
+  - Removed the mode56 accumulation signature/frame fields and reset/update code.
+  - Removed host constant transport and the combined-resolve shader accumulation
+    functions. Mode-18 toy accumulation remains unchanged.
+  - Forced pathtrace_restir_combined_resolve.rt.bin SPIR-V rebuild; blob mtime
+    2026-07-21 11:02:40 is newer than shader edit 2026-07-21 10:56:20.
+  - Full win64-pt-dev-release build passed. DXIL RT shaders remained disabled.
+  - Next slice: T2.1b standalone mode-56 producer dispatch/table plumbing. Do not
+    remove the shared primary-surface producer or clean-route initializer cases.

@@ -2796,18 +2796,6 @@ idCVar r_pathTracingRestirPTMode18HeavyDirect(
     CVAR_RENDERER | CVAR_INTEGER,
     "Heavy-handed mode 18 ReSTIR hybrid test: 0 only replace primary direct NEE, 1 also suppress native secondary/reflection direct NEE so ReSTIR primary direct is easier to isolate" );
 
-idCVar r_pathTracingRestirPTMode56Accumulation(
-    "r_pathTracingRestirPTMode56Accumulation",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Temporary diagnostic accumulation for debug mode 56 final/subview output; 0 disabled, 1 enabled" );
-
-idCVar r_pathTracingRestirPTMode56AccumulationMaxFrames(
-    "r_pathTracingRestirPTMode56AccumulationMaxFrames",
-    "256",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Maximum accumulated frames for temporary debug mode 56 final/subview output accumulation" );
-
 idCVar r_pathTracingDLSSRRGuideDebugView(
     "r_pathTracingDLSSRRGuideDebugView",
     "0",

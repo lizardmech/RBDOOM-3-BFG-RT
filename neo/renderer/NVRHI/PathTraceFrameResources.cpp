@@ -582,8 +582,6 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     ResetReadbackQueue();
     smokeAccumulationSignature = 0;
     smokeAccumulationFrameCount = 0;
-    mode56AccumulationSignature = 0;
-    mode56AccumulationFrameCount = 0;
 
     RtRestirPTContextUpdateDesc restirPTContextDesc;
     restirPTContextDesc.width = static_cast<uint32_t>(requestedWidth);
@@ -707,8 +705,6 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     restirPTGiReservoirClearCount = 0;
     smokeAccumulationSignature = 0;
     smokeAccumulationFrameCount = 0;
-    mode56AccumulationSignature = 0;
-    mode56AccumulationFrameCount = 0;
     ResetReadbackQueue();
     MarkResetReason(reasonFlags);
 }
@@ -717,8 +713,6 @@ void RtPathTraceFrameResources::ResetSceneDependentState()
 {
     smokeAccumulationSignature = 0;
     smokeAccumulationFrameCount = 0;
-    mode56AccumulationSignature = 0;
-    mode56AccumulationFrameCount = 0;
     smokeReservoirSceneSignature = 0;
     smokeReservoirDispatchSignature = 0;
     smokeReservoirNeedsClear = false;

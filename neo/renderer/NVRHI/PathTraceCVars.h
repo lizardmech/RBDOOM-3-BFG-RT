@@ -403,8 +403,6 @@ extern idCVar r_pathTracingRestirPTPrimarySurfacePrepass;
 extern idCVar r_pathTracingRestirPTDirectLighting;
 extern idCVar r_pathTracingRestirPTMode18DebugView;
 extern idCVar r_pathTracingRestirPTMode18HeavyDirect;
-extern idCVar r_pathTracingRestirPTMode56Accumulation;
-extern idCVar r_pathTracingRestirPTMode56AccumulationMaxFrames;
 extern idCVar r_pathTracingDLSSRRGuideDebugView;
 extern idCVar r_pathTracingDLSSRRProbe;
 extern idCVar r_pathTracingDLSSRR;

@@ -5711,25 +5711,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     const int accumulationMaxFrames = idMath::ClampInt(1, 4096, r_pathTracingToyAccumMaxFrames.GetInteger());
     const bool mode18AccumulationActive = debugMode == 18 && r_pathTracingToyAccumulation.GetInteger() != 0;
-    const bool mode56AccumulationActive = debugMode == 56 && r_pathTracingRestirPTMode56Accumulation.GetInteger() != 0;
-    uint64 mode56AccumulationSignature = accumulationSignature;
-    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(r_pathTracingRestirPTMode56Accumulation.GetInteger() != 0 ? 1 : 0));
-    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(idMath::ClampInt(1, 4096, r_pathTracingRestirPTMode56AccumulationMaxFrames.GetInteger())));
-    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(idMath::ClampInt(0, 10, r_pathTracingDLSSRRGuideDebugView.GetInteger())));
-    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger())));
-    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(restirPTDiDebugView));
-    if (!mode56AccumulationActive || mode56AccumulationSignature != m_frameResources.mode56AccumulationSignature)
-    {
-        m_frameResources.mode56AccumulationSignature = mode56AccumulationSignature;
-        m_frameResources.mode56AccumulationFrameCount = 0;
-    }
-    const int mode56AccumulationMaxFrames = idMath::ClampInt(1, 4096, r_pathTracingRestirPTMode56AccumulationMaxFrames.GetInteger());
     const int accumulationFrameCount = mode18AccumulationActive
         ? Min(m_frameResources.smokeAccumulationFrameCount, accumulationMaxFrames - 1)
-        : (mode56AccumulationActive
-            ? Min(m_frameResources.mode56AccumulationFrameCount, mode56AccumulationMaxFrames - 1)
-            : 0);
-    const bool accumulationTextureActive = mode18AccumulationActive || mode56AccumulationActive;
+        : 0;
+    const bool accumulationTextureActive = mode18AccumulationActive;
 
     uint64 reservoirDispatchSignature = 1469598103934665603ull;
     reservoirDispatchSignature = HashSmokeBytes(reservoirDispatchSignature, &m_frameResources.smokeReservoirSceneSignature, sizeof(m_frameResources.smokeReservoirSceneSignature));
@@ -6390,7 +6375,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTGiDebugInfo[0] = restirPTCombinedMode ? static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger())) : 0.0f;
     constants.restirPTGiDebugInfo[1] = r_pathTracingRestirPTRrxFinalConsumerCurrentOnly.GetBool() ? 1.0f : 0.0f;
     constants.restirPTGiDebugInfo[2] = r_pathTracingRestirPTRrxFinalConsumerOutput.GetBool() ? 1.0f : 0.0f;
-    constants.restirPTGiDebugInfo[3] = mode56AccumulationActive ? 1.0f : 0.0f;
+    constants.restirPTGiDebugInfo[3] = 0.0f;
     constants.regirInfo0[0] = regirSettings.enabled ? 1.0f : 0.0f;
     constants.regirInfo0[1] = static_cast<float>(regirSettings.debugView);
     constants.regirInfo0[2] = static_cast<float>(regirSettings.mode);
@@ -7503,14 +7488,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else
     {
         m_frameResources.smokeAccumulationFrameCount = 0;
-    }
-    if (mode56AccumulationActive)
-    {
-        m_frameResources.mode56AccumulationFrameCount = Min(m_frameResources.mode56AccumulationFrameCount + 1, mode56AccumulationMaxFrames);
-    }
-    else
-    {
-        m_frameResources.mode56AccumulationFrameCount = 0;
     }
     const bool forceOverlapReadback = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
     const bool forceView68Readback = debugMode == 56 && (restirPTDiDebugView == 68 || restirPTDiDebugView == 69) && r_pathTracingRestirPTView68Dump.GetInteger() != 0;

@@ -141,8 +141,6 @@ struct RtPathTraceFrameResources
     int restirPTGiReservoirClearCount = 0;
     uint64 smokeAccumulationSignature = 0;
     int smokeAccumulationFrameCount = 0;
-    uint64 mode56AccumulationSignature = 0;
-    int mode56AccumulationFrameCount = 0;
 
     bool readbackQueued = false;
     bool readbackLogged = false;
