@@ -23,7 +23,6 @@ struct PathTraceCleanRtxdiDiGuiSnapshot
     bool currentReservoir = false;
     bool temporalReservoir = false;
     bool previousReservoir = false;
-    bool spatialReservoir = false;
     bool previousReservoirValid = false;
     bool portalProofDomain = false;
     bool fullAnalyticDomain = false;

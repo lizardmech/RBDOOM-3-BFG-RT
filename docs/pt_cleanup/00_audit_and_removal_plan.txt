@@ -974,3 +974,21 @@ Working rule for every deletion slice:
     DXIL command runs. This is a C++-only slice, so deploy only RBDoom3BFG.exe.
     Source and deployed SHA-256 both equal
     60833F305E92B13E1557F38630E1BCD564532B69BB40A6AA3B61C1446416068E.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit d5aa8ac7e. T4.3f runtime gate closed.
+  - T4.3g indexes PathTracePrimaryPass member references across the whole neo
+    tree. Six old bounds-overlay camera/FOV fields are written but projection now
+    consumes only the retained model-view/projection matrices. The dynamic BLAS
+    descriptor is copied at resource commit but never read; only the retained
+    static descriptor participates in cache reuse. Two material-feature vectors
+    duplicate the freshly uploaded table then are never consumed, and five scene
+    inventory counters are reset/assigned but never read. The clean GUI spatial
+    reservoir flag is likewise published but has no reader. Remove these fields
+    and their writes while retaining all GPU buffers, material-feature uploads,
+    live counters, bounds-overlay matrices, and geometry-universe state. None of
+    the candidates changed during the recent feature window.
+  - T4.3g verification: the post-edit symbol sweep is empty and the full
+    win64-pt-dev-release build passes. Both shader targets remain up to date and
+    no DXIL command runs. Deploy only the rebuilt executable; source and deployed
+    SHA-256 both equal
+    840C99538D6B2065D6121836B8837C356B7075664FBDDF3400E4A2598B8C1881.

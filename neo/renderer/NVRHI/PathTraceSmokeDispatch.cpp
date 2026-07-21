@@ -3556,7 +3556,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanGuiSnapshot.currentReservoir = m_smokeCleanRtxdiDiCurrentReservoirBuffer != nullptr;
         cleanGuiSnapshot.temporalReservoir = m_smokeCleanRtxdiDiTemporalReservoirBuffer != nullptr;
         cleanGuiSnapshot.previousReservoir = m_smokeCleanRtxdiDiPreviousReservoirBuffer != nullptr;
-        cleanGuiSnapshot.spatialReservoir = m_smokeCleanRtxdiDiSpatialReservoirBuffer != nullptr;
         cleanGuiSnapshot.previousReservoirValid = m_smokeCleanRtxdiDiPreviousReservoirValid;
         cleanGuiSnapshot.portalProofDomain = cleanPortalProofDomain;
         cleanGuiSnapshot.fullAnalyticDomain = cleanView12FullAnalyticDomain;

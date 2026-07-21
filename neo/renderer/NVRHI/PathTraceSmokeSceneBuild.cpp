@@ -3946,15 +3946,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     if (viewDef)
     {
-        m_smokeBoundsOverlayCameraOrigin = viewDef->renderView.vieworg;
-        m_smokeBoundsOverlayCameraForward = viewDef->renderView.viewaxis[0];
-        m_smokeBoundsOverlayCameraLeft = viewDef->renderView.viewaxis[1];
-        m_smokeBoundsOverlayCameraUp = viewDef->renderView.viewaxis[2];
-        m_smokeBoundsOverlayCameraForward.Normalize();
-        m_smokeBoundsOverlayCameraLeft.Normalize();
-        m_smokeBoundsOverlayCameraUp.Normalize();
-        m_smokeBoundsOverlayTanX = idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
-        m_smokeBoundsOverlayTanY = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
         for (int matrixElement = 0; matrixElement < 16; ++matrixElement)
         {
             m_smokeBoundsOverlayModelViewMatrix[matrixElement] = viewDef->worldSpace.modelViewMatrix[matrixElement];
@@ -8451,8 +8442,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
         m_smokeMaterialTableMaterials = gpuMaterialTableMaterials;
-        m_smokeMaterialFeatureRecords = materialTable.materialFeatures;
-        m_smokeMaterialFeatureParameterRecords = materialTable.materialFeatureParameters;
         m_smokeDynamicMaterialRecords = dynamicMaterialRecords;
         m_smokePreviousEmissiveTriangles = emissiveTriangles;
         m_smokePreviousStaticSnapshotUploadSignature = previousStaticSnapshotUploadSignature;
