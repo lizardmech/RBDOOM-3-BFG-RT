@@ -140,12 +140,18 @@ inline RtPathTraceMaterialFeaturePassDesc BuildPathTraceRestirFeaturePassDesc(co
 
 inline int NormalizePathTraceDebugMode(int debugMode)
 {
-    return debugMode == 56 ? 0 : debugMode;
+    if ((debugMode >= 26 && debugMode <= 33) ||
+        debugMode == 50 || debugMode == 51 ||
+        (debugMode >= 53 && debugMode <= 56))
+    {
+        return 0;
+    }
+    return debugMode;
 }
 
 inline bool IsPathTraceRestirPTDebugMode(int debugMode)
 {
-    return (debugMode >= 26 && debugMode <= 33) || debugMode == 50 || debugMode == 51 || (debugMode >= 53 && debugMode <= 55);
+    return false;
 }
 
 inline const char* PathTraceRestirPassKindName(RtPathTraceRestirPassKind pass)

@@ -405,6 +405,18 @@ Working rule for every deletion slice:
     PDFNEE verifier, PDFNEE RLU-current, ReGIR debug, and NEE-cache debug. Their
     blob mtimes are 2026-07-21 12:46:12 through 12:47:13 and they are the only
     shader artifacts due for deployment; no DXIL artifact is copied.
-  - Runtime acceptance for T2.2d is pending after deployment. Next, audit the
-    legacy shader permutations and strip producer-only/mode-56 macro branches
-    from pathtrace_smoke.rt.hlsl without touching the clean RTXDI DI graph.
+  - Runtime acceptance 2026-07-21: user reported no issues with clean RTXDI DI
+    after deployed commit c29da84b9. T2.2d runtime gate closed.
+  - T2.2e applies the agreed preservation boundary: ReSTIR diagnostic modes
+    26-33, 50-51, and 53-55 now normalize to production mode 0 at the same frame,
+    scene, dispatch, and readback boundaries as retired mode 56. Non-ReSTIR
+    diagnostics and ordinary mode 18 remain selectable.
+  - The optional ReSTIR direct-lighting overlay on mode 18 was severed while
+    native mode-18 NEE remains. Its route override, pipeline initialization,
+    pass-plan mutation, analytic-light overrides, and three dedicated CVars were
+    removed. Legacy resources remain allocated/compiled until the next slice.
+  - Full win64-pt-dev-release build passed. No shader source changed and all
+    SPIR-V shaders remained up to date, so this checkpoint deploys the EXE only.
+  - Runtime acceptance for T2.2e is pending. Once accepted, delete initializer
+    cases 0-7, their C++ handles, and their eight legacy diagnostic shader
+    wrappers/build entries.

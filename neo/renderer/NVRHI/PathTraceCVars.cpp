@@ -2748,24 +2748,6 @@ idCVar r_pathTracingMotionVectorDisableRigid(
     CVAR_RENDERER | CVAR_BOOL,
     "Debug-only PT motion-vector quarantine: mark routed rigid surfaces as invalid motion instead of exporting rigid object-motion vectors" );
 
-idCVar r_pathTracingRestirPTDirectLighting(
-    "r_pathTracingRestirPTDirectLighting",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Opt-in mode 18 ReSTIR PT direct-lighting hybrid: 0 native mode 18 NEE, 1 replace primary direct NEE with completed spatial reservoir contribution; experimental and tuned for 1 spp" );
-
-idCVar r_pathTracingRestirPTMode18DebugView(
-    "r_pathTracingRestirPTMode18DebugView",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 18 ReSTIR hybrid debug view: 0 normal hybrid render, 1 native primary direct, 2 ReSTIR primary direct, 3 absolute delta heat, 4 ratio heat" );
-
-idCVar r_pathTracingRestirPTMode18HeavyDirect(
-    "r_pathTracingRestirPTMode18HeavyDirect",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Heavy-handed mode 18 ReSTIR hybrid test: 0 only replace primary direct NEE, 1 also suppress native secondary/reflection direct NEE so ReSTIR primary direct is easier to isolate" );
-
 idCVar r_pathTracingDLSSRRGuideDebugView(
     "r_pathTracingDLSSRRGuideDebugView",
     "0",

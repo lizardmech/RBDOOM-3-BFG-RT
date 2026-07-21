@@ -5352,15 +5352,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     int debugMode = standaloneDebugRouteRequested ? 0 : NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = RtRestirPTCheckerboardMode::Off;
-    const bool requestedRestirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);
     const bool requestedIntegratorDebugMode = debugMode >= 34 && debugMode <= 37;
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49 || requestedRestirPTDebugMode || requestedIntegratorDebugMode) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49 || requestedIntegratorDebugMode) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
-    const bool restirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);
-    const bool mode18RestirDirectMode = debugMode == 18 && r_pathTracingRestirPTDirectLighting.GetInteger() != 0;
-    const bool effectiveRestirPTMode = restirPTDebugMode || mode18RestirDirectMode;
     const bool integratorDebugMode = debugMode >= 34 && debugMode <= 37;
     const bool restirPTInitialOnlyMode = (debugMode >= 26 && debugMode <= 28) || (debugMode >= 53 && debugMode <= 55);
     const bool restirPTTemporalMode = debugMode == 31;
@@ -5414,21 +5410,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         InitRayTracingSmokeRestirPipeline(0);
     }
-    if (mode18RestirDirectMode)
-    {
-        if (!m_smokeRestirShaderTable)
-        {
-            InitRayTracingSmokeRestirPipeline(1);
-        }
-        if (!m_smokeRestirSpatialReservoirShaderTable)
-        {
-            InitRayTracingSmokeRestirPipeline(4);
-        }
-        if (!m_smokeMode18RestirHybridShaderTable)
-        {
-            InitRayTracingSmokeRestirPipeline(7);
-        }
-    }
     nvrhi::rt::State state;
     if (neeCacheDebugRouteRequested && m_smokeNeeCacheDebugShaderTable)
     {
@@ -5445,10 +5426,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else if (pdfNeeVerifierRouteRequested && m_smokePdfNeeVerifierShaderTable)
     {
         state.shaderTable = m_smokePdfNeeVerifierShaderTable;
-    }
-    else if (mode18RestirDirectMode && m_smokeMode18RestirHybridShaderTable)
-    {
-        state.shaderTable = m_smokeMode18RestirHybridShaderTable;
     }
     else if (restirPTInitialOnlyMode && m_smokeRestirInitialShaderTable)
     {
@@ -5502,24 +5479,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     state.bindings = { activeBindingSet, m_smokeTextureDescriptorTable };
     const bool restirPTPreviewVisibility = r_pathTracingRestirPTPreviewVisibility.GetInteger() != 0 && !PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY);
     RtPathTraceRestirPassPlan restirPTPassPlan = BuildPathTraceRestirPassPlan(debugMode, restirPTPreviewVisibility);
-    if (mode18RestirDirectMode)
-    {
-        restirPTPassPlan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
-        restirPTPassPlan.output = RtPathTraceRestirPassKind::ReservoirShading;
-        restirPTPassPlan.resamplingMode = RtRestirPTResamplingMode::TemporalAndSpatial;
-        restirPTPassPlan.flags =
-            RT_RESTIR_PASS_WRITES_INITIAL |
-            RT_RESTIR_PASS_WRITES_TEMPORAL |
-            RT_RESTIR_PASS_WRITES_SPATIAL |
-            RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE |
-            RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE |
-            RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR |
-            RT_RESTIR_PASS_SHADES_RESERVOIR |
-            RT_RESTIR_PASS_TRACES_VISIBILITY |
-            RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS |
-            RT_RESTIR_PASS_REQUIRES_SPATIAL_PREPASS;
-        restirPTPassPlan.label = "mode18RestirDirectLightingHybrid";
-    }
     const bool stagedRestirDirectLightingMode = restirPTPassPlan.resamplingMode == RtRestirPTResamplingMode::TemporalAndSpatial;
     const float restirPTDirectResolutionScale = stagedRestirDirectLightingMode
         ? idMath::ClampFloat(0.25f, 1.0f, r_pathTracingRestirPTDirectResolutionScale.GetFloat())
@@ -5583,9 +5542,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const float toyLightScale = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingToyLightScale.GetFloat());
     const float toyEmissiveScale = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
     const float analyticLightIntensityScale = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat());
-    const float effectiveAnalyticLightIntensityScale = effectiveRestirPTMode
-        ? idMath::ClampFloat(0.0f, 16.0f, analyticLightIntensityScale * toyLightScale)
-        : analyticLightIntensityScale;
+    const float effectiveAnalyticLightIntensityScale = analyticLightIntensityScale;
     float toyMaxRayDistance = idMath::ClampFloat(64.0f, 100000.0f, r_pathTracingToyMaxRayDistance.GetFloat());
     if (r_pathTracingSceneSource.GetInteger() == 2)
     {
@@ -5701,13 +5658,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint64 setupCompleteUs = Sys_Microseconds();
     const uint32_t restirPTFrameIndex = m_frameResources.restirPTFrameIndex++;
     m_frameResources.settings.frameIndex = restirPTFrameIndex;
-    if (effectiveRestirPTMode &&
-        !m_frameResources.restirPTContextState.IsValidFor(static_cast<uint32_t>(restirPTDirectWidth), static_cast<uint32_t>(restirPTDirectHeight), RtRestirPTCheckerboardMode::Off))
-    {
-        m_frameResources.restirPTReservoirNeedsClear = true;
-        m_frameResources.restirPTDiReservoirNeedsClear = true;
-        m_frameResources.restirPTGiReservoirNeedsClear = true;
-    }
     const float restirPTSpatialRadius = idMath::ClampFloat(1.0f, 128.0f, r_pathTracingRestirPTSpatialRadius.GetFloat());
     const RtRestirPTContextUpdateDesc restirPTContextDesc = BuildRestirPTContextUpdateDesc(
         restirPTPassPlan,
@@ -5824,16 +5774,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.textureInfo[1] = static_cast<float>(textureSampleMethod);
     constants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));
     const bool integratorUsesSpecular = integratorSettings.reflectionMode > 0 || r_pathTracingToyFakePBRSpecular.GetInteger() != 0;
-    const bool toyFakePBRSpecularEnabled = r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (debugMode == 18 || effectiveRestirPTMode || integratorDebugMode);
+    const bool toyFakePBRSpecularEnabled = r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (debugMode == 18 || integratorDebugMode);
     const bool pdfNeeEmissiveVerifierRoute = pdfNeeVerifierRouteRequested && pdfNeeVerifierEntryLightMode == 7;
     const uint32_t textureFlags =
         (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
         (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
-        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || effectiveRestirPTMode || integratorDebugMode) ? 8u : 0u) |
-        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 57 || (integratorUsesSpecular && (debugMode == 18 || effectiveRestirPTMode || integratorDebugMode))) ? 16u : 0u) |
-        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || effectiveRestirPTMode || integratorDebugMode || cleanRtxdiDiRouteRequested) ? 32u : 0u) |
-        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 18 || debugMode == 20 || effectiveRestirPTMode || pdfNeeEmissiveVerifierRoute || cleanRtxdiDiRouteRequested) ? 64u : 0u) |
+        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || integratorDebugMode) ? 8u : 0u) |
+        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 57 || (integratorUsesSpecular && (debugMode == 18 || integratorDebugMode))) ? 16u : 0u) |
+        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || integratorDebugMode || cleanRtxdiDiRouteRequested) ? 32u : 0u) |
+        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 18 || debugMode == 20 || pdfNeeEmissiveVerifierRoute || cleanRtxdiDiRouteRequested) ? 64u : 0u) |
         (toyFakePBRSpecularEnabled ? 128u : 0u) |
         PackPathTraceOpenPbrBrdfMode();
     constants.textureInfo[3] = static_cast<float>(textureFlags);
@@ -5860,8 +5810,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.prevCameraUpAndTanY[2] = m_frameResources.primarySurfaceHistoryView.up.z;
     constants.prevCameraUpAndTanY[3] = m_frameResources.primarySurfaceHistoryView.tanY;
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
-    const bool restirPTAnalyticLightCandidates = effectiveRestirPTMode && r_pathTracingRestirPTAnalyticLightCandidates.GetInteger() != 0;
-    const bool enableDoomAnalyticLights = !disableAnalyticLightLoop && (r_pathTracingAnalyticLightCandidates.GetInteger() != 0 || restirPTAnalyticLightCandidates);
+    const bool enableDoomAnalyticLights = !disableAnalyticLightLoop && r_pathTracingAnalyticLightCandidates.GetInteger() != 0;
     const bool replaceSelectedLightsWithAnalytic = enableDoomAnalyticLights && r_pathTracingAnalyticLightReplaceSelected.GetInteger() != 0;
     const int selectedLightCount = !disableSelectedLightLoop && (debugMode == 14 || debugMode == 15 || debugMode == 18) && !replaceSelectedLightsWithAnalytic
         ? CollectSelectedSmokePointLights(viewDef, cameraOrigin, selectedLights, selectedLightRequestCount, lightSelectionMode)
@@ -6349,9 +6298,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.safetyInfo[2] =
         static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTSpatialDiagnosticView.GetInteger())) +
         static_cast<float>(restirPTVisibilityPolicy * 16);
-    constants.safetyInfo[3] =
-        static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingRestirPTMode18DebugView.GetInteger())) +
-        (r_pathTracingRestirPTMode18HeavyDirect.GetInteger() != 0 ? 16.0f : 0.0f);
+    constants.safetyInfo[3] = 0.0f;
     constants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
     constants.geometryInfo0[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticIndexCount));
     constants.geometryInfo0[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticTriangleCount));
@@ -6793,7 +6740,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     const uint64 reservoirClearCompleteUs = Sys_Microseconds();
-    const bool restirPTReservoirClearRequested = !standaloneDebugRouteRequested && !disableReservoirWrites && (requestedRestirPTDebugMode || mode18RestirDirectMode) && (m_frameResources.restirPTReservoirNeedsClear || m_frameResources.restirPTDiReservoirNeedsClear || m_frameResources.restirPTGiReservoirNeedsClear);
+    const bool restirPTReservoirClearRequested = false;
     const uint64 restirPTReservoirClearStartUs = reservoirClearCompleteUs;
     if (restirPTReservoirClearRequested)
     {
