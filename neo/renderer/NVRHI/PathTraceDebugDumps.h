@@ -55,16 +55,12 @@ struct RtPathTraceDispatchTimingLogDesc
     int estimatedRaysPerPixel = 1;
     int selectedLights = 0;
     int analyticLights = 0;
-    int restirResamplingMode = 0;
-    int restirPreviewVisibility = 0;
-    int restirPreviewMaxPixels = 0;
     bool reservoirClearRequested = false;
     bool primaryHistoryClearRequested = false;
     bool readbackQueued = false;
     bool optickGpuMarkers = false;
     bool nsightGpuMarkers = false;
     const RtPathTraceDebugModeInfo* debugModeInfo = nullptr;
-    const char* restirPassLabel = "disabled";
 };
 
 struct RtSmokeTextureCoverageClassStats

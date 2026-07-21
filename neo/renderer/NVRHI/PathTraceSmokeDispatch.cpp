@@ -20,7 +20,7 @@
 #include "PathTraceMaterialFeatureBindings.h"
 #include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"
-#include "PathTraceRestirPasses.h"
+#include "PathTraceDebugModes.h"
 #include "PathTraceDLSSRRBridge.h"
 #include "../RenderBackend.h"
 
@@ -6445,16 +6445,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         timingDesc.estimatedRaysPerPixel = estimatedRaysPerPixel;
         timingDesc.selectedLights = selectedLightRequestCount;
         timingDesc.analyticLights = analyticLightTraceCount;
-        timingDesc.restirResamplingMode = 0;
-        timingDesc.restirPreviewVisibility = 0;
-        timingDesc.restirPreviewMaxPixels = r_pathTracingRestirPTPreviewMaxPixels.GetInteger();
         timingDesc.reservoirClearRequested = reservoirClearRequested;
         timingDesc.primaryHistoryClearRequested = primaryHistoryClearRequested;
         timingDesc.readbackQueued = readbackQueuedThisFrame;
         timingDesc.optickGpuMarkers = optickGpuMarkers;
         timingDesc.nsightGpuMarkers = nsightGpuMarkers;
         timingDesc.debugModeInfo = &debugModeInfo;
-        timingDesc.restirPassLabel = "legacyDebug";
         LogPathTraceDispatchTiming(timingDesc);
         if (forcePassTimingDump)
         {

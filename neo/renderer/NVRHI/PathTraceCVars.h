@@ -220,7 +220,6 @@ extern idCVar r_pathTracingNeeCacheSecondaryVisualRefresh;
 extern idCVar r_pathTracingIntegratorDump;
 extern idCVar r_pathTracingReservoirTwoSidedEmissives;
 extern idCVar r_pathTracingReservoirCandidateTrials;
-extern idCVar r_pathTracingRestirPTPreviewMaxPixels;
 extern idCVar r_pathTracingRestirPTTemporalAnalyticNeeReuse;
 extern idCVar r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance;
 extern idCVar r_pathTracingRestirPTMaterialSimilarityMode;

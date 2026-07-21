@@ -10,7 +10,7 @@
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceParticleCapture.h"
-#include "PathTraceRestirPasses.h"
+#include "PathTraceDebugModes.h"
 #include "PathTraceRigidIdentity.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"

@@ -28,73 +28,6 @@ const int RT_SMOKE_MIN_OUTPUT_HEIGHT = 16;
 const int RT_SMOKE_MAX_OUTPUT_WIDTH = 3840;
 const int RT_SMOKE_MAX_OUTPUT_HEIGHT = 2160;
 
-void ApplyRestirPTPreviewResolutionCap(int debugMode, int& outputWidth, int& outputHeight)
-{
-    if (debugMode != 32 && debugMode != 33)
-    {
-        return;
-    }
-
-    const int maxPixels = r_pathTracingRestirPTPreviewMaxPixels.GetInteger();
-    if (maxPixels <= 0)
-    {
-        return;
-    }
-
-    const uint64 requestedPixels = static_cast<uint64>(outputWidth) * static_cast<uint64>(outputHeight);
-    if (requestedPixels <= static_cast<uint64>(maxPixels))
-    {
-        return;
-    }
-
-    const double scale = std::sqrt(static_cast<double>(maxPixels) / static_cast<double>(requestedPixels));
-    int cappedWidth = idMath::ClampInt(
-        RT_SMOKE_MIN_OUTPUT_WIDTH,
-        outputWidth,
-        static_cast<int>(std::floor(static_cast<double>(outputWidth) * scale)));
-    int cappedHeight = idMath::ClampInt(
-        RT_SMOKE_MIN_OUTPUT_HEIGHT,
-        outputHeight,
-        static_cast<int>(std::floor(static_cast<double>(outputHeight) * scale)));
-
-    while (static_cast<uint64>(cappedWidth) * static_cast<uint64>(cappedHeight) > static_cast<uint64>(maxPixels) &&
-        (cappedWidth > RT_SMOKE_MIN_OUTPUT_WIDTH || cappedHeight > RT_SMOKE_MIN_OUTPUT_HEIGHT))
-    {
-        if (cappedWidth > RT_SMOKE_MIN_OUTPUT_WIDTH)
-        {
-            --cappedWidth;
-        }
-        if (static_cast<uint64>(cappedWidth) * static_cast<uint64>(cappedHeight) <= static_cast<uint64>(maxPixels))
-        {
-            break;
-        }
-        if (cappedHeight > RT_SMOKE_MIN_OUTPUT_HEIGHT)
-        {
-            --cappedHeight;
-        }
-    }
-
-    static int s_lastLoggedRequestedWidth = 0;
-    static int s_lastLoggedRequestedHeight = 0;
-    static int s_lastLoggedCappedWidth = 0;
-    static int s_lastLoggedCappedHeight = 0;
-    if (s_lastLoggedRequestedWidth != outputWidth ||
-        s_lastLoggedRequestedHeight != outputHeight ||
-        s_lastLoggedCappedWidth != cappedWidth ||
-        s_lastLoggedCappedHeight != cappedHeight)
-    {
-        common->Printf("PathTracePrimaryPass: mode %d ReSTIR PT preview capped output %dx%d -> %dx%d (maxPixels=%d)\n",
-            debugMode, outputWidth, outputHeight, cappedWidth, cappedHeight, maxPixels);
-        s_lastLoggedRequestedWidth = outputWidth;
-        s_lastLoggedRequestedHeight = outputHeight;
-        s_lastLoggedCappedWidth = cappedWidth;
-        s_lastLoggedCappedHeight = cappedHeight;
-    }
-
-    outputWidth = cappedWidth;
-    outputHeight = cappedHeight;
-}
-
 nvrhi::ObjectType GetPathTraceCommandObjectType()
 {
     if (deviceManager && deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
@@ -329,7 +262,6 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
     int outputWidth = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_WIDTH, RT_SMOKE_MAX_OUTPUT_WIDTH, r_pathTracingDebugWidth.GetInteger());
     int outputHeight = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_HEIGHT, RT_SMOKE_MAX_OUTPUT_HEIGHT, r_pathTracingDebugHeight.GetInteger());
     const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
-    ApplyRestirPTPreviewResolutionCap(debugMode, outputWidth, outputHeight);
     int renderWidth = outputWidth;
     int renderHeight = outputHeight;
     PathTraceDLSSRRBridge_QueryOptimalRenderSize(outputWidth, outputHeight, renderWidth, renderHeight);

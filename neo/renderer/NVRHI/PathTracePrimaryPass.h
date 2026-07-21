@@ -22,7 +22,7 @@
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceRemixLightManager.h"
 #include "PathTraceRestirLightManager.h"
-#include "PathTraceRestirPasses.h"
+#include "PathTraceDebugModes.h"
 #include "PathTraceSceneInputs.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSmokeResources.h"

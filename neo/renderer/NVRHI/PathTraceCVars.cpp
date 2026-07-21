@@ -1281,12 +1281,6 @@ idCVar r_pathTracingReservoirCandidateTrials(
     CVAR_RENDERER | CVAR_INTEGER,
     "Emissive reservoir candidate trials per pixel; higher values improve off-screen light selection at extra shader cost" );
 
-idCVar r_pathTracingRestirPTPreviewMaxPixels(
-    "r_pathTracingRestirPTPreviewMaxPixels",
-    "921600",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 32 ReSTIR PT preview safety cap in pixels; default is 1280x720, 0 disables the cap" );
-
 idCVar r_pathTracingRestirPTTemporalAnalyticNeeReuse(
     "r_pathTracingRestirPTTemporalAnalyticNeeReuse",
     "1",

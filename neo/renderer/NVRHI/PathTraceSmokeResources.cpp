@@ -19,7 +19,6 @@
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceReservoirs.h"
-#include "PathTraceRestirPasses.h"
 #include "PathTraceSmokeDispatch.h"
 #include "PathTraceSmokeResources.h"
 #include "PathTraceTextureRegistry.h"

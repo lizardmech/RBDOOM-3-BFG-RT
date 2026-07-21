@@ -1,7 +1,7 @@
 #pragma once
 
-// Retired ReSTIR PT diagnostic modes normalize to the production route at
-// every public boundary.
+// Retired diagnostics normalize to the production route at every public
+// boundary while retained debug values keep their stable numeric identities.
 
 inline int NormalizePathTraceDebugMode(int debugMode)
 {

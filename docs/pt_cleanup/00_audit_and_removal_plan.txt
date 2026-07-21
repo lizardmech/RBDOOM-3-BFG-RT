@@ -789,3 +789,20 @@ Working rule for every deletion slice:
     up to date because this slice changes no shader source or dependency. Deploy
     only the rebuilt EXE; source and destination SHA-256 match at
     ADB719BD6BCA5F2EEBC92C134D1E1E65771AD16220917283373DDDAD90D6C847.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    ebe66fed8. T4.3a runtime gate closed.
+  - T4.3b follows the remaining retired-mode references. The mode-32/33 preview
+    resolution cap is called only after NormalizePathTraceDebugMode maps that
+    entire retired range to mode 0, so its 68-line helper and PreviewMaxPixels
+    CVar cannot affect a frame. Remove both plus four CPU timing-log fields that
+    have only constant legacy values at their sole producer.
+  - Rename the surviving PathTraceRestirPasses.h normalization helper to
+    PathTraceDebugModes.h and remove one redundant include. This helper now owns
+    only stable debug-value normalization; it no longer describes or plans a
+    ReSTIR pass. Preserve the separate live GPU timing pass labels and every
+    production, clean-DI/GI, mode-18, and retained diagnostic route.
+  - The header rename triggers CMake's configured glob check and regeneration.
+    The full win64-pt-dev-release build then passes; all SPIR-V and DXIL targets
+    remain up to date. Deploy only the rebuilt EXE, whose source/destination
+    SHA-256 matches at
+    91ED2B173316647C76226307D32CBB3FB45D73D5C16F6986D499F1ED30FA8EE8.
