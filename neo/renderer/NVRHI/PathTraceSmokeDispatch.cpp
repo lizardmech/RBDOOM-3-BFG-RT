@@ -708,7 +708,7 @@ struct PathTraceSmokeConstants
     float restirPTSurfaceInfo[4];
     float restirPTDirectInfo[4];
     float restirPTSparsityInfo[4];
-    float restirPTIndirectInfo[4];
+    float reservedRestirPTIndirectInfo[4];
     float rayReconstructionInfo[4];
     float unifiedLightInfo[4];
     float restirLightManagerInfo[4];
@@ -5564,10 +5564,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTSparsityInfo[1] = 0.0f;
     constants.restirPTSparsityInfo[2] = 0.0f;
     constants.restirPTSparsityInfo[3] = 0.0f;
-    constants.restirPTIndirectInfo[0] = 0.0f;
-    constants.restirPTIndirectInfo[1] = 0.0f;
-    constants.restirPTIndirectInfo[2] = 1.0f;
-    constants.restirPTIndirectInfo[3] = 0.0f;
     constants.rayReconstructionInfo[0] = static_cast<float>(idMath::ClampInt(0, 10, r_pathTracingDLSSRRGuideDebugView.GetInteger()));
     constants.rayReconstructionInfo[1] = 0.0f;
     constants.rayReconstructionInfo[2] = 0.0f;
@@ -6271,7 +6267,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     int timingDispatchWidth = args.width;
     int timingDispatchHeight = args.height;
 
-    auto dispatchSmokeRays = [&](const nvrhi::rt::DispatchRaysArguments& dispatchArgs, int domainWidth, int domainHeight, int restirShaderDispatchMode, bool restirIndirectProducerDispatch = false, bool restirIndirectSparseProducerDispatch = false, int restirPTDiTemporalPrepassMode = 0)
+    auto dispatchSmokeRays = [&](const nvrhi::rt::DispatchRaysArguments& dispatchArgs, int domainWidth, int domainHeight, int restirShaderDispatchMode)
     {
         if (dispatchTileSettings.enabled)
         {
@@ -6285,8 +6281,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     tileConstants.dispatchTileInfo[0] = static_cast<float>(tileX);
                     tileConstants.dispatchTileInfo[1] = static_cast<float>(tileY);
                     tileConstants.restirPTDirectInfo[2] = static_cast<float>(restirShaderDispatchMode);
-                    tileConstants.restirPTIndirectInfo[0] = restirIndirectSparseProducerDispatch ? 2.0f : (restirIndirectProducerDispatch ? 1.0f : 0.0f);
-                    tileConstants.restirPTDiDebugInfo[1] = static_cast<float>(restirPTDiTemporalPrepassMode);
                     commandList->writeBuffer(m_smokeConstantsBuffer, &tileConstants, sizeof(tileConstants));
 
                     nvrhi::rt::DispatchRaysArguments tileArgs;
@@ -6303,8 +6297,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             dispatchConstants.dispatchTileInfo[0] = 0.0f;
             dispatchConstants.dispatchTileInfo[1] = 0.0f;
             dispatchConstants.restirPTDirectInfo[2] = static_cast<float>(restirShaderDispatchMode);
-            dispatchConstants.restirPTIndirectInfo[0] = restirIndirectSparseProducerDispatch ? 2.0f : (restirIndirectProducerDispatch ? 1.0f : 0.0f);
-            dispatchConstants.restirPTDiDebugInfo[1] = static_cast<float>(restirPTDiTemporalPrepassMode);
             commandList->writeBuffer(m_smokeConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
             commandList->dispatchRays(dispatchArgs);
         }

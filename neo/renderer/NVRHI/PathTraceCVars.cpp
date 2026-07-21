@@ -1395,12 +1395,6 @@ idCVar r_pathTracingRestirPTVisibilityPolicy(
     CVAR_RENDERER | CVAR_INTEGER,
     "ReSTIR PT NEE visibility policy: 0 = final/preview visibility only, 1 = selected NEE sample producer visibility, 2 = strict proposal-stream visibility" );
 
-idCVar r_pathTracingRestirPTCombinedSpatialRadius(
-    "r_pathTracingRestirPTCombinedSpatialRadius",
-    "1",
-    CVAR_RENDERER | CVAR_FLOAT,
-    "Mode 56 ReSTIR PT direct spatial neighbor radius in pixels; kept separate from diagnostic modes 50/51" );
-
 idCVar r_pathTracingRestirPTSpatialDiagnosticView(
     "r_pathTracingRestirPTSpatialDiagnosticView",
     "0",
@@ -2222,12 +2216,6 @@ idCVar r_pathTracingCleanRestirGiDump(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room ReSTIR GI one-shot CPU dump of route state, resource/page roles, and dispatch dimensions; auto-clears" );
-
-idCVar r_pathTracingRestirPTGiDebugView(
-    "r_pathTracingRestirPTGiDebugView",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 GI comparison view: 0 = normal output, 1 = raw GI initial estimate, 2 = GI temporal accumulator, 3 = reserved GI spatial, 4 = initial reservoir validity/M/WeightSum" );
 
 idCVar r_pathTracingSafetyDump(
     "r_pathTracingSafetyDump",

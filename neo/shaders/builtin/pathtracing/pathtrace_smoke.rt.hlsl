@@ -409,7 +409,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirPTSurfaceInfo;
     float4 RestirPTDirectInfo;
     float4 RestirPTSparsityInfo;
-    float4 RestirPTIndirectInfo;
+    float4 ReservedRestirPTIndirectInfo;
     float4 RayReconstructionInfo;
     float4 UnifiedLightInfo;
     float4 RestirLightManagerInfo;
@@ -699,99 +699,6 @@ uint PathTraceDebugMode()
 #else
     return (uint)CameraUpAndDebugMode.w;
 #endif
-}
-
-bool PathTraceRestirPTIndirectInitialMode()
-{
-    const uint debugMode = PathTraceDebugMode();
-    return debugMode >= 53u && debugMode <= 56u;
-}
-
-bool PathTraceRestirPTIndirectProducerDispatch()
-{
-    return RestirPTIndirectInfo.x >= 0.5;
-}
-
-bool PathTraceRestirPTIndirectSparseProducerDispatch()
-{
-    return RestirPTIndirectInfo.x >= 1.5;
-}
-
-bool PathTraceRestirPTIndirectConsumesInitialPrepass()
-{
-    return RestirPTIndirectInfo.y >= 0.5 && !PathTraceRestirPTIndirectProducerDispatch();
-}
-
-uint PathTraceRestirPTIndirectSparsityRate()
-{
-    return clamp((uint)max(RestirPTIndirectInfo.z, 1.0), 1u, 8u);
-}
-
-bool PathTraceRestirPTIndirectSparsityEnabled()
-{
-    return RestirPTIndirectInfo.y >= 0.5 && PathTraceRestirPTIndirectSparsityRate() > 1u;
-}
-
-bool PathTraceRestirPTIndirectSparseActivePixel(uint2 pixel)
-{
-    if (!PathTraceRestirPTIndirectSparsityEnabled())
-    {
-        return true;
-    }
-    const uint rate = PathTraceRestirPTIndirectSparsityRate();
-    const uint phase = (uint)max(RestirPTIndirectInfo.w, 0.0) % rate;
-    return ((pixel.x + pixel.y * 3u + phase) % rate) == 0u;
-}
-
-uint2 PathTraceRestirPTIndirectSparseDispatchSize()
-{
-    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
-    const uint rate = PathTraceRestirPTIndirectSparsityRate();
-    return uint2((dimensions.x + rate - 1u) / rate, dimensions.y);
-}
-
-uint2 PathTraceRestirPTIndirectSparseProducerPixelToFullPixel(uint2 sparsePixel)
-{
-    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
-    const uint rate = PathTraceRestirPTIndirectSparsityRate();
-    const uint phase = (uint)max(RestirPTIndirectInfo.w, 0.0) % rate;
-    const uint firstX = (rate - ((sparsePixel.y * 3u + phase) % rate)) % rate;
-    return uint2(firstX + sparsePixel.x * rate, sparsePixel.y);
-}
-
-uint2 PathTraceRestirPTIndirectRepresentativePixel(uint2 pixel)
-{
-    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
-    pixel = min(pixel, dimensions - uint2(1u, 1u));
-    if (!PathTraceRestirPTIndirectSparsityEnabled())
-    {
-        return pixel;
-    }
-
-    const uint rate = PathTraceRestirPTIndirectSparsityRate();
-    const uint phase = (uint)max(RestirPTIndirectInfo.w, 0.0) % rate;
-    const uint residue = (pixel.x + pixel.y * 3u + phase) % rate;
-    const int dxBack = -int(residue);
-    const int dxForward = int((rate - residue) % rate);
-    const int xBack = int(pixel.x) + dxBack;
-    const int xForward = int(pixel.x) + dxForward;
-    const bool backValid = xBack >= 0;
-    const bool forwardValid = xForward < int(dimensions.x);
-    int chosenX = int(pixel.x);
-    if (backValid && forwardValid)
-    {
-        chosenX = abs(dxBack) <= abs(dxForward) ? xBack : xForward;
-    }
-    else if (backValid)
-    {
-        chosenX = xBack;
-    }
-    else if (forwardValid)
-    {
-        chosenX = xForward;
-    }
-
-    return uint2(uint(clamp(chosenX, 0, int(dimensions.x) - 1)), pixel.y);
 }
 
 uint2 PathTraceFullPixelToRestirDirectPixel(uint2 fullPixel)
@@ -3116,72 +3023,6 @@ RTXDI_DIReservoir PathTraceRestirPdfNeeRluBuildCurrentReservoir(
 }
 #endif
 
-#ifdef RB_PT_RESTIR_DIRECT_TEMPORAL_PRODUCER_ONLY
-[shader("raygeneration")]
-void RayGen()
-{
-    uint2 pixel = DispatchRaysIndex().xy + PathTraceDispatchTileOffset();
-    const bool sparseProducerDispatch = PathTraceRestirDirectSparseProducerDispatch();
-    const uint2 dimensions = sparseProducerDispatch
-        ? PathTraceRestirSparseDispatchSize()
-        : PathTraceRestirDirectSize();
-    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
-    {
-        return;
-    }
-    if (sparseProducerDispatch)
-    {
-        pixel = PathTraceRestirSparseProducerPixelToDirectPixel(pixel);
-        if (pixel.x >= PathTraceRestirDirectSize().x || pixel.y >= PathTraceRestirDirectSize().y)
-        {
-            return;
-        }
-    }
-    else if (!PathTraceRestirSparseActivePixel(pixel, false))
-    {
-        return;
-    }
-
-    RAB_Surface primaryHistorySurface = RAB_GetGBufferSurface(int2(pixel), false);
-    float4 temporalRejectionColor;
-    bool temporalSelectedPrevSample;
-    GenerateRestirPTTemporalReservoir(primaryHistorySurface, pixel, temporalRejectionColor, temporalSelectedPrevSample);
-}
-
-[shader("miss")]
-void Miss(inout PathTraceSmokePayload payload)
-{
-    payload.value = 0u;
-}
-
-[shader("miss")]
-void ShadowMiss(inout PathTraceSmokeShadowPayload payload)
-{
-    payload.hit = 0u;
-}
-
-[shader("anyhit")]
-void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
-{
-}
-
-[shader("anyhit")]
-void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
-{
-    payload.hit = 1u;
-}
-
-[shader("closesthit")]
-void ShadowClosestHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
-{
-    payload.hit = 1u;
-}
-
-[shader("closesthit")]
-void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
-{
-}
-#else
 [shader("raygeneration")]
 void RayGen()
 {
@@ -4010,4 +3851,3 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.materialId = LoadSmokeTriangleMaterialId(instanceId, primitiveIndex);
     payload.materialIndex = instanceId == 0 ? SmokeStaticTriangleMaterialIndexes[primitiveIndex] : SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
 }
-#endif

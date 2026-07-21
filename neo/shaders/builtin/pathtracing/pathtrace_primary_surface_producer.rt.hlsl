@@ -285,7 +285,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirPTSurfaceInfo;
     float4 RestirPTDirectInfo;
     float4 RestirPTSparsityInfo;
-    float4 RestirPTIndirectInfo;
+    float4 ReservedRestirPTIndirectInfo;
     float4 RayReconstructionInfo;
     float4 RRProjectionDepthInfo;
     // Padding spans the light-manager/verifier/ReGIR/NEE-cache fields of the CPU

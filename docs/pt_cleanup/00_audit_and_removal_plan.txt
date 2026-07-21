@@ -630,3 +630,22 @@ Working rule for every deletion slice:
     subsequent full win64-pt-dev-release build passed; all SPIR-V remained up
     to date, so only the EXE was deployed. Source and destination SHA-256 both
     equal A81348C1C59DE531CB7D82FAD49A6601DACF29EBE6BE0310341CB3A39B2BD69D.
+  - Runtime acceptance 2026-07-21: user reported no issues with deployed commit
+    0cd1fdcd1. T3.1c runtime gate closed.
+  - T3.1d removes the final compile-time direct-temporal producer alternative
+    from the smoke monolith. No source defines its macro and its former wrapper,
+    CMake command, pipeline, and shader table were removed in earlier gates.
+    The adjacent indirect-producer/sparse helper island likewise had no calls
+    outside its own definitions. Remove both islands and the now-pointless
+    dispatch-lambda parameters that only wrote their control fields.
+  - Preserve constant-buffer offsets used by standalone ReGIR and NEE-cache
+    libraries: the former RestirPTIndirectInfo slot is renamed as reserved on
+    the CPU, smoke, and primary-surface-producer sides rather than deleted.
+    Live primary-history direct/full mapping is intentionally retained for the
+    next proof. Also remove the two PT CVars with no consumers at all:
+    CombinedSpatialRadius and GiDebugView.
+  - Forced Vulkan rebuilds produced smoke (1,265,608 bytes, 20:13:54),
+    primary-surface producer (843,028 bytes, 20:13:35), and RLU-current
+    (630,284 bytes, 20:13:40). All blob mtimes are newer than the 20:11-20:12
+    shader edits; DXIL stayed current. Only those three SPIR-V files and the EXE
+    were deployed, and every source/destination SHA-256 pair matches.
