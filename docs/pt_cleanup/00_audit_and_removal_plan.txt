@@ -866,3 +866,40 @@ Working rule for every deletion slice:
     check (smoke and RLU-current). Source/destination SHA-256 pairs match. EXE
     SHA-256 is
     4EFA489A3F1463DBB6C7A6FC1BC5E39F6AB00B0ED178A0A007336B5BDE2106BC.
+  - Runtime acceptance 2026-07-21: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 9e9646ae3. T3.1j runtime gate closed.
+  - T4.3d is a zero-consumer residue sweep across unmodified helper surfaces.
+    Whole-tree symbol counts identify seven superseded Doom analytic lookup/remap
+    helpers, the abandoned stable material-slot/cache builder and its complete
+    private helper closure, one unused cardboard override probe, and one obsolete
+    combined rigid side-buffer capacity helper. None is referenced outside its
+    own definition and none belongs to the dirty geometry worktree lane.
+  - The shader half removes only helpers with no call site anywhere under the
+    path-tracing shader tree: three isolated material/OpenPBR helpers and the old
+    ReSTIR-PT primary-surface debug/compatibility wrapper group. Replace the two
+    surviving store-wrapper calls with their existing canonical function before
+    deleting the alias. Retain all clean DI/GI helpers and the material-feature
+    API even where current textual counts are low.
+  - NormalizePathTraceDebugMode already maps mode 56 to zero at every public
+    boundary, so remove three constant-true `requestedDebugMode != 56` terms from
+    scene policy without changing NEE-cache or RLU producer behavior. The slice
+    removes 663 lines across nine implementation files before documentation and
+    build evidence are added.
+  - Delete all 15 configured Vulkan outputs that list the changed shared headers
+    as dependencies. The full win64-pt-dev-release build passes and every rebuilt
+    blob is newer than the latest shader edit. Twelve outputs are byte-identical
+    to their pre-build/deployed copies. Smoke and RLU-current change only because
+    their two live call sites now invoke the canonical primary-surface store
+    directly instead of the deleted one-line alias.
+  - The build also retriggers the DXIL NEE-cache primary-surface update compute
+    shader through the broad RenderProgs dependency graph. It takes under one
+    second, is not deployed, and should be removed from this Vulkan-only preset in
+    a separate build-graph cleanup rather than mixed into this source deletion.
+  - The unrelated dirty GI reservoir edit remains isolated: rebuilt GI-temporal
+    stays at
+    62D770978A36D28D0B5CB631220C5B9B59B980454E6374E1D9647D05DEC4C3FA,
+    while deployment preserves the known-good
+    B37497B23E99827A03BBA14B281260DB23E40743D0BCC2E4CC9AAF4BEBADFBB2.
+    Deploy the rebuilt EXE and the other 14 SPIR-V outputs; every copied hash
+    matches. EXE SHA-256 is
+    318AB1E20B45E99FF8B8B59D0C2C0BDAA85FBEA31EF713AEEC3758CB725D18F8.

@@ -347,10 +347,6 @@ RAB_Surface RAB_GetGBufferSurface(int2 pixelPosition, bool previousFrame)
     return LoadPathTracePrimarySurfaceRecord(pixelPosition, previousFrame);
 }
 
-RAB_Material RAB_GetGBufferMaterial(int2 pixelPosition, bool previousFrame)
-{
-    return RAB_GetGBufferSurface(pixelPosition, previousFrame).material;
-}
 
 bool ProjectPathTracePrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 dimensions, out int2 previousPixel)
 {
@@ -366,10 +362,6 @@ bool ProjectPathTracePrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 d
         (uint)previousPixel.x < dimensions.x && (uint)previousPixel.y < dimensions.y;
 }
 
-bool RestirPTProjectWorldToPreviousPixel(float3 worldPosition, uint2 dimensions, out int2 previousPixel)
-{
-    return ProjectPathTracePrimarySurfaceToPreviousPixel(worldPosition, dimensions, previousPixel);
-}
 
 float4 PathTracePrimarySurfaceMotionVectorColor(float2 motionPixels)
 {
@@ -781,91 +773,9 @@ float4 EvaluatePathTracePrimarySurfaceObjectMotionReprojectionDebug(RAB_Surface 
     return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_OK, currentSurface);
 }
 
-bool TryPathTraceMaterialUnsupportedDebugColor(RAB_Surface currentSurface, uint passKind, out float4 debugColor)
-{
-    debugColor = float4(0.0, 0.0, 0.0, 1.0);
-    if (!RAB_IsSurfaceValid(currentSurface))
-    {
-        return false;
-    }
-    if (MaterialSupportedByPass(currentSurface, passKind))
-    {
-        return false;
-    }
 
-    debugColor = MaterialFailClosedDebugColor(currentSurface, passKind);
-    return true;
-}
 
-float4 EvaluateRestirPTPrimarySurfacePairDebug(RAB_Surface currentSurface, RAB_Surface previousSurface)
-{
-    if (!RAB_IsSurfaceValid(currentSurface) && !RAB_IsSurfaceValid(previousSurface))
-    {
-        return float4(0.0, 0.0, 0.0, 1.0);
-    }
 
-    float4 unsupportedColor;
-    if (TryPathTraceMaterialUnsupportedDebugColor(currentSurface, RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR, unsupportedColor))
-    {
-        return unsupportedColor;
-    }
-
-    uint debugStatus;
-    if (!PathTracePrimarySurfacesAreSimilar(currentSurface, previousSurface, debugStatus))
-    {
-        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
-    }
-
-    return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_OK, currentSurface);
-}
-
-float4 EvaluateRestirPTPrimarySurfaceHistoryDebug(RAB_Surface currentSurface, uint2 pixel)
-{
-    const RAB_Surface previousSurface = RAB_GetGBufferSurface(int2((int)pixel.x, (int)pixel.y), true);
-    return EvaluateRestirPTPrimarySurfacePairDebug(currentSurface, previousSurface);
-}
-
-float4 EvaluateRestirPTPrimarySurfaceReprojectionDebug(RAB_Surface currentSurface)
-{
-    if (!RAB_IsSurfaceValid(currentSurface))
-    {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
-    }
-
-    float4 unsupportedColor;
-    if (TryPathTraceMaterialUnsupportedDebugColor(currentSurface, RT_PATH_TRACE_MATERIAL_PASS_DIRECT_RESERVOIR, unsupportedColor))
-    {
-        return unsupportedColor;
-    }
-
-    int2 previousPixel;
-    uint debugStatus;
-    const bool projected = ProjectPathTracePrimarySurfaceToPreviousPixel(currentSurface, PathTraceFullOutputSize(), previousPixel, debugStatus);
-    if (!projected)
-    {
-        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
-    }
-
-    const RAB_Surface previousSurface = RAB_GetGBufferSurface(previousPixel, true);
-    return EvaluateRestirPTPrimarySurfacePairDebug(currentSurface, previousSurface);
-}
-
-// Compatibility wrappers for the existing smoke raygen until task 05 splits
-// primary-surface generation out of the monolithic dispatch.
-PathTracePrimarySurfaceRecord RestirPTPackPrimarySurfaceHistory(RAB_Surface surface)
-{
-    return PackPathTracePrimarySurfaceRecord(surface);
-}
-
-RAB_Surface RestirPTUnpackPrimarySurfaceHistory(PathTracePrimarySurfaceRecord record)
-{
-    return UnpackPathTracePrimarySurfaceRecord(record);
-}
-
-void StoreRestirPTPrimarySurfaceHistory(uint2 pixel, RAB_Surface surface)
-{
-    StorePathTracePrimarySurfaceRecord(pixel, surface);
-}
 
 #endif
 #endif

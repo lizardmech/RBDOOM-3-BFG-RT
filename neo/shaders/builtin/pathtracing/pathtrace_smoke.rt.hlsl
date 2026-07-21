@@ -2986,7 +2986,7 @@ void RayGen()
 #ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
     float3 pdfNeeRluContribution = float3(0.0, 0.0, 0.0);
     uint pdfNeeRluStatus = RT_PDF_NEE_RLU_STATUS_VALID;
-    StoreRestirPTPrimarySurfaceHistory(pixel, primaryHistorySurface);
+    StorePathTracePrimarySurfaceRecord(pixel, primaryHistorySurface);
     const RTXDI_DIReservoir pdfNeeRluReservoir = PathTraceRestirPdfNeeRluBuildCurrentReservoir(
         primaryHistorySurface,
         pixel,
@@ -2998,7 +2998,7 @@ void RayGen()
         : float4(PathTraceRestirPdfNeeRluStatusColor(pdfNeeRluStatus), 1.0);
     return;
 #else
-    StoreRestirPTPrimarySurfaceHistory(pixel, primaryHistorySurface);
+    StorePathTracePrimarySurfaceRecord(pixel, primaryHistorySurface);
     StorePathTraceMotionVectorExport(pixel, primaryHistorySurface);
 
     if (payload.value == 0)

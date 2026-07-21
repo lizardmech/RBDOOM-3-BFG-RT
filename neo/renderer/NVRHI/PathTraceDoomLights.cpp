@@ -1593,27 +1593,8 @@ bool IsDoomAnalyticUniverseStructuralLight(const DoomLightRecord& record)
     return record.pointLight && !record.parallel && record.radiusMax > 1.0f;
 }
 
-bool IsDoomPersistentStaticAuthoredLight(const DoomLightRecord& record)
-{
-    return DoomLightContinuityProvenForTask01(record) && IsDoomAnalyticUniverseStructuralLight(record);
-}
 
-bool IsDoomAnalyticUniverseSampleableLight(const DoomLightRecord& record)
-{
-    return IsDoomAnalyticUniverseStructuralLight(record) && !record.suppressed && record.active;
-}
 
-int FindDoomAnalyticPreviousEntry(const std::vector<DoomAnalyticLightUniverseEntry>& entries, const DoomAnalyticLightUniverseKey& key)
-{
-    for (int i = 0; i < static_cast<int>(entries.size()); ++i)
-    {
-        if (entries[i].key == key)
-        {
-            return i;
-        }
-    }
-    return -1;
-}
 
 uint32_t GetStableDoomAnalyticUniverseIndex(DoomAnalyticLightUniverseState& state, const DoomAnalyticLightUniverseKey& key)
 {
@@ -1632,17 +1613,6 @@ uint32_t GetStableDoomAnalyticUniverseIndex(DoomAnalyticLightUniverseState& stat
     return stableKey.universeIndex;
 }
 
-bool DoomAnalyticKeyIsDuplicate(const std::vector<DoomAnalyticLightUniverseEntry>& entries, int entryIndex)
-{
-    for (int i = 0; i < static_cast<int>(entries.size()); ++i)
-    {
-        if (i != entryIndex && entries[i].key == entries[entryIndex].key)
-        {
-            return true;
-        }
-    }
-    return false;
-}
 
 uint32_t BuildDoomAnalyticIdentityFlags(const DoomAnalyticLightUniverseEntry& entry)
 {
@@ -1658,17 +1628,6 @@ uint32_t BuildDoomAnalyticIdentityFlags(const DoomAnalyticLightUniverseEntry& en
     return flags;
 }
 
-int FindDoomPersistentAuthoredLightEntry(const std::vector<DoomPersistentAuthoredLightEntry>& entries, const DoomAnalyticLightUniverseKey& key)
-{
-    for (int i = 0; i < static_cast<int>(entries.size()); ++i)
-    {
-        if (entries[i].key == key)
-        {
-            return i;
-        }
-    }
-    return -1;
-}
 
 bool DoomRawFrameKeyIsDuplicate(const std::vector<DoomLightRecord>& records, const DoomAnalyticLightUniverseKey& key)
 {
@@ -2248,42 +2207,7 @@ PathTraceDoomAnalyticLightCandidateIdentity MakeInvalidDoomAnalyticCandidateIden
     return identity;
 }
 
-uint32_t FindOrAddDoomAnalyticDenseRemapSlot(std::vector<uint32_t>& remapUniverseIndices, uint32_t universeIndex)
-{
-    if (universeIndex == RT_PT_DOOM_LIGHT_INVALID_INDEX)
-    {
-        return RT_PT_DOOM_LIGHT_INVALID_INDEX;
-    }
 
-    for (int i = 0; i < static_cast<int>(remapUniverseIndices.size()); ++i)
-    {
-        if (remapUniverseIndices[i] == universeIndex)
-        {
-            return static_cast<uint32_t>(i);
-        }
-    }
-
-    remapUniverseIndices.push_back(universeIndex);
-    return static_cast<uint32_t>(remapUniverseIndices.size() - 1);
-}
-
-uint32_t FindDoomAnalyticDenseRemapSlot(const std::vector<uint32_t>& remapUniverseIndices, uint32_t universeIndex)
-{
-    if (universeIndex == RT_PT_DOOM_LIGHT_INVALID_INDEX)
-    {
-        return RT_PT_DOOM_LIGHT_INVALID_INDEX;
-    }
-
-    for (int i = 0; i < static_cast<int>(remapUniverseIndices.size()); ++i)
-    {
-        if (remapUniverseIndices[i] == universeIndex)
-        {
-            return static_cast<uint32_t>(i);
-        }
-    }
-
-    return RT_PT_DOOM_LIGHT_INVALID_INDEX;
-}
 
 PathTraceDoomAnalyticLightCandidate MakeDoomAnalyticLightCandidateFromUniverseEntry(const DoomAnalyticLightUniverseEntry& entry)
 {

@@ -92,10 +92,6 @@ uint SmokeMatClassDynamicFlags(PathTraceSmokeMaterial material)
     return material.padding0 & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_MASK;
 }
 
-bool SmokeMatClassNeedsDynamicInstance(PathTraceSmokeMaterial material)
-{
-    return SmokeMatClassDynamicFlags(material) != 0u;
-}
 
 bool SmokeMaterialHasFullMetalOverride(PathTraceSmokeMaterial material)
 {

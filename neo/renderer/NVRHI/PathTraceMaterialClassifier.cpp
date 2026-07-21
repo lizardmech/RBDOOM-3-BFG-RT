@@ -1016,46 +1016,6 @@ bool RtIndustrialMetalFamilyFromNames(const RtSmokeMaterialTextureInfo& info, id
     return false;
 }
 
-bool RtCardboardSurfaceHasMetalPropEvidence(const RtSmokeMaterialTextureInfo& info, idStr& evidence)
-{
-    static const char* metalBoxTokens[] = {
-        "tbox",
-        "sopbox",
-        "metalcrate",
-        "metal_crate",
-        "artifactcrate",
-        "artifact_crate",
-        "artifactcrates",
-        "artifact_crates"
-    };
-
-    const idStr* fields[] = {
-        &info.materialName,
-        &info.diffuseImageName,
-        &info.normalImageName,
-        &info.specularImageName
-    };
-    static const char* fieldNames[] = {
-        "material",
-        "diffuseImage",
-        "normalImage",
-        "specularImage"
-    };
-
-    for (int fieldIndex = 0; fieldIndex < 4; ++fieldIndex)
-    {
-        for (int tokenIndex = 0; tokenIndex < static_cast<int>(sizeof(metalBoxTokens) / sizeof(metalBoxTokens[0])); ++tokenIndex)
-        {
-            if (RtMaterialTextHasToken(*fields[fieldIndex], metalBoxTokens[tokenIndex]))
-            {
-                evidence = va("surfaceType:cardboard override:%s:%s", fieldNames[fieldIndex], metalBoxTokens[tokenIndex]);
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
 
 bool RtCharacterFleshFromNames(const RtSmokeMaterialTextureInfo& info, idStr& evidence)
 {

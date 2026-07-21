@@ -11,10 +11,6 @@ static const float RT_OPENPBR_TWO_PI = 6.28318530717958647692;
 static const float RT_OPENPBR_FON_A = 0.5 - 2.0 / (3.0 * RT_OPENPBR_PI);
 static const float RT_OPENPBR_FON_B = 2.0 / 3.0 - 28.0 / (15.0 * RT_OPENPBR_PI);
 
-float PathTraceOpenPbrSquare(float value)
-{
-    return value * value;
-}
 
 float PathTraceOpenPbrLuminance(float3 value)
 {

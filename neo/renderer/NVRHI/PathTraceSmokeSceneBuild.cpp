@@ -2452,17 +2452,6 @@ void RefreshSmokeRigidTlasPlanTransforms(
     UpdateSmokeRigidTlasPlanInstanceSignature(plan, snapshot);
 }
 
-bool SmokeRigidRouteSideBufferSlotHasCapacity(
-    const RtSmokeRigidRouteSideBufferSlot& slot,
-    const RtPathTraceRigidRouteBuild& build)
-{
-    return
-        SmokeBufferHasPayloadCapacity(slot.vertexBuffer, build.vertices.size() * sizeof(PathTraceSmokeVertex), sizeof(PathTraceSmokeVertex)) &&
-        SmokeBufferHasPayloadCapacity(slot.indexBuffer, build.indexes.size() * sizeof(uint32_t), sizeof(uint32_t)) &&
-        SmokeBufferHasPayloadCapacity(slot.triangleMaterialBuffer, build.triangleMaterials.size() * sizeof(uint32_t), sizeof(uint32_t)) &&
-        SmokeBufferHasPayloadCapacity(slot.triangleMaterialIndexBuffer, build.triangleMaterialIndexes.size() * sizeof(uint32_t), sizeof(uint32_t)) &&
-        SmokeBufferHasPayloadCapacity(slot.instanceBuffer, build.instances.size() * sizeof(PathTraceRigidRouteInstance), sizeof(PathTraceRigidRouteInstance));
-}
 
 bool SmokeRigidRouteSideBufferSlotHasGeometryCapacity(
     const RtSmokeRigidRouteSideBufferSlot& slot,
@@ -3874,7 +3863,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             (cleanRtxdiDiSceneBuildDomain == 1 || cleanRtxdiDiSceneBuildDomain == 2));
     const int neeCacheSceneBuildSourceDomain = idMath::ClampInt(0, 3, r_pathTracingNeeCacheSourceDomain.GetInteger());
     const bool neeCacheSceneBuildRluEmissives =
-        requestedDebugMode != 56 &&
         r_pathTracingNeeCacheEnable.GetInteger() != 0 &&
         r_pathTracingNeeCacheMode.GetInteger() != 0 &&
         (neeCacheSceneBuildSourceDomain == 0 || neeCacheSceneBuildSourceDomain == 1 || neeCacheSceneBuildSourceDomain == 3);
@@ -5506,10 +5494,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         cleanRtxdiDiRealAnalyticRoute &&
         r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0;
     const bool pdfNeeRluCurrentProducerRequested =
-        requestedDebugMode != 56 &&
         r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0;
     const bool neeCacheRluCurrentProducerRequested =
-        requestedDebugMode != 56 &&
         r_pathTracingNeeCacheEnable.GetInteger() != 0 &&
         r_pathTracingNeeCacheMode.GetInteger() != 0;
     const bool remixLightUniverseEnabled =

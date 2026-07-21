@@ -299,18 +299,6 @@ float3 SampleSmokeEmissive(PathTraceSmokeMaterial material, float2 texCoord, uin
     return emissive * 1.75;
 }
 
-float4 EstimateSmokeEmissiveTriangleRadiance(PathTraceSmokeEmissiveTriangle emissiveTriangle)
-{
-    if (emissiveTriangle.materialIndex >= (uint)TextureInfo.z)
-    {
-        return float4(0.0, 0.0, 0.0, 0.0);
-    }
-
-    const PathTraceSmokeMaterial material = LoadSmokeMaterial(emissiveTriangle.materialIndex);
-    const float3 radiance = SampleSmokeEmissive(material, emissiveTriangle.centroidUvAndWeight.xy, 0u, (emissiveTriangle.padding0 & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u);
-    const float luminance = dot(max(radiance, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
-    return float4(radiance, luminance);
-}
 
 uint PathTraceDynamicMaterialRecordCount()
 {
