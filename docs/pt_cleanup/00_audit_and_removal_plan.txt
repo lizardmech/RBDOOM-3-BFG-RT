@@ -1076,3 +1076,19 @@ Working rule for every deletion slice:
     up to date and no DXIL command runs. This is a C++-only slice, so deploy only
     the executable; source and deployed SHA-256 both equal
     F4ADA97D8F692C3890FC8BAF9902168AB33BF086C85E25A43D5C4F91344FB0DF.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 77f2f543d. T4.3k runtime gate closed.
+  - T4.3l separates the live replacement RLU-current producer from its obsolete
+    verifier-named one-shot dump. Preserve r_pathTracingRestirPdfNeeVerifierEnable,
+    samples, visibility, and source policy; the producer shader, reservoir pages,
+    binding layout/set, NEE-cache provider readiness, constants, and dispatch all
+    remain live. Remove only r_pathTracingRestirPdfNeeVerifierDump, its entry and
+    pre-dispatch formatters, repeated early-return print/reset blocks, and two
+    dump-only cached values. The dump's last-day history is cleanup-only; none of
+    the recent rendering-feature changes depends on it.
+  - T4.3l verification: whole-neo sweeps for the retired dump CVar, formatter,
+    cached dump selector, and dump-only producer-enabled alias are empty. The full
+    win64-pt-dev-release build passes; both SPIR-V targets remain up to date and
+    no DXIL command runs. This is a C++-only slice, so deploy only the executable;
+    source and deployed SHA-256 both equal
+    8FCF16CDCA606710903EA25D374824051D23196570A75A35684F36D9496AF0D1.

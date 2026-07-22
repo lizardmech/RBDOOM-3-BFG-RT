@@ -1341,12 +1341,6 @@ idCVar r_pathTracingRestirPdfNeeVerifierSourcePolicy(
     CVAR_RENDERER | CVAR_INTEGER,
     "Replacement RLU current producer source policy: 0 full dense RLU uniform baseline, 1 RLU-04 range-stratified typed ranges using rangeSampleCount/(rangeCount*totalProposalSamples)" );
 
-idCVar r_pathTracingRestirPdfNeeVerifierDump(
-    "r_pathTracingRestirPdfNeeVerifierDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the replacement RLU PDF + NEE current producer route, active light counts, and first missing contract once" );
-
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
     "1",

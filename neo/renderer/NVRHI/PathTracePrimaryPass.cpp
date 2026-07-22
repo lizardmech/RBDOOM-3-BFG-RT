@@ -247,14 +247,6 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
 
     if (!m_rayTracingSupported)
     {
-        if (r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0)
-        {
-            common->Printf(
-                "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer execute earlyReturn=rt-unsupported enable=%d r_pathTracing=%d output=none temporal=0 spatial=0 task=PDFNEE-RLU-04\n",
-                r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
-                r_pathTracing.GetInteger());
-            r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
-        }
         return;
     }
 
@@ -276,18 +268,6 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
     m_frameResources.settings.outputHeight = outputHeight;
     if (!ResizeRayTracingSmokeOutput(renderWidth, renderHeight, outputWidth, outputHeight))
     {
-        if (r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0)
-        {
-            common->Printf(
-                "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer execute earlyReturn=resize-output enable=%d r_pathTracing=%d requestedRender=%dx%d requestedOutput=%dx%d output=none temporal=0 spatial=0 task=PDFNEE-RLU-04\n",
-                r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
-                r_pathTracing.GetInteger(),
-                renderWidth,
-                renderHeight,
-                outputWidth,
-                outputHeight);
-            r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
-        }
         return;
     }
 
