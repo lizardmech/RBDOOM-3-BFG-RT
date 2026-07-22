@@ -5186,8 +5186,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
     const uint64 totalSubmitUs = readbackCopyCompleteUs - executeStartUs;
     const int totalSubmitMsForThrottle = static_cast<int>((totalSubmitUs + 999u) / 1000u);
-    const bool forcePassTimingDump = r_pathTracingPassTimingDump.GetInteger() != 0;
-    if (forcePassTimingDump || ShouldLogSmokeTiming(totalSubmitMsForThrottle, Sys_Milliseconds(), g_smokeLastDispatchTimingLogMs))
+    if (ShouldLogSmokeTiming(totalSubmitMsForThrottle, Sys_Milliseconds(), g_smokeLastDispatchTimingLogMs))
     {
         RtPathTraceDispatchTimingLogDesc timingDesc;
         timingDesc.totalSubmitMs = PathTraceMicrosecondsToMilliseconds(totalSubmitUs);
@@ -5216,10 +5215,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         timingDesc.nsightGpuMarkers = nsightGpuMarkers;
         timingDesc.debugModeInfo = &debugModeInfo;
         LogPathTraceDispatchTiming(timingDesc);
-        if (forcePassTimingDump)
-        {
-            r_pathTracingPassTimingDump.SetInteger(0);
-        }
     }
 
     if (!m_smokeTestDispatched)

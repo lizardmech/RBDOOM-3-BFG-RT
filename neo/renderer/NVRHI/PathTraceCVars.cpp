@@ -2082,12 +2082,6 @@ idCVar r_pathTracingTimingLogInterval(
     CVAR_RENDERER | CVAR_INTEGER,
     "Minimum milliseconds between repeated RT smoke timing log lines; 0 logs every threshold hit" );
 
-idCVar r_pathTracingPassTimingDump(
-    "r_pathTracingPassTimingDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump current RT/PT pseudo-pass CPU submit timings and debug-output classification once" );
-
 idCVar r_pathTracingOptickGpuMarkers(
     "r_pathTracingOptickGpuMarkers",
     "0",
@@ -2268,23 +2262,11 @@ idCVar r_pathTracingMaterialCache(
     CVAR_RENDERER | CVAR_INTEGER,
     "Cache the universe-derived RT smoke active material table when the material/signature inputs are unchanged" );
 
-idCVar r_pathTracingMaterialUniverseValidate(
-    "r_pathTracingMaterialUniverseValidate",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Validate persistent RT smoke material records against a fresh direct rebuild and log mismatches" );
-
 idCVar r_pathTracingMaterialUniverseTable(
     "r_pathTracingMaterialUniverseTable",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Build the RT smoke frame material table from stable material-universe records instead of the legacy active order; default on" );
-
-idCVar r_pathTracingMaterialUniverseTableValidate(
-    "r_pathTracingMaterialUniverseTableValidate",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Build old and universe-derived RT smoke material tables and report whether their active material contents match" );
 
 idCVar r_pathTracingGeometryUniverseValidate(
     "r_pathTracingGeometryUniverseValidate",

@@ -4091,9 +4091,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int metadataRegistrationMs = metadataTiming.registrationMs;
     uint64 materialTableSignature = 0;
     bool materialTableCacheHit = false;
-    RtSmokeMaterialTableCompareStats materialUniverseTableCompareStats;
     const bool useMaterialUniverseTable = r_pathTracingMaterialUniverseTable.GetInteger() != 0;
-    const bool validateMaterialUniverseTable = r_pathTracingMaterialUniverseTableValidate.GetInteger() != 0;
     const char* materialTablePath = useMaterialUniverseTable ? "universe" : "legacy";
     const int materialTextureTableMinimum = cleanRtxdiDiMaterialValidationRoute ? RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP : 0;
     {
@@ -4101,47 +4099,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         BeginSmokeMaterialUniverseFrame();
         if (useMaterialUniverseTable)
         {
-            if (validateMaterialUniverseTable)
-            {
-                RtSmokeMaterialTableBuild legacyMaterialTable;
-                uint32_t legacyLatchedTextureProbeMaterialId = m_smokeTextureProbeMaterialId;
-                int legacyLatchedTextureProbeRequestedIndex = m_smokeTextureProbeRequestedIndex;
-                BuildSmokeMaterialTableCached(legacyMaterialTable, materialTableStaticIds, dynamicTriangleMaterialData, legacyLatchedTextureProbeMaterialId, legacyLatchedTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum, materialTableSignature, materialTableCacheHit);
-                BuildSmokeMaterialTableFromUniverseCached(materialTable, materialTableStaticIds, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum, materialTableSignature, materialTableCacheHit);
-                materialUniverseTableCompareStats = CompareSmokeMaterialTables(legacyMaterialTable, materialTable);
-                if (materialUniverseTableCompareStats.mismatches > 0)
-                {
-                    common->Printf("PathTracePrimaryPass: RT smoke material universe table mismatch, falling back to legacy table for this frame (mismatches=%d material=%d/%d/%d indexes=%d/%d textures=%d/%d)\n",
-                        materialUniverseTableCompareStats.mismatches,
-                        materialUniverseTableCompareStats.materialCountMismatches,
-                        materialUniverseTableCompareStats.materialIdMismatches,
-                        materialUniverseTableCompareStats.materialRecordMismatches,
-                        materialUniverseTableCompareStats.staticIndexMismatches,
-                        materialUniverseTableCompareStats.dynamicIndexMismatches,
-                        materialUniverseTableCompareStats.textureCountMismatches,
-                        materialUniverseTableCompareStats.textureHandleMismatches);
-                    materialTable = legacyMaterialTable;
-                    m_smokeTextureProbeMaterialId = legacyLatchedTextureProbeMaterialId;
-                    m_smokeTextureProbeRequestedIndex = legacyLatchedTextureProbeRequestedIndex;
-                    materialTablePath = "legacyFallback";
-                }
-            }
-            else
-            {
-                BuildSmokeMaterialTableFromUniverseCached(materialTable, materialTableStaticIds, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum, materialTableSignature, materialTableCacheHit);
-            }
+            BuildSmokeMaterialTableFromUniverseCached(materialTable, materialTableStaticIds, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum, materialTableSignature, materialTableCacheHit);
         }
         else
         {
             BuildSmokeMaterialTableCached(materialTable, materialTableStaticIds, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum, materialTableSignature, materialTableCacheHit);
-            if (validateMaterialUniverseTable)
-            {
-                RtSmokeMaterialTableBuild universeMaterialTable;
-                uint32_t universeLatchedTextureProbeMaterialId = m_smokeTextureProbeMaterialId;
-                int universeLatchedTextureProbeRequestedIndex = m_smokeTextureProbeRequestedIndex;
-                BuildSmokeMaterialTableFromUniverse(universeMaterialTable, materialTableStaticIds, dynamicTriangleMaterialData, universeLatchedTextureProbeMaterialId, universeLatchedTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum);
-                materialUniverseTableCompareStats = CompareSmokeMaterialTables(materialTable, universeMaterialTable);
-            }
         }
     }
     const RtSmokeMaterialTableCacheStats materialTableCacheStats = GetSmokeMaterialTableCacheStats();
@@ -6623,7 +6585,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.materialTableBuildStats = &materialTableBuildStats;
     sceneLogDesc.materialClassifierStats = &materialClassifierStats;
     sceneLogDesc.materialUniverseStats = &materialUniverseStats;
-    sceneLogDesc.materialUniverseTableCompareStats = &materialUniverseTableCompareStats;
     sceneLogDesc.textureCoverageStats = &textureCoverageStats;
     sceneLogDesc.lastSceneTimingLogMs = &g_smokeLastSceneTimingLogMs;
     sceneLogDesc.sceneRebuildLogged = &m_smokeSceneRebuildLogged;

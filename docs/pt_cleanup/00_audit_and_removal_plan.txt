@@ -1462,3 +1462,31 @@ Working rule for every deletion slice:
     rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both
     equal
     B7C3425846CB2C64467C85A1A136EB0F70538728B34EC7B31FB01D124AB84350.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 09f3d605c. T4.3ac runtime gate closed.
+  - T4.3ad removes two default-off May-era material-universe validators and the
+    redundant one-shot force switch for the still-live timing logger. The
+    record validator rebuilds each already-selected persistent material solely
+    to compare fields and print mismatches. The table validator builds both the
+    legacy and universe tables solely to compare them and optionally substitute
+    the legacy result. Remove both controls, validation branches, record/table
+    comparators, counters/types, mismatch/fixed-zero log columns, and transport.
+    Remove r_pathTracingPassTimingDump and its force/reset branch while
+    preserving the default-on thresholded timing logger. Preserve the default-on
+    material-universe table path, persistent material facts and signatures,
+    active table/cache construction, texture descriptors, cache accessors,
+    declaration-driven materials, clean DI/GI, retained debug modes, and native
+    mode 18. Recent material work uses those active producers and does not call
+    the May validation helpers.
+  - T4.3ad verification: whole-neo sweeps for the three controls, record/table
+    comparator functions and types, validation counters, mismatch labels, and
+    fixed-zero log transport are empty. A scoped live-chain sweep confirms the
+    persistent-record consumer, universe cached-table builder, table cache
+    stats/reset accessors, build stats, texture/material output, and thresholded
+    timing logger remain. The first build exposed that the mechanical comparator
+    deletion also removed two adjacent live cache accessors; restoring those
+    unchanged resolved both linker errors. The final code slice removes 310
+    lines. The full win64-pt-dev-release build passes; both SPIR-V targets report
+    up to date and no DXIL command runs. No SPIR-V is rebuilt, so deploy only
+    RBDoom3BFG.exe. Source and deployed SHA-256 both equal
+    388E82DB36093D3274EE87892C2FC5D1980A075465AA449003F45A8702FB04F2.

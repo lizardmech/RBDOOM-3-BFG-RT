@@ -12,7 +12,6 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceMaterialUniverse.h"
 
-#include <cstring>
 #include <unordered_map>
 
 namespace {
@@ -40,7 +39,6 @@ struct RtSmokeMaterialUniverseKeyHash
 
 std::unordered_map<RtSmokeMaterialUniverseKey, RtSmokePersistentMaterialRecord, RtSmokeMaterialUniverseKeyHash> g_smokePersistentMaterialRecords;
 RtSmokeMaterialUniverseStats g_smokeMaterialUniverseStats;
-int g_smokeMaterialUniverseValidationLogs = 0;
 uint32_t g_smokeNextMaterialUniverseIndex = 0;
 
 uint64 HashSmokeMaterialUniverseValue(uint64 hash, uint64 value)
@@ -334,56 +332,6 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
     return record;
 }
 
-bool SmokePersistentMaterialRecordsEqual(const RtSmokePersistentMaterialRecord& lhs, const RtSmokePersistentMaterialRecord& rhs)
-{
-    return lhs.additiveDecalContribution == rhs.additiveDecalContribution &&
-        lhs.universeIndex == rhs.universeIndex &&
-        lhs.facts.materialId == rhs.facts.materialId &&
-        lhs.facts.universeIndex == rhs.facts.universeIndex &&
-        lhs.facts.materialFlags == rhs.facts.materialFlags &&
-        lhs.facts.isDynamic == rhs.facts.isDynamic &&
-        lhs.facts.hasFallbackAlbedo == rhs.facts.hasFallbackAlbedo &&
-        lhs.facts.fallbackAlbedo == rhs.facts.fallbackAlbedo &&
-        lhs.facts.alphaTested == rhs.facts.alphaTested &&
-        lhs.facts.alphaCutoff == rhs.facts.alphaCutoff &&
-        lhs.facts.diffuseYCoCg == rhs.facts.diffuseYCoCg &&
-        lhs.facts.additiveDecal == rhs.facts.additiveDecal &&
-        lhs.facts.additiveDecalWhiteKey == rhs.facts.additiveDecalWhiteKey &&
-        lhs.facts.filterDecal == rhs.facts.filterDecal &&
-        lhs.facts.filterDecalBlackKey == rhs.facts.filterDecalBlackKey &&
-        lhs.facts.detailDecal == rhs.facts.detailDecal &&
-        lhs.facts.detailDecalDynamic == rhs.facts.detailDecalDynamic &&
-        lhs.facts.detailDecalLiquidPool == rhs.facts.detailDecalLiquidPool &&
-        lhs.facts.liquidFilmHasBloodSemantic == rhs.facts.liquidFilmHasBloodSemantic &&
-        lhs.facts.liquidFilmHasWetReflectStage == rhs.facts.liquidFilmHasWetReflectStage &&
-        lhs.facts.liquidFilmHasCoverageSource == rhs.facts.liquidFilmHasCoverageSource &&
-        lhs.facts.liquidFilmHasWetNormalSource == rhs.facts.liquidFilmHasWetNormalSource &&
-        lhs.facts.liquidFilmExactOverride == rhs.facts.liquidFilmExactOverride &&
-        lhs.facts.liquidFilmCandidate == rhs.facts.liquidFilmCandidate &&
-        lhs.facts.alphaFromDiffuseLuma == rhs.facts.alphaFromDiffuseLuma &&
-        lhs.facts.forceFallbackAlbedo == rhs.facts.forceFallbackAlbedo &&
-        lhs.facts.alphaFromDiffuseDarkKey == rhs.facts.alphaFromDiffuseDarkKey &&
-        lhs.facts.alphaFromDiffuseMagentaKey == rhs.facts.alphaFromDiffuseMagentaKey &&
-        lhs.facts.portalWindowFallback == rhs.facts.portalWindowFallback &&
-        lhs.facts.objectGlassFallback == rhs.facts.objectGlassFallback &&
-        lhs.facts.skyEnvironment == rhs.facts.skyEnvironment &&
-        lhs.facts.emissive == rhs.facts.emissive &&
-        lhs.facts.emissiveLightCandidate == rhs.facts.emissiveLightCandidate &&
-        lhs.facts.emissiveColor == rhs.facts.emissiveColor &&
-        lhs.facts.emissiveLuminance == rhs.facts.emissiveLuminance &&
-        lhs.facts.hasDiffuseImage == rhs.facts.hasDiffuseImage &&
-        lhs.facts.hasSafeDiffuseTexture == rhs.facts.hasSafeDiffuseTexture &&
-        lhs.facts.hasAlphaImage == rhs.facts.hasAlphaImage &&
-        lhs.facts.hasSafeAlphaTexture == rhs.facts.hasSafeAlphaTexture &&
-        lhs.facts.hasNormalImage == rhs.facts.hasNormalImage &&
-        lhs.facts.hasSafeNormalTexture == rhs.facts.hasSafeNormalTexture &&
-        lhs.facts.hasSpecularImage == rhs.facts.hasSpecularImage &&
-        lhs.facts.hasSafeSpecularTexture == rhs.facts.hasSafeSpecularTexture &&
-        lhs.facts.hasEmissiveImage == rhs.facts.hasEmissiveImage &&
-        lhs.facts.hasSafeEmissiveTexture == rhs.facts.hasSafeEmissiveTexture &&
-        lhs.facts.guiTextureCandidate == rhs.facts.guiTextureCandidate &&
-        std::memcmp(&lhs.material, &rhs.material, sizeof(lhs.material)) == 0;
-}
 
 }
 
@@ -393,8 +341,6 @@ void BeginSmokeMaterialUniverseFrame()
     g_smokeMaterialUniverseStats.frameMisses = 0;
     g_smokeMaterialUniverseStats.frameRebuilds = 0;
     g_smokeMaterialUniverseStats.frameSignatureChecks = 0;
-    g_smokeMaterialUniverseStats.frameValidationChecks = 0;
-    g_smokeMaterialUniverseStats.frameValidationMismatches = 0;
 }
 
 void ReserveSmokeMaterialUniverse(size_t expectedMaterialCount)
@@ -409,7 +355,6 @@ void ClearSmokeMaterialUniverse()
 {
     g_smokePersistentMaterialRecords.clear();
     g_smokeMaterialUniverseStats = RtSmokeMaterialUniverseStats();
-    g_smokeMaterialUniverseValidationLogs = 0;
     g_smokeNextMaterialUniverseIndex = 0;
 }
 
@@ -439,27 +384,6 @@ const RtSmokePersistentMaterialRecord& GetSmokePersistentMaterialRecord(uint32_t
     {
         ++g_smokeMaterialUniverseStats.hits;
         ++g_smokeMaterialUniverseStats.frameHits;
-    }
-
-    if (r_pathTracingMaterialUniverseValidate.GetInteger() != 0)
-    {
-        ++g_smokeMaterialUniverseStats.validationChecks;
-        ++g_smokeMaterialUniverseStats.frameValidationChecks;
-        const RtSmokePersistentMaterialRecord validationRecord = BuildSmokePersistentMaterialRecord(materialId, info, signature, record.universeIndex);
-        if (!SmokePersistentMaterialRecordsEqual(record, validationRecord))
-        {
-            ++g_smokeMaterialUniverseStats.validationMismatches;
-            ++g_smokeMaterialUniverseStats.frameValidationMismatches;
-            if (g_smokeMaterialUniverseValidationLogs < 8)
-            {
-                common->Printf("PathTracePrimaryPass: RT smoke material universe validation mismatch materialId=%u material='%s' signature=%llu\n",
-                    materialId,
-                    info.materialName.c_str(),
-                    static_cast<unsigned long long>(signature));
-                ++g_smokeMaterialUniverseValidationLogs;
-            }
-            record = validationRecord;
-        }
     }
 
     return record;

@@ -81,14 +81,10 @@ struct RtSmokeMaterialUniverseStats
     int misses = 0;
     int rebuilds = 0;
     int signatureChecks = 0;
-    int validationChecks = 0;
-    int validationMismatches = 0;
     int frameHits = 0;
     int frameMisses = 0;
     int frameRebuilds = 0;
     int frameSignatureChecks = 0;
-    int frameValidationChecks = 0;
-    int frameValidationMismatches = 0;
 };
 
 void BeginSmokeMaterialUniverseFrame();

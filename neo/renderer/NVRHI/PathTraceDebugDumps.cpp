@@ -336,7 +336,7 @@ void LogPathTraceDispatchTiming(const RtPathTraceDispatchTimingLogDesc& desc)
 
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d bvhPlan=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d staticCache=%d/%d/%d/%d/%dKB staticLife=%d/%d/%d hist=%d/%d dirty=%d staticValidate=%d/%d/%d/%d/%d staticSig=%d/%dms anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialTablePath=%s materialCacheHit=%d materialCache=%d/%d materialBuild=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d materialUniverse=%d/%d/%d/%d/%d sig=%d frame=%d/%d/%d/%d validate=%d/%d frameValidate=%d/%d universeTableCompare=%d/%d material=%d/%d/%d indexes=%d/%d textures=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d bvhPlan=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d staticCache=%d/%d/%d/%d/%dKB staticLife=%d/%d/%d hist=%d/%d dirty=%d staticValidate=%d/%d/%d/%d/%d staticSig=%d/%dms anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialTablePath=%s materialCacheHit=%d materialCache=%d/%d materialBuild=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d materialUniverse=%d/%d/%d/%d/%d sig=%d frame=%d/%d/%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
         desc.sceneMs,
         desc.captureMs,
         desc.captureAnchorMs,
@@ -414,19 +414,6 @@ void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
         desc.materialUniverseStats.frameMisses,
         desc.materialUniverseStats.frameRebuilds,
         desc.materialUniverseStats.frameSignatureChecks,
-        desc.materialUniverseStats.validationChecks,
-        desc.materialUniverseStats.validationMismatches,
-        desc.materialUniverseStats.frameValidationChecks,
-        desc.materialUniverseStats.frameValidationMismatches,
-        desc.materialUniverseTableCompareStats.checks,
-        desc.materialUniverseTableCompareStats.mismatches,
-        desc.materialUniverseTableCompareStats.materialCountMismatches,
-        desc.materialUniverseTableCompareStats.materialIdMismatches,
-        desc.materialUniverseTableCompareStats.materialRecordMismatches,
-        desc.materialUniverseTableCompareStats.staticIndexMismatches,
-        desc.materialUniverseTableCompareStats.dynamicIndexMismatches,
-        desc.materialUniverseTableCompareStats.textureCountMismatches,
-        desc.materialUniverseTableCompareStats.textureHandleMismatches,
         desc.materialMetadataCacheEnabled ? 1 : 0,
         desc.metadataCacheRefreshes,
         desc.metadataFullDiscovers,
@@ -565,7 +552,7 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.materialTableBuildStats.tableMaterials,
         desc.materialTableBuildStats.safeMaterials,
         desc.materialTableBuildStats.descriptorTextures);
-    common->Printf("PathTracePrimaryPass: RT smoke material universe records=%d universeMaterials=%d hits=%d misses=%d rebuilds=%d sig=%d frame=%d/%d/%d/%d validation=%d/%d frameValidation=%d/%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke material universe records=%d universeMaterials=%d hits=%d misses=%d rebuilds=%d sig=%d frame=%d/%d/%d/%d\n",
         desc.materialUniverseStats.records,
         desc.materialUniverseStats.universeMaterials,
         desc.materialUniverseStats.hits,
@@ -575,21 +562,7 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.materialUniverseStats.frameHits,
         desc.materialUniverseStats.frameMisses,
         desc.materialUniverseStats.frameRebuilds,
-        desc.materialUniverseStats.frameSignatureChecks,
-        desc.materialUniverseStats.validationChecks,
-        desc.materialUniverseStats.validationMismatches,
-        desc.materialUniverseStats.frameValidationChecks,
-        desc.materialUniverseStats.frameValidationMismatches);
-    common->Printf("PathTracePrimaryPass: RT smoke material universe table compare checks=%d mismatches=%d material=%d/%d/%d indexes=%d/%d textures=%d/%d\n",
-        desc.materialUniverseTableCompareStats.checks,
-        desc.materialUniverseTableCompareStats.mismatches,
-        desc.materialUniverseTableCompareStats.materialCountMismatches,
-        desc.materialUniverseTableCompareStats.materialIdMismatches,
-        desc.materialUniverseTableCompareStats.materialRecordMismatches,
-        desc.materialUniverseTableCompareStats.staticIndexMismatches,
-        desc.materialUniverseTableCompareStats.dynamicIndexMismatches,
-        desc.materialUniverseTableCompareStats.textureCountMismatches,
-        desc.materialUniverseTableCompareStats.textureHandleMismatches);
+        desc.materialUniverseStats.frameSignatureChecks);
     if (r_pathTracingMatClassEnable.GetInteger() != 0)
     {
         common->Printf("PathTracePrimaryPass: RT smoke material classifier records=%d hits=%d misses=%d rebuilds=%d frame=%d/%d/%d routes(rmao/legacy/fallback)=%d/%d/%d confidence(auth/flag/heur/fallback)=%d/%d/%d/%d compositing(stages/max/>4/>8)=%d/%d/%d/%d ops(opaque/add/mul/invert/over/clip/unknown)=%d/%d/%d/%d/%d/%d/%d\n",
@@ -1347,7 +1320,7 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
 {
     if (!desc.lastSceneTimingLogMs || !desc.sceneRebuildLogged || !desc.sceneLogCooldownFrames ||
         !desc.classStats || !desc.skipStats || !desc.dynamicStats || !desc.attributeStats ||
-        !desc.materialStats || !desc.bucketRanges || !desc.materialTable || !desc.emissiveInventoryStats || !desc.materialTableCacheStats || !desc.materialTableBuildStats || !desc.materialUniverseStats || !desc.materialUniverseTableCompareStats || !desc.textureCoverageStats)
+        !desc.materialStats || !desc.bucketRanges || !desc.materialTable || !desc.emissiveInventoryStats || !desc.materialTableCacheStats || !desc.materialTableBuildStats || !desc.materialUniverseStats || !desc.textureCoverageStats)
     {
         return;
     }
@@ -1414,7 +1387,6 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
         slowLog.materialTableCacheMisses = desc.materialTableCacheStats->misses;
         slowLog.materialTableBuildStats = *desc.materialTableBuildStats;
         slowLog.materialUniverseStats = *desc.materialUniverseStats;
-        slowLog.materialUniverseTableCompareStats = *desc.materialUniverseTableCompareStats;
         slowLog.materialUniverseMaterialCount = desc.materialUniverseStats->universeMaterials;
         slowLog.materialMetadataCacheEnabled = r_pathTracingMaterialMetadataCache.GetInteger() != 0;
         slowLog.metadataCacheRefreshes = g_smokeMaterialMetadataFrameStats.cacheRefreshes;
@@ -1538,7 +1510,6 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
         sceneSummaryLog.materialClassifierStats = *desc.materialClassifierStats;
     }
     sceneSummaryLog.materialUniverseStats = *desc.materialUniverseStats;
-    sceneSummaryLog.materialUniverseTableCompareStats = *desc.materialUniverseTableCompareStats;
     sceneSummaryLog.materialStats = desc.materialStats;
     sceneSummaryLog.materialTable = desc.materialTable;
     sceneSummaryLog.emissiveInventoryStats = desc.emissiveInventoryStats;
