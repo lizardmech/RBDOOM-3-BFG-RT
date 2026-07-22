@@ -36,7 +36,6 @@ const uint32_t CLEAN_TEMPORAL_DIAG_TEMPORAL_OUTPUT_CHANGED = 1u << 15u;
 const uint32_t CLEAN_TEMPORAL_DIAG_TEMPORAL_SAMPLE_PIXEL_VALID = 1u << 16u;
 const uint32_t CLEAN_TEMPORAL_DIAG_PREVIOUS_PIXEL_IN_BOUNDS = 1u << 17u;
 int g_smokeLastReadbackTimingLogMs = -1000000;
-int g_dlssRrInputDumpLastWaitingFrame = -1000000;
 int g_liquidPoolProbeX = -1;
 int g_liquidPoolProbeY = -1;
 int g_liquidPoolProbeWidth = 0;
@@ -45,21 +44,6 @@ uint32_t g_liquidPoolProbeStatus = 0u;
 
 const uint32_t LIQUID_POOL_STATUS_RECEIVER_VALID = 1u << 1u;
 const uint32_t LIQUID_POOL_STATUS_APPLIED = 1u << 2u;
-
-const char* DLSSRRInputDumpSourceName(int source)
-{
-    switch (source)
-    {
-        case 1: return "clean_di";
-        case 2: return "restir_pt";
-        default: return "unknown";
-    }
-}
-
-float SanitizeDLSSRRInputDumpValue(float value)
-{
-    return value == value ? value : 0.0f;
-}
 
 enum class RigidRouteOverlapBucket
 {
@@ -180,89 +164,6 @@ void AccumulateRigidRouteOverlapBucket(RigidRouteOverlapCounts& counts, RigidRou
 
 }
 
-void PathTracePrimaryPass::ReadBackDLSSRRInputColorDump()
-{
-    if (!m_frameResources.rrInputColorDumpQueued || !m_frameResources.rrInputColorDumpReadbackTexture)
-    {
-        if (r_pathTracingDLSSRRInputDump.GetInteger() != 0 &&
-            static_cast<int>(m_frameResources.restirPTFrameIndex) - g_dlssRrInputDumpLastWaitingFrame >= 120)
-        {
-            g_dlssRrInputDumpLastWaitingFrame = static_cast<int>(m_frameResources.restirPTFrameIndex);
-            common->Printf("PathTraceDLSSRR: input HDR EXR dump armed; waiting for a DLSS RR evaluate frame (r_pathTracingDLSSRR=%d, debugMode=%d)\n",
-                r_pathTracingDLSSRR.GetInteger(),
-                r_pathTracingDebugMode.GetInteger());
-        }
-        return;
-    }
-    if (m_frameResources.rrInputColorDumpDelayFrames > 0)
-    {
-        --m_frameResources.rrInputColorDumpDelayFrames;
-        return;
-    }
-
-    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
-    if (!device)
-    {
-        return;
-    }
-
-    const int width = m_frameResources.width;
-    const int height = m_frameResources.height;
-    if (width <= 0 || height <= 0)
-    {
-        m_frameResources.rrInputColorDumpQueued = false;
-        return;
-    }
-
-    const int dumpStartMs = Sys_Milliseconds();
-    device->waitForIdle();
-
-    size_t rowPitch = 0;
-    void* readbackData = device->mapStagingTexture(m_frameResources.rrInputColorDumpReadbackTexture, nvrhi::TextureSlice(), nvrhi::CpuAccessMode::Read, &rowPitch);
-    if (!readbackData)
-    {
-        common->Printf("PathTraceDLSSRR: input HDR EXR dump map failed\n");
-        m_frameResources.rrInputColorDumpQueued = false;
-        return;
-    }
-    m_frameResources.RecordReadbackMapped();
-
-    const byte* readbackBytes = static_cast<const byte*>(readbackData);
-    std::vector<halfFloat_t> rgb16f;
-    rgb16f.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 3u);
-
-    for (int y = 0; y < height; ++y)
-    {
-        const float* row = reinterpret_cast<const float*>(readbackBytes + rowPitch * y);
-        for (int x = 0; x < width; ++x)
-        {
-            const float* rgba = row + x * 4;
-            const size_t outIndex = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 3u;
-            rgb16f[outIndex + 0u] = F32toF16(SanitizeDLSSRRInputDumpValue(rgba[0]));
-            rgb16f[outIndex + 1u] = F32toF16(SanitizeDLSSRRInputDumpValue(rgba[1]));
-            rgb16f[outIndex + 2u] = F32toF16(SanitizeDLSSRRInputDumpValue(rgba[2]));
-        }
-    }
-
-    idStr filename;
-    filename.Format(
-        "screenshots/dlssrr_input_%s_%06u.exr",
-        DLSSRRInputDumpSourceName(m_frameResources.rrInputColorDumpSource),
-        static_cast<unsigned int>(m_frameResources.rrInputColorDumpFrameIndex));
-    R_WriteEXR(filename.c_str(), rgb16f.data(), 3, width, height, "fs_basepath");
-
-    device->unmapStagingTexture(m_frameResources.rrInputColorDumpReadbackTexture);
-    m_frameResources.RecordReadbackUnmapped();
-    m_frameResources.rrInputColorDumpQueued = false;
-
-    common->Printf("Wrote %s\n", filename.c_str());
-    common->Printf("PathTraceDLSSRR: wrote input HDR EXR dump %s (%dx%d, %d ms)\n",
-        filename.c_str(),
-        width,
-        height,
-        Sys_Milliseconds() - dumpStartMs);
-}
-
 void PathTracePrimaryPass::ReadBackSkyCubeProbe()
 {
     if (!m_smokeSkyCubeProbeReadbackQueued || !m_smokeSkyCubeProbeReadbackTexture)
@@ -364,7 +265,6 @@ void PathTracePrimaryPass::ReadBackLiquidPoolStatus()
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
     ReadBackSkyCubeProbe();
-    ReadBackDLSSRRInputColorDump();
     ReadBackLiquidPoolStatus();
 
     const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));

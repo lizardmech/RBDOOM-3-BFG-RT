@@ -1513,3 +1513,27 @@ Working rule for every deletion slice:
     report up to date and no DXIL command runs. No SPIR-V is rebuilt, so deploy
     only RBDoom3BFG.exe. Source and deployed SHA-256 both equal
     319374CA9A1E04C31991859CBFBB0814E8B4D446A2A22F6550DD8B3ABBD687E9.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit f35aee225. T4.3ae runtime gate closed.
+  - T4.3af removes the June 24 one-shot DLSS RR input-color EXR dump. Its
+    default-off control only queues a copy immediately before clean-DI RR
+    evaluation, waits on the CPU, converts the full image to half float, and
+    writes a diagnostic file. Remove the control, queue/readback functions,
+    filename/value helpers, waiting log, staging state, and frame-resource
+    transport. The dump also forced an RGBA32F render-resolution staging texture
+    to be allocated and validated on every frame-resource resize even while
+    disabled; remove that unconditional allocation and reduce the diagnostic
+    readback-resource count. Preserve the RR input color texture, guide textures,
+    clean-DI evaluate call, Streamline probe, quality/exposure/reset controls,
+    RR guide debug view, and ordinary PT/clean temporal readbacks. No last-day
+    rendering feature consumes the June dump path.
+  - T4.3af verification: whole-neo sweeps for the CVar, queue/readback functions,
+    staging texture/queue fields, source/value helpers, and log labels are empty.
+    A scoped live-chain sweep confirms the RR input UAV, clean-DI producer,
+    boiling-filter path, guide resources, state transitions, and
+    PathTraceDLSSRRBridge_Evaluate call remain. The code slice deletes 175 lines
+    with one diagnostic-counter simplification. The full
+    win64-pt-dev-release build passes; both SPIR-V targets report up to date and
+    no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
+    Source and deployed SHA-256 both equal
+    5F40F5BC89B1B20D7D6C25F245232AAB7B727F28845C6752B87C1505751FC314.

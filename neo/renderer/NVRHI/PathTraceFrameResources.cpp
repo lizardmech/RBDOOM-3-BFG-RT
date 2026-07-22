@@ -125,7 +125,6 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         TextureSizeMatches(rrGuideResetMaskTexture, requestedWidth, requestedHeight) &&
         TextureSizeMatches(rrGuidePositionTexture, requestedWidth, requestedHeight) &&
         readbackTexture &&
-        rrInputColorDumpReadbackTexture &&
         primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight)) &&
         width == requestedWidth &&
         height == requestedHeight &&
@@ -155,7 +154,6 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         rrGuideResetMaskTexture ||
         rrGuidePositionTexture ||
         readbackTexture ||
-        rrInputColorDumpReadbackTexture ||
         primarySurfaceHistoryBuffers.current ||
         primarySurfaceHistoryBuffers.previous;
 }
@@ -384,20 +382,6 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
-    nvrhi::TextureDesc rrInputReadbackDesc = renderDesc;
-    rrInputReadbackDesc.isShaderResource = false;
-    rrInputReadbackDesc.isUAV = false;
-    rrInputReadbackDesc.initialState = nvrhi::ResourceStates::Unknown;
-    rrInputReadbackDesc.keepInitialState = false;
-    rrInputReadbackDesc.debugName = "PathTraceRRInputColorDumpReadback";
-
-    nvrhi::StagingTextureHandle newRrInputColorDumpReadbackTexture = device->createStagingTexture(rrInputReadbackDesc, nvrhi::CpuAccessMode::Read);
-    if (!newRrInputColorDumpReadbackTexture)
-    {
-        common->Printf("PathTraceFrameResources: failed to create PT RR input-color dump readback texture (%dx%d)\n", requestedWidth, requestedHeight);
-        return false;
-    }
-
     const bool primaryHistoryWasValid = primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight));
 
     outputTexture = newOutputTexture;
@@ -419,7 +403,6 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     rrGuideResetMaskTexture = newRrGuideResetMaskTexture;
     rrGuidePositionTexture = newRrGuidePositionTexture;
     readbackTexture = newReadbackTexture;
-    rrInputColorDumpReadbackTexture = newRrInputColorDumpReadbackTexture;
     width = requestedWidth;
     height = requestedHeight;
     outputWidth = requestedOutputWidth;
@@ -428,7 +411,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     diagnostics.motionVectorTexturesCreated += 2;
     diagnostics.motionVectorMaskTexturesCreated++;
     diagnostics.rrGuideTexturesCreated += 7;
-    diagnostics.diagnosticReadbackResourcesCreated += 2;
+    diagnostics.diagnosticReadbackResourcesCreated++;
     diagnostics.outputTextureBytes =
         EstimateRgba32FloatTextureBytes(outputWidth, outputHeight) * 2ull +
         EstimateRgba32FloatTextureBytes(width, height) * 4ull +
@@ -518,7 +501,6 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     rrGuideResetMaskTexture = nullptr;
     rrGuidePositionTexture = nullptr;
     readbackTexture = nullptr;
-    rrInputColorDumpReadbackTexture = nullptr;
     width = 0;
     height = 0;
     outputWidth = 0;
@@ -549,10 +531,6 @@ void RtPathTraceFrameResources::ResetReadbackQueue()
     readbackQueued = false;
     readbackDelayFrames = 0;
     readbackCooldownFrames = 0;
-    rrInputColorDumpQueued = false;
-    rrInputColorDumpDelayFrames = 0;
-    rrInputColorDumpSource = 0;
-    rrInputColorDumpFrameIndex = 0;
 }
 
 void RtPathTraceFrameResources::MarkResetReason(uint32_t reasonFlags)

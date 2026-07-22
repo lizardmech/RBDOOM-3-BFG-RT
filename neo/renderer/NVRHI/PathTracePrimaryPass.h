@@ -236,8 +236,6 @@ private:
     void ReadBackRayTracingSmokeTest();
     void ReadBackSkyCubeProbe();
     void ReadBackLiquidPoolStatus();
-    void ReadBackDLSSRRInputColorDump();
-    void QueueDLSSRRInputColorDump(nvrhi::ICommandList* commandList, nvrhi::ITexture* inputColor, int source, uint32_t frameIndex);
     void ExecutePathTraceParticleComposite(nvrhi::ICommandList* commandList, const viewDef_t* viewDef);
 
     idRenderBackend* m_backend;

@@ -2118,12 +2118,6 @@ idCVar r_pathTracingDLSSRRMode(
     CVAR_RENDERER | CVAR_INTEGER,
     "DLSS RR quality mode: 0 = DLAA/native, 1 = Quality, 2 = Balanced, 3 = Performance, 4 = Ultra Performance, 5 = Ultra Quality" );
 
-idCVar r_pathTracingDLSSRRInputDump(
-    "r_pathTracingDLSSRRInputDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot HDR EXR dump of the next DLSS RR input color buffer under the basepath screenshots/dlssrr_input_*.exr" );
-
 idCVar r_pathTracingDLSSRRColorBuffersHDR(
     "r_pathTracingDLSSRRColorBuffersHDR",
     "1",

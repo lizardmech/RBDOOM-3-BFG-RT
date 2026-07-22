@@ -714,43 +714,6 @@ double PathTraceMicrosecondsToMilliseconds(uint64 elapsedUs)
 
 }
 
-void PathTracePrimaryPass::QueueDLSSRRInputColorDump(nvrhi::ICommandList* commandList, nvrhi::ITexture* inputColor, int source, uint32_t frameIndex)
-{
-    if (r_pathTracingDLSSRRInputDump.GetInteger() == 0)
-    {
-        return;
-    }
-    if (!commandList || !inputColor || !m_frameResources.rrInputColorDumpReadbackTexture)
-    {
-        common->Printf("PathTraceDLSSRR: input HDR EXR dump armed but missing command/input/staging command=%d input=%d staging=%d\n",
-            commandList ? 1 : 0,
-            inputColor ? 1 : 0,
-            m_frameResources.rrInputColorDumpReadbackTexture ? 1 : 0);
-        return;
-    }
-    if (m_frameResources.rrInputColorDumpQueued)
-    {
-        return;
-    }
-
-    commandList->setTextureState(inputColor, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
-    commandList->commitBarriers();
-    commandList->copyTexture(m_frameResources.rrInputColorDumpReadbackTexture, nvrhi::TextureSlice(), inputColor, nvrhi::TextureSlice());
-    commandList->setTextureState(inputColor, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-    commandList->commitBarriers();
-
-    m_frameResources.rrInputColorDumpQueued = true;
-    m_frameResources.rrInputColorDumpDelayFrames = 2;
-    m_frameResources.rrInputColorDumpSource = source;
-    m_frameResources.rrInputColorDumpFrameIndex = frameIndex;
-    m_frameResources.RecordReadbackQueued();
-    r_pathTracingDLSSRRInputDump.SetInteger(0);
-
-    common->Printf("PathTraceDLSSRR: queued input HDR EXR dump source=%d frame=%u\n",
-        source,
-        static_cast<unsigned int>(frameIndex));
-}
-
 size_t GetPathTraceSmokeConstantsSize()
 {
     return sizeof(PathTraceSmokeConstants);
@@ -3743,7 +3706,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     m_frameResources.primarySurfaceHistoryNeedsClear ? 1 : 0,
                     static_cast<unsigned int>( m_frameResources.settings.resetReasonFlags ) );
             }
-            QueueDLSSRRInputColorDump(commandList, m_frameResources.rrInputColorTexture, 1, cleanConstants.frameIndex);
             const bool cleanRrEvaluated = PathTraceDLSSRRBridge_Evaluate(
                 commandList,
                 m_frameResources.rrInputColorTexture,
