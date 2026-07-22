@@ -582,13 +582,11 @@ float idConsoleLocal::DrawFPS( float y )
 			ImGui::Text( "view=%d route=%s", cleanGui.view, cleanGui.route );
 			ImGui::TextWrapped( "%s", cleanGui.behavior );
 			ImGui::Separator();
-			ImGui::Text( "enable=%d temporal=%d spatial=%d best=%d denoiser=%d fallback=%d",
+			ImGui::Text( "enable=%d temporal=%d spatial=%d best=%d",
 				cleanGui.enabled ? 1 : 0,
 				cleanGui.temporal ? 1 : 0,
 				cleanGui.spatial ? 1 : 0,
-				cleanGui.bestLights ? 1 : 0,
-				cleanGui.denoiser ? 1 : 0,
-				cleanGui.fallback ? 1 : 0 );
+				cleanGui.bestLights ? 1 : 0 );
 			ImGui::Text( "lightMode=%d candidates=%u override=%d domain portal/full=%d/%d",
 				cleanGui.lightMode,
 				cleanGui.cleanCandidates,

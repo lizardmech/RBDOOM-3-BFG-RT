@@ -8,8 +8,6 @@ struct PathTraceCleanRtxdiDiGuiSnapshot
     bool temporal = false;
     bool spatial = false;
     bool bestLights = false;
-    bool denoiser = false;
-    bool fallback = false;
     bool externalPdfNeeCurrent = false;
     bool regirEnabled = false;
     bool subview = false;

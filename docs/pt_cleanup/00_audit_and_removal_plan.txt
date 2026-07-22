@@ -1235,3 +1235,20 @@ Working rule for every deletion slice:
     rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both
     equal
     B13780BC43ED7A14328A04DAEDF2A1B0DCFBE42898806EDA5DAD26F9703EE8D1.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit b52485fd6. T4.3r runtime gate closed.
+  - T4.3s removes five controls with no rendering consumer. The drawSurf
+    residency gate and the deprecated max-distance/anti-culling controls occur
+    only in their CVar definitions and declarations; no symbol or string lookup
+    reads them. The reserved clean-DI denoiser and fallback-lighting controls
+    feed only the one-shot dump and ImGui labels. Remove those two label fields
+    and formatter entries with the controls. Preserve every active residency
+    gate, clean-DI dispatch flag, shader constant, resource and history policy,
+    debug view, and material-feature control. None of the five symbols changed
+    during the recent feature window.
+  - T4.3s verification: whole-neo sweeps for all five controls and both removed
+    GUI fields are empty. The full win64-pt-dev-release build passes; both
+    SPIR-V targets report up to date and no DXIL command runs. No SPIR-V is
+    rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both
+    equal
+    CB5F1AD84B9DFBAE118EB0FDB4680943EDE673083455F1EFEE341A07CA764480.

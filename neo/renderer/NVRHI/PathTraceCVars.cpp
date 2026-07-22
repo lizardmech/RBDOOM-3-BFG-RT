@@ -399,12 +399,6 @@ idCVar r_pathTracingResidencyMaterial(
     CVAR_RENDERER | CVAR_INTEGER,
     "Gate for material residency caches. Active only when r_pathTracingResidency is also non-zero." );
 
-idCVar r_pathTracingResidencyDrawSurf(
-    "r_pathTracingResidencyDrawSurf",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Gate for drawSurf mirror residency caches. Active only when r_pathTracingResidency is also non-zero." );
-
 idCVar r_pathTracingResidencyLights(
     "r_pathTracingResidencyLights",
     "1",
@@ -434,18 +428,6 @@ idCVar r_pathTracingResidencyMeshFramesToKeep(
     "900",
     CVAR_RENDERER | CVAR_INTEGER,
     "Frames an unreferenced rigid mesh/BLAS cache record survives after it was last seen; resident instances keep their mesh regardless of this window" );
-
-idCVar r_pathTracingResidencyMaxDistance(
-    "r_pathTracingResidencyMaxDistance",
-    "0",
-    CVAR_RENDERER | CVAR_FLOAT,
-    "Deprecated V2 far safety valve for cached rigid residency; 0 disables distance pruning so frustum anti-culling is the selector" );
-
-idCVar r_pathTracingResidencyAntiCulling(
-    "r_pathTracingResidencyAntiCulling",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Deprecated/no-op under V2; retained rigid residency always uses the frustum anti-culling selector" );
 
 idCVar r_pathTracingResidencyRouteCached(
     "r_pathTracingResidencyRouteCached",
@@ -1394,18 +1376,6 @@ idCVar r_pathTracingCleanRtxdiDiBestLights(
     "1",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI RLU-13 previous-best seed switch; default-on projected previous temporal reservoir approximation, not full Remix best-light parity; set 0 for RLU-12 random-only testing" );
-
-idCVar r_pathTracingCleanRtxdiDiDenoiser(
-    "r_pathTracingCleanRtxdiDiDenoiser",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Reserved clean-room Remix DI denoiser/confidence/gradient switch; must remain off for reservoir-only proof" );
-
-idCVar r_pathTracingCleanRtxdiDiFallbackLighting(
-    "r_pathTracingCleanRtxdiDiFallbackLighting",
-    "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Reserved clean-room Remix DI beauty fallback switch; proof views must keep this off and use explicit status colors" );
 
 idCVar r_pathTracingCleanRtxdiDiLightMode(
     "r_pathTracingCleanRtxdiDiLightMode",
