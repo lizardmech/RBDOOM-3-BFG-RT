@@ -299,7 +299,6 @@ extern idCVar r_pathTracingCleanRestirGiResolveGain;
 extern idCVar r_pathTracingCleanRestirGiFinalMix;
 extern idCVar r_pathTracingCleanRestirGiBoilingFilter;
 extern idCVar r_pathTracingCleanRestirGiBoilingFilterMax;
-extern idCVar r_pathTracingCleanRestirGiDump;
 extern idCVar r_pathTracingDLSSRRGuideDebugView;
 extern idCVar r_pathTracingDLSSRRProbe;
 extern idCVar r_pathTracingDLSSRR;

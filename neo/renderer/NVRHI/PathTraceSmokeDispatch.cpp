@@ -3559,8 +3559,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingDLSSRR.GetInteger() != 0 &&
             r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
         const bool cleanGiDispatchRequested =
-            r_pathTracingCleanRestirGiEnable.GetInteger() != 0 ||
-            r_pathTracingCleanRestirGiDump.GetInteger() != 0;
+            r_pathTracingCleanRestirGiEnable.GetInteger() != 0;
         const bool cleanGiView0ResolveRequested =
             r_pathTracingCleanRestirGiView.GetInteger() == 0 &&
             r_pathTracingCleanRestirGiResolve.GetInteger() != 0;

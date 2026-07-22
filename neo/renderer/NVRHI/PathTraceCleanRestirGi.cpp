@@ -1029,51 +1029,6 @@ bool PathTraceCleanRestirGiExecute(
     PathTraceCleanRestirGiState& state,
     const PathTraceCleanRestirGiDispatchInputs& inputs)
 {
-    const bool dumpRequested = r_pathTracingCleanRestirGiDump.GetInteger() != 0;
-    auto printDump = [&](const char* earlyReturn)
-    {
-        if (!dumpRequested)
-        {
-            return;
-        }
-        common->Printf(
-            "PathTraceCleanRestirGi DUMP enable=%d view=%d temporal=%d spatial=%d biasCorrection=%d jacobian=%d "
-            "maxHistory=%d maxAge=%d firefly=%.3f neeSeed=%d specProd=%d glossy2=%d glossy2Rough=%.2f rrHitDistance=%d rrSpecInput=%d resolve=%d finalMix=%d size=%dx%d frame=%u "
-            "reservoirBuffer=%s pages[init=%u tIn=%u tOut=%u sOut=%u] arrayPitch=%u producerTex=%d pipeline=%d "
-            "diBlob=%d lights=%d earlyReturn=%s\n",
-            r_pathTracingCleanRestirGiEnable.GetInteger(),
-            r_pathTracingCleanRestirGiView.GetInteger(),
-            r_pathTracingCleanRestirGiTemporal.GetInteger(),
-            r_pathTracingCleanRestirGiSpatial.GetInteger(),
-            r_pathTracingCleanRestirGiTemporalBiasCorrection.GetInteger(),
-            r_pathTracingCleanRestirGiJacobian.GetInteger(),
-            r_pathTracingCleanRestirGiMaxHistoryLength.GetInteger(),
-            r_pathTracingCleanRestirGiMaxReservoirAge.GetInteger(),
-            r_pathTracingCleanRestirGiFireflyThreshold.GetFloat(),
-            r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger(),
-            r_pathTracingCleanRestirGiSpecularProducer.GetInteger(),
-            r_pathTracingCleanRestirGiGlossySecondRay.GetInteger(),
-            r_pathTracingCleanRestirGiGlossySecondRayRoughness.GetFloat(),
-            r_pathTracingCleanRestirGiRrHitDistance.GetInteger(),
-            r_pathTracingCleanRestirGiRrSpecularInput.GetInteger(),
-            r_pathTracingCleanRestirGiResolve.GetInteger(),
-            r_pathTracingCleanRestirGiFinalMix.GetInteger(),
-            inputs.width,
-            inputs.height,
-            state.frameIndex,
-            state.reservoirBuffer ? "u80" : "none",
-            CLEAN_RESTIR_GI_PAGE_INIT,
-            CLEAN_RESTIR_GI_PAGE_TEMPORAL_INPUT,
-            CLEAN_RESTIR_GI_PAGE_TEMPORAL_OUTPUT,
-            CLEAN_RESTIR_GI_PAGE_SPATIAL_OUTPUT,
-            state.reservoirArrayPitch,
-            (state.producerRadianceTexture && state.producerHitPositionTexture && state.producerHitNormalTexture) ? 1 : 0,
-            state.shaderTable ? 1 : 0,
-            inputs.diConstantsBlob ? 1 : 0,
-            inputs.doomAnalyticLightBuffer ? 1 : 0,
-            earlyReturn);
-        r_pathTracingCleanRestirGiDump.SetInteger(0);
-    };
     auto clearFailureOutput = [&]()
     {
         if (!inputs.commandList || !inputs.outputTexture)
@@ -1084,55 +1039,8 @@ bool PathTraceCleanRestirGiExecute(
         inputs.commandList->commitBarriers();
         inputs.commandList->clearTextureFloat(inputs.outputTexture, nvrhi::AllSubresources, nvrhi::Color(0.75f, 0.0f, 0.75f, 1.0f));
     };
-    auto missingResource = [&]() -> const char*
-    {
-        if (!inputs.device) return "device";
-        if (!inputs.commandList) return "command-list";
-        if (!inputs.outputTexture) return "output-texture";
-        if (!inputs.textureBindlessLayout) return "texture-bindless-layout";
-        if (!inputs.textureDescriptorTable) return "texture-descriptor-table";
-        if (inputs.width <= 0 || inputs.height <= 0) return "extent";
-        if (!inputs.diConstantsBlob) return "di-constants";
-        if (inputs.diConstantsSize == 0 || inputs.diConstantsSize > CLEAN_RESTIR_GI_DI_BLOB_SIZE) return "di-constants-size";
-        if (!inputs.tlas) return "tlas";
-        if (!inputs.staticVertexBuffer) return "static-vertex";
-        if (!inputs.staticIndexBuffer) return "static-index";
-        if (!inputs.dynamicVertexBuffer) return "dynamic-vertex";
-        if (!inputs.dynamicIndexBuffer) return "dynamic-index";
-        if (!inputs.staticTriangleClassBuffer) return "static-triangle-class";
-        if (!inputs.dynamicTriangleClassBuffer) return "dynamic-triangle-class";
-        if (!inputs.staticTriangleMaterialBuffer) return "static-triangle-material";
-        if (!inputs.dynamicTriangleMaterialBuffer) return "dynamic-triangle-material";
-        if (!inputs.staticTriangleMaterialIndexBuffer) return "static-triangle-material-index";
-        if (!inputs.dynamicTriangleMaterialIndexBuffer) return "dynamic-triangle-material-index";
-        if (!inputs.materialTableBuffer) return "material-table";
-        if (!inputs.liquidPoolStatusBuffer) return "liquid-pool-status";
-        if (!inputs.fallbackTexture) return "fallback-texture";
-        if (!inputs.emissiveTriangleBuffer) return "emissive-triangles";
-        if (!inputs.emissiveDistributionBuffer) return "emissive-distribution";
-        if (!inputs.rigidRouteVertexBuffer) return "rigid-route-vertex";
-        if (!inputs.rigidRouteIndexBuffer) return "rigid-route-index";
-        if (!inputs.rigidRouteTriangleMaterialBuffer) return "rigid-route-triangle-material";
-        if (!inputs.rigidRouteTriangleMaterialIndexBuffer) return "rigid-route-triangle-material-index";
-        if (!inputs.rigidRouteInstanceBuffer) return "rigid-route-instance";
-        if (!inputs.doomAnalyticLightBuffer) return "doom-analytic-lights";
-        if (!inputs.rluCurrentLightBuffer) return "rlu-current-lights";
-        if (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) return "nee-cache-provider-results";
-        if (!inputs.diReservoirBuffer) return "di-reservoir";
-        if (!inputs.primarySurfaceCurrentBuffer) return "primary-surface-current";
-        if (!inputs.primarySurfacePreviousBuffer) return "primary-surface-previous";
-        if (!inputs.motionVectorTexture) return "motion-vectors";
-        if (!inputs.motionVectorMaskTexture) return "motion-vector-mask";
-        if (!inputs.rrInputColorTexture) return "rr-input-color";
-        if (!inputs.rrGuideAlbedoTexture) return "rr-guide-albedo";
-        if (!inputs.rrGuideHitDistanceTexture) return "rr-guide-hit-distance";
-        if (!inputs.materialSampler) return "material-sampler";
-        return nullptr;
-    };
-
     if (r_pathTracingCleanRestirGiEnable.GetInteger() == 0)
     {
-        printDump("disabled");
         return false;
     }
 
@@ -1147,7 +1055,6 @@ bool PathTraceCleanRestirGiExecute(
     if (view == 0 && r_pathTracingCleanRestirGiResolve.GetInteger() == 0 && !rrHitDistanceRequested && !rrSpecularInputRequested)
     {
         // Nothing consumes the lane yet without a debug view or resolve.
-        printDump("no-view");
         return false;
     }
 
@@ -1174,20 +1081,17 @@ bool PathTraceCleanRestirGiExecute(
         !inputs.materialSampler)
     {
         clearFailureOutput();
-        printDump(missingResource());
         return false;
     }
 
     if (!CleanRestirGiEnsurePipeline(state, inputs))
     {
         clearFailureOutput();
-        printDump("pipeline");
         return false;
     }
     if (!CleanRestirGiEnsureResources(state, inputs))
     {
         clearFailureOutput();
-        printDump("resources");
         return false;
     }
     // Non-fatal for missing/malformed masks: the helper still leaves a dummy
@@ -1200,7 +1104,6 @@ bool PathTraceCleanRestirGiExecute(
     if (!state.blueNoise.texture)
     {
         clearFailureOutput();
-        printDump("blue-noise-texture");
         return false;
     }
 
@@ -1265,7 +1168,6 @@ bool PathTraceCleanRestirGiExecute(
     if (!bindingSet)
     {
         clearFailureOutput();
-        printDump("binding-set");
         return false;
     }
 
@@ -1948,7 +1850,6 @@ bool PathTraceCleanRestirGiExecute(
         common->Printf("PathTraceCleanRestirGi: dispatched GI lane (%dx%d, view=%d)\n", inputs.width, inputs.height, view);
         state.dispatchLogged = true;
     }
-    printDump("none");
     state.frameIndex++;
     return view != 0;
 }

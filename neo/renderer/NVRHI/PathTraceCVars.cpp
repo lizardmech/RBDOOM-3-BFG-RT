@@ -1755,12 +1755,6 @@ idCVar r_pathTracingCleanRestirGiBoilingFilterMax(
     CVAR_RENDERER | CVAR_FLOAT,
     "Clean-room ReSTIR GI boiling filter max threshold when surface normal faces the view; deployed-game reference (HL2 RTX) uses 20" );
 
-idCVar r_pathTracingCleanRestirGiDump(
-    "r_pathTracingCleanRestirGiDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI one-shot CPU dump of route state, resource/page roles, and dispatch dimensions; auto-clears" );
-
 idCVar r_pathTracingDispatchTileEnable(
     "r_pathTracingDispatchTileEnable",
     "0",

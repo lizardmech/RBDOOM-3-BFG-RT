@@ -1537,3 +1537,27 @@ Working rule for every deletion slice:
     no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
     Source and deployed SHA-256 both equal
     5F40F5BC89B1B20D7D6C25F245232AAB7B727F28845C6752B87C1505751FC314.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI,
+    native mode 18, or the deployed RR path on commit 49efc6b92. T4.3af runtime
+    gate closed.
+  - T4.3ag removes the June 11 clean ReSTIR GI one-shot CPU dump. Its CVar and
+    formatter only label route state, reservoir pages, selected controls, and
+    early-return reasons. Remove the control, formatter, dump-only missing-
+    resource name scanner, early-return labels, and the external term that could
+    force GI entry solely to service the dump. Preserve the real combined
+    resource predicate, magenta failure clear, pipeline/resource construction,
+    blue-noise fallback, bindings, temporal/spatial pages, resolve/RR exports,
+    liquid-pool controls, dispatches, and frame history. The last host feature
+    edit is the July 20 liquid-pool plumbing and remains outside the removed
+    observation closure; currently dirty GI/DI shader files are untouched.
+  - T4.3ag verification: whole-neo sweeps for the CVar, formatter label,
+    print/scanner lambdas, and dump-only trigger are empty. A scoped live-chain
+    sweep confirms the liquid-pool ABI/constants, resource validation,
+    CleanRestirGiEnsurePipeline/Resources calls, every ray dispatch, and frame
+    advance remain. The first build found the dump-only external entry trigger;
+    removing that final consumer resolved the compile failure. The code slice
+    removes 107 net lines. The final win64-pt-dev-release build passes; both
+    SPIR-V targets report up to date and no DXIL command runs. No SPIR-V is
+    rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both
+    equal
+    726CE5E0A37BB09C10E4D980549A9A20953F2D7E55164092645927634A724EE1.
