@@ -48,8 +48,6 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle unifiedLightBuffer;
     nvrhi::BufferHandle unifiedPreviousLightBuffer;
     nvrhi::BufferHandle unifiedLightRemapBuffer;
-    nvrhi::BufferHandle restirLightManagerCurrentBuffer;
-    nvrhi::BufferHandle restirLightManagerPreviousBuffer;
     nvrhi::BufferHandle restirLightManagerCurrentToPreviousBuffer;
     nvrhi::BufferHandle restirLightManagerPreviousToCurrentBuffer;
     nvrhi::BufferHandle restirLightManagerCurrentPayloadBuffer;
@@ -106,8 +104,6 @@ struct RtSmokeSceneBufferCreateDesc
     size_t unifiedLightBytes = 0;
     size_t unifiedPreviousLightBytes = 0;
     size_t unifiedLightRemapBytes = 0;
-    size_t restirLightManagerCurrentBytes = 0;
-    size_t restirLightManagerPreviousBytes = 0;
     size_t restirLightManagerCurrentToPreviousBytes = 0;
     size_t restirLightManagerPreviousToCurrentBytes = 0;
     size_t restirLightManagerCurrentPayloadBytes = 0;

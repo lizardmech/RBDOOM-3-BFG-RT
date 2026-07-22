@@ -609,12 +609,6 @@ idCVar r_pathTracingRemixLightManagerRAB(
     CVAR_RENDERER | CVAR_INTEGER,
     "Active RRX RAB light source: Remix Light Universe only; legacy ReSTIR manager fallback has been purged" );
 
-idCVar r_pathTracingRestirLightManagerRAB(
-    "r_pathTracingRestirLightManagerRAB",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Purged legacy ReSTIR light-manager route; active RAB light domains come from Remix Light Universe" );
-
 idCVar r_pathTracingReGIREnable(
     "r_pathTracingReGIREnable",
     "0",

@@ -1205,3 +1205,33 @@ Working rule for every deletion slice:
     no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
     Source and deployed SHA-256 both equal
     44BC5331FB1CD4F32D2782DB88E7948B2C285A12AE52703595CE7E6F5B127B04.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 8fa4ffa9c. T4.3q runtime gate closed.
+  - T4.3r removes the purged legacy PathTraceRestirLightManager owner. None of
+    BeginFrame, UpdateFromObservations, UpdateActivePayloadRecords, or EndFrame
+    has a caller, so the manager can only remain empty. Scene build already uses
+    a constant-true Remix selector; collapse its current/previous records,
+    remaps, and payload references directly to PathTraceRemixLightManager.
+    Dispatch's r_pathTracingRestirLightManagerRAB fallback therefore exposes no
+    light data even when manually enabled; remove the fallback CVar, empty
+    manager member, stats, remap/domain/signature implementation, and legacy
+    sample-budget helpers.
+  - The post-manager ABI audit finds no shader declaration at t62/t63 and no
+    consumer of PathTraceRestirCurrentLightRecord or
+    PathTraceRestirPreviousLightRecord. Remove those compatibility record
+    builders, buffers, byte sizing, uploads, binding layout/set entries,
+    lifetime transport, and the remaining header. Adjust the fixed upload
+    accounting ranges for the two removed items. Preserve the live t64/t65
+    remaps and t66/t67 unified payload buffers, their uploads/bindings, RLU
+    enable policy, sampling ranges, and clean-DI consumers. Recent history for
+    the removed manager is cleanup-only; no last-day rendering feature calls its
+    retired update path.
+  - T4.3r verification: whole-neo sweeps for the manager class/member, fallback
+    CVar, old record/stats/observation/active-range types, t62/t63 bindings and
+    buffer fields, and legacy dispatch budget helpers are empty. The shader tree
+    has no t62/t63 declaration. The slice removes 1,631 lines. CMake regenerates
+    the deleted source glob and the full win64-pt-dev-release build passes. Both
+    SPIR-V targets report up to date and no DXIL command runs. No SPIR-V is
+    rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both
+    equal
+    B13780BC43ED7A14328A04DAEDF2A1B0DCFBE42898806EDA5DAD26F9703EE8D1.

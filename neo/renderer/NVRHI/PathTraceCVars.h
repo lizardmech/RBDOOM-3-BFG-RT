@@ -108,7 +108,6 @@ extern idCVar r_pathTracingRemixLightUniverseDomain;
 extern idCVar r_pathTracingRemixLightUniverseDoomColorSource;
 extern idCVar r_pathTracingRemixLightUniverseStrictRemixMapping;
 extern idCVar r_pathTracingRemixLightManagerRAB;
-extern idCVar r_pathTracingRestirLightManagerRAB;
 extern idCVar r_pathTracingReGIREnable;
 extern idCVar r_pathTracingReGIRDebugView;
 extern idCVar r_pathTracingReGIRMode;

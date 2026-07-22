@@ -20,7 +20,6 @@
 #include "PathTraceReGIR.h"
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceRemixLightManager.h"
-#include "PathTraceRestirLightManager.h"
 #include "PathTraceDebugModes.h"
 #include "PathTraceSceneInputs.h"
 #include "PathTraceSceneUniverse.h"
@@ -339,7 +338,6 @@ private:
     RtPathTraceInstanceUniverse m_instanceUniverse;
     PathTraceRemixFramePrepare m_remixFramePrepare;
     PathTraceRemixLightManager m_remixLightManager;
-    PathTraceRestirLightManager m_restirLightManager;
     uint32_t m_smokeTextureProbeMaterialId;
     int m_smokeTextureProbeRequestedIndex;
     idVec3 m_smokeSceneOrigin;
@@ -375,8 +373,6 @@ private:
     nvrhi::BufferHandle m_smokeUnifiedLightBuffer;
     nvrhi::BufferHandle m_smokeUnifiedPreviousLightBuffer;
     nvrhi::BufferHandle m_smokeUnifiedLightRemapBuffer;
-    nvrhi::BufferHandle m_smokeRestirLightManagerCurrentBuffer;
-    nvrhi::BufferHandle m_smokeRestirLightManagerPreviousBuffer;
     nvrhi::BufferHandle m_smokeRestirLightManagerCurrentToPreviousBuffer;
     nvrhi::BufferHandle m_smokeRestirLightManagerPreviousToCurrentBuffer;
     nvrhi::BufferHandle m_smokeRestirLightManagerCurrentPayloadBuffer;
