@@ -83,7 +83,7 @@ PathTraceNeeCacheSettings BuildPathTraceNeeCacheSettingsFromCVars()
     return settings;
 }
 
-PathTraceNeeCacheResourceDesc BuildPathTraceNeeCacheResourceDesc(const PathTraceNeeCacheSettings& settings, const PathTraceNeeCacheRluInputs& rluInputs)
+PathTraceNeeCacheResourceDesc BuildPathTraceNeeCacheResourceDesc(const PathTraceNeeCacheSettings& settings)
 {
     PathTraceNeeCacheResourceDesc desc;
     desc.requested = settings.enabled;
@@ -94,22 +94,18 @@ PathTraceNeeCacheResourceDesc BuildPathTraceNeeCacheResourceDesc(const PathTrace
 
     if (!settings.enabled)
     {
-        desc.firstMissingContract = "disabled";
         return desc;
     }
     if (settings.mode < 1 || settings.mode > 3)
     {
-        desc.firstMissingContract = "invalid-mode";
         return desc;
     }
     if (settings.cellResolution <= 0 || settings.minRange <= 0.0f || settings.cellCount == 0u)
     {
-        desc.firstMissingContract = "invalid-cell-parameters";
         return desc;
     }
     if (settings.candidateSlots == 0u || settings.taskSlots == 0u)
     {
-        desc.firstMissingContract = "invalid-slot-budget";
         return desc;
     }
 
@@ -119,7 +115,6 @@ PathTraceNeeCacheResourceDesc BuildPathTraceNeeCacheResourceDesc(const PathTrace
     if (taskCount64 > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) ||
         candidateCount64 > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()))
     {
-        desc.firstMissingContract = "resource-size-overflow";
         return desc;
     }
 
@@ -138,46 +133,7 @@ PathTraceNeeCacheResourceDesc BuildPathTraceNeeCacheResourceDesc(const PathTrace
         desc.taskBytes != 0u &&
         desc.candidateBytes != 0u;
 
-    if (!rluInputs.remixDenseDomain)
-    {
-        desc.firstMissingContract = "current-rlu-dense-domain";
-    }
-    else if (rluInputs.currentLightCount == 0u)
-    {
-        desc.firstMissingContract = "current-rlu-light-count";
-    }
-    else if (settings.sourceDomain == 1 && rluInputs.emissiveRangeCount == 0u)
-    {
-        desc.firstMissingContract = "no-current-emissive-domain";
-    }
-    else if (settings.sourceDomain == 2 && rluInputs.doomAnalyticRangeCount == 0u)
-    {
-        desc.firstMissingContract = "no-current-analytic-domain";
-    }
-    else if (settings.sourceDomain == 3 && rluInputs.emissiveRangeCount == 0u && rluInputs.doomAnalyticRangeCount == 0u)
-    {
-        desc.firstMissingContract = "no-current-typed-source-domain";
-    }
-    else
-    {
-        desc.firstMissingContract = "none";
-    }
     return desc;
-}
-
-const char* PathTraceNeeCacheModeName(int mode)
-{
-    switch (mode)
-    {
-    case 1:
-        return "remix-log-hash";
-    case 2:
-        return "regir-onion-provider";
-    case 3:
-        return "bounded-grid-diagnostic";
-    default:
-        return "disabled";
-    }
 }
 
 const char* PathTraceNeeCacheSourceDomainName(int sourceDomain)
@@ -195,16 +151,6 @@ const char* PathTraceNeeCacheSourceDomainName(int sourceDomain)
     default:
         return "invalid";
     }
-}
-
-const char* PathTraceNeeCacheProviderFunctionName()
-{
-    return "PathTraceNeeCacheSelectProposal";
-}
-
-const char* PathTraceNeeCacheFuturePdfNeeBoundaryName()
-{
-    return "pathtrace_restir_pdf_nee_rlu_current.rt.hlsl:current-frame-source-policy";
 }
 
 void PathTraceNeeCacheState::Clear()

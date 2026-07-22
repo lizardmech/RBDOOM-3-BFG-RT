@@ -1075,7 +1075,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         regirRemixLightManagerStats.enabled != 0u &&
         regirRemixLightManagerStats.currentLightCount > 0u &&
         m_smokeRestirLightManagerCurrentPayloadBuffer;
-    PathTraceNeeCacheResourceDesc neeCacheDesc = BuildPathTraceNeeCacheResourceDesc(neeCacheSettings, neeCacheRluInputs);
+    PathTraceNeeCacheResourceDesc neeCacheDesc = BuildPathTraceNeeCacheResourceDesc(neeCacheSettings);
     const bool neeCacheResourceReady = m_smokeNeeCacheState.EnsureResources(regirDevice, neeCacheSettings, neeCacheDesc);
     const int neeCacheSecondaryVisualRefresh =
         idMath::ClampInt(0, 2, r_pathTracingNeeCacheSecondaryVisualRefresh.GetInteger());
@@ -1306,143 +1306,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanNeeCacheProviderBuildPrepassRequested ||
         neeCacheSecondaryVisualRefreshRequested;
     const bool neeCacheRouteRequested = neeCacheDebugRouteRequested || neeCacheCandidateBuildRequested;
-    auto printNeeCacheDump = [&](const char* stage, const char* earlyReturn)
-    {
-        const std::vector<PathTraceUnifiedLightRecord>& neeCacheCpuPayloads = m_remixLightManager.GetCurrentLightPayloads();
-        const uint32_t neeCacheFirstEmissiveDenseIndex = neeCacheRluInputs.emissiveRangeOffset;
-        const bool neeCacheFirstEmissivePayloadValid =
-            neeCacheFirstEmissiveDenseIndex < static_cast<uint32_t>(neeCacheCpuPayloads.size());
-        const PathTraceUnifiedLightRecord* neeCacheFirstEmissivePayload =
-            neeCacheFirstEmissivePayloadValid ? &neeCacheCpuPayloads[neeCacheFirstEmissiveDenseIndex] : nullptr;
-        const bool neeCacheBuffersReady =
-            m_smokeNeeCacheState.providerResultBuffer &&
-            m_smokeNeeCacheState.cellBuffer &&
-            m_smokeNeeCacheState.taskBuffer &&
-            m_smokeNeeCacheState.candidateBuffer;
-        const bool neeCacheDebugRouteReady =
-            neeCacheDebugRouteRequested &&
-            m_smokeNeeCacheDebugBindingLayout &&
-            m_smokeNeeCacheDebugShaderTable &&
-            neeCacheBuffersReady;
-        const char* firstMissingContract = neeCacheDesc.firstMissingContract;
-        if (earlyReturn && idStr::Icmp(earlyReturn, "none") != 0 && neeCacheDesc.requested)
-        {
-            firstMissingContract = earlyReturn;
-        }
-        if (!neeCacheResourceReady && neeCacheDesc.requested && neeCacheDesc.structuralValid)
-        {
-            firstMissingContract = "nee-cache-provider-buffers";
-        }
-        if (neeCacheDebugRouteReady && neeCacheRluInputs.remixDenseDomain && neeCacheRluInputs.currentLightCount > 0u)
-        {
-            firstMissingContract = "none";
-        }
-        if (neeCacheDebugRouteRequested && !neeCacheBuffersReady)
-        {
-            firstMissingContract = "nee-cache-provider-buffers";
-        }
-        if (neeCacheDebugRouteRequested && !m_smokeNeeCacheDebugShaderTable)
-        {
-            firstMissingContract = "nee-cache-debug-shader";
-        }
-        if (neeCacheDebugRouteRequested && !m_smokeNeeCacheDebugBindingLayout)
-        {
-            firstMissingContract = "nee-cache-debug-binding-layout";
-        }
-        if (cleanNeeCacheBuildPrepassRequested &&
-            (!m_smokeNeeCachePrimarySurfaceUpdatePipeline || !m_smokeNeeCachePrimarySurfaceUpdateBindingLayout))
-        {
-            firstMissingContract = "nee-cache-primary-surface-update-shader";
-        }
-        common->Printf(
-            "PathTracePrimaryPass: NEE cache provider shell dump stage=%s earlyReturn=%s enable=%d mode=%d(%s) debugView=%d debugRoute=%d candidateBuild=%d cellResolution=%d minRange=%.2f cellCount=%u candidateSlots=%u taskSlots=%u fallbackProbability=%.3f cacheProbability=%.3f sourceDomain=%d(%s) rluDense=%d rluCurrent=%u rluRanges emissive=%u+%u doomAnalytic=%u+%u rluAnalyticStability currentSampleable/stableCacheable/unstableDynamic=%u/%u/%u reject noRemap/payloadChanged/unprovenContinuity/unknownIdentity/duplicateIdentity/portalDisconnected/outOfSelectedArea=%u/%u/%u/%u/%u/%u/%u shaderActiveRanges emissive=%d+%d doomAnalytic=%d+%d rluNonEmptyRanges=%u cpuPayloads current=%u firstEmissivePayload dense=%u valid=%d type=%u sourceIndex=%u sourcePdf=%.8f sourceWeight=%.8f luminance=%.8f abiOwner=PathTraceNeeCache shaderStruct=PathTraceNeeCacheProviderResult cppStruct=PathTraceNeeCacheProviderResult bindingSlots currentRluPayloadSrv=t66 rabBridgeSrvs=t16,t27,t42,t43,t44,t45,t57,t58,t59,t60,t61,t64,t65,t67 geometrySrvs=t3,t4,t6,t7,t22,t23,t26 providerResultUav=u%u cellUav=u%u taskUav=u%u candidateUav=u%u providerFunction=%s futurePdfNeeBoundary=%s resultStride=%u cellStride=%u taskStride=%u candidateStride=%u resultCount=%u taskCount=%u candidateCount=%u bytes result/cell/task/candidate/total=%llu/%llu/%llu/%llu/%llu buffersReady=%d allocationSerial=%llu taskClearPending=%d rluSignatures structural/mapping/payload=%llu/%llu/%llu rluSignatureChanged structural/mapping/payload/payloadOnly=%u/%u/%u/%u cacheInvalidation pending/last=0x%x/0x%x cacheInvalidationSerial=%llu taskInsertPolicy=debug-primary-visible-hit-slot0-atomic-count taskDecayPolicy=full-cell-prepass-decay-7of8 taskResetPolicy=clear-provider-cell-task-candidate-on-allocation-scene-reset-or-rlu-structural-mapping-payload-or-payloadOnly-change candidateInvalidationPolicy=clear-provider-cell-task-candidate-on-rlu-structural-mapping-payload-or-payloadOnly-change candidateBuildPolicy=primary-visible-hit-persistent-slot-update-bounded-ris-over-source-domain candidateAdmissionPolicy=stable-identity-slot-refresh-duplicates-fill-empty-replace-target-only-if-2x-stronger candidateDebugViewPolicy=views5-10-read-built-cache-only-build-prepass-writes candidateWeightPolicy=build:bounded-ris-cell-importance;select:current-rlu-rab-replay-and-reweight candidateSelectionPolicy=current-rab-replay-valid-weighted-fixed-slot-selection-sum-duplicate-identity-pdf candidateValidityPolicy=reject-zero-area-or-zero-energy-emissive,reject-analytic-not-rlu-stableCacheable,analytic-zero-cell-weight,provider-rejects-rab-replay-failed-or-zero-current-weight candidateSource=current-rlu-sourceDomain-controlled candidateIdentity=dense-current-rlu-index providerResultWrite=PathTraceNeeCacheProviderResults[cellIndex] candidateSlotGenerationPdf=ris-selected-sourcePdf,domain0:bounded-ris-proportional-typed-emissive-or-full-analytic-range,domain1:bounded-ris-emissive-range,domain2:bounded-ris-full-analytic-range-filter-stable,domain3:bounded-ris-typed-stable-mixture providerSourcePdf=cache:currentReplayWeightedCandidateIdentityPdf*cacheProbability,fallback:domainPdf*fallbackProbability candidateInvSourcePdf=1/sourcePdf flatReplay=RAB_LoadActiveRrxLightInfo,RAB_SampleActiveRrxPolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface sourceLabelEnum=none,cache-analytic,cache-emissive,fallback-full-rlu,fallback-typed-rlu fallbackReasonEnum=none,disabled,no-rlu,empty-cell,invalid-candidate,zero-source-pdf,rab-replay-failed,cache-only-diagnostic selectedDenseCurrentIndex=result.selectedDenseRluIndex sourcePdf=result.sourcePdf invSourcePdf=result.invSourcePdf mixtureProbability=result.mixtureProbability cellFrame=world-anchored-fixed-lod cellMapping=fixed-world-cell-hash debugViews=1:route-status,2:cell-id,3:empty-occupancy,4:task-accumulation,5:emissive-candidate-map,6:analytic-candidate-identity,7:source-pdf,8:cache-fallback-source,9:fallback-reason,10:rlu-payload-replay-validity,11:flat-consumed-candidates,12:flat-full-current-rlu noCandidateReads=%d output=%s consumer=%s finalContribution=0 temporal=0 spatial=0 bestLights=0 mode56=0 oldPdfNee=0 firstMissingContract=%s task=%s\n",
-            stage ? stage : "unknown",
-            earlyReturn ? earlyReturn : "none",
-            neeCacheSettings.enabled ? 1 : 0,
-            neeCacheSettings.mode,
-            PathTraceNeeCacheModeName(neeCacheSettings.mode),
-            neeCacheSettings.debugView,
-            neeCacheDebugRouteRequested ? 1 : 0,
-            neeCacheCandidateBuildRequested ? 1 : 0,
-            neeCacheSettings.cellResolution,
-            neeCacheSettings.minRange,
-            neeCacheSettings.cellCount,
-            neeCacheSettings.candidateSlots,
-            neeCacheSettings.taskSlots,
-            neeCacheSettings.fallbackProbability,
-            1.0f - neeCacheSettings.fallbackProbability,
-            neeCacheSettings.sourceDomain,
-            PathTraceNeeCacheSourceDomainName(neeCacheSettings.sourceDomain),
-            neeCacheRluInputs.remixDenseDomain ? 1 : 0,
-            neeCacheRluInputs.currentLightCount,
-            neeCacheRluInputs.emissiveRangeOffset,
-            neeCacheRluInputs.emissiveRangeCount,
-            neeCacheRluInputs.doomAnalyticRangeOffset,
-            neeCacheRluInputs.doomAnalyticRangeCount,
-            regirRemixLightManagerStats.doomAnalyticCurrentSampleableCount,
-            regirRemixLightManagerStats.doomAnalyticStableCacheableCount,
-            regirRemixLightManagerStats.doomAnalyticUnstableDynamicCount,
-            regirRemixLightManagerStats.doomAnalyticRejectNoRemapCount,
-            regirRemixLightManagerStats.doomAnalyticRejectPayloadChangedCount,
-            regirRemixLightManagerStats.doomAnalyticRejectUnprovenContinuityCount,
-            regirRemixLightManagerStats.doomAnalyticRejectUnknownIdentityCount,
-            regirRemixLightManagerStats.doomAnalyticRejectDuplicateIdentityCount,
-            regirRemixLightManagerStats.doomAnalyticRejectPortalDisconnectedCount,
-            regirRemixLightManagerStats.doomAnalyticRejectOutOfSelectedAreaCount,
-            static_cast<int>(neeCacheRluInputs.emissiveRangeOffset),
-            static_cast<int>(neeCacheCandidateBuildRequested ? neeCacheRluInputs.emissiveRangeCount : 0u),
-            static_cast<int>(neeCacheRluInputs.doomAnalyticRangeOffset),
-            static_cast<int>(neeCacheCandidateBuildRequested
-                ? std::min(neeCacheRluInputs.doomAnalyticRangeCount, regirRemixLightManagerStats.doomAnalyticStableCacheableCount)
-                : 0u),
-            neeCacheRluInputs.nonEmptyRangeCount,
-            static_cast<uint32_t>(neeCacheCpuPayloads.size()),
-            neeCacheFirstEmissiveDenseIndex,
-            neeCacheFirstEmissivePayloadValid ? 1 : 0,
-            neeCacheFirstEmissivePayload ? neeCacheFirstEmissivePayload->type : PATH_TRACE_UNIFIED_LIGHT_TYPE_INVALID,
-            neeCacheFirstEmissivePayload ? neeCacheFirstEmissivePayload->sourceIndex : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX,
-            neeCacheFirstEmissivePayload ? neeCacheFirstEmissivePayload->sourcePdf : 0.0f,
-            neeCacheFirstEmissivePayload ? neeCacheFirstEmissivePayload->sourceWeight : 0.0f,
-            neeCacheFirstEmissivePayload ? neeCacheFirstEmissivePayload->radianceAndLuminance[3] : 0.0f,
-            PATH_TRACE_NEE_CACHE_BINDING_PROVIDER_RESULT_UAV,
-            PATH_TRACE_NEE_CACHE_BINDING_CELL_UAV,
-            PATH_TRACE_NEE_CACHE_BINDING_TASK_UAV,
-            PATH_TRACE_NEE_CACHE_BINDING_CANDIDATE_UAV,
-            PathTraceNeeCacheProviderFunctionName(),
-            PathTraceNeeCacheFuturePdfNeeBoundaryName(),
-            neeCacheDesc.providerResultStride,
-            neeCacheDesc.cellStride,
-            neeCacheDesc.taskStride,
-            neeCacheDesc.candidateStride,
-            neeCacheDesc.providerResultCount,
-            neeCacheDesc.taskCount,
-            neeCacheDesc.candidateCount,
-            static_cast<unsigned long long>(neeCacheDesc.providerResultBytes),
-            static_cast<unsigned long long>(neeCacheDesc.cellBytes),
-            static_cast<unsigned long long>(neeCacheDesc.taskBytes),
-            static_cast<unsigned long long>(neeCacheDesc.candidateBytes),
-            static_cast<unsigned long long>(neeCacheDesc.totalBytes),
-            neeCacheBuffersReady ? 1 : 0,
-            static_cast<unsigned long long>(m_smokeNeeCacheState.allocationSerial),
-            m_smokeNeeCacheState.taskClearPending ? 1 : 0,
-            static_cast<unsigned long long>(regirRemixLightManagerStats.structuralSignature),
-            static_cast<unsigned long long>(regirRemixLightManagerStats.mappingSignature),
-            static_cast<unsigned long long>(regirRemixLightManagerStats.payloadSignature),
-            regirRemixLightManagerStats.structuralSignatureChanged,
-            regirRemixLightManagerStats.mappingSignatureChanged,
-            regirRemixLightManagerStats.payloadSignatureChanged,
-            regirRemixLightManagerStats.payloadOnlyChange,
-            m_smokeNeeCacheState.pendingInvalidationFlags,
-            m_smokeNeeCacheState.lastInvalidationFlags,
-            static_cast<unsigned long long>(m_smokeNeeCacheState.invalidationSerial),
-            neeCacheSettings.debugView >= 5 ? 0 : 1,
-            neeCacheDebugRouteRequested ? "SmokeOutput" : "none",
-            neeCacheDebugRouteRequested ? "nee-cache-debug-route" : "none",
-            firstMissingContract,
-            neeCacheDebugRouteRequested
-                ? ((neeCacheSettings.debugView == 8 || neeCacheSettings.debugView == 9) ? "NEECACHE-06" : ((neeCacheSettings.debugView == 6 || neeCacheSettings.debugView == 7 || neeCacheSettings.debugView == 10 || neeCacheSettings.debugView == 11 || neeCacheSettings.debugView == 12) ? "NEECACHE-05" : (neeCacheSettings.debugView == 5 ? "NEECACHE-04" : (neeCacheSettings.debugView == 4 ? "NEECACHE-03" : "NEECACHE-02"))))
-                : "NEECACHE-01");
-    };
     const bool regirDebugRouteRequested =
         regirSettings.enabled &&
         (regirSettings.debugView >= 1 && regirSettings.debugView <= 10);
@@ -1672,69 +1535,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeCleanRtxdiDiBlueNoise.texture ? 1 : 0,
             (m_smokeCleanRtxdiDiBlueNoise.valid && r_pathTracingCleanRtxdiDiBlueNoise.GetInteger() != 0) ? 1 : 0);
     };
-    auto printNeeCacheSecondaryDump = [&]()
-    {
-        const PathTraceIntegratorSettings secondaryDumpIntegratorSettings = BuildPathTraceIntegratorSettings();
-        const char* firstMissingContract = "none";
-        if (!neeCacheSecondaryConsumeRequested)
-        {
-            firstMissingContract = "secondary-consumer-disabled";
-        }
-        else if (!neeCacheSettings.enabled)
-        {
-            firstMissingContract = "nee-cache-disabled";
-        }
-        else if (!neeCacheResourceReady)
-        {
-            firstMissingContract = "nee-cache-provider-buffers";
-        }
-        else if (!neeCacheRluInputs.remixDenseDomain)
-        {
-            firstMissingContract = "current-rlu-dense-domain";
-        }
-        else if (!neeCacheCandidateBuildRequested)
-        {
-            firstMissingContract = "nee-cache-candidate-build-not-ready";
-        }
-        else if (!neeCacheSecondaryEmissiveDomainAvailable)
-        {
-            firstMissingContract = "no-emissive-secondary-consume-domain";
-        }
-        else if (!m_smokeNeeCacheState.providerResultBuffer || !m_smokeNeeCacheState.cellBuffer || !m_smokeNeeCacheState.candidateBuffer)
-        {
-            firstMissingContract = "nee-cache-provider-srvs";
-        }
-        common->Printf(
-            "PathTracePrimaryPass: NEE cache secondary consumer route enable=%d requestedEnable=%d nextEvent=%d maxDepth=%d diffuseBounce=%d specularBounce=%d reflectionMode=%d secondaryNeeMode=%d secondaryAnalyticNeeMode=%d secondaryVisibility=%d providerReady=%d candidateBuild=%d debugRoute=%d visualRefresh=%d visualSnapshotHold=%d sourceDomain=%d(%s) rluDense=%d rluCurrent=%u rluRanges emissive=%u+%u doomAnalytic=%u+%u stableAnalytic=%u candidateSlots=%u cellResolution=%d fallbackProbability=%.3f bindingSlots providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 consumeBoundary=RAB_RecordSmokeNeeSample/ReSTIR-PT-GenerateInitialSamples owner=ReSTIR-PT-path-tracer-NEE proposalSource=nee-cache-typed-emissive-and-analytic-candidate-slots replay=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetReflectedBsdfRadianceForSurface,RAB_GetSelectedNeeVisibility pdf=(cacheProbability*weighted-cell-identity-pdf+fallbackProbability*domain-identity-pdf)*solidAnglePdf misInput=RAB_GetMISWeightForNEELight fallback=internal-domain-mixture-or-existing-RAB_RecordSmokeNeeSample-path-on-provider-miss mode18=0 debugView=clean-di-view8-band10-secondary-typed-candidate-field validation=clean-view8-band10-route-diagnostic-plus-normal-render-ab primaryDI=unchanged cleanDI=unchanged temporal=0 spatial=0 bestLights=0 finalCachedRadiance=0 firstMissingContract=%s task=NEECACHE-10\n",
-            idStr::Icmp(firstMissingContract, "none") == 0 ? 1 : 0,
-            neeCacheSecondaryConsumeRequested ? 1 : 0,
-            secondaryDumpIntegratorSettings.nextEventEstimation,
-            secondaryDumpIntegratorSettings.maxPathDepth,
-            secondaryDumpIntegratorSettings.diffuseBounceLimit,
-            secondaryDumpIntegratorSettings.specularBounceLimit,
-            secondaryDumpIntegratorSettings.reflectionMode,
-            secondaryDumpIntegratorSettings.secondaryNeeMode,
-            secondaryDumpIntegratorSettings.secondaryAnalyticNeeMode,
-            secondaryDumpIntegratorSettings.secondaryNeeVisibility,
-            neeCacheSecondaryConsumeReady ? 1 : 0,
-            neeCacheCandidateBuildRequested ? 1 : 0,
-            neeCacheDebugRouteRequested ? 1 : 0,
-            neeCacheSecondaryVisualRefresh,
-            m_smokeNeeCacheState.secondaryVisualSnapshotHoldActive ? 1 : 0,
-            neeCacheSettings.sourceDomain,
-            PathTraceNeeCacheSourceDomainName(neeCacheSettings.sourceDomain),
-            neeCacheRluInputs.remixDenseDomain ? 1 : 0,
-            neeCacheRluInputs.currentLightCount,
-            neeCacheRluInputs.emissiveRangeOffset,
-            neeCacheRluInputs.emissiveRangeCount,
-            neeCacheRluInputs.doomAnalyticRangeOffset,
-            neeCacheRluInputs.doomAnalyticRangeCount,
-            regirRemixLightManagerStats.doomAnalyticStableCacheableCount,
-            neeCacheSettings.candidateSlots,
-            neeCacheSettings.cellResolution,
-            neeCacheSettings.fallbackProbability,
-            firstMissingContract);
-    };
     if (cleanRtxdiDiDumpRequested && cleanRtxdiDiEnabled && !cleanRtxdiDiRouteRequested)
     {
         printCleanRtxdiDiDump("dispatch-entry", "clean-view-out-of-range", 0);
@@ -1888,11 +1688,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (pdfNeeRluCurrentProducerRequested ? pdfNeeVerifierBaseResourcesValid : smokeBaseResourcesValid)));
     if (!baseResourcesValid)
     {
-        if (r_pathTracingNeeCacheDump.GetInteger() != 0)
-        {
-            printNeeCacheDump("dispatch-entry", "base-resource");
-            r_pathTracingNeeCacheDump.SetInteger(0);
-        }
         if (cleanRtxdiDiDumpRequested)
         {
             printCleanRtxdiDiDump("dispatch-entry", "base-resource", 0);
@@ -1923,11 +1718,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::ICommandList* commandList = m_backend ? m_backend->GL_GetCommandList() : nullptr;
     if (!commandList)
     {
-        if (r_pathTracingNeeCacheDump.GetInteger() != 0)
-        {
-            printNeeCacheDump("dispatch-entry", "command-list");
-            r_pathTracingNeeCacheDump.SetInteger(0);
-        }
         if (cleanRtxdiDiDumpRequested)
         {
             printCleanRtxdiDiDump("dispatch-entry", "command-list", 0);
@@ -3582,20 +3372,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.spatialInfo[3] = cleanSpatialRoute && cleanRtxdiDiSpatialEnabled ? 1.0f : 0.0f;
         commandList->setRayTracingState(cleanState);
 
-        if (r_pathTracingNeeCacheDump.GetInteger() != 0)
-        {
-            printNeeCacheDump("pre-dispatch", "none");
-            r_pathTracingNeeCacheDump.SetInteger(0);
-        }
         if (cleanRtxdiDiDumpRequested)
         {
             printCleanRtxdiDiDump("route-ready", "none", cleanSpatialRoute ? 2 : 1);
             r_pathTracingCleanRtxdiDiDump.SetInteger(0);
-        }
-        if (r_pathTracingNeeCacheSecondaryDump.GetInteger() != 0)
-        {
-            printNeeCacheSecondaryDump();
-            r_pathTracingNeeCacheSecondaryDump.SetInteger(0);
         }
 
         nvrhi::rt::DispatchRaysArguments cleanArgs;
@@ -4300,11 +4080,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (!m_smokeNeeCacheDebugShaderTable)
         {
-            if (r_pathTracingNeeCacheDump.GetInteger() != 0)
-            {
-                printNeeCacheDump("dispatch-entry", "nee-cache-debug-shader");
-                r_pathTracingNeeCacheDump.SetInteger(0);
-            }
             return;
         }
     }
@@ -4314,11 +4089,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         if (!device)
         {
-            if (r_pathTracingNeeCacheDump.GetInteger() != 0)
-            {
-                printNeeCacheDump("dispatch-entry", "device");
-                r_pathTracingNeeCacheDump.SetInteger(0);
-            }
             return;
         }
         if (!m_smokeNeeCacheState.providerResultBuffer ||
@@ -4326,11 +4096,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             !m_smokeNeeCacheState.taskBuffer ||
             !m_smokeNeeCacheState.candidateBuffer)
         {
-            if (r_pathTracingNeeCacheDump.GetInteger() != 0)
-            {
-                printNeeCacheDump("dispatch-entry", "nee-cache-provider-buffers");
-                r_pathTracingNeeCacheDump.SetInteger(0);
-            }
             return;
         }
 
@@ -4370,11 +4135,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         neeCacheDebugBindingSet = device->createBindingSet(neeCacheBindingSetDesc, m_smokeNeeCacheDebugBindingLayout);
         if (!neeCacheDebugBindingSet)
         {
-            if (r_pathTracingNeeCacheDump.GetInteger() != 0)
-            {
-                printNeeCacheDump("dispatch-entry", "nee-cache-debug-binding-set");
-                r_pathTracingNeeCacheDump.SetInteger(0);
-            }
             return;
         }
     }
@@ -5083,16 +4843,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             firstMissingContract,
             "PDFNEE-RLU-04");
         r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
-    }
-    if (r_pathTracingNeeCacheDump.GetInteger() != 0)
-    {
-        printNeeCacheDump("pre-dispatch", "none");
-        r_pathTracingNeeCacheDump.SetInteger(0);
-    }
-    if (r_pathTracingNeeCacheSecondaryDump.GetInteger() != 0)
-    {
-        printNeeCacheSecondaryDump();
-        r_pathTracingNeeCacheSecondaryDump.SetInteger(0);
     }
     constants.regirInfo0[0] = regirSettings.enabled ? 1.0f : 0.0f;
     constants.regirInfo0[1] = static_cast<float>(regirSettings.debugView);

@@ -1054,3 +1054,25 @@ Working rule for every deletion slice:
     no DXIL command runs. This is a C++-only slice, so deploy only the executable;
     source and deployed SHA-256 both equal
     B9D6144E8ADB43467DAB89632D67E8735F3BA056E2833C1FC8859112F99B8563.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit b23fd34de. T4.3j runtime gate closed.
+  - T4.3k removes the one-shot primary/provider and secondary-consumer NEE-cache
+    console dumps. Both are observation-only: their CVars and formatters do not
+    participate in provider selection, cache invalidation, candidate build,
+    clean-DI integration, debug-view dispatch, or secondary consumption. Remove
+    their repeated early-return print/reset blocks while preserving those live
+    paths. Three label helpers become unreferenced with the formatters and are
+    removed; retain PathTraceNeeCacheSourceDomainName because the clean-DI dump
+    still consumes it.
+  - The dump removal also proves PathTraceNeeCacheResourceDesc's
+    firstMissingContract field is write-only. Its RLU-domain strings never gate
+    resource creation; requested, structuralValid, and byte counts are the live
+    allocation contract. Remove the field, its assignments, and the now-unused
+    RLU-input parameter while retaining every enable, mode, cell, slot, overflow,
+    and nonzero-byte validation that controls allocation.
+  - T4.3k verification: whole-neo sweeps for both retired dump CVars, both dump
+    lambdas, the three label helpers, and the resource-desc diagnostic field are
+    empty. The full win64-pt-dev-release build passes; both SPIR-V targets remain
+    up to date and no DXIL command runs. This is a C++-only slice, so deploy only
+    the executable; source and deployed SHA-256 both equal
+    F4ADA97D8F692C3890FC8BAF9902168AB33BF086C85E25A43D5C4F91344FB0DF.

@@ -849,12 +849,6 @@ idCVar r_pathTracingNeeCacheSourceDomain(
     CVAR_RENDERER | CVAR_INTEGER,
     "NEE cache source domain: 0 all current RLU, 1 emissive range only, 2 analytic range only, 3 typed candidate lists with mixture probabilities" );
 
-idCVar r_pathTracingNeeCacheDump(
-    "r_pathTracingNeeCacheDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the NEE cache provider ABI, fixed resource sizes, RLU input state, and first missing contract once" );
-
 idCVar r_pathTracingLightDump(
     "r_pathTracingLightDump",
     "0",
@@ -1244,12 +1238,6 @@ idCVar r_pathTracingNeeCacheSecondaryEnable(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable opt-in ReSTIR PT path-tracer NEE cache consumption through current RLU/RAB replay" );
-
-idCVar r_pathTracingNeeCacheSecondaryDump(
-    "r_pathTracingNeeCacheSecondaryDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the ReSTIR PT GI/secondary NEE cache consumer contract once" );
 
 idCVar r_pathTracingNeeCacheSecondaryVisualRefresh(
     "r_pathTracingNeeCacheSecondaryVisualRefresh",

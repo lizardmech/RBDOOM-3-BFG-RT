@@ -143,7 +143,6 @@ struct PathTraceNeeCacheResourceDesc
     uint64_t taskBytes = 0u;
     uint64_t candidateBytes = 0u;
     uint64_t totalBytes = 0u;
-    const char* firstMissingContract = "disabled";
 };
 
 struct PathTraceNeeCacheState
@@ -181,8 +180,5 @@ struct PathTraceNeeCacheState
 };
 
 PathTraceNeeCacheSettings BuildPathTraceNeeCacheSettingsFromCVars();
-PathTraceNeeCacheResourceDesc BuildPathTraceNeeCacheResourceDesc(const PathTraceNeeCacheSettings& settings, const PathTraceNeeCacheRluInputs& rluInputs);
-const char* PathTraceNeeCacheModeName(int mode);
+PathTraceNeeCacheResourceDesc BuildPathTraceNeeCacheResourceDesc(const PathTraceNeeCacheSettings& settings);
 const char* PathTraceNeeCacheSourceDomainName(int sourceDomain);
-const char* PathTraceNeeCacheProviderFunctionName();
-const char* PathTraceNeeCacheFuturePdfNeeBoundaryName();
