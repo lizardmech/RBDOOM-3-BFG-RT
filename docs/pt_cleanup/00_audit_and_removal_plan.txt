@@ -1148,3 +1148,30 @@ Working rule for every deletion slice:
     is a C++-only slice, so deploy only the executable; source and deployed
     SHA-256 both equal
     5A3251B243CD4DBDFFB806DBC33A2F9AE20E5EA5FB3439906F59868DAD554A3E.
+  - Runtime acceptance 2026-07-22: user reported no issues on deployed commit
+    dedb2cd2e. T4.3o runtime gate closed.
+  - T4.3p removes five light-domain reporting controls: the emissive bridge,
+    Remix frame-prepare, Remix Light Universe, Remix light-manager, and purged
+    legacy ReSTIR light-manager dumps. Each CVar gates console observation only;
+    none participates in light collection, dense-domain construction, identity
+    remapping, sampling ranges, GPU buffer sizing/uploads, or clean RTXDI DI.
+    Symbol-level history for the five controls is empty during the recent
+    feature window.
+  - Removing the reports exposes diagnostic-only support beneath them. Reduce
+    the frame-prepare package to the frame index and reset flags actually read by
+    PathTraceRemixLightManager; remove its unused light-count package, statistics,
+    begin/end counters, and structural-reset formatter state. The legacy ReSTIR
+    observation-summary branch was unreachable because its CVar was cleared by
+    the immediately preceding purge notice. Remove that branch, the now-unused
+    observation builders and summary helpers, and both large RLU CPU payload
+    replay formatters. Preserve the active Remix payload records, current and
+    previous maps, RAB bridge records, buffer uploads, signatures, scene inputs,
+    sampling ranges, and dispatch consumers.
+  - T4.3p verification: whole-neo sweeps for all five retired CVars, the RLU
+    status label, frame-prepare statistics/light inputs, legacy observation
+    builders, and dump-local selectors are empty. The slice removes 1,174 lines
+    without changing shader source. The full win64-pt-dev-release build passes;
+    both SPIR-V targets report up to date and no DXIL command runs. No SPIR-V is
+    rebuilt, so deployment copies only RBDoom3BFG.exe. Source and deployed
+    SHA-256 both equal
+    B517209AE0F6FA676DED81DB5499133BE4FAD8CB74871C973087190E0640C6DA.

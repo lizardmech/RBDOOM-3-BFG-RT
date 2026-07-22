@@ -31,11 +31,6 @@ uint64 HashLightManagerValue64(uint64 hash, uint64_t value)
     return HashLightManagerBytes(hash, &value, sizeof(value));
 }
 
-uint64 HashLightManagerFloatArray(uint64 hash, const float* values, size_t count)
-{
-    return HashLightManagerBytes(hash, values, count * sizeof(values[0]));
-}
-
 void AccumulateInvalidReasonStats(
     const uint32_t invalidReasonFlags,
     PathTraceRestirLightInvalidReasonStats& stats)
@@ -110,24 +105,6 @@ void AccumulateInvalidReasonStats(
     }
 }
 
-uint32_t TranslateDoomAnalyticContinuityInvalidReasons(uint32_t doomInvalidReasonFlags)
-{
-    uint32_t result = PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE;
-    if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_DUPLICATE_KEY) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DUPLICATE;
-    }
-    if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_UNKNOWN_ENTITY) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY;
-    }
-    if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_UNPROVEN_CONTINUITY) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNPROVEN_CONTINUITY;
-    }
-    return result;
-}
-
 PathTraceRestirPreviousLightRecord MakePreviousRecord(const PathTraceRestirCurrentLightRecord& currentRecord)
 {
     PathTraceRestirPreviousLightRecord previousRecord;
@@ -158,63 +135,13 @@ PathTraceRestirPreviousLightRecord MakePreviousRecord(const PathTraceRestirCurre
     return previousRecord;
 }
 
-bool HasStableKey(uint32_t keyLo, uint32_t keyHi)
-{
-    return keyLo != 0u || keyHi != 0u;
-}
-
-uint64 HashEmissivePayload(const PathTraceSmokeEmissiveTriangle& emissiveTriangle)
-{
-    uint64 hash = 1469598103934665603ull;
-    hash = HashLightManagerFloatArray(hash, emissiveTriangle.centerAndArea, 4);
-    hash = HashLightManagerFloatArray(hash, emissiveTriangle.normalAndLuminance, 4);
-    hash = HashLightManagerFloatArray(hash, emissiveTriangle.estimatedRadianceAndLuminance, 4);
-    hash = HashLightManagerFloatArray(hash, emissiveTriangle.uvBounds, 4);
-    hash = HashLightManagerFloatArray(hash, emissiveTriangle.centroidUvAndWeight, 3);
-    hash = HashLightManagerValue(hash, emissiveTriangle.instanceId);
-    hash = HashLightManagerValue(hash, emissiveTriangle.primitiveIndex);
-    hash = HashLightManagerValue(hash, emissiveTriangle.flags);
-    hash = HashLightManagerValue(hash, emissiveTriangle.materialId);
-    hash = HashLightManagerValue(hash, emissiveTriangle.emissiveTextureIndex);
-    return hash;
-}
-
-uint64 HashDoomAnalyticPayload(const PathTraceDoomAnalyticLightCandidate& light)
-{
-    uint64 hash = 1469598103934665603ull;
-    hash = HashLightManagerFloatArray(hash, light.originAndRadius, 4);
-    hash = HashLightManagerFloatArray(hash, light.colorAndIntensity, 4);
-    hash = HashLightManagerFloatArray(hash, light.doomRadiusAndArea, 4);
-    hash = HashLightManagerValue(hash, light.flags);
-    hash = HashLightManagerValue(hash, light.renderLightIndex);
-    hash = HashLightManagerValue(hash, light.entityNumber);
-    return hash;
-}
-
 float Max3(const float x, const float y, const float z)
 {
     return std::max(std::max(x, y), z);
 }
-
 float LightManagerLuminance(const float rgb[3])
 {
     return rgb[0] * 0.2126f + rgb[1] * 0.7152f + rgb[2] * 0.0722f;
-}
-
-bool EmissivePayloadSampleable(const PathTraceSmokeEmissiveTriangle& emissiveTriangle)
-{
-    return emissiveTriangle.centerAndArea[3] > 1.0e-6f &&
-        std::max(emissiveTriangle.sampleWeightAndPdf[0], emissiveTriangle.estimatedRadianceAndLuminance[3]) > 0.0f;
-}
-
-bool DoomAnalyticPayloadSampleable(const PathTraceDoomAnalyticLightCandidate& light)
-{
-    return Max3(
-        std::max(light.colorAndIntensity[0], 0.0f),
-        std::max(light.colorAndIntensity[1], 0.0f),
-        std::max(light.colorAndIntensity[2], 0.0f)) > 0.0f &&
-        light.originAndRadius[3] > 0.0f &&
-        light.doomRadiusAndArea[0] > 0.0f;
 }
 
 PathTraceUnifiedLightRecord BuildRestirManagerEmissivePayloadRecord(
@@ -294,68 +221,6 @@ PathTraceUnifiedLightRecord BuildRestirManagerDoomAnalyticPayloadRecord(
         record.normalAndArea[3] * influenceRadius;
     record.previousIndex = previousIndex;
     return record;
-}
-
-PathTraceRestirLightObservation MakeEmissiveObservation(
-    const PathTraceSmokeEmissiveTriangle& emissiveTriangle,
-    uint32_t payloadSourceIndex)
-{
-    PathTraceRestirLightObservation observation;
-    observation.sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE;
-    observation.payloadSourceIndex = payloadSourceIndex;
-    observation.identityKeyLo = emissiveTriangle.identityHashLo;
-    observation.identityKeyHi = emissiveTriangle.identityHashHi;
-    const uint64 payloadHash = HashEmissivePayload(emissiveTriangle);
-    observation.payloadHashLo = static_cast<uint32_t>(payloadHash);
-    observation.payloadHashHi = static_cast<uint32_t>(payloadHash >> 32);
-    if (HasStableKey(observation.identityKeyLo, observation.identityKeyHi))
-    {
-        observation.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY;
-    }
-    else
-    {
-        observation.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY;
-    }
-    if (!EmissivePayloadSampleable(emissiveTriangle))
-    {
-        observation.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_ZERO_RADIANCE;
-    }
-    return observation;
-}
-
-PathTraceRestirLightObservation MakeDoomAnalyticObservation(
-    const PathTraceDoomAnalyticLightCandidate& light,
-    const PathTraceDoomAnalyticLightCandidateIdentity* identity,
-    uint32_t payloadSourceIndex)
-{
-    PathTraceRestirLightObservation observation;
-    observation.sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC;
-    observation.payloadSourceIndex = payloadSourceIndex;
-    if (identity &&
-        identity->universeIndex != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX &&
-        (identity->flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_VALID) != 0u)
-    {
-        observation.identityKeyLo = identity->universeIndex;
-        observation.identityKeyHi = 0u;
-        observation.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY;
-        if ((identity->flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID) == 0u)
-        {
-            observation.invalidReasonFlags |= TranslateDoomAnalyticContinuityInvalidReasons(identity->invalidReasonFlags);
-        }
-    }
-    else
-    {
-        observation.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY;
-    }
-
-    const uint64 payloadHash = HashDoomAnalyticPayload(light);
-    observation.payloadHashLo = static_cast<uint32_t>(payloadHash);
-    observation.payloadHashHi = static_cast<uint32_t>(payloadHash >> 32);
-    if (!DoomAnalyticPayloadSampleable(light))
-    {
-        observation.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_ZERO_RADIANCE;
-    }
-    return observation;
 }
 
 PathTraceRestirCurrentLightRecord MakeCurrentRecordFromObservation(
@@ -1232,84 +1097,4 @@ void PathTraceRestirLightManager::RebuildPreviousLookup()
         }
         m_previousStableLookup[stableKey] = static_cast<uint32_t>(i);
     }
-}
-
-std::vector<PathTraceRestirLightObservation> BuildPathTraceRestirLightManagerObservations(
-    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
-    const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
-    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& doomAnalyticIdentities)
-{
-    std::vector<PathTraceRestirLightObservation> observations;
-    observations.reserve(emissiveTriangles.size() + doomAnalyticLights.size());
-
-    for (size_t i = 0; i < emissiveTriangles.size(); ++i)
-    {
-        observations.push_back(MakeEmissiveObservation(emissiveTriangles[i], static_cast<uint32_t>(i)));
-    }
-
-    for (size_t i = 0; i < doomAnalyticLights.size(); ++i)
-    {
-        const PathTraceDoomAnalyticLightCandidateIdentity* identity =
-            i < doomAnalyticIdentities.size() ? &doomAnalyticIdentities[i] : nullptr;
-        observations.push_back(MakeDoomAnalyticObservation(doomAnalyticLights[i], identity, static_cast<uint32_t>(i)));
-    }
-
-    return observations;
-}
-
-PathTraceRestirLightObservationStats BuildPathTraceRestirLightManagerDebugObservations(
-    const std::vector<PathTraceRestirLightObservation>& observations)
-{
-    PathTraceRestirLightObservationStats stats;
-
-    for (const PathTraceRestirLightObservation& observation : observations)
-    {
-        if (observation.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE)
-        {
-            ++stats.emissiveObservationCount;
-            if ((observation.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY) != 0u)
-            {
-                ++stats.emissiveStableIdentityCount;
-            }
-            else if ((observation.invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY) != 0u)
-            {
-                ++stats.emissiveUnknownIdentityCount;
-            }
-        }
-        else if (observation.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC)
-        {
-            ++stats.doomAnalyticObservationCount;
-            if ((observation.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY) != 0u)
-            {
-                ++stats.doomAnalyticStableIdentityCount;
-            }
-            else if ((observation.invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY) != 0u)
-            {
-                ++stats.doomAnalyticUnknownIdentityCount;
-            }
-        }
-
-        if ((observation.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY) != 0u &&
-            observation.invalidReasonFlags == PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE)
-        {
-            ++stats.stableMappedReadyCount;
-        }
-        if (observation.invalidReasonFlags != PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE)
-        {
-            ++stats.remapInvalidObservationCount;
-        }
-        if ((observation.invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE) != 0u)
-        {
-            ++stats.unsupportedObservationCount;
-        }
-        if (observation.payloadSourceIndex != PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX)
-        {
-            ++stats.payloadSourceValidCount;
-        }
-    }
-
-    stats.totalObservationCount = stats.emissiveObservationCount + stats.doomAnalyticObservationCount;
-    stats.stableIdentityCount = stats.emissiveStableIdentityCount + stats.doomAnalyticStableIdentityCount;
-    stats.unknownIdentityCount = stats.emissiveUnknownIdentityCount + stats.doomAnalyticUnknownIdentityCount;
-    return stats;
 }

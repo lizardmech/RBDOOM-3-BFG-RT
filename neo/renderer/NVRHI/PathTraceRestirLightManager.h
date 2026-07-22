@@ -138,7 +138,6 @@ struct PathTraceRestirLightInvalidReasonStats
     uint32_t incompatibleSource = 0;
     uint32_t deleted = 0;
 };
-
 struct PathTraceRestirLightActiveRange
 {
     uint32_t sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID;
@@ -199,23 +198,6 @@ struct PathTraceRestirLightManagerStats
     uint64_t mappingIdentitySignature = 0;
     uint64_t animatedPayloadSignature = 0;
     PathTraceRestirLightInvalidReasonStats invalidReasons;
-};
-
-struct PathTraceRestirLightObservationStats
-{
-    uint32_t emissiveObservationCount = 0;
-    uint32_t emissiveStableIdentityCount = 0;
-    uint32_t emissiveUnknownIdentityCount = 0;
-    uint32_t doomAnalyticObservationCount = 0;
-    uint32_t doomAnalyticStableIdentityCount = 0;
-    uint32_t doomAnalyticUnknownIdentityCount = 0;
-    uint32_t stableMappedReadyCount = 0;
-    uint32_t remapInvalidObservationCount = 0;
-    uint32_t unsupportedObservationCount = 0;
-    uint32_t payloadSourceValidCount = 0;
-    uint32_t totalObservationCount = 0;
-    uint32_t stableIdentityCount = 0;
-    uint32_t unknownIdentityCount = 0;
 };
 
 class PathTraceRestirLightManager
@@ -296,11 +278,3 @@ private:
     uint64_t m_lastAnimatedPayloadSignature = 0;
     bool m_haveLastSignatures = false;
 };
-
-std::vector<PathTraceRestirLightObservation> BuildPathTraceRestirLightManagerObservations(
-    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
-    const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
-    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& doomAnalyticIdentities);
-
-PathTraceRestirLightObservationStats BuildPathTraceRestirLightManagerDebugObservations(
-    const std::vector<PathTraceRestirLightObservation>& observations);

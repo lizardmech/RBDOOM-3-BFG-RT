@@ -555,12 +555,6 @@ idCVar r_pathTracingWorldStaticEmissiveMaxTriangles(
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum full-level static world emissive triangles to append when r_pathTracingWorldStaticEmissives is enabled" );
 
-idCVar r_pathTracingEmissiveBridgeDump(
-    "r_pathTracingEmissiveBridgeDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump diagnostics-only scene-universe to RT smoke emissive bridge counts once" );
-
 idCVar r_pathTracingDynamicOccluderRadius(
     "r_pathTracingDynamicOccluderRadius",
     "0",
@@ -633,12 +627,6 @@ idCVar r_pathTracingLightAreaOverflowMax(
     CVAR_RENDERER | CVAR_INTEGER,
     "Connected-area overflow budget for RT smoke emissive light-area selection; high default keeps connected candidates greedy and mainly drops disconnected/unknown candidates" );
 
-idCVar r_pathTracingRemixFramePrepareDump(
-    "r_pathTracingRemixFramePrepareDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the CPU-only Remix-shaped frame preparation scaffold once" );
-
 idCVar r_pathTracingRemixLightUniverseEnable(
     "r_pathTracingRemixLightUniverseEnable",
     "0",
@@ -663,35 +651,17 @@ idCVar r_pathTracingRemixLightUniverseDoomColorSource(
     CVAR_RENDERER | CVAR_INTEGER,
     "Reserved RLU Doom analytic payload diagnostic color source: 0 material register, 1 current renderLight color, 2 authored/base color" );
 
-idCVar r_pathTracingRemixLightUniverseDump(
-    "r_pathTracingRemixLightUniverseDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 for one-shot RLU CPU shell dump, 2 for continuous dump while explicitly requested" );
-
 idCVar r_pathTracingRemixLightUniverseStrictRemixMapping(
     "r_pathTracingRemixLightUniverseStrictRemixMapping",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "RLU mapping policy: 1 bases validity only on current/previous dense-domain identity; 0 allows diagnostic compatibility mode" );
 
-idCVar r_pathTracingRemixLightManagerDump(
-    "r_pathTracingRemixLightManagerDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the CPU-only Remix-shaped light manager contract once" );
-
 idCVar r_pathTracingRemixLightManagerRAB(
     "r_pathTracingRemixLightManagerRAB",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Active RRX RAB light source: Remix Light Universe only; legacy ReSTIR manager fallback has been purged" );
-
-idCVar r_pathTracingRestirLightManagerDump(
-    "r_pathTracingRestirLightManagerDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Legacy ReSTIR light manager is purged; set to 1 to print the purge notice once" );
 
 idCVar r_pathTracingRestirLightManagerRAB(
     "r_pathTracingRestirLightManagerRAB",
