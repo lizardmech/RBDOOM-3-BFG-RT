@@ -207,12 +207,6 @@ idCVar r_pathTracingCpuPlanningAsync(
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic opt-in: run PT CPU acceleration planning from an owned snapshot on a background worker when possible; late or stale work falls back synchronously on the render thread" );
 
-idCVar r_pathTracingCpuPlanningDump(
-    "r_pathTracingCpuPlanningDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump one-shot PT CPU acceleration planning counters and timings" );
-
 idCVar r_pathTracingInstanceUniverseDump(
     "r_pathTracingInstanceUniverseDump",
     "0",
@@ -2315,18 +2309,6 @@ idCVar r_pathTracingSmokeLog(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable broad periodic RT smoke debug logging; verbose diagnostic firehose" );
-
-idCVar r_pathTracingMaterialUploadDump(
-    "r_pathTracingMaterialUploadDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump current material table and dynamic-material upload/dirty-range stats once" );
-
-idCVar r_pathTracingBufferUploadDump(
-    "r_pathTracingBufferUploadDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump current RT smoke scene-buffer upload bytes and per-buffer skip/range state once" );
 
 idCVar r_pathTracingTimingLog(
     "r_pathTracingTimingLog",

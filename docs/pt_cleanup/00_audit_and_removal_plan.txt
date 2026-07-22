@@ -1128,3 +1128,23 @@ Working rule for every deletion slice:
     up to date and no DXIL command runs. This is a C++-only slice, so deploy only
     the executable; source and deployed SHA-256 both equal
     72AC0DEF90DCF6574A2090A142C7D01AC6832841B300D75ADB419DC535EC0C2D.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 1beb639db. T4.3n runtime gate closed.
+  - T4.3o removes three default-off scene-build reports: asynchronous CPU
+    planning, per-buffer upload items, and material/dynamic-material upload diffs.
+    None changed during the recent feature window. Preserve asynchronous plan
+    generation and acceptance, all buffer upload items and dirty ranges,
+    descriptor writes, material/dynamic-material signatures, aggregate upload and
+    skipped-byte accounting, upload timing, and retained rigid/skinned reports.
+  - The material report owns two diff-summary types and their compare/sample
+    helper family; the buffer report owns the 49-entry item-name table, its size
+    assertion, and three per-item formatting helpers. Remove that now-orphaned
+    diagnostic support while retaining SumSmokeUploadBytes and
+    SumSmokeSkippedUploadBytes, which still feed committed diagnostics and
+    retained route reports.
+  - T4.3o verification: whole-neo sweeps for the three retired CVars and all
+    report-only helper symbols are empty. The full win64-pt-dev-release build
+    passes; both SPIR-V targets remain up to date and no DXIL command runs. This
+    is a C++-only slice, so deploy only the executable; source and deployed
+    SHA-256 both equal
+    5A3251B243CD4DBDFFB806DBC33A2F9AE20E5EA5FB3439906F59868DAD554A3E.
