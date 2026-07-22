@@ -356,16 +356,10 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         return;
     }
 
-    uint32_t temporalCurrentStableTasks = 0u;
-    uint32_t temporalPreviousStableTasks = 0u;
-    uint32_t temporalStableIdMatches = 0u;
-    uint32_t temporalPrimitiveMatches = 0u;
-    uint32_t temporalMaterialMatches = 0u;
     uint32_t temporalHistoryMatches = 0u;
     for (ParticleCompositeLightingTask& task : m_particleCapture.lightingTasks)
     {
         task.historyIndex = UINT32_MAX;
-        temporalCurrentStableTasks += task.stableParticleId != 0u ? 1u : 0u;
     }
     if (r_pathTracingParticleTemporalLighting.GetBool() && !m_particleLightingPreviousTasks.empty())
     {
@@ -378,7 +372,6 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
             const ParticleCompositeLightingTask& previousTask = m_particleLightingPreviousTasks[previousIndex];
             if (previousTask.stableParticleId != 0u)
             {
-                ++temporalPreviousStableTasks;
                 previousTaskIndexes[ParticleCompositeLightingIdentityKey(previousTask)] = previousIndex;
             }
         }
@@ -387,25 +380,6 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
             if (task.stableParticleId == 0u)
             {
                 continue;
-            }
-            for (const ParticleCompositeLightingTask& previousTask : m_particleLightingPreviousTasks)
-            {
-                if (task.stableParticleId != previousTask.stableParticleId)
-                {
-                    continue;
-                }
-                ++temporalStableIdMatches;
-                if (task.stablePrimitiveIndex != previousTask.stablePrimitiveIndex)
-                {
-                    continue;
-                }
-                ++temporalPrimitiveMatches;
-                if (task.materialId != previousTask.materialId)
-                {
-                    continue;
-                }
-                ++temporalMaterialMatches;
-                break;
             }
             const auto previousIt = previousTaskIndexes.find(ParticleCompositeLightingIdentityKey(task));
             if (previousIt == previousTaskIndexes.end())
@@ -517,50 +491,6 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
                 particleLightingReady = true;
             }
         }
-    }
-
-    if (r_pathTracingParticleLightingDump.GetInteger() != 0)
-    {
-        const PathTraceRemixLightManagerStats& lightStats = m_remixLightManager.GetStats();
-        common->Printf(
-            "PathTraceParticleLighting: requested=%d ready=%d tasks=%u payloadCount=%d managerEnabled=%u managerCurrent=%u emissiveRange=%u+%u analyticRange=%u+%u layout=%d shader=%d pipeline=%d taskBuffer=%d outputBuffer=%d historyBuffer=%d tlas=%d candidates=%d shadowRay=%d ambient=%.3f emissiveScale=%.3f analyticScale=%.3f temporal=%d weight=%.3f previousTasks=%u stableTasks=%u+%u idMatches=%u primitiveMatches=%u materialMatches=%u matches=%u debug=%d\n",
-            particleLightingRequested ? 1 : 0,
-            particleLightingReady ? 1 : 0,
-            static_cast<uint32_t>(m_particleCapture.lightingTasks.size()),
-            m_smokeRestirLightManagerCurrentPayloadCount,
-            lightStats.enabled,
-            lightStats.currentLightCount,
-            lightStats.emissiveRangeOffset,
-            lightStats.emissiveRangeCount,
-            lightStats.doomAnalyticRangeOffset,
-            lightStats.doomAnalyticRangeCount,
-            m_particleLightingBindingLayout ? 1 : 0,
-            m_particleLightingShader ? 1 : 0,
-            m_particleLightingPipeline ? 1 : 0,
-            m_particleLightingTaskBuffer ? 1 : 0,
-            m_particleLightingOutputBuffer ? 1 : 0,
-            m_particleLightingHistoryBuffer ? 1 : 0,
-            m_smokeTlas ? 1 : 0,
-            idMath::ClampInt(1, 4096, r_pathTracingParticleLightCandidates.GetInteger()),
-            r_pathTracingParticleShadowRays.GetInteger() > 0 ? 1 : 0,
-            Max(0.0f, r_pathTracingParticleAmbient.GetFloat()),
-            idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat()),
-            idMath::ClampFloat(
-                0.0f,
-                16.0f,
-                r_pathTracingAnalyticLightIntensityScale.GetFloat() *
-                    r_pathTracingToyLightScale.GetFloat()),
-            r_pathTracingParticleTemporalLighting.GetBool() ? 1 : 0,
-            idMath::ClampFloat(0.0f, 0.98f, r_pathTracingParticleTemporalWeight.GetFloat()),
-            static_cast<uint32_t>(m_particleLightingPreviousTasks.size()),
-            temporalCurrentStableTasks,
-            temporalPreviousStableTasks,
-            temporalStableIdMatches,
-            temporalPrimitiveMatches,
-            temporalMaterialMatches,
-            temporalHistoryMatches,
-            idMath::ClampInt(0, 1, r_pathTracingParticleLightingDebug.GetInteger()));
-        r_pathTracingParticleLightingDump.SetInteger(0);
     }
 
     commandList->setBufferState(m_particleCompositeVertexBuffer, nvrhi::ResourceStates::ShaderResource);

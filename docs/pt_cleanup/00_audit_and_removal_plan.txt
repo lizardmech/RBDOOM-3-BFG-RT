@@ -1490,3 +1490,26 @@ Working rule for every deletion slice:
     up to date and no DXIL command runs. No SPIR-V is rebuilt, so deploy only
     RBDoom3BFG.exe. Source and deployed SHA-256 both equal
     388E82DB36093D3274EE87892C2FC5D1980A075465AA449003F45A8702FB04F2.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit dbe1ae269. T4.3ad runtime gate closed.
+  - T4.3ae removes three default-off particle bring-up reports: the screen-space
+    candidate audit, persistent-fire/nearby-analytic ownership audit, and
+    particle-lighting runtime gate dump. Remove their controls, formatters,
+    report-only aggregation types and lookup helpers, fire-name/primitive-area
+    probes, trigger/reset branches, and the dump-only temporal match counters.
+    The latter included an O(N squared) scan of current versus previous lighting
+    tasks; the real identity-map lookup and history-index assignment remain.
+    Preserve live particle surface inspection and classification, CPU capture,
+    composite routing and draw, emissive scaling, unified-light evaluation,
+    temporal history, debug tint, and all Doom analytic-light construction.
+    The last particle feature edits are dated July 17-19; no rendering feature
+    from the last-day window consumes these reports.
+  - T4.3ae verification: whole-neo sweeps for all three controls, report labels,
+    formatters, fire audit helpers, aggregation helpers, and dump-only temporal
+    counters are empty. A scoped live-chain sweep confirms capture construction,
+    composite routing, lighting enable/debug controls, the stable identity map,
+    history match assignment, and temporal weight remain. The code slice removes
+    876 lines. The full win64-pt-dev-release build passes; both SPIR-V targets
+    report up to date and no DXIL command runs. No SPIR-V is rebuilt, so deploy
+    only RBDoom3BFG.exe. Source and deployed SHA-256 both equal
+    319374CA9A1E04C31991859CBFBB0814E8B4D446A2A22F6550DD8B3ABBD687E9.

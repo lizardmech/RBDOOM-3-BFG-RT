@@ -1845,12 +1845,6 @@ idCVar r_pathTracingSmokeParticleAlphaScale(
     CVAR_RENDERER | CVAR_FLOAT,
     "Opacity scale for RT smoke particle-card alpha dithering" );
 
-idCVar r_pathTracingParticleDump(
-    "r_pathTracingParticleDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot screen-space particle candidate audit: 1=summary plus candidates, 2=verbose stage details; does not change rendering" );
-
 idCVar r_pathTracingParticleComposite(
     "r_pathTracingParticleComposite",
     "1",
@@ -1874,12 +1868,6 @@ idCVar r_pathTracingParticleFireEmissiveScale(
     "3.0",
     CVAR_RENDERER | CVAR_FLOAT,
     "Additional HDR emissive multiplier for textures/particles/pfiresmall and pfiresmall2; 1 restores the global particle emissive scale" );
-
-idCVar r_pathTracingParticleFireLightDump(
-    "r_pathTracingParticleFireLightDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot PC-T08 audit of fire/flame particle cards and nearby analytic-light ownership" );
 
 idCVar r_pathTracingParticleFlares(
     "r_pathTracingParticleFlares",
@@ -1910,12 +1898,6 @@ idCVar r_pathTracingParticleLightingDebug(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Particle lighting diagnostic: 0=off, 1=force AlphaLit cards red without reading the lighting buffer" );
-
-idCVar r_pathTracingParticleLightingDump(
-    "r_pathTracingParticleLightingDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot particle-lighting runtime gate and unified-light range dump" );
 
 idCVar r_pathTracingParticleLightCandidates(
     "r_pathTracingParticleLightCandidates",
