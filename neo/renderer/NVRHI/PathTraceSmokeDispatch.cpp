@@ -4741,101 +4741,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.dispatchTileInfo[1] = 0.0f;
     constants.dispatchTileInfo[2] = static_cast<float>(Max(0, m_frameResources.width));
     constants.dispatchTileInfo[3] = static_cast<float>(Max(0, m_frameResources.height));
-    if (r_pathTracingIntegratorDump.GetInteger() != 0)
-    {
-        const uint64 estimatedDispatchRays =
-            static_cast<uint64>(Max(0, m_frameResources.width)) *
-            static_cast<uint64>(Max(0, m_frameResources.height)) *
-            static_cast<uint64>(Max(1, estimatedRaysPerPixel));
-        common->Printf("PathTracePrimaryPass: PT integrator settings output=%dx%d spp=%d maxDepth=%d diffuse/spec/trans=%d/%d/%d reflectionMode=%d rrDepth=%d nee=%d secondaryNeeMode=%d secondaryNeeVisibility=%d secondaryAnalyticNeeMode=%d secondaryAnalyticNeeSamples=%d selectedLights=%d analyticLights=%d estimatedRaysPerPixel=%d estimatedDispatchRays=%llu\n",
-            m_frameResources.width,
-            m_frameResources.height,
-            integratorSettings.samplesPerPixel,
-            integratorSettings.maxPathDepth,
-            integratorSettings.diffuseBounceLimit,
-            integratorSettings.specularBounceLimit,
-            integratorSettings.transmissionBounceLimit,
-            integratorSettings.reflectionMode,
-            integratorSettings.russianRouletteDepth,
-            integratorSettings.nextEventEstimation,
-            integratorSettings.secondaryNeeMode,
-            integratorSettings.secondaryNeeVisibility,
-            integratorSettings.secondaryAnalyticNeeMode,
-            integratorSettings.secondaryAnalyticNeeSamples,
-            selectedLightRequestCount,
-            analyticLightTraceCount,
-            estimatedRaysPerPixel,
-            static_cast<unsigned long long>(estimatedDispatchRays));
-        r_pathTracingIntegratorDump.SetInteger(0);
-    }
-    if (r_pathTracingSafetyDump.GetInteger() != 0)
-    {
-        const int activeDescriptorCount = Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1);
-        common->Printf(
-            "PathTracePrimaryPass: PT safety pre-dispatch output=%dx%d debugMode=%d spp=%d maxDepth=%d bounce diffuse/spec/trans=%d/%d/%d reflectionMode=%d rrDepth=%d nee=%d secondaryNeeMode=%d secondaryNeeVisibility=%d secondaryAnalyticNeeMode=%d secondaryAnalyticNeeSamples=%d killMask=0x%08x selectedLights actual/effective=%d/%d analytic actual/effective=%d/%d emissive actual/effective=%d/%d lightCandidates actual/effective=%d/%d materialEntries=%d activeTextureDescriptors=%d activeTextureTableSize=%d geometry static(v/i/t)=%d/%d/%d dynamic(v/i/t)=%d/%d/%d rigid(v/i/t/inst)=%d/%d/%d/%d AS tlas/static/dynamic=%d/%d/%d primaryHistory count/bytes=%u/%llu bindingSet=%d textureTable=%d\n",
-            m_frameResources.width,
-            m_frameResources.height,
-            debugMode,
-            integratorSettings.samplesPerPixel,
-            integratorSettings.maxPathDepth,
-            integratorSettings.diffuseBounceLimit,
-            integratorSettings.specularBounceLimit,
-            integratorSettings.transmissionBounceLimit,
-            integratorSettings.reflectionMode,
-            integratorSettings.russianRouletteDepth,
-            integratorSettings.nextEventEstimation,
-            integratorSettings.secondaryNeeMode,
-            integratorSettings.secondaryNeeVisibility,
-            integratorSettings.secondaryAnalyticNeeMode,
-            integratorSettings.secondaryAnalyticNeeSamples,
-            safetyDisableMask,
-            disableSelectedLightLoop ? 0 : selectedLightRequestCount,
-            selectedLightCount,
-            m_smokeDoomAnalyticLightCount,
-            analyticLightTraceCount,
-            m_smokeEmissiveTriangleCount,
-            disableEmissiveTriangleSampling ? 0 : m_smokeEmissiveTriangleCount,
-            m_smokeLightCandidateCount,
-            disableEmissiveTriangleSampling ? 0 : m_smokeLightCandidateCount,
-            m_smokeMaterialTableEntryCount,
-            activeDescriptorCount,
-            static_cast<int>(m_smokeActiveTextureTable.size()),
-            m_sceneInputs.geometry.staticVertexCount,
-            m_sceneInputs.geometry.staticIndexCount,
-            m_sceneInputs.geometry.staticTriangleCount,
-            m_sceneInputs.geometry.dynamicVertexCount,
-            m_sceneInputs.geometry.dynamicIndexCount,
-            m_sceneInputs.geometry.dynamicTriangleCount,
-            m_sceneInputs.geometry.rigidRouteVertexCount,
-            m_sceneInputs.geometry.rigidRouteIndexCount,
-            m_sceneInputs.geometry.rigidRouteTriangleCount,
-            m_sceneInputs.geometry.rigidRouteInstanceCount,
-            m_smokeTlas ? 1 : 0,
-            m_smokeStaticBlas ? 1 : 0,
-            m_smokeDynamicBlas ? 1 : 0,
-            m_frameResources.primarySurfaceHistoryBuffers.surfaceCount,
-            static_cast<unsigned long long>(m_frameResources.primarySurfaceHistoryBuffers.surfaceBytes),
-            m_smokeBindingSet ? 1 : 0,
-            m_smokeTextureDescriptorTable ? 1 : 0);
-        r_pathTracingSafetyDump.SetInteger(0);
-    }
-    if (r_pathTracingDispatchTileDump.GetInteger() != 0)
-    {
-        common->Printf(
-            "PathTracePrimaryPass: PT tiled dispatch enabled=%d output=%dx%d tile=%dx%d tileCount=%d (%dx%d) estimatedRaysPerPixel=%d estimatedRaysPerTile=%llu estimatedRaysFullFrame=%llu\n",
-            dispatchTileSettings.enabled ? 1 : 0,
-            m_frameResources.width,
-            m_frameResources.height,
-            dispatchTileSettings.tileWidth,
-            dispatchTileSettings.tileHeight,
-            dispatchTileSettings.tileCount,
-            dispatchTileSettings.tileColumns,
-            dispatchTileSettings.tileRows,
-            estimatedRaysPerPixel,
-            static_cast<unsigned long long>(dispatchTileSettings.estimatedRaysPerTile),
-            static_cast<unsigned long long>(dispatchTileSettings.estimatedRaysFullFrame));
-        r_pathTracingDispatchTileDump.SetInteger(0);
-    }
     for (int i = 0; i < selectedLightCount; i++)
     {
         constants.lightOriginAndRadius[i][0] = selectedLights[i].origin.x;
@@ -4846,31 +4751,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         constants.lightColorAndIntensity[i][1] = selectedLights[i].color.y;
         constants.lightColorAndIntensity[i][2] = selectedLights[i].color.z;
         constants.lightColorAndIntensity[i][3] = selectedLights[i].spriteProxy ? 1.0f : 0.0f;
-    }
-    if ((debugMode == 14 || debugMode == 15 || debugMode == 18) && r_pathTracingLightDump.GetInteger() != 0)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke selected %d debug point lights selection=%s\n",
-            selectedLightCount,
-            lightSelectionMode == 0 ? "nearest" : "cameraInfluence");
-        for (int i = 0; i < selectedLightCount; i++)
-        {
-            common->Printf("  light[%d]: index=%d origin=(%.2f %.2f %.2f) radius=%.2f distance=%.2f score=%.6f color=(%.3f %.3f %.3f) intensity=%.3f sprite=%d shader='%s'\n",
-                i,
-                selectedLights[i].index,
-                selectedLights[i].origin.x,
-                selectedLights[i].origin.y,
-                selectedLights[i].origin.z,
-                selectedLights[i].radius,
-                idMath::Sqrt(selectedLights[i].distanceSquared),
-                selectedLights[i].score,
-                selectedLights[i].color.x,
-                selectedLights[i].color.y,
-                selectedLights[i].color.z,
-                selectedLights[i].color.w,
-                selectedLights[i].spriteProxy ? 1 : 0,
-                selectedLights[i].shaderName.c_str());
-        }
-        r_pathTracingLightDump.SetInteger(0);
     }
     RunPathTraceDoomLightDiagnostics(viewDef);
 

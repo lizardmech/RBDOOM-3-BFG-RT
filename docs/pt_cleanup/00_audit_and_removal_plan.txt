@@ -1092,3 +1092,17 @@ Working rule for every deletion slice:
     no DXIL command runs. This is a C++-only slice, so deploy only the executable;
     source and deployed SHA-256 both equal
     8FCF16CDCA606710903EA25D374824051D23196570A75A35684F36D9496AF0D1.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 7c860ebd5. T4.3l runtime gate closed.
+  - T4.3m removes four default-off, one-shot dispatch-tail reports: integrator
+    settings, safety metadata, tiled-dispatch planning, and selected debug-light
+    details. Each CVar has one get/print/reset consumer and none changed during
+    the recent feature window. Preserve the live integrator settings and ray
+    estimate, safety mask, tiled-dispatch settings and execution, light-selection
+    policy and selected-light upload, pass timing, and all clean-DI/GI dumps.
+  - T4.3m verification: whole-neo sweeps for all four retired dump CVars are
+    empty, while their underlying render inputs remain referenced. The full
+    win64-pt-dev-release build passes; both SPIR-V targets remain up to date and
+    no DXIL command runs. This is a C++-only slice, so deploy only the executable;
+    source and deployed SHA-256 both equal
+    16EEA093B77D018A2FF2F45DBAD32CE1BF74F104A38C62669AC6390CC433203D.

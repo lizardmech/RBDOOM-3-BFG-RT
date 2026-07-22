@@ -849,12 +849,6 @@ idCVar r_pathTracingNeeCacheSourceDomain(
     CVAR_RENDERER | CVAR_INTEGER,
     "NEE cache source domain: 0 all current RLU, 1 emissive range only, 2 analytic range only, 3 typed candidate lists with mixture probabilities" );
 
-idCVar r_pathTracingLightDump(
-    "r_pathTracingLightDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the current RT smoke selected debug light once" );
-
 idCVar r_pathTracingDoomLightDump(
     "r_pathTracingDoomLightDump",
     "0",
@@ -1244,12 +1238,6 @@ idCVar r_pathTracingNeeCacheSecondaryVisualRefresh(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "NEECACHE-10 view 8 band 10 diagnostic refresh: 0 read existing cache, 1 one-shot refresh, 2 refresh every frame" );
-
-idCVar r_pathTracingIntegratorDump(
-    "r_pathTracingIntegratorDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump current path tracer core settings and estimated ray budget once" );
 
 idCVar r_pathTracingReservoirTwoSidedEmissives(
     "r_pathTracingReservoirTwoSidedEmissives",
@@ -2025,12 +2013,6 @@ idCVar r_pathTracingCleanRestirGiDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room ReSTIR GI one-shot CPU dump of route state, resource/page roles, and dispatch dimensions; auto-clears" );
 
-idCVar r_pathTracingSafetyDump(
-    "r_pathTracingSafetyDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump path tracing dispatch safety metadata once before the RT dispatch" );
-
 idCVar r_pathTracingDispatchTileEnable(
     "r_pathTracingDispatchTileEnable",
     "0",
@@ -2048,12 +2030,6 @@ idCVar r_pathTracingDispatchTileHeight(
     "512",
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic tiled DispatchRays tile height in pixels when r_pathTracingDispatchTileEnable is set" );
-
-idCVar r_pathTracingDispatchTileDump(
-    "r_pathTracingDispatchTileDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the current path tracing tiled DispatchRays plan once" );
 
 idCVar r_pathTracingDisableAnyHitAlpha(
     "r_pathTracingDisableAnyHitAlpha",
