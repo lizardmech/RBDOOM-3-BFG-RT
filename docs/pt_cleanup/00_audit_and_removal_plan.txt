@@ -256,11 +256,16 @@ PHASE 4 - structural separation (production vs debug):
         occupancy is the measured GI bound, dead branches cost real registers.
         Mechanism (matches existing #define-entry + material-features .cmake
         pattern):
-          - compile each clean DI/GI/spatial raygen twice: production permutation
-            with CLEAN_DI_VIEW_STATIC=16 (view is a literal; DXC dead-strips other
-            branches; debug hlsli includes #if'd out) and a debug permutation that
+          - compile clean DI initial/temporal/spatial raygens twice: a production
+            permutation with CLEAN_DI_VIEW_STATIC=16 and a debug permutation that
             keeps the runtime switch unchanged;
-          - C++ selects the shader table by view: 16 -> production, else -> debug;
+          - compile the clean GI ray-tracing library with its own production
+            selector CLEAN_GI_VIEW_STATIC=0 and retain the runtime-view debug
+            library for GI views 1-26;
+          - C++ selects the DI shader tables by view (16 production, otherwise
+            debug) and the GI pipeline state by GI view (0 production, otherwise
+            debug); DXC dead-strips unreachable helpers, while production-only
+            audit selectors are explicitly specialized out;
           - temporal-audit readback + GUI snapshot stay debug-permutation-only;
           - resampling math stays in cleanroom_common (view-free) - that is the
             surface where paper upgrades (shift mappings, MIS changes) land.
@@ -1647,5 +1652,17 @@ Working rule for every deletion slice:
     blobs; all deployed hashes match their sources. Source and deployed
     executable SHA-256 both equal
     56FF51B981E67B70133F2781B2940BADA59C2D133D997FC55B2C9C2F3B9F45C9.
-    Runtime acceptance is pending for clean DI view 16 with GI view 0 and native
-    mode 18; debug audit behavior is binary-identical to the accepted build.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean DI view 16
+    with GI view 0 or native mode 18 on deployed commit 5d349ee4c. Debug audit
+    behavior is binary-identical to the previously accepted build. T4.4c runtime
+    gate closed.
+  - Phase 4 closeout 2026-07-22: T4.2 policy centralization, the T4.3 removal
+    series, and the T4.4 production/debug shader split are complete and runtime
+    accepted. T4.1 remains deliberately deferred: its boundary re-audit proves
+    that extraction currently requires a new frame-context behavioral contract,
+    not a mechanical cleanup. T4.5 remains skipped: it is optional, naming-only,
+    extremely broad, and its own gate requires an otherwise quiet tree; unrelated
+    geometry work and shader status noise are present. Do not start either item
+    implicitly. Any future T4.1 frame-context design or T4.5 rename should begin
+    as a separately reviewed task with its own recent-feature audit. No code,
+    shader, build, or deployment change is required for this closeout.
