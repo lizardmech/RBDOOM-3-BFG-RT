@@ -123,12 +123,6 @@ idCVar r_pathTracingSceneSource(
     CVAR_RENDERER | CVAR_INTEGER,
     "PT scene producer source: 0 = legacy drawSurf producer only, 1 = scene-universe diagnostics only, 2 = full static scene-universe geometry plus dynamic drawSurf fallback, 3 = source3 portal-resident scene producer" );
 
-idCVar r_pathTracingSceneSourceCompare(
-    "r_pathTracingSceneSourceCompare",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump a one-shot source 0 vs source 3 capture comparison on the next source 3 frame" );
-
 idCVar r_pathTracingSceneSource2RigidEntities(
     "r_pathTracingSceneSource2RigidEntities",
     "0",

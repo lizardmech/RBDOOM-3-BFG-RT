@@ -27,7 +27,6 @@ extern idCVar r_pathTracingPostLUTReload;
 extern idCVar r_pathTracingPostLUTDebug;
 extern idCVar r_pathTracingEmissiveInventoryMaxTriangles;
 extern idCVar r_pathTracingSceneSource;
-extern idCVar r_pathTracingSceneSourceCompare;
 extern idCVar r_pathTracingSceneSource2RigidEntities;
 extern idCVar r_pathTracingAsyncBvh;
 extern idCVar r_pathTracingAsyncBvhJobs;

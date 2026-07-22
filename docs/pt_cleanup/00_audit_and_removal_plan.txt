@@ -1389,3 +1389,25 @@ Working rule for every deletion slice:
     no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
     Source and deployed SHA-256 both equal
     05921266EFDE67BE617B58E7D5351EE6FB6083D09BDD9727D76632EADA5A5054.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit cd6735b9c. T4.3z runtime gate closed.
+  - T4.3aa removes the one-shot source 0 versus source 3 comparison harness.
+    Its default-off control performs a second legacy draw-surface capture after
+    the live source 3 capture solely to print geometry, class, material-ID, and
+    skip-count differences. Remove the CVar, trigger/reset branch, comparison
+    capture and formatter, comparison-only type and counting/diff/sample
+    helpers, and the otherwise unused unique-material count helper. Preserve
+    r_pathTracingSceneSource, the source 3 draw-surface mirror producer,
+    r_pathTracingSceneSource2RigidEntities, material hydration and signature
+    helpers, active geometry/material output, retained debug modes, clean DI/GI,
+    and native mode 18. The removed harness is May-era, and recent touched-file
+    history is cleanup-only; no recent rendering feature consumes its output.
+  - T4.3aa verification: whole-neo sweeps for the CVar, comparison capture,
+    comparison type, counting/diff/sample helpers, and console label are empty.
+    A scoped live-symbol sweep confirms the active source selector, source 3
+    route, source 2 rigid control, and sorted-material hydration/signature
+    helpers remain. The code slice removes 240 lines. The full
+    win64-pt-dev-release build passes; both SPIR-V targets report up to date and
+    no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
+    Source and deployed SHA-256 both equal
+    0377A2F6C34CD09AC45F0D4CD32B919CA8B7B7CBD6AACB3DB39EA1BD14E24DF3.
