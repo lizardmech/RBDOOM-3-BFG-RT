@@ -1328,3 +1328,24 @@ Working rule for every deletion slice:
     SPIR-V targets report up to date and no DXIL command runs. No SPIR-V is
     rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both equal
     0512E64C12A28C9ED832A51654AA8AFDBAC2097C3023D5A27287B0C4B550AAFB.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 7a03c30e3. T4.3w runtime gate closed.
+  - T4.3x removes the one-shot crosshair material/stage report and GUI surface
+    report. Their two controls only enter formatting after the scene and
+    material table are built. Remove both report implementations, their
+    trigger/reset branches, report-only classifier/compositing projection
+    helpers and includes, and the seven resulting write-only trigger-package
+    fields. Preserve ProcessSmokeCrosshairZeroRoughnessToggle and
+    ProcessSmokeCrosshairFullMetalToggle, their request consumers and override
+    mutators, center-ray surface validation, all material/classifier production
+    data, GUI capture/rendering, retained debug modes, clean DI/GI, and native
+    mode 18. The touched report owner has no change during the recent feature
+    window; its newest pre-cleanup changes are report formatting from 2026-07-19.
+  - T4.3x verification: whole-neo sweeps for both controls, both report
+    functions, report-only helper types/functions, and removed trigger fields
+    are empty. The two live override handlers and their complete request-to-scene
+    call chains remain; their owner shrinks from 1,189 to 94 lines. The code
+    slice removes 1,161 lines. The full win64-pt-dev-release build passes; both
+    SPIR-V targets report up to date and no DXIL command runs. No SPIR-V is
+    rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both equal
+    19912742DF5C5C3ED87E9956D775169E28B8F8ADF6F6773510A556D27ADCF459.

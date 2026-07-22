@@ -45,18 +45,6 @@ idCVar r_pathTracingTextureProbeReset(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to release the latched RT smoke texture probe and select a new one" );
 
-idCVar r_pathTracingCrosshairMaterialDump(
-    "r_pathTracingCrosshairMaterialDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump detailed RT smoke material/stage info for the surface under the center crosshair once" );
-
-idCVar r_pathTracingGuiDump(
-    "r_pathTracingGuiDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump captured RT smoke in-world GUI draw surfaces once" );
-
 idCVar r_pathTracingPostProcess(
     "r_pathTracingPostProcess",
     "0",

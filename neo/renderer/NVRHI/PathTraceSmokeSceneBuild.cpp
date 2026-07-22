@@ -4569,13 +4569,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     const int materialMs = Sys_Milliseconds() - materialStartMs;
     RtSmokeMaterialDiagnosticTriggerDesc materialDiagnosticDesc;
-    materialDiagnosticDesc.viewDef = viewDef;
     materialDiagnosticDesc.materialTable = &materialTable;
-    materialDiagnosticDesc.dynamicMaterialRecords = &dynamicMaterialRecords;
-    materialDiagnosticDesc.dynamicTriangleMaterialIds = &dynamicTriangleMaterialData;
-    materialDiagnosticDesc.dynamicTriangleMaterialIndexes = &materialTable.dynamicMaterialIndexes;
-    materialDiagnosticDesc.staticTriangleMaterialIds = &staticTriangleMaterialCache;
-    materialDiagnosticDesc.staticTriangleMaterialIndexes = &materialTable.staticMaterialIndexes;
     materialDiagnosticDesc.enableTextureProbe = enableTextureProbe;
     const bool buildRigidRouteBuffers = enableRigidRouteForMode;
     RtPathTraceRigidRouteBuild rigidRouteBuild;
@@ -4851,7 +4845,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             rigidRouteTexMatrixVertices,
             static_cast<int>(dynamicMaterialRecords.size()));
     }
-    materialDiagnosticDesc.rigidRouteBuild = &rigidRouteBuild;
     {
         OPTICK_EVENT("PT Material Diagnostic Triggers");
         RunSmokeMaterialDiagnosticTriggers(materialDiagnosticDesc);

@@ -14,8 +14,6 @@ extern idCVar r_pathTracingDebugWidth;
 extern idCVar r_pathTracingDebugHeight;
 extern idCVar r_pathTracingTextureProbeIndex;
 extern idCVar r_pathTracingTextureProbeReset;
-extern idCVar r_pathTracingCrosshairMaterialDump;
-extern idCVar r_pathTracingGuiDump;
 extern idCVar r_pathTracingPostProcess;
 extern idCVar r_pathTracingPostExposure;
 extern idCVar r_pathTracingPostMinLuminance;

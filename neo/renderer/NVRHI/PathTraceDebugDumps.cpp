@@ -11,7 +11,6 @@
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceMaterialClassifier.h"
 #include "PathTraceMaterialTextureDiscovery.h"
-#include "PathTraceSurfaceDebugDumps.h"
 #include "PathTraceTextureRegistry.h"
 
 
@@ -1461,24 +1460,6 @@ void RunSmokeMaterialDiagnosticTriggers(const RtSmokeMaterialDiagnosticTriggerDe
     {
         LogSmokeTextureProbeSwitch(materialTable);
         lastLoggedTextureProbeMaterialId = materialTable.textureProbeBoundMaterialId;
-    }
-    if (r_pathTracingCrosshairMaterialDump.GetInteger() != 0)
-    {
-        LogSmokeCrosshairMaterialDump(
-            desc.viewDef,
-            materialTable,
-            desc.dynamicMaterialRecords,
-            desc.dynamicTriangleMaterialIds,
-            desc.dynamicTriangleMaterialIndexes,
-            desc.staticTriangleMaterialIds,
-            desc.staticTriangleMaterialIndexes,
-            desc.rigidRouteBuild);
-        r_pathTracingCrosshairMaterialDump.SetInteger(0);
-    }
-    if (r_pathTracingGuiDump.GetInteger() != 0)
-    {
-        LogSmokeGuiSurfaceDump(desc.viewDef, materialTable);
-        r_pathTracingGuiDump.SetInteger(0);
     }
     if (desc.enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0)
     {
