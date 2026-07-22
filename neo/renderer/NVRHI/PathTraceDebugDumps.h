@@ -376,7 +376,6 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     bool materialTableCacheHit = false;
     const char* materialTablePath = "legacy";
     bool enableTextureProbe = false;
-    bool dumpClassReasons = false;
     uint64 staticBlasSignature = 0;
     uint64 materialTableSignature = 0;
     RtSmokeSceneCaptureTiming captureTiming;
@@ -395,7 +394,6 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     const RtSmokeMaterialUniverseStats* materialUniverseStats = nullptr;
     const RtSmokeMaterialTableCompareStats* materialUniverseTableCompareStats = nullptr;
     const RtSmokeTextureCoverageStats* textureCoverageStats = nullptr;
-    const RtSmokeSurfaceClassReasonSamples* reasonSamples = nullptr;
     int* lastSceneTimingLogMs = nullptr;
     bool* sceneRebuildLogged = nullptr;
     int* sceneLogCooldownFrames = nullptr;
@@ -416,7 +414,6 @@ void LogPathTraceDispatchTiming(const RtPathTraceDispatchTimingLogDesc& desc);
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc);
 void LogSmokeSceneRebuildSummary(const RtSmokeSceneBuildSummaryLogDesc& desc);
 void LogSmokeSceneCaptureSummary(const RtSmokeSceneBuildSummaryLogDesc& desc);
-void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& samples);
 void LogSmokeBucketRanges(const RtSmokeBucketRanges& ranges);
 void LogSmokeAttributeStats(const RtSmokeAttributeStats& stats);
 void LogSmokeMaterialStats(const RtSmokeMaterialStats& stats);

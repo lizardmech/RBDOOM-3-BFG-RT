@@ -72,7 +72,6 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     RtSmokeMaterialStats& materialStats,
     RtSmokeBucketRanges& bucketRanges,
     RtSmokeSceneCaptureTiming& captureTiming,
-    RtSmokeSurfaceClassReasonSamples* reasonSamples,
     std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords = nullptr,
     std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache = nullptr,
     RtPathTraceInstanceUniverse* instanceUniverse = nullptr,

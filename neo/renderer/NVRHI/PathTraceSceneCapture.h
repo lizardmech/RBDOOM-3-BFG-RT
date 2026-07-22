@@ -25,7 +25,6 @@ class idMaterial;
 const int RT_SMOKE_MAX_SURFACES = 128;
 const int RT_SMOKE_MAX_VERTS = 65536;
 const int RT_SMOKE_MAX_INDEXES = 196608;
-const int RT_SMOKE_CLASS_REASON_SAMPLES = 8;
 const int RT_SMOKE_MATERIAL_REASON_SAMPLES = 12;
 const int RT_SMOKE_TRANSLUCENT_REASON_SAMPLES = 24;
 const int RT_SMOKE_DYNAMIC_MATERIAL_REASON_SAMPLES = 12;
@@ -326,58 +325,6 @@ struct RtSmokeSceneCaptureTiming
     int staticNewSurfaces = 0;
 };
 
-struct RtSmokeSurfaceClassReason
-{
-    bool valid = false;
-    RtSmokeSurfaceClass finalClass = RtSmokeSurfaceClass::Unknown;
-    int surfaceIndex = -1;
-    int verts = 0;
-    int indexes = 0;
-    idStr materialName = "<none>";
-    materialCoverage_t coverage = MC_BAD;
-    float sort = SS_BAD;
-    deform_t deform = DFRM_NONE;
-    int entityNum = -1;
-    idStr modelName = "<none>";
-    dynamicModel_t dynamicModel = DM_STATIC;
-    bool hasJointCache = false;
-    bool hasStaticModelWithJoints = false;
-    bool hasRenderEntityJoints = false;
-    bool ambientCacheStatic = false;
-    bool indexCacheStatic = false;
-    bool isWorldSpace = false;
-    bool isStaticWorldModel = false;
-    bool hasEntityDef = false;
-    bool hasDynamicModel = false;
-    bool hasCachedDynamicModel = false;
-    bool hasCallback = false;
-    bool forceUpdate = false;
-    bool weaponDepthHack = false;
-    float modelDepthHack = 0.0f;
-    bool cpuVertsAvailable = false;
-    bool cpuVertexCacheCurrent = false;
-    bool cpuIndexCacheCurrent = false;
-    bool skinnedLikelyBasePose = false;
-    bool rtCpuSkinned = false;
-    idVec3 entityOrigin = vec3_origin;
-    idMat3 entityAxis = mat3_identity;
-    idBounds entityBounds;
-    idBounds surfaceBounds;
-    idBounds localReferenceBounds;
-    idBounds globalReferenceBounds;
-    bool hasEntityBounds = false;
-    bool hasSurfaceBounds = false;
-    bool hasReferenceBounds = false;
-};
-
-struct RtSmokeSurfaceClassReasonSamples
-{
-    RtSmokeSurfaceClassReason samples[RT_SMOKE_CLASS_COUNT][RT_SMOKE_CLASS_REASON_SAMPLES];
-    int counts[RT_SMOKE_CLASS_COUNT] = {};
-    RtSmokeSurfaceClassReason skinnedSamples[RT_SMOKE_CLASS_REASON_SAMPLES];
-    int skinnedCount = 0;
-};
-
 struct RtSmokeSurfaceSkipStats
 {
     int nullSurface = 0;
@@ -490,7 +437,6 @@ bool CaptureDoomSurfacesForSmokeTest(
     RtSmokeMaterialStats& materialStats,
     RtSmokeBucketRanges& bucketRanges,
     RtSmokeSceneCaptureTiming& captureTiming,
-    RtSmokeSurfaceClassReasonSamples* reasonSamples,
     std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords = nullptr,
     bool skipStaticWorldCapture = false,
     bool skipPromotedStaticSurfaceCapture = false,

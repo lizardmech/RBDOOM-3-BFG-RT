@@ -3213,7 +3213,6 @@ void DumpSource3CaptureCompare(
         oldBucketRanges,
         oldCaptureTiming,
         nullptr,
-        nullptr,
         false,
         false,
         false);
@@ -3633,8 +3632,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtSmokeAttributeStats attributeStats;
     RtSmokeMaterialStats materialStats;
     RtSmokeBucketRanges bucketRanges;
-    const bool dumpClassReasons = r_pathTracingClassDump.GetInteger() != 0;
-    RtSmokeSurfaceClassReasonSamples reasonSamples;
     bool staticCacheChanged = false;
     RtSmokeSceneCaptureTiming captureTiming;
     std::vector<PathTraceSmokeVertex>& staticVertexCache = m_smokeGeometryUniverse.StaticVertices();
@@ -3780,7 +3777,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             {
                 OPTICK_EVENT("PT Capture Visible Doom Surfaces");
-                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, false, false, true);
+                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, &currentSkinnedSurfaceRecords, false, false, true);
             }
             const bool staticAreaPreloadEnabled =
                 r_pathTracingStaticAreaPreload.GetInteger() != 0 ||
@@ -3825,7 +3822,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RtSmokeMaterialStats mirrorMaterialStats;
             RtSmokeBucketRanges mirrorBucketRanges;
             RtSmokeSceneCaptureTiming mirrorCaptureTiming;
-            RtSmokeSurfaceClassReasonSamples mirrorReasonSamples;
             int mirrorSourceSurfaces = 0;
             int mirrorSourceVerts = 0;
             int mirrorSourceIndexes = 0;
@@ -3839,7 +3835,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 r_pathTracingSmokeLog.GetInteger() != 0 ||
                 r_pathTracingSceneBoundsOverlay.GetInteger() != 0 ||
                 rigidResidencyBoundsDebug;
-            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, dumpClassReasons ? &mirrorReasonSamples : nullptr, &currentSkinnedSurfaceRecords, nullptr, &m_instanceUniverse, &m_smokeBoundsOverlayLines, drawSurfMirrorFullDiagnostics);
+            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, &currentSkinnedSurfaceRecords, nullptr, &m_instanceUniverse, &m_smokeBoundsOverlayLines, drawSurfMirrorFullDiagnostics);
 
             {
                 OPTICK_EVENT("PT Merge Mirror Capture Stats");
@@ -3886,7 +3882,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             {
                 OPTICK_EVENT("PT Capture Legacy Doom Surfaces");
-                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
+                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
             }
         }
         {
@@ -7045,7 +7041,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.staticBlasCacheHit = staticBlasCacheHit;
     sceneLogDesc.materialTableCacheHit = materialTableCacheHit;
     sceneLogDesc.enableTextureProbe = enableTextureProbe;
-    sceneLogDesc.dumpClassReasons = dumpClassReasons;
     sceneLogDesc.staticBlasSignature = staticSignature.hash;
     sceneLogDesc.materialTableSignature = materialTableSignature;
     sceneLogDesc.materialTablePath = materialTablePath;
@@ -7065,7 +7060,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.materialUniverseStats = &materialUniverseStats;
     sceneLogDesc.materialUniverseTableCompareStats = &materialUniverseTableCompareStats;
     sceneLogDesc.textureCoverageStats = &textureCoverageStats;
-    sceneLogDesc.reasonSamples = &reasonSamples;
     sceneLogDesc.lastSceneTimingLogMs = &g_smokeLastSceneTimingLogMs;
     sceneLogDesc.sceneRebuildLogged = &m_smokeSceneRebuildLogged;
     sceneLogDesc.sceneLogCooldownFrames = &m_smokeSceneLogCooldownFrames;

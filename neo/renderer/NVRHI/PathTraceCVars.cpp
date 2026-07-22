@@ -15,12 +15,6 @@ idCVar r_pathTracingMode18TestPreset(
     CVAR_RENDERER | CVAR_INTEGER,
     "One-shot mode 18 toy PT test preset: 1 = source3 routed rigid mode18, 4 = depth-4 static/rigid residency validation stack" );
 
-idCVar r_pathTracingClassDump(
-    "r_pathTracingClassDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump sampled RT smoke surface classification reasons once" );
-
 idCVar r_pathTracingDebugWidth(
     "r_pathTracingDebugWidth",
     "320",

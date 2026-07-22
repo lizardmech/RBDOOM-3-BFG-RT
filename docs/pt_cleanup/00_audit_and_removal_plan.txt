@@ -1369,3 +1369,23 @@ Working rule for every deletion slice:
     no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
     Source and deployed SHA-256 both equal
     AD2B308C8F04764ECA5B0A747FC206CAD83CBF8165EA9F8658B3DB6CE8DC7C25.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 27e683da1. T4.3y runtime gate closed.
+  - T4.3z removes the one-shot surface-class reason sampler. Its control only
+    requests bounded reason records during an already-decided classification
+    pass and formats them after scene build. Remove the CVar, reason/sample
+    types and builder/accumulator, formatter, capture-API pointer transport,
+    mirror initialize-only transport, scene-log fields/trigger, and call-site
+    locals/arguments. Preserve the classifier and translucent subtype logic,
+    stable class IDs, per-class bucket arrays/ranges, class/material/dynamic
+    statistics, all captured geometry/material outputs, source comparison,
+    retained debug modes, clean DI/GI, and native mode 18. Recent touched-file
+    history is cleanup-only and adds no rendering dependency on the sampler.
+  - T4.3z verification: whole-neo sweeps for the CVar, reason types/helpers,
+    formatter, descriptor fields, sampler constant, and pointer transport are
+    empty. All legacy, source3, compare, and draw-surface-mirror capture callers
+    match the reduced signatures. The code slice removes 315 lines. The full
+    win64-pt-dev-release build passes; both SPIR-V targets report up to date and
+    no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
+    Source and deployed SHA-256 both equal
+    05921266EFDE67BE617B58E7D5351EE6FB6083D09BDD9727D76632EADA5A5054.

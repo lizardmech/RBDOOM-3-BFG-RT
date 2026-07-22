@@ -1649,71 +1649,6 @@ void AddSmokeTranslucentDebugSample(RtSmokeMaterialStats& stats, const drawSurf_
     sample.info = BuildSmokeTranslucentClassifierInfo(material);
 }
 
-RtSmokeSurfaceClassReason BuildSmokeSurfaceClassReason(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeSurfaceClass surfaceClass)
-{
-    RtSmokeSurfaceClassReason reason;
-    reason.valid = true;
-    reason.finalClass = surfaceClass;
-    reason.surfaceIndex = surfaceIndex;
-    reason.verts = tri ? tri->numVerts : 0;
-    reason.indexes = tri ? tri->numIndexes : 0;
-
-    const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
-    const idRenderEntityLocal* entityDef = space ? space->entityDef : nullptr;
-    const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
-    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
-
-    reason.hasEntityDef = entityDef != nullptr;
-    reason.isWorldSpace = viewDef && space == &viewDef->worldSpace;
-    reason.materialName = material ? material->GetName() : "<none>";
-    reason.coverage = material ? material->Coverage() : MC_BAD;
-    reason.sort = material ? material->GetSort() : SS_BAD;
-    reason.deform = material ? material->Deform() : DFRM_NONE;
-    reason.entityNum = renderEntity ? renderEntity->entityNum : -1;
-    reason.modelName = renderEntity && renderEntity->hModel ? "<entity-model>" : "<none>";
-    reason.dynamicModel = DM_STATIC;
-    reason.hasJointCache = drawSurf && drawSurf->jointCache != 0;
-    reason.hasStaticModelWithJoints = tri && tri->staticModelWithJoints != nullptr;
-    reason.hasRenderEntityJoints = renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0;
-    reason.ambientCacheStatic = drawSurf && idVertexCache::CacheIsStatic(drawSurf->ambientCache);
-    reason.indexCacheStatic = drawSurf && idVertexCache::CacheIsStatic(drawSurf->indexCache);
-    reason.isStaticWorldModel = false;
-    reason.hasDynamicModel = entityDef && entityDef->dynamicModel != nullptr;
-    reason.hasCachedDynamicModel = entityDef && entityDef->cachedDynamicModel != nullptr;
-    reason.hasCallback = renderEntity && renderEntity->callback != nullptr;
-    reason.forceUpdate = renderEntity && renderEntity->forceUpdate != 0;
-    reason.weaponDepthHack = renderEntity && renderEntity->weaponDepthHack;
-    reason.modelDepthHack = renderEntity ? renderEntity->modelDepthHack : (space ? space->modelDepthHack : 0.0f);
-    reason.cpuVertsAvailable = tri && tri->verts != nullptr;
-    reason.cpuVertexCacheCurrent = tri && tri->ambientCache != 0 && vertexCache.CacheIsCurrent(tri->ambientCache);
-    reason.cpuIndexCacheCurrent = tri && tri->indexCache != 0 && vertexCache.CacheIsCurrent(tri->indexCache);
-    reason.skinnedLikelyBasePose = surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed && SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri);
-    bool verticesFromFrameCache = false;
-    SmokeDrawSurfaceVertices(drawSurf, tri, verticesFromFrameCache);
-    reason.rtCpuSkinned = surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed &&
-        SmokeDrawSurfaceCpuSkinningJoints(tri, verticesFromFrameCache) != nullptr;
-    if (renderEntity)
-    {
-        reason.entityOrigin = renderEntity->origin;
-        reason.entityAxis = renderEntity->axis;
-        reason.entityBounds = renderEntity->bounds;
-        reason.hasEntityBounds = true;
-    }
-    if (tri)
-    {
-        reason.surfaceBounds = tri->bounds;
-        reason.hasSurfaceBounds = true;
-    }
-    if (entityDef)
-    {
-        reason.localReferenceBounds = entityDef->localReferenceBounds;
-        reason.globalReferenceBounds = entityDef->globalReferenceBounds;
-        reason.hasReferenceBounds = true;
-    }
-
-    return reason;
-}
-
 void AddSmokeDynamicGeometryStats(RtSmokeDynamicGeometryStats& stats, RtSmokeSurfaceClass surfaceClass, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int indexes)
 {
     switch (surfaceClass)
@@ -1792,29 +1727,6 @@ void AddSmokeSurfaceClassStats(RtSmokeSurfaceClassStats& stats, RtSmokeSurfaceCl
             stats.unknownTriangles += triangles;
             break;
     }
-}
-
-void AddSmokeSurfaceClassReasonSample(RtSmokeSurfaceClassReasonSamples& samples, const RtSmokeSurfaceClassReason& reason)
-{
-    if (reason.finalClass == RtSmokeSurfaceClass::SkinnedDeformed && samples.skinnedCount < RT_SMOKE_CLASS_REASON_SAMPLES)
-    {
-        samples.skinnedSamples[samples.skinnedCount] = reason;
-        ++samples.skinnedCount;
-    }
-
-    const int classIndex = static_cast<int>(SmokeSurfaceClassId(reason.finalClass));
-    if (classIndex < 0 || classIndex >= RT_SMOKE_CLASS_COUNT)
-    {
-        return;
-    }
-
-    if (samples.counts[classIndex] >= RT_SMOKE_CLASS_REASON_SAMPLES)
-    {
-        return;
-    }
-
-    samples.samples[classIndex][samples.counts[classIndex]] = reason;
-    ++samples.counts[classIndex];
 }
 
 uint64 BuildSmokeStaticSurfaceKey(const drawSurf_t* drawSurf, const srfTriangles_t* tri)
@@ -2096,7 +2008,7 @@ uint32_t SmokeRuntimeMaterialTableIdForEntitySurface(const idRenderEntityLocal* 
     return baseMaterialId;
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint32_t>* triangleInstanceData, std::vector<uint32_t>* triangleIdentityData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint32_t>* triangleInstanceData, std::vector<uint32_t>* triangleIdentityData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
 {
     OPTICK_EVENT("PT Capture Doom Surfaces Detail");
 
@@ -2113,10 +2025,6 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
     materialStats = RtSmokeMaterialStats();
     bucketRanges = RtSmokeBucketRanges();
     captureTiming = RtSmokeSceneCaptureTiming();
-    if (reasonSamples)
-    {
-        *reasonSamples = RtSmokeSurfaceClassReasonSamples();
-    }
 
     if (!viewDef || !viewDef->drawSurfs)
     {
@@ -2236,10 +2144,6 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 sourceVerts += tri->numVerts;
                 sourceIndexes += tri->numIndexes;
                 AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, tri->numIndexes);
-                if (reasonSamples)
-                {
-                    AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
-                }
                 continue;
             }
 
@@ -2288,10 +2192,6 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             sourceVerts += tri->numVerts;
             sourceIndexes += emittedIndexes;
             AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
-            if (reasonSamples)
-            {
-                AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
-            }
         }
     }
 
@@ -2448,10 +2348,6 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             }
             dynamicVerts += tri->numVerts;
             dynamicIndexes += emittedIndexes;
-            if (reasonSamples)
-            {
-                AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
-            }
         }
     }
 
