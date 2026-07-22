@@ -26,8 +26,6 @@ extern idCVar r_pathTracingPostLUT;
 extern idCVar r_pathTracingPostLUTImage;
 extern idCVar r_pathTracingPostLUTReload;
 extern idCVar r_pathTracingPostLUTDebug;
-extern idCVar r_pathTracingEmissiveInventoryDump;
-extern idCVar r_pathTracingRigidRouteEmissiveDump;
 extern idCVar r_pathTracingEmissiveInventoryMaxTriangles;
 extern idCVar r_pathTracingSceneSource;
 extern idCVar r_pathTracingSceneSourceCompare;

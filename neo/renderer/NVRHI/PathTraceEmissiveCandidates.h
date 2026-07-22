@@ -189,19 +189,6 @@ struct RtSmokeEmissiveInventoryStats
     int untexturedCandidateMaterials = 0;
 };
 
-struct RtSmokeEmissiveInventoryMaterialSummary
-{
-    uint32_t materialIndex = 0;
-    int triangles = 0;
-    int staticTriangles = 0;
-    int dynamicTriangles = 0;
-    float area = 0.0f;
-    float weightedLuminance = 0.0f;
-    uint32_t emissiveTextureIndex = UINT32_MAX;
-    uint32_t emissiveTextureWidth = 1;
-    uint32_t emissiveTextureHeight = 1;
-};
-
 float SmokeMaterialEmissiveLuminance(const PathTraceSmokeMaterial& material);
 std::vector<PathTraceSmokeLightCandidate> BuildSmokeLightCandidateBufferRecords(
     const RtSmokeEmissiveInventoryStats& stats);
@@ -249,7 +236,3 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     RtSmokeEmissiveInventoryStats& stats);
-void LogSmokeEmissiveInventoryDump(
-    const std::vector<uint32_t>& materialIds,
-    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
-    const RtSmokeEmissiveInventoryStats& stats);

@@ -275,13 +275,6 @@ struct RtSmokeMaterialDiagnosticTriggerDesc
     bool enableTextureProbe = false;
 };
 
-struct RtSmokeEmissiveInventoryDiagnosticTriggerDesc
-{
-    const RtSmokeMaterialTableBuild* materialTable = nullptr;
-    const std::vector<PathTraceSmokeEmissiveTriangle>* emissiveTriangles = nullptr;
-    const RtSmokeEmissiveInventoryStats* emissiveInventoryStats = nullptr;
-};
-
 struct RtSmokeSceneBuildDiagnosticLogDesc
 {
     int sceneMs = 0;
@@ -440,5 +433,4 @@ void LogSmokeTextureActiveWindow(const RtSmokeMaterialTableBuild& table);
 void LogSmokeTextureCoverage(const RtSmokeTextureCoverageStats& stats);
 void LogSmokeMaterialTextureDiscovery(const RtSmokeMaterialTableBuild& table);
 void RunSmokeMaterialDiagnosticTriggers(const RtSmokeMaterialDiagnosticTriggerDesc& desc);
-void RunSmokeEmissiveInventoryDiagnosticTriggers(const RtSmokeEmissiveInventoryDiagnosticTriggerDesc& desc);
 void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& desc);

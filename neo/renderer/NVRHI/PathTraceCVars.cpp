@@ -117,18 +117,6 @@ idCVar r_pathTracingPostLUTDebug(
     CVAR_RENDERER | CVAR_INTEGER,
     "Debug PT post LUT path: 0 normal, 1 bypass LUT sample, 2 show LUT white corner" );
 
-idCVar r_pathTracingEmissiveInventoryDump(
-    "r_pathTracingEmissiveInventoryDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump current RT smoke emissive triangle inventory once" );
-
-idCVar r_pathTracingRigidRouteEmissiveDump(
-    "r_pathTracingRigidRouteEmissiveDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump current routed-rigid emissive append diagnostics once" );
-
 idCVar r_pathTracingEmissiveInventoryMaxTriangles(
     "r_pathTracingEmissiveInventoryMaxTriangles",
     "4096",

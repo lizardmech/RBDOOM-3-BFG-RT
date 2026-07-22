@@ -5004,14 +5004,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat()));
     }
     const int emissiveMs = Sys_Milliseconds() - emissiveStartMs;
-    RtSmokeEmissiveInventoryDiagnosticTriggerDesc emissiveInventoryDiagnosticDesc;
-    emissiveInventoryDiagnosticDesc.materialTable = &materialTable;
-    emissiveInventoryDiagnosticDesc.emissiveTriangles = &emissiveTriangles;
-    emissiveInventoryDiagnosticDesc.emissiveInventoryStats = &emissiveInventoryStats;
-    {
-        OPTICK_EVENT("PT Emissive Inventory Diagnostics");
-        RunSmokeEmissiveInventoryDiagnosticTriggers(emissiveInventoryDiagnosticDesc);
-    }
     {
         OPTICK_EVENT("PT Remix Frame Prepare");
         PathTraceRemixFramePrepareDesc remixFramePrepareDesc;

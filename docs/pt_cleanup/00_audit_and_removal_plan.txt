@@ -1349,3 +1349,23 @@ Working rule for every deletion slice:
     SPIR-V targets report up to date and no DXIL command runs. No SPIR-V is
     rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both equal
     19912742DF5C5C3ED87E9956D775169E28B8F8ADF6F6773510A556D27ADCF459.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 8eeb4eca5. T4.3x runtime gate closed.
+  - T4.3y removes the one-shot emissive-inventory and routed-rigid-emissive
+    reports. Both controls converge after live inventory construction on the
+    same formatter. Remove the controls, formatter/declaration, dump-only
+    per-material summary type, trigger package/function, scene-build descriptor,
+    and diagnostics marker. Preserve r_pathTracingEmissiveInventoryMaxTriangles,
+    all static/dynamic/rigid inventory appends and statistics, sampling-field
+    finalization, temporal remaps, distribution and light-candidate builds,
+    Remix light preparation, GPU sizing/upload, previous-frame history, clean
+    DI/GI, and native mode 18. Recent edits in the touched owners are cleanup
+    only and do not add a rendering consumer to the report path.
+  - T4.3y verification: whole-neo sweeps for both controls, formatter, dump-only
+    summary type, trigger package/function, and marker are empty. A scoped live
+    chain sweep confirms inventory construction through remap, light preparation,
+    upload, and history remains. The code slice removes 235 lines. The full
+    win64-pt-dev-release build passes; both SPIR-V targets report up to date and
+    no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
+    Source and deployed SHA-256 both equal
+    AD2B308C8F04764ECA5B0A747FC206CAD83CBF8165EA9F8658B3DB6CE8DC7C25.

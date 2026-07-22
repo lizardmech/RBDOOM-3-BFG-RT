@@ -1467,22 +1467,6 @@ void RunSmokeMaterialDiagnosticTriggers(const RtSmokeMaterialDiagnosticTriggerDe
     }
 }
 
-void RunSmokeEmissiveInventoryDiagnosticTriggers(const RtSmokeEmissiveInventoryDiagnosticTriggerDesc& desc)
-{
-    if (!desc.materialTable || !desc.emissiveTriangles || !desc.emissiveInventoryStats)
-    {
-        return;
-    }
-
-    if (r_pathTracingEmissiveInventoryDump.GetInteger() != 0 ||
-        r_pathTracingRigidRouteEmissiveDump.GetInteger() != 0)
-    {
-        LogSmokeEmissiveInventoryDump(desc.materialTable->materialIds, *desc.emissiveTriangles, *desc.emissiveInventoryStats);
-        r_pathTracingEmissiveInventoryDump.SetInteger(0);
-        r_pathTracingRigidRouteEmissiveDump.SetInteger(0);
-    }
-}
-
 void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& desc)
 {
     if (!desc.lastSceneTimingLogMs || !desc.sceneRebuildLogged || !desc.sceneLogCooldownFrames ||
