@@ -19,7 +19,6 @@ namespace {
 
 const int RT_SMOKE_DEBUG_MATERIAL_REASON_SAMPLES = 12;
 const int RT_SMOKE_TEXTURE_PROBE_CANDIDATE_SAMPLES = 24;
-const int RT_SMOKE_TEXTURE_PROBE_DUMP_CANDIDATES = 64;
 const uint32_t RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 
 const char* SmokeTextureCoverageClassNameByIndex(int classIndex)
@@ -39,33 +38,6 @@ const char* SmokeTextureCoverageClassNameByIndex(int classIndex)
         default:
             return "invalid";
     }
-}
-
-const char* SmokeTextureFallbackReason(const RtSmokeMaterialTableBuild& table, int tableIndex, const RtSmokeMaterialTextureInfo& info)
-{
-    if (!SmokeMaterialTableIndexIsValid(table, tableIndex))
-    {
-        return "invalid material index";
-    }
-
-    const PathTraceSmokeMaterial& material = table.materials[tableIndex];
-    if (material.diffuseTextureIndex != UINT32_MAX)
-    {
-        return "bound";
-    }
-    if (!info.diffuseImage)
-    {
-        return "no diffuse image";
-    }
-    if (!info.hasTextureHandle)
-    {
-        return "no texture handle";
-    }
-    if (!info.hasSafeTexture)
-    {
-        return info.fallbackReason.c_str();
-    }
-    return "safe but outside active window";
 }
 
 void AccumulateSmokeTextureCoverageTriangles(
@@ -1011,48 +983,6 @@ void LogSmokeMaterialStats(const RtSmokeMaterialStats& stats)
     }
 }
 
-void LogSmokeTranslucentSubtypeDump(const RtSmokeMaterialStats& stats)
-{
-    common->Printf("PathTracePrimaryPass: RT smoke translucent subtype dump samples=%d\n",
-        stats.translucentDebugSampleCount);
-
-    for (int sampleIndex = 0; sampleIndex < stats.translucentDebugSampleCount; ++sampleIndex)
-    {
-        const RtSmokeTranslucentSubtypeDebugSample& sample = stats.translucentDebugSamples[sampleIndex];
-        if (!sample.valid)
-        {
-            continue;
-        }
-
-        const RtSmokeTranslucentClassifierInfo& info = sample.info;
-        common->Printf("PathTracePrimaryPass: RT smoke translucent sample surf=%d subtype=%s material='%s' coverage=%s sort=%.2f deform=%s verts=%d indexes=%d flags guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addDefault0200=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d\n",
-            sample.surfaceIndex,
-            SmokeTranslucentSubtypeName(sample.subtype),
-            sample.materialName.c_str(),
-            SmokeCoverageName(sample.coverage),
-            sample.sort,
-            SmokeDeformName(sample.deform),
-            sample.verts,
-            sample.indexes,
-            info.sortIsGuiOrSubview ? 1 : 0,
-            info.sortIsDecal ? 1 : 0,
-            info.sortIsPostProcess ? 1 : 0,
-            info.polygonOffsetDecal ? 1 : 0,
-            info.hasScreenTexgen ? 1 : 0,
-            info.hasAddDefault0200Texture ? 1 : 0,
-            info.hasAdditiveBlend ? 1 : 0,
-            info.hasAmbientStage ? 1 : 0,
-            info.hasAmbientBlendStage ? 1 : 0,
-            info.hasDiffuseStage ? 1 : 0,
-            info.nameLooksGui ? 1 : 0,
-            info.nameLooksParticle ? 1 : 0,
-            info.nameLooksDecal ? 1 : 0,
-            info.nameLooksGlass ? 1 : 0,
-            info.nameLooksGlow ? 1 : 0,
-            info.nameLooksSignage ? 1 : 0);
-    }
-}
-
 void LogSmokeMaterialTable(const RtSmokeMaterialTableBuild& table)
 {
     const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
@@ -1301,191 +1231,6 @@ void LogSmokeTextureProbeSwitch(const RtSmokeMaterialTableBuild& table)
         table.textureProbeUsedLatch ? 1 : 0);
 }
 
-void LogSmokeAlphaMaterialDump(const RtSmokeMaterialTableBuild& table)
-{
-    const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
-    int alphaMaterialCount = 0;
-    for (int tableIndex = 0; tableIndex < materialTableCount; ++tableIndex)
-    {
-        if ((table.materials[tableIndex].flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0)
-        {
-            ++alphaMaterialCount;
-        }
-    }
-
-    const int maxLogged = RT_SMOKE_TEXTURE_PROBE_DUMP_CANDIDATES;
-    common->Printf("PathTracePrimaryPass: RT smoke alpha material dump entries=%d alphaTested=%d slots=%d tableLimit=%d start=%d sampleMethod=%d bindless=%d\n",
-        materialTableCount,
-        alphaMaterialCount,
-        static_cast<int>(table.diffuseTextures.size()),
-        GetSmokeTextureTableEffectiveLimit(),
-        Max(0, r_pathTracingTextureTableStart.GetInteger()),
-        r_pathTracingTextureSampleEnable.GetInteger() != 0 ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger()) : 0,
-        r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1 : 0);
-
-    int logged = 0;
-    for (int tableIndex = 0; tableIndex < materialTableCount && logged < maxLogged; ++tableIndex)
-    {
-        const PathTraceSmokeMaterial& material = table.materials[tableIndex];
-        if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) == 0)
-        {
-            continue;
-        }
-
-        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(table.materialIds[tableIndex], tableIndex);
-        common->Printf("PathTracePrimaryPass: RT smoke alpha material index=%d id=%u material='%s' coverage=%s cutoff=%.3f diffuse='%s' diffuseSlot=%d diffuseSize=%ux%u alpha='%s' alphaSlot=%d alphaSize=%ux%u alphaReason='%s' diffuseReason='%s' safeDiffuse=%d safeAlpha=%d\n",
-            tableIndex,
-            table.materialIds[tableIndex],
-            info.materialName.c_str(),
-            SmokeCoverageName(info.coverage),
-            material.alphaCutoff,
-            info.diffuseImageName.c_str(),
-            material.diffuseTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.diffuseTextureIndex),
-            material.textureWidth,
-            material.textureHeight,
-            info.alphaImageName.c_str(),
-            material.alphaTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.alphaTextureIndex),
-            material.alphaTextureWidth,
-            material.alphaTextureHeight,
-            info.alphaReason.c_str(),
-            info.fallbackReason.c_str(),
-            info.hasSafeTexture ? 1 : 0,
-            info.hasSafeAlphaTexture ? 1 : 0);
-        ++logged;
-    }
-
-    if (logged == 0)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke alpha material dump found no alpha-tested materials in current capture\n");
-    }
-    else if (logged < alphaMaterialCount)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke alpha material dump truncated logged=%d total=%d\n",
-            logged,
-            alphaMaterialCount);
-    }
-}
-
-void LogSmokeTextureProbeDump(const RtSmokeMaterialTableBuild& table)
-{
-    const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
-    const int textureTableLimit = GetSmokeTextureTableEffectiveLimit();
-    const int requestedTextureTableLimit = GetSmokeTextureTableRequestedLimit();
-    const int textureTableStart = Max(0, r_pathTracingTextureTableStart.GetInteger());
-    const int textureSampleMethod = r_pathTracingTextureSampleEnable.GetInteger() != 0 ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger()) : 0;
-    const bool textureBindlessEnabled = r_pathTracingTextureBindlessEnable.GetInteger() != 0;
-    common->Printf("PathTracePrimaryPass: RT smoke texture probe dump request=%d bound=%d materialId=%u slots=%d/%d requested=%d start=%d capacity=%d activeCap=%d sampleMethod=%d bindless=%d texturedMaterials=%d alphaTested=%d alphaTextured=%d missing=%d rejected=%d finalRejected=%d descriptorFallbacks=%d skippedOrOverLimit=%d\n",
-        table.textureProbeRequestedIndex,
-        table.textureProbeBoundIndex,
-        table.textureProbeBoundMaterialId,
-        static_cast<int>(table.diffuseTextures.size()),
-        textureTableLimit,
-        requestedTextureTableLimit,
-        textureTableStart,
-        RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY,
-        RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP,
-        textureSampleMethod,
-        textureBindlessEnabled ? 1 : 0,
-        table.materialsWithTextures,
-        table.materialsAlphaTested,
-        table.materialsWithAlphaTextures,
-        table.materialsMissingTextures,
-        table.materialsRejectedTextures,
-        table.materialsRejectedAtFinalCheck,
-        table.descriptorsReplacedWithFallback,
-        table.materialsOverTextureSlotLimit);
-
-    if (table.textureProbeBoundIndex >= 0 && table.textureProbeBoundIndex < materialTableCount)
-    {
-        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(table.materialIds[table.textureProbeBoundIndex], table.textureProbeBoundIndex);
-        const PathTraceSmokeMaterial& material = table.materials[table.textureProbeBoundIndex];
-        common->Printf("PathTracePrimaryPass: RT smoke texture probe current index=%d slot=%d material='%s' diffuse='%s' safe=%d reason='%s'\n",
-            table.textureProbeBoundIndex,
-            material.diffuseTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.diffuseTextureIndex),
-            info.materialName.c_str(),
-            info.diffuseImageName.c_str(),
-            info.hasSafeTexture ? 1 : 0,
-            info.fallbackReason.c_str());
-        common->Printf("PathTracePrimaryPass: RT smoke texture probe alpha current slot=%d alpha='%s' safe=%d reason='%s'\n",
-            material.alphaTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.alphaTextureIndex),
-            info.alphaImageName.c_str(),
-            info.hasSafeAlphaTexture ? 1 : 0,
-            info.alphaReason.c_str());
-    }
-    else
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke texture probe current none\n");
-    }
-
-    common->Printf("PathTracePrimaryPass: RT smoke texture probe sampled entries=");
-    int logged = 0;
-    for (int tableIndex = 0; tableIndex < materialTableCount && logged < RT_SMOKE_TEXTURE_PROBE_CANDIDATE_SAMPLES; ++tableIndex)
-    {
-        const PathTraceSmokeMaterial& material = table.materials[tableIndex];
-        if (material.diffuseTextureIndex == UINT32_MAX)
-        {
-            continue;
-        }
-
-        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(table.materialIds[tableIndex], tableIndex);
-        common->Printf("%s%d:slot%d '%s' -> '%s'",
-            logged == 0 ? "" : ", ",
-            tableIndex,
-            static_cast<int>(material.diffuseTextureIndex),
-            info.materialName.c_str(),
-            info.diffuseImageName.c_str());
-        ++logged;
-    }
-    if (logged == 0)
-    {
-        common->Printf("<none>");
-    }
-    common->Printf("\n");
-
-    const int dumpStart = Max(0, r_pathTracingTextureProbeDumpStart.GetInteger());
-    const int dumpCount = idMath::ClampInt(1, RT_SMOKE_TEXTURE_PROBE_DUMP_CANDIDATES, r_pathTracingTextureProbeDumpCount.GetInteger());
-    common->Printf("PathTracePrimaryPass: RT smoke texture probe safe candidate order page start=%d count=%d\n", dumpStart, dumpCount);
-    const std::vector<int> safeMaterialIndexes = BuildSmokeSafeMaterialIndexOrder(table);
-    int loggedCandidates = 0;
-    for (int candidateIndex = 0; candidateIndex < static_cast<int>(safeMaterialIndexes.size()); ++candidateIndex)
-    {
-        if (candidateIndex < dumpStart)
-        {
-            continue;
-        }
-        if (loggedCandidates >= dumpCount)
-        {
-            continue;
-        }
-
-        const int tableIndex = safeMaterialIndexes[candidateIndex];
-        if (!SmokeMaterialTableIndexIsValid(table, tableIndex))
-        {
-            continue;
-        }
-        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(table.materialIds[tableIndex], tableIndex);
-        const PathTraceSmokeMaterial& material = table.materials[tableIndex];
-        const bool sampled = material.diffuseTextureIndex != UINT32_MAX;
-        common->Printf("PathTracePrimaryPass: RT smoke texture candidate %d table=%d slot=%d alphaSlot=%d sampled=%d material='%s' diffuse='%s' alpha='%s' reason='%s' alphaReason='%s'\n",
-            candidateIndex,
-            tableIndex,
-            sampled ? static_cast<int>(material.diffuseTextureIndex) : -1,
-            material.alphaTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.alphaTextureIndex),
-            sampled ? 1 : 0,
-            info.materialName.c_str(),
-            info.diffuseImageName.c_str(),
-            info.alphaImageName.c_str(),
-            info.fallbackReason.c_str(),
-            info.alphaReason.c_str());
-        ++loggedCandidates;
-    }
-    if (loggedCandidates == 0)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke texture candidate page empty\n");
-    }
-    common->Printf("PathTracePrimaryPass: RT smoke texture candidate total=%d\n", static_cast<int>(safeMaterialIndexes.size()));
-}
-
 void LogSmokeTextureActiveWindow(const RtSmokeMaterialTableBuild& table)
 {
     const int textureTableLimit = GetSmokeTextureTableEffectiveLimit();
@@ -1623,53 +1368,6 @@ void LogSmokeTextureCoverage(const RtSmokeTextureCoverageStats& stats)
     common->Printf("\n");
 }
 
-void LogSmokeTextureFallbackDump(const RtSmokeMaterialTableBuild& table)
-{
-    const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
-    common->Printf("PathTracePrimaryPass: RT smoke texture fallback dump entries=%d textureSlots=%d/%d tableLimit=%d requested=%d activeCap=%d start=%d\n",
-        materialTableCount,
-        static_cast<int>(table.diffuseTextures.size()),
-        RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY,
-        GetSmokeTextureTableEffectiveLimit(),
-        GetSmokeTextureTableRequestedLimit(),
-        RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP,
-        Max(0, r_pathTracingTextureTableStart.GetInteger()));
-
-    int logged = 0;
-    int fallbackCount = 0;
-    for (int tableIndex = 0; tableIndex < materialTableCount; ++tableIndex)
-    {
-        if (table.materials[tableIndex].diffuseTextureIndex != UINT32_MAX)
-        {
-            continue;
-        }
-
-        ++fallbackCount;
-        if (logged >= RT_SMOKE_TEXTURE_PROBE_DUMP_CANDIDATES)
-        {
-            continue;
-        }
-
-        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(table.materialIds[tableIndex], tableIndex);
-        common->Printf("PathTracePrimaryPass: RT smoke texture fallback index=%d id=%u material='%s' diffuse='%s' reason='%s' fallback='%s' image=%d handle=%d safe=%d coverage=%s\n",
-            tableIndex,
-            table.materialIds[tableIndex],
-            info.materialName.c_str(),
-            info.diffuseImageName.c_str(),
-            info.fallbackReason.c_str(),
-            SmokeTextureFallbackReason(table, tableIndex, info),
-            info.hasDiffuseImage ? 1 : 0,
-            info.hasTextureHandle ? 1 : 0,
-            info.hasSafeTexture ? 1 : 0,
-            SmokeCoverageName(info.coverage));
-        ++logged;
-    }
-
-    common->Printf("PathTracePrimaryPass: RT smoke texture fallback dump logged=%d total=%d\n",
-        logged,
-        fallbackCount);
-}
-
 void LogSmokeMaterialTextureDiscovery(const RtSmokeMaterialTableBuild& table)
 {
     const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
@@ -1751,39 +1449,18 @@ void LogSmokeMaterialTextureDiscovery(const RtSmokeMaterialTableBuild& table)
 
 void RunSmokeMaterialDiagnosticTriggers(const RtSmokeMaterialDiagnosticTriggerDesc& desc)
 {
-    if (!desc.materialTable || !desc.materialStats)
+    if (!desc.materialTable)
     {
         return;
     }
 
     const RtSmokeMaterialTableBuild& materialTable = *desc.materialTable;
-    const RtSmokeMaterialStats& materialStats = *desc.materialStats;
 
     static uint32_t lastLoggedTextureProbeMaterialId = 0;
     if (desc.enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0 && materialTable.textureProbeBoundMaterialId != lastLoggedTextureProbeMaterialId)
     {
         LogSmokeTextureProbeSwitch(materialTable);
         lastLoggedTextureProbeMaterialId = materialTable.textureProbeBoundMaterialId;
-    }
-    if (desc.enableTextureProbe && r_pathTracingTextureProbeDump.GetInteger() != 0)
-    {
-        LogSmokeTextureProbeDump(materialTable);
-        r_pathTracingTextureProbeDump.SetInteger(0);
-    }
-    if (desc.enableTextureProbe && r_pathTracingAlphaDump.GetInteger() != 0)
-    {
-        LogSmokeAlphaMaterialDump(materialTable);
-        r_pathTracingAlphaDump.SetInteger(0);
-    }
-    if (desc.enableTextureProbe && r_pathTracingTextureFallbackDump.GetInteger() != 0)
-    {
-        LogSmokeTextureFallbackDump(materialTable);
-        r_pathTracingTextureFallbackDump.SetInteger(0);
-    }
-    if (r_pathTracingTranslucentDump.GetInteger() != 0)
-    {
-        LogSmokeTranslucentSubtypeDump(materialStats);
-        r_pathTracingTranslucentDump.SetInteger(0);
     }
     if (r_pathTracingCrosshairMaterialDump.GetInteger() != 0)
     {

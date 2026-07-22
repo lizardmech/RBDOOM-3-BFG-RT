@@ -273,7 +273,6 @@ struct RtSmokeMaterialDiagnosticTriggerDesc
 {
     const viewDef_t* viewDef = nullptr;
     const RtSmokeMaterialTableBuild* materialTable = nullptr;
-    const RtSmokeMaterialStats* materialStats = nullptr;
     const std::vector<PathTraceDynamicMaterialRecord>* dynamicMaterialRecords = nullptr;
     const std::vector<uint32_t>* dynamicTriangleMaterialIds = nullptr;
     const std::vector<uint32_t>* dynamicTriangleMaterialIndexes = nullptr;
@@ -435,7 +434,6 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
 void LogSmokeBucketRanges(const RtSmokeBucketRanges& ranges);
 void LogSmokeAttributeStats(const RtSmokeAttributeStats& stats);
 void LogSmokeMaterialStats(const RtSmokeMaterialStats& stats);
-void LogSmokeTranslucentSubtypeDump(const RtSmokeMaterialStats& stats);
 RtSmokeTextureCoverageStats BuildSmokeTextureCoverageStats(
     const RtSmokeMaterialTableBuild& table,
     const std::vector<uint32_t>& staticTriangleClassData,
@@ -445,11 +443,8 @@ RtSmokeTextureCoverageStats BuildSmokeTextureCoverageStats(
 void LogSmokeMaterialTable(const RtSmokeMaterialTableBuild& table);
 void LogSmokeTextureProbe(const RtSmokeMaterialTableBuild& table);
 void LogSmokeTextureProbeSwitch(const RtSmokeMaterialTableBuild& table);
-void LogSmokeAlphaMaterialDump(const RtSmokeMaterialTableBuild& table);
-void LogSmokeTextureProbeDump(const RtSmokeMaterialTableBuild& table);
 void LogSmokeTextureActiveWindow(const RtSmokeMaterialTableBuild& table);
 void LogSmokeTextureCoverage(const RtSmokeTextureCoverageStats& stats);
-void LogSmokeTextureFallbackDump(const RtSmokeMaterialTableBuild& table);
 void LogSmokeMaterialTextureDiscovery(const RtSmokeMaterialTableBuild& table);
 void RunSmokeMaterialDiagnosticTriggers(const RtSmokeMaterialDiagnosticTriggerDesc& desc);
 void RunSmokeEmissiveInventoryDiagnosticTriggers(const RtSmokeEmissiveInventoryDiagnosticTriggerDesc& desc);

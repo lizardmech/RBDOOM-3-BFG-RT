@@ -1309,3 +1309,22 @@ Working rule for every deletion slice:
     no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
     Source and deployed SHA-256 both equal
     527E7374B4796180BC4BAACF947F9E46D69309681FE0FC6330393FE4FEBE9693.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit fe018ebc2. T4.3v runtime gate closed.
+  - T4.3w removes four one-shot material/texture bring-up reports: the paged
+    texture-probe candidate dump, alpha-material dump, texture-fallback dump,
+    and translucent-subtype dump. Remove their six controls, four formatters,
+    trigger/reset branches, dump-only cap/fallback helper, and the resulting
+    write-only material-stats pointer in the trigger package. Preserve texture
+    probe selection/reset and its live latch, the material-table construction
+    path, periodic probe/switch/active-window summaries, texture coverage,
+    crosshair/GUI/emissive diagnostics, all material classifiers and textures,
+    retained debug modes 8-18, clean DI/GI, and native mode 18. Recent history
+    for the touched owners is cleanup-only and does not add a rendering-feature
+    dependency on these reports.
+  - T4.3w verification: whole-neo sweeps for all six controls, four formatters,
+    dump-only constant/helper, and removed trigger transport are empty. The code
+    slice removes 372 lines. The full win64-pt-dev-release build passes; both
+    SPIR-V targets report up to date and no DXIL command runs. No SPIR-V is
+    rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both equal
+    0512E64C12A28C9ED832A51654AA8AFDBAC2097C3023D5A27287B0C4B550AAFB.

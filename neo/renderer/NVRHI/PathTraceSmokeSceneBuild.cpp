@@ -4571,7 +4571,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtSmokeMaterialDiagnosticTriggerDesc materialDiagnosticDesc;
     materialDiagnosticDesc.viewDef = viewDef;
     materialDiagnosticDesc.materialTable = &materialTable;
-    materialDiagnosticDesc.materialStats = &materialStats;
     materialDiagnosticDesc.dynamicMaterialRecords = &dynamicMaterialRecords;
     materialDiagnosticDesc.dynamicTriangleMaterialIds = &dynamicTriangleMaterialData;
     materialDiagnosticDesc.dynamicTriangleMaterialIndexes = &materialTable.dynamicMaterialIndexes;

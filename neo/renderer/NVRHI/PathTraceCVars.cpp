@@ -45,30 +45,6 @@ idCVar r_pathTracingTextureProbeReset(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to release the latched RT smoke texture probe and select a new one" );
 
-idCVar r_pathTracingTextureProbeDump(
-    "r_pathTracingTextureProbeDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the current RT smoke texture probe and sampled candidate list once" );
-
-idCVar r_pathTracingAlphaDump(
-    "r_pathTracingAlphaDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the current RT smoke alpha-test material table once" );
-
-idCVar r_pathTracingTextureFallbackDump(
-    "r_pathTracingTextureFallbackDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump current RT smoke albedo fallback materials once" );
-
-idCVar r_pathTracingTranslucentDump(
-    "r_pathTracingTranslucentDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump current RT smoke translucent subtype classifier samples once" );
-
 idCVar r_pathTracingCrosshairMaterialDump(
     "r_pathTracingCrosshairMaterialDump",
     "0",
@@ -818,18 +794,6 @@ idCVar r_pathTracingLightSpriteIntensity(
     "2.5",
     CVAR_RENDERER | CVAR_FLOAT,
     "Intensity multiplier for RT smoke selected-light sprite proxies" );
-
-idCVar r_pathTracingTextureProbeDumpStart(
-    "r_pathTracingTextureProbeDumpStart",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "First safe RT smoke texture candidate to print in the one-shot probe dump" );
-
-idCVar r_pathTracingTextureProbeDumpCount(
-    "r_pathTracingTextureProbeDumpCount",
-    "12",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Number of safe RT smoke texture candidates to print in the one-shot probe dump" );
 
 idCVar r_pathTracingTextureTableLimit(
     "r_pathTracingTextureTableLimit",
