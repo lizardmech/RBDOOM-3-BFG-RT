@@ -279,33 +279,6 @@ struct RtSmokeSkinnedSurfaceRecord
     float objectToWorld[12] = {};
 };
 
-struct RtSmokeSkinnedPreviousFrameStats
-{
-    int currentSurfaceCount = 0;
-    int currentTriangleCount = 0;
-    int currentRtCpuSkinnedSurfaceCount = 0;
-    int previousMatchedSurfaceCount = 0;
-    int previousInvalidSurfaceCount = 0;
-    int previousRetainedVertexCount = 0;
-    int noPreviousFrameCount = 0;
-    int noPreviousSurfaceCount = 0;
-    int vertexCountMismatchCount = 0;
-    int indexCountMismatchCount = 0;
-    int triangleCountMismatchCount = 0;
-    int materialChangedCount = 0;
-    int surfaceClassChangedCount = 0;
-    int notRtCpuSkinnedCount = 0;
-    int skeletonChangedCount = 0;
-    int transformDiscontinuityCount = 0;
-    int previousBufferUnavailableCount = 0;
-    int topologyStableCount = 0;
-    int lodStableCount = 0;
-    int transformContinuousCount = 0;
-    int deformationContinuousCount = 0;
-    int materialStableCount = 0;
-    int previousBufferValidCount = 0;
-};
-
 struct RtSmokeSceneCaptureTiming
 {
     int anchorMs = 0;

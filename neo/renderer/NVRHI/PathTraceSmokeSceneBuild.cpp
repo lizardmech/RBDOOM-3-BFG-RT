@@ -2513,21 +2513,6 @@ const RtSmokeSkinnedSurfaceRecord* FindSmokeSkinnedPreviousLooseRecord(
     return nullptr;
 }
 
-void AddSmokeSkinnedInvalidReasonStats(RtSmokeSkinnedPreviousFrameStats& stats, uint32_t reasons)
-{
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_FRAME) != 0u) { ++stats.noPreviousFrameCount; }
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_SURFACE) != 0u) { ++stats.noPreviousSurfaceCount; }
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_VERTEX_COUNT_MISMATCH) != 0u) { ++stats.vertexCountMismatchCount; }
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_INDEX_COUNT_MISMATCH) != 0u) { ++stats.indexCountMismatchCount; }
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_TRIANGLE_COUNT_MISMATCH) != 0u) { ++stats.triangleCountMismatchCount; }
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_MATERIAL_CHANGED) != 0u) { ++stats.materialChangedCount; }
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_SURFACE_CLASS_CHANGED) != 0u) { ++stats.surfaceClassChangedCount; }
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_NOT_RT_CPU_SKINNED) != 0u) { ++stats.notRtCpuSkinnedCount; }
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_SKELETON_CHANGED) != 0u) { ++stats.skeletonChangedCount; }
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_TRANSFORM_DISCONTINUITY) != 0u) { ++stats.transformDiscontinuityCount; }
-    if ((reasons & RT_SMOKE_SKINNED_INVALID_PREVIOUS_BUFFER_UNAVAILABLE) != 0u) { ++stats.previousBufferUnavailableCount; }
-}
-
 bool SmokeSkinnedCurrentVertexRangeValid(const RtSmokeSkinnedSurfaceRecord& record, const std::vector<PathTraceSmokeVertex>& dynamicVertexData)
 {
     return record.currentVertexOffset >= 0 &&
@@ -2536,27 +2521,19 @@ bool SmokeSkinnedCurrentVertexRangeValid(const RtSmokeSkinnedSurfaceRecord& reco
         record.vertexCount <= static_cast<int>(dynamicVertexData.size()) - record.currentVertexOffset;
 }
 
-RtSmokeSkinnedPreviousFrameStats UpdateSmokeSkinnedPreviousCpuBridge(
+void UpdateSmokeSkinnedPreviousCpuBridge(
     std::vector<RtSmokeSkinnedSurfaceRecord>& currentRecords,
     const std::vector<RtSmokeSkinnedSurfaceRecord>& previousRecords,
     const std::vector<PathTraceSmokeVertex>& previousSkinnedVertexData,
     const std::vector<PathTraceSmokeVertex>& dynamicVertexData,
     std::vector<PathTraceSmokeVertex>& nextPreviousSkinnedVertexData)
 {
-    RtSmokeSkinnedPreviousFrameStats stats;
     const bool hadPreviousFrame = !previousRecords.empty() || !previousSkinnedVertexData.empty();
     const float teleportDistanceSqr = RT_SMOKE_SKINNED_TELEPORT_DISTANCE * RT_SMOKE_SKINNED_TELEPORT_DISTANCE;
 
     nextPreviousSkinnedVertexData.clear();
     for (RtSmokeSkinnedSurfaceRecord& current : currentRecords)
     {
-        ++stats.currentSurfaceCount;
-        stats.currentTriangleCount += current.triangleCount;
-        if (current.rtCpuSkinned)
-        {
-            ++stats.currentRtCpuSkinnedSurfaceCount;
-        }
-
         uint32_t reasons = RT_SMOKE_SKINNED_INVALID_NONE;
         uint32_t temporalFlags = 0;
         const RtSmokeSkinnedSurfaceRecord* previous = FindSmokeSkinnedPreviousRecord(previousRecords, current);
@@ -2641,23 +2618,14 @@ RtSmokeSkinnedPreviousFrameStats UpdateSmokeSkinnedPreviousCpuBridge(
             current.previousIndexOffset = previous->currentIndexOffset;
             current.previousTriangleOffset = previous->currentTriangleOffset;
             temporalFlags |= RT_SMOKE_SKINNED_TEMPORAL_HAS_VALID_PREVIOUS;
-            ++stats.previousMatchedSurfaceCount;
         }
         else
         {
             current.previousValid = false;
-            ++stats.previousInvalidSurfaceCount;
         }
 
         current.invalidReasonFlags = reasons;
         current.temporalStateFlags = temporalFlags;
-        AddSmokeSkinnedInvalidReasonStats(stats, reasons);
-        if ((temporalFlags & RT_SMOKE_SKINNED_TEMPORAL_TOPOLOGY_STABLE) != 0u) { ++stats.topologyStableCount; }
-        if ((temporalFlags & RT_SMOKE_SKINNED_TEMPORAL_LOD_STABLE) != 0u) { ++stats.lodStableCount; }
-        if ((temporalFlags & RT_SMOKE_SKINNED_TEMPORAL_TRANSFORM_CONTINUOUS) != 0u) { ++stats.transformContinuousCount; }
-        if ((temporalFlags & RT_SMOKE_SKINNED_TEMPORAL_DEFORMATION_CONTINUOUS) != 0u) { ++stats.deformationContinuousCount; }
-        if ((temporalFlags & RT_SMOKE_SKINNED_TEMPORAL_MATERIAL_STABLE) != 0u) { ++stats.materialStableCount; }
-        if ((temporalFlags & RT_SMOKE_SKINNED_TEMPORAL_PREVIOUS_BUFFER_VALID) != 0u) { ++stats.previousBufferValidCount; }
     }
 
     nextPreviousSkinnedVertexData.reserve(dynamicVertexData.size());
@@ -2675,8 +2643,6 @@ RtSmokeSkinnedPreviousFrameStats UpdateSmokeSkinnedPreviousCpuBridge(
             dynamicVertexData.begin() + current.currentVertexOffset,
             dynamicVertexData.begin() + current.currentVertexOffset + current.vertexCount);
     }
-    stats.previousRetainedVertexCount = static_cast<int>(nextPreviousSkinnedVertexData.size());
-    return stats;
 }
 
 PathTraceSkinnedSourceVertex BuildSmokeSkinnedSourceVertex(const idDrawVert& drawVert)
@@ -3399,10 +3365,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<uint32_t> dynamicTriangleIdentityData;
     std::vector<RtSmokeSkinnedSurfaceRecord> currentSkinnedSurfaceRecords;
     RtSmokeSkinnedGpuScaffoldBuild skinnedGpuScaffold;
-    int skinnedPreviousBridgeMs = 0;
-    int skinnedGpuScaffoldMs = 0;
-    int skinnedTriangleDispatchIndexMs = 0;
-    int skinnedRetainJointsMs = 0;
     int sourceSurfaces = 0;
     int sourceVerts = 0;
     int sourceIndexes = 0;
@@ -3480,7 +3442,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeStaticTriangleMaterialIndexUploadSignature = 0;
         m_smokeStaticTriangleMaterialUploadSignatureValid = false;
         m_smokeStaticTriangleMaterialIndexUploadSignatureValid = false;
-        m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
         m_smokeSceneUniverseStaticBuildGeneration = 0;
@@ -3510,7 +3471,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticTriangleMaterialIndexUploadSignature = 0;
             m_smokeStaticTriangleMaterialUploadSignatureValid = false;
             m_smokeStaticTriangleMaterialIndexUploadSignatureValid = false;
-            m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
             m_smokeStaticBlasCacheValid = false;
             m_smokeStaticBlasSignature = 0;
             m_smokeSceneUniverseStaticBuildGeneration = 0;
@@ -3531,7 +3491,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeStaticTriangleMaterialIndexUploadSignature = 0;
         m_smokeStaticTriangleMaterialUploadSignatureValid = false;
         m_smokeStaticTriangleMaterialIndexUploadSignatureValid = false;
-        m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
         m_smokeSceneUniverseStaticBuildGeneration = 0;
@@ -3734,21 +3693,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticCacheChanged = m_smokeGeometryUniverse.PruneMissingStaticSurfaces() || staticCacheChanged;
         }
     }
-    const int previousSkinnedSurfaceRecordCountBeforeBridge = static_cast<int>(m_smokePreviousSkinnedSurfaceRecords.size());
-    const int previousSkinnedVertexDataCountBeforeBridge = static_cast<int>(m_smokePreviousSkinnedVertexData.size());
-    const int previousSkinnedJointMatrixCountBeforeBridge = static_cast<int>(m_smokePreviousSkinnedJointMatrices.size());
     std::vector<PathTraceSmokeVertex> nextPreviousSkinnedVertexData;
     std::vector<PathTraceSkinnedJointMatrix> nextPreviousSkinnedJointMatrices;
     {
         OPTICK_EVENT("PT Skinned Previous Bridge");
-        const int skinnedPreviousBridgeStartMs = Sys_Milliseconds();
-        m_smokeSkinnedPreviousStats = UpdateSmokeSkinnedPreviousCpuBridge(
+        UpdateSmokeSkinnedPreviousCpuBridge(
             currentSkinnedSurfaceRecords,
             m_smokePreviousSkinnedSurfaceRecords,
             m_smokePreviousSkinnedVertexData,
             dynamicVertexData,
             nextPreviousSkinnedVertexData);
-        skinnedPreviousBridgeMs = Sys_Milliseconds() - skinnedPreviousBridgeStartMs;
     }
     const int gpuSkinningMode = idMath::ClampInt(0, 2, r_pathTracingGpuSkinning.GetInteger());
     const bool skinnedMotionBridgeNeedsScaffold =
@@ -3758,7 +3712,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool buildSkinnedGpuSkinningInputs = gpuSkinningMode > 0;
     {
         OPTICK_EVENT("PT Skinned GPU Scaffold");
-        const int skinnedGpuScaffoldStartMs = Sys_Milliseconds();
         skinnedGpuScaffold = BuildSmokeSkinnedGpuScaffold(
             skinnedScaffoldMode,
             buildSkinnedGpuSkinningInputs,
@@ -3767,21 +3720,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             dynamicVertexData,
             m_smokePreviousSkinnedVertexData,
             m_smokePreviousSkinnedJointMatrices);
-        skinnedGpuScaffoldMs = Sys_Milliseconds() - skinnedGpuScaffoldStartMs;
     }
     {
         OPTICK_EVENT("PT Skinned Triangle Dispatch Index");
-        const int skinnedTriangleDispatchIndexStartMs = Sys_Milliseconds();
         BuildSmokeSkinnedTriangleDispatchIndex(skinnedGpuScaffold, static_cast<int>(dynamicIndexData.size() / 3));
-        skinnedTriangleDispatchIndexMs = Sys_Milliseconds() - skinnedTriangleDispatchIndexStartMs;
     }
     {
         OPTICK_EVENT("PT Retain Skinned Joints");
-        const int skinnedRetainJointsStartMs = Sys_Milliseconds();
         RetainSmokeSkinnedCurrentJointMatrices(
             currentSkinnedSurfaceRecords,
             nextPreviousSkinnedJointMatrices);
-        skinnedRetainJointsMs = Sys_Milliseconds() - skinnedRetainJointsStartMs;
     }
     m_smokeSkinnedSurfaceRecords = currentSkinnedSurfaceRecords;
     m_smokePreviousSkinnedSurfaceRecords = m_smokeSkinnedSurfaceRecords;
@@ -5943,8 +5891,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t rigidRouteSkippedUploadBytes =
         (skipRigidRouteSideBufferUpload ? rigidRouteGeometryBytes : 0ull) +
         (skipRigidRouteInstanceBufferUpload ? rigidRouteInstanceBytes : 0ull);
-    const uint64_t skinnedUploadBytes = SumSmokeUploadBytes(uploadItems, 40, 7);
-    const uint64_t skinnedSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 40, 7);
     if (r_pathTracingRigidRouteDump.GetInteger() != 0)
     {
         common->Printf("PathTracePrimaryPass: PT rigid route dump source=%d frame=%llu enabled=%d instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst/upload/skip)=%llu/%llu/%llu/%llu buildMs=%d async/cache/queued=%d/%d/%d sideRing(skipGeom/skipInst/slot/read)=%d/%d/%d/%d residency(cached/resident/retained/meshLive/meshAged/retiredBlas/feedCap)=%d/%d/%d/%d/%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
@@ -6176,166 +6122,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.rigidRouteTriangleCount = rigidRouteBuild.stats.triangles;
     sceneInputs.geometry.rigidRouteInstanceCount = rigidRouteBuild.stats.emittedInstances;
     sceneInputs.geometry.rigidRoutePreviousTransformCount = rigidRouteBuild.stats.previousTransformInstances;
-    sceneInputs.geometry.skinnedSurfaceCount = classStats.skinnedDeformedSurfaces;
-    sceneInputs.geometry.skinnedTriangleCount = classStats.skinnedDeformedTriangles;
-    sceneInputs.geometry.skinnedRtCpuSurfaceCount = m_smokeSkinnedPreviousStats.currentRtCpuSkinnedSurfaceCount;
-    sceneInputs.geometry.skinnedPreviousMatchedSurfaceCount = m_smokeSkinnedPreviousStats.previousMatchedSurfaceCount;
-    sceneInputs.geometry.skinnedPreviousInvalidSurfaceCount = m_smokeSkinnedPreviousStats.previousInvalidSurfaceCount;
-    sceneInputs.geometry.skinnedPreviousRetainedVertexCount = m_smokeSkinnedPreviousStats.previousRetainedVertexCount;
-    sceneInputs.geometry.skinnedPreviousNoFrameCount = m_smokeSkinnedPreviousStats.noPreviousFrameCount;
-    sceneInputs.geometry.skinnedPreviousNoSurfaceCount = m_smokeSkinnedPreviousStats.noPreviousSurfaceCount;
-    sceneInputs.geometry.skinnedPreviousCountMismatchCount =
-        m_smokeSkinnedPreviousStats.vertexCountMismatchCount +
-        m_smokeSkinnedPreviousStats.indexCountMismatchCount +
-        m_smokeSkinnedPreviousStats.triangleCountMismatchCount;
-    sceneInputs.geometry.skinnedPreviousMaterialChangedCount = m_smokeSkinnedPreviousStats.materialChangedCount;
-    sceneInputs.geometry.skinnedPreviousSurfaceClassChangedCount = m_smokeSkinnedPreviousStats.surfaceClassChangedCount;
-    sceneInputs.geometry.skinnedPreviousNotRtCpuSkinnedCount = m_smokeSkinnedPreviousStats.notRtCpuSkinnedCount;
-    sceneInputs.geometry.skinnedPreviousSkeletonChangedCount = m_smokeSkinnedPreviousStats.skeletonChangedCount;
-    sceneInputs.geometry.skinnedPreviousTransformDiscontinuityCount = m_smokeSkinnedPreviousStats.transformDiscontinuityCount;
-    sceneInputs.geometry.skinnedPreviousBufferUnavailableCount = m_smokeSkinnedPreviousStats.previousBufferUnavailableCount;
-    sceneInputs.geometry.skinnedTemporalTopologyStableCount = m_smokeSkinnedPreviousStats.topologyStableCount;
-    sceneInputs.geometry.skinnedTemporalLodStableCount = m_smokeSkinnedPreviousStats.lodStableCount;
-    sceneInputs.geometry.skinnedTemporalTransformContinuousCount = m_smokeSkinnedPreviousStats.transformContinuousCount;
-    sceneInputs.geometry.skinnedTemporalDeformationContinuousCount = m_smokeSkinnedPreviousStats.deformationContinuousCount;
-    sceneInputs.geometry.skinnedTemporalMaterialStableCount = m_smokeSkinnedPreviousStats.materialStableCount;
-    sceneInputs.geometry.skinnedTemporalPreviousBufferValidCount = m_smokeSkinnedPreviousStats.previousBufferValidCount;
-    sceneInputs.geometry.skinnedGpuSkinningMode = gpuSkinningMode;
-    sceneInputs.geometry.skinnedSourceVertexCount = static_cast<int>(skinnedGpuScaffold.sourceVertices.size());
-    sceneInputs.geometry.skinnedCurrentOutputVertexCount = static_cast<int>(skinnedGpuScaffold.currentOutputVertices.size());
     sceneInputs.geometry.skinnedPreviousPositionCount = static_cast<int>(skinnedGpuScaffold.previousPositions.size());
     sceneInputs.geometry.skinnedSurfaceDispatchCount = static_cast<int>(skinnedGpuScaffold.dispatchRecords.size());
     sceneInputs.geometry.skinnedTriangleDispatchIndexCount = static_cast<int>(skinnedGpuScaffold.dynamicTriangleDispatchIndexes.size());
-    sceneInputs.geometry.skinnedTriangleDispatchMappedCount = skinnedGpuScaffold.mappedDynamicTriangles;
-    for (const PathTraceSkinnedSurfaceDispatchRecord& dispatch : skinnedGpuScaffold.dispatchRecords)
-    {
-        if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) == 0u || dispatch.previousPositionOffset == UINT32_MAX)
-        {
-            continue;
-        }
-
-        const uint64 previousEnd = static_cast<uint64>(dispatch.previousPositionOffset) + static_cast<uint64>(dispatch.vertexCount);
-        sceneInputs.geometry.skinnedPreviousDispatchMaxEnd = Max(sceneInputs.geometry.skinnedPreviousDispatchMaxEnd, static_cast<int>(Min<uint64>(previousEnd, static_cast<uint64>(INT_MAX))));
-        if (previousEnd <= static_cast<uint64>(skinnedGpuScaffold.previousPositions.size()))
-        {
-            ++sceneInputs.geometry.skinnedPreviousDispatchValidCount;
-        }
-        else
-        {
-            ++sceneInputs.geometry.skinnedPreviousDispatchOutOfRangeCount;
-        }
-    }
-    sceneInputs.geometry.skinnedCurrentJointMatrixCount = static_cast<int>(skinnedGpuScaffold.currentJointMatrices.size());
-    sceneInputs.geometry.skinnedPreviousJointMatrixCount = static_cast<int>(skinnedGpuScaffold.previousJointMatrices.size());
-    sceneInputs.geometry.skinnedGpuComputeDispatchCount = skinnedGpuComputeReady ? static_cast<int>(skinnedGpuScaffold.dispatchRecords.size()) : 0;
     sceneInputs.geometry.skinnedGpuComputeVertexCount = skinnedGpuComputeReady ? skinnedGpuComputeVertexCount : 0;
     sceneInputs.geometry.skinnedGpuComputeMaxVertexCount = skinnedGpuComputeReady ? skinnedGpuComputeMaxVertexCount : 0;
     sceneInputs.geometry.currentGeometryValid = hasStaticBlas || hasDynamicBlas;
     sceneInputs.geometry.previousTransformAvailable = rigidRouteBuild.stats.previousTransformInstances > 0;
-    sceneInputs.geometry.skinnedPreviousCpuVertexDataRetained = m_smokeSkinnedPreviousStats.previousRetainedVertexCount > 0;
-    sceneInputs.geometry.skinnedSourceGeometryAvailable =
-        smokeSkinnedSourceVertexBuffer &&
-        smokeSkinnedCurrentOutputVertexBuffer &&
-        smokeSkinnedSurfaceDispatchBuffer &&
-        smokeSkinnedTriangleDispatchIndexBuffer &&
-        !skinnedGpuScaffold.sourceVertices.empty() &&
-        !skinnedGpuScaffold.currentOutputVertices.empty() &&
-        !skinnedGpuScaffold.dispatchRecords.empty() &&
-        !skinnedGpuScaffold.dynamicTriangleDispatchIndexes.empty();
     sceneInputs.geometry.skinnedPreviousPositionBufferAvailable =
         smokeSkinnedPreviousPositionBuffer &&
         !skinnedGpuScaffold.previousPositions.empty();
-    sceneInputs.geometry.skinnedGpuComputePipelineAvailable = gpuSkinningMode >= 1 && m_smokeSkinnedGpuSkinningPipeline != nullptr;
     sceneInputs.geometry.skinnedGpuComputeDispatched = skinnedGpuComputeDispatched;
-    sceneInputs.geometry.skinnedGpuComputeTargetsDynamicVertexBuffer = skinnedGpuComputeDispatched && skinnedGpuComputeTargetsDynamicVertices;
     sceneInputs.geometry.skinnedGpuComputeWritesPreviousPositions = skinnedGpuComputeDispatched && skinnedGpuComputeWritesPreviousPositions;
-    sceneInputs.geometry.skinnedGpuSkinningAvailable = skinnedGpuComputeDispatched;
-    if (r_pathTracingSkinnedDump.GetInteger() != 0)
-    {
-        common->Printf("PathTracePrimaryPass: PT skinned dump frame=%llu source=%d motionExport=%d rrDebug=%d gpuSkinning=%d scaffoldMode=%d computeInputs=%d current records=%d surfaces/tris=%d/%d rtCpu=%d dynamicTris total/skinnedCpu/basePose/rtCpu=%d/%d/%d/%d previousBefore records/verts/joints=%d/%d/%d bridge matched/invalid/retainedVerts=%d/%d/%d invalid noFrame/noSurface/count/material/class/notRtCpu/skeleton/teleport/prevBuf=%d/%d/%d/%d/%d/%d/%d/%d/%d temporal topology/lod/transform/deform/material/prevBuf=%d/%d/%d/%d/%d/%d scaffold source/current/prevPos/dispatch/mapped/index/currentJoints/prevJoints=%d/%d/%d/%d/%d/%d/%d/%d compute ready/dispatched/targetDyn/writePrev/verts/max=%d/%d/%d/%d/%d/%d bytes source/current/prevPos/dispatch/index/currentJoints/prevJoints/upload/skip=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu capacity source/current/prevPos/dispatch/index/currentJoints/prevJoints=%llu/%llu/%llu/%llu/%llu/%llu/%llu dynamicCapacity v/i/class/mat/matIndex=%llu/%llu/%llu/%llu/%llu timing captureClass/append/rtCpuAppend/bucket/bridge/scaffold/dispatchIndex/retainJoints/bufferCreate/upload=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d\n",
-            static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
-            sceneSource,
-            r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1 : 0,
-            r_pathTracingDLSSRRGuideDebugView.GetInteger() != 0 ? 1 : 0,
-            gpuSkinningMode,
-            skinnedScaffoldMode,
-            buildSkinnedGpuSkinningInputs ? 1 : 0,
-            static_cast<int>(currentSkinnedSurfaceRecords.size()),
-            sceneInputs.geometry.skinnedSurfaceCount,
-            sceneInputs.geometry.skinnedTriangleCount,
-            sceneInputs.geometry.skinnedRtCpuSurfaceCount,
-            sceneInputs.geometry.dynamicTriangleCount,
-            sceneInputs.geometry.dynamicSkinnedCpuCurrentTriangleCount,
-            sceneInputs.geometry.dynamicSkinnedLikelyBasePoseTriangleCount,
-            sceneInputs.geometry.dynamicSkinnedRtCpuTriangleCount,
-            previousSkinnedSurfaceRecordCountBeforeBridge,
-            previousSkinnedVertexDataCountBeforeBridge,
-            previousSkinnedJointMatrixCountBeforeBridge,
-            sceneInputs.geometry.skinnedPreviousMatchedSurfaceCount,
-            sceneInputs.geometry.skinnedPreviousInvalidSurfaceCount,
-            sceneInputs.geometry.skinnedPreviousRetainedVertexCount,
-            sceneInputs.geometry.skinnedPreviousNoFrameCount,
-            sceneInputs.geometry.skinnedPreviousNoSurfaceCount,
-            sceneInputs.geometry.skinnedPreviousCountMismatchCount,
-            sceneInputs.geometry.skinnedPreviousMaterialChangedCount,
-            sceneInputs.geometry.skinnedPreviousSurfaceClassChangedCount,
-            sceneInputs.geometry.skinnedPreviousNotRtCpuSkinnedCount,
-            sceneInputs.geometry.skinnedPreviousSkeletonChangedCount,
-            sceneInputs.geometry.skinnedPreviousTransformDiscontinuityCount,
-            sceneInputs.geometry.skinnedPreviousBufferUnavailableCount,
-            sceneInputs.geometry.skinnedTemporalTopologyStableCount,
-            sceneInputs.geometry.skinnedTemporalLodStableCount,
-            sceneInputs.geometry.skinnedTemporalTransformContinuousCount,
-            sceneInputs.geometry.skinnedTemporalDeformationContinuousCount,
-            sceneInputs.geometry.skinnedTemporalMaterialStableCount,
-            sceneInputs.geometry.skinnedTemporalPreviousBufferValidCount,
-            sceneInputs.geometry.skinnedSourceVertexCount,
-            sceneInputs.geometry.skinnedCurrentOutputVertexCount,
-            sceneInputs.geometry.skinnedPreviousPositionCount,
-            sceneInputs.geometry.skinnedSurfaceDispatchCount,
-            sceneInputs.geometry.skinnedTriangleDispatchMappedCount,
-            sceneInputs.geometry.skinnedTriangleDispatchIndexCount,
-            sceneInputs.geometry.skinnedCurrentJointMatrixCount,
-            sceneInputs.geometry.skinnedPreviousJointMatrixCount,
-            skinnedGpuComputeReady ? 1 : 0,
-            skinnedGpuComputeDispatched ? 1 : 0,
-            skinnedGpuComputeTargetsDynamicVertices ? 1 : 0,
-            skinnedGpuComputeWritesPreviousPositions ? 1 : 0,
-            skinnedGpuComputeVertexCount,
-            skinnedGpuComputeMaxVertexCount,
-            static_cast<unsigned long long>(bufferCreateDesc.skinnedSourceVertexBytes),
-            static_cast<unsigned long long>(bufferCreateDesc.skinnedCurrentOutputVertexBytes),
-            static_cast<unsigned long long>(bufferCreateDesc.skinnedPreviousPositionBytes),
-            static_cast<unsigned long long>(bufferCreateDesc.skinnedSurfaceDispatchBytes),
-            static_cast<unsigned long long>(bufferCreateDesc.skinnedTriangleDispatchIndexBytes),
-            static_cast<unsigned long long>(bufferCreateDesc.skinnedCurrentJointMatrixBytes),
-            static_cast<unsigned long long>(bufferCreateDesc.skinnedPreviousJointMatrixBytes),
-            static_cast<unsigned long long>(skinnedUploadBytes),
-            static_cast<unsigned long long>(skinnedSkippedUploadBytes),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedSourceVertexBuffer, sizeof(PathTraceSkinnedSourceVertex))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedCurrentOutputVertexBuffer, sizeof(PathTraceSmokeVertex))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedPreviousPositionBuffer, sizeof(PathTraceSkinnedPreviousPosition))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedSurfaceDispatchBuffer, sizeof(PathTraceSkinnedSurfaceDispatchRecord))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedTriangleDispatchIndexBuffer, sizeof(uint32_t))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedCurrentJointMatrixBuffer, sizeof(PathTraceSkinnedJointMatrix))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedPreviousJointMatrixBuffer, sizeof(PathTraceSkinnedJointMatrix))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicVertexBuffer, sizeof(PathTraceSmokeVertex))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicIndexBuffer, sizeof(uint32_t))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicTriangleClassBuffer, sizeof(uint32_t))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicTriangleMaterialBuffer, sizeof(uint32_t))),
-            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicTriangleMaterialIndexBuffer, sizeof(uint32_t))),
-            captureTiming.dynamicPassClassifyMs,
-            captureTiming.dynamicAppendMs,
-            captureTiming.rtCpuSkinningAppendMs,
-            captureTiming.bucketMergeMs,
-            skinnedPreviousBridgeMs,
-            skinnedGpuScaffoldMs,
-            skinnedTriangleDispatchIndexMs,
-            skinnedRetainJointsMs,
-            bufferCreateMs,
-            bufferUploadMs);
-        r_pathTracingSkinnedDump.SetInteger(0);
-    }
     sceneInputs.geometry.capabilityFlags =
         RT_SCENE_INPUT_GEOMETRY_PREVIOUS_TRANSFORM_RESERVED |
         RT_SCENE_INPUT_GEOMETRY_PREVIOUS_VERTEX_RESERVED |

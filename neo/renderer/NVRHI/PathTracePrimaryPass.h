@@ -333,7 +333,6 @@ private:
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokePreviousSkinnedSurfaceRecords;
     std::vector<PathTraceSmokeVertex> m_smokePreviousSkinnedVertexData;
     std::vector<PathTraceSkinnedJointMatrix> m_smokePreviousSkinnedJointMatrices;
-    RtSmokeSkinnedPreviousFrameStats m_smokeSkinnedPreviousStats;
     RtPathTraceSceneUniverse m_sceneUniverse;
     RtPathTraceInstanceUniverse m_instanceUniverse;
     PathTraceRemixFramePrepare m_remixFramePrepare;

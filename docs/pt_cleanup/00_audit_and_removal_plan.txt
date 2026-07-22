@@ -1435,3 +1435,30 @@ Working rule for every deletion slice:
     runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe. Source and
     deployed SHA-256 both equal
     71552D5E3A448B4965AC8D927F278DE54EEB8C5B2326E5848C86B785FFC61840.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit ce4a1bdcb. T4.3ab runtime gate closed.
+  - T4.3ac removes the June 29 one-shot skinned capture/scaffold/buffer report.
+    Its control only formats state after the skinned previous-frame bridge, GPU
+    scaffold, buffers, compute dispatch, and scene inputs are already built.
+    Remove the CVar and formatter/reset branch. Follow the report's inputs only
+    where removal proves them write-only: delete 36 statistics-only scene-input
+    fields and assignments, four local timers, three pre-bridge counts, two
+    upload-byte totals, and the report-only dispatch validation scan. The
+    previous-frame statistics object then has no reader; remove its type/member,
+    resets, counter helper and increments, while changing the bridge to return
+    void. Preserve all previous-frame validity tests, invalid-reason and
+    temporal-state flags, previous offsets, retained vertex/joint data, GPU
+    scaffold records, buffer uploads/bindings, compute dispatch, motion export,
+    RR guides, BLAS inputs, clean DI/GI, and native mode 18. Touched-file changes
+    in the last day are cleanup-only; the report itself was last changed by its
+    June 29 scaffold-trimming commit.
+  - T4.3ac verification: whole-neo sweeps for the CVar, report label, removed
+    scene-input fields, local counters/timers, and previous-frame statistics
+    type/member are empty. A scoped bridge sweep confirms invalid-reason flags,
+    temporal-state flags, previous vertex offsets, retained vertex copies, and
+    the live dispatch-consumed skinned counts/availability flags remain. The
+    code slice removes 276 lines. The full win64-pt-dev-release build passes;
+    both SPIR-V targets report up to date and no DXIL command runs. No SPIR-V is
+    rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both
+    equal
+    B7C3425846CB2C64467C85A1A136EB0F70538728B34EC7B31FB01D124AB84350.

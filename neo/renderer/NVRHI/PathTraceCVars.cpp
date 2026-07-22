@@ -2100,12 +2100,6 @@ idCVar r_pathTracingNsightGpuMarkers(
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable NVRHI GPU debug markers around RT smoke/path tracing dispatches for Nsight captures" );
 
-idCVar r_pathTracingSkinnedDump(
-    "r_pathTracingSkinnedDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump one-shot PT skinned capture/scaffold/buffer stats" );
-
 idCVar r_pathTracingGpuSkinning(
     "r_pathTracingGpuSkinning",
     "0",
