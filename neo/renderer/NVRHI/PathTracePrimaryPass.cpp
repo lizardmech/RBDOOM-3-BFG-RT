@@ -180,6 +180,9 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeCleanRtxdiDiInitialShaderTable = nullptr;
     m_smokeCleanRtxdiDiTemporalShaderTable = nullptr;
     m_smokeCleanRtxdiDiSpatialShaderTable = nullptr;
+    m_smokeCleanRtxdiDiInitialProductionShaderTable = nullptr;
+    m_smokeCleanRtxdiDiTemporalProductionShaderTable = nullptr;
+    m_smokeCleanRtxdiDiSpatialProductionShaderTable = nullptr;
     m_cleanRestirGiState.ReleaseResources();
     m_smokeReGIRDebugShaderTable = nullptr;
     m_smokeShaderTable = nullptr;
@@ -204,6 +207,9 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeCleanRtxdiDiInitialPipeline = nullptr;
     m_smokeCleanRtxdiDiTemporalPipeline = nullptr;
     m_smokeCleanRtxdiDiSpatialPipeline = nullptr;
+    m_smokeCleanRtxdiDiInitialProductionPipeline = nullptr;
+    m_smokeCleanRtxdiDiTemporalProductionPipeline = nullptr;
+    m_smokeCleanRtxdiDiSpatialProductionPipeline = nullptr;
     m_smokeReGIRDebugPipeline = nullptr;
     m_smokePipeline = nullptr;
     m_smokeTextureDescriptorTable = nullptr;
@@ -220,6 +226,9 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeCleanRtxdiDiInitialShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiTemporalShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiSpatialShaderLibrary = nullptr;
+    m_smokeCleanRtxdiDiInitialProductionShaderLibrary = nullptr;
+    m_smokeCleanRtxdiDiTemporalProductionShaderLibrary = nullptr;
+    m_smokeCleanRtxdiDiSpatialProductionShaderLibrary = nullptr;
     m_smokeReGIRDebugShaderLibrary = nullptr;
     m_smokeShaderLibrary = nullptr;
     m_smokeTestInitialized = false;

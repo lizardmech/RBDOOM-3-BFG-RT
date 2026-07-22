@@ -210,6 +210,12 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     float4 CleanRtxdiDiEmissiveDistributionInfo;
 };
 
+// Keep the cbuffer ABI intact, then specialize subsequent view tests in the
+// production library. The debug library continues to read the runtime value.
+#if defined(CLEAN_DI_VIEW_STATIC)
+#define CleanRtxdiDiView CLEAN_DI_VIEW_STATIC
+#endif
+
 static const uint CLEAN_FLAG_BLUE_NOISE = 1u << 24u;
 static const uint CLEAN_LIQUID_MODE_SHIFT = 2u;
 static const uint CLEAN_LIQUID_DEBUG_SHIFT = 4u;

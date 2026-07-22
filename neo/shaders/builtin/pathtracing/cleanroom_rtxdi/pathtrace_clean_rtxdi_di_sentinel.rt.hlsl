@@ -1,5 +1,12 @@
 #include "pathtrace_clean_rtxdi_di_shared.hlsli"
 
+// Production view 16 is compiled as a separate shader library. Rebinding the
+// cbuffer token to a literal lets DXC eliminate all other view branches while
+// the debug libraries retain the runtime selector unchanged.
+#if defined(CLEAN_DI_VIEW_STATIC)
+#define CleanRtxdiDiView CLEAN_DI_VIEW_STATIC
+#endif
+
 struct PathTraceCleanRtxdiDiInitialResult
 {
     RTXDI_DIReservoir reservoir;

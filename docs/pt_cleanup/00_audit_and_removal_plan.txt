@@ -1561,3 +1561,36 @@ Working rule for every deletion slice:
     rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both
     equal
     726CE5E0A37BB09C10E4D980549A9A20953F2D7E55164092645927634A724EE1.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI,
+    native mode 18, or clean GI on deployed commit 4ea0e65e4. T4.3ag runtime
+    gate closed.
+  - T4.4a begins the production/debug shader split at the active clean-DI
+    boundary. Production view 16 always dispatches the split initial, temporal,
+    and spatial raygens; the sentinel raygen is retained for debug views only.
+    Add Vulkan-only production variants for those three libraries with
+    CLEAN_DI_VIEW_STATIC=16. The source keeps the constants-buffer layout
+    unchanged and remaps subsequent CleanRtxdiDiView tests to the literal only
+    in the production compile. Existing libraries remain runtime-view debug
+    variants. C++ owns parallel library/pipeline/table handles and selects the
+    production tables only when cleanRtxdiDiView == 16; every other view keeps
+    the original tables. Reservoir routing, constants, dispatch order, ReSTIR
+    math, RR exports, and the debug sentinel path are unchanged. This is the
+    first DI-only checkpoint; debug-only include exclusion and the clean-GI
+    permutation remain later T4.4 work after runtime acceptance.
+  - T4.4a verification: before editing, the three unrelated shader paths shown
+    dirty by status (restir_gi_reservoir.hlsli, the clean-DI shared header, and
+    temporal-output header) hash exactly equal their index blobs; this slice
+    does not modify them. Delete the four affected existing Vulkan .rt.bin
+    files before building and verify all seven rebuilt files are newer than the
+    edited sources. The full win64-pt-dev-release build passes. Build output
+    contains only the seven requested clean-DI SPIR-V compiles and no DXIL
+    shader compile; no production DXIL blobs exist. Static-view specialization
+    reduces initial from 2,591,060 to 980,656 bytes, temporal from 2,200,396 to
+    510,548 bytes, and spatial from 282,700 to 269,248 bytes. The initial spatial
+    result was byte-identical because its standalone source did not consume the
+    sentinel remap; adding the same post-cbuffer remap and forcing both spatial
+    outputs to rebuild corrected that gap. Deploy RBDoom3BFG.exe and exactly the
+    four rebuilt debug plus three production SPIR-V blobs. All deployed hashes
+    match their sources. Source and deployed executable SHA-256 both equal
+    D27533A896C04DBF11AE3E3C7022D1BCE8D216988921342AB3EF6DAA6D8B72BB.
+    Runtime acceptance is pending for clean RTXDI DI view 16 and native mode 18.

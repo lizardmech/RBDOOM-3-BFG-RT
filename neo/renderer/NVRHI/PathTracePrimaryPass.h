@@ -504,6 +504,9 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiInitialShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiTemporalShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSpatialShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiInitialProductionShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiTemporalProductionShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSpatialProductionShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeReGIRDebugShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
     RtPathTraceCleanRtxdiDiMaterialFeatureState m_smokeCleanRtxdiDiMaterialFeatures;
@@ -524,6 +527,9 @@ private:
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiInitialPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiTemporalPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiSpatialPipeline;
+    nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiInitialProductionPipeline;
+    nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiTemporalProductionPipeline;
+    nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiSpatialProductionPipeline;
     nvrhi::rt::PipelineHandle m_smokeReGIRDebugPipeline;
     nvrhi::rt::PipelineHandle m_smokeNeeCacheDebugPipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
@@ -533,6 +539,9 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiInitialShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiTemporalShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiSpatialShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiInitialProductionShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiTemporalProductionShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiSpatialProductionShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeReGIRDebugShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeNeeCacheDebugShaderTable;
 };

@@ -1487,10 +1487,27 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout);
-        return sentinelOk && initialOk && temporalOk;
+        const bool initialProductionOk = initLibrary(
+            m_smokeCleanRtxdiDiInitialProductionShaderLibrary,
+            m_smokeCleanRtxdiDiInitialProductionPipeline,
+            m_smokeCleanRtxdiDiInitialProductionShaderTable,
+            "clean-room RTXDI DI initial production view 16",
+            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial_production.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial_production.rt.bin",
+            m_smokeCleanRtxdiDiSentinelBindingLayout);
+        const bool temporalProductionOk = initLibrary(
+            m_smokeCleanRtxdiDiTemporalProductionShaderLibrary,
+            m_smokeCleanRtxdiDiTemporalProductionPipeline,
+            m_smokeCleanRtxdiDiTemporalProductionShaderTable,
+            "clean-room RTXDI DI temporal production view 16",
+            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_production.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_production.rt.bin",
+            m_smokeCleanRtxdiDiSentinelBindingLayout);
+        return sentinelOk && initialOk && temporalOk && initialProductionOk && temporalProductionOk;
     }
     case 20:
-        return initLibrary(
+    {
+        const bool spatialOk = initLibrary(
             m_smokeCleanRtxdiDiSpatialShaderLibrary,
             m_smokeCleanRtxdiDiSpatialPipeline,
             m_smokeCleanRtxdiDiSpatialShaderTable,
@@ -1498,6 +1515,16 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout);
+        const bool spatialProductionOk = initLibrary(
+            m_smokeCleanRtxdiDiSpatialProductionShaderLibrary,
+            m_smokeCleanRtxdiDiSpatialProductionPipeline,
+            m_smokeCleanRtxdiDiSpatialProductionShaderTable,
+            "clean-room RTXDI DI spatial production view 16",
+            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial_production.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial_production.rt.bin",
+            m_smokeCleanRtxdiDiSentinelBindingLayout);
+        return spatialOk && spatialProductionOk;
+    }
     case 17:
         return initLibrary(
             m_smokeReGIRDebugShaderLibrary,

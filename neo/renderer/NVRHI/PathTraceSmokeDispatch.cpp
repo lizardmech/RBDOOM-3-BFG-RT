@@ -934,6 +934,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     };
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
     const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
+    const bool cleanRtxdiDiProductionView = cleanRtxdiDiView == 16;
     const bool cleanRtxdiDiMaterialClassifierProofView = cleanRtxdiDiView == 12 || cleanRtxdiDiView == 24;
     const bool cleanRtxdiDiTemporalEnabled =
         r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0 &&
@@ -1686,13 +1687,19 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
             !m_smokeCleanRtxdiDiInitialShaderTable ||
-            !m_smokeCleanRtxdiDiTemporalShaderTable)
+            !m_smokeCleanRtxdiDiTemporalShaderTable ||
+            (cleanRtxdiDiProductionView &&
+                (!m_smokeCleanRtxdiDiInitialProductionShaderTable ||
+                    !m_smokeCleanRtxdiDiTemporalProductionShaderTable)))
         {
             InitRayTracingSmokeRestirPipeline(15);
         }
         if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
             !m_smokeCleanRtxdiDiInitialShaderTable ||
-            !m_smokeCleanRtxdiDiTemporalShaderTable)
+            !m_smokeCleanRtxdiDiTemporalShaderTable ||
+            (cleanRtxdiDiProductionView &&
+                (!m_smokeCleanRtxdiDiInitialProductionShaderTable ||
+                    !m_smokeCleanRtxdiDiTemporalProductionShaderTable)))
         {
             if (cleanRtxdiDiDumpRequested)
             {
@@ -1701,11 +1708,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             return;
         }
-        if (cleanRtxdiDiSpatialShaderRequested && !m_smokeCleanRtxdiDiSpatialShaderTable)
+        if (cleanRtxdiDiSpatialShaderRequested &&
+            (!m_smokeCleanRtxdiDiSpatialShaderTable ||
+                (cleanRtxdiDiProductionView && !m_smokeCleanRtxdiDiSpatialProductionShaderTable)))
         {
             InitRayTracingSmokeRestirPipeline(20);
         }
-        if (cleanRtxdiDiSpatialShaderRequested && !m_smokeCleanRtxdiDiSpatialShaderTable)
+        if (cleanRtxdiDiSpatialShaderRequested &&
+            (!m_smokeCleanRtxdiDiSpatialShaderTable ||
+                (cleanRtxdiDiProductionView && !m_smokeCleanRtxdiDiSpatialProductionShaderTable)))
         {
             if (cleanRtxdiDiDumpRequested)
             {
@@ -3380,7 +3391,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (cleanSplitRaygenView)
         {
-            cleanState.shaderTable = m_smokeCleanRtxdiDiInitialShaderTable;
+            cleanState.shaderTable = cleanRtxdiDiProductionView
+                ? m_smokeCleanRtxdiDiInitialProductionShaderTable
+                : m_smokeCleanRtxdiDiInitialShaderTable;
             commandList->setRayTracingState(cleanState);
             {
                 PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.0 Initial DispatchRays", nsightGpuMarkers);
@@ -3392,7 +3405,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
             if (cleanTemporalRaygenView)
             {
-                cleanState.shaderTable = m_smokeCleanRtxdiDiTemporalShaderTable;
+                cleanState.shaderTable = cleanRtxdiDiProductionView
+                    ? m_smokeCleanRtxdiDiTemporalProductionShaderTable
+                    : m_smokeCleanRtxdiDiTemporalShaderTable;
                 commandList->setRayTracingState(cleanState);
                 {
                     PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.1 Temporal DispatchRays", nsightGpuMarkers);
@@ -3429,7 +3444,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->commitBarriers();
             nvrhi::rt::State cleanSpatialState = cleanState;
-            cleanSpatialState.shaderTable = m_smokeCleanRtxdiDiSpatialShaderTable;
+            cleanSpatialState.shaderTable = cleanRtxdiDiProductionView
+                ? m_smokeCleanRtxdiDiSpatialProductionShaderTable
+                : m_smokeCleanRtxdiDiSpatialShaderTable;
             commandList->setRayTracingState(cleanSpatialState);
             PathTraceCleanRtxdiDiSentinelConstants cleanSpatialConstants = cleanConstants;
             cleanSpatialConstants.emissiveDistributionInfo[3] = static_cast<float>(cleanMaterialOverlayRecordCount);
