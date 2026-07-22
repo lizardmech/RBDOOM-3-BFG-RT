@@ -2364,12 +2364,6 @@ idCVar r_pathTracingNsightGpuMarkers(
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable NVRHI GPU debug markers around RT smoke/path tracing dispatches for Nsight captures" );
 
-idCVar r_pathTracingSceneInputsDump(
-    "r_pathTracingSceneInputsDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump the committed RT/PT scene input package once" );
-
 idCVar r_pathTracingSkinnedDump(
     "r_pathTracingSkinnedDump",
     "0",
@@ -2514,12 +2508,6 @@ idCVar r_pathTracingDLSSRRVerbose(
     CVAR_RENDERER | CVAR_INTEGER,
     "Verbose Streamline DLSS/RR logging. 1 = events only (one-time CONTRACT dump, HISTORY RESET on fire, errors/warnings) -- no per-frame spam. 2 = also per-frame evaluate line + Streamline info messages" );
 
-idCVar r_pathTracingPortalTransitionDump(
-    "r_pathTracingPortalTransitionDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Diagnostic PT transition logging: 0 off, 1 next portal-area transition then off, 2 every portal-area transition, 3 every scene/resource transition" );
-
 idCVar r_pathTracingWaitForIdleOnPortalChange(
     "r_pathTracingWaitForIdleOnPortalChange",
     "0",
@@ -2531,12 +2519,6 @@ idCVar r_pathTracingSceneRetireFrames(
     "6",
     CVAR_RENDERER | CVAR_INTEGER,
     "Number of frames to retain replaced PT scene packages before releasing old handles; clamped 0..32" );
-
-idCVar r_pathTracingSceneRetireDump(
-    "r_pathTracingSceneRetireDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "PT scene retirement logging: 0 off, 1 next retire/release event then off, 2 every retire/release event" );
 
 idCVar r_pathTracingSkipRaster3D(
     "r_pathTracingSkipRaster3D",

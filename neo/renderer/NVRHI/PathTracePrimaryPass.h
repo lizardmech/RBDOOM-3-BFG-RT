@@ -45,11 +45,6 @@ struct viewDef_t;
 struct RtRetiredSmokeScenePackage
 {
     uint64 retireFrame = 0;
-    uint64 sceneSignature = 0;
-    int currentArea = -1;
-    int selectedAreaCount = 0;
-
-    RtPathTraceSceneInputs sceneInputs;
     RtSmokeSceneBufferHandles buffers;
 
     nvrhi::rt::AccelStructHandle staticBlas;
@@ -236,8 +231,8 @@ private:
     void CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc);
     bool HasRetainableRayTracingSmokeScenePackage() const;
     RtRetiredSmokeScenePackage CaptureRetiredRayTracingSmokeScenePackage() const;
-    void PushRetiredRayTracingSmokeScenePackage(RtRetiredSmokeScenePackage& package, uint64 currentFrame, int retireFrames, const RtPathTraceSceneInputs& nextSceneInputs, bool sceneTransitionChanged, bool portalTransitionChanged, bool waitedForIdle);
-    int ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint64 currentFrame, const RtPathTraceSceneInputs& previousSceneInputs, const RtPathTraceSceneInputs& nextSceneInputs, bool sceneTransitionChanged, bool portalTransitionChanged, bool waitedForIdle);
+    void PushRetiredRayTracingSmokeScenePackage(RtRetiredSmokeScenePackage& package, uint64 currentFrame, int retireFrames);
+    int ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint64 currentFrame);
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
     void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
     void ReadBackRayTracingSmokeTest();

@@ -40,207 +40,6 @@ bool RtSmokeSceneBufferHandles::IsValid() const
         skinnedPreviousPositionBuffer && skinnedSurfaceDispatchBuffer && skinnedTriangleDispatchIndexBuffer;
 }
 
-static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
-{
-    const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
-    const RtPathTraceSceneInputMaterials& materials = inputs.materials;
-    const RtPathTraceSceneInputLights& lights = inputs.lights;
-    const RtPathTraceSceneInputPortalPolicy& portal = inputs.portalPolicy;
-    const RtPathTraceSceneInputSignatures& signatures = inputs.signatures;
-    const RtPathTraceSceneInputDiagnostics& diagnostics = inputs.diagnostics;
-
-    common->Printf("PathTracePrimaryPass: PT scene inputs valid=%d source=%d debugMode=%d output=%dx%d caps=0x%08x sig geometry=%llu material=%llu light=%llu output=%llu camera=%llu debug=%llu uploadGen=%llu reservoir=%llu\n",
-        inputs.valid ? 1 : 0,
-        inputs.sceneSource,
-        inputs.debugMode,
-        inputs.outputWidth,
-        inputs.outputHeight,
-        inputs.capabilityFlags,
-        static_cast<unsigned long long>(signatures.geometryMembership),
-        static_cast<unsigned long long>(signatures.materialTable),
-        static_cast<unsigned long long>(signatures.lightMembership),
-        static_cast<unsigned long long>(signatures.outputResolution),
-        static_cast<unsigned long long>(signatures.cameraProjection),
-        static_cast<unsigned long long>(signatures.debugFeaturePolicy),
-        static_cast<unsigned long long>(signatures.cpuUploadGeneration),
-        static_cast<unsigned long long>(signatures.reservoirScene));
-    common->Printf("PathTracePrimaryPass: PT scene inputs geometry static v/i/t/mi=%d/%d/%d/%d dirty surfaces=%d ranges v/i/t=%d/%d/%d/%d/%d/%d dirtyUpload=%d dynamic v/i/t=%d/%d/%d rigidRoute v/i/t/inst/prevXform=%d/%d/%d/%d/%d skinned surfaces/tris/rtCpu=%d/%d/%d current=%d prevTransform=%d prevSkinnedCpuRetained=%d caps=0x%08x\n",
-        geometry.staticVertexCount,
-        geometry.staticIndexCount,
-        geometry.staticTriangleCount,
-        geometry.staticMaterialIndexCount,
-        geometry.staticDirtySurfaceCount,
-        geometry.staticDirtyVertexOffset,
-        geometry.staticDirtyVertexCount,
-        geometry.staticDirtyIndexOffset,
-        geometry.staticDirtyIndexCount,
-        geometry.staticDirtyTriangleOffset,
-        geometry.staticDirtyTriangleCount,
-        geometry.staticDirtyRangeUploadUsed ? 1 : 0,
-        geometry.dynamicVertexCount,
-        geometry.dynamicIndexCount,
-        geometry.dynamicTriangleCount,
-        geometry.rigidRouteVertexCount,
-        geometry.rigidRouteIndexCount,
-        geometry.rigidRouteTriangleCount,
-        geometry.rigidRouteInstanceCount,
-        geometry.rigidRoutePreviousTransformCount,
-        geometry.skinnedSurfaceCount,
-        geometry.skinnedTriangleCount,
-        geometry.skinnedRtCpuSurfaceCount,
-        geometry.currentGeometryValid ? 1 : 0,
-        geometry.previousTransformAvailable ? 1 : 0,
-        geometry.skinnedPreviousCpuVertexDataRetained ? 1 : 0,
-        geometry.capabilityFlags);
-    common->Printf("PathTracePrimaryPass: PT scene inputs dynamic split classified surfaces/tris/delta/match=%d/%d/%d/%d surfaces rigid/skinnedCpu/basePose/rtCpu/particle/unknown/retained=%d/%d/%d/%d/%d/%d/%d tris=%d/%d/%d/%d/%d/%d/%d\n",
-        geometry.dynamicClassifiedSurfaceCount,
-        geometry.dynamicClassifiedTriangleCount,
-        geometry.dynamicClassifiedTriangleDelta,
-        geometry.dynamicClassifiedCountsMatch ? 1 : 0,
-        geometry.dynamicRigidSurfaceCount,
-        geometry.dynamicSkinnedCpuCurrentSurfaceCount,
-        geometry.dynamicSkinnedLikelyBasePoseSurfaceCount,
-        geometry.dynamicSkinnedRtCpuSurfaceCount,
-        geometry.dynamicParticleAlphaSurfaceCount,
-        geometry.dynamicUnknownSurfaceCount,
-        geometry.dynamicRetainedOccluderSurfaceCount,
-        geometry.dynamicRigidTriangleCount,
-        geometry.dynamicSkinnedCpuCurrentTriangleCount,
-        geometry.dynamicSkinnedLikelyBasePoseTriangleCount,
-        geometry.dynamicSkinnedRtCpuTriangleCount,
-        geometry.dynamicParticleAlphaTriangleCount,
-        geometry.dynamicUnknownTriangleCount,
-        geometry.dynamicRetainedOccluderTriangleCount);
-    common->Printf("PathTracePrimaryPass: PT static previous bridge seen/new/gone/history/prevRange=%d/%d/%d/%d/%d prevBuffers=%d prevMaterialIndex=%d prevAlias=%d prevCpu=%d prevGpu=%d prevGpuUpload=%d prevGpuSkipBytes=%llu prevCounts=%d prevRangesComplete=%d previous v/i/t/mi=%d/%d/%d/%d cpu v/i/t/mi/kb=%d/%d/%d/%d/%d\n",
-        geometry.staticSeenSurfaceCount,
-        geometry.staticNewSurfaceCount,
-        geometry.staticGoneSurfaceCount,
-        geometry.staticHistoryValidSurfaceCount,
-        geometry.staticPreviousRangeValidSurfaceCount,
-        geometry.staticPreviousBuffersAvailable ? 1 : 0,
-        geometry.staticPreviousMaterialIndexBufferAvailable ? 1 : 0,
-        geometry.staticPreviousBuffersAliasCurrent ? 1 : 0,
-        geometry.staticPreviousCpuSnapshotAvailable ? 1 : 0,
-        geometry.staticPreviousGpuSnapshotAvailable ? 1 : 0,
-        geometry.staticPreviousGpuSnapshotUploadUsed ? 1 : 0,
-        static_cast<unsigned long long>(diagnostics.previousStaticUploadSkippedBytes),
-        geometry.staticPreviousCountsMatch ? 1 : 0,
-        geometry.staticPreviousRangesComplete ? 1 : 0,
-        geometry.previousStaticVertexCount,
-        geometry.previousStaticIndexCount,
-        geometry.previousStaticTriangleCount,
-        geometry.previousStaticMaterialIndexCount,
-        geometry.previousStaticCpuVertexCount,
-        geometry.previousStaticCpuIndexCount,
-        geometry.previousStaticCpuTriangleCount,
-        geometry.previousStaticCpuMaterialIndexCount,
-        geometry.previousStaticCpuBytesKB);
-    common->Printf("PathTracePrimaryPass: PT skinned previous bridge matched=%d invalid=%d retainedVerts=%d noFrame=%d noSurface=%d countMismatch=%d materialChanged=%d classChanged=%d notRtCpu=%d skeletonChanged=%d transformDiscontinuous=%d prevBufferUnavailable=%d temporal topology/lod/transform/deform/material/prevBuffer=%d/%d/%d/%d/%d/%d\n",
-        geometry.skinnedPreviousMatchedSurfaceCount,
-        geometry.skinnedPreviousInvalidSurfaceCount,
-        geometry.skinnedPreviousRetainedVertexCount,
-        geometry.skinnedPreviousNoFrameCount,
-        geometry.skinnedPreviousNoSurfaceCount,
-        geometry.skinnedPreviousCountMismatchCount,
-        geometry.skinnedPreviousMaterialChangedCount,
-        geometry.skinnedPreviousSurfaceClassChangedCount,
-        geometry.skinnedPreviousNotRtCpuSkinnedCount,
-        geometry.skinnedPreviousSkeletonChangedCount,
-        geometry.skinnedPreviousTransformDiscontinuityCount,
-        geometry.skinnedPreviousBufferUnavailableCount,
-        geometry.skinnedTemporalTopologyStableCount,
-        geometry.skinnedTemporalLodStableCount,
-        geometry.skinnedTemporalTransformContinuousCount,
-        geometry.skinnedTemporalDeformationContinuousCount,
-        geometry.skinnedTemporalMaterialStableCount,
-        geometry.skinnedTemporalPreviousBufferValidCount);
-    common->Printf("PathTracePrimaryPass: PT skinned GPU scaffold mode=%d sourceVerts=%d currentOutVerts=%d previousPositions=%d dispatchRecords=%d triDispatchMap mapped/count=%d/%d prevDispatch valid/outOfRange/maxEnd=%d/%d/%d joints current/previous=%d/%d compute pipe/dispatched/targetDyn/prevGpuPos/records/verts/max=%d/%d/%d/%d/%d/%d/%d available source/gpu/prevPos=%d/%d/%d\n",
-        geometry.skinnedGpuSkinningMode,
-        geometry.skinnedSourceVertexCount,
-        geometry.skinnedCurrentOutputVertexCount,
-        geometry.skinnedPreviousPositionCount,
-        geometry.skinnedSurfaceDispatchCount,
-        geometry.skinnedTriangleDispatchMappedCount,
-        geometry.skinnedTriangleDispatchIndexCount,
-        geometry.skinnedPreviousDispatchValidCount,
-        geometry.skinnedPreviousDispatchOutOfRangeCount,
-        geometry.skinnedPreviousDispatchMaxEnd,
-        geometry.skinnedCurrentJointMatrixCount,
-        geometry.skinnedPreviousJointMatrixCount,
-        geometry.skinnedGpuComputePipelineAvailable ? 1 : 0,
-        geometry.skinnedGpuComputeDispatched ? 1 : 0,
-        geometry.skinnedGpuComputeTargetsDynamicVertexBuffer ? 1 : 0,
-        geometry.skinnedGpuComputeWritesPreviousPositions ? 1 : 0,
-        geometry.skinnedGpuComputeDispatchCount,
-        geometry.skinnedGpuComputeVertexCount,
-        geometry.skinnedGpuComputeMaxVertexCount,
-        geometry.skinnedSourceGeometryAvailable ? 1 : 0,
-        geometry.skinnedGpuSkinningAvailable ? 1 : 0,
-        geometry.skinnedPreviousPositionBufferAvailable ? 1 : 0);
-    common->Printf("PathTracePrimaryPass: PT scene inputs material path=%s entries=%d features=%d featureParams=%d dynamicRecords=%d materialGpuStable=%d activeTextures=%d caps=0x%08x light emissive=%d distribution=%d valid=%d zeroPdf=%d fallback=%d weight=%.3f totalPdf=%.6f static=%d dynamic=%d candidates=%d textured=%d doom current/previous=%d/%d doomIds current/previous/remap/invalid=%d/%d/%d/%d previousEmissive=%d unified=%d prevUnified=%d unifiedRemap=%d generation=%llu caps=0x%08x\n",
-        materials.materialTablePath ? materials.materialTablePath : "unknown",
-        materials.materialTableEntryCount,
-        materials.materialFeatureRecordCount,
-        materials.materialFeatureParameterRecordCount,
-        materials.dynamicMaterialRecordCount,
-        materials.materialTableGpuStable ? 1 : 0,
-        materials.activeTextureCount,
-        materials.capabilityFlags,
-        lights.emissiveTriangleCount,
-        lights.emissiveDistributionCount,
-        lights.emissiveDistributionValid ? 1 : 0,
-        lights.emissiveDistributionZeroPdfSkipped,
-        lights.emissiveDistributionFallbackIndex,
-        lights.emissiveDistributionFallbackWeight,
-        lights.emissiveDistributionTotalPdf,
-        lights.emissiveStaticTriangleCount,
-        lights.emissiveDynamicTriangleCount,
-        lights.lightCandidateCount,
-        lights.texturedLightCandidateCount,
-        lights.doomAnalyticLightCount,
-        lights.doomAnalyticPreviousLightCount,
-        lights.doomAnalyticCurrentIdentityCount,
-        lights.doomAnalyticPreviousIdentityCount,
-        lights.doomAnalyticRemapCount,
-        lights.doomAnalyticInvalidRemapCount,
-        lights.previousEmissiveTriangleCount,
-        lights.unifiedLightCount,
-        lights.unifiedPreviousLightCount,
-        lights.unifiedLightRemapCount,
-        static_cast<unsigned long long>(lights.lightUniverseGeneration),
-        lights.capabilityFlags);
-    common->Printf("PathTracePrimaryPass: PT scene inputs portal view/current/total=%d/%d/%d steps static/rigid/light/scene=%d/%d/%d/%d light selected/edges/blocked=%d/%d/%d rigid selected/edges/blocked=%d/%d/%d fullMap=%d defaultEquivalent=%d uploads geometry/static/prevStatic/dynamic/rigidRoute/material/light=%llu/%llu/%llu/%llu/%llu/%llu/%llu timings scene/capture/material/emissive/bufferCreate/upload/accel=%d/%d/%d/%d/%d/%d/%d\n",
-        portal.viewArea,
-        portal.currentArea,
-        portal.totalAreas,
-        portal.staticAreaPreloadSteps,
-        portal.rigidResidencySteps,
-        portal.lightAreaSteps,
-        portal.sceneUniverseSteps,
-        portal.selectedAreaCount,
-        portal.portalEdges,
-        portal.blockedPortalEdges,
-        portal.rigidSelectedAreaCount,
-        portal.rigidPortalEdges,
-        portal.rigidBlockedPortalEdges,
-        portal.bruteForceFullMap ? 1 : 0,
-        portal.defaultPolicyEquivalent ? 1 : 0,
-        static_cast<unsigned long long>(diagnostics.geometryUploadBytes),
-        static_cast<unsigned long long>(diagnostics.staticUploadBytes),
-        static_cast<unsigned long long>(diagnostics.previousStaticUploadBytes),
-        static_cast<unsigned long long>(diagnostics.dynamicUploadBytes),
-        static_cast<unsigned long long>(diagnostics.rigidRouteUploadBytes),
-        static_cast<unsigned long long>(diagnostics.materialUploadBytes),
-        static_cast<unsigned long long>(diagnostics.lightUploadBytes),
-        diagnostics.sceneBuildMs,
-        diagnostics.captureMs,
-        diagnostics.materialMs,
-        diagnostics.emissiveMs,
-        diagnostics.bufferCreateMs,
-        diagnostics.bufferUploadMs,
-        diagnostics.accelSubmitMs);
-}
-
 static uint64_t HashPathTraceTransitionValue(uint64_t hash, uint64_t value)
 {
     hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
@@ -286,172 +85,9 @@ static uint64_t BuildPathTraceSceneTransitionSignature(const RtPathTraceSceneInp
     return hash;
 }
 
-static uint64_t BuildPathTracePortalTransitionSignature(const RtPathTraceSceneInputs& inputs)
-{
-    const RtPathTraceSceneInputPortalPolicy& portal = inputs.portalPolicy;
-
-    uint64_t hash = 1469598103934665603ull;
-    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(inputs.valid ? 1 : 0));
-    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(inputs.sceneSource));
-    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.viewArea));
-    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.currentArea));
-    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.selectedAreaCount));
-    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.rigidSelectedAreaCount));
-    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.bruteForceFullMap ? 1 : 0));
-    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.staticAreaPreloadSteps));
-    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.rigidResidencySteps));
-    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.lightAreaSteps));
-    return hash;
-}
-
 static bool PathTraceSceneTransitionChanged(const RtPathTraceSceneInputs& previous, const RtPathTraceSceneInputs& next)
 {
     return previous.valid && next.valid && BuildPathTraceSceneTransitionSignature(previous) != BuildPathTraceSceneTransitionSignature(next);
-}
-
-static bool PathTracePortalTransitionChanged(const RtPathTraceSceneInputs& previous, const RtPathTraceSceneInputs& next)
-{
-    return previous.valid && next.valid && BuildPathTracePortalTransitionSignature(previous) != BuildPathTracePortalTransitionSignature(next);
-}
-
-template< typename HandleType >
-static int HandleChanged(const HandleType& oldHandle, const HandleType& newHandle)
-{
-    return oldHandle != newHandle ? 1 : 0;
-}
-
-static void PrintPathTracePortalTransitionDump(
-    const RtPathTraceSceneInputs& previous,
-    const RtSmokeSceneResourceCommitDesc& next,
-    bool waitedForIdle,
-    const RtSmokeSceneBufferHandles& oldBuffers,
-    nvrhi::rt::AccelStructHandle oldStaticBlas,
-    nvrhi::rt::AccelStructHandle oldDynamicBlas,
-    nvrhi::BindingSetHandle oldBindingSet,
-    nvrhi::DescriptorTableHandle oldTextureDescriptorTable)
-{
-    const RtPathTraceSceneInputs& current = next.sceneInputs;
-    const RtPathTraceSceneInputPortalPolicy& oldPortal = previous.portalPolicy;
-    const RtPathTraceSceneInputPortalPolicy& newPortal = current.portalPolicy;
-    const RtPathTraceSceneInputGeometry& oldGeometry = previous.geometry;
-    const RtPathTraceSceneInputGeometry& newGeometry = current.geometry;
-    const RtPathTraceSceneInputMaterials& oldMaterials = previous.materials;
-    const RtPathTraceSceneInputMaterials& newMaterials = current.materials;
-    const RtPathTraceSceneInputLights& oldLights = previous.lights;
-    const RtPathTraceSceneInputLights& newLights = current.lights;
-
-    common->Printf("PathTracePrimaryPass: PT portal transition waitIdle=%d oldSig=%llu newSig=%llu sceneSource %d->%d viewArea %d->%d currentArea %d->%d selectedAreas light %d->%d rigid %d->%d fullMap %d->%d steps static %d->%d rigid %d->%d light %d->%d\n",
-        waitedForIdle ? 1 : 0,
-        static_cast<unsigned long long>(BuildPathTraceSceneTransitionSignature(previous)),
-        static_cast<unsigned long long>(BuildPathTraceSceneTransitionSignature(current)),
-        previous.sceneSource,
-        current.sceneSource,
-        oldPortal.viewArea,
-        newPortal.viewArea,
-        oldPortal.currentArea,
-        newPortal.currentArea,
-        oldPortal.selectedAreaCount,
-        newPortal.selectedAreaCount,
-        oldPortal.rigidSelectedAreaCount,
-        newPortal.rigidSelectedAreaCount,
-        oldPortal.bruteForceFullMap ? 1 : 0,
-        newPortal.bruteForceFullMap ? 1 : 0,
-        oldPortal.staticAreaPreloadSteps,
-        newPortal.staticAreaPreloadSteps,
-        oldPortal.rigidResidencySteps,
-        newPortal.rigidResidencySteps,
-        oldPortal.lightAreaSteps,
-        newPortal.lightAreaSteps);
-    common->Printf("PathTracePrimaryPass: PT portal transition counts staticTri %d->%d dynamicTri %d->%d rigidInst %d->%d materialEntries %d->%d materialFeatures %d->%d materialFeatureParams %d->%d dynamicMaterials %d->%d materialGpuStable %d->%d activeTextures %d->%d emissive %d->%d candidates %d->%d analytic %d->%d uploadBytes old %llu/%llu/%llu new %llu/%llu/%llu\n",
-        oldGeometry.staticTriangleCount,
-        newGeometry.staticTriangleCount,
-        oldGeometry.dynamicTriangleCount,
-        newGeometry.dynamicTriangleCount,
-        oldGeometry.rigidRouteInstanceCount,
-        newGeometry.rigidRouteInstanceCount,
-        oldMaterials.materialTableEntryCount,
-        newMaterials.materialTableEntryCount,
-        oldMaterials.materialFeatureRecordCount,
-        newMaterials.materialFeatureRecordCount,
-        oldMaterials.materialFeatureParameterRecordCount,
-        newMaterials.materialFeatureParameterRecordCount,
-        oldMaterials.dynamicMaterialRecordCount,
-        newMaterials.dynamicMaterialRecordCount,
-        oldMaterials.materialTableGpuStable ? 1 : 0,
-        newMaterials.materialTableGpuStable ? 1 : 0,
-        oldMaterials.activeTextureCount,
-        newMaterials.activeTextureCount,
-        oldLights.emissiveTriangleCount,
-        newLights.emissiveTriangleCount,
-        oldLights.lightCandidateCount,
-        newLights.lightCandidateCount,
-        oldLights.doomAnalyticLightCount,
-        newLights.doomAnalyticLightCount,
-        static_cast<unsigned long long>(previous.diagnostics.geometryUploadBytes),
-        static_cast<unsigned long long>(previous.diagnostics.materialUploadBytes),
-        static_cast<unsigned long long>(previous.diagnostics.lightUploadBytes),
-        static_cast<unsigned long long>(current.diagnostics.geometryUploadBytes),
-        static_cast<unsigned long long>(current.diagnostics.materialUploadBytes),
-        static_cast<unsigned long long>(current.diagnostics.lightUploadBytes));
-    common->Printf("PathTracePrimaryPass: PT portal transition resources buffers staticV/I/TM=%d/%d/%d prevStaticV/I/TM/MI=%d/%d/%d/%d dynamicV/I/TM=%d/%d/%d rigidV/I/Inst=%d/%d/%d skinnedSrc/Out/Prev/Dispatch/Map=%d/%d/%d/%d/%d material/features/dynMaterial=%d/%d/%d emissive/prevEmissive/emissiveRemap/candidate/analytic/prevAnalytic/currentId/prevId/remap/unified/prevUnified/unifiedRemap/restirCurrent/restirPrevious/restirCurrentToPrevious/restirPreviousToCurrent=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d/%d/%d/%d/%d/%d/%d blas static/dynamic=%d/%d bindingSet=%d descriptorTable=%d descriptorCreated=%d descriptorWritten=%d\n",
-        HandleChanged(oldBuffers.staticVertexBuffer, next.buffers.staticVertexBuffer),
-        HandleChanged(oldBuffers.staticIndexBuffer, next.buffers.staticIndexBuffer),
-        HandleChanged(oldBuffers.staticTriangleMaterialBuffer, next.buffers.staticTriangleMaterialBuffer),
-        HandleChanged(oldBuffers.previousStaticVertexBuffer, next.buffers.previousStaticVertexBuffer),
-        HandleChanged(oldBuffers.previousStaticIndexBuffer, next.buffers.previousStaticIndexBuffer),
-        HandleChanged(oldBuffers.previousStaticTriangleMaterialBuffer, next.buffers.previousStaticTriangleMaterialBuffer),
-        HandleChanged(oldBuffers.previousStaticTriangleMaterialIndexBuffer, next.buffers.previousStaticTriangleMaterialIndexBuffer),
-        HandleChanged(oldBuffers.dynamicVertexBuffer, next.buffers.dynamicVertexBuffer),
-        HandleChanged(oldBuffers.dynamicIndexBuffer, next.buffers.dynamicIndexBuffer),
-        HandleChanged(oldBuffers.dynamicTriangleMaterialBuffer, next.buffers.dynamicTriangleMaterialBuffer),
-        HandleChanged(oldBuffers.rigidRouteVertexBuffer, next.buffers.rigidRouteVertexBuffer),
-        HandleChanged(oldBuffers.rigidRouteIndexBuffer, next.buffers.rigidRouteIndexBuffer),
-        HandleChanged(oldBuffers.rigidRouteInstanceBuffer, next.buffers.rigidRouteInstanceBuffer),
-        HandleChanged(oldBuffers.skinnedSourceVertexBuffer, next.buffers.skinnedSourceVertexBuffer),
-        HandleChanged(oldBuffers.skinnedCurrentOutputVertexBuffer, next.buffers.skinnedCurrentOutputVertexBuffer),
-        HandleChanged(oldBuffers.skinnedPreviousPositionBuffer, next.buffers.skinnedPreviousPositionBuffer),
-        HandleChanged(oldBuffers.skinnedSurfaceDispatchBuffer, next.buffers.skinnedSurfaceDispatchBuffer),
-        HandleChanged(oldBuffers.skinnedTriangleDispatchIndexBuffer, next.buffers.skinnedTriangleDispatchIndexBuffer),
-        HandleChanged(oldBuffers.materialTableBuffer, next.buffers.materialTableBuffer),
-        HandleChanged(oldBuffers.materialFeatureBuffer, next.buffers.materialFeatureBuffer),
-        HandleChanged(oldBuffers.materialFeatureParameterBuffer, next.buffers.materialFeatureParameterBuffer),
-        HandleChanged(oldBuffers.dynamicMaterialBuffer, next.buffers.dynamicMaterialBuffer),
-        HandleChanged(oldBuffers.emissiveTriangleBuffer, next.buffers.emissiveTriangleBuffer),
-        HandleChanged(oldBuffers.previousEmissiveTriangleBuffer, next.buffers.previousEmissiveTriangleBuffer),
-        HandleChanged(oldBuffers.emissiveRemapBuffer, next.buffers.emissiveRemapBuffer),
-        HandleChanged(oldBuffers.emissiveDistributionBuffer, next.buffers.emissiveDistributionBuffer),
-        HandleChanged(oldBuffers.lightCandidateBuffer, next.buffers.lightCandidateBuffer),
-        HandleChanged(oldBuffers.doomAnalyticLightBuffer, next.buffers.doomAnalyticLightBuffer),
-        HandleChanged(oldBuffers.doomAnalyticPreviousLightBuffer, next.buffers.doomAnalyticPreviousLightBuffer),
-        HandleChanged(oldBuffers.doomAnalyticCurrentIdentityBuffer, next.buffers.doomAnalyticCurrentIdentityBuffer),
-        HandleChanged(oldBuffers.doomAnalyticPreviousIdentityBuffer, next.buffers.doomAnalyticPreviousIdentityBuffer),
-        HandleChanged(oldBuffers.doomAnalyticRemapBuffer, next.buffers.doomAnalyticRemapBuffer),
-        HandleChanged(oldBuffers.unifiedLightBuffer, next.buffers.unifiedLightBuffer),
-        HandleChanged(oldBuffers.unifiedPreviousLightBuffer, next.buffers.unifiedPreviousLightBuffer),
-        HandleChanged(oldBuffers.unifiedLightRemapBuffer, next.buffers.unifiedLightRemapBuffer),
-        HandleChanged(oldBuffers.restirLightManagerCurrentBuffer, next.buffers.restirLightManagerCurrentBuffer),
-        HandleChanged(oldBuffers.restirLightManagerPreviousBuffer, next.buffers.restirLightManagerPreviousBuffer),
-        HandleChanged(oldBuffers.restirLightManagerCurrentToPreviousBuffer, next.buffers.restirLightManagerCurrentToPreviousBuffer),
-        HandleChanged(oldBuffers.restirLightManagerPreviousToCurrentBuffer, next.buffers.restirLightManagerPreviousToCurrentBuffer),
-        HandleChanged(oldBuffers.restirLightManagerCurrentPayloadBuffer, next.buffers.restirLightManagerCurrentPayloadBuffer),
-        HandleChanged(oldBuffers.restirLightManagerPreviousPayloadBuffer, next.buffers.restirLightManagerPreviousPayloadBuffer),
-        HandleChanged(oldStaticBlas, next.staticBlas),
-        HandleChanged(oldDynamicBlas, next.dynamicBlas),
-        HandleChanged(oldBindingSet, next.bindingSet),
-        HandleChanged(oldTextureDescriptorTable, next.textureDescriptorTable),
-        next.textureDescriptorTableCreated ? 1 : 0,
-        next.textureDescriptorTableWritten ? 1 : 0);
-}
-
-static bool ConsumePathTraceSceneRetireDumpEvent()
-{
-    const int dumpMode = r_pathTracingSceneRetireDump.GetInteger();
-    if (dumpMode == 1)
-    {
-        r_pathTracingSceneRetireDump.SetInteger(0);
-        return true;
-    }
-    return dumpMode >= 2;
 }
 
 static bool SmokeTextureTableChanged(const std::vector<nvrhi::TextureHandle>& oldTable, const std::vector<nvrhi::TextureHandle>& newTable)
@@ -553,44 +189,6 @@ static bool SmokeScenePackageHandlesChanged(const RtRetiredSmokeScenePackage& ol
         oldPackage.skyEnvironmentCube != next.skyEnvironmentCube ||
         oldPackage.skyCubeProbeBindingSet != next.skyCubeProbeBindingSet ||
         SmokeTextureTableChanged(oldPackage.activeTextureTable, next.activeTextureTable);
-}
-
-static void PrintPathTraceSceneRetireEvent(
-    const char* eventName,
-    uint64 currentFrame,
-    int retireFrames,
-    size_t queueSize,
-    int releasedCount,
-    const RtRetiredSmokeScenePackage& package,
-    const RtPathTraceSceneInputs& nextSceneInputs,
-    bool sceneTransitionChanged,
-    bool portalTransitionChanged,
-    bool waitedForIdle)
-{
-    const RtPathTraceSceneInputPortalPolicy& oldPortal = package.sceneInputs.portalPolicy;
-    const RtPathTraceSceneInputPortalPolicy& newPortal = nextSceneInputs.portalPolicy;
-    common->Printf("PathTracePrimaryPass: PT scene retire %s currentFrame=%llu retireFrame=%llu retireFrames=%d queue=%u released=%d oldArea=%d oldSelected=%d newArea=%d newSelected=%d sceneTransition=%d portalTransition=%d waitIdle=%d oldHandles buffers=%d staticBlas=%d dynamicBlas=%d tlas=%d bindingSet=%d descriptorTable=%d activeTextures=%d sceneSig=%llu\n",
-        eventName,
-        static_cast<unsigned long long>(currentFrame),
-        static_cast<unsigned long long>(package.retireFrame),
-        retireFrames,
-        static_cast<unsigned int>(queueSize),
-        releasedCount,
-        oldPortal.currentArea,
-        oldPortal.selectedAreaCount,
-        newPortal.currentArea,
-        newPortal.selectedAreaCount,
-        sceneTransitionChanged ? 1 : 0,
-        portalTransitionChanged ? 1 : 0,
-        waitedForIdle ? 1 : 0,
-        package.buffers.IsValid() ? 1 : 0,
-        package.staticBlas ? 1 : 0,
-        package.dynamicBlas ? 1 : 0,
-        package.tlas ? 1 : 0,
-        package.bindingSet ? 1 : 0,
-        package.textureDescriptorTable ? 1 : 0,
-        static_cast<int>(package.activeTextureTable.size()),
-        static_cast<unsigned long long>(package.sceneSignature));
 }
 
 static size_t SmokeBufferRequiredBytes(size_t byteSize, uint32_t structStride)
@@ -2063,10 +1661,6 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
 RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeScenePackage() const
 {
     RtRetiredSmokeScenePackage package;
-    package.sceneInputs = m_sceneInputs;
-    package.sceneSignature = m_sceneInputs.valid ? BuildPathTraceSceneTransitionSignature(m_sceneInputs) : 0;
-    package.currentArea = m_sceneInputs.portalPolicy.currentArea;
-    package.selectedAreaCount = m_sceneInputs.portalPolicy.selectedAreaCount;
     package.buffers.staticVertexBuffer = m_smokeStaticVertexBuffer;
     package.buffers.staticIndexBuffer = m_smokeStaticIndexBuffer;
     package.buffers.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
@@ -2128,7 +1722,7 @@ RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeSc
     return package;
 }
 
-void PathTracePrimaryPass::PushRetiredRayTracingSmokeScenePackage(RtRetiredSmokeScenePackage& package, uint64 currentFrame, int retireFrames, const RtPathTraceSceneInputs& nextSceneInputs, bool sceneTransitionChanged, bool portalTransitionChanged, bool waitedForIdle)
+void PathTracePrimaryPass::PushRetiredRayTracingSmokeScenePackage(RtRetiredSmokeScenePackage& package, uint64 currentFrame, int retireFrames)
 {
     if (retireFrames <= 0)
     {
@@ -2137,51 +1731,15 @@ void PathTracePrimaryPass::PushRetiredRayTracingSmokeScenePackage(RtRetiredSmoke
 
     package.retireFrame = currentFrame + static_cast<uint64>(retireFrames);
     m_retiredSmokeScenePackages.push_back(package);
-
-    if (ConsumePathTraceSceneRetireDumpEvent())
-    {
-        PrintPathTraceSceneRetireEvent(
-            "retire",
-            currentFrame,
-            retireFrames,
-            m_retiredSmokeScenePackages.size(),
-            0,
-            m_retiredSmokeScenePackages.back(),
-            nextSceneInputs,
-            sceneTransitionChanged,
-            portalTransitionChanged,
-            waitedForIdle);
-    }
 }
 
-int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint64 currentFrame, const RtPathTraceSceneInputs& previousSceneInputs, const RtPathTraceSceneInputs& nextSceneInputs, bool sceneTransitionChanged, bool portalTransitionChanged, bool waitedForIdle)
+int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint64 currentFrame)
 {
-    RtRetiredSmokeScenePackage firstReleasedPackage;
     int releasedCount = 0;
     while (!m_retiredSmokeScenePackages.empty() && m_retiredSmokeScenePackages.front().retireFrame <= currentFrame)
     {
-        if (releasedCount == 0)
-        {
-            firstReleasedPackage = m_retiredSmokeScenePackages.front();
-        }
         m_retiredSmokeScenePackages.pop_front();
         ++releasedCount;
-    }
-
-    if (releasedCount > 0 && ConsumePathTraceSceneRetireDumpEvent())
-    {
-        const int retireFrames = idMath::ClampInt(0, 32, r_pathTracingSceneRetireFrames.GetInteger());
-        PrintPathTraceSceneRetireEvent(
-            "release",
-            currentFrame,
-            retireFrames,
-            m_retiredSmokeScenePackages.size(),
-            releasedCount,
-            firstReleasedPackage,
-            nextSceneInputs.valid ? nextSceneInputs : previousSceneInputs,
-            sceneTransitionChanged,
-            portalTransitionChanged,
-            waitedForIdle);
     }
 
     return releasedCount;
@@ -2412,46 +1970,21 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     const bool previousPackageHasResources = HasRetainableRayTracingSmokeScenePackage();
     const bool packageHandlesChanged = previousPackageHasResources && SmokeScenePackageHandlesChanged(previousPackage, desc);
     const bool sceneTransitionChanged = PathTraceSceneTransitionChanged(previousSceneInputs, desc.sceneInputs);
-    const bool portalTransitionChanged = PathTracePortalTransitionChanged(previousSceneInputs, desc.sceneInputs);
-    bool waitedForIdle = false;
     if (sceneTransitionChanged && r_pathTracingWaitForIdleOnPortalChange.GetInteger() != 0)
     {
         nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
         if (device)
         {
             device->waitForIdle();
-            waitedForIdle = true;
         }
     }
 
     const uint64 currentFrame = static_cast<uint64>(Max(idLib::frameNumber, 0));
     const int retireFrames = idMath::ClampInt(0, 32, r_pathTracingSceneRetireFrames.GetInteger());
-    ReleaseExpiredRetiredRayTracingSmokeScenePackages(
-        currentFrame,
-        previousSceneInputs,
-        desc.sceneInputs,
-        sceneTransitionChanged,
-        portalTransitionChanged,
-        waitedForIdle);
+    ReleaseExpiredRetiredRayTracingSmokeScenePackages(currentFrame);
     if (retireFrames == 0 && !m_retiredSmokeScenePackages.empty())
     {
-        const RtRetiredSmokeScenePackage firstReleasedPackage = m_retiredSmokeScenePackages.front();
-        const int releasedCount = static_cast<int>(m_retiredSmokeScenePackages.size());
         m_retiredSmokeScenePackages.clear();
-        if (ConsumePathTraceSceneRetireDumpEvent())
-        {
-            PrintPathTraceSceneRetireEvent(
-                "release",
-                currentFrame,
-                retireFrames,
-                m_retiredSmokeScenePackages.size(),
-                releasedCount,
-                firstReleasedPackage,
-                desc.sceneInputs,
-                sceneTransitionChanged,
-                portalTransitionChanged,
-                waitedForIdle);
-        }
     }
 
     if ((sceneTransitionChanged || packageHandlesChanged) && previousPackageHasResources)
@@ -2459,32 +1992,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
         PushRetiredRayTracingSmokeScenePackage(
             previousPackage,
             currentFrame,
-            retireFrames,
-            desc.sceneInputs,
-            sceneTransitionChanged,
-            portalTransitionChanged,
-            waitedForIdle);
-    }
-
-    const int portalTransitionDump = r_pathTracingPortalTransitionDump.GetInteger();
-    const bool dumpNextPortalTransition = portalTransitionDump == 1 && portalTransitionChanged;
-    const bool dumpEveryPortalTransition = portalTransitionDump == 2 && portalTransitionChanged;
-    const bool dumpEverySceneTransition = portalTransitionDump >= 3 && sceneTransitionChanged;
-    if (dumpNextPortalTransition || dumpEveryPortalTransition || dumpEverySceneTransition)
-    {
-        PrintPathTracePortalTransitionDump(
-            previousSceneInputs,
-            desc,
-            waitedForIdle,
-            previousPackage.buffers,
-            previousPackage.staticBlas,
-            previousPackage.dynamicBlas,
-            previousPackage.bindingSet,
-            previousPackage.textureDescriptorTable);
-        if (dumpNextPortalTransition)
-        {
-            r_pathTracingPortalTransitionDump.SetInteger(0);
-        }
+            retireFrames);
     }
 
     m_sceneInputs = desc.sceneInputs;
@@ -2573,10 +2081,5 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
         desc.sceneInputs.diagnostics.materialUploadBytes +
         desc.sceneInputs.diagnostics.lightUploadBytes;
     m_frameResources.RecordSceneResourceCommit(uploadBytes, desc.bindingSet != nullptr, desc.staticBlas != nullptr || desc.dynamicBlas != nullptr);
-    if (r_pathTracingSceneInputsDump.GetInteger() != 0)
-    {
-        PrintPathTraceSceneInputsDump(m_sceneInputs);
-        r_pathTracingSceneInputsDump.SetInteger(0);
-    }
     m_smokeSceneBuilt = true;
 }

@@ -1106,3 +1106,25 @@ Working rule for every deletion slice:
     no DXIL command runs. This is a C++-only slice, so deploy only the executable;
     source and deployed SHA-256 both equal
     16EEA093B77D018A2FF2F45DBAD32CE1BF74F104A38C62669AC6390CC433203D.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 122aa9cb3. T4.3m runtime gate closed.
+  - T4.3n removes three resource-lifecycle reports: the committed scene-input
+    snapshot, portal/scene transition comparison, and retired-package event log.
+    Their CVars and printers observe already-computed state only. Preserve the
+    live scene transition signature, optional wait-for-idle policy, GPU-handle
+    change detection, retirement-frame policy, package queue, and handle release.
+  - Removing the retire report exposes stale transport in
+    RtRetiredSmokeScenePackage: copied scene inputs, scene signature, current
+    area, and selected-area count have no remaining reader. Remove those fields
+    and writes. Collapse PushRetiredRayTracingSmokeScenePackage and
+    ReleaseExpiredRetiredRayTracingSmokeScenePackages to the frame/retire inputs
+    they actually consume; remove the release-only package copy and the separate
+    portal-transition hash whose sole consumer was its printer. The last-day
+    history for all three reports is empty, so this does not intersect recent
+    rendering-feature changes.
+  - T4.3n verification: whole-neo sweeps for the three retired CVars, printers,
+    retire-event consumer, portal-only signature, and retired snapshot fields are
+    empty. The full win64-pt-dev-release build passes; both SPIR-V targets remain
+    up to date and no DXIL command runs. This is a C++-only slice, so deploy only
+    the executable; source and deployed SHA-256 both equal
+    72AC0DEF90DCF6574A2090A142C7D01AC6832841B300D75ADB419DC535EC0C2D.
