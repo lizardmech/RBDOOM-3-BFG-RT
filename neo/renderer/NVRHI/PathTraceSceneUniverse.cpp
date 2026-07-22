@@ -21,8 +21,6 @@
 namespace {
 
 const int PT_SCENE_UNIVERSE_MAX_AREA_REFS = 8;
-const int PT_SCENE_UNIVERSE_MAX_DUMP_AREAS = 16;
-const int PT_SCENE_UNIVERSE_MAX_DUMP_SURFACES = 16;
 const int PT_SCENE_UNIVERSE_MAX_SELECTION_AREAS = 16;
 const int PT_SCENE_UNIVERSE_STATIC_MAX_VERTS = 262144;
 const int PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES = 786432;
@@ -421,29 +419,6 @@ bool SceneUniverseSurfaceTouchesArea(const RtPathTraceSceneUniverseSurface& surf
         }
     }
     return false;
-}
-
-void SceneUniverseAddMaterialStats(
-    std::vector<RtPathTraceSceneUniverseMaterialStats>& materialStats,
-    const RtPathTraceSceneUniverseSurface& surface)
-{
-    for (RtPathTraceSceneUniverseMaterialStats& stats : materialStats)
-    {
-        if (stats.materialId == surface.materialId)
-        {
-            ++stats.surfaces;
-            stats.triangles += surface.triangles;
-            return;
-        }
-    }
-
-    RtPathTraceSceneUniverseMaterialStats stats;
-    stats.materialId = surface.materialId;
-    stats.surfaces = 1;
-    stats.triangles = surface.triangles;
-    stats.emissiveCapable = surface.emissiveCapable;
-    stats.materialName = surface.materialName;
-    materialStats.push_back(stats);
 }
 
 void SceneUniverseAddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* material, int indexes)
@@ -1730,7 +1705,6 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
                 ++selection.selectedEmissiveCapableSurfaces;
                 selection.selectedEmissiveCapableTriangles += surface.triangles;
                 selectedEmissiveMaterials.emplace(surface.materialId, true);
-                SceneUniverseAddMaterialStats(selection.selectedEmissiveMaterials, surface);
             }
 
             for (RtPathTraceSceneUniverseSelectedAreaStats& areaStats : selection.selectedAreaStats)
@@ -1786,15 +1760,6 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         {
             selection.selectedMaterials = static_cast<int>(selectedMaterials.size());
             selection.selectedEmissiveCapableMaterials = static_cast<int>(selectedEmissiveMaterials.size());
-            std::sort(selection.selectedEmissiveMaterials.begin(), selection.selectedEmissiveMaterials.end(),
-                [](const RtPathTraceSceneUniverseMaterialStats& lhs, const RtPathTraceSceneUniverseMaterialStats& rhs)
-                {
-                    if (lhs.triangles != rhs.triangles)
-                    {
-                        return lhs.triangles > rhs.triangles;
-                    }
-                    return lhs.materialName.Icmp(rhs.materialName) < 0;
-                });
         }
     }
     else
@@ -1863,20 +1828,15 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     return buildStats;
 }
 
-void RtPathTraceSceneUniverse::RunDiagnostics(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int sceneSource, bool dumpRequested, int drawSurfStaticSurfaces, int drawSurfStaticTriangles)
+void RtPathTraceSceneUniverse::RunDiagnostics(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int sceneSource, int drawSurfStaticSurfaces, int drawSurfStaticTriangles)
 {
-    if (sceneSource <= 0 && !dumpRequested)
+    if (sceneSource <= 0)
     {
         return;
     }
 
     if (!EnsureBuilt(viewDef))
     {
-        if (dumpRequested)
-        {
-            common->Printf("PathTracePrimaryPass: PT scene universe unavailable; no renderWorld for diagnostics\n");
-            r_pathTracingSceneUniverseDump.SetInteger(0);
-        }
         return;
     }
 
@@ -1886,14 +1846,6 @@ void RtPathTraceSceneUniverse::RunDiagnostics(const viewDef_t* viewDef, const Rt
         const RtPathTraceSceneUniverseSelectionStats selection = BuildSelectionStats(viewDef, geometryUniverse, portalSteps);
         LogSummary(sceneSource, selection, drawSurfStaticSurfaces, drawSurfStaticTriangles);
         m_loggedForCurrentWorld = true;
-    }
-
-    if (dumpRequested)
-    {
-        const int portalSteps = idMath::ClampInt(0, 8, r_pathTracingScenePortalSteps.GetInteger());
-        const RtPathTraceSceneUniverseSelectionStats selection = BuildSelectionStats(viewDef, geometryUniverse, portalSteps);
-        LogDump(sceneSource, selection, drawSurfStaticSurfaces, drawSurfStaticTriangles);
-        r_pathTracingSceneUniverseDump.SetInteger(0);
     }
 }
 
@@ -2025,10 +1977,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
         {
             selection.selectedAreaList[selection.selectedAreaListCount++] = area;
         }
-        else
-        {
-            ++selection.overflowAreas;
-        }
     }
 
     if (!collectSurfaceStats)
@@ -2066,7 +2014,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
             ++selection.selectedEmissiveCapableSurfaces;
             selection.selectedEmissiveCapableTriangles += surface.triangles;
             selectedEmissiveMaterials.emplace(surface.materialId, true);
-            SceneUniverseAddMaterialStats(selection.selectedEmissiveMaterials, surface);
         }
 
         for (RtPathTraceSceneUniverseSelectedAreaStats& areaStats : selection.selectedAreaStats)
@@ -2089,15 +2036,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
     }
     selection.selectedMaterials = static_cast<int>(selectedMaterials.size());
     selection.selectedEmissiveCapableMaterials = static_cast<int>(selectedEmissiveMaterials.size());
-    std::sort(selection.selectedEmissiveMaterials.begin(), selection.selectedEmissiveMaterials.end(),
-        [](const RtPathTraceSceneUniverseMaterialStats& lhs, const RtPathTraceSceneUniverseMaterialStats& rhs)
-        {
-            if (lhs.triangles != rhs.triangles)
-            {
-                return lhs.triangles > rhs.triangles;
-            }
-            return lhs.materialName.Icmp(rhs.materialName) < 0;
-        });
     return selection;
 }
 
@@ -2137,149 +2075,6 @@ void RtPathTraceSceneUniverse::LogSummary(int sceneSource, const RtPathTraceScen
         m_stats.staticTriangles,
         drawSurfStaticSurfaces,
         drawSurfStaticTriangles);
-}
-
-void RtPathTraceSceneUniverse::LogDump(int sceneSource, const RtPathTraceSceneUniverseSelectionStats& selection, int drawSurfStaticSurfaces, int drawSurfStaticTriangles) const
-{
-    common->Printf("PathTracePrimaryPass: PT scene universe dump source=%d mode=diagnostics-only map='%s' generation=%llu entityDefs=%d staticWorldEntities=%d surfaces=%d triangles=%d materials=%d emissiveSurfaces=%d emissiveTriangles=%d emissiveMaterials=%d\n",
-        sceneSource,
-        m_stats.mapName.c_str(),
-        static_cast<unsigned long long>(m_stats.generation),
-        m_stats.entityDefs,
-        m_stats.staticWorldEntities,
-        m_stats.staticSurfaces,
-        m_stats.staticTriangles,
-        m_stats.uniqueMaterials,
-        m_stats.emissiveCapableSurfaces,
-        m_stats.emissiveCapableTriangles,
-        m_stats.emissiveCapableMaterials);
-    common->Printf("PathTracePrimaryPass: PT scene universe membership assigned=%d unassigned=%d multiArea=%d boundsSkipped=%d centerArea=%d offCenterArea=%d distinctAreas=%d areaRefs=%d portalRefs=%d drawSurfStatic=%d/%d bounds=(%.1f %.1f %.1f)-(%.1f %.1f %.1f)\n",
-        m_stats.assignedSurfaces,
-        m_stats.unassignedSurfaces,
-        m_stats.multiAreaSurfaces,
-        m_stats.boundsAreaSkippedSurfaces,
-        m_stats.centerAreaSurfaces,
-        m_stats.offCenterAreaSurfaces,
-        m_stats.distinctAreas,
-        m_stats.totalAreaRefs,
-        m_stats.totalPortalsReferenced,
-        drawSurfStaticSurfaces,
-        drawSurfStaticTriangles,
-        m_stats.bounds[0].x,
-        m_stats.bounds[0].y,
-        m_stats.bounds[0].z,
-        m_stats.bounds[1].x,
-        m_stats.bounds[1].y,
-        m_stats.bounds[1].z);
-
-    idStr selectedAreaList;
-    for (int areaIndex = 0; areaIndex < selection.selectedAreaListCount; ++areaIndex)
-    {
-        if (areaIndex > 0)
-        {
-            selectedAreaList.Append(",");
-        }
-        selectedAreaList.Append(va("%d", selection.selectedAreaList[areaIndex]));
-    }
-    if (selectedAreaList.IsEmpty())
-    {
-        selectedAreaList = "<none>";
-    }
-    common->Printf("PathTracePrimaryPass: PT scene selection currentArea=%d valid=%d portalSteps=%d selectedAreas=%d list=%s overflowAreas=%d selectedStatic=%d/%d selectedCached=%d/%d selectedMissing=%d/%d selectedEmissive=%d/%d selectedMaterials=%d/%d portalEdges=%d blockedEdges=%d fullStatic=%d/%d drawSurfStatic=%d/%d\n",
-        selection.currentArea,
-        selection.valid ? 1 : 0,
-        selection.portalSteps,
-        selection.selectedAreas,
-        selectedAreaList.c_str(),
-        selection.overflowAreas,
-        selection.selectedSurfaces,
-        selection.selectedTriangles,
-        selection.selectedCachedStaticSurfaces,
-        selection.selectedCachedStaticTriangles,
-        selection.selectedMissingStaticSurfaces,
-        selection.selectedMissingStaticTriangles,
-        selection.selectedEmissiveCapableSurfaces,
-        selection.selectedEmissiveCapableTriangles,
-        selection.selectedMaterials,
-        selection.selectedEmissiveCapableMaterials,
-        selection.portalEdgesWalked,
-        selection.blockedPortalEdges,
-        m_stats.staticSurfaces,
-        m_stats.staticTriangles,
-        drawSurfStaticSurfaces,
-        drawSurfStaticTriangles);
-
-    const int materialDumpCount = Min(static_cast<int>(selection.selectedEmissiveMaterials.size()), 8);
-    for (int materialIndex = 0; materialIndex < materialDumpCount; ++materialIndex)
-    {
-        const RtPathTraceSceneUniverseMaterialStats& material = selection.selectedEmissiveMaterials[materialIndex];
-        common->Printf("  selectedEmissiveMaterial[%d]: materialId=%u surfaces=%d triangles=%d material='%s'\n",
-            materialIndex,
-            material.materialId,
-            material.surfaces,
-            material.triangles,
-            material.materialName.c_str());
-    }
-
-    if (r_pathTracingSceneUniverseVerbose.GetInteger() == 0)
-    {
-        return;
-    }
-
-    const int areaDumpCount = Min(static_cast<int>(m_areaStats.size()), PT_SCENE_UNIVERSE_MAX_DUMP_AREAS);
-    for (int areaIndex = 0; areaIndex < areaDumpCount; ++areaIndex)
-    {
-        const RtPathTraceSceneUniverseAreaStats& area = m_areaStats[areaIndex];
-        common->Printf("  sceneArea[%d]: area=%d surfaces=%d triangles=%d emissiveSurfaces=%d portals=%d\n",
-            areaIndex,
-            area.area,
-            area.surfaces,
-            area.triangles,
-            area.emissiveCapableSurfaces,
-            area.portals);
-    }
-
-    const int surfaceDumpCount = Min(static_cast<int>(m_surfaces.size()), PT_SCENE_UNIVERSE_MAX_DUMP_SURFACES);
-    for (int surfaceIndex = 0; surfaceIndex < surfaceDumpCount; ++surfaceIndex)
-    {
-        const RtPathTraceSceneUniverseSurface& surface = m_surfaces[surfaceIndex];
-        idStr areaList;
-        for (int areaIndex = 0; areaIndex < surface.areaCount; ++areaIndex)
-        {
-            if (areaIndex > 0)
-            {
-                areaList.Append(",");
-            }
-            areaList.Append(va("%d", surface.areas[areaIndex]));
-        }
-        if (areaList.IsEmpty())
-        {
-            areaList = "<none>";
-        }
-
-        common->Printf("  sceneSurface[%d]: key=%08x%08x entity=%d surface=%d triangles=%d materialId=%u emissive=%d areas=%s centerArea=%d offCenterArea=%d portals=%d boundsSkipped=%d bounds=(%.1f %.1f %.1f)-(%.1f %.1f %.1f) model='%s' material='%s'\n",
-            surfaceIndex,
-            static_cast<uint32_t>(surface.key >> 32),
-            static_cast<uint32_t>(surface.key & 0xffffffffu),
-            surface.entityIndex,
-            surface.surfaceIndex,
-            surface.triangles,
-            surface.materialId,
-            surface.emissiveCapable ? 1 : 0,
-            areaList.c_str(),
-            surface.centerArea,
-            surface.offCenterArea,
-            surface.portalCount,
-            surface.areaBoundsSkipped ? 1 : 0,
-            surface.bounds[0].x,
-            surface.bounds[0].y,
-            surface.bounds[0].z,
-            surface.bounds[1].x,
-            surface.bounds[1].y,
-            surface.bounds[1].z,
-            surface.modelName.c_str(),
-            surface.materialName.c_str());
-    }
 }
 
 const RtPathTraceSceneUniverseStats& RtPathTraceSceneUniverse::GetStats() const

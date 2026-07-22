@@ -1252,3 +1252,21 @@ Working rule for every deletion slice:
     rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both
     equal
     CB5F1AD84B9DFBAE118EB0FDB4680943EDE673083455F1EFEE341A07CA764480.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 0c2f08c2a. T4.3s runtime gate closed.
+  - T4.3t removes the retired scene-universe one-shot inventory dump and its
+    verbose extension. The two controls only trigger console formatting after
+    the scene and portal selection are already built. Remove their formatter,
+    call-site flag/reset transport, dump-only source2 build report, verbose
+    area/surface replay limits, selected-emissive material replay records, and
+    selection-list overflow counter. Preserve the active scene-universe build,
+    selected/static geometry output, portal traversal, static-area preload and
+    its independent dump, persistent scene stats, and the throttled
+    r_pathTracingSmokeLog summary. Neither control nor the scene-universe files
+    changed during the recent feature window.
+  - T4.3t verification: whole-neo sweeps for both controls, LogDump, its replay
+    record type/vector, and dump call-site state are empty. The full
+    win64-pt-dev-release build passes; both SPIR-V targets report up to date and
+    no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
+    Source and deployed SHA-256 both equal
+    26A8E2371648FDA07A91A6A7F3B66A6EF9558AD9CAC6048083446BB268A869AE.

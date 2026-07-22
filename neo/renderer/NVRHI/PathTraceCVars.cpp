@@ -501,12 +501,6 @@ idCVar r_pathTracingSceneBoundsOverlayGpu(
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental PT shader composited bounds overlay gate; default off after device-removal risk in per-pixel overlay loop" );
 
-idCVar r_pathTracingSceneUniverseDump(
-    "r_pathTracingSceneUniverseDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump diagnostics-only PT static world scene-universe inventory once" );
-
 idCVar r_pathTracingScenePortalSteps(
     "r_pathTracingScenePortalSteps",
     "1",
@@ -518,12 +512,6 @@ idCVar r_pathTracingPortalBruteforceFullMap(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic override: 1 treats every render-world area as selected for PT scene, rigid-residency, emissive-light, and analytic-light portal selectors; very slow" );
-
-idCVar r_pathTracingSceneUniverseVerbose(
-    "r_pathTracingSceneUniverseVerbose",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Print verbose PT scene-universe area and surface samples in the one-shot dump" );
 
 idCVar r_pathTracingWorldStaticEmissives(
     "r_pathTracingWorldStaticEmissives",

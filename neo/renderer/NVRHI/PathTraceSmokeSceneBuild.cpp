@@ -3670,7 +3670,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         (enableRigidRouteForMode || rigidResidencyBoundsDebug);
     const int source2RigidEntities = sceneSource == 2 ? idMath::ClampInt(0, 2, r_pathTracingSceneSource2RigidEntities.GetInteger()) : 0;
     const int liquidPoolOffsetEnabled = r_pathTracingLiquidPoolMode.GetInteger() != 0 ? 1 : 0;
-    const bool dumpSceneUniverse = r_pathTracingSceneUniverseDump.GetInteger() != 0;
     const bool dumpInstanceUniverse = r_pathTracingInstanceUniverseDump.GetInteger() != 0;
     const bool dumpRigidMeshUniverse = r_pathTracingRigidMeshUniverseDump.GetInteger() != 0;
     {
@@ -4158,31 +4157,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Rigid Mesh Diagnostics");
         m_smokeGeometryUniverse.RunRigidMeshCandidateDiagnostics(dumpRigidMeshUniverse, sceneSource, &classStats);
     }
-    if (sceneSource > 0 || dumpSceneUniverse)
+    if (sceneSource > 0)
     {
         OPTICK_EVENT("PT Scene Universe Diagnostics");
         const int drawSurfStaticSurfaces = useSceneUniverseStaticGeometry ? currentStaticDrawSurfs.surfaces : classStats.staticWorldSurfaces;
         const int drawSurfStaticTriangles = useSceneUniverseStaticGeometry ? currentStaticDrawSurfs.triangles : classStats.staticWorldTriangles;
-        m_sceneUniverse.RunDiagnostics(viewDef, &m_smokeGeometryUniverse, sceneSource, dumpSceneUniverse, drawSurfStaticSurfaces, drawSurfStaticTriangles);
-        if (dumpSceneUniverse && useSceneUniverseStaticGeometry)
-        {
-            common->Printf("PathTracePrimaryPass: PT scene source2 staticBuild built=%d cacheHit=%d surfaces=%d triangles=%d verts=%d indexes=%d emissiveSurfaces=%d rigidEntities=%d/%d skipped invalid/limits/zero=%d/%d/%d sourceTotals=%d/%d/%d\n",
-                sceneUniverseStaticBuildStats.built ? 1 : 0,
-                sceneUniverseStaticBuildStats.cacheHit ? 1 : 0,
-                sceneUniverseStaticBuildStats.surfaces,
-                sceneUniverseStaticBuildStats.triangles,
-                sceneUniverseStaticBuildStats.vertices,
-                sceneUniverseStaticBuildStats.indexes,
-                sceneUniverseStaticBuildStats.emissiveCapableSurfaces,
-                sceneUniverseStaticBuildStats.rigidEntitySurfaces,
-                sceneUniverseStaticBuildStats.rigidEntityTriangles,
-                sceneUniverseStaticBuildStats.skippedInvalid,
-                sceneUniverseStaticBuildStats.skippedLimits,
-                sceneUniverseStaticBuildStats.skippedZeroArea,
-                sourceSurfaces,
-                sourceVerts,
-                sourceIndexes);
-        }
+        m_sceneUniverse.RunDiagnostics(viewDef, &m_smokeGeometryUniverse, sceneSource, drawSurfStaticSurfaces, drawSurfStaticTriangles);
     }
     if (!usingDoomSurfaces)
     {
