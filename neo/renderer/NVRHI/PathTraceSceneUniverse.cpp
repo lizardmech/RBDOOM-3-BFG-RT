@@ -409,18 +409,6 @@ bool SceneUniverseSurfaceTouchesSelectedArea(const RtPathTraceSceneUniverseSurfa
     return false;
 }
 
-bool SceneUniverseSurfaceTouchesArea(const RtPathTraceSceneUniverseSurface& surface, int area)
-{
-    for (int areaIndex = 0; areaIndex < surface.areaCount; ++areaIndex)
-    {
-        if (surface.areas[areaIndex] == area)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 void SceneUniverseAddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* material, int indexes)
 {
     const char* materialName = material ? material->GetName() : "<none>";
@@ -1385,8 +1373,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     RtSmokeAttributeStats& attributeStats,
     RtSmokeMaterialStats& materialStats,
     RtSmokeBucketRanges& bucketRanges,
-    int portalSteps,
-    bool dumpRequested)
+    int portalSteps)
 {
     RtPathTraceSceneUniverseBuildStats buildStats;
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
@@ -1661,15 +1648,6 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     if (useBakedStaticFacts)
     {
         OPTICK_EVENT("PT Static Area Resident Walk");
-        const bool collectSelectionStats = dumpRequested;
-        std::unordered_map<uint32_t, bool> selectedMaterials;
-        std::unordered_map<uint32_t, bool> selectedEmissiveMaterials;
-        if (collectSelectionStats)
-        {
-            selectedMaterials.reserve(128);
-            selectedEmissiveMaterials.reserve(32);
-        }
-
         if (m_surfaceSelectionStamps.size() != m_surfaces.size())
         {
             m_surfaceSelectionStamps.assign(m_surfaces.size(), 0);
@@ -1680,51 +1658,6 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             std::fill(m_surfaceSelectionStamps.begin(), m_surfaceSelectionStamps.end(), 0);
             m_surfaceSelectionStamp = 1;
         }
-
-        auto accumulateSelectedSurfaceStats = [&](const RtPathTraceSceneUniverseSurface& surface, const RtSmokePersistentStaticSurfaceRecord* existingRecord) -> void
-        {
-            if (!collectSelectionStats)
-            {
-                return;
-            }
-            ++selection.selectedSurfaces;
-            selection.selectedTriangles += surface.triangles;
-            selectedMaterials.emplace(surface.materialId, true);
-            if (existingRecord)
-            {
-                ++selection.selectedCachedStaticSurfaces;
-                selection.selectedCachedStaticTriangles += surface.triangles;
-            }
-            else
-            {
-                ++selection.selectedMissingStaticSurfaces;
-                selection.selectedMissingStaticTriangles += surface.triangles;
-            }
-            if (surface.emissiveCapable)
-            {
-                ++selection.selectedEmissiveCapableSurfaces;
-                selection.selectedEmissiveCapableTriangles += surface.triangles;
-                selectedEmissiveMaterials.emplace(surface.materialId, true);
-            }
-
-            for (RtPathTraceSceneUniverseSelectedAreaStats& areaStats : selection.selectedAreaStats)
-            {
-                if (!SceneUniverseSurfaceTouchesArea(surface, areaStats.area))
-                {
-                    continue;
-                }
-                ++areaStats.surfaces;
-                areaStats.triangles += surface.triangles;
-                if (surface.emissiveCapable)
-                {
-                    ++areaStats.emissiveCapableSurfaces;
-                }
-                if (!surface.bounds.IsCleared())
-                {
-                    areaStats.bounds.AddBounds(surface.bounds);
-                }
-            }
-        };
 
         const int areaCount = Min(static_cast<int>(selectedAreas.size()), static_cast<int>(m_areaSurfaceIndices.size()));
         for (int area = 0; area < areaCount; ++area)
@@ -1747,19 +1680,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
                 m_surfaceSelectionStamps[surfaceIndex] = m_surfaceSelectionStamp;
 
                 const RtPathTraceSceneUniverseSurface& surface = m_surfaces[surfaceIndex];
-                if (collectSelectionStats)
-                {
-                    const RtSmokePersistentStaticSurfaceRecord* existingRecord = geometryUniverse.FindStaticSurface(surface.legacyDrawSurfKey);
-                    accumulateSelectedSurfaceStats(surface, existingRecord);
-                }
                 processSelectedSurface(surface);
             }
-        }
-
-        if (collectSelectionStats)
-        {
-            selection.selectedMaterials = static_cast<int>(selectedMaterials.size());
-            selection.selectedEmissiveCapableMaterials = static_cast<int>(selectedEmissiveMaterials.size());
         }
     }
     else
@@ -1783,46 +1705,6 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     staticRange.indexCount = static_cast<int>(staticIndexes.size());
     staticRange.triangleCount = static_cast<int>(staticTriangleClasses.size());
 
-    if (dumpRequested)
-    {
-        OPTICK_EVENT("PT Static Area Dump");
-        common->Printf("PathTracePrimaryPass: PT static area preload currentArea=%d portalSteps=%d selectedAreas=%d selectedSurfaces=%d/%d built surfaces=%d triangles=%d verts=%d indexes=%d skipped invalid/limits/zero=%d/%d/%d emissive=%d staticCache records=%d verts=%d indexes=%d\n",
-            selection.currentArea,
-            selection.portalSteps,
-            selection.selectedAreas,
-            selection.selectedSurfaces,
-            m_stats.staticSurfaces,
-            buildStats.surfaces,
-            buildStats.triangles,
-            buildStats.vertices,
-            buildStats.indexes,
-            buildStats.skippedInvalid,
-            buildStats.skippedLimits,
-            buildStats.skippedZeroArea,
-            buildStats.emissiveCapableSurfaces,
-            static_cast<int>(geometryUniverse.StaticSurfaceRecords().size()),
-            static_cast<int>(staticVertices.size()),
-            static_cast<int>(staticIndexes.size()));
-        for (size_t areaIndex = 0; areaIndex < selection.selectedAreaStats.size() && areaIndex < 16; ++areaIndex)
-        {
-            const RtPathTraceSceneUniverseSelectedAreaStats& area = selection.selectedAreaStats[areaIndex];
-            common->Printf("PathTracePrimaryPass: PT static area preload area[%d] area=%d depth=%d portalEdges=%d blockedEdges=%d surfaces=%d triangles=%d emissiveSurfaces=%d bounds=(%.1f %.1f %.1f)-(%.1f %.1f %.1f)\n",
-                static_cast<int>(areaIndex),
-                area.area,
-                area.depth,
-                area.portalEdges,
-                area.blockedPortalEdges,
-                area.surfaces,
-                area.triangles,
-                area.emissiveCapableSurfaces,
-                area.bounds[0].x,
-                area.bounds[0].y,
-                area.bounds[0].z,
-                area.bounds[1].x,
-                area.bounds[1].y,
-                area.bounds[1].z);
-        }
-    }
     DumpSceneUniverseResidencyStatsIfNeeded(buildStats);
 
     return buildStats;
@@ -1895,8 +1777,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
     selection.valid = true;
     std::vector<bool> selectedAreas(areaCount, false);
     std::vector<int> selectedDepth(areaCount, -1);
-    std::vector<int> selectedPortalEdges(areaCount, 0);
-    std::vector<int> selectedBlockedPortalEdges(areaCount, 0);
     std::vector<int> queue;
     queue.reserve(areaCount);
     if (bruteForceFullMap)
@@ -1933,7 +1813,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
                 if ((portal.blockingBits & PS_BLOCK_VIEW) != 0)
                 {
                     ++selection.blockedPortalEdges;
-                    ++selectedBlockedPortalEdges[area];
                 }
 
                 int nextArea = -1;
@@ -1951,7 +1830,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
                 }
 
                 ++selection.portalEdgesWalked;
-                ++selectedPortalEdges[area];
                 if (!selectedAreas[nextArea])
                 {
                     selectedAreas[nextArea] = true;
@@ -1963,16 +1841,8 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
     }
 
     selection.selectedAreas = static_cast<int>(queue.size());
-    selection.selectedAreaStats.reserve(queue.size());
     for (int area : queue)
     {
-        RtPathTraceSceneUniverseSelectedAreaStats areaStats;
-        areaStats.area = area;
-        areaStats.depth = selectedDepth[area];
-        areaStats.portalEdges = selectedPortalEdges[area];
-        areaStats.blockedPortalEdges = selectedBlockedPortalEdges[area];
-        areaStats.bounds.Clear();
-        selection.selectedAreaStats.push_back(areaStats);
         if (selection.selectedAreaListCount < PT_SCENE_UNIVERSE_MAX_SELECTION_AREAS)
         {
             selection.selectedAreaList[selection.selectedAreaListCount++] = area;
@@ -2014,24 +1884,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
             ++selection.selectedEmissiveCapableSurfaces;
             selection.selectedEmissiveCapableTriangles += surface.triangles;
             selectedEmissiveMaterials.emplace(surface.materialId, true);
-        }
-
-        for (RtPathTraceSceneUniverseSelectedAreaStats& areaStats : selection.selectedAreaStats)
-        {
-            if (!SceneUniverseSurfaceTouchesArea(surface, areaStats.area))
-            {
-                continue;
-            }
-            ++areaStats.surfaces;
-            areaStats.triangles += surface.triangles;
-            if (surface.emissiveCapable)
-            {
-                ++areaStats.emissiveCapableSurfaces;
-            }
-            if (!surface.bounds.IsCleared())
-            {
-                areaStats.bounds.AddBounds(surface.bounds);
-            }
         }
     }
     selection.selectedMaterials = static_cast<int>(selectedMaterials.size());

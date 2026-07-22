@@ -81,18 +81,6 @@ struct RtPathTraceSceneUniverseStats
     idStr mapName;
 };
 
-struct RtPathTraceSceneUniverseSelectedAreaStats
-{
-    int area = -1;
-    int depth = -1;
-    int portalEdges = 0;
-    int blockedPortalEdges = 0;
-    int surfaces = 0;
-    int triangles = 0;
-    int emissiveCapableSurfaces = 0;
-    idBounds bounds;
-};
-
 struct RtPathTraceSceneUniverseSelectionStats
 {
     bool valid = false;
@@ -113,7 +101,6 @@ struct RtPathTraceSceneUniverseSelectionStats
     int selectedAreaListCount = 0;
     int portalEdgesWalked = 0;
     int blockedPortalEdges = 0;
-    std::vector<RtPathTraceSceneUniverseSelectedAreaStats> selectedAreaStats;
 };
 
 struct RtPathTraceSceneUniverseBuildStats
@@ -157,7 +144,7 @@ public:
     bool EnsureBuilt(const viewDef_t* viewDef);
     void RunDiagnostics(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int sceneSource, int drawSurfStaticSurfaces, int drawSurfStaticTriangles);
     RtPathTraceSceneUniverseBuildStats BuildFullStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges);
-    RtPathTraceSceneUniverseBuildStats BuildSelectedStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, int portalSteps, bool dumpRequested);
+    RtPathTraceSceneUniverseBuildStats BuildSelectedStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, int portalSteps);
 
     const RtPathTraceSceneUniverseStats& GetStats() const;
     const std::vector<RtPathTraceSceneUniverseSurface>& Surfaces() const;

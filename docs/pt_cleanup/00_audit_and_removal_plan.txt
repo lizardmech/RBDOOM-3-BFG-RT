@@ -1270,3 +1270,22 @@ Working rule for every deletion slice:
     no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
     Source and deployed SHA-256 both equal
     26A8E2371648FDA07A91A6A7F3B66A6EF9558AD9CAC6048083446BB268A869AE.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 9ef54c2f0. T4.3t runtime gate closed.
+  - T4.3u removes the source3 static-area-preload one-shot dump. Its control
+    only enables per-area/material/cached-vs-missing observation during the
+    already-selected preload walk and prints the result. Remove the control,
+    parameter/reset transport, formatter, per-area record/vector, per-area
+    portal counters and surface accumulation, and the dump-only baked-static
+    selection summaries. Preserve selected-area discovery, portal depth,
+    deduplication stamps, static surface processing, cache mutation detection,
+    residency reporting, build statistics, and the legacy-walk selected-surface
+    count used for reserve sizing. The control and owner files have no changes
+    during the recent feature window.
+  - T4.3u verification: scoped sweeps for the control, dump parameter,
+    per-area record/vector, formatter label, and removed helper are empty. The
+    slice removes 176 lines. The full win64-pt-dev-release build passes; both
+    SPIR-V targets report up to date and no DXIL command runs. No SPIR-V is
+    rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both
+    equal
+    2EB660011FBEF86B21820D6844838CF8C80E8C0F7DD6501BB54B64BCEB44DF64.

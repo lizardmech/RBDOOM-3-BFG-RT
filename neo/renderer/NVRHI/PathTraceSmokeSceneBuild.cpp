@@ -3798,8 +3798,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     attributeStats,
                     materialStats,
                     bucketRanges,
-                    idMath::ClampInt(0, 8, r_pathTracingStaticAreaPreloadPortalSteps.GetInteger()),
-                    r_pathTracingStaticAreaPreloadDump.GetInteger() != 0);
+                    idMath::ClampInt(0, 8, r_pathTracingStaticAreaPreloadPortalSteps.GetInteger()));
                 if (staticAreaPreloadStats.built)
                 {
                     usingDoomSurfaces = true;
@@ -3811,10 +3810,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     {
                         staticCacheChanged = true;
                     }
-                }
-                if (r_pathTracingStaticAreaPreloadDump.GetInteger() != 0)
-                {
-                    r_pathTracingStaticAreaPreloadDump.SetInteger(0);
                 }
             }
             const RtSmokeSurfaceClassStats staticClassStats = classStats;

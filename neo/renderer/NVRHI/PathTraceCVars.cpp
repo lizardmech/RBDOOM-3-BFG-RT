@@ -471,12 +471,6 @@ idCVar r_pathTracingStaticAreaPreloadPortalSteps(
     CVAR_RENDERER | CVAR_INTEGER,
     "Portal traversal depth for source3 static-world area preload; default depth 4 is the current source3 standard" );
 
-idCVar r_pathTracingStaticAreaPreloadDump(
-    "r_pathTracingStaticAreaPreloadDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump source3 static-world area preload stats once" );
-
 idCVar r_pathTracingStaticGeometryPruneMissing(
     "r_pathTracingStaticGeometryPruneMissing",
     "0",
