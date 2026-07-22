@@ -13,6 +13,33 @@
 
 #include <cstdint>
 
+struct PathTraceCleanRestirGiRayTracingPipelineState
+{
+    nvrhi::BindingLayoutHandle bindingLayout;
+    nvrhi::ShaderLibraryHandle shaderLibrary;
+    nvrhi::rt::PipelineHandle pipeline;
+    nvrhi::rt::ShaderTableHandle shaderTable;
+    nvrhi::rt::ShaderTableHandle producerShaderTable;
+    nvrhi::rt::ShaderTableHandle producerSimpleShaderTable;
+    nvrhi::rt::ShaderTableHandle producerLeanTraceShaderTable;
+    nvrhi::rt::ShaderTableHandle producerLeanShadeShaderTable;
+    nvrhi::rt::ShaderTableHandle producerRoughFallbackShaderTable;
+    nvrhi::rt::ShaderTableHandle continuationShaderTable;
+    nvrhi::rt::ShaderTableHandle continuationTraceShaderTable;
+    nvrhi::rt::ShaderTableHandle continuationShadeShaderTable;
+    nvrhi::rt::ShaderTableHandle shadeShaderTable;
+    nvrhi::rt::ShaderTableHandle shadeFastShaderTable;
+    nvrhi::rt::ShaderTableHandle seedShaderTable;
+    nvrhi::rt::ShaderTableHandle seedNoSpecShaderTable;
+    nvrhi::rt::ShaderTableHandle specularSeedTraceShaderTable;
+    nvrhi::rt::ShaderTableHandle specularSeedShadeShaderTable;
+    nvrhi::rt::ShaderTableHandle specularSeedShadeFastShaderTable;
+    nvrhi::rt::ShaderTableHandle reuseShaderTable;
+    bool pipelineInitAttempted = false;
+
+    void Release();
+};
+
 struct PathTraceCleanRestirGiState
 {
     nvrhi::BufferHandle constantsBuffer;
@@ -32,26 +59,8 @@ struct PathTraceCleanRestirGiState
     nvrhi::TextureHandle indirectDiffuseLobeTexture;
     nvrhi::TextureHandle indirectSpecularLobeTexture;
     nvrhi::BufferHandle placeholderSrvBuffer;
-    nvrhi::BindingLayoutHandle bindingLayout;
-    nvrhi::ShaderLibraryHandle shaderLibrary;
-    nvrhi::rt::PipelineHandle pipeline;
-    nvrhi::rt::ShaderTableHandle shaderTable;
-    nvrhi::rt::ShaderTableHandle producerShaderTable;   // FirstIndirectTraceRayGen
-    nvrhi::rt::ShaderTableHandle producerSimpleShaderTable;
-    nvrhi::rt::ShaderTableHandle producerLeanTraceShaderTable;
-    nvrhi::rt::ShaderTableHandle producerLeanShadeShaderTable;
-    nvrhi::rt::ShaderTableHandle producerRoughFallbackShaderTable;
-    nvrhi::rt::ShaderTableHandle continuationShaderTable;      // combined fallback for split specular seed
-    nvrhi::rt::ShaderTableHandle continuationTraceShaderTable; // FirstIndirectContinuationTraceRayGen
-    nvrhi::rt::ShaderTableHandle continuationShadeShaderTable; // FirstIndirectContinuationShadeRayGen
-    nvrhi::rt::ShaderTableHandle shadeShaderTable;      // FirstIndirectShadeRayGen
-    nvrhi::rt::ShaderTableHandle shadeFastShaderTable;  // FirstIndirectShadeFastRayGen
-    nvrhi::rt::ShaderTableHandle seedShaderTable;       // SeedRayGen (INIT-page seeds)
-    nvrhi::rt::ShaderTableHandle seedNoSpecShaderTable; // SeedNoSpecRayGen (INIT clear + NEE seed)
-    nvrhi::rt::ShaderTableHandle specularSeedTraceShaderTable;
-    nvrhi::rt::ShaderTableHandle specularSeedShadeShaderTable;
-    nvrhi::rt::ShaderTableHandle specularSeedShadeFastShaderTable;
-    nvrhi::rt::ShaderTableHandle reuseShaderTable;
+    PathTraceCleanRestirGiRayTracingPipelineState debugRayTracing;
+    PathTraceCleanRestirGiRayTracingPipelineState productionRayTracing;
     PathTraceBlueNoiseState blueNoise;
     nvrhi::ShaderHandle producerRayQueryComputeShader;
     nvrhi::BindingLayoutHandle producerRayQueryComputeBindingLayout;
@@ -72,7 +81,6 @@ struct PathTraceCleanRestirGiState
     nvrhi::BindingLayoutHandle boilingFilterBindingLayout;
     nvrhi::ComputePipelineHandle boilingFilterPipeline;
     bool boilingFilterInitAttempted = false;
-    bool pipelineInitAttempted = false;
     uint32_t frameIndex = 0;
     bool dispatchLogged = false;
 

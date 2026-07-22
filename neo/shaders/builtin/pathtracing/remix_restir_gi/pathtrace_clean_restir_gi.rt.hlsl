@@ -424,6 +424,12 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiLiquidPoolProducerSource;
 };
 
+// GI view 0 is the production resolve path. Preserve the cbuffer ABI, then
+// replace later view tests with a literal in the production-only library.
+#if defined(CLEAN_GI_VIEW_STATIC)
+#define CleanRestirGiView CLEAN_GI_VIEW_STATIC
+#endif
+
 bool CleanGiWriteLiquidPoolRouteDiagnostic(uint2 pixel, uint routeSource)
 {
     if (CleanRestirGiLiquidPoolDebug != 6u)

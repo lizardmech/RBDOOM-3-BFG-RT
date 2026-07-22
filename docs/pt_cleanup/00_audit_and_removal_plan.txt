@@ -1593,4 +1593,30 @@ Working rule for every deletion slice:
     four rebuilt debug plus three production SPIR-V blobs. All deployed hashes
     match their sources. Source and deployed executable SHA-256 both equal
     D27533A896C04DBF11AE3E3C7022D1BCE8D216988921342AB3EF6DAA6D8B72BB.
-    Runtime acceptance is pending for clean RTXDI DI view 16 and native mode 18.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI
+    view 16 or native mode 18 on deployed commit cba902235. T4.4a runtime gate
+    closed.
+  - T4.4b extends the production/debug split to the clean ReSTIR GI ray-tracing
+    library. GI has its own selector: r_pathTracingCleanRestirGiView == 0 is the
+    production resolve path, while views 1 through 26 are diagnostics. Compile a
+    Vulkan-only production library with CLEAN_GI_VIEW_STATIC=0 after preserving
+    the constants-buffer layout; keep the existing runtime-view library as the
+    debug permutation. Refactor the GI ray-tracing objects into a contained
+    pipeline-state record holding its binding layout, library, pipeline, and all
+    sixteen raygen tables. The main GI state owns one production and one debug
+    record. Execution selects and lazily initializes production for view 0 or
+    debug for views 1-26. Shared GI reservoirs, textures, constants, compute
+    pipelines, frame history, dispatch order, and resampling/resolve math remain
+    single-owned and unchanged.
+  - T4.4b verification: delete the existing GI RT SPIR-V and the new production
+    output path before building. The full win64-pt-dev-release build passes; no
+    DXIL shader command runs and no production DXIL blob exists. GI view-0
+    specialization reduces the RT library from 10,545,600 to 8,076,952 bytes.
+    CMake also rebuilds the GI producer-rayquery and temporal compute SPIR-V
+    because their dependency sets include the edited GI source; deploy those two
+    rebuilt compute blobs along with both RT blobs and RBDoom3BFG.exe. All four
+    shader outputs are newer than the edits and every deployed hash matches its
+    source. Source and deployed executable SHA-256 both equal
+    C66DF9ACD8B1BADF69F1E1D77A02F3796C65F2FFBB2D0DFC7D0FF0E5BD3CC884.
+    Runtime acceptance is pending for clean DI view 16 with GI view 0, one GI
+    debug view, and native mode 18.

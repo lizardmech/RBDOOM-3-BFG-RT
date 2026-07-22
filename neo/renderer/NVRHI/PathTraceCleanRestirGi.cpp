@@ -104,7 +104,10 @@ static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 224, "GI constants 
 
 const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
 
-bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
+bool CleanRestirGiEnsurePipeline(
+    PathTraceCleanRestirGiRayTracingPipelineState& state,
+    const PathTraceCleanRestirGiDispatchInputs& inputs,
+    bool productionView)
 {
     if (state.shaderTable)
     {
@@ -119,11 +122,15 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     const char* shaderPath = nullptr;
     if (inputs.isD3D12)
     {
-        shaderPath = "renderprogs2/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin";
+        shaderPath = productionView
+            ? "renderprogs2/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_production.rt.bin"
+            : "renderprogs2/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin";
     }
     else if (inputs.isVulkan)
     {
-        shaderPath = "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin";
+        shaderPath = productionView
+            ? "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_production.rt.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin";
     }
     else
     {
@@ -406,7 +413,7 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     state.reuseShaderTable->addHitGroup("ShadowHitGroup");
 
     state.shaderTable = state.reuseShaderTable;
-    common->Printf("PathTraceCleanRestirGi: GI pipeline initialized\n");
+    common->Printf("PathTraceCleanRestirGi: GI %s pipeline initialized\n", productionView ? "production" : "debug");
     return true;
 }
 
@@ -963,6 +970,31 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
 
 } // namespace
 
+void PathTraceCleanRestirGiRayTracingPipelineState::Release()
+{
+    bindingLayout = nullptr;
+    shaderLibrary = nullptr;
+    pipeline = nullptr;
+    shaderTable = nullptr;
+    producerShaderTable = nullptr;
+    producerSimpleShaderTable = nullptr;
+    producerLeanTraceShaderTable = nullptr;
+    producerLeanShadeShaderTable = nullptr;
+    producerRoughFallbackShaderTable = nullptr;
+    continuationShaderTable = nullptr;
+    continuationTraceShaderTable = nullptr;
+    continuationShadeShaderTable = nullptr;
+    shadeShaderTable = nullptr;
+    shadeFastShaderTable = nullptr;
+    seedShaderTable = nullptr;
+    seedNoSpecShaderTable = nullptr;
+    specularSeedTraceShaderTable = nullptr;
+    specularSeedShadeShaderTable = nullptr;
+    specularSeedShadeFastShaderTable = nullptr;
+    reuseShaderTable = nullptr;
+    pipelineInitAttempted = false;
+}
+
 void PathTraceCleanRestirGiState::ReleaseResources()
 {
     constantsBuffer = nullptr;
@@ -1002,27 +1034,8 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     boilingFilterBindingLayout = nullptr;
     boilingFilterPipeline = nullptr;
     boilingFilterInitAttempted = false;
-    bindingLayout = nullptr;
-    shaderLibrary = nullptr;
-    pipeline = nullptr;
-    shaderTable = nullptr;
-    producerShaderTable = nullptr;
-    producerSimpleShaderTable = nullptr;
-    producerLeanTraceShaderTable = nullptr;
-    producerLeanShadeShaderTable = nullptr;
-    producerRoughFallbackShaderTable = nullptr;
-    continuationShaderTable = nullptr;
-    continuationTraceShaderTable = nullptr;
-    continuationShadeShaderTable = nullptr;
-    shadeShaderTable = nullptr;
-    shadeFastShaderTable = nullptr;
-    seedShaderTable = nullptr;
-    seedNoSpecShaderTable = nullptr;
-    specularSeedTraceShaderTable = nullptr;
-    specularSeedShadeShaderTable = nullptr;
-    specularSeedShadeFastShaderTable = nullptr;
-    reuseShaderTable = nullptr;
-    pipelineInitAttempted = false;
+    debugRayTracing.Release();
+    productionRayTracing.Release();
 }
 
 bool PathTraceCleanRestirGiExecute(
@@ -1045,6 +1058,9 @@ bool PathTraceCleanRestirGiExecute(
     }
 
     const int view = idMath::ClampInt(0, 26, r_pathTracingCleanRestirGiView.GetInteger());
+    PathTraceCleanRestirGiRayTracingPipelineState& rayTracing = view == 0
+        ? state.productionRayTracing
+        : state.debugRayTracing;
     const int specularProducerMode = idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiSpecularProducer.GetInteger());
     const bool rrHitDistanceRequested =
         r_pathTracingCleanRestirGiRrHitDistance.GetInteger() != 0 &&
@@ -1084,7 +1100,7 @@ bool PathTraceCleanRestirGiExecute(
         return false;
     }
 
-    if (!CleanRestirGiEnsurePipeline(state, inputs))
+    if (!CleanRestirGiEnsurePipeline(rayTracing, inputs, view == 0))
     {
         clearFailureOutput();
         return false;
@@ -1164,7 +1180,7 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, inputs.rrInputColorTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(127, state.blueNoise.texture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, inputs.materialSampler));
-    nvrhi::BindingSetHandle bindingSet = inputs.device->createBindingSet(bindingSetDesc, state.bindingLayout);
+    nvrhi::BindingSetHandle bindingSet = inputs.device->createBindingSet(bindingSetDesc, rayTracing.bindingLayout);
     if (!bindingSet)
     {
         clearFailureOutput();
@@ -1471,7 +1487,7 @@ bool PathTraceCleanRestirGiExecute(
     {
         writeLiquidPoolProducerSource(5u);
         nvrhi::rt::State continuationState;
-        continuationState.shaderTable = state.continuationShaderTable;
+        continuationState.shaderTable = rayTracing.continuationShaderTable;
         continuationState.bindings = { bindingSet, inputs.textureDescriptorTable };
         if (nsightGpuMarkers) { commandList->beginMarker(marker); }
         commandList->setRayTracingState(continuationState);
@@ -1489,7 +1505,7 @@ bool PathTraceCleanRestirGiExecute(
     {
         writeLiquidPoolProducerSource(5u);
         nvrhi::rt::State continuationTraceState;
-        continuationTraceState.shaderTable = state.continuationTraceShaderTable;
+        continuationTraceState.shaderTable = rayTracing.continuationTraceShaderTable;
         continuationTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
         if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0c ContinuationTrace DispatchRays"); }
         commandList->setRayTracingState(continuationTraceState);
@@ -1504,7 +1520,7 @@ bool PathTraceCleanRestirGiExecute(
             "FirstIndirect.0c2 ContinuationSkySurfaceResolve Dispatch");
 
         nvrhi::rt::State continuationShadeState;
-        continuationShadeState.shaderTable = state.continuationShadeShaderTable;
+        continuationShadeState.shaderTable = rayTracing.continuationShadeShaderTable;
         continuationShadeState.bindings = { bindingSet, inputs.textureDescriptorTable };
         if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0d ContinuationShade DispatchRays"); }
         commandList->setRayTracingState(continuationShadeState);
@@ -1540,7 +1556,7 @@ bool PathTraceCleanRestirGiExecute(
                 nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
 
                 nvrhi::rt::State roughFallbackState;
-                roughFallbackState.shaderTable = state.producerRoughFallbackShaderTable;
+                roughFallbackState.shaderTable = rayTracing.producerRoughFallbackShaderTable;
                 roughFallbackState.bindings = { bindingSet, inputs.textureDescriptorTable };
                 if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a2 LeanTraceRoughFallback DispatchRays"); }
                 commandList->setRayTracingState(roughFallbackState);
@@ -1551,7 +1567,7 @@ bool PathTraceCleanRestirGiExecute(
         else
         {
             nvrhi::rt::State producerTraceState;
-            producerTraceState.shaderTable = state.producerLeanTraceShaderTable;
+            producerTraceState.shaderTable = rayTracing.producerLeanTraceShaderTable;
             producerTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
             if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a LeanTrace DispatchRays"); }
             commandList->setRayTracingState(producerTraceState);
@@ -1568,7 +1584,7 @@ bool PathTraceCleanRestirGiExecute(
             "FirstIndirect.0a3 LeanSkySurfaceResolve Dispatch");
 
         nvrhi::rt::State producerShadeState;
-        producerShadeState.shaderTable = state.producerLeanShadeShaderTable;
+        producerShadeState.shaderTable = rayTracing.producerLeanShadeShaderTable;
         producerShadeState.bindings = { bindingSet, inputs.textureDescriptorTable };
         if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0b LeanShade DispatchRays"); }
         commandList->setRayTracingState(producerShadeState);
@@ -1580,7 +1596,7 @@ bool PathTraceCleanRestirGiExecute(
     else if (simpleProducerActive)
     {
         nvrhi::rt::State producerSimpleState;
-        producerSimpleState.shaderTable = state.producerSimpleShaderTable;
+        producerSimpleState.shaderTable = rayTracing.producerSimpleShaderTable;
         producerSimpleState.bindings = { bindingSet, inputs.textureDescriptorTable };
         if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a Simple DispatchRays"); }
         commandList->setRayTracingState(producerSimpleState);
@@ -1618,7 +1634,7 @@ bool PathTraceCleanRestirGiExecute(
                 nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
 
                 nvrhi::rt::State roughFallbackState;
-                roughFallbackState.shaderTable = state.producerRoughFallbackShaderTable;
+                roughFallbackState.shaderTable = rayTracing.producerRoughFallbackShaderTable;
                 roughFallbackState.bindings = { bindingSet, inputs.textureDescriptorTable };
                 if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a2 TraceRoughFallback DispatchRays"); }
                 commandList->setRayTracingState(roughFallbackState);
@@ -1629,7 +1645,7 @@ bool PathTraceCleanRestirGiExecute(
         else
         {
             nvrhi::rt::State producerTraceState;
-            producerTraceState.shaderTable = state.producerShaderTable;
+            producerTraceState.shaderTable = rayTracing.producerShaderTable;
             producerTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
             if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a Trace DispatchRays"); }
             commandList->setRayTracingState(producerTraceState);
@@ -1644,7 +1660,7 @@ bool PathTraceCleanRestirGiExecute(
         nvrhi::utils::TextureUavBarrier(commandList, state.producerHitNormalTexture);
 
         nvrhi::rt::State producerShadeState;
-        producerShadeState.shaderTable = defaultOneSampleShade ? state.shadeFastShaderTable : state.shadeShaderTable;
+        producerShadeState.shaderTable = defaultOneSampleShade ? rayTracing.shadeFastShaderTable : rayTracing.shadeShaderTable;
         producerShadeState.bindings = { bindingSet, inputs.textureDescriptorTable };
         if (nsightGpuMarkers)
         {
@@ -1676,7 +1692,7 @@ bool PathTraceCleanRestirGiExecute(
     if (splitSpecularSeed)
     {
         nvrhi::rt::State seedNoSpecState;
-        seedNoSpecState.shaderTable = state.seedNoSpecShaderTable;
+        seedNoSpecState.shaderTable = rayTracing.seedNoSpecShaderTable;
         seedNoSpecState.bindings = { bindingSet, inputs.textureDescriptorTable };
         if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0c InitSeedClearNee DispatchRays"); }
         commandList->setRayTracingState(seedNoSpecState);
@@ -1685,7 +1701,7 @@ bool PathTraceCleanRestirGiExecute(
         nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
 
         nvrhi::rt::State specularSeedTraceState;
-        specularSeedTraceState.shaderTable = state.specularSeedTraceShaderTable;
+        specularSeedTraceState.shaderTable = rayTracing.specularSeedTraceShaderTable;
         specularSeedTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
         if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0d SpecularTrace DispatchRays"); }
         commandList->setRayTracingState(specularSeedTraceState);
@@ -1703,7 +1719,7 @@ bool PathTraceCleanRestirGiExecute(
         }
 
         nvrhi::rt::State specularSeedShadeState;
-        specularSeedShadeState.shaderTable = defaultOneSampleShade ? state.specularSeedShadeFastShaderTable : state.specularSeedShadeShaderTable;
+        specularSeedShadeState.shaderTable = defaultOneSampleShade ? rayTracing.specularSeedShadeFastShaderTable : rayTracing.specularSeedShadeShaderTable;
         specularSeedShadeState.bindings = { bindingSet, inputs.textureDescriptorTable };
         if (nsightGpuMarkers)
         {
@@ -1719,7 +1735,7 @@ bool PathTraceCleanRestirGiExecute(
     else
     {
         nvrhi::rt::State seedState;
-        seedState.shaderTable = state.seedShaderTable;
+        seedState.shaderTable = rayTracing.seedShaderTable;
         seedState.bindings = { bindingSet, inputs.textureDescriptorTable };
         if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0c InitSeed DispatchRays"); }
         commandList->setRayTracingState(seedState);
@@ -1729,7 +1745,7 @@ bool PathTraceCleanRestirGiExecute(
     }
 
     nvrhi::rt::State reuseState;
-    reuseState.shaderTable = state.reuseShaderTable;
+    reuseState.shaderTable = rayTracing.reuseShaderTable;
     reuseState.bindings = { bindingSet, inputs.textureDescriptorTable };
     if (temporalComputeActive)
     {
