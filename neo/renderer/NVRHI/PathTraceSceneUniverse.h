@@ -84,23 +84,9 @@ struct RtPathTraceSceneUniverseStats
 struct RtPathTraceSceneUniverseSelectionStats
 {
     bool valid = false;
-    int currentArea = -1;
-    int portalSteps = 0;
-    int selectedAreas = 0;
     int selectedSurfaces = 0;
-    int selectedTriangles = 0;
-    int selectedEmissiveCapableSurfaces = 0;
-    int selectedEmissiveCapableTriangles = 0;
-    int selectedMaterials = 0;
-    int selectedEmissiveCapableMaterials = 0;
-    int selectedCachedStaticSurfaces = 0;
-    int selectedCachedStaticTriangles = 0;
-    int selectedMissingStaticSurfaces = 0;
-    int selectedMissingStaticTriangles = 0;
     int selectedAreaList[16] = {};
     int selectedAreaListCount = 0;
-    int portalEdgesWalked = 0;
-    int blockedPortalEdges = 0;
 };
 
 struct RtPathTraceSceneUniverseBuildStats
@@ -142,7 +128,6 @@ class RtPathTraceSceneUniverse
 public:
     void Clear();
     bool EnsureBuilt(const viewDef_t* viewDef);
-    void RunDiagnostics(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int sceneSource, int drawSurfStaticSurfaces, int drawSurfStaticTriangles);
     RtPathTraceSceneUniverseBuildStats BuildFullStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges);
     RtPathTraceSceneUniverseBuildStats BuildSelectedStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, int portalSteps);
 
@@ -151,8 +136,7 @@ public:
 
 private:
     bool Build(const viewDef_t* viewDef);
-    RtPathTraceSceneUniverseSelectionStats BuildSelectionStats(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int portalSteps, bool collectSurfaceStats = true) const;
-    void LogSummary(int sceneSource, const RtPathTraceSceneUniverseSelectionStats& selection, int drawSurfStaticSurfaces, int drawSurfStaticTriangles) const;
+    RtPathTraceSceneUniverseSelectionStats BuildSelectionStats(const viewDef_t* viewDef, int portalSteps, bool countSelectedSurfaces) const;
 
     const idRenderWorldLocal* m_renderWorld = nullptr;
     idStr m_renderWorldMapName;
@@ -166,5 +150,4 @@ private:
     std::vector<std::vector<int>> m_areaSurfaceIndices;
     std::vector<uint64> m_surfaceSelectionStamps;
     uint64 m_surfaceSelectionStamp = 0;
-    bool m_loggedForCurrentWorld = false;
 };

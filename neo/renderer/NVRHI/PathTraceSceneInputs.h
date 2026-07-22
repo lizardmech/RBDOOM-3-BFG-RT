@@ -62,7 +62,6 @@ struct RtPathTraceSceneInputPortalPolicy
     int staticAreaPreloadSteps = 0;
     int rigidResidencySteps = 0;
     int lightAreaSteps = 0;
-    int sceneUniverseSteps = 0;
     int selectedAreaCount = 0;
     int portalEdges = 0;
     int blockedPortalEdges = 0;

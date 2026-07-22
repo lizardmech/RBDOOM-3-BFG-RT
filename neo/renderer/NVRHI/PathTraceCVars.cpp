@@ -495,12 +495,6 @@ idCVar r_pathTracingSceneBoundsOverlayGpu(
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental PT shader composited bounds overlay gate; default off after device-removal risk in per-pixel overlay loop" );
 
-idCVar r_pathTracingScenePortalSteps(
-    "r_pathTracingScenePortalSteps",
-    "1",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Portal traversal depth for diagnostics-only PT scene-universe selected-area counts" );
-
 idCVar r_pathTracingPortalBruteforceFullMap(
     "r_pathTracingPortalBruteforceFullMap",
     "0",

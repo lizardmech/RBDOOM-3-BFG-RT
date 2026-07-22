@@ -89,7 +89,6 @@ extern idCVar r_pathTracingStaticGeometryPruneMissing;
 extern idCVar r_pathTracingSceneBoundsOverlay;
 extern idCVar r_pathTracingSceneBoundsOverlayMax;
 extern idCVar r_pathTracingSceneBoundsOverlayGpu;
-extern idCVar r_pathTracingScenePortalSteps;
 extern idCVar r_pathTracingPortalBruteforceFullMap;
 extern idCVar r_pathTracingWorldStaticEmissives;
 extern idCVar r_pathTracingWorldStaticEmissiveMaxTriangles;

@@ -959,7 +959,6 @@ void RtPathTraceSceneUniverse::Clear()
     m_areaSurfaceIndices.clear();
     m_surfaceSelectionStamps.clear();
     m_surfaceSelectionStamp = 0;
-    m_loggedForCurrentWorld = false;
     m_fullStaticGeometryGeneration = 0;
     m_fullStaticGeometryRigidMode = 0;
     ++m_generation;
@@ -1389,7 +1388,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     RtPathTraceSceneUniverseSelectionStats selection;
     {
         OPTICK_EVENT("PT Static Area Selection");
-        selection = BuildSelectionStats(viewDef, &geometryUniverse, idMath::ClampInt(0, 8, portalSteps), !useBakedStaticFacts);
+        selection = BuildSelectionStats(viewDef, idMath::ClampInt(0, 8, portalSteps), !useBakedStaticFacts);
     }
     if (!selection.valid)
     {
@@ -1710,31 +1709,9 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     return buildStats;
 }
 
-void RtPathTraceSceneUniverse::RunDiagnostics(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int sceneSource, int drawSurfStaticSurfaces, int drawSurfStaticTriangles)
-{
-    if (sceneSource <= 0)
-    {
-        return;
-    }
-
-    if (!EnsureBuilt(viewDef))
-    {
-        return;
-    }
-
-    if (sceneSource > 0 && !m_loggedForCurrentWorld && r_pathTracingSmokeLog.GetInteger() != 0)
-    {
-        const int portalSteps = idMath::ClampInt(0, 8, r_pathTracingScenePortalSteps.GetInteger());
-        const RtPathTraceSceneUniverseSelectionStats selection = BuildSelectionStats(viewDef, geometryUniverse, portalSteps);
-        LogSummary(sceneSource, selection, drawSurfStaticSurfaces, drawSurfStaticTriangles);
-        m_loggedForCurrentWorld = true;
-    }
-}
-
-RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionStats(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int portalSteps, bool collectSurfaceStats) const
+RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionStats(const viewDef_t* viewDef, int portalSteps, bool countSelectedSurfaces) const
 {
     RtPathTraceSceneUniverseSelectionStats selection;
-    selection.portalSteps = portalSteps;
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
     if (!renderWorld || !m_stats.valid)
     {
@@ -1772,8 +1749,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
     {
         return selection;
     }
-    selection.currentArea = !seedAreas.empty() ? seedAreas[0] : -1;
-
     selection.valid = true;
     std::vector<bool> selectedAreas(areaCount, false);
     std::vector<int> selectedDepth(areaCount, -1);
@@ -1810,11 +1785,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
             for (int portalIndex = 0; portalIndex < portalCount; ++portalIndex)
             {
                 const exitPortal_t portal = renderWorld->GetPortal(area, portalIndex);
-                if ((portal.blockingBits & PS_BLOCK_VIEW) != 0)
-                {
-                    ++selection.blockedPortalEdges;
-                }
-
                 int nextArea = -1;
                 if (portal.areas[0] == area)
                 {
@@ -1829,7 +1799,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
                     continue;
                 }
 
-                ++selection.portalEdgesWalked;
                 if (!selectedAreas[nextArea])
                 {
                     selectedAreas[nextArea] = true;
@@ -1840,7 +1809,6 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
         }
     }
 
-    selection.selectedAreas = static_cast<int>(queue.size());
     for (int area : queue)
     {
         if (selection.selectedAreaListCount < PT_SCENE_UNIVERSE_MAX_SELECTION_AREAS)
@@ -1849,15 +1817,11 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
         }
     }
 
-    if (!collectSurfaceStats)
+    if (!countSelectedSurfaces)
     {
         return selection;
     }
 
-    std::unordered_map<uint32_t, bool> selectedMaterials;
-    std::unordered_map<uint32_t, bool> selectedEmissiveMaterials;
-    selectedMaterials.reserve(128);
-    selectedEmissiveMaterials.reserve(32);
     for (const RtPathTraceSceneUniverseSurface& surface : m_surfaces)
     {
         if (!SceneUniverseSurfaceTouchesSelectedArea(surface, selectedAreas))
@@ -1866,67 +1830,8 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
         }
 
         ++selection.selectedSurfaces;
-        selection.selectedTriangles += surface.triangles;
-        selectedMaterials.emplace(surface.materialId, true);
-        const bool cachedInDrawSurfUniverse = geometryUniverse && geometryUniverse->HasStaticSurface(surface.legacyDrawSurfKey);
-        if (cachedInDrawSurfUniverse)
-        {
-            ++selection.selectedCachedStaticSurfaces;
-            selection.selectedCachedStaticTriangles += surface.triangles;
-        }
-        else
-        {
-            ++selection.selectedMissingStaticSurfaces;
-            selection.selectedMissingStaticTriangles += surface.triangles;
-        }
-        if (surface.emissiveCapable)
-        {
-            ++selection.selectedEmissiveCapableSurfaces;
-            selection.selectedEmissiveCapableTriangles += surface.triangles;
-            selectedEmissiveMaterials.emplace(surface.materialId, true);
-        }
     }
-    selection.selectedMaterials = static_cast<int>(selectedMaterials.size());
-    selection.selectedEmissiveCapableMaterials = static_cast<int>(selectedEmissiveMaterials.size());
     return selection;
-}
-
-void RtPathTraceSceneUniverse::LogSummary(int sceneSource, const RtPathTraceSceneUniverseSelectionStats& selection, int drawSurfStaticSurfaces, int drawSurfStaticTriangles) const
-{
-    common->Printf("PathTracePrimaryPass: PT scene universe source=%d diagnostics-only staticWorldEntities=%d surfaces=%d triangles=%d materials=%d emissiveCapable=%d/%d areas=%d unassigned=%d drawSurfStatic=%d/%d generation=%llu map='%s'\n",
-        sceneSource,
-        m_stats.staticWorldEntities,
-        m_stats.staticSurfaces,
-        m_stats.staticTriangles,
-        m_stats.uniqueMaterials,
-        m_stats.emissiveCapableSurfaces,
-        m_stats.emissiveCapableMaterials,
-        m_stats.distinctAreas,
-        m_stats.unassignedSurfaces,
-        drawSurfStaticSurfaces,
-        drawSurfStaticTriangles,
-        static_cast<unsigned long long>(m_stats.generation),
-        m_stats.mapName.c_str());
-    common->Printf("PathTracePrimaryPass: PT scene selection diagnostics currentArea=%d portalSteps=%d selectedAreas=%d selectedStatic=%d/%d selectedCached=%d/%d selectedMissing=%d/%d selectedEmissive=%d/%d selectedMaterials=%d/%d portalEdges=%d blockedEdges=%d fullStatic=%d/%d drawSurfStatic=%d/%d\n",
-        selection.currentArea,
-        selection.portalSteps,
-        selection.selectedAreas,
-        selection.selectedSurfaces,
-        selection.selectedTriangles,
-        selection.selectedCachedStaticSurfaces,
-        selection.selectedCachedStaticTriangles,
-        selection.selectedMissingStaticSurfaces,
-        selection.selectedMissingStaticTriangles,
-        selection.selectedEmissiveCapableSurfaces,
-        selection.selectedEmissiveCapableTriangles,
-        selection.selectedMaterials,
-        selection.selectedEmissiveCapableMaterials,
-        selection.portalEdgesWalked,
-        selection.blockedPortalEdges,
-        m_stats.staticSurfaces,
-        m_stats.staticTriangles,
-        drawSurfStaticSurfaces,
-        drawSurfStaticTriangles);
 }
 
 const RtPathTraceSceneUniverseStats& RtPathTraceSceneUniverse::GetStats() const

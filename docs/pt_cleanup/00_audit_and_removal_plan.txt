@@ -1289,3 +1289,23 @@ Working rule for every deletion slice:
     rebuilt, so deploy only RBDoom3BFG.exe. Source and deployed SHA-256 both
     equal
     2EB660011FBEF86B21820D6844838CF8C80E8C0F7DD6501BB54B64BCEB44DF64.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit bb4c18c35. T4.3u runtime gate closed.
+  - T4.3v removes the remaining throttled scene-universe diagnostic summary and
+    its transport. r_pathTracingScenePortalSteps only selected the diagnostic
+    traversal depth; sceneInputs.portalPolicy.sceneUniverseSteps was write-only
+    and did not participate in the scene-transition signature. Remove that CVar
+    and field, RunDiagnostics/LogSummary and their one-per-world lifecycle flag,
+    and the summary-only portal, material, emissive-capable, cached, and missing
+    surface aggregation. Preserve r_pathTracingStaticAreaPreloadPortalSteps,
+    r_pathTracingRigidResidencyPortalSteps, r_pathTracingLightAreaPortalSteps,
+    the active selected-area list, and the legacy-walk selected-surface count
+    used for reserve sizing. The removed owner and CVar have no recent
+    rendering-feature changes.
+  - T4.3v verification: scoped sweeps for the CVar, write-only scene-input
+    field, summary methods/lifecycle flag, diagnostic selection fields, and
+    collection flag are empty. The code slice removes 132 lines. The full
+    win64-pt-dev-release build passes; both SPIR-V targets report up to date and
+    no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
+    Source and deployed SHA-256 both equal
+    527E7374B4796180BC4BAACF947F9E46D69309681FE0FC6330393FE4FEBE9693.
