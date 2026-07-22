@@ -5,6 +5,7 @@
 // the debug libraries retain the runtime selector unchanged.
 #if defined(CLEAN_DI_VIEW_STATIC)
 #define CleanRtxdiDiView CLEAN_DI_VIEW_STATIC
+#define CleanRtxdiDiTemporalAudit 0u
 #endif
 
 struct PathTraceCleanRtxdiDiInitialResult

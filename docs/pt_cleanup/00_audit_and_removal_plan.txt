@@ -1618,5 +1618,34 @@ Working rule for every deletion slice:
     shader outputs are newer than the edits and every deployed hash matches its
     source. Source and deployed executable SHA-256 both equal
     C66DF9ACD8B1BADF69F1E1D77A02F3796C65F2FFBB2D0DFC7D0FF0E5BD3CC884.
-    Runtime acceptance is pending for clean DI view 16 with GI view 0, one GI
-    debug view, and native mode 18.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean DI view 16,
+    GI view 0, a retained GI debug view, native mode 18, or switching live
+    between GI production and debug views on deployed commit ff4e1f133. T4.4b
+    runtime gate closed.
+  - T4.4c closes the remaining temporal-audit leak from the DI production
+    permutation. Audit of the three large diagnostic helper includes shows that
+    DXC already removes unreachable helper functions once view 16 is literal;
+    physically splitting diagnostics.hlsli, rr_debug.hlsli, or the mixed
+    producer/diagnostic temporal_output.hlsli would add contract risk without an
+    emitted-code benefit. SPIR-V disassembly instead identifies one surviving
+    production diagnostic selector: CleanRtxdiDiTemporalAudit is still read from
+    cbuffer member 24, allowing the full audited temporal producer to remain.
+    Specialize that field to zero under CLEAN_DI_VIEW_STATIC, write zero from the
+    host for production view 16, and prevent view 16 from queueing or decoding
+    temporal-audit readback. Debug permutations retain the runtime CVar and GUI
+    audit unchanged. Correct the production-spatial custom-command dependency at
+    the same time: its standalone source does not include the sentinel source.
+  - T4.4c verification: delete the five sentinel/initial/temporal debug and
+    production outputs affected by the sentinel edit before building. The full
+    win64-pt-dev-release build passes; the spatial-production rule rebuilds once
+    because its dependency metadata changed, while ordinary spatial remains
+    untouched. No DXIL shader command runs and no production DXIL blob exists.
+    Sentinel, both debug wrappers, initial production, and spatial production
+    reproduce their previous hashes. Temporal production shrinks from 510,548
+    to 209,888 bytes, and spirv-dis reports zero uniform accesses to cbuffer
+    member 24. Deploy RBDoom3BFG.exe and exactly the six reported rebuilt SPIR-V
+    blobs; all deployed hashes match their sources. Source and deployed
+    executable SHA-256 both equal
+    56FF51B981E67B70133F2781B2940BADA59C2D133D997FC55B2C9C2F3B9F45C9.
+    Runtime acceptance is pending for clean DI view 16 with GI view 0 and native
+    mode 18; debug audit behavior is binary-identical to the accepted build.

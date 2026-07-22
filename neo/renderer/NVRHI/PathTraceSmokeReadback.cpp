@@ -269,7 +269,9 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 
     const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
-    const bool cleanTemporalAuditRequested = r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger() != 0;
+    const bool cleanTemporalAuditRequested =
+        r_pathTracingCleanRtxdiDiView.GetInteger() != 16 &&
+        r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger() != 0;
     if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested && !cleanTemporalAuditRequested)
     {
         m_frameResources.readbackQueued = false;

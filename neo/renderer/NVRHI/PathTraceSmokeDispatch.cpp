@@ -3027,7 +3027,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.rluPreviousLightCount = cleanRluRoute ? cleanRluPreviousLightCount : 0u;
         cleanConstants.rluCurrentToPreviousCount = cleanRluRoute ? cleanRluCurrentToPreviousCount : 0u;
         cleanConstants.rluPreviousToCurrentCount = cleanRluRoute ? cleanRluPreviousToCurrentCount : 0u;
-        cleanConstants.temporalAudit = static_cast<uint32_t>(idMath::ClampInt(0, 1, r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger()));
+        cleanConstants.temporalAudit = cleanRtxdiDiProductionView
+            ? 0u
+            : static_cast<uint32_t>(idMath::ClampInt(0, 1, r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger()));
         cleanConstants.staticTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.staticTriangleCount));
         cleanConstants.dynamicTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.dynamicTriangleCount));
         cleanConstants.rigidRouteTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.rigidRouteTriangleCount));
@@ -3885,7 +3887,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.readbackDelayFrames = 2;
             m_frameResources.readbackCooldownFrames = 0;
         }
-        if (r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger() != 0)
+        if (!cleanRtxdiDiProductionView && r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger() != 0)
         {
             if (!m_frameResources.readbackQueued && m_frameResources.readbackTexture)
             {
@@ -5133,7 +5135,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_frameResources.smokeAccumulationFrameCount = 0;
     }
     const bool forceOverlapReadback = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
-    const bool forceCleanTemporalAuditReadback = r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger() != 0;
+    const bool forceCleanTemporalAuditReadback =
+        !cleanRtxdiDiProductionView &&
+        r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger() != 0;
     bool readbackQueuedThisFrame = false;
     const uint64 readbackCopyStartUs = historyCopyCompleteUs;
     if ((r_pathTracingReadbackEnable.GetInteger() != 0 || forceOverlapReadback || forceCleanTemporalAuditReadback) && !m_frameResources.readbackQueued && (m_frameResources.readbackCooldownFrames <= 0 || forceOverlapReadback || forceCleanTemporalAuditReadback))
