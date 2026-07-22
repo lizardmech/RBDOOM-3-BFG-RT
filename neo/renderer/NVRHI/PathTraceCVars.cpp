@@ -567,65 +567,11 @@ idCVar r_pathTracingDynamicOccluderMaxSurfaces(
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum nearby rigid entity surfaces appended as dynamic RT occluder safety geometry per frame" );
 
-idCVar r_pathTracingLightUniverseDump(
-    "r_pathTracingLightUniverseDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Legacy RT smoke light universe is purged; set to 1 to print the purge notice once" );
-
-idCVar r_pathTracingLightUniversePersistDynamic(
-    "r_pathTracingLightUniversePersistDynamic",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Purged legacy RT smoke light-universe knob; ignored by active lighting paths" );
-
-idCVar r_pathTracingLightUniverseInjectMissingDynamic(
-    "r_pathTracingLightUniverseInjectMissingDynamic",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Purged legacy RT smoke light-universe knob; ignored by active lighting paths" );
-
-idCVar r_pathTracingLightUniverseDynamicMinSeenFrames(
-    "r_pathTracingLightUniverseDynamicMinSeenFrames",
-    "2",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Purged legacy RT smoke light-universe knob; ignored by active lighting paths" );
-
-idCVar r_pathTracingLightUniverseDynamicMaxMissingFrames(
-    "r_pathTracingLightUniverseDynamicMaxMissingFrames",
-    "90",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Purged legacy RT smoke light-universe knob; ignored by active lighting paths" );
-
-idCVar r_pathTracingLightUniverseChurn(
-    "r_pathTracingLightUniverseChurn",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Purged legacy RT smoke light-universe knob; ignored by active lighting paths" );
-
 idCVar r_pathTracingLightAreaPortalSteps(
     "r_pathTracingLightAreaPortalSteps",
     "4",
     CVAR_RENDERER | CVAR_INTEGER,
     "Portal traversal depth for RT smoke emissive light-area selection diagnostics; default depth 4 matches current source3 residency baseline" );
-
-idCVar r_pathTracingLightAreaFilter(
-    "r_pathTracingLightAreaFilter",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Diagnostic-only RT smoke emissive light-area selector gate; 0 leaves emissive uploads unchanged" );
-
-idCVar r_pathTracingLightAreaFilterApply(
-    "r_pathTracingLightAreaFilterApply",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental render-affecting RT smoke emissive light-area selector gate; requires diagnostics to validate per-area behavior first" );
-
-idCVar r_pathTracingLightAreaOverflowMax(
-    "r_pathTracingLightAreaOverflowMax",
-    "512",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Connected-area overflow budget for RT smoke emissive light-area selection; high default keeps connected candidates greedy and mainly drops disconnected/unknown candidates" );
 
 idCVar r_pathTracingRemixLightUniverseEnable(
     "r_pathTracingRemixLightUniverseEnable",

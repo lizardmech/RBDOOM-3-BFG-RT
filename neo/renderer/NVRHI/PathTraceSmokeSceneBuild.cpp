@@ -3021,25 +3021,17 @@ void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char*
     r_pathTracingStaticAreaPreloadPortalSteps.SetInteger(portalSteps);
     r_pathTracingLightAreaPortalSteps.SetInteger(portalSteps);
 
-    r_pathTracingLightAreaFilter.SetInteger(0);
-    r_pathTracingLightAreaFilterApply.SetInteger(0);
-    r_pathTracingLightAreaOverflowMax.SetInteger(512);
-    r_pathTracingLightUniverseChurn.SetInteger(0);
-
     const int presetRigidRouteMaxInstances = 510;
     if (r_pathTracingRigidRouteMaxInstances.GetInteger() < presetRigidRouteMaxInstances)
     {
         r_pathTracingRigidRouteMaxInstances.SetInteger(presetRigidRouteMaxInstances);
     }
 
-    common->Printf("PathTracePrimaryPass: applied %s preset %d source3=1 rigidRoute=1 rigidResidency=1 residencyV2=1 entityFeed=1 staticPreload=1 rigidEmissiveCards=1 portalSteps=%d lightAreaDiag=%d lightAreaApply=%d bvhValidation=%d churn=%d lightOverflowMax=512 rigidRouteMax=%d tlasMax=512\n",
+    common->Printf("PathTracePrimaryPass: applied %s preset %d source3=1 rigidRoute=1 rigidResidency=1 residencyV2=1 entityFeed=1 staticPreload=1 rigidEmissiveCards=1 portalSteps=%d bvhValidation=%d rigidRouteMax=%d tlasMax=512\n",
         label ? label : "mode test",
         preset,
         portalSteps,
-        0,
-        0,
         preset == 4 ? 1 : 0,
-        0,
         r_pathTracingRigidRouteMaxInstances.GetInteger());
 }
 
@@ -3653,15 +3645,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSceneMapTimeStamp = renderWorld->mapTimeStamp;
         m_smokeSceneMapLoadSerial = renderWorld->mapLoadSerial;
     }
-    if (viewDef && m_smokeLightUniverseRenderWorld != viewDef->renderWorld)
-    {
-        m_smokeLightUniverse.Clear();
-        m_remixFramePrepare.Clear();
-        m_remixLightManager.Clear();
-        m_restirLightManager.Clear();
-        m_smokeLightUniverseRenderWorld = viewDef->renderWorld;
-    }
-
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
     if (!device)
     {
@@ -5139,11 +5122,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Emissive Inventory Diagnostics");
         RunSmokeEmissiveInventoryDiagnosticTriggers(emissiveInventoryDiagnosticDesc);
     }
-    const int runtimeInactiveEmissiveTriangles = emissiveInventoryStats.skippedRuntimeInactiveTriangles;
-    // The old RT smoke emissive light universe is intentionally no longer a
-    // producer. The Remix Light Universe below owns current/previous light
-    // domains and remaps; keep raw emissive extraction as its input.
-    m_smokeLightUniverse.Clear();
     {
         OPTICK_EVENT("PT Remix Frame Prepare");
         PathTraceRemixFramePrepareDesc remixFramePrepareDesc;
@@ -5260,276 +5238,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             emissiveDistribution.totalPdf,
             r_pathTracingEmissiveDistribution.GetInteger());
     }
-    const RtSmokeLightUniverseStats lightUniverseStats = m_smokeLightUniverse.GetStats();
-    if (r_pathTracingLightUniverseDump.GetInteger() != 0)
-    {
-        common->Printf("PathTracePrimaryPass: legacy RT smoke light universe purged; raw emissive extraction feeds Remix Light Universe directly behavior=legacy-light-universe-purged\n");
-        r_pathTracingLightUniverseDump.SetInteger(0);
-    }
-    if (r_pathTracingLightUniverseDump.GetInteger() != 0)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke light universe static=%d seen=%d new=%d updated=%d missing=%d semiStatic=%d dynSeen=%d dynPromoted=%d dynUpdated=%d dynMissing=%d dynAged=%d dynamicFrame=%d merged=%d area current/total=%d/%d selected steps/areas/edges/blocked=%d/%d/%d/%d staticKnown/unknown=%d/%d dynamicKnown/unknown=%d/%d mergedKnown/unknown=%d/%d mergedCurrent/selected/connected/disconnected=%d/%d/%d/%d connectedUnselected=%d portalSweep areas=%d/%d/%d/%d/%d merged=%d/%d/%d/%d/%d portalDepthBins depth0/1/2/3/4/>4/disconnected/unknown=%d/%d/%d/%d/%d/%d/%d/%d areaFilter enabled/applied=%d/%d steps=%d overflowMax=%d selected=%d connectedOverflow=%d disconnected=%d unknown=%d wouldUpload=%d wouldDrop=%d area %.2f/%.2f drop=%.2f weight %.3f/%.3f drop=%.3f dropWeight overflow/disconnected/unknown=%.3f/%.3f/%.3f persistDynamic=%d injectMissingDynamic=%d minSeen=%d maxMissing=%d generation=%llu\n",
-            lightUniverseStats.persistentStaticTriangles,
-            lightUniverseStats.staticSeenThisFrame,
-            lightUniverseStats.staticNewThisFrame,
-            lightUniverseStats.staticUpdatedThisFrame,
-            lightUniverseStats.staticMissingThisFrame,
-            lightUniverseStats.persistentDynamicTriangles,
-            lightUniverseStats.dynamicSeenThisFrame,
-            lightUniverseStats.dynamicPromotedThisFrame,
-            lightUniverseStats.dynamicUpdatedThisFrame,
-            lightUniverseStats.dynamicMissingThisFrame,
-            lightUniverseStats.dynamicAgedOutThisFrame,
-            lightUniverseStats.dynamicFrameTriangles,
-            lightUniverseStats.mergedTriangles,
-            lightUniverseStats.currentArea,
-            lightUniverseStats.totalAreas,
-            lightUniverseStats.selectedPortalSteps,
-            lightUniverseStats.selectedAreaCount,
-            lightUniverseStats.selectedPortalEdges,
-            lightUniverseStats.selectedBlockedPortalEdges,
-            lightUniverseStats.staticAreaKnownTriangles,
-            lightUniverseStats.staticAreaUnknownTriangles,
-            lightUniverseStats.dynamicAreaKnownTriangles,
-            lightUniverseStats.dynamicAreaUnknownTriangles,
-            lightUniverseStats.mergedAreaKnownTriangles,
-            lightUniverseStats.mergedAreaUnknownTriangles,
-            lightUniverseStats.mergedCurrentAreaTriangles,
-            lightUniverseStats.mergedSelectedAreaTriangles,
-            lightUniverseStats.mergedConnectedAreaTriangles,
-            lightUniverseStats.mergedDisconnectedAreaTriangles,
-            lightUniverseStats.mergedConnectedUnselectedAreaTriangles,
-            lightUniverseStats.portalStepSelectedAreas[0],
-            lightUniverseStats.portalStepSelectedAreas[1],
-            lightUniverseStats.portalStepSelectedAreas[2],
-            lightUniverseStats.portalStepSelectedAreas[3],
-            lightUniverseStats.portalStepSelectedAreas[4],
-            lightUniverseStats.portalStepMergedSelectedTriangles[0],
-            lightUniverseStats.portalStepMergedSelectedTriangles[1],
-            lightUniverseStats.portalStepMergedSelectedTriangles[2],
-            lightUniverseStats.portalStepMergedSelectedTriangles[3],
-            lightUniverseStats.portalStepMergedSelectedTriangles[4],
-            lightUniverseStats.mergedPortalDepthBins[0],
-            lightUniverseStats.mergedPortalDepthBins[1],
-            lightUniverseStats.mergedPortalDepthBins[2],
-            lightUniverseStats.mergedPortalDepthBins[3],
-            lightUniverseStats.mergedPortalDepthBins[4],
-            lightUniverseStats.mergedPortalDepthBins[5],
-            lightUniverseStats.mergedPortalDepthBins[6],
-            lightUniverseStats.mergedPortalDepthBins[7],
-            lightUniverseStats.areaFilterEnabled,
-            lightUniverseStats.areaFilterApplied,
-            lightUniverseStats.areaFilterPortalSteps,
-            lightUniverseStats.areaFilterOverflowMax,
-            lightUniverseStats.areaFilterSelectedCandidates,
-            lightUniverseStats.areaFilterConnectedOverflowCandidates,
-            lightUniverseStats.areaFilterDisconnectedCandidates,
-            lightUniverseStats.areaFilterUnknownCandidates,
-            lightUniverseStats.areaFilterWouldUploadCandidates,
-            lightUniverseStats.areaFilterWouldDropCandidates,
-            lightUniverseStats.areaFilterPreArea,
-            lightUniverseStats.areaFilterPostArea,
-            lightUniverseStats.areaFilterDroppedArea,
-            lightUniverseStats.areaFilterPreWeight,
-            lightUniverseStats.areaFilterPostWeight,
-            lightUniverseStats.areaFilterDroppedWeight,
-            lightUniverseStats.areaFilterDroppedOverflowWeight,
-            lightUniverseStats.areaFilterDroppedDisconnectedWeight,
-            lightUniverseStats.areaFilterDroppedUnknownWeight,
-            r_pathTracingLightUniversePersistDynamic.GetInteger() != 0 ? 1 : 0,
-            r_pathTracingLightUniverseInjectMissingDynamic.GetInteger() != 0 ? 1 : 0,
-            idMath::ClampInt(1, 120, r_pathTracingLightUniverseDynamicMinSeenFrames.GetInteger()),
-            idMath::ClampInt(1, 3600, r_pathTracingLightUniverseDynamicMaxMissingFrames.GetInteger()),
-            static_cast<unsigned long long>(lightUniverseStats.generation));
-        if (lightUniverseStats.overflowSampleCount > 0)
-        {
-            for (int sampleIndex = 0; sampleIndex < lightUniverseStats.overflowSampleCount; ++sampleIndex)
-            {
-                const RtSmokeLightUniverseCandidateSample& sample = lightUniverseStats.overflowSamples[sampleIndex];
-                if (!sample.valid)
-                {
-                    continue;
-                }
-                common->Printf("PathTracePrimaryPass: RT smoke light area overflow sample %d area=%d material=%u materialIndex=%u triArea=%.2f weight=%.3f distance=%.2f\n",
-                    sampleIndex,
-                    sample.areaNum,
-                    sample.materialId,
-                    sample.materialIndex,
-                    sample.area,
-                    sample.weight,
-                    sample.distance);
-            }
-        }
-        if (lightUniverseStats.droppedSampleCount > 0)
-        {
-            for (int sampleIndex = 0; sampleIndex < lightUniverseStats.droppedSampleCount; ++sampleIndex)
-            {
-                const RtSmokeLightUniverseCandidateSample& sample = lightUniverseStats.droppedSamples[sampleIndex];
-                if (!sample.valid)
-                {
-                    continue;
-                }
-                common->Printf("PathTracePrimaryPass: RT smoke light area dropped sample %d reason=%s area=%d material=%u materialIndex=%u triArea=%.2f weight=%.3f distance=%.2f\n",
-                    sampleIndex,
-                    sample.reason ? sample.reason : "<unknown>",
-                    sample.areaNum,
-                    sample.materialId,
-                    sample.materialIndex,
-                    sample.area,
-                    sample.weight,
-                    sample.distance);
-            }
-        }
-        common->Printf("PathTracePrimaryPass: RT smoke light origins persistentStatic=%d/%d currentDynamic=%d frameOnlyDynamic=%d persistableDynamic=%d promotedDynamic=%d unpromotedDynamic=%d injectedMissingDynamic=%d runtimeActive=%d runtimeInactiveSkipped=%d spatialMembership=unassigned temporalReuse=off\n",
-            lightUniverseStats.staticMergedSeenTriangles,
-            lightUniverseStats.staticMergedMissingTriangles,
-            lightUniverseStats.dynamicFrameTriangles,
-            lightUniverseStats.dynamicFrameOnlyTriangles,
-            lightUniverseStats.dynamicPersistableFrameTriangles,
-            lightUniverseStats.dynamicPromotedFrameTriangles,
-            lightUniverseStats.dynamicUnpromotedFrameTriangles,
-            lightUniverseStats.injectedMissingDynamicTriangles,
-            emissiveInventoryStats.capturedTriangles,
-            runtimeInactiveEmissiveTriangles);
-        common->Printf("PathTracePrimaryPass: RT smoke light churn enabled=%d previous/current/stayed/entered/left=%d/%d/%d/%d/%d weight previous/current/stayed/entered/left=%.3f/%.3f/%.3f/%.3f/%.3f\n",
-            lightUniverseStats.activeChurnEnabled,
-            lightUniverseStats.activeChurnPrevious,
-            lightUniverseStats.activeChurnCurrent,
-            lightUniverseStats.activeChurnStayed,
-            lightUniverseStats.activeChurnEntered,
-            lightUniverseStats.activeChurnLeft,
-            lightUniverseStats.activeChurnPreviousWeight,
-            lightUniverseStats.activeChurnCurrentWeight,
-            lightUniverseStats.activeChurnStayedWeight,
-            lightUniverseStats.activeChurnEnteredWeight,
-            lightUniverseStats.activeChurnLeftWeight);
-        int emissiveRemapValid = 0;
-        int emissiveCurrentToPrevious = 0;
-        int emissivePreviousToCurrent = 0;
-        int emissiveCurrentZeroIdentity = 0;
-        int emissivePreviousZeroIdentity = 0;
-        int emissiveCurrentDuplicate = 0;
-        int emissivePreviousDuplicate = 0;
-        int emissiveCurrentMissing = 0;
-        int emissivePreviousMissing = 0;
-        int emissiveIncompatible = 0;
-        for (const PathTraceEmissiveLightRemap& remap : emissiveLightRemap)
-        {
-            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_VALID) != 0u)
-            {
-                ++emissiveRemapValid;
-            }
-            if (remap.currentToPreviousIndex >= 0)
-            {
-                ++emissiveCurrentToPrevious;
-            }
-            if (remap.previousToCurrentIndex >= 0)
-            {
-                ++emissivePreviousToCurrent;
-            }
-            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_CURRENT_ZERO_IDENTITY) != 0u)
-            {
-                ++emissiveCurrentZeroIdentity;
-            }
-            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_ZERO_IDENTITY) != 0u)
-            {
-                ++emissivePreviousZeroIdentity;
-            }
-            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE) != 0u)
-            {
-                ++emissiveCurrentDuplicate;
-            }
-            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE) != 0u)
-            {
-                ++emissivePreviousDuplicate;
-            }
-            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_CURRENT_MISSING) != 0u)
-            {
-                ++emissiveCurrentMissing;
-            }
-            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_MISSING) != 0u)
-            {
-                ++emissivePreviousMissing;
-            }
-            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_INCOMPATIBLE) != 0u)
-            {
-                ++emissiveIncompatible;
-            }
-        }
-        common->Printf("PathTracePrimaryPass: RT smoke emissive remap current=%d previous=%d records=%d valid=%d currentToPrevious=%d previousToCurrent=%d currentZeroId=%d previousZeroId=%d currentDuplicate=%d previousDuplicate=%d currentMissing=%d previousMissing=%d incompatible=%d\n",
-            static_cast<int>(emissiveTriangles.size()),
-            static_cast<int>(previousEmissiveTriangles.size()),
-            static_cast<int>(emissiveLightRemap.size()),
-            emissiveRemapValid,
-            emissiveCurrentToPrevious,
-            emissivePreviousToCurrent,
-            emissiveCurrentZeroIdentity,
-            emissivePreviousZeroIdentity,
-            emissiveCurrentDuplicate,
-            emissivePreviousDuplicate,
-            emissiveCurrentMissing,
-            emissivePreviousMissing,
-            emissiveIncompatible);
-        common->Printf("PathTracePrimaryPass: RTXDI unified uploaded-domain diagnostic currentUnified=%d previousUnified=%d remap=%d currentEmissive=%d previousEmissive=%d currentAnalytic=%d previousAnalytic=%d persistentEmissiveStatic=%d persistentEmissiveDynamic=%d emissiveMerged=%d emissiveSelected=%d emissiveConnected=%d emissiveDisconnected=%d emissiveWouldUpload=%d emissiveWouldDrop=%d analyticCurrentUploaded=%d analyticPreviousUploaded=%d analyticRemap=%d behavior=cpu-diagnostics-only\n",
-            static_cast<int>(unifiedLights.currentLights.size()),
-            static_cast<int>(unifiedLights.previousLights.size()),
-            static_cast<int>(unifiedLights.currentToPreviousRemap.size()),
-            static_cast<int>(emissiveTriangles.size()),
-            static_cast<int>(previousEmissiveTriangles.size()),
-            static_cast<int>(doomAnalyticLights.size()),
-            static_cast<int>(doomAnalyticRemap.previousCandidates.size()),
-            lightUniverseStats.persistentStaticTriangles,
-            lightUniverseStats.persistentDynamicTriangles,
-            lightUniverseStats.mergedTriangles,
-            lightUniverseStats.mergedSelectedAreaTriangles,
-            lightUniverseStats.mergedConnectedAreaTriangles,
-            lightUniverseStats.mergedDisconnectedAreaTriangles,
-            lightUniverseStats.areaFilterWouldUploadCandidates,
-            lightUniverseStats.areaFilterWouldDropCandidates,
-            static_cast<int>(doomAnalyticRemap.currentCandidateIdentities.size()),
-            static_cast<int>(doomAnalyticRemap.previousCandidateIdentities.size()),
-            static_cast<int>(doomAnalyticRemap.universeRemap.size()));
-        if (lightUniverseStats.enteredSampleCount > 0)
-        {
-            for (int sampleIndex = 0; sampleIndex < lightUniverseStats.enteredSampleCount; ++sampleIndex)
-            {
-                const RtSmokeLightUniverseCandidateSample& sample = lightUniverseStats.enteredSamples[sampleIndex];
-                if (!sample.valid)
-                {
-                    continue;
-                }
-                common->Printf("PathTracePrimaryPass: RT smoke light churn entered sample %d area=%d material=%u materialIndex=%u triArea=%.2f weight=%.3f distance=%.2f\n",
-                    sampleIndex,
-                    sample.areaNum,
-                    sample.materialId,
-                    sample.materialIndex,
-                    sample.area,
-                    sample.weight,
-                    sample.distance);
-            }
-        }
-        if (lightUniverseStats.leftSampleCount > 0)
-        {
-            for (int sampleIndex = 0; sampleIndex < lightUniverseStats.leftSampleCount; ++sampleIndex)
-            {
-                const RtSmokeLightUniverseCandidateSample& sample = lightUniverseStats.leftSamples[sampleIndex];
-                if (!sample.valid)
-                {
-                    continue;
-                }
-                common->Printf("PathTracePrimaryPass: RT smoke light churn left sample %d area=%d material=%u materialIndex=%u triArea=%.2f weight=%.3f distance=%.2f\n",
-                    sampleIndex,
-                    sample.areaNum,
-                    sample.materialId,
-                    sample.materialIndex,
-                    sample.area,
-                    sample.weight,
-                    sample.distance);
-            }
-        }
-        r_pathTracingLightUniverseDump.SetInteger(0);
-    }
-
     const int bufferCreateStartMs = Sys_Milliseconds();
     RtPathTraceCpuWorkGeneration rigidRouteSideBufferGeneration;
     rigidRouteSideBufferGeneration.frameIndex = 0;
@@ -6590,7 +6298,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     uint64 sceneInputLightSignature = 1469598103934665603ull;
-    sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &lightUniverseStats.generation, sizeof(lightUniverseStats.generation));
     sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &emissiveInventoryStats.capturedTriangles, sizeof(emissiveInventoryStats.capturedTriangles));
     sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &emissiveInventoryStats.candidateMaterials, sizeof(emissiveInventoryStats.candidateMaterials));
     const int doomAnalyticLightCountForSignature = static_cast<int>(doomAnalyticLights.size());
@@ -6695,15 +6402,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     sceneInputs.portalPolicy.sceneSource = sceneSource;
     sceneInputs.portalPolicy.viewArea = viewDef ? viewDef->areaNum : -1;
-    sceneInputs.portalPolicy.currentArea = lightUniverseStats.currentArea >= 0 ? lightUniverseStats.currentArea : (viewDef ? viewDef->areaNum : -1);
-    sceneInputs.portalPolicy.totalAreas = lightUniverseStats.totalAreas;
+    sceneInputs.portalPolicy.currentArea = viewDef ? viewDef->areaNum : -1;
+    sceneInputs.portalPolicy.totalAreas = 0;
     sceneInputs.portalPolicy.staticAreaPreloadSteps = idMath::ClampInt(0, 8, r_pathTracingStaticAreaPreloadPortalSteps.GetInteger());
     sceneInputs.portalPolicy.rigidResidencySteps = idMath::ClampInt(0, 8, r_pathTracingRigidResidencyPortalSteps.GetInteger());
     sceneInputs.portalPolicy.lightAreaSteps = idMath::ClampInt(0, 8, r_pathTracingLightAreaPortalSteps.GetInteger());
     sceneInputs.portalPolicy.sceneUniverseSteps = idMath::ClampInt(0, 8, r_pathTracingScenePortalSteps.GetInteger());
-    sceneInputs.portalPolicy.selectedAreaCount = lightUniverseStats.selectedAreaCount;
-    sceneInputs.portalPolicy.portalEdges = lightUniverseStats.selectedPortalEdges;
-    sceneInputs.portalPolicy.blockedPortalEdges = lightUniverseStats.selectedBlockedPortalEdges;
+    sceneInputs.portalPolicy.selectedAreaCount = 0;
+    sceneInputs.portalPolicy.portalEdges = 0;
+    sceneInputs.portalPolicy.blockedPortalEdges = 0;
     sceneInputs.portalPolicy.rigidSelectedAreaCount = rigidResidencyStats.selectedAreas;
     sceneInputs.portalPolicy.rigidPortalEdges = rigidResidencyStats.portalEdges;
     sceneInputs.portalPolicy.rigidBlockedPortalEdges = rigidResidencyStats.blockedPortalEdges;
@@ -7073,7 +6780,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.emissiveDistributionTotalPdf = emissiveDistribution.totalPdf;
     sceneInputs.lights.emissiveDistributionFallbackWeight = emissiveDistribution.fallbackWeight;
     sceneInputs.lights.emissiveDistributionValid = emissiveDistribution.valid;
-    sceneInputs.lights.lightUniverseGeneration = lightUniverseStats.generation;
     sceneInputs.lights.capabilityFlags = RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED;
     sceneInputs.diagnostics.geometryUploadBytes = staticUploadBytes + previousStaticUploadBytes + dynamicUploadBytes + rigidRouteUploadBytes;
     sceneInputs.diagnostics.staticUploadBytes = staticUploadBytes;

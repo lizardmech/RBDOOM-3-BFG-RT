@@ -13,7 +13,6 @@
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceFrameResources.h"
 #include "PathTraceInstanceUniverse.h"
-#include "PathTraceLightUniverse.h"
 #include "PathTraceCleanRestirGi.h"
 #include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceNeeCache.h"
@@ -338,11 +337,9 @@ private:
     RtSmokeSkinnedPreviousFrameStats m_smokeSkinnedPreviousStats;
     RtPathTraceSceneUniverse m_sceneUniverse;
     RtPathTraceInstanceUniverse m_instanceUniverse;
-    RtSmokeLightUniverse m_smokeLightUniverse;
     PathTraceRemixFramePrepare m_remixFramePrepare;
     PathTraceRemixLightManager m_remixLightManager;
     PathTraceRestirLightManager m_restirLightManager;
-    const void* m_smokeLightUniverseRenderWorld = nullptr;
     uint32_t m_smokeTextureProbeMaterialId;
     int m_smokeTextureProbeRequestedIndex;
     idVec3 m_smokeSceneOrigin;

@@ -1830,7 +1830,6 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
     m_sceneUniverse.Clear();
     m_instanceUniverse.Clear();
-    m_smokeLightUniverse.Clear();
     ClearSmokeMaterialTextureRegistry();
     ClearSmokeResidentMaterialFacts();
     ClearSmokeMaterialUniverse();
@@ -1842,7 +1841,6 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSceneMapName.Clear();
     m_smokeSceneMapTimeStamp = 0;
     m_smokeSceneMapLoadSerial = 0;
-    m_smokeLightUniverseRenderWorld = nullptr;
     m_smokeStaticBlas = nullptr;
     m_smokeDynamicBlas = nullptr;
     m_smokeStaticVertexBuffer = nullptr;

@@ -1175,3 +1175,33 @@ Working rule for every deletion slice:
     rebuilt, so deployment copies only RBDoom3BFG.exe. Source and deployed
     SHA-256 both equal
     B517209AE0F6FA676DED81DB5499133BE4FAD8CB74871C973087190E0640C6DA.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 2c4468f6e. T4.3p runtime gate closed.
+  - T4.3q follows the purged light-domain reports to the retired
+    RtSmokeLightUniverse owner. No call to MergeFrameCandidates remains: the
+    object is cleared every frame, its GetStats result is fixed zero/default,
+    and its only readers are the purge notice, an unreachable formatter, and
+    fixed-value scene-input fields. Delete PathTraceLightUniverse.cpp/.h, the
+    primary-pass member and duplicate render-world reset pointer, and the fixed
+    light-universe generation transport. The normal render-world reset already
+    clears the active Remix frame/light managers before the removed duplicate
+    block could run.
+  - Remove the nine controls owned only by this retired path: the legacy dump,
+    five ignored persistence/churn controls, and three write-only area-filter
+    controls. Keep r_pathTracingLightAreaPortalSteps because Doom analytic
+    portal selection and the scene transition contract still consume it. The
+    same dump also owns the Doom uploaded-domain formatter and write-only
+    universe/persistent registry statistics; remove those summaries and their
+    static-list bookkeeping while preserving persistent authored-light entries,
+    continuity, candidate capping, current/previous identity maps, remap flags,
+    portal selection, and GPU candidate packing. Recent file history is
+    cleanup-only and contains no rendering-feature edit to the retired owner.
+  - T4.3q verification: whole-neo sweeps for PathTraceLightUniverse, its member
+    state/types, all nine retired CVars, fixed generation transport, and the Doom
+    dump/statistics helpers are empty. The slice removes 2,069 lines. The first
+    build regenerates the source glob and exposes the remaining fixed-zero scene
+    consumers; after removing those stale reads, the full
+    win64-pt-dev-release build passes. Both SPIR-V targets report up to date and
+    no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
+    Source and deployed SHA-256 both equal
+    44BC5331FB1CD4F32D2782DB88E7948B2C285A12AE52703595CE7E6F5B127B04.

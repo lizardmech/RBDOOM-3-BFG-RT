@@ -271,7 +271,6 @@ struct RtPathTraceSceneInputLights
     float emissiveDistributionTotalPdf = 0.0f;
     float emissiveDistributionFallbackWeight = 0.0f;
     bool emissiveDistributionValid = false;
-    uint64 lightUniverseGeneration = 0;
     uint32_t capabilityFlags = 0;
 };
 
