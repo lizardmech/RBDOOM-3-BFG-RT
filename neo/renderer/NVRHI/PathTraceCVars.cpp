@@ -651,41 +651,11 @@ idCVar r_pathTracingNeeCacheSourceDomain(
     CVAR_RENDERER | CVAR_INTEGER,
     "NEE cache source domain: 0 all current RLU, 1 emissive range only, 2 analytic range only, 3 typed candidate lists with mixture probabilities" );
 
-idCVar r_pathTracingDoomLightDump(
-    "r_pathTracingDoomLightDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot Doom renderer light identity dump: 1 = area-aware summary and samples, 2 = verbose samples up to r_pathTracingDoomLightDumpMax" );
-
-idCVar r_pathTracingDoomLightProbeDump(
-    "r_pathTracingDoomLightProbeDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot nearest/player/crosshair Doom renderer light dump for identifying duplicate helper lights near emissives" );
-
-idCVar r_pathTracingDoomLightDumpMax(
-    "r_pathTracingDoomLightDumpMax",
-    "64",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Maximum Doom renderer light identity records printed by r_pathTracingDoomLightDump" );
-
-idCVar r_pathTracingDoomLightProbeMax(
-    "r_pathTracingDoomLightProbeMax",
-    "8",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Maximum nearest and crosshair Doom renderer light probe records printed by r_pathTracingDoomLightProbeDump" );
-
 idCVar r_pathTracingAnalyticLightCandidates(
     "r_pathTracingAnalyticLightCandidates",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Build, upload, and shade analytic sphere-light candidates from active Doom lights" );
-
-idCVar r_pathTracingAnalyticLightCandidateDump(
-    "r_pathTracingAnalyticLightCandidateDump",
-    "0",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot dump of gated CPU-only analytic sphere-light candidate records" );
 
 idCVar r_pathTracingAnalyticLightMaxGpu(
     "r_pathTracingAnalyticLightMaxGpu",

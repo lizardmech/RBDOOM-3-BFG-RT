@@ -4654,8 +4654,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         constants.lightColorAndIntensity[i][2] = selectedLights[i].color.z;
         constants.lightColorAndIntensity[i][3] = selectedLights[i].spriteProxy ? 1.0f : 0.0f;
     }
-    RunPathTraceDoomLightDiagnostics(viewDef);
-
     const uint64 constantsStartUs = Sys_Microseconds();
     if (optickGpuMarkers)
     {

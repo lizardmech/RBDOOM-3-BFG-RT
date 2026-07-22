@@ -1411,3 +1411,27 @@ Working rule for every deletion slice:
     no DXIL command runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe.
     Source and deployed SHA-256 both equal
     0377A2F6C34CD09AC45F0D4CD32B919CA8B7B7CBD6AACB3DB39EA1BD14E24DF3.
+  - Runtime acceptance 2026-07-22: user reported no issues in clean RTXDI DI and
+    native mode 18 on deployed commit 26b428d2d. T4.3aa runtime gate closed.
+  - T4.3ab removes three May-era Doom analytic-light bring-up reports: the
+    area-aware light identity dump, nearest/crosshair probe, and CPU analytic
+    candidate dump. Their five controls only request console observation. The
+    dispatch-tail diagnostics entry rebuilds a light selection and record list,
+    invokes those formatters, and returns no data to rendering. Remove the
+    controls, public entry/call, three report functions, shared record printer,
+    and the report-only portal counters, bounds-summary counts, visible-view
+    flag, and spawn metadata. Preserve Doom light portal selection, resident and
+    persistent identity, game/radiance state, continuity policy, analytic
+    candidate construction, stable ordering, temporal remaps, RLU/GPU packing,
+    clean DI/GI, retained debug modes, and native mode 18. The last-day changes
+    in the touched owners are cleanup-only; the newest non-cleanup Doom-light
+    changes are June performance work and do not consume the removed reports.
+  - T4.3ab verification: whole-neo sweeps for all five controls, public entry,
+    report functions/printer, and report-only fields are empty. A scoped live
+    chain sweep confirms the active light-record collectors, resident cache,
+    persistent analytic universe, candidate builder, remaps, and GPU packing
+    remain. The code slice removes 493 lines. The full win64-pt-dev-release
+    build passes; both SPIR-V targets report up to date and no DXIL command
+    runs. No SPIR-V is rebuilt, so deploy only RBDoom3BFG.exe. Source and
+    deployed SHA-256 both equal
+    71552D5E3A448B4965AC8D927F278DE54EEB8C5B2326E5848C86B785FFC61840.

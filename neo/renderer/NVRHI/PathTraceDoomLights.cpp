@@ -174,9 +174,6 @@ struct DoomLightPortalSelection
 {
     int currentArea = -1;
     int portalSteps = 0;
-    int selectedAreaCount = 0;
-    int portalEdges = 0;
-    int blockedPortalEdges = 0;
     std::vector<int> depthByArea;
 };
 
@@ -187,9 +184,6 @@ struct DoomLightRecord
     int originArea = -1;
     int selectionArea = -1;
     int portalDepth = -1;
-    int boundsAreaCount = 0;
-    int selectedBoundsAreaCount = 0;
-    int connectedBoundsAreaCount = 0;
     bool selectedArea = false;
     bool connectedArea = false;
     bool active = false;
@@ -197,7 +191,6 @@ struct DoomLightRecord
     bool pointLight = false;
     bool parallel = false;
     bool castsShadows = false;
-    bool visibleInView = false;
     bool spriteProxy = false;
     idVec3 origin = vec3_zero;
     idVec3 radius = vec3_zero;
@@ -216,20 +209,13 @@ struct DoomLightRecord
     const char* entityDefName = "<unavailable>";
     const char* spawnTexture = "<unavailable>";
     const char* spawnModel = "<unavailable>";
-    const char* spawnBind = "<none>";
-    const char* spawnTarget = "<none>";
-    const char* spawnBroken = "<none>";
     bool gameLinked = false;
     bool gameHidden = false;
-    bool spawnStartOff = false;
-    bool spawnBreak = false;
     bool spawnNoShadows = false;
     bool spawnNoSpecular = false;
     int entityNumber = -1;
     int levels = 0;
     int currentLevel = 0;
-    int spawnCount = 0;
-    int health = 0;
     idVec3 baseColor = vec3_zero;
     idVec3 currentGameColor = vec3_zero;
 };
@@ -242,19 +228,12 @@ struct DoomLightGameMetadata
     const char* entityDefName = "<unavailable>";
     const char* spawnTexture = "<unavailable>";
     const char* spawnModel = "<unavailable>";
-    const char* spawnBind = "<none>";
-    const char* spawnTarget = "<none>";
-    const char* spawnBroken = "<none>";
     bool hidden = false;
-    bool startOff = false;
-    bool breakOnTrigger = false;
     bool noShadows = false;
     bool noSpecular = false;
     int entityNumber = -1;
     int levels = 0;
     int currentLevel = 0;
-    int count = 0;
-    int health = 0;
     idVec3 baseColor = vec3_zero;
     idVec3 currentColor = vec3_zero;
 };
@@ -338,19 +317,12 @@ std::unordered_map<int, DoomLightGameMetadata> BuildDoomLightGameMetadataByHandl
         metadata.entityDefName = light->GetEntityDefName();
         metadata.spawnTexture = light->spawnArgs.GetString("texture", "lights/squarelight1");
         metadata.spawnModel = light->spawnArgs.GetString("model", "<none>");
-        metadata.spawnBind = light->spawnArgs.GetString("bind", "<none>");
-        metadata.spawnTarget = light->spawnArgs.GetString("target", "<none>");
-        metadata.spawnBroken = light->spawnArgs.GetString("broken", "<none>");
         metadata.hidden = light->fl.hidden;
-        metadata.startOff = light->spawnArgs.GetBool("start_off", "0");
-        metadata.breakOnTrigger = light->spawnArgs.GetBool("break", "0");
         metadata.noShadows = light->spawnArgs.GetBool("noshadows", "0");
         metadata.noSpecular = light->spawnArgs.GetBool("nospecular", "0");
         metadata.entityNumber = light->GetEntityNumber();
         metadata.levels = light->GetLightLevels();
         metadata.currentLevel = light->GetCurrentLightLevel();
-        metadata.count = light->spawnArgs.GetInt("count", "1");
-        metadata.health = light->health;
         metadata.baseColor = light->GetBaseColor();
         light->GetColor(metadata.currentColor);
         metadataByHandle[lightHandle] = metadata;
@@ -432,7 +404,6 @@ DoomLightPortalSelection BuildDoomLightPortalSelection(const viewDef_t* viewDef,
     if (r_pathTracingPortalBruteforceFullMap.GetInteger() != 0)
     {
         std::fill(selection.depthByArea.begin(), selection.depthByArea.end(), 0);
-        selection.selectedAreaCount = areaCount;
         return selection;
     }
 
@@ -457,11 +428,6 @@ DoomLightPortalSelection BuildDoomLightPortalSelection(const viewDef_t* viewDef,
         for (int portalIndex = 0; portalIndex < portalCount; ++portalIndex)
         {
             const exitPortal_t portal = renderWorld->GetPortal(area, portalIndex);
-            if ((portal.blockingBits & PS_BLOCK_VIEW) != 0)
-            {
-                ++selection.blockedPortalEdges;
-            }
-
             int nextArea = -1;
             if (portal.areas[0] == area)
             {
@@ -476,7 +442,6 @@ DoomLightPortalSelection BuildDoomLightPortalSelection(const viewDef_t* viewDef,
                 continue;
             }
 
-            ++selection.portalEdges;
             if (selection.depthByArea[nextArea] < 0)
             {
                 selection.depthByArea[nextArea] = depth + 1;
@@ -485,13 +450,6 @@ DoomLightPortalSelection BuildDoomLightPortalSelection(const viewDef_t* viewDef,
         }
     }
 
-    for (int depth : selection.depthByArea)
-    {
-        if (depth >= 0)
-        {
-            ++selection.selectedAreaCount;
-        }
-    }
     return selection;
 }
 
@@ -598,20 +556,13 @@ void ClearDoomLightGameMetadataFields(DoomLightRecord& record)
     record.entityDefName = "<unavailable>";
     record.spawnTexture = "<unavailable>";
     record.spawnModel = "<unavailable>";
-    record.spawnBind = "<none>";
-    record.spawnTarget = "<none>";
-    record.spawnBroken = "<none>";
     record.gameLinked = false;
     record.gameHidden = false;
-    record.spawnStartOff = false;
-    record.spawnBreak = false;
     record.spawnNoShadows = false;
     record.spawnNoSpecular = false;
     record.entityNumber = -1;
     record.levels = 0;
     record.currentLevel = 0;
-    record.spawnCount = 0;
-    record.health = 0;
     record.baseColor = vec3_zero;
     record.currentGameColor = vec3_zero;
 }
@@ -624,19 +575,12 @@ void ApplyDoomLightGameMetadataToRecord(const viewDef_t* viewDef, const DoomLigh
     record.entityDefName = metadata.entityDefName;
     record.spawnTexture = metadata.spawnTexture;
     record.spawnModel = metadata.spawnModel;
-    record.spawnBind = metadata.spawnBind;
-    record.spawnTarget = metadata.spawnTarget;
-    record.spawnBroken = metadata.spawnBroken;
     record.gameHidden = metadata.hidden;
-    record.spawnStartOff = metadata.startOff;
-    record.spawnBreak = metadata.breakOnTrigger;
     record.spawnNoShadows = metadata.noShadows;
     record.spawnNoSpecular = metadata.noSpecular;
     record.entityNumber = metadata.entityNumber;
     record.levels = metadata.levels;
     record.currentLevel = metadata.currentLevel;
-    record.spawnCount = metadata.count;
-    record.health = metadata.health;
     record.baseColor = metadata.baseColor;
     record.currentGameColor = metadata.currentColor;
     const bool cleanDoomColorRoute = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
@@ -680,19 +624,12 @@ DoomLightGameMetadata BuildDoomLightGameMetadataFromLight(const idLight* light)
     metadata.entityDefName = light->GetEntityDefName();
     metadata.spawnTexture = light->spawnArgs.GetString("texture", "lights/squarelight1");
     metadata.spawnModel = light->spawnArgs.GetString("model", "<none>");
-    metadata.spawnBind = light->spawnArgs.GetString("bind", "<none>");
-    metadata.spawnTarget = light->spawnArgs.GetString("target", "<none>");
-    metadata.spawnBroken = light->spawnArgs.GetString("broken", "<none>");
     metadata.hidden = light->fl.hidden;
-    metadata.startOff = light->spawnArgs.GetBool("start_off", "0");
-    metadata.breakOnTrigger = light->spawnArgs.GetBool("break", "0");
     metadata.noShadows = light->spawnArgs.GetBool("noshadows", "0");
     metadata.noSpecular = light->spawnArgs.GetBool("nospecular", "0");
     metadata.entityNumber = light->GetEntityNumber();
     metadata.levels = light->GetLightLevels();
     metadata.currentLevel = light->GetCurrentLightLevel();
-    metadata.count = light->spawnArgs.GetInt("count", "1");
-    metadata.health = light->health;
     metadata.baseColor = light->GetBaseColor();
     light->GetColor(metadata.currentColor);
     return metadata;
@@ -771,19 +708,10 @@ DoomLightRecord BuildDoomLightRecord(
 
     int boundsAreas[RT_PT_DOOM_LIGHT_MAX_AREA_REFS];
     const int boundsAreaCount = renderWorld ? renderWorld->BoundsInAreas(record.bounds, boundsAreas, RT_PT_DOOM_LIGHT_MAX_AREA_REFS) : 0;
-    record.boundsAreaCount = boundsAreaCount;
     for (int i = 0; i < boundsAreaCount; ++i)
     {
         const int boundsArea = boundsAreas[i];
         addUniqueArea(boundsArea);
-        if (boundsArea >= 0 && boundsArea < static_cast<int>(selection.depthByArea.size()) && selection.depthByArea[boundsArea] >= 0)
-        {
-            ++record.selectedBoundsAreaCount;
-        }
-        if (viewDef->connectedAreas && renderWorld && boundsArea >= 0 && boundsArea < renderWorld->NumAreas() && viewDef->connectedAreas[boundsArea])
-        {
-            ++record.connectedBoundsAreaCount;
-        }
     }
 
     for (int i = 0; i < uniqueAreaCount; ++i)
@@ -811,7 +739,6 @@ DoomLightRecord BuildDoomLightRecord(
     record.pointLight = light->parms.pointLight;
     record.parallel = light->parms.parallel;
     record.castsShadows = light->lightShader ? light->LightCastsShadows() : false;
-    record.visibleInView = light->viewCount == tr.viewCount && light->viewLight && !light->viewLight->removeFromList;
     record.shaderName = light->lightShader ? light->lightShader->GetName() : "<none>";
     record.distance = (record.origin - viewDef->renderView.vieworg).Length();
     const auto gameMetadataIt = gameMetadataByHandle.find(light->index);
@@ -934,24 +861,8 @@ void RefreshDoomRecordAreaSelectionFromResident(
     record.connectedArea = false;
     record.selectionArea = -1;
     record.portalDepth = -1;
-    record.boundsAreaCount = resident.boundsAreaCount;
-    record.selectedBoundsAreaCount = 0;
-    record.connectedBoundsAreaCount = 0;
 
     const idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
-    for (int i = 0; i < resident.boundsAreaCount; ++i)
-    {
-        const int area = resident.boundsAreas[i];
-        if (area >= 0 && area < static_cast<int>(selection.depthByArea.size()) && selection.depthByArea[area] >= 0)
-        {
-            ++record.selectedBoundsAreaCount;
-        }
-        if (viewDef && viewDef->connectedAreas && renderWorld && area >= 0 && area < renderWorld->NumAreas() && viewDef->connectedAreas[area])
-        {
-            ++record.connectedBoundsAreaCount;
-        }
-    }
-
     for (int i = 0; i < resident.uniqueAreaCount; ++i)
     {
         const int area = resident.uniqueAreas[i];
@@ -1001,7 +912,6 @@ void RefreshDoomResidentLightDynamicFields(
     record.suppressed = IsDoomLightSuppressedForView(viewDef, light);
     record.color = EvaluateDoomLightColor(viewDef, light, record.active);
     record.active = record.active && !record.suppressed;
-    record.visibleInView = light->viewCount == tr.viewCount && light->viewLight && !light->viewLight->removeFromList;
     record.distance = (record.origin - viewDef->renderView.vieworg).Length();
     record.crosshairT = -1.0f;
     record.crosshairDistance = -1.0f;
@@ -1121,250 +1031,6 @@ std::vector<DoomLightRecord> CollectDoomLightRecordsResident(
     return records;
 }
 
-void PrintDoomLightRecord(const char* prefix, int sampleIndex, const DoomLightRecord& light, const char* mapName)
-{
-    common->Printf("%s[%d]: map='%s' renderLight=%d linked=%d entity='%s' entNum=%d classname='%s' entityDef='%s' spawnTexture='%s' shader='%s' type=%s origin=(%.2f %.2f %.2f) radius=(%.2f %.2f %.2f) radiusMax=%.2f bounds=(%.2f %.2f %.2f)-(%.2f %.2f %.2f) color=(%.3f %.3f %.3f) intensity=%.3f gameColor=(%.3f %.3f %.3f) baseColor=(%.3f %.3f %.3f) level=%d/%d hidden=%d startOff=%d break=%d count=%d health=%d model='%s' bind='%s' target='%s' broken='%s' area=%d originArea=%d selectionArea=%d portalDepth=%d boundsAreas=%d selectedBounds=%d connectedBounds=%d selected=%d connected=%d active=%d suppressed=%d shadows=%d visible=%d distance=%.2f crosshairBehind=%d crosshairT=%.2f crosshairDist=%.2f\n",
-        prefix,
-        sampleIndex,
-        mapName ? mapName : "<unknown>",
-        light.index,
-        light.gameLinked ? 1 : 0,
-        light.entityName,
-        light.entityNumber,
-        light.entityClassname,
-        light.entityDefName,
-        light.spawnTexture,
-        light.shaderName,
-        light.parallel ? "parallel" : (light.pointLight ? "point" : "projected"),
-        light.origin.x,
-        light.origin.y,
-        light.origin.z,
-        light.radius.x,
-        light.radius.y,
-        light.radius.z,
-        light.radiusMax,
-        light.bounds[0].x,
-        light.bounds[0].y,
-        light.bounds[0].z,
-        light.bounds[1].x,
-        light.bounds[1].y,
-        light.bounds[1].z,
-        light.color.x,
-        light.color.y,
-        light.color.z,
-        light.color.w,
-        light.currentGameColor.x,
-        light.currentGameColor.y,
-        light.currentGameColor.z,
-        light.baseColor.x,
-        light.baseColor.y,
-        light.baseColor.z,
-        light.currentLevel,
-        light.levels,
-        light.gameHidden ? 1 : 0,
-        light.spawnStartOff ? 1 : 0,
-        light.spawnBreak ? 1 : 0,
-        light.spawnCount,
-        light.health,
-        light.spawnModel,
-        light.spawnBind,
-        light.spawnTarget,
-        light.spawnBroken,
-        light.area,
-        light.originArea,
-        light.selectionArea,
-        light.portalDepth,
-        light.boundsAreaCount,
-        light.selectedBoundsAreaCount,
-        light.connectedBoundsAreaCount,
-        light.selectedArea ? 1 : 0,
-        light.connectedArea ? 1 : 0,
-        light.active ? 1 : 0,
-        light.suppressed ? 1 : 0,
-        light.castsShadows ? 1 : 0,
-        light.visibleInView ? 1 : 0,
-        light.distance,
-        light.crosshairBehind ? 1 : 0,
-        light.crosshairT,
-        light.crosshairDistance);
-}
-
-void RunDoomLightIdentityDump(const viewDef_t* viewDef, const DoomLightPortalSelection& selection, const std::vector<DoomLightRecord>& records)
-{
-    const int dumpMode = r_pathTracingDoomLightDump.GetInteger();
-    if (dumpMode == 0)
-    {
-        return;
-    }
-
-    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
-    const char* mapName = renderWorld ? renderWorld->mapName.c_str() : "<unknown>";
-    int active = 0;
-    int selected = 0;
-    int visible = 0;
-    int point = 0;
-    int projected = 0;
-    int parallel = 0;
-    int unknownArea = 0;
-    int gameLinked = 0;
-    int gameHidden = 0;
-    int gameLevelOff = 0;
-    int connectedUnselected = 0;
-    int selectedViaBounds = 0;
-    int boundsAreaRefs = 0;
-    int selectedBoundsAreaRefs = 0;
-    int depthBins[6] = {};
-
-    for (const DoomLightRecord& record : records)
-    {
-        active += record.active ? 1 : 0;
-        selected += record.selectedArea ? 1 : 0;
-        visible += record.visibleInView ? 1 : 0;
-        point += record.pointLight ? 1 : 0;
-        projected += (!record.pointLight && !record.parallel) ? 1 : 0;
-        parallel += record.parallel ? 1 : 0;
-        unknownArea += record.area < 0 ? 1 : 0;
-        gameLinked += record.gameLinked ? 1 : 0;
-        gameHidden += record.gameHidden ? 1 : 0;
-        gameLevelOff += record.gameLinked && record.currentLevel <= 0 ? 1 : 0;
-        connectedUnselected += (record.connectedArea && !record.selectedArea) ? 1 : 0;
-        selectedViaBounds += (record.selectedArea && record.selectionArea >= 0 && record.selectionArea != record.area) ? 1 : 0;
-        boundsAreaRefs += record.boundsAreaCount;
-        selectedBoundsAreaRefs += record.selectedBoundsAreaCount;
-        if (record.portalDepth >= 0 && record.portalDepth < 5)
-        {
-            ++depthBins[record.portalDepth];
-        }
-        else
-        {
-            ++depthBins[5];
-        }
-    }
-
-    common->Printf("PathTracePrimaryPass: Doom light dump map='%s' lights=%d active=%d visibleView=%d point/projected/parallel=%d/%d/%d gameLinked=%d hidden=%d levelOff=%d currentArea=%d portalSteps=%d selectedAreas=%d portalEdges/blocked=%d/%d selectedLights=%d selectedViaBounds=%d boundsAreaRefs=%d selectedBoundsAreaRefs=%d connectedUnselected=%d unknownArea=%d depthBins 0/1/2/3/4/other=%d/%d/%d/%d/%d/%d entityNameStatus=linked-by-idLight-lightDefHandle\n",
-        mapName,
-        static_cast<int>(records.size()),
-        active,
-        visible,
-        point,
-        projected,
-        parallel,
-        gameLinked,
-        gameHidden,
-        gameLevelOff,
-        selection.currentArea,
-        selection.portalSteps,
-        selection.selectedAreaCount,
-        selection.portalEdges,
-        selection.blockedPortalEdges,
-        selected,
-        selectedViaBounds,
-        boundsAreaRefs,
-        selectedBoundsAreaRefs,
-        connectedUnselected,
-        unknownArea,
-        depthBins[0],
-        depthBins[1],
-        depthBins[2],
-        depthBins[3],
-        depthBins[4],
-        depthBins[5]);
-
-    std::vector<DoomLightRecord> samples = records;
-    std::stable_sort(samples.begin(), samples.end(), [](const DoomLightRecord& a, const DoomLightRecord& b) {
-        if (a.selectedArea != b.selectedArea)
-        {
-            return a.selectedArea && !b.selectedArea;
-        }
-        if (a.active != b.active)
-        {
-            return a.active && !b.active;
-        }
-        if (a.portalDepth != b.portalDepth)
-        {
-            return a.portalDepth >= 0 && (b.portalDepth < 0 || a.portalDepth < b.portalDepth);
-        }
-        if (a.distance != b.distance)
-        {
-            return a.distance < b.distance;
-        }
-        return a.index < b.index;
-    });
-
-    const int maxSamples = idMath::ClampInt(0, 1024, r_pathTracingDoomLightDumpMax.GetInteger());
-    const int printCount = dumpMode >= 2 ? Min(maxSamples, static_cast<int>(samples.size())) : Min(maxSamples, Min(16, static_cast<int>(samples.size())));
-    for (int i = 0; i < printCount; ++i)
-    {
-        PrintDoomLightRecord("PathTracePrimaryPass: Doom light", i, samples[i], mapName);
-    }
-
-    r_pathTracingDoomLightDump.SetInteger(0);
-}
-
-void RunDoomLightProbeDump(const viewDef_t* viewDef, const std::vector<DoomLightRecord>& records)
-{
-    if (r_pathTracingDoomLightProbeDump.GetInteger() == 0)
-    {
-        return;
-    }
-
-    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
-    const char* mapName = renderWorld ? renderWorld->mapName.c_str() : "<unknown>";
-    const int maxSamples = idMath::ClampInt(1, 64, r_pathTracingDoomLightProbeMax.GetInteger());
-
-    std::vector<DoomLightRecord> nearest = records;
-    std::stable_sort(nearest.begin(), nearest.end(), [](const DoomLightRecord& a, const DoomLightRecord& b) {
-        if (a.distance != b.distance)
-        {
-            return a.distance < b.distance;
-        }
-        return a.index < b.index;
-    });
-
-    std::vector<DoomLightRecord> crosshair;
-    crosshair.reserve(records.size());
-    for (const DoomLightRecord& record : records)
-    {
-        if (record.crosshairT >= 0.0f)
-        {
-            crosshair.push_back(record);
-        }
-    }
-    std::stable_sort(crosshair.begin(), crosshair.end(), [](const DoomLightRecord& a, const DoomLightRecord& b) {
-        if (a.crosshairScore != b.crosshairScore)
-        {
-            return a.crosshairScore < b.crosshairScore;
-        }
-        if (a.crosshairT != b.crosshairT)
-        {
-            return a.crosshairT < b.crosshairT;
-        }
-        return a.index < b.index;
-    });
-
-    common->Printf("PathTracePrimaryPass: Doom light probe map='%s' playerOrigin=(%.2f %.2f %.2f) forward=(%.3f %.3f %.3f) nearest=%d crosshair=%d max=%d\n",
-        mapName,
-        viewDef->renderView.vieworg.x,
-        viewDef->renderView.vieworg.y,
-        viewDef->renderView.vieworg.z,
-        viewDef->renderView.viewaxis[0].x,
-        viewDef->renderView.viewaxis[0].y,
-        viewDef->renderView.viewaxis[0].z,
-        static_cast<int>(nearest.size()),
-        static_cast<int>(crosshair.size()),
-        maxSamples);
-
-    for (int i = 0; i < Min(maxSamples, static_cast<int>(nearest.size())); ++i)
-    {
-        PrintDoomLightRecord("PathTracePrimaryPass: Doom nearest light", i, nearest[i], mapName);
-    }
-    for (int i = 0; i < Min(maxSamples, static_cast<int>(crosshair.size())); ++i)
-    {
-        PrintDoomLightRecord("PathTracePrimaryPass: Doom crosshair light", i, crosshair[i], mapName);
-    }
-
-    r_pathTracingDoomLightProbeDump.SetInteger(0);
-}
 
 bool DoomLightContinuityProvenForTask01(const DoomLightRecord& record);
 
@@ -2148,101 +1814,6 @@ void BuildDoomAnalyticLightGpuRemap(DoomAnalyticLightUniverseState& state, int u
     g_doomAnalyticLightGpuRemap = gpuRemap;
 }
 
-void RunAnalyticLightCandidateDump(const DoomLightPortalSelection& selection, const std::vector<DoomLightRecord>& records)
-{
-    if (r_pathTracingAnalyticLightCandidates.GetInteger() == 0)
-    {
-        if (r_pathTracingAnalyticLightCandidateDump.GetInteger() != 0)
-        {
-            common->Printf("PathTracePrimaryPass: Doom analytic light candidates disabled; set r_pathTracingAnalyticLightCandidates 1 to build and shade analytic sphere records\n");
-            r_pathTracingAnalyticLightCandidateDump.SetInteger(0);
-        }
-        return;
-    }
-
-    std::vector<DoomLightRecord> candidates = BuildAnalyticDoomLightRecords(records, false, false, false, false);
-
-    if (r_pathTracingAnalyticLightCandidateDump.GetInteger() == 0)
-    {
-        return;
-    }
-
-    const float radiusScale = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingAnalyticSphereLightRadiusScale.GetFloat());
-    const float radiusMin = Max(0.0f, r_pathTracingAnalyticSphereLightRadiusMin.GetFloat());
-    const float radiusMax = Max(radiusMin, r_pathTracingAnalyticSphereLightRadiusMax.GetFloat());
-
-    int linkedCandidates = 0;
-    for (const DoomLightRecord& candidate : candidates)
-    {
-        linkedCandidates += candidate.gameLinked ? 1 : 0;
-    }
-
-    int behindCandidates = 0;
-    for (const DoomLightRecord& candidate : candidates)
-    {
-        behindCandidates += candidate.crosshairBehind ? 1 : 0;
-    }
-
-    const int gpuMax = idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger());
-    const int uploadedCandidates = Min(gpuMax, static_cast<int>(candidates.size()));
-    const int droppedCandidates = static_cast<int>(candidates.size()) - uploadedCandidates;
-
-    common->Printf("PathTracePrimaryPass: Doom analytic sphere-light candidates count=%d uploaded=%d droppedByGpuCap=%d linked=%d behindCamera=%d sourceLights=%d currentArea=%d portalSteps=%d gpuMax=%d intensityScale=%.3f radius scale/min/max=%.4f/%.2f/%.2f selection=multi-area-bounds-active-point-not-view-facing outputChange=1 gpuBuffer=separate\n",
-        static_cast<int>(candidates.size()),
-        uploadedCandidates,
-        droppedCandidates,
-        linkedCandidates,
-        behindCandidates,
-        static_cast<int>(records.size()),
-        selection.currentArea,
-        selection.portalSteps,
-        gpuMax,
-        idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat()),
-        radiusScale,
-        radiusMin,
-        radiusMax);
-
-    const int maxSamples = idMath::ClampInt(0, 1024, r_pathTracingDoomLightDumpMax.GetInteger());
-    for (int i = 0; i < Min(maxSamples, static_cast<int>(candidates.size())); ++i)
-    {
-        const DoomLightRecord& light = candidates[i];
-        common->Printf("PathTracePrimaryPass: Doom analytic sphere candidate[%d] renderLight=%d linked=%d entity='%s' entNum=%d classname='%s' spawnTexture='%s' shader='%s' level=%d/%d hidden=%d behindCamera=%d gameColor=(%.3f %.3f %.3f) baseColor=(%.3f %.3f %.3f) area=%d selectionArea=%d portalDepth=%d boundsAreas=%d selectedBounds=%d origin=(%.2f %.2f %.2f) doomRadius=%.2f sphereRadius=%.2f color=(%.3f %.3f %.3f) intensity=%.3f\n",
-            i,
-            light.index,
-            light.gameLinked ? 1 : 0,
-            light.entityName,
-            light.entityNumber,
-            light.entityClassname,
-            light.spawnTexture,
-            light.shaderName,
-            light.currentLevel,
-            light.levels,
-            light.gameHidden ? 1 : 0,
-            light.crosshairBehind ? 1 : 0,
-            light.currentGameColor.x,
-            light.currentGameColor.y,
-            light.currentGameColor.z,
-            light.baseColor.x,
-            light.baseColor.y,
-            light.baseColor.z,
-            light.area,
-            light.selectionArea,
-            light.portalDepth,
-            light.boundsAreaCount,
-            light.selectedBoundsAreaCount,
-            light.origin.x,
-            light.origin.y,
-            light.origin.z,
-            light.radiusMax,
-            light.sphereRadius,
-            light.color.x,
-            light.color.y,
-            light.color.z,
-            light.color.w);
-    }
-
-    r_pathTracingAnalyticLightCandidateDump.SetInteger(0);
-}
 
 }
 
@@ -2351,30 +1922,4 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
 const PathTraceDoomAnalyticLightGpuRemap& GetPathTraceDoomAnalyticLightGpuRemap()
 {
     return g_doomAnalyticLightGpuRemap;
-}
-
-void RunPathTraceDoomLightDiagnostics(const viewDef_t* viewDef)
-{
-    if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive())
-    {
-        return;
-    }
-
-    const bool wantsDump =
-        r_pathTracingDoomLightDump.GetInteger() != 0 ||
-        r_pathTracingDoomLightProbeDump.GetInteger() != 0 ||
-        r_pathTracingAnalyticLightCandidateDump.GetInteger() != 0;
-    if (!wantsDump)
-    {
-        return;
-    }
-
-    const DoomLightPortalSelection selection = BuildDoomLightPortalSelection(
-        viewDef,
-        idMath::ClampInt(0, 8, r_pathTracingLightAreaPortalSteps.GetInteger()));
-    const std::unordered_map<int, DoomLightGameMetadata> gameMetadataByHandle = BuildDoomLightGameMetadataByHandle();
-    const std::vector<DoomLightRecord> records = CollectDoomLightRecords(viewDef, selection, gameMetadataByHandle);
-    RunDoomLightIdentityDump(viewDef, selection, records);
-    RunDoomLightProbeDump(viewDef, records);
-    RunAnalyticLightCandidateDump(selection, records);
 }

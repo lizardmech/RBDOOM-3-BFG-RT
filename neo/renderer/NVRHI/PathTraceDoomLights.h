@@ -88,4 +88,3 @@ struct PathTraceDoomAnalyticLightBuildOptions
 std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, const PathTraceDoomAnalyticLightBuildOptions& options = PathTraceDoomAnalyticLightBuildOptions());
 std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, bool forceEnable);
 const PathTraceDoomAnalyticLightGpuRemap& GetPathTraceDoomAnalyticLightGpuRemap();
-void RunPathTraceDoomLightDiagnostics(const viewDef_t* viewDef);
