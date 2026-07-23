@@ -68,15 +68,51 @@ pass:
   maximum motion error         0.0000152588  0.0000152588
   pass                                1             1
 
-The sample included rigid-weighted vertices, two- and three-weight vertices,
-a four-weight vertex, and surfaces independently observed by the existing
-classifier as singleBone=1. This proves that the corrected staged-joint compute
-path writes numerically correct current and previous positions in both the
-diagnostic output and dynamic-BLAS output modes for this scene.
+The sample included rigid-weighted vertices plus two-, three-, and four-weight
+vertices. The funnel independently observed two singleBone=1 surfaces, but the
+original first-eight-surface sampler did not read either one back. This proves
+that the corrected staged-joint compute path writes numerically correct current
+and previous positions in both the diagnostic output and dynamic-BLAS output
+modes for the sampled surfaces in this scene.
 
-This does not yet satisfy the full GEO-03 asset/state matrix. Fatzombie, an
-ordinary combat zombie, explicit player coverage, spawn/despawn,
-offscreen/return, PDA, and the complete 0->1->2->0 transition remain pending.
+The sampler now prioritizes player/zombie/Fatzombie identities, then distinct
+models, observed single-bone surfaces, remaining surfaces, and finally
+additional within-surface vertices. This keeps the 24-sample bound while making
+the remaining asset matrix directly observable.
+
+This does not yet satisfy the full GEO-03 asset/state matrix. A sampled
+single-bone surface, Fatzombie, an ordinary combat zombie, explicit player
+coverage, spawn/despawn, offscreen/return, PDA, and the complete 0->1->2->0
+transition remain pending.
+
+GEOMETRY_GEO15 RESULT
+---------------------
+The targeted sampler captured the requested assets:
+
+  mode 1 candidates/dispatched/exact          7 / 7 / 1
+  mode 2 candidates/dispatched/exact         23 / 23 / 1
+  mode 2 singleBoneObserved                    3
+  samples per mode                            24
+  failures current/previous/motion             0 / 0 / 0
+  non-finite outputs                           0
+  maximum observed error                      0.0000610352
+
+Mode 2 explicitly sampled the player, two Fatzombie entities, a maintenance
+zombie, four-weight vertices, and two single-bone chair surfaces. All sampled
+current positions passed. All previous and motion comparisons that had valid
+history also passed.
+
+The remaining issue is upstream history availability, not a numeric mismatch:
+every sampled Fatzombie and maintenance-zombie surface had hasPrevious=0,
+including entity 550 in captures separated by more than 1,200 frames. Player
+and chair surfaces had valid previous data. The logging build now adds:
+
+  invalid=0x........
+  temporal=0x........
+
+to each funnel detail and parity sample. These are the existing
+RtSmokeSkinnedSurfaceRecord invalid-reason and temporal-state flags. They do
+not change matching or production behavior.
 
 CURRENT MODE CONTRACT
 ---------------------
@@ -163,6 +199,8 @@ Every sample retains:
   same-frame CPU and GPU current positions
   CPU and GPU previous positions when valid previous joints exist
   derived CPU and GPU current-to-previous motion
+  previous-history invalid-reason flags
+  temporal-state flags
 
 The tolerance is declared before evaluation:
 
@@ -234,6 +272,28 @@ Use the known mc_underground crowd area. Include:
   - a mixed-weight MD5 surface; and
   - a surface reported with singleBone=1 in the funnel detail lines.
 
+Asset coverage through geometry_geo15.log is complete. Before the wider state
+matrix, capture the animated-monster history rejection once with the new
+diagnostic executable. Leave an ordinary zombie and Fatzombie alive and visible
+for several seconds, then run:
+
+  echo === GEO03_MONSTER_HISTORY_MODE1 ===
+  r_pathTracingGpuSkinning 1
+  r_pathTracingGpuSkinningParityDump 1
+
+Wait for the parity summary, then:
+
+  echo === GEO03_MONSTER_HISTORY_MODE2 ===
+  r_pathTracingGpuSkinning 2
+  r_pathTracingGpuSkinningParityDump 1
+
+Wait for the parity summary and return to:
+
+  r_pathTracingGpuSkinning 0
+
+Preserve every monster sample containing hasPrevious=0 together with its
+invalid and temporal values. Do not respawn between the two captures.
+
 For mode 1, collect one one-shot at each state:
 
   1. settled idle;
@@ -290,6 +350,6 @@ Build:
 
 Built and deployed executable:
 
-  size    15,540,736 bytes
-  mtime   2026-07-23 20:01:35 +10
-  SHA256  8F88106664FA2EB35B50F83F3F3CF4153E771763B09B3BEB2AE40BBA0230B6FD
+  size    15,542,784 bytes
+  mtime   2026-07-23 20:21:33 +10
+  SHA256  4963AC45BA5CD9B975E65F8BBAB616E392D1745AE40B259C9240DFFF4B6D6AC0

@@ -240,11 +240,38 @@ The corrected geometry_geo14.log reported:
   maximum observed error                   0.0000152588
   declared tolerance                       abs 0.001 + rel 0.00001
 
-The samples covered one-, two-, three-, and four-weight vertices plus two
-surfaces observed as single-bone. This accepts the Vulkan binding correction
-and same-scene staged-joint parity. It does not authorize removal of CPU
-pre-skinning or claim the authoritative raster jointCache cutover; those remain
-GEO-07 work. The wider GEO-03 asset/state matrix is still pending.
+The samples covered one-, two-, three-, and four-weight vertices. The funnel
+observed two single-bone surfaces, but the original first-eight-surface sampler
+did not read those surfaces back. This accepts the Vulkan binding correction
+and same-scene staged-joint parity for the sampled surfaces. It does not
+authorize removal of CPU pre-skinning or claim the authoritative raster
+jointCache cutover; those remain GEO-07 work. The sampler now prioritizes
+requested asset identities, distinct models, and single-bone observations.
+geometry_geo15.log then closed the missing asset-coverage gap:
+
+  mode 1 candidates/dispatched/exact          7 / 7 / 1
+  mode 2 candidates/dispatched/exact         23 / 23 / 1
+  mode 2 single-bone surfaces observed        3
+  sampled vertices per mode                  24
+  current/previous/motion failures            0 / 0 / 0
+  non-finite outputs                          0
+  maximum observed error                      0.0000610352
+
+The mode 2 sample explicitly covered player surfaces, two Fatzombie entities,
+an ordinary maintenance zombie, mixed four-weight vertices, and two proven
+single-bone chair surfaces. Current-position parity passed for every sample,
+and available previous-position/motion parity also passed.
+
+This capture also exposed a narrower temporal-contract gap: every sampled
+Fatzombie and maintenance-zombie surface reported hasPrevious=0, including a
+Fatzombie observed in both captures more than 1,200 frames apart. Player and
+prop surfaces did have valid previous data. This is not a numeric GPU-skinning
+failure; previous parity is skipped when the upstream surface-history contract
+rejects a match. GEO-03 now logs the record's invalid-reason and temporal-state
+flags so the next capture can distinguish spawn invalidation from unstable
+animated-surface identity before any production identity change is considered.
+Spawn/despawn, offscreen/return, PDA, and the full mode transition remain
+pending.
 
 LIFECYCLE RESULT
 ----------------

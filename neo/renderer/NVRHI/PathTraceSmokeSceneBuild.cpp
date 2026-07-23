@@ -2573,7 +2573,7 @@ void DumpSmokeSkinnedGpuFunnel(
             const srfTriangles_t* tri =
                 reinterpret_cast<const srfTriangles_t*>(record.key.tri);
             common->Printf(
-                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d result=%s\n",
+                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d previousValid=%d invalid=0x%08x temporal=0x%08x result=%s\n",
                 detailCount,
                 static_cast<unsigned long long>(recordIndex),
                 record.entityIndex,
@@ -2582,6 +2582,9 @@ void DumpSmokeSkinnedGpuFunnel(
                 record.vertexCount,
                 record.jointCount,
                 IsEntityFeedSingleBoneSurface(tri) ? 1 : 0,
+                record.previousValid ? 1 : 0,
+                record.invalidReasonFlags,
+                record.temporalStateFlags,
                 SmokeSkinnedGpuResultName(result));
             ++detailCount;
         }
@@ -5839,6 +5842,143 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             constexpr int maxParitySamples = 24;
             std::vector<GpuSkinningParitySample> paritySamples;
             paritySamples.reserve(maxParitySamples);
+            std::unordered_set<uint64> paritySampleKeys;
+            std::vector<idStr> sampledModelNames;
+            auto appendParitySample = [&](int dispatchIndex, uint32_t localVertex)
+            {
+                if (dispatchIndex < 0 ||
+                    dispatchIndex >= static_cast<int>(skinnedGpuComputeDispatchRecords.size()) ||
+                    dispatchIndex >= static_cast<int>(skinnedGpuScaffold.dispatchRecords.size()) ||
+                    static_cast<int>(paritySamples.size()) >= maxParitySamples)
+                {
+                    return;
+                }
+                const PathTraceSkinnedSurfaceDispatchRecord& dispatch =
+                    skinnedGpuComputeDispatchRecords[dispatchIndex];
+                if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS) == 0u ||
+                    dispatch.surfaceRecordIndex >= currentSkinnedSurfaceRecords.size() ||
+                    localVertex >= dispatch.vertexCount)
+                {
+                    return;
+                }
+                const PathTraceSkinnedSurfaceDispatchRecord& scaffoldDispatch =
+                    skinnedGpuScaffold.dispatchRecords[dispatchIndex];
+                const RtSmokeSkinnedSurfaceRecord& record =
+                    currentSkinnedSurfaceRecords[dispatch.surfaceRecordIndex];
+                if (scaffoldDispatch.sourceVertexOffset == UINT32_MAX ||
+                    scaffoldDispatch.outputVertexOffset == UINT32_MAX)
+                {
+                    return;
+                }
+                const uint64 sampleKey =
+                    (static_cast<uint64>(static_cast<uint32_t>(dispatchIndex)) << 32ull) |
+                    static_cast<uint64>(localVertex);
+                if (!paritySampleKeys.insert(sampleKey).second)
+                {
+                    return;
+                }
+                const uint64 sourceIndex =
+                    static_cast<uint64>(scaffoldDispatch.sourceVertexOffset) + localVertex;
+                const uint64 cpuCurrentIndex =
+                    static_cast<uint64>(scaffoldDispatch.outputVertexOffset) + localVertex;
+                if (sourceIndex >= skinnedGpuScaffold.sourceVertices.size() ||
+                    cpuCurrentIndex >= skinnedGpuScaffold.currentOutputVertices.size())
+                {
+                    return;
+                }
+
+                GpuSkinningParitySample sample;
+                sample.modelName = record.modelName;
+                sample.entityIndex = record.entityIndex;
+                sample.drawSurfIndex = record.drawSurfIndex;
+                sample.surfaceRecordIndex = static_cast<int>(dispatch.surfaceRecordIndex);
+                sample.vertexIndex = static_cast<int>(localVertex);
+                sample.currentByteOffset =
+                    (static_cast<uint64>(dispatch.outputVertexOffset) + localVertex) *
+                    sizeof(PathTraceSmokeVertex);
+                sample.previousInvalidReasonFlags = record.invalidReasonFlags;
+                sample.temporalStateFlags = record.temporalStateFlags;
+                sample.source =
+                    skinnedGpuScaffold.sourceVertices[static_cast<size_t>(sourceIndex)];
+                sample.cpuCurrent =
+                    skinnedGpuScaffold.currentOutputVertices[static_cast<size_t>(cpuCurrentIndex)];
+                sample.hasPrevious =
+                    (dispatch.flags & PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) != 0u &&
+                    (dispatch.flags & PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS) != 0u &&
+                    scaffoldDispatch.previousPositionOffset != UINT32_MAX;
+                if (sample.hasPrevious)
+                {
+                    const uint64 previousIndex =
+                        static_cast<uint64>(scaffoldDispatch.previousPositionOffset) + localVertex;
+                    if (previousIndex >= skinnedGpuScaffold.previousPositions.size())
+                    {
+                        sample.hasPrevious = false;
+                    }
+                    else
+                    {
+                        sample.previousByteOffset =
+                            previousIndex * sizeof(PathTraceSkinnedPreviousPosition);
+                        sample.cpuPrevious =
+                            skinnedGpuScaffold.previousPositions[static_cast<size_t>(previousIndex)];
+                    }
+                }
+                paritySamples.push_back(sample);
+            };
+            auto representativeVertex = [&](int dispatchIndex) -> uint32_t
+            {
+                if (dispatchIndex < 0 ||
+                    dispatchIndex >= static_cast<int>(skinnedGpuComputeDispatchRecords.size()) ||
+                    dispatchIndex >= static_cast<int>(skinnedGpuScaffold.dispatchRecords.size()))
+                {
+                    return UINT32_MAX;
+                }
+                const PathTraceSkinnedSurfaceDispatchRecord& dispatch =
+                    skinnedGpuComputeDispatchRecords[dispatchIndex];
+                const PathTraceSkinnedSurfaceDispatchRecord& scaffoldDispatch =
+                    skinnedGpuScaffold.dispatchRecords[dispatchIndex];
+                if (dispatch.vertexCount == 0u ||
+                    scaffoldDispatch.sourceVertexOffset == UINT32_MAX)
+                {
+                    return UINT32_MAX;
+                }
+                uint32_t bestVertex = 0u;
+                int bestInfluenceCount = -1;
+                for (uint32_t localVertex = 0u; localVertex < dispatch.vertexCount; ++localVertex)
+                {
+                    const uint64 sourceIndex =
+                        static_cast<uint64>(scaffoldDispatch.sourceVertexOffset) + localVertex;
+                    if (sourceIndex >= skinnedGpuScaffold.sourceVertices.size())
+                    {
+                        break;
+                    }
+                    const PathTraceSkinnedSourceVertex& source =
+                        skinnedGpuScaffold.sourceVertices[static_cast<size_t>(sourceIndex)];
+                    int influenceCount = 0;
+                    for (int component = 0; component < 4; ++component)
+                    {
+                        influenceCount += source.jointWeights[component] > 0.0f ? 1 : 0;
+                    }
+                    if (influenceCount > bestInfluenceCount)
+                    {
+                        bestInfluenceCount = influenceCount;
+                        bestVertex = localVertex;
+                    }
+                }
+                return bestVertex;
+            };
+            auto modelAlreadySampled = [&](const idStr& modelName)
+            {
+                for (const idStr& sampledModelName : sampledModelNames)
+                {
+                    if (idStr::Icmp(sampledModelName.c_str(), modelName.c_str()) == 0)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            // First reserve samples for the player and requested monster probes.
             for (int dispatchIndex = 0;
                 dispatchIndex < static_cast<int>(skinnedGpuComputeDispatchRecords.size()) &&
                 static_cast<int>(paritySamples.size()) < maxParitySamples;
@@ -5846,79 +5986,82 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             {
                 const PathTraceSkinnedSurfaceDispatchRecord& dispatch =
                     skinnedGpuComputeDispatchRecords[dispatchIndex];
-                if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS) == 0u ||
-                    dispatch.surfaceRecordIndex >= currentSkinnedSurfaceRecords.size() ||
-                    dispatchIndex >= static_cast<int>(skinnedGpuScaffold.dispatchRecords.size()))
+                if (dispatch.surfaceRecordIndex >= currentSkinnedSurfaceRecords.size())
                 {
                     continue;
                 }
-                const PathTraceSkinnedSurfaceDispatchRecord& scaffoldDispatch =
-                    skinnedGpuScaffold.dispatchRecords[dispatchIndex];
                 const RtSmokeSkinnedSurfaceRecord& record =
                     currentSkinnedSurfaceRecords[dispatch.surfaceRecordIndex];
-                const uint32_t localVertexIds[3] = {
-                    0u,
-                    dispatch.vertexCount / 2u,
-                    dispatch.vertexCount > 0u ? dispatch.vertexCount - 1u : 0u
-                };
-                for (int sampleSlot = 0;
-                    sampleSlot < 3 &&
-                    static_cast<int>(paritySamples.size()) < maxParitySamples;
-                    ++sampleSlot)
+                const bool priorityIdentity =
+                    record.entityIndex == 0 ||
+                    idStr::FindText(record.modelName.c_str(), "zfat", false) >= 0 ||
+                    idStr::FindText(record.modelName.c_str(), "zombie", false) >= 0 ||
+                    idStr::FindText(record.modelName.c_str(), "zsec", false) >= 0;
+                if (priorityIdentity)
                 {
-                    const uint32_t localVertex = localVertexIds[sampleSlot];
-                    if (localVertex >= dispatch.vertexCount ||
-                        (sampleSlot > 0 && localVertex == localVertexIds[sampleSlot - 1]) ||
-                        scaffoldDispatch.sourceVertexOffset == UINT32_MAX ||
-                        scaffoldDispatch.outputVertexOffset == UINT32_MAX)
-                    {
-                        continue;
-                    }
-                    const uint64 sourceIndex =
-                        static_cast<uint64>(scaffoldDispatch.sourceVertexOffset) + localVertex;
-                    const uint64 cpuCurrentIndex =
-                        static_cast<uint64>(scaffoldDispatch.outputVertexOffset) + localVertex;
-                    if (sourceIndex >= skinnedGpuScaffold.sourceVertices.size() ||
-                        cpuCurrentIndex >= skinnedGpuScaffold.currentOutputVertices.size())
-                    {
-                        continue;
-                    }
-
-                    GpuSkinningParitySample sample;
-                    sample.modelName = record.modelName;
-                    sample.entityIndex = record.entityIndex;
-                    sample.drawSurfIndex = record.drawSurfIndex;
-                    sample.surfaceRecordIndex = static_cast<int>(dispatch.surfaceRecordIndex);
-                    sample.vertexIndex = static_cast<int>(localVertex);
-                    sample.currentByteOffset =
-                        (static_cast<uint64>(dispatch.outputVertexOffset) + localVertex) *
-                        sizeof(PathTraceSmokeVertex);
-                    sample.source =
-                        skinnedGpuScaffold.sourceVertices[static_cast<size_t>(sourceIndex)];
-                    sample.cpuCurrent =
-                        skinnedGpuScaffold.currentOutputVertices[static_cast<size_t>(cpuCurrentIndex)];
-                    sample.hasPrevious =
-                        (dispatch.flags & PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) != 0u &&
-                        (dispatch.flags & PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS) != 0u &&
-                        scaffoldDispatch.previousPositionOffset != UINT32_MAX;
-                    if (sample.hasPrevious)
-                    {
-                        const uint64 previousIndex =
-                            static_cast<uint64>(scaffoldDispatch.previousPositionOffset) + localVertex;
-                        if (previousIndex >= skinnedGpuScaffold.previousPositions.size())
-                        {
-                            sample.hasPrevious = false;
-                        }
-                        else
-                        {
-                            sample.previousByteOffset =
-                                previousIndex * sizeof(PathTraceSkinnedPreviousPosition);
-                            sample.cpuPrevious =
-                                skinnedGpuScaffold.previousPositions[static_cast<size_t>(previousIndex)];
-                        }
-                    }
-                    paritySamples.push_back(sample);
+                    appendParitySample(dispatchIndex, representativeVertex(dispatchIndex));
                 }
+            }
+            // Then cover each distinct model and every observed single-bone surface.
+            for (int dispatchIndex = 0;
+                dispatchIndex < static_cast<int>(skinnedGpuComputeDispatchRecords.size()) &&
+                static_cast<int>(paritySamples.size()) < maxParitySamples;
+                ++dispatchIndex)
+            {
+                const PathTraceSkinnedSurfaceDispatchRecord& dispatch =
+                    skinnedGpuComputeDispatchRecords[dispatchIndex];
+                if (dispatch.surfaceRecordIndex >= currentSkinnedSurfaceRecords.size())
+                {
+                    continue;
+                }
+                const RtSmokeSkinnedSurfaceRecord& record =
+                    currentSkinnedSurfaceRecords[dispatch.surfaceRecordIndex];
+                if (!modelAlreadySampled(record.modelName))
+                {
+                    appendParitySample(dispatchIndex, representativeVertex(dispatchIndex));
+                    sampledModelNames.push_back(record.modelName);
+                }
+            }
+            for (int dispatchIndex = 0;
+                dispatchIndex < static_cast<int>(skinnedGpuComputeDispatchRecords.size()) &&
+                static_cast<int>(paritySamples.size()) < maxParitySamples;
+                ++dispatchIndex)
+            {
+                const PathTraceSkinnedSurfaceDispatchRecord& dispatch =
+                    skinnedGpuComputeDispatchRecords[dispatchIndex];
+                if (dispatch.surfaceRecordIndex >= currentSkinnedSurfaceRecords.size())
+                {
+                    continue;
+                }
+                const RtSmokeSkinnedSurfaceRecord& record =
+                    currentSkinnedSurfaceRecords[dispatch.surfaceRecordIndex];
+                if (IsEntityFeedSingleBoneSurface(
+                        reinterpret_cast<const srfTriangles_t*>(record.key.tri)))
+                {
+                    appendParitySample(dispatchIndex, representativeVertex(dispatchIndex));
+                }
+            }
+            // Cover as many remaining surfaces as the bound permits, then add
+            // first/middle/last vertices for additional within-surface spread.
+            for (int dispatchIndex = 0;
+                dispatchIndex < static_cast<int>(skinnedGpuComputeDispatchRecords.size()) &&
+                static_cast<int>(paritySamples.size()) < maxParitySamples;
+                ++dispatchIndex)
+            {
+                appendParitySample(dispatchIndex, representativeVertex(dispatchIndex));
+            }
+            for (int dispatchIndex = 0;
+                dispatchIndex < static_cast<int>(skinnedGpuComputeDispatchRecords.size()) &&
+                static_cast<int>(paritySamples.size()) < maxParitySamples;
+                ++dispatchIndex)
+            {
+                const PathTraceSkinnedSurfaceDispatchRecord& dispatch =
+                    skinnedGpuComputeDispatchRecords[dispatchIndex];
+                appendParitySample(dispatchIndex, 0u);
+                appendParitySample(dispatchIndex, dispatch.vertexCount / 2u);
+                appendParitySample(
+                    dispatchIndex,
+                    dispatch.vertexCount > 0u ? dispatch.vertexCount - 1u : 0u);
             }
 
             QueueGpuSkinningParitySamples(

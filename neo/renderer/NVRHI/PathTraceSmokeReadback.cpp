@@ -918,7 +918,7 @@ void PathTracePrimaryPass::ReadBackGpuSkinningParitySamples()
         }
 
         common->Printf(
-            "PathTracePrimaryPass: PT GPU skinning parity sample=%llu entity/model/surface/record/vertex=%d/'%s'/%d/%d/%d source=(%.9g %.9g %.9g) joints=%u,%u,%u,%u weights=%.9g,%.9g,%.9g,%.9g cpuCurrent=(%.9g %.9g %.9g) gpuCurrent=(%.9g %.9g %.9g) current(finite/error/pass)=%d/%.9g/%d hasPrevious=%d cpuPrevious=(%.9g %.9g %.9g) gpuPrevious=(%.9g %.9g %.9g) previous(error/pass)=%.9g/%d motion(error/pass)=%.9g/%d\n",
+            "PathTracePrimaryPass: PT GPU skinning parity sample=%llu entity/model/surface/record/vertex=%d/'%s'/%d/%d/%d source=(%.9g %.9g %.9g) joints=%u,%u,%u,%u weights=%.9g,%.9g,%.9g,%.9g cpuCurrent=(%.9g %.9g %.9g) gpuCurrent=(%.9g %.9g %.9g) current(finite/error/pass)=%d/%.9g/%d hasPrevious=%d invalid=0x%08x temporal=0x%08x cpuPrevious=(%.9g %.9g %.9g) gpuPrevious=(%.9g %.9g %.9g) previous(error/pass)=%.9g/%d motion(error/pass)=%.9g/%d\n",
             static_cast<unsigned long long>(sampleIndex),
             sample.entityIndex,
             sample.modelName.c_str(),
@@ -946,6 +946,8 @@ void PathTracePrimaryPass::ReadBackGpuSkinningParitySamples()
             currentError,
             currentPass ? 1 : 0,
             sample.hasPrevious ? 1 : 0,
+            sample.previousInvalidReasonFlags,
+            sample.temporalStateFlags,
             sample.cpuPrevious.previousPosition[0],
             sample.cpuPrevious.previousPosition[1],
             sample.cpuPrevious.previousPosition[2],

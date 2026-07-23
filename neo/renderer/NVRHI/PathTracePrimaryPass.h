@@ -259,6 +259,8 @@ private:
         int vertexIndex = -1;
         uint64 currentByteOffset = 0;
         uint64 previousByteOffset = 0;
+        uint32_t previousInvalidReasonFlags = 0;
+        uint32_t temporalStateFlags = 0;
         bool hasPrevious = false;
         PathTraceSkinnedSourceVertex source = {};
         PathTraceSmokeVertex cpuCurrent = {};
