@@ -1130,6 +1130,7 @@ void AddSmokeSkinnedSurfaceRecord(
     record.basePoseLikely = SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri);
     record.entityIndex = record.key.entityIndex;
     record.drawSurfIndex = drawSurfIndex;
+    record.modelSurfaceIndex = drawSurf->modelSurfaceIndex;
     record.modelName = renderEntity && renderEntity->hModel ? renderEntity->hModel->Name() : "<none>";
     record.materialId = materialId;
     if (verticesFromFrameCache)

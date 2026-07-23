@@ -114,6 +114,62 @@ to each funnel detail and parity sample. These are the existing
 RtSmokeSkinnedSurfaceRecord invalid-reason and temporal-state flags. They do
 not change matching or production behavior.
 
+GEOMETRY_GEO16 RESULT
+---------------------
+The invalid flags separated the two Fatzombie observations:
+
+  mode 1  invalid=0x00000001  temporal=0x00000000
+  mode 2  invalid=0x00000002  temporal=0x00000000
+
+0x1 is NO_PREVIOUS_FRAME: no retained skinned record or previous-position
+stream existed at the mode 1 observation. 0x2 is NO_PREVIOUS_SURFACE: a
+previous frame existed at the mode 2 observation, but no record matched the
+loose bridge key. Stable actors and props in the same mode 2 frame reported
+invalid=0 and temporal=0x7f.
+
+The loose bridge key requires exact equality of entity index, entityDef
+pointer, source-model pointer, and triangle pointer. The failure occurs before
+topology, skeleton, material, transform-continuity, or retained-buffer checks.
+No production matching rule is changed in GEO-03.
+
+The next diagnostic build prints bounded `PT skinned previous identity miss`
+lines. For the current record and every previous record with the same entity
+index, it reports:
+
+  modelSurfaceIndex
+  entityDef pointer
+  source-model pointer
+  triangle pointer
+  per-component equality
+
+If no previous record has that entity index, it reports
+sameEntityCandidates=0. This distinguishes visibility/history absence from
+transient triangle-pointer churn while retaining GEO-03's observability-only
+scope.
+
+GEOMETRY_GEO17 RESULT
+---------------------
+The log began with two Fatzombie spawn commands and the sampled Fatzombie
+reported:
+
+  sameEntityCandidates=0
+  invalid=0x00000002
+  temporal=0x00000000
+
+The immediately preceding retained frame did not contain entity 1065, so there
+was no prior key to compare. This capture does not demonstrate transient
+triangle-pointer churn and does not authorize a matching change.
+
+Numeric observability remained clean:
+
+  candidates/dispatched/exact             17 / 17 / 1
+  samples                                  24
+  failures current/previous/motion          0 / 0 / 0
+  non-finite outputs                        0
+  maximum current/previous/motion error     0.0000152588
+
+Stable actors and props continued to report invalid=0 and temporal=0x7f.
+
 CURRENT MODE CONTRACT
 ---------------------
 r_pathTracingGpuSkinning 0
@@ -272,27 +328,36 @@ Use the known mc_underground crowd area. Include:
   - a mixed-weight MD5 surface; and
   - a surface reported with singleBone=1 in the funnel detail lines.
 
-Asset coverage through geometry_geo15.log is complete. Before the wider state
-matrix, capture the animated-monster history rejection once with the new
-diagnostic executable. Leave an ordinary zombie and Fatzombie alive and visible
-for several seconds, then run:
+Asset coverage through geometry_geo15.log is complete. geometry_geo17 captured
+a first-observation/visibility miss with no prior same-entity record. To close
+the distinction, keep one Fatzombie alive and continuously visible. Do not
+spawn or move the camera during this test. Set mode 2, wait several seconds,
+and collect two back-to-back one-shots:
 
-  echo === GEO03_MONSTER_HISTORY_MODE1 ===
-  r_pathTracingGpuSkinning 1
-  r_pathTracingGpuSkinningParityDump 1
-
-Wait for the parity summary, then:
-
-  echo === GEO03_MONSTER_HISTORY_MODE2 ===
+  echo === GEO03_MONSTER_SETTLED_FIRST ===
   r_pathTracingGpuSkinning 2
   r_pathTracingGpuSkinningParityDump 1
 
-Wait for the parity summary and return to:
+Wait for the first parity summary, then:
+
+  echo === GEO03_MONSTER_SETTLED_SECOND ===
+  r_pathTracingGpuSkinningParityDump 1
+
+Wait for the second parity summary and return to:
 
   r_pathTracingGpuSkinning 0
 
-Preserve every monster sample containing hasPrevious=0 together with its
-invalid and temporal values. Do not respawn between the two captures.
+The second capture is decisive:
+
+  hasPrevious=1
+    settled history is valid; GEO-03 may close this issue.
+
+  sameEntityCandidates=0
+    the surface is absent intermittently from consecutive captured frames;
+    preserve both captures for visibility/capture ownership planning.
+
+  sameEntityCandidates greater than zero
+    compare the printed equality tuple to identify the unstable key component.
 
 For mode 1, collect one one-shot at each state:
 
@@ -350,6 +415,6 @@ Build:
 
 Built and deployed executable:
 
-  size    15,542,784 bytes
-  mtime   2026-07-23 20:21:33 +10
-  SHA256  4963AC45BA5CD9B975E65F8BBAB616E392D1745AE40B259C9240DFFF4B6D6AC0
+  size    15,543,808 bytes
+  mtime   2026-07-23 20:30:56 +10
+  SHA256  7E6011EFCA32231141AAC9833AD03CA4FCFBFEE798EEA16335A2FA2F47901E7B

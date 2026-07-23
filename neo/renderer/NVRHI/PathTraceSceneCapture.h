@@ -264,6 +264,7 @@ struct RtSmokeSkinnedSurfaceRecord
     bool basePoseLikely = false;
     int entityIndex = -1;
     int drawSurfIndex = -1;
+    int modelSurfaceIndex = -1;
     idStr modelName;
     uint32_t materialId = 0;
     uint32_t invalidReasonFlags = RT_SMOKE_SKINNED_INVALID_NONE;

@@ -2684,6 +2684,8 @@ void UpdateSmokeSkinnedPreviousCpuBridge(
     std::vector<PathTraceSmokeVertex>& nextPreviousSkinnedVertexData)
 {
     const bool hadPreviousFrame = !previousRecords.empty() || !previousSkinnedVertexData.empty();
+    const bool dumpIdentityMisses = r_pathTracingGpuSkinningParityDump.GetInteger() != 0;
+    int identityMissDetailCount = 0;
     const float teleportDistanceSqr = RT_SMOKE_SKINNED_TELEPORT_DISTANCE * RT_SMOKE_SKINNED_TELEPORT_DISTANCE;
 
     nextPreviousSkinnedVertexData.clear();
@@ -2714,6 +2716,53 @@ void UpdateSmokeSkinnedPreviousCpuBridge(
             else
             {
                 reasons |= RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_SURFACE;
+            }
+            if (dumpIdentityMisses)
+            {
+                int sameEntityCandidates = 0;
+                for (const RtSmokeSkinnedSurfaceRecord& candidate : previousRecords)
+                {
+                    if (candidate.entityIndex != current.entityIndex)
+                    {
+                        continue;
+                    }
+                    ++sameEntityCandidates;
+                    if (identityMissDetailCount >= 16)
+                    {
+                        continue;
+                    }
+                    common->Printf(
+                        "PathTracePrimaryPass: PT skinned previous identity miss detail=%d entity=%d model='%s' current(modelSurface/entityDef/model/tri)=%d/%p/%p/%p previous(modelSurface/entityDef/model/tri)=%d/%p/%p/%p equal(entityDef/model/tri/modelSurface)=%d/%d/%d/%d\n",
+                        identityMissDetailCount,
+                        current.entityIndex,
+                        current.modelName.c_str(),
+                        current.modelSurfaceIndex,
+                        reinterpret_cast<const void*>(current.key.entityDef),
+                        reinterpret_cast<const void*>(current.key.model),
+                        reinterpret_cast<const void*>(current.key.tri),
+                        candidate.modelSurfaceIndex,
+                        reinterpret_cast<const void*>(candidate.key.entityDef),
+                        reinterpret_cast<const void*>(candidate.key.model),
+                        reinterpret_cast<const void*>(candidate.key.tri),
+                        candidate.key.entityDef == current.key.entityDef ? 1 : 0,
+                        candidate.key.model == current.key.model ? 1 : 0,
+                        candidate.key.tri == current.key.tri ? 1 : 0,
+                        candidate.modelSurfaceIndex == current.modelSurfaceIndex ? 1 : 0);
+                    ++identityMissDetailCount;
+                }
+                if (sameEntityCandidates == 0 && identityMissDetailCount < 16)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: PT skinned previous identity miss detail=%d entity=%d model='%s' current(modelSurface/entityDef/model/tri)=%d/%p/%p/%p sameEntityCandidates=0\n",
+                        identityMissDetailCount,
+                        current.entityIndex,
+                        current.modelName.c_str(),
+                        current.modelSurfaceIndex,
+                        reinterpret_cast<const void*>(current.key.entityDef),
+                        reinterpret_cast<const void*>(current.key.model),
+                        reinterpret_cast<const void*>(current.key.tri));
+                    ++identityMissDetailCount;
+                }
             }
         }
         else

@@ -273,6 +273,45 @@ animated-surface identity before any production identity change is considered.
 Spawn/despawn, offscreen/return, PDA, and the full mode transition remain
 pending.
 
+geometry_geo16.log narrowed the monster-history rejection:
+
+  mode 1 Fatzombie invalid/temporal   0x00000001 / 0x00000000
+  mode 2 Fatzombie invalid/temporal   0x00000002 / 0x00000000
+  stable mode 2 actors/props          0x00000000 / 0x0000007f
+
+Bit 0 is NO_PREVIOUS_FRAME: at the mode 1 observation, both retained previous
+records and the retained previous vertex stream were empty. Bit 1 is
+NO_PREVIOUS_SURFACE: at the later mode 2 observation, a previous frame existed,
+but no record matched the Fatzombie bridge key. The loose key currently
+requires entity index, entityDef pointer, source-model pointer, and transient
+triangle pointer to all match. Because the rejection occurs before topology,
+skeleton, material, transform, and retained-buffer checks, none of those later
+contracts has failed.
+
+The GEO-03 diagnostic now reports same-entity candidates and compares
+entityDef/model/triangle pointers plus drawSurf modelSurfaceIndex. This remains
+passive observability: production matching is unchanged. If the stable entity,
+model, and model-surface ordinal match while only the triangle pointer differs,
+the durable identity repair belongs to GEO-04/GEO-07 rather than this ticket.
+
+geometry_geo17.log did not demonstrate pointer churn. The capture followed two
+Fatzombie spawn commands and reported:
+
+  Fatzombie previous identity candidates     0
+  mode 2 candidates/dispatched/exact         17 / 17 / 1
+  samples/current/previous/motion failures   24 / 0 / 0 / 0
+  non-finite outputs                         0
+  maximum observed error                     0.0000152588
+
+`sameEntityCandidates=0` proves that the immediately preceding captured frame
+contained no record for entity 1065. There was therefore no prior key whose
+pointer components could disagree. This is correct first-observation or
+visibility-return invalidation, not evidence authorizing a production identity
+change. A settled back-to-back pair without spawning or camera movement remains
+necessary: the second capture must either acquire valid previous history,
+report intermittent same-entity absence again, or expose an actual component
+mismatch.
+
 LIFECYCLE RESULT
 ----------------
 Probe:
