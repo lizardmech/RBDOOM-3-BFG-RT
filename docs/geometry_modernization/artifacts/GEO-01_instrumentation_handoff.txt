@@ -229,6 +229,20 @@ After capture, restore:
 Do not leave force rebuild enabled for normal play. It rebuilds the full
 monolithic static BLAS every frame and exists only to localize this contract.
 
+GEO-08 FINAL LOCALIZATION
+-------------------------
+The valid mask-0x01 repeat completed the gate:
+
+  - cache reuse misses the exact retained CPU candidate;
+  - forced static-BLAS rebuild reaches instance 0, primitive 11109;
+  - counts, resource identities, static signature, TLAS identity, material,
+    and CPU cache ray are unchanged.
+
+The first proven mismatch is cached static-BLAS lifetime versus persistent
+static geometry lifetime. GEO-02 is now unblocked. The narrow repair must bind
+BLAS reuse to the geometry owner's topology generation and retain the legacy
+hash/dirty-only path behind one rollback cvar for the required A/B.
+
 FINAL A/B BUILD / DEPLOY
 ------------------------
   command:

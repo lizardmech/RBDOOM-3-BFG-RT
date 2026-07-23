@@ -569,6 +569,7 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.tlas = desc.tlas;
     commitDesc.hasStaticBlas = desc.hasStaticBlas;
     commitDesc.staticBlasSignature = desc.staticBlasSignature;
+    commitDesc.staticBlasGeometryGeneration = desc.staticBlasGeometryGeneration;
     commitDesc.bindingSet = desc.bindingSet;
     commitDesc.textureDescriptorTable = desc.textureDescriptorTable;
     commitDesc.skyEnvironmentCube = desc.skyEnvironmentCube;
@@ -1833,6 +1834,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeTestDispatched = false;
     m_smokeStaticBlasCacheValid = false;
     m_smokeStaticBlasSignature = 0;
+    m_smokeStaticBlasGeometryGeneration = 0;
     m_smokeSceneUniverseStaticBuildGeneration = 0;
     ResetRayTracingSmokeAsyncCpuWork();
     m_smokeBvhDirtyPreviousTokenValid = false;
@@ -2063,6 +2065,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     {
         m_smokeStaticBlasCacheValid = true;
         m_smokeStaticBlasSignature = desc.staticBlasSignature;
+        m_smokeStaticBlasGeometryGeneration = desc.staticBlasGeometryGeneration;
     }
     m_smokeBindingSet = desc.bindingSet;
     m_smokeTextureDescriptorTable = desc.textureDescriptorTable;

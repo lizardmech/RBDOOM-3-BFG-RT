@@ -423,6 +423,12 @@ idCVar r_pathTracingStaticBlasForceRebuild(
     CVAR_RENDERER | CVAR_BOOL,
     "Diagnostic A/B: force the monolithic static-world BLAS to rebuild every frame instead of reusing the cached acceleration structure" );
 
+idCVar r_pathTracingStaticBlasGenerationGuard(
+    "r_pathTracingStaticBlasGenerationGuard",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Require the cached static-world BLAS to match the persistent geometry topology generation; 0 restores legacy hash/dirty-flag-only reuse" );
+
 idCVar r_pathTracingSceneBoundsOverlay(
     "r_pathTracingSceneBoundsOverlay",
     "0",

@@ -11,6 +11,58 @@ PRECONDITIONS
 - GEO-01 provides exact expected/actual values and an earliest bad boundary.
 - If GEO-01 did not localize a mismatch, this ticket is blocked.
 
+PRECONDITION STATUS
+-------------------
+Satisfied by GEO-08. With identical retained data, CPU cache ray, material,
+signature, and TLAS, cached mask-0x01 traversal missed while a forced static
+BLAS rebuild reached the exact expected instance-0 primitive. The localized
+owner is static-BLAS cache acceptance versus persistent static topology
+generation.
+
+IMPLEMENTED CANDIDATE
+---------------------
+The persistent geometry universe now publishes a topology-only
+`staticGeometryGeneration`. Material-only refreshes advance the already
+separate material generation but no longer claim that BLAS input geometry
+changed.
+
+The committed static BLAS records the topology generation it was built from.
+With:
+
+  r_pathTracingStaticBlasGenerationGuard 1
+
+cache acceptance requires the committed and current topology generations to
+match. A mismatch performs a normal full static upload/build once, then
+returns to cache reuse. Set the cvar to 0 for the exact legacy
+hash/dirty-flag-only A/B path. The every-frame force-rebuild diagnostic remains
+independent and should stay 0.
+
+A reused BLAS retains its original committed generation even while the guard
+is disabled. This is required so that switching the guard back on can detect
+and repair a stale legacy-path BLAS instead of laundering it as current. Each
+guard invalidation prints one:
+
+  PT static BLAS generation guard invalidated cache
+
+The static one-shot tuple now prints:
+
+  staticGen(cache/current/mismatch/guard)
+
+This makes the repaired invariant directly observable.
+
+Build/deploy:
+
+  Vulkan release build:             success
+  executable bytes:                 15514624
+  modified:                         2026-07-23 18:05:09 Australia/Sydney
+  sha256:                           DB970F6FB8F791A63C9DA235F5EBAEB989FF2E61BA83A5F8E7CCC82BCE445C7E
+  deployed executable hash:         identical
+  SPIR-V:                           unchanged; all reported up to date
+  DX12 shader compilation/deploy:   not performed
+
+Runtime old/fix A/B and the four scenario regressions remain required before
+this ticket is complete.
+
 FILES TO AUDIT FIRST
 --------------------
 Read the GEO-01 handoff and only the producer/consumer files on its localized

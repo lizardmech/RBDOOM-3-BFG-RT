@@ -1626,7 +1626,6 @@ bool RtSmokeGeometryUniverse::RefreshStaticSurfaceMaterial(uint64 key, uint32_t 
     }
 
     record->materialId = materialId;
-    ++m_staticGeometryGeneration;
     record->materialGeneration = ++m_staticMaterialGeneration;
     AccumulateSmokeGeometryElementRange(record->currentRange.triangles, m_staticMaterialDirtyTriangleOffset, m_staticMaterialDirtyTriangleCount);
     return true;
@@ -1994,6 +1993,7 @@ RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats(bool validateReco
     stats.previousStaticBytesKB = static_cast<int>((previousStaticBytes + 1023) / 1024);
     stats.frameIndex = m_currentFrameIndex;
     stats.generation = m_generation;
+    stats.staticGeometryGeneration = m_staticGeometryGeneration;
     stats.staticMaterialGeneration = m_staticMaterialGeneration;
     return stats;
 }

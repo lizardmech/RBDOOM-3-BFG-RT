@@ -334,3 +334,52 @@ These rows are not BLAS misses and must not authorize GEO-02. The repeat must
 keep `r_pathTracingCleanRtxdiDiEnable 0` and debug mode 24 active for both
 labeled dumps. Restore the accepted clean-DI setting only after both shader
 samples have printed.
+
+GEO-08 DECISIVE MASK-0X01 RESULT
+--------------------------------
+Raw source:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo08.log
+  bytes: 5667
+  modified: 2026-07-23 17:51:24 Australia/Sydney
+
+The repeat kept clean RTXDI DI disabled and debug mode 24 active. Both rows
+selected the same raster receiver and the retained CPU cache reproduced the
+same exact ray:
+
+  map / area:                       maps/game/comm1.map / 41
+  model / surface:                  _area62 / 7
+  material:                         textures/mcity/mcityc13blu
+  retained counts v/i/t:            44633 / 111795 / 37265
+  candidate primitive range:        11004 + 232
+  cacheRay primitive / delta:        11109 / 0.0001
+  static signature:                 18089938440341927054
+  TLAS:                             00000236CD4D2650
+
+Cache-reuse frame 7108:
+
+  static BLAS:                      00000238F479EE00
+  cacheHit / force / build:         1 / 0 / 0
+  mask-0x01 shader result:           miss
+  validFlags / reject:              0x00000000 / 13
+
+Forced frame 7653:
+
+  static BLAS:                      00000238F479EEE0
+  cacheHit / force / build:         0 / 1 / 1
+  mask-0x01 shader instance/prim:    0 / 11109
+  material id / index:              3573337263 / 28
+  valid/instance/primitive/material matches:
+                                      1 / 1 / 1 / 1 / 1
+
+All CPU count, buffer-handle, signature, route, and retained-cache checks
+matched in both rows. Rebuilding only the static BLAS changed the exact
+candidate ray from a traversal miss to the expected instance-0 primitive.
+
+Accepted invariant failure:
+
+  cached static BLAS contents do not necessarily correspond to the persistent
+  static vertex/index generation that the reused signature claims to represent.
+
+GEO-02 is authorized at the static-BLAS invalidation/reuse boundary. A
+permanent every-frame force rebuild remains rejected.

@@ -69,6 +69,7 @@ struct RtSmokeGeometryUniverseStats
     uint64 previousStaticSnapshotMaterialGeneration = 1;
     uint64 frameIndex = 0;
     uint64 generation = 1;
+    uint64 staticGeometryGeneration = 1;
     uint64 staticMaterialGeneration = 1;
 };
 

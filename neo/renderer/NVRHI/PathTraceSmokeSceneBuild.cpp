@@ -3272,6 +3272,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeStaticTriangleMaterialIndexUploadSignatureValid = false;
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
+        m_smokeStaticBlasGeometryGeneration = 0;
         m_smokeSceneUniverseStaticBuildGeneration = 0;
         m_smokeSceneRebuildLogged = false;
         m_smokeSceneSourceLast = sceneSource;
@@ -3301,6 +3302,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticTriangleMaterialIndexUploadSignatureValid = false;
             m_smokeStaticBlasCacheValid = false;
             m_smokeStaticBlasSignature = 0;
+            m_smokeStaticBlasGeometryGeneration = 0;
             m_smokeSceneUniverseStaticBuildGeneration = 0;
             m_smokeSceneRebuildLogged = false;
         }
@@ -3321,6 +3323,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeStaticTriangleMaterialIndexUploadSignatureValid = false;
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
+        m_smokeStaticBlasGeometryGeneration = 0;
         m_smokeSceneUniverseStaticBuildGeneration = 0;
     }
     RtPathTraceSceneUniverseBuildStats sceneUniverseStaticBuildStats;
@@ -4895,6 +4898,19 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int staticTriangleCacheCount = geometryUniverseStats.staticTriangles;
     const int staticCacheBytesKB = geometryUniverseStats.staticBytesKB;
     const bool forceStaticBlasRebuild = r_pathTracingStaticBlasForceRebuild.GetBool();
+    const uint64 cachedStaticBlasGeometryGeneration = m_smokeStaticBlasGeometryGeneration;
+    const bool staticBlasGenerationMismatch =
+        r_pathTracingStaticBlasGenerationGuard.GetBool() &&
+        m_smokeStaticBlasCacheValid &&
+        cachedStaticBlasGeometryGeneration != geometryUniverseStats.staticGeometryGeneration;
+    if (staticBlasGenerationMismatch)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: PT static BLAS generation guard invalidated cache frame=%llu cached=%llu current=%llu\n",
+            static_cast<unsigned long long>(geometryUniverseStats.frameIndex),
+            static_cast<unsigned long long>(cachedStaticBlasGeometryGeneration),
+            static_cast<unsigned long long>(geometryUniverseStats.staticGeometryGeneration));
+    }
     RtSmokeAccelerationPlanInput accelerationPlanInput;
     {
         OPTICK_EVENT("PT Acceleration Plan Input Desc");
@@ -4924,7 +4940,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticTriangleClassBuffer &&
             m_smokeStaticTriangleMaterialBuffer &&
             m_smokeStaticTriangleMaterialIndexBuffer;
-        accelerationPlanInput.staticCache.staticCacheChanged = staticCacheChanged || forceStaticBlasRebuild;
+        accelerationPlanInput.staticCache.staticCacheChanged =
+            staticCacheChanged || forceStaticBlasRebuild || staticBlasGenerationMismatch;
         accelerationPlanInput.staticCache.previousSignatureHash = m_smokeStaticBlasSignature;
         accelerationPlanInput.staticVertexCount = staticVertexCount;
         accelerationPlanInput.staticIndexCount = staticIndexCount;
@@ -6013,6 +6030,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.tlas = m_smokeTlas;
     resourceCommitBuildDesc.hasStaticBlas = hasStaticBlas;
     resourceCommitBuildDesc.staticBlasSignature = staticSignature.hash;
+    resourceCommitBuildDesc.staticBlasGeometryGeneration =
+        staticBlasCacheHit
+            ? cachedStaticBlasGeometryGeneration
+            : geometryUniverseStats.staticGeometryGeneration;
     resourceCommitBuildDesc.bindingSet = bindingBuildResult.bindingSet;
     resourceCommitBuildDesc.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
     resourceCommitBuildDesc.activeTextureTable = &bindingBuildResult.activeTextureTable;
@@ -6460,12 +6481,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_sceneInputs.geometry.staticBlas != m_smokeStaticBlas;
 
         common->Printf(
-            "PathTracePrimaryPass: PT static contract tuple map='%s' frame=%llu area=%d worldGen=%llu storageGen=%llu activeSetGen=%llu uploadGen=%llu routeGen=%llu counts(cache/blas/shader v/i/t)=%d/%d/%d %d/%d/%d %d/%d/%d handles(v/i/class/material/remap/blas/tlas)=%p/%p/%p/%p/%p/%p/%p staticSig=%llu cacheHit=%d forceRebuild=%d build(submit/skip)=%d/%d tlasInstances=%d tupleMismatch(counts/handles/signature/staleBlas/frameSlot)=%d/%d/%d/%d/%d shaderSample=unobserved\n",
+            "PathTracePrimaryPass: PT static contract tuple map='%s' frame=%llu area=%d worldGen=%llu storageGen=%llu staticGen(cache/current/mismatch/guard)=%llu/%llu/%d/%d activeSetGen=%llu uploadGen=%llu routeGen=%llu counts(cache/blas/shader v/i/t)=%d/%d/%d %d/%d/%d %d/%d/%d handles(v/i/class/material/remap/blas/tlas)=%p/%p/%p/%p/%p/%p/%p staticSig=%llu cacheHit=%d forceRebuild=%d build(submit/skip)=%d/%d tlasInstances=%d tupleMismatch(counts/handles/signature/staleBlas/frameSlot)=%d/%d/%d/%d/%d shaderSample=unobserved\n",
             m_smokeSceneMapName.c_str(),
             static_cast<unsigned long long>(geometryUniverseStats.frameIndex),
             viewDef ? viewDef->areaNum : -1,
             static_cast<unsigned long long>(m_sceneUniverse.GetStats().generation),
             static_cast<unsigned long long>(geometryUniverseStats.generation),
+            static_cast<unsigned long long>(cachedStaticBlasGeometryGeneration),
+            static_cast<unsigned long long>(geometryUniverseStats.staticGeometryGeneration),
+            staticBlasGenerationMismatch ? 1 : 0,
+            r_pathTracingStaticBlasGenerationGuard.GetBool() ? 1 : 0,
             static_cast<unsigned long long>(sceneLogDesc.bvhActiveSetSignature),
             static_cast<unsigned long long>(m_sceneInputs.signatures.cpuUploadGeneration),
             static_cast<unsigned long long>(sceneLogDesc.bvhTlasInstanceSignature),

@@ -259,7 +259,10 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
     {
         for (ParticleCompositeGpuTimerSlot& timer : m_particleCompositeGpuTimers)
         {
-            if (!timer.pending || !timer.query || !device->pollTimerQuery(timer.query))
+            if (!timer.pending ||
+                !timer.query ||
+                currentFrame < timer.earliestPollFrame ||
+                !device->pollTimerQuery(timer.query))
             {
                 continue;
             }
@@ -464,6 +467,10 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
             gpuTimer->indexes = static_cast<uint32_t>(uploadIndexes.size());
             gpuTimer->lightingTasks = static_cast<uint32_t>(m_particleCapture.lightingTasks.size());
             gpuTimer->draws = 0u;
+            // Vulkan query-pool reset is recorded into this command list.
+            // Polling a reused slot before that reset executes can observe the
+            // previous use's available bit and report the old time again.
+            gpuTimer->earliestPollFrame = currentFrame + static_cast<int>(NUM_FRAME_DATA);
             commandList->beginTimerQuery(gpuTimer->query);
             r_pathTracingParticleGpuTiming.SetInteger(requestedGpuTimings - 1);
             break;

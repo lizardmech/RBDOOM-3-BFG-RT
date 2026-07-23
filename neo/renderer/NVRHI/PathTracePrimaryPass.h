@@ -251,6 +251,7 @@ private:
     int m_smokeSceneLogCooldownFrames;
     bool m_smokeStaticBlasCacheValid;
     uint64 m_smokeStaticBlasSignature;
+    uint64 m_smokeStaticBlasGeometryGeneration;
     int m_smokeStaticBlasCacheHitCount;
     int m_smokeStaticBlasCacheMissCount;
     uint64 m_smokeGeometryFrameIndex;
@@ -348,6 +349,7 @@ private:
         uint32_t indexes = 0;
         uint32_t lightingTasks = 0;
         uint32_t draws = 0;
+        int earliestPollFrame = 0;
     };
     ParticleCompositeGpuTimerSlot m_particleCompositeGpuTimers[PARTICLE_COMPOSITE_GPU_TIMER_SLOTS];
     uint32_t m_particleCompositeGpuTimerCursor = 0;

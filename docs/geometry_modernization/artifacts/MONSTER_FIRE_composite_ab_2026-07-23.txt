@@ -309,3 +309,34 @@ Build/deploy:
   sha256:              F7E3DEE0AEBA5464D30A5F27519E9D23036F6E583FAE84327933CA1D3B171029
   SPIR-V:              unchanged
   DX12 shaders:        not compiled or deployed
+
+GEO-07 TIMER CAPTURE REJECTED
+-----------------------------
+Raw source:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo07.log
+  bytes: 194124
+  modified: 2026-07-23 17:45:00 Australia/Sydney
+
+The capture contains 240 rows and aligns several 0.7-1.85 second CPU/backend
+stalls with reported particle ranges near 0.5-0.8 ms. Those values cannot yet
+be used to exclude the particle GPU range.
+
+The reported GPU times repeat exactly every 16 invocations, matching the
+timer-ring size. On Vulkan, `beginTimerQuery` records the query-pool reset in
+the command list. Reusing a query and polling it before that recorded reset has
+executed can observe the previous use's available bit and return the old time.
+The diagnostic therefore associated stale query results with new frame
+metadata.
+
+The timer ring must delay polling a newly reused slot by at least the renderer
+frame-data depth, matching the existing render-log timer discipline. Repeat
+the same monster-fire capture after that correction. Do not advance to
+enclosing PT/backend timers from GEO-07's invalid values.
+
+The correction is present in the Vulkan test executable:
+
+  executable bytes:                 15514624
+  modified:                         2026-07-23 18:05:09 Australia/Sydney
+  sha256:                           DB970F6FB8F791A63C9DA235F5EBAEB989FF2E61BA83A5F8E7CCC82BCE445C7E
+  SPIR-V:                           unchanged

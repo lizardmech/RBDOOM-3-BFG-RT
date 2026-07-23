@@ -190,6 +190,7 @@ struct RtSmokeSceneResourceCommitDesc
     nvrhi::rt::AccelStructHandle tlas;
     bool hasStaticBlas = false;
     uint64 staticBlasSignature = 0;
+    uint64 staticBlasGeometryGeneration = 0;
     nvrhi::BindingSetHandle bindingSet;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     std::vector<nvrhi::TextureHandle> activeTextureTable;
@@ -225,6 +226,7 @@ struct RtSmokeSceneResourceCommitBuildDesc
     nvrhi::rt::AccelStructHandle tlas;
     bool hasStaticBlas = false;
     uint64 staticBlasSignature = 0;
+    uint64 staticBlasGeometryGeneration = 0;
     nvrhi::BindingSetHandle bindingSet;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     const std::vector<nvrhi::TextureHandle>* activeTextureTable = nullptr;
