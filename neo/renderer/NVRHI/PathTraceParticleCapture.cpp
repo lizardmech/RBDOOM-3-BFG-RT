@@ -156,11 +156,36 @@ bool ParticleAuditStageSupported(const ParticleAuditStage& stage)
     return stage.reason.Icmp("supported") == 0;
 }
 
-bool ParticleCompositeHasExplicitEffectContext(const drawSurf_t* drawSurf)
+bool ParticleCompositeRenderWorldContainsEntity(
+    const viewDef_t* viewDef,
+    const idRenderEntityLocal* entity)
+{
+    if (!viewDef || !viewDef->renderWorld || !entity)
+    {
+        return false;
+    }
+
+    const idRenderWorldLocal* renderWorld = viewDef->renderWorld;
+    for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)
+    {
+        if (renderWorld->entityDefs[entityIndex] == entity)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ParticleCompositeHasExplicitEffectContext(
+    const viewDef_t* viewDef,
+    const drawSurf_t* drawSurf)
 {
     const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
     const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
-    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    const renderEntity_t* renderEntity =
+        ParticleCompositeRenderWorldContainsEntity(viewDef, entity)
+            ? &entity->parms
+            : nullptr;
     const char* modelName = renderEntity && renderEntity->hModel ? renderEntity->hModel->Name() : nullptr;
     return (space && space->weaponDepthHack) ||
         (renderEntity && renderEntity->allowSurfaceInViewID != 0) ||
@@ -171,6 +196,7 @@ bool ParticleCompositeSurfaceAccepted(
     const drawSurf_t* drawSurf,
     const RtSmokeTranslucentClassifierInfo& classifier,
     const std::vector<ParticleAuditStage>& activeStages,
+    bool explicitEffectContext,
     int& supportedStageCount)
 {
     supportedStageCount = 0;
@@ -187,7 +213,7 @@ bool ParticleCompositeSurfaceAccepted(
     const bool transientMaterialTrait =
         ParticleAuditSupportedDeform(material->Deform()) ||
         classifier.nameLooksParticle ||
-        ParticleCompositeHasExplicitEffectContext(drawSurf);
+        explicitEffectContext;
     return transientMaterialTrait &&
         supportedStageCount > 0 &&
         !IsSmokeGuiDrawSurface(drawSurf) &&
@@ -210,22 +236,25 @@ ParticleCompositeSurfaceInspection ParticleCompositeInspectSurface(
     ParticleCompositeSurfaceInspection inspection;
     inspection.surfaceIndex = surfaceIndex;
     inspection.drawSurf = drawSurf;
-    const srfTriangles_t* validatedTri = nullptr;
-    if (!ValidateSmokeDrawSurface(viewDef, drawSurf, validatedTri, nullptr) ||
-        validatedTri != tri)
+    inspection.tri = tri;
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    if (!drawSurf || !material || !tri || !tri->verts || !tri->indexes ||
+        tri->numVerts < 3 || tri->numIndexes < 3 ||
+        drawSurf->numIndexes < 3 ||
+        drawSurf->numIndexes > tri->numIndexes ||
+        (drawSurf->numIndexes % 3) != 0)
     {
         return inspection;
     }
 
-    inspection.tri = validatedTri;
-    const idMaterial* material = drawSurf->material;
     inspection.valid = true;
     inspection.classifier = BuildSmokeTranslucentClassifierInfo(material);
     inspection.supportedDeform = ParticleAuditSupportedDeform(material->Deform());
-        inspection.transientMaterialTrait =
-            inspection.supportedDeform ||
-            inspection.classifier.nameLooksParticle ||
-            ParticleCompositeHasExplicitEffectContext(drawSurf);
+    const bool explicitEffectContext = ParticleCompositeHasExplicitEffectContext(viewDef, drawSurf);
+    inspection.transientMaterialTrait =
+        inspection.supportedDeform ||
+        inspection.classifier.nameLooksParticle ||
+        explicitEffectContext;
     inspection.excludedGui = IsSmokeGuiDrawSurface(drawSurf) || inspection.classifier.nameLooksGui;
     inspection.excludedGlass = inspection.classifier.nameLooksGlass;
     inspection.excludedDecal = inspection.classifier.sortIsDecal || inspection.classifier.polygonOffsetDecal || inspection.classifier.nameLooksDecal;
@@ -257,6 +286,7 @@ ParticleCompositeSurfaceInspection ParticleCompositeInspectSurface(
         drawSurf,
         inspection.classifier,
         inspection.activeStages,
+        explicitEffectContext,
         acceptedStageCount);
     inspection.cardOnly = inspection.accepted && !hasActiveNonCompositeStage;
     return inspection;
@@ -568,14 +598,16 @@ bool ParticleCaptureAppendSurface(
     std::vector<uint32_t> baseMaterials;
     RtSmokeSurfaceSkipStats skipStats;
     RtSmokeAttributeStats attributeStats;
-    const srfTriangles_t* validatedTri = nullptr;
-    if (!ValidateSmokeDrawSurface(viewDef, drawSurf, validatedTri, &skipStats) ||
-        validatedTri != tri)
+    if (!drawSurf || !tri || drawSurf->frontEndGeo != tri ||
+        !tri->verts || !tri->indexes ||
+        tri->numVerts < 3 || tri->numIndexes < 3 ||
+        drawSurf->numIndexes < 3 ||
+        drawSurf->numIndexes > tri->numIndexes ||
+        (drawSurf->numIndexes % 3) != 0)
     {
         ++capture.stats.droppedGeometrySurfaces;
         return false;
     }
-    tri = validatedTri;
     const uint32_t materialId = SmokeMaterialId(drawSurf->material);
     const int emittedIndexes = AppendSmokeSurfaceGeometry(
         drawSurf,
@@ -601,11 +633,18 @@ bool ParticleCaptureAppendSurface(
     const float* registers = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
     const viewEntity_t* space = drawSurf->space;
     const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
-    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    const renderEntity_t* renderEntity =
+        ParticleCompositeRenderWorldContainsEntity(viewDef, entity)
+            ? &entity->parms
+            : nullptr;
     const bool weaponDepthHack = space && space->weaponDepthHack;
     const float modelDepthHack = space ? space->modelDepthHack : 0.0f;
-    const RtSmokeSurfaceClass currentClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
-    const bool currentParticleAlphaBvh = currentClass == RtSmokeSurfaceClass::ParticleAlpha;
+    const srfTriangles_t* validatedTri = nullptr;
+    const bool currentBvhSurfaceValid =
+        ValidateSmokeDrawSurface(viewDef, drawSurf, validatedTri, nullptr);
+    const bool currentParticleAlphaBvh =
+        currentBvhSurfaceValid &&
+        ClassifySmokeSurface(viewDef, drawSurf, tri) == RtSmokeSurfaceClass::ParticleAlpha;
 
     bool appendedBatch = false;
     for (const ParticleAuditStage& auditStage : activeStages)

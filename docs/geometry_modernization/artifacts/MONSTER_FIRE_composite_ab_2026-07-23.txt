@@ -220,27 +220,38 @@ FIXED CONTRACT
 --------------
 `ValidateSmokeDrawSurface` now:
 
-  - rejects non-current draw-surface ambient/index cache handles before
-    dereferencing `frontEndGeo`;
   - proves a non-world entity pointer is still present in the current render
     world's `entityDefs` array before reading `renderEntity_t` or `hModel`.
 
-The particle route now carries `viewDef` through every call, and both particle
-inspection and final capture re-run the shared validation before retaining or
-copying geometry.
+The particle route carries `viewDef` through every call. Particle inspection
+and capture first require structurally plausible draw-surface/triangle
+pointers, counts, and pointer identity. The final CPU geometry copy remains
+guarded by `SmokeTryCopyMemory`, so an already-retired vertex/index allocation
+is dropped without retaining poisoned data. Entity/model-derived particle
+traits are read only after the entity pointer is found in the current render
+world.
+
+Non-current draw-surface cache handles are NOT by themselves a rejection
+reason. Transient particles legitimately use live CPU fallback geometry after
+those cache handles stop being current.
 
 VALIDATION
 ----------
-The same save was loaded under the rebuilt RelWithDebInfo executable with
-Visual Studio attached. Extended play produced no further first-chance break or
-process crash. The Vulkan release build also succeeded and all SPIR-V shaders
-reported up to date.
+The first lifetime build broadly rejected every non-current draw-surface cache
+handle. Although extended play no longer crashed, runtime validation showed
+that it also removed nearly every particle in the game. That behavior was
+rejected and removed.
 
-Release executable and deployed copy:
+The narrowed correction was compiled and deployed for a new runtime check:
 
-  bytes: 15511552
-  modified: 2026-07-23 16:28:46.221 Australia/Sydney
-  sha256: 3D669881AA8E7123F80BCAC6ECA12F3EDF9C12FE80865FEE5C800D6DB1294651
+  bytes: 15511040
+  modified: 2026-07-23 16:49:46.543 Australia/Sydney
+  sha256: 91DD3AC49BAFAF46542A93764EE64FA1831FFC8D1AEB649FED72E483DAFB4EA0
+
+Required runtime acceptance is now both:
+
+  - ordinary particles and the monster-attached flames remain visible;
+  - extended play produces no access violation or process crash.
 
 This fixes transient geometry/entity lifetime safety. It does not explain or
 fix the separately measured 1.8-second monster-fire GPU stalls.

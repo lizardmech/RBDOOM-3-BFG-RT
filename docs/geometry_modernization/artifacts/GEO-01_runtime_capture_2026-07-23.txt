@@ -202,3 +202,107 @@ Interpret the pair as follows:
 
 GEO-02 remains blocked until this final A/B supplies the expected/actual
 distinction. A permanent force-rebuild workaround is not authorized.
+
+GEO-05 FORCE-REBUILD RESULT
+---------------------------
+Raw source:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo05.log
+  bytes: 5852
+  modified: 2026-07-23 16:44:36.033 Australia/Sydney
+
+Cache-reuse frame 4095:
+
+  counts(cache/BLAS/shader v/i/t): 44520/111588/37196 for all three
+  static BLAS:                     000001CE0359AE40
+  TLAS:                            000001CC50EE3380
+  cacheHit/force/build:            1/0/0
+  candidate primitive range:       10334 + 2
+  cacheRay:                        hit primitive 10335, delta 0.0000
+  shader primary hit:              rigid instance 95, primitive 3
+
+Forced frame 4584:
+
+  counts(cache/BLAS/shader v/i/t): 44520/111588/37196 for all three
+  new static BLAS:                 000001CE0359C180
+  same TLAS:                       000001CC50EE3380
+  cacheHit/force/build:            0/1/1
+  candidate primitive range:       10334 + 2
+  cacheRay:                        hit primitive 10335, delta 0.0000
+  shader primary hit:              rigid instance 95, primitive 3
+
+All tuple mismatch counters remained zero. The user observed the brush return
+only after slight movement; a newly entered section briefly lost brush parts
+again before they returned. Therefore force rebuild is not an immediate,
+deterministic repair in the sampled frame. The two unrestricted shader samples
+also cannot distinguish a failed static traversal from a legitimate rigid
+surface in front of the collision probe.
+
+The submission audit shows `SubmitSmokeAccelerationBuilds` always builds the
+TLAS from the current frame's static BLAS handle, after any required static
+BLAS build. A simple missing BLAS-to-TLAS publication call is ruled out.
+
+NEXT BOUNDED DISTINCTION
+------------------------
+Debug mode 24 already traces the fallback/static route with mask 0x01 and the
+rigid route with mask 0x02. The diagnostic shader now writes its mask-0x01
+payload into the normal static-contract readback before displaying the mode-24
+comparison color.
+
+At a reproduced missing brush, keep the crosshair fixed on opaque brush
+geometry and run:
+
+  r_pathTracingDebugMode 24
+  r_pathTracingStaticBlasForceRebuild 0
+  echo === GEO01_MASK01_CACHE_REUSE ===
+  r_pathTracingStaticContractDump 1
+
+Then:
+
+  r_pathTracingStaticBlasForceRebuild 1
+  echo === GEO01_MASK01_FORCE_REBUILD ===
+  r_pathTracingStaticContractDump 1
+
+Restore:
+
+  r_pathTracingStaticBlasForceRebuild 0
+  r_pathTracingDebugMode 18
+
+Interpret the two `shaderSample` lines:
+
+  instance=0 with the candidate primitive range
+    Static traversal is present; the earlier rigid result merely won the
+    unrestricted ray.
+
+  instance=0 with another primitive
+    Static traversal is present but a different fallback/static surface is
+    geometrically closer. Reconcile the raster collision probe with render
+    visibility before authorizing GEO-02.
+
+  instance=1 or reject=miss in both rows
+    The mask-0x01 path does not reach the retained candidate. Continue at
+    BLAS build input/state rather than patching shader routing.
+
+  cache row misses but forced row reaches instance=0
+    Static BLAS invalidation/reuse is the first proven mismatch and GEO-02 may
+    repair that invariant narrowly.
+
+Vulkan build/deploy for this probe:
+
+  executable:
+    bytes: 15511040
+    modified: 2026-07-23 16:49:46.543 Australia/Sydney
+    sha256: 91DD3AC49BAFAF46542A93764EE64FA1831FFC8D1AEB649FED72E483DAFB4EA0
+
+  pathtrace_smoke.rt.bin:
+    bytes: 1331628
+    modified: 2026-07-23 16:52:56.970 Australia/Sydney
+    sha256: D53CF41FE961099BF4F43B07E7330910CFC307CB3C5C07C3A546ACFB10E547D5
+
+  pathtrace_restir_pdf_nee_rlu_current.rt.bin:
+    bytes: 708448
+    modified: 2026-07-23 16:52:40.599 Australia/Sydney
+    sha256: BCC833F94AE31F4E5CFD8FFB7C9A0A5E07CB1EC4AD186AD4673A133C5E88FC17
+
+Both SPIR-V blobs are newer than the edited HLSL source. No DX12 shader was
+compiled or deployed.

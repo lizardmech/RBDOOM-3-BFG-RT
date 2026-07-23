@@ -2973,6 +2973,30 @@ void RayGen()
         TraceRay(SmokeScene, RAY_FLAG_NONE, 0x01u, 0, 1, 0, ray, fallbackPayload);
         TraceRay(SmokeScene, RAY_FLAG_NONE, 0x02u, 0, 1, 0, ray, rigidPayload);
 
+        // GEO-01 uses mode 24 as a fallback-route traversal probe. Preserve
+        // the mask-0x01 hit in the normal primary-surface readback so the
+        // one-shot contract dump can distinguish a missing static BLAS hit
+        // from a rigid instance merely winning the unrestricted primary ray.
+        RAB_Surface fallbackHistorySurface = RAB_EmptySurface();
+        if (fallbackPayload.value != 0u && !SmokePayloadIsGuiScreen(fallbackPayload))
+        {
+            fallbackHistorySurface = RAB_BuildSurfaceFromSmokePayload(
+                fallbackPayload,
+                ray.Origin,
+                ray.Direction,
+                true);
+        }
+        if (fallbackPayload.value != 0u && SmokePayloadIsGuiScreen(fallbackPayload))
+        {
+            fallbackPayload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_GUI_PRIMARY;
+        }
+        else if (fallbackPayload.value == 0u &&
+            fallbackPayload.staticContractRejectReason == RT_STATIC_CONTRACT_REJECT_NONE)
+        {
+            fallbackPayload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_MISS;
+        }
+        StoreStaticContractPrimarySurfaceRecord(pixel, fallbackHistorySurface, fallbackPayload);
+
         if (rigidPayload.value != 0u)
         {
             if (fallbackPayload.value != 0u)

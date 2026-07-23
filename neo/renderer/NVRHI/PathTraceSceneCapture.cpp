@@ -124,26 +124,6 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         return false;
     }
 
-    // Dynamic frontend geometry is owned by the frame vertex cache. A backend
-    // draw surface can outlive that cache slot and still retain a non-null
-    // frontEndGeo pointer whose triangle block has already been freed. Reject
-    // the draw surface from its frame-owned handles before dereferencing the
-    // frontend triangle record.
-    const bool drawSurfAmbientCacheStale =
-        drawSurf->ambientCache != 0 &&
-        !vertexCache.CacheIsCurrent(drawSurf->ambientCache);
-    const bool drawSurfIndexCacheStale =
-        drawSurf->indexCache != 0 &&
-        !vertexCache.CacheIsCurrent(drawSurf->indexCache);
-    if (drawSurfAmbientCacheStale || drawSurfIndexCacheStale)
-    {
-        if (skipStats)
-        {
-            ++skipStats->nonCurrentCache;
-        }
-        return false;
-    }
-
     if (!drawSurf->material)
     {
         if (skipStats)
