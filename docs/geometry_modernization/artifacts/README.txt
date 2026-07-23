@@ -32,12 +32,14 @@ GEO-01 FILES
     and the runtime work still required to localize the earliest mismatch.
 
   GEO-01_runtime_capture_2026-07-23.txt
-    Paired comm1 runtime tuple values, the decal/sample limitation, the proven
-    remaining shader boundary, and the Vulkan readback rung.
+    Paired comm1 runtime tuple values, the discarded mistaken block, both
+    shader samples, the decal/receiver limitation, and the revised readback
+    rung.
 
   MONSTER_FIRE_composite_ab_2026-07-23.txt
     Frame-window A/B showing the stalls require the screen-space composite but
-    not CPU sort or particle lighting, plus the bounded follow-up diagnostic.
+    not CPU sort or particle lighting, the aligned 240-row result, and the
+    bounded descriptor-cache A/B.
 
 NAMING
 ------

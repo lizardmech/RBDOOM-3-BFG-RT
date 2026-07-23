@@ -80,3 +80,56 @@ It reports:
 Repeat the broken sample, preferably once on the original crosshair point and
 once on an opaque non-decal part of the missing region. A same-area visible
 opaque control is preferable to area 60.
+
+SECOND CAPTURE
+--------------
+  source:
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo02.log
+  bytes: 133642
+  modified: 2026-07-23 15:07:05 Australia/Sydney
+
+The first block labelled `GEO01_MISSING_OPAQUE`, frame 5906, is explicitly
+discarded. The operator reported that it accidentally aimed at geometry which
+was visible in PT. It must not be used as a broken sample or control.
+
+Accepted broken samples:
+
+  original point, frame 5330:
+    raster: instance 0 primitive range 10334 + 2, material 465128962 / 61
+    shader: instance 54 primitive 22, material 2142472774 / 235
+    matches valid/instance/primitive/materialId/materialIndex: 1/0/0/0/0
+
+  corrected missing-opaque attempt, frame 6493:
+    raster: instance 0 primitive range 10334 + 2, material 465128962 / 61
+    shader: instance 89 primitive 143, material 1965545062 / 308
+    matches valid/instance/primitive/materialId/materialIndex: 1/0/0/0/0
+
+Both raster probes still stopped on `textures/decals/stainwall`. The corrected
+label therefore does not yet identify the underlying opaque receiver.
+
+The area-41 visible control, frame 6949, hit
+`models/mapobjects/doors/techdoor1/techdr1frame_cop`. It emitted no monolithic
+static candidate, while the shader accepted instance 86 primitive 61 with the
+same material identity. It is a valid PT/raster control, but not a control for
+static instance 0.
+
+REVISED INTERPRETATION
+----------------------
+The broken center ray reaches a valid PT primary record behind or instead of
+the CPU raster front surface. CPU retained storage, publication, BLAS, and TLAS
+remain internally consistent. This rules out the original CPU-count and stale-
+handle hypotheses for these samples.
+
+The shader rejection field was not conclusive. `AnyHit` recorded a rejected
+front hit, but `ClosestHit` cleared that reason before accepting a later hit.
+Consequently `reject=none` did not prove that the front surface was never
+visited or rejected.
+
+The follow-up diagnostic makes the rejection reason sticky across ignored
+front hits and adds a decal receiver probe. Candidate selection uses the
+receiver when the first CPU trace hits a `textures/decals/` surface. GEO-02
+remains blocked until that capture distinguishes:
+
+  - front static hit rejected by alpha/decal policy;
+  - front/receiver static primitive never traversed;
+  - receiver identity/range differs before traversal.

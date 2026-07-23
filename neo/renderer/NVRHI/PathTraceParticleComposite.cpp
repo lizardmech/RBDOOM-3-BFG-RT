@@ -574,7 +574,10 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
     uint64 bindingCreateMaxUs = 0;
     int bindingCreateCount = 0;
     int bindingCreateFailures = 0;
+    int bindingCacheHits = 0;
+    int bindingCacheMisses = 0;
     int drawCount = 0;
+    const bool useBindingCache = r_pathTracingParticleBindingCache.GetBool();
     for (const ParticleCompositeBatch& batch : m_particleCapture.batches)
     {
         if (batch.indexCount == 0 || batch.textureIndex >= m_particleCapture.textures.size())
@@ -604,11 +607,35 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_particleLightingOutputBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
         const uint64 bindingStartUs = Sys_Microseconds();
-        nvrhi::BindingSetHandle bindingSet = device->createBindingSet(bindingSetDesc, m_particleCompositeBindingLayout);
+        nvrhi::BindingSetHandle bindingSet;
+        if (useBindingCache)
+        {
+            for (const ParticleCompositeCachedBinding& cached : m_particleCompositeCachedBindings)
+            {
+                if (cached.desc == bindingSetDesc)
+                {
+                    bindingSet = cached.bindingSet;
+                    ++bindingCacheHits;
+                    break;
+                }
+            }
+        }
+        if (!bindingSet)
+        {
+            ++bindingCacheMisses;
+            ++bindingCreateCount;
+            bindingSet = device->createBindingSet(bindingSetDesc, m_particleCompositeBindingLayout);
+            if (bindingSet && useBindingCache)
+            {
+                ParticleCompositeCachedBinding cached;
+                cached.desc = bindingSetDesc;
+                cached.bindingSet = bindingSet;
+                m_particleCompositeCachedBindings.push_back(cached);
+            }
+        }
         const uint64 bindingUs = Sys_Microseconds() - bindingStartUs;
         bindingCreateUs += bindingUs;
         bindingCreateMaxUs = Max(bindingCreateMaxUs, bindingUs);
-        ++bindingCreateCount;
         if (!bindingSet)
         {
             ++bindingCreateFailures;
@@ -668,7 +695,7 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         const uint64 diagnosticEndUs = Sys_Microseconds();
         const RtPathTraceParticleCaptureStats& stats = m_particleCapture.stats;
         common->Printf(
-            "PathTracePrimaryPass: PT particle composite frame=%d total/setup/sort/buffers/uploadLighting/drawRecordUs=%llu/%llu/%llu/%llu/%llu/%llu capture(candidates/surfaces/batches/quads/triPrims)=%d/%d/%d/%d/%d vectors(v/i/q/p/tasks/textures)=%u/%u/%u/%u/%u/%u bytes(v/i)=%llu/%llu bufferChanged(v/i/light)=%d/%d/%d lighting(requested/ready/historyMatches)=%d/%d/%u bindings(count/fail/totalUs/maxUs)=%d/%d/%llu/%llu draws=%d modes(composite/sort/lighting/temporal)=%d/%d/%d/%d traceRemaining=%d\n",
+            "PathTracePrimaryPass: PT particle composite frame=%d total/setup/sort/buffers/uploadLighting/drawRecordUs=%llu/%llu/%llu/%llu/%llu/%llu capture(candidates/surfaces/batches/quads/triPrims)=%d/%d/%d/%d/%d vectors(v/i/q/p/tasks/textures)=%u/%u/%u/%u/%u/%u bytes(v/i)=%llu/%llu bufferChanged(v/i/light)=%d/%d/%d lighting(requested/ready/historyMatches)=%d/%d/%u bindings(count/fail/totalUs/maxUs)=%d/%d/%llu/%llu bindingCache(enabled/entries/hits/misses)=%d/%u/%d/%d draws=%d modes(composite/sort/lighting/temporal)=%d/%d/%d/%d traceRemaining=%d\n",
             currentFrame,
             static_cast<unsigned long long>(diagnosticEndUs - diagnosticStartUs),
             static_cast<unsigned long long>(setupCompleteUs - diagnosticStartUs),
@@ -699,6 +726,10 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
             bindingCreateFailures,
             static_cast<unsigned long long>(bindingCreateUs),
             static_cast<unsigned long long>(bindingCreateMaxUs),
+            useBindingCache ? 1 : 0,
+            static_cast<unsigned int>(m_particleCompositeCachedBindings.size()),
+            bindingCacheHits,
+            bindingCacheMisses,
             drawCount,
             r_pathTracingParticleComposite.GetInteger(),
             r_pathTracingParticleSortMode.GetInteger(),

@@ -1,7 +1,7 @@
 GEO-01 handoff - comm1 static contract instrumentation
 =======================================================
-Status: CPU paired capture complete; Vulkan shader sample implemented and
-awaiting runtime capture, 2026-07-23.
+Status: second Vulkan sample captured; rejection-history and decal-receiver
+diagnostic follow-up implemented, 2026-07-23.
 
 SCOPE
 -----
@@ -136,30 +136,30 @@ BUILD / SHADERS / DEPLOY
 
   executable:
     E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
-    bytes: 15505920
-    modified: 2026-07-23 14:55:42 Australia/Sydney
-    sha256: B0B0B3DB8F76303EC36A7D04C3ACAA482EE9E54B06A8A423498B7A197C722813
+    bytes: 15508992
+    modified: 2026-07-23 15:17:19.767 Australia/Sydney
+    sha256: BDFE24B92444095CA1A0484E817CDC319738E91EBFA3BEFBEC5CAF1B2BAAFE6E
 
   deployed:
     E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
-    bytes: 15505920
-    modified: 2026-07-23 14:55:42 Australia/Sydney
-    sha256: B0B0B3DB8F76303EC36A7D04C3ACAA482EE9E54B06A8A423498B7A197C722813
+    bytes: 15508992
+    modified: 2026-07-23 15:17:19.767 Australia/Sydney
+    sha256: BDFE24B92444095CA1A0484E817CDC319738E91EBFA3BEFBEC5CAF1B2BAAFE6E
 
   Vulkan shader:
     source:
       neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
-      modified: 2026-07-23 14:51:36 Australia/Sydney
+      modified: 2026-07-23 15:14:52.588 Australia/Sydney
     blob:
       base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke.rt.bin
-      bytes: 1254716
-      modified: 2026-07-23 14:52:36 Australia/Sydney
-      sha256: 2ED459A83CA5C4CD37869E262250E672C8EE04E091004D7B9CBC9852D6AF754D
+      bytes: 1254736
+      modified: 2026-07-23 15:17:15.235 Australia/Sydney
+      sha256: 661FDE47AE0F7130B334D293894A2BD8053042B7E834573EB97F5CAE555517AD
 
 The affected smoke RT blob was explicitly deleted before the build. Its mtime
 is newer than the edited source. Only that SPIR-V blob was copied to the
 prebuilt tree, and its deployed SHA-256 matches. DX12 shaders were not compiled
-or deployed.
+or deployed. The Vulkan release build succeeded.
 
 ROLLBACK
 --------
@@ -172,14 +172,22 @@ block in PathTraceSmokeSceneBuild.cpp.
 
 NEXT
 ----
-The paired log is recorded in GEO-01_runtime_capture_2026-07-23.txt. All CPU
-counters were zero in both samples, so the remaining boundary is the shader
-instance/primitive route. The broken raster probe hit
-`textures/decals/stainwall`; this does not identify the underlying disappearing
-opaque surface.
+The second capture is recorded in
+GEO-01_runtime_capture_2026-07-23.txt. Ignore its first
+`GEO01_MISSING_OPAQUE` block at frame 5906: the operator identified it as
+visible geometry captured by mistake.
 
-The same one-shot now queues a center-pixel primary-surface record readback and
-prints a later `PT static contract shaderSample` line. Repeat the broken point,
-an opaque non-decal point in the missing region, and preferably an opaque
-same-area good control. GEO-02 remains blocked until that output proves the
-earliest shader-side disagreement.
+Both accepted broken samples selected a rigid-route shader hit instead of the
+CPU raster front surface, but both CPU probes stopped on
+`textures/decals/stainwall`. The old closest-hit instrumentation also erased a
+prior any-hit rejection when it accepted background geometry.
+
+The one-shot now:
+
+  - preserves the last ignored-front-hit rejection reason;
+  - prints `receiverProbe` after a decal hit;
+  - selects the receiver as the expected CPU candidate when found.
+
+Repeat the original broken point and the corrected missing opaque point.
+GEO-02 remains blocked until the new rows say whether static traversal rejects
+the front/receiver or never visits it.

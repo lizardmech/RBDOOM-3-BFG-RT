@@ -1929,6 +1929,12 @@ idCVar r_pathTracingParticleDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Bounded particle-composite diagnostics: 0=off, 1=one frame plus batch details, 2=240-frame per-frame trace then auto-off" );
 
+idCVar r_pathTracingParticleBindingCache(
+    "r_pathTracingParticleBindingCache",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Experimental particle graphics binding-set reuse: 0=per-batch creation, 1=cache identical resource tuples for descriptor-stall A/B" );
+
 idCVar r_pathTracingSmokeParticleEdgeFade(
     "r_pathTracingSmokeParticleEdgeFade",
     "1",

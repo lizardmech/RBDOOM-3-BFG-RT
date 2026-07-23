@@ -61,3 +61,78 @@ CPU time, draw count, and setup/sort/buffer/upload-lighting/draw-record CPU
 phase timing. Use mode 2 together with com_speeds 1 at the malfunctioning
 monster. Do not apply a descriptor-cache fix unless those aligned records
 distinguish descriptor creation/reclamation from buffer or batch churn.
+
+ALIGNED TRACE RESULT
+--------------------
+  source:
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo02.log
+  bytes: 133642
+  modified: 2026-07-23 15:07:05 Australia/Sydney
+
+The mode-2 trace emitted all 240 requested rows. It covered 238 unique engine
+frame numbers because frames 3620 and 3682 each executed the composite twice.
+The separate one-shot at frame 3098 reported 13 batches, 104 quads, 476
+vertices, 627 indexes, 12 lighting tasks, and 8 textures.
+
+Across the 240-row trace:
+
+  - maximum composite CPU total: 605 us
+  - maximum buffer phase: 240 us
+  - maximum lighting-upload/record phase: 146 us
+  - maximum draw-record phase: 252 us
+  - maximum aggregate binding-set call time: 92 us
+  - maximum single binding-set call: 47 us
+  - binding-set creation failures: 0
+  - buffer-change rows: 3
+
+The three buffer-change rows were frames 3572, 3578, and 3584. None coincided
+with a long `com_speeds all` frame.
+
+Thirteen aligned long frames ranged from 248 to 1893 ms. Their composite CPU
+totals ranged from 83 to 163 us, aggregate binding times from 28 to 74 us, and
+all had `bufferChanged=0/0/0`. Representative pairs:
+
+  frame 3507: all 952 ms, composite CPU 83 us, next-frame bk 936 ms
+  frame 3545: all 1853 ms, composite CPU 94 us, next-frame bk 1839 ms
+  frame 3570: all 1891 ms, composite CPU 163 us, next-frame bk 1875 ms
+  frame 3581: all 1893 ms, composite CPU 147 us, next-frame bk 1880 ms
+
+The synchronous CPU work inside the composite is not the stall. Buffer growth,
+CPU sort, particle-lighting dispatch construction, and direct binding-set call
+latency are excluded for the captured long frames. The remaining boundary is
+Vulkan submission/execution/retirement after command recording. Per-frame
+descriptor destruction/reclamation remains plausible because every batch
+creates an ephemeral graphics binding set, but this trace does not prove it.
+
+NEXT BOUNDED A/B
+----------------
+The follow-up build adds:
+
+  r_pathTracingParticleBindingCache 0
+    Existing per-batch graphics binding-set creation.
+
+  r_pathTracingParticleBindingCache 1
+    Reuse identical graphics resource tuples. This is experimental and
+    default off.
+
+Run the baseline first in a fresh process, then enable the cache without
+returning to the baseline in the same process:
+
+  com_speeds 1
+  r_pathTracingParticleBindingCache 0
+  r_pathTracingParticleDump 2
+
+After the 240 rows finish:
+
+  echo === MONSTER_FIRE_BINDING_CACHE_ON ===
+  r_pathTracingParticleBindingCache 1
+  r_pathTracingParticleDump 2
+
+The new `bindingCache(enabled/entries/hits/misses)` tuple must show a warm
+cache with mostly hits. If the 0.9-1.8 second stalls disappear only after the
+cache is warm, descriptor allocation/reclamation is localized. If they remain,
+the next diagnostic must use nonblocking GPU timestamp queries around the
+graphics composite and the submission boundary; do not promote the cache.
+
+Cached bindings retain their referenced resources for the process lifetime.
+Restart before any reverse cache-on to cache-off confirmation.

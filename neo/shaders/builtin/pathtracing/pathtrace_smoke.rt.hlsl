@@ -3579,7 +3579,6 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.instanceId = instanceId;
     payload.geometryIndex = geometryIndex;
     payload.primitiveIndex = primitiveIndex;
-    payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_NONE;
     if (instanceId >= 2u)
     {
         const uint routeInstanceIndex = instanceId - 2u;

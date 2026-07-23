@@ -329,6 +329,12 @@ private:
     nvrhi::TextureHandle m_particleCompositeFramebufferTexture;
     nvrhi::BufferHandle m_particleCompositeVertexBuffer;
     nvrhi::BufferHandle m_particleCompositeIndexBuffer;
+    struct ParticleCompositeCachedBinding
+    {
+        nvrhi::BindingSetDesc desc;
+        nvrhi::BindingSetHandle bindingSet;
+    };
+    std::vector<ParticleCompositeCachedBinding> m_particleCompositeCachedBindings;
     int m_particleDiagnosticFramesRemaining = 0;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokePreviousSkinnedSurfaceRecords;

@@ -6497,6 +6497,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
         modelTrace_t rasterTrace = {};
         bool rasterHit = false;
+        modelTrace_t receiverTrace = {};
+        bool receiverHit = false;
+        bool rasterHitWasDecal = false;
         idVec3 traceStart = vec3_origin;
         idVec3 traceEnd = vec3_origin;
         if (viewDef && viewDef->renderWorld)
@@ -6504,6 +6507,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             traceStart = viewDef->renderView.vieworg;
             traceEnd = traceStart + viewDef->renderView.viewaxis[0] * 65536.0f;
             rasterHit = viewDef->renderWorld->Trace(rasterTrace, traceStart, traceEnd, 0.0f, true, false);
+            rasterHitWasDecal =
+                rasterHit &&
+                rasterTrace.material &&
+                idStr::FindText(rasterTrace.material->GetName(), "textures/decals/", false) >= 0;
+            if (rasterHitWasDecal)
+            {
+                const idVec3 traceDirection = viewDef->renderView.viewaxis[0];
+                const idVec3 receiverTraceStart = rasterTrace.point + traceDirection * 0.05f;
+                receiverHit = viewDef->renderWorld->Trace(
+                    receiverTrace,
+                    receiverTraceStart,
+                    traceEnd,
+                    0.0f,
+                    true,
+                    false);
+            }
         }
 
         common->Printf(
@@ -6522,18 +6541,33 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             rasterTrace.entity,
             rasterTrace.material ? rasterTrace.material->GetName() : "<none>");
 
+        if (rasterHitWasDecal)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: PT static contract receiverProbe hit=%d peelDistance=0.05 fraction=%.6f point=(%.2f %.2f %.2f) entity=%p material='%s'\n",
+                receiverHit ? 1 : 0,
+                receiverTrace.fraction,
+                receiverTrace.point.x,
+                receiverTrace.point.y,
+                receiverTrace.point.z,
+                receiverTrace.entity,
+                receiverTrace.material ? receiverTrace.material->GetName() : "<none>");
+        }
+
+        const modelTrace_t& contractTrace = receiverHit ? receiverTrace : rasterTrace;
+        const bool contractHit = receiverHit || rasterHit;
         int matchingSurfaceCount = 0;
         int boundedSurfaceCount = 0;
-        if (rasterHit)
+        if (contractHit)
         {
             for (const RtPathTraceSceneUniverseSurface& surface : m_sceneUniverse.Surfaces())
             {
                 const bool entityMatches =
-                    surface.entity && rasterTrace.entity == &surface.entity->parms;
+                    surface.entity && contractTrace.entity == &surface.entity->parms;
                 const bool materialMatches =
-                    surface.material == rasterTrace.material ||
-                    (surface.material && rasterTrace.material &&
-                        idStr::Icmp(surface.material->GetName(), rasterTrace.material->GetName()) == 0);
+                    surface.material == contractTrace.material ||
+                    (surface.material && contractTrace.material &&
+                        idStr::Icmp(surface.material->GetName(), contractTrace.material->GetName()) == 0);
                 if (!entityMatches || !materialMatches)
                 {
                     continue;
@@ -6543,12 +6577,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 const idBounds& bounds = surface.bounds;
                 const bool pointInsideExpandedBounds =
                     !bounds.IsCleared() &&
-                    rasterTrace.point.x >= bounds[0].x - 4.0f &&
-                    rasterTrace.point.y >= bounds[0].y - 4.0f &&
-                    rasterTrace.point.z >= bounds[0].z - 4.0f &&
-                    rasterTrace.point.x <= bounds[1].x + 4.0f &&
-                    rasterTrace.point.y <= bounds[1].y + 4.0f &&
-                    rasterTrace.point.z <= bounds[1].z + 4.0f;
+                    contractTrace.point.x >= bounds[0].x - 4.0f &&
+                    contractTrace.point.y >= bounds[0].y - 4.0f &&
+                    contractTrace.point.z >= bounds[0].z - 4.0f &&
+                    contractTrace.point.x <= bounds[1].x + 4.0f &&
+                    contractTrace.point.y <= bounds[1].y + 4.0f &&
+                    contractTrace.point.z <= bounds[1].z + 4.0f;
                 if (pointInsideExpandedBounds)
                 {
                     ++boundedSurfaceCount;
@@ -6563,17 +6597,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         int missingMaterialCount = 0;
         for (const RtPathTraceSceneUniverseSurface& surface : m_sceneUniverse.Surfaces())
         {
-            if (!rasterHit || emittedCandidates >= 8)
+            if (!contractHit || emittedCandidates >= 8)
             {
                 break;
             }
 
             const bool entityMatches =
-                surface.entity && rasterTrace.entity == &surface.entity->parms;
+                surface.entity && contractTrace.entity == &surface.entity->parms;
             const bool materialMatches =
-                surface.material == rasterTrace.material ||
-                (surface.material && rasterTrace.material &&
-                    idStr::Icmp(surface.material->GetName(), rasterTrace.material->GetName()) == 0);
+                surface.material == contractTrace.material ||
+                (surface.material && contractTrace.material &&
+                    idStr::Icmp(surface.material->GetName(), contractTrace.material->GetName()) == 0);
             if (!entityMatches || !materialMatches)
             {
                 continue;
@@ -6582,12 +6616,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             const idBounds& bounds = surface.bounds;
             const bool pointInsideExpandedBounds =
                 !bounds.IsCleared() &&
-                rasterTrace.point.x >= bounds[0].x - 4.0f &&
-                rasterTrace.point.y >= bounds[0].y - 4.0f &&
-                rasterTrace.point.z >= bounds[0].z - 4.0f &&
-                rasterTrace.point.x <= bounds[1].x + 4.0f &&
-                rasterTrace.point.y <= bounds[1].y + 4.0f &&
-                rasterTrace.point.z <= bounds[1].z + 4.0f;
+                contractTrace.point.x >= bounds[0].x - 4.0f &&
+                contractTrace.point.y >= bounds[0].y - 4.0f &&
+                contractTrace.point.z >= bounds[0].z - 4.0f &&
+                contractTrace.point.x <= bounds[1].x + 4.0f &&
+                contractTrace.point.y <= bounds[1].y + 4.0f &&
+                contractTrace.point.z <= bounds[1].z + 4.0f;
             if (boundedSurfaceCount > 0 && !pointInsideExpandedBounds)
             {
                 continue;
