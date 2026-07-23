@@ -351,6 +351,27 @@ Required prevention result:
 After the capture, leave force rebuild at 0. The fix gate may remain 1 for the
 four GEO-02 regression scenarios; set it to 0 only for an explicit legacy
 rollback comparison.
+
+GEO-12 ACCEPTED RESULT
+----------------------
+The repair capture passed:
+
+  - gate 1 selected a full upload on the area-62 cache miss despite a live
+    26-vertex texture-matrix range;
+  - GPU vertex and index ranges both matched the CPU cache exactly;
+  - the shader reached the exact expected instance, primitive range, material
+    ID, and material index;
+  - the user could no longer reproduce disappearing brush geometry while
+    traversing with the fix enabled.
+
+The fix now defaults on. Normal settings are:
+
+  r_pathTracingStaticVertexFullUploadOnCacheMiss 1
+  r_pathTracingStaticBlasForceRebuild 0
+  r_pathTracingStaticBlasGenerationGuard 0
+
+Use fix-gate value 0 only for legacy rollback. No further missing-brush
+localization capture is required unless the symptom returns.
 DX12 shader compilation was not requested or performed.
 
 SUBSEQUENT VALIDATED EXECUTABLE

@@ -431,9 +431,9 @@ idCVar r_pathTracingStaticBlasGenerationGuard(
 
 idCVar r_pathTracingStaticVertexFullUploadOnCacheMiss(
     "r_pathTracingStaticVertexFullUploadOnCacheMiss",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "GEO-02 fix gate: fully initialize static vertex buffers on cache misses when runtime texture matrices would otherwise select only a partial upload range" );
+    "Fully initialize static vertex buffers on cache misses when runtime texture matrices would otherwise select only a partial upload range; accepted GEO-12 fix, set to 0 for legacy rollback" );
 
 idCVar r_pathTracingSceneBoundsOverlay(
     "r_pathTracingSceneBoundsOverlay",

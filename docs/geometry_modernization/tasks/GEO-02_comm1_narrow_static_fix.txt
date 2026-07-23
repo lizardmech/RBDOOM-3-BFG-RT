@@ -98,7 +98,9 @@ The fix gate is:
   r_pathTracingStaticVertexFullUploadOnCacheMiss 0  legacy partial-span path
   r_pathTracingStaticVertexFullUploadOnCacheMiss 1  corrected path
 
-It defaults off until the runtime A/B passes. With the gate on:
+GEO-12 accepted the runtime A/B, so the corrected path now defaults on. Set
+the gate to 0 only for an explicit legacy rollback comparison. With the gate
+on:
 
   - cache hit, no texture matrices: skip unchanged static vertices;
   - cache hit, texture matrices: upload only their bounded span;
@@ -125,6 +127,51 @@ CPU planning harness:
 
   all eight new static-vertex upload-plan checks pass
   overall exit remains nonzero on three unrelated pre-existing token checks
+
+GEO-12 ACCEPTANCE
+-----------------
+Raw source:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo12.log
+  bytes: 20450
+  modified: 2026-07-23 19:17:40 Australia/Sydney
+
+Repair frame 5509 in area 41 selected gate-1 full upload:
+
+  upload bytes:                     4986240
+  GPU vertex/index match:           1 / 1
+  vertex/position/index mismatches: 0 / 0 / 0
+
+At the previously failing area-62 receiver, frame 6793 selected a gate-1 full
+upload despite a live 26-vertex texture-matrix span:
+
+  upload bytes:                     4998896
+  expected primitive range:         11433 + 62
+  shader primitive:                 11443
+  expected/actual material:         2086422863 / 151
+  valid/instance/primitive/material matches:
+                                      1 / 1 / 1 / 1 / 1
+  GPU vertex/index match:           1 / 1
+  vertex/position/index mismatches: 0 / 0 / 0
+
+After a map reload, frame 12556 used force mode 0 and a normal cache hit. It
+correctly skipped unchanged vertex upload while the sampled GPU range remained
+an exact vertex/index match.
+
+The user then traversed the failure path with the fix enabled and could no
+longer reproduce disappearing brush geometry. This accepts the localized fix
+and authorizes default-on promotion. Mode 0 of the fix gate remains the exact
+rollback.
+
+Default-on promotion build:
+
+  Vulkan release build:             success
+  executable bytes:                 15520256
+  modified:                         2026-07-23 19:20:30 Australia/Sydney
+  sha256:                           5BFAB4F9561F34735F5FBBB3D24F9F4ED39A136A8490D9FFED969D1D20900A0E
+  deployed executable hash:         identical
+  SPIR-V:                           unchanged; all reported up to date
+  DX12 shader compilation/deploy:   not performed
 
 Runtime old/fix A/B and the four scenario regressions remain required before
 this ticket is complete.
@@ -233,7 +280,7 @@ VALIDATION
 
 DONE WHEN
 ---------
-- The exact GEO-01 mismatch is gone under the fix gate.
+- The exact GEO-01 mismatch is gone under the fix gate. PASS, GEO-12.
 - All four baseline scenarios pass.
 - Old path remains a one-cvar rollback.
 - Any additional mismatch is recorded as a new ticket blocker, not folded in.

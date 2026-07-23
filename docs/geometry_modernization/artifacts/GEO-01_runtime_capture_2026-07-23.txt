@@ -555,10 +555,44 @@ a static cache miss caused by buffer growth/recreation. The index upload
 correctly used the full cache-miss path. A new buffer could therefore contain
 valid global indexes into zero-filled vertices, exactly matching GEO-11.
 
-GEO-02 is now implemented behind the default-off
+GEO-02 was initially implemented behind the then-default-off
 `r_pathTracingStaticVertexFullUploadOnCacheMiss` gate. The corrected selector
 uses texture-matrix partial uploads only on cache hits. On a cache miss with
 runtime texture matrices, it uploads the complete static vertex buffer before
 building the BLAS. The one-shot also prints `PT static contract vertexUpload`
 with gate, selected range, byte count, texture-matrix span, and buffer-reuse
 state.
+
+GEO-12 FIX ACCEPTANCE
+---------------------
+Raw source:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo12.log
+  bytes: 20450
+  modified: 2026-07-23 19:17:40 Australia/Sydney
+
+Frame 5509 repaired the area-41 GPU payload with a gate-1 full upload:
+
+  vertex upload bytes:              4986240
+  GPU match(v/i):                   1 / 1
+  mismatches(v/position/i):         0 / 0 / 0
+
+Frame 6793 reached the exact formerly missing area-62 receiver. Although
+runtime material evaluation produced a 26-vertex texture-matrix span
+(17018..17043), the gate correctly selected a full 4998896-byte vertex upload.
+The GPU range matched the CPU range byte-for-byte and mask-0x01 traversal
+returned instance 0, primitive 11443, material 2086422863/151. All five
+valid/instance/primitive/material match fields were 1.
+
+After a map reload, frame 12556 ran with force mode 0 on a normal cache hit,
+skipped the unchanged vertex upload, and retained exact GPU vertex/index
+bytes. The user subsequently reported that the disappearing-brush glitch
+could not be reproduced with the fix enabled.
+
+Accepted decision:
+
+  - the static vertex upload-range mismatch is fixed;
+  - `r_pathTracingStaticVertexFullUploadOnCacheMiss` defaults on;
+  - value 0 retains the exact legacy rollback;
+  - the generation guard remains rejected and default off;
+  - force rebuild remains diagnostic and default 0.
