@@ -340,3 +340,24 @@ The correction is present in the Vulkan test executable:
   modified:                         2026-07-23 18:05:09 Australia/Sydney
   sha256:                           DB970F6FB8F791A63C9DA235F5EBAEB989FF2E61BA83A5F8E7CCC82BCE445C7E
   SPIR-V:                           unchanged
+
+GEO-09 CORRECTED TIMER RESULT
+-----------------------------
+The corrected capture contains 240 non-repeating GPU samples:
+
+  median:                           549.3 us
+  p95:                              793.8 us
+  maximum:                          1014.7 us
+
+Aligned long CPU/backend frames still have sub-millisecond particle ranges:
+
+  frame 11279 all 945 ms:           400.4 us
+  frame 11294 all 928 ms:           463.2 us
+  frame 11451 all 1843 ms:          944.9 us
+  frame 11464 all 944 ms:           467.2 us
+  frame 11490 all 949 ms:           451.7 us
+
+The corrected data accepts the earlier suspected result: particle upload,
+lighting, barriers, and composite draws do not own the 0.9-1.8 second GPU
+stall. The next particle rung may time the enclosing PT dispatch and backend
+submission/retirement boundary.

@@ -4897,7 +4897,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int staticIndexCacheCount = geometryUniverseStats.staticIndexes;
     const int staticTriangleCacheCount = geometryUniverseStats.staticTriangles;
     const int staticCacheBytesKB = geometryUniverseStats.staticBytesKB;
-    const bool forceStaticBlasRebuild = r_pathTracingStaticBlasForceRebuild.GetBool();
+    const int forceStaticBlasRebuildMode =
+        idMath::ClampInt(0, 2, r_pathTracingStaticBlasForceRebuild.GetInteger());
+    const bool forceStaticBlasRebuild = forceStaticBlasRebuildMode != 0;
+    const bool forceStaticBlasRebuildWithoutUpload = forceStaticBlasRebuildMode == 2;
     const uint64 cachedStaticBlasGeometryGeneration = m_smokeStaticBlasGeometryGeneration;
     const bool staticBlasGenerationMismatch =
         r_pathTracingStaticBlasGenerationGuard.GetBool() &&
@@ -5393,10 +5396,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             smokeStaticVertexBuffer,
             staticVertexFrameData,
             nvrhi::ResourceStates::AccelStructBuildInput,
-            staticBlasCacheHit && staticTexMatrixVertices == 0,
+            forceStaticBlasRebuildWithoutUpload ||
+                (staticBlasCacheHit && staticTexMatrixVertices == 0),
             staticTexMatrixVertices > 0 ? staticTexMatrixFirstVertex : (useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyVertexOffset : -1),
             staticTexMatrixVertices > 0 ? (staticTexMatrixLastVertex - staticTexMatrixFirstVertex + 1) : geometryUniverseStats.staticDirtyVertexCount),
-        MakeSmokeVectorUploadItem(smokeStaticIndexBuffer, staticIndexCache, nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyIndexOffset : -1, geometryUniverseStats.staticDirtyIndexCount),
+        MakeSmokeVectorUploadItem(smokeStaticIndexBuffer, staticIndexCache, nvrhi::ResourceStates::AccelStructBuildInput, forceStaticBlasRebuildWithoutUpload || staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyIndexOffset : -1, geometryUniverseStats.staticDirtyIndexCount),
         MakeSmokeVectorUploadItem(smokeStaticTriangleClassBuffer, staticTriangleClassCache, nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyTriangleOffset : -1, geometryUniverseStats.staticDirtyTriangleCount),
         MakeSmokeVectorUploadItem(smokeStaticTriangleMaterialBuffer, staticTriangleMaterialCache, nvrhi::ResourceStates::ShaderResource, skipStaticTriangleMaterialUpload),
         MakeSmokeVectorUploadItem(smokeStaticTriangleMaterialIndexBuffer, materialTable.staticMaterialIndexes, nvrhi::ResourceStates::ShaderResource, skipStaticTriangleMaterialIndexUpload),
@@ -6512,7 +6516,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeTlas.Get(),
             static_cast<unsigned long long>(staticSignature.hash),
             staticBlasCacheHit ? 1 : 0,
-            forceStaticBlasRebuild ? 1 : 0,
+            forceStaticBlasRebuildMode,
             accelSubmitTiming.staticBlasBuildSubmitted ? 1 : 0,
             accelSubmitTiming.staticBlasBuildSkipped ? 1 : 0,
             instanceCount,

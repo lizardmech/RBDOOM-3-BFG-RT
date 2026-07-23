@@ -1626,6 +1626,7 @@ bool RtSmokeGeometryUniverse::RefreshStaticSurfaceMaterial(uint64 key, uint32_t 
     }
 
     record->materialId = materialId;
+    ++m_staticGeometryGeneration;
     record->materialGeneration = ++m_staticMaterialGeneration;
     AccumulateSmokeGeometryElementRange(record->currentRange.triangles, m_staticMaterialDirtyTriangleOffset, m_staticMaterialDirtyTriangleCount);
     return true;

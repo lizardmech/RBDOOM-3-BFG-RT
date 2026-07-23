@@ -383,3 +383,45 @@ Accepted invariant failure:
 
 GEO-02 is authorized at the static-BLAS invalidation/reuse boundary. A
 permanent every-frame force rebuild remains rejected.
+
+GEO-09 GENERATION-GUARD RESULT
+------------------------------
+Raw source:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo09.log
+  bytes: 228718
+  modified: 2026-07-23 18:17:51 Australia/Sydney
+
+The generation guard was active from map traversal onward and invalidated the
+cache six times:
+
+  frame 1138: 475 -> 514
+  frame 1139: 514 -> 547
+  frame 1898: 547 -> 574
+  frame 3122: 574 -> 632
+  frame 3124: 632 -> 732
+  frame 3467: 732 -> 743
+
+The missing receiver was then captured at frames 4802 and 6567. Both rows had:
+
+  static generation cache/current: 743 / 743
+  generation mismatch / guard:     0 / 1
+  static BLAS cache/build:          hit / skipped
+  retained CPU cacheRay:            primitive 11514, delta 0.0000
+  mask-0x01 shader result:           miss
+
+The user confirmed that the geometry never returned. Therefore a missed
+persistent-geometry generation transition is not the cause. The generation
+guard is rejected and must default off.
+
+The prior force-rebuild experiment was not a BLAS-only distinction: a static
+cache miss also performs a full static vertex/index GPU-buffer upload before
+building the BLAS. The next bounded A/B separates:
+
+  mode 2: rebuild a new BLAS from the existing GPU vertex/index buffers;
+  mode 1: full CPU-to-GPU static upload followed by BLAS rebuild.
+
+If mode 2 repairs traversal, the cached GPU inputs are valid and the failure is
+within BLAS persistence/build/TLAS consumption. If only mode 1 repairs it, the
+earliest failed boundary is persistent CPU cache to retained GPU buffer
+contents.

@@ -63,6 +63,32 @@ Build/deploy:
 Runtime old/fix A/B and the four scenario regressions remain required before
 this ticket is complete.
 
+GEO-09 REJECTION
+----------------
+The runtime result rejected the generation guard as a fix. It rebuilt at every
+observed static-generation transition, yet the later generation-matched BLAS
+still missed retained brush geometry and enabling the guard did not restore
+it. The guard now defaults off and the ticket remains open.
+
+The next diagnostic changes `r_pathTracingStaticBlasForceRebuild` from a
+boolean interpretation to:
+
+  0  reuse the cached BLAS
+  1  full static vertex/index upload plus BLAS rebuild
+  2  BLAS rebuild from the existing GPU buffers with no static upload
+
+This resolves the previously conflated GPU-buffer-versus-BLAS boundary before
+another permanent fix is attempted.
+
+Split-probe build/deploy:
+
+  Vulkan release build:             success
+  executable bytes:                 15514624
+  modified:                         2026-07-23 18:22:53 Australia/Sydney
+  sha256:                           D5B9E0790985897ADD8B60F49D32856EB923E829A301D2D44656C5BAB00CA5B2
+  SPIR-V:                           unchanged; all reported up to date
+  DX12 shader compilation/deploy:   not performed
+
 FILES TO AUDIT FIRST
 --------------------
 Read the GEO-01 handoff and only the producer/consumer files on its localized

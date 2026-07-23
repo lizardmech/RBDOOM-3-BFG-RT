@@ -420,14 +420,14 @@ idCVar r_pathTracingStaticGeometryPruneMissing(
 idCVar r_pathTracingStaticBlasForceRebuild(
     "r_pathTracingStaticBlasForceRebuild",
     "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Diagnostic A/B: force the monolithic static-world BLAS to rebuild every frame instead of reusing the cached acceleration structure" );
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic A/B: 0=cached static BLAS, 1=full static GPU-buffer upload plus BLAS rebuild, 2=BLAS rebuild from existing GPU buffers without uploading them" );
 
 idCVar r_pathTracingStaticBlasGenerationGuard(
     "r_pathTracingStaticBlasGenerationGuard",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Require the cached static-world BLAS to match the persistent geometry topology generation; 0 restores legacy hash/dirty-flag-only reuse" );
+    "Rejected GEO-09 diagnostic: require cached static BLAS generation to match persistent static generation; default off because generation-matched geometry still disappeared" );
 
 idCVar r_pathTracingSceneBoundsOverlay(
     "r_pathTracingSceneBoundsOverlay",
