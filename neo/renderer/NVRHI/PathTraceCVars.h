@@ -78,6 +78,7 @@ extern idCVar r_pathTracingStaticAreaPreloadPortalSteps;
 extern idCVar r_pathTracingStaticGeometryPruneMissing;
 extern idCVar r_pathTracingStaticBlasForceRebuild;
 extern idCVar r_pathTracingStaticBlasGenerationGuard;
+extern idCVar r_pathTracingStaticVertexFullUploadOnCacheMiss;
 extern idCVar r_pathTracingSceneBoundsOverlay;
 extern idCVar r_pathTracingSceneBoundsOverlayMax;
 extern idCVar r_pathTracingSceneBoundsOverlayGpu;

@@ -13,23 +13,17 @@ PRECONDITIONS
 
 PRECONDITION STATUS
 -------------------
-Partially localized; a permanent fix is still blocked. GEO-08 proved that the
-cached route could miss while a full static upload plus BLAS rebuild traversed.
-GEO-09 then rejected topology generation as the missing invalidation signal.
-GEO-10 further proved that rebuilding a new BLAS from the existing GPU buffers
-does not repair the miss.
+Satisfied by GEO-11. At the exact missing `_area62` receiver, both mode 1 and
+mode 0 copied back:
 
-The remaining boundary is:
+  GPU vertices:  84 / 84 mismatched positions; first GPU vertex was (0,0,0,0)
+  GPU indexes:   186 / 186 exact matches
 
-  retained CPU vertex/index cache
-    -> persistent GPU vertex/index bytes and visibility
-    -> BLAS build consumption
+The CPU retained range and cache ray remained valid. This directly localizes
+the first failed invariant to static vertex upload range selection.
 
-The current direct GPU readback must distinguish the first arrow from the
-second before another fix is proposed.
-
-IMPLEMENTED CANDIDATE
----------------------
+REJECTED GENERATION CANDIDATE
+-----------------------------
 The persistent geometry universe now publishes a topology-only
 `staticGeometryGeneration`. Material-only refreshes advance the already
 separate material generation but no longer claim that BLAS input geometry
@@ -69,6 +63,69 @@ Build/deploy:
   SPIR-V:                           unchanged; all reported up to date
   DX12 shader compilation/deploy:   not performed
 
+GEO-11 DIRECT GPU READBACK RESULT
+---------------------------------
+The initial area-41 samples pointed at a rigid door frame and emitted no static
+candidate, so they do not count as vertex-buffer proof. The valid unmoved
+area-62 samples at frames 14051 and 14301 did.
+
+Frame 14051 used mode 1 and submitted a new static BLAS build. Frame 14301 used
+mode 0 and reused it. In both:
+
+  retained CPU range:              vertices 15222 + 84
+  retained CPU indexes:            indexes 34299 + 186
+  CPU cache ray:                   primitive 11433, delta 0.0001
+  shader result:                   miss
+  GPU vertex match:                0
+  GPU position mismatches:         84
+  first CPU/GPU position:          (-3200,1568,224,1) / (0,0,0,0)
+  GPU index match:                 1
+
+The static vertex-buffer handle changed when the retained count grew between
+the portal-area states, while the index buffer was correctly populated.
+
+ROOT CAUSE AND NARROW FIX
+-------------------------
+Runtime texture-matrix evaluation makes a per-frame copy of static vertices.
+The upload selector previously chose the texture-matrix first/last vertex span
+whenever any such vertices existed. That partial span took precedence even
+when the static cache missed and buffer growth/recreation required complete
+initialization. The index path still performed its full cache-miss upload,
+which exactly explains the GEO-11 zero-vertex / correct-index split.
+
+The fix gate is:
+
+  r_pathTracingStaticVertexFullUploadOnCacheMiss 0  legacy partial-span path
+  r_pathTracingStaticVertexFullUploadOnCacheMiss 1  corrected path
+
+It defaults off until the runtime A/B passes. With the gate on:
+
+  - cache hit, no texture matrices: skip unchanged static vertices;
+  - cache hit, texture matrices: upload only their bounded span;
+  - cache miss plus texture matrices: upload the complete static vertex buffer;
+  - cache miss without texture matrices: keep the existing valid dirty-range
+    optimization or full-upload fallback;
+  - diagnostic mode 2: continue skipping uploads exactly as requested.
+
+The selection is now a pure CPU plan with harness coverage for cache hit,
+cache miss, dirty range, disjoint texture-matrix range, the gated legacy path,
+and mode 2.
+
+Fix build:
+
+  Vulkan release build:             success
+  executable bytes:                 15520256
+  modified:                         2026-07-23 19:06:17 Australia/Sydney
+  sha256:                           6472483B8C1C025212CFA854189388D39890FDACEAEF26457BBDF6ED4B7AF763
+  deployed executable hash:         identical
+  SPIR-V:                           unchanged; all reported up to date
+  DX12 shader compilation/deploy:   not performed
+
+CPU planning harness:
+
+  all eight new static-vertex upload-plan checks pass
+  overall exit remains nonzero on three unrelated pre-existing token checks
+
 Runtime old/fix A/B and the four scenario regressions remain required before
 this ticket is complete.
 
@@ -83,7 +140,7 @@ The next diagnostic changes `r_pathTracingStaticBlasForceRebuild` from a
 boolean interpretation to:
 
   0  reuse the cached BLAS
-  1  full static vertex/index upload plus BLAS rebuild
+  1  normal static cache-miss upload policy plus BLAS rebuild
   2  BLAS rebuild from the existing GPU buffers with no static upload
 
 This resolves the previously conflated GPU-buffer-versus-BLAS boundary before

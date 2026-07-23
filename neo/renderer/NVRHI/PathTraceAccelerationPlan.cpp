@@ -2018,6 +2018,85 @@ RtSmokeStaticDirtyUploadPlan BuildSmokeStaticDirtyUploadPlan(
     return plan;
 }
 
+RtSmokeStaticVertexUploadPlan BuildSmokeStaticVertexUploadPlan(
+    const RtSmokeStaticVertexUploadPlanInput& input)
+{
+    RtSmokeStaticVertexUploadPlan plan;
+    if (input.forceRebuildWithoutUpload)
+    {
+        plan.skipUpload = true;
+        return plan;
+    }
+
+    const int texMatrixRangeCount =
+        input.texMatrixLastVertex >= input.texMatrixFirstVertex
+            ? input.texMatrixLastVertex - input.texMatrixFirstVertex + 1
+            : 0;
+    const bool texMatrixRangeValid =
+        input.texMatrixVertexCount > 0 &&
+        PlanElementRangeValid(
+            input.texMatrixFirstVertex,
+            texMatrixRangeCount,
+            input.totalVertexCount);
+
+    if (input.staticBlasCacheHit)
+    {
+        if (input.texMatrixVertexCount <= 0)
+        {
+            plan.skipUpload = true;
+            return plan;
+        }
+        if (texMatrixRangeValid)
+        {
+            plan.texMatrixRangeUpload = true;
+            plan.elementOffset = input.texMatrixFirstVertex;
+            plan.elementCount = texMatrixRangeCount;
+            return plan;
+        }
+
+        // A malformed runtime texture-matrix range must not silently suppress
+        // the base geometry upload. Positions remain unchanged, so the cached
+        // BLAS is still valid while the complete shader vertex payload is
+        // republished.
+        plan.fullUpload = true;
+        return plan;
+    }
+
+    // Under the GEO-02 fix gate, a cache miss can coincide with a
+    // resized/recreated GPU buffer. Uploading only the texture-matrix span
+    // would leave all other vertices uninitialized. A full upload also covers
+    // a dirty geometry range plus disjoint runtime UV updates without trying
+    // to represent them as one partial interval.
+    if (input.texMatrixVertexCount > 0 &&
+        input.fullUploadOnCacheMissWithTexMatrices)
+    {
+        plan.fullUpload = true;
+        return plan;
+    }
+    if (texMatrixRangeValid)
+    {
+        plan.texMatrixRangeUpload = true;
+        plan.elementOffset = input.texMatrixFirstVertex;
+        plan.elementCount = texMatrixRangeCount;
+        return plan;
+    }
+
+    if (input.useDirtyRangeUploads &&
+        PlanElementRangeValid(
+            input.dirtyVertexOffset,
+            input.dirtyVertexCount,
+            input.totalVertexCount))
+    {
+        plan.dirtyRangeUpload = true;
+        plan.elementOffset = input.dirtyVertexOffset;
+        plan.elementCount = input.dirtyVertexCount;
+        return plan;
+    }
+
+    plan.fullUpload = true;
+    return plan;
+}
+
 uint64_t BuildSmokePlanDataSpanSignature(
     const RtSmokePlanDataSpan* spans,
     int spanCount)

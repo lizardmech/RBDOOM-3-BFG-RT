@@ -419,7 +419,11 @@ cache miss also performs a full static vertex/index GPU-buffer upload before
 building the BLAS. The next bounded A/B separates:
 
   mode 2: rebuild a new BLAS from the existing GPU vertex/index buffers;
-  mode 1: full CPU-to-GPU static upload followed by BLAS rebuild.
+  mode 1: normal cache-miss static upload policy followed by BLAS rebuild.
+
+At this stage mode 1 was expected to imply a full vertex upload. GEO-11 later
+proved that runtime texture-matrix vertices incorrectly overrode it with a
+partial vertex span.
 
 If mode 2 repairs traversal, the cached GPU inputs are valid and the failure is
 within BLAS persistence/build/TLAS consumption. If only mode 1 repairs it, the
@@ -505,3 +509,56 @@ Wait for both rows again, then immediately restore:
   r_pathTracingStaticBlasForceRebuild 0
 
 Do not use mode 2 again for this capture; GEO-10 already rejected it.
+
+GEO-11 DIRECT GPU-BUFFER RESULT
+-------------------------------
+Raw source:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo11.log
+  bytes: 12434
+  modified: 2026-07-23 18:57:25 Australia/Sydney
+
+The two initial area-41 dumps pointed at
+`models/mapobjects/doors/techdoor1/techdr1frame_cop`, which had no matching
+static-universe candidate. They provide behavioral context but no GPU byte
+comparison.
+
+The exact missing area-62 brush was captured without moving at frames 14051
+and 14301:
+
+  model/material:                   _area62 / textures/base_wall/sopanel2
+  retained range v/i/t:             15222 + 84 / 34299 + 186 / 11433 + 62
+  CPU cache ray:                    primitive 11433, delta 0.0001
+  generations/signatures/handles:  internally matched
+  shader result:                    miss
+
+Frame 14051 used force mode 1 and built a new static BLAS. The delayed GPU
+comparison was:
+
+  match(v/i):                       0 / 1
+  mismatches vertices/positions:   84 / 84
+  index mismatches:                0
+  first CPU position:              (-3200,1568,224,1)
+  first GPU position:              (0,0,0,0)
+
+Frame 14301 then reused the same inputs and produced the identical comparison.
+Thus this is not a visibility-only or BLAS-consumption ambiguity. The
+persistent static vertex range is uninitialized while its matching index range
+is correct.
+
+CODE-LEVEL CONTRACT MISMATCH
+----------------------------
+The static runtime texture-matrix path records one bounding vertex span for
+partial per-frame UV updates. That span previously took precedence over all
+other vertex upload choices whenever `staticTexMatrixVertices > 0`, including
+a static cache miss caused by buffer growth/recreation. The index upload
+correctly used the full cache-miss path. A new buffer could therefore contain
+valid global indexes into zero-filled vertices, exactly matching GEO-11.
+
+GEO-02 is now implemented behind the default-off
+`r_pathTracingStaticVertexFullUploadOnCacheMiss` gate. The corrected selector
+uses texture-matrix partial uploads only on cache hits. On a cache miss with
+runtime texture matrices, it uploads the complete static vertex buffer before
+building the BLAS. The one-shot also prints `PT static contract vertexUpload`
+with gate, selected range, byte count, texture-matrix span, and buffer-reuse
+state.

@@ -2991,6 +2991,75 @@ void TestUploadPlan()
     const RtSmokeStaticDirtyUploadPlan invalidDirtyPlan = BuildSmokeStaticDirtyUploadPlan(invalidDirtyPlanInput);
     Check(!invalidDirtyPlan.dirtyRangesValid && !invalidDirtyPlan.useDirtyRangeUploads, "static dirty upload plan rejects invalid dirty ranges");
 
+    RtSmokeStaticVertexUploadPlanInput staticVertexPlanInput;
+    staticVertexPlanInput.totalVertexCount = 100;
+    const RtSmokeStaticVertexUploadPlan initialStaticVertexPlan =
+        BuildSmokeStaticVertexUploadPlan(staticVertexPlanInput);
+    Check(initialStaticVertexPlan.fullUpload && !initialStaticVertexPlan.skipUpload &&
+            initialStaticVertexPlan.elementOffset == -1 && initialStaticVertexPlan.elementCount == 0,
+        "static vertex upload plan fully initializes a cache-miss buffer");
+
+    RtSmokeStaticVertexUploadPlanInput cachedStaticVertexPlanInput = staticVertexPlanInput;
+    cachedStaticVertexPlanInput.staticBlasCacheHit = true;
+    const RtSmokeStaticVertexUploadPlan cachedStaticVertexPlan =
+        BuildSmokeStaticVertexUploadPlan(cachedStaticVertexPlanInput);
+    Check(cachedStaticVertexPlan.skipUpload && !cachedStaticVertexPlan.fullUpload,
+        "static vertex upload plan skips unchanged cache-hit vertices");
+
+    RtSmokeStaticVertexUploadPlanInput cachedTexMatrixPlanInput = cachedStaticVertexPlanInput;
+    cachedTexMatrixPlanInput.texMatrixVertexCount = 4;
+    cachedTexMatrixPlanInput.texMatrixFirstVertex = 20;
+    cachedTexMatrixPlanInput.texMatrixLastVertex = 27;
+    const RtSmokeStaticVertexUploadPlan cachedTexMatrixPlan =
+        BuildSmokeStaticVertexUploadPlan(cachedTexMatrixPlanInput);
+    Check(!cachedTexMatrixPlan.skipUpload && cachedTexMatrixPlan.texMatrixRangeUpload &&
+            cachedTexMatrixPlan.elementOffset == 20 && cachedTexMatrixPlan.elementCount == 8,
+        "static vertex upload plan limits runtime texture matrices only on a cache hit");
+
+    RtSmokeStaticVertexUploadPlanInput rebuiltTexMatrixPlanInput = cachedTexMatrixPlanInput;
+    rebuiltTexMatrixPlanInput.staticBlasCacheHit = false;
+    rebuiltTexMatrixPlanInput.fullUploadOnCacheMissWithTexMatrices = true;
+    const RtSmokeStaticVertexUploadPlan rebuiltTexMatrixPlan =
+        BuildSmokeStaticVertexUploadPlan(rebuiltTexMatrixPlanInput);
+    Check(rebuiltTexMatrixPlan.fullUpload && !rebuiltTexMatrixPlan.texMatrixRangeUpload &&
+            rebuiltTexMatrixPlan.elementOffset == -1 && rebuiltTexMatrixPlan.elementCount == 0,
+        "static vertex upload plan fully initializes a cache-miss buffer with runtime texture matrices");
+
+    RtSmokeStaticVertexUploadPlanInput legacyRebuiltTexMatrixPlanInput = rebuiltTexMatrixPlanInput;
+    legacyRebuiltTexMatrixPlanInput.fullUploadOnCacheMissWithTexMatrices = false;
+    const RtSmokeStaticVertexUploadPlan legacyRebuiltTexMatrixPlan =
+        BuildSmokeStaticVertexUploadPlan(legacyRebuiltTexMatrixPlanInput);
+    Check(legacyRebuiltTexMatrixPlan.texMatrixRangeUpload && !legacyRebuiltTexMatrixPlan.fullUpload &&
+            legacyRebuiltTexMatrixPlan.elementOffset == 20 && legacyRebuiltTexMatrixPlan.elementCount == 8,
+        "static vertex upload plan retains the gated legacy cache-miss texture-matrix range");
+
+    RtSmokeStaticVertexUploadPlanInput dirtyStaticVertexPlanInput = staticVertexPlanInput;
+    dirtyStaticVertexPlanInput.useDirtyRangeUploads = true;
+    dirtyStaticVertexPlanInput.dirtyVertexOffset = 30;
+    dirtyStaticVertexPlanInput.dirtyVertexCount = 12;
+    const RtSmokeStaticVertexUploadPlan dirtyStaticVertexPlan =
+        BuildSmokeStaticVertexUploadPlan(dirtyStaticVertexPlanInput);
+    Check(dirtyStaticVertexPlan.dirtyRangeUpload &&
+            dirtyStaticVertexPlan.elementOffset == 30 && dirtyStaticVertexPlan.elementCount == 12,
+        "static vertex upload plan keeps valid dirty ranges without runtime texture matrices");
+
+    RtSmokeStaticVertexUploadPlanInput dirtyTexMatrixPlanInput = dirtyStaticVertexPlanInput;
+    dirtyTexMatrixPlanInput.fullUploadOnCacheMissWithTexMatrices = true;
+    dirtyTexMatrixPlanInput.texMatrixVertexCount = 4;
+    dirtyTexMatrixPlanInput.texMatrixFirstVertex = 70;
+    dirtyTexMatrixPlanInput.texMatrixLastVertex = 75;
+    const RtSmokeStaticVertexUploadPlan dirtyTexMatrixPlan =
+        BuildSmokeStaticVertexUploadPlan(dirtyTexMatrixPlanInput);
+    Check(dirtyTexMatrixPlan.fullUpload && !dirtyTexMatrixPlan.dirtyRangeUpload,
+        "static vertex upload plan covers disjoint dirty and texture-matrix ranges with a full upload");
+
+    RtSmokeStaticVertexUploadPlanInput noUploadRebuildPlanInput = rebuiltTexMatrixPlanInput;
+    noUploadRebuildPlanInput.forceRebuildWithoutUpload = true;
+    const RtSmokeStaticVertexUploadPlan noUploadRebuildPlan =
+        BuildSmokeStaticVertexUploadPlan(noUploadRebuildPlanInput);
+    Check(noUploadRebuildPlan.skipUpload && !noUploadRebuildPlan.fullUpload,
+        "static vertex upload plan preserves the BLAS-only diagnostic mode");
+
     const uint32_t spanA[] = { 1, 2, 3, 4 };
     const uint32_t spanB[] = { 5, 6 };
     const RtSmokePlanDataSpan spans[] = {

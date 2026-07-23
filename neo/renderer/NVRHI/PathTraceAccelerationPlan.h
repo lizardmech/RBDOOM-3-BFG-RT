@@ -744,6 +744,30 @@ struct RtSmokeStaticDirtyUploadPlan
     bool useDirtyRangeUploads = false;
 };
 
+struct RtSmokeStaticVertexUploadPlanInput
+{
+    bool forceRebuildWithoutUpload = false;
+    bool staticBlasCacheHit = false;
+    bool useDirtyRangeUploads = false;
+    bool fullUploadOnCacheMissWithTexMatrices = false;
+    int dirtyVertexOffset = -1;
+    int dirtyVertexCount = 0;
+    int texMatrixVertexCount = 0;
+    int texMatrixFirstVertex = -1;
+    int texMatrixLastVertex = -1;
+    size_t totalVertexCount = 0;
+};
+
+struct RtSmokeStaticVertexUploadPlan
+{
+    bool skipUpload = false;
+    bool fullUpload = false;
+    bool texMatrixRangeUpload = false;
+    bool dirtyRangeUpload = false;
+    int elementOffset = -1;
+    int elementCount = 0;
+};
+
 struct RtSmokePlanDataSpan
 {
     const void* data = nullptr;
@@ -909,6 +933,9 @@ RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
 
 RtSmokeStaticDirtyUploadPlan BuildSmokeStaticDirtyUploadPlan(
     const RtSmokeStaticDirtyUploadPlanInput& input);
+
+RtSmokeStaticVertexUploadPlan BuildSmokeStaticVertexUploadPlan(
+    const RtSmokeStaticVertexUploadPlanInput& input);
 
 uint64_t BuildSmokePlanDataSpanSignature(
     const RtSmokePlanDataSpan* spans,

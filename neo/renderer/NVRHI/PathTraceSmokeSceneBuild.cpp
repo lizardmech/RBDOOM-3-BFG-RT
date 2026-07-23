@@ -5391,15 +5391,29 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         !skinnedGpuScaffold.previousJointMatrices.empty();
     bool skinnedGpuComputeDispatched = false;
 
+    RtSmokeStaticVertexUploadPlanInput staticVertexUploadPlanInput;
+    staticVertexUploadPlanInput.forceRebuildWithoutUpload = forceStaticBlasRebuildWithoutUpload;
+    staticVertexUploadPlanInput.staticBlasCacheHit = staticBlasCacheHit;
+    staticVertexUploadPlanInput.useDirtyRangeUploads = useStaticDirtyRangeUploads;
+    staticVertexUploadPlanInput.fullUploadOnCacheMissWithTexMatrices =
+        r_pathTracingStaticVertexFullUploadOnCacheMiss.GetBool();
+    staticVertexUploadPlanInput.dirtyVertexOffset = geometryUniverseStats.staticDirtyVertexOffset;
+    staticVertexUploadPlanInput.dirtyVertexCount = geometryUniverseStats.staticDirtyVertexCount;
+    staticVertexUploadPlanInput.texMatrixVertexCount = staticTexMatrixVertices;
+    staticVertexUploadPlanInput.texMatrixFirstVertex = staticTexMatrixFirstVertex;
+    staticVertexUploadPlanInput.texMatrixLastVertex = staticTexMatrixLastVertex;
+    staticVertexUploadPlanInput.totalVertexCount = staticVertexFrameData.size();
+    const RtSmokeStaticVertexUploadPlan staticVertexUploadPlan =
+        BuildSmokeStaticVertexUploadPlan(staticVertexUploadPlanInput);
+
     const RtSmokeBufferUploadItem uploadItems[] = {
         MakeSmokeVectorUploadItem(
             smokeStaticVertexBuffer,
             staticVertexFrameData,
             nvrhi::ResourceStates::AccelStructBuildInput,
-            forceStaticBlasRebuildWithoutUpload ||
-                (staticBlasCacheHit && staticTexMatrixVertices == 0),
-            staticTexMatrixVertices > 0 ? staticTexMatrixFirstVertex : (useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyVertexOffset : -1),
-            staticTexMatrixVertices > 0 ? (staticTexMatrixLastVertex - staticTexMatrixFirstVertex + 1) : geometryUniverseStats.staticDirtyVertexCount),
+            staticVertexUploadPlan.skipUpload,
+            staticVertexUploadPlan.elementOffset,
+            staticVertexUploadPlan.elementCount),
         MakeSmokeVectorUploadItem(smokeStaticIndexBuffer, staticIndexCache, nvrhi::ResourceStates::AccelStructBuildInput, forceStaticBlasRebuildWithoutUpload || staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyIndexOffset : -1, geometryUniverseStats.staticDirtyIndexCount),
         MakeSmokeVectorUploadItem(smokeStaticTriangleClassBuffer, staticTriangleClassCache, nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyTriangleOffset : -1, geometryUniverseStats.staticDirtyTriangleCount),
         MakeSmokeVectorUploadItem(smokeStaticTriangleMaterialBuffer, staticTriangleMaterialCache, nvrhi::ResourceStates::ShaderResource, skipStaticTriangleMaterialUpload),
@@ -6525,6 +6539,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             committedSignatureMatches ? 0 : 1,
             staleBlasHandle ? 1 : 0,
             tlasBlasFrameMismatch ? 1 : 0);
+        common->Printf(
+            "PathTracePrimaryPass: PT static contract vertexUpload frame=%llu gate=%d skip/full/texRange/dirtyRange=%d/%d/%d/%d offset/count=%d/%d bytes=%llu texMatrix(count/first/last)=%d/%d/%d bufferReused=%d\n",
+            static_cast<unsigned long long>(geometryUniverseStats.frameIndex),
+            r_pathTracingStaticVertexFullUploadOnCacheMiss.GetBool() ? 1 : 0,
+            staticVertexUploadPlan.skipUpload ? 1 : 0,
+            staticVertexUploadPlan.fullUpload ? 1 : 0,
+            staticVertexUploadPlan.texMatrixRangeUpload ? 1 : 0,
+            staticVertexUploadPlan.dirtyRangeUpload ? 1 : 0,
+            staticVertexUploadPlan.elementOffset,
+            staticVertexUploadPlan.elementCount,
+            static_cast<unsigned long long>(uploadItems[0].byteSize),
+            staticTexMatrixVertices,
+            staticTexMatrixFirstVertex,
+            staticTexMatrixLastVertex,
+            staticGeometryBuffersReused ? 1 : 0);
 
         modelTrace_t rasterTrace = {};
         bool rasterHit = false;

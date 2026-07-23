@@ -421,13 +421,19 @@ idCVar r_pathTracingStaticBlasForceRebuild(
     "r_pathTracingStaticBlasForceRebuild",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Diagnostic A/B: 0=cached static BLAS, 1=full static GPU-buffer upload plus BLAS rebuild, 2=BLAS rebuild from existing GPU buffers without uploading them" );
+    "Diagnostic A/B: 0=cached static BLAS, 1=normal static cache-miss upload policy plus BLAS rebuild, 2=BLAS rebuild from existing GPU buffers without uploading them" );
 
 idCVar r_pathTracingStaticBlasGenerationGuard(
     "r_pathTracingStaticBlasGenerationGuard",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "Rejected GEO-09 diagnostic: require cached static BLAS generation to match persistent static generation; default off because generation-matched geometry still disappeared" );
+
+idCVar r_pathTracingStaticVertexFullUploadOnCacheMiss(
+    "r_pathTracingStaticVertexFullUploadOnCacheMiss",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "GEO-02 fix gate: fully initialize static vertex buffers on cache misses when runtime texture matrices would otherwise select only a partial upload range" );
 
 idCVar r_pathTracingSceneBoundsOverlay(
     "r_pathTracingSceneBoundsOverlay",

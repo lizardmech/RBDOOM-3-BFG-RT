@@ -297,6 +297,60 @@ Required rows for both labels:
 If GPU vertices or indexes mismatch, GEO-02 moves to upload/storage ownership.
 If both match while shader traversal misses, it moves to buffer
 state/visibility or BLAS build-input consumption.
+
+GEO-11 RESOLUTION AND FIX A/B
+-----------------------------
+GEO-11 directly read zeroes for every one of the 84 expected GPU vertex
+positions while all 186 indexes matched. This occurred on both the mode-1
+build frame and the following cache-hit frame. The localized bug is the static
+texture-matrix partial upload span overriding full initialization on a cache
+miss/newly grown vertex buffer.
+
+The narrow fix is deployed behind a default-off gate. At a currently missing
+brush, do not move the camera and run:
+
+  r_pathTracingCleanRtxdiDiEnable 0
+  r_pathTracingDebugMode 24
+  r_pathTracingStaticVertexFullUploadOnCacheMiss 1
+  r_pathTracingStaticBlasForceRebuild 1
+  echo === GEO02_VERTEX_UPLOAD_FIX_REPAIR ===
+  r_pathTracingStaticContractDump 1
+
+Wait for:
+
+  PT static contract vertexUpload
+  PT static contract shaderSample
+  PT static contract gpuGeometry
+
+The required repair result is:
+
+  vertexUpload gate=1
+  vertexUpload full=1 with offset/count=-1/0
+  gpuGeometry match(v/i)=1/1
+  the expected static receiver is reached
+  the missing geometry returns without camera movement or resize
+
+Then restore only the force diagnostic:
+
+  r_pathTracingStaticBlasForceRebuild 0
+
+Keep the fix gate at 1, reload/restart the comm1 traversal, and pass through the
+previous area-41/area-62 failure transition normally. At the prior broken
+viewpoint:
+
+  echo === GEO02_VERTEX_UPLOAD_FIX_PREVENTION ===
+  r_pathTracingStaticContractDump 1
+
+Required prevention result:
+
+  no level brush disappears
+  gpuGeometry match(v/i)=1/1
+  vertexUpload shows a valid gate-1 choice
+  no output resize or forced rebuild contaminates the prevention sample
+
+After the capture, leave force rebuild at 0. The fix gate may remain 1 for the
+four GEO-02 regression scenarios; set it to 0 only for an explicit legacy
+rollback comparison.
 DX12 shader compilation was not requested or performed.
 
 SUBSEQUENT VALIDATED EXECUTABLE
