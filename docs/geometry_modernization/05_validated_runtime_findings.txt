@@ -215,6 +215,37 @@ performance result:
 
 GEO-03 must add those proofs before CPU pre-skinning is removed.
 
+GPU-SKINNING NUMERIC PARITY RESULT
+----------------------------------
+GEO-03 added an exact per-surface result funnel and bounded current/previous
+GPU readback. The first capture, geometry_geo13.log, exposed that the existing
+Vulkan compute scaffold had never proved a write:
+
+  mode 1 current output   zero for 24/24 samples
+  mode 2 current output   matched its CPU upload seed
+  previous output         matched its CPU upload seed
+
+SPIR-V disassembly showed UAV registers at Vulkan bindings 384 and 385 while
+the C++ binding layout overrode the UAV base to zero. Correcting the C++ layout
+to the compiled ABI and zero-seeding dispatched output ranges converted the
+readback into independent compute proof.
+
+The corrected geometry_geo14.log reported:
+
+  mode 1/2 candidates/resultTotal/exact    15/15/1 in both modes
+  mode 1/2 dispatchedGpu                   15 in both modes
+  sentinel current/previous ranges         5,371/5,371 in both modes
+  sampled current/previous/motion failures 0/0/0 in both modes
+  non-finite outputs                       0
+  maximum observed error                   0.0000152588
+  declared tolerance                       abs 0.001 + rel 0.00001
+
+The samples covered one-, two-, three-, and four-weight vertices plus two
+surfaces observed as single-bone. This accepts the Vulkan binding correction
+and same-scene staged-joint parity. It does not authorize removal of CPU
+pre-skinning or claim the authoritative raster jointCache cutover; those remain
+GEO-07 work. The wider GEO-03 asset/state matrix is still pending.
+
 LIFECYCLE RESULT
 ----------------
 Probe:

@@ -3,12 +3,80 @@ GEO-03 GPU skinning observability runtime handoff
 
 STATUS
 ------
-Implementation checkpoint built and deployed on 2026-07-23. Runtime acceptance
-is still pending.
+Instrumentation plus the Vulkan binding correction were built, deployed, and
+accepted for the first same-scene mode 1/2 parity gate on 2026-07-23. The
+broader character/state matrix remains pending.
 
 No shader source changed in this checkpoint. The Vulkan build reported:
 
   All SPIRV shaders are up to date.
+
+FIRST RUNTIME RESULT - GEOMETRY_GEO13
+-------------------------------------
+Mode 0 bookkeeping passed:
+
+  candidates/resultTotal/exact  15/15/1
+  cpuFallback                   15
+  singleBoneObserved             2
+
+Mode 1 exposed a real dispatch binding failure:
+
+  dispatchedGpu                 15
+  samples/current failures      24/24
+  GPU current position           0,0,0 for every sample
+  previous failures              0
+
+Mode 2 reported 24/24 exact current samples, but this was not independent
+compute proof: the dynamic output buffer was pre-seeded with the CPU current
+vertices. The previous-position buffer was likewise pre-seeded. Therefore the
+mode 2 and previous-position matches were false-positive pass-through evidence.
+
+SPIR-V disassembly resolved the contradiction:
+
+  resource                         compiled Vulkan binding
+  SkinnedSourceVertices            0
+  SkinnedSurfaceDispatch           1
+  SkinnedCurrentJointMatrices      2
+  SkinnedPreviousJointMatrices     3
+  SkinnedCurrentOutputVertices     384
+  SkinnedPreviousPositions         385
+
+The C++ skinning binding layout incorrectly set both SRV and UAV base offsets
+to zero. The layout therefore did not match the active SPIR-V ABI. GEO-03
+corrects only that binding offset to 384. It does not change joint ownership,
+the CPU reference, or the BLAS route.
+
+CORRECTED RUNTIME RESULT - GEOMETRY_GEO14
+-----------------------------------------
+Both modes used sentinel-backed output, so no CPU seed could survive as a false
+pass:
+
+  mode                              1             2
+  candidates/resultTotal/exact      15/15/1       15/15/1
+  dispatchedGpu                     15            15
+  failure funnel counters           0             0
+  singleBoneObserved                 2             2
+  sentinel current vertices       5,371         5,371
+  sentinel previous positions     5,371         5,371
+  sampled vertices                   24            24
+  current failures                    0             0
+  previous failures                   0             0
+  motion failures                     0             0
+  non-finite outputs                  0             0
+  maximum current error        0.0000152588  0.0000152588
+  maximum previous error       0.0000152588  0.0000152588
+  maximum motion error         0.0000152588  0.0000152588
+  pass                                1             1
+
+The sample included rigid-weighted vertices, two- and three-weight vertices,
+a four-weight vertex, and surfaces independently observed by the existing
+classifier as singleBone=1. This proves that the corrected staged-joint compute
+path writes numerically correct current and previous positions in both the
+diagnostic output and dynamic-BLAS output modes for this scene.
+
+This does not yet satisfy the full GEO-03 asset/state matrix. Fatzombie, an
+ordinary combat zombie, explicit player coverage, spawn/despawn,
+offscreen/return, PDA, and the complete 0->1->2->0 transition remain pending.
 
 CURRENT MODE CONTRACT
 ---------------------
@@ -77,6 +145,12 @@ READBACK CONTRACT
 The one-shot command samples at most 24 vertices. It chooses local vertex 0,
 the midpoint, and the last vertex from successive dispatched surfaces.
 
+On the one-shot frame, GPU current output ranges and valid GPU previous-output
+ranges are first filled with zero sentinels. Mode 2 also replaces the CPU seed
+in dispatched dynamic ranges with the sentinel before compute. A passing sample
+therefore proves that compute overwrote the sentinel; it cannot pass merely
+because a CPU seed survived.
+
 Every sample retains:
 
   entity index
@@ -130,6 +204,7 @@ Wait at least four rendered frames. Expected:
   allocationFailure=0
   dispatchedGpu greater than zero
   parity summary pass=1
+  parity sentinel applied=1 with nonzero currentVertices
   currentFailures=0
   previousFailures=0
   motionFailures=0
@@ -215,6 +290,6 @@ Build:
 
 Built and deployed executable:
 
-  size    15,539,712 bytes
-  mtime   2026-07-23 19:46:19 +10
-  SHA256  07BFF232D6384B5C1B660CF04A0EFACC8CE37C931357AB22C3D3C939414867F9
+  size    15,540,736 bytes
+  mtime   2026-07-23 20:01:35 +10
+  SHA256  8F88106664FA2EB35B50F83F3F3CF4153E771763B09B3BEB2AE40BBA0230B6FD

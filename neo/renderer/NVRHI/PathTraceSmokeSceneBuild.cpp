@@ -5595,6 +5595,88 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         !skinnedGpuScaffold.previousPositions.empty() &&
         !skinnedGpuScaffold.previousJointMatrices.empty();
     bool skinnedGpuComputeDispatched = false;
+    const bool skinnedGpuParitySentinelRequested =
+        skinnedGpuComputeReady &&
+        r_pathTracingGpuSkinningParityDump.GetInteger() != 0;
+    std::vector<PathTraceSmokeVertex> skinnedGpuDynamicVertexSentinel;
+    std::vector<PathTraceSmokeVertex> skinnedGpuCurrentOutputSentinel;
+    std::vector<PathTraceSkinnedPreviousPosition> skinnedGpuPreviousPositionSentinel;
+    const std::vector<PathTraceSmokeVertex>* dynamicVertexUploadData = &dynamicVertexData;
+    const std::vector<PathTraceSkinnedPreviousPosition>* skinnedPreviousPositionUploadData =
+        &skinnedGpuScaffold.previousPositions;
+    int skinnedGpuCurrentSentinelVertices = 0;
+    int skinnedGpuPreviousSentinelPositions = 0;
+    if (skinnedGpuParitySentinelRequested)
+    {
+        if (skinnedGpuComputeTargetsDynamicVertices)
+        {
+            skinnedGpuDynamicVertexSentinel = dynamicVertexData;
+            for (const PathTraceSkinnedSurfaceDispatchRecord& dispatch : skinnedGpuComputeDispatchRecords)
+            {
+                if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS) == 0u ||
+                    dispatch.dynamicVertexOffset > skinnedGpuDynamicVertexSentinel.size() ||
+                    dispatch.vertexCount >
+                        skinnedGpuDynamicVertexSentinel.size() - dispatch.dynamicVertexOffset)
+                {
+                    continue;
+                }
+                for (uint32_t vertexIndex = 0; vertexIndex < dispatch.vertexCount; ++vertexIndex)
+                {
+                    skinnedGpuDynamicVertexSentinel[dispatch.dynamicVertexOffset + vertexIndex] =
+                        PathTraceSmokeVertex();
+                }
+                skinnedGpuCurrentSentinelVertices += static_cast<int>(dispatch.vertexCount);
+            }
+            dynamicVertexUploadData = &skinnedGpuDynamicVertexSentinel;
+        }
+        else
+        {
+            skinnedGpuCurrentOutputSentinel.resize(skinnedGpuScaffold.currentOutputVertices.size());
+            skinnedGpuCurrentSentinelVertices =
+                static_cast<int>(skinnedGpuCurrentOutputSentinel.size());
+        }
+
+        skinnedGpuPreviousPositionSentinel = skinnedGpuScaffold.previousPositions;
+        for (const PathTraceSkinnedSurfaceDispatchRecord& dispatch : skinnedGpuComputeDispatchRecords)
+        {
+            if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) == 0u ||
+                (dispatch.flags & PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS) == 0u ||
+                dispatch.previousPositionOffset == UINT32_MAX ||
+                dispatch.previousPositionOffset > skinnedGpuPreviousPositionSentinel.size() ||
+                dispatch.vertexCount >
+                    skinnedGpuPreviousPositionSentinel.size() - dispatch.previousPositionOffset)
+            {
+                continue;
+            }
+            for (uint32_t vertexIndex = 0; vertexIndex < dispatch.vertexCount; ++vertexIndex)
+            {
+                skinnedGpuPreviousPositionSentinel[dispatch.previousPositionOffset + vertexIndex] =
+                    PathTraceSkinnedPreviousPosition();
+            }
+            skinnedGpuPreviousSentinelPositions += static_cast<int>(dispatch.vertexCount);
+        }
+        skinnedPreviousPositionUploadData = &skinnedGpuPreviousPositionSentinel;
+    }
+    const RtSmokeBufferUploadItem skinnedCurrentOutputUploadItem =
+        skinnedGpuComputeReady && !skinnedGpuComputeTargetsDynamicVertices
+            ? (skinnedGpuParitySentinelRequested
+                ? MakeSmokeVectorUploadItem(
+                    smokeSkinnedCurrentOutputVertexBuffer,
+                    skinnedGpuCurrentOutputSentinel,
+                    nvrhi::ResourceStates::UnorderedAccess,
+                    false)
+                : MakeSmokeBufferStateItem(
+                    smokeSkinnedCurrentOutputVertexBuffer,
+                    nvrhi::ResourceStates::UnorderedAccess))
+            : (skinnedGpuComputeTargetsDynamicVertices
+                ? MakeSmokeBufferStateItem(
+                    smokeSkinnedCurrentOutputVertexBuffer,
+                    nvrhi::ResourceStates::ShaderResource)
+                : MakeSmokeVectorUploadItem(
+                    smokeSkinnedCurrentOutputVertexBuffer,
+                    skinnedGpuScaffold.currentOutputVertices,
+                    nvrhi::ResourceStates::ShaderResource,
+                    false));
 
     RtSmokeStaticVertexUploadPlanInput staticVertexUploadPlanInput;
     staticVertexUploadPlanInput.forceRebuildWithoutUpload = forceStaticBlasRebuildWithoutUpload;
@@ -5628,7 +5710,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokePreviousStaticTriangleClassBuffer, previousStaticTriangleClassCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticGeometryUpload),
         MakeSmokeVectorUploadItem(smokePreviousStaticTriangleMaterialBuffer, previousStaticTriangleMaterialCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticGeometryUpload),
         MakeSmokeVectorUploadItem(smokePreviousStaticTriangleMaterialIndexBuffer, previousStaticTriangleMaterialIndexCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticMaterialIndexUpload),
-        MakeSmokeVectorUploadItem(smokeDynamicVertexBuffer, dynamicVertexData, skinnedGpuComputeReady && skinnedGpuComputeTargetsDynamicVertices ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::AccelStructBuildInput, false),
+        MakeSmokeVectorUploadItem(smokeDynamicVertexBuffer, *dynamicVertexUploadData, skinnedGpuComputeReady && skinnedGpuComputeTargetsDynamicVertices ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::AccelStructBuildInput, false),
         MakeSmokeVectorUploadItem(smokeDynamicIndexBuffer, dynamicIndexData, nvrhi::ResourceStates::AccelStructBuildInput, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleClassBuffer, dynamicTriangleClassData, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData, nvrhi::ResourceStates::ShaderResource, false),
@@ -5660,12 +5742,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialIndexBuffer, rigidRouteBuild.triangleMaterialIndexes, nvrhi::ResourceStates::ShaderResource, skipRigidRouteSideBufferUpload),
         MakeSmokeVectorUploadItem(smokeRigidRouteInstanceBuffer, rigidRouteBuild.instances, nvrhi::ResourceStates::ShaderResource, skipRigidRouteInstanceBufferUpload),
         MakeSmokeVectorUploadItem(smokeSkinnedSourceVertexBuffer, skinnedGpuScaffold.sourceVertices, nvrhi::ResourceStates::ShaderResource, false),
-        skinnedGpuComputeReady && !skinnedGpuComputeTargetsDynamicVertices
-            ? MakeSmokeBufferStateItem(smokeSkinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::UnorderedAccess)
-            : (skinnedGpuComputeTargetsDynamicVertices
-                ? MakeSmokeBufferStateItem(smokeSkinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::ShaderResource)
-                : MakeSmokeVectorUploadItem(smokeSkinnedCurrentOutputVertexBuffer, skinnedGpuScaffold.currentOutputVertices, nvrhi::ResourceStates::ShaderResource, false)),
-        MakeSmokeVectorUploadItem(smokeSkinnedPreviousPositionBuffer, skinnedGpuScaffold.previousPositions, skinnedGpuComputeReady ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::ShaderResource, false),
+        skinnedCurrentOutputUploadItem,
+        MakeSmokeVectorUploadItem(smokeSkinnedPreviousPositionBuffer, *skinnedPreviousPositionUploadData, skinnedGpuComputeReady ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedSurfaceDispatchBuffer, skinnedGpuComputeDispatchRecords, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedTriangleDispatchIndexBuffer, skinnedGpuScaffold.dynamicTriangleDispatchIndexes, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedCurrentJointMatrixBuffer, skinnedGpuScaffold.currentJointMatrices, nvrhi::ResourceStates::ShaderResource, false),
@@ -5749,6 +5827,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             currentSkinnedSurfaceRecords,
             gpuSkinningMode,
             geometryUniverseStats.frameIndex);
+        common->Printf(
+            "PathTracePrimaryPass: PT GPU skinning parity sentinel mode=%d currentVertices=%d previousPositions=%d applied=%d\n",
+            gpuSkinningMode,
+            skinnedGpuCurrentSentinelVertices,
+            skinnedGpuPreviousSentinelPositions,
+            skinnedGpuParitySentinelRequested ? 1 : 0);
 
         if (skinnedGpuComputeDispatched)
         {

@@ -1178,7 +1178,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     skinningBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
     skinningBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
         .setShaderResourceOffset(0)
-        .setUnorderedAccessViewOffset(0);
+        .setUnorderedAccessViewOffset(384);
     skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
     skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0));
     skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(1));
