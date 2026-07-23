@@ -2249,3 +2249,9 @@ idCVar r_pathTracingGeometryUniverseRangeDump(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump one-shot RT smoke geometry-universe static current/previous range records" );
+
+idCVar r_pathTracingStaticContractDump(
+    "r_pathTracingStaticContractDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to trace the center view ray and dump one-shot static producer/storage/upload/BLAS/TLAS contract diagnostics" );

@@ -6415,6 +6415,263 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.lastSceneTimingLogMs = &g_smokeLastSceneTimingLogMs;
     sceneLogDesc.sceneRebuildLogged = &m_smokeSceneRebuildLogged;
     sceneLogDesc.sceneLogCooldownFrames = &m_smokeSceneLogCooldownFrames;
+    if (r_pathTracingStaticContractDump.GetInteger() != 0)
+    {
+        r_pathTracingStaticContractDump.SetInteger(0);
+
+        const bool committedCountsMatch =
+            m_sceneInputs.geometry.staticVertexCount == staticVertexCacheCount &&
+            m_sceneInputs.geometry.staticIndexCount == staticIndexCacheCount &&
+            m_sceneInputs.geometry.staticTriangleCount == staticTriangleCacheCount &&
+            accelerationPlan.staticBlas.vertexCount == staticVertexCacheCount &&
+            accelerationPlan.staticBlas.indexCount == staticIndexCacheCount;
+        const bool committedHandlesMatch =
+            m_sceneInputs.geometry.staticVertexBuffer == smokeStaticVertexBuffer &&
+            m_sceneInputs.geometry.staticIndexBuffer == smokeStaticIndexBuffer &&
+            m_sceneInputs.geometry.staticTriangleClassBuffer == smokeStaticTriangleClassBuffer &&
+            m_sceneInputs.geometry.staticTriangleMaterialBuffer == smokeStaticTriangleMaterialBuffer &&
+            m_sceneInputs.geometry.staticTriangleMaterialIndexBuffer == smokeStaticTriangleMaterialIndexBuffer &&
+            m_sceneInputs.geometry.staticBlas == smokeStaticBlas &&
+            m_sceneInputs.geometry.tlas == m_smokeTlas;
+        const bool committedSignatureMatches =
+            m_sceneInputs.signatures.geometryMembership == staticSignature.hash &&
+            m_smokeStaticBlasSignature == staticSignature.hash;
+        const bool staleBlasHandle =
+            m_sceneInputs.geometry.staticBlas != smokeStaticBlas ||
+            smokeStaticBlas != m_smokeStaticBlas;
+        const bool tlasBlasFrameMismatch =
+            m_sceneInputs.signatures.cpuUploadGeneration != m_smokeGeometryFrameIndex ||
+            m_sceneInputs.geometry.tlas != m_smokeTlas ||
+            m_sceneInputs.geometry.staticBlas != m_smokeStaticBlas;
+
+        common->Printf(
+            "PathTracePrimaryPass: PT static contract tuple map='%s' frame=%llu area=%d worldGen=%llu storageGen=%llu activeSetGen=%llu uploadGen=%llu routeGen=%llu counts(cache/blas/shader v/i/t)=%d/%d/%d %d/%d/%d %d/%d/%d handles(v/i/class/material/remap/blas/tlas)=%p/%p/%p/%p/%p/%p/%p staticSig=%llu cacheHit=%d build(submit/skip)=%d/%d tlasInstances=%d tupleMismatch(counts/handles/signature/staleBlas/frameSlot)=%d/%d/%d/%d/%d shaderSample=unobserved\n",
+            m_smokeSceneMapName.c_str(),
+            static_cast<unsigned long long>(geometryUniverseStats.frameIndex),
+            viewDef ? viewDef->areaNum : -1,
+            static_cast<unsigned long long>(m_sceneUniverse.GetStats().generation),
+            static_cast<unsigned long long>(geometryUniverseStats.generation),
+            static_cast<unsigned long long>(sceneLogDesc.bvhActiveSetSignature),
+            static_cast<unsigned long long>(m_sceneInputs.signatures.cpuUploadGeneration),
+            static_cast<unsigned long long>(sceneLogDesc.bvhTlasInstanceSignature),
+            staticVertexCacheCount,
+            staticIndexCacheCount,
+            staticTriangleCacheCount,
+            accelerationPlan.staticBlas.vertexCount,
+            accelerationPlan.staticBlas.indexCount,
+            accelerationPlan.staticBlas.indexCount / 3,
+            m_sceneInputs.geometry.staticVertexCount,
+            m_sceneInputs.geometry.staticIndexCount,
+            m_sceneInputs.geometry.staticTriangleCount,
+            smokeStaticVertexBuffer.Get(),
+            smokeStaticIndexBuffer.Get(),
+            smokeStaticTriangleClassBuffer.Get(),
+            smokeStaticTriangleMaterialBuffer.Get(),
+            smokeStaticTriangleMaterialIndexBuffer.Get(),
+            smokeStaticBlas.Get(),
+            m_smokeTlas.Get(),
+            static_cast<unsigned long long>(staticSignature.hash),
+            staticBlasCacheHit ? 1 : 0,
+            accelSubmitTiming.staticBlasBuildSubmitted ? 1 : 0,
+            accelSubmitTiming.staticBlasBuildSkipped ? 1 : 0,
+            instanceCount,
+            committedCountsMatch ? 0 : 1,
+            committedHandlesMatch ? 0 : 1,
+            committedSignatureMatches ? 0 : 1,
+            staleBlasHandle ? 1 : 0,
+            tlasBlasFrameMismatch ? 1 : 0);
+
+        modelTrace_t rasterTrace = {};
+        bool rasterHit = false;
+        idVec3 traceStart = vec3_origin;
+        idVec3 traceEnd = vec3_origin;
+        if (viewDef && viewDef->renderWorld)
+        {
+            traceStart = viewDef->renderView.vieworg;
+            traceEnd = traceStart + viewDef->renderView.viewaxis[0] * 65536.0f;
+            rasterHit = viewDef->renderWorld->Trace(rasterTrace, traceStart, traceEnd, 0.0f, true, false);
+        }
+
+        common->Printf(
+            "PathTracePrimaryPass: PT static contract rasterProbe hit=%d start=(%.2f %.2f %.2f) end=(%.2f %.2f %.2f) fraction=%.6f point=(%.2f %.2f %.2f) entity=%p material='%s'\n",
+            rasterHit ? 1 : 0,
+            traceStart.x,
+            traceStart.y,
+            traceStart.z,
+            traceEnd.x,
+            traceEnd.y,
+            traceEnd.z,
+            rasterTrace.fraction,
+            rasterTrace.point.x,
+            rasterTrace.point.y,
+            rasterTrace.point.z,
+            rasterTrace.entity,
+            rasterTrace.material ? rasterTrace.material->GetName() : "<none>");
+
+        int matchingSurfaceCount = 0;
+        int boundedSurfaceCount = 0;
+        if (rasterHit)
+        {
+            for (const RtPathTraceSceneUniverseSurface& surface : m_sceneUniverse.Surfaces())
+            {
+                const bool entityMatches =
+                    surface.entity && rasterTrace.entity == &surface.entity->parms;
+                const bool materialMatches =
+                    surface.material == rasterTrace.material ||
+                    (surface.material && rasterTrace.material &&
+                        idStr::Icmp(surface.material->GetName(), rasterTrace.material->GetName()) == 0);
+                if (!entityMatches || !materialMatches)
+                {
+                    continue;
+                }
+
+                ++matchingSurfaceCount;
+                const idBounds& bounds = surface.bounds;
+                const bool pointInsideExpandedBounds =
+                    !bounds.IsCleared() &&
+                    rasterTrace.point.x >= bounds[0].x - 4.0f &&
+                    rasterTrace.point.y >= bounds[0].y - 4.0f &&
+                    rasterTrace.point.z >= bounds[0].z - 4.0f &&
+                    rasterTrace.point.x <= bounds[1].x + 4.0f &&
+                    rasterTrace.point.y <= bounds[1].y + 4.0f &&
+                    rasterTrace.point.z <= bounds[1].z + 4.0f;
+                if (pointInsideExpandedBounds)
+                {
+                    ++boundedSurfaceCount;
+                }
+            }
+        }
+
+        int emittedCandidates = 0;
+        int missingRecordCount = 0;
+        int inactiveRecordCount = 0;
+        int invalidRangeCount = 0;
+        int missingMaterialCount = 0;
+        for (const RtPathTraceSceneUniverseSurface& surface : m_sceneUniverse.Surfaces())
+        {
+            if (!rasterHit || emittedCandidates >= 8)
+            {
+                break;
+            }
+
+            const bool entityMatches =
+                surface.entity && rasterTrace.entity == &surface.entity->parms;
+            const bool materialMatches =
+                surface.material == rasterTrace.material ||
+                (surface.material && rasterTrace.material &&
+                    idStr::Icmp(surface.material->GetName(), rasterTrace.material->GetName()) == 0);
+            if (!entityMatches || !materialMatches)
+            {
+                continue;
+            }
+
+            const idBounds& bounds = surface.bounds;
+            const bool pointInsideExpandedBounds =
+                !bounds.IsCleared() &&
+                rasterTrace.point.x >= bounds[0].x - 4.0f &&
+                rasterTrace.point.y >= bounds[0].y - 4.0f &&
+                rasterTrace.point.z >= bounds[0].z - 4.0f &&
+                rasterTrace.point.x <= bounds[1].x + 4.0f &&
+                rasterTrace.point.y <= bounds[1].y + 4.0f &&
+                rasterTrace.point.z <= bounds[1].z + 4.0f;
+            if (boundedSurfaceCount > 0 && !pointInsideExpandedBounds)
+            {
+                continue;
+            }
+
+            const RtSmokePersistentStaticSurfaceRecord* record =
+                m_smokeGeometryUniverse.FindStaticSurface(surface.legacyDrawSurfKey);
+            const bool recordPresent = record && record->valid;
+            const int vertexOffset = recordPresent ? record->currentRange.vertices.offset : -1;
+            const int vertexCount = recordPresent ? record->currentRange.vertices.count : 0;
+            const int indexOffset = recordPresent ? record->currentRange.indexes.offset : -1;
+            const int indexCount = recordPresent ? record->currentRange.indexes.count : 0;
+            const int triangleOffset = recordPresent ? record->currentRange.triangles.offset : -1;
+            const int triangleCount = recordPresent ? record->currentRange.triangles.count : 0;
+            const bool rangeValid =
+                recordPresent &&
+                vertexOffset >= 0 &&
+                vertexCount > 0 &&
+                vertexOffset + vertexCount <= staticVertexCacheCount &&
+                indexOffset >= 0 &&
+                indexCount > 0 &&
+                (indexCount % 3) == 0 &&
+                indexOffset + indexCount <= staticIndexCacheCount &&
+                triangleOffset >= 0 &&
+                triangleCount == indexCount / 3 &&
+                triangleOffset + triangleCount <= staticTriangleCacheCount &&
+                triangleOffset + triangleCount <= static_cast<int>(materialTable.staticMaterialIndexes.size());
+            const uint32_t materialIndex =
+                rangeValid ? materialTable.staticMaterialIndexes[triangleOffset] : UINT32_MAX;
+            const bool materialPresent =
+                rangeValid &&
+                record->materialId != 0u &&
+                materialIndex < static_cast<uint32_t>(materialTable.materials.size());
+            const bool routePresent =
+                rangeValid &&
+                hasStaticBlas &&
+                smokeStaticBlas &&
+                m_smokeTlas &&
+                instanceCount > 0;
+
+            missingRecordCount += recordPresent ? 0 : 1;
+            inactiveRecordCount += recordPresent && !record->seenThisFrame ? 1 : 0;
+            invalidRangeCount += recordPresent && !rangeValid ? 1 : 0;
+            missingMaterialCount += rangeValid && !materialPresent ? 1 : 0;
+
+            common->Printf(
+                "PathTracePrimaryPass: PT static contract candidate index=%d universeKey=%llu storageKey=%llu model='%s' material='%s' entity/surface=%d/%d areas(center/off/count)=%d/%d/%d boundsHit=%d source(v/i/t)=%d/%d/%d record(present/seen)=%d/%d range(v/i/t)=%d/%d %d/%d %d/%d rangeValid=%d material(id/index/table/present)=%u/%u/%d/%d route(expectedInstance/present)=%d/%d shader(instance/primitive/reject)=unobserved\n",
+                emittedCandidates,
+                static_cast<unsigned long long>(surface.key),
+                static_cast<unsigned long long>(surface.legacyDrawSurfKey),
+                surface.modelName.c_str(),
+                surface.materialName.c_str(),
+                surface.entityIndex,
+                surface.surfaceIndex,
+                surface.centerArea,
+                surface.offCenterArea,
+                surface.areaCount,
+                pointInsideExpandedBounds ? 1 : 0,
+                surface.numVerts,
+                surface.numIndexes,
+                surface.triangles,
+                recordPresent ? 1 : 0,
+                recordPresent && record->seenThisFrame ? 1 : 0,
+                vertexOffset,
+                vertexCount,
+                indexOffset,
+                indexCount,
+                triangleOffset,
+                triangleCount,
+                rangeValid ? 1 : 0,
+                recordPresent ? record->materialId : 0u,
+                materialIndex,
+                static_cast<int>(materialTable.materials.size()),
+                materialPresent ? 1 : 0,
+                0,
+                routePresent ? 1 : 0);
+            ++emittedCandidates;
+        }
+
+        common->Printf(
+            "PathTracePrimaryPass: PT static contract counters rasterMatches=%d boundsMatches=%d emitted=%d generationMismatch=%d missingRecord=%d inactiveTraversal=%d outOfRangePrimitive=%d missingRoute=%d missingMaterial=%d staleBlas=%d tlasBlasFrameSlotMismatch=%d remainingBoundary=%s\n",
+            matchingSurfaceCount,
+            boundedSurfaceCount,
+            emittedCandidates,
+            committedSignatureMatches ? 0 : 1,
+            missingRecordCount,
+            inactiveRecordCount,
+            invalidRangeCount,
+            emittedCandidates > 0 && (!hasStaticBlas || !smokeStaticBlas || !m_smokeTlas || instanceCount <= 0) ? emittedCandidates : 0,
+            missingMaterialCount,
+            staleBlasHandle ? 1 : 0,
+            tlasBlasFrameMismatch ? 1 : 0,
+            emittedCandidates > 0 && missingRecordCount == 0 && invalidRangeCount == 0 &&
+                    missingMaterialCount == 0 && committedCountsMatch && committedHandlesMatch &&
+                    committedSignatureMatches && !staleBlasHandle && !tlasBlasFrameMismatch
+                ? "shader_instance_primitive_route"
+                : "cpu_producer_storage_or_publication");
+    }
     {
         OPTICK_EVENT("PT Scene Diagnostic Logs");
         RunSmokeSceneBuildDiagnosticLogs(sceneLogDesc);

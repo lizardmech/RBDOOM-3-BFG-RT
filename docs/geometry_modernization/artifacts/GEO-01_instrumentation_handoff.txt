@@ -1,0 +1,164 @@
+GEO-01 handoff - comm1 static contract instrumentation
+=======================================================
+Status: instrumentation built and deployed; paired runtime capture pending,
+2026-07-23.
+
+SCOPE
+-----
+This checkpoint changes diagnostics only. It does not alter surface selection,
+retention, buffer upload, BLAS/TLAS construction, shader routing, or material
+behavior. The diagnostic is default off and resets itself after one frame.
+
+AUDIT RESULT
+------------
+The original broad log does not prove an active-range/retained-range BLAS
+mismatch.
+
+The live path is:
+
+  1. Visible capture and selected-area preload touch or append static records.
+  2. With r_pathTracingStaticGeometryPruneMissing=0, unseen records remain in
+     the persistent static cache.
+  3. Capture rewrites bucket 0 to the full retained vertex/index/triangle
+     cache range.
+  4. BuildSmokeAccelerationPlan passes that full range to CreateSmokeBlas.
+  5. The static BLAS contains one geometry descriptor at index offset 0.
+  6. The base TLAS publishes the static BLAS as instance ID 0.
+  7. The static shader route uses PrimitiveIndex() directly against the full
+     retained static index and triangle-side-data buffers.
+
+Therefore the previous log label:
+
+  staticActive(surf/v/i)=609/44520/111588
+
+mixes an active surface count with retained vertex/index counts. It is
+misleading diagnostic terminology, but its numeric values do not establish a
+live descriptor/shader disagreement.
+
+NEW ONE-SHOT
+------------
+At the exact point under test, aim the center crosshair at the raster-visible
+surface. The CPU raster-geometry trace is independent of whether PT output is
+currently displayed. Enter:
+
+  r_pathTracingStaticContractDump 1
+
+The command prints exactly:
+
+  - one `PT static contract tuple` line;
+  - one `PT static contract rasterProbe` line;
+  - zero to eight `PT static contract candidate` lines;
+  - one `PT static contract counters` line.
+
+It then resets to 0.
+
+The tuple covers:
+
+  scene-universe generation
+  geometry-storage generation
+  active-set signature
+  upload generation
+  TLAS route signature
+  retained, BLAS-descriptor, and shader-visible counts
+  static vertex/index/class/material/remap buffer identities
+  static BLAS and TLAS identities
+  static signature, cache/build state, and TLAS instance count
+
+Each candidate covers:
+
+  scene-universe identity and legacy storage key
+  entity/surface and portal-area ownership
+  source counts
+  persistent-record presence and active state
+  vertex/index/primitive ranges
+  material ID, remap index, and table bounds
+  expected monolithic static instance ID 0
+
+The final counters distinguish:
+
+  generation mismatch
+  missing persistent record
+  inactive retained traversal
+  out-of-range primitive data
+  missing static route
+  missing material
+  stale BLAS handle
+  TLAS/BLAS upload-frame mismatch
+
+If all CPU counters are zero, `remainingBoundary` names
+`shader_instance_primitive_route`. That result authorizes the next bounded
+Vulkan readback instrumentation step; it does not authorize a behavior fix.
+
+PAIRED CAPTURE
+--------------
+Capture the broken surface first:
+
+  echo === GEO01_COMM1_MISSING_SURFACE ===
+  r_pathTracingStaticContractDump 1
+
+Without changing the map or cvars, aim at nearby level geometry that is visible
+in both raster and PT:
+
+  echo === GEO01_COMM1_GOOD_SURFACE ===
+  r_pathTracingStaticContractDump 1
+
+Keep the center ray on opaque static level geometry. Do not aim at a dynamic
+prop, actor, particle, GUI, glass, decal, or empty space. Confirm the probe line
+has `hit=1` and at least one candidate was emitted.
+
+INTERPRETATION GATE
+-------------------
+The earliest nonzero field wins:
+
+  missingRecord
+    mismatch is scene-universe/capture selection to retained storage.
+
+  outOfRangePrimitive
+    mismatch is retained record to cache layout.
+
+  missingMaterial
+    geometry exists; mismatch is triangle material ID/remap/table publication.
+
+  tuple count/handle/signature, staleBlas, or frameSlot mismatch
+    mismatch is CPU upload, BLAS, TLAS, or resource commit/publication.
+
+  all zero and remainingBoundary=shader_instance_primitive_route
+    CPU boundaries agree; add the smallest Vulkan shader readback for the
+    sampled pixel before GEO-01 can complete.
+
+BUILD / SHADERS / DEPLOY
+------------------------
+  command:
+    from neo/, cmake --build --preset win64-pt-dev-release
+
+  result:
+    success
+
+  executable:
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    bytes: 15499264
+    modified: 2026-07-23 13:31:03 Australia/Sydney
+
+  deployed:
+    E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+    bytes: 15499264
+    modified: 2026-07-23 13:31:03 Australia/Sydney
+
+No HLSL was changed. No shader blob was deleted, rebuilt, or deployed. The
+build reported all SPIR-V shaders up to date. DX12 shaders were not compiled or
+deployed.
+
+ROLLBACK
+--------
+Set or leave:
+
+  r_pathTracingStaticContractDump 0
+
+Code rollback is limited to the cvar declaration/definition and the one-shot
+block in PathTraceSmokeSceneBuild.cpp.
+
+NEXT
+----
+Return the paired labeled log section. GEO-01 remains open until the first
+producer/consumer mismatch is proven, or the new data proves that the remaining
+unobserved boundary is the shader instance/primitive route.

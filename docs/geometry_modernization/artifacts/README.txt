@@ -24,6 +24,13 @@ GEO-00 FILES
   GEO-00_handoff.txt
     Completion record, limitations, build status, and rollback.
 
+GEO-01 FILES
+------------
+  GEO-01_instrumentation_handoff.txt
+    Current-code contract audit, the discarded active-prefix hypothesis,
+    one-shot capture command, output interpretation, build/deploy identity,
+    and the runtime work still required to localize the earliest mismatch.
+
 NAMING
 ------
 Use:

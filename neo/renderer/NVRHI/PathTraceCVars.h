@@ -381,3 +381,4 @@ extern idCVar r_pathTracingMaterialCache;
 extern idCVar r_pathTracingMaterialUniverseTable;
 extern idCVar r_pathTracingGeometryUniverseValidate;
 extern idCVar r_pathTracingGeometryUniverseRangeDump;
+extern idCVar r_pathTracingStaticContractDump;
