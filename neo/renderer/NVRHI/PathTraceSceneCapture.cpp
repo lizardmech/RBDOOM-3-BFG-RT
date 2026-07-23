@@ -1092,6 +1092,7 @@ void AddSmokeSkinnedSurfaceRecord(
     const srfTriangles_t* tri,
     uint32_t surfaceClassId,
     uint32_t materialId,
+    int drawSurfIndex,
     int bucketIndex,
     int currentVertexOffset,
     int currentIndexOffset,
@@ -1128,6 +1129,8 @@ void AddSmokeSkinnedSurfaceRecord(
     record.rtCpuSkinned = rtCpuSkinningJoints != nullptr;
     record.basePoseLikely = SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri);
     record.entityIndex = record.key.entityIndex;
+    record.drawSurfIndex = drawSurfIndex;
+    record.modelName = renderEntity && renderEntity->hModel ? renderEntity->hModel->Name() : "<none>";
     record.materialId = materialId;
     if (verticesFromFrameCache)
     {
@@ -2346,6 +2349,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     tri,
                     surfaceClassId,
                     materialId,
+                    surfaceIndex,
                     bucketIndex,
                     bucketVertexStart,
                     bucketIndexStart,

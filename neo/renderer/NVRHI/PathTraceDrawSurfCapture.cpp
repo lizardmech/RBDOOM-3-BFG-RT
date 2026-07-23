@@ -1135,6 +1135,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                     tri,
                     surfaceClassId,
                     materialId,
+                    surfaceIndex,
                     bucketIndex,
                     bucketVertexStart,
                     bucketIndexStart,

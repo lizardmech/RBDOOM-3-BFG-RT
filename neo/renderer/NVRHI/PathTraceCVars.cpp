@@ -2112,6 +2112,12 @@ idCVar r_pathTracingGpuSkinning(
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental PT skinned GPU-skinning scaffold: 0 = CPU-skinned bridge only, 1 = diagnostic compute output buffer, 2 = compute overwrites skinned dynamic vertices before BLAS build" );
 
+idCVar r_pathTracingGpuSkinningParityDump(
+    "r_pathTracingGpuSkinningParityDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot PT GPU-skinning funnel and bounded current/previous CPU-vs-GPU vertex parity readback" );
+
 idCVar r_pathTracingMotionVectorExport(
     "r_pathTracingMotionVectorExport",
     "1",

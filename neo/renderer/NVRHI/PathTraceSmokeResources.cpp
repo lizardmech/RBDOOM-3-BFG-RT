@@ -1834,6 +1834,10 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_staticContractGeometryReadbackDelayFrames = 0;
     m_staticContractGeometryCpuVertices.clear();
     m_staticContractGeometryCpuIndexes.clear();
+    m_gpuSkinningParityReadbackBuffer = nullptr;
+    m_gpuSkinningParityReadbackQueued = false;
+    m_gpuSkinningParityReadbackDelayFrames = 0;
+    m_gpuSkinningParitySamples.clear();
     m_smokeSkyEnvironmentSourceName.Clear();
     m_smokeSceneBuilt = false;
     m_smokeTestDispatched = false;

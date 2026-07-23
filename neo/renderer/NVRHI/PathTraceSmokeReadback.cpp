@@ -185,6 +185,46 @@ const char* StaticContractRejectReasonName(uint32_t reason)
     }
 }
 
+bool GpuSkinningPositionFinite(const float position[4])
+{
+    return std::isfinite(position[0]) &&
+        std::isfinite(position[1]) &&
+        std::isfinite(position[2]) &&
+        std::isfinite(position[3]);
+}
+
+float GpuSkinningPositionMaxError(const float expected[4], const float actual[4])
+{
+    float error = 0.0f;
+    for (int component = 0; component < 3; ++component)
+    {
+        error = Max(error, idMath::Fabs(expected[component] - actual[component]));
+    }
+    return error;
+}
+
+bool GpuSkinningPositionWithinTolerance(
+    const float expected[4],
+    const float actual[4],
+    float absoluteTolerance,
+    float relativeTolerance)
+{
+    if (!GpuSkinningPositionFinite(expected) || !GpuSkinningPositionFinite(actual))
+    {
+        return false;
+    }
+    for (int component = 0; component < 3; ++component)
+    {
+        const float scale = Max(1.0f, Max(idMath::Fabs(expected[component]), idMath::Fabs(actual[component])));
+        if (idMath::Fabs(expected[component] - actual[component]) >
+            absoluteTolerance + relativeTolerance * scale)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 }
 
 void PathTracePrimaryPass::ReadBackSkyCubeProbe()
@@ -671,12 +711,281 @@ void PathTracePrimaryPass::ReadBackStaticContractGeometrySample()
     m_staticContractGeometryReadbackQueued = false;
 }
 
+void PathTracePrimaryPass::QueueGpuSkinningParitySamples(
+    nvrhi::ICommandList* commandList,
+    nvrhi::IBuffer* currentOutputBuffer,
+    nvrhi::IBuffer* previousPositionBuffer,
+    nvrhi::ResourceStates currentRestoreState,
+    const std::vector<GpuSkinningParitySample>& samples,
+    int mode,
+    uint64 frameIndex)
+{
+    if (m_gpuSkinningParityReadbackQueued)
+    {
+        common->Printf("PathTracePrimaryPass: PT GPU skinning parity request ignored because a readback is already queued\n");
+        return;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!commandList || !device || !currentOutputBuffer || !previousPositionBuffer || samples.empty())
+    {
+        common->Printf("PathTracePrimaryPass: PT GPU skinning parity sample unavailable before copy\n");
+        return;
+    }
+
+    const uint64 currentBytes =
+        static_cast<uint64>(samples.size()) * sizeof(PathTraceSmokeVertex);
+    const uint64 previousBytes =
+        static_cast<uint64>(samples.size()) * sizeof(PathTraceSkinnedPreviousPosition);
+    const uint64 totalBytes = currentBytes + previousBytes;
+    if (!m_gpuSkinningParityReadbackBuffer ||
+        m_gpuSkinningParityReadbackBuffer->getDesc().byteSize < totalBytes)
+    {
+        m_gpuSkinningParityReadbackBuffer = nullptr;
+        nvrhi::BufferDesc desc;
+        desc.byteSize = totalBytes;
+        desc.structStride = sizeof(uint32_t);
+        desc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        desc.debugName = "PathTraceGpuSkinningParityReadback";
+        desc.initialState = nvrhi::ResourceStates::CopyDest;
+        desc.keepInitialState = true;
+        m_gpuSkinningParityReadbackBuffer = device->createBuffer(desc);
+    }
+    if (!m_gpuSkinningParityReadbackBuffer)
+    {
+        common->Printf("PathTracePrimaryPass: PT GPU skinning parity readback buffer creation failed\n");
+        return;
+    }
+
+    for (const GpuSkinningParitySample& sample : samples)
+    {
+        if (sample.currentByteOffset + sizeof(PathTraceSmokeVertex) >
+                currentOutputBuffer->getDesc().byteSize ||
+            (sample.hasPrevious &&
+                sample.previousByteOffset + sizeof(PathTraceSkinnedPreviousPosition) >
+                    previousPositionBuffer->getDesc().byteSize))
+        {
+            common->Printf(
+                "PathTracePrimaryPass: PT GPU skinning parity sample range out of bounds entity/surface/vertex=%d/%d/%d\n",
+                sample.entityIndex,
+                sample.drawSurfIndex,
+                sample.vertexIndex);
+            return;
+        }
+    }
+
+    m_gpuSkinningParitySamples = samples;
+    m_gpuSkinningParityMode = mode;
+    m_gpuSkinningParityFrame = frameIndex;
+
+    commandList->setBufferState(currentOutputBuffer, nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(previousPositionBuffer, nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(m_gpuSkinningParityReadbackBuffer, nvrhi::ResourceStates::CopyDest);
+    commandList->commitBarriers();
+    for (size_t sampleIndex = 0; sampleIndex < samples.size(); ++sampleIndex)
+    {
+        const GpuSkinningParitySample& sample = samples[sampleIndex];
+        commandList->copyBuffer(
+            m_gpuSkinningParityReadbackBuffer,
+            sampleIndex * sizeof(PathTraceSmokeVertex),
+            currentOutputBuffer,
+            sample.currentByteOffset,
+            sizeof(PathTraceSmokeVertex));
+        if (sample.hasPrevious)
+        {
+            commandList->copyBuffer(
+                m_gpuSkinningParityReadbackBuffer,
+                currentBytes + sampleIndex * sizeof(PathTraceSkinnedPreviousPosition),
+                previousPositionBuffer,
+                sample.previousByteOffset,
+                sizeof(PathTraceSkinnedPreviousPosition));
+        }
+    }
+    commandList->setBufferState(currentOutputBuffer, currentRestoreState);
+    commandList->setBufferState(previousPositionBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->commitBarriers();
+
+    m_gpuSkinningParityReadbackQueued = true;
+    m_gpuSkinningParityReadbackDelayFrames = 3;
+    common->Printf(
+        "PathTracePrimaryPass: PT GPU skinning parity queued frame=%llu mode=%d samples=%llu tolerance(abs/rel)=0.001/0.00001 finiteRequired=1\n",
+        static_cast<unsigned long long>(frameIndex),
+        mode,
+        static_cast<unsigned long long>(samples.size()));
+}
+
+void PathTracePrimaryPass::ReadBackGpuSkinningParitySamples()
+{
+    if (!m_gpuSkinningParityReadbackQueued || !m_gpuSkinningParityReadbackBuffer)
+    {
+        return;
+    }
+    if (m_gpuSkinningParityReadbackDelayFrames > 0)
+    {
+        --m_gpuSkinningParityReadbackDelayFrames;
+        return;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+    const uint8_t* readbackBytes = static_cast<const uint8_t*>(
+        device->mapBuffer(m_gpuSkinningParityReadbackBuffer, nvrhi::CpuAccessMode::Read));
+    if (!readbackBytes)
+    {
+        common->Printf("PathTracePrimaryPass: PT GPU skinning parity readback map failed\n");
+        m_gpuSkinningParityReadbackQueued = false;
+        return;
+    }
+
+    constexpr float absoluteTolerance = 1.0e-3f;
+    constexpr float relativeTolerance = 1.0e-5f;
+    const size_t currentBytes =
+        m_gpuSkinningParitySamples.size() * sizeof(PathTraceSmokeVertex);
+    const PathTraceSmokeVertex* gpuCurrent =
+        reinterpret_cast<const PathTraceSmokeVertex*>(readbackBytes);
+    const PathTraceSkinnedPreviousPosition* gpuPrevious =
+        reinterpret_cast<const PathTraceSkinnedPreviousPosition*>(readbackBytes + currentBytes);
+    int currentFailures = 0;
+    int previousFailures = 0;
+    int motionFailures = 0;
+    int nonFiniteOutputs = 0;
+    float maxCurrentError = 0.0f;
+    float maxPreviousError = 0.0f;
+    float maxMotionError = 0.0f;
+
+    for (size_t sampleIndex = 0; sampleIndex < m_gpuSkinningParitySamples.size(); ++sampleIndex)
+    {
+        const GpuSkinningParitySample& sample = m_gpuSkinningParitySamples[sampleIndex];
+        const float* cpuCurrent = sample.cpuCurrent.position;
+        const float* actualCurrent = gpuCurrent[sampleIndex].position;
+        const bool currentFinite =
+            GpuSkinningPositionFinite(cpuCurrent) &&
+            GpuSkinningPositionFinite(actualCurrent);
+        const float currentError =
+            currentFinite ? GpuSkinningPositionMaxError(cpuCurrent, actualCurrent) : 1.0e30f;
+        const bool currentPass = GpuSkinningPositionWithinTolerance(
+            cpuCurrent,
+            actualCurrent,
+            absoluteTolerance,
+            relativeTolerance);
+        maxCurrentError = Max(maxCurrentError, currentError);
+        currentFailures += currentPass ? 0 : 1;
+        nonFiniteOutputs += GpuSkinningPositionFinite(actualCurrent) ? 0 : 1;
+
+        bool previousPass = true;
+        bool motionPass = true;
+        float previousError = 0.0f;
+        float motionError = 0.0f;
+        float actualPreviousForLog[4] = {};
+        if (sample.hasPrevious)
+        {
+            const float* cpuPrevious = sample.cpuPrevious.previousPosition;
+            const float* actualPrevious = gpuPrevious[sampleIndex].previousPosition;
+            memcpy(actualPreviousForLog, actualPrevious, sizeof(actualPreviousForLog));
+            const bool previousFinite =
+                GpuSkinningPositionFinite(cpuPrevious) &&
+                GpuSkinningPositionFinite(actualPrevious);
+            previousError =
+                previousFinite ? GpuSkinningPositionMaxError(cpuPrevious, actualPrevious) : 1.0e30f;
+            previousPass = GpuSkinningPositionWithinTolerance(
+                cpuPrevious,
+                actualPrevious,
+                absoluteTolerance,
+                relativeTolerance);
+            float cpuMotion[4] = {};
+            float gpuMotion[4] = {};
+            for (int component = 0; component < 3; ++component)
+            {
+                cpuMotion[component] = cpuPrevious[component] - cpuCurrent[component];
+                gpuMotion[component] = actualPrevious[component] - actualCurrent[component];
+            }
+            cpuMotion[3] = 1.0f;
+            gpuMotion[3] = 1.0f;
+            motionError = GpuSkinningPositionMaxError(cpuMotion, gpuMotion);
+            motionPass = GpuSkinningPositionWithinTolerance(
+                cpuMotion,
+                gpuMotion,
+                absoluteTolerance,
+                relativeTolerance);
+            maxPreviousError = Max(maxPreviousError, previousError);
+            maxMotionError = Max(maxMotionError, motionError);
+            previousFailures += previousPass ? 0 : 1;
+            motionFailures += motionPass ? 0 : 1;
+            nonFiniteOutputs += GpuSkinningPositionFinite(actualPrevious) ? 0 : 1;
+        }
+
+        common->Printf(
+            "PathTracePrimaryPass: PT GPU skinning parity sample=%llu entity/model/surface/record/vertex=%d/'%s'/%d/%d/%d source=(%.9g %.9g %.9g) joints=%u,%u,%u,%u weights=%.9g,%.9g,%.9g,%.9g cpuCurrent=(%.9g %.9g %.9g) gpuCurrent=(%.9g %.9g %.9g) current(finite/error/pass)=%d/%.9g/%d hasPrevious=%d cpuPrevious=(%.9g %.9g %.9g) gpuPrevious=(%.9g %.9g %.9g) previous(error/pass)=%.9g/%d motion(error/pass)=%.9g/%d\n",
+            static_cast<unsigned long long>(sampleIndex),
+            sample.entityIndex,
+            sample.modelName.c_str(),
+            sample.drawSurfIndex,
+            sample.surfaceRecordIndex,
+            sample.vertexIndex,
+            sample.source.localPosition[0],
+            sample.source.localPosition[1],
+            sample.source.localPosition[2],
+            sample.source.jointIndices[0],
+            sample.source.jointIndices[1],
+            sample.source.jointIndices[2],
+            sample.source.jointIndices[3],
+            sample.source.jointWeights[0],
+            sample.source.jointWeights[1],
+            sample.source.jointWeights[2],
+            sample.source.jointWeights[3],
+            cpuCurrent[0],
+            cpuCurrent[1],
+            cpuCurrent[2],
+            actualCurrent[0],
+            actualCurrent[1],
+            actualCurrent[2],
+            currentFinite ? 1 : 0,
+            currentError,
+            currentPass ? 1 : 0,
+            sample.hasPrevious ? 1 : 0,
+            sample.cpuPrevious.previousPosition[0],
+            sample.cpuPrevious.previousPosition[1],
+            sample.cpuPrevious.previousPosition[2],
+            actualPreviousForLog[0],
+            actualPreviousForLog[1],
+            actualPreviousForLog[2],
+            previousError,
+            previousPass ? 1 : 0,
+            motionError,
+            motionPass ? 1 : 0);
+    }
+
+    common->Printf(
+        "PathTracePrimaryPass: PT GPU skinning parity summary frame=%llu mode=%d samples=%llu currentFailures=%d previousFailures=%d motionFailures=%d nonFiniteOutputs=%d maxError(current/previous/motion)=%.9g/%.9g/%.9g tolerance(abs/rel)=%.9g/%.9g pass=%d\n",
+        static_cast<unsigned long long>(m_gpuSkinningParityFrame),
+        m_gpuSkinningParityMode,
+        static_cast<unsigned long long>(m_gpuSkinningParitySamples.size()),
+        currentFailures,
+        previousFailures,
+        motionFailures,
+        nonFiniteOutputs,
+        maxCurrentError,
+        maxPreviousError,
+        maxMotionError,
+        absoluteTolerance,
+        relativeTolerance,
+        currentFailures == 0 && previousFailures == 0 && motionFailures == 0 && nonFiniteOutputs == 0 ? 1 : 0);
+
+    device->unmapBuffer(m_gpuSkinningParityReadbackBuffer);
+    m_gpuSkinningParityReadbackQueued = false;
+    m_gpuSkinningParitySamples.clear();
+}
+
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
     ReadBackSkyCubeProbe();
     ReadBackLiquidPoolStatus();
     ReadBackStaticContractShaderSample();
     ReadBackStaticContractGeometrySample();
+    ReadBackGpuSkinningParitySamples();
 
     const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;

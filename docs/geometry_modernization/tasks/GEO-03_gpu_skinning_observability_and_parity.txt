@@ -70,3 +70,11 @@ current/previous position parity. CPU pre-skinning remains authoritative.
 CHECKPOINT
 ----------
   pt geometry GEO-03: prove GPU skinning output parity
+
+IMPLEMENTATION HANDOFF
+----------------------
+See:
+
+  docs/geometry_modernization/artifacts/GEO-03_gpu_skinning_runtime_handoff.txt
+
+The implementation is built and deployed. Runtime acceptance remains pending.

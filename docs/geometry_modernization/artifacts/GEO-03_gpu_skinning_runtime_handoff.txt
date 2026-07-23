@@ -1,0 +1,220 @@
+GEO-03 GPU skinning observability runtime handoff
+==================================================
+
+STATUS
+------
+Implementation checkpoint built and deployed on 2026-07-23. Runtime acceptance
+is still pending.
+
+No shader source changed in this checkpoint. The Vulkan build reported:
+
+  All SPIRV shaders are up to date.
+
+CURRENT MODE CONTRACT
+---------------------
+r_pathTracingGpuSkinning 0
+  - CPU pre-skinning remains authoritative.
+  - Dynamic BLAS consumes the CPU-built PathTraceSmokeVertex stream.
+  - The retained CPU previous-position bridge can still build the motion lookup
+    scaffold when motion-vector consumers require it.
+
+r_pathTracingGpuSkinning 1
+  - CPU pre-skinning still runs and remains the BLAS input.
+  - Compute skins the same frame into a separate diagnostic output buffer.
+  - GEO-03 reads this output back and compares it to the CPU current stream.
+
+r_pathTracingGpuSkinning 2
+  - CPU pre-skinning still runs first and supplies the same-frame reference.
+  - Compute overwrites skinned ranges in the dynamic vertex buffer.
+  - Dynamic BLAS consumes that overwritten GPU output.
+
+The current compute scaffold still stages joints from the retained CPU bridge.
+It does not consume the raster jointCache. That source-authority cutover remains
+GEO-07 work.
+
+FUNNEL CONTRACT
+---------------
+Every captured SkinnedDeformed surface ends in exactly one terminal counter:
+
+  eligibleGpu
+  dispatchedGpu
+  notReadyJointData
+  unsupportedLayout
+  invalidWeightsOrJoints
+  allocationFailure
+  explicitSingleBoneRoute
+  cpuFallback
+
+The log prints candidates, resultTotal, and exact. Acceptance requires:
+
+  resultTotal == candidates
+  exact == 1
+
+eligibleGpu is an intermediate state before dispatch finalization and therefore
+should normally be zero in the emitted terminal line. In mode 0, every candidate
+ends in cpuFallback. In modes 1 and 2, a valid candidate ends in dispatchedGpu;
+a valid candidate that cannot reach dispatch ends in allocationFailure.
+
+The current implementation has no explicit single-bone execution route.
+Therefore explicitSingleBoneRoute is expected to remain zero. singleBoneObserved
+is a separate observation counter and does not claim that those surfaces were
+rerouted. This distinction preserves D06: classifier evidence alone is not
+permission to promote a surface.
+
+The validator rejects a compute candidate when:
+
+  - its triangle/source/current-output range is unavailable;
+  - current joint data is unavailable;
+  - any of the four indices read by the current shader is outside jointCount;
+  - a source position is non-finite; or
+  - packed byte weights do not sum to 255 within one quantization unit.
+
+The current shader reads all four joint indices even when a corresponding
+weight is zero, so validation intentionally checks all four indices.
+
+READBACK CONTRACT
+-----------------
+The one-shot command samples at most 24 vertices. It chooses local vertex 0,
+the midpoint, and the last vertex from successive dispatched surfaces.
+
+Every sample retains:
+
+  entity index
+  model name
+  captured draw-surface index
+  skinned record index
+  local vertex index
+  bind-pose position
+  four joint indices and four weights
+  same-frame CPU and GPU current positions
+  CPU and GPU previous positions when valid previous joints exist
+  derived CPU and GPU current-to-previous motion
+
+The tolerance is declared before evaluation:
+
+  absolute position tolerance  0.001
+  relative position tolerance  0.00001
+  finite values required       yes
+
+Each component must satisfy:
+
+  abs(cpu - gpu) <= absolute + relative * max(1, abs(cpu), abs(gpu))
+
+RUNTIME COMMANDS
+----------------
+Use the Vulkan release executable under E:/prog/rbdoom-3-BFG-prebuilt.
+Keep r_useGPUSkinning 1 throughout this test.
+
+At a settled scene, run the CPU fallback accounting probe:
+
+  echo === GEO03_MODE0_FUNNEL ===
+  r_pathTracingGpuSkinning 0
+  r_pathTracingGpuSkinningParityDump 1
+
+Expected:
+
+  exact=1
+  cpuFallback=candidates
+  a message saying parity readback requires mode 1 or 2
+
+Run mode 1 in the same scene:
+
+  echo === GEO03_MODE1_PARITY ===
+  r_pathTracingGpuSkinning 1
+  r_pathTracingGpuSkinningParityDump 1
+
+Wait at least four rendered frames. Expected:
+
+  exact=1
+  eligibleGpu=0
+  allocationFailure=0
+  dispatchedGpu greater than zero
+  parity summary pass=1
+  currentFailures=0
+  previousFailures=0
+  motionFailures=0
+  nonFiniteOutputs=0
+
+Run mode 2:
+
+  echo === GEO03_MODE2_BLAS_OUTPUT ===
+  r_pathTracingGpuSkinning 2
+  r_pathTracingGpuSkinningParityDump 1
+
+Wait at least four rendered frames. Expected bookkeeping and numeric results are
+the same as mode 1. Visually inspect for bind pose, exploding/corrupt vertices,
+or disappearance because mode 2 feeds the dynamic BLAS.
+
+Return to the accepted production setting after each test:
+
+  r_pathTracingGpuSkinning 0
+
+TEST MATRIX
+-----------
+Use the known mc_underground crowd area. Include:
+
+  - player;
+  - one ordinary zombie;
+  - monster_zombie_fat;
+  - a mixed-weight MD5 surface; and
+  - a surface reported with singleBone=1 in the funnel detail lines.
+
+For mode 1, collect one one-shot at each state:
+
+  1. settled idle;
+  2. active animation;
+  3. locomotion;
+  4. immediately after spawning a monster;
+  5. immediately after removing or killing one;
+  6. after leaving the crowd offscreen and returning;
+  7. PDA open, then after closing it.
+
+Then perform this transition without reloading:
+
+  echo === GEO03_TRANSITION_0_1_2_0 ===
+  r_pathTracingGpuSkinning 0
+  r_pathTracingGpuSkinningParityDump 1
+  r_pathTracingGpuSkinning 1
+  r_pathTracingGpuSkinningParityDump 1
+
+Wait for the mode 1 parity summary, then:
+
+  r_pathTracingGpuSkinning 2
+  r_pathTracingGpuSkinningParityDump 1
+
+Wait for the mode 2 parity summary, visually check the characters, then:
+
+  r_pathTracingGpuSkinning 0
+  r_pathTracingGpuSkinningParityDump 1
+
+Do not issue a second parity command while the prior readback is queued.
+
+ACCEPTANCE / ESCALATION
+-----------------------
+Accept the observability plumbing only when every capture has exact=1 and all
+available parity summaries pass.
+
+Stop and preserve the log if any of these occurs:
+
+  exact=0
+  allocationFailure greater than zero
+  invalidWeightsOrJoints greater than zero
+  a non-finite output
+  any current/previous/motion failure
+  a mode 2 bind pose, corrupt surface, crash, or missing skinned geometry
+
+A localized numeric mismatch is evidence for GEO-07 unless the copied offsets or
+CPU reference in the GEO-03 sample are demonstrably wrong. Do not remove CPU
+pre-skinning or claim a performance win from this test.
+
+BUILD / DEPLOY PROOF
+--------------------
+Build:
+
+  cmake --build --preset win64-pt-dev-release
+
+Built and deployed executable:
+
+  size    15,539,712 bytes
+  mtime   2026-07-23 19:46:19 +10
+  SHA256  07BFF232D6384B5C1B660CF04A0EFACC8CE37C931357AB22C3D3C939414867F9

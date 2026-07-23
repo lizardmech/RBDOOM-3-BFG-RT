@@ -250,6 +250,29 @@ private:
         int indexOffset,
         int indexCount,
         uint64 frameIndex);
+    struct GpuSkinningParitySample
+    {
+        idStr modelName;
+        int entityIndex = -1;
+        int drawSurfIndex = -1;
+        int surfaceRecordIndex = -1;
+        int vertexIndex = -1;
+        uint64 currentByteOffset = 0;
+        uint64 previousByteOffset = 0;
+        bool hasPrevious = false;
+        PathTraceSkinnedSourceVertex source = {};
+        PathTraceSmokeVertex cpuCurrent = {};
+        PathTraceSkinnedPreviousPosition cpuPrevious = {};
+    };
+    void QueueGpuSkinningParitySamples(
+        nvrhi::ICommandList* commandList,
+        nvrhi::IBuffer* currentOutputBuffer,
+        nvrhi::IBuffer* previousPositionBuffer,
+        nvrhi::ResourceStates currentRestoreState,
+        const std::vector<GpuSkinningParitySample>& samples,
+        int mode,
+        uint64 frameIndex);
+    void ReadBackGpuSkinningParitySamples();
     void ExecutePathTraceParticleComposite(nvrhi::ICommandList* commandList, const viewDef_t* viewDef);
 
     idRenderBackend* m_backend;
@@ -456,6 +479,12 @@ private:
     int m_staticContractGeometryIndexOffset = 0;
     std::vector<PathTraceSmokeVertex> m_staticContractGeometryCpuVertices;
     std::vector<uint32_t> m_staticContractGeometryCpuIndexes;
+    nvrhi::BufferHandle m_gpuSkinningParityReadbackBuffer;
+    bool m_gpuSkinningParityReadbackQueued = false;
+    int m_gpuSkinningParityReadbackDelayFrames = 0;
+    int m_gpuSkinningParityMode = 0;
+    uint64 m_gpuSkinningParityFrame = 0;
+    std::vector<GpuSkinningParitySample> m_gpuSkinningParitySamples;
     uint32_t m_liquidPoolLastExceptionalMask[8] = {};
     uint32_t m_liquidPoolLastOverflowCount[8] = {};
     nvrhi::BufferHandle m_smokeCleanRtxdiDiCurrentReservoirBuffer;

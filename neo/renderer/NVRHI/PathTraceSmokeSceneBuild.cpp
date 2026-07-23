@@ -2434,7 +2434,159 @@ struct RtSmokeSkinnedGpuScaffoldBuild
     int mappedDynamicTriangles = 0;
     std::vector<PathTraceSkinnedJointMatrix> currentJointMatrices;
     std::vector<PathTraceSkinnedJointMatrix> previousJointMatrices;
+    enum class Result
+    {
+        EligibleGpu,
+        DispatchedGpu,
+        NotReadyJointData,
+        UnsupportedLayout,
+        InvalidWeightsOrJoints,
+        AllocationFailure,
+        ExplicitSingleBoneRoute,
+        CpuFallback,
+        Count
+    };
+    std::vector<Result> recordResults;
+    int singleBoneObserved = 0;
 };
+
+const char* SmokeSkinnedGpuResultName(RtSmokeSkinnedGpuScaffoldBuild::Result result)
+{
+    using Result = RtSmokeSkinnedGpuScaffoldBuild::Result;
+    switch (result)
+    {
+        case Result::EligibleGpu: return "eligibleGpu";
+        case Result::DispatchedGpu: return "dispatchedGpu";
+        case Result::NotReadyJointData: return "notReadyJointData";
+        case Result::UnsupportedLayout: return "unsupportedLayout";
+        case Result::InvalidWeightsOrJoints: return "invalidWeightsOrJoints";
+        case Result::AllocationFailure: return "allocationFailure";
+        case Result::ExplicitSingleBoneRoute: return "explicitSingleBoneRoute";
+        case Result::CpuFallback: return "cpuFallback";
+        default: return "unknown";
+    }
+}
+
+bool SmokeSkinnedSourceLayoutAndWeightsValid(
+    const srfTriangles_t* tri,
+    int vertexCount,
+    int jointCount)
+{
+    if (!tri || !tri->verts || vertexCount <= 0 || vertexCount > tri->numVerts || jointCount <= 0)
+    {
+        return false;
+    }
+    for (int vertexIndex = 0; vertexIndex < vertexCount; ++vertexIndex)
+    {
+        const idDrawVert& vertex = tri->verts[vertexIndex];
+        if (!SmokeVec3IsFinite(vertex.xyz))
+        {
+            return false;
+        }
+        int weightSum = 0;
+        for (int component = 0; component < 4; ++component)
+        {
+            if (static_cast<int>(vertex.color[component]) >= jointCount)
+            {
+                return false;
+            }
+            weightSum += static_cast<int>(vertex.color2[component]);
+        }
+        if (weightSum < 254 || weightSum > 256)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+void FinalizeSmokeSkinnedGpuFunnel(
+    RtSmokeSkinnedGpuScaffoldBuild& build,
+    bool computeDispatched)
+{
+    using Result = RtSmokeSkinnedGpuScaffoldBuild::Result;
+    for (Result& result : build.recordResults)
+    {
+        if (result == Result::EligibleGpu)
+        {
+            result = computeDispatched ? Result::DispatchedGpu : Result::AllocationFailure;
+        }
+    }
+}
+
+void DumpSmokeSkinnedGpuFunnel(
+    const RtSmokeSkinnedGpuScaffoldBuild& build,
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
+    int mode,
+    uint64 frameIndex)
+{
+    using Result = RtSmokeSkinnedGpuScaffoldBuild::Result;
+    int counts[static_cast<int>(Result::Count)] = {};
+    for (Result result : build.recordResults)
+    {
+        const int index = static_cast<int>(result);
+        if (index >= 0 && index < static_cast<int>(Result::Count))
+        {
+            ++counts[index];
+        }
+    }
+    int resultTotal = 0;
+    for (int resultIndex = 0; resultIndex < static_cast<int>(Result::Count); ++resultIndex)
+    {
+        resultTotal += counts[resultIndex];
+    }
+    const bool exact = resultTotal == static_cast<int>(build.recordResults.size());
+    common->Printf(
+        "PathTracePrimaryPass: PT GPU skinning funnel frame=%llu mode=%d candidates=%llu eligibleGpu=%d dispatchedGpu=%d notReadyJointData=%d unsupportedLayout=%d invalidWeightsOrJoints=%d allocationFailure=%d explicitSingleBoneRoute=%d cpuFallback=%d singleBoneObserved=%d resultTotal=%d exact=%d\n",
+        static_cast<unsigned long long>(frameIndex),
+        mode,
+        static_cast<unsigned long long>(build.recordResults.size()),
+        counts[static_cast<int>(Result::EligibleGpu)],
+        counts[static_cast<int>(Result::DispatchedGpu)],
+        counts[static_cast<int>(Result::NotReadyJointData)],
+        counts[static_cast<int>(Result::UnsupportedLayout)],
+        counts[static_cast<int>(Result::InvalidWeightsOrJoints)],
+        counts[static_cast<int>(Result::AllocationFailure)],
+        counts[static_cast<int>(Result::ExplicitSingleBoneRoute)],
+        counts[static_cast<int>(Result::CpuFallback)],
+        build.singleBoneObserved,
+        resultTotal,
+        exact ? 1 : 0);
+    assert(exact);
+
+    int detailCount = 0;
+    for (int pass = 0; pass < 2 && detailCount < 16; ++pass)
+    {
+        for (size_t recordIndex = 0;
+            recordIndex < build.recordResults.size() &&
+            recordIndex < records.size() &&
+            detailCount < 16;
+            ++recordIndex)
+        {
+            const Result result = build.recordResults[recordIndex];
+            const bool successfulDispatch = result == Result::DispatchedGpu;
+            if ((pass == 0 && successfulDispatch) || (pass == 1 && !successfulDispatch))
+            {
+                continue;
+            }
+            const RtSmokeSkinnedSurfaceRecord& record = records[recordIndex];
+            const srfTriangles_t* tri =
+                reinterpret_cast<const srfTriangles_t*>(record.key.tri);
+            common->Printf(
+                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d result=%s\n",
+                detailCount,
+                static_cast<unsigned long long>(recordIndex),
+                record.entityIndex,
+                record.modelName.c_str(),
+                record.drawSurfIndex,
+                record.vertexCount,
+                record.jointCount,
+                IsEntityFeedSingleBoneSurface(tri) ? 1 : 0,
+                SmokeSkinnedGpuResultName(result));
+            ++detailCount;
+        }
+    }
+}
 
 static void BuildSmokeSkinnedTriangleDispatchIndex(
     RtSmokeSkinnedGpuScaffoldBuild& build,
@@ -2752,6 +2904,7 @@ void RetainSmokeSkinnedCurrentJointMatrices(
 
 RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
     int scaffoldMode,
+    int gpuSkinningMode,
     bool buildGpuSkinningInputs,
     std::vector<RtSmokeSkinnedSurfaceRecord>& currentRecords,
     const std::vector<RtSmokeSkinnedSurfaceRecord>& previousRecords,
@@ -2760,7 +2913,9 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
     const std::vector<PathTraceSkinnedJointMatrix>& previousSkinnedJointMatrices)
 {
     RtSmokeSkinnedGpuScaffoldBuild build;
-    if (scaffoldMode <= 0 || currentRecords.empty())
+    using Result = RtSmokeSkinnedGpuScaffoldBuild::Result;
+    build.recordResults.assign(currentRecords.size(), Result::CpuFallback);
+    if (currentRecords.empty())
     {
         return build;
     }
@@ -2769,19 +2924,53 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
     {
         RtSmokeSkinnedSurfaceRecord& record = currentRecords[recordIndex];
         const srfTriangles_t* tri = reinterpret_cast<const srfTriangles_t*>(record.key.tri);
-        if (!record.rtCpuSkinned ||
+        record.gpuSourceVertexOffset = -1;
+        record.gpuOutputVertexOffset = -1;
+        record.gpuPreviousPositionOffset = -1;
+
+        if (IsEntityFeedSingleBoneSurface(tri))
+        {
+            ++build.singleBoneObserved;
+        }
+
+        const bool layoutUnsupported =
+            (tri && !tri->verts) ||
+            record.vertexCount <= 0 ||
+            (tri && record.vertexCount > tri->numVerts) ||
+            !SmokeSkinnedCurrentVertexRangeValid(record, dynamicVertexData);
+        if (gpuSkinningMode > 0)
+        {
+            if (!tri || !tri->verts || layoutUnsupported)
+            {
+                build.recordResults[recordIndex] = Result::UnsupportedLayout;
+            }
+            else if (!record.rtCpuSkinned ||
+                record.jointCount <= 0 ||
+                !SmokeSkinnedRecordJoints(record))
+            {
+                build.recordResults[recordIndex] = Result::NotReadyJointData;
+            }
+            else if (!SmokeSkinnedSourceLayoutAndWeightsValid(tri, record.vertexCount, record.jointCount))
+            {
+                build.recordResults[recordIndex] = Result::InvalidWeightsOrJoints;
+            }
+            else
+            {
+                build.recordResults[recordIndex] = Result::EligibleGpu;
+            }
+        }
+
+        if (scaffoldMode <= 0 ||
+            !record.rtCpuSkinned ||
             !tri ||
             !tri->verts ||
             record.vertexCount <= 0 ||
             record.vertexCount > tri->numVerts ||
-            !SmokeSkinnedCurrentVertexRangeValid(record, dynamicVertexData))
+            !SmokeSkinnedCurrentVertexRangeValid(record, dynamicVertexData) ||
+            (gpuSkinningMode > 0 && build.recordResults[recordIndex] != Result::EligibleGpu))
         {
             continue;
         }
-
-        record.gpuSourceVertexOffset = -1;
-        record.gpuOutputVertexOffset = -1;
-        record.gpuPreviousPositionOffset = -1;
 
         if (buildGpuSkinningInputs)
         {
@@ -2845,6 +3034,10 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
             {
                 dispatch.currentJointOffset = static_cast<uint32_t>(currentJointOffset);
                 dispatch.flags |= PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS;
+            }
+            else
+            {
+                build.recordResults[recordIndex] = Result::NotReadyJointData;
             }
             if (record.previousValid &&
                 previousRecord &&
@@ -3545,6 +3738,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Skinned GPU Scaffold");
         skinnedGpuScaffold = BuildSmokeSkinnedGpuScaffold(
             skinnedScaffoldMode,
+            gpuSkinningMode,
             buildSkinnedGpuSkinningInputs,
             currentSkinnedSurfaceRecords,
             m_smokePreviousSkinnedSurfaceRecords,
@@ -4768,6 +4962,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     if (!bufferCreateResult.Succeeded())
     {
+        FinalizeSmokeSkinnedGpuFunnel(skinnedGpuScaffold, false);
+        if (r_pathTracingGpuSkinningParityDump.GetInteger() != 0)
+        {
+            DumpSmokeSkinnedGpuFunnel(
+                skinnedGpuScaffold,
+                currentSkinnedSurfaceRecords,
+                gpuSkinningMode,
+                m_smokeGeometryFrameIndex);
+            common->Printf("PathTracePrimaryPass: PT GPU skinning parity readback unavailable because scene buffer allocation failed\n");
+            r_pathTracingGpuSkinningParityDump.SetInteger(0);
+        }
         common->Printf("PathTracePrimaryPass: %s\n", bufferCreateResult.errorMessage ? bufferCreateResult.errorMessage : "failed to create RT smoke geometry buffers");
         return;
     }
@@ -5535,6 +5740,123 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
             m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
         }
+    }
+    FinalizeSmokeSkinnedGpuFunnel(skinnedGpuScaffold, skinnedGpuComputeDispatched);
+    if (r_pathTracingGpuSkinningParityDump.GetInteger() != 0)
+    {
+        DumpSmokeSkinnedGpuFunnel(
+            skinnedGpuScaffold,
+            currentSkinnedSurfaceRecords,
+            gpuSkinningMode,
+            geometryUniverseStats.frameIndex);
+
+        if (skinnedGpuComputeDispatched)
+        {
+            constexpr int maxParitySamples = 24;
+            std::vector<GpuSkinningParitySample> paritySamples;
+            paritySamples.reserve(maxParitySamples);
+            for (int dispatchIndex = 0;
+                dispatchIndex < static_cast<int>(skinnedGpuComputeDispatchRecords.size()) &&
+                static_cast<int>(paritySamples.size()) < maxParitySamples;
+                ++dispatchIndex)
+            {
+                const PathTraceSkinnedSurfaceDispatchRecord& dispatch =
+                    skinnedGpuComputeDispatchRecords[dispatchIndex];
+                if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS) == 0u ||
+                    dispatch.surfaceRecordIndex >= currentSkinnedSurfaceRecords.size() ||
+                    dispatchIndex >= static_cast<int>(skinnedGpuScaffold.dispatchRecords.size()))
+                {
+                    continue;
+                }
+                const PathTraceSkinnedSurfaceDispatchRecord& scaffoldDispatch =
+                    skinnedGpuScaffold.dispatchRecords[dispatchIndex];
+                const RtSmokeSkinnedSurfaceRecord& record =
+                    currentSkinnedSurfaceRecords[dispatch.surfaceRecordIndex];
+                const uint32_t localVertexIds[3] = {
+                    0u,
+                    dispatch.vertexCount / 2u,
+                    dispatch.vertexCount > 0u ? dispatch.vertexCount - 1u : 0u
+                };
+                for (int sampleSlot = 0;
+                    sampleSlot < 3 &&
+                    static_cast<int>(paritySamples.size()) < maxParitySamples;
+                    ++sampleSlot)
+                {
+                    const uint32_t localVertex = localVertexIds[sampleSlot];
+                    if (localVertex >= dispatch.vertexCount ||
+                        (sampleSlot > 0 && localVertex == localVertexIds[sampleSlot - 1]) ||
+                        scaffoldDispatch.sourceVertexOffset == UINT32_MAX ||
+                        scaffoldDispatch.outputVertexOffset == UINT32_MAX)
+                    {
+                        continue;
+                    }
+                    const uint64 sourceIndex =
+                        static_cast<uint64>(scaffoldDispatch.sourceVertexOffset) + localVertex;
+                    const uint64 cpuCurrentIndex =
+                        static_cast<uint64>(scaffoldDispatch.outputVertexOffset) + localVertex;
+                    if (sourceIndex >= skinnedGpuScaffold.sourceVertices.size() ||
+                        cpuCurrentIndex >= skinnedGpuScaffold.currentOutputVertices.size())
+                    {
+                        continue;
+                    }
+
+                    GpuSkinningParitySample sample;
+                    sample.modelName = record.modelName;
+                    sample.entityIndex = record.entityIndex;
+                    sample.drawSurfIndex = record.drawSurfIndex;
+                    sample.surfaceRecordIndex = static_cast<int>(dispatch.surfaceRecordIndex);
+                    sample.vertexIndex = static_cast<int>(localVertex);
+                    sample.currentByteOffset =
+                        (static_cast<uint64>(dispatch.outputVertexOffset) + localVertex) *
+                        sizeof(PathTraceSmokeVertex);
+                    sample.source =
+                        skinnedGpuScaffold.sourceVertices[static_cast<size_t>(sourceIndex)];
+                    sample.cpuCurrent =
+                        skinnedGpuScaffold.currentOutputVertices[static_cast<size_t>(cpuCurrentIndex)];
+                    sample.hasPrevious =
+                        (dispatch.flags & PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) != 0u &&
+                        (dispatch.flags & PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS) != 0u &&
+                        scaffoldDispatch.previousPositionOffset != UINT32_MAX;
+                    if (sample.hasPrevious)
+                    {
+                        const uint64 previousIndex =
+                            static_cast<uint64>(scaffoldDispatch.previousPositionOffset) + localVertex;
+                        if (previousIndex >= skinnedGpuScaffold.previousPositions.size())
+                        {
+                            sample.hasPrevious = false;
+                        }
+                        else
+                        {
+                            sample.previousByteOffset =
+                                previousIndex * sizeof(PathTraceSkinnedPreviousPosition);
+                            sample.cpuPrevious =
+                                skinnedGpuScaffold.previousPositions[static_cast<size_t>(previousIndex)];
+                        }
+                    }
+                    paritySamples.push_back(sample);
+                }
+            }
+
+            QueueGpuSkinningParitySamples(
+                commandList,
+                smokeSkinnedGpuComputeOutputBuffer,
+                smokeSkinnedPreviousPositionBuffer,
+                skinnedGpuComputeTargetsDynamicVertices
+                    ? nvrhi::ResourceStates::AccelStructBuildInput
+                    : nvrhi::ResourceStates::ShaderResource,
+                paritySamples,
+                gpuSkinningMode,
+                geometryUniverseStats.frameIndex);
+        }
+        else if (gpuSkinningMode > 0)
+        {
+            common->Printf("PathTracePrimaryPass: PT GPU skinning parity readback unavailable because compute did not dispatch\n");
+        }
+        else
+        {
+            common->Printf("PathTracePrimaryPass: PT GPU skinning parity readback requires r_pathTracingGpuSkinning 1 or 2\n");
+        }
+        r_pathTracingGpuSkinningParityDump.SetInteger(0);
     }
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;

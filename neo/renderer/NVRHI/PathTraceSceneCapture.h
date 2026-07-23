@@ -263,6 +263,8 @@ struct RtSmokeSkinnedSurfaceRecord
     bool rtCpuSkinned = false;
     bool basePoseLikely = false;
     int entityIndex = -1;
+    int drawSurfIndex = -1;
+    idStr modelName;
     uint32_t materialId = 0;
     uint32_t invalidReasonFlags = RT_SMOKE_SKINNED_INVALID_NONE;
     uint32_t temporalStateFlags = 0;
@@ -376,6 +378,7 @@ void AddSmokeSkinnedSurfaceRecord(
     const srfTriangles_t* tri,
     uint32_t surfaceClassId,
     uint32_t materialId,
+    int drawSurfIndex,
     int bucketIndex,
     int currentVertexOffset,
     int currentIndexOffset,
