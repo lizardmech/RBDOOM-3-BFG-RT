@@ -1,0 +1,189 @@
+GEO-05 - per-world lifecycle owner audit and first runtime gate
+================================================================
+Status: initial shadow-registry implementation, runtime validation pending.
+Date: 2026-07-23.
+
+HOOK AUDIT
+----------
+The existing Add/Update/Free hooks were real but incomplete:
+
+1. AddEntityDef called UpdateEntityDef and notified Add afterward.
+   Direct UpdateEntityDef creation of an unused handle had no Add notification.
+   GEO-05 makes UpdateEntityDef notify Add for a newly allocated def and removes
+   the wrapper's duplicate responsibility.
+
+2. The exact-memcmp early return performed no lifecycle observation.
+   GEO-05 reports it as unchanged.
+
+3. The callback fast-update early return changed render parms but performed no
+   lifecycle observation.
+   GEO-05 reports it as Update after copying the new parms.
+
+4. AddWorldModelEntities allocates authored static area entities directly and
+   deliberately bypasses AddEntityDef.
+   GEO-05 adds an explicit Add notification after derivation and area linking.
+
+5. FreeWorld calls FreeDefs, which calls FreeEntityDef for every owned entity
+   before inline models and world storage are deleted.
+   This is the safe exact-removal point. A new world generation is allocated
+   only after those Free notifications complete.
+
+6. InitFromMap has three reset shapes:
+
+     empty world        FreeWorld -> new generation -> ClearWorld
+     retained same map FreeDefs  -> new generation -> re-add area entities
+     full reload/change FreeWorld -> new generation -> load/re-add entities
+
+   mapLoadSerial increments before all three. The shadow owner allocates a new
+   monotonic WorldKey and primary HistoryOwnerKey at the marked boundary.
+
+PER-WORLD OWNER
+---------------
+idRenderWorldLocal now owns one opaque
+PtGeometryLifecycleWorldRegistry pointer. Construction allocates it; destruction
+first frees world defs, then destroys it. The old process-global
+unordered_map<renderWorld pointer, state> is gone.
+
+The only process-global identity state is three monotonic atomic allocators:
+
+  world generation;
+  logical history-owner generation;
+  shadow asset ID.
+
+They contain no live-object pointers or records.
+
+PtRenderDefKey remains transitional because live legacy consumers still carry
+the raw world pointer. It now also carries worldGeneration, and liveness rejects
+a key whose generation does not match the world's current owner. Canonical
+InstanceKey uses only the numeric world generation, slot generation and surface
+ordinal.
+
+SHADOW RECORDS
+--------------
+Gate:
+
+  r_pathTracingGeometryShadowRegistry 0
+
+Default is off. When enabled, the owner bootstraps current entityDefs once and
+then follows Add/Update/Unchanged/Free. It never drives traversal.
+
+Each registry-eligible model surface produces:
+
+  canonical InstanceKey;
+  canonical MeshKey;
+  copied transform;
+  material ID/name;
+  model name;
+  vertex/index/triangle counts;
+  lifecycle class and last-modified frame.
+
+No shadow mesh or instance record stores:
+
+  idRenderEntityLocal pointer;
+  idRenderModel pointer;
+  srfTriangles_t pointer;
+  drawSurf pointer;
+  frontend/cache address;
+  NVRHI resource or AS handle.
+
+The shadow asset namespace is world-owner-local for GEO-05. Full model-name +
+source-domain equality allocates a monotonic numeric asset ID; the name hash is
+not identity. Repeated instances of the same model in one world share MeshKeys.
+GEO-06 must move registered-model asset generation to the pooled mesh owner
+before cross-world sharing or live storage.
+
+Topology signature is derived from immutable vertex/index counts and the full
+local index sequence. Material, transform and output/cache addresses are
+excluded.
+
+Mesh records remain after liveReferences reaches zero. The transition is
+counted as deferredMeshEviction; GEO-05 has no implicit frame-age eviction.
+
+DUMP CONTRACT
+-------------
+Trigger:
+
+  r_pathTracingGeometryShadowRegistryDump 1
+
+The next PT frame prints one summary and up to 16 bounded samples, prioritizing
+non-static instances. Summary fields:
+
+  worldGeneration / previousWorldGeneration / mapLoadSerial;
+  primaryHistoryOwner;
+  reset count and records discarded at the last reset;
+  interval add/update/remove/unchanged;
+  interval collision/stale/missing/transient/deferredMesh;
+  live instance/referenced-mesh/zero-ref-mesh/asset counts;
+  shared mesh count and maximum references to one mesh;
+  static/rigid/skinned instance counts;
+  live vertex/index/triangle totals;
+  interval removed vertex/index/triangle totals.
+
+Interval counters reset after each dump. Live record totals do not reset. This
+makes the medkit removal delta machine-checkable without contaminating it with
+earlier map-load events.
+
+FIRST RUNTIME CAPTURE
+---------------------
+Use a new log, geometry_geo19.log. Enable the shadow registry before restarting
+or loading the test map:
+
+  r_pathTracingGeometryShadowRegistry 1
+  mapRestart
+
+In game/mc_underground area 25, settle, then:
+
+  spawn func_static model models/items/medkit/medkit_large.lwo name geom_lifecycle_probe
+  echo === GEO05_VISIBLE ===
+  r_pathTracingGeometryShadowRegistryDump 1
+  r_pathTracingGeometryLifecycleDump 1
+
+Move to another portal area and return:
+
+  echo === GEO05_RETURNED ===
+  r_pathTracingGeometryShadowRegistryDump 1
+
+Open and close the PDA:
+
+  echo === GEO05_PDA_RETURN ===
+  r_pathTracingGeometryShadowRegistryDump 1
+
+Immediately remove the probe:
+
+  remove geom_lifecycle_probe
+  echo === GEO05_REMOVED ===
+  r_pathTracingGeometryShadowRegistryDump 1
+  r_pathTracingGeometryLifecycleDump 1
+
+Required:
+
+  visible/returned/PDA live record and geometry totals are identical;
+  worldGeneration and primaryHistoryOwner are identical across those labels;
+  collision=0 and stale=0;
+  removal interval:
+      remove=2
+      removedGeometryInterval=120/552/184
+  live totals after removal:
+      exactly 2 fewer instances
+      exactly 120/552/184 fewer vertices/indexes/triangles
+  two mesh records may remain with zero references; that is the required
+  deferred-eviction behavior, not a live-instance leak.
+
+Then run:
+
+  echo === GEO05_MAP_RESTART_BEFORE ===
+  r_pathTracingGeometryShadowRegistryDump 1
+  mapRestart
+  echo === GEO05_MAP_RESTART_AFTER ===
+  r_pathTracingGeometryShadowRegistryDump 1
+
+Required after restart:
+
+  worldGeneration changed;
+  previousWorldGeneration equals the pre-restart generation;
+  primaryHistoryOwner changed;
+  resetDiscarded liveInstances=0;
+  collision=0 and stale=0.
+
+The crowded MD5 comparison and visible/area/lifecycle tuple comparison are the
+next GEO-05 slice after this owner/lifetime gate passes.

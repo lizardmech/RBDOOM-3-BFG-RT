@@ -58,6 +58,12 @@ GEO-04 FILES
     Passive helper/harness coverage, build and deploy identity, unchanged live
     route/default status, rollback, and exact ownership blockers for GEO-05/06.
 
+GEO-05 FILES
+------------
+  GEO-05_lifecycle_owner_audit.txt
+    RenderWorld hook/teardown audit, initial per-world shadow owner and record
+    contract, bounded dump schema, and exact geometry_geo19 runtime sequence.
+
 NAMING
 ------
 Use:

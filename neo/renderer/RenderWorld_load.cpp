@@ -31,6 +31,7 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "RenderCommon.h"
+#include "NVRHI/PathTraceGeometryLifecycle.h"
 
 
 /*
@@ -740,6 +741,7 @@ bool idRenderWorldLocal::InitFromMap( const char* name )
 	if( !name || !name[0] )
 	{
 		FreeWorld();
+		PtGeometryLifecycle::BeginWorldMap( pathTraceGeometryLifecycleRegistry, mapLoadSerial );
 		mapName.Clear();
 		ClearWorld();
 		return true;
@@ -764,6 +766,7 @@ bool idRenderWorldLocal::InitFromMap( const char* name )
 		{
 			common->Printf( "idRenderWorldLocal::InitFromMap: retaining existing map\n" );
 			FreeDefs();
+			PtGeometryLifecycle::BeginWorldMap( pathTraceGeometryLifecycleRegistry, mapLoadSerial );
 			TouchWorldModels();
 			AddWorldModelEntities();
 			ClearPortalStates();
@@ -774,6 +777,7 @@ bool idRenderWorldLocal::InitFromMap( const char* name )
 	}
 
 	FreeWorld();
+	PtGeometryLifecycle::BeginWorldMap( pathTraceGeometryLifecycleRegistry, mapLoadSerial );
 
 	// see if we have a generated version of this
 	static const byte BPROC_VERSION_BFG = 1;
@@ -1052,6 +1056,8 @@ void idRenderWorldLocal::AddWorldModelEntities()
 
 		// RB: remember BSP area AABB for quick lookup later
 		area->globalBounds = def->globalReferenceBounds;
+
+		PtGeometryLifecycle::NotifyEntityAdded( def );
 	}
 }
 

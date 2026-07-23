@@ -1,14 +1,19 @@
 #pragma once
 
+#include "PathTraceCanonicalGeometryIdentity.h"
+
 #include <stdint.h>
 
 class idRenderEntityLocal;
 class idRenderLightLocal;
 class idRenderModel;
+class idRenderWorldLocal;
+class PtGeometryLifecycleWorldRegistry;
 
 struct PtRenderDefKey
 {
     const void* world = nullptr;
+    uint64_t worldGeneration = 0;
     int index = -1;
     uint32_t generation = 0;
 };
@@ -38,6 +43,13 @@ enum class PtGeometryLifecycleClass : uint32_t
 
 namespace PtGeometryLifecycle
 {
+    PtGeometryLifecycleWorldRegistry* CreateWorldRegistry();
+    void DestroyWorldRegistry(PtGeometryLifecycleWorldRegistry* registry);
+    void BeginWorldMap(PtGeometryLifecycleWorldRegistry* registry, uint64_t mapLoadSerial);
+
+    PtCanonicalWorldKey CanonicalWorldKey(const void* world);
+    PtCanonicalHistoryOwnerKey PrimaryHistoryOwnerKey(const void* world);
+
     PtRenderDefKey MakeEntityKey(const idRenderEntityLocal* entity);
     PtRenderDefKey MakeLightKey(const idRenderLightLocal* light);
 
@@ -53,11 +65,12 @@ namespace PtGeometryLifecycle
 
     void NotifyEntityAdded(const idRenderEntityLocal* entity);
     void NotifyEntityUpdated(const idRenderEntityLocal* entity, const idRenderModel* oldModel, bool modelChanged);
+    void NotifyEntityUnchanged(const idRenderEntityLocal* entity);
     void NotifyEntityFreed(const idRenderEntityLocal* entity);
 
     void NotifyLightAdded(const idRenderLightLocal* light);
     void NotifyLightUpdated(const idRenderLightLocal* light);
     void NotifyLightFreed(const idRenderLightLocal* light);
 
-    void MaybeDumpLifecycleStats(uint64_t frameIndex);
+    void MaybeDumpLifecycleStats(uint64_t frameIndex, const idRenderWorldLocal* renderWorld);
 }

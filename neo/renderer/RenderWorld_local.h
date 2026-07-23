@@ -32,6 +32,8 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "BoundsTrack.h"
 
+class PtGeometryLifecycleWorldRegistry;
+
 // assume any lightDef or entityDef index above this is an internal error
 const int LUDICROUS_INDEX	= 10000;
 
@@ -227,6 +229,7 @@ public:
 	idStr					mapName;				// ie: maps/tim_dm2.proc, written to demoFile
 	ID_TIME_T				mapTimeStamp;			// for fast reloads of the same level
 	uint64					mapLoadSerial = 0;		// increments on every InitFromMap, including same-map retained reloads
+	PtGeometryLifecycleWorldRegistry* pathTraceGeometryLifecycleRegistry = nullptr;
 
 	areaNode_t* 			areaNodes;
 	int						numAreaNodes;

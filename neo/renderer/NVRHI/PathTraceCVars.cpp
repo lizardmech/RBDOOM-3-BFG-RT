@@ -285,6 +285,18 @@ idCVar r_pathTracingGeometryLifecycleDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump one-shot render-def lifecycle counters, generation keys, and classification samples" );
 
+idCVar r_pathTracingGeometryShadowRegistry(
+    "r_pathTracingGeometryShadowRegistry",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-05 observation-only per-render-world geometry registry; never drives traversal" );
+
+idCVar r_pathTracingGeometryShadowRegistryDump(
+    "r_pathTracingGeometryShadowRegistryDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the GEO-05 per-world lifecycle shadow registry once" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

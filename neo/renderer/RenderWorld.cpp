@@ -143,6 +143,8 @@ idRenderWorldLocal::idRenderWorldLocal
 */
 idRenderWorldLocal::idRenderWorldLocal()
 {
+	pathTraceGeometryLifecycleRegistry = PtGeometryLifecycle::CreateWorldRegistry();
+
 	mapName.Clear();
 	mapTimeStamp = FILE_NOT_FOUND_TIMESTAMP;
 
@@ -185,6 +187,8 @@ idRenderWorldLocal::~idRenderWorldLocal()
 {
 	// free all the entityDefs, lightDefs, portals, etc
 	FreeWorld();
+	PtGeometryLifecycle::DestroyWorldRegistry( pathTraceGeometryLifecycleRegistry );
+	pathTraceGeometryLifecycleRegistry = nullptr;
 
 	for( int i = 0; i < decals.Num(); i++ )
 	{
@@ -253,10 +257,6 @@ qhandle_t idRenderWorldLocal::AddEntityDef( const renderEntity_t* re )
 	}
 
 	UpdateEntityDef( entityHandle, re );
-	if( entityHandle >= 0 && entityHandle < entityDefs.Num() )
-	{
-		PtGeometryLifecycle::NotifyEntityAdded( entityDefs[entityHandle] );
-	}
 
 	return entityHandle;
 }
@@ -308,6 +308,7 @@ void idRenderWorldLocal::UpdateEntityDef( qhandle_t entityHandle, const renderEn
 			// check for exact match (OPTIMIZE: check through pointers more)
 			if( !re->joints && !re->callbackData && !def->dynamicModel && !memcmp( re, &def->parms, sizeof( *re ) ) )
 			{
+				PtGeometryLifecycle::NotifyEntityUnchanged( def );
 				return;
 			}
 
@@ -330,6 +331,7 @@ void idRenderWorldLocal::UpdateEntityDef( qhandle_t entityHandle, const renderEn
 					c_callbackUpdate++;
 					R_ClearEntityDefDynamicModel( def );
 					def->parms = *re;
+					PtGeometryLifecycle::NotifyEntityUpdated( def, oldModel, false );
 					return;
 				}
 			}
@@ -361,6 +363,10 @@ void idRenderWorldLocal::UpdateEntityDef( qhandle_t entityHandle, const renderEn
 	if( wasExistingDef )
 	{
 		PtGeometryLifecycle::NotifyEntityUpdated( def, oldModel, modelChanged );
+	}
+	else
+	{
+		PtGeometryLifecycle::NotifyEntityAdded( def );
 	}
 
 	// optionally immediately issue any callbacks

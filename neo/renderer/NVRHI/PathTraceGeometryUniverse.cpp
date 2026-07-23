@@ -1320,7 +1320,7 @@ void RtSmokeGeometryUniverse::ReserveStaticSurfaceRecords(size_t surfaceCount)
 
 void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex, const idRenderWorldLocal* renderWorld)
 {
-    PtGeometryLifecycle::MaybeDumpLifecycleStats(frameIndex);
+    PtGeometryLifecycle::MaybeDumpLifecycleStats(frameIndex, renderWorld);
     if (r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
         renderWorld != nullptr &&
         m_rigidResidencyWorld != nullptr &&
