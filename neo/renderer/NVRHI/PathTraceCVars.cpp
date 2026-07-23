@@ -1935,6 +1935,12 @@ idCVar r_pathTracingParticleDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Bounded particle-composite diagnostics: 0=off, 1=one frame plus batch details, 2=240-frame per-frame trace then auto-off" );
 
+idCVar r_pathTracingParticleGpuTiming(
+    "r_pathTracingParticleGpuTiming",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Remaining nonblocking Vulkan GPU timestamp samples around particle upload, lighting, and composite draws; set 1..240, results print only after poll reports ready" );
+
 idCVar r_pathTracingParticleBindingCache(
     "r_pathTracingParticleBindingCache",
     "0",

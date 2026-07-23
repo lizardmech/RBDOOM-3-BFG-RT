@@ -254,6 +254,30 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
     }
     const bool diagnosticFrame = diagnosticBatchDetails || m_particleDiagnosticFramesRemaining > 0;
     const int currentFrame = idLib::frameNumber;
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (device)
+    {
+        for (ParticleCompositeGpuTimerSlot& timer : m_particleCompositeGpuTimers)
+        {
+            if (!timer.pending || !timer.query || !device->pollTimerQuery(timer.query))
+            {
+                continue;
+            }
+
+            const float gpuSeconds = device->getTimerQueryTime(timer.query);
+            common->Printf(
+                "PathTracePrimaryPass: PT particle GPU frame=%d invocation=%u gpuUs=%.1f batches=%u vertices=%u indexes=%u lightingTasks=%u draws=%u\n",
+                timer.frame,
+                timer.invocation,
+                static_cast<double>(gpuSeconds) * 1000000.0,
+                timer.batches,
+                timer.vertices,
+                timer.indexes,
+                timer.lightingTasks,
+                timer.draws);
+            timer.pending = false;
+        }
+    }
     if (!commandList || !viewDef || !m_particleCapture.enabled || m_particleCapture.batches.empty() ||
         m_particleCapture.vertices.empty() || m_particleCapture.indexes.empty() || !m_frameResources.outputTexture ||
         !m_frameResources.rrGuidePositionTexture || !m_backend || !deviceManager ||
@@ -285,7 +309,6 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         return;
     }
 
-    nvrhi::IDevice* device = deviceManager->GetDevice();
     if (!device)
     {
         if (diagnosticFrame)
@@ -405,6 +428,47 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
     const bool indexBufferChanged = previousIndexBuffer != m_particleCompositeIndexBuffer.Get();
     const bool lightingOutputBufferChanged = previousLightingOutputBuffer != m_particleLightingOutputBuffer.Get();
     const uint64 buffersCompleteUs = Sys_Microseconds();
+
+    ParticleCompositeGpuTimerSlot* gpuTimer = nullptr;
+    const int requestedGpuTimings =
+        idMath::ClampInt(0, 240, r_pathTracingParticleGpuTiming.GetInteger());
+    if (requestedGpuTimings > 0)
+    {
+        for (int slotOffset = 0; slotOffset < PARTICLE_COMPOSITE_GPU_TIMER_SLOTS; ++slotOffset)
+        {
+            const uint32_t slotIndex =
+                (m_particleCompositeGpuTimerCursor + static_cast<uint32_t>(slotOffset)) %
+                PARTICLE_COMPOSITE_GPU_TIMER_SLOTS;
+            ParticleCompositeGpuTimerSlot& candidate = m_particleCompositeGpuTimers[slotIndex];
+            if (candidate.pending)
+            {
+                continue;
+            }
+            if (!candidate.query)
+            {
+                candidate.query = device->createTimerQuery();
+            }
+            if (!candidate.query)
+            {
+                continue;
+            }
+
+            gpuTimer = &candidate;
+            m_particleCompositeGpuTimerCursor =
+                (slotIndex + 1u) % PARTICLE_COMPOSITE_GPU_TIMER_SLOTS;
+            gpuTimer->pending = true;
+            gpuTimer->frame = currentFrame;
+            gpuTimer->invocation = ++m_particleCompositeGpuTimerInvocation;
+            gpuTimer->batches = static_cast<uint32_t>(m_particleCapture.batches.size());
+            gpuTimer->vertices = static_cast<uint32_t>(m_particleCapture.vertices.size());
+            gpuTimer->indexes = static_cast<uint32_t>(uploadIndexes.size());
+            gpuTimer->lightingTasks = static_cast<uint32_t>(m_particleCapture.lightingTasks.size());
+            gpuTimer->draws = 0u;
+            commandList->beginTimerQuery(gpuTimer->query);
+            r_pathTracingParticleGpuTiming.SetInteger(requestedGpuTimings - 1);
+            break;
+        }
+    }
 
     uint32_t temporalHistoryMatches = 0u;
     for (ParticleCompositeLightingTask& task : m_particleCapture.lightingTasks)
@@ -675,6 +739,11 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
 
     commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->commitBarriers();
+    if (gpuTimer)
+    {
+        gpuTimer->draws = static_cast<uint32_t>(drawCount);
+        commandList->endTimerQuery(gpuTimer->query);
+    }
 
     if (particleLightingReady)
     {

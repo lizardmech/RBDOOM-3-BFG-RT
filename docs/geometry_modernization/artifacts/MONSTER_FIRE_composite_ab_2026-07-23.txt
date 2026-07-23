@@ -255,3 +255,57 @@ Required runtime acceptance is now both:
 
 This fixes transient geometry/entity lifetime safety. It does not explain or
 fix the separately measured 1.8-second monster-fire GPU stalls.
+
+NARROWED LIFETIME RUNTIME RESULT
+--------------------------------
+The subsequent Vulkan runtime restored ordinary particles and the
+monster-attached flames. The monster again drove the game below one frame per
+second while its particles were active. This is the expected separation:
+particle visibility/lifetime is repaired, while the original composite
+performance failure remains.
+
+NONBLOCKING GPU TIMING RUNG
+---------------------------
+The next build adds:
+
+  r_pathTracingParticleGpuTiming N
+
+`N` is the remaining number of Vulkan timestamp samples, clamped to 1..240.
+Each sample surrounds particle vertex/index uploads, optional particle-lighting
+dispatch, barriers, and screen-space composite draws. Sixteen timer-query slots
+are polled on later composite calls. `pollTimerQuery` is checked before
+`getTimerQueryTime`, so the renderer never waits for an unfinished query.
+
+Completed rows use:
+
+  PathTracePrimaryPass: PT particle GPU
+    frame
+    invocation
+    gpuUs
+    batches / vertices / indexes / lightingTasks / draws
+
+At the malfunctioning monster, capture:
+
+  com_speeds 1
+  r_pathTracingParticleDump 2
+  r_pathTracingParticleGpuTiming 240
+
+Interpretation:
+
+  GPU rows near 900000-1800000 us on the aligned long frames
+    The particle upload/lighting/composite command range itself owns the GPU
+    stall. Split upload, lighting, and draw timestamps next.
+
+  GPU rows remain small while aligned `all`/following `bk` rows stall
+    The stall is outside the composite GPU command range, most likely command
+    submission, retirement, or another pass synchronized by the composite's
+    resource transitions. Instrument the enclosing final PT dispatch and
+    backend submission boundary next.
+
+Build/deploy:
+
+  executable bytes:    15513088
+  modified:            2026-07-23 17:34:43 Australia/Sydney
+  sha256:              F7E3DEE0AEBA5464D30A5F27519E9D23036F6E583FAE84327933CA1D3B171029
+  SPIR-V:              unchanged
+  DX12 shaders:        not compiled or deployed

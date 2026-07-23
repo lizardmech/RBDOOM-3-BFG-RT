@@ -336,6 +336,22 @@ private:
     };
     std::vector<ParticleCompositeCachedBinding> m_particleCompositeCachedBindings;
     int m_particleDiagnosticFramesRemaining = 0;
+    static constexpr int PARTICLE_COMPOSITE_GPU_TIMER_SLOTS = 16;
+    struct ParticleCompositeGpuTimerSlot
+    {
+        nvrhi::TimerQueryHandle query;
+        bool pending = false;
+        int frame = 0;
+        uint32_t invocation = 0;
+        uint32_t batches = 0;
+        uint32_t vertices = 0;
+        uint32_t indexes = 0;
+        uint32_t lightingTasks = 0;
+        uint32_t draws = 0;
+    };
+    ParticleCompositeGpuTimerSlot m_particleCompositeGpuTimers[PARTICLE_COMPOSITE_GPU_TIMER_SLOTS];
+    uint32_t m_particleCompositeGpuTimerCursor = 0;
+    uint32_t m_particleCompositeGpuTimerInvocation = 0;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokePreviousSkinnedSurfaceRecords;
     std::vector<PathTraceSmokeVertex> m_smokePreviousSkinnedVertexData;

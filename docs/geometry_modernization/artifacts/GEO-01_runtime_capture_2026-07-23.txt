@@ -252,6 +252,7 @@ comparison color.
 At a reproduced missing brush, keep the crosshair fixed on opaque brush
 geometry and run:
 
+  r_pathTracingCleanRtxdiDiEnable 0
   r_pathTracingDebugMode 24
   r_pathTracingStaticBlasForceRebuild 0
   echo === GEO01_MASK01_CACHE_REUSE ===
@@ -267,6 +268,7 @@ Restore:
 
   r_pathTracingStaticBlasForceRebuild 0
   r_pathTracingDebugMode 18
+  r_pathTracingCleanRtxdiDiEnable 1
 
 Interpret the two `shaderSample` lines:
 
@@ -306,3 +308,29 @@ Vulkan build/deploy for this probe:
 
 Both SPIR-V blobs are newer than the edited HLSL source. No DX12 shader was
 compiled or deployed.
+
+GEO-06 INVALID MASK-0X01 ATTEMPT
+--------------------------------
+Raw source:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo06.log
+  bytes: 17999
+  modified: 2026-07-23 17:29:57 Australia/Sydney
+
+This capture does not answer the mask-0x01 distinction:
+
+  - the labeled cache and forced rows were both captured after
+    `r_pathTracingDebugMode 0`;
+  - the later unlabeled row used debug mode 24, but clean RTXDI DI had been
+    re-enabled before the test;
+  - the active clean-DI sentinel/primary-surface-producer route bypasses the
+    mode-24 branch in `pathtrace_smoke.rt.hlsl`.
+
+All three samples consequently contain an invalid primary-surface record:
+
+  validFlags=0x00000000 status=1 reject=0
+
+These rows are not BLAS misses and must not authorize GEO-02. The repeat must
+keep `r_pathTracingCleanRtxdiDiEnable 0` and debug mode 24 active for both
+labeled dumps. Restore the accepted clean-DI setting only after both shader
+samples have printed.
