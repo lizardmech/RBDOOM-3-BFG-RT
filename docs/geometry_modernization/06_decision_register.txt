@@ -128,6 +128,14 @@ The fix must identify the first disagreeing producer/consumer tuple. A broad
 static rewrite is not an acceptable diagnostic. Preserve raster behavior and
 add a durable automated or deterministic replay check where practical.
 
+D16. LOGICAL VIEW HISTORY OWNERSHIP
+----------------------------------
+Decision: current and previous geometry must belong to the same logical render
+view/history owner. A process-global "last 3D view wins" record is not an
+authoritative temporal source because DrawViewInternal may execute PT for
+multiple 3D views, including subviews. Missing same-owner history invalidates
+motion; it must not be repaired by loose cross-view surface matching.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

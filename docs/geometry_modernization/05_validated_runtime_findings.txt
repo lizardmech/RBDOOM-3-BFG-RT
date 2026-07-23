@@ -312,6 +312,36 @@ necessary: the second capture must either acquire valid previous history,
 report intermittent same-entity absence again, or expose an actual component
 mismatch.
 
+geometry_geo18.log supplied that pair. Two settled Fatzombies were present in
+both one-shots. Their identity values were unchanged across frames 1590 and
+1982:
+
+  entity 120  modelSurface 0  entityDef/model/tri unchanged
+  entity 1064 modelSurface 0  entityDef/model/tri unchanged
+
+Both captures nevertheless reported sameEntityCandidates=0 and
+NO_PREVIOUS_SURFACE for both monsters. The two numeric summaries remained
+clean:
+
+  candidates/dispatched/exact         10 / 10 / 1 in both captures
+  samples                              24 in both captures
+  current/previous/motion failures      0 / 0 / 0
+  non-finite outputs                    0
+  maximum observed error               0.0001220703
+
+This rules out pointer churn as the cause of the Fatzombie history loss. The
+capture path consumes only the current viewDef drawSurf list, while
+PathTracePrimaryPass::Execute runs for every 3D DrawViewInternal invocation,
+including subviews. One global m_smokePreviousSkinnedSurfaceRecords vector is
+replaced after every invocation. History ownership is therefore "last 3D view
+wins", not same-logical-view history. A later view that omits the Fatzombie can
+erase its prior record while actors shared by both views retain valid history.
+
+GEO-03 has proved current GPU parity and available previous/motion parity. It
+must not hide this ownership defect by weakening surface matching. Canonical
+logical-view/history ownership is now a mandatory GEO-04 contract input and
+GEO-07 must not make this global last-view bridge authoritative.
+
 LIFECYCLE RESULT
 ----------------
 Probe:

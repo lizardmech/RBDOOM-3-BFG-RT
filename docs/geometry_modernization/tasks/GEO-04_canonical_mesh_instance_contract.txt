@@ -36,8 +36,10 @@ STEPS
 4. Define mesh records for immutable source ranges, attribute metadata,
    material/triangle ranges, deformation class, and storage generation.
 5. Define instance records for transform, previous transform/position source,
-   visibility/portal membership, mutable skinned output, BLAS state, and
-   lifecycle generation.
+   visibility/portal membership, mutable skinned output, BLAS state, lifecycle
+   generation, and logical view/history owner. Previous state must be compared
+   only with the same owner; a later subview must not overwrite primary-view
+   skinned history.
 6. Specify three AS shapes without implementing them: static portal/size bucket,
    shared rigid mesh BLAS, and per-instance skinned BLAS.
 7. Specify all offsets as checked 64-bit byte offsets at CPU ownership boundaries
@@ -53,6 +55,7 @@ GUARDRAILS
 - Do not make canonical records drive BLAS/TLAS or shading yet.
 - Do not keep raw frontend/model pointers beyond their proven lifetime.
 - Do not collapse distinct animated instances because they share a model.
+- Do not use one process-global "last 3D view wins" previous-state record.
 - Scene origin policy remains explicit until all consumers are inventoried.
 
 DONE WHEN

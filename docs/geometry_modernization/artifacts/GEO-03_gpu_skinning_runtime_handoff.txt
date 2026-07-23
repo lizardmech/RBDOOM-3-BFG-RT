@@ -170,6 +170,48 @@ Numeric observability remained clean:
 
 Stable actors and props continued to report invalid=0 and temporal=0x7f.
 
+GEOMETRY_GEO18 RESULT
+---------------------
+The settled back-to-back pair resolved the remaining ambiguity. Both
+Fatzombies were sampled in both captures, and their identity components were
+unchanged:
+
+  entity 120   modelSurface=0  stable entityDef/model/tri
+  entity 1064  modelSurface=0  stable entityDef/model/tri
+
+Both still reported sameEntityCandidates=0 and invalid=0x2. This is not key
+component churn: the immediately preceding retained record set omitted those
+entities entirely.
+
+Both numeric summaries passed:
+
+  frame                               1590          1982
+  candidates/dispatched/exact         10/10/1       10/10/1
+  samples                             24            24
+  current failures                    0             0
+  previous failures                   0             0
+  motion failures                     0             0
+  non-finite outputs                  0             0
+  maximum error                       0.0000152588  0.0001220703
+
+The source audit identifies the ownership hazard:
+
+  - dynamic skinned capture reads only the current viewDef drawSurf list;
+  - DrawViewInternal executes PathTracePrimaryPass for every 3D view and does
+    not exclude isSubview;
+  - one global previous-skinned record/vertex/joint set is overwritten after
+    every execution.
+
+The retained state is therefore owned by whichever 3D view ran last, not by a
+stable logical primary-view key. A later subview or other 3D view can omit a
+monster and erase its history before the next primary capture. Stable actors
+present in both view sets continue to report temporal=0x7f, matching the
+observed split.
+
+GEO-03 must not compensate by loosening surface keys. GEO-04 now owns the
+logical-view/history-owner contract, and GEO-07 must consume previous skinning
+state from the same owner as current state.
+
 CURRENT MODE CONTRACT
 ---------------------
 r_pathTracingGpuSkinning 0
@@ -328,36 +370,11 @@ Use the known mc_underground crowd area. Include:
   - a mixed-weight MD5 surface; and
   - a surface reported with singleBone=1 in the funnel detail lines.
 
-Asset coverage through geometry_geo15.log is complete. geometry_geo17 captured
-a first-observation/visibility miss with no prior same-entity record. To close
-the distinction, keep one Fatzombie alive and continuously visible. Do not
-spawn or move the camera during this test. Set mode 2, wait several seconds,
-and collect two back-to-back one-shots:
-
-  echo === GEO03_MONSTER_SETTLED_FIRST ===
-  r_pathTracingGpuSkinning 2
-  r_pathTracingGpuSkinningParityDump 1
-
-Wait for the first parity summary, then:
-
-  echo === GEO03_MONSTER_SETTLED_SECOND ===
-  r_pathTracingGpuSkinningParityDump 1
-
-Wait for the second parity summary and return to:
-
-  r_pathTracingGpuSkinning 0
-
-The second capture is decisive:
-
-  hasPrevious=1
-    settled history is valid; GEO-03 may close this issue.
-
-  sameEntityCandidates=0
-    the surface is absent intermittently from consecutive captured frames;
-    preserve both captures for visibility/capture ownership planning.
-
-  sameEntityCandidates greater than zero
-    compare the printed equality tuple to identify the unstable key component.
+Asset and numeric coverage through geometry_geo18.log is complete. No further
+Fatzombie identity-component capture is required. The remaining state matrix
+below remains useful as a regression suite, but it cannot repair the global
+last-view history-owner contract and must not block GEO-04's read-only contract
+work.
 
 For mode 1, collect one one-shot at each state:
 

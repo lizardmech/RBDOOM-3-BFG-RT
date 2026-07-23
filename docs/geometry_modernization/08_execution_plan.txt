@@ -56,6 +56,14 @@ Required before registry implementation:
     least player, one zombie, Fatzombie, and one mixed/single-bone MD5 asset;
   - mode 2 still has no T-pose or corruption.
 
+Status 2026-07-23: satisfied for entry into GEO-04. geometry_geo14 through
+geometry_geo18 established exact funnel accounting, independent sentinel
+overwrite, requested asset coverage, finite current/available-previous/motion
+parity, and mode-2 visual stability. The Fatzombie's missing previous record is
+not a numeric failure or pointer churn; it exposed a global last-3D-view history
+owner. D16 makes same-logical-view history a mandatory GEO-04/GEO-07 contract
+instead of weakening GEO-03 matching.
+
 PHASE B GATE
 ------------
 Required before new registry data drives traversal:

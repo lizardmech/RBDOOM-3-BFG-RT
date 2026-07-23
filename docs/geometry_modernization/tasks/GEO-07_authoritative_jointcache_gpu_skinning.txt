@@ -43,7 +43,9 @@ STEPS
 7. Keep single-bone optimization conditional on proven rigid transform and
    identical material/motion semantics. Otherwise use normal GPU skinning.
 8. Preserve current and previous positions. On first observation, teleport, or
-   invalid history, mark history invalid rather than fabricating motion.
+   invalid history, mark history invalid rather than fabricating motion. Key
+   previous outputs to the GEO-04 logical view/history owner; never consume the
+   global last-3D-view bridge as authoritative history.
 9. Re-run same-frame CPU/GPU readback for all GEO-03 probes and crowded clones.
 10. Measure CPU skin time, source upload, joint upload, output bytes, and GPU
     skin dispatch time on identical geometry counts.
