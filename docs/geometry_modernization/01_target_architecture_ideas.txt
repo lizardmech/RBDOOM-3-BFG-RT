@@ -1,0 +1,200 @@
+Geometry modernization - target architecture ideas (preliminary)
+================================================================
+Status: working notes, 2026-07-19. Direction ideas, alternatives, and
+reasoning. NOT a plan; nothing here is committed. Mega-geometry specifics
+live in 03_mega_geometry_forward_compat.txt.
+Updated 2026-07-20: push-model lifecycle hooks, per-world ownership,
+registration-time mesh metadata, DoomRTX reference section.
+
+GUIDING INTENT
+--------------
+Lean, high-performance conventional-geometry system first. Doom 3 content is
+low-poly enough that the conventional path carries it indefinitely; imported
+modern assets are where scaling matters, and RTX Mega Geometry (cluster AS)
+is the intended later answer for those + LOD. Therefore: build the
+conventional system so mega geometry is a backend swap, not a second
+migration.
+
+CORE IDEA: ONE MESH REGISTRY + ONE INSTANCE REGISTRY, NO ROUTES
+---------------------------------------------------------------
+- Mesh   = content hash -> pooled local-space geometry + accel structure
+           (+ build state, + generation token).
+- Instance = entityDef-lifecycle-driven record -> mesh hash + transform +
+           material (+ residency age, + prev transform for motion vectors).
+- Static world, rigid props, and skinned characters are all just instances.
+  "Static" only means the transform never changes and the accel is shared.
+  A skinned instance additionally owns a per-instance skinned position
+  stream and a refittable accel.
+- This is an EXTENSION of the existing rigid route (which already has
+  identity, residency, retirement), not a new system. The static bake and
+  the dynamic frame mirror get retired once coverage is complete.
+- Spawn/despawn falls out naturally: first sight of a model registers the
+  mesh and requests an accel build; the instance enters the TLAS when the
+  accel is ready. Until then it is simply absent (or optionally traced via
+  a bounding proxy - probably unnecessary).
+- PUSH-MODEL LIFECYCLE HOOKS (2026-07-20): prefer hooking the entityDef
+  mutation points over discovering changes by walking world->entityDefs.
+  UpdateEntityDef upserts the instance record (transform/material dirty
+  tokens set right there); FreeEntityDef retires the instance immediately.
+  Exact spawn/despawn, zero GC latency, no per-frame discovery walk.
+  The walk + frame-age GC then demote to a safety net / validation pass,
+  and eviction (Q12) only ever handles memory pressure, not liveness.
+  This also closes the spawned-creature gap (00_current_state_findings)
+  at its root: a mid-level spawn acquires identity the moment the game
+  code Presents it. DoomRTX proves the shape works in idTech4 - see the
+  reference section at the end of this file.
+- PER-WORLD OWNERSHIP (2026-07-20): mesh registry + BLAS pool are global;
+  the instance registry and TLAS belong to a render world. Today the PT
+  path only serves the primary world, but pinning the split now costs one
+  sentence and keeps menu/PDA-style secondary worlds from ever forcing a
+  refactor. (DoomRTX: one TLAS pair per render world, meshes shared.)
+- Emissive-mesh-light strategy benefits directly: every live entityDef has
+  a resident instance regardless of camera, so mesh lights stop depending
+  on visibility heuristics.
+
+GEOMETRY STORAGE IDEAS
+----------------------
+- Suballocated GPU pool(s) with free-list + offsets. Meshes upload once at
+  registration. No compile-time caps anywhere; budget = memory, enforced by
+  eviction, not by silent append refusal.
+- SPLIT POSITION FROM ATTRIBUTES (load-bearing decision):
+    * position stream: raw float3, tight, stable stride. This is the only
+      thing accel builds consume, and later the only thing CLAS
+      instantiation consumes.
+    * attribute stream: aggressively compressed. Candidate layout:
+        - octahedral normal (2x snorm16)          4 B
+        - octahedral tangent + bitangent sign     4 B
+          (or a single quaternion tangent frame   8 B)
+        - UV as 2x half (watch large UV ranges;   4 B
+          fall back to float2 per-mesh flag if needed)
+        - vertex color RGBA8                      4 B
+      => ~16-24 B vs today's 112 B. 4-7x cut in bandwidth + cache pressure.
+    * hit shading resolves attributes via instanceId -> meshId -> attribute
+      offset + primitiveIndex. Identical under conventional BLAS and CLAS.
+- Index buffer: uint32 pooled alongside. uint16 per-mesh optimization is
+  possible but probably not worth the branchy fetch; decide later.
+- Per-mesh dirty/generation tokens replace whole-buffer byte hashing.
+
+ACCELERATION STRUCTURE IDEAS
+----------------------------
+- Per-mesh BLAS for everything; monolithic merged BLASes go away entirely.
+- Static/rigid meshes: build once (PreferFastTrace), COMPACT (read
+  compacted size, copy, free original - typically ~50% memory back),
+  cache by content hash. Compaction matters for the bigger-levels goal.
+- Skinned instances: per-INSTANCE BLAS built once with AllowUpdate +
+  PreferFastBuild, refit (PERFORM_UPDATE) each frame from the skinned
+  position stream. Periodic full rebuild (every N~30-60 frames, or when a
+  pose-delta heuristic trips) to arrest refit quality decay. Refit is
+  ~5-10x cheaper than rebuild and this attacks the #1 measured cost.
+  Failure degradation is also better: missing joints for a frame = pose
+  held one frame, not a bind-pose snap.
+- TLAS: keep full rebuild per frame (correct at our instance counts).
+  Consider GPU-driven instance desc patching only if instance counts grow
+  10x. PTLAS (VK_NV_partitioned_acceleration_structure) only becomes
+  interesting at tens of thousands of instances - not now.
+  IN-FLIGHT LIFETIME (2026-07-20): reusing/reallocating the TLAS result
+  and instance-desc buffers while a previous frame's rays are in flight
+  can invalidate that frame's traversal. The rigid route already solved
+  this for BLASes (retired-BLAS lifetime queues); the TLAS needs the same
+  discipline - double-buffer result + instance upload buffers, or verify
+  NVRHI's sync already guarantees safety (new Q18). DoomRTX double-buffers
+  both per world for exactly this reason.
+- Async build queue: budgeted per frame (N builds or M MB of build
+  scratch), background command list or async compute, handoff via the
+  existing PathTraceCpuWork generation-token protocol. New meshes appear a
+  few frames late; that is acceptable and invisible with residency.
+  (2026-07-20) The same-queue variant has a working proof in DoomRTX:
+  BLAS builds recorded on a separate command list, submitted ahead of the
+  TLAS build on the same queue, no CPU fence wait. Start there (see Q10).
+- Opacity micromaps (VK_EXT_opacity_micromap, supported by current NVRHI):
+  bake OMMs for alpha-tested materials (grates, fences, foliage, decal
+  cards) at mesh registration. Kills any-hit invocations on exactly the
+  Doom 3 content that spams them. Cheap, self-contained win; independent
+  of everything else here.
+
+ANIMATION / SKINNING IDEAS
+--------------------------
+(Findings that motivate these are in 02_gpu_skinning_findings.txt.)
+- Persistent per-model source buffer: bind-pose verts + joint indices +
+  weights, uploaded once at mesh registration.
+- Joints come from the engine's own per-drawSurf GPU joint buffer
+  (drawSurf->jointCache via idVertexCache::GetJointBuffer) - the same
+  matrices raster draws with. No CPU-side scraping of frontend model
+  memory, ever.
+- Compute pass skins into per-instance position stream (+ attribute
+  transform for normals/tangents into the compressed attribute encoding,
+  or keep skinned attributes uncompressed - decide by measuring hit-shader
+  cost).
+- Double-buffer skinned positions => previous-frame positions for motion
+  vectors come free.
+- Every gate in the skinning path must fail LOUDLY (named counters + debug
+  view coloring surfaces by skinning source). A silent bind-pose render
+  must be impossible.
+
+INGESTION BOUNDARY IDEAS
+------------------------
+- One asset-import function where "engine model / glTF surface becomes a
+  registered mesh": hashing, attribute compression, pool upload, accel
+  request, OMM bake. This is also exactly where cluster preprocessing
+  slots in later (see 03).
+- REGISTRATION-TIME DERIVED DATA (2026-07-20): per-mesh summaries that
+  shading/light lanes want should be computed once here, not per frame:
+  average albedo/color, emissive triangle summary (feeds Q17's move of
+  emissive harvesting onto mesh records), material feature flags.
+  DoomRTX registers average color + proc metadata per mesh at ingestion
+  (glRaytracingSetMeshAverageColor / SetMeshProcMetadata) - same pattern.
+- The drawSurf walk stops being the ingestion mechanism and becomes at
+  most a discovery/validation signal. Primary discovery should be the
+  entityDef lifecycle (world->entityDefs walk + callbacks), which the
+  entity feed already prototypes. Previous session established the engine
+  keeps updating live transforms for off-screen active rigids, so the data
+  exists without any camera dependence.
+
+WHAT DELIBERATELY DOES NOT GET BUILT
+------------------------------------
+- No LOD system of any kind (no distance swaps, no import-time decimation).
+  Conventional path traces full-res; CLAS handles LOD later.
+- No meshlet/cluster tooling now; RTXMG tooling does it better when the
+  time comes.
+- No heroic BLAS memory management beyond compaction + eviction; cluster
+  pools change the memory model anyway.
+- No GPU-driven TLAS culling; residency + portal-area selection already
+  bounds instance counts.
+
+REFERENCE IMPLEMENTATION: DOOMRTX / ICEBRIDGE (added 2026-07-20)
+----------------------------------------------------------------
+E:\prog\references\DoomRTX-main - raw-DXR path tracer on the original 2004
+idTech4 base (Doom 3 / Quake 4 / Prey unified), by a former id dev. It
+arrived independently at this plan's registry model and is the closest
+working reference for the residency mechanics:
+  - Entity-owned handles: idRenderEntityLocal carries the BLAS handle +
+    TLAS instance id directly (neo/engine/renderer/tr_local.h:289);
+    FreeRenderEntity deletes both (RenderEntity.cpp:56); the
+    UpdateEntityDef path updates the TLAS instance in place
+    (RenderWorld.cpp:257, tr_light.cpp:1061). This is the push-model
+    lifecycle hook pattern above, working in production.
+  - Model-owned BLAS: idRenderModel creates/updates its BLAS at model
+    level (neo/engine/models/Model.cpp:686).
+  - Per-world scenes: one double-buffered TLAS pair + instance list per
+    render world, mesh/BLAS resources shared across worlds
+    (neo/engine/opengl/gl_raytracing.cpp:850). Explicit comment at
+    gl_raytracing.cpp:1158 on in-flight TLAS invalidation being the
+    reason for the double-buffering.
+  - Non-blocking builds: BLAS builds on a separate command list submitted
+    before the TLAS build, same queue, no CPU block
+    (gl_raytracing.cpp:1595-1607).
+  - Ingestion-time mesh metadata: average color / proc metadata
+    registered per mesh, not derived per frame.
+NOT a model for: skinning (CPU-side, rebuild-heavy - our #1 measured
+cost), light transport (single in-shader RIS reservoir, no
+temporal/spatial ReSTIR), vertex compression, BLAS compaction, OMMs,
+or API abstraction (raw D3D12, GL-emulation raster). This plan is ahead
+on all of those; mine DoomRTX for lifecycle/scheduling shapes only.
+
+OPEN QUESTIONS (tracked in 04_open_questions.txt)
+-------------------------------------------------
+Vertex attribute exact layout; UV range handling; per-instance vs per-mesh
+skinned BLAS sharing for crowds of the same model; eviction policy shape;
+how much of the rigid route's diagnostic scaffold to keep; interaction with
+the particle/transient composite path; scene-origin anchoring under
+instancing.

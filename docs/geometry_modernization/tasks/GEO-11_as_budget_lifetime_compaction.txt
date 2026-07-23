@@ -1,0 +1,59 @@
+GEO-11 - Enforce AS budgets, in-flight lifetimes, and safe compaction
+====================================================================
+
+GOAL
+----
+Make BLAS/TLAS work admission, scratch use, result-buffer lifetime, retirement,
+and optional compaction explicit and safe under real frame overlap.
+
+PRECONDITIONS
+-------------
+- GEO-10 static buckets are correct in compare mode.
+- This ticket must not change geometry identity or shading semantics.
+
+FILES TO AUDIT FIRST
+--------------------
+  neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
+  neo/renderer/NVRHI/PathTraceAccelerationPlan.cpp/.h
+  neo/renderer/NVRHI/PathTraceCpuWork.cpp/.h
+  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+  neo/renderer/NVRHI/PathTraceSceneInputs.h
+
+STEPS
+-----
+1. Trace command-list submission, queue, frame slots, fences, TLAS instance
+   buffer lifetime, AS result lifetime, scratch reuse, and deferred destruction.
+2. Define build admission budgets for operation count and scratch/result bytes.
+   Separate new builds, updates, periodic rebuilds, and compaction copies.
+3. Prioritize correctness-critical active work; defer eligible background work
+   with explicit reason/age counters. Never omit a live object silently.
+4. Prove TLAS consumes only BLAS handles whose build/copy completed and whose
+   buffers remain alive through the last referencing submission.
+5. Prove TLAS result and instance buffers are double/triple-buffered or fenced
+   against in-flight overwrite. Include frame-slot/generation diagnostics.
+6. Audit NVRHI/Vulkan support for compacted-size query and AS copy. If supported,
+   implement compaction as build -> query -> allocate -> copy -> completion ->
+   handle publish -> old-handle retirement. If unsupported, record the result
+   and leave compaction disabled; do not emulate unsafe swapping.
+7. Stress spawn/despawn, portal churn, map restart, buffer growth, and forced low
+   budgets. Deferred work must converge and failures must remain recoverable.
+8. Re-run comm1 generation tuple, crowded skinned updates, and lifecycle removal.
+9. Capture median/p90/max build/update/TLAS times, budget use, deferred ages,
+   scratch high-water mark, result bytes, and compaction savings.
+
+VALIDATION
+----------
+- Zero stale AS handle, in-flight overwrite, premature retirement, or silent
+  omission counters under normal and forced-low-budget tests.
+- Deferred active work has a visible safe fallback or preserves last valid AS.
+- Compacted handle is never exposed before copy completion.
+
+DONE WHEN
+---------
+AS work and memory have proved admission/lifetime contracts; compaction is
+either safely implemented with measured benefit or explicitly rejected by the
+current backend capability audit.
+
+CHECKPOINT
+----------
+  pt geometry GEO-11: enforce AS budget and lifetime contracts

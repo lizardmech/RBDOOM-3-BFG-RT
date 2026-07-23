@@ -1,0 +1,87 @@
+GEO-00 - Freeze the runtime baseline and reproduction artifacts
+================================================================
+
+GOAL
+----
+Turn the 2026-07-23 exploratory log into a repeatable baseline that later
+tickets can compare without requesting another broad manual dump.
+
+WHY NOW
+-------
+The current evidence is sufficient to choose the work order, but the original
+log is outside the repository and mixes several captures. Later correctness and
+performance claims need labeled, machine-comparable tuples.
+
+PRECONDITIONS
+-------------
+- None.
+- Do not change rendering behavior in this ticket.
+
+FILES TO AUDIT FIRST
+--------------------
+  ../05_validated_runtime_findings.txt
+  ../07_worker_protocol.txt
+  neo/renderer/NVRHI/PathTraceDebugDumps.cpp
+  neo/renderer/NVRHI/PathTraceDebugDumps.h
+  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+  neo/renderer/NVRHI/PathTraceEntityFeed.cpp
+
+STEPS
+-----
+1. Inventory the existing geometry diagnostic commands, labels, cvars, and log
+   records. Map each required evidence field to an existing producer.
+2. Define four durable scenario IDs:
+
+     STATIC_BUSY
+     SKINNED_CROWD_CPU
+     COMM1_AREA41_BROKEN_PT
+     LIFECYCLE_MEDKIT
+
+   Preserve map, portal area, relevant cvars, expected entity/model identity,
+   and the exact counters listed in ../05_validated_runtime_findings.txt.
+3. Add a small repository artifact manifest or bounded capture helper only if
+   existing diagnostics cannot reproduce those tuples. Do not add another
+   unbounded per-frame dump.
+4. Record the accepted 2026-07-23 baseline values in a machine-diffable text or
+   CSV artifact. Mark medians separately from single-frame snapshots.
+5. Add a one-command or short console checklist for capturing each scenario.
+   If a savegame/position is required, name it and record the portal area check.
+6. Confirm Fatzombie is included as a geometry-valid/material-invalid probe;
+   do not treat its missing texture as a geometry baseline failure.
+7. Confirm the GPU mode captures are coverage-only. Do not record them as a
+   CPU/GPU performance comparison.
+8. Run a release build only if C++ diagnostics were changed. No shader output
+   should be touched by this ticket.
+9. Capture one bounded rerun when possible. If the original scene cannot be
+   rerun without user input, validate the schema against the existing log and
+   explicitly mark the runtime refresh pending; do not invent values.
+
+REQUIRED BASELINE FIELDS
+------------------------
+For every scenario: map, area, label, frame, visible/static/retained counts,
+rigid mesh/instance counts, skinned surfaces/vertices/indices/triangles,
+transient counts, cap/overflow/invalid/fallback counts, TLAS instances, upload
+bytes, and total/capture/CPU-skin timing sample count.
+
+GUARDRAILS
+----------
+- No geometry routing, cap, lifetime, or shader behavior changes.
+- Do not copy the multi-megabyte external log into git without a stated reason.
+- No screenshot-only baseline and no unlabeled performance number.
+
+DONE WHEN
+---------
+- The four scenario IDs have reproducible instructions and expected tuples.
+- The accepted baseline can be diffed by later tickets.
+- The comm1 scenario explicitly records raster-good/PT-bad.
+- Existing diagnostics are either proven sufficient or the smallest missing
+  bounded output has been added.
+
+CHECKPOINT
+----------
+Commit the coherent baseline/docs/diagnostic unit as:
+
+  pt geometry GEO-00: freeze validated runtime baseline
+
+Rollback is removal of the bounded diagnostic/manifest changes; live rendering
+must be identical before and after.

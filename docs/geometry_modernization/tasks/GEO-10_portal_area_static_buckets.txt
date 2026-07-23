@@ -1,0 +1,63 @@
+GEO-10 - Replace monolithic static traversal with portal-area buckets
+====================================================================
+
+GOAL
+----
+Build resident static BLAS buckets by portal area and bounded size, then place
+only active buckets in the TLAS while preserving full static shading identity.
+
+PRECONDITIONS
+-------------
+- Phase C gate passes.
+- GEO-02 comm1 invariant is retained as a mandatory regression.
+- New static route is default off and compare-capable.
+
+FILES TO AUDIT FIRST
+--------------------
+  neo/renderer/NVRHI/PathTraceSceneUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceGeometryUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceInstanceUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceAccelerationPlan.cpp/.h
+  neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
+  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+  neo/renderer/NVRHI/PathTraceSceneInputs.h
+  neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+
+STEPS
+-----
+1. Define a static bucket key: world generation, portal area, size split, and
+   source/storage generation. Define deterministic splitting and stable order.
+2. Assign each static surface/primitive to exactly one bucket. Emit duplicate,
+   unassigned, invalid-area, oversized, and split counters.
+3. Build bucket geometry from GEO-06-style pooled full-fidelity ranges. Preserve
+   local primitive -> material/triangle/source identity tables.
+4. Build/reuse one BLAS per dirty bucket. Resident inactive buckets may keep
+   storage and BLAS state, but must not be put in the active TLAS.
+5. Derive one active-set generation from portal visibility. Use that same
+   generation for TLAS instances and shader route tables; reject mixed epochs.
+6. Coalesce tiny buckets deterministically if static TLAS entries exceed the
+   declared budget. Never drop a bucket silently.
+7. Compare old/new active static triangles, material IDs, sampled hit tuples,
+   emissive inventory, and TLAS entries per area.
+8. Run comm1 area 41 first. Record active/retained ranges plus the full GEO-01
+   generation tuple. Then run STATIC_BUSY, portal transitions, PDA, and map
+   changes.
+9. Measure dirty bucket builds/reuse, active TLAS entries, upload bytes, scratch,
+   retained memory, and timings with identical content.
+
+GUARDRAILS
+----------
+- Do not use the old compile-time static cap as bucket admission policy.
+- Do not include all resident inactive buckets just to make comm1 render.
+- Do not delete the monolithic path until GEO-13.
+
+DONE WHEN
+---------
+- Every static primitive has one bucket and correct shader identity.
+- Only active buckets enter TLAS; generations match end-to-end.
+- comm1 and all baselines render with zero silent loss.
+- Old static route is a one-cvar rollback.
+
+CHECKPOINT
+----------
+  pt geometry GEO-10: add portal-area static BLAS buckets

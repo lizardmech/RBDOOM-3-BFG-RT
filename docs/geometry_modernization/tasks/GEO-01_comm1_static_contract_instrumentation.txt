@@ -1,0 +1,84 @@
+GEO-01 - Instrument the comm1 PT-only static contract
+=====================================================
+
+GOAL
+----
+Identify the first concrete producer/consumer disagreement that makes level
+geometry disappear in `maps/game/comm1.map`, portal area 41, while raster and
+the CPU-side PT summaries remain valid.
+
+PRECONDITIONS
+-------------
+- GEO-00 scenario `COMM1_AREA41_BROKEN_PT` is reproducible.
+- This is instrumentation only. Behavior changes belong to GEO-02.
+
+FILES TO AUDIT FIRST
+--------------------
+  neo/renderer/NVRHI/PathTraceSceneUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceGeometryUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+  neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
+  neo/renderer/NVRHI/PathTraceAccelerationPlan.cpp/.h
+  neo/renderer/NVRHI/PathTraceSceneInputs.h
+  neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+  neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+  neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+
+STEPS
+-----
+1. Trace one static triangle from area capture through retained storage, active
+   range selection, buffer upload, BLAS geometry descriptor, TLAS instance,
+   shader instance ID, primitive ID, route table, and material lookup.
+2. Assign/print a compact generation tuple at each boundary:
+
+     worldGeneration
+     staticStorageGeneration
+     activeSetGeneration
+     vertexBuffer identity/generation
+     indexBuffer identity/generation
+     primitive-side-data identity/generation
+     BLAS handle/build generation
+     TLAS frame slot/instance AS handle
+     route-table generation
+
+3. Add a bounded one-shot sample for one known-good static primitive and one
+   primitive in the disappearance region. Include index range, base vertex,
+   primitive range, material ID, and expected/actual route.
+4. Add counters for generation mismatch, out-of-range instance/primitive,
+   inactive-range traversal, missing route, missing material, stale BLAS handle,
+   and TLAS/BLAS frame-slot mismatch.
+5. If CPU values agree through TLAS construction, add the smallest Vulkan
+   readback needed to recover shader `instanceId`, `primitiveIndex`, route
+   result, and rejection reason for the sampled pixel/primitive.
+6. Capture the broken area and a known-good static scene with identical
+   diagnostics. Compare the first boundary where tuples diverge.
+7. Verify the existing `staticPolicy=1/1` and `staticBucketShader=1/0` state in
+   both scenes. Do not label it causal unless the good/bad tuples distinguish it.
+8. If HLSL instrumentation changes an RT program, delete only its affected
+   SPIR-V `.rt.bin`, rebuild, and prove blob mtime newer than the source.
+
+STOP CONDITIONS
+---------------
+- If raster also loses the geometry, stop: the reproduction changed.
+- If the failure no longer reproduces, preserve the instrumentation default
+  off and report that no fix is authorized.
+- If two boundaries disagree, record the earliest one; do not patch either here.
+
+VALIDATION
+----------
+- L0: producer/consumer map and tuple field ownership reviewed.
+- L1: Vulkan release build; affected SPIR-V only if shader changed.
+- L2: broken and good scenes produce bounded labeled output with no flooding.
+- L3: a concrete earliest mismatch is captured, or all inspected boundaries
+  agree and the remaining unobserved boundary is named precisely.
+
+DONE WHEN
+---------
+The handoff names the earliest mismatching boundary and includes exact expected
+and actual tuple values. “Likely stale state” is not sufficient.
+
+CHECKPOINT
+----------
+  pt geometry GEO-01: expose comm1 static contract mismatch
+
+All diagnostics remain default off and have one cvar rollback.

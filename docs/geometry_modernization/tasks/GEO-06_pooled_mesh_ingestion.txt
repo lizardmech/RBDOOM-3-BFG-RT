@@ -1,0 +1,77 @@
+GEO-06 - Ingest pooled meshes and prove shared-rigid traversal
+================================================================
+
+GOAL
+----
+Store canonical immutable mesh source data once per mesh in growable buffers,
+prove non-zero-offset BLAS consumption, then drive a default-off canonical rigid
+compare route. This gives GEO-13 a verified rigid route to promote.
+
+PRECONDITIONS
+-------------
+- GEO-05 registry identity and lifetimes pass in shadow mode.
+- The pool starts in shadow mode. Live rigid traversal stays default off and
+  compare-capable.
+
+FILES TO AUDIT FIRST
+--------------------
+  neo/renderer/NVRHI/PathTraceGeometry.h/.cpp
+  neo/renderer/NVRHI/PathTraceGeometryUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
+  neo/renderer/NVRHI/PathTraceAccelerationPlan.cpp/.h
+  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+  neo/renderer/NVRHI/PathTraceSceneInputs.h
+  neo/renderer/NVRHI/PathTraceEmissiveCandidates.cpp/.h
+
+STEPS
+-----
+1. Freeze the full-fidelity source layout: positions plus all attributes,
+   topology, material IDs, triangle class/flags, and deformation metadata needed
+   by current consumers. Compression is deferred to GEO-12.
+2. Implement append/allocate records with 64-bit checked byte offsets, sizes,
+   alignment, storage generation, and source hash/version. Reject overflow with
+   a named counter; do not truncate.
+3. Upload a mesh only on first residency or source revision. Make immutable
+   steady-state upload bytes zero and count reuse explicitly.
+4. Add a deterministic CPU test for offset/alignment/range calculations near
+   32-bit boundaries and for pool growth preserving existing records.
+5. Build a Vulkan BLAS micro-test using geometry at non-zero vertex and index
+   offsets. Validate primitive 0 and last primitive material/attribute lookup.
+6. Add shadow comparisons for per-mesh vertex/index/triangle counts, checksums,
+   material ranges, and representative decoded vertices/triangles.
+7. Adapt the established rigid BLAS/instance route to consume canonical pooled
+   records behind one default-off gate. One immutable mesh BLAS is shared by all
+   rigid instances of that mesh; transforms and instance identity stay separate.
+8. In compare mode, record old/new rigid mesh and instance counts plus sampled
+   hit instance/primitive/material/triangle-class tuples, current/previous
+   transforms, and emissive identities. Every difference must be enumerated.
+9. Exercise repeated rigid props to prove shared BLAS scaling. Exercise repeated
+   zombies/Fatzombie as negative controls: their immutable source records may be
+   shared, but their live output/BLAS must not enter the rigid route without the
+   GEO-04/D06 single-bone proof. Rigid BLAS count scales with unique eligible
+   meshes; TLAS instances scale with live rigid instances.
+10. Exercise lifecycle removal/re-add and map changes. No record may reference a
+   destroyed buffer generation.
+11. Measure source upload, retained bytes, rigid BLAS reuse, and TLAS instances
+   on identical baseline content. Do not claim a win from different routing or
+   geometry counts.
+
+GUARDRAILS
+----------
+- No attribute compression, meshlet conversion, static bucket cutover, or
+  skinned-output promotion.
+- No whole-payload hashing every steady-state frame.
+- Pool growth must be generation-safe; do not overwrite in-flight buffers.
+
+DONE WHEN
+---------
+- Full-fidelity records compare against legacy data.
+- Non-zero-offset BLAS addressing is proven.
+- Repeated instances reuse one immutable source record.
+- Canonical rigid traversal matches the established rigid route for geometry,
+  material, motion, emissive identity, and lifecycle under its compare gate.
+- Overflow/range failures are explicit and fail closed.
+
+CHECKPOINT
+----------
+  pt geometry GEO-06: prove pooled shared-rigid traversal

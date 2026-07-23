@@ -1,0 +1,118 @@
+Geometry modernization - open questions and risks (preliminary)
+===============================================================
+Status: working notes, 2026-07-19. Unresolved decisions. Each of these
+should be settled (by measurement or a short spike, not by debate) before
+any rigid plan/tickets are written for the area it touches.
+Updated 2026-07-20: Q10/Q12 amended with DoomRTX findings; Q18 added.
+
+VERTEX / STORAGE
+----------------
+Q1. Exact attribute layout. Oct-normal + oct-tangent + sign vs quaternion
+    tangent frame? Half UVs are fine for most Doom 3 materials, but
+    scrolling/tiling materials can exceed half range - per-mesh "wide UV"
+    flag or always float2? Decide with a survey of actual UV ranges in
+    shipped maps + a hit-shader cost measurement.
+Q2. Does hit shading want skinned NORMALS/TANGENTS recomputed per frame in
+    the skinning compute (extra bandwidth) or derived in-shader from
+    geometric normal + stored deltas? Measure; default assumption is the
+    skinning compute writes them.
+Q3. Index pooling: shared uint32 pool vs per-mesh buffers. Pool assumed;
+    verify BLAS build performance is insensitive to index buffer offsets.
+Q4. Scene-origin anchoring: the current capture re-anchors world-space data
+    to a scene origin for precision. Under local-space instancing this
+    moves into the TLAS instance transforms - confirm no shader assumes
+    the old anchoring (grep for sceneOrigin consumers before removal).
+
+SKINNING
+--------
+Q5. jointCache consumption model: bind the per-surface uniform buffer
+    directly in the skinning compute vs GPU-copy all joint sets into one
+    structured buffer per frame. The copy adds a pass but simplifies
+    binding; measure both.
+Q6. Do we declare raster r_useGPUSkinning=1 a hard requirement for the PT
+    path (it is the BFG default), or keep handling CPU-deformed pre-posed
+    verts as a degraded mode?
+Q7. Single-bone "rigid-skinned" md5 surfaces (hanging lights etc., see
+    memory rigid-skinned-and-emissive-mesh-lights): stay on the rigid
+    route as per-joint rigid instances (BLAS once + jointMat as instance
+    transform) - confirm the classifier separates them from true deforming
+    surfaces reliably so they never pay the skinning path.
+
+ACCEL / SCHEDULING
+------------------
+Q8. Refit cadence heuristic: fixed N frames vs pose-delta metric vs
+    surface-area-heuristic degradation estimate. Start fixed (N=30-60),
+    revisit with Nsight data.
+Q9. Per-instance skinned BLAS for crowds: multiple imps of the same model
+    each need their own skinned positions + BLAS. At what count does
+    sharing a pose (animation instancing) matter? Probably never in Doom 3;
+    note and ignore.
+Q10. Async build budget shape: builds-per-frame vs scratch-bytes-per-frame
+     vs GPU-time-per-frame. Also: does the async queue live on the same
+     queue with barriers or a real async compute queue? Start same-queue
+     (simpler, NVRHI-friendly), measure contention.
+     (2026-07-20) Same-queue is no longer speculative: DoomRTX ships it -
+     BLAS builds on a separate command list submitted ahead of the TLAS
+     build, no CPU fence wait (gl_raytracing.cpp:1595-1607 there). The
+     remaining open part is only the budget shape and contention numbers.
+Q11. BLAS compaction timing: compaction requires a readback fence (frames
+     of latency). Fold into the async queue as a second-stage job. Confirm
+     NVRHI exposes compacted-size queries cleanly.
+Q12. Eviction policy: pure frame-age (Remix uses ~frame-age GC) vs
+     age + memory pressure. Start frame-age with a generous cap; the
+     emissive-mesh-light requirement means off-screen residency must be
+     generous by design.
+     (2026-07-20) If the push-model lifecycle hooks land (01, core idea
+     section), liveness stops being eviction's job entirely - FreeEntityDef
+     retires instances exactly. Eviction then only reclaims mesh/BLAS pool
+     memory for content no live instance references, which simplifies the
+     policy question to pure memory pressure.
+Q18. TLAS in-flight buffer lifetime (2026-07-20): reusing or reallocating
+     the TLAS result / instance-desc buffers while a prior frame's rays
+     are in flight can invalidate that frame's traversal. BLASes already
+     have retired-lifetime queues; confirm whether NVRHI's submission
+     sync makes single-buffered TLAS reuse safe in our frame scheme, or
+     double-buffer both (DoomRTX double-buffers per world for this exact
+     reason - see comment at its gl_raytracing.cpp:1158). Settle by
+     inspection of NVRHI barrier/queue semantics, not by waiting for
+     corruption.
+
+MIGRATION / COVERAGE
+--------------------
+Q13. What keeps using the dynamic-frame path during migration? Particles/
+     transients (already have the screen-space composite alternative for
+     some), GUIs, callback-generated surfaces. These may stay on a small
+     per-frame path indefinitely - that is fine if it is small; define
+     what "small" is.
+Q14. How much of the rigid route's diagnostics scaffold survives? The
+     stats/funnel pattern proved essential during residency debugging;
+     keep the pattern, prune the accumulation. Decide per-module.
+Q15. Material universe interaction: mid-level-first-seen materials
+     (spawned creatures) - confirm the material table admits new IDs at
+     runtime or fix alongside the instance registry (same structural
+     cause as the geometry gap).
+Q16. Motion vectors during migration: the temporal lanes (ReSTIR DI/GI,
+     DLSS-RR guides) consume previous-position data keyed to the current
+     buffer layouts. Any layout change must ship with its motion-vector
+     bridge in the same step or temporal quality craters. This is the
+     highest-blast-radius integration risk in the whole effort.
+Q17. Emissive triangle harvesting currently walks the captured payloads;
+     under pooled instancing it should walk mesh records + instances.
+     Same identity keys? (Emissive history/dynamic flags depend on stable
+     triangle identity across frames.)
+
+RISKS
+-----
+R1. The three routes are load-bearing for shading lanes in ways not fully
+    mapped (triangle class/material/instance side buffers per route).
+    Before removing any route, funnel-instrument its consumers - the
+    residency work already demonstrated why (see memory:
+    residency-route-disabled-in-production).
+R2. Q16 (motion vectors) - see above.
+R3. Frontend pointer lifetimes: any migration step that still reads
+    tri->verts or model memory must do so at a defined point in the frame
+    (capture) and never retain pointers across phases. The SEH guards in
+    PathTraceSkinning.cpp exist because this rule was broken before.
+R4. Scope creep via diagnostics: the rigid route shows how bring-up
+    instrumentation can become half the code. Instrument via the funnel
+    pattern but with a planned removal step per phase.

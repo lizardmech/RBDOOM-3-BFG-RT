@@ -1,0 +1,108 @@
+Geometry modernization - GPU skinning investigation (findings)
+==============================================================
+Status: working notes, 2026-07-19. Code-level investigation of the existing
+GPU skinning scaffold and the historical "endless T-pose" failure that led
+to the CPU fallback. Verified against current code.
+
+CONTEXT
+-------
+An earlier effort (weaker models, long ago) attempted GPU skinning for the
+PT dynamic geometry. Characters would endlessly T-pose; agents could not
+isolate the cause; CPU skinning became the shipped fallback
+(r_pathTracingGpuSkinning default 0).
+
+FINDING 1: THE COMPUTE PATH'S MATH IS CORRECT
+---------------------------------------------
+neo/shaders/builtin/pathtracing/pathtrace_skinning.cs.hlsl matches the CPU
+bridge (PathTraceSkinning.cpp) exactly:
+  - joint indices: idDrawVert.color bytes used directly as joint array
+    indices (both paths)
+  - weights: color2 * (1/255) (both paths)
+  - idJointMat 3x4 row layout preserved (PathTraceSkinnedJointMatrix =
+    3x float4 rows; CopySmokeJointMatrixRows copies 12 floats)
+  - binding set order matches shader registers (t0 source, u0 output,
+    u1 prev positions, t1 dispatch, t2 current joints, t3 prev joints)
+  - command ordering is correct: upload -> dispatch -> UAV barrier ->
+    BLAS build consumes the overwritten dynamic vertex buffer
+    (PathTraceSmokeSceneBuild.cpp ~7560-7712)
+Mode 2 correctly remaps outputVertexOffset = dynamicVertexOffset so compute
+overwrites the exact ranges the merged dynamic BLAS reads.
+
+FINDING 2: TODAY, GPU FAILURE CANNOT PRODUCE A T-POSE
+------------------------------------------------------
+CPU skinning runs unconditionally during capture
+(BuildSmokeSurfaceVertexFromSource, PathTraceSceneCapture.cpp:426): the
+dynamic vertex data uploaded each frame is already CPU-skinned, and the
+compute pass merely overwrites it. Any GPU-path failure now silently falls
+back to correct CPU results. The T-pose era therefore corresponds to a
+variant where CPU pre-skinning was skipped in GPU mode - which is the whole
+point of GPU skinning (otherwise zero win: today's mode 2 still pays CPU
+skin + scaffold rebuild + full source vertex re-upload every frame).
+
+FINDING 3: ROOT CAUSE OF THE HISTORICAL T-POSE (two compounding causes)
+-----------------------------------------------------------------------
+(a) VOLATILE JOINT SOURCE. Joints are scraped from
+    tri->staticModelWithJoints->jointsInverted - frontend frame-temporary
+    dynamic-model memory - at THREE separate times per frame:
+      1. capture (GetSmokeRtCpuSkinningJoints)
+      2. scaffold build (SmokeSkinnedRecordJoints)
+      3. end-of-frame joint retention (RetainSmokeSkinnedCurrentJointMatrices)
+    The frontend re-instantiates/frees dynamic models; a pointer valid at
+    capture can be dead by scaffold time. PathTraceSkinning.cpp wraps every
+    read in SEH __try/__except plus pointer-plausibility heuristics - these
+    guards are the fossil record of the fight. Timing- and machine-
+    dependent, unreproducible.
+
+(b) ~10 SILENT FAIL-CLOSED GATES, ALL RENDERING IDENTICALLY. Between
+    "character animates" and "compute writes posed vertices":
+      r_useGPUSkinning off -> joints null; staticModelWithJoints null or
+      implausible; SEH exception swallowed; jointCount <= 0 or > 4096;
+      record not rtCpuSkinned; vertex range invalid; pipeline or binding
+      layout creation failed; binding set creation failed;
+      skinnedGpuComputeReady false (8 sub-conditions); per-record shader
+      early-out when currentJointOffset == PT_SKINNED_INVALID_OFFSET
+      (pathtrace_skinning.cs.hlsl:110).
+    With CPU pre-skin removed, every one of these leaves bind-pose verts in
+    the buffer with zero logging. An agent staring at a T-pose had no
+    signal distinguishing which gate fired. That is why they circled: the
+    system could not say where it failed.
+
+FINDING 4: THE ENGINE ALREADY SOLVED THE JOINT-DELIVERY PROBLEM
+----------------------------------------------------------------
+For every skinned drawSurf, the raster path uploads the current-pose joint
+matrices to a GPU buffer each frame: drawSurf->jointCache, resolved via
+idVertexCache::GetJointBuffer (neo/renderer/VertexCache.h:145). That buffer
+is by construction the exact pose raster draws with that frame.
+
+DIRECTION (feeds 01_target_architecture_ideas.txt)
+--------------------------------------------------
+1. Joint source = drawSurf->jointCache GPU buffer (bind it to the skinning
+   compute, or GPU-copy into a PT joint array). Never dereference frontend
+   model pointers from PT code. Eliminates cause (a) entirely and cannot
+   disagree with the raster pose.
+2. Persistent per-model bind-pose source buffer uploaded once at mesh
+   registration; per-frame traffic = joint matrices only (already on GPU).
+3. Loud failure: every gate increments a named counter surfaced through the
+   existing stats-dump pattern + a debug view coloring surfaces by skinning
+   source (GPU / CPU fallback / base pose). A T-pose without a log line
+   must be impossible.
+4. Validation harness BEFORE removing CPU pre-skin: mode 1's diagnostic
+   output buffer + readback diffing GPU vs CPU skinned positions for the
+   same frame, max delta per surface. Separates "wrong math" from "missing
+   data" in one frame - the tool the circling agents never had.
+5. Per-character refit BLAS (see 01) additionally converts any residual
+   joint dropout into a one-frame pose hold instead of a bind-pose snap.
+
+NOTES / CAVEATS
+---------------
+- GetSmokeRtCpuSkinningJoints returns null when r_useGPUSkinning (raster
+  cvar) is false - in that case the engine CPU-deforms tri->verts and they
+  arrive pre-posed. The PT path must keep handling both engine modes, or
+  we declare raster GPU skinning a hard requirement (it is the BFG
+  default; probably fine to require).
+- jointCache is a uniform buffer sized per-surface joint set; the compute
+  bind model may prefer a copy into one structured buffer per frame -
+  measure, do not assume.
+- idDrawVert color/color2 byte semantics (indices/weights) are only valid
+  for skinned models; the source-vertex build must keep rejecting
+  non-skinned records (existing rtCpuSkinned classification does this).

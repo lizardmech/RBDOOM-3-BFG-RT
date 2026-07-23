@@ -1,0 +1,97 @@
+Geometry modernization - current state findings (preliminary)
+==============================================================
+Status: working notes, 2026-07-19. Audit of how the path tracer ingests and
+manages geometry today. No plan commitments in this file; see the sibling
+files for direction ideas. Everything here was verified against code on the
+restir-development branch on the date above.
+
+WHY THIS EXISTS
+---------------
+The PT visual feature set (DI/GI/ReSTIR, materials, particles, glass) has
+matured while geometry ingestion stayed on the original scaffold. Observed
+symptoms:
+  - modern detailed assets (glTF import) choke the frame
+  - larger levels degrade or lose geometry
+  - creatures spawned mid-level never appear in the GPU-side universes
+  - skinning is CPU-side
+The audit found all four symptoms have specific, identifiable mechanisms.
+
+THE THREE COEXISTING ROUTES
+---------------------------
+Geometry reaches the tracer through three generations of architecture that
+run simultaneously:
+
+1) STATIC UNIVERSE (oldest surviving design)
+   - RtPathTraceSceneUniverse::EnsureBuilt (PathTraceSceneUniverse.h)
+     builds ONCE per world, keyed on map name + timestamp. A load-time bake.
+   - Surfaces are appended into a world-space CPU vertex/index cache
+     (RtSmokeGeometryUniverse static caches) and become ONE monolithic
+     static BLAS.
+   - HARD CAPS: PT_SCENE_UNIVERSE_STATIC_MAX_VERTS = 262144,
+     PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES = 786432
+     (PathTraceSceneUniverse.cpp:27-28). When full,
+     CanAppendStaticSurface silently refuses further appends.
+     => THIS is the "larger levels fall apart" mechanism.
+   - World-space baking means: no instancing, float precision decays with
+     level size, no BLAS reuse, and any change forces cache surgery.
+
+2) DYNAMIC FRAME (per-frame mirror)
+   - CapturePathTraceDynamicFrameFromDrawSurfMirror
+     (PathTraceDrawSurfCapture.cpp:730) re-captures everything
+     skinned/deforming/particle/unknown from viewDef->drawSurfs EVERY frame:
+     classify, CPU-skin, copy into std::vector, upload, then rebuild ONE
+     merged dynamic BLAS (PreferFastTrace, no refit, no AllowUpdate).
+   - HARD CAPS: RT_SMOKE_MAX_VERTS = 65536, RT_SMOKE_MAX_INDEXES = 196608
+     (PathTraceSceneCapture.h:25-26).
+     A single modern glTF character (80-300k verts) exceeds the entire
+     dynamic budget alone. => the "modern asset chokes" mechanism, together
+     with the per-vertex CPU cost below.
+   - Vertex format PathTraceSmokeVertex = 7x float4 = 112 bytes/vert
+     (PathTraceGeometry.h:9). Positions, normals, UVs, colors, tangents,
+     bitangents all full float4.
+
+3) RIGID ROUTE (newest; the right model, incomplete coverage)
+   - Content-hash mesh identity, per-mesh cached local-space buffers,
+     per-mesh BLAS, TLAS instancing, residency with frame-age GC and
+     retired-BLAS lifetime queues (PathTraceGeometryUniverse.h/.cpp).
+   - Rigid-only by construction: RT_PT_RIGID_MESH_REJECT_SKINNED_OR_DEFORMING.
+   - Roughly half of the ~5000-line file is diagnostics scaffolding
+     (stats/samples/dump plumbing) accreted during bring-up.
+
+CROSS-CUTTING FINDINGS
+----------------------
+- SPAWNED-CREATURE GAP is structural, not a bug: the scene universe is a
+  load-time bake; the entity feed (ProduceEntityFeedRigidEntities) admits
+  rigids only; skinned creatures exist solely in the per-frame drawSurf
+  mirror while visible. A mid-level spawn therefore never acquires identity
+  in any persistent universe.
+- EVERYTHING runs on the sync render thread. The PathTraceCpuWork
+  generation-token envelope (PathTraceCpuWork.h) exists and is the intended
+  async handoff protocol, but is scaffold-only today.
+- UPLOAD SKIP LOGIC hashes entire payloads byte-by-byte every frame
+  (BuildSmokeVectorUploadSignature, FNV over all bytes) to decide whether
+  to skip a writeBuffer. O(scene bytes) CPU per frame spent proving
+  "nothing changed". The rigid route already has the better pattern:
+  per-mesh generation tokens / upload signatures.
+- GPU SKINNING exists behind r_pathTracingGpuSkinning (default 0) and is
+  mathematically correct but structurally unpromotable as-is; see
+  02_gpu_skinning_findings.txt.
+- TLAS is rebuilt per frame (fine - that is standard practice), instance
+  counts are tiny (2 merged BLAS instances + rigid route instances).
+
+ONE-SENTENCE DIAGNOSIS
+----------------------
+Three generations of architecture coexist; the newest (rigid route) embodies
+the correct model - content-hash identity, local-space per-mesh BLAS, TLAS
+instancing, residency - but was never extended to skinned geometry, static
+world, or asset-scale budgets. This is an unfinished migration, not a
+knowledge gap.
+
+MEASURED / PREVIOUSLY ESTABLISHED PERF FACTS
+--------------------------------------------
+- #1 measured cost: the merged dynamic BLAS full rebuild for skinned
+  characters (40-50 fps vs 60-90 without; earlier Nsight sessions).
+- Remaining PT Build Scene CPU cost is dominated by per-frame re-derivation
+  of stable facts (classification, hashing, copying), not by work that
+  inherently needs threading. Residency/dirty-tokens first, threading second
+  (see docs/geometry_classifier/async_bvh/residency_first_research_and_plan.md).

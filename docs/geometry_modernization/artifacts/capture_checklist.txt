@@ -1,0 +1,156 @@
+GEO-00 bounded baseline refresh checklist
+=========================================
+
+SCOPE
+-----
+Vulkan only. Use the release executable under E:/prog/rbdoom-3-BFG-prebuilt.
+Do not enable DX12/DXIL work. Do not leave broad or timing logging enabled after
+a capture.
+
+COMMON ONE-SHOT BUNDLE
+----------------------
+At the verified position, enter:
+
+  r_pathTracingInstanceUniverseDump 1
+  r_pathTracingRigidMeshUniverseDump 1
+  r_pathTracingRigidMeshValidate 1
+  r_pathTracingRigidBlasPlanDump 1
+  r_pathTracingRigidBlasInputDump 1
+  r_pathTracingRigidBlasGpuDump 1
+  r_pathTracingRigidTlasPlanDump 1
+  r_pathTracingRigidRouteDump 1
+  r_pathTracingRigidResidencyDump 1
+  r_pathTracingGeometryUniverseRangeDump 1
+  r_pathTracingEntityFeedDump 1
+
+Then capture exactly one broad summary:
+
+  r_pathTracingSmokeLog 1
+
+Wait until one `RT smoke scene capture` and its following `PT BVH active AS`
+line appear, then immediately enter:
+
+  r_pathTracingSmokeLog 0
+
+For a warm timing sample:
+
+  r_pathTracingTimingThreshold 0
+  r_pathTracingTimingLogInterval 1000
+  r_pathTracingTimingLog 1
+
+Remain stationary for 30 samples, then:
+
+  r_pathTracingTimingLog 0
+
+Restore the normal threshold if desired:
+
+  r_pathTracingTimingThreshold 40
+
+STATIC_BUSY
+-----------
+1. Load `game/mars_city1`.
+2. Navigate to the original busy prop area and confirm
+   `r_pathTracingRigidResidencyDump 1` reports `currentArea=7`.
+3. Confirm the scene is settled and no scripted transition is running.
+4. Enter:
+
+     echo === STATIC_BUSY ===
+
+5. Run the common one-shot bundle and 30-sample timing sequence.
+6. Acceptance fingerprint before intentional scene changes:
+
+     static active/retained 589/756
+     rigid instances/meshes 111/89
+     skinned surfaces 21
+     TLAS instances 113
+
+SKINNED_CROWD_CPU
+-----------------
+1. Load `game/mc_underground`.
+2. Navigate to the original crowd area and confirm `currentArea=22`.
+3. Recreate the crowd used by the source log. It included one
+   `monster_zombie_fat`, one `monster_zombie_maint`, and at least three
+   `monster_zsec_shotgun` additions plus the pre-existing characters.
+4. Set:
+
+     r_useGPUSkinning 1
+     r_pathTracingGpuSkinning 0
+     echo === SKINNED_CROWD_CPU ===
+
+5. Run the common bundle and 30-sample timing sequence.
+6. Acceptance fingerprint:
+
+     static active/retained 439/508
+     rigid instances/meshes 98/74
+     skinned surfaces/vertices/indexes 45/19667/93738
+     TLAS instances 100
+
+Fatzombie geometry is expected to be valid. Its missing diffuse texture is a
+known NVRHI texture-descriptor defect and is not a geometry failure.
+
+COMM1_AREA41_BROKEN_PT
+----------------------
+1. Load:
+
+     map game/comm1
+
+2. Navigate to the known failure region and confirm `currentArea=41`.
+3. Confirm collision/gameplay and raster still contain the level parts.
+4. Enable PT and confirm those same parts disappear.
+5. Enter:
+
+     echo === COMM1_AREA41_BROKEN_PT ===
+
+6. Run the common bundle. Timing collection is optional for GEO-01 because this
+   is a correctness reproduction.
+7. Acceptance fingerprint for the unfixed path:
+
+     static active/retained 609/731
+     retained vertices/indexes 44520/111588
+     cap rejects/static bucket overflow 0/0
+     rigid instances/valid BLAS 62/62
+     TLAS instances 64
+
+If raster also loses the geometry, or PT no longer reproduces the loss, stop
+GEO-01 and report the changed reproduction.
+
+LIFECYCLE_MEDKIT
+----------------
+1. Load `game/mc_underground`, navigate to portal area 25, and settle the scene.
+2. Spawn:
+
+     spawn func_static model models/items/medkit/medkit_large.lwo name geom_lifecycle_probe
+
+3. Enter `echo === LIFECYCLE_MEDKIT_VISIBLE ===`, then run only:
+
+     r_pathTracingInstanceUniverseDump 1
+     r_pathTracingRigidRouteDump 1
+     r_pathTracingRigidResidencyDump 1
+     r_pathTracingEntityFeedDump 1
+
+4. Move to a different portal area, return to area 25, repeat the four dumps,
+   and require the exact visible tuple:
+
+     instances/meshes/vertices/indexes/triangles
+     164/135/7383/23175/7725
+
+5. Open and close the PDA, repeat the dumps, and require the same tuple. One
+   full entity-feed invalidate/rederive is allowed only if it converges.
+6. Remove:
+
+     remove geom_lifecycle_probe
+
+7. Repeat the dumps and require:
+
+     162/133/7263/22623/7541
+
+   Exact probe delta:
+
+     2 records, 120 vertices, 552 indexes, 184 triangles
+
+FINAL RECORD
+------------
+Record the executable build string, raw log path/mtime/bytes, map, current area,
+label, relevant cvars, raster/PT status, and whether the acceptance fingerprint
+matched. Convert the bounded results into a new dated CSV; do not overwrite the
+2026-07-23 baseline.

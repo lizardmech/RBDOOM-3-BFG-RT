@@ -1,0 +1,160 @@
+Geometry modernization - decision register
+===========================================
+Status: controlling decisions, 2026-07-23.
+
+This register converts measured facts into implementation constraints. A
+worker may challenge a decision only with a current-code contradiction or a
+reproducible measurement. Record the contradiction before changing course.
+
+D01. MIGRATION SHAPE
+--------------------
+Decision: extend the working rigid-route concepts into a shared mesh registry
+and per-render-world instance registry. Run new paths in shadow/compare mode
+before switching a consumer. Do not introduce a fourth independent geometry
+universe.
+
+D02. THREE ACCEL OWNERSHIP SHAPES, NOT ONE BLAS GRANULARITY
+-----------------------------------------------------------
+Decision:
+
+  authored static world  -> portal-area, then size-bounded bucket BLASes;
+  rigid/model geometry   -> one shared BLAS per immutable mesh record;
+  true skinned geometry  -> shared source mesh plus one mutable position
+                            stream and updateable BLAS per live instance.
+
+Reason: the comm1 failure had 609 active static surfaces. One BLAS/TLAS
+instance per static surface would exceed the current total instance budget
+once rigids are included. A single retained monolith cannot express the
+active portal-area set safely. Area/size buckets provide the required middle
+granularity.
+
+D03. TLAS POLICY
+----------------
+Decision: keep a full TLAS rebuild per frame. Measured totals were 64-113 out
+of 512. Do not add PTLAS or GPU-driven instance culling. Resolve in-flight
+result/instance-buffer lifetime before changing ownership; double-buffer per
+world unless inspection proves the current submission lifetime sufficient.
+
+D04. SKINNED INSTANCE POLICY
+----------------------------
+Decision: correctness is per instance. Share immutable bind-pose source,
+indices, attributes, materials, and skin-weight data by mesh; do not share
+live output positions or the updateable BLAS between independently animated
+entities. Pose-sharing is deferred.
+
+D05. GPU-SKINNING SOURCE AND FALLBACK
+-------------------------------------
+Decision: the authoritative GPU path consumes the engine's raster jointCache,
+not retained frontend model pointers. During migration:
+
+  r_useGPUSkinning=1 -> eligible for authoritative PT GPU skinning;
+  r_useGPUSkinning=0 -> remain on the legacy CPU-deformed dynamic fallback;
+  any GPU gate fail  -> named failure plus an explicit CPU/held-pose fallback,
+                        never silent bind pose.
+
+Do not remove CPU pre-skinning until GEO-03 parity readback passes and GEO-07
+provides loud readiness/failure accounting.
+
+D06. SINGLE-BONE MD5 POLICY
+----------------------------
+Decision: keep single-bone surfaces as rigid-promotion candidates. Promote
+only when the canonical snapshot proves one stable joint controls the whole
+surface and supplies current/previous joint transforms. Mixed surfaces stay
+true-deforming. The measured classifier split is evidence to continue the
+lane, not enough to skip the proof.
+
+D07. LIVENESS AND EVICTION
+--------------------------
+Decision: Add/Update/Free entityDef hooks are the liveness authority for
+instances. Area walks and drawSurf mirrors are validation/discovery safety
+nets during migration. Once exact liveness is authoritative, frame age is
+not allowed to delete live instances; memory-pressure eviction applies only
+to unreferenced mesh/BLAS storage.
+
+D08. STATIC ACTIVE-SET POLICY
+-----------------------------
+Decision: the PT active static set follows portal-area selection. Inactive
+resident buckets may keep GPU memory, but must not be traversable through an
+active TLAS instance. Active-set membership, bucket BLAS handles, route-table
+records, and shader addressing must share one generation token.
+
+D09. MATERIAL AND EMISSIVE OWNERSHIP
+------------------------------------
+Decision: geometry registry records carry stable material IDs and registration-
+time summaries, but material texture safety remains owned by the material/
+texture registries. The Fatzombie descriptor failure is a separate ticket/lane.
+Emissive triangle identities must be derived from mesh identity + local
+primitive + instance identity, not transient merged-buffer offsets.
+
+D10. MOTION CONTRACT
+--------------------
+Decision: no geometry route may become default without current and previous
+position/transform data consumed by the existing ReSTIR DI/GI and DLSS-RR
+motion paths. Layout and motion-vector bridge ship in the same ticket slice.
+
+D11. DYNAMIC FALLBACK
+---------------------
+Decision: retain a small per-frame merged fallback for particles, true
+transients, callback-generated surfaces, and explicitly supported GUI cases.
+After cutover it must reject static, rigid, and eligible skinned surfaces with
+named counters. It must have configurable byte/surface budgets and report
+deferred/dropped work; silent cap refusal is forbidden.
+
+D12. BUILD SCHEDULING
+---------------------
+Decision: start with separate command lists on the same Vulkan queue, submitted
+BLAS work before TLAS work without a CPU fence wait. Budget both scratch bytes
+and build count per frame. A real async-compute queue is deferred until Nsight
+shows same-queue contention worth the ownership complexity.
+
+D13. STORAGE AND ATTRIBUTES
+---------------------------
+Decision: split raw float3 positions from attributes immediately at the new
+registry ABI. Keep full-fidelity attributes until the UV survey and shader A/B
+settle encoding. Compression is not allowed to block registry/skinning work and
+is not allowed to land without a wide-UV escape.
+
+D14. HARD CAPS
+--------------
+Decision: replace compile-time scene/capture limits with checked 64-bit byte
+budgets and paged/suballocated storage. Remove each old cap only when the route
+it protects has no mandatory static/rigid/skinned consumer. No ticket may raise
+a cap and call the scalability problem solved.
+
+D15. PT-ONLY COMM1 FAILURE
+--------------------------
+Decision: treat maps/game/comm1.map area 41 as a phase-zero regression gate.
+The fix must identify the first disagreeing producer/consumer tuple. A broad
+static rewrite is not an acceptable diagnostic. Preserve raster behavior and
+add a durable automated or deterministic replay check where practical.
+
+DISPOSITION OF 04_open_questions.txt
+------------------------------------
+  Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
+  Q2  OPEN, owned by GEO-07/GEO-12: measure write-vs-derive attributes.
+  Q3  OPEN, owned by GEO-06: offset BLAS-build microbenchmark.
+  Q4  OPEN, owned by GEO-04/GEO-06: enumerate sceneOrigin consumers first.
+  Q5  OPEN, owned by GEO-03/GEO-07: direct joint binding vs staged array.
+  Q6  RESOLVED FOR MIGRATION by D05: GPU default path, explicit CPU fallback.
+  Q7  PARTIALLY RESOLVED by capture; implementation proof in GEO-04/GEO-07.
+  Q8  RESOLVED FOR FIRST CUT: fixed rebuild cadence, tune in GEO-08.
+  Q9  RESOLVED by D04: per-instance, no pose-sharing optimization initially.
+  Q10 RESOLVED FOR FIRST CUT by D12; budget values remain measured in GEO-11.
+  Q11 OPEN, owned by GEO-11: NVRHI compaction query/copy capability.
+  Q12 RESOLVED structurally by D07; memory-pressure policy remains GEO-11.
+  Q13 RESOLVED by D11; exact budgets measured in GEO-12/GEO-13.
+  Q14 RESOLVED: retain funnel totals and bounded samples; delete duplicate
+      scaffold with each retired route in GEO-13.
+  Q15 PARTIALLY RESOLVED: IDs admitted; texture descriptor defect is separate.
+  Q16 OPEN and mandatory, owned by GEO-09.
+  Q17 OPEN and mandatory, owned by GEO-09.
+  Q18 OPEN and elevated by the PT-only failure, owned by GEO-01/GEO-11.
+
+DEFERRED OUTSIDE THIS PACKET
+----------------------------
+- RTX Mega Geometry / cluster AS implementation.
+- Authored or runtime LOD.
+- Pose sharing / animation instancing.
+- A custom software BVH or non-hardware traversal path.
+- DX12 shader or runtime validation.
+- General material-texture remediation, including the Fatzombie descriptor.

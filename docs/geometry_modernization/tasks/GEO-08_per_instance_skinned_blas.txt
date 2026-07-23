@@ -1,0 +1,59 @@
+GEO-08 - Build and update one BLAS per skinned instance
+======================================================
+
+GOAL
+----
+Replace the frame-merged skinned BLAS for eligible geometry with per-instance
+BLAS state updated from GEO-07 outputs and periodically rebuilt under an
+observable policy.
+
+PRECONDITIONS
+-------------
+- GEO-07 GPU output is correct and authoritative under its gate.
+- CPU fallback surfaces remain on the legacy route.
+
+FILES TO AUDIT FIRST
+--------------------
+  neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
+  neo/renderer/NVRHI/PathTraceAccelerationPlan.cpp/.h
+  neo/renderer/NVRHI/PathTraceGeometryUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceInstanceUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+  neo/renderer/NVRHI/PathTraceCpuWork.cpp/.h
+
+STEPS
+-----
+1. Define per-instance AS states: absent, build-pending, ready, update-pending,
+   rebuild-pending, failed, and retiring. Give every transition a counter.
+2. Create a BLAS with update support from the instance's mutable output range.
+   Keep source mesh identity separate from AS identity.
+3. Insert one TLAS instance per ready skinned BLAS with canonical instance ID,
+   transform policy, mask, and route metadata.
+4. Update eligible BLASes after skinning. Rebuild on topology/source-generation
+   change, incompatible buffer generation, policy cadence, or update failure.
+5. Start with a fixed conservative rebuild cadence. Expose cadence, build/update
+   counts, scratch bytes, and failure reason; tuning comes from measurement.
+6. Keep the old merged BLAS selectable. In compare mode, record instance and
+   primitive totals, sampled hit identities, bounds, and material/triangle IDs.
+7. Handle spawn, despawn, offscreen/return, PDA, map teardown, and buffer growth.
+   Retire AS resources only after their last in-flight TLAS use.
+8. Validate 13 Fatzombie/clone instances: one source mesh record per unique
+   surface, distinct mutable output/BLAS per live instance.
+9. Measure BLAS build/update/reuse time and counts with identical animated
+   geometry. Report merged legacy rebuild cost separately.
+
+VALIDATION
+----------
+- Per-instance update count equals eligible live skinned BLAS count.
+- No duplicate/missing TLAS instance IDs and no stale buffer generation.
+- Periodic rebuild is bounded and visible.
+- Gate off returns to the merged BLAS with identical visible geometry.
+
+DONE WHEN
+---------
+Eligible skinned instances traverse their own updateable BLASes with exact state
+accounting, safe retirement, and legacy comparison proof.
+
+CHECKPOINT
+----------
+  pt geometry GEO-08: add per-instance skinned BLAS updates

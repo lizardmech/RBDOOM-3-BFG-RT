@@ -1,0 +1,82 @@
+GEO-00 handoff - runtime baseline frozen
+========================================
+Status: complete from existing runtime evidence, 2026-07-23.
+
+OUTCOME
+-------
+The four scenario IDs now have a durable numeric baseline, field-to-producer
+map, and bounded console replay checklist. No renderer or shader behavior was
+changed.
+
+SOURCE
+------
+  log:
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_plan.log
+  bytes:
+    2778132
+  modified:
+    2026-07-23 01:06:53 Australia/Sydney
+  executable:
+    RBDOOM 3 BFG 1.6.0.1403 win-x64 Jul 22 2026 00:29:49
+
+SCENARIOS
+---------
+  STATIC_BUSY
+    maps/game/mars_city1.map, portal area 7
+
+  SKINNED_CROWD_CPU
+    maps/game/mc_underground.map, portal area 22
+    r_useGPUSkinning=1, r_pathTracingGpuSkinning=0
+
+  COMM1_AREA41_BROKEN_PT
+    maps/game/comm1.map, portal area 41
+    raster pass, PT fail
+
+  LIFECYCLE_MEDKIT
+    maps/game/mc_underground.map, portal area 25
+    visible/return/PDA-return/removal exact tuples
+
+DIAGNOSTIC SUFFICIENCY
+----------------------
+Existing diagnostics cover the GEO-00 schema:
+
+  - one-shot instance, mesh, BLAS, TLAS, residency, range, and entity-feed
+    cvars provide identity/lifetime details;
+  - one bounded `r_pathTracingSmokeLog` window provides scene/cap/material/AS
+    totals;
+  - a bounded timing-log window provides warm CPU stage samples.
+
+No new C++ diagnostic helper is justified. Missing cells in the lifecycle rows
+are marked `NA`; they were not logged and are not treated as zero.
+
+VALIDATION
+----------
+  L0:
+    all fields mapped to a current source owner and existing console trigger
+  L1:
+    not run; documentation/artifact-only change
+  L2:
+    schema validated against the supplied runtime log
+  runtime refresh:
+    pending only when a later ticket needs a current-head comparison; the
+    original positions require in-game navigation, so no values were invented
+
+GPU/FATZOMBIE CLASSIFICATION
+----------------------------
+The existing GPU modes remain coverage-only evidence until GEO-03 numeric
+readback. Fatzombie geometry is valid; its rejected texture descriptor remains
+outside the geometry lane.
+
+GATE / ROLLBACK
+---------------
+No cvar default or live gate changed. Rollback is removal of the GEO-00 bounded
+artifact files.
+
+BUILD / SHADERS / DEPLOY
+------------------------
+No build, shader compilation, SPIR-V deletion, or deployment was required.
+
+NEXT
+----
+GEO-01 may begin by adding only the missing end-to-end generation/identity
+instrumentation for the comm1 static contract.

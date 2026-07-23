@@ -1,0 +1,73 @@
+Geometry modernization - mega geometry forward compatibility (ideas)
+====================================================================
+Status: working notes, 2026-07-19. Mega geometry (RTX cluster acceleration
+structures) is a LATER phase. This file records why it is attractive here
+and which seams the conventional system must keep clean so adopting it is a
+backend swap, not a second migration.
+
+WHY MEGA GEOMETRY FITS THIS PROJECT UNUSUALLY WELL
+--------------------------------------------------
+- Doom 3 / idTech4 has NO LOD mechanics at all. Adopting cluster-hierarchy
+  LOD (Nanite-style, selected at trace time from full-resolution source)
+  skips two decades of authored-LOD tooling debt in one step. There is no
+  legacy LOD pipeline to integrate with or preserve - a genuine advantage.
+- The intended content direction (modern high-poly glTF assets replacing
+  low-poly originals) is exactly the workload CLAS was built for.
+- Skinned/animated meshes: CLAS templates are built once per model;
+  per-frame instantiation from skinned positions is far cheaper than BLAS
+  rebuild or refit at high poly counts.
+
+TECH SUMMARY (as of early 2026)
+-------------------------------
+- Vulkan: VK_NV_cluster_acceleration_structure (NVIDIA-only). DX12 has a
+  preview equivalent via NVAPI. Geometry is carved into ~128-triangle
+  clusters (CLAS); BLASes are built from cluster references.
+- RTX Mega Geometry SDK (RTXMG) sample is Donut/NVRHI-based and ships an
+  NVRHI fork with cluster-AS support. Adoption here means syncing our NVRHI
+  to that fork (or rebasing its cluster ops onto ours).
+- Offline tooling: nvcluster / nvclusterlod build cluster hierarchies at
+  asset import time.
+- Non-NVIDIA hardware: no equivalent yet; the conventional per-mesh BLAS
+  path remains the fallback permanently. This is another reason the
+  conventional system must stay first-class, not become a stub.
+
+THE SEAMS THE CONVENTIONAL SYSTEM MUST KEEP CLEAN
+-------------------------------------------------
+1. OPAQUE ACCEL HANDLES. The mesh registry hands out meshId -> registry
+   entry -> "some acceleration structure". Consumers (TLAS instance build,
+   hit shading) never touch BLAS specifics. A per-mesh backend enum
+   (Conventional | Clustered) switches the build path and nothing
+   downstream moves. Keep every nvrhi::rt call inside the acceleration
+   module (PathTraceAcceleration.* is already the choke point; preserve
+   that role) so the NVRHI-fork diff stays confined.
+2. RAW FLOAT3 POSITION STREAM, SEPARATE FROM ATTRIBUTES. Both conventional
+   BLAS build/refit AND CLAS template instantiation consume plain position
+   streams. The skinning compute output buffer serves both backends
+   unchanged. Never interleave positions with compressed attributes.
+3. ONE ASSET-IMPORT BOUNDARY. A single registration function (hash,
+   compress attributes, pool upload, accel request). Cluster preprocessing
+   (nvclusterlod) slots in exactly there, invisible to the rest of the
+   pipeline. If ingestion keeps scraping drawSurfs in multiple places
+   there is no seam to slot into.
+4. NO PER-MESH SIZE ASSUMPTIONS. uint32 budgets, paged pools, no
+   compile-time caps. Mega-geo assets are millions of triangles.
+5. SHADING INDIRECTION BY (instanceId, meshId, primitiveIndex). Cluster
+   backends change how primitives are found by the traversal hardware, not
+   how attributes/materials are looked up - as long as lookup goes through
+   per-mesh tables rather than per-BLAS assumptions.
+
+EXPLICIT NON-GOALS UNTIL THIS PHASE
+-----------------------------------
+- No LOD of any kind in the conventional system.
+- No meshlet/cluster tooling of our own.
+- No dependency on the NVRHI fork before this phase starts.
+
+DECISIONS TO REVISIT WHEN THE PHASE STARTS
+------------------------------------------
+- NVRHI fork sync strategy (rebase their cluster ops vs adopt their fork).
+- Which content goes clustered (probably: imported glTF above a triangle
+  threshold; original Doom 3 content stays conventional forever).
+- Streaming/residency interaction: cluster pools have their own memory
+  model; the registry's eviction policy will need a per-backend arm.
+- Whether skinned characters use CLAS templates or stay on refit BLAS
+  (depends on actual imported character poly counts).

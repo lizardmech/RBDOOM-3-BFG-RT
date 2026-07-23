@@ -1,0 +1,62 @@
+GEO-05 - Build a per-render-world lifecycle shadow registry
+==========================================================
+
+GOAL
+----
+Maintain canonical mesh/instance records from Add/Update/Free notifications in
+shadow mode and prove their lifetime/counts against the existing live routes.
+
+PRECONDITIONS
+-------------
+- GEO-04 contract is complete and its key helpers agree across producers.
+- Registry output must not drive traversal in this ticket.
+
+FILES TO AUDIT FIRST
+--------------------
+  neo/renderer/RenderWorld.cpp
+  neo/renderer/NVRHI/PathTraceGeometryLifecycle.cpp/.h
+  neo/renderer/NVRHI/PathTraceEntityFeed.cpp
+  neo/renderer/NVRHI/PathTraceGeometryUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceInstanceUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceDrawSurfCapture.cpp
+
+STEPS
+-----
+1. Trace current `NotifyEntityAdded`, `NotifyEntityUpdated`, and
+   `NotifyEntityFreed` calls, including map/world teardown and index reuse.
+2. Create one registry owner per render world. Give it an explicit world
+   generation and teardown path; no process-global live object table.
+3. On Add, derive canonical instance keys and reference mesh keys. On Update,
+   update transform/deformation/material/liveness fields without changing key
+   unless the source identity actually changed. On Free, remove instance
+   records and decrement mesh references.
+4. Keep immutable mesh records after temporary invisibility. Evict only records
+   with zero live references and only under an explicit policy.
+5. Add bounded funnel counters for added, updated, removed, unchanged, key
+   collision, stale generation, missing source, and deferred mesh eviction.
+6. Compare shadow records with visible drawSurf capture and existing geometry/
+   instance universes each frame. Classify every difference as expected
+   offscreen residency, transient-only surface, or error.
+7. Run the medkit sequence: visible, offscreen/return, PDA open/close, removal.
+   The shadow registry must retain the same two records until removal and then
+   remove exactly 120 vertices, 552 indices, and 184 triangles.
+8. Exercise map restart/change and entity index reuse. Prove no old-world key or
+   BLAS placeholder survives into the new generation.
+9. Run the crowded MD5 scene. Repeated models share mesh keys, but all distinct
+   animated instances retain separate instance records.
+
+VALIDATION
+----------
+- Shadow mode default off or observation-only.
+- Exact lifecycle funnel totals; no unexplained record leak or disappearance.
+- No durable record contains drawSurf/srfTriangles/frontend cache pointers.
+- Existing rendered output and AS counts are unchanged.
+
+DONE WHEN
+---------
+The lifecycle registry survives visibility/PDA transitions, frees exact records,
+handles world/index reuse, and compares cleanly enough to support pooled storage.
+
+CHECKPOINT
+----------
+  pt geometry GEO-05: add lifecycle shadow registry

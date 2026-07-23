@@ -1,0 +1,267 @@
+Geometry modernization - validated runtime findings
+====================================================
+Status: validated evidence, 2026-07-23.
+
+PURPOSE
+-------
+This file records the runtime facts that convert the preliminary 00-04
+documents into an executable plan. Counts below came from the same Vulkan
+run and were correlated with explicit console labels in:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_plan.log
+
+Executable identity reported by the log:
+
+  RBDOOM 3 BFG 1.6.0.1403 win-x64 Jul 22 2026 00:29:49
+
+Do not reinterpret these captures as synthetic benchmarks. They are real
+gameplay observations selected to expose static props, skinned crowds,
+portal-area transitions, GPU-skinning behavior, and entity lifecycle.
+
+CAPTURE A - BUSY STATIC/PROP AREA
+---------------------------------
+Label: GEOM_CAPTURE_A_LARGE_STATIC
+
+  static surfaces active/retained        589 / 756
+  rigid instances / unique rigid meshes  111 / 89
+  skinned surfaces / triangles           21 / 11,746
+  particle surfaces / triangles           5 / 12
+  TLAS instances                         113 / 512
+  frame capture cap use:
+    vertices                              34,297 / 65,536 (52.3%)
+    indexes                              102,948 / 196,608 (52.4%)
+    limit rejects                         0
+  static cache                            32,555 vertices
+                                          81,564 indexes
+                                          27,188 triangles
+                                           4,181 KB
+  rigid readiness                         0 missing mesh/buffer/BLAS/material
+
+The static cache was clean and the rigid route reused all 89 BLASes. The
+TLAS had ample headroom. Repeated objects already demonstrate useful mesh
+sharing (for example six file-cabinet instances sharing one mesh).
+
+Across 27 logged slow-build samples in this area:
+
+  total scene build median                24 ms
+  capture median                          14 ms
+  rtCpuSkinningAppend median               2 ms
+
+The area proves that current static caching can be stable, while the broad
+capture walk remains a significant CPU cost even when static geometry does
+not rebuild.
+
+CAPTURE B - SKINNED CROWD, CPU PT SKINNING
+-------------------------------------------
+Label: GEOM_CAPTURE_B_SKIN_CPU
+Settings confirmed by the log:
+
+  r_useGPUSkinning          1
+  r_pathTracingGpuSkinning  0
+
+  static surfaces active/retained        439 / 508
+  rigid instances / unique rigid meshes   98 / 74
+  skinned surfaces                         45
+  skinned vertices                         19,667
+  skinned indexes                          93,738
+  skinned triangles                        31,246
+  dynamic upload bytes/frame            2,952,608
+  TLAS instances                          100 / 512
+  frame capture cap use:
+    vertices                              39,780 / 65,536 (60.7%)
+    indexes                              147,513 / 196,608 (75.0%)
+    limit rejects                          0
+
+All 45 active dynamic surfaces were classified as rtCpuSkinned. The merged
+dynamic BLAS was rebuilt every frame. Static BLAS build work was skipped.
+No invalid normal, invalid UV, or base-pose-likelihood counter fired.
+
+Across six stable logged samples:
+
+  total scene build median/average         30 / 32.7 ms
+  capture median/average                   20 / 21.0 ms
+  rtCpuSkinningAppend median/average        9 /  9.8 ms
+
+rtCpuSkinningAppend is a sub-step of capture, not additional time. It
+consumed nearly half the capture stage in this scene. This validates GPU
+skinning plus per-instance update/refit BLAS as the first performance lane.
+
+CROWD AND SINGLE-BONE EVIDENCE
+------------------------------
+The entity-feed dump contained:
+
+  reachable MD5 entities                    75
+  unique MD5 surface observations           359
+  true-deforming surface observations       297
+  single-bone surface observations           62
+
+The largest repeated character model was:
+
+  models/md5/monsters/zombies/jumpsuitzombie.md5mesh
+  13 entities, 78 true-deforming surface observations
+
+Other repeated characters included five shotgun-security zombies. This is
+enough to reject a one-BLAS-per-model skinned design: different live poses
+need per-instance position streams and acceleration structures. It does not
+justify pose-sharing/animation-instancing work in the initial migration.
+
+The single-bone classifier separated true deformation from rigid-skinned
+surfaces in this sample. Promotion to a rigid per-joint instance remains
+conditional on a worker proving the joint-transform and identity contract;
+the count alone is not permission to reroute all single-bone surfaces.
+
+FATZOMBIE RESULT - GEOMETRY GOOD, TEXTURE CONTRACT BAD
+------------------------------------------------------
+Spawn command:
+
+  spawn monster_zombie_fat
+
+Observed geometry:
+
+  model      models/md5/monsters/zfat/zfat.md5mesh
+  entity     1225
+  surfaces   2
+  vertices   3,050 per surface observation
+  singleBone 0 for both surfaces
+
+The geometry was admitted as true-deforming and had valid normals/UVs. The
+untextured appearance was instead traced to:
+
+  material  models/monsters/zombie/fatty/fatty
+  diffuse   models/monsters/zombie/fatty/fatty_d
+  image     present
+  failure   rejected texture desc
+
+Six other character materials failed the same active table in that frame.
+The material universe admitted the runtime IDs, so preliminary Q15's
+identity concern is resolved for this case. Safe NVRHI texture descriptor
+creation/registration is a separate material-system defect and must not be
+misdiagnosed as geometry loss.
+
+PT-ONLY LEVEL GEOMETRY DISAPPEARANCE
+------------------------------------
+Map/label:
+
+  maps/game/comm1.map
+  GEOM_BROKEN_LEVEL
+  current portal area 41
+
+User validation: the missing portions remained functional and rendered in
+raster. Only PT lost them.
+
+Failure-state evidence:
+
+  static surfaces active/retained          609 / 731
+  static retained vertices/indexes      44,520 / 111,588
+  static retained triangles                37,196
+  frame vertices/indexes                30,564 / 75,303
+  frame cap rejects                              0
+  static bucket overflow                         0
+  invalid normals/UVs                            0 / 0
+  rigid instances / valid BLASes                 62 / 62
+  missing rigid mesh/buffer/BLAS/material         0
+  TLAS instances                                 64 / 512
+  bound material entries                        312 / 314
+  fallback static triangles                      185
+
+The two fallback materials were the outdoor sky and intentional absorbing
+black material; they cannot explain broad geometry loss.
+
+The CPU universe, static cache, rigid route, material table, and TLAS plan
+all believe the geometry is present. The failure therefore sits downstream
+of frontend/raster visibility and after static capture. Candidate contract
+boundaries are:
+
+  - retained static buffer range versus the BLAS that references it;
+  - active portal-area records versus monolithic retained primitive/side data;
+  - TLAS/static-BLAS resource lifetime or same-frame submission ordering;
+  - hit-shader instance/primitive route and attribute addressing.
+
+The plan reports this exact shape:
+
+  staticPolicy(monolithicIncludesInactive/requiresBuckets)=1/1
+  staticBucketShader(routeRequired/compatible)=1/0
+
+That diagnostic also appears in working scenes, so it is a precise boundary
+to instrument, not proof of the root cause. A patch is forbidden until the
+GEO-01 audit identifies the first producer/consumer disagreement.
+
+IMPORTANT CORRECTION TO 00_current_state_findings.txt:
+
+Hard caps remain unacceptable and can explain some large-content failures,
+but they do not explain this reproduced comm1 failure. The failure occurred
+well below every logged cap with no silent append refusal. The executable
+plan must carry both problems separately.
+
+GPU-SKINNING VISUAL RESULT
+--------------------------
+Labels/settings:
+
+  GEOM_CAPTURE_C_GPU_DIAGNOSTIC  r_pathTracingGpuSkinning 1
+  GEOM_CAPTURE_C_GPU_OVERWRITE   r_pathTracingGpuSkinning 2
+
+Mode 1 handled 31 skinned surfaces / 62,274 indexes. Mode 2 later handled
+14 skinned surfaces / 28,008 indexes. No Vulkan validation error, invalid
+attribute, cap failure, crash, or historical T-pose was observed. The user
+explicitly confirmed that mode 2 did not show the prior T-pose behavior.
+
+This is a visual viability result, not GPU/CPU parity proof and not a
+performance result:
+
+  - the two modes observed different content loads;
+  - current mode 2 still CPU-skins before compute overwrite;
+  - current logs do not prove which compute readiness gate fired;
+  - there is no per-surface GPU-versus-CPU output delta readback.
+
+GEO-03 must add those proofs before CPU pre-skinning is removed.
+
+LIFECYCLE RESULT
+----------------
+Probe:
+
+  spawn func_static model models/items/medkit/medkit_large.lwo
+                    name geom_lifecycle_probe
+
+  state        rigid instances  unique meshes  vertices/indexes/triangles
+  visible           164              135        7,383 / 23,175 / 7,725
+  returned          164              135        identical
+  PDA return        164              135        identical
+  removed           162              133        7,263 / 22,623 / 7,541
+
+The probe contributed exactly two mesh/surface instances, 120 vertices,
+552 indexes, and 184 triangles. It survived portal-area departure/return and
+PDA transition, then retired after FreeEntityDef/remove. Entity-feed visited
+and resident counts converged from 381 to 379 after removal.
+
+During the interval containing the PDA transition, entity-feed facts showed
+one full 381-record invalidate/rederive event, then recovered. The rigid
+route remained identical. This validates exact lifecycle hooks as a viable
+authority while strengthening the requirement for explicit per-render-world
+ownership and for diagnostics that distinguish expected world invalidation
+from leaks or churn.
+
+VALIDATED PRIORITY ORDER
+------------------------
+1. Reproduce, instrument, and fix the PT-only comm1 static failure.
+2. Add GPU-skinning counters and GPU-versus-CPU parity readback.
+3. Establish one mesh registry plus per-world instance registries in shadow
+   mode, driven by existing Add/Update/Free lifecycle hooks.
+4. Make GPU skinning the authoritative skinned-position producer.
+5. Replace the merged skinned BLAS rebuild with per-instance update/refit.
+6. Move static world geometry to portal-area/size-bounded bucket BLASes.
+7. Add build budgets, correct in-flight lifetimes, and compaction.
+8. Measure and adopt attribute compression; remove legacy hard caps only
+   as each old route loses all mandatory consumers.
+9. Retain a small explicit dynamic fallback only for particles, callbacks,
+   GUIs where supported, and true transients.
+
+NO LONGER OPEN TO SPECULATION
+-----------------------------
+- TLAS full rebuild is appropriate at measured counts; do not add PTLAS.
+- Skinned geometry needs per-instance state; do not share one live BLAS per
+  character model merely because the source mesh is shared.
+- Existing GPU mode 2 is visually viable but provides no CPU-cost win.
+- Runtime material IDs can enter the material universe; texture safety is a
+  separate contract.
+- The lifecycle hook shape works and exact deletion is observable.
+- The comm1 loss is not a frontend, raster, cap, or broad material failure.

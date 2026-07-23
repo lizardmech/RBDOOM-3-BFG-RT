@@ -1,0 +1,63 @@
+GEO-02 - Fix the proven comm1 static mismatch narrowly
+======================================================
+
+GOAL
+----
+Correct only the mismatch proven by GEO-01 and restore PT level geometry in
+comm1 area 41 without altering raster or broad geometry architecture.
+
+PRECONDITIONS
+-------------
+- GEO-01 provides exact expected/actual values and an earliest bad boundary.
+- If GEO-01 did not localize a mismatch, this ticket is blocked.
+
+FILES TO AUDIT FIRST
+--------------------
+Read the GEO-01 handoff and only the producer/consumer files on its localized
+boundary. Expected candidates include:
+
+  neo/renderer/NVRHI/PathTraceSceneUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceGeometryUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+  neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
+  neo/renderer/NVRHI/PathTraceSceneInputs.h
+  neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+
+STEPS
+-----
+1. Restate the failed invariant as one sentence and one tuple comparison.
+2. Identify the smallest owner that can restore that invariant. Prefer fixing
+   generation/identity/range propagation at its source over compensating in
+   several consumers.
+3. Add a default-off fix gate if the correction changes live routing or buffer
+   selection. Keep the exact old path selectable for A/B.
+4. Patch only the localized boundary. Do not introduce area buckets, pooled
+   geometry, registry cutover, or raised caps in this ticket.
+5. Retain the GEO-01 counter and make the repaired invariant assertable in a
+   development build.
+6. Run old/fix A/B in the same comm1 position. The old path must reproduce the
+   mismatch and the new path must remove it.
+7. Run `STATIC_BUSY`, `SKINNED_CROWD_CPU`, and `LIFECYCLE_MEDKIT`. Confirm no
+   static, rigid, skinned, transient, material, or TLAS count regresses.
+8. Confirm raster output remains functional with both gate settings.
+9. For shader changes, follow the targeted SPIR-V deletion/mtime rule. Never
+   build or deploy DXIL.
+
+VALIDATION
+----------
+- Corrected tuple generations/identities agree end-to-end.
+- comm1 missing level parts return in PT.
+- Limits, overflow, invalid-attribute, missing-route, and stale-handle counters
+  are zero or unchanged and explicitly explained.
+- The fix does not merely increase a cap or force all retained geometry active.
+
+DONE WHEN
+---------
+- The exact GEO-01 mismatch is gone under the fix gate.
+- All four baseline scenarios pass.
+- Old path remains a one-cvar rollback.
+- Any additional mismatch is recorded as a new ticket blocker, not folded in.
+
+CHECKPOINT
+----------
+  pt geometry GEO-02: fix comm1 static <localized invariant>

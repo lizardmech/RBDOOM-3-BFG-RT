@@ -1,0 +1,83 @@
+GEO-13 - Cut over, remove mandatory caps, and clean migration scaffolding
+==========================================================================
+
+GOAL
+----
+Promote verified canonical geometry routes, remove only proven-dead mandatory
+legacy paths and compile-time geometry admission caps, and leave a bounded,
+supportable diagnostic surface.
+
+PRECONDITIONS
+-------------
+- Every Phase A-D gate in ../08_execution_plan.txt passes.
+- All fallback classes and unresolved limitations are enumerated.
+- A release-candidate checkpoint exists before deletion.
+
+FILES TO AUDIT FIRST
+--------------------
+  all GEO-00 through GEO-12 handoffs and checkpoint diffs
+  neo/renderer/NVRHI/PathTraceSceneUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceGeometryUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceInstanceUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceDrawSurfCapture.cpp
+  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+  neo/renderer/NVRHI/PathTraceAccelerationPlan.cpp/.h
+  neo/renderer/NVRHI/PathTraceCVars.cpp/.h
+  neo/renderer/NVRHI/PathTraceSceneInputs.h
+
+STEPS
+-----
+1. Produce a route matrix for static, rigid, skinned, particles/beam/trail,
+   GUI/cinematic/transient, unsupported deformation, and allocation failure.
+   Name the canonical or fallback owner for each class.
+2. Run a transitive consumer search for every proposed legacy field/function/
+   buffer/cvar/cap. Include shaders and preprocess output, material/emissive/
+   motion/debug consumers, and build scripts.
+3. Promote one route default at a time: immutable rigid, skinned, then static.
+   After each promotion run all baseline scenarios and its owning phase gate.
+4. Replace admission based on `PT_SCENE_UNIVERSE_STATIC_MAX_*` and
+   `RT_SMOKE_MAX_*` geometry caps with checked allocation/budget decisions.
+   Preserve unrelated semantic limits until separately justified.
+5. Force workloads beyond old caps. Confirm geometry is either admitted or
+   rejected by an explicit recoverable allocation/budget reason, never silently
+   dropped.
+6. Remove a legacy producer only after source/preprocess search proves no live
+   consumer and compare mode has archived equivalent output evidence.
+7. Retain the intentional small-dynamic/transient fallback from D11. Remove
+   duplicate bring-up scaffolds, unbounded logs, and redundant cvars; keep
+   bounded funnel totals, failure counters, one-shot samples, and rollback for
+   any intentionally experimental feature.
+8. Run clean Vulkan release build and targeted SPIR-V rebuilds. Verify no DXIL
+   output was changed or deployed.
+9. Run final correctness matrix: STATIC_BUSY, SKINNED_CROWD, comm1 area 41,
+   lifecycle medkit, portal/PDA/map transitions, spawn/despawn, GPU fallback,
+   wide-UV fallback, and beyond-old-cap stress.
+10. Run warm identical-content performance comparison against the GEO-00
+    baseline: CPU scene/capture/skin, source/dynamic upload, BLAS build/update,
+    TLAS, scratch/result/retained memory, and frame time with sample counts and
+    median/p90/max.
+11. Update ../README.txt, decision register, and execution plan with final
+    defaults, retained fallbacks, measured outcomes, and deleted routes.
+
+VALIDATION
+----------
+- No mandatory route depends on the old compile-time geometry caps.
+- No missing/invalid/overflow/stale-generation counter is unexplained.
+- comm1 remains fixed; crowded characters retain geometry, motion, materials,
+  and emissive identity; raster remains unchanged.
+- Performance claims use identical content and disclose regressions.
+- Gate/default/rollback behavior is intentional and documented.
+
+DONE WHEN
+---------
+The definition of done in ../08_execution_plan.txt is satisfied, old mandatory
+routes are proven dead before deletion, and the final deployed Vulkan build has
+archived correctness and performance evidence.
+
+CHECKPOINTS
+-----------
+Use coherent checkpoints, not one commit per deletion. Suggested final subject:
+
+  pt geometry GEO-13: promote modern geometry routes
+
+The pre-deletion release-candidate checkpoint is the rollback anchor.

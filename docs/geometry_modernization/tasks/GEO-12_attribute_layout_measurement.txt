@@ -1,0 +1,63 @@
+GEO-12 - Measure and introduce safe attribute storage reductions
+================================================================
+
+GOAL
+----
+Measure actual asset ranges and shader sensitivity, then reduce geometry memory
+only where numeric/full-scene comparisons prove the chosen encoding safe.
+
+PRECONDITIONS
+-------------
+- Phase D geometry routes are functionally correct at full fidelity.
+- Full-fidelity storage remains the fallback.
+
+FILES TO AUDIT FIRST
+--------------------
+  neo/renderer/NVRHI/PathTraceGeometry.h/.cpp
+  neo/renderer/NVRHI/PathTraceSceneCapture.cpp/.h
+  neo/renderer/NVRHI/PathTraceGeometryUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTracePrimarySurface.h
+  neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+  neo/shaders/builtin/pathtracing/pathtrace_skinning.cs.hlsl
+
+STEPS
+-----
+1. Inventory all CPU and shader consumers of position, previous position,
+   normal, tangent/handedness, UV, color, weights, and joint indices.
+2. Add a bounded asset survey reporting per mesh: AABB/range, UV min/max and
+   required precision, normal/tangent error sensitivity, joint/weight ranges,
+   non-finite values, and candidate encoding eligibility.
+3. Include ordinary world surfaces, large-coordinate/static surfaces, player,
+   zombies, Fatzombie, wide/repeating UV materials, decals, emissives, and the
+   explicit small-dynamic fallback classes.
+4. Keep positions in a separate mutable stream where skinning/BLAS requires it.
+   Evaluate deriving normal/tangent in skinning versus writing them based on
+   measured bandwidth and dispatch time.
+5. Implement one encoding at a time behind a default-off gate. Define decode ABI
+   and CPU static asserts/preprocessed HLSL review before runtime use.
+6. Compare decoded vertex attributes numerically against full fidelity. Then
+   compare primary hit, material UV, normal mapping, motion, and emissive
+   triangle reconstruction in the same frames.
+7. Route ineligible/wide-UV/out-of-range meshes to explicit full-fidelity
+   records with reason counters. Never clamp silently.
+8. Measure source/mutable buffer bytes, upload bytes, skinning time, BLAS time,
+   and frame time on identical geometry.
+9. Accept an encoding only if memory/bandwidth savings are material and all
+   declared error thresholds pass. Otherwise retain full fidelity and record the
+   rejected candidate.
+
+GUARDRAILS
+----------
+- No invented universal UV range.
+- No visual-only acceptance for attribute error.
+- Do not combine multiple encodings in one experiment.
+
+DONE WHEN
+---------
+The selected layout has a documented eligibility predicate, error thresholds,
+fallback, ABI proof, scene comparisons, and measured savings. Rejected
+compressions remain rejected evidence, not hidden assumptions.
+
+CHECKPOINT
+----------
+  pt geometry GEO-12: validate <attribute> storage encoding

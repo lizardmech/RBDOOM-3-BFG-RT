@@ -1,0 +1,67 @@
+GEO-09 - Promote skinned traversal with temporal/material/emissive parity
+==========================================================================
+
+GOAL
+----
+Move eligible skinned geometry fully onto canonical per-instance traversal only
+after every downstream consumer matches the legacy path.
+
+PRECONDITIONS
+-------------
+- GEO-08 per-instance BLAS compare mode passes.
+- This ticket owns consumer migration, not new lighting algorithms.
+
+FILES TO AUDIT FIRST
+--------------------
+  neo/renderer/NVRHI/PathTraceSceneInputs.h
+  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+  neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+  neo/renderer/NVRHI/PathTracePrimarySurface.h
+  neo/renderer/NVRHI/PathTraceMaterialUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceDynamicMaterialState.cpp/.h
+  neo/renderer/NVRHI/PathTraceEmissiveCandidates.cpp/.h
+  neo/renderer/NVRHI/PathTraceUnifiedLight.cpp/.h
+  neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+  neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+
+STEPS
+-----
+1. Inventory all consumers of legacy merged skinned primitive/instance IDs,
+   previous positions, material indices, triangle flags, and emissive records.
+2. Make canonical hit routing recover mesh key, instance key, local primitive,
+   current/previous position, material ID, and triangle class without depending
+   on legacy merged offsets.
+3. Compare primary hit tuple old/new for sampled pixels across all baseline
+   models: instance, primitive, barycentrics, world position, normal/tangent/UV,
+   material, and triangle flags.
+4. Compare motion output for idle, animated, locomoting, newly spawned,
+   teleported, offscreen-returning, and removed instances. Validate history reset
+   rather than accepting plausible-looking denoiser output.
+5. Build emissive records from canonical mesh + local primitive + instance
+   identity. Compare current/previous inventories and remaps across animation,
+   spawn/despawn, and identical model instances.
+6. Prove material texture bindings and dynamic material state are identical.
+   Keep Fatzombie's known NVRHI texture-descriptor rejection classified as a
+   separate material defect; geometry/material identity still must match.
+7. Compare DI/GI/RR geometry inputs numerically where available. Do not tune or
+   replace ReSTIR/RR algorithms in this ticket.
+8. Promote only surfaces whose full consumer funnel passes. Leave unsupported or
+   failed surfaces on the explicit legacy fallback with counters.
+9. Run crowded, static, comm1, lifecycle, PDA, and map-transition regressions.
+
+VALIDATION
+----------
+- Same-frame old/new hit tuple and material/triangle identities agree.
+- Current/previous emissive identity/remap has no collision or unexplained loss.
+- Motion vectors/history validity agree within declared tolerance.
+- No new T-pose, missing texture beyond known Fatzombie issue, light popping,
+  ghosting, or unexplained reservoir reset attributable to routing.
+
+DONE WHEN
+---------
+Eligible skinned geometry no longer needs the merged route for traversal,
+materials, motion, or emissives; fallback remains explicit and reversible.
+
+CHECKPOINT
+----------
+  pt geometry GEO-09: promote canonical skinned traversal

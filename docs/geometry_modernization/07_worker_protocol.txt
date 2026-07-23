@@ -1,0 +1,169 @@
+Geometry modernization - worker protocol
+=========================================
+Status: mandatory execution rules, 2026-07-23.
+
+REPOSITORY AND SCOPE
+--------------------
+Repository: E:/prog/rbdoom-3-bfg-rt
+Branch:     restir-development
+Runtime:    Vulkan only
+
+The worktree may already contain unrelated user changes. Before editing:
+
+  git status --short --branch
+
+Record which files were already modified. Never reset, revert, reformat, or
+stage unrelated changes. If a ticket overlaps a pre-existing modified file,
+inspect the diff and preserve the user's work.
+
+Read this protocol, tasks/README.txt, and the assigned GEO ticket. Read the
+specific preliminary references named by that ticket only as needed. The
+active ticket is a scope boundary, not a suggestion.
+
+AUDIT-BEFORE-PATCH RULE
+-----------------------
+For every correctness ticket:
+
+  1. Trace the live producer -> storage -> upload -> AS -> shader consumer.
+  2. Capture the exact tuple on both sides of the suspected boundary.
+  3. Identify a concrete mismatch.
+  4. Patch only that mismatch.
+  5. Re-run the same tuple capture and the required regressions.
+
+If the expected mismatch is absent, STOP and report the contradiction. Do not
+replace a subsystem merely because the target architecture would also remove
+the symptom.
+
+GATES AND MIGRATION
+-------------------
+- New behavior starts default off unless the ticket explicitly promotes it.
+- Legacy output remains available until the replacement passes compare mode.
+- Shadow-mode code may observe and compare, but must not mutate live output.
+- Default promotion and legacy deletion are separate ticket steps.
+- Every fail-closed gate needs a named counter. No silent T-pose, missing
+  geometry, cap refusal, or material/instance omission is acceptable.
+- Do not retain drawSurf_t*, srfTriangles_t*, frontend dynamic-model memory,
+  or other frame-temporary pointers in durable records.
+- Shader-visible ABI changes require CPU struct/static-assert review and a
+  preprocessed shader/register review in the same ticket.
+
+BUILD
+-----
+Run from E:/prog/rbdoom-3-bfg-rt/neo:
+
+  cmake --build --preset win64-pt-dev-release
+
+Do not deliberately compile or validate DX12 shaders. Vulkan is the only
+runtime target. A C++-only ticket must not touch shader output directories.
+
+SHADER REBUILD GOTCHA
+---------------------
+Editing a .hlsli or .rt.hlsl may not retrigger DXC. For every affected Vulkan
+ray-tracing program:
+
+  1. Record the edited source mtime.
+  2. Resolve the affected blob under:
+       base/renderprogs2/spirv/builtin/pathtracing/.../*.rt.bin
+  3. Delete only that affected SPIR-V .rt.bin before rebuilding.
+  4. Run the normal release build.
+  5. Confirm the rebuilt blob exists and its mtime is newer than the source edit.
+
+Never delete a directory or a broad wildcard of shader blobs. Never rebuild or
+deploy base/renderprogs2/dxil for this packet.
+
+DEPLOY
+------
+After a successful build, copy:
+
+  E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+  -> E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+For shader tickets, copy only the rebuilt files below:
+
+  E:/prog/rbdoom-3-bfg-rt/base/renderprogs2/spirv/
+  -> E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2/spirv/
+
+Do not copy DXIL or unrelated SPIR-V blobs. Record deployed file mtimes.
+
+VALIDATION LEVELS
+-----------------
+L0 - Static/read-only proof
+  Source trace, ABI layout/static asserts, preprocess/register inspection,
+  deterministic plan/unit tests where available.
+
+L1 - Build proof
+  Release preset completes; expected executable and any affected SPIR-V blob
+  have fresh mtimes.
+
+L2 - Runtime correctness proof
+  The ticket's labeled scene/cvar captures pass with zero unexplained missing,
+  overflow, invalid, or fallback counters.
+
+L3 - Runtime comparison proof
+  Old/new or CPU/GPU outputs are captured from the same frame/workload and
+  compared numerically. Screenshots alone are insufficient when a numeric
+  readback can establish the contract.
+
+L4 - Performance proof
+  Warm-cache samples from identical content, with scene/capture/upload/BLAS/
+  TLAS times and bytes. Do not compare different surface or triangle counts.
+
+EVIDENCE SCHEMA
+---------------
+Every ticket handoff records:
+
+  build:
+    preset, result, executable mtime
+  shader (if any):
+    edited sources, deleted blobs, rebuilt blob mtimes, SPIR-V-only deploy list
+  gate:
+    cvar names and old/new/default values
+  scene:
+    map, portal area, label, frame, visible/static/rigid/skinned/transient counts
+  AS:
+    mesh records, instances, BLAS build/update/reuse/fail counts, TLAS count
+  bytes:
+    source, geometry upload, instance upload, scratch, retained memory
+  correctness:
+    missing/invalid/overflow/fallback counters and numeric comparison tuple
+  timing:
+    sample count plus median/p90/max for ticket-owned stages
+  rollback:
+    exact cvar or commit that restores the prior path
+
+For the comm1 regression, also record:
+
+  active and retained static range counts;
+  vertex/index/triangle buffer identities and generations;
+  BLAS handle/build generation;
+  TLAS instance AS handle and frame slot;
+  shader instanceId/primitiveIndex/route result from the failure region.
+
+CHECKPOINTS AND COMMITS
+-----------------------
+- Commit after a coherent, verified portion of a ticket is complete.
+- Do not create commits for every minor intermediate edit.
+- Keep commits scoped to the active GEO ticket.
+- Before staging, inspect `git diff -- <ticket files>` and `git status --short`.
+- Never stage unrelated dirty files.
+- Suggested subject: `pt geometry GEO-XX: <verified outcome>`.
+
+STOP CONDITIONS
+---------------
+Stop and report instead of widening scope when:
+
+- an expected file/function/gate does not exist at current head;
+- the measured dominant cost is not the ticket's target;
+- the comm1 failure occurs in raster or disappears before PT instrumentation;
+- a shader ABI/preprocess result contradicts the CPU layout;
+- GPU/CPU skinning comparison exceeds tolerance without a localized cause;
+- validation requires changing ReSTIR, RR, or material behavior outside the
+  geometry bridge named by the ticket;
+- legacy-off comparison cannot be made;
+- a required action would overwrite unrelated user work.
+
+FINAL HANDOFF
+-------------
+State the outcome first. List changed files, gates/defaults, build/deploy proof,
+runtime evidence, known remaining limitations, and checkpoint commit. Never
+claim a performance win from compile success or from different scene content.

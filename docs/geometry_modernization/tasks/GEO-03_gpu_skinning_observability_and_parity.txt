@@ -1,0 +1,72 @@
+GEO-03 - Make GPU skinning observable and prove parity
+======================================================
+
+GOAL
+----
+Turn the existing GPU skinning modes from coverage experiments into a numeric
+correctness contract. Do not remove CPU pre-skinning yet.
+
+EVIDENCE
+--------
+Existing mode 1/2 captures reported valid dispatch coverage and no T-pose, but
+no readiness/failure breakdown and no current/previous position readback.
+
+FILES TO AUDIT FIRST
+--------------------
+  neo/renderer/NVRHI/PathTraceSkinning.cpp/.h
+  neo/renderer/NVRHI/PathTraceDrawSurfCapture.cpp
+  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+  neo/renderer/NVRHI/PathTraceSceneInputs.h
+  neo/shaders/builtin/pathtracing/pathtrace_skinning.cs.hlsl
+  neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+
+STEPS
+-----
+1. Document mode 0/1/2 semantics at current head, including which route still
+   executes CPU pre-skinning and which output a BLAS actually consumes.
+   Use the existing `r_pathTracingGpuSkinning` cvar; do not create an alias.
+2. Funnel every candidate surface into exactly one result counter:
+
+     eligibleGpu
+     dispatchedGpu
+     notReadyJointData
+     unsupportedLayout
+     invalidWeightsOrJoints
+     allocationFailure
+     explicitSingleBoneRoute
+     cpuFallback
+
+   Assert that result totals equal candidate totals.
+3. Add bounded GPU readback for sampled vertex IDs containing source bind-pose
+   position, joint indices/weights, CPU current/previous positions, GPU
+   current/previous positions, and finite/error flags.
+4. Declare tolerances before evaluating results. Use absolute plus relative
+   position error and a finite-value requirement; do not use screenshot parity.
+5. Sample at least: player, one ordinary zombie, Fatzombie, a mixed-weight MD5
+   surface, and a proven single-bone surface. Keep entity/model/surface/vertex
+   identity in every record.
+6. Exercise idle, animation, locomotion, spawn/despawn, offscreen/return, PDA,
+   and mode transition 0->1->2->0.
+7. Compare mode 1 GPU output against CPU reference from the same frame. Compare
+   both current and previous positions and derived motion where available.
+8. Verify mode 2 has no T-pose/corruption and that its bookkeeping totals remain
+   exact. Do not call it faster unless identical-content L4 samples exist.
+9. If a mismatch is localized, patch only observability plumbing here unless it
+   is trivially an instrumentation error. Production skinning fixes belong to
+   GEO-07.
+
+VALIDATION
+----------
+- L0 ABI/binding review for CPU structs, shader structs, and dispatch ranges.
+- L1 Vulkan build; delete/rebuild only `pathtrace_skinning` SPIR-V when needed.
+- L3 same-frame CPU/GPU readback within declared tolerance for all probes.
+- Zero unaccounted candidate surfaces and zero invalid/non-finite outputs.
+
+DONE WHEN
+---------
+Mode 1 has a trustworthy eligibility/readiness/failure funnel and same-frame
+current/previous position parity. CPU pre-skinning remains authoritative.
+
+CHECKPOINT
+----------
+  pt geometry GEO-03: prove GPU skinning output parity

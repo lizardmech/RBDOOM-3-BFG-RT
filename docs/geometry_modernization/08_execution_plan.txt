@@ -1,0 +1,146 @@
+Geometry modernization - ordered execution plan
+================================================
+Status: controlling phase plan, 2026-07-23.
+
+OBJECTIVE
+---------
+Replace the three coexisting PT geometry routes with a measured, incremental
+system built around shared immutable mesh records, per-render-world instances,
+per-instance skinned outputs, and portal-area static buckets. Preserve all
+current shading, motion, material, emissive, and transient consumers while each
+producer migrates.
+
+ORDER AND DEPENDENCIES
+----------------------
+Execute the tickets in tasks/ in this order:
+
+  PHASE A - freeze evidence and remove known correctness uncertainty
+    GEO-00 runtime baseline and reproducible artifacts
+      -> GEO-01 comm1 PT-only static contract instrumentation
+      -> GEO-02 narrow comm1 static fix
+      -> GEO-03 GPU-skinning observability and parity
+
+  PHASE B - establish the common identity/ownership/storage foundation
+    GEO-04 canonical mesh/instance ABI and consumer map
+      -> GEO-05 per-world lifecycle shadow registry
+      -> GEO-06 pooled mesh ingestion and shared-rigid compare route
+
+  PHASE C - migrate true-deforming geometry first
+    GEO-07 authoritative jointCache GPU skinning
+      -> GEO-08 per-instance update/refit BLAS
+      -> GEO-09 temporal/material/emissive integration and skinned promotion
+
+  PHASE D - migrate static world and scheduling
+    GEO-10 portal-area static bucket BLAS
+      -> GEO-11 build budget, TLAS lifetime, and BLAS compaction
+      -> GEO-12 attribute layout measurement and compressed storage
+
+  PHASE E - retire old mandatory routes
+    GEO-13 cutover, cap removal, cleanup, and default promotion
+
+GEO-04 may perform its read-only consumer inventory while GEO-03 runtime data is
+being collected, but no implementation from Phase B may land before the Phase A
+gate. All other tickets are serial because they alter ownership contracts used
+by later tickets.
+
+PHASE A GATE
+------------
+Required before registry implementation:
+
+  - comm1 area 41 reproduces under a durable label/save/replay;
+  - the first PT producer/consumer mismatch is identified and fixed narrowly;
+  - raster remains unchanged;
+  - working static and crowded-skinned scenes still pass;
+  - GPU mode 1 exposes readiness/failure counters;
+  - GPU/CPU current-position readback passes the declared tolerance for at
+    least player, one zombie, Fatzombie, and one mixed/single-bone MD5 asset;
+  - mode 2 still has no T-pose or corruption.
+
+PHASE B GATE
+------------
+Required before new registry data drives traversal:
+
+  - visible drawSurf, area-walk, and lifecycle observations produce identical
+    canonical mesh/instance identities for the same object;
+  - Add/Update/Free shadow records survive map, portal, and PDA transitions;
+  - freeing the lifecycle medkit removes exactly its two records;
+  - no durable record retains frame-temporary geometry/model pointers;
+  - pool offsets are 64-bit byte-safe and BLAS builds accept non-zero index and
+    vertex offsets;
+  - canonical rigid BLAS/instance traversal matches the established rigid route
+    for hit identity, material, motion, emissive identity, and lifecycle;
+  - old and shadow material/triangle/instance counts compare exactly or every
+    intentional difference is enumerated.
+
+PHASE C GATE
+------------
+Required before static migration:
+
+  - eligible r_useGPUSkinning=1 surfaces no longer execute CPU pre-skinning;
+  - GPU fallback/readiness counters account for every skinned surface;
+  - current/previous positions pass numeric and motion-vector validation;
+  - per-instance BLAS update count equals eligible live skinned instance count;
+  - periodic rebuild is bounded and observable;
+  - repeated character source bytes scale by unique mesh, while mutable output
+    and BLAS state scale by instance;
+  - the crowded scene has no cap drops, T-poses, missing materials, or temporal
+    regression attributable to geometry routing;
+  - legacy gate off restores the baseline.
+
+PHASE D GATE
+------------
+Required before deleting the monolithic static path:
+
+  - comm1 area 41 and all baseline areas render correctly with static buckets;
+  - only active portal-area buckets enter the TLAS;
+  - inactive resident buckets may retain memory but are not traversed;
+  - total static TLAS entries stay inside the budget by bucket coalescing;
+  - active-set, BLAS, route-table, and shader generations match every frame;
+  - build admission respects count and scratch-byte budgets without silent loss;
+  - TLAS result and instance buffers have a proved in-flight lifetime;
+  - compacted BLAS handles are not exposed before copy completion;
+  - compressed attributes match full-fidelity shading within declared error and
+    wide-UV meshes take the explicit fallback.
+
+PHASE E GATE / DEFINITION OF DONE
+---------------------------------
+The modernization is complete only when:
+
+  - static world uses area/size bucket records;
+  - immutable model geometry uses shared mesh records;
+  - true skinned geometry uses per-instance GPU outputs and refit BLASes;
+  - the per-frame merged path contains only the explicit D11 fallback classes;
+  - no mandatory path depends on PT_SCENE_UNIVERSE_STATIC_MAX_* or
+    RT_SMOKE_MAX_* compile-time geometry caps;
+  - no old route is deleted until material, motion, emissive, and triangle-class
+    consumers have moved and compare-mode evidence is archived;
+  - warm identical-content performance is captured against the 2026-07-23
+    baseline, including CPU scene/capture time, upload bytes, BLAS/TLAS time,
+    memory, and frame time;
+  - all new gates have an intentional default and rollback path;
+  - diagnostics are reduced to bounded funnel totals, failure counters, and
+    one-shot samples; duplicate bring-up scaffolding is removed;
+  - Vulkan release build and SPIR-V-only deployment are verified.
+
+ROLLBACK PHILOSOPHY
+-------------------
+Until GEO-13, each migration lane retains one default-off master gate that can
+restore the last verified producer without changing unrelated rendering lanes.
+Rollback is a normal validation tool, not a substitute for fixing a mismatch.
+
+PERFORMANCE TARGETS
+-------------------
+Targets are acceptance directions, not invented guarantees:
+
+  - eliminate the 9-10 ms CPU skinning sub-step measured in Capture B for
+    eligible GPU-skinned surfaces;
+  - make immutable source geometry upload scale with unique meshes, not frames
+    or instances;
+  - replace full merged skinned BLAS rebuild work with per-instance updates plus
+    bounded periodic rebuilds;
+  - make static BLAS/TLAS work scale with dirty/active buckets;
+  - remove whole-payload byte hashing from steady immutable geometry;
+  - admit modern assets by checked memory budget rather than compile-time caps.
+
+If measurements contradict one of these targets, the owning ticket stops and
+updates the decision register before later tickets proceed.

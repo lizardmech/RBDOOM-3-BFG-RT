@@ -1,0 +1,67 @@
+GEO-04 - Define the canonical mesh and instance contract
+=======================================================
+
+GOAL
+----
+Specify one stable identity/ABI used by visible draw-surface capture, render-
+world lifecycle events, static area discovery, acceleration structures, motion,
+materials, and emissive inventory before any registry drives live traversal.
+
+PRECONDITIONS
+-------------
+- Phase A gate is complete.
+- This ticket may implement passive identity helpers, not live route cutover.
+
+FILES TO AUDIT FIRST
+--------------------
+  neo/renderer/NVRHI/PathTraceGeometry.h/.cpp
+  neo/renderer/NVRHI/PathTraceGeometryUniverse.h/.cpp
+  neo/renderer/NVRHI/PathTraceInstanceUniverse.h/.cpp
+  neo/renderer/NVRHI/PathTraceEntityFeed.cpp
+  neo/renderer/NVRHI/PathTraceSceneUniverse.h/.cpp
+  neo/renderer/NVRHI/PathTraceDrawSurfCapture.cpp
+  neo/renderer/NVRHI/PathTraceAccelerationPlan.h/.cpp
+  neo/renderer/NVRHI/PathTraceEmissiveCandidates.h/.cpp
+  neo/renderer/NVRHI/PathTraceSceneInputs.h
+
+STEPS
+-----
+1. Build a producer/consumer table for geometry identity, transforms, material
+   IDs, triangle flags, current/previous positions, emissive identity, BLAS
+   address, and lifetime. Record current owner and desired owner.
+2. Define `MeshKey` from durable model/surface/topology identity. It must not
+   contain drawSurf pointers, transient vertex-cache addresses, or transforms.
+3. Define `InstanceKey` from render-world generation plus entityDef identity and
+   surface/sub-instance identity. Explicitly define reuse after Free/map change.
+4. Define mesh records for immutable source ranges, attribute metadata,
+   material/triangle ranges, deformation class, and storage generation.
+5. Define instance records for transform, previous transform/position source,
+   visibility/portal membership, mutable skinned output, BLAS state, and
+   lifecycle generation.
+6. Specify three AS shapes without implementing them: static portal/size bucket,
+   shared rigid mesh BLAS, and per-instance skinned BLAS.
+7. Specify all offsets as checked 64-bit byte offsets at CPU ownership boundaries
+   and the exact shader-width conversion/assertion point.
+8. Define emissive identity as mesh identity + local primitive + instance
+   identity where world placement matters. Define remap behavior across frames.
+9. Add shadow comparison helpers that derive keys from visible capture,
+   lifecycle feed, and area discovery, then report agreement/disagreement.
+10. Review CPU/HLSL ABI only for fields that are actually shader-visible.
+
+GUARDRAILS
+----------
+- Do not make canonical records drive BLAS/TLAS or shading yet.
+- Do not keep raw frontend/model pointers beyond their proven lifetime.
+- Do not collapse distinct animated instances because they share a model.
+- Scene origin policy remains explicit until all consumers are inventoried.
+
+DONE WHEN
+---------
+- The contract and ownership table cover every active consumer.
+- Same objects produce the same keys from all observation paths.
+- Key reuse after Free/map transition is impossible by construction.
+- Any unresolved consumer blocks GEO-05 rather than being silently omitted.
+
+CHECKPOINT
+----------
+  pt geometry GEO-04: define canonical mesh instance contract
