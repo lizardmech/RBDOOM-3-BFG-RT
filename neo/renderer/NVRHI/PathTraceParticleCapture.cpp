@@ -202,6 +202,7 @@ bool ParticleCompositeSurfaceAccepted(
 }
 
 ParticleCompositeSurfaceInspection ParticleCompositeInspectSurface(
+    const viewDef_t* viewDef,
     const drawSurf_t* drawSurf,
     const srfTriangles_t* tri,
     int surfaceIndex)
@@ -209,14 +210,15 @@ ParticleCompositeSurfaceInspection ParticleCompositeInspectSurface(
     ParticleCompositeSurfaceInspection inspection;
     inspection.surfaceIndex = surfaceIndex;
     inspection.drawSurf = drawSurf;
-    inspection.tri = tri;
-    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
-    if (!drawSurf || !material || !tri || !tri->verts || !tri->indexes ||
-        drawSurf->numIndexes < 3 || (drawSurf->numIndexes % 3) != 0)
+    const srfTriangles_t* validatedTri = nullptr;
+    if (!ValidateSmokeDrawSurface(viewDef, drawSurf, validatedTri, nullptr) ||
+        validatedTri != tri)
     {
         return inspection;
     }
 
+    inspection.tri = validatedTri;
+    const idMaterial* material = drawSurf->material;
     inspection.valid = true;
     inspection.classifier = BuildSmokeTranslucentClassifierInfo(material);
     inspection.supportedDeform = ParticleAuditSupportedDeform(material->Deform());
@@ -273,6 +275,7 @@ std::vector<ParticleCompositeSurfaceInspection> ParticleCompositeInspectSurfaces
     {
         const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
         inspections[surfaceIndex] = ParticleCompositeInspectSurface(
+            viewDef,
             drawSurf,
             drawSurf ? drawSurf->frontEndGeo : nullptr,
             surfaceIndex);
@@ -565,6 +568,14 @@ bool ParticleCaptureAppendSurface(
     std::vector<uint32_t> baseMaterials;
     RtSmokeSurfaceSkipStats skipStats;
     RtSmokeAttributeStats attributeStats;
+    const srfTriangles_t* validatedTri = nullptr;
+    if (!ValidateSmokeDrawSurface(viewDef, drawSurf, validatedTri, &skipStats) ||
+        validatedTri != tri)
+    {
+        ++capture.stats.droppedGeometrySurfaces;
+        return false;
+    }
+    tri = validatedTri;
     const uint32_t materialId = SmokeMaterialId(drawSurf->material);
     const int emittedIndexes = AppendSmokeSurfaceGeometry(
         drawSurf,
@@ -594,10 +605,7 @@ bool ParticleCaptureAppendSurface(
     const bool weaponDepthHack = space && space->weaponDepthHack;
     const float modelDepthHack = space ? space->modelDepthHack : 0.0f;
     const RtSmokeSurfaceClass currentClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
-    const srfTriangles_t* validatedTri = nullptr;
-    const bool currentParticleAlphaBvh =
-        ValidateSmokeDrawSurface(viewDef, drawSurf, validatedTri, nullptr) &&
-        currentClass == RtSmokeSurfaceClass::ParticleAlpha;
+    const bool currentParticleAlphaBvh = currentClass == RtSmokeSurfaceClass::ParticleAlpha;
 
     bool appendedBatch = false;
     for (const ParticleAuditStage& auditStage : activeStages)
@@ -765,6 +773,7 @@ void RtPathTraceParticleCapture::Clear()
 }
 
 RtPathTraceParticleSurfaceRoute PathTraceParticleCompositeSurfaceRoute(
+    const viewDef_t* viewDef,
     const drawSurf_t* drawSurf,
     const srfTriangles_t* tri)
 {
@@ -772,7 +781,7 @@ RtPathTraceParticleSurfaceRoute PathTraceParticleCompositeSurfaceRoute(
     {
         return RtPathTraceParticleSurfaceRoute::LegacyBvh;
     }
-    const ParticleCompositeSurfaceInspection inspection = ParticleCompositeInspectSurface(drawSurf, tri, -1);
+    const ParticleCompositeSurfaceInspection inspection = ParticleCompositeInspectSurface(viewDef, drawSurf, tri, -1);
     return inspection.cardOnly
         ? RtPathTraceParticleSurfaceRoute::CompositeOnly
         : RtPathTraceParticleSurfaceRoute::LegacyBvh;

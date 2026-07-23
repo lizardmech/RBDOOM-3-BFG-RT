@@ -186,3 +186,61 @@ after inexpensive command recording. The next diagnostic should use
 nonblocking GPU timer queries around the particle graphics composite and its
 submission boundary. It must not introduce a synchronous query wait into the
 faulting frame.
+
+TRANSIENT SURFACE LIFETIME FAILURE
+----------------------------------
+While preparing the brush-BLAS A/B, the same gameplay section repeatedly
+stopped an attached Visual Studio debugger a few seconds after load. A matching
+RelWithDebInfo executable and PDB localized two successive first-chance access
+violations in the particle composite producer.
+
+First boundary:
+
+  material: textures/particles/barrelpoof
+  surface index: 149
+  entity index before retirement: 76
+  call: AppendSmokeSurfaceGeometry -> SmokeTryCopyMemory
+  draw-surface ambient/index cache state: non-current / non-current
+  retained triangle vertices/indexes: 0xDDDDDDDDDDDDDDDD
+
+The existing SEH copy guard would catch this exception outside an attached
+debugger, but using a caught access violation as routine transient-surface
+validation is not an acceptable lifetime contract.
+
+After rejecting that stale geometry, the next run exposed a second boundary in
+the same class:
+
+  call: ParticleCompositeHasExplicitEffectContext
+  view entity: still present in the backend draw surface
+  entity definition index: 0xDDDDDDDD
+  hModel and callback pointers: 0xDDDDDDDDDDDDDDDD
+  faulting operation: hModel->Name()
+
+FIXED CONTRACT
+--------------
+`ValidateSmokeDrawSurface` now:
+
+  - rejects non-current draw-surface ambient/index cache handles before
+    dereferencing `frontEndGeo`;
+  - proves a non-world entity pointer is still present in the current render
+    world's `entityDefs` array before reading `renderEntity_t` or `hModel`.
+
+The particle route now carries `viewDef` through every call, and both particle
+inspection and final capture re-run the shared validation before retaining or
+copying geometry.
+
+VALIDATION
+----------
+The same save was loaded under the rebuilt RelWithDebInfo executable with
+Visual Studio attached. Extended play produced no further first-chance break or
+process crash. The Vulkan release build also succeeded and all SPIR-V shaders
+reported up to date.
+
+Release executable and deployed copy:
+
+  bytes: 15511552
+  modified: 2026-07-23 16:28:46.221 Australia/Sydney
+  sha256: 3D669881AA8E7123F80BCAC6ECA12F3EDF9C12FE80865FEE5C800D6DB1294651
+
+This fixes transient geometry/entity lifetime safety. It does not explain or
+fix the separately measured 1.8-second monster-fire GPU stalls.

@@ -245,3 +245,16 @@ FINAL A/B BUILD / DEPLOY
 No shader source changed in this rung. No SPIR-V blob was rebuilt or copied;
 the existing smoke RT blob retained its 2026-07-23 15:17:15.235 timestamp.
 DX12 shader compilation was not requested or performed.
+
+SUBSEQUENT VALIDATED EXECUTABLE
+-------------------------------
+The particle transient-surface lifetime fix documented in
+MONSTER_FIRE_composite_ab_2026-07-23.txt was built and deployed before the
+final brush-BLAS A/B:
+
+  bytes: 15511552
+  modified: 2026-07-23 16:28:46.221 Australia/Sydney
+  sha256: 3D669881AA8E7123F80BCAC6ECA12F3EDF9C12FE80865FEE5C800D6DB1294651
+
+It contains the same static cache-ray and forced-BLAS-rebuild diagnostics.
+All SPIR-V shaders were already up to date, so no shader blob was copied.

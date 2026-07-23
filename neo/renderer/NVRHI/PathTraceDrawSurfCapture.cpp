@@ -927,7 +927,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
 
-            if (PathTraceParticleCompositeSurfaceRoute(drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
+            if (PathTraceParticleCompositeSurfaceRoute(viewDef, drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
             {
                 continue;
             }

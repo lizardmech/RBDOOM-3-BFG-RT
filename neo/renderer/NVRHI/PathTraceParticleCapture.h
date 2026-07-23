@@ -160,5 +160,6 @@ struct RtPathTraceParticleCapture
 
 void BuildPathTraceParticleCompositeCapture(const viewDef_t* viewDef, RtPathTraceParticleCapture& capture);
 RtPathTraceParticleSurfaceRoute PathTraceParticleCompositeSurfaceRoute(
+    const viewDef_t* viewDef,
     const drawSurf_t* drawSurf,
     const srfTriangles_t* tri);

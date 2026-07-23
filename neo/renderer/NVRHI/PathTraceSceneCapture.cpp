@@ -83,6 +83,26 @@ static bool SmokeDrawSurfaceHasAnyActiveStage(const drawSurf_t* drawSurf)
     return false;
 }
 
+static bool SmokeRenderWorldContainsEntity(
+    const viewDef_t* viewDef,
+    const idRenderEntityLocal* entityDef)
+{
+    if (!viewDef || !viewDef->renderWorld || !entityDef)
+    {
+        return false;
+    }
+
+    const idRenderWorldLocal* renderWorld = viewDef->renderWorld;
+    for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)
+    {
+        if (renderWorld->entityDefs[entityIndex] == entityDef)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t*& tri, RtSmokeSurfaceSkipStats* skipStats)
 {
     tri = nullptr;
@@ -100,6 +120,26 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         if (skipStats)
         {
             ++skipStats->missingGeometry;
+        }
+        return false;
+    }
+
+    // Dynamic frontend geometry is owned by the frame vertex cache. A backend
+    // draw surface can outlive that cache slot and still retain a non-null
+    // frontEndGeo pointer whose triangle block has already been freed. Reject
+    // the draw surface from its frame-owned handles before dereferencing the
+    // frontend triangle record.
+    const bool drawSurfAmbientCacheStale =
+        drawSurf->ambientCache != 0 &&
+        !vertexCache.CacheIsCurrent(drawSurf->ambientCache);
+    const bool drawSurfIndexCacheStale =
+        drawSurf->indexCache != 0 &&
+        !vertexCache.CacheIsCurrent(drawSurf->indexCache);
+    if (drawSurfAmbientCacheStale || drawSurfIndexCacheStale)
+    {
+        if (skipStats)
+        {
+            ++skipStats->nonCurrentCache;
         }
         return false;
     }
@@ -143,8 +183,18 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
 
     const viewEntity_t* space = drawSurf->space;
     const idRenderEntityLocal* entityDef = space->entityDef;
-    const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
-    if (!guiDrawSurface && viewDef && space != &viewDef->worldSpace && (!renderEntity || !renderEntity->hModel))
+    const bool worldSpace = viewDef && space == &viewDef->worldSpace;
+    const bool entityLive = SmokeRenderWorldContainsEntity(viewDef, entityDef);
+    if (!guiDrawSurface && !worldSpace && !entityLive)
+    {
+        if (skipStats)
+        {
+            ++skipStats->nullModel;
+        }
+        return false;
+    }
+    const renderEntity_t* renderEntity = entityLive ? &entityDef->parms : nullptr;
+    if (!guiDrawSurface && !worldSpace && !renderEntity->hModel)
     {
         if (skipStats)
         {
@@ -2108,7 +2158,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
 
-            if (PathTraceParticleCompositeSurfaceRoute(drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
+            if (PathTraceParticleCompositeSurfaceRoute(viewDef, drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
             {
                 continue;
             }
@@ -2211,7 +2261,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
 
-            if (PathTraceParticleCompositeSurfaceRoute(drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
+            if (PathTraceParticleCompositeSurfaceRoute(viewDef, drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
             {
                 continue;
             }
