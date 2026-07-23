@@ -1,0 +1,506 @@
+GEO-04 - canonical geometry identity contract audit
+====================================================
+Status: accepted offline contract, 2026-07-23.
+Scope: passive identity/ownership design only. No BLAS/TLAS or shading cutover.
+
+OUTCOME
+-------
+The current code does not have one canonical geometry identity. It has three
+partly overlapping key families:
+
+  visible/rigid route  pointer/cache/material-heavy meshHash + instanceId;
+  visible static cache pointer/cache/material/transform-heavy surface key;
+  static area walk    model/material names + entity/surface ordinals + counts.
+
+None is safe to promote unchanged. The contract below separates:
+
+  durable identity;
+  mutable content revision;
+  material binding;
+  storage allocation;
+  acceleration-structure residency;
+  shader-visible route indices;
+  logical-view temporal ownership.
+
+The decisive GEO-03 runtime result is also load-bearing here:
+geometry_geo18.log showed identical entityDef/model/tri identities and
+modelSurfaceIndex across two settled Fatzombie captures, while previous
+skinned history was absent because another 3D view had replaced the global
+last-view record. Identity and temporal-owner identity must therefore be
+separate keys.
+
+CURRENT PRODUCER / CONSUMER TABLE
+---------------------------------
+Field or fact
+  Current producers
+  Current consumers
+  Required owner
+
+Mesh identity
+  DrawSurfCapture and EntityFeed build RtPathTraceMeshKey, then
+  BuildPathTraceRigidMeshHash.
+  InstanceUniverse cache; GeometryUniverse rigid mesh lookup, CPU source
+  cache, GPU buffers and BLAS; acceleration planning; route-buffer build.
+  Per-world geometry registry, using a durable MeshKey. A mesh record may be
+  shared by worlds, but its residency references are per world.
+
+Instance identity
+  DrawSurfCapture and EntityFeed call the same
+  BuildPathTraceRigidInstanceSnapshot helper.
+  InstanceUniverse history; rigid residency; TLAS planning; route records;
+  emissive identity.
+  Per-render-world instance registry, using InstanceKey. Agreement between
+  producers must compare independently derived input tuples, not merely two
+  calls to the same pointer-heavy hash helper.
+
+Static surface identity
+  BuildSmokeStaticSurfaceKey for visible capture; BuildSceneUniverseSurfaceKey
+  for direct world discovery.
+  GeometryUniverse static record lookup, current/previous ranges, dirty upload,
+  static bucket observations and validation.
+  MeshKey + InstanceKey + local primitive/surface range. A transform or
+  material edit must not create a new mesh or instance identity.
+
+World lifetime
+  PtGeometryLifecycle's process-global map keyed by raw renderWorld pointer.
+  Entity/light generation queries and liveness checks; instance snapshots;
+  rigid residency.
+  A render-world-owned registry with a monotonically allocated WorldKey and an
+  explicit teardown path. The pointer is allowed only as a same-call lookup
+  input, never as persistent identity.
+
+Entity lifetime
+  RenderWorld Add/Update/Free hooks update per-slot generation and modelEpoch.
+  Instance identity and stale-model rejection.
+  InstanceKey uses world generation + renderDef slot + slot generation.
+  Model/content changes update an instance's mesh reference and revisions;
+  they do not redefine the live entity slot.
+
+Geometry content
+  tri counts, cache identities, modelEpoch, copied CPU vertices/indexes and
+  upload signatures.
+  BLAS input reuse/rebuild, upload skip/rebuild, validation.
+  MeshContentRevision and StorageGeneration, separate from MeshKey.
+
+Transform and previous transform
+  drawSurf/entity snapshots and InstanceUniverse history.
+  TLAS instances, route records, motion and temporal consumers.
+  Per-instance current state and per-HistoryOwner previous state. A subview
+  cannot mutate primary-view history.
+
+Skinned current/previous positions and joints
+  dynamic drawSurf capture and the GEO-03 GPU-skinning bridge.
+  skinned dispatch, dynamic BLAS, primary/motion consumers.
+  Per-instance mutable deformation state, keyed by InstanceKey +
+  HistoryOwnerKey. Immutable bind source remains on MeshRecord.
+
+Material binding and triangle flags
+  visible material resolution, material registry/classifier, dynamic material
+  evaluation.
+  route records, shading, alpha/transmission, emissive inventory.
+  Instance/surface MaterialBinding with its own revision. MeshKey excludes
+  material ID, material table index, classifier flags and runtime stage state.
+
+Emissive identity
+  BuildSmokeEmissiveTriangleIdentity/64.
+  current/previous emissive remap, unified lights, ReSTIR light translation.
+  InstanceKey + MeshKey + local primitive index. Emission/material revisions
+  determine compatibility but do not redefine geometric identity.
+
+Storage ranges
+  GeometryUniverse vector sizes and append records.
+  buffer upload, shader route tables, BLAS geometry descriptors.
+  Registry StorageRecord with checked uint64 byte offsets/sizes. Conversion to
+  the existing uint32 shader ABI occurs only while emitting a bounded page.
+
+BLAS/TLAS identity
+  meshHash, vector routeRecordIndex and sequential TLAS instanceId.
+  NVRHI AS handle lookup and shader InstanceID/PrimitiveIndex routing.
+  BlasRecord and frame RouteTable. AS handles, route indices and hardware
+  instance IDs are replaceable generations, never MeshKey or InstanceKey.
+
+Portal/visibility membership
+  scene-universe area discovery, visible drawSurf capture and rigid residency.
+  static bucket selection, active TLAS membership, off-screen retention.
+  Per-world instance/static-placement record. Visibility is per frame/view;
+  portal membership is durable world metadata with a revision.
+
+CURRENT KEY AUDIT
+-----------------
+RtPathTraceMeshKey / BuildPathTraceRigidMeshHash currently contains:
+
+  raw idRenderModel pointer              forbidden in MeshKey
+  raw srfTriangles_t pointer             forbidden in MeshKey
+  ambient/index cache identities         forbidden in MeshKey
+  modelEpoch                             content revision, not identity
+  modelSurfaceIndex                      allowed durable surface ordinal
+  vertex/index counts                    topology validation/signature
+  vertex format                          allowed layout/deformation metadata
+  materialId                             material binding, not identity
+  materialClassSignature                 classification revision, not identity
+  sourceKind                             allowed only as source domain
+  jointIndex                             allowed submesh discriminator when the
+                                         source actually splits by joint
+
+BuildPathTraceRigidInstanceId currently contains:
+
+  raw renderWorld pointer                forbidden in InstanceKey
+  renderDef slot + slot generation       required
+  modelEpoch                             content/reference revision only
+  entityIndex + renderEntityNum          duplicate/unstable aliases; retain
+                                         only as diagnostics
+  modelSurfaceIndex                      required sub-instance discriminator
+  materialId                             material binding, not identity
+  meshHash                               mesh reference, not instance identity
+  jointIndex                             required only when it is a real
+                                         sub-instance discriminator
+
+BuildSmokeStaticSurfaceKey currently contains tri/material pointers, transient
+cache identities, counts and modelMatrix. It changes when storage, material or
+placement changes and is not a durable surface key.
+
+BuildSceneUniverseSurfaceKey currently contains model name, material name,
+entityIndex, surfaceIndex and counts. It is closer, but material is not
+geometry identity, entityIndex needs world/slot generation, names require a
+defined registration namespace, and counts alone are not a topology
+fingerprint.
+
+CANONICAL KEY CONTRACT
+----------------------
+All fields use fixed-width integers. Hashes are accelerators only. Equality of
+the full tuple is authoritative, and hash collisions must be counted and
+rejected rather than merging records.
+
+WorldKey
+
+  uint64 worldGeneration
+
+worldGeneration is non-zero and monotonically allocated when a render world is
+registered with the PT registry. It is never derived from an address, map name,
+timestamp or frame number. Teardown invalidates the whole world registry.
+Wraparound is fatal/asserted rather than reused.
+
+MeshKey
+
+  uint64 sourceAssetId
+  uint64 sourceAssetGeneration
+  uint64 topologySignature
+  uint32 sourceDomain
+  uint32 modelSurfaceIndex
+  uint32 vertexFormat
+  uint32 deformationClass
+  uint32 vertexCount
+  uint32 indexCount
+  int32  jointSubmeshIndex
+
+sourceDomain distinguishes at least:
+
+  StaticWorldMap
+  RegisteredRenderModel
+  SkinnedBindSource
+  GeneratedPersistent
+
+Transient/callback/particle geometry is intentionally not admitted to the
+canonical registry in the first cut.
+
+sourceAssetId is allocated by the owning asset/world registry. A normalized
+name may be an input to registration, but a bare string hash is not enough:
+duplicate names and reloads must receive distinct generations.
+
+topologySignature is computed from immutable topology/source metadata at
+registration. The first implementation may use full index bytes plus stable
+vertex-layout facts; it must not hash cache addresses, world-space output
+positions, material IDs or transforms. For skinned sources, bind/source
+topology is used, not each posed output.
+
+MeshKey exclusions are explicit:
+
+  material and material-table indices;
+  classification and triangle flags;
+  render-world or entity identity;
+  transform or area membership;
+  CPU/GPU addresses and NVRHI handles;
+  buffer offsets, BLAS handles and route indices;
+  current pose or frame number.
+
+InstanceKey
+
+  uint64 worldGeneration
+  uint32 renderDefIndex
+  uint32 renderDefGeneration
+  uint32 subInstanceKind
+  uint32 modelSurfaceIndex
+  int32  jointSubmeshIndex
+
+The key names one placement/live deforming instance. It excludes MeshKey so a
+model swap does not silently destroy entity history before compatibility is
+evaluated. It excludes material, transform, view, frame and storage state.
+
+For authored static-world placements, renderDefIndex/generation identify the
+world entity slot and modelSurfaceIndex identifies the surface placement.
+For rigid models, the same tuple identifies each live entity surface.
+For skinned models, independently animated entities necessarily have different
+renderDef slots/generations and therefore different InstanceKeys.
+
+PrimitiveKey
+
+  MeshKey mesh
+  uint32 localPrimitiveIndex
+
+The local primitive is the triangle ordinal in the immutable mesh topology.
+Merged-buffer PrimitiveIndex is not canonical unless route metadata has first
+translated it back to this local ordinal.
+
+HistoryOwnerKey
+
+  uint64 worldGeneration
+  uint64 ownerGeneration
+  uint32 ownerKind
+  uint32 ownerRole
+
+The first supported ownerRole is PrimaryGameplay. Subviews do not read or write
+PrimaryGameplay history. If a subview later receives temporal PT support, the
+renderer must allocate a durable ownerGeneration for that logical target; a
+viewDef pointer, draw order or process-global PT invocation number is invalid.
+
+Temporal lookup uses:
+
+  { HistoryOwnerKey, InstanceKey, stateKind }
+
+not InstanceKey alone. Missing same-owner state is an explicit invalid-history
+result. Cross-view recovery and loose pointer/name matching are forbidden.
+
+RECORD CONTRACT
+---------------
+MeshRecord owns:
+
+  MeshKey key;
+  MeshContentRevision contentRevision;
+  immutable source vertex/index/skin-weight ranges;
+  vertex layout and deformation class;
+  local bounds;
+  material-slot and triangle-slot ranges, but not live material binding;
+  StorageRecord storage;
+  zero or more per-device BlasRecords;
+  registry reference count and debug provenance.
+
+InstanceRecord owns:
+
+  InstanceKey key;
+  MeshKey meshKey;
+  instance/mesh-reference revision;
+  current transform;
+  portal/area membership and its revision;
+  current material bindings and material revision;
+  liveness state;
+  for deforming instances, mutable output allocation and updateable BlasRecord;
+  per-HistoryOwner prior transform/positions/joints plus validity reason.
+
+StorageRecord owns:
+
+  uint64 storageGeneration;
+  uint64 vertexByteOffset;
+  uint64 vertexByteSize;
+  uint64 indexByteOffset;
+  uint64 indexByteSize;
+  uint64 attributeByteOffset;
+  uint64 attributeByteSize;
+  uint64 triangleMetadataByteOffset;
+  uint64 triangleMetadataByteSize;
+  page/allocation handles and retirement token.
+
+BlasRecord owns:
+
+  AS handle;
+  uint64 blasGeneration;
+  MeshContentRevision builtContentRevision;
+  uint64 builtStorageGeneration;
+  build/update capability and last submission/retirement token.
+
+The AS shapes remain:
+
+  static portal/size bucket BLAS;
+  shared immutable rigid MeshRecord BLAS;
+  per-InstanceRecord mutable skinned BLAS.
+
+RouteTableEntry owns the frame-local mapping from hardware TLAS InstanceID to
+InstanceKey, MeshKey, storage page/ranges, material binding and previous-state
+availability. Hardware InstanceID is a checked dense uint32 route index. It is
+not the low bits or hash of InstanceKey.
+
+LIFECYCLE AND REUSE
+-------------------
+1. World registration allocates a new non-zero WorldKey.
+2. Add allocates/activates the current renderDef slot generation.
+3. Update preserves InstanceKey. A model swap changes mesh reference/content
+   compatibility and invalidates incompatible previous geometry explicitly.
+4. Free marks the InstanceKey dead, retires its per-instance allocations/AS
+   after the submission lifetime, and advances slot generation before reuse.
+5. World teardown retires all records and advances/discards WorldKey ownership.
+6. A new map or a new render world always receives a new worldGeneration even
+   if its C++ address, map name, entity slots or model names match.
+
+The current PtGeometryLifecycle raw-pointer world map has no teardown hook and
+therefore cannot supply this guarantee. GEO-05 must replace it with a
+render-world-owned registry and explicit construction/destruction integration.
+
+MATERIAL AND EMISSIVE CONTRACT
+------------------------------
+MaterialBinding is addressed by InstanceKey + material slot/surface ordinal and
+has a separate MaterialBindingRevision. Runtime classifier flags and material
+table indices are frame content, not identity.
+
+Canonical emissive identity is:
+
+  { InstanceKey, PrimitiveKey }
+
+For a deliberately world-global static primitive, InstanceKey still identifies
+its authored placement. Emission compatibility additionally compares material
+binding revision, emission texture/content revision and relevant runtime stage
+state. An incompatible revision maps to "same geometric light, reset temporal
+payload"; it must not masquerade as an unrelated primitive due only to material
+table reordering.
+
+The current emissive hash includes materialId, materialIndex and
+triangleClassAndFlags. It therefore changes on table/classification changes and
+must be replaced before geometry identity drives light remapping.
+
+OFFSET AND SHADER-WIDTH CONTRACT
+--------------------------------
+All registry/storage arithmetic is checked uint64 byte arithmetic:
+
+  multiplication overflow checked before count * stride;
+  addition overflow checked before base + size;
+  allocation bounds checked against the owning buffer/page;
+  element alignment checked before conversion to an element offset.
+
+The existing shader-visible route structs use uint32 offsets/counts and HLSL
+InstanceID/PrimitiveIndex are uint32. Narrowing occurs only in RouteTable/Page
+emission:
+
+  1. select one bounded page;
+  2. subtract the page's uint64 base byte offset;
+  3. verify alignment;
+  4. verify local byte/element offset and count <= UINT32_MAX;
+  5. verify local range remains inside the page;
+  6. cast to uint32;
+  7. record a named rejection counter on failure.
+
+No static_cast<uint32_t>(vector.size()) or int offset becomes authoritative
+without those checks. CPU diagnostics may continue to expose element counts,
+but registry ownership and budget decisions use bytes.
+
+SHADOW AGREEMENT CONTRACT
+-------------------------
+Each producer emits a CanonicalIdentityObservation before hashing:
+
+  producerKind                 visible, lifecycle, areaDiscovery
+  observationFrame
+  WorldKey
+  renderDef slot/generation
+  source domain/asset id/asset generation
+  modelSurfaceIndex/joint submesh
+  vertex format/deformation class
+  vertex/index counts
+  topology signature
+  derived MeshKey
+  derived InstanceKey
+  material binding revision (comparison context, not key)
+  raw pointers/cache handles (diagnostic context only)
+
+Comparisons are by full tuples and report these non-overlapping classes:
+
+  exact
+  missingProducer
+  worldMismatch
+  instanceSlotMismatch
+  surfaceOrdinalMismatch
+  sourceAssetMismatch
+  topologyMismatch
+  layoutOrDeformationMismatch
+  meshHashCollision
+  instanceHashCollision
+  materialOnlyDifference
+  transientStorageOnlyDifference
+  unsupportedTransient
+
+Required comparisons:
+
+  visible <-> lifecycle for every visible registry-eligible instance;
+  visible <-> areaDiscovery for objects discovered by both routes;
+  lifecycle <-> areaDiscovery for off-screen resident rigid instances;
+  all three for authored static-world placements where lifecycle observation
+  exists.
+
+Comparison uses stable tuple fields. Pointer/cache equality is printed only to
+diagnose why an old key differs; it cannot turn a mismatch into agreement.
+Counters and bounded samples must include both tuples and the first differing
+field.
+
+FIRST IMPLEMENTATION BOUNDARY
+-----------------------------
+Safe to implement during GEO-04:
+
+  fixed-width key/record value types;
+  full-tuple equality and stable hash helpers;
+  checked uint64 range arithmetic and uint32 page narrowing helpers;
+  passive observation comparison and disagreement counters;
+  producer adapters that do not alter existing routing.
+
+Blocked until GEO-05:
+
+  authoritative WorldKey allocation and teardown;
+  canonical instance registry/liveness;
+  replacement of the process-global lifecycle map;
+  any route using the new keys for residency or history.
+
+Blocked until GEO-06/GEO-08:
+
+  pooled storage ownership;
+  live rigid/skinned BLAS use;
+  route-table/page narrowing as the active shader path.
+
+BLOCKERS / REQUIRED FOLLOW-UP
+-----------------------------
+GEO-05 must add:
+
+  a render-world registration/teardown owner;
+  monotonic world generation;
+  authoritative slot generation within that owner;
+  primary logical HistoryOwner allocation/selection;
+  shadow registry records keyed by the types above.
+
+GEO-06 must settle sourceAssetId/sourceAssetGeneration allocation for registered
+render models and static-world assets. A bare pointer or name hash is rejected.
+It must also compute topologySignature from immutable source data.
+
+GEO-04 passive producer comparison cannot be considered complete until those
+two durable numeric inputs exist. Until then, adapters must report
+missingDurableWorld or missingDurableAsset rather than synthesize an apparently
+canonical key from pointers.
+
+SOURCE EVIDENCE
+---------------
+  PathTraceRigidIdentity.cpp
+    current pointer/cache/material-heavy mesh and instance hashes
+  PathTraceDrawSurfCapture.cpp
+    visible producer and legacy static key use
+  PathTraceEntityFeed.cpp
+    lifecycle/area-feed producer using the same snapshot helper
+  PathTraceGeometryLifecycle.h/.cpp
+    raw-world-pointer global state, slot/model generations, no teardown
+  PathTraceSceneUniverse.cpp
+    direct static-area key and surface/area discovery
+  PathTraceSceneCapture.cpp
+    visible static key includes pointers, cache identities and transform
+  PathTraceInstanceUniverse.cpp
+    instanceId-only history and per-PT-invocation BeginFrame
+  PathTraceGeometryUniverse.h/.cpp
+    static ranges, rigid mesh/instance lookup, storage and BLAS co-ownership
+  PathTraceAccelerationPlan.h/.cpp and PathTraceAcceleration.cpp
+    sequential uint32 TLAS IDs plus meshHash/sourceInstanceId routing
+  PathTraceGeometry.h and active path-tracing HLSL
+    uint32 route offsets/counts and hardware InstanceID/PrimitiveIndex
+  PathTraceEmissiveCandidates.cpp and PathTraceSmokeSceneBuild.cpp
+    transient material/class fields in identity and temporal remapping
+

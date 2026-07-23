@@ -41,6 +41,19 @@ GEO-01 FILES
     not CPU sort or particle lighting, the aligned trace, and the descriptor-
     cache A/B which rules out per-frame binding creation as a required cause.
 
+GEO-03 FILES
+------------
+  GEO-03_gpu_skinning_runtime_handoff.txt
+    Vulkan binding fix, numeric parity coverage, invalid-history interpretation,
+    geometry_geo18 identity evidence, and the logical-view ownership finding.
+
+GEO-04 FILES
+------------
+  GEO-04_identity_contract_audit.txt
+    Current producer/consumer audit; accepted WorldKey, MeshKey, InstanceKey,
+    PrimitiveKey and HistoryOwnerKey tuples; record/lifetime/offset/emissive
+    rules; shadow disagreement schema; and blockers delegated to GEO-05/06.
+
 NAMING
 ------
 Use:

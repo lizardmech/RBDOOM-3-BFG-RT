@@ -136,6 +136,39 @@ authoritative temporal source because DrawViewInternal may execute PT for
 multiple 3D views, including subviews. Missing same-owner history invalidates
 motion; it must not be repaired by loose cross-view surface matching.
 
+D17. IDENTITY, CONTENT, STORAGE, AND ROUTING ARE DISTINCT
+---------------------------------------------------------
+Decision: canonical MeshKey and InstanceKey contain only durable source/world/
+slot/surface identity. Material binding, classifier state, transforms, content
+revision, buffer offsets, cache addresses, AS handles, route indices and frame
+numbers are separate record fields/generations. Hash equality alone never
+merges records; full tuple equality is authoritative and collisions are
+reported.
+
+D18. WORLD AND INSTANCE REUSE
+-----------------------------
+Decision: a non-zero monotonic WorldKey is allocated at PT render-world
+registration and invalidated by explicit teardown. InstanceKey is WorldKey +
+renderDef slot/generation + sub-instance/surface ordinal. Raw renderWorld
+pointers, map names and timestamps are not persistent identity. Free advances
+slot generation before reuse; model/material/transform changes revise a live
+record without redefining its entity-slot identity.
+
+D19. HARDWARE INSTANCE IDS AND OFFSETS
+--------------------------------------
+Decision: TLAS InstanceID and shader route indices are checked dense uint32
+frame/page mappings, not canonical instance hashes. Registry storage uses
+checked uint64 byte offsets/sizes; uint32 narrowing is allowed only after page
+base subtraction, alignment/range checks and a named rejection result.
+
+D20. EMISSIVE GEOMETRY IDENTITY
+-------------------------------
+Decision: emissive temporal identity is InstanceKey + MeshKey + local primitive
+ordinal. Material-table index, classifier flags and transient merged-buffer
+offsets are excluded. Material/emission revisions are compatibility inputs
+which may reset payload history without pretending the geometric primitive is
+a different object.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
