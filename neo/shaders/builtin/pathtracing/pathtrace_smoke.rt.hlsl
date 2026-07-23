@@ -15,6 +15,22 @@
 #define RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE 1
 #endif
 
+static const uint RT_STATIC_CONTRACT_REJECT_NONE = 0u;
+static const uint RT_STATIC_CONTRACT_REJECT_GUI_ALPHA = 1u;
+static const uint RT_STATIC_CONTRACT_REJECT_PARTICLE_DITHER = 2u;
+static const uint RT_STATIC_CONTRACT_REJECT_GLASS_FALLBACK = 3u;
+static const uint RT_STATIC_CONTRACT_REJECT_ADDITIVE_DECAL = 4u;
+static const uint RT_STATIC_CONTRACT_REJECT_FILTER_DECAL = 5u;
+static const uint RT_STATIC_CONTRACT_REJECT_ALPHA_TEST = 6u;
+static const uint RT_STATIC_CONTRACT_REJECT_RIGID_INSTANCE_RANGE = 7u;
+static const uint RT_STATIC_CONTRACT_REJECT_RIGID_PRIMITIVE_RANGE = 8u;
+static const uint RT_STATIC_CONTRACT_REJECT_RIGID_INDEX_RANGE = 9u;
+static const uint RT_STATIC_CONTRACT_REJECT_RIGID_VERTEX_RANGE = 10u;
+static const uint RT_STATIC_CONTRACT_REJECT_TRIANGLE_RANGE = 11u;
+static const uint RT_STATIC_CONTRACT_REJECT_VERTEX_RANGE = 12u;
+static const uint RT_STATIC_CONTRACT_REJECT_MISS = 13u;
+static const uint RT_STATIC_CONTRACT_REJECT_GUI_PRIMARY = 14u;
+
 struct PathTraceSmokePayload
 {
     uint value;
@@ -41,6 +57,7 @@ struct PathTraceSmokePayload
     uint shadowIgnoreMaterialId;
     float3 debugVector;
     uint debugFlags;
+    uint staticContractRejectReason;
 };
 
 struct PathTraceSmokeShadowPayload
@@ -1287,6 +1304,7 @@ PathTraceSmokePayload InitSmokePayload()
     payload.shadowIgnoreMaterialId = 0xffffffffu;
     payload.debugVector = float3(0.0, 0.0, 0.0);
     payload.debugFlags = 0u;
+    payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_NONE;
     return payload;
 }
 
@@ -1683,12 +1701,12 @@ bool SmokeGlassFallbackRejectsHit(PathTraceSmokeMaterial material, float2 texCoo
     return opacity < SmokeHashToUnitFloat(SmokeAlphaStochasticHash(hash, 37u));
 }
 
-bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentrics, uint rayMode)
+uint SmokeAlphaRejectReason(uint instanceId, uint primitiveIndex, float2 barycentrics, uint rayMode)
 {
     if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA) ||
         !SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
     {
-        return false;
+        return RT_STATIC_CONTRACT_REJECT_NONE;
     }
 
     const bool shadowRay = rayMode != 0u && rayMode != RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE;
@@ -1697,35 +1715,42 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentr
     const uint triangleClassAndFlags = LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
     if (SmokeGuiRejectsTransparentHit(instanceId, primitiveIndex, barycentrics, triangleClassAndFlags))
     {
-        return true;
+        return RT_STATIC_CONTRACT_REJECT_GUI_ALPHA;
     }
 
     if (SmokeParticleDitherRejectsHit(material, texCoord, barycentrics, instanceId, primitiveIndex, triangleClassAndFlags, shadowRay))
     {
-        return true;
+        return RT_STATIC_CONTRACT_REJECT_PARTICLE_DITHER;
     }
 
     if (SmokeGlassFallbackRejectsHit(material, texCoord, barycentrics, instanceId, primitiveIndex, triangleClassAndFlags, shadowRay))
     {
-        return true;
+        return RT_STATIC_CONTRACT_REJECT_GLASS_FALLBACK;
     }
 
     if (SmokeAdditiveDecalRejectsHit(material, texCoord, triangleClassAndFlags, shadowRay))
     {
-        return true;
+        return RT_STATIC_CONTRACT_REJECT_ADDITIVE_DECAL;
     }
 
     if (SmokeFilterDecalRejectsHit(material, texCoord, barycentrics, instanceId, primitiveIndex, shadowRay, rayMode))
     {
-        return true;
+        return RT_STATIC_CONTRACT_REJECT_FILTER_DECAL;
     }
 
     if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) == 0u)
     {
-        return false;
+        return RT_STATIC_CONTRACT_REJECT_NONE;
     }
 
-    return SmokeAlphaCoverage(material, texCoord) < material.alphaCutoff;
+    return SmokeAlphaCoverage(material, texCoord) < material.alphaCutoff
+        ? RT_STATIC_CONTRACT_REJECT_ALPHA_TEST
+        : RT_STATIC_CONTRACT_REJECT_NONE;
+}
+
+bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentrics, uint rayMode)
+{
+    return SmokeAlphaRejectReason(instanceId, primitiveIndex, barycentrics, rayMode) != RT_STATIC_CONTRACT_REJECT_NONE;
 }
 
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
@@ -2866,6 +2891,40 @@ RTXDI_DIReservoir PathTraceRestirPdfNeeRluBuildCurrentReservoir(
 }
 #endif
 
+void StoreStaticContractPrimarySurfaceRecord(
+    uint2 pixel,
+    RAB_Surface surface,
+    PathTraceSmokePayload payload)
+{
+    StorePathTracePrimarySurfaceRecord(pixel, surface);
+    if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY))
+    {
+        return;
+    }
+
+    const uint2 storePixel = PathTracePrimarySurfaceStorePixel(pixel);
+    const uint2 dimensions = PathTraceFullOutputSize();
+    if (storePixel.x >= dimensions.x || storePixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const uint index = storePixel.y * dimensions.x + storePixel.x;
+    if (index >= PathTracePrimarySurfaceHistoryCount())
+    {
+        return;
+    }
+
+    PathTracePrimarySurfaceRecord record = PrimarySurfaceHistoryCurrent[index];
+    record.instancePrimitiveObject.z = payload.staticContractRejectReason;
+    if ((record.header.y & RT_PRIMARY_SURFACE_VALID) == 0u)
+    {
+        record.instancePrimitiveObject.x = payload.instanceId;
+        record.instancePrimitiveObject.y = payload.primitiveIndex;
+    }
+    PrimarySurfaceHistoryCurrent[index] = record;
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -2986,7 +3045,15 @@ void RayGen()
 #ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
     float3 pdfNeeRluContribution = float3(0.0, 0.0, 0.0);
     uint pdfNeeRluStatus = RT_PDF_NEE_RLU_STATUS_VALID;
-    StorePathTracePrimarySurfaceRecord(pixel, primaryHistorySurface);
+    if (payload.value != 0u && SmokePayloadIsGuiScreen(payload))
+    {
+        payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_GUI_PRIMARY;
+    }
+    else if (payload.value == 0u && payload.staticContractRejectReason == RT_STATIC_CONTRACT_REJECT_NONE)
+    {
+        payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_MISS;
+    }
+    StoreStaticContractPrimarySurfaceRecord(pixel, primaryHistorySurface, payload);
     const RTXDI_DIReservoir pdfNeeRluReservoir = PathTraceRestirPdfNeeRluBuildCurrentReservoir(
         primaryHistorySurface,
         pixel,
@@ -2998,7 +3065,15 @@ void RayGen()
         : float4(PathTraceRestirPdfNeeRluStatusColor(pdfNeeRluStatus), 1.0);
     return;
 #else
-    StorePathTracePrimarySurfaceRecord(pixel, primaryHistorySurface);
+    if (payload.value != 0u && SmokePayloadIsGuiScreen(payload))
+    {
+        payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_GUI_PRIMARY;
+    }
+    else if (payload.value == 0u && payload.staticContractRejectReason == RT_STATIC_CONTRACT_REJECT_NONE)
+    {
+        payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_MISS;
+    }
+    StoreStaticContractPrimarySurfaceRecord(pixel, primaryHistorySurface, payload);
     StorePathTraceMotionVectorExport(pixel, primaryHistorySurface);
 
     if (payload.value == 0)
@@ -3450,8 +3525,13 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
     {
         return;
     }
-    if (SmokeAlphaRejectsHit(instanceId, PrimitiveIndex(), attributes.barycentrics, payload.value))
+    const uint primitiveIndex = PrimitiveIndex();
+    const uint rejectReason = SmokeAlphaRejectReason(instanceId, primitiveIndex, attributes.barycentrics, payload.value);
+    if (rejectReason != RT_STATIC_CONTRACT_REJECT_NONE)
     {
+        payload.instanceId = instanceId;
+        payload.primitiveIndex = primitiveIndex;
+        payload.staticContractRejectReason = rejectReason;
         IgnoreHit();
     }
 }
@@ -3499,23 +3579,27 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.instanceId = instanceId;
     payload.geometryIndex = geometryIndex;
     payload.primitiveIndex = primitiveIndex;
+    payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_NONE;
     if (instanceId >= 2u)
     {
         const uint routeInstanceIndex = instanceId - 2u;
         if (routeInstanceIndex >= PathTraceRigidRouteInstanceCount())
         {
+            payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_RIGID_INSTANCE_RANGE;
             return;
         }
         const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
         if (primitiveIndex >= routeInstance.triangleCount ||
             routeInstance.triangleOffset + primitiveIndex >= PathTraceRigidRouteTriangleCount())
         {
+            payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_RIGID_PRIMITIVE_RANGE;
             return;
         }
         const uint routeIndexOffset = routeInstance.indexOffset + primitiveIndex * 3u;
         if (routeIndexOffset > PathTraceRigidRouteIndexCount() ||
             routeIndexOffset + 2u >= PathTraceRigidRouteIndexCount())
         {
+            payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_RIGID_INDEX_RANGE;
             return;
         }
         const uint i0 = SmokeRigidRouteIndices[routeIndexOffset + 0u];
@@ -3526,6 +3610,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
             routeInstance.vertexOffset + i1 >= PathTraceRigidRouteVertexCount() ||
             routeInstance.vertexOffset + i2 >= PathTraceRigidRouteVertexCount())
         {
+            payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_RIGID_VERTEX_RANGE;
             return;
         }
         const PathTraceSmokeVertex v0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0];
@@ -3609,6 +3694,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     }
     if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
     {
+        payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_TRIANGLE_RANGE;
         return;
     }
     const uint indexOffset = primitiveIndex * 3;
@@ -3618,6 +3704,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     const uint vertexCount = instanceId == 0 ? PathTraceStaticVertexCount() : PathTraceDynamicVertexCount();
     if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
     {
+        payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_VERTEX_RANGE;
         return;
     }
 

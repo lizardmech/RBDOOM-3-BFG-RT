@@ -6418,6 +6418,20 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (r_pathTracingStaticContractDump.GetInteger() != 0)
     {
         r_pathTracingStaticContractDump.SetInteger(0);
+        if (!m_staticContractShaderReadbackQueued)
+        {
+            m_staticContractShaderReadbackRequested = true;
+            m_staticContractShaderSampleFrame = geometryUniverseStats.frameIndex;
+            m_staticContractShaderSampleWidth = m_frameResources.width;
+            m_staticContractShaderSampleHeight = m_frameResources.height;
+            m_staticContractShaderSampleX = Max(0, m_frameResources.width / 2);
+            m_staticContractShaderSampleY = Max(0, m_frameResources.height / 2);
+            m_staticContractExpectedInstance = 0u;
+            m_staticContractExpectedPrimitiveFirst = UINT32_MAX;
+            m_staticContractExpectedPrimitiveCount = 0u;
+            m_staticContractExpectedMaterialId = 0u;
+            m_staticContractExpectedMaterialIndex = UINT32_MAX;
+        }
 
         const bool committedCountsMatch =
             m_sceneInputs.geometry.staticVertexCount == staticVertexCacheCount &&
@@ -6613,6 +6627,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 smokeStaticBlas &&
                 m_smokeTlas &&
                 instanceCount > 0;
+            if (emittedCandidates == 0 && rangeValid &&
+                m_staticContractShaderReadbackRequested &&
+                m_staticContractShaderSampleFrame == geometryUniverseStats.frameIndex)
+            {
+                m_staticContractExpectedPrimitiveFirst = static_cast<uint32_t>(triangleOffset);
+                m_staticContractExpectedPrimitiveCount = static_cast<uint32_t>(triangleCount);
+                m_staticContractExpectedMaterialId = record->materialId;
+                m_staticContractExpectedMaterialIndex = materialIndex;
+            }
 
             missingRecordCount += recordPresent ? 0 : 1;
             inactiveRecordCount += recordPresent && !record->seenThisFrame ? 1 : 0;

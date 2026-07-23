@@ -1825,6 +1825,9 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkyCubeProbeBindingSet = nullptr;
     m_smokeSkyCubeProbeReadbackQueued = false;
     m_smokeSkyCubeProbeReadbackDelayFrames = 0;
+    m_staticContractShaderReadbackRequested = false;
+    m_staticContractShaderReadbackQueued = false;
+    m_staticContractShaderReadbackDelayFrames = 0;
     m_smokeSkyEnvironmentSourceName.Clear();
     m_smokeSceneBuilt = false;
     m_smokeTestDispatched = false;
@@ -1836,6 +1839,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeBvhDirtyPreviousToken = RtSmokeBvhDirtyTokenState();
     m_smokeSceneRebuildLogged = false;
     m_smokeGeometryUniverse.Clear();
+    m_particleDiagnosticFramesRemaining = 0;
     m_smokeSkinnedSurfaceRecords.clear();
     m_smokePreviousSkinnedSurfaceRecords.clear();
     m_smokePreviousSkinnedVertexData.clear();

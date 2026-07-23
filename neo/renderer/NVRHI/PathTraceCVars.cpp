@@ -1923,6 +1923,12 @@ idCVar r_pathTracingParticleSortMode(
     CVAR_RENDERER | CVAR_INTEGER,
     "Alpha particle ordering mode reserved for the composite: 0=none, 1=CPU back-to-front" );
 
+idCVar r_pathTracingParticleDump(
+    "r_pathTracingParticleDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Bounded particle-composite diagnostics: 0=off, 1=one frame plus batch details, 2=240-frame per-frame trace then auto-off" );
+
 idCVar r_pathTracingSmokeParticleEdgeFade(
     "r_pathTracingSmokeParticleEdgeFade",
     "1",

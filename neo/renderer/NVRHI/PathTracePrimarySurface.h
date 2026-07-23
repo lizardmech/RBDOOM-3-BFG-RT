@@ -131,9 +131,28 @@ struct RtPathTracePrimarySurfaceRecord
     float emissiveAndHeight[4];             // xyz = emissive radiance, w = height/parallax/displacement placeholder
     float previousPositionOrMotion[4];      // xyz = previous world position or motion placeholder, w = valid selector
     uint32_t materialAndSurface[4];         // material id, material index, material flags, surface class
-    uint32_t instancePrimitiveObject[4];    // instance id, primitive id, object/entity id placeholder, emissive texture index
+    uint32_t instancePrimitiveObject[4];    // instance id, primitive id, static-contract reject diagnostic/object placeholder, emissive texture index
 };
 static_assert(sizeof(RtPathTracePrimarySurfaceRecord) == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE, "Primary surface CPU/shader record stride mismatch");
+
+enum RtPathTraceStaticContractRejectReason : uint32_t
+{
+    RT_STATIC_CONTRACT_REJECT_NONE = 0u,
+    RT_STATIC_CONTRACT_REJECT_GUI_ALPHA = 1u,
+    RT_STATIC_CONTRACT_REJECT_PARTICLE_DITHER = 2u,
+    RT_STATIC_CONTRACT_REJECT_GLASS_FALLBACK = 3u,
+    RT_STATIC_CONTRACT_REJECT_ADDITIVE_DECAL = 4u,
+    RT_STATIC_CONTRACT_REJECT_FILTER_DECAL = 5u,
+    RT_STATIC_CONTRACT_REJECT_ALPHA_TEST = 6u,
+    RT_STATIC_CONTRACT_REJECT_RIGID_INSTANCE_RANGE = 7u,
+    RT_STATIC_CONTRACT_REJECT_RIGID_PRIMITIVE_RANGE = 8u,
+    RT_STATIC_CONTRACT_REJECT_RIGID_INDEX_RANGE = 9u,
+    RT_STATIC_CONTRACT_REJECT_RIGID_VERTEX_RANGE = 10u,
+    RT_STATIC_CONTRACT_REJECT_TRIANGLE_RANGE = 11u,
+    RT_STATIC_CONTRACT_REJECT_VERTEX_RANGE = 12u,
+    RT_STATIC_CONTRACT_REJECT_MISS = 13u,
+    RT_STATIC_CONTRACT_REJECT_GUI_PRIMARY = 14u
+};
 
 struct RtPathTraceMaterialFeatureRecord
 {

@@ -3809,6 +3809,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
         }
         ExecutePathTraceParticleComposite(commandList, viewDef);
+        QueueStaticContractShaderSample(commandList);
         if (cleanRtxdiDiView >= 2 && cleanPromoteSubviewSurface)
         {
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::CopySource);
@@ -5075,6 +5076,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     const uint64 dispatchRaysCompleteUs = Sys_Microseconds();
     ExecutePathTraceParticleComposite(commandList, viewDef);
+    QueueStaticContractShaderSample(commandList);
     if (requestedLiquidPoolMode != 0 && liquidPoolTelemetryReady)
     {
         nvrhi::utils::BufferUavBarrier(commandList, m_liquidPoolStatusBuffer);

@@ -156,6 +156,10 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_liquidPoolStatusReadbackBuffer = nullptr;
     m_liquidPoolStatusReadbackQueued = false;
     m_liquidPoolStatusReadbackDelayFrames = 0;
+    m_staticContractShaderReadbackBuffer = nullptr;
+    m_staticContractShaderReadbackRequested = false;
+    m_staticContractShaderReadbackQueued = false;
+    m_staticContractShaderReadbackDelayFrames = 0;
     m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiTemporalReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiPreviousReservoirBuffer = nullptr;

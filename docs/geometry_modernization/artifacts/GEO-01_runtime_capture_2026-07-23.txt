@@ -1,0 +1,82 @@
+GEO-01 paired runtime capture - 2026-07-23
+================================================
+
+SOURCE
+------
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo01.log
+  bytes: 1520950
+  modified: 2026-07-23 14:33:42 Australia/Sydney
+  map: maps/game/comm1.map
+
+BROKEN PT SAMPLE
+----------------
+  label: GEO01_COMM1_MISSING_SURFACE
+  frame/area: 12045 / 41
+  raster material: textures/decals/stainwall
+  retained/BLAS/shader counts:
+    vertices: 44520 / 44520 / 44520
+    indexes: 111588 / 111588 / 111588
+    triangles: 37196 / 37196 / 37196
+  candidate:
+    model/entity/surface: _area41 / 41 / 8
+    source v/i/t: 4 / 6 / 2
+    retained v range: 13689 + 4
+    retained i range: 31002 + 6
+    retained primitive range: 10334 + 2
+    material id/index/table/present: 465128962 / 61 / 343 / 1
+    expected instance/route present: 0 / 1
+  mismatch counters:
+    counts/handles/signature/staleBlas/frameSlot: 0 / 0 / 0 / 0 / 0
+    generation/missingRecord/inactive/outOfRange/missingRoute/missingMaterial:
+      0 / 0 / 0 / 0 / 0 / 0
+
+KNOWN-GOOD SAMPLE
+-----------------
+  label: GEO01_COMM1_GOOD_SURFACE
+  frame/area: 14700 / 60
+  raster material: textures/base_wall/sopanel34a
+  retained/BLAS/shader counts:
+    vertices: 54259 / 54259 / 54259
+    indexes: 140226 / 140226 / 140226
+    triangles: 46742 / 46742 / 46742
+  candidate:
+    model/entity/surface: _area60 / 60 / 5
+    source v/i/t: 14 / 36 / 12
+    retained v range: 13990 + 14
+    retained i range: 31755 + 36
+    retained primitive range: 10585 + 12
+    material id/index/table/present: 3003170683 / 119 / 313 / 1
+    expected instance/route present: 0 / 1
+  mismatch counters:
+    counts/handles/signature/staleBlas/frameSlot: 0 / 0 / 0 / 0 / 0
+    generation/missingRecord/inactive/outOfRange/missingRoute/missingMaterial:
+      0 / 0 / 0 / 0 / 0 / 0
+
+INTERPRETATION
+--------------
+Both samples agree through retained storage, buffer publication, the static
+BLAS, the TLAS handle, the instance-0 route, and material-table publication.
+The earliest unobserved boundary is shader instance/primitive traversal and
+hit rejection. GEO-02 is not authorized.
+
+The broken sample hit a filter-decal surface, despite the capture instruction
+asking for opaque level geometry. It is still useful because the PT primary
+ray must either accept/composite that decal or recover its receiver. It is not
+proof that the disappearing opaque level surface itself is the two-triangle
+stainwall record. The good sample also changed from area 41 to area 60, so it
+is a broad control rather than a same-area paired control.
+
+NEXT RUNG
+---------
+The one-shot now queues a Vulkan readback of the center primary-surface record.
+It reports:
+
+  accepted instance ID, primitive index, material ID/index, and surface class;
+  expected instance/range/material from the first CPU candidate;
+  invalid primary records;
+  the last any-hit or closest-hit rejection class, including alpha/decal,
+  triangle/index/vertex range failures, GUI exclusion, and a true miss.
+
+Repeat the broken sample, preferably once on the original crosshair point and
+once on an opaque non-decal part of the missing region. A same-area visible
+opaque control is preferable to area 60.

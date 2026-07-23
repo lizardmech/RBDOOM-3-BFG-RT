@@ -1,7 +1,7 @@
 GEO-01 handoff - comm1 static contract instrumentation
 =======================================================
-Status: instrumentation built and deployed; paired runtime capture pending,
-2026-07-23.
+Status: CPU paired capture complete; Vulkan shader sample implemented and
+awaiting runtime capture, 2026-07-23.
 
 SCOPE
 -----
@@ -136,17 +136,30 @@ BUILD / SHADERS / DEPLOY
 
   executable:
     E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
-    bytes: 15499264
-    modified: 2026-07-23 13:31:03 Australia/Sydney
+    bytes: 15505920
+    modified: 2026-07-23 14:55:42 Australia/Sydney
+    sha256: B0B0B3DB8F76303EC36A7D04C3ACAA482EE9E54B06A8A423498B7A197C722813
 
   deployed:
     E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
-    bytes: 15499264
-    modified: 2026-07-23 13:31:03 Australia/Sydney
+    bytes: 15505920
+    modified: 2026-07-23 14:55:42 Australia/Sydney
+    sha256: B0B0B3DB8F76303EC36A7D04C3ACAA482EE9E54B06A8A423498B7A197C722813
 
-No HLSL was changed. No shader blob was deleted, rebuilt, or deployed. The
-build reported all SPIR-V shaders up to date. DX12 shaders were not compiled or
-deployed.
+  Vulkan shader:
+    source:
+      neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+      modified: 2026-07-23 14:51:36 Australia/Sydney
+    blob:
+      base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke.rt.bin
+      bytes: 1254716
+      modified: 2026-07-23 14:52:36 Australia/Sydney
+      sha256: 2ED459A83CA5C4CD37869E262250E672C8EE04E091004D7B9CBC9852D6AF754D
+
+The affected smoke RT blob was explicitly deleted before the build. Its mtime
+is newer than the edited source. Only that SPIR-V blob was copied to the
+prebuilt tree, and its deployed SHA-256 matches. DX12 shaders were not compiled
+or deployed.
 
 ROLLBACK
 --------
@@ -159,6 +172,14 @@ block in PathTraceSmokeSceneBuild.cpp.
 
 NEXT
 ----
-Return the paired labeled log section. GEO-01 remains open until the first
-producer/consumer mismatch is proven, or the new data proves that the remaining
-unobserved boundary is the shader instance/primitive route.
+The paired log is recorded in GEO-01_runtime_capture_2026-07-23.txt. All CPU
+counters were zero in both samples, so the remaining boundary is the shader
+instance/primitive route. The broken raster probe hit
+`textures/decals/stainwall`; this does not identify the underlying disappearing
+opaque surface.
+
+The same one-shot now queues a center-pixel primary-surface record readback and
+prints a later `PT static contract shaderSample` line. Repeat the broken point,
+an opaque non-decal point in the missing region, and preferably an opaque
+same-area good control. GEO-02 remains blocked until that output proves the
+earliest shader-side disagreement.

@@ -241,12 +241,45 @@ std::vector<uint32_t> ParticleCompositeBuildUploadIndexes(const RtPathTraceParti
 
 void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList* commandList, const viewDef_t* viewDef)
 {
+    const uint64 diagnosticStartUs = Sys_Microseconds();
+    const int diagnosticRequest = r_pathTracingParticleDump.GetInteger();
+    const bool diagnosticBatchDetails = diagnosticRequest == 1;
+    if (diagnosticRequest != 0)
+    {
+        r_pathTracingParticleDump.SetInteger(0);
+        if (diagnosticRequest >= 2)
+        {
+            m_particleDiagnosticFramesRemaining = 240;
+        }
+    }
+    const bool diagnosticFrame = diagnosticBatchDetails || m_particleDiagnosticFramesRemaining > 0;
     const int currentFrame = idLib::frameNumber;
     if (!commandList || !viewDef || !m_particleCapture.enabled || m_particleCapture.batches.empty() ||
         m_particleCapture.vertices.empty() || m_particleCapture.indexes.empty() || !m_frameResources.outputTexture ||
         !m_frameResources.rrGuidePositionTexture || !m_backend || !deviceManager ||
         deviceManager->GetGraphicsAPI() != nvrhi::GraphicsAPI::VULKAN)
     {
+        if (diagnosticFrame)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: PT particle composite frame=%d unavailable command/view/enabled/batches/vertices/indexes/output/depth/backend/device/vulkan=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d/%d\n",
+                currentFrame,
+                commandList ? 1 : 0,
+                viewDef ? 1 : 0,
+                m_particleCapture.enabled ? 1 : 0,
+                m_particleCapture.batches.empty() ? 0 : 1,
+                m_particleCapture.vertices.empty() ? 0 : 1,
+                m_particleCapture.indexes.empty() ? 0 : 1,
+                m_frameResources.outputTexture ? 1 : 0,
+                m_frameResources.rrGuidePositionTexture ? 1 : 0,
+                m_backend ? 1 : 0,
+                deviceManager ? 1 : 0,
+                deviceManager && deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN ? 1 : 0);
+            if (m_particleDiagnosticFramesRemaining > 0)
+            {
+                --m_particleDiagnosticFramesRemaining;
+            }
+        }
         m_particleLightingPreviousTasks.clear();
         m_particleLightingHistoryFrame = -1;
         return;
@@ -255,6 +288,14 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
     nvrhi::IDevice* device = deviceManager->GetDevice();
     if (!device)
     {
+        if (diagnosticFrame)
+        {
+            common->Printf("PathTracePrimaryPass: PT particle composite frame=%d unavailable device=0\n", currentFrame);
+            if (m_particleDiagnosticFramesRemaining > 0)
+            {
+                --m_particleDiagnosticFramesRemaining;
+            }
+        }
         m_particleLightingPreviousTasks.clear();
         m_particleLightingHistoryFrame = -1;
         return;
@@ -331,9 +372,14 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         m_particleCompositePipelines[blendIndex] = device->createGraphicsPipeline(pipelineDesc, m_particleCompositeFramebuffer);
     }
 
+    const uint64 setupCompleteUs = Sys_Microseconds();
     const std::vector<uint32_t> uploadIndexes = ParticleCompositeBuildUploadIndexes(m_particleCapture);
+    const uint64 sortCompleteUs = Sys_Microseconds();
     const uint64_t vertexBytes = m_particleCapture.vertices.size() * sizeof(ParticleCompositeVertex);
     const uint64_t indexBytes = uploadIndexes.size() * sizeof(uint32_t);
+    const nvrhi::IBuffer* previousVertexBuffer = m_particleCompositeVertexBuffer.Get();
+    const nvrhi::IBuffer* previousIndexBuffer = m_particleCompositeIndexBuffer.Get();
+    const nvrhi::IBuffer* previousLightingOutputBuffer = m_particleLightingOutputBuffer.Get();
     m_particleCompositeVertexBuffer = ParticleCompositeEnsureBuffer(
         device, m_particleCompositeVertexBuffer, "PathTraceParticleCompositeVertices", vertexBytes, sizeof(ParticleCompositeVertex), false);
     m_particleCompositeIndexBuffer = ParticleCompositeEnsureBuffer(
@@ -355,6 +401,10 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         m_particleLightingHistoryFrame = -1;
         return;
     }
+    const bool vertexBufferChanged = previousVertexBuffer != m_particleCompositeVertexBuffer.Get();
+    const bool indexBufferChanged = previousIndexBuffer != m_particleCompositeIndexBuffer.Get();
+    const bool lightingOutputBufferChanged = previousLightingOutputBuffer != m_particleLightingOutputBuffer.Get();
+    const uint64 buffersCompleteUs = Sys_Microseconds();
 
     uint32_t temporalHistoryMatches = 0u;
     for (ParticleCompositeLightingTask& task : m_particleCapture.lightingTasks)
@@ -519,6 +569,12 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
     const nvrhi::Viewport viewport(
         static_cast<float>(m_frameResources.outputWidth),
         static_cast<float>(m_frameResources.outputHeight));
+    const uint64 preDrawUs = Sys_Microseconds();
+    uint64 bindingCreateUs = 0;
+    uint64 bindingCreateMaxUs = 0;
+    int bindingCreateCount = 0;
+    int bindingCreateFailures = 0;
+    int drawCount = 0;
     for (const ParticleCompositeBatch& batch : m_particleCapture.batches)
     {
         if (batch.indexCount == 0 || batch.textureIndex >= m_particleCapture.textures.size())
@@ -547,9 +603,15 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(2, m_frameResources.rrGuidePositionTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_particleLightingOutputBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
+        const uint64 bindingStartUs = Sys_Microseconds();
         nvrhi::BindingSetHandle bindingSet = device->createBindingSet(bindingSetDesc, m_particleCompositeBindingLayout);
+        const uint64 bindingUs = Sys_Microseconds() - bindingStartUs;
+        bindingCreateUs += bindingUs;
+        bindingCreateMaxUs = Max(bindingCreateMaxUs, bindingUs);
+        ++bindingCreateCount;
         if (!bindingSet)
         {
+            ++bindingCreateFailures;
             continue;
         }
 
@@ -581,6 +643,7 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
         args.vertexCount = batch.indexCount;
         args.startIndexLocation = batch.firstIndex;
         commandList->drawIndexed(args);
+        ++drawCount;
     }
 
     commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
@@ -598,5 +661,81 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
     {
         m_particleLightingPreviousTasks.clear();
         m_particleLightingHistoryFrame = -1;
+    }
+
+    if (diagnosticFrame)
+    {
+        const uint64 diagnosticEndUs = Sys_Microseconds();
+        const RtPathTraceParticleCaptureStats& stats = m_particleCapture.stats;
+        common->Printf(
+            "PathTracePrimaryPass: PT particle composite frame=%d total/setup/sort/buffers/uploadLighting/drawRecordUs=%llu/%llu/%llu/%llu/%llu/%llu capture(candidates/surfaces/batches/quads/triPrims)=%d/%d/%d/%d/%d vectors(v/i/q/p/tasks/textures)=%u/%u/%u/%u/%u/%u bytes(v/i)=%llu/%llu bufferChanged(v/i/light)=%d/%d/%d lighting(requested/ready/historyMatches)=%d/%d/%u bindings(count/fail/totalUs/maxUs)=%d/%d/%llu/%llu draws=%d modes(composite/sort/lighting/temporal)=%d/%d/%d/%d traceRemaining=%d\n",
+            currentFrame,
+            static_cast<unsigned long long>(diagnosticEndUs - diagnosticStartUs),
+            static_cast<unsigned long long>(setupCompleteUs - diagnosticStartUs),
+            static_cast<unsigned long long>(sortCompleteUs - setupCompleteUs),
+            static_cast<unsigned long long>(buffersCompleteUs - sortCompleteUs),
+            static_cast<unsigned long long>(preDrawUs - buffersCompleteUs),
+            static_cast<unsigned long long>(diagnosticEndUs - preDrawUs),
+            stats.candidateSurfaces,
+            stats.capturedSurfaces,
+            stats.capturedBatches,
+            stats.capturedDrawQuads,
+            stats.capturedTrianglePrimitives,
+            static_cast<unsigned int>(m_particleCapture.vertices.size()),
+            static_cast<unsigned int>(m_particleCapture.indexes.size()),
+            static_cast<unsigned int>(m_particleCapture.quads.size()),
+            static_cast<unsigned int>(m_particleCapture.primitives.size()),
+            static_cast<unsigned int>(m_particleCapture.lightingTasks.size()),
+            static_cast<unsigned int>(m_particleCapture.textures.size()),
+            static_cast<unsigned long long>(vertexBytes),
+            static_cast<unsigned long long>(indexBytes),
+            vertexBufferChanged ? 1 : 0,
+            indexBufferChanged ? 1 : 0,
+            lightingOutputBufferChanged ? 1 : 0,
+            particleLightingRequested ? 1 : 0,
+            particleLightingReady ? 1 : 0,
+            temporalHistoryMatches,
+            bindingCreateCount,
+            bindingCreateFailures,
+            static_cast<unsigned long long>(bindingCreateUs),
+            static_cast<unsigned long long>(bindingCreateMaxUs),
+            drawCount,
+            r_pathTracingParticleComposite.GetInteger(),
+            r_pathTracingParticleSortMode.GetInteger(),
+            r_pathTracingParticleLighting.GetInteger(),
+            r_pathTracingParticleTemporalLighting.GetInteger(),
+            m_particleDiagnosticFramesRemaining);
+
+        if (diagnosticBatchDetails)
+        {
+            const int batchLimit = Min(16, static_cast<int>(m_particleCapture.batches.size()));
+            for (int batchIndex = 0; batchIndex < batchLimit; ++batchIndex)
+            {
+                const ParticleCompositeBatch& batch = m_particleCapture.batches[batchIndex];
+                common->Printf(
+                    "PathTracePrimaryPass: PT particle batch=%d material='%s' entity=%d surface/stage=%d/%d blend/depth/source=%u/%u/%u v(first/count)=%u/%u i(first/count)=%u/%u texture=%u flags=0x%08x materialId=%u emissive=%.3f softDepth=%.3f\n",
+                    batchIndex,
+                    batch.material ? batch.material->GetName() : "<none>",
+                    batch.sourceEntityId,
+                    batch.surfaceIndex,
+                    batch.stageIndex,
+                    static_cast<unsigned int>(batch.blendClass),
+                    static_cast<unsigned int>(batch.depthPolicy),
+                    static_cast<unsigned int>(batch.sourceClass),
+                    batch.firstVertex,
+                    batch.vertexCount,
+                    batch.firstIndex,
+                    batch.indexCount,
+                    batch.textureIndex,
+                    batch.flags,
+                    batch.materialId,
+                    batch.emissiveScale,
+                    batch.softDepth);
+            }
+        }
+        if (m_particleDiagnosticFramesRemaining > 0)
+        {
+            --m_particleDiagnosticFramesRemaining;
+        }
     }
 }

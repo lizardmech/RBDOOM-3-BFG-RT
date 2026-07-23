@@ -236,6 +236,8 @@ private:
     void ReadBackRayTracingSmokeTest();
     void ReadBackSkyCubeProbe();
     void ReadBackLiquidPoolStatus();
+    void ReadBackStaticContractShaderSample();
+    void QueueStaticContractShaderSample(nvrhi::ICommandList* commandList);
     void ExecutePathTraceParticleComposite(nvrhi::ICommandList* commandList, const viewDef_t* viewDef);
 
     idRenderBackend* m_backend;
@@ -327,6 +329,7 @@ private:
     nvrhi::TextureHandle m_particleCompositeFramebufferTexture;
     nvrhi::BufferHandle m_particleCompositeVertexBuffer;
     nvrhi::BufferHandle m_particleCompositeIndexBuffer;
+    int m_particleDiagnosticFramesRemaining = 0;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokePreviousSkinnedSurfaceRecords;
     std::vector<PathTraceSmokeVertex> m_smokePreviousSkinnedVertexData;
@@ -395,6 +398,20 @@ private:
     nvrhi::BufferHandle m_liquidPoolStatusReadbackBuffer;
     bool m_liquidPoolStatusReadbackQueued = false;
     int m_liquidPoolStatusReadbackDelayFrames = 0;
+    nvrhi::BufferHandle m_staticContractShaderReadbackBuffer;
+    bool m_staticContractShaderReadbackRequested = false;
+    bool m_staticContractShaderReadbackQueued = false;
+    int m_staticContractShaderReadbackDelayFrames = 0;
+    uint64 m_staticContractShaderSampleFrame = 0;
+    int m_staticContractShaderSampleX = 0;
+    int m_staticContractShaderSampleY = 0;
+    int m_staticContractShaderSampleWidth = 0;
+    int m_staticContractShaderSampleHeight = 0;
+    uint32_t m_staticContractExpectedInstance = 0;
+    uint32_t m_staticContractExpectedPrimitiveFirst = UINT32_MAX;
+    uint32_t m_staticContractExpectedPrimitiveCount = 0;
+    uint32_t m_staticContractExpectedMaterialId = 0;
+    uint32_t m_staticContractExpectedMaterialIndex = UINT32_MAX;
     uint32_t m_liquidPoolLastExceptionalMask[8] = {};
     uint32_t m_liquidPoolLastOverflowCount[8] = {};
     nvrhi::BufferHandle m_smokeCleanRtxdiDiCurrentReservoirBuffer;

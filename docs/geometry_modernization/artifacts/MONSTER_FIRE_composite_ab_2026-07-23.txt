@@ -1,0 +1,63 @@
+Monster fire particle-composite A/B - 2026-07-23
+=================================================
+
+SOURCE
+------
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo01.log
+  bytes: 1520950
+  modified: 2026-07-23 14:33:42 Australia/Sydney
+
+METHOD
+------
+The first two com_speeds rows after each logging transition were discarded as
+transition/logging-gap artifacts. Retained windows:
+
+  baseline:             83 frames
+  composite off A:     142 frames
+  composite off B:      70 frames
+  sort off:              91 frames
+  particle lighting off:130 frames
+
+RESULTS
+-------
+  window              all median  all max  >200 ms  >500 ms  bk max
+  baseline                    65     1852         4        4     1834
+  composite off A             46       80         0        0       38
+  composite off B             47       76         0        0       31
+  sort off                    46     1819         4        4     1810
+  particle lighting off       44     1828         5        5     1824
+
+Representative baseline stalls were 943-952 ms and 1852 ms. The sort-off
+window retained 927-931 ms and 1812-1819 ms stalls. The lighting-off window
+retained 916-946 ms and 1805-1828 ms stalls. Across 212 retained frames with
+the composite disabled, no frame exceeded 80 ms.
+
+INTERPRETATION
+--------------
+The recurring 0.9-1.8 second stalls belong to the screen-space particle
+composite path. CPU alpha sorting is not required for the failure. The
+particle-lighting compute path is not required for the failure. Scene-build
+logging remained in the normal low-tens-of-milliseconds range, while the next
+com_speeds row attributes the long stall to bk, so the CPU geometry capture/
+scene-build path does not explain it.
+
+The most suspicious unmeasured operation is per-batch graphics binding-set
+creation in ExecutePathTraceParticleComposite, but the A/B does not prove that
+as the cause. Buffer growth, texture/batch churn, and later Vulkan submission
+or descriptor reclamation remain possible.
+
+NEW BOUNDED DIAGNOSTIC
+----------------------
+  r_pathTracingParticleDump 1
+    One composite frame plus up to 16 batch records.
+
+  r_pathTracingParticleDump 2
+    Trace exactly 240 attempted composite frames, one concise line per frame,
+    then auto-disable.
+
+The trace reports frame-aligned capture/vector counts, upload bytes, buffer
+handle changes, lighting state, descriptor binding-set create count/failures/
+CPU time, draw count, and setup/sort/buffer/upload-lighting/draw-record CPU
+phase timing. Use mode 2 together with com_speeds 1 at the malfunctioning
+monster. Do not apply a descriptor-cache fix unless those aligned records
+distinguish descriptor creation/reclamation from buffer or batch churn.

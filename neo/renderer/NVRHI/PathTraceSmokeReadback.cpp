@@ -162,6 +162,29 @@ void AccumulateRigidRouteOverlapBucket(RigidRouteOverlapCounts& counts, RigidRou
     }
 }
 
+const char* StaticContractRejectReasonName(uint32_t reason)
+{
+    switch (reason)
+    {
+        case RT_STATIC_CONTRACT_REJECT_NONE: return "none";
+        case RT_STATIC_CONTRACT_REJECT_GUI_ALPHA: return "gui_alpha";
+        case RT_STATIC_CONTRACT_REJECT_PARTICLE_DITHER: return "particle_dither";
+        case RT_STATIC_CONTRACT_REJECT_GLASS_FALLBACK: return "glass_fallback";
+        case RT_STATIC_CONTRACT_REJECT_ADDITIVE_DECAL: return "additive_decal";
+        case RT_STATIC_CONTRACT_REJECT_FILTER_DECAL: return "filter_decal";
+        case RT_STATIC_CONTRACT_REJECT_ALPHA_TEST: return "alpha_test";
+        case RT_STATIC_CONTRACT_REJECT_RIGID_INSTANCE_RANGE: return "rigid_instance_range";
+        case RT_STATIC_CONTRACT_REJECT_RIGID_PRIMITIVE_RANGE: return "rigid_primitive_range";
+        case RT_STATIC_CONTRACT_REJECT_RIGID_INDEX_RANGE: return "rigid_index_range";
+        case RT_STATIC_CONTRACT_REJECT_RIGID_VERTEX_RANGE: return "rigid_vertex_range";
+        case RT_STATIC_CONTRACT_REJECT_TRIANGLE_RANGE: return "triangle_range";
+        case RT_STATIC_CONTRACT_REJECT_VERTEX_RANGE: return "vertex_range";
+        case RT_STATIC_CONTRACT_REJECT_MISS: return "miss";
+        case RT_STATIC_CONTRACT_REJECT_GUI_PRIMARY: return "gui_primary";
+        default: return "unknown";
+    }
+}
+
 }
 
 void PathTracePrimaryPass::ReadBackSkyCubeProbe()
@@ -262,10 +285,160 @@ void PathTracePrimaryPass::ReadBackLiquidPoolStatus()
     m_liquidPoolStatusReadbackQueued = false;
 }
 
+void PathTracePrimaryPass::QueueStaticContractShaderSample(nvrhi::ICommandList* commandList)
+{
+    if (!m_staticContractShaderReadbackRequested || m_staticContractShaderReadbackQueued)
+    {
+        return;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    const RtRestirPTPrimarySurfaceHistoryBufferHandles& history = m_frameResources.primarySurfaceHistoryBuffers;
+    if (!commandList || !device || !history.current ||
+        m_staticContractShaderSampleWidth <= 0 || m_staticContractShaderSampleHeight <= 0 ||
+        m_staticContractShaderSampleX < 0 || m_staticContractShaderSampleY < 0 ||
+        m_staticContractShaderSampleX >= m_staticContractShaderSampleWidth ||
+        m_staticContractShaderSampleY >= m_staticContractShaderSampleHeight)
+    {
+        common->Printf("PathTracePrimaryPass: PT static contract shader sample unavailable before copy\n");
+        m_staticContractShaderReadbackRequested = false;
+        return;
+    }
+
+    if (!m_staticContractShaderReadbackBuffer)
+    {
+        nvrhi::BufferDesc desc;
+        desc.byteSize = sizeof(RtPathTracePrimarySurfaceRecord);
+        desc.structStride = sizeof(uint32_t);
+        desc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        desc.debugName = "PathTraceStaticContractShaderReadback";
+        desc.initialState = nvrhi::ResourceStates::CopyDest;
+        desc.keepInitialState = true;
+        m_staticContractShaderReadbackBuffer = device->createBuffer(desc);
+    }
+    if (!m_staticContractShaderReadbackBuffer)
+    {
+        common->Printf("PathTracePrimaryPass: PT static contract shader readback buffer creation failed\n");
+        m_staticContractShaderReadbackRequested = false;
+        return;
+    }
+
+    const uint64_t pixelIndex =
+        static_cast<uint64_t>(m_staticContractShaderSampleY) * static_cast<uint64_t>(m_staticContractShaderSampleWidth) +
+        static_cast<uint64_t>(m_staticContractShaderSampleX);
+    const uint64_t sourceOffset = pixelIndex * sizeof(RtPathTracePrimarySurfaceRecord);
+    if (sourceOffset + sizeof(RtPathTracePrimarySurfaceRecord) > history.current->getDesc().byteSize)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: PT static contract shader sample offset out of range pixel=%llu offset=%llu bytes=%llu\n",
+            static_cast<unsigned long long>(pixelIndex),
+            static_cast<unsigned long long>(sourceOffset),
+            static_cast<unsigned long long>(history.current->getDesc().byteSize));
+        m_staticContractShaderReadbackRequested = false;
+        return;
+    }
+
+    commandList->setBufferState(history.current, nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(m_staticContractShaderReadbackBuffer, nvrhi::ResourceStates::CopyDest);
+    commandList->commitBarriers();
+    commandList->copyBuffer(
+        m_staticContractShaderReadbackBuffer,
+        0,
+        history.current,
+        sourceOffset,
+        sizeof(RtPathTracePrimarySurfaceRecord));
+    commandList->setBufferState(history.current, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->commitBarriers();
+
+    m_staticContractShaderReadbackRequested = false;
+    m_staticContractShaderReadbackQueued = true;
+    m_staticContractShaderReadbackDelayFrames = 3;
+    common->Printf(
+        "PathTracePrimaryPass: PT static contract shader sample queued frame=%llu pixel=%d/%d dimensions=%d/%d\n",
+        static_cast<unsigned long long>(m_staticContractShaderSampleFrame),
+        m_staticContractShaderSampleX,
+        m_staticContractShaderSampleY,
+        m_staticContractShaderSampleWidth,
+        m_staticContractShaderSampleHeight);
+}
+
+void PathTracePrimaryPass::ReadBackStaticContractShaderSample()
+{
+    if (!m_staticContractShaderReadbackQueued || !m_staticContractShaderReadbackBuffer)
+    {
+        return;
+    }
+    if (m_staticContractShaderReadbackDelayFrames > 0)
+    {
+        --m_staticContractShaderReadbackDelayFrames;
+        return;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+    const RtPathTracePrimarySurfaceRecord* record = static_cast<const RtPathTracePrimarySurfaceRecord*>(
+        device->mapBuffer(m_staticContractShaderReadbackBuffer, nvrhi::CpuAccessMode::Read));
+    if (!record)
+    {
+        common->Printf("PathTracePrimaryPass: PT static contract shader sample readback map failed\n");
+        m_staticContractShaderReadbackQueued = false;
+        return;
+    }
+
+    const uint32_t validFlags = record->header[1];
+    const uint32_t instanceId = record->instancePrimitiveObject[0];
+    const uint32_t primitiveIndex = record->instancePrimitiveObject[1];
+    const uint32_t rejectReason = record->instancePrimitiveObject[2];
+    const bool valid = (validFlags & 1u) != 0u;
+    const bool instanceMatches = valid && instanceId == m_staticContractExpectedInstance;
+    const bool primitiveMatches =
+        valid &&
+        m_staticContractExpectedPrimitiveFirst != UINT32_MAX &&
+        primitiveIndex >= m_staticContractExpectedPrimitiveFirst &&
+        primitiveIndex - m_staticContractExpectedPrimitiveFirst < m_staticContractExpectedPrimitiveCount;
+    const bool materialIdMatches = valid && record->materialAndSurface[0] == m_staticContractExpectedMaterialId;
+    const bool materialIndexMatches = valid && record->materialAndSurface[1] == m_staticContractExpectedMaterialIndex;
+
+    common->Printf(
+        "PathTracePrimaryPass: PT static contract shaderSample frame=%llu pixel=%d/%d dimensions=%d/%d version=%u validFlags=0x%08x status=%u instance=%u primitive=%u material(id/index)=%u/%u surfaceClass=%u reject=%u(%s) expected(instance/primitiveFirst/count/materialId/materialIndex)=%u/%u/%u/%u/%u match(valid/instance/primitive/materialId/materialIndex)=%d/%d/%d/%d/%d\n",
+        static_cast<unsigned long long>(m_staticContractShaderSampleFrame),
+        m_staticContractShaderSampleX,
+        m_staticContractShaderSampleY,
+        m_staticContractShaderSampleWidth,
+        m_staticContractShaderSampleHeight,
+        record->header[0],
+        validFlags,
+        record->header[2],
+        instanceId,
+        primitiveIndex,
+        record->materialAndSurface[0],
+        record->materialAndSurface[1],
+        record->materialAndSurface[3],
+        rejectReason,
+        StaticContractRejectReasonName(rejectReason),
+        m_staticContractExpectedInstance,
+        m_staticContractExpectedPrimitiveFirst,
+        m_staticContractExpectedPrimitiveCount,
+        m_staticContractExpectedMaterialId,
+        m_staticContractExpectedMaterialIndex,
+        valid ? 1 : 0,
+        instanceMatches ? 1 : 0,
+        primitiveMatches ? 1 : 0,
+        materialIdMatches ? 1 : 0,
+        materialIndexMatches ? 1 : 0);
+
+    device->unmapBuffer(m_staticContractShaderReadbackBuffer);
+    m_staticContractShaderReadbackQueued = false;
+}
+
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
     ReadBackSkyCubeProbe();
     ReadBackLiquidPoolStatus();
+    ReadBackStaticContractShaderSample();
 
     const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
