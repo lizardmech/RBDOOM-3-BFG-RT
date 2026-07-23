@@ -4894,6 +4894,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int staticIndexCacheCount = geometryUniverseStats.staticIndexes;
     const int staticTriangleCacheCount = geometryUniverseStats.staticTriangles;
     const int staticCacheBytesKB = geometryUniverseStats.staticBytesKB;
+    const bool forceStaticBlasRebuild = r_pathTracingStaticBlasForceRebuild.GetBool();
     RtSmokeAccelerationPlanInput accelerationPlanInput;
     {
         OPTICK_EVENT("PT Acceleration Plan Input Desc");
@@ -4923,7 +4924,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticTriangleClassBuffer &&
             m_smokeStaticTriangleMaterialBuffer &&
             m_smokeStaticTriangleMaterialIndexBuffer;
-        accelerationPlanInput.staticCache.staticCacheChanged = staticCacheChanged;
+        accelerationPlanInput.staticCache.staticCacheChanged = staticCacheChanged || forceStaticBlasRebuild;
         accelerationPlanInput.staticCache.previousSignatureHash = m_smokeStaticBlasSignature;
         accelerationPlanInput.staticVertexCount = staticVertexCount;
         accelerationPlanInput.staticIndexCount = staticIndexCount;
@@ -6459,7 +6460,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_sceneInputs.geometry.staticBlas != m_smokeStaticBlas;
 
         common->Printf(
-            "PathTracePrimaryPass: PT static contract tuple map='%s' frame=%llu area=%d worldGen=%llu storageGen=%llu activeSetGen=%llu uploadGen=%llu routeGen=%llu counts(cache/blas/shader v/i/t)=%d/%d/%d %d/%d/%d %d/%d/%d handles(v/i/class/material/remap/blas/tlas)=%p/%p/%p/%p/%p/%p/%p staticSig=%llu cacheHit=%d build(submit/skip)=%d/%d tlasInstances=%d tupleMismatch(counts/handles/signature/staleBlas/frameSlot)=%d/%d/%d/%d/%d shaderSample=unobserved\n",
+            "PathTracePrimaryPass: PT static contract tuple map='%s' frame=%llu area=%d worldGen=%llu storageGen=%llu activeSetGen=%llu uploadGen=%llu routeGen=%llu counts(cache/blas/shader v/i/t)=%d/%d/%d %d/%d/%d %d/%d/%d handles(v/i/class/material/remap/blas/tlas)=%p/%p/%p/%p/%p/%p/%p staticSig=%llu cacheHit=%d forceRebuild=%d build(submit/skip)=%d/%d tlasInstances=%d tupleMismatch(counts/handles/signature/staleBlas/frameSlot)=%d/%d/%d/%d/%d shaderSample=unobserved\n",
             m_smokeSceneMapName.c_str(),
             static_cast<unsigned long long>(geometryUniverseStats.frameIndex),
             viewDef ? viewDef->areaNum : -1,
@@ -6486,6 +6487,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeTlas.Get(),
             static_cast<unsigned long long>(staticSignature.hash),
             staticBlasCacheHit ? 1 : 0,
+            forceStaticBlasRebuild ? 1 : 0,
             accelSubmitTiming.staticBlasBuildSubmitted ? 1 : 0,
             accelSubmitTiming.staticBlasBuildSkipped ? 1 : 0,
             instanceCount,
@@ -6661,6 +6663,52 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 smokeStaticBlas &&
                 m_smokeTlas &&
                 instanceCount > 0;
+            bool cacheRayHit = false;
+            int cacheRayPrimitive = -1;
+            int cacheRayValidTriangles = 0;
+            float cacheRayHitDistance = 0.0f;
+            idBounds cacheBounds;
+            cacheBounds.Clear();
+            if (rangeValid)
+            {
+                for (int vertexIndex = 0; vertexIndex < vertexCount; ++vertexIndex)
+                {
+                    cacheBounds.AddPoint(SmokeVertexPosition(staticVertexCache[vertexOffset + vertexIndex]));
+                }
+
+                idVec3 cacheRayDirection = traceEnd - traceStart;
+                cacheRayDirection.Normalize();
+                float closestHitDistance = 1.0e30f;
+                for (int localTriangle = 0; localTriangle < triangleCount; ++localTriangle)
+                {
+                    const int localIndexOffset = indexOffset + localTriangle * 3;
+                    const uint32_t i0 = staticIndexCache[localIndexOffset + 0];
+                    const uint32_t i1 = staticIndexCache[localIndexOffset + 1];
+                    const uint32_t i2 = staticIndexCache[localIndexOffset + 2];
+                    if (i0 >= staticVertexCache.size() ||
+                        i1 >= staticVertexCache.size() ||
+                        i2 >= staticVertexCache.size())
+                    {
+                        continue;
+                    }
+                    ++cacheRayValidTriangles;
+                    float hitDistance = 0.0f;
+                    if (IntersectRayTriangle(
+                            traceStart,
+                            cacheRayDirection,
+                            SmokeVertexPosition(staticVertexCache[i0]),
+                            SmokeVertexPosition(staticVertexCache[i1]),
+                            SmokeVertexPosition(staticVertexCache[i2]),
+                            hitDistance) &&
+                        hitDistance < closestHitDistance)
+                    {
+                        cacheRayHit = true;
+                        cacheRayPrimitive = triangleOffset + localTriangle;
+                        cacheRayHitDistance = hitDistance;
+                        closestHitDistance = hitDistance;
+                    }
+                }
+            }
             if (emittedCandidates == 0 && rangeValid &&
                 m_staticContractShaderReadbackRequested &&
                 m_staticContractShaderSampleFrame == geometryUniverseStats.frameIndex)
@@ -6707,6 +6755,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 materialPresent ? 1 : 0,
                 0,
                 routePresent ? 1 : 0);
+            common->Printf(
+                "PathTracePrimaryPass: PT static contract cacheRay candidate=%d validTriangles=%d hit=%d primitive=%d hitT=%.4f receiverT=%.4f delta=%.4f bounds=(%.2f %.2f %.2f)-(%.2f %.2f %.2f)\n",
+                emittedCandidates,
+                cacheRayValidTriangles,
+                cacheRayHit ? 1 : 0,
+                cacheRayPrimitive,
+                cacheRayHitDistance,
+                (contractTrace.point - traceStart).Length(),
+                cacheRayHit ? idMath::Fabs(cacheRayHitDistance - (contractTrace.point - traceStart).Length()) : 0.0f,
+                cacheBounds[0].x,
+                cacheBounds[0].y,
+                cacheBounds[0].z,
+                cacheBounds[1].x,
+                cacheBounds[1].y,
+                cacheBounds[1].z);
             ++emittedCandidates;
         }
 

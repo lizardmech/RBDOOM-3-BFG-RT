@@ -133,3 +133,72 @@ remains blocked until that capture distinguishes:
   - front static hit rejected by alpha/decal policy;
   - front/receiver static primitive never traversed;
   - receiver identity/range differs before traversal.
+
+THIRD CAPTURE - BRUSH RECEIVER LOCALIZED
+----------------------------------------
+  source:
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo03.log
+  bytes: 350229
+  modified: 2026-07-23 15:37:16.329 Australia/Sydney
+
+The two accepted labels are:
+
+  GEO01_MISSING_ORIGINAL_STICKY_RECEIVER, frame 6639
+  GEO01_MISSING_OPAQUE_STICKY_RECEIVER, frame 7059
+
+Both samples resolve the decal to the same opaque receiver:
+
+  model/material: _area41 / textures/base_wall/sopanel34a
+  entity/surface: 41 / 5
+  source vertices/indexes/triangles: 8 / 12 / 4
+  retained vertex range: 20188 + 8
+  retained index range: 51069 + 12
+  retained primitive range: 17023 + 4
+  material id/index: 3003170683 / 147
+  expected route: static instance 0
+
+The retained, BLAS-descriptor, and shader-visible counts all agree at
+44520 / 111588 / 37196. All tuple, record, range, material, generation, and
+route mismatch counters are zero. The static BLAS is a cache hit and is skipped
+on both frames.
+
+The shader instead accepts rigid-route instance 53, primitive 91, material
+2142472774 / 213. The sticky rejection is `none`: neither any-hit nor
+closest-hit reported the expected brush receiver before the later rigid hit.
+This rules out alpha/decal rejection of the receiver for these samples.
+
+The operator's scene-wide observation is consistent with the tuple evidence:
+the disappearing pieces are brush parts, while the objects that remain use the
+rigid route. Their source asset format is not present in this capture, so
+`.lwo` is a likely visual classification, not a proved runtime field.
+
+LOCALIZED BOUNDARY
+------------------
+The first unproved boundary is now the retained static vertex/index cache to
+static-BLAS traversal. Capture identity, material publication, buffer counts,
+BLAS/TLAS handles, instance mask, transform, and shader route all agree. The
+brush receiver is never reported to the hit shaders.
+
+The next build adds two default-off diagnostics:
+
+  - `cacheRay`, an exact CPU ray test against the retained triangles and ranges
+    named by the receiver candidate;
+  - `r_pathTracingStaticBlasForceRebuild`, which bypasses static BLAS reuse for
+    a controlled A/B without changing geometry capture or shader routing.
+
+Interpret the pair as follows:
+
+  cacheRay hit=0
+    The retained vertex/index content or transform does not reproduce the
+    raster receiver. Localize capture/index construction before GEO-02.
+
+  cacheRay hit=1 and force rebuild restores the brush
+    Static BLAS invalidation/reuse is the earliest failed invariant. GEO-02 may
+    repair that invalidation narrowly.
+
+  cacheRay hit=1 and force rebuild does not restore the brush
+    The retained geometry is correct, but BLAS build/traversal or its TLAS
+    publication remains bad. Continue instrumentation at that exact boundary.
+
+GEO-02 remains blocked until this final A/B supplies the expected/actual
+distinction. A permanent force-rebuild workaround is not authorized.

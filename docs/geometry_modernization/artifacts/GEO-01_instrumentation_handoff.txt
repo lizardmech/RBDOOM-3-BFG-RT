@@ -191,3 +191,57 @@ The one-shot now:
 Repeat the original broken point and the corrected missing opaque point.
 GEO-02 remains blocked until the new rows say whether static traversal rejects
 the front/receiver or never visits it.
+
+THIRD CAPTURE STATUS
+--------------------
+GEO-03 resolves both broken points to the same opaque brush receiver:
+`_area41`, surface 5, material `textures/base_wall/sopanel34a`, retained
+primitive range 17023 + 4, expected static instance 0. The shader accepts a
+later rigid-route hit and the sticky rejection remains `none`.
+
+This proves the expected brush receiver never reaches any-hit or closest-hit.
+The earliest remaining boundary is retained static vertex/index content to
+static-BLAS traversal. GEO-02 is still blocked by one distinction: bad retained
+geometry versus stale/non-traversable acceleration data.
+
+FINAL BOUNDED A/B
+-----------------
+At either reproduced missing-brush point, run:
+
+  echo === GEO01_BRUSH_CACHE_REUSE ===
+  r_pathTracingStaticBlasForceRebuild 0
+  r_pathTracingStaticContractDump 1
+
+Then, without moving the crosshair:
+
+  echo === GEO01_BRUSH_FORCE_REBUILD ===
+  r_pathTracingStaticBlasForceRebuild 1
+  r_pathTracingStaticContractDump 1
+
+Observe whether the missing brush returns while force rebuild is enabled. The
+second tuple must show `forceRebuild=1`, `cacheHit=0`, and
+`build(submit/skip)=1/0`. Each dump also prints `PT static contract cacheRay`.
+
+After capture, restore:
+
+  r_pathTracingStaticBlasForceRebuild 0
+
+Do not leave force rebuild enabled for normal play. It rebuilds the full
+monolithic static BLAS every frame and exists only to localize this contract.
+
+FINAL A/B BUILD / DEPLOY
+------------------------
+  command:
+    from neo/, cmake --build --preset win64-pt-dev-release
+
+  result:
+    success; all SPIR-V shaders reported up to date
+
+  executable and deployed copy:
+    bytes: 15511040
+    modified: 2026-07-23 15:48:26.669 Australia/Sydney
+    sha256: 5DDF2360CCD239F5B22F3D30A1CCE9DFB7A81DCEAFAB50B458D04EDAAD5E1E3A
+
+No shader source changed in this rung. No SPIR-V blob was rebuilt or copied;
+the existing smoke RT blob retained its 2026-07-23 15:17:15.235 timestamp.
+DX12 shader compilation was not requested or performed.

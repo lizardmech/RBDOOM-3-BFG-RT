@@ -33,13 +33,13 @@ GEO-01 FILES
 
   GEO-01_runtime_capture_2026-07-23.txt
     Paired comm1 runtime tuple values, the discarded mistaken block, both
-    shader samples, the decal/receiver limitation, and the revised readback
-    rung.
+    shader samples, the localized opaque brush receiver, and the final retained
+    cache versus static-BLAS traversal A/B.
 
   MONSTER_FIRE_composite_ab_2026-07-23.txt
     Frame-window A/B showing the stalls require the screen-space composite but
-    not CPU sort or particle lighting, the aligned 240-row result, and the
-    bounded descriptor-cache A/B.
+    not CPU sort or particle lighting, the aligned trace, and the descriptor-
+    cache A/B which rules out per-frame binding creation as a required cause.
 
 NAMING
 ------

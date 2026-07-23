@@ -417,6 +417,12 @@ idCVar r_pathTracingStaticGeometryPruneMissing(
     CVAR_RENDERER | CVAR_INTEGER,
     "Source3 static geometry cache policy: 0 keeps discovered static surfaces resident; 1 prunes static drawSurf records not seen this frame for diagnostic active-BLAS high-water testing" );
 
+idCVar r_pathTracingStaticBlasForceRebuild(
+    "r_pathTracingStaticBlasForceRebuild",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Diagnostic A/B: force the monolithic static-world BLAS to rebuild every frame instead of reusing the cached acceleration structure" );
+
 idCVar r_pathTracingSceneBoundsOverlay(
     "r_pathTracingSceneBoundsOverlay",
     "0",

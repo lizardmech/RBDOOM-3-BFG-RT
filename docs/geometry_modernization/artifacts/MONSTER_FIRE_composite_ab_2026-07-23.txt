@@ -136,3 +136,53 @@ graphics composite and the submission boundary; do not promote the cache.
 
 Cached bindings retain their referenced resources for the process lifetime.
 Restart before any reverse cache-on to cache-off confirmation.
+
+BINDING CACHE A/B RESULT
+------------------------
+  source:
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo03.log
+  bytes: 350229
+  modified: 2026-07-23 15:37:16.329 Australia/Sydney
+
+Baseline, cache off:
+
+  diagnostic rows: 239
+  median / maximum `all`: 64 / 950 ms
+  rows over 200 / 500 ms: 2 / 1
+  maximum following `bk`: 945 ms
+  maximum composite CPU: 305 us
+  binding creates / cache hits: 2233 / 0
+
+Experimental cache on:
+
+  diagnostic rows: 141
+  median / maximum `all`: 41 / 1870 ms
+  rows over 200 / 500 ms: 4 / 4
+  maximum following `bk`: 1852 ms
+  maximum composite CPU: 107 us
+  binding creates / cache hits: 2 / 1192
+  maximum warm cache entries: 20
+
+The cache-on window contains four 1.8-second stalls after the cache is warm,
+with zero misses on each stall row:
+
+  frame 3870: all 1834 ms, following bk 1817 ms, CPU 68 us
+  frame 3896: all 1844 ms, following bk 1829 ms, CPU 63 us
+  frame 3907: all 1822 ms, following bk 1810 ms, CPU 66 us
+  frame 3932: all 1870 ms, following bk 1852 ms, CPU 71 us
+
+The cache-on trace stopped after 141 diagnostic rows rather than the requested
+240 because the output-resize interval stopped PT composite progress. The warm,
+zero-miss stalls are nevertheless decisive for this hypothesis.
+
+CONCLUSION
+----------
+Per-frame graphics binding-set creation, destruction, and descriptor
+reclamation are not required for the monster-fire stall. Do not promote the
+experimental binding cache.
+
+The remaining measured boundary is Vulkan GPU execution/submission/retirement
+after inexpensive command recording. The next diagnostic should use
+nonblocking GPU timer queries around the particle graphics composite and its
+submission boundary. It must not introduce a synchronous query wait into the
+faulting frame.
