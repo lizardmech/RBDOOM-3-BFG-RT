@@ -530,6 +530,7 @@ file(GLOB RENDERER_PASSES_SOURCES renderer/Passes/*.cpp)
 
 set(PATH_TRACE_CPU_WORKER_NO_PCH_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceAccelerationPlan.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCpuWork.cpp
 	)
 
@@ -1508,6 +1509,15 @@ add_executable(PathTraceCpuPlanningHarness
 target_include_directories(PathTraceCpuPlanningHarness PRIVATE renderer/NVRHI)
 if(BUILD_TESTING)
 	add_test(NAME PathTraceCpuPlanningHarness COMMAND $<TARGET_FILE:PathTraceCpuPlanningHarness>)
+endif()
+
+add_executable(PathTraceCanonicalIdentityHarness
+	tests/pathtrace_canonical_identity_harness.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	)
+target_include_directories(PathTraceCanonicalIdentityHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceCanonicalIdentityHarness COMMAND $<TARGET_FILE:PathTraceCanonicalIdentityHarness>)
 endif()
 
 add_executable(PathTraceLiquidPoolReducerHarness

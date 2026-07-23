@@ -54,6 +54,10 @@ GEO-04 FILES
     PrimitiveKey and HistoryOwnerKey tuples; record/lifetime/offset/emissive
     rules; shadow disagreement schema; and blockers delegated to GEO-05/06.
 
+  GEO-04_handoff.txt
+    Passive helper/harness coverage, build and deploy identity, unchanged live
+    route/default status, rollback, and exact ownership blockers for GEO-05/06.
+
 NAMING
 ------
 Use:

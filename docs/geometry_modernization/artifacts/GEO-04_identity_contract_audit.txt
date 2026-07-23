@@ -439,12 +439,25 @@ field.
 
 FIRST IMPLEMENTATION BOUNDARY
 -----------------------------
-Safe to implement during GEO-04:
+Implemented during GEO-04:
 
   fixed-width key/record value types;
   full-tuple equality and stable hash helpers;
   checked uint64 range arithmetic and uint32 page narrowing helpers;
-  passive observation comparison and disagreement counters;
+  passive observation comparison and disagreement flags;
+
+The implementation is isolated in:
+
+  neo/renderer/NVRHI/PathTraceCanonicalGeometryIdentity.h/.cpp
+  neo/tests/pathtrace_canonical_identity_harness.cpp
+
+It has no renderer-pointer inputs and no call from live routing. The harness
+proves identity separation, full-tuple collision reporting, world/slot reuse,
+primary/subview owner separation, checked arithmetic, page-relative conversion,
+alignment rejection, page-bound rejection and shader-width rejection.
+
+Still safe but blocked on durable ID producers:
+
   producer adapters that do not alter existing routing.
 
 Blocked until GEO-05:
@@ -503,4 +516,3 @@ SOURCE EVIDENCE
     uint32 route offsets/counts and hardware InstanceID/PrimitiveIndex
   PathTraceEmissiveCandidates.cpp and PathTraceSmokeSceneBuild.cpp
     transient material/class fields in identity and temporal remapping
-

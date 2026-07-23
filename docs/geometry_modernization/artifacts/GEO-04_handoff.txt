@@ -1,0 +1,105 @@
+GEO-04 - canonical mesh/instance contract handoff
+=================================================
+Status: contract and passive helper slice complete, 2026-07-23.
+
+OUTCOME
+-------
+The live pointer/cache/material-heavy hashes were audited and rejected as
+canonical identity. GEO-04 now has fixed-width WorldKey, MeshKey, InstanceKey,
+PrimitiveKey and HistoryOwnerKey value contracts, full-tuple equality and
+stable hashes, passive producer-comparison flags, checked uint64 arithmetic,
+and the only accepted uint64-to-uint32 page-narrowing boundary.
+
+No live geometry, BLAS/TLAS, material, emissive or history route changed.
+
+CHANGED FILES
+-------------
+  docs/geometry_modernization/06_decision_register.txt
+  docs/geometry_modernization/artifacts/README.txt
+  docs/geometry_modernization/artifacts/GEO-04_identity_contract_audit.txt
+  docs/geometry_modernization/artifacts/GEO-04_handoff.txt
+  neo/CMakeLists.txt
+  neo/renderer/NVRHI/PathTraceCanonicalGeometryIdentity.h
+  neo/renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+  neo/tests/pathtrace_canonical_identity_harness.cpp
+
+GATE / DEFAULT
+--------------
+No cvar and no default changed. The helper is linked into the engine by the
+existing NVRHI source glob but has no live callers. The standalone harness is
+the only current consumer.
+
+OFFLINE CORRECTNESS
+-------------------
+Command:
+
+  cmake --build --preset win64-pt-dev-release --target PathTraceCanonicalIdentityHarness
+  build-win64-pt-dev/Release/PathTraceCanonicalIdentityHarness.exe
+
+Result:
+
+  PathTraceCanonicalIdentityHarness: PASS
+
+Covered:
+
+  identical cross-producer tuples;
+  material-only and storage-only differences;
+  mesh swap without instance-key churn;
+  renderDef generation reuse;
+  topology disagreement and full-tuple hash-collision rejection;
+  missing durable world ID;
+  local primitive bounds;
+  primary/subview HistoryOwner separation;
+  checked uint64 add/multiply overflow;
+  valid page-relative uint32 narrowing;
+  before-page, misalignment, outside-page and shader-width rejection.
+
+BUILD / DEPLOY
+--------------
+Preset:
+
+  from neo/: cmake --build --preset win64-pt-dev-release
+
+Result:
+
+  PASS
+  All SPIR-V shaders are up to date.
+  No HLSL source or shader blob changed.
+
+Executable:
+
+  build-win64-pt-dev/Release/RBDoom3BFG.exe
+  bytes: 15543808
+  mtime: 2026-07-23 20:58:56 Australia/Sydney
+  SHA256: FB6367A768C68C67AE38569810F85EC410DF6C24BD053B1F2F87DAB1C580BC0B
+
+Deployed:
+
+  E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+  bytes, mtime and SHA256 match the build output.
+
+RUNTIME EVIDENCE
+----------------
+No new runtime capture is required because the code is passive and has no live
+callers. geometry_geo18.log remains the evidence that HistoryOwnerKey is
+required: stable Fatzombie entity/model/tri/surface identity still lost previous
+state when another 3D view replaced the global bridge history.
+
+OWNERSHIP BLOCKERS CARRIED FORWARD
+----------------------------------
+GEO-05 must provide monotonic render-world registration/teardown and a durable
+WorldKey before lifecycle/visible/area observations can emit valid
+InstanceKeys. It must also allocate/select the primary logical HistoryOwner.
+
+GEO-06 must provide sourceAssetId/sourceAssetGeneration and immutable topology
+signature production before observations can emit valid MeshKeys.
+
+Until those owners exist, passive adapters must report missingDurableWorld or
+missingDurableAsset. They must not synthesize canonical-looking IDs from raw
+pointers or bare name hashes.
+
+ROLLBACK
+--------
+The implementation has no live route to disable. Reverting the GEO-04 helper
+checkpoint removes the value types and harness. Reverting the preceding
+contract checkpoint removes the accepted documentation decisions.

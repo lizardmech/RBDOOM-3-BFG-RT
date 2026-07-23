@@ -25,6 +25,13 @@ Execute the tickets in tasks/ in this order:
       -> GEO-05 per-world lifecycle shadow registry
       -> GEO-06 pooled mesh ingestion and shared-rigid compare route
 
+GEO-04 status 2026-07-23: contract/passive-helper slice complete. Fixed-width
+full-tuple keys, collision-aware comparison, checked uint64 storage arithmetic,
+uint32 page narrowing and primary/subview HistoryOwner separation are covered
+by PathTraceCanonicalIdentityHarness. Authoritative WorldKey production moves
+to GEO-05; source asset generation/topology production moves to GEO-06. No live
+route consumes the new helpers yet.
+
   PHASE C - migrate true-deforming geometry first
     GEO-07 authoritative jointCache GPU skinning
       -> GEO-08 per-instance update/refit BLAS
