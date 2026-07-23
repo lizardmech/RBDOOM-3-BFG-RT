@@ -6747,6 +6747,20 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_staticContractExpectedMaterialId = record->materialId;
                 m_staticContractExpectedMaterialIndex = materialIndex;
             }
+            if (emittedCandidates == 0 && rangeValid)
+            {
+                QueueStaticContractGeometrySample(
+                    commandList,
+                    smokeStaticVertexBuffer,
+                    smokeStaticIndexBuffer,
+                    staticVertexCache.data(),
+                    vertexOffset,
+                    vertexCount,
+                    staticIndexCache.data(),
+                    indexOffset,
+                    indexCount,
+                    geometryUniverseStats.frameIndex);
+            }
 
             missingRecordCount += recordPresent ? 0 : 1;
             inactiveRecordCount += recordPresent && !record->seenThisFrame ? 1 : 0;

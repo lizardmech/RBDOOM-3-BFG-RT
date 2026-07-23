@@ -434,11 +434,249 @@ void PathTracePrimaryPass::ReadBackStaticContractShaderSample()
     m_staticContractShaderReadbackQueued = false;
 }
 
+void PathTracePrimaryPass::QueueStaticContractGeometrySample(
+    nvrhi::ICommandList* commandList,
+    nvrhi::IBuffer* staticVertexBuffer,
+    nvrhi::IBuffer* staticIndexBuffer,
+    const PathTraceSmokeVertex* staticVertices,
+    int vertexOffset,
+    int vertexCount,
+    const uint32_t* staticIndexes,
+    int indexOffset,
+    int indexCount,
+    uint64 frameIndex)
+{
+    if (m_staticContractGeometryReadbackQueued)
+    {
+        return;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!commandList || !device || !staticVertexBuffer || !staticIndexBuffer ||
+        !staticVertices || !staticIndexes ||
+        vertexOffset < 0 || vertexCount <= 0 ||
+        indexOffset < 0 || indexCount <= 0)
+    {
+        common->Printf("PathTracePrimaryPass: PT static contract GPU geometry sample unavailable before copy\n");
+        return;
+    }
+
+    const uint64_t sourceVertexOffset =
+        static_cast<uint64_t>(vertexOffset) * sizeof(PathTraceSmokeVertex);
+    const uint64_t vertexBytes =
+        static_cast<uint64_t>(vertexCount) * sizeof(PathTraceSmokeVertex);
+    const uint64_t sourceIndexOffset =
+        static_cast<uint64_t>(indexOffset) * sizeof(uint32_t);
+    const uint64_t indexBytes =
+        static_cast<uint64_t>(indexCount) * sizeof(uint32_t);
+    const uint64_t totalBytes = vertexBytes + indexBytes;
+    if (sourceVertexOffset + vertexBytes > staticVertexBuffer->getDesc().byteSize ||
+        sourceIndexOffset + indexBytes > staticIndexBuffer->getDesc().byteSize)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: PT static contract GPU geometry sample range out of bounds frame=%llu range(v/i)=%d/%d %d/%d sourceBytes(v/i)=%llu/%llu bufferBytes(v/i)=%llu/%llu\n",
+            static_cast<unsigned long long>(frameIndex),
+            vertexOffset,
+            vertexCount,
+            indexOffset,
+            indexCount,
+            static_cast<unsigned long long>(sourceVertexOffset + vertexBytes),
+            static_cast<unsigned long long>(sourceIndexOffset + indexBytes),
+            static_cast<unsigned long long>(staticVertexBuffer->getDesc().byteSize),
+            static_cast<unsigned long long>(staticIndexBuffer->getDesc().byteSize));
+        return;
+    }
+
+    if (!m_staticContractGeometryReadbackBuffer ||
+        m_staticContractGeometryReadbackBuffer->getDesc().byteSize < totalBytes)
+    {
+        m_staticContractGeometryReadbackBuffer = nullptr;
+        nvrhi::BufferDesc desc;
+        desc.byteSize = totalBytes;
+        desc.structStride = sizeof(uint32_t);
+        desc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        desc.debugName = "PathTraceStaticContractGeometryReadback";
+        desc.initialState = nvrhi::ResourceStates::CopyDest;
+        desc.keepInitialState = true;
+        m_staticContractGeometryReadbackBuffer = device->createBuffer(desc);
+    }
+    if (!m_staticContractGeometryReadbackBuffer)
+    {
+        common->Printf("PathTracePrimaryPass: PT static contract GPU geometry readback buffer creation failed\n");
+        return;
+    }
+
+    m_staticContractGeometryCpuVertices.assign(
+        staticVertices + vertexOffset,
+        staticVertices + vertexOffset + vertexCount);
+    m_staticContractGeometryCpuIndexes.assign(
+        staticIndexes + indexOffset,
+        staticIndexes + indexOffset + indexCount);
+    m_staticContractGeometrySampleFrame = frameIndex;
+    m_staticContractGeometryVertexOffset = vertexOffset;
+    m_staticContractGeometryIndexOffset = indexOffset;
+
+    commandList->setBufferState(staticVertexBuffer, nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(staticIndexBuffer, nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(m_staticContractGeometryReadbackBuffer, nvrhi::ResourceStates::CopyDest);
+    commandList->commitBarriers();
+    commandList->copyBuffer(
+        m_staticContractGeometryReadbackBuffer,
+        0,
+        staticVertexBuffer,
+        sourceVertexOffset,
+        vertexBytes);
+    commandList->copyBuffer(
+        m_staticContractGeometryReadbackBuffer,
+        vertexBytes,
+        staticIndexBuffer,
+        sourceIndexOffset,
+        indexBytes);
+    commandList->setBufferState(staticVertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
+    commandList->setBufferState(staticIndexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
+    commandList->commitBarriers();
+
+    m_staticContractGeometryReadbackQueued = true;
+    m_staticContractGeometryReadbackDelayFrames = 3;
+    common->Printf(
+        "PathTracePrimaryPass: PT static contract GPU geometry sample queued frame=%llu range(v/i)=%d/%d %d/%d bytes(v/i)=%llu/%llu\n",
+        static_cast<unsigned long long>(frameIndex),
+        vertexOffset,
+        vertexCount,
+        indexOffset,
+        indexCount,
+        static_cast<unsigned long long>(vertexBytes),
+        static_cast<unsigned long long>(indexBytes));
+}
+
+void PathTracePrimaryPass::ReadBackStaticContractGeometrySample()
+{
+    if (!m_staticContractGeometryReadbackQueued || !m_staticContractGeometryReadbackBuffer)
+    {
+        return;
+    }
+    if (m_staticContractGeometryReadbackDelayFrames > 0)
+    {
+        --m_staticContractGeometryReadbackDelayFrames;
+        return;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+    const uint8_t* readbackBytes = static_cast<const uint8_t*>(
+        device->mapBuffer(m_staticContractGeometryReadbackBuffer, nvrhi::CpuAccessMode::Read));
+    if (!readbackBytes)
+    {
+        common->Printf("PathTracePrimaryPass: PT static contract GPU geometry sample readback map failed\n");
+        m_staticContractGeometryReadbackQueued = false;
+        return;
+    }
+
+    const size_t vertexCount = m_staticContractGeometryCpuVertices.size();
+    const size_t indexCount = m_staticContractGeometryCpuIndexes.size();
+    const size_t vertexBytes = vertexCount * sizeof(PathTraceSmokeVertex);
+    const PathTraceSmokeVertex* gpuVertices =
+        reinterpret_cast<const PathTraceSmokeVertex*>(readbackBytes);
+    const uint32_t* gpuIndexes =
+        reinterpret_cast<const uint32_t*>(readbackBytes + vertexBytes);
+    int vertexMismatchCount = 0;
+    int positionMismatchCount = 0;
+    int indexMismatchCount = 0;
+    int firstVertexMismatch = -1;
+    int firstPositionMismatch = -1;
+    int firstIndexMismatch = -1;
+    for (size_t vertexIndex = 0; vertexIndex < vertexCount; ++vertexIndex)
+    {
+        if (std::memcmp(
+                &m_staticContractGeometryCpuVertices[vertexIndex],
+                &gpuVertices[vertexIndex],
+                sizeof(PathTraceSmokeVertex)) != 0)
+        {
+            ++vertexMismatchCount;
+            if (firstVertexMismatch < 0)
+            {
+                firstVertexMismatch = static_cast<int>(vertexIndex);
+            }
+        }
+        if (std::memcmp(
+                m_staticContractGeometryCpuVertices[vertexIndex].position,
+                gpuVertices[vertexIndex].position,
+                sizeof(gpuVertices[vertexIndex].position)) != 0)
+        {
+            ++positionMismatchCount;
+            if (firstPositionMismatch < 0)
+            {
+                firstPositionMismatch = static_cast<int>(vertexIndex);
+            }
+        }
+    }
+    for (size_t index = 0; index < indexCount; ++index)
+    {
+        if (m_staticContractGeometryCpuIndexes[index] != gpuIndexes[index])
+        {
+            ++indexMismatchCount;
+            if (firstIndexMismatch < 0)
+            {
+                firstIndexMismatch = static_cast<int>(index);
+            }
+        }
+    }
+
+    common->Printf(
+        "PathTracePrimaryPass: PT static contract gpuGeometry frame=%llu range(v/i)=%d/%llu %d/%llu match(v/i)=%d/%d mismatches(vertices/positions/indexes)=%d/%d/%d first(v/position/i)=%d/%d/%d\n",
+        static_cast<unsigned long long>(m_staticContractGeometrySampleFrame),
+        m_staticContractGeometryVertexOffset,
+        static_cast<unsigned long long>(vertexCount),
+        m_staticContractGeometryIndexOffset,
+        static_cast<unsigned long long>(indexCount),
+        vertexMismatchCount == 0 ? 1 : 0,
+        indexMismatchCount == 0 ? 1 : 0,
+        vertexMismatchCount,
+        positionMismatchCount,
+        indexMismatchCount,
+        firstVertexMismatch,
+        firstPositionMismatch,
+        firstIndexMismatch);
+
+    if (firstPositionMismatch >= 0)
+    {
+        const PathTraceSmokeVertex& cpu =
+            m_staticContractGeometryCpuVertices[static_cast<size_t>(firstPositionMismatch)];
+        const PathTraceSmokeVertex& gpu = gpuVertices[static_cast<size_t>(firstPositionMismatch)];
+        common->Printf(
+            "PathTracePrimaryPass: PT static contract gpuGeometry firstPosition globalVertex=%d cpu=(%.9g %.9g %.9g %.9g) gpu=(%.9g %.9g %.9g %.9g)\n",
+            m_staticContractGeometryVertexOffset + firstPositionMismatch,
+            cpu.position[0],
+            cpu.position[1],
+            cpu.position[2],
+            cpu.position[3],
+            gpu.position[0],
+            gpu.position[1],
+            gpu.position[2],
+            gpu.position[3]);
+    }
+    if (firstIndexMismatch >= 0)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: PT static contract gpuGeometry firstIndex globalIndex=%d cpu=%u gpu=%u\n",
+            m_staticContractGeometryIndexOffset + firstIndexMismatch,
+            m_staticContractGeometryCpuIndexes[static_cast<size_t>(firstIndexMismatch)],
+            gpuIndexes[static_cast<size_t>(firstIndexMismatch)]);
+    }
+
+    device->unmapBuffer(m_staticContractGeometryReadbackBuffer);
+    m_staticContractGeometryReadbackQueued = false;
+}
+
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
     ReadBackSkyCubeProbe();
     ReadBackLiquidPoolStatus();
     ReadBackStaticContractShaderSample();
+    ReadBackStaticContractGeometrySample();
 
     const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;

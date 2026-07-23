@@ -13,11 +13,20 @@ PRECONDITIONS
 
 PRECONDITION STATUS
 -------------------
-Satisfied by GEO-08. With identical retained data, CPU cache ray, material,
-signature, and TLAS, cached mask-0x01 traversal missed while a forced static
-BLAS rebuild reached the exact expected instance-0 primitive. The localized
-owner is static-BLAS cache acceptance versus persistent static topology
-generation.
+Partially localized; a permanent fix is still blocked. GEO-08 proved that the
+cached route could miss while a full static upload plus BLAS rebuild traversed.
+GEO-09 then rejected topology generation as the missing invalidation signal.
+GEO-10 further proved that rebuilding a new BLAS from the existing GPU buffers
+does not repair the miss.
+
+The remaining boundary is:
+
+  retained CPU vertex/index cache
+    -> persistent GPU vertex/index bytes and visibility
+    -> BLAS build consumption
+
+The current direct GPU readback must distinguish the first arrow from the
+second before another fix is proposed.
 
 IMPLEMENTED CANDIDATE
 ---------------------
@@ -86,6 +95,42 @@ Split-probe build/deploy:
   executable bytes:                 15514624
   modified:                         2026-07-23 18:22:53 Australia/Sydney
   sha256:                           D5B9E0790985897ADD8B60F49D32856EB923E829A301D2D44656C5BAB00CA5B2
+  SPIR-V:                           unchanged; all reported up to date
+  DX12 shader compilation/deploy:   not performed
+
+GEO-10 SPLIT-PROBE RESULT
+-------------------------
+Mode 2 did not restore the missing brush. Mode 1 appeared to restore static
+traversal once, but that sample coincided with an output resize and full scene
+resource recreation. On the later attempt, recovery occurred only after camera
+movement changed the portal area and retained active set, and the shader sample
+was invalid because normal debug/clean-DI routing had already been restored.
+
+This rejects a narrow "rebuild the BLAS object" fix and leaves a GPU
+buffer-bytes/visibility versus BLAS-consumption distinction.
+
+DIRECT GPU-BUFFER PROBE
+-----------------------
+`r_pathTracingStaticContractDump 1` now snapshots candidate zero from both
+sides of the upload boundary:
+
+  - CPU retained `PathTraceSmokeVertex` and index ranges;
+  - the exact byte ranges copied back from the persistent GPU vertex/index
+    buffers after the frame's upload/build work.
+
+The delayed `PT static contract gpuGeometry` row reports exact vertex/index
+matches, position-only mismatch count, and first mismatching position/index.
+Capture mode 0 and mode 1 at an unmoved missing-brush viewpoint. Do not accept
+a sample containing an output resize, portal-area change, or invalid shader
+readback as the repair proof.
+
+Direct-probe build:
+
+  Vulkan release build:             success
+  executable bytes:                 15519232
+  modified:                         2026-07-23 18:39:06 Australia/Sydney
+  sha256:                           523BFA18C23AB31904D8B18DE3AB816D31C2DBF689B43A3F003F1B19D92E15AD
+  deployed executable hash:         identical
   SPIR-V:                           unchanged; all reported up to date
   DX12 shader compilation/deploy:   not performed
 

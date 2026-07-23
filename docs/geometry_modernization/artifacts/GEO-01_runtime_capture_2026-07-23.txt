@@ -425,3 +425,83 @@ If mode 2 repairs traversal, the cached GPU inputs are valid and the failure is
 within BLAS persistence/build/TLAS consumption. If only mode 1 repairs it, the
 earliest failed boundary is persistent CPU cache to retained GPU buffer
 contents.
+
+GEO-10 SPLIT-PROBE RESULT
+-------------------------
+Raw source:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo10.log
+  bytes: 13054
+  modified: 2026-07-23 18:33:03 Australia/Sydney
+
+At frame 4168, the missing `_area41` / `textures/base_wall/sopanel34a`
+receiver was internally consistent on the CPU:
+
+  retained range v/i/t:              13667 + 8 / 30960 + 12 / 10320 + 4
+  CPU cache ray:                     primitive 10322, delta 0.0000
+  static generation cache/current:  732 / 732
+  tuple mismatches:                  all zero
+  shader result:                     miss
+
+Mode 2 at frame 4641 built a new BLAS from the existing GPU buffers without a
+static upload. Counts, ranges, handles, generation, signature, and the CPU ray
+remained the same, but mask-0x01 traversal still missed. Therefore BLAS cache
+handle reuse alone is not the cause. The existing GPU buffers do not produce
+the expected traversal when consumed again, either because their bytes are
+wrong or because their GPU state/visibility is wrong.
+
+The apparent mode-1 repair at frame 5744 is not a clean A/B. Immediately before
+that sample the output resized from 2560x1442 to 2560x1441. Scene resources were
+recreated, world/storage/static generations changed, retained counts dropped
+from 44520/111588/37196 to 29007/68460/22820, and the accepted shader hit was a
+different primitive/material rather than the expected receiver. It proves
+static traversal returned after resource recreation, but not that the one
+mode-1 command alone repaired it.
+
+The later mode-1 sample at frame 8925 cannot validate traversal because normal
+debug/clean-DI routing had already been restored. Its shader readback was not a
+valid mask-0x01 contract result. The user observed recovery only after moving
+the camera; that movement also changed the portal area and retained active set.
+
+NEXT DIRECT BOUNDARY PROBE
+--------------------------
+The next diagnostic extends `r_pathTracingStaticContractDump 1`. For candidate
+zero it now copies the exact retained vertex and index ranges back from the
+persistent GPU buffers and compares them byte-for-byte with the CPU cache
+snapshot from the same frame. After three frames it prints:
+
+  PT static contract gpuGeometry ... match(v/i)=...
+
+and, when applicable, the first mismatching GPU position and/or index.
+
+Interpretation:
+
+  match(v/i)=0/... or .../0
+    The persistent CPU-to-GPU static upload/storage contract is directly
+    broken. Localize the write range, upload elision, and buffer replacement
+    ownership before changing BLAS policy.
+
+  match(v/i)=1/1 while mask-0x01 still misses
+    The bytes are correct. Localize GPU state/visibility ordering or BLAS build
+    consumption of those buffers; do not patch CPU retention.
+
+Run the next A/B at one reproduced missing brush without moving the camera or
+resizing the output:
+
+  r_pathTracingCleanRtxdiDiEnable 0
+  r_pathTracingDebugMode 24
+  r_pathTracingStaticBlasForceRebuild 0
+  echo === GEO02_GPU_BYTES_REUSE ===
+  r_pathTracingStaticContractDump 1
+
+Wait for both `shaderSample` and `gpuGeometry`. Then:
+
+  r_pathTracingStaticBlasForceRebuild 1
+  echo === GEO02_GPU_BYTES_FULL_UPLOAD ===
+  r_pathTracingStaticContractDump 1
+
+Wait for both rows again, then immediately restore:
+
+  r_pathTracingStaticBlasForceRebuild 0
+
+Do not use mode 2 again for this capture; GEO-10 already rejected it.

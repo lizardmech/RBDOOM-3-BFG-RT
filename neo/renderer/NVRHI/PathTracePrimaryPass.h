@@ -238,6 +238,18 @@ private:
     void ReadBackLiquidPoolStatus();
     void ReadBackStaticContractShaderSample();
     void QueueStaticContractShaderSample(nvrhi::ICommandList* commandList);
+    void ReadBackStaticContractGeometrySample();
+    void QueueStaticContractGeometrySample(
+        nvrhi::ICommandList* commandList,
+        nvrhi::IBuffer* staticVertexBuffer,
+        nvrhi::IBuffer* staticIndexBuffer,
+        const PathTraceSmokeVertex* staticVertices,
+        int vertexOffset,
+        int vertexCount,
+        const uint32_t* staticIndexes,
+        int indexOffset,
+        int indexCount,
+        uint64 frameIndex);
     void ExecutePathTraceParticleComposite(nvrhi::ICommandList* commandList, const viewDef_t* viewDef);
 
     idRenderBackend* m_backend;
@@ -436,6 +448,14 @@ private:
     uint32_t m_staticContractExpectedPrimitiveCount = 0;
     uint32_t m_staticContractExpectedMaterialId = 0;
     uint32_t m_staticContractExpectedMaterialIndex = UINT32_MAX;
+    nvrhi::BufferHandle m_staticContractGeometryReadbackBuffer;
+    bool m_staticContractGeometryReadbackQueued = false;
+    int m_staticContractGeometryReadbackDelayFrames = 0;
+    uint64 m_staticContractGeometrySampleFrame = 0;
+    int m_staticContractGeometryVertexOffset = 0;
+    int m_staticContractGeometryIndexOffset = 0;
+    std::vector<PathTraceSmokeVertex> m_staticContractGeometryCpuVertices;
+    std::vector<uint32_t> m_staticContractGeometryCpuIndexes;
     uint32_t m_liquidPoolLastExceptionalMask[8] = {};
     uint32_t m_liquidPoolLastOverflowCount[8] = {};
     nvrhi::BufferHandle m_smokeCleanRtxdiDiCurrentReservoirBuffer;

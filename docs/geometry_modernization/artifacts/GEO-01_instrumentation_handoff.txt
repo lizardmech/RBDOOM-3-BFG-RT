@@ -258,6 +258,45 @@ FINAL A/B BUILD / DEPLOY
 
 No shader source changed in this rung. No SPIR-V blob was rebuilt or copied;
 the existing smoke RT blob retained its 2026-07-23 15:17:15.235 timestamp.
+
+GPU-BUFFER DIRECT READBACK FOLLOW-UP
+------------------------------------
+GEO-10 rejected a BLAS-only rebuild: mode 2 built a new static BLAS from the
+existing GPU buffers and the exact retained brush still missed. The apparent
+mode-1 recovery was confounded by an output resize/resource reset, while a
+later recovery followed camera movement and an active-set change.
+
+The one-shot dump now also copies candidate zero's exact static vertex/index
+ranges from the GPU and compares them byte-for-byte with the same-frame CPU
+cache. Reproduce one missing brush, do not move or resize, and run:
+
+  r_pathTracingCleanRtxdiDiEnable 0
+  r_pathTracingDebugMode 24
+  r_pathTracingStaticBlasForceRebuild 0
+  echo === GEO02_GPU_BYTES_REUSE ===
+  r_pathTracingStaticContractDump 1
+
+Wait for `PT static contract gpuGeometry`, then:
+
+  r_pathTracingStaticBlasForceRebuild 1
+  echo === GEO02_GPU_BYTES_FULL_UPLOAD ===
+  r_pathTracingStaticContractDump 1
+
+Wait for the second `gpuGeometry` row and restore:
+
+  r_pathTracingStaticBlasForceRebuild 0
+
+Required rows for both labels:
+
+  PT static contract tuple
+  PT static contract candidate index=0
+  PT static contract cacheRay candidate=0
+  PT static contract shaderSample
+  PT static contract gpuGeometry
+
+If GPU vertices or indexes mismatch, GEO-02 moves to upload/storage ownership.
+If both match while shader traversal misses, it moves to buffer
+state/visibility or BLAS build-input consumption.
 DX12 shader compilation was not requested or performed.
 
 SUBSEQUENT VALIDATED EXECUTABLE
