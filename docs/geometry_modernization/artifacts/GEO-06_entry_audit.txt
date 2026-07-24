@@ -1,6 +1,7 @@
 GEO-06 - pooled mesh ingestion entry audit
 ============================================
-Status: pool implementation blocked on focused callback-MD5 registry proof.
+Status: entry audit complete; callback-MD5 registry proof passed; checked
+allocation/harness slice may begin.
 Date: 2026-07-24.
 
 SCOPE
@@ -20,10 +21,11 @@ GEO-05 now passes:
   populated feed before and after same-map restart;
   zero admission drops and no repeated portal-list crash in geometry_geo20.
 
-The audit found one missing predecessor proof: callback MD5 entities never
-produced SkinnedBindSource/SkinnedSurface shadow records. GEO-05 now contains a
-frontend-only discovery correction, but GEO-06 remains blocked until a focused
-crowded-MD5 capture proves non-zero skinned records and clean removal/restart.
+The audit found one missing predecessor proof: callback MD5 entities initially
+never produced SkinnedBindSource/SkinnedSurface shadow records. GEO-05 now
+contains the validated frontend-only discovery correction. geometry_geo23
+proves bounded discovery, thousands of steady refreshes, exact skinned
+removal/re-add, source-mesh reuse and zero collision/stale counts.
 
 CURRENT RIGID ROUTE
 -------------------
@@ -137,5 +139,6 @@ default-on route is part of this entry slice.
 
 NEXT GATE
 ---------
-Run the focused callback-MD5 shadow-registry sequence recorded in
-GEO-05_lifecycle_owner_audit.txt. Only after it passes may step 1 above begin.
+Implement step 1: pure checked uint64 allocation/range helpers and deterministic
+CPU boundary tests. Do not add GPU pools or alter the live rigid route in that
+slice.

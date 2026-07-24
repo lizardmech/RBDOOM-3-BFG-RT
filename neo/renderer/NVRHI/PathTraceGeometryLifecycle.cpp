@@ -138,6 +138,9 @@ struct PtGeometryShadowStats
     std::uint64_t removedVertices = 0;
     std::uint64_t removedIndexes = 0;
     std::uint64_t removedTriangles = 0;
+    std::uint64_t removedStaticInstances = 0;
+    std::uint64_t removedRigidInstances = 0;
+    std::uint64_t removedSkinnedInstances = 0;
 };
 
 PtGeometryLifecycleStats g_lifecycleStats;
@@ -475,41 +478,59 @@ public:
     void ObserveEntity(
         const idRenderEntityLocal* entity,
         PtGeometryLifecycleClass geometryClass,
-        bool allowCallbackSource = false)
+        bool allowCallbackSource = false,
+        const idRenderModel* resolvedSurfaceModel = nullptr)
     {
         if (!shadowTracking || !entity || worldGeneration == 0)
         {
             return;
         }
+        if (entity->parms.callback != nullptr && !allowCallbackSource)
+        {
+            // Callback entities are only surface-safe at the post-R_AddModels
+            // frontend boundary. Lifecycle updates preserve any records that
+            // boundary discovered; explicit Free remains removal authority.
+            return;
+        }
 
-        const idRenderModel* model = entity->parms.hModel;
+        const idRenderModel* sourceModel = entity->parms.hModel;
         const PtCanonicalMeshSourceDomain sourceDomain =
-            ShadowSourceDomain(entity, model, allowCallbackSource);
+            ShadowSourceDomain(entity, sourceModel, allowCallbackSource);
         if (sourceDomain == PtCanonicalMeshSourceDomain::UnsupportedTransient)
         {
             ++stats.unsupportedTransient;
             RemoveUnobservedEntitySurfaces(entity, std::vector<PtCanonicalInstanceKey>());
             return;
         }
-        if (sourceDomain == PtCanonicalMeshSourceDomain::Invalid || !model)
+        if (sourceDomain == PtCanonicalMeshSourceDomain::Invalid || !sourceModel)
         {
             ++stats.missingSource;
             RemoveUnobservedEntitySurfaces(entity, std::vector<PtCanonicalInstanceKey>());
             return;
         }
-
-        PtGeometryLifecycleSlotState& slot = EnsureSlot(entitySlots, entity->index);
-        slot.alive = true;
-        const PtGeometryShadowAssetRecord& asset = FindOrCreateAsset(model, sourceDomain);
-        std::vector<PtCanonicalInstanceKey> observedKeys;
-        if (model->NumSurfaces() > 0)
+        if (sourceDomain == PtCanonicalMeshSourceDomain::SkinnedBindSource &&
+            resolvedSurfaceModel == nullptr)
         {
-            observedKeys.reserve(static_cast<size_t>(model->NumSurfaces()));
+            // MD5/other cached source models do not own their instantiated
+            // render surfaces. Add/update hooks own liveness only; the
+            // post-R_AddModels frontend observation owns surface discovery.
+            return;
         }
 
-        for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
+        const idRenderModel* surfaceModel =
+            resolvedSurfaceModel != nullptr ? resolvedSurfaceModel : sourceModel;
+        PtGeometryLifecycleSlotState& slot = EnsureSlot(entitySlots, entity->index);
+        slot.alive = true;
+        const PtGeometryShadowAssetRecord& asset = FindOrCreateAsset(sourceModel, sourceDomain);
+        std::vector<PtCanonicalInstanceKey> observedKeys;
+        if (surfaceModel->NumSurfaces() > 0)
         {
-            const modelSurface_t* surface = model->Surface(surfaceIndex);
+            observedKeys.reserve(static_cast<size_t>(surfaceModel->NumSurfaces()));
+        }
+
+        for (int surfaceIndex = 0; surfaceIndex < surfaceModel->NumSurfaces(); ++surfaceIndex)
+        {
+            const modelSurface_t* surface = surfaceModel->Surface(surfaceIndex);
             const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
             const std::uint64_t topologySignature = BuildShadowTopologySignature(tri);
             if (!surface || !tri || topologySignature == 0)
@@ -517,13 +538,17 @@ public:
                 ++stats.missingSource;
                 continue;
             }
+            const std::uint32_t sourceSurfaceIndex =
+                resolvedSurfaceModel != nullptr && surface->id >= 0
+                    ? static_cast<std::uint32_t>(surface->id)
+                    : static_cast<std::uint32_t>(surfaceIndex);
 
             PtCanonicalMeshKey meshKey;
             meshKey.sourceAssetId = asset.sourceAssetId;
             meshKey.sourceAssetGeneration = asset.sourceAssetGeneration;
             meshKey.topologySignature = topologySignature;
             meshKey.sourceDomain = sourceDomain;
-            meshKey.modelSurfaceIndex = static_cast<std::uint32_t>(surfaceIndex);
+            meshKey.modelSurfaceIndex = sourceSurfaceIndex;
             meshKey.vertexFormat = PT_GEOMETRY_SHADOW_VERTEX_FORMAT_ID_DRAW_VERT;
             meshKey.deformationClass = ShadowDeformationClass(sourceDomain);
             meshKey.vertexCount = static_cast<std::uint32_t>(tri->numVerts);
@@ -539,7 +564,7 @@ public:
             instanceKey.renderDefIndex = static_cast<std::uint32_t>(entity->index);
             instanceKey.renderDefGeneration = slot.generation;
             instanceKey.subInstanceKind = ShadowSubInstanceKind(sourceDomain);
-            instanceKey.modelSurfaceIndex = static_cast<std::uint32_t>(surfaceIndex);
+            instanceKey.modelSurfaceIndex = sourceSurfaceIndex;
             if (!PtCanonicalInstanceKeyIsValid(instanceKey))
             {
                 ++stats.missingSource;
@@ -551,7 +576,7 @@ public:
             TouchInstance(
                 entity,
                 geometryClass,
-                model,
+                sourceModel,
                 material,
                 meshKey,
                 instanceKey,
@@ -561,9 +586,11 @@ public:
         RemoveUnobservedEntitySurfaces(entity, observedKeys);
     }
 
-    void ObserveFrontendDeformingEntity(const idRenderEntityLocal* entity)
+    void ObserveFrontendDeformingEntity(
+        const idRenderEntityLocal* entity,
+        const idRenderModel* resolvedSurfaceModel)
     {
-        if (!shadowTracking || !entity || worldGeneration == 0)
+        if (!shadowTracking || !entity || !resolvedSurfaceModel || worldGeneration == 0)
         {
             return;
         }
@@ -600,7 +627,11 @@ public:
         }
 
         const std::uint64_t addedBefore = stats.added;
-        ObserveEntity(entity, PtGeometryLifecycleClass::Deforming, true);
+        ObserveEntity(
+            entity,
+            PtGeometryLifecycleClass::Deforming,
+            true,
+            resolvedSurfaceModel);
         if (stats.added > addedBefore)
         {
             ++stats.frontendDeformingDiscovered;
@@ -693,7 +724,7 @@ public:
         }
 
         common->Printf(
-            "PathTracePrimaryPass: GEO05 shadow registry frame=%llu enabled=%d tracking=%d worldGeneration=%llu previousWorldGeneration=%llu mapLoadSerial=%llu primaryHistoryOwner=%llu resets=%llu resetDiscarded(liveInstances/meshes)=%llu/%llu funnelInterval(add/update/remove/unchanged/collision/stale/missing/transient/deferredMesh)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu frontendDeforming(discovered/refreshed)=%llu/%llu records(instances/meshesReferenced/meshesZeroRef/assets/shared/maxRefs)=%llu/%llu/%llu/%d/%llu/%llu instanceClass(static/rigid/skinned)=%llu/%llu/%llu liveGeometry(v/i/t)=%llu/%llu/%llu removedGeometryInterval(v/i/t)=%llu/%llu/%llu route=observation-only\n",
+            "PathTracePrimaryPass: GEO05 shadow registry frame=%llu enabled=%d tracking=%d worldGeneration=%llu previousWorldGeneration=%llu mapLoadSerial=%llu primaryHistoryOwner=%llu resets=%llu resetDiscarded(liveInstances/meshes)=%llu/%llu funnelInterval(add/update/remove/unchanged/collision/stale/missing/transient/deferredMesh)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu frontendDeforming(discovered/refreshed)=%llu/%llu records(instances/meshesReferenced/meshesZeroRef/assets/shared/maxRefs)=%llu/%llu/%llu/%d/%llu/%llu instanceClass(static/rigid/skinned)=%llu/%llu/%llu liveGeometry(v/i/t)=%llu/%llu/%llu removedGeometryInterval(v/i/t)=%llu/%llu/%llu removedClassInterval(static/rigid/skinned)=%llu/%llu/%llu route=observation-only\n",
             static_cast<unsigned long long>(frameIndex),
             r_pathTracingGeometryShadowRegistry.GetInteger(),
             shadowTracking ? 1 : 0,
@@ -729,17 +760,22 @@ public:
             static_cast<unsigned long long>(liveTriangles),
             static_cast<unsigned long long>(stats.removedVertices),
             static_cast<unsigned long long>(stats.removedIndexes),
-            static_cast<unsigned long long>(stats.removedTriangles));
+            static_cast<unsigned long long>(stats.removedTriangles),
+            static_cast<unsigned long long>(stats.removedStaticInstances),
+            static_cast<unsigned long long>(stats.removedRigidInstances),
+            static_cast<unsigned long long>(stats.removedSkinnedInstances));
 
         int sampleCount = 0;
-        for (int samplePass = 0; samplePass < 2 && sampleCount < PT_GEOMETRY_SHADOW_MAX_DUMP_SAMPLES; ++samplePass)
+        for (int samplePass = 0; samplePass < 3 && sampleCount < PT_GEOMETRY_SHADOW_MAX_DUMP_SAMPLES; ++samplePass)
         {
             for (const PtGeometryShadowInstanceRecord& record : instances)
             {
-                const bool isStatic = record.key.subInstanceKind == PtCanonicalSubInstanceKind::StaticSurface;
+                const bool sampleThisPass =
+                    (samplePass == 0 && record.key.subInstanceKind == PtCanonicalSubInstanceKind::SkinnedSurface) ||
+                    (samplePass == 1 && record.key.subInstanceKind == PtCanonicalSubInstanceKind::RigidSurface) ||
+                    (samplePass == 2 && record.key.subInstanceKind == PtCanonicalSubInstanceKind::StaticSurface);
                 if (!record.valid ||
-                    (samplePass == 0 && isStatic) ||
-                    (samplePass == 1 && !isStatic) ||
+                    !sampleThisPass ||
                     sampleCount >= PT_GEOMETRY_SHADOW_MAX_DUMP_SAMPLES)
                 {
                     continue;
@@ -787,6 +823,9 @@ public:
         stats.removedVertices = 0;
         stats.removedIndexes = 0;
         stats.removedTriangles = 0;
+        stats.removedStaticInstances = 0;
+        stats.removedRigidInstances = 0;
+        stats.removedSkinnedInstances = 0;
     }
 
     std::uint64_t worldGeneration = 0;
@@ -996,6 +1035,20 @@ private:
         stats.removedVertices += record.vertexCount;
         stats.removedIndexes += record.indexCount;
         stats.removedTriangles += record.triangleCount;
+        switch (record.key.subInstanceKind)
+        {
+            case PtCanonicalSubInstanceKind::StaticSurface:
+                ++stats.removedStaticInstances;
+                break;
+            case PtCanonicalSubInstanceKind::RigidSurface:
+                ++stats.removedRigidInstances;
+                break;
+            case PtCanonicalSubInstanceKind::SkinnedSurface:
+                ++stats.removedSkinnedInstances;
+                break;
+            default:
+                break;
+        }
         ++stats.removed;
         record.valid = false;
     }
@@ -1299,7 +1352,11 @@ void ObserveFrontendDeformingEntities(const viewDef_t* viewDef)
             model->IsDynamicModel() == DM_CACHED ||
             entity->parms.joints != nullptr ||
             entity->parms.numJoints > 0;
-        if (!deformingSource)
+        const idRenderModel* resolvedSurfaceModel =
+            entity->dynamicModelFrameCount == tr.frameCount
+                ? entity->dynamicModel
+                : nullptr;
+        if (!deformingSource || !resolvedSurfaceModel)
         {
             continue;
         }
@@ -1307,7 +1364,7 @@ void ObserveFrontendDeformingEntities(const viewDef_t* viewDef)
         // This runs on the frontend after R_AddModels has resolved the view's
         // dynamic entities. It is the safe discovery boundary for callback
         // MD5 bind sources; the backend never receives these live pointers.
-        registry->ObserveFrontendDeformingEntity(entity);
+        registry->ObserveFrontendDeformingEntity(entity, resolvedSurfaceModel);
     }
 }
 

@@ -1,7 +1,7 @@
 GEO-05 - per-world lifecycle owner audit and first runtime gate
 ================================================================
-Status: shadow registry implemented; snapshot restoration validated; callback
-MD5 source discovery awaiting focused runtime validation.
+Status: complete; lifecycle owner, SMP snapshot restoration and callback-MD5
+source discovery/removal validated.
 Date: 2026-07-23, updated 2026-07-24.
 
 HOOK AUDIT
@@ -549,3 +549,216 @@ The dump must show skinned > 0 and frontendDeforming discovered/refreshed > 0.
 Sample records must identify SkinnedSurface/SkinnedBindSource. Collision and
 stale-generation counts must remain zero. Removal/re-add, offscreen return and
 same-map restart must not crash or retain the removed instance generation.
+
+FIRST CALLBACK MD5 CAPTURE AND CORRECTION (2026-07-24)
+------------------------------------------------------
+geometry_geo21.log did not pass the callback-MD5 discovery gate:
+
+  path:
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo21.log
+  bytes: 59353
+  created: 2026-07-24 15:44:22 Australia/Sydney
+  modified: 2026-07-24 15:49:48 Australia/Sydney
+
+All five LIVE/RETURN/REMOVED/READDED/RESTART_AFTER dumps reported:
+
+  frontendDeforming(discovered/refreshed)=0/0
+  instanceClass(.../.../skinned)=.../.../0
+  collision=0
+  stale=0
+
+The map-restart contract remained correct:
+
+  worldGeneration 3 -> 4
+  previousWorldGeneration after restart = 3
+  mapLoadSerial 2 -> 3
+  primaryHistoryOwner 3 -> 4
+
+The capture ended in a normal renderer/game/event-system shutdown with no
+access violation, fatal error or Vulkan device removal.
+
+Root cause:
+
+  idRenderModelMD5 is the durable source asset and reports DM_CACHED, but it
+  intentionally owns no instantiated modelSurface_t array. R_AddModels calls
+  R_EntityDefDynamicModel and places current renderable surfaces in
+  entity->dynamicModel. The first frontend correction correctly reached the
+  safe post-callback boundary but still traversed parms.hModel, so it observed
+  zero source surfaces and could not add a record.
+
+Second correction:
+
+  canonical asset identity and model name still come from parms.hModel;
+  surface ordinal/topology/material/counts are copied from the current
+  post-R_AddModels dynamic snapshot;
+  MD5 snapshot surface->id supplies the stable source-mesh ordinal;
+  the snapshot is accepted only when dynamicModelFrameCount == tr.frameCount;
+  no snapshot/model/surface pointer is retained in a shadow record;
+  lifecycle Add/Update with no resolved snapshot now preserves existing
+  SkinnedBindSource records instead of interpreting zero source-model surfaces
+  as removal;
+  subsequent frontend frames refresh values without rehashing topology.
+
+This correction requires a replacement focused capture before GEO-06 begins.
+
+SECOND CALLBACK MD5 CAPTURE AND CHURN CORRECTION (2026-07-24)
+-------------------------------------------------------------
+geometry_geo22.log proved that the resolved-snapshot boundary reaches MD5
+geometry, but it exposed invalid steady-state lifecycle churn:
+
+  path:
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo22.log
+  bytes: 16727
+  created: 2026-07-24 16:04:07 Australia/Sydney
+  modified: 2026-07-24 16:05:35 Australia/Sydney
+
+LIVE dump:
+
+  frontendDeforming(discovered/refreshed)=4994/110
+  instanceClass(static/rigid/skinned)=1791/1681/21
+  add/remove=27668/24175
+  deferredMesh=21303
+  removedGeometryInterval(v/i/t)=10714246/52538856/17512952
+  collision/stale=0/0
+
+The 21 live skinned surfaces prove successful MD5 source/snapshot association,
+but thousands of discoveries and tens of millions of removed elements violate
+the first-discovery/steady-refresh contract.
+
+Root cause:
+
+  a moving callback entity can take the full UpdateEntityDef path when bounds,
+  origin or axis no longer match. The lifecycle observer rejected callback
+  surface traversal, as required, but then interpreted that safety rejection as
+  an empty source and removed the frontend-owned records. The next frontend
+  view rediscovered them, repeating the cycle.
+
+Correction:
+
+  lifecycle ObserveEntity now returns immediately for callback entities unless
+  it was explicitly invoked by the safe frontend boundary. It neither traverses
+  nor removes callback-owned surfaces. The post-R_AddModels frontend observation
+  is the sole surface discovery/reconciliation path, while explicit Free remains
+  authoritative removal.
+
+The capture stopped after the first LIVE dump, so it contains no shutdown or
+removal/restart evidence. A replacement capture must show bounded discovery,
+growing refresh counts, stable live skinned totals, and removal only at the
+explicit removal/restart markers.
+
+The replacement dump prioritizes SkinnedSurface samples ahead of rigid/static
+records and adds removedClassInterval(static/rigid/skinned). This makes callback
+churn and explicit skinned removal directly machine-checkable.
+
+THIRD CALLBACK MD5 CAPTURE - STEADY STATE PASS (2026-07-24)
+-----------------------------------------------------------
+The appended enabled portion of geometry_geo23.log passes the discovery and
+steady-refresh contract:
+
+  path:
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo23.log
+  bytes at inspection: 18008
+  created: 2026-07-24 16:11:12 Australia/Sydney
+  modified: 2026-07-24 16:14:10 Australia/Sydney
+
+Enabled dump at frame 4097:
+
+  worldGeneration=3
+  mapLoadSerial=2
+  primaryHistoryOwner=3
+  add/update/remove=3540/25505/0
+  collision/stale=0/0
+  frontendDeforming(discovered/refreshed)=17/6429
+  records(instances/meshesReferenced/meshesZeroRef)=3540/2794/0
+  records(shared/maxRefs)=191/19
+  instanceClass(static/rigid/skinned)=1791/1681/68
+  removedGeometryInterval(v/i/t)=0/0/0
+  removedClassInterval(static/rigid/skinned)=0/0/0
+
+All 16 prioritized samples report kind=3/source=3
+(SkinnedSurface/SkinnedBindSource). They include distinct entity slots sharing
+the same canonical mesh, for example two soft_desk_chair2 entities referencing
+one mesh hash. The interval contains thousands of value refreshes with no
+surface rediscovery churn and no removal.
+
+Result:
+
+  PASS - safe resolved MD5 surface discovery
+  PASS - bounded first discovery versus steady refresh
+  PASS - stable live skinned records with zero steady-state removal
+  PASS - SkinnedSurface/SkinnedBindSource tuple visibility
+  PASS - canonical immutable mesh sharing across distinct instances
+  PASS - collision/stale remain zero
+
+Still required before final closure:
+
+  explicit removal of one named spawned MD5 entity;
+  re-add of that entity;
+  proof that only its skinned surfaces leave/re-enter the live registry.
+
+World/restart invalidation already passed in geometry_geo20/21, but the final
+capture should include the same-map restart if convenient.
+
+THIRD CALLBACK MD5 CAPTURE - REMOVAL/RE-ADD PASS (2026-07-24)
+-------------------------------------------------------------
+The final append to geometry_geo23.log closes the explicit MD5 lifecycle gate.
+
+Immediately after removing geo_md5_fat1:
+
+  frame=6051
+  add/update/remove=13/65924/2
+  frontendDeforming(discovered/refreshed)=4/42056
+  instanceClass(static/rigid/skinned)=1791/1681/79
+  removedGeometryInterval(v/i/t)=6100/30576/10192
+  removedClassInterval(static/rigid/skinned)=0/0/2
+  records(meshesReferenced/assets)=2804/634
+  collision/stale=0/0
+
+Other newly visible deforming entities account for the 13 interval additions;
+the class-split counter proves that the named removal invalidated exactly two
+skinned surface instances.
+
+After re-adding geo_md5_fat1:
+
+  frame=6573
+  add/update/remove=2/9287/0
+  frontendDeforming(discovered/refreshed)=1/2531
+  instanceClass(static/rigid/skinned)=1791/1681/81
+  removedClassInterval(static/rigid/skinned)=0/0/0
+  records(meshesReferenced/assets)=2804/634
+  collision/stale=0/0
+
+The live skinned count rises by exactly two. Referenced mesh and asset counts do
+not rise, proving reuse of the existing immutable source records rather than
+duplicate asset creation. The replacement instance then receives thousands of
+value refreshes without rediscovery churn.
+
+FINAL GEO-05 RESULT
+-------------------
+  PASS - per-world owner and monotonic world/history generations
+  PASS - exact entity slot generation and Free invalidation
+  PASS - immutable SMP frontend snapshot and backend entity feed
+  PASS - callback MD5 source identity separated from resolved surface snapshot
+  PASS - bounded first discovery and steady value-only refresh
+  PASS - explicit skinned removal/re-add with source-mesh reuse
+  PASS - same-map restart invalidation
+  PASS - collision/stale counters remain zero
+  PASS - no repeated CPU crash in the accepted captures
+
+GEO-06 pooled source ingestion is now unblocked.
+
+Accepted executable:
+
+  SHA-256:
+    1E0C758A9E0953C6221D5B3F98E8AE7BEFF98B75D223AB3B0CCFDDFF85D090B9
+  mtime:
+    2026-07-24 16:08:41 Australia/Sydney
+  build:
+    win64-pt-dev-release PASS
+  PathTraceCanonicalIdentityHarness:
+    PASS
+  SPIR-V:
+    unchanged; all SPIR-V shaders reported up to date
