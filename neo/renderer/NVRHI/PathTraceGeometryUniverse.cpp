@@ -1398,6 +1398,14 @@ void AddMaterialSample(uint32_t* samples, int& sampleCount, uint32_t materialId)
 
 void RtSmokeGeometryUniverse::Clear()
 {
+    // Scene clears can occur while a TLAS from the previous scene is still
+    // referenced by an in-flight frame. Use the same delayed-retirement path
+    // as a canonical source-publication replacement instead of dropping BLAS
+    // handles and their retirement queue immediately.
+    ReleaseCanonicalRigidBlasScaffold();
+    const uint64 canonicalRigidBlasRetired =
+        m_canonicalRigidBlasStats.blasRetired;
+
     m_currentFrameIndex = 0;
     m_frameActive = false;
     m_staticSurfaceRecords.clear();
@@ -1418,11 +1426,10 @@ void RtSmokeGeometryUniverse::Clear()
     m_previousStaticTriangleClassCache.clear();
     m_previousStaticTriangleMaterialCache.clear();
     m_canonicalIdentityRegistry.Clear();
-    m_canonicalRigidBlasRecords.clear();
-    m_canonicalRigidBlasLookup.clear();
-    m_retiredCanonicalRigidBlasRecords.clear();
     m_canonicalRigidBlasStats =
         RtPathTraceCanonicalRigidBlasStats();
+    m_canonicalRigidBlasStats.blasRetired =
+        canonicalRigidBlasRetired;
     ClearRigidResidencyCaches();
     m_rigidResidencyStats = RtPathTraceRigidResidencyStats();
     m_rigidResidencyEnabled = false;

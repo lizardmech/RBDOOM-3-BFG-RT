@@ -1836,3 +1836,149 @@ Focused runtime acceptance:
   its emissive context must report found = 1, non-zero identity, matching
     material ID/index and a non-invalid texture index or non-zero radiance;
   legacy and canonical emissive identity fields must be exact.
+
+STEP 13 RUNTIME PASS (2026-07-24)
+---------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo36.log
+
+Opaque legacy frame 1290 and canonical frame 1610 both report:
+
+  validFlags/status/rigid = 0x0000000f/0/1;
+  rigid range = 2 + 111;
+  instance/primitive = 49/68;
+  material ID/index/flags/class =
+    764501624/393/0x00000002/1;
+  emissive texture/RGB = 0xffffffff/0:0:0;
+  current XYZ =
+    -1023.98987:-1321.63184:287.991394;
+  previous XYZW =
+    -1023.98981:-1321.63171:287.991364:1.
+
+The paired route context is also exact:
+
+  source instance = 16839556107844637076;
+  legacy/canonical mesh hashes =
+    18088870487588094038/14190672854499940481;
+  route/canonical BLAS records = 66/119;
+  current/previous transform hashes =
+    8014564340136098171/8014564340136098171;
+  route flags = 0x00000007;
+  emissive context found = 0.
+
+Emissive legacy frame 2676 and canonical frame 2996 both report:
+
+  validFlags/status/rigid = 0x0000000f/0/1;
+  rigid range = 2 + 111;
+  instance/primitive = 25/13;
+  material ID/index/flags/class =
+    2547408488/373/0x0002000a/1;
+  emissive texture = 0x0000000f;
+  emissive RGB =
+    4.25490093:4.80392504:4.25490093;
+  current XYZ =
+    -1047.86328:-1343.06299:238.876617;
+  previous XYZW =
+    -1047.86328:-1343.06287:238.876617:1.
+
+The paired emissive route context is exact:
+
+  source instance = 5454489578685915608;
+  legacy/canonical mesh hashes =
+    564090587521891201/16319518470092359896;
+  route/canonical BLAS records = 47/110;
+  current/previous transform hashes =
+    8014564340136098171/8014564340136098171;
+  route flags = 0x00000007;
+  emissive context found = 1;
+  stable emissive identity = 15012999311312623257;
+  emissive material ID/universe index =
+    2547408488/227;
+  emissive texture = 0x0000000f.
+
+STEP 13 FINAL RESULT
+--------------------
+  PASS - opaque legacy/canonical route identity is exact
+  PASS - opaque material and current/previous transform context is exact
+  PASS - emissive legacy/canonical route identity is exact
+  PASS - emissive material, texture, radiance and stable identity are exact
+  PASS - canonical pooled traversal preserves every observed discrete field
+
+STEP 14 LIFECYCLE CAPTURE AND CLEAR-TIME RETIREMENT GAP (2026-07-24)
+--------------------------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo37.log
+
+The baseline at frame 1188 is exact and canonical-selected:
+
+  registry instances/rigid/live geometry =
+    4562/2632/216679 vertices, 616179 indexes, 205393 triangles;
+  requested rigid instances/unique meshes = 77/61;
+  ready/active/deferred BLAS = 61/61/0;
+  legacy/canonical TLAS descriptors = 77/77;
+  exact descriptor mappings = 77;
+  descriptor failures = 0/0/0.
+
+Spawning the two-surface medkit at frame 1588 produces the exact expected
+delta:
+
+  registry instances/rigid = 4564/2634;
+  live geometry = 216799 vertices, 616731 indexes, 205577 triangles;
+  requested rigid instances/unique meshes = 79/63;
+  ready/active/deferred BLAS = 63/63/0;
+  interval BLAS create/build = 2/2;
+  legacy/canonical TLAS descriptors = 79/79, exact = 79.
+
+Removing it at frame 1884 produces the exact inverse:
+
+  two rigid records removed;
+  removed geometry = 120 vertices, 552 indexes, 184 triangles;
+  requested rigid instances/unique meshes returns to 77/61;
+  ready/requested BLAS returns to 61 while active cached BLAS remains 63;
+  interval BLAS create/build = 0/0;
+  legacy/canonical TLAS descriptors = 77/77, exact = 77.
+
+Re-adding it at frame 2384 proves retained immutable BLAS reuse:
+
+  requested rigid instances/unique meshes = 79/63;
+  ready/active/deferred BLAS = 63/63/0;
+  interval BLAS create/build = 0/0;
+  legacy/canonical TLAS descriptors = 79/79, exact = 79.
+
+After mapRestart, world/publication advance from 3/3 to 4/4. The backend
+imports and uploads 1930 fresh canonical records, builds 61 canonical BLAS,
+and submits 77/77 exact descriptors with canonical traversal selected.
+Identity/source/pool failures and descriptor failures remain zero.
+
+The capture also exposed a lifetime implementation gap:
+
+  RtSmokeGeometryUniverse::Clear() directly cleared active canonical BLAS
+  handles and m_retiredCanonicalRigidBlasRecords;
+  source-publication replacement already retires both BLAS and source buffers
+  for three frames;
+  therefore a scene clear did not honor the same in-flight lifetime contract,
+  and its final interval retire counter incorrectly reported zero.
+
+Correction:
+
+  Clear() now sends all active canonical BLAS through
+  ReleaseCanonicalRigidBlasScaffold() before resetting frame state;
+  the delayed-retirement queue survives the clear;
+  the interval retirement count survives the statistics reset so the next
+  GEO-06 dump can prove the transition;
+  active lookup records are still cleared immediately and cannot be selected
+  by the new world's TLAS.
+
+STEP 14 RESULT
+--------------
+  PASS - spawn adds exactly two rigid surfaces and two unique BLAS
+  PASS - removal drops exactly 120/552/184 vertices/indexes/triangles
+  PASS - removal drops the two TLAS instances without rebuilding
+  PASS - re-add reuses both retained BLAS with zero create/build work
+  PASS - canonical traversal remains exact and selected at every checkpoint
+  PASS - map restart imports, uploads, rebuilds and selects the new generation
+  PENDING - repeat map restart and require a non-zero BLAS retire interval
