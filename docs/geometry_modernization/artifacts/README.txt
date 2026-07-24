@@ -70,7 +70,9 @@ GEO-06 FILES
   GEO-06_entry_audit.txt
     Current rigid storage/BLAS addressing audit, accepted first pooled-storage
     ABI, focused MD5 predecessor proof, ordered implementation slices, and the
-    checked uint64 pool-planner/harness handoff.
+    checked uint64 pool-planner plus immutable CPU source-registry harness
+    handoffs. Records the correction that resolved material binding is
+    instance/route state rather than immutable mesh-source content.
 
 NAMING
 ------

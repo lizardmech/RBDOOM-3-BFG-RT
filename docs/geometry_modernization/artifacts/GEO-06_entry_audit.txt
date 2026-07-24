@@ -1,7 +1,7 @@
 GEO-06 - pooled mesh ingestion entry audit
 ============================================
 Status: entry audit complete; callback-MD5 registry proof passed; checked
-allocation/harness slice may begin.
+allocation and immutable CPU source-registry slices complete.
 Date: 2026-07-24.
 
 SCOPE
@@ -220,3 +220,102 @@ Next implementation slice:
   observation-only immutable CPU source records keyed by canonical MeshKey,
   with first-discovery/source-revision copies and no retained frame-temporary
   srfTriangles_t pointer.
+
+STEP 2 IMMUTABLE CPU SOURCE REGISTRY (2026-07-24)
+-------------------------------------------------
+Implemented:
+
+  neo/renderer/NVRHI/PathTraceGeometrySourceRegistry.h/.cpp
+  neo/tests/pathtrace_geometry_source_registry_harness.cpp
+
+The source registry is still pure CPU code with no live lifecycle call site,
+renderer pointer, NVRHI resource, upload, BLAS or route mutation. It owns four
+separate value streams:
+
+  raw float3 positions;
+  full-fidelity decoded normal, UV, color/color2, tangent, bitangent and
+    bitangent-sign attributes;
+  uint32 local indexes;
+  source material slot, triangle class/flags and geometry-local emissive index.
+
+The registry accepts only valid RegisteredRenderModel + Rigid canonical mesh
+keys in this slice. Static world data is deferred to the static-bucket ticket.
+SkinnedBindSource and Skinned observations are named negative controls so an
+animated MD5 snapshot cannot be mistaken for immutable rigid source data.
+
+The initial proposal put resolved material ID and material-table binding/
+revision in the immutable triangle stream. That is incompatible with D17:
+skins and per-instance material overrides are binding state, not MeshKey-owned
+source content. The corrected source ABI retains a stable source material slot.
+The later instance/route binding record resolves that slot to a material-table
+ID and revision. This prevents one instance override from revising or replacing
+a source record shared by other instances.
+
+Observe behavior is explicit:
+
+  first non-zero source revision plus a complete payload
+    validates counts/topology/local index ranges, computes one source checksum,
+    deep-copies all four streams and returns Added;
+
+  the same canonical key and source revision
+    returns Reused without accepting, hashing or copying a payload;
+
+  a larger source revision plus a complete valid payload
+    builds a replacement, updates checksum/retained bytes and returns Revised;
+
+  a stale/zero revision, missing payload, count mismatch, non-triangle
+    topology, out-of-range index or ineligible source class
+    returns a stable named rejection without publishing a partial record.
+
+The deterministic PathTraceGeometrySourceRegistryHarness covers:
+
+  separate position and attribute ownership;
+  mutation of caller arrays after ingestion;
+  exact retained/copied-byte accounting;
+  steady same-revision reuse with no second payload copy;
+  content-revision replacement and checksum change;
+  stale-revision failure atomicity;
+  static/skinned negative controls;
+  zero revision and missing first-discovery payload;
+  stream-count, topology and local-index validation;
+  checksum sensitivity to indexes, source material slots and bitangent sign.
+
+Verification:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  PathTraceGeometrySourceRegistryHarness
+    PASS
+  PathTraceGeometryPoolHarness
+    PASS
+  PathTraceCanonicalIdentityHarness
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Deployed executable:
+
+  SHA-256:
+    B578B10E8F52F50A12E6EF712A7C60F81FD4D969FA413B686D1709D7E82582BC
+  mtime:
+    2026-07-24 16:40:00 Australia/Sydney
+
+Live behavior:
+
+  unchanged. The registry has no lifecycle or renderer call site yet.
+
+STEP 2 RESULT
+-------------
+  PASS - canonical-keyed, value-owned source payload
+  PASS - split position/attribute/index/triangle CPU ABI
+  PASS - first/revision copy and zero-copy steady reuse contract
+  PASS - rigid eligibility and skinned negative controls
+  PASS - resolved material binding kept outside immutable mesh content
+  PASS - no retained srfTriangles_t/idDrawVert/index pointer
+
+Next implementation slice:
+
+  wire observation-only RegisteredRenderModel + Rigid first-discovery ingestion
+  into the lifecycle shadow registry. Convert idDrawVert values only when a
+  source record is absent or explicitly revised, report source reuse/copy/
+  reject bytes in the bounded dump, and keep the live rigid route unchanged.
