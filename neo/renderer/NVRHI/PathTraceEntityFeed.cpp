@@ -362,6 +362,7 @@ struct EntityFeedResidentSurfaceStore
     const idRenderWorldLocal* renderWorld = nullptr;
     idStr mapName;
     ID_TIME_T mapTimeStamp = 0;
+    uint64 mapLoadSerial = 0;
     int lastGcFrame = -1;
     std::vector<EntityFeedResidentEntitySlot> entitySlots;
 
@@ -370,6 +371,7 @@ struct EntityFeedResidentSurfaceStore
         renderWorld = world;
         mapName = world ? world->mapName : "";
         mapTimeStamp = world ? world->mapTimeStamp : 0;
+        mapLoadSerial = world ? world->mapLoadSerial : 0;
         lastGcFrame = -1;
         entitySlots.clear();
     }
@@ -380,9 +382,11 @@ EntityFeedResidentSurfaceStore& EntityFeedResidentStoreForWorld(const idRenderWo
     static EntityFeedResidentSurfaceStore store;
     const char* mapName = renderWorld ? renderWorld->mapName.c_str() : "";
     const ID_TIME_T mapTimeStamp = renderWorld ? renderWorld->mapTimeStamp : 0;
+    const uint64 mapLoadSerial = renderWorld ? renderWorld->mapLoadSerial : 0;
     if (store.renderWorld != renderWorld ||
         store.mapName.Icmp(mapName) != 0 ||
-        store.mapTimeStamp != mapTimeStamp)
+        store.mapTimeStamp != mapTimeStamp ||
+        store.mapLoadSerial != mapLoadSerial)
     {
         store.ResetForWorld(renderWorld);
     }
@@ -505,6 +509,7 @@ EntityFeedResidentEntitySlot* FindOrCreateEntityFeedResidentEntitySlot(
 
     EntityFeedResidentEntitySlot& slot = store->entitySlots[static_cast<size_t>(key.index)];
     if (slot.renderDefKey.world != key.world ||
+        slot.renderDefKey.worldGeneration != key.worldGeneration ||
         slot.renderDefKey.index != key.index ||
         slot.renderDefKey.generation != key.generation)
     {
@@ -852,6 +857,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     std::unordered_set<uint64> candidateInstanceIds;
     std::unordered_set<uint32_t> registeredMaterialIds;
     std::unordered_set<const idRenderEntityLocal*> scannedEntities;
+    std::unordered_set<const idRenderEntityLocal*> liveEntityDefs;
     EntityFeedCaptureMaterialCache materialCache;
     const bool residencyEnabled = EntityFeedResidencyEnabled();
     EntityFeedResidentSurfaceStore* residentStore = nullptr;
@@ -859,6 +865,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     candidateInstanceIds.reserve(rigidRouteMaxInstances * 2);
     registeredMaterialIds.reserve(128);
     scannedEntities.reserve(renderWorld ? renderWorld->entityDefs.Num() : 0);
+    liveEntityDefs.reserve(renderWorld ? renderWorld->entityDefs.Num() : 0);
     materialCache.materialRecords.reserve(256);
     materialCache.materialEmissive.reserve(256);
     materialCache.activeEmissiveStage.reserve(256);
@@ -866,6 +873,14 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     if (!renderWorld)
     {
         return capturedSurfaces;
+    }
+    for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)
+    {
+        const idRenderEntityLocal* liveEntity = renderWorld->entityDefs[entityIndex];
+        if (liveEntity)
+        {
+            liveEntityDefs.insert(liveEntity);
+        }
     }
     if (residencyEnabled)
     {
@@ -930,12 +945,40 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 ++stats.residencyPlayerAreaRefs;
             }
             idRenderEntityLocal* entity = ref ? ref->entity : nullptr;
-            idRenderModel* model = entity ? entity->parms.hModel : nullptr;
-            if (!entity || !model)
+            if (!entity || liveEntityDefs.find(entity) == liveEntityDefs.end())
             {
                 continue;
             }
+            if (entity->world != renderWorld ||
+                entity->index < 0 ||
+                entity->index >= renderWorld->entityDefs.Num() ||
+                renderWorld->entityDefs[entity->index] != entity)
+            {
+                continue;
+            }
+
             const renderEntity_t& renderEntity = entity->parms;
+            // The V2 feed only admits rigid entities (plus the narrow rigid
+            // emissive-card promotion below). Known callback/skinned/generated
+            // entities are rejected by classification and promotion anyway, so
+            // reject them before touching their retained hModel vtable.
+            if (renderEntity.callback != nullptr ||
+                renderEntity.forceUpdate != 0 ||
+                renderEntity.joints != nullptr ||
+                renderEntity.numJoints > 0 ||
+                renderEntity.weaponDepthHack ||
+                renderEntity.modelDepthHack != 0.0f ||
+                entity->dynamicModel != nullptr ||
+                entity->cachedDynamicModel != nullptr)
+            {
+                continue;
+            }
+
+            idRenderModel* model = renderEntity.hModel;
+            if (!model)
+            {
+                continue;
+            }
             PtRenderDefKey entityRenderDefKey;
             uint32_t entityModelEpoch = 0;
             uint64 entityMaterialTokenBase = 0;

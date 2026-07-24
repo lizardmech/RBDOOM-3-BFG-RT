@@ -239,10 +239,10 @@ executable SHA-256:
 
   2AAF930B03C7093FC3FADF2D405A154389466B3CBF85AE23A71E490766BD66AE
 
-Exact executable disassembly and the matching source control flow place the
-fault in RefreshRigidResidencyAreaWalk. A portal area's linked reference node
-was still readable, but its entity pointer was no longer a live entityDef; the
-fault occurred on the first read of entity->parms.hModel.
+Initial disassembly-only comparison placed the fault in
+RefreshRigidResidencyAreaWalk. That attribution is superseded by the exact
+Release map evidence recorded below; both the legacy area walk and entity feed
+have structurally similar portal-reference/model loops.
 
 This is separate from the two lifecycle-observer faults above. The immediate
 correction builds a pointer-only live membership set from renderWorld->entityDefs
@@ -262,13 +262,43 @@ reload, spawned the medkit probe and emitted both GEO-05 shadow and lifecycle
 dumps. During later ordinary traversal it crashed with 0xc0000005 at executable
 RVA 0x5f3dcb.
 
-The membership guard had rejected stale entity pointers, but exact executable
-disassembly showed this new fault at model->NumSurfaces() deeper in the same
-RefreshRigidResidencyAreaWalk path. Membership in entityDefs does not extend the
-lifetime contract of a retained hModel pointer into this late PT diagnostic.
+The membership guard had rejected stale entity pointers, but disassembly still
+showed the new fault at model->NumSurfaces(). The initial attribution to
+RefreshRigidResidencyAreaWalk is superseded below by an exact Release map.
 
 For residency V2, r_pathTracingRigidResidencyDump no longer activates the
 legacy portal-area walk. The dump now reports the V2 entity-feed/residency
 snapshot already used by the live route. The legacy walk remains reachable
 only when r_pathTracingGeometryResidencyV2 is explicitly disabled; replacing
 that legacy ownership path is later modernization work.
+
+EXACT SYMBOL CORRECTION AND ENTITY-FEED GUARD (2026-07-24)
+----------------------------------------------------------
+A current Release map was generated from the exact source/object set after the
+same RVA 0x5f3dcb recurred with V2 diagnostics confined to snapshots. The map
+places the fault inside:
+
+  CaptureEntityFeedRigidSurfaces
+  function start RVA 0x5f31f0
+  fault delta +0xbdb
+
+The faulting instruction is the hModel virtual call for NumSurfaces. This
+explains the reported spatial correlation with animated objects: the V2 feed
+walked reachable area references, read entity->parms.hModel, and enumerated
+surfaces before rejecting callback/skinned/generated entities which cannot be
+admitted by this rigid-only feed.
+
+Correction:
+
+  * area-reference entity pointers must belong to the current entityDefs set
+    and round-trip through world/index/entityDefs before any entity field read;
+  * callback, force-update, jointed, depth-hack and generated/dynamic-model
+    entities are rejected before any hModel virtual call;
+  * the resident store now keys same-object map reloads by mapLoadSerial;
+  * resident entity slots now compare worldGeneration as well as raw world,
+    index and render-def generation.
+
+The mapLoadSerial/worldGeneration omissions were independent correctness bugs:
+a same-map reload could otherwise retain surface/material/model facts from the
+previous world generation even when the world pointer and slot generation were
+reused.
