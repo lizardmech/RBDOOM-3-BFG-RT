@@ -3580,9 +3580,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeGeometryUniverse.BeginFrame(++m_smokeGeometryFrameIndex, viewDef ? viewDef->renderWorld : nullptr);
         m_smokeGeometryUniverse.ImportCanonicalSourceSnapshot(
             viewDef ? viewDef->pathTraceGeometrySourceSnapshot : nullptr);
+        m_smokeGeometryUniverse.UpdateCanonicalSourceGpuPools(
+            device,
+            commandList);
         if (geometrySourceDumpRequested)
         {
             m_smokeGeometryUniverse.DumpCanonicalSourceImportStats();
+            m_smokeGeometryUniverse.DumpCanonicalSourceGpuPoolStats();
         }
         if (useSceneUniverseStaticGeometry)
         {

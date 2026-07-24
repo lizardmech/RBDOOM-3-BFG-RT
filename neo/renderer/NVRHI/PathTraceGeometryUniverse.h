@@ -10,6 +10,7 @@
 #include "PathTraceGeometry.h"
 #include "PathTraceAccelerationPlan.h"
 #include "PathTraceGeometryLifecycle.h"
+#include "PathTraceGeometryGpuPools.h"
 #include "PathTraceGeometrySourceRegistry.h"
 #include "PathTraceGeometrySourceTransport.h"
 
@@ -620,7 +621,11 @@ public:
     void BeginFrame(uint64 frameIndex, const idRenderWorldLocal* renderWorld = nullptr);
     void EndFrame();
     void ImportCanonicalSourceSnapshot(const PtGeometrySourceTransportSnapshot* snapshot);
+    void UpdateCanonicalSourceGpuPools(
+        nvrhi::IDevice* device,
+        nvrhi::ICommandList* commandList);
     void DumpCanonicalSourceImportStats();
+    void DumpCanonicalSourceGpuPoolStats();
     bool PruneMissingStaticSurfaces();
     void NotifyStaticCacheChanged();
     void ReserveStaticSurfaceRecords(size_t surfaceCount);
@@ -837,6 +842,8 @@ private:
     int m_rigidResidencyAreaWalkRejectedSurfacesThisFrame = 0;
     int m_rigidResidencyAreaWalkEligibleSurfacesThisFrame = 0;
     PtGeometrySourceRegistry m_canonicalSourceRegistry;
+    PtGeometryGpuPoolSet m_canonicalSourceGpuPools;
+    PtGeometryGpuPoolStats m_canonicalSourceGpuPoolStats;
     uint64 m_canonicalSourceWorldGeneration = 0;
     uint64 m_canonicalSourcePublicationGeneration = 0;
     uint64 m_canonicalSourcePublicationSequence = 0;

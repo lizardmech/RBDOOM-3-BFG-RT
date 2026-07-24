@@ -1234,16 +1234,6 @@ void RtSmokeGeometryUniverse::Clear()
     m_rigidResidencyEnabled = false;
     m_rigidResidencyWorld = nullptr;
     ResetRigidMeshCandidateFrameStats();
-    m_canonicalSourceRegistry.Clear();
-    m_canonicalSourceWorldGeneration = 0;
-    m_canonicalSourcePublicationGeneration = 0;
-    m_canonicalSourcePublicationSequence = 0;
-    m_canonicalSourceImportCursor = 0;
-    m_canonicalSourceImported = 0;
-    m_canonicalSourceReused = 0;
-    m_canonicalSourceRevised = 0;
-    m_canonicalSourceRejected = 0;
-    m_canonicalSourceTransportBytes = 0;
     ++m_generation;
 }
 
@@ -1265,10 +1255,30 @@ void RtSmokeGeometryUniverse::ImportCanonicalSourceSnapshot(
         ++m_canonicalSourceRejected;
         return;
     }
+
+    // Validate the entire immutable packet before changing publication
+    // ownership or publishing any record. A malformed first packet for a new
+    // generation must not discard the last valid registry and GPU pools.
+    for (std::uint64_t recordIndex = 0;
+        recordIndex < snapshot->recordCount;
+        ++recordIndex)
+    {
+        if (PtValidateGeometrySourceTransportRecord(
+                snapshot->records[recordIndex],
+                snapshot->streams) !=
+            PtGeometrySourceTransportResult::Success)
+        {
+            ++m_canonicalSourceRejected;
+            return;
+        }
+    }
+
     if (m_canonicalSourceWorldGeneration != snapshot->worldGeneration ||
         m_canonicalSourcePublicationGeneration !=
             snapshot->publicationGeneration)
     {
+        m_canonicalSourceGpuPools.ResetForPublication(m_currentFrameIndex);
+        m_canonicalSourceGpuPoolStats = PtGeometryGpuPoolStats();
         m_canonicalSourceRegistry.Clear();
         m_canonicalSourceWorldGeneration = snapshot->worldGeneration;
         m_canonicalSourcePublicationGeneration =
@@ -1282,22 +1292,6 @@ void RtSmokeGeometryUniverse::ImportCanonicalSourceSnapshot(
     {
         ++m_canonicalSourceRejected;
         return;
-    }
-
-    // Validate the entire immutable packet before publishing any record so a
-    // malformed later range cannot leave a partially imported page.
-    for (std::uint64_t recordIndex = 0;
-        recordIndex < snapshot->recordCount;
-        ++recordIndex)
-    {
-        if (PtValidateGeometrySourceTransportRecord(
-                snapshot->records[recordIndex],
-                snapshot->streams) !=
-            PtGeometrySourceTransportResult::Success)
-        {
-            ++m_canonicalSourceRejected;
-            return;
-        }
     }
 
     for (std::uint64_t recordIndex = 0;
@@ -1354,6 +1348,44 @@ void RtSmokeGeometryUniverse::ImportCanonicalSourceSnapshot(
     m_canonicalSourceTransportBytes += snapshot->packedBytes;
 }
 
+void RtSmokeGeometryUniverse::UpdateCanonicalSourceGpuPools(
+    nvrhi::IDevice* device,
+    nvrhi::ICommandList* commandList)
+{
+    const PtGeometryGpuPoolStats frameStats =
+        m_canonicalSourceGpuPools.Update(
+            device,
+            commandList,
+            m_canonicalSourceRegistry,
+            m_currentFrameIndex);
+    m_canonicalSourceGpuPoolStats.residentRecords =
+        frameStats.residentRecords;
+    m_canonicalSourceGpuPoolStats.uploadedRecords +=
+        frameStats.uploadedRecords;
+    m_canonicalSourceGpuPoolStats.revisedRecords +=
+        frameStats.revisedRecords;
+    m_canonicalSourceGpuPoolStats.rejectedRecords +=
+        frameStats.rejectedRecords;
+    m_canonicalSourceGpuPoolStats.uploadBytes += frameStats.uploadBytes;
+    m_canonicalSourceGpuPoolStats.copiedGrowthBytes +=
+        frameStats.copiedGrowthBytes;
+    m_canonicalSourceGpuPoolStats.buffersCreated +=
+        frameStats.buffersCreated;
+    m_canonicalSourceGpuPoolStats.buffersGrown +=
+        frameStats.buffersGrown;
+    m_canonicalSourceGpuPoolStats.retiredBuffers =
+        frameStats.retiredBuffers;
+    for (int poolIndex = 0; poolIndex < 4; ++poolIndex)
+    {
+        m_canonicalSourceGpuPoolStats.capacities[poolIndex] =
+            frameStats.capacities[poolIndex];
+        m_canonicalSourceGpuPoolStats.used[poolIndex] =
+            frameStats.used[poolIndex];
+        m_canonicalSourceGpuPoolStats.generations[poolIndex] =
+            frameStats.generations[poolIndex];
+    }
+}
+
 void RtSmokeGeometryUniverse::DumpCanonicalSourceImportStats()
 {
     common->Printf(
@@ -1376,6 +1408,61 @@ void RtSmokeGeometryUniverse::DumpCanonicalSourceImportStats()
     m_canonicalSourceRevised = 0;
     m_canonicalSourceRejected = 0;
     m_canonicalSourceTransportBytes = 0;
+}
+
+void RtSmokeGeometryUniverse::DumpCanonicalSourceGpuPoolStats()
+{
+    common->Printf(
+        "PathTracePrimaryPass: GEO06 backend GPU source pools records=%llu interval(upload/revise/reject/uploadBytes/copyBytes/create/grow)=%llu/%llu/%llu/%llu/%llu/%llu/%llu retired=%llu position(cap/used/gen)=%llu/%llu/%llu attribute=%llu/%llu/%llu index=%llu/%llu/%llu triangle=%llu/%llu/%llu route=shadow-only\n",
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.residentRecords),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.uploadedRecords),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.revisedRecords),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.rejectedRecords),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.uploadBytes),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.copiedGrowthBytes),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.buffersCreated),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.buffersGrown),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.retiredBuffers),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.capacities[0]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.used[0]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.generations[0]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.capacities[1]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.used[1]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.generations[1]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.capacities[2]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.used[2]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.generations[2]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.capacities[3]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.used[3]),
+        static_cast<unsigned long long>(
+            m_canonicalSourceGpuPoolStats.generations[3]));
+    m_canonicalSourceGpuPoolStats.uploadedRecords = 0;
+    m_canonicalSourceGpuPoolStats.revisedRecords = 0;
+    m_canonicalSourceGpuPoolStats.rejectedRecords = 0;
+    m_canonicalSourceGpuPoolStats.uploadBytes = 0;
+    m_canonicalSourceGpuPoolStats.copiedGrowthBytes = 0;
+    m_canonicalSourceGpuPoolStats.buffersCreated = 0;
+    m_canonicalSourceGpuPoolStats.buffersGrown = 0;
 }
 
 void RtSmokeGeometryUniverse::RetireRigidBlas(RigidMeshCandidateRecord& record)

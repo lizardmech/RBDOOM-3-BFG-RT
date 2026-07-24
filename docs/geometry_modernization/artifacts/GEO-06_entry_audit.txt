@@ -746,3 +746,87 @@ Next implementation slice:
   Use checked uint64 suballocations, upload only newly resident/revised records,
   retain old storage generations across growth, and report pool capacity/used/
   upload/retirement state without changing BLAS or traversal.
+
+STEP 4 SHADOW GPU POOL CANDIDATE (2026-07-24)
+---------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  four independent backend NVRHI buffers now own canonical position,
+  full-attribute, index and source-triangle streams;
+  all byte counts, aligned offsets, growth limits and storage generations use
+  the checked GEO-06 pool planner;
+  the backend persistent CPU registry remains the replay authority;
+  only newly imported or source-revised records allocate and upload ranges;
+  a growth allocates one replacement buffer, copies exactly the previous used
+  prefix, rebases resident record generations, and retains the old handle for
+  three backend frames;
+  a transport world/publication change retires all four active buffers before
+  starting new generation-1 pool states;
+  malformed packets are fully validated before they may replace the current
+  publication and pools;
+  legacy RtSmokeGeometryUniverse::Clear calls no longer discard canonical
+  transport state. Those calls can be legacy cache-policy events rather than
+  frontend source-publication resets, so clearing there would strand the
+  backend after the append-only frontend cursor had already advanced;
+  the existing bounded source dump also emits record, upload, revision,
+  rejection, growth-copy, create/grow/retired and cap/used/generation values
+  for every pool;
+  the buffers are shadow-only: no BLAS geometry, descriptor binding, shader,
+  TLAS instance or traversal route consumes them.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  PathTraceGeometryPoolHarness
+    PASS
+  PathTraceGeometrySourceRegistryHarness
+    PASS
+  PathTraceGeometrySourceTransportHarness
+    PASS
+  PathTraceCanonicalIdentityHarness
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    1F5226BCF7E4794591C9CA0361042640C1972211926C4D324206C4355A5BEB04
+  mtime:
+    2026-07-24 17:39:26 Australia/Sydney
+
+Focused runtime acceptance:
+
+  r_pathTracingGeometrySourceDeltaBudgetMB 1
+  r_pathTracingGeometryShadowRegistry 1
+  mapRestart
+  traverse until the initial pages have crossed the backend
+  r_pathTracingGeometryShadowRegistryDump 1
+  wait ten seconds
+  r_pathTracingGeometryShadowRegistryDump 1
+
+First dump requirements:
+
+  backend source records and GPU pool records match;
+  interval GPU upload count equals the backend source record count;
+  uploadBytes equals backend retainedBytes;
+  revise/reject = 0;
+  all four cap values are >= used and all used values are non-zero;
+  all four generations are non-zero;
+  create totals four and forced pagination may produce non-zero grow/copy
+  totals;
+  no old pool is retained more than three later backend frames;
+  raster and path-traced output remain visually unchanged.
+
+Second dump requirements:
+
+  record, capacity, used and generation values remain unchanged;
+  interval upload/revise/reject/uploadBytes/copyBytes/create/grow is all zero;
+  backend source transport interval remains all zero;
+  no crash, severe hitch after initial population, Vulkan validation error or
+  device removal.
+
+The first dump should be taken after initial pagination finishes. A dump during
+the six known 1 MiB pages is still useful, but its upload count and used bytes
+will describe only the prefix imported so far.
