@@ -4,6 +4,7 @@
 #include "PathTraceGeometryLifecycle.h"
 #include "PathTraceCVars.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceGeometryIdentityTransport.h"
 #include "PathTraceGeometrySourceRegistry.h"
 #include "PathTraceGeometrySourceTransport.h"
 #include "../Material.h"
@@ -496,6 +497,7 @@ public:
             sourcePublicationGeneration = 1;
         }
         sourcePublicationSequence = 0;
+        ResetIdentityPublication();
         shadowTracking = false;
     }
 
@@ -530,6 +532,7 @@ public:
                     sourcePublicationGeneration = 1;
                 }
                 sourcePublicationSequence = 0;
+                ResetIdentityPublication();
                 shadowTracking = false;
             }
             return;
@@ -845,6 +848,75 @@ public:
         snapshot->streams.triangles = triangles;
         viewDef->pathTraceGeometrySourceSnapshot = snapshot;
         sourcePublishedRecordCount = plan.nextRecordIndex;
+    }
+
+    void CaptureIdentityDelta(viewDef_t* viewDef)
+    {
+        if (viewDef == nullptr || viewDef->isSubview || !shadowTracking ||
+            worldGeneration == 0)
+        {
+            return;
+        }
+
+        MaybeCompactIdentityJournal();
+        const int budgetMB = idMath::ClampInt(
+            1,
+            32,
+            r_pathTracingGeometrySourceDeltaBudgetMB.GetInteger());
+        const std::uint64_t byteBudget =
+            static_cast<std::uint64_t>(budgetMB) * 1024ull * 1024ull;
+        PtGeometryIdentityTransportPlan plan;
+        const PtGeometryIdentityTransportResult result =
+            PtPlanGeometryIdentityTransport(
+                identityJournal,
+                identityPublishedRecordCount,
+                byteBudget,
+                plan);
+        if (result == PtGeometryIdentityTransportResult::EmptyDelta)
+        {
+            return;
+        }
+        if (result != PtGeometryIdentityTransportResult::Success ||
+            plan.records.empty() ||
+            plan.packedBytes > static_cast<std::uint64_t>(
+                std::numeric_limits<int>::max()))
+        {
+            common->Printf(
+                "PathTracePrimaryPass: GEO06 identity transport producer rejected result=%s cursor=%llu records=%llu budgetBytes=%llu\n",
+                PtGeometryIdentityTransportResultName(result),
+                static_cast<unsigned long long>(
+                    identityPublishedRecordCount),
+                static_cast<unsigned long long>(identityJournal.size()),
+                static_cast<unsigned long long>(byteBudget));
+            return;
+        }
+
+        PtGeometryIdentityTransportSnapshot* snapshot =
+            new (R_ClearedFrameAlloc(
+                sizeof(PtGeometryIdentityTransportSnapshot),
+                FRAME_ALLOC_VIEW_DEF))
+                PtGeometryIdentityTransportSnapshot();
+        snapshot->worldGeneration = worldGeneration;
+        snapshot->publicationGeneration = identityPublicationGeneration;
+        snapshot->publicationSequence = ++identityPublicationSequence;
+        snapshot->firstRecordIndex = plan.firstRecordIndex;
+        snapshot->nextRecordIndex = plan.nextRecordIndex;
+        snapshot->packedBytes = plan.packedBytes;
+        snapshot->recordCount = plan.records.size();
+
+        PtGeometryIdentityTransportRecord* records =
+            static_cast<PtGeometryIdentityTransportRecord*>(R_FrameAlloc(
+                static_cast<int>(
+                    plan.records.size() *
+                    sizeof(PtGeometryIdentityTransportRecord)),
+                FRAME_ALLOC_VIEW_ENTITY));
+        std::memcpy(
+            records,
+            plan.records.data(),
+            plan.records.size() * sizeof(plan.records[0]));
+        snapshot->records = records;
+        viewDef->pathTraceGeometryIdentitySnapshot = snapshot;
+        identityPublishedRecordCount = plan.nextRecordIndex;
     }
 
     void RemoveEntity(const idRenderEntityLocal* entity, std::uint32_t generation)
@@ -1353,6 +1425,9 @@ private:
             const size_t recordIndex = instances.size();
             instances.push_back(added);
             instanceLookup.emplace(instanceHash, recordIndex);
+            AppendIdentityEvent(
+                PtGeometryIdentityOperation::Upsert,
+                added);
             ++mesh->liveReferences;
             mesh->evictionDeferred = false;
             ++stats.added;
@@ -1387,6 +1462,12 @@ private:
         record->modelName = model ? model->Name() : "<none>";
         record->materialName = material ? material->GetName() : "<none>";
         CopyShadowTransform(entity, record->origin, record->axis);
+        if (meshChanged)
+        {
+            AppendIdentityEvent(
+                PtGeometryIdentityOperation::Upsert,
+                *record);
+        }
         if (changed)
         {
             ++stats.updated;
@@ -1420,6 +1501,9 @@ private:
 
     void RemoveInstance(PtGeometryShadowInstanceRecord& record)
     {
+        AppendIdentityEvent(
+            PtGeometryIdentityOperation::Remove,
+            record);
         ReleaseMeshReference(record.meshKey, record.meshHash);
         stats.removedVertices += record.vertexCount;
         stats.removedIndexes += record.indexCount;
@@ -1440,6 +1524,66 @@ private:
         }
         ++stats.removed;
         record.valid = false;
+    }
+
+    void ResetIdentityPublication()
+    {
+        identityJournal.clear();
+        identityPublishedRecordCount = 0;
+        ++identityPublicationGeneration;
+        if (identityPublicationGeneration == 0)
+        {
+            identityPublicationGeneration = 1;
+        }
+        identityPublicationSequence = 0;
+    }
+
+    void MaybeCompactIdentityJournal()
+    {
+        constexpr std::size_t kIdentityJournalCompactThreshold = 16384;
+        if (identityJournal.size() < kIdentityJournalCompactThreshold ||
+            identityPublishedRecordCount != identityJournal.size())
+        {
+            return;
+        }
+
+        identityJournal.clear();
+        identityPublishedRecordCount = 0;
+        ++identityPublicationGeneration;
+        if (identityPublicationGeneration == 0)
+        {
+            identityPublicationGeneration = 1;
+        }
+        identityPublicationSequence = 0;
+        for (const PtGeometryShadowInstanceRecord& instance : instances)
+        {
+            if (instance.valid)
+            {
+                AppendIdentityEvent(
+                    PtGeometryIdentityOperation::Upsert,
+                    instance);
+            }
+        }
+    }
+
+    void AppendIdentityEvent(
+        PtGeometryIdentityOperation operation,
+        const PtGeometryShadowInstanceRecord& instance)
+    {
+        if (!PtCanonicalInstanceKeyIsValid(instance.key) ||
+            !PtCanonicalMeshKeyIsValid(instance.meshKey))
+        {
+            return;
+        }
+        PtGeometryIdentityTransportRecord event;
+        event.operation = operation;
+        event.eventSequence =
+            static_cast<std::uint64_t>(identityJournal.size()) + 1;
+        event.instanceKey = instance.key;
+        event.instanceHash = instance.hash;
+        event.meshKey = instance.meshKey;
+        event.meshHash = instance.meshHash;
+        identityJournal.push_back(event);
     }
 
     void RemoveUnobservedEntitySurfaces(
@@ -1491,6 +1635,10 @@ private:
     std::size_t sourcePublishedRecordCount = 0;
     std::uint64_t sourcePublicationGeneration = 1;
     std::uint64_t sourcePublicationSequence = 0;
+    std::vector<PtGeometryIdentityTransportRecord> identityJournal;
+    std::size_t identityPublishedRecordCount = 0;
+    std::uint64_t identityPublicationGeneration = 1;
+    std::uint64_t identityPublicationSequence = 0;
 };
 
 namespace {
@@ -1768,6 +1916,7 @@ void CaptureSourceDelta(viewDef_t* viewDef)
         return;
     }
     viewDef->pathTraceGeometrySourceSnapshot = nullptr;
+    viewDef->pathTraceGeometryIdentitySnapshot = nullptr;
     if (r_pathTracingGeometryShadowRegistry.GetInteger() == 0 ||
         viewDef->isSubview)
     {
@@ -1778,6 +1927,7 @@ void CaptureSourceDelta(viewDef_t* viewDef)
     if (registry != nullptr)
     {
         registry->CaptureSourceDelta(viewDef);
+        registry->CaptureIdentityDelta(viewDef);
     }
 }
 

@@ -11,6 +11,7 @@
 #include "PathTraceAccelerationPlan.h"
 #include "PathTraceGeometryLifecycle.h"
 #include "PathTraceGeometryGpuPools.h"
+#include "PathTraceGeometryIdentityTransport.h"
 #include "PathTraceGeometryOffsetBlasProbe.h"
 #include "PathTraceGeometrySourceRegistry.h"
 #include "PathTraceGeometrySourceTransport.h"
@@ -678,10 +679,13 @@ public:
     void BeginFrame(uint64 frameIndex, const idRenderWorldLocal* renderWorld = nullptr);
     void EndFrame();
     void ImportCanonicalSourceSnapshot(const PtGeometrySourceTransportSnapshot* snapshot);
+    void ImportCanonicalIdentitySnapshot(
+        const PtGeometryIdentityTransportSnapshot* snapshot);
     void UpdateCanonicalSourceGpuPools(
         nvrhi::IDevice* device,
         nvrhi::ICommandList* commandList);
     void DumpCanonicalSourceImportStats();
+    void DumpCanonicalIdentityImportStats();
     void DumpCanonicalSourceGpuPoolStats();
     void DumpCanonicalOffsetBlasProbeStats();
     RtPathTraceCanonicalRigidCompareStats
@@ -905,6 +909,7 @@ private:
     int m_rigidResidencyAreaWalkRejectedSurfacesThisFrame = 0;
     int m_rigidResidencyAreaWalkEligibleSurfacesThisFrame = 0;
     PtGeometrySourceRegistry m_canonicalSourceRegistry;
+    PtGeometryIdentityRegistry m_canonicalIdentityRegistry;
     PtGeometryGpuPoolSet m_canonicalSourceGpuPools;
     PtGeometryGpuPoolStats m_canonicalSourceGpuPoolStats;
     PtGeometryOffsetBlasProbe m_canonicalOffsetBlasProbe;

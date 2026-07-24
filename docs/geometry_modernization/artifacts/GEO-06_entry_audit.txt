@@ -1067,3 +1067,116 @@ Required comparison invariants:
   unmatchedCanonical may be non-zero and is coverage information, not a
   content mismatch;
   the second dump is unchanged except for frame/stability counters.
+
+STEP 6 CANONICAL-VERSUS-LEGACY RIGID SOURCE RUNTIME PASS (2026-07-24)
+---------------------------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo28.log
+  bytes:
+    138164
+  last write:
+    2026-07-24 18:14:36 Australia/Sydney
+
+Populated dump at frame 1073:
+
+  canonical/legacy/valid = 946/89/89;
+  exact unique/equivalent = 82/7, total 89;
+  missing shape/payload/endpoint/source-material = 0/0/0/0;
+  resolved material/class bindings = 89/89;
+  unmatched canonical sources = 862.
+
+Steady dump at frame 1298 repeats every content, failure and binding count.
+The sampled records have exact full-payload checksums and matching endpoint
+data. Every sampled immutable source-material endpoint equals its canonical
+model-surface ordinal. No producer rejection, fatal error, Vulkan error,
+device removal, allocation failure or readback failure appears in the log.
+
+The seven equivalent-content matches are the important boundary result:
+identical bytes can exist under more than one durable source asset. Therefore
+the live route must not infer a canonical MeshKey from counts/checksums. It
+must receive the exact lifecycle-owned InstanceKey-to-MeshKey association.
+
+STEP 6 FINAL RESULT
+-------------------
+  PASS - every comparable legacy rigid payload has exact canonical content
+  PASS - source-material ordinal and resolved live bindings remain distinct
+  PASS - duplicate content is reported without collapsing canonical identity
+  PASS - stable dumps produce no repeated uploads, BLAS work or readbacks
+
+STEP 7 EXACT CANONICAL IDENTITY TRANSPORT CANDIDATE (2026-07-24)
+----------------------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  the frontend lifecycle registry now journals pointer-free canonical
+  InstanceKey-to-MeshKey upserts and removals;
+  initial discovery publishes an upsert, a mesh change on the same live
+  InstanceKey publishes a revision, and removal publishes a tombstone;
+  event sequence and full-key hashes are validated before backend mutation;
+  bounded primary-view packets use the frame arena and exact continuation
+  cursors, so the backend does not read frontend registry memory under SMP;
+  a new world/publication must start at cursor zero; stale world/publication,
+  out-of-order packet and corrupt-hash input fail closed;
+  backend lookup uses the full canonical key after hash bucket selection, so
+  hash collisions do not merge identities;
+  the backend registry reports active static/rigid/skinned binding counts;
+  a published journal compacts only after 16384 events, replacing itself with
+  one upsert per live instance under a new publication generation;
+  this remains shadow-only. Legacy routing and liveness ownership are
+  unchanged.
+
+CPU verification:
+
+  PathTraceGeometryIdentityTransportHarness
+    PASS - complete and paged publication
+    PASS - exact continuation cursor
+    PASS - live mesh-binding revision
+    PASS - removal tombstone
+    PASS - corrupt hash rejection without partial publication
+    PASS - new publication cursor-zero requirement
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  PathTraceGeometryIdentityTransportHarness
+    PASS
+  PathTraceGeometrySourceTransportHarness
+    PASS
+  PathTraceGeometrySourceRegistryHarness
+    PASS
+  PathTraceGeometryPoolHarness
+    PASS
+  PathTraceCanonicalIdentityHarness
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    E61498DEC1581F7875E1D9CD3CB63E07B6A138DA60473B48DC691DE7C02F3CF8
+  mtime:
+    2026-07-24 18:25:52 Australia/Sydney
+
+Focused runtime acceptance:
+
+  keep r_pathTracingGeometryShadowRegistry 1;
+  mapRestart;
+  traverse the representative rigid-prop area for at least ten seconds;
+  r_pathTracingGeometryShadowRegistryDump 1;
+  wait ten seconds without changing areas;
+  r_pathTracingGeometryShadowRegistryDump 1.
+
+Both identity transport dumps must report:
+
+  non-zero world/publication/sequence/cursor;
+  active bindings > 0 and active rigid bindings > 0;
+  active = static + rigid + skinned;
+  binding slots >= active bindings;
+  first populated interval has upserts > 0 and reject = 0;
+  second steady interval has upsert/reuse/revise/remove/reject/bytes all zero;
+  world/publication/cursor and all binding counts remain unchanged;
+  no producer rejection, fatal error, Vulkan error, device removal, crash or
+  visible change.

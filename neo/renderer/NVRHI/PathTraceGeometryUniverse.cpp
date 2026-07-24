@@ -1386,12 +1386,47 @@ void RtSmokeGeometryUniverse::Clear()
     m_previousStaticIndexCache.clear();
     m_previousStaticTriangleClassCache.clear();
     m_previousStaticTriangleMaterialCache.clear();
+    m_canonicalIdentityRegistry.Clear();
     ClearRigidResidencyCaches();
     m_rigidResidencyStats = RtPathTraceRigidResidencyStats();
     m_rigidResidencyEnabled = false;
     m_rigidResidencyWorld = nullptr;
     ResetRigidMeshCandidateFrameStats();
     ++m_generation;
+}
+
+void RtSmokeGeometryUniverse::ImportCanonicalIdentitySnapshot(
+    const PtGeometryIdentityTransportSnapshot* snapshot)
+{
+    if (snapshot == nullptr)
+    {
+        return;
+    }
+    m_canonicalIdentityRegistry.ApplySnapshot(snapshot);
+}
+
+void RtSmokeGeometryUniverse::DumpCanonicalIdentityImportStats()
+{
+    const PtGeometryIdentityRegistryStats& stats =
+        m_canonicalIdentityRegistry.Stats();
+    common->Printf(
+        "PathTracePrimaryPass: GEO06 backend identity transport world/pub/seq/cursor=%llu/%llu/%llu/%llu bindings(active/static/rigid/skinned/slots)=%llu/%llu/%llu/%llu/%llu interval(upsert/reuse/revise/remove/reject/bytes)=%llu/%llu/%llu/%llu/%llu/%llu authority=frontend-lifecycle route=shadow-only\n",
+        static_cast<unsigned long long>(stats.worldGeneration),
+        static_cast<unsigned long long>(stats.publicationGeneration),
+        static_cast<unsigned long long>(stats.publicationSequence),
+        static_cast<unsigned long long>(stats.importCursor),
+        static_cast<unsigned long long>(stats.activeBindings),
+        static_cast<unsigned long long>(stats.activeStaticBindings),
+        static_cast<unsigned long long>(stats.activeRigidBindings),
+        static_cast<unsigned long long>(stats.activeSkinnedBindings),
+        static_cast<unsigned long long>(stats.bindingSlots),
+        static_cast<unsigned long long>(stats.upserts),
+        static_cast<unsigned long long>(stats.reused),
+        static_cast<unsigned long long>(stats.revised),
+        static_cast<unsigned long long>(stats.removed),
+        static_cast<unsigned long long>(stats.rejected),
+        static_cast<unsigned long long>(stats.transportBytes));
+    m_canonicalIdentityRegistry.ResetIntervalStats();
 }
 
 void RtSmokeGeometryUniverse::ImportCanonicalSourceSnapshot(
