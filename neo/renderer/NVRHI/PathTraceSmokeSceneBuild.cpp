@@ -7190,6 +7190,65 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_canonicalRigidHitInstanceCount =
                 static_cast<uint32_t>(
                     rigidTlasRouteInstances.size());
+            m_canonicalRigidHitRouteContexts.clear();
+            m_canonicalRigidHitRouteContexts.reserve(
+                rigidTlasPlan.instances.size());
+            for (const RtSmokePlanTlasInstance& plannedInstance :
+                rigidTlasPlan.instances)
+            {
+                CanonicalRigidHitRouteContext context;
+                context.instanceId = plannedInstance.instanceId;
+                context.sourceInstanceId =
+                    plannedInstance.sourceInstanceId;
+                context.legacyMeshHash = plannedInstance.meshHash;
+                context.canonicalMeshHash =
+                    plannedInstance.canonicalMeshHash;
+                context.routeRecordIndex =
+                    plannedInstance.routeRecordIndex;
+                context.canonicalBlasRecordIndex =
+                    plannedInstance.canonicalBlasRecordIndex;
+                context.currentTransformHash = HashSmokeBytes(
+                    1469598103934665603ull,
+                    plannedInstance.transform,
+                    sizeof(plannedInstance.transform));
+                context.previousTransformHash = HashSmokeBytes(
+                    1469598103934665603ull,
+                    plannedInstance.previousTransform,
+                    sizeof(plannedInstance.previousTransform));
+                context.flags =
+                    (plannedInstance.sourceSeenThisFrame ? 1u : 0u) |
+                    (plannedInstance.hasPreviousTransform ? 2u : 0u) |
+                    (plannedInstance.transformContinuous ? 4u : 0u);
+                m_canonicalRigidHitRouteContexts.push_back(context);
+            }
+            m_canonicalRigidHitEmissiveContexts.clear();
+            for (const PathTraceSmokeEmissiveTriangle& triangle :
+                emissiveTriangles)
+            {
+                if (triangle.instanceId <
+                        m_canonicalRigidHitFirstInstance ||
+                    triangle.instanceId -
+                            m_canonicalRigidHitFirstInstance >=
+                        m_canonicalRigidHitInstanceCount)
+                {
+                    continue;
+                }
+                CanonicalRigidHitEmissiveContext context;
+                context.instanceId = triangle.instanceId;
+                context.primitiveIndex = triangle.primitiveIndex;
+                context.identity =
+                    (static_cast<uint64_t>(
+                        triangle.identityHashHi) << 32ull) |
+                    static_cast<uint64_t>(
+                        triangle.identityHashLo);
+                context.materialId = triangle.materialId;
+                context.materialIndex =
+                    triangle.universeMaterialIndex;
+                context.emissiveTextureIndex =
+                    triangle.emissiveTextureIndex;
+                m_canonicalRigidHitEmissiveContexts.push_back(
+                    context);
+            }
         }
         else
         {

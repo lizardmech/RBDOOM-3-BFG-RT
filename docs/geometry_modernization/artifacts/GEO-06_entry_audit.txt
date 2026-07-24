@@ -1718,3 +1718,121 @@ for a possible sub-pixel primary-ray difference when projection jitter is
 active. Any position difference must remain on the same primitive and must not
 alter the discrete tuple. A non-rigid center hit is an invalid sample and must
 be repeated while aiming at a rigid prop.
+
+STEP 12 FIRST CAPTURE INVALID, FAIL-CLOSED PASS (2026-07-24)
+------------------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo34.log
+
+The registry/provider gates were enabled after the existing map state had been
+established. Only 2 of 111 canonical descriptor records were available:
+
+  legacy/canonical descriptors = 111/2;
+  exact mappings = 2;
+  missing record index = 109.
+
+Canonical traversal correctly failed closed to the complete legacy list. Both
+readbacks were labeled traversal=legacy and produced the same valid rigid hit:
+
+  instance/primitive = 46/68;
+  material ID/index/flags/class = 764501624/391/0x2/1;
+  triangle flags = 0x1;
+  current and previous XYZ equal;
+  status/reject = 0/0.
+
+This capture proves the failure path but is not canonical-hit evidence. The
+acceptance procedure now explicitly requires enabling the registry/provider
+before mapRestart.
+
+STEP 12 PRIMARY-HIT TUPLE RUNTIME PASS (2026-07-24)
+----------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo35.log
+
+Readiness frame 4421:
+
+  canonical source records = 946;
+  canonical rigid route coverage =
+    111/111/111/111/111/111;
+  requested instances/unique meshes = 111/83;
+  resolved identity/source/pool = 111/83/83;
+  ready/active/deferred = 83/142/0;
+  missing identity/source/pool = 0/0/0;
+  legacy/canonical descriptors = 111/111;
+  exact mappings = 111;
+  descriptor failures = 0/0/0.
+
+Legacy frame 4684 and canonical frame 4995 both report:
+
+  validFlags = 0x0000000f;
+  status/reject = 0/0;
+  triangle flags = 0x00000001;
+  rigid = 1;
+  rigid range = 2 + 111;
+  instance/primitive = 46/65;
+  material ID/index/flags/class =
+    764501624/391/0x00000002/1;
+  emissive texture/RGB = 0xffffffff/0:0:0;
+  current XYZ =
+    -1003.63916:-1322.10413:296.450439;
+  previous XYZW =
+    -1003.63916:-1322.10413:296.450409:1.
+
+Every reported field is exact between legacy and canonical traversal. The
+valid flags include object-motion and previous-position availability, so the
+same current/previous rigid transform route was exercised even though the
+sampled prop was stationary.
+
+STEP 12 FINAL RESULT
+--------------------
+  PASS - a live primary ray traversed the canonical pooled BLAS
+  PASS - instance and primitive identity match legacy exactly
+  PASS - material, class and triangle flags match legacy exactly
+  PASS - current/previous position and motion validity match legacy exactly
+  PASS - non-emissive material state matches legacy exactly
+
+STEP 13 ROUTE, TRANSFORM AND EMISSIVE IDENTITY CONTEXT (2026-07-24)
+-------------------------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  the one-shot hit readback now snapshots the current rigid plan alongside the
+  176-byte GPU primary-surface record;
+  a hit instance resolves its source instance ID, legacy mesh hash, canonical
+  mesh hash, legacy route record, canonical BLAS record and flags;
+  current and previous 4x4 transforms receive separate deterministic hashes;
+  the current emissive inventory is filtered to the rigid TLAS range and keyed
+  by instance plus primitive;
+  an emissive hit reports its 64-bit light identity, material ID/index and
+  emissive texture index;
+  all snapshot data is bounded to the current rigid plan/emissive inventory and
+  cleared after readback or on any failed/cancelled readback;
+  no shader ABI or SPIR-V changed.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release --target RBDoom3BFG
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    5B7CDCCF1B904D397AF3BC59B8A3D53274A58011D88367DE34D3F0F411A35D41
+  mtime:
+    2026-07-24 21:25:49 Australia/Sydney
+
+Focused runtime acceptance:
+
+  repeat one legacy/canonical hit pair on a rigid prop without moving;
+  both context lines must report route found = 1;
+  source instance, legacy/canonical mesh hashes, route/canonical-BLAS records,
+    current/previous transform hashes and flags must be exact across the pair;
+  repeat on a visibly emissive rigid surface if one is available;
+  its emissive context must report found = 1, non-zero identity, matching
+    material ID/index and a non-invalid texture index or non-zero radiance;
+  legacy and canonical emissive identity fields must be exact.

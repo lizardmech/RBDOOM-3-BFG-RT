@@ -266,6 +266,27 @@ private:
         PathTraceSmokeVertex cpuCurrent = {};
         PathTraceSkinnedPreviousPosition cpuPrevious = {};
     };
+    struct CanonicalRigidHitRouteContext
+    {
+        uint32_t instanceId = 0;
+        uint64 sourceInstanceId = 0;
+        uint64 legacyMeshHash = 0;
+        uint64 canonicalMeshHash = 0;
+        uint32_t routeRecordIndex = UINT32_MAX;
+        uint32_t canonicalBlasRecordIndex = UINT32_MAX;
+        uint64 currentTransformHash = 0;
+        uint64 previousTransformHash = 0;
+        uint32_t flags = 0;
+    };
+    struct CanonicalRigidHitEmissiveContext
+    {
+        uint32_t instanceId = 0;
+        uint32_t primitiveIndex = 0;
+        uint64 identity = 0;
+        uint32_t materialId = 0;
+        uint32_t materialIndex = UINT32_MAX;
+        uint32_t emissiveTextureIndex = UINT32_MAX;
+    };
     void QueueGpuSkinningParitySamples(
         nvrhi::ICommandList* commandList,
         nvrhi::IBuffer* currentOutputBuffer,
@@ -477,6 +498,10 @@ private:
     bool m_canonicalRigidHitTraversalSelected = false;
     uint32_t m_canonicalRigidHitFirstInstance = 0;
     uint32_t m_canonicalRigidHitInstanceCount = 0;
+    std::vector<CanonicalRigidHitRouteContext>
+        m_canonicalRigidHitRouteContexts;
+    std::vector<CanonicalRigidHitEmissiveContext>
+        m_canonicalRigidHitEmissiveContexts;
     nvrhi::BufferHandle m_staticContractGeometryReadbackBuffer;
     bool m_staticContractGeometryReadbackQueued = false;
     int m_staticContractGeometryReadbackDelayFrames = 0;

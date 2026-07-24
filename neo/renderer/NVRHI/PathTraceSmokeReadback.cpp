@@ -343,6 +343,8 @@ void PathTracePrimaryPass::QueueStaticContractShaderSample(nvrhi::ICommandList* 
         common->Printf("PathTracePrimaryPass: PT static contract shader sample unavailable before copy\n");
         m_staticContractShaderReadbackRequested = false;
         m_canonicalRigidHitSample = false;
+        m_canonicalRigidHitRouteContexts.clear();
+        m_canonicalRigidHitEmissiveContexts.clear();
         return;
     }
 
@@ -362,6 +364,8 @@ void PathTracePrimaryPass::QueueStaticContractShaderSample(nvrhi::ICommandList* 
         common->Printf("PathTracePrimaryPass: PT static contract shader readback buffer creation failed\n");
         m_staticContractShaderReadbackRequested = false;
         m_canonicalRigidHitSample = false;
+        m_canonicalRigidHitRouteContexts.clear();
+        m_canonicalRigidHitEmissiveContexts.clear();
         return;
     }
 
@@ -378,6 +382,8 @@ void PathTracePrimaryPass::QueueStaticContractShaderSample(nvrhi::ICommandList* 
             static_cast<unsigned long long>(history.current->getDesc().byteSize));
         m_staticContractShaderReadbackRequested = false;
         m_canonicalRigidHitSample = false;
+        m_canonicalRigidHitRouteContexts.clear();
+        m_canonicalRigidHitEmissiveContexts.clear();
         return;
     }
 
@@ -429,6 +435,8 @@ void PathTracePrimaryPass::ReadBackStaticContractShaderSample()
         common->Printf("PathTracePrimaryPass: PT static contract shader sample readback map failed\n");
         m_staticContractShaderReadbackQueued = false;
         m_canonicalRigidHitSample = false;
+        m_canonicalRigidHitRouteContexts.clear();
+        m_canonicalRigidHitEmissiveContexts.clear();
         return;
     }
 
@@ -490,6 +498,75 @@ void PathTracePrimaryPass::ReadBackStaticContractShaderSample()
             record->previousPositionOrMotion[3],
             rejectReason,
             StaticContractRejectReasonName(rejectReason));
+        const CanonicalRigidHitRouteContext* routeContext = nullptr;
+        for (const CanonicalRigidHitRouteContext& candidate :
+            m_canonicalRigidHitRouteContexts)
+        {
+            if (candidate.instanceId == instanceId)
+            {
+                routeContext = &candidate;
+                break;
+            }
+        }
+        const CanonicalRigidHitEmissiveContext* emissiveContext =
+            nullptr;
+        for (const CanonicalRigidHitEmissiveContext& candidate :
+            m_canonicalRigidHitEmissiveContexts)
+        {
+            if (candidate.instanceId == instanceId &&
+                candidate.primitiveIndex == primitiveIndex)
+            {
+                emissiveContext = &candidate;
+                break;
+            }
+        }
+        common->Printf(
+            "PathTracePrimaryPass: GEO06 canonical rigid hit context traversal=%s route(found/sourceInstance/legacyMesh/canonicalMesh/record/canonicalBlas/transform/previous/flags)= %d/%llu/%llu/%llu/%u/%u/%llu/%llu/0x%08x emissive(found/identity/material/index/texture)=%d/%llu/%u/%u/0x%08x\n",
+            m_canonicalRigidHitTraversalSelected
+                ? "canonical"
+                : "legacy",
+            routeContext != nullptr ? 1 : 0,
+            static_cast<unsigned long long>(
+                routeContext != nullptr
+                    ? routeContext->sourceInstanceId
+                    : 0),
+            static_cast<unsigned long long>(
+                routeContext != nullptr
+                    ? routeContext->legacyMeshHash
+                    : 0),
+            static_cast<unsigned long long>(
+                routeContext != nullptr
+                    ? routeContext->canonicalMeshHash
+                    : 0),
+            routeContext != nullptr
+                ? routeContext->routeRecordIndex
+                : UINT32_MAX,
+            routeContext != nullptr
+                ? routeContext->canonicalBlasRecordIndex
+                : UINT32_MAX,
+            static_cast<unsigned long long>(
+                routeContext != nullptr
+                    ? routeContext->currentTransformHash
+                    : 0),
+            static_cast<unsigned long long>(
+                routeContext != nullptr
+                    ? routeContext->previousTransformHash
+                    : 0),
+            routeContext != nullptr ? routeContext->flags : 0u,
+            emissiveContext != nullptr ? 1 : 0,
+            static_cast<unsigned long long>(
+                emissiveContext != nullptr
+                    ? emissiveContext->identity
+                    : 0),
+            emissiveContext != nullptr
+                ? emissiveContext->materialId
+                : 0u,
+            emissiveContext != nullptr
+                ? emissiveContext->materialIndex
+                : UINT32_MAX,
+            emissiveContext != nullptr
+                ? emissiveContext->emissiveTextureIndex
+                : UINT32_MAX);
     }
     else
     {
@@ -526,6 +603,8 @@ void PathTracePrimaryPass::ReadBackStaticContractShaderSample()
     device->unmapBuffer(m_staticContractShaderReadbackBuffer);
     m_staticContractShaderReadbackQueued = false;
     m_canonicalRigidHitSample = false;
+    m_canonicalRigidHitRouteContexts.clear();
+    m_canonicalRigidHitEmissiveContexts.clear();
 }
 
 void PathTracePrimaryPass::QueueStaticContractGeometrySample(
