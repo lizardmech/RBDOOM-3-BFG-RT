@@ -1098,6 +1098,163 @@ bool BuildRigidLocalMeshData(const RtSmokeGeometryUniverse::RigidMeshCandidateRe
     return true;
 }
 
+uint64 BuildCanonicalCompareTopologySignature(
+    const std::vector<uint32_t>& indexes,
+    size_t vertexCount)
+{
+    if (vertexCount == 0 || indexes.size() < 3)
+    {
+        return 0;
+    }
+
+    const auto hashValue = [](uint64 hash, uint64 value) -> uint64 {
+        for (int byteIndex = 0; byteIndex < 8; ++byteIndex)
+        {
+            hash ^= static_cast<uint8_t>(value & 0xffu);
+            hash *= 1099511628211ull;
+            value >>= 8u;
+        }
+        return hash;
+    };
+
+    uint64 hash = 1469598103934665603ull;
+    hash = hashValue(hash, static_cast<uint32_t>(vertexCount));
+    hash = hashValue(hash, static_cast<uint32_t>(indexes.size()));
+    for (uint32_t index : indexes)
+    {
+        hash = hashValue(hash, index);
+    }
+    return hash != 0 ? hash : 1;
+}
+
+bool BuildCanonicalComparePayload(
+    const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record,
+    PtGeometrySourcePayload& payload,
+    uint64& topologySignature)
+{
+    payload = PtGeometrySourcePayload();
+    topologySignature = 0;
+    if (record.modelSurfaceIndex < 0 ||
+        record.cachedLocalVertices.empty() ||
+        record.cachedLocalIndexes.size() < 3 ||
+        (record.cachedLocalIndexes.size() % 3) != 0 ||
+        static_cast<int>(record.cachedLocalVertices.size()) !=
+            record.sourceRange.vertices.count ||
+        static_cast<int>(record.cachedLocalIndexes.size()) !=
+            record.sourceRange.indexes.count)
+    {
+        return false;
+    }
+
+    payload.positions.resize(record.cachedLocalVertices.size());
+    payload.attributes.resize(record.cachedLocalVertices.size());
+    for (size_t vertexIndex = 0;
+        vertexIndex < record.cachedLocalVertices.size();
+        ++vertexIndex)
+    {
+        const PathTraceSmokeVertex& source =
+            record.cachedLocalVertices[vertexIndex];
+        PtGeometrySourcePosition& position =
+            payload.positions[vertexIndex];
+        position.xyz[0] = source.position[0];
+        position.xyz[1] = source.position[1];
+        position.xyz[2] = source.position[2];
+
+        PtGeometrySourceAttribute& attribute =
+            payload.attributes[vertexIndex];
+        memcpy(attribute.normal, source.normal, sizeof(attribute.normal));
+        attribute.texCoord[0] = source.texCoord[0];
+        attribute.texCoord[1] = source.texCoord[1];
+        memcpy(attribute.color, source.color, sizeof(attribute.color));
+        memcpy(attribute.color2, source.color2, sizeof(attribute.color2));
+        attribute.tangent[0] = source.tangent[0];
+        attribute.tangent[1] = source.tangent[1];
+        attribute.tangent[2] = source.tangent[2];
+        attribute.bitangent[0] = source.bitangent[0];
+        attribute.bitangent[1] = source.bitangent[1];
+        attribute.bitangent[2] = source.bitangent[2];
+        attribute.bitangentSign = source.tangent[3];
+    }
+
+    payload.indexes = record.cachedLocalIndexes;
+    for (uint32_t index : payload.indexes)
+    {
+        if (index >= payload.positions.size())
+        {
+            payload = PtGeometrySourcePayload();
+            return false;
+        }
+    }
+    payload.triangles.resize(payload.indexes.size() / 3);
+    for (PtGeometrySourceTriangle& triangle : payload.triangles)
+    {
+        triangle.sourceMaterialSlot =
+            static_cast<uint32_t>(record.modelSurfaceIndex);
+    }
+    topologySignature = BuildCanonicalCompareTopologySignature(
+        payload.indexes,
+        payload.positions.size());
+    return topologySignature != 0;
+}
+
+PtGeometrySourcePayloadView CanonicalComparePayloadView(
+    const PtGeometrySourcePayload& payload)
+{
+    PtGeometrySourcePayloadView view;
+    view.positions = payload.positions.data();
+    view.positionCount = payload.positions.size();
+    view.attributes = payload.attributes.data();
+    view.attributeCount = payload.attributes.size();
+    view.indexes = payload.indexes.data();
+    view.indexCount = payload.indexes.size();
+    view.triangles = payload.triangles.data();
+    view.triangleCount = payload.triangles.size();
+    return view;
+}
+
+bool CanonicalCompareEndpointsMatch(
+    const PtGeometrySourcePayload& legacy,
+    const PtGeometrySourcePayload& canonical)
+{
+    if (legacy.positions.empty() ||
+        legacy.positions.size() != canonical.positions.size() ||
+        legacy.attributes.size() != canonical.attributes.size() ||
+        legacy.indexes.empty() ||
+        legacy.indexes.size() != canonical.indexes.size() ||
+        legacy.triangles.empty() ||
+        legacy.triangles.size() != canonical.triangles.size())
+    {
+        return false;
+    }
+
+    return memcmp(
+               &legacy.positions.front(),
+               &canonical.positions.front(),
+               sizeof(PtGeometrySourcePosition)) == 0 &&
+        memcmp(
+            &legacy.positions.back(),
+            &canonical.positions.back(),
+            sizeof(PtGeometrySourcePosition)) == 0 &&
+        memcmp(
+            &legacy.attributes.front(),
+            &canonical.attributes.front(),
+            sizeof(PtGeometrySourceAttribute)) == 0 &&
+        memcmp(
+            &legacy.attributes.back(),
+            &canonical.attributes.back(),
+            sizeof(PtGeometrySourceAttribute)) == 0 &&
+        legacy.indexes.front() == canonical.indexes.front() &&
+        legacy.indexes.back() == canonical.indexes.back() &&
+        memcmp(
+            &legacy.triangles.front(),
+            &canonical.triangles.front(),
+            sizeof(PtGeometrySourceTriangle)) == 0 &&
+        memcmp(
+            &legacy.triangles.back(),
+            &canonical.triangles.back(),
+            sizeof(PtGeometrySourceTriangle)) == 0;
+}
+
 void RefreshRigidMeshCandidateCpuCache(RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
 {
     if (!record.tri ||
@@ -1500,6 +1657,288 @@ void RtSmokeGeometryUniverse::DumpCanonicalOffsetBlasProbeStats()
         static_cast<unsigned long long>(stats.readbacksFailed),
         stats.endpointBytesValid ? 1 : 0,
         static_cast<unsigned long long>(stats.buildSubmitMicroseconds));
+}
+
+RtPathTraceCanonicalRigidCompareStats
+RtSmokeGeometryUniverse::BuildCanonicalRigidSourceCompareStats() const
+{
+    RtPathTraceCanonicalRigidCompareStats stats;
+    stats.frameIndex = m_currentFrameIndex;
+    std::vector<bool> canonicalMatched(
+        m_canonicalSourceRegistry.RecordCount(),
+        false);
+    for (size_t sourceIndex = 0;
+        sourceIndex < m_canonicalSourceRegistry.RecordCount();
+        ++sourceIndex)
+    {
+        const PtGeometrySourceRecord* source =
+            m_canonicalSourceRegistry.RecordAt(sourceIndex);
+        if (source != nullptr &&
+            source->key.sourceDomain ==
+                PtCanonicalMeshSourceDomain::RegisteredRenderModel &&
+            source->key.deformationClass ==
+                PtCanonicalDeformationClass::Rigid)
+        {
+            ++stats.canonicalRigidSources;
+        }
+    }
+
+    const auto appendSample =
+        [&stats](const RtPathTraceCanonicalRigidCompareSample& sample) {
+            const uint32_t failureMask =
+                RT_PT_CANONICAL_RIGID_COMPARE_INVALID_LEGACY |
+                RT_PT_CANONICAL_RIGID_COMPARE_MISSING_SHAPE |
+                RT_PT_CANONICAL_RIGID_COMPARE_PAYLOAD_MISMATCH |
+                RT_PT_CANONICAL_RIGID_COMPARE_ENDPOINT_MISMATCH |
+                RT_PT_CANONICAL_RIGID_COMPARE_SOURCE_MATERIAL_MISMATCH;
+            if (stats.sampleCount <
+                RT_PT_CANONICAL_RIGID_COMPARE_SAMPLES)
+            {
+                stats.samples[stats.sampleCount++] = sample;
+                return;
+            }
+            if ((sample.flags & failureMask) == 0)
+            {
+                return;
+            }
+            for (int sampleIndex = stats.sampleCount - 1;
+                sampleIndex >= 0;
+                --sampleIndex)
+            {
+                if ((stats.samples[sampleIndex].flags & failureMask) == 0)
+                {
+                    stats.samples[sampleIndex] = sample;
+                    return;
+                }
+            }
+        };
+
+    for (const RigidMeshCandidateRecord& record :
+        m_rigidMeshCandidateRecords)
+    {
+        if (!record.valid ||
+            (record.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+        {
+            continue;
+        }
+        ++stats.legacyRigidRecords;
+        if (record.materialId != 0)
+        {
+            ++stats.resolvedMaterialBindings;
+        }
+        if (record.triangleClassAndFlags != 0)
+        {
+            ++stats.resolvedTriangleClassBindings;
+        }
+
+        RtPathTraceCanonicalRigidCompareSample sample;
+        sample.valid = true;
+        sample.legacyMeshHash = record.meshHash;
+        sample.modelSurfaceIndex = record.modelSurfaceIndex;
+        sample.vertexCount = record.sourceRange.vertices.count;
+        sample.indexCount = record.sourceRange.indexes.count;
+        sample.triangleCount = record.sourceRange.triangles.count;
+        sample.resolvedMaterialId = record.materialId;
+        sample.resolvedTriangleClassAndFlags =
+            record.triangleClassAndFlags;
+        sample.materialName = record.materialName;
+        sample.modelName = record.modelName;
+
+        PtGeometrySourcePayload legacyPayload;
+        uint64 topologySignature = 0;
+        if (!BuildCanonicalComparePayload(
+                record,
+                legacyPayload,
+                topologySignature))
+        {
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_COMPARE_INVALID_LEGACY;
+            appendSample(sample);
+            continue;
+        }
+        ++stats.validLegacyPayloads;
+        sample.legacyChecksum = PtChecksumGeometrySourcePayload(
+            CanonicalComparePayloadView(legacyPayload));
+
+        std::vector<size_t> exactSourceIndexes;
+        const PtGeometrySourceRecord* firstShapeSource = nullptr;
+        for (size_t sourceIndex = 0;
+            sourceIndex < m_canonicalSourceRegistry.RecordCount();
+            ++sourceIndex)
+        {
+            const PtGeometrySourceRecord* source =
+                m_canonicalSourceRegistry.RecordAt(sourceIndex);
+            if (source == nullptr ||
+                source->key.sourceDomain !=
+                    PtCanonicalMeshSourceDomain::RegisteredRenderModel ||
+                source->key.deformationClass !=
+                    PtCanonicalDeformationClass::Rigid ||
+                source->key.modelSurfaceIndex !=
+                    static_cast<uint32_t>(record.modelSurfaceIndex) ||
+                source->key.vertexCount !=
+                    legacyPayload.positions.size() ||
+                source->key.indexCount !=
+                    legacyPayload.indexes.size() ||
+                source->key.topologySignature != topologySignature)
+            {
+                continue;
+            }
+
+            ++sample.shapeMatches;
+            if (firstShapeSource == nullptr)
+            {
+                firstShapeSource = source;
+                sample.canonicalChecksum = source->sourceChecksum;
+                sample.sourceAssetId = source->key.sourceAssetId;
+            }
+            if (source->sourceChecksum == sample.legacyChecksum)
+            {
+                exactSourceIndexes.push_back(sourceIndex);
+            }
+        }
+
+        sample.exactPayloadMatches =
+            static_cast<int>(exactSourceIndexes.size());
+        if (sample.shapeMatches == 0)
+        {
+            ++stats.missingShape;
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_COMPARE_MISSING_SHAPE;
+            appendSample(sample);
+            continue;
+        }
+        if (exactSourceIndexes.empty())
+        {
+            ++stats.payloadMismatch;
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_COMPARE_PAYLOAD_MISMATCH;
+            appendSample(sample);
+            continue;
+        }
+
+        ++stats.exactPayloadMatches;
+        const PtGeometrySourceRecord* matchedSource =
+            m_canonicalSourceRegistry.RecordAt(exactSourceIndexes.front());
+        sample.canonicalChecksum = matchedSource
+            ? matchedSource->sourceChecksum
+            : 0;
+        sample.sourceAssetId = matchedSource
+            ? matchedSource->key.sourceAssetId
+            : 0;
+        if (exactSourceIndexes.size() == 1)
+        {
+            ++stats.uniqueContentMatches;
+        }
+        else
+        {
+            ++stats.equivalentContentMatches;
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_COMPARE_EQUIVALENT_CONTENT;
+        }
+        for (size_t sourceIndex : exactSourceIndexes)
+        {
+            canonicalMatched[sourceIndex] = true;
+        }
+
+        if (matchedSource == nullptr ||
+            !CanonicalCompareEndpointsMatch(
+                legacyPayload,
+                matchedSource->payload))
+        {
+            ++stats.endpointMismatch;
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_COMPARE_ENDPOINT_MISMATCH;
+        }
+        else
+        {
+            sample.sourceMaterialFirst =
+                matchedSource->payload.triangles.front().
+                    sourceMaterialSlot;
+            sample.sourceMaterialLast =
+                matchedSource->payload.triangles.back().
+                    sourceMaterialSlot;
+            const uint32_t expectedSourceMaterial =
+                static_cast<uint32_t>(record.modelSurfaceIndex);
+            if (sample.sourceMaterialFirst != expectedSourceMaterial ||
+                sample.sourceMaterialLast != expectedSourceMaterial)
+            {
+                ++stats.sourceMaterialMismatch;
+                sample.flags |=
+                    RT_PT_CANONICAL_RIGID_COMPARE_SOURCE_MATERIAL_MISMATCH;
+            }
+        }
+        appendSample(sample);
+    }
+
+    for (size_t sourceIndex = 0;
+        sourceIndex < m_canonicalSourceRegistry.RecordCount();
+        ++sourceIndex)
+    {
+        const PtGeometrySourceRecord* source =
+            m_canonicalSourceRegistry.RecordAt(sourceIndex);
+        if (source != nullptr &&
+            source->key.sourceDomain ==
+                PtCanonicalMeshSourceDomain::RegisteredRenderModel &&
+            source->key.deformationClass ==
+                PtCanonicalDeformationClass::Rigid &&
+            !canonicalMatched[sourceIndex])
+        {
+            ++stats.unmatchedCanonicalSources;
+        }
+    }
+    return stats;
+}
+
+void RtSmokeGeometryUniverse::DumpCanonicalRigidSourceCompareStats(
+    const RtPathTraceCanonicalRigidCompareStats& stats) const
+{
+    common->Printf(
+        "PathTracePrimaryPass: GEO06 canonical rigid source compare frame=%llu canonical/legacy/valid=%d/%d/%d exact(unique/equivalent)=%d(%d/%d) failures(missingShape/payload/endpoint/sourceMaterial)=%d/%d/%d/%d bindings(material/class)=%d/%d unmatchedCanonical=%d identity=content-only route=shadow-only\n",
+        static_cast<unsigned long long>(stats.frameIndex),
+        stats.canonicalRigidSources,
+        stats.legacyRigidRecords,
+        stats.validLegacyPayloads,
+        stats.exactPayloadMatches,
+        stats.uniqueContentMatches,
+        stats.equivalentContentMatches,
+        stats.missingShape,
+        stats.payloadMismatch,
+        stats.endpointMismatch,
+        stats.sourceMaterialMismatch,
+        stats.resolvedMaterialBindings,
+        stats.resolvedTriangleClassBindings,
+        stats.unmatchedCanonicalSources);
+    for (int sampleIndex = 0;
+        sampleIndex < stats.sampleCount;
+        ++sampleIndex)
+    {
+        const RtPathTraceCanonicalRigidCompareSample& sample =
+            stats.samples[sampleIndex];
+        if (!sample.valid)
+        {
+            continue;
+        }
+        common->Printf(
+            "PathTracePrimaryPass: GEO06 canonical rigid compare sample %d flags=0x%x legacyMesh=%llu surface=%d sourceAsset=%llu matches(shape/exact)=%d/%d checksum(legacy/canonical)=%llu/%llu counts(v/i/t)=%d/%d/%d sourceMaterial(first/last)=%u/%u resolved(material/class)= %u/0x%x material='%s' model='%s'\n",
+            sampleIndex,
+            sample.flags,
+            static_cast<unsigned long long>(sample.legacyMeshHash),
+            sample.modelSurfaceIndex,
+            static_cast<unsigned long long>(sample.sourceAssetId),
+            sample.shapeMatches,
+            sample.exactPayloadMatches,
+            static_cast<unsigned long long>(sample.legacyChecksum),
+            static_cast<unsigned long long>(sample.canonicalChecksum),
+            sample.vertexCount,
+            sample.indexCount,
+            sample.triangleCount,
+            sample.sourceMaterialFirst,
+            sample.sourceMaterialLast,
+            sample.resolvedMaterialId,
+            sample.resolvedTriangleClassAndFlags,
+            sample.materialName.c_str(),
+            sample.modelName.c_str());
+    }
 }
 
 void RtSmokeGeometryUniverse::RetireRigidBlas(RigidMeshCandidateRecord& record)
@@ -2475,6 +2914,7 @@ void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMes
         record->sourceFlags = observation.sourceFlags;
         record->vertexFormat = observation.vertexFormat;
         record->modelEpoch = observation.modelEpoch;
+        record->modelSurfaceIndex = observation.modelSurfaceIndex;
         record->jointIndex = observation.jointIndex;
         memcpy(record->normalTexMatrix, observation.normalTexMatrix, sizeof(record->normalTexMatrix));
         record->sourceRange.vertices.count = observation.numVerts;
@@ -2674,6 +3114,7 @@ RtSmokeGeometryUniverse::RigidMeshCandidateRecord* RtSmokeGeometryUniverse::Find
     record.sourceFlags = observation.sourceFlags;
     record.vertexFormat = observation.vertexFormat;
     record.modelEpoch = observation.modelEpoch;
+    record.modelSurfaceIndex = observation.modelSurfaceIndex;
     record.jointIndex = observation.jointIndex;
     record.sourceRange.vertices.offset = 0;
     record.sourceRange.vertices.count = observation.numVerts;
@@ -3786,6 +4227,8 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     candidateObservation.drawSurfIndex = -1;
                     candidateObservation.entityIndex = entity->index;
                     candidateObservation.renderEntityNum = renderEntity.entityNum;
+                    candidateObservation.modelSurfaceIndex =
+                        rigidSnapshot.modelSurfaceIndex;
                     candidateObservation.modelEpoch = rigidSnapshot.modelEpoch;
                     candidateObservation.jointIndex = rigidSnapshot.jointIndex;
                     candidateObservation.numVerts = tri->numVerts;

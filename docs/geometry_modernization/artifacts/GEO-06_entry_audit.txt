@@ -950,3 +950,120 @@ Both probe dumps must report:
   the second dump retains the same signature, offsets and counts without
   another create/build/readback;
   no Vulkan error, device removal, crash or visible change.
+
+STEP 5 NON-ZERO-OFFSET BLAS PROBE RUNTIME PASS (2026-07-24)
+-----------------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo27.log
+  bytes:
+    131084
+  created/last write:
+    2026-07-24 18:03:34 Australia/Sydney
+
+Populated dump at frame 1139:
+
+  sources/eligible/selected = 946/945/1;
+  stableFrames = 449;
+  position/attribute/index/triangle offsets = 48/320/24/32;
+  selected counts vertices/indexes/primitives = 80/144/48;
+  first/last source material slot = 0/0;
+  BLAS valid/create/build/retire = 1/2/2/1;
+  readback pending/pass/fail/endpointsValid = 0/2/0/1;
+  total CPU build-call submission time = 116 microseconds.
+
+The two builds and one retirement are expected lifecycle evidence, not a
+steady-state rebuild. As with geometry_geo26, four sources crossed before the
+requested mapRestart. The first stable probe built on that publication; the
+mapRestart then replaced the pool buffers, retired the old probe BLAS, and
+built/read back the final 946-record publication.
+
+Steady dump at frame 1469:
+
+  candidate signature remains 9072394738787902106;
+  offsets, counts and material endpoints are unchanged;
+  stableFrames advances from 449 to 779;
+  BLAS create/build/retire remains 2/2/1;
+  readback pass/fail remains 2/0;
+  GPU pool upload/growth interval remains entirely zero.
+
+The log contains no fatal error, Vulkan error, device removal, allocation
+failure, frame-arena exhaustion, readback map failure or producer rejection.
+
+STEP 5 FINAL RESULT
+-------------------
+  PASS - Vulkan BLAS consumes non-zero shared position/index offsets
+  PASS - primitive 0 and primitive 47 pooled indexes decode exactly
+  PASS - six referenced full attributes read back byte-for-byte
+  PASS - first/last source-triangle material metadata reads exactly
+  PASS - publication replacement retires the old BLAS generation
+  PASS - stable publication performs no repeated build or readback
+
+STEP 6 CANONICAL-VERSUS-LEGACY RIGID SOURCE COMPARE CANDIDATE (2026-07-24)
+-------------------------------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  every persistent eligible legacy rigid mesh record now retains its resolved
+  model-surface ordinal;
+  on the bounded GEO06 dump, legacy cached local geometry is converted back to
+  the frozen canonical position/full-attribute/index/source-triangle layout;
+  matching first requires rigid source domain, surface ordinal, vertex/index
+  counts and topology signature, then requires the complete source payload
+  checksum;
+  representative first/last positions, full attributes, indexes and triangles
+  are compared explicitly even after a full checksum match;
+  canonical source material slots must equal the source model-surface ordinal;
+  resolved material-table IDs and resolved triangle class/flags are counted as
+  separate live bindings, not incorrectly compared to immutable source slots;
+  exact content present under more than one canonical asset is reported as
+  equivalent content rather than merged identity;
+  unmatched canonical sources are reported separately because lifecycle
+  discovery intentionally covers more content than the currently retained
+  legacy rigid route;
+  this remains content-only shadow comparison. It does not claim that a legacy
+  pointer/cache/material-derived mesh hash has become a canonical MeshKey.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  PathTraceGeometryPoolHarness
+    PASS
+  PathTraceGeometrySourceRegistryHarness
+    PASS
+  PathTraceGeometrySourceTransportHarness
+    PASS
+  PathTraceCanonicalIdentityHarness
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    E22A2F9BC4C2AFE81F6EAD2D0BF1C2E765666CF7BF3260AC825FD9DC263C0BB2
+  mtime:
+    2026-07-24 18:09:25 Australia/Sydney
+
+Focused runtime acceptance:
+
+  keep r_pathTracingGeometryShadowRegistry 1;
+  mapRestart;
+  traverse the representative rigid-prop area for at least ten seconds;
+  r_pathTracingGeometryShadowRegistryDump 1;
+  wait ten seconds without changing areas;
+  r_pathTracingGeometryShadowRegistryDump 1.
+
+Required comparison invariants:
+
+  valid legacy payloads = legacy rigid records;
+  exact payload matches = valid legacy payloads;
+  unique + equivalent exact matches = exact payload matches;
+  missingShape/payload/endpoint/sourceMaterial failures = 0/0/0/0;
+  resolved material and triangle-class bindings each equal legacy records;
+  sample flags may be 0 or equivalent-content bit 0x8 only;
+  every sample sourceMaterial first/last equals its surface ordinal;
+  unmatchedCanonical may be non-zero and is coverage information, not a
+  content mismatch;
+  the second dump is unchanged except for frame/stability counters.

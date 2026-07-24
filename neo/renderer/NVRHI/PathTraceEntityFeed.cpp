@@ -788,6 +788,8 @@ EntityFeedRigidCandidate BuildEntityFeedRigidCandidate(const EntityFeedCapturedR
     candidate.candidateObservation.drawSurfIndex = -1;
     candidate.candidateObservation.entityIndex = captured.rigidSnapshot.entityIndex;
     candidate.candidateObservation.renderEntityNum = captured.rigidSnapshot.renderEntityNum;
+    candidate.candidateObservation.modelSurfaceIndex =
+        captured.rigidSnapshot.modelSurfaceIndex;
     candidate.candidateObservation.modelEpoch = captured.rigidSnapshot.modelEpoch;
     candidate.candidateObservation.jointIndex = captured.rigidSnapshot.jointIndex;
     candidate.candidateObservation.numVerts = captured.meshKey.numVerts;

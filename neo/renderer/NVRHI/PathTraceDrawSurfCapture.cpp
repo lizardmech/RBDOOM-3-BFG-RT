@@ -616,6 +616,8 @@ void RecordPathTraceDrawSurfMirrorObservation(
         candidateObservation.drawSurfIndex = surfaceIndex;
         candidateObservation.entityIndex = instanceObservation.entityIndex;
         candidateObservation.renderEntityNum = instanceObservation.renderEntityNum;
+        candidateObservation.modelSurfaceIndex =
+            rigidSnapshot.modelSurfaceIndex;
         candidateObservation.modelEpoch = modelEpoch;
         candidateObservation.jointIndex = rigidSnapshot.jointIndex;
         candidateObservation.numVerts = tri->numVerts;

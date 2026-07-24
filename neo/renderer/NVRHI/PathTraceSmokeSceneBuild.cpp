@@ -3588,6 +3588,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeGeometryUniverse.DumpCanonicalSourceImportStats();
             m_smokeGeometryUniverse.DumpCanonicalSourceGpuPoolStats();
             m_smokeGeometryUniverse.DumpCanonicalOffsetBlasProbeStats();
+            const RtPathTraceCanonicalRigidCompareStats
+                canonicalRigidSourceCompareStats =
+                    m_smokeGeometryUniverse.
+                        BuildCanonicalRigidSourceCompareStats();
+            m_smokeGeometryUniverse.DumpCanonicalRigidSourceCompareStats(
+                canonicalRigidSourceCompareStats);
         }
         if (useSceneUniverseStaticGeometry)
         {

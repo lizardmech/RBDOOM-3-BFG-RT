@@ -29,6 +29,7 @@ const int RT_PT_RIGID_BLAS_INPUT_SAMPLES = 8;
 const int RT_PT_RIGID_BLAS_GPU_SAMPLES = 8;
 const int RT_PT_RIGID_TLAS_PLAN_SAMPLES = 8;
 const int RT_PT_RIGID_RESIDENCY_SAMPLES = 8;
+const int RT_PT_CANONICAL_RIGID_COMPARE_SAMPLES = 8;
 
 struct RtSmokeSurfaceClassStats;
 struct RtSmokeMaterialStats;
@@ -107,6 +108,7 @@ struct RtPathTraceRigidMeshCandidateObservation
     int drawSurfIndex = -1;
     int entityIndex = -1;
     int renderEntityNum = -1;
+    int modelSurfaceIndex = -1;
     uint32_t modelEpoch = 0;
     int jointIndex = -1;
     int numVerts = 0;
@@ -190,6 +192,60 @@ struct RtPathTraceRigidMeshValidationStats
     uint32_t extraMaterialSamples[8] = {};
     int missingMaterialSampleCount = 0;
     int extraMaterialSampleCount = 0;
+};
+
+enum RtPathTraceCanonicalRigidCompareFlags : uint32_t
+{
+    RT_PT_CANONICAL_RIGID_COMPARE_EXACT = 0,
+    RT_PT_CANONICAL_RIGID_COMPARE_INVALID_LEGACY = 1u << 0,
+    RT_PT_CANONICAL_RIGID_COMPARE_MISSING_SHAPE = 1u << 1,
+    RT_PT_CANONICAL_RIGID_COMPARE_PAYLOAD_MISMATCH = 1u << 2,
+    RT_PT_CANONICAL_RIGID_COMPARE_EQUIVALENT_CONTENT = 1u << 3,
+    RT_PT_CANONICAL_RIGID_COMPARE_ENDPOINT_MISMATCH = 1u << 4,
+    RT_PT_CANONICAL_RIGID_COMPARE_SOURCE_MATERIAL_MISMATCH = 1u << 5
+};
+
+struct RtPathTraceCanonicalRigidCompareSample
+{
+    bool valid = false;
+    uint32_t flags = 0;
+    uint64 legacyMeshHash = 0;
+    uint64 legacyChecksum = 0;
+    uint64 canonicalChecksum = 0;
+    uint64 sourceAssetId = 0;
+    int modelSurfaceIndex = -1;
+    int shapeMatches = 0;
+    int exactPayloadMatches = 0;
+    int vertexCount = 0;
+    int indexCount = 0;
+    int triangleCount = 0;
+    uint32_t sourceMaterialFirst = UINT32_MAX;
+    uint32_t sourceMaterialLast = UINT32_MAX;
+    uint32_t resolvedMaterialId = 0;
+    uint32_t resolvedTriangleClassAndFlags = 0;
+    idStr materialName;
+    idStr modelName;
+};
+
+struct RtPathTraceCanonicalRigidCompareStats
+{
+    uint64 frameIndex = 0;
+    int canonicalRigidSources = 0;
+    int legacyRigidRecords = 0;
+    int validLegacyPayloads = 0;
+    int exactPayloadMatches = 0;
+    int uniqueContentMatches = 0;
+    int equivalentContentMatches = 0;
+    int missingShape = 0;
+    int payloadMismatch = 0;
+    int endpointMismatch = 0;
+    int sourceMaterialMismatch = 0;
+    int resolvedMaterialBindings = 0;
+    int resolvedTriangleClassBindings = 0;
+    int unmatchedCanonicalSources = 0;
+    RtPathTraceCanonicalRigidCompareSample
+        samples[RT_PT_CANONICAL_RIGID_COMPARE_SAMPLES];
+    int sampleCount = 0;
 };
 
 struct RtPathTraceRigidBlasPlanSample
@@ -628,6 +684,10 @@ public:
     void DumpCanonicalSourceImportStats();
     void DumpCanonicalSourceGpuPoolStats();
     void DumpCanonicalOffsetBlasProbeStats();
+    RtPathTraceCanonicalRigidCompareStats
+        BuildCanonicalRigidSourceCompareStats() const;
+    void DumpCanonicalRigidSourceCompareStats(
+        const RtPathTraceCanonicalRigidCompareStats& stats) const;
     bool PruneMissingStaticSurfaces();
     void NotifyStaticCacheChanged();
     void ReserveStaticSurfaceRecords(size_t surfaceCount);
@@ -749,6 +809,7 @@ public:
         uint32_t sourceFlags = 0;
         uint32_t vertexFormat = 0;
         uint32_t modelEpoch = 0;
+        int modelSurfaceIndex = -1;
         int jointIndex = -1;
         RtSmokeGeometryRangeRecord sourceRange;
         int firstSeenFrame = 0;
