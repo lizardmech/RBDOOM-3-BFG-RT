@@ -331,6 +331,9 @@ struct RtPathTraceCanonicalRigidTlasStats
     int missingRecordIndex = 0;
     int meshHashMismatch = 0;
     int missingBlas = 0;
+    int traversalRequested = 0;
+    int exactParity = 0;
+    int selectedForSubmit = 0;
 };
 
 struct RtPathTraceRigidBlasPlanSample

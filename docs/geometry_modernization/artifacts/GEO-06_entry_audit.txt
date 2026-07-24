@@ -1489,3 +1489,126 @@ The canonical rigid BLAS dump must still report:
 
 There must be no producer rejection, fatal error, Vulkan error, device
 removal, crash or visible change.
+
+STEP 10 CANONICAL RIGID TLAS DESCRIPTOR RUNTIME PASS (2026-07-24)
+-----------------------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo32.log
+
+Populated frame 1112 reports:
+
+  planned instances = 111;
+  legacy/canonical descriptors = 111/111;
+  exact record mappings = 111;
+  missing index/hash mismatch/missing BLAS = 0/0/0.
+
+The corresponding canonical BLAS state reports:
+
+  requested instances/unique meshes = 111/83;
+  resolved identity/source/pool = 111/83/83;
+  ready/active/deferred = 83/142/0;
+  missing identity/source/pool = 0/0/0.
+
+Steady frame 1315 preserves the same counts and reports:
+
+  legacy/canonical descriptors = 111/111;
+  exact record mappings = 111;
+  missing index/hash mismatch/missing BLAS = 0/0/0;
+  canonical BLAS create/build/retire = 0/0/0.
+
+Both frames preserve exact canonical source coverage at
+111/111/111/111/111/111 with all six failure counters zero. The log contains
+no fatal error, Vulkan error, device removal, allocation failure or readback
+failure.
+
+STEP 10 FINAL RESULT
+--------------------
+  PASS - every submitted legacy rigid descriptor has one canonical counterpart
+  PASS - every counterpart selects the full-key-derived canonical BLAS record
+  PASS - descriptor counts remain exact after the BLAS cache reaches steady
+  PASS - no incomplete canonical descriptor list reaches TLAS submission
+  PASS - the accepted capture remains shadow-only with legacy traversal
+
+STEP 11 DEFAULT-OFF CANONICAL RIGID TRAVERSAL CANDIDATE (2026-07-24)
+--------------------------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  r_pathTracingGeometryCanonicalRigidTraversal defaults to 0;
+  r_pathTracingGeometryCanonicalRigidBlas must also be enabled and provide a
+  complete descriptor set;
+  canonical selection requires legacy descriptor count = canonical descriptor
+  count = exact full-key record mappings, with every failure counter zero;
+  the selection decision is covered by the CPU planning harness;
+  any disabled provider, deferred/missing BLAS, bad record index, hash
+  mismatch or descriptor-count mismatch fails closed to the complete legacy
+  descriptor list;
+  when selected, only the rigid descriptors supplied to the existing TLAS
+  change. Static/dynamic instances, TLAS ownership, instance IDs, masks,
+  transforms, route records, material records and shaders remain unchanged;
+  disabling the traversal gate restores legacy rigid BLAS descriptors without
+  rebuilding shader or material state.
+
+CPU verification:
+
+  PathTraceCpuPlanningHarness
+    PASS
+    including default shadow-only, exact-parity selection, missing-BLAS
+    fail-closed and descriptor-mismatch fail-closed cases.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release --target
+    PathTraceCpuPlanningHarness RBDoom3BFG
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    B22D43E2264491CD0FE826EA8D86A752747E2AEE7634E0D4A1F5612ED5846BDC
+  mtime:
+    2026-07-24 21:05:26 Australia/Sydney
+
+Focused runtime acceptance:
+
+  r_pathTracingGeometryShadowRegistry 1;
+  r_pathTracingGeometryCanonicalRigidBlas 1;
+  r_pathTracingGeometryCanonicalRigidTraversal 0;
+  mapRestart;
+  traverse the representative rigid-prop area for at least ten seconds;
+  echo === GEO06_RIGID_TRAVERSAL_LEGACY ===;
+  r_pathTracingGeometryShadowRegistryDump 1;
+  r_pathTracingGeometryCanonicalRigidTraversal 1;
+  remain in the same area, move the camera and inspect repeated props for at
+    least ten seconds;
+  echo === GEO06_RIGID_TRAVERSAL_CANONICAL ===;
+  r_pathTracingGeometryShadowRegistryDump 1;
+  r_pathTracingGeometryCanonicalRigidTraversal 0;
+  wait at least five seconds;
+  echo === GEO06_RIGID_TRAVERSAL_ROLLBACK ===;
+  r_pathTracingGeometryShadowRegistryDump 1;
+  condump geometry_geo33.log.
+
+Expected legacy and rollback dumps:
+
+  descriptors legacy = canonical;
+  exact record mappings = both descriptor counts;
+  missingIndex/hashMismatch/missingBlas = 0/0/0;
+  submit(requested/eligible/selected) = 0/1/0;
+  traversal = legacy.
+
+Expected canonical dump:
+
+  descriptors legacy = canonical;
+  exact record mappings = both descriptor counts;
+  missingIndex/hashMismatch/missingBlas = 0/0/0;
+  submit(requested/eligible/selected) = 1/1/1;
+  traversal = canonical.
+
+There must be no visible geometry, material, lighting, reflection, shadow or
+motion change at either toggle; no fail-closed message while the canonical
+dump is taken; and no producer rejection, fatal error, Vulkan error, device
+removal or crash.

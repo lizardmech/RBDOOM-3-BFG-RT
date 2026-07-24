@@ -670,6 +670,24 @@ struct RtSmokeRigidTlasPlan
     int rejectedMissingBlas = 0;
 };
 
+struct RtSmokeCanonicalRigidTlasSelectionInput
+{
+    bool providerEnabled = false;
+    bool traversalRequested = false;
+    int legacyDescriptors = 0;
+    int canonicalDescriptors = 0;
+    int exactRecordMappings = 0;
+    int missingRecordIndex = 0;
+    int meshHashMismatch = 0;
+    int missingBlas = 0;
+};
+
+struct RtSmokeCanonicalRigidTlasSelection
+{
+    bool exactParity = false;
+    bool selectCanonical = false;
+};
+
 struct RtSmokeRigidTlasPlanTimedResult
 {
     RtSmokeRigidTlasPlan plan;
@@ -920,6 +938,10 @@ RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& des
 
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
     const RtSmokeRigidTlasPlanSnapshot& snapshot);
+
+RtSmokeCanonicalRigidTlasSelection
+BuildSmokeCanonicalRigidTlasSelection(
+    const RtSmokeCanonicalRigidTlasSelectionInput& input);
 
 RtSmokeRigidTlasPlanTimedResult BuildSmokeRigidTlasPlanTimedResult(
     const RtSmokeRigidTlasPlanSnapshot& snapshot);

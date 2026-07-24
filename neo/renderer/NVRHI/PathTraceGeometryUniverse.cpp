@@ -6017,7 +6017,7 @@ void RtSmokeGeometryUniverse::DumpCanonicalRigidTlasStats(
     const RtPathTraceCanonicalRigidTlasStats& stats) const
 {
     common->Printf(
-        "PathTracePrimaryPass: GEO06 canonical rigid TLAS descriptors frame=%llu enabled=%d planned=%d descriptors(legacy/canonical)=%d/%d exactRecordMappings=%d failures(missingIndex/hashMismatch/missingBlas)=%d/%d/%d submit=shadow-only traversal=legacy\n",
+        "PathTracePrimaryPass: GEO06 canonical rigid TLAS descriptors frame=%llu enabled=%d planned=%d descriptors(legacy/canonical)=%d/%d exactRecordMappings=%d failures(missingIndex/hashMismatch/missingBlas)=%d/%d/%d submit(requested/eligible/selected)=%d/%d/%d traversal=%s\n",
         static_cast<unsigned long long>(stats.frameIndex),
         stats.enabled,
         stats.plannedInstances,
@@ -6026,7 +6026,11 @@ void RtSmokeGeometryUniverse::DumpCanonicalRigidTlasStats(
         stats.exactRecordMappings,
         stats.missingRecordIndex,
         stats.meshHashMismatch,
-        stats.missingBlas);
+        stats.missingBlas,
+        stats.traversalRequested,
+        stats.exactParity,
+        stats.selectedForSubmit,
+        stats.selectedForSubmit ? "canonical" : "legacy");
 }
 
 int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(

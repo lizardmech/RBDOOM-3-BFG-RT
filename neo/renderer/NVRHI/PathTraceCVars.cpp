@@ -307,13 +307,19 @@ idCVar r_pathTracingGeometryCanonicalRigidBlas(
     "r_pathTracingGeometryCanonicalRigidBlas",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "GEO-06 default-off canonical pooled rigid BLAS scaffold; never selects live traversal" );
+    "GEO-06 default-off canonical pooled rigid BLAS provider; live selection requires the separate traversal gate" );
 
 idCVar r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame(
     "r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame",
     "16",
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum canonical pooled rigid BLAS builds submitted per frame" );
+
+idCVar r_pathTracingGeometryCanonicalRigidTraversal(
+    "r_pathTracingGeometryCanonicalRigidTraversal",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-06 default-off canonical rigid TLAS traversal; requires exact descriptor parity and fails closed to legacy" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

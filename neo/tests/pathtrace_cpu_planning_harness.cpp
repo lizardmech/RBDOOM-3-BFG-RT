@@ -566,6 +566,36 @@ void TestRigidPlan()
         plan.instances[0].previousTransform[12] == -2.0f,
         "rigid TLAS emitted instance metadata is deterministic");
 
+    RtSmokeCanonicalRigidTlasSelectionInput canonicalSelectionInput;
+    canonicalSelectionInput.providerEnabled = true;
+    canonicalSelectionInput.legacyDescriptors = 1;
+    canonicalSelectionInput.canonicalDescriptors = 1;
+    canonicalSelectionInput.exactRecordMappings = 1;
+    RtSmokeCanonicalRigidTlasSelection canonicalSelection =
+        BuildSmokeCanonicalRigidTlasSelection(canonicalSelectionInput);
+    Check(canonicalSelection.exactParity &&
+        !canonicalSelection.selectCanonical,
+        "canonical rigid TLAS selection remains shadow-only by default");
+    canonicalSelectionInput.traversalRequested = true;
+    canonicalSelection =
+        BuildSmokeCanonicalRigidTlasSelection(canonicalSelectionInput);
+    Check(canonicalSelection.exactParity &&
+        canonicalSelection.selectCanonical,
+        "canonical rigid TLAS selection accepts exact descriptor parity");
+    canonicalSelectionInput.missingBlas = 1;
+    canonicalSelection =
+        BuildSmokeCanonicalRigidTlasSelection(canonicalSelectionInput);
+    Check(!canonicalSelection.exactParity &&
+        !canonicalSelection.selectCanonical,
+        "canonical rigid TLAS selection fails closed on incomplete BLAS state");
+    canonicalSelectionInput.missingBlas = 0;
+    canonicalSelectionInput.canonicalDescriptors = 0;
+    canonicalSelection =
+        BuildSmokeCanonicalRigidTlasSelection(canonicalSelectionInput);
+    Check(!canonicalSelection.exactParity &&
+        !canonicalSelection.selectCanonical,
+        "canonical rigid TLAS selection fails closed on descriptor mismatch");
+
     const uint64_t baseRigidToken = BuildSmokeRigidTlasPlanInputToken(desc);
     Check(baseRigidToken == BuildSmokeRigidTlasPlanInputToken(desc),
         "rigid TLAS plan input token is deterministic");

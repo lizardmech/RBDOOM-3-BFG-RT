@@ -1949,6 +1949,24 @@ RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
     return BuildSmokeRigidTlasPlan(MakeRigidTlasPlanDescFromSnapshot(snapshot));
 }
 
+RtSmokeCanonicalRigidTlasSelection
+BuildSmokeCanonicalRigidTlasSelection(
+    const RtSmokeCanonicalRigidTlasSelectionInput& input)
+{
+    RtSmokeCanonicalRigidTlasSelection selection;
+    selection.exactParity =
+        input.providerEnabled &&
+        input.legacyDescriptors >= 0 &&
+        input.canonicalDescriptors == input.legacyDescriptors &&
+        input.exactRecordMappings == input.legacyDescriptors &&
+        input.missingRecordIndex == 0 &&
+        input.meshHashMismatch == 0 &&
+        input.missingBlas == 0;
+    selection.selectCanonical =
+        input.traversalRequested && selection.exactParity;
+    return selection;
+}
+
 RtSmokeRigidTlasPlanTimedResult BuildSmokeRigidTlasPlanTimedResult(
     const RtSmokeRigidTlasPlanSnapshot& snapshot)
 {

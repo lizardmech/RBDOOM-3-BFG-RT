@@ -6199,20 +6199,71 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
             const int routedRigidInstances =
                 m_smokeGeometryUniverse.BuildRigidTlasInstanceDescs(rigidTlasPlan, rigidTlasRouteInstances);
-            if (geometrySourceDumpRequested &&
-                r_pathTracingGeometryCanonicalRigidBlas.GetInteger() != 0)
+            const bool canonicalRigidTraversalRequested =
+                r_pathTracingGeometryCanonicalRigidTraversal.GetInteger() != 0;
+            if (canonicalRigidTraversalRequested ||
+                (geometrySourceDumpRequested &&
+                    r_pathTracingGeometryCanonicalRigidBlas.GetInteger() != 0))
             {
                 std::vector<nvrhi::rt::InstanceDesc>
                     canonicalRigidTlasInstances;
-                const RtPathTraceCanonicalRigidTlasStats
+                RtPathTraceCanonicalRigidTlasStats
                     canonicalRigidTlasStats =
                         m_smokeGeometryUniverse.
                             BuildCanonicalRigidTlasInstanceDescs(
                                 rigidTlasPlan,
                                 routedRigidInstances,
                                 canonicalRigidTlasInstances);
-                m_smokeGeometryUniverse.DumpCanonicalRigidTlasStats(
-                    canonicalRigidTlasStats);
+                RtSmokeCanonicalRigidTlasSelectionInput
+                    canonicalSelectionInput;
+                canonicalSelectionInput.providerEnabled =
+                    canonicalRigidTlasStats.enabled != 0;
+                canonicalSelectionInput.traversalRequested =
+                    canonicalRigidTraversalRequested;
+                canonicalSelectionInput.legacyDescriptors =
+                    canonicalRigidTlasStats.legacyDescriptors;
+                canonicalSelectionInput.canonicalDescriptors =
+                    canonicalRigidTlasStats.canonicalDescriptors;
+                canonicalSelectionInput.exactRecordMappings =
+                    canonicalRigidTlasStats.exactRecordMappings;
+                canonicalSelectionInput.missingRecordIndex =
+                    canonicalRigidTlasStats.missingRecordIndex;
+                canonicalSelectionInput.meshHashMismatch =
+                    canonicalRigidTlasStats.meshHashMismatch;
+                canonicalSelectionInput.missingBlas =
+                    canonicalRigidTlasStats.missingBlas;
+                const RtSmokeCanonicalRigidTlasSelection
+                    canonicalSelection =
+                        BuildSmokeCanonicalRigidTlasSelection(
+                            canonicalSelectionInput);
+                canonicalRigidTlasStats.traversalRequested =
+                    canonicalRigidTraversalRequested ? 1 : 0;
+                canonicalRigidTlasStats.exactParity =
+                    canonicalSelection.exactParity ? 1 : 0;
+                canonicalRigidTlasStats.selectedForSubmit =
+                    canonicalSelection.selectCanonical ? 1 : 0;
+                if (canonicalSelection.selectCanonical)
+                {
+                    rigidTlasRouteInstances.swap(
+                        canonicalRigidTlasInstances);
+                }
+                else if (canonicalRigidTraversalRequested &&
+                    (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO06 canonical rigid traversal fail-closed to legacy descriptors=%d/%d exact=%d failures=%d/%d/%d\n",
+                        canonicalRigidTlasStats.legacyDescriptors,
+                        canonicalRigidTlasStats.canonicalDescriptors,
+                        canonicalRigidTlasStats.exactRecordMappings,
+                        canonicalRigidTlasStats.missingRecordIndex,
+                        canonicalRigidTlasStats.meshHashMismatch,
+                        canonicalRigidTlasStats.missingBlas);
+                }
+                if (geometrySourceDumpRequested)
+                {
+                    m_smokeGeometryUniverse.DumpCanonicalRigidTlasStats(
+                        canonicalRigidTlasStats);
+                }
             }
             if (r_pathTracingSmokeLog.GetInteger() != 0 && routedRigidInstances > 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
             {
