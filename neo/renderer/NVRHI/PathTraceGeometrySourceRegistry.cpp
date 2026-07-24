@@ -136,8 +136,8 @@ std::uint64_t PtChecksumGeometrySourcePayload(
     {
         const PtGeometrySourceTriangle& metadata = payload.triangles[triangle];
         HashValue(hash, metadata.sourceMaterialSlot);
-        HashValue(hash, metadata.triangleClassAndFlags);
-        HashValue(hash, metadata.emissiveLocalIndex);
+        HashValue(hash, metadata.geometryLocalFlags);
+        HashValue(hash, metadata.sourceEmissivePrimitive);
         HashValue(hash, metadata.reserved);
     }
     return hash;
@@ -149,12 +149,20 @@ PtGeometrySourceRecord* PtGeometrySourceRegistry::FindMutable(
     bool& hashCollision)
 {
     hashCollision = false;
-    for (PtGeometrySourceRecord& record : records_)
+    const std::pair<
+        std::unordered_multimap<std::uint64_t, std::size_t>::iterator,
+        std::unordered_multimap<std::uint64_t, std::size_t>::iterator> range =
+            lookup_.equal_range(meshHash);
+    for (std::unordered_multimap<std::uint64_t, std::size_t>::iterator it =
+            range.first;
+        it != range.second;
+        ++it)
     {
-        if (record.meshHash != meshHash)
+        if (it->second >= records_.size())
         {
             continue;
         }
+        PtGeometrySourceRecord& record = records_[it->second];
         if (record.key == key)
         {
             return &record;
@@ -256,6 +264,7 @@ PtGeometrySourceObserveResult PtGeometrySourceRegistry::Observe(
     }
 
     records_.push_back(std::move(replacement));
+    lookup_.emplace(meshHash, records_.size() - 1);
     stats_.retainedBytes += retainedBytes;
     ++stats_.added;
     return PtGeometrySourceObserveResult::Added;
@@ -265,14 +274,27 @@ const PtGeometrySourceRecord* PtGeometrySourceRegistry::Find(
     const PtCanonicalMeshKey& key) const
 {
     const std::uint64_t meshHash = PtHashCanonicalMeshKey(key);
-    for (const PtGeometrySourceRecord& record : records_)
+    const std::pair<
+        std::unordered_multimap<std::uint64_t, std::size_t>::const_iterator,
+        std::unordered_multimap<std::uint64_t, std::size_t>::const_iterator> range =
+            lookup_.equal_range(meshHash);
+    for (std::unordered_multimap<std::uint64_t, std::size_t>::const_iterator it =
+            range.first;
+        it != range.second;
+        ++it)
     {
-        if (record.meshHash == meshHash && record.key == key)
+        if (it->second < records_.size() && records_[it->second].key == key)
         {
-            return &record;
+            return &records_[it->second];
         }
     }
     return nullptr;
+}
+
+const PtGeometrySourceRecord* PtGeometrySourceRegistry::RecordAt(
+    std::size_t index) const
+{
+    return index < records_.size() ? &records_[index] : nullptr;
 }
 
 std::size_t PtGeometrySourceRegistry::RecordCount() const
@@ -288,6 +310,7 @@ const PtGeometrySourceRegistryStats& PtGeometrySourceRegistry::Stats() const
 void PtGeometrySourceRegistry::Clear()
 {
     records_.clear();
+    lookup_.clear();
     stats_ = PtGeometrySourceRegistryStats();
 }
 

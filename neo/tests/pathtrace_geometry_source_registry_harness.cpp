@@ -56,10 +56,10 @@ struct TestPayload
                 vertex == 3 ? -1.0f : 1.0f;
         }
         triangles[0].sourceMaterialSlot = 5;
-        triangles[0].triangleClassAndFlags = 0x12;
+        triangles[0].geometryLocalFlags = 0x12;
         triangles[1].sourceMaterialSlot = 9;
-        triangles[1].triangleClassAndFlags = 0x34;
-        triangles[1].emissiveLocalIndex = 1;
+        triangles[1].geometryLocalFlags = 0x34;
+        triangles[1].sourceEmissivePrimitive = 1;
     }
 
     PtGeometrySourcePayloadView View() const

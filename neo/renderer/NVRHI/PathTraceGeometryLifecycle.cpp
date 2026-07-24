@@ -4,6 +4,7 @@
 #include "PathTraceGeometryLifecycle.h"
 #include "PathTraceCVars.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceGeometrySourceRegistry.h"
 #include "../Material.h"
 #include "../Model.h"
 #include "../RenderCommon.h"
@@ -20,6 +21,7 @@ namespace {
 
 const int PT_GEOMETRY_LIFECYCLE_MAX_EVENT_SAMPLES = 16;
 const int PT_GEOMETRY_SHADOW_MAX_DUMP_SAMPLES = 16;
+const int PT_GEOMETRY_SOURCE_MAX_DUMP_SAMPLES = 8;
 const std::uint32_t PT_GEOMETRY_SHADOW_VERTEX_FORMAT_ID_DRAW_VERT = 1;
 
 std::atomic<std::uint64_t> g_nextWorldGeneration(1);
@@ -141,6 +143,13 @@ struct PtGeometryShadowStats
     std::uint64_t removedStaticInstances = 0;
     std::uint64_t removedRigidInstances = 0;
     std::uint64_t removedSkinnedInstances = 0;
+    std::uint64_t sourceAdded = 0;
+    std::uint64_t sourceReused = 0;
+    std::uint64_t sourceRevised = 0;
+    std::uint64_t sourceRejected = 0;
+    std::uint64_t sourceSkinnedNegative = 0;
+    std::uint64_t sourcePayloadCopies = 0;
+    std::uint64_t sourceCopiedBytes = 0;
 };
 
 PtGeometryLifecycleStats g_lifecycleStats;
@@ -269,6 +278,51 @@ bool ShadowTransformEquals(const PtGeometryShadowInstanceRecord& record, const i
     CopyShadowTransform(entity, origin, axis);
     return std::memcmp(record.origin, origin, sizeof(origin)) == 0 &&
         std::memcmp(record.axis, axis, sizeof(axis)) == 0;
+}
+
+PtGeometrySourceAttribute BuildShadowSourceAttribute(const idDrawVert& drawVert)
+{
+    idVec3 normal = drawVert.GetNormal();
+    if (normal.Normalize() == 0.0f)
+    {
+        normal.Set(0.0f, 0.0f, 1.0f);
+    }
+    idVec3 tangent = drawVert.GetTangent();
+    if (tangent.Normalize() == 0.0f)
+    {
+        tangent.Set(1.0f, 0.0f, 0.0f);
+    }
+    const float bitangentSign = drawVert.GetBiTangentSign();
+    idVec3 bitangent = drawVert.GetBiTangent();
+    if (bitangent.Normalize() == 0.0f)
+    {
+        bitangent.Cross(normal, tangent);
+        bitangent *= bitangentSign;
+        bitangent.Normalize();
+    }
+    const idVec2 texCoord = drawVert.GetTexCoord();
+
+    PtGeometrySourceAttribute attribute;
+    attribute.normal[0] = normal.x;
+    attribute.normal[1] = normal.y;
+    attribute.normal[2] = normal.z;
+    attribute.texCoord[0] = texCoord.x;
+    attribute.texCoord[1] = texCoord.y;
+    for (int channel = 0; channel < 4; ++channel)
+    {
+        attribute.color[channel] =
+            drawVert.color[channel] * (1.0f / 255.0f);
+        attribute.color2[channel] =
+            drawVert.color2[channel] * (1.0f / 255.0f);
+    }
+    attribute.tangent[0] = tangent.x;
+    attribute.tangent[1] = tangent.y;
+    attribute.tangent[2] = tangent.z;
+    attribute.bitangent[0] = bitangent.x;
+    attribute.bitangent[1] = bitangent.y;
+    attribute.bitangent[2] = bitangent.z;
+    attribute.bitangentSign = bitangentSign;
+    return attribute;
 }
 
 PtCanonicalMeshSourceDomain ShadowSourceDomain(
@@ -432,6 +486,7 @@ public:
         meshLookup.clear();
         instances.clear();
         instanceLookup.clear();
+        sourceRegistry.Clear();
         shadowTracking = false;
     }
 
@@ -458,6 +513,7 @@ public:
                 meshLookup.clear();
                 instances.clear();
                 instanceLookup.clear();
+                sourceRegistry.Clear();
                 shadowTracking = false;
             }
             return;
@@ -573,6 +629,11 @@ public:
             observedKeys.push_back(instanceKey);
 
             const idMaterial* material = ResolveShadowSurfaceMaterial(entity, surface);
+            ObserveImmutableSource(
+                meshKey,
+                asset.sourceAssetGeneration,
+                tri,
+                sourceSurfaceIndex);
             TouchInstance(
                 entity,
                 geometryClass,
@@ -765,6 +826,70 @@ public:
             static_cast<unsigned long long>(stats.removedRigidInstances),
             static_cast<unsigned long long>(stats.removedSkinnedInstances));
 
+        const PtGeometrySourceRegistryStats& sourceStats =
+            sourceRegistry.Stats();
+        common->Printf(
+            "PathTracePrimaryPass: GEO06 source registry frame=%llu records=%llu retainedBytes=%llu cumulative(collisions)=%llu interval(add/reuse/revise/reject/skinnedNegative/copies/copiedBytes)=%llu/%llu/%llu/%llu/%llu/%llu/%llu route=observation-only\n",
+            static_cast<unsigned long long>(frameIndex),
+            static_cast<unsigned long long>(sourceRegistry.RecordCount()),
+            static_cast<unsigned long long>(sourceStats.retainedBytes),
+            static_cast<unsigned long long>(sourceStats.hashCollisions),
+            static_cast<unsigned long long>(stats.sourceAdded),
+            static_cast<unsigned long long>(stats.sourceReused),
+            static_cast<unsigned long long>(stats.sourceRevised),
+            static_cast<unsigned long long>(stats.sourceRejected),
+            static_cast<unsigned long long>(stats.sourceSkinnedNegative),
+            static_cast<unsigned long long>(stats.sourcePayloadCopies),
+            static_cast<unsigned long long>(stats.sourceCopiedBytes));
+
+        const std::size_t sourceSampleCount = Min(
+            sourceRegistry.RecordCount(),
+            static_cast<std::size_t>(PT_GEOMETRY_SOURCE_MAX_DUMP_SAMPLES));
+        for (std::size_t sampleIndex = 0;
+            sampleIndex < sourceSampleCount;
+            ++sampleIndex)
+        {
+            const PtGeometrySourceRecord* source =
+                sourceRegistry.RecordAt(sampleIndex);
+            if (source == nullptr)
+            {
+                continue;
+            }
+            const std::uint32_t firstIndex =
+                source->payload.indexes.empty()
+                    ? UINT32_MAX
+                    : source->payload.indexes.front();
+            const std::uint32_t lastIndex =
+                source->payload.indexes.empty()
+                    ? UINT32_MAX
+                    : source->payload.indexes.back();
+            const std::uint32_t firstMaterialSlot =
+                source->payload.triangles.empty()
+                    ? UINT32_MAX
+                    : source->payload.triangles.front().sourceMaterialSlot;
+            const std::uint32_t lastMaterialSlot =
+                source->payload.triangles.empty()
+                    ? UINT32_MAX
+                    : source->payload.triangles.back().sourceMaterialSlot;
+            common->Printf(
+                "PathTracePrimaryPass: GEO06 source sample %llu mesh=%llu asset=%llu:%llu surface=%u revision=%llu checksum=%llu verts/indexes/tris=%u/%u/%llu retainedBytes=%llu firstLastIndex=%u/%u firstLastSourceMaterialSlot=%u/%u\n",
+                static_cast<unsigned long long>(sampleIndex),
+                static_cast<unsigned long long>(source->meshHash),
+                static_cast<unsigned long long>(source->key.sourceAssetId),
+                static_cast<unsigned long long>(source->key.sourceAssetGeneration),
+                source->key.modelSurfaceIndex,
+                static_cast<unsigned long long>(source->sourceContentRevision),
+                static_cast<unsigned long long>(source->sourceChecksum),
+                source->key.vertexCount,
+                source->key.indexCount,
+                static_cast<unsigned long long>(source->payload.triangles.size()),
+                static_cast<unsigned long long>(source->retainedBytes),
+                firstIndex,
+                lastIndex,
+                firstMaterialSlot,
+                lastMaterialSlot);
+        }
+
         int sampleCount = 0;
         for (int samplePass = 0; samplePass < 3 && sampleCount < PT_GEOMETRY_SHADOW_MAX_DUMP_SAMPLES; ++samplePass)
         {
@@ -826,6 +951,13 @@ public:
         stats.removedStaticInstances = 0;
         stats.removedRigidInstances = 0;
         stats.removedSkinnedInstances = 0;
+        stats.sourceAdded = 0;
+        stats.sourceReused = 0;
+        stats.sourceRevised = 0;
+        stats.sourceRejected = 0;
+        stats.sourceSkinnedNegative = 0;
+        stats.sourcePayloadCopies = 0;
+        stats.sourceCopiedBytes = 0;
     }
 
     std::uint64_t worldGeneration = 0;
@@ -835,6 +967,115 @@ public:
     std::vector<PtGeometryLifecycleSlotState> lightSlots;
 
 private:
+    void ObserveImmutableSource(
+        const PtCanonicalMeshKey& meshKey,
+        std::uint64_t sourceContentRevision,
+        const srfTriangles_t* tri,
+        std::uint32_t sourceMaterialSlot)
+    {
+        if (meshKey.sourceDomain == PtCanonicalMeshSourceDomain::SkinnedBindSource ||
+            meshKey.deformationClass == PtCanonicalDeformationClass::Skinned)
+        {
+            // The resolved frontend surface contains the animated MD5
+            // snapshot, not an immutable bind source. Keep it as a measured
+            // negative control until GEO-07 supplies authoritative bind data.
+            ++stats.sourceSkinnedNegative;
+            return;
+        }
+        if (meshKey.sourceDomain != PtCanonicalMeshSourceDomain::RegisteredRenderModel ||
+            meshKey.deformationClass != PtCanonicalDeformationClass::Rigid)
+        {
+            return;
+        }
+
+        const PtGeometrySourceRegistryStats before = sourceRegistry.Stats();
+        PtGeometrySourceObserveResult result =
+            PtGeometrySourceObserveResult::MissingPayload;
+        if (sourceRegistry.Find(meshKey) != nullptr)
+        {
+            result = sourceRegistry.Observe(
+                meshKey,
+                sourceContentRevision,
+                nullptr);
+        }
+        else if (tri == nullptr || tri->verts == nullptr ||
+            tri->indexes == nullptr || tri->numVerts <= 0 ||
+            tri->numIndexes < 3)
+        {
+            ++stats.sourceRejected;
+            return;
+        }
+        else
+        {
+            std::vector<PtGeometrySourcePosition> positions(
+                static_cast<size_t>(tri->numVerts));
+            std::vector<PtGeometrySourceAttribute> attributes(
+                static_cast<size_t>(tri->numVerts));
+            std::vector<std::uint32_t> indexes(
+                static_cast<size_t>(tri->numIndexes));
+            std::vector<PtGeometrySourceTriangle> triangles(
+                static_cast<size_t>(tri->numIndexes / 3));
+
+            for (int vertexIndex = 0;
+                vertexIndex < tri->numVerts;
+                ++vertexIndex)
+            {
+                const idDrawVert& drawVert = tri->verts[vertexIndex];
+                PtGeometrySourcePosition& position =
+                    positions[static_cast<size_t>(vertexIndex)];
+                position.xyz[0] = drawVert.xyz.x;
+                position.xyz[1] = drawVert.xyz.y;
+                position.xyz[2] = drawVert.xyz.z;
+                attributes[static_cast<size_t>(vertexIndex)] =
+                    BuildShadowSourceAttribute(drawVert);
+            }
+            for (int index = 0; index < tri->numIndexes; ++index)
+            {
+                indexes[static_cast<size_t>(index)] =
+                    static_cast<std::uint32_t>(tri->indexes[index]);
+            }
+            for (PtGeometrySourceTriangle& triangle : triangles)
+            {
+                triangle.sourceMaterialSlot = sourceMaterialSlot;
+            }
+
+            PtGeometrySourcePayloadView payload;
+            payload.positions = positions.data();
+            payload.positionCount = positions.size();
+            payload.attributes = attributes.data();
+            payload.attributeCount = attributes.size();
+            payload.indexes = indexes.data();
+            payload.indexCount = indexes.size();
+            payload.triangles = triangles.data();
+            payload.triangleCount = triangles.size();
+            result = sourceRegistry.Observe(
+                meshKey,
+                sourceContentRevision,
+                &payload);
+        }
+
+        switch (result)
+        {
+            case PtGeometrySourceObserveResult::Added:
+                ++stats.sourceAdded;
+                break;
+            case PtGeometrySourceObserveResult::Reused:
+                ++stats.sourceReused;
+                break;
+            case PtGeometrySourceObserveResult::Revised:
+                ++stats.sourceRevised;
+                break;
+            default:
+                ++stats.sourceRejected;
+                break;
+        }
+        const PtGeometrySourceRegistryStats after = sourceRegistry.Stats();
+        stats.sourcePayloadCopies +=
+            after.payloadCopies - before.payloadCopies;
+        stats.sourceCopiedBytes +=
+            after.copiedBytes - before.copiedBytes;
+    }
+
     const PtGeometryShadowAssetRecord& FindOrCreateAsset(
         const idRenderModel* model,
         PtCanonicalMeshSourceDomain sourceDomain)
@@ -1098,6 +1339,7 @@ private:
     std::unordered_multimap<std::uint64_t, size_t> meshLookup;
     std::vector<PtGeometryShadowInstanceRecord> instances;
     std::unordered_multimap<std::uint64_t, size_t> instanceLookup;
+    PtGeometrySourceRegistry sourceRegistry;
 };
 
 namespace {

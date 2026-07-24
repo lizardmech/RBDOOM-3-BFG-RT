@@ -1,7 +1,7 @@
 GEO-06 - pooled mesh ingestion entry audit
 ============================================
 Status: entry audit complete; callback-MD5 registry proof passed; checked
-allocation and immutable CPU source-registry slices complete.
+allocation, immutable CPU source registry, and lifecycle shadow wiring pass.
 Date: 2026-07-24.
 
 SCOPE
@@ -319,3 +319,153 @@ Next implementation slice:
   into the lifecycle shadow registry. Convert idDrawVert values only when a
   source record is absent or explicitly revised, report source reuse/copy/
   reject bytes in the bounded dump, and keep the live rigid route unchanged.
+
+STEP 2 LIFECYCLE SHADOW WIRING CANDIDATE (2026-07-24)
+-----------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  PtGeometryLifecycleWorldRegistry owns one CPU source registry;
+  map begin and shadow disable clear all owned source values;
+  RegisteredRenderModel + Rigid discovery decodes/copies idDrawVert values only
+    when the canonical MeshKey has no source record;
+  repeated observations call the same-revision no-payload reuse path;
+  resolved MD5 snapshots increment a skinned negative-control counter and are
+    never copied into the immutable rigid registry;
+  lookup is hash-bucketed and still requires full MeshKey equality;
+  the GEO06 bounded dump reports records, retained bytes, add/reuse/revise/
+    reject/skinned-negative counts, payload-copy count and copied bytes;
+  up to eight source samples report revision/checksum/counts/retained bytes and
+    first/last local index plus source material slot;
+  the established live rigid route is unchanged.
+
+Classifier correction:
+
+  D17 also separates classifier state from MeshKey content. The source
+  triangle field is therefore geometryLocalFlags, not the material-derived
+  live triangleClassAndFlags value. Source material slot remains immutable;
+  resolved material ID, classifier flags and emissive binding belong to the
+  later instance/route binding record.
+
+Current revision signal:
+
+  registered render models are treated as immutable within their non-zero
+  sourceAssetGeneration. The lifecycle candidate uses that generation as the
+  source content revision. A future explicit model-reload generation is still
+  required before same-name in-place source hot reload can be claimed; steady
+  observation deliberately does not hash every vertex to infer one.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  PathTraceGeometrySourceRegistryHarness
+    PASS
+  PathTraceGeometryPoolHarness
+    PASS
+  PathTraceCanonicalIdentityHarness
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    78B15C80221C5533114C671589B713C755BB742D3819CF3D08F9473B29CE8350
+  mtime:
+    2026-07-24 16:45:45 Australia/Sydney
+
+Focused runtime acceptance:
+
+  r_pathTracingGeometryShadowRegistry 1
+  mapRestart
+  traverse a prop-heavy area and view/spawn several animated zombies
+  r_pathTracingGeometryShadowRegistryDump 1
+  move/turn for several seconds
+  r_pathTracingGeometryShadowRegistryDump 1
+
+First dump requirements:
+
+  GEO06 records/add/copies/copiedBytes > 0;
+  reused > 0 when repeated rigid mesh surfaces are present;
+  reject = 0;
+  skinnedNegative > 0 when MD5 entities were discovered;
+  retainedBytes equals stable owned source storage, not per-instance geometry;
+  GEO05 collision/stale remain zero;
+  no visual or route behavior changes.
+
+Second dump requirements:
+
+  records and retainedBytes stay unchanged;
+  add/revise/copies/copiedBytes = 0 during steady observation;
+  reject remains zero;
+  a quiet interval may legitimately report reuse = 0 because unchanged rigid
+    defs do not need to re-enter the lifecycle funnel.
+
+STEP 2 LIFECYCLE SHADOW WIRING RUNTIME PASS (2026-07-24)
+--------------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo24.log
+  bytes:
+    28151
+  created:
+    2026-07-24 16:48:53 Australia/Sydney
+  last write at inspection:
+    2026-07-24 16:49:50 Australia/Sydney
+  executable banner:
+    RBDOOM 3 BFG 1.6.0.1403 win-x64 Jul 24 2026 14:28:14
+
+First-discovery dump at frame 1567:
+
+  GEO06 records/retainedBytes = 946/5464756;
+  add/reuse/revise/reject = 946/10425/0/0;
+  skinnedNegative = 62;
+  payload copies/copiedBytes = 946/5464756;
+  source hash collisions = 0;
+  GEO05 collision/stale = 0/0;
+  live instance classes static/rigid/skinned = 1791/1681/62.
+
+This proves one owned payload copy for every admitted rigid source record,
+substantial reuse across repeated observations/instances, and explicit
+rejection of all 62 currently discovered skinned snapshots from the rigid
+source pool. The 946 source records are fewer than 1681 rigid instances as
+required by mesh sharing.
+
+Steady dump at frame 1853:
+
+  GEO06 records/retainedBytes = 946/5464756, unchanged;
+  add/reuse/revise/reject = 0/4584/0/0;
+  skinnedNegative = 0;
+  payload copies/copiedBytes = 0/0;
+  source hash collisions = 0;
+  GEO05 collision/stale = 0/0;
+  live instance classes static/rigid/skinned = 1791/1681/62, unchanged.
+
+All eight bounded samples retain identical mesh hash, asset generation,
+surface ordinal, source revision, checksum, counts, retained bytes, endpoint
+indexes and endpoint source material slots across both dumps. The thousands of
+steady rigid observations therefore use the same-revision no-payload path:
+they neither re-decode nor hash/copy the source arrays.
+
+The log contains no fatal error, crash, access violation or Vulkan device
+removal. Its image warnings are ordinary mars_city1 level-load warnings and
+precede the accepted source-registry dumps.
+
+STEP 2 FINAL RESULT
+-------------------
+  PASS - one value-owned CPU source record per canonical rigid mesh
+  PASS - repeated rigid observations reuse existing source values
+  PASS - steady source copy and copied bytes are exactly zero
+  PASS - skinned frontend snapshots remain explicit negative controls
+  PASS - record count, retained bytes and sampled checksums are stable
+  PASS - zero source reject/collision and zero GEO05 collision/stale
+  PASS - live geometry route remains observation-only
+
+Next implementation slice:
+
+  plan and instantiate separate shadow-only position, attribute, index and
+  source-triangle GPU pools using the checked planner. Keep the established
+  rigid route unchanged, preserve old storage generations across growth, and
+  add upload/retirement diagnostics before attempting non-zero-offset BLAS
+  consumption.

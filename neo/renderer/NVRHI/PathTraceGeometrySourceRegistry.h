@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 struct PtGeometrySourcePosition
@@ -32,8 +33,8 @@ struct PtGeometrySourceAttribute
 struct PtGeometrySourceTriangle
 {
     std::uint32_t sourceMaterialSlot = 0;
-    std::uint32_t triangleClassAndFlags = 0;
-    std::uint32_t emissiveLocalIndex = UINT32_MAX;
+    std::uint32_t geometryLocalFlags = 0;
+    std::uint32_t sourceEmissivePrimitive = UINT32_MAX;
     std::uint32_t reserved = 0;
 };
 
@@ -105,6 +106,7 @@ public:
         const PtGeometrySourcePayloadView* payload);
 
     const PtGeometrySourceRecord* Find(const PtCanonicalMeshKey& key) const;
+    const PtGeometrySourceRecord* RecordAt(std::size_t index) const;
     std::size_t RecordCount() const;
     const PtGeometrySourceRegistryStats& Stats() const;
     void Clear();
@@ -116,6 +118,7 @@ private:
         bool& hashCollision);
 
     std::vector<PtGeometrySourceRecord> records_;
+    std::unordered_multimap<std::uint64_t, std::size_t> lookup_;
     PtGeometrySourceRegistryStats stats_;
 };
 
