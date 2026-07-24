@@ -469,3 +469,149 @@ Next implementation slice:
   rigid route unchanged, preserve old storage generations across growth, and
   add upload/retirement diagnostics before attempting non-zero-offset BLAS
   consumption.
+
+STEP 3 SMP OWNERSHIP AUDIT (2026-07-24)
+---------------------------------------
+The lifecycle source registry is frontend-owned. The NVRHI device, command
+list, RtSmokeGeometryUniverse and map-reset waitForIdle boundary are backend-
+owned. With com_smp enabled, the backend must not read the live registry,
+renderWorld entityDefs, mutable registry vectors or source srfTriangles_t
+arrays through a new cross-thread pointer.
+
+The existing entity-feed snapshot proves the usable command-boundary pattern:
+frontend values are copied into R_FrameAlloc storage, attached to viewDef_t and
+remain valid until that view command finishes on the backend. MAX_FRAME_MEMORY
+is 64 MiB, so copying the accepted 5.46 MiB source universe every frame would
+fit once but would be an invalid steady-state cost and could multiply across
+subviews.
+
+Accepted source transport:
+
+  only the primary, non-subview view carries source deltas;
+  the frontend appends never-published Added/Revised records to an immutable
+    frame snapshot;
+  snapshot metadata contains WorldKey, source revision/checksum, canonical
+    MeshKey and checked offsets/counts into four contiguous value arrays;
+  position, attribute, index and source-triangle values are copied only for
+    the delta, never for same-revision reuse;
+  a checked configurable byte budget paginates a large first population over
+    multiple frames instead of risking the 64 MiB frame arena;
+  the backend imports each canonical key/revision into its own persistent CPU
+    source registry and deduplicates repeated delta delivery by full key plus
+    revision/checksum;
+  backend CPU ownership survives GPU pool growth/reset and is the replay source
+    after ResetRayTracingSmokeSceneResources;
+  map/world generation mismatch rejects the packet before any allocation or
+    upload;
+  the frontend may advance its published cursor only after attaching the
+    packet to the primary draw command; draw commands are not optional work;
+  source revisions require an append-only publication event rather than
+    mutating a packet already visible to the backend.
+
+Rejected alternatives:
+
+  direct backend access to PtGeometryLifecycleWorldRegistry
+    violates the established SMP snapshot rule and recreates the stale-owner
+    crash class;
+
+  retaining lifecycle/source vector pointers in RtSmokeGeometryUniverse
+    is invalid because vector growth, map reset and world teardown are frontend
+    lifetime events;
+
+  copying all 5.46 MiB into every viewDef every frame
+    violates the zero steady-state copy requirement;
+
+  rebuilding identity from the current pointer-heavy RtPathTraceMeshKey
+    preserves material/cache/pointer state in identity and does not satisfy
+    D17 or the validated canonical MeshKey contract;
+
+  uploading directly from the frame snapshot without a backend CPU owner
+    cannot replay after device/resource reset and makes paginated partial
+    residency difficult to validate.
+
+Revised step-3 order:
+
+  1. Add pure checked source-delta layout/import planning and boundary tests.
+  2. Add primary-view-only immutable frame delta capture with a bounded budget.
+  3. Add backend CPU import/dedup diagnostics; do not create GPU buffers yet.
+  4. Runtime-prove first-population pagination, zero steady transport bytes,
+     exact record/checksum parity and map-restart generation rejection.
+  5. Instantiate the four backend shadow GPU pools from the imported records.
+  6. Add generation-safe buffer replacement/retirement and reset replay.
+
+This transport prerequisite is required before the task's GPU-pool step; it is
+not a new live route or a relaxation of the GEO-06 scope.
+
+STEP 3A CHECKED SOURCE-DELTA TRANSPORT PLANNER (2026-07-24)
+-----------------------------------------------------------
+Implemented:
+
+  neo/renderer/NVRHI/PathTraceGeometrySourceTransport.h/.cpp
+  neo/tests/pathtrace_geometry_source_transport_harness.cpp
+
+This remains pure CPU code. It does not allocate frame memory, attach data to a
+view, access the backend, create a GPU resource or alter a route.
+
+The planner consumes an append cursor, immutable source registry and uint64
+byte budget. It produces:
+
+  an exact first/next record cursor and complete/deferred state;
+  one metadata record per admitted canonical source;
+  source revision, checksum and retained-byte contract;
+  element-relative offsets into separate position, attribute, index and
+    source-triangle arrays;
+  exact uint64 element totals and packed bytes;
+  accounting for the actual pointer-bearing frame snapshot structure plus
+    16-byte-rounded metadata/value allocations.
+
+If the next complete source record does not fit after at least one admission,
+the page closes cleanly and exposes its continuation cursor. If the first
+record cannot fit, RecordExceedsBudget returns with no cursor progress. Invalid
+cursor, zero budget, invalid source record and arithmetic overflow are distinct
+fail-closed results.
+
+The import validator checks:
+
+  full canonical MeshKey validity;
+  non-zero source revision/checksum;
+  presence and checked bounds of all four streams;
+  counts against the canonical key;
+  local topology/index validity through the source payload validator;
+  exact retained bytes;
+  one-time delta checksum equality.
+
+Harness coverage:
+
+  complete multi-record plan;
+  bounded partial page and exact continuation;
+  no replay of earlier record offsets;
+  invalid cursor and zero budget;
+  single-record-over-budget failure atomicity;
+  empty complete delta;
+  intact import;
+  checksum, retained-byte, range and missing-stream rejection.
+
+Verification:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  PathTraceGeometrySourceTransportHarness
+    PASS
+  PathTraceGeometrySourceRegistryHarness
+    PASS
+  PathTraceGeometryPoolHarness
+    PASS
+  PathTraceCanonicalIdentityHarness
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Live behavior:
+
+  unchanged; there is no transport call site yet.
+
+Next implementation slice:
+
+  add the primary-view-only R_FrameAlloc producer and backend CPU importer
+  behind the existing geometry shadow gate. First population must paginate
+  under a configurable budget; steady frames must publish zero records/bytes.

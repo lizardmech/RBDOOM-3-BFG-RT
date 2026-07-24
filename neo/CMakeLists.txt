@@ -534,6 +534,7 @@ set(PATH_TRACE_CPU_WORKER_NO_PCH_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCpuWork.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryPoolPlan.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometrySourceRegistry.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometrySourceTransport.cpp
 	)
 
 file(GLOB IRRXML_INCLUDES libs/irrxml/src/*.h)
@@ -1540,6 +1541,17 @@ add_executable(PathTraceGeometrySourceRegistryHarness
 target_include_directories(PathTraceGeometrySourceRegistryHarness PRIVATE renderer/NVRHI)
 if(BUILD_TESTING)
 	add_test(NAME PathTraceGeometrySourceRegistryHarness COMMAND $<TARGET_FILE:PathTraceGeometrySourceRegistryHarness>)
+endif()
+
+add_executable(PathTraceGeometrySourceTransportHarness
+	tests/pathtrace_geometry_source_transport_harness.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	renderer/NVRHI/PathTraceGeometrySourceRegistry.cpp
+	renderer/NVRHI/PathTraceGeometrySourceTransport.cpp
+	)
+target_include_directories(PathTraceGeometrySourceTransportHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceGeometrySourceTransportHarness COMMAND $<TARGET_FILE:PathTraceGeometrySourceTransportHarness>)
 endif()
 
 add_executable(PathTraceLiquidPoolReducerHarness
