@@ -298,6 +298,28 @@ struct RtPathTraceCanonicalRigidIdentityStats
     int sampleCount = 0;
 };
 
+struct RtPathTraceCanonicalRigidBlasStats
+{
+    uint64 frameIndex = 0;
+    int enabled = 0;
+    int requestedInstances = 0;
+    int requestedUniqueMeshes = 0;
+    int resolvedIdentity = 0;
+    int resolvedSources = 0;
+    int resolvedPoolRecords = 0;
+    int readyRequestedMeshes = 0;
+    int activeBlas = 0;
+    int deferredBuilds = 0;
+    int missingIdentity = 0;
+    int missingSource = 0;
+    int missingPoolRecord = 0;
+    uint64 blasCreated = 0;
+    uint64 blasBuilt = 0;
+    uint64 blasReused = 0;
+    uint64 blasRetired = 0;
+    uint64 buildSubmitMicroseconds = 0;
+};
+
 struct RtPathTraceRigidBlasPlanSample
 {
     bool valid = false;
@@ -746,6 +768,12 @@ public:
             const RtPathTraceInstanceUniverse& instanceUniverse) const;
     void DumpCanonicalRigidIdentityStats(
         const RtPathTraceCanonicalRigidIdentityStats& stats) const;
+    void UpdateCanonicalRigidBlasScaffold(
+        nvrhi::IDevice* device,
+        nvrhi::ICommandList* commandList,
+        const RtPathTraceInstanceUniverse& instanceUniverse,
+        bool enabled);
+    void DumpCanonicalRigidBlasStats();
     bool PruneMissingStaticSurfaces();
     void NotifyStaticCacheChanged();
     void ReserveStaticSurfaceRecords(size_t surfaceCount);
@@ -911,12 +939,35 @@ private:
         bool seenThisFrame = false;
     };
 
+    struct CanonicalRigidBlasRecord
+    {
+        PtCanonicalMeshKey key;
+        uint64 meshHash = 0;
+        uint64 inputSignature = 0;
+        nvrhi::rt::AccelStructDesc blasDesc;
+        nvrhi::rt::AccelStructHandle blas;
+        bool buildSubmitted = false;
+    };
+
+    struct RetiredCanonicalRigidBlas
+    {
+        nvrhi::rt::AccelStructHandle blas;
+        uint64 releaseAfterFrame = 0;
+    };
+
     RtSmokePersistentStaticSurfaceRecord* FindStaticSurfaceMutable(uint64 key);
     RigidMeshCandidateRecord* FindOrCreateRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation, bool& cacheHit);
     void RetireRigidBlas(RigidMeshCandidateRecord& record);
     void ReleaseExpiredRetiredRigidBlas();
     void ClearRigidResidencyCaches();
     void ResetRigidMeshCandidateFrameStats();
+    CanonicalRigidBlasRecord* FindCanonicalRigidBlasRecord(
+        const PtCanonicalMeshKey& key,
+        uint64 meshHash);
+    void RetireCanonicalRigidBlas(
+        CanonicalRigidBlasRecord& record);
+    void ReleaseExpiredCanonicalRigidBlas();
+    void ReleaseCanonicalRigidBlasScaffold();
     void AddRigidMeshCandidateSample(const RtPathTraceRigidMeshCandidateObservation& observation, bool eligible, uint32_t rejectFlags, int seenCount);
     void BuildRigidRouteInstanceList(const RtPathTraceInstanceUniverse& instanceUniverse, std::vector<RtPathTraceRigidRouteInstanceObservation>& instances) const;
     void AddRigidResidencySample(const RigidResidentInstanceRecord& record, bool selectedArea, bool routeReady);
@@ -967,6 +1018,11 @@ private:
     PtGeometryGpuPoolSet m_canonicalSourceGpuPools;
     PtGeometryGpuPoolStats m_canonicalSourceGpuPoolStats;
     PtGeometryOffsetBlasProbe m_canonicalOffsetBlasProbe;
+    std::vector<CanonicalRigidBlasRecord> m_canonicalRigidBlasRecords;
+    std::unordered_multimap<uint64, size_t> m_canonicalRigidBlasLookup;
+    std::vector<RetiredCanonicalRigidBlas>
+        m_retiredCanonicalRigidBlasRecords;
+    RtPathTraceCanonicalRigidBlasStats m_canonicalRigidBlasStats;
     uint64 m_canonicalSourceWorldGeneration = 0;
     uint64 m_canonicalSourcePublicationGeneration = 0;
     uint64 m_canonicalSourcePublicationSequence = 0;

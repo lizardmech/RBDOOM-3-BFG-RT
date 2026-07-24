@@ -1181,6 +1181,102 @@ Both identity transport dumps must report:
   no producer rejection, fatal error, Vulkan error, device removal, crash or
   visible change.
 
+STEP 8 LIVE RIGID-ROUTE IDENTITY COVERAGE RUNTIME PASS (2026-07-24)
+-------------------------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo30.log
+  bytes:
+    145270
+  last write:
+    2026-07-24 20:41:00 Australia/Sydney
+
+Populated frame 1503 and steady frame 1760 both report:
+
+  route/validKey/identity/source/legacy/exact =
+    111/111/111/111/111/111;
+  invalidKey/missingIdentity/invalidBinding/missingSource/missingLegacy/
+    payload = 0/0/0/0/0/0.
+
+All eight samples have flags 0x0, non-zero distinct canonical instance and
+mesh hashes, and exact legacy/canonical payload checksums. Source transport,
+identity transport, GPU pools and the non-zero-offset BLAS probe are steady
+with zero rejection or repeated upload/build work. The log contains no fatal
+error, Vulkan error, device removal, allocation failure or readback failure.
+
+STEP 8 FINAL RESULT
+-------------------
+  PASS - every current rigid route instance constructs a valid canonical key
+  PASS - every key selects its exact lifecycle-owned canonical MeshKey
+  PASS - every selected MeshKey has immutable CPU and pooled GPU source data
+  PASS - exact selected source bytes match the corresponding legacy route
+
+STEP 9 DEFAULT-OFF CANONICAL POOLED RIGID BLAS CANDIDATE (2026-07-24)
+---------------------------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  r_pathTracingGeometryCanonicalRigidBlas defaults to 0 and never changes
+  traversal selection;
+  when enabled, the current visible/resident rigid route resolves exact
+  canonical MeshKeys through the accepted identity registry;
+  one BLAS is shared by each full canonical MeshKey, independent of resolved
+  material binding;
+  BLAS geometry points directly at the shared position/index pool with the
+  source record's non-zero byte offsets and float3/R32 formats;
+  builds are bounded by
+    r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame
+  which defaults to 16;
+  unchanged built records are reused without uploads or rebuilds;
+  source publication replacement and input-signature change retire the old
+  handle for three frames before rebuilding;
+  disable releases the scaffold through the same deferred retirement path;
+  legacy BLAS, TLAS, route buffers and traversal remain authoritative.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release --target RBDoom3BFG
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    F44CF8D0747EC966259349CC85EB9ABE3C2EDAA0D40DAF72746C36F0AA879BB5
+  mtime:
+    2026-07-24 20:46:00 Australia/Sydney
+
+Focused runtime acceptance:
+
+  r_pathTracingGeometryShadowRegistry 1;
+  r_pathTracingGeometryCanonicalRigidBlas 1;
+  mapRestart;
+  traverse the representative rigid-prop area for at least ten seconds;
+  r_pathTracingGeometryShadowRegistryDump 1;
+  wait ten seconds without changing areas;
+  r_pathTracingGeometryShadowRegistryDump 1.
+
+The populated BLAS dump must report:
+
+  enabled = 1;
+  requested instances > 0 and requested unique meshes > 0;
+  resolved identity = requested instances;
+  resolved source = resolved pool = requested unique meshes;
+  ready = requested unique meshes;
+  active >= ready;
+  deferred = 0 after the build budget drains;
+  missing identity/source/pool = 0/0/0;
+  create = build > 0 and retire = 0 after map population settles;
+  traversal=legacy and route=shadow-only.
+
+The steady dump must retain the same requested, ready and active counts with:
+
+  create/build/retire = 0/0/0;
+  reuse > 0 is expected and proves the handles were found unchanged;
+  no producer rejection, fatal error, Vulkan error, device removal, crash or
+  visible change.
+
 STEP 7 EXACT CANONICAL IDENTITY TRANSPORT RUNTIME PASS (2026-07-24)
 -------------------------------------------------------------------
 Capture:

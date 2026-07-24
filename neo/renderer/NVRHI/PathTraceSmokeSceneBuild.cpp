@@ -3909,6 +3909,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeGeometryUniverse.DumpCanonicalRigidIdentityStats(
                 identityStats);
         }
+        m_smokeGeometryUniverse.UpdateCanonicalRigidBlasScaffold(
+            device,
+            commandList,
+            m_instanceUniverse,
+            r_pathTracingGeometryCanonicalRigidBlas.GetInteger() != 0);
+        if (geometrySourceDumpRequested)
+        {
+            m_smokeGeometryUniverse.DumpCanonicalRigidBlasStats();
+        }
         const int boundsOverlayMode = r_pathTracingSceneBoundsOverlay.GetInteger();
         const bool appendRigidResidencyBounds =
             rigidResidencyEnabled &&

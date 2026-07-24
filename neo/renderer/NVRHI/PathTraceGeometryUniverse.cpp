@@ -803,6 +803,37 @@ uint64 BuildRigidGpuUploadSignature(const RtSmokeGeometryUniverse::RigidMeshCand
     return hash;
 }
 
+uint64 BuildCanonicalRigidBlasInputSignature(
+    const PtGeometrySourceRecord& source,
+    const PtGeometryGpuPoolRecord& gpu,
+    const PtGeometryGpuPoolSet& pools)
+{
+    uint64 hash = 14695981039346656037ull;
+    hash = HashSmokeBytes(
+        hash,
+        &source.sourceContentRevision,
+        sizeof(source.sourceContentRevision));
+    hash = HashSmokeBytes(
+        hash,
+        &source.sourceChecksum,
+        sizeof(source.sourceChecksum));
+    hash = HashSmokeBytes(hash, &gpu.positions, sizeof(gpu.positions));
+    hash = HashSmokeBytes(hash, &gpu.indexes, sizeof(gpu.indexes));
+    const uintptr_t positionBuffer =
+        reinterpret_cast<uintptr_t>(pools.PositionBuffer().Get());
+    const uintptr_t indexBuffer =
+        reinterpret_cast<uintptr_t>(pools.IndexBuffer().Get());
+    hash = HashSmokeBytes(
+        hash,
+        &positionBuffer,
+        sizeof(positionBuffer));
+    hash = HashSmokeBytes(
+        hash,
+        &indexBuffer,
+        sizeof(indexBuffer));
+    return hash != 0 ? hash : 1;
+}
+
 uint32_t ValidateRigidBlasInputRecord(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
 {
     const uint32_t expectedVertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
@@ -1387,6 +1418,11 @@ void RtSmokeGeometryUniverse::Clear()
     m_previousStaticTriangleClassCache.clear();
     m_previousStaticTriangleMaterialCache.clear();
     m_canonicalIdentityRegistry.Clear();
+    m_canonicalRigidBlasRecords.clear();
+    m_canonicalRigidBlasLookup.clear();
+    m_retiredCanonicalRigidBlasRecords.clear();
+    m_canonicalRigidBlasStats =
+        RtPathTraceCanonicalRigidBlasStats();
     ClearRigidResidencyCaches();
     m_rigidResidencyStats = RtPathTraceRigidResidencyStats();
     m_rigidResidencyEnabled = false;
@@ -1469,6 +1505,7 @@ void RtSmokeGeometryUniverse::ImportCanonicalSourceSnapshot(
         m_canonicalSourcePublicationGeneration !=
             snapshot->publicationGeneration)
     {
+        ReleaseCanonicalRigidBlasScaffold();
         m_canonicalSourceGpuPools.ResetForPublication(m_currentFrameIndex);
         m_canonicalSourceGpuPoolStats = PtGeometryGpuPoolStats();
         m_canonicalSourceRegistry.Clear();
@@ -2220,6 +2257,321 @@ void RtSmokeGeometryUniverse::DumpCanonicalRigidIdentityStats(
             sample.materialName.c_str(),
             sample.modelName.c_str());
     }
+}
+
+RtSmokeGeometryUniverse::CanonicalRigidBlasRecord*
+RtSmokeGeometryUniverse::FindCanonicalRigidBlasRecord(
+    const PtCanonicalMeshKey& key,
+    uint64 meshHash)
+{
+    const auto range = m_canonicalRigidBlasLookup.equal_range(meshHash);
+    for (auto it = range.first; it != range.second; ++it)
+    {
+        if (it->second < m_canonicalRigidBlasRecords.size() &&
+            m_canonicalRigidBlasRecords[it->second].key == key)
+        {
+            return &m_canonicalRigidBlasRecords[it->second];
+        }
+    }
+    return nullptr;
+}
+
+void RtSmokeGeometryUniverse::RetireCanonicalRigidBlas(
+    CanonicalRigidBlasRecord& record)
+{
+    if (record.blas)
+    {
+        RetiredCanonicalRigidBlas retired;
+        retired.blas = record.blas;
+        retired.releaseAfterFrame =
+            m_currentFrameIndex + RT_SMOKE_RIGID_BLAS_RETIRE_FRAMES;
+        m_retiredCanonicalRigidBlasRecords.push_back(retired);
+        ++m_canonicalRigidBlasStats.blasRetired;
+    }
+    record.blas = nullptr;
+    record.blasDesc = nvrhi::rt::AccelStructDesc();
+    record.inputSignature = 0;
+    record.buildSubmitted = false;
+}
+
+void RtSmokeGeometryUniverse::ReleaseExpiredCanonicalRigidBlas()
+{
+    m_retiredCanonicalRigidBlasRecords.erase(
+        std::remove_if(
+            m_retiredCanonicalRigidBlasRecords.begin(),
+            m_retiredCanonicalRigidBlasRecords.end(),
+            [this](const RetiredCanonicalRigidBlas& retired) {
+                return retired.releaseAfterFrame <= m_currentFrameIndex;
+            }),
+        m_retiredCanonicalRigidBlasRecords.end());
+}
+
+void RtSmokeGeometryUniverse::ReleaseCanonicalRigidBlasScaffold()
+{
+    for (CanonicalRigidBlasRecord& record :
+        m_canonicalRigidBlasRecords)
+    {
+        RetireCanonicalRigidBlas(record);
+    }
+    m_canonicalRigidBlasRecords.clear();
+    m_canonicalRigidBlasLookup.clear();
+}
+
+void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
+    nvrhi::IDevice* device,
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceInstanceUniverse& instanceUniverse,
+    bool enabled)
+{
+    ReleaseExpiredCanonicalRigidBlas();
+    const uint64 intervalCreated = m_canonicalRigidBlasStats.blasCreated;
+    const uint64 intervalBuilt = m_canonicalRigidBlasStats.blasBuilt;
+    const uint64 intervalReused = m_canonicalRigidBlasStats.blasReused;
+    const uint64 intervalRetired = m_canonicalRigidBlasStats.blasRetired;
+    const uint64 intervalBuildMicros =
+        m_canonicalRigidBlasStats.buildSubmitMicroseconds;
+    m_canonicalRigidBlasStats = RtPathTraceCanonicalRigidBlasStats();
+    m_canonicalRigidBlasStats.frameIndex = m_currentFrameIndex;
+    m_canonicalRigidBlasStats.enabled = enabled ? 1 : 0;
+    m_canonicalRigidBlasStats.blasCreated = intervalCreated;
+    m_canonicalRigidBlasStats.blasBuilt = intervalBuilt;
+    m_canonicalRigidBlasStats.blasReused = intervalReused;
+    m_canonicalRigidBlasStats.blasRetired = intervalRetired;
+    m_canonicalRigidBlasStats.buildSubmitMicroseconds =
+        intervalBuildMicros;
+
+    if (!enabled || device == nullptr || commandList == nullptr)
+    {
+        if (!enabled && !m_canonicalRigidBlasRecords.empty())
+        {
+            ReleaseCanonicalRigidBlasScaffold();
+        }
+        return;
+    }
+
+    std::vector<RtPathTraceRigidRouteInstanceObservation> instances;
+    BuildRigidRouteInstanceList(instanceUniverse, instances);
+    m_canonicalRigidBlasStats.requestedInstances =
+        static_cast<int>(instances.size());
+
+    std::vector<PtCanonicalMeshKey> requestedMeshes;
+    requestedMeshes.reserve(instances.size());
+    for (const RtPathTraceRigidRouteInstanceObservation& instance :
+        instances)
+    {
+        PtCanonicalInstanceKey instanceKey;
+        instanceKey.worldGeneration =
+            instance.renderDefKey.worldGeneration;
+        instanceKey.renderDefIndex =
+            instance.renderDefKey.index >= 0
+                ? static_cast<uint32_t>(instance.renderDefKey.index)
+                : UINT32_MAX;
+        instanceKey.renderDefGeneration =
+            instance.renderDefKey.generation;
+        instanceKey.subInstanceKind =
+            PtCanonicalSubInstanceKind::RigidSurface;
+        instanceKey.modelSurfaceIndex =
+            instance.modelSurfaceIndex >= 0
+                ? static_cast<uint32_t>(instance.modelSurfaceIndex)
+                : UINT32_MAX;
+        instanceKey.jointSubmeshIndex = -1;
+        const PtGeometryIdentityBinding* binding =
+            PtCanonicalInstanceKeyIsValid(instanceKey)
+                ? m_canonicalIdentityRegistry.Find(instanceKey)
+                : nullptr;
+        if (binding == nullptr)
+        {
+            ++m_canonicalRigidBlasStats.missingIdentity;
+            continue;
+        }
+        ++m_canonicalRigidBlasStats.resolvedIdentity;
+        bool duplicate = false;
+        for (const PtCanonicalMeshKey& requested : requestedMeshes)
+        {
+            if (requested == binding->meshKey)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate)
+        {
+            requestedMeshes.push_back(binding->meshKey);
+        }
+    }
+    m_canonicalRigidBlasStats.requestedUniqueMeshes =
+        static_cast<int>(requestedMeshes.size());
+
+    int buildsRemaining = idMath::ClampInt(
+        1,
+        256,
+        r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame.GetInteger());
+    for (const PtCanonicalMeshKey& meshKey : requestedMeshes)
+    {
+        const PtGeometrySourceRecord* source =
+            m_canonicalSourceRegistry.Find(meshKey);
+        if (source == nullptr)
+        {
+            ++m_canonicalRigidBlasStats.missingSource;
+            continue;
+        }
+        ++m_canonicalRigidBlasStats.resolvedSources;
+
+        const PtGeometryGpuPoolRecord* gpu = nullptr;
+        const size_t poolRecordCount = std::min(
+            m_canonicalSourceRegistry.RecordCount(),
+            m_canonicalSourceGpuPools.RecordCount());
+        for (size_t sourceIndex = 0;
+            sourceIndex < poolRecordCount;
+            ++sourceIndex)
+        {
+            const PtGeometryGpuPoolRecord* candidate =
+                m_canonicalSourceGpuPools.RecordAt(sourceIndex);
+            if (candidate != nullptr && candidate->key == meshKey)
+            {
+                gpu = candidate;
+                break;
+            }
+        }
+        if (gpu == nullptr)
+        {
+            ++m_canonicalRigidBlasStats.missingPoolRecord;
+            continue;
+        }
+        ++m_canonicalRigidBlasStats.resolvedPoolRecords;
+
+        const uint64 meshHash = PtHashCanonicalMeshKey(meshKey);
+        CanonicalRigidBlasRecord* record =
+            FindCanonicalRigidBlasRecord(meshKey, meshHash);
+        if (record == nullptr)
+        {
+            CanonicalRigidBlasRecord added;
+            added.key = meshKey;
+            added.meshHash = meshHash;
+            const size_t recordIndex =
+                m_canonicalRigidBlasRecords.size();
+            m_canonicalRigidBlasRecords.push_back(added);
+            m_canonicalRigidBlasLookup.emplace(
+                meshHash,
+                recordIndex);
+            record = &m_canonicalRigidBlasRecords.back();
+        }
+
+        const uint64 inputSignature =
+            BuildCanonicalRigidBlasInputSignature(
+                *source,
+                *gpu,
+                m_canonicalSourceGpuPools);
+        if (record->blas &&
+            record->inputSignature != inputSignature)
+        {
+            RetireCanonicalRigidBlas(*record);
+        }
+        if (record->blas && record->buildSubmitted)
+        {
+            ++m_canonicalRigidBlasStats.readyRequestedMeshes;
+            ++m_canonicalRigidBlasStats.blasReused;
+            continue;
+        }
+        if (buildsRemaining <= 0)
+        {
+            ++m_canonicalRigidBlasStats.deferredBuilds;
+            continue;
+        }
+
+        nvrhi::rt::GeometryTriangles triangles;
+        triangles.vertexBuffer =
+            m_canonicalSourceGpuPools.PositionBuffer();
+        triangles.indexBuffer =
+            m_canonicalSourceGpuPools.IndexBuffer();
+        triangles.vertexFormat = nvrhi::Format::RGB32_FLOAT;
+        triangles.indexFormat = nvrhi::Format::R32_UINT;
+        triangles.vertexOffset = gpu->positions.offsetBytes;
+        triangles.indexOffset = gpu->indexes.offsetBytes;
+        triangles.vertexCount = meshKey.vertexCount;
+        triangles.indexCount = meshKey.indexCount;
+        triangles.vertexStride = sizeof(PtGeometrySourcePosition);
+        nvrhi::rt::GeometryDesc geometry;
+        geometry.setTriangles(triangles);
+        record->blasDesc = nvrhi::rt::AccelStructDesc()
+            .addBottomLevelGeometry(geometry)
+            .setBuildFlags(
+                nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
+            .setDebugName("PathTraceCanonicalRigidBLAS");
+        record->blas = device->createAccelStruct(record->blasDesc);
+        if (!record->blas)
+        {
+            ++m_canonicalRigidBlasStats.deferredBuilds;
+            continue;
+        }
+        ++m_canonicalRigidBlasStats.blasCreated;
+        commandList->setBufferState(
+            m_canonicalSourceGpuPools.PositionBuffer(),
+            nvrhi::ResourceStates::AccelStructBuildInput);
+        commandList->setBufferState(
+            m_canonicalSourceGpuPools.IndexBuffer(),
+            nvrhi::ResourceStates::AccelStructBuildInput);
+        commandList->commitBarriers();
+        const auto buildStart = std::chrono::steady_clock::now();
+        nvrhi::utils::BuildBottomLevelAccelStruct(
+            commandList,
+            record->blas,
+            record->blasDesc);
+        const auto buildEnd = std::chrono::steady_clock::now();
+        m_canonicalRigidBlasStats.buildSubmitMicroseconds +=
+            static_cast<uint64>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    buildEnd - buildStart).count());
+        record->inputSignature = inputSignature;
+        record->buildSubmitted = true;
+        ++m_canonicalRigidBlasStats.blasBuilt;
+        ++m_canonicalRigidBlasStats.readyRequestedMeshes;
+        --buildsRemaining;
+    }
+
+    for (const CanonicalRigidBlasRecord& record :
+        m_canonicalRigidBlasRecords)
+    {
+        if (record.blas && record.buildSubmitted)
+        {
+            ++m_canonicalRigidBlasStats.activeBlas;
+        }
+    }
+}
+
+void RtSmokeGeometryUniverse::DumpCanonicalRigidBlasStats()
+{
+    common->Printf(
+        "PathTracePrimaryPass: GEO06 canonical rigid BLAS frame=%llu enabled=%d requested(instances/unique)=%d/%d resolved(identity/source/pool)=%d/%d/%d ready/active/deferred=%d/%d/%d missing(identity/source/pool)=%d/%d/%d interval(create/build/reuse/retire/buildUs)=%llu/%llu/%llu/%llu/%llu traversal=legacy route=shadow-only\n",
+        static_cast<unsigned long long>(
+            m_canonicalRigidBlasStats.frameIndex),
+        m_canonicalRigidBlasStats.enabled,
+        m_canonicalRigidBlasStats.requestedInstances,
+        m_canonicalRigidBlasStats.requestedUniqueMeshes,
+        m_canonicalRigidBlasStats.resolvedIdentity,
+        m_canonicalRigidBlasStats.resolvedSources,
+        m_canonicalRigidBlasStats.resolvedPoolRecords,
+        m_canonicalRigidBlasStats.readyRequestedMeshes,
+        m_canonicalRigidBlasStats.activeBlas,
+        m_canonicalRigidBlasStats.deferredBuilds,
+        m_canonicalRigidBlasStats.missingIdentity,
+        m_canonicalRigidBlasStats.missingSource,
+        m_canonicalRigidBlasStats.missingPoolRecord,
+        static_cast<unsigned long long>(
+            m_canonicalRigidBlasStats.blasCreated),
+        static_cast<unsigned long long>(
+            m_canonicalRigidBlasStats.blasBuilt),
+        static_cast<unsigned long long>(
+            m_canonicalRigidBlasStats.blasReused),
+        static_cast<unsigned long long>(
+            m_canonicalRigidBlasStats.blasRetired),
+        static_cast<unsigned long long>(
+            m_canonicalRigidBlasStats.buildSubmitMicroseconds));
+    m_canonicalRigidBlasStats.blasCreated = 0;
+    m_canonicalRigidBlasStats.blasBuilt = 0;
+    m_canonicalRigidBlasStats.blasReused = 0;
+    m_canonicalRigidBlasStats.blasRetired = 0;
+    m_canonicalRigidBlasStats.buildSubmitMicroseconds = 0;
 }
 
 void RtSmokeGeometryUniverse::RetireRigidBlas(RigidMeshCandidateRecord& record)
