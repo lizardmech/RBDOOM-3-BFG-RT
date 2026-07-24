@@ -69,6 +69,7 @@ namespace PtGeometryLifecycle
     void NotifyEntityUnchanged(const idRenderEntityLocal* entity);
     void NotifyEntityFreed(const idRenderEntityLocal* entity);
     void ObserveFrontendDeformingEntities(const viewDef_t* viewDef);
+    void CaptureSourceDelta(viewDef_t* viewDef);
 
     void NotifyLightAdded(const idRenderLightLocal* light);
     void NotifyLightUpdated(const idRenderLightLocal* light);

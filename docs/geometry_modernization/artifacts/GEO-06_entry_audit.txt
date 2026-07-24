@@ -562,7 +562,7 @@ byte budget. It produces:
     source-triangle arrays;
   exact uint64 element totals and packed bytes;
   accounting for the actual pointer-bearing frame snapshot structure plus
-    16-byte-rounded metadata/value allocations.
+    the frontend R_FrameAlloc 128-byte metadata/value allocation rounding.
 
 If the next complete source record does not fit after at least one admission,
 the page closes cleanly and exposes its continuation cursor. If the first
@@ -615,3 +615,134 @@ Next implementation slice:
   add the primary-view-only R_FrameAlloc producer and backend CPU importer
   behind the existing geometry shadow gate. First population must paginate
   under a configurable budget; steady frames must publish zero records/bytes.
+
+STEP 3B LIVE SMP TRANSPORT CANDIDATE (2026-07-24)
+-------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  viewDef_t carries one immutable PtGeometrySourceTransportSnapshot pointer;
+  PtGeometryLifecycle publishes only from the primary non-subview frontend;
+  r_pathTracingGeometrySourceDeltaBudgetMB defaults to 8 and clamps to 1..32;
+  checked plans paginate complete source records without splitting a mesh;
+  metadata and four value arrays use R_FrameAlloc lifetime and 128-byte
+    allocation rounding;
+  attaching the primary draw command advances the frontend publication cursor;
+  world generation plus publication generation/sequence distinguish map reset,
+    disable/re-enable replay and ordered pages;
+  RtSmokeGeometryUniverse validates the entire packet before importing any
+    record, then deep-copies it into a backend-owned source registry;
+  backend full-key/revision/checksum equality remains authoritative;
+  backend CPU values survive later GPU pool replacement and are cleared with
+    geometry-universe/map resource reset;
+  the bounded GEO06 backend dump reports world, publication tuple, cursor,
+    records, retained bytes and interval import/reuse/revise/reject/transport
+    bytes;
+  no NVRHI buffer, BLAS or live route is changed.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  PathTraceGeometrySourceTransportHarness
+    PASS
+  PathTraceGeometrySourceRegistryHarness
+    PASS
+  PathTraceGeometryPoolHarness
+    PASS
+  PathTraceCanonicalIdentityHarness
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    D3B8BF522439239B797CA4463762343DCB37C3F3E3EAC2FA858B80A79225F904
+  mtime:
+    2026-07-24 17:25:01 Australia/Sydney
+
+Focused runtime acceptance:
+
+  r_pathTracingGeometrySourceDeltaBudgetMB 1
+  r_pathTracingGeometryShadowRegistry 1
+  mapRestart
+  wait/traverse until the initial pages have crossed the backend
+  r_pathTracingGeometryShadowRegistryDump 1
+  wait ten seconds
+  r_pathTracingGeometryShadowRegistryDump 1
+
+First dump requirements:
+
+  frontend and backend source record counts/retained bytes match;
+  backend cursor equals the frontend source record count;
+  publication sequence > 1 proves forced 1 MiB pagination;
+  import count equals backend record count;
+  reject/revise = 0;
+  transport bytes are bounded page totals, not steady-frame traffic;
+  GEO05 collision/stale and source reject/collision remain zero.
+
+Second dump requirements:
+
+  frontend/backend records and retained bytes remain unchanged;
+  backend interval import/reuse/revise/reject/transportBytes = 0/0/0/0/0;
+  no visual change, crash, frame-arena exhaustion or Vulkan device removal.
+
+STEP 3B LIVE SMP TRANSPORT RUNTIME PASS (2026-07-24)
+----------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo25.log
+  bytes:
+    129813
+  created/last write:
+    2026-07-24 17:30:26 Australia/Sydney
+
+The test forced r_pathTracingGeometrySourceDeltaBudgetMB=1.
+
+Populated dump at frame 1247:
+
+  frontend records/retainedBytes = 946/5464756;
+  frontend add/revise/reject/copies = 946/0/0/946;
+  frontend source collisions = 0;
+  backend world = 3;
+  backend publication generation:sequence = 3:6;
+  backend cursor/records/retainedBytes = 946/946/5464756;
+  backend import/reuse/revise/reject = 946/0/0/0;
+  backend transportBytes = 5573504;
+  GEO05 collision/stale = 0/0.
+
+Six publication pages prove that the 1 MiB budget paginated the first source
+population. Backend count and retained bytes exactly match the frontend owner.
+Transport overhead above retained source values is 108748 bytes across the six
+frame packets, including snapshot structures, record metadata and 128-byte
+allocation rounding.
+
+Steady dump at frame 1468:
+
+  frontend records/retainedBytes = 946/5464756, unchanged;
+  frontend add/revise/reject/copies/copiedBytes = 0/0/0/0/0;
+  backend publication remains 3:6 and cursor remains 946;
+  backend records/retainedBytes = 946/5464756, unchanged;
+  backend import/reuse/revise/reject/transportBytes = 0/0/0/0/0;
+  GEO05 collision/stale = 0/0.
+
+The log contains no producer rejection, frame-arena exhaustion, fatal error,
+crash or Vulkan device removal.
+
+STEP 3B FINAL RESULT
+--------------------
+  PASS - immutable primary-view frontend/backend packet lifetime
+  PASS - forced multi-frame pagination and exact continuation cursor
+  PASS - complete backend persistent CPU ownership
+  PASS - frontend/backend record and retained-byte parity
+  PASS - zero rejected records/pages
+  PASS - exactly zero steady transport records and bytes
+  PASS - no subview duplication or live route change observed
+
+Next implementation slice:
+
+  instantiate four backend shadow GPU pools from the imported CPU registry.
+  Use checked uint64 suballocations, upload only newly resident/revised records,
+  retain old storage generations across growth, and report pool capacity/used/
+  upload/retirement state without changing BLAS or traversal.

@@ -5,6 +5,7 @@
 #include "PathTraceCVars.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGeometrySourceRegistry.h"
+#include "PathTraceGeometrySourceTransport.h"
 #include "../Material.h"
 #include "../Model.h"
 #include "../RenderCommon.h"
@@ -13,6 +14,7 @@
 #include <atomic>
 #include <cstring>
 #include <mutex>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -487,6 +489,13 @@ public:
         instances.clear();
         instanceLookup.clear();
         sourceRegistry.Clear();
+        sourcePublishedRecordCount = 0;
+        ++sourcePublicationGeneration;
+        if (sourcePublicationGeneration == 0)
+        {
+            sourcePublicationGeneration = 1;
+        }
+        sourcePublicationSequence = 0;
         shadowTracking = false;
     }
 
@@ -514,6 +523,13 @@ public:
                 instances.clear();
                 instanceLookup.clear();
                 sourceRegistry.Clear();
+                sourcePublishedRecordCount = 0;
+                ++sourcePublicationGeneration;
+                if (sourcePublicationGeneration == 0)
+                {
+                    sourcePublicationGeneration = 1;
+                }
+                sourcePublicationSequence = 0;
                 shadowTracking = false;
             }
             return;
@@ -697,6 +713,138 @@ public:
         {
             ++stats.frontendDeformingDiscovered;
         }
+    }
+
+    void CaptureSourceDelta(viewDef_t* viewDef)
+    {
+        if (viewDef == nullptr || viewDef->isSubview || !shadowTracking ||
+            worldGeneration == 0)
+        {
+            return;
+        }
+
+        const int budgetMB = idMath::ClampInt(
+            1,
+            32,
+            r_pathTracingGeometrySourceDeltaBudgetMB.GetInteger());
+        const std::uint64_t byteBudget =
+            static_cast<std::uint64_t>(budgetMB) * 1024ull * 1024ull;
+        PtGeometrySourceTransportPlan plan;
+        const PtGeometrySourceTransportResult result =
+            PtPlanGeometrySourceTransport(
+                sourceRegistry,
+                sourcePublishedRecordCount,
+                byteBudget,
+                plan);
+        if (result == PtGeometrySourceTransportResult::EmptyDelta)
+        {
+            return;
+        }
+        if (result != PtGeometrySourceTransportResult::Success ||
+            plan.records.empty() ||
+            plan.packedBytes > static_cast<std::uint64_t>(
+                std::numeric_limits<int>::max()))
+        {
+            common->Printf(
+                "PathTracePrimaryPass: GEO06 source transport producer rejected result=%s cursor=%llu records=%llu budgetBytes=%llu\n",
+                PtGeometrySourceTransportResultName(result),
+                static_cast<unsigned long long>(sourcePublishedRecordCount),
+                static_cast<unsigned long long>(sourceRegistry.RecordCount()),
+                static_cast<unsigned long long>(byteBudget));
+            return;
+        }
+
+        PtGeometrySourceTransportSnapshot* snapshot =
+            new (R_ClearedFrameAlloc(
+                sizeof(PtGeometrySourceTransportSnapshot),
+                FRAME_ALLOC_VIEW_DEF))
+                PtGeometrySourceTransportSnapshot();
+        snapshot->worldGeneration = worldGeneration;
+        snapshot->publicationGeneration = sourcePublicationGeneration;
+        snapshot->publicationSequence = ++sourcePublicationSequence;
+        snapshot->firstRecordIndex = plan.firstRecordIndex;
+        snapshot->nextRecordIndex = plan.nextRecordIndex;
+        snapshot->packedBytes = plan.packedBytes;
+        snapshot->recordCount = plan.records.size();
+        snapshot->streams.positionCount = plan.positionCount;
+        snapshot->streams.attributeCount = plan.attributeCount;
+        snapshot->streams.indexCount = plan.indexCount;
+        snapshot->streams.triangleCount = plan.triangleCount;
+
+        PtGeometrySourceTransportRecord* records =
+            static_cast<PtGeometrySourceTransportRecord*>(R_FrameAlloc(
+                static_cast<int>(
+                    plan.records.size() *
+                    sizeof(PtGeometrySourceTransportRecord)),
+                FRAME_ALLOC_VIEW_ENTITY));
+        PtGeometrySourcePosition* positions =
+            static_cast<PtGeometrySourcePosition*>(R_FrameAlloc(
+                static_cast<int>(
+                    plan.positionCount *
+                    sizeof(PtGeometrySourcePosition)),
+                FRAME_ALLOC_VIEW_ENTITY));
+        PtGeometrySourceAttribute* attributes =
+            static_cast<PtGeometrySourceAttribute*>(R_FrameAlloc(
+                static_cast<int>(
+                    plan.attributeCount *
+                    sizeof(PtGeometrySourceAttribute)),
+                FRAME_ALLOC_VIEW_ENTITY));
+        std::uint32_t* indexes =
+            static_cast<std::uint32_t*>(R_FrameAlloc(
+                static_cast<int>(
+                    plan.indexCount * sizeof(std::uint32_t)),
+                FRAME_ALLOC_VIEW_ENTITY));
+        PtGeometrySourceTriangle* triangles =
+            static_cast<PtGeometrySourceTriangle*>(R_FrameAlloc(
+                static_cast<int>(
+                    plan.triangleCount *
+                    sizeof(PtGeometrySourceTriangle)),
+                FRAME_ALLOC_VIEW_ENTITY));
+
+        std::memcpy(
+            records,
+            plan.records.data(),
+            plan.records.size() * sizeof(plan.records[0]));
+        for (std::size_t localRecordIndex = 0;
+            localRecordIndex < plan.records.size();
+            ++localRecordIndex)
+        {
+            const PtGeometrySourceRecord* source = sourceRegistry.RecordAt(
+                plan.firstRecordIndex + localRecordIndex);
+            const PtGeometrySourceTransportRecord& transport =
+                plan.records[localRecordIndex];
+            if (source == nullptr)
+            {
+                continue;
+            }
+            std::memcpy(
+                positions + transport.positionOffset,
+                source->payload.positions.data(),
+                source->payload.positions.size() *
+                    sizeof(PtGeometrySourcePosition));
+            std::memcpy(
+                attributes + transport.attributeOffset,
+                source->payload.attributes.data(),
+                source->payload.attributes.size() *
+                    sizeof(PtGeometrySourceAttribute));
+            std::memcpy(
+                indexes + transport.indexOffset,
+                source->payload.indexes.data(),
+                source->payload.indexes.size() * sizeof(std::uint32_t));
+            std::memcpy(
+                triangles + transport.triangleOffset,
+                source->payload.triangles.data(),
+                source->payload.triangles.size() *
+                    sizeof(PtGeometrySourceTriangle));
+        }
+
+        snapshot->records = records;
+        snapshot->streams.positions = positions;
+        snapshot->streams.attributes = attributes;
+        snapshot->streams.indexes = indexes;
+        snapshot->streams.triangles = triangles;
+        viewDef->pathTraceGeometrySourceSnapshot = snapshot;
+        sourcePublishedRecordCount = plan.nextRecordIndex;
     }
 
     void RemoveEntity(const idRenderEntityLocal* entity, std::uint32_t generation)
@@ -1340,6 +1488,9 @@ private:
     std::vector<PtGeometryShadowInstanceRecord> instances;
     std::unordered_multimap<std::uint64_t, size_t> instanceLookup;
     PtGeometrySourceRegistry sourceRegistry;
+    std::size_t sourcePublishedRecordCount = 0;
+    std::uint64_t sourcePublicationGeneration = 1;
+    std::uint64_t sourcePublicationSequence = 0;
 };
 
 namespace {
@@ -1607,6 +1758,26 @@ void ObserveFrontendDeformingEntities(const viewDef_t* viewDef)
         // dynamic entities. It is the safe discovery boundary for callback
         // MD5 bind sources; the backend never receives these live pointers.
         registry->ObserveFrontendDeformingEntity(entity, resolvedSurfaceModel);
+    }
+}
+
+void CaptureSourceDelta(viewDef_t* viewDef)
+{
+    if (viewDef == nullptr)
+    {
+        return;
+    }
+    viewDef->pathTraceGeometrySourceSnapshot = nullptr;
+    if (r_pathTracingGeometryShadowRegistry.GetInteger() == 0 ||
+        viewDef->isSubview)
+    {
+        return;
+    }
+    PtGeometryLifecycleWorldRegistry* registry =
+        RegistryForWorld(viewDef->renderWorld);
+    if (registry != nullptr)
+    {
+        registry->CaptureSourceDelta(viewDef);
     }
 }
 

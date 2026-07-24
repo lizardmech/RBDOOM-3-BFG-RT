@@ -891,6 +891,7 @@ void R_RenderView( viewDef_t* parms )
 	// fast paths or the backend. Discover/refresh their canonical shadow
 	// records here while the frontend owns the resolved view entities.
 	PtGeometryLifecycle::ObserveFrontendDeformingEntities( parms );
+	PtGeometryLifecycle::CaptureSourceDelta( parms );
 
 	// The path-tracing backend runs one frame behind the frontend with SMP.
 	// Capture its offscreen rigid feed now, while portal/entity lists belong

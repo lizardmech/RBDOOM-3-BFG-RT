@@ -2,7 +2,8 @@
 
 namespace {
 
-constexpr std::uint64_t kTransportAllocationAlignment = 16;
+// Must match R_FrameAlloc's cache-line allocation rounding.
+constexpr std::uint64_t kTransportAllocationAlignment = 128;
 
 bool CheckedAlign(
     std::uint64_t value,

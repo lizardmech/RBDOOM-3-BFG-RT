@@ -76,6 +76,7 @@ class MaskedOcclusionCulling;
 class idRenderWorldLocal;
 struct viewEntity_t;
 struct RtPathTraceEntityFeedFrameSnapshot;
+struct PtGeometrySourceTransportSnapshot;
 struct viewLight_t;
 struct viewEnvprobe_t;
 
@@ -597,6 +598,8 @@ struct viewDef_t
 	// Immutable frontend-owned PT entity-feed snapshot. The backend must not
 	// walk renderWorld entityDefs or portal entityRefs while SMP is active.
 	const RtPathTraceEntityFeedFrameSnapshot* pathTraceEntityFeedSnapshot;
+	// Immutable primary-view source delta for GEO-06 frontend/backend transport.
+	const PtGeometrySourceTransportSnapshot* pathTraceGeometrySourceSnapshot;
 	// we use viewEntities as a check to see if a given view consists solely
 	// of 2D rendering, which we can optimize in certain ways.  A 2D view will
 	// not have any viewEntities

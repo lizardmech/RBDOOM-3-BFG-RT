@@ -49,6 +49,7 @@ struct PtGeometrySourceTransportStreams
 struct PtGeometrySourceTransportSnapshot
 {
     std::uint64_t worldGeneration = 0;
+    std::uint64_t publicationGeneration = 0;
     std::uint64_t publicationSequence = 0;
     std::uint64_t firstRecordIndex = 0;
     std::uint64_t nextRecordIndex = 0;

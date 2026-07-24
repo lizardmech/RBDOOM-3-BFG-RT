@@ -1234,7 +1234,148 @@ void RtSmokeGeometryUniverse::Clear()
     m_rigidResidencyEnabled = false;
     m_rigidResidencyWorld = nullptr;
     ResetRigidMeshCandidateFrameStats();
+    m_canonicalSourceRegistry.Clear();
+    m_canonicalSourceWorldGeneration = 0;
+    m_canonicalSourcePublicationGeneration = 0;
+    m_canonicalSourcePublicationSequence = 0;
+    m_canonicalSourceImportCursor = 0;
+    m_canonicalSourceImported = 0;
+    m_canonicalSourceReused = 0;
+    m_canonicalSourceRevised = 0;
+    m_canonicalSourceRejected = 0;
+    m_canonicalSourceTransportBytes = 0;
     ++m_generation;
+}
+
+void RtSmokeGeometryUniverse::ImportCanonicalSourceSnapshot(
+    const PtGeometrySourceTransportSnapshot* snapshot)
+{
+    if (snapshot == nullptr)
+    {
+        return;
+    }
+    if (snapshot->worldGeneration == 0 ||
+        snapshot->publicationGeneration == 0 ||
+        snapshot->records == nullptr ||
+        snapshot->recordCount == 0 ||
+        snapshot->nextRecordIndex < snapshot->firstRecordIndex ||
+        snapshot->nextRecordIndex - snapshot->firstRecordIndex !=
+            snapshot->recordCount)
+    {
+        ++m_canonicalSourceRejected;
+        return;
+    }
+    if (m_canonicalSourceWorldGeneration != snapshot->worldGeneration ||
+        m_canonicalSourcePublicationGeneration !=
+            snapshot->publicationGeneration)
+    {
+        m_canonicalSourceRegistry.Clear();
+        m_canonicalSourceWorldGeneration = snapshot->worldGeneration;
+        m_canonicalSourcePublicationGeneration =
+            snapshot->publicationGeneration;
+        m_canonicalSourcePublicationSequence = 0;
+        m_canonicalSourceImportCursor = 0;
+    }
+    if (snapshot->publicationSequence <=
+            m_canonicalSourcePublicationSequence ||
+        snapshot->firstRecordIndex != m_canonicalSourceImportCursor)
+    {
+        ++m_canonicalSourceRejected;
+        return;
+    }
+
+    // Validate the entire immutable packet before publishing any record so a
+    // malformed later range cannot leave a partially imported page.
+    for (std::uint64_t recordIndex = 0;
+        recordIndex < snapshot->recordCount;
+        ++recordIndex)
+    {
+        if (PtValidateGeometrySourceTransportRecord(
+                snapshot->records[recordIndex],
+                snapshot->streams) !=
+            PtGeometrySourceTransportResult::Success)
+        {
+            ++m_canonicalSourceRejected;
+            return;
+        }
+    }
+
+    for (std::uint64_t recordIndex = 0;
+        recordIndex < snapshot->recordCount;
+        ++recordIndex)
+    {
+        const PtGeometrySourceTransportRecord& transport =
+            snapshot->records[recordIndex];
+        PtGeometrySourcePayloadView payload;
+        payload.positions =
+            snapshot->streams.positions + transport.positionOffset;
+        payload.positionCount = transport.key.vertexCount;
+        payload.attributes =
+            snapshot->streams.attributes + transport.attributeOffset;
+        payload.attributeCount = transport.key.vertexCount;
+        payload.indexes =
+            snapshot->streams.indexes + transport.indexOffset;
+        payload.indexCount = transport.key.indexCount;
+        payload.triangles =
+            snapshot->streams.triangles + transport.triangleOffset;
+        payload.triangleCount = transport.key.indexCount / 3u;
+        const PtGeometrySourceObserveResult observe =
+            m_canonicalSourceRegistry.Observe(
+                transport.key,
+                transport.sourceContentRevision,
+                &payload);
+        switch (observe)
+        {
+            case PtGeometrySourceObserveResult::Added:
+                ++m_canonicalSourceImported;
+                break;
+            case PtGeometrySourceObserveResult::Reused:
+                ++m_canonicalSourceReused;
+                break;
+            case PtGeometrySourceObserveResult::Revised:
+                ++m_canonicalSourceRevised;
+                break;
+            default:
+                ++m_canonicalSourceRejected;
+                return;
+        }
+        const PtGeometrySourceRecord* imported =
+            m_canonicalSourceRegistry.Find(transport.key);
+        if (imported == nullptr ||
+            imported->sourceChecksum != transport.sourceChecksum)
+        {
+            ++m_canonicalSourceRejected;
+            return;
+        }
+    }
+
+    m_canonicalSourcePublicationSequence = snapshot->publicationSequence;
+    m_canonicalSourceImportCursor = snapshot->nextRecordIndex;
+    m_canonicalSourceTransportBytes += snapshot->packedBytes;
+}
+
+void RtSmokeGeometryUniverse::DumpCanonicalSourceImportStats()
+{
+    common->Printf(
+        "PathTracePrimaryPass: GEO06 backend source import world=%llu publication=%llu:%llu cursor=%llu records=%llu retainedBytes=%llu interval(import/reuse/revise/reject/transportBytes)=%llu/%llu/%llu/%llu/%llu route=observation-only\n",
+        static_cast<unsigned long long>(m_canonicalSourceWorldGeneration),
+        static_cast<unsigned long long>(
+            m_canonicalSourcePublicationGeneration),
+        static_cast<unsigned long long>(m_canonicalSourcePublicationSequence),
+        static_cast<unsigned long long>(m_canonicalSourceImportCursor),
+        static_cast<unsigned long long>(m_canonicalSourceRegistry.RecordCount()),
+        static_cast<unsigned long long>(
+            m_canonicalSourceRegistry.Stats().retainedBytes),
+        static_cast<unsigned long long>(m_canonicalSourceImported),
+        static_cast<unsigned long long>(m_canonicalSourceReused),
+        static_cast<unsigned long long>(m_canonicalSourceRevised),
+        static_cast<unsigned long long>(m_canonicalSourceRejected),
+        static_cast<unsigned long long>(m_canonicalSourceTransportBytes));
+    m_canonicalSourceImported = 0;
+    m_canonicalSourceReused = 0;
+    m_canonicalSourceRevised = 0;
+    m_canonicalSourceRejected = 0;
+    m_canonicalSourceTransportBytes = 0;
 }
 
 void RtSmokeGeometryUniverse::RetireRigidBlas(RigidMeshCandidateRecord& record)

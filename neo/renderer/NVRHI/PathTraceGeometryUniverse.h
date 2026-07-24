@@ -10,6 +10,8 @@
 #include "PathTraceGeometry.h"
 #include "PathTraceAccelerationPlan.h"
 #include "PathTraceGeometryLifecycle.h"
+#include "PathTraceGeometrySourceRegistry.h"
+#include "PathTraceGeometrySourceTransport.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -617,6 +619,8 @@ public:
     void Clear();
     void BeginFrame(uint64 frameIndex, const idRenderWorldLocal* renderWorld = nullptr);
     void EndFrame();
+    void ImportCanonicalSourceSnapshot(const PtGeometrySourceTransportSnapshot* snapshot);
+    void DumpCanonicalSourceImportStats();
     bool PruneMissingStaticSurfaces();
     void NotifyStaticCacheChanged();
     void ReserveStaticSurfaceRecords(size_t surfaceCount);
@@ -832,6 +836,16 @@ private:
     int m_rigidResidencyAreaWalkSurfacesThisFrame = 0;
     int m_rigidResidencyAreaWalkRejectedSurfacesThisFrame = 0;
     int m_rigidResidencyAreaWalkEligibleSurfacesThisFrame = 0;
+    PtGeometrySourceRegistry m_canonicalSourceRegistry;
+    uint64 m_canonicalSourceWorldGeneration = 0;
+    uint64 m_canonicalSourcePublicationGeneration = 0;
+    uint64 m_canonicalSourcePublicationSequence = 0;
+    uint64 m_canonicalSourceImportCursor = 0;
+    uint64 m_canonicalSourceImported = 0;
+    uint64 m_canonicalSourceReused = 0;
+    uint64 m_canonicalSourceRevised = 0;
+    uint64 m_canonicalSourceRejected = 0;
+    uint64 m_canonicalSourceTransportBytes = 0;
     int m_rigidResidencyAreaWalkDuplicateVisibleThisFrame = 0;
     int m_rigidResidencyAreaWalkDuplicateFrameThisFrame = 0;
     int m_rigidResidencyAreaWalkInstancesThisFrame = 0;

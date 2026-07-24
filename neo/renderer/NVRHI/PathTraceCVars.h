@@ -56,6 +56,7 @@ extern idCVar r_pathTracingGeometryLifecycleStage;
 extern idCVar r_pathTracingGeometryLifecycleDump;
 extern idCVar r_pathTracingGeometryShadowRegistry;
 extern idCVar r_pathTracingGeometryShadowRegistryDump;
+extern idCVar r_pathTracingGeometrySourceDeltaBudgetMB;
 extern idCVar r_pathTracingGeometryResidencyV2;
 extern idCVar r_pathTracingEntityFeed;
 extern idCVar r_pathTracingEntityFeedDump;

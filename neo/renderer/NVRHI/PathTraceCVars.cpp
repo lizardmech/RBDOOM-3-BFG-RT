@@ -297,6 +297,12 @@ idCVar r_pathTracingGeometryShadowRegistryDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump the GEO-05 per-world lifecycle shadow registry once" );
 
+idCVar r_pathTracingGeometrySourceDeltaBudgetMB(
+    "r_pathTracingGeometrySourceDeltaBudgetMB",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-06 primary-view immutable source delta budget in MiB per frame" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

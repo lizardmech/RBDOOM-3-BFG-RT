@@ -3575,7 +3575,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bool drawSurfMirrorFrameProducedFromDynamicCapture = false;
     {
         OPTICK_EVENT("PT Capture Doom Surfaces");
+        const bool geometrySourceDumpRequested =
+            r_pathTracingGeometryShadowRegistryDump.GetInteger() != 0;
         m_smokeGeometryUniverse.BeginFrame(++m_smokeGeometryFrameIndex, viewDef ? viewDef->renderWorld : nullptr);
+        m_smokeGeometryUniverse.ImportCanonicalSourceSnapshot(
+            viewDef ? viewDef->pathTraceGeometrySourceSnapshot : nullptr);
+        if (geometrySourceDumpRequested)
+        {
+            m_smokeGeometryUniverse.DumpCanonicalSourceImportStats();
+        }
         if (useSceneUniverseStaticGeometry)
         {
             OPTICK_EVENT("PT Build Scene Universe Static Geometry");
