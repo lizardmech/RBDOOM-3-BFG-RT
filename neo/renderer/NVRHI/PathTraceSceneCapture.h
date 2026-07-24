@@ -250,6 +250,9 @@ struct RtSmokeSkinnedSurfaceKey
 struct RtSmokeSkinnedSurfaceRecord
 {
     RtSmokeSkinnedSurfaceKey key;
+    PtCanonicalHistoryOwnerKey historyOwner;
+    PtCanonicalInstanceKey canonicalInstance;
+    uint64_t jointCacheHandle = 0;
     int currentVertexOffset = 0;
     int currentIndexOffset = 0;
     int currentTriangleOffset = 0;

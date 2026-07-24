@@ -13,6 +13,7 @@
 #include "PathTraceAcceleration.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceGeometryLifecycle.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceParticleCapture.h"
@@ -1117,6 +1118,27 @@ void AddSmokeSkinnedSurfaceRecord(
     record.key.tri = reinterpret_cast<uintptr_t>(tri);
     record.key.materialId = materialId;
     record.key.surfaceClassId = surfaceClassId;
+    record.historyOwner = PtGeometryLifecycle::PrimaryHistoryOwnerKey(
+        entityDef ? entityDef->world : nullptr);
+    const PtRenderDefKey renderDefKey =
+        PtGeometryLifecycle::MakeEntityKey(entityDef);
+    record.canonicalInstance.worldGeneration =
+        renderDefKey.worldGeneration;
+    record.canonicalInstance.renderDefIndex =
+        renderDefKey.index >= 0
+            ? static_cast<uint32_t>(renderDefKey.index)
+            : UINT32_MAX;
+    record.canonicalInstance.renderDefGeneration =
+        renderDefKey.generation;
+    record.canonicalInstance.subInstanceKind =
+        PtCanonicalSubInstanceKind::SkinnedSurface;
+    record.canonicalInstance.modelSurfaceIndex =
+        drawSurf->modelSurfaceIndex >= 0
+            ? static_cast<uint32_t>(drawSurf->modelSurfaceIndex)
+            : UINT32_MAX;
+    record.canonicalInstance.jointSubmeshIndex = -1;
+    record.jointCacheHandle =
+        static_cast<uint64_t>(drawSurf->jointCache);
     record.currentVertexOffset = currentVertexOffset;
     record.currentIndexOffset = currentIndexOffset;
     record.currentTriangleOffset = currentTriangleOffset;

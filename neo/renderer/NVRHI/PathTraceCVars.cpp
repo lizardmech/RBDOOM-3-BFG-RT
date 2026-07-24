@@ -327,6 +327,12 @@ idCVar r_pathTracingGeometryCanonicalRigidHitDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "One-shot GEO-06 center-pixel primary-hit tuple readback for legacy/canonical rigid traversal comparison" );
 
+idCVar r_pathTracingGeometryAuthoritativeGpuSkinning(
+    "r_pathTracingGeometryAuthoritativeGpuSkinning",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-07 default-off master gate for renderer-jointCache authoritative PT GPU skinning; slice 1 is diagnostics-only" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

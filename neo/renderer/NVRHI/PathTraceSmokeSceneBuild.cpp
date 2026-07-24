@@ -2554,6 +2554,76 @@ void DumpSmokeSkinnedGpuFunnel(
         exact ? 1 : 0);
     assert(exact);
 
+    int jointHandlePresent = 0;
+    int jointRangeResolved = 0;
+    int jointRangeStale = 0;
+    int jointRangeSizeMatch = 0;
+    int jointRangeSizeMismatch = 0;
+    int canonicalInstanceValid = 0;
+    int historyOwnerValid = 0;
+    uint64 resolvedJointBytes = 0;
+    std::unordered_set<nvrhi::IBuffer*> resolvedJointBuffers;
+    for (const RtSmokeSkinnedSurfaceRecord& record : records)
+    {
+        canonicalInstanceValid +=
+            PtCanonicalInstanceKeyIsValid(record.canonicalInstance)
+                ? 1
+                : 0;
+        historyOwnerValid +=
+            PtCanonicalHistoryOwnerKeyIsValid(record.historyOwner)
+                ? 1
+                : 0;
+        if (record.jointCacheHandle == 0)
+        {
+            continue;
+        }
+        ++jointHandlePresent;
+        idUniformBuffer jointRange;
+        if (!vertexCache.GetJointBuffer(
+                static_cast<vertCacheHandle_t>(
+                    record.jointCacheHandle),
+                &jointRange))
+        {
+            ++jointRangeStale;
+            continue;
+        }
+        ++jointRangeResolved;
+        const uint64 rangeBytes =
+            static_cast<uint64>(jointRange.GetSize());
+        const uint64 expectedBytes =
+            record.jointCount > 0
+                ? static_cast<uint64>(record.jointCount) *
+                    sizeof(idJointMat)
+                : 0;
+        resolvedJointBytes += rangeBytes;
+        resolvedJointBuffers.insert(jointRange.GetAPIObject());
+        if (rangeBytes == expectedBytes)
+        {
+            ++jointRangeSizeMatch;
+        }
+        else
+        {
+            ++jointRangeSizeMismatch;
+        }
+    }
+    common->Printf(
+        "PathTracePrimaryPass: GEO07 jointCache audit frame=%llu gate=%d candidates=%llu canonicalInstance/historyOwner=%d/%d handle(present/resolved/stale)=%d/%d/%d range(match/mismatch/bytes)=%d/%d/%llu buffers=%llu source=renderer-drawList-jointCache route=observation-only\n",
+        static_cast<unsigned long long>(frameIndex),
+        r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() != 0
+            ? 1
+            : 0,
+        static_cast<unsigned long long>(records.size()),
+        canonicalInstanceValid,
+        historyOwnerValid,
+        jointHandlePresent,
+        jointRangeResolved,
+        jointRangeStale,
+        jointRangeSizeMatch,
+        jointRangeSizeMismatch,
+        static_cast<unsigned long long>(resolvedJointBytes),
+        static_cast<unsigned long long>(
+            resolvedJointBuffers.size()));
+
     int detailCount = 0;
     for (int pass = 0; pass < 2 && detailCount < 16; ++pass)
     {
@@ -2572,8 +2642,15 @@ void DumpSmokeSkinnedGpuFunnel(
             const RtSmokeSkinnedSurfaceRecord& record = records[recordIndex];
             const srfTriangles_t* tri =
                 reinterpret_cast<const srfTriangles_t*>(record.key.tri);
+            idUniformBuffer jointRange;
+            const bool jointRangeResolved =
+                record.jointCacheHandle != 0 &&
+                vertexCache.GetJointBuffer(
+                    static_cast<vertCacheHandle_t>(
+                        record.jointCacheHandle),
+                    &jointRange);
             common->Printf(
-                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d previousValid=%d invalid=0x%08x temporal=0x%08x result=%s\n",
+                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d previousValid=%d invalid=0x%08x temporal=0x%08x canonical(instance/history)=%d/%d jointCache(handle/resolved/bytes)=0x%llx/%d/%d result=%s\n",
                 detailCount,
                 static_cast<unsigned long long>(recordIndex),
                 record.entityIndex,
@@ -2585,6 +2662,14 @@ void DumpSmokeSkinnedGpuFunnel(
                 record.previousValid ? 1 : 0,
                 record.invalidReasonFlags,
                 record.temporalStateFlags,
+                PtCanonicalInstanceKeyIsValid(
+                    record.canonicalInstance) ? 1 : 0,
+                PtCanonicalHistoryOwnerKeyIsValid(
+                    record.historyOwner) ? 1 : 0,
+                static_cast<unsigned long long>(
+                    record.jointCacheHandle),
+                jointRangeResolved ? 1 : 0,
+                jointRangeResolved ? jointRange.GetSize() : 0,
                 SmokeSkinnedGpuResultName(result));
             ++detailCount;
         }

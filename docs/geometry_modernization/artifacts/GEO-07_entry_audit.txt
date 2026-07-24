@@ -233,3 +233,55 @@ ENTRY RESULT
   PASS - staged compact GPU copy selected over direct binding
   PASS - live BLAS promotion remains deferred to GEO-08
 
+SLICE 1 JOINTCACHE TRANSPORT DIAGNOSTIC CANDIDATE (2026-07-24)
+--------------------------------------------------------------
+Implemented behind:
+
+  r_pathTracingGeometryAuthoritativeGpuSkinning
+    default = 0
+
+This slice is observation-only even when the gate is 1. It does not change CPU
+skinning, GPU inputs, shader bindings, output vertices or BLAS traversal.
+
+Each captured skinned record now transports:
+
+  PrimaryGameplay PtCanonicalHistoryOwnerKey;
+  lifecycle-generation PtCanonicalInstanceKey with SkinnedSurface ordinal;
+  the frame's drawSurf_t::jointCache handle.
+
+The existing one-shot GPU-skinning funnel dump now resolves each non-zero
+handle through vertexCache.GetJointBuffer on the backend and reports:
+
+  candidate count;
+  valid canonical instance/history-owner counts;
+  handle present/resolved/stale counts;
+  exact/mismatched byte-range counts;
+  total resolved joint bytes;
+  distinct renderer joint buffers;
+  bounded per-record handle, range and identity status.
+
+Build:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Deployed executable:
+
+  size:
+    15667200 bytes
+  mtime:
+    2026-07-24 21:54:31 Australia/Sydney
+  SHA-256:
+    FC5B43A3781DBA67211F5792CBEC4EC14F75E96190A6665CA0627FB3CBA5EC67
+
+Runtime acceptance:
+
+  use the crowded skinned/Fatzombie area with r_useGPUSkinning=1;
+  set the GEO-07 gate to 1 and r_pathTracingGpuSkinning to 1;
+  request one r_pathTracingGpuSkinningParityDump;
+  require canonicalInstance = historyOwner = candidates;
+  require present = resolved = range match = candidates;
+  require stale = range mismatch = 0;
+  retain the GEO-03 exact funnel and numeric parity pass.
