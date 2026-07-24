@@ -187,3 +187,45 @@ Required after restart:
 
 The crowded MD5 comparison and visible/area/lifecycle tuple comparison are the
 next GEO-05 slice after this owner/lifetime gate passes.
+
+RUNTIME CRASH CORRECTION (2026-07-24)
+-------------------------------------
+The first deployed GEO-05 observer produced two repeatable CPU access
+violations after roughly one minute of play:
+
+  0xc0000005 at executable RVA 0x5f3cbb
+  0xc0000005 at executable RVA 0x5fcc23
+
+Windows Application Error/WER identified RBDoom3BFG.exe itself as the faulting
+module; there was no Vulkan device-removed event. Disassembly of the exact
+deployed executable localized the first RVA to a virtual model-surface-count
+call in the new shadow observation path. The second RVA dereferenced the raw
+idRenderWorldLocal pointer while resolving a PtRenderDefKey to its per-world
+registry.
+
+Both accesses violated existing renderer lifetime rules:
+
+  * unchanged and callback-fast entity updates deliberately return without
+    dereferencing hModel, so a passive observer cannot add model traversal to
+    those paths;
+  * retained PtRenderDefKey world pointers are opaque identity values and may
+    outlive the idRenderWorldLocal object, so lookup cannot dereference them.
+
+Correction:
+
+  * the shadow registry no longer bootstraps by traversing all existing
+    entityDefs when enabled;
+  * unchanged updates only refresh lifecycle liveness and do not classify or
+    traverse model surfaces;
+  * callback-fast updates explicitly mark their source as unstable and do not
+    classify or traverse model surfaces;
+  * callback/generated sources are rejected before any model virtual call;
+  * free diagnostics use the class stored during the last stable add/update;
+  * a mutex-protected non-owning live-world directory validates opaque world
+    pointer values before returning a registry. All slot, mesh, instance,
+    generation and history state remains owned by the per-world registry.
+
+Operational consequence: enable the shadow registry before mapRestart or a map
+load. Mid-map enable starts observing only subsequent stable add/update events;
+it intentionally does not reconstruct a complete snapshot from potentially
+unsafe retained pointers.

@@ -43,8 +43,8 @@ enum class PtGeometryLifecycleClass : uint32_t
 
 namespace PtGeometryLifecycle
 {
-    PtGeometryLifecycleWorldRegistry* CreateWorldRegistry();
-    void DestroyWorldRegistry(PtGeometryLifecycleWorldRegistry* registry);
+    PtGeometryLifecycleWorldRegistry* CreateWorldRegistry(const void* world);
+    void DestroyWorldRegistry(const void* world, PtGeometryLifecycleWorldRegistry* registry);
     void BeginWorldMap(PtGeometryLifecycleWorldRegistry* registry, uint64_t mapLoadSerial);
 
     PtCanonicalWorldKey CanonicalWorldKey(const void* world);
@@ -64,7 +64,7 @@ namespace PtGeometryLifecycle
     const char* ClassName(PtGeometryLifecycleClass geometryClass);
 
     void NotifyEntityAdded(const idRenderEntityLocal* entity);
-    void NotifyEntityUpdated(const idRenderEntityLocal* entity, const idRenderModel* oldModel, bool modelChanged);
+    void NotifyEntityUpdated(const idRenderEntityLocal* entity, const idRenderModel* oldModel, bool modelChanged, bool sourceStable = true);
     void NotifyEntityUnchanged(const idRenderEntityLocal* entity);
     void NotifyEntityFreed(const idRenderEntityLocal* entity);
 

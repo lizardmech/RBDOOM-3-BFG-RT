@@ -143,7 +143,7 @@ idRenderWorldLocal::idRenderWorldLocal
 */
 idRenderWorldLocal::idRenderWorldLocal()
 {
-	pathTraceGeometryLifecycleRegistry = PtGeometryLifecycle::CreateWorldRegistry();
+	pathTraceGeometryLifecycleRegistry = PtGeometryLifecycle::CreateWorldRegistry( this );
 
 	mapName.Clear();
 	mapTimeStamp = FILE_NOT_FOUND_TIMESTAMP;
@@ -187,7 +187,7 @@ idRenderWorldLocal::~idRenderWorldLocal()
 {
 	// free all the entityDefs, lightDefs, portals, etc
 	FreeWorld();
-	PtGeometryLifecycle::DestroyWorldRegistry( pathTraceGeometryLifecycleRegistry );
+	PtGeometryLifecycle::DestroyWorldRegistry( this, pathTraceGeometryLifecycleRegistry );
 	pathTraceGeometryLifecycleRegistry = nullptr;
 
 	for( int i = 0; i < decals.Num(); i++ )
@@ -331,7 +331,9 @@ void idRenderWorldLocal::UpdateEntityDef( qhandle_t entityHandle, const renderEn
 					c_callbackUpdate++;
 					R_ClearEntityDefDynamicModel( def );
 					def->parms = *re;
-					PtGeometryLifecycle::NotifyEntityUpdated( def, oldModel, false );
+					// This callback fast path deliberately returns without touching hModel.
+					// Preserve that lifetime contract in the passive PT observer too.
+					PtGeometryLifecycle::NotifyEntityUpdated( def, oldModel, false, false );
 					return;
 				}
 			}

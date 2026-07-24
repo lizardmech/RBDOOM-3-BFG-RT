@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -23,6 +24,8 @@ const std::uint32_t PT_GEOMETRY_SHADOW_VERTEX_FORMAT_ID_DRAW_VERT = 1;
 std::atomic<std::uint64_t> g_nextWorldGeneration(1);
 std::atomic<std::uint64_t> g_nextHistoryOwnerGeneration(1);
 std::atomic<std::uint64_t> g_nextShadowAssetId(1);
+std::mutex g_liveWorldRegistriesMutex;
+std::unordered_map<const void*, PtGeometryLifecycleWorldRegistry*> g_liveWorldRegistries;
 
 std::uint64_t AllocateNonZeroGeneration(std::atomic<std::uint64_t>& counter)
 {
@@ -39,6 +42,7 @@ struct PtGeometryLifecycleSlotState
     std::uint32_t generation = 1;
     std::uint32_t modelEpoch = 1;
     bool alive = false;
+    PtGeometryLifecycleClass geometryClass = PtGeometryLifecycleClass::Unknown;
 };
 
 struct PtGeometryLifecycleEventSample
@@ -267,6 +271,12 @@ PtCanonicalMeshSourceDomain ShadowSourceDomain(const idRenderEntityLocal* entity
     {
         return PtCanonicalMeshSourceDomain::Invalid;
     }
+    // Callback/generated entities may carry a source model pointer whose virtual
+    // surface interface is not part of this lifecycle hook's lifetime contract.
+    if (entity->parms.callback != nullptr)
+    {
+        return PtCanonicalMeshSourceDomain::Invalid;
+    }
     if (model->IsStaticWorldModel())
     {
         return PtCanonicalMeshSourceDomain::StaticWorldMap;
@@ -274,10 +284,6 @@ PtCanonicalMeshSourceDomain ShadowSourceDomain(const idRenderEntityLocal* entity
     if (model->IsDynamicModel() == DM_CONTINUOUS)
     {
         return PtCanonicalMeshSourceDomain::UnsupportedTransient;
-    }
-    if (entity->parms.callback != nullptr)
-    {
-        return PtCanonicalMeshSourceDomain::Invalid;
     }
     if (model->IsDynamicModel() == DM_CACHED ||
         entity->parms.joints != nullptr ||
@@ -452,17 +458,12 @@ public:
             return;
         }
 
+        // Do not bootstrap by walking every existing entityDef here. Some
+        // fast-path defs intentionally retain opaque model pointers that the
+        // renderer does not dereference on an unchanged update. Shadow
+        // observation begins with subsequent stable add/update notifications;
+        // enabling before mapRestart gives a complete map population.
         shadowTracking = true;
-        for (int entityIndex = 0; entityIndex < world->entityDefs.Num(); ++entityIndex)
-        {
-            const idRenderEntityLocal* entity = world->entityDefs[entityIndex];
-            if (!entity || entity->world != world)
-            {
-                continue;
-            }
-            EnsureSlot(entitySlots, entityIndex).alive = true;
-            ObserveEntity(entity, PtGeometryLifecycle::ClassifyEntity(entity));
-        }
     }
 
     void ObserveEntity(const idRenderEntityLocal* entity, PtGeometryLifecycleClass geometryClass)
@@ -990,13 +991,24 @@ namespace {
 
 PtGeometryLifecycleWorldRegistry* RegistryForWorld(const void* world)
 {
-    idRenderWorldLocal* renderWorld = static_cast<idRenderWorldLocal*>(const_cast<void*>(world));
-    return renderWorld ? renderWorld->pathTraceGeometryLifecycleRegistry : nullptr;
+    if (!world)
+    {
+        return nullptr;
+    }
+
+    // A PtRenderDefKey can legitimately outlive the idRenderWorldLocal pointer
+    // value it records. Never dereference that opaque value to find its owner.
+    // This directory validates live owners only; lifecycle data remains owned
+    // exclusively by the per-world registry.
+    std::lock_guard<std::mutex> lock(g_liveWorldRegistriesMutex);
+    const std::unordered_map<const void*, PtGeometryLifecycleWorldRegistry*>::const_iterator it =
+        g_liveWorldRegistries.find(world);
+    return it != g_liveWorldRegistries.end() ? it->second : nullptr;
 }
 
 void SyncShadowTracking(idRenderWorldLocal* world)
 {
-    PtGeometryLifecycleWorldRegistry* registry = world ? world->pathTraceGeometryLifecycleRegistry : nullptr;
+    PtGeometryLifecycleWorldRegistry* registry = RegistryForWorld(world);
     if (!registry)
     {
         return;
@@ -1008,13 +1020,29 @@ void SyncShadowTracking(idRenderWorldLocal* world)
 
 namespace PtGeometryLifecycle {
 
-PtGeometryLifecycleWorldRegistry* CreateWorldRegistry()
+PtGeometryLifecycleWorldRegistry* CreateWorldRegistry(const void* world)
 {
-    return new PtGeometryLifecycleWorldRegistry();
+    PtGeometryLifecycleWorldRegistry* registry = new PtGeometryLifecycleWorldRegistry();
+    if (world)
+    {
+        std::lock_guard<std::mutex> lock(g_liveWorldRegistriesMutex);
+        g_liveWorldRegistries[world] = registry;
+    }
+    return registry;
 }
 
-void DestroyWorldRegistry(PtGeometryLifecycleWorldRegistry* registry)
+void DestroyWorldRegistry(const void* world, PtGeometryLifecycleWorldRegistry* registry)
 {
+    if (world)
+    {
+        std::lock_guard<std::mutex> lock(g_liveWorldRegistriesMutex);
+        const std::unordered_map<const void*, PtGeometryLifecycleWorldRegistry*>::iterator it =
+            g_liveWorldRegistries.find(world);
+        if (it != g_liveWorldRegistries.end() && it->second == registry)
+        {
+            g_liveWorldRegistries.erase(it);
+        }
+    }
     delete registry;
 }
 
@@ -1190,6 +1218,7 @@ void NotifyEntityAdded(const idRenderEntityLocal* entity)
     slot.alive = true;
     ++g_lifecycleStats.entityAdds;
     const PtGeometryLifecycleClass geometryClass = ClassifyEntity(entity);
+    slot.geometryClass = geometryClass;
     AccumulateClass(geometryClass);
     registry->ObserveEntity(entity, geometryClass);
 
@@ -1205,7 +1234,11 @@ void NotifyEntityAdded(const idRenderEntityLocal* entity)
     AddEventSample(sample);
 }
 
-void NotifyEntityUpdated(const idRenderEntityLocal* entity, const idRenderModel* oldModel, bool modelChanged)
+void NotifyEntityUpdated(
+    const idRenderEntityLocal* entity,
+    const idRenderModel* oldModel,
+    bool modelChanged,
+    bool sourceStable)
 {
     if (!entity)
     {
@@ -1225,9 +1258,14 @@ void NotifyEntityUpdated(const idRenderEntityLocal* entity, const idRenderModel*
         AdvanceSlotModelEpoch(slot);
         ++g_lifecycleStats.entityModelSwaps;
     }
-    const PtGeometryLifecycleClass geometryClass = ClassifyEntity(entity);
-    AccumulateClass(geometryClass);
-    registry->ObserveEntity(entity, geometryClass);
+    PtGeometryLifecycleClass geometryClass = slot.geometryClass;
+    if (sourceStable)
+    {
+        geometryClass = ClassifyEntity(entity);
+        slot.geometryClass = geometryClass;
+        AccumulateClass(geometryClass);
+        registry->ObserveEntity(entity, geometryClass);
+    }
 
     PtGeometryLifecycleEventSample sample;
     sample.eventKind = PtGeometryLifecycleEventKind::Update;
@@ -1258,8 +1296,6 @@ void NotifyEntityUnchanged(const idRenderEntityLocal* entity)
     PtGeometryLifecycleSlotState& slot = EnsureSlot(registry->entitySlots, entity->index);
     slot.alive = true;
     ++g_lifecycleStats.entityUnchanged;
-    const PtGeometryLifecycleClass geometryClass = ClassifyEntity(entity);
-    registry->ObserveEntity(entity, geometryClass);
 }
 
 void NotifyEntityFreed(const idRenderEntityLocal* entity)
@@ -1288,7 +1324,7 @@ void NotifyEntityFreed(const idRenderEntityLocal* entity)
     sample.entityNum = entity->parms.entityNum;
     sample.lastModifiedFrameNum = entity->lastModifiedFrameNum;
     sample.modelEpoch = slot.modelEpoch;
-    sample.geometryClass = ClassifyEntity(entity);
+    sample.geometryClass = slot.geometryClass;
     sample.newModelIdentity = reinterpret_cast<std::uintptr_t>(entity->parms.hModel);
     AddEventSample(sample);
 }
@@ -1366,8 +1402,7 @@ void NotifyLightFreed(const idRenderLightLocal* light)
 
 void MaybeDumpLifecycleStats(std::uint64_t frameIndex, const idRenderWorldLocal* renderWorld)
 {
-    PtGeometryLifecycleWorldRegistry* registry =
-        renderWorld ? renderWorld->pathTraceGeometryLifecycleRegistry : nullptr;
+    PtGeometryLifecycleWorldRegistry* registry = RegistryForWorld(renderWorld);
     if (registry)
     {
         registry->SetShadowTracking(
