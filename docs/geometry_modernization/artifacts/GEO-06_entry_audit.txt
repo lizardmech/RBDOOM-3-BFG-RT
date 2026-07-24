@@ -830,3 +830,123 @@ Second dump requirements:
 The first dump should be taken after initial pagination finishes. A dump during
 the six known 1 MiB pages is still useful, but its upload count and used bytes
 will describe only the prefix imported so far.
+
+STEP 4 SHADOW GPU POOL RUNTIME PASS (2026-07-24)
+-------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo26.log
+  bytes:
+    130373
+  created/last write:
+    2026-07-24 17:51:25 Australia/Sydney
+
+Populated dump at frame 2817:
+
+  frontend records/retainedBytes = 946/5464756;
+  backend cursor/records/retainedBytes = 946/946/5464756;
+  GPU records/upload/revise/reject = 946/946/0/0;
+  GPU uploadBytes = 5464756, exactly equal to retained source bytes;
+  GPU growth copyBytes/create/grow = 4834580/4/10;
+  retired buffers = 0 after the three-frame retirement window;
+  position cap/used/gen = 1048576/544860/5;
+  attribute cap/used/gen = 4194304/3632400/4;
+  index cap/used/gen = 1048576/551784/5;
+  triangle cap/used/gen = 1048576/735712/4.
+
+The backend import interval is 950 rather than 946 because four source records
+crossed before the requested mapRestart. The new publication discarded that
+prefix and replayed the complete 946-record registry. This is not duplicate
+GPU residency: the GPU interval reset at publication replacement and reports
+exactly 946 uploads and 946 resident records.
+
+Steady dump at frame 3112:
+
+  frontend source interval add/revise/reject/copies/bytes = 0/0/0/0/0;
+  backend transport interval import/reuse/revise/reject/bytes = 0/0/0/0/0;
+  GPU interval upload/revise/reject/uploadBytes/copyBytes/create/grow =
+    0/0/0/0/0/0/0;
+  all records, capacities, used byte counts and generations are unchanged;
+  retired buffers remain 0.
+
+The log contains no fatal error, Vulkan error, device removal, allocation
+failure, frame-arena exhaustion or source-producer rejection.
+
+STEP 4 FINAL RESULT
+-------------------
+  PASS - exact CPU retained-byte to GPU upload-byte parity
+  PASS - four independently sized, non-empty pools
+  PASS - generation-preserving growth and completed retirement
+  PASS - exactly zero immutable steady upload/growth work
+  PASS - zero source or GPU record rejection
+  PASS - no live render-route or visual-output change reported
+
+STEP 5 NON-ZERO-OFFSET BLAS PROBE CANDIDATE (2026-07-24)
+--------------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  after three frames with an unchanged pooled candidate signature, one
+  shadow-only Vulkan BLAS is built directly from the shared position and index
+  buffers;
+  the selected record must have non-zero position, attribute, index and
+  triangle byte offsets, at least two primitives, exact stream byte sizes,
+  exact element alignment and matching source revision/checksum;
+  the BLAS descriptor uses RGB32_FLOAT positions at the record's non-zero
+  position byte offset and R32_UINT indexes at its non-zero index byte offset;
+  after the BLAS build on the same command stream, a delayed readback copies
+  primitive 0 and the last primitive's three indexes, six full source
+  attributes and both source-triangle records from their non-zero pooled
+  offsets;
+  byte-for-byte readback equality is required, including first/last source
+  material slots;
+  pool buffer/generation or source revision changes retire the probe BLAS for
+  three frames and require a new stable candidate/build;
+  the probe BLAS is not inserted into a TLAS and cannot affect traversal.
+
+This probe establishes non-zero offset build acceptance plus exact endpoint
+storage addressing. It does not yet claim ray-hit parity or settle Q3's BLAS
+performance question; those require the later compare/measurement route.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  PathTraceGeometryPoolHarness
+    PASS
+  PathTraceGeometrySourceRegistryHarness
+    PASS
+  PathTraceGeometrySourceTransportHarness
+    PASS
+  PathTraceCanonicalIdentityHarness
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    8D358CFAC34AA8695A1FD5BD2ECF3C747E6D55EED1F7864D449CDC068B01EBCB
+  mtime:
+    2026-07-24 17:57:53 Australia/Sydney
+
+Focused runtime acceptance:
+
+  keep r_pathTracingGeometryShadowRegistry 1;
+  mapRestart;
+  wait/traverse for initial population plus at least ten seconds;
+  r_pathTracingGeometryShadowRegistryDump 1;
+  wait ten seconds;
+  r_pathTracingGeometryShadowRegistryDump 1.
+
+Both probe dumps must report:
+
+  sources = GPU pool records;
+  eligible > 0 and selected != UINT64_MAX;
+  every reported stream offset > 0;
+  stableFrames >= 3;
+  BLAS valid/create/build = 1/1/1;
+  readback pending/pass/fail/endpointsValid = 0/1/0/1;
+  the second dump retains the same signature, offsets and counts without
+  another create/build/readback;
+  no Vulkan error, device removal, crash or visible change.

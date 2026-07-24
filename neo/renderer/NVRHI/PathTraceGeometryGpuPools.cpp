@@ -333,6 +333,37 @@ PtGeometryGpuPoolStats PtGeometryGpuPoolSet::Update(
     return stats;
 }
 
+const PtGeometryGpuPoolRecord* PtGeometryGpuPoolSet::RecordAt(
+    std::size_t index) const
+{
+    return index < records_.size() ? &records_[index] : nullptr;
+}
+
+std::size_t PtGeometryGpuPoolSet::RecordCount() const
+{
+    return records_.size();
+}
+
+nvrhi::BufferHandle PtGeometryGpuPoolSet::PositionBuffer() const
+{
+    return pools_[PositionPool].buffer;
+}
+
+nvrhi::BufferHandle PtGeometryGpuPoolSet::AttributeBuffer() const
+{
+    return pools_[AttributePool].buffer;
+}
+
+nvrhi::BufferHandle PtGeometryGpuPoolSet::IndexBuffer() const
+{
+    return pools_[IndexPool].buffer;
+}
+
+nvrhi::BufferHandle PtGeometryGpuPoolSet::TriangleBuffer() const
+{
+    return pools_[TrianglePool].buffer;
+}
+
 void PtGeometryGpuPoolSet::ResetForPublication(std::uint64_t frameIndex)
 {
     records_.clear();

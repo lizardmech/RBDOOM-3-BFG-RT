@@ -11,6 +11,7 @@
 #include "PathTraceAccelerationPlan.h"
 #include "PathTraceGeometryLifecycle.h"
 #include "PathTraceGeometryGpuPools.h"
+#include "PathTraceGeometryOffsetBlasProbe.h"
 #include "PathTraceGeometrySourceRegistry.h"
 #include "PathTraceGeometrySourceTransport.h"
 
@@ -626,6 +627,7 @@ public:
         nvrhi::ICommandList* commandList);
     void DumpCanonicalSourceImportStats();
     void DumpCanonicalSourceGpuPoolStats();
+    void DumpCanonicalOffsetBlasProbeStats();
     bool PruneMissingStaticSurfaces();
     void NotifyStaticCacheChanged();
     void ReserveStaticSurfaceRecords(size_t surfaceCount);
@@ -844,6 +846,7 @@ private:
     PtGeometrySourceRegistry m_canonicalSourceRegistry;
     PtGeometryGpuPoolSet m_canonicalSourceGpuPools;
     PtGeometryGpuPoolStats m_canonicalSourceGpuPoolStats;
+    PtGeometryOffsetBlasProbe m_canonicalOffsetBlasProbe;
     uint64 m_canonicalSourceWorldGeneration = 0;
     uint64 m_canonicalSourcePublicationGeneration = 0;
     uint64 m_canonicalSourcePublicationSequence = 0;

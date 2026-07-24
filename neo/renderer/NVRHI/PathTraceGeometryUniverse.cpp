@@ -1384,6 +1384,12 @@ void RtSmokeGeometryUniverse::UpdateCanonicalSourceGpuPools(
         m_canonicalSourceGpuPoolStats.generations[poolIndex] =
             frameStats.generations[poolIndex];
     }
+    m_canonicalOffsetBlasProbe.Update(
+        device,
+        commandList,
+        m_canonicalSourceRegistry,
+        m_canonicalSourceGpuPools,
+        m_currentFrameIndex);
 }
 
 void RtSmokeGeometryUniverse::DumpCanonicalSourceImportStats()
@@ -1463,6 +1469,37 @@ void RtSmokeGeometryUniverse::DumpCanonicalSourceGpuPoolStats()
     m_canonicalSourceGpuPoolStats.copiedGrowthBytes = 0;
     m_canonicalSourceGpuPoolStats.buffersCreated = 0;
     m_canonicalSourceGpuPoolStats.buffersGrown = 0;
+}
+
+void RtSmokeGeometryUniverse::DumpCanonicalOffsetBlasProbeStats()
+{
+    const PtGeometryOffsetBlasProbeStats& stats =
+        m_canonicalOffsetBlasProbe.Stats();
+    common->Printf(
+        "PathTracePrimaryPass: GEO06 pooled offset BLAS probe sources/eligible/selected=%llu/%llu/%llu signature=%llu stableFrames=%llu offsets(position/attribute/index/triangle)=%llu/%llu/%llu/%llu counts(v/i/p)=%llu/%llu/%llu material(first/last)=%u/%u blas(valid/create/build/retire)=%d/%llu/%llu/%llu readback(pending/pass/fail/endpointsValid)=%d/%llu/%llu/%d buildSubmitUs=%llu route=shadow-only\n",
+        static_cast<unsigned long long>(stats.sourceRecords),
+        static_cast<unsigned long long>(stats.eligibleRecords),
+        static_cast<unsigned long long>(stats.selectedSourceIndex),
+        static_cast<unsigned long long>(stats.candidateSignature),
+        static_cast<unsigned long long>(stats.stableFrames),
+        static_cast<unsigned long long>(stats.positionOffsetBytes),
+        static_cast<unsigned long long>(stats.attributeOffsetBytes),
+        static_cast<unsigned long long>(stats.indexOffsetBytes),
+        static_cast<unsigned long long>(stats.triangleOffsetBytes),
+        static_cast<unsigned long long>(stats.vertexCount),
+        static_cast<unsigned long long>(stats.indexCount),
+        static_cast<unsigned long long>(stats.primitiveCount),
+        stats.firstMaterialSlot,
+        stats.lastMaterialSlot,
+        stats.blasValid ? 1 : 0,
+        static_cast<unsigned long long>(stats.blasCreated),
+        static_cast<unsigned long long>(stats.blasBuilt),
+        static_cast<unsigned long long>(stats.blasRetired),
+        stats.readbackPending ? 1 : 0,
+        static_cast<unsigned long long>(stats.readbacksPassed),
+        static_cast<unsigned long long>(stats.readbacksFailed),
+        stats.endpointBytesValid ? 1 : 0,
+        static_cast<unsigned long long>(stats.buildSubmitMicroseconds));
 }
 
 void RtSmokeGeometryUniverse::RetireRigidBlas(RigidMeshCandidateRecord& record)

@@ -5,6 +5,7 @@
 
 #include <nvrhi/nvrhi.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -43,6 +44,12 @@ public:
         nvrhi::ICommandList* commandList,
         const PtGeometrySourceRegistry& sources,
         std::uint64_t frameIndex);
+    const PtGeometryGpuPoolRecord* RecordAt(std::size_t index) const;
+    std::size_t RecordCount() const;
+    nvrhi::BufferHandle PositionBuffer() const;
+    nvrhi::BufferHandle AttributeBuffer() const;
+    nvrhi::BufferHandle IndexBuffer() const;
+    nvrhi::BufferHandle TriangleBuffer() const;
     void ResetForPublication(std::uint64_t frameIndex);
     void Clear();
 
