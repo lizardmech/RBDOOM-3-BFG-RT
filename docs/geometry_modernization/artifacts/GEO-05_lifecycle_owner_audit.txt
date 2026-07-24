@@ -229,3 +229,28 @@ Operational consequence: enable the shadow registry before mapRestart or a map
 load. Mid-map enable starts observing only subsequent stable add/update events;
 it intentionally does not reconstruct a complete snapshot from potentially
 unsafe retained pointers.
+
+MAP-RELOAD AREA-REFERENCE CRASH (2026-07-24)
+--------------------------------------------
+geometry_geo19.log reached the first PT frame after same-map reload, printed the
+map serial transition 1 -> 2 and then terminated before any requested GEO-05
+dump. Windows recorded a new 0xc0000005 at executable RVA 0x5f3c9a for deployed
+executable SHA-256:
+
+  2AAF930B03C7093FC3FADF2D405A154389466B3CBF85AE23A71E490766BD66AE
+
+Exact executable disassembly and the matching source control flow place the
+fault in RefreshRigidResidencyAreaWalk. A portal area's linked reference node
+was still readable, but its entity pointer was no longer a live entityDef; the
+fault occurred on the first read of entity->parms.hModel.
+
+This is separate from the two lifecycle-observer faults above. The immediate
+correction builds a pointer-only live membership set from renderWorld->entityDefs
+before walking selected portal areas. An area reference must be present in that
+set and must round-trip through world/index/entityDefs before any entity field
+is read. Stale references are rejected and counted as rejected area-walk
+entities.
+
+This is a crash guard, not the final ownership architecture. The late portal
+area walk still consumes mutable engine structures and must be replaced by the
+engine-owned snapshot boundary in the later modernization steps.

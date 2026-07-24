@@ -3387,6 +3387,17 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
     }
 
     std::unordered_set<uint64> observedInstanceIds;
+    std::unordered_set<const idRenderEntityLocal*> liveEntityDefs;
+    liveEntityDefs.reserve(static_cast<size_t>(renderWorld->entityDefs.Num()));
+    for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)
+    {
+        const idRenderEntityLocal* liveEntity = renderWorld->entityDefs[entityIndex];
+        if (liveEntity)
+        {
+            liveEntityDefs.insert(liveEntity);
+        }
+    }
+
     for (int areaIndex = 0; areaIndex < static_cast<int>(selectedAreas.size()); ++areaIndex)
     {
         if (!selectedAreas[areaIndex])
@@ -3403,6 +3414,23 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
         {
             idRenderEntityLocal* entity = ref ? ref->entity : nullptr;
             ++m_rigidResidencyAreaWalkEntitiesThisFrame;
+            // Portal-area references can survive same-object map reload teardown
+            // long enough to expose a freed entity pointer to this late PT walk.
+            // Treat entityDefs as the authoritative live-membership set before
+            // reading any field (including parms.hModel) from the reference.
+            if (!entity || liveEntityDefs.find(entity) == liveEntityDefs.end())
+            {
+                ++m_rigidResidencyAreaWalkRejectedEntitiesThisFrame;
+                continue;
+            }
+            if (entity->world != renderWorld ||
+                entity->index < 0 ||
+                entity->index >= renderWorld->entityDefs.Num() ||
+                renderWorld->entityDefs[entity->index] != entity)
+            {
+                ++m_rigidResidencyAreaWalkRejectedEntitiesThisFrame;
+                continue;
+            }
             if (!RigidResidencyCanTrackEntity(viewDef, entity))
             {
                 ++m_rigidResidencyAreaWalkRejectedEntitiesThisFrame;
