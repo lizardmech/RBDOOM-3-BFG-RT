@@ -1,0 +1,235 @@
+GEO-07 - authoritative jointCache GPU skinning entry audit
+==========================================================
+Status: entry audit complete; staged-joint decision recorded, implementation
+not yet started.
+Date: 2026-07-24.
+Branch: restir-development.
+Entry checkpoint: 030ac8c20.
+
+SCOPE
+-----
+This audit validates the GEO-07 proposal against the live Vulkan renderer. It
+does not authorize GPU-skinned traversal or GEO-08 per-instance BLAS work.
+The existing CPU-pre-skinned dynamic path remains authoritative until the new
+default-off gate satisfies the GEO-03 numeric contract.
+
+CURRENT RASTER JOINT PRODUCER
+-----------------------------
+R_SetupDrawSurfJoints is the draw-surface producer:
+
+  neo/renderer/tr_frontend_addmodels.cpp
+
+For a surface with staticModelWithJoints and r_useGPUSkinning=1 it:
+
+  reads the current instance model's jointsInverted/numInvertedJoints;
+  allocates that exact byte range with vertexCache.AllocJoint when the cached
+    handle is not current;
+  stores the returned vertCacheHandle_t in drawSurf_t::jointCache.
+
+The handle encodes:
+
+  frontend frame number;
+  byte offset;
+  byte size;
+  static/dynamic storage class.
+
+The normal animated path uses frameData[listNum].jointBuffer. BeginBackEnd
+unmaps the written frame, moves listNum to drawListNum, increments
+vertexCache.currentFrame, and maps the next frontend slot. The backend accepts
+only a handle whose frame equals currentFrame-1.
+
+Vertex-cache facts:
+
+  NUM_FRAME_DATA = 3;
+  allocation alignment = uniformBufferOffsetAlignment;
+  idJointMat size/layout = three float4 rows, 48 bytes;
+  the NVRHI joint buffer is a structured buffer with structStride=16 bytes;
+  dynamic joint storage is CPU mapped for frontend writes and GPU readable
+    after BeginBackEnd unmaps it;
+  PathTracePrimaryPass executes in DrawViewInternal on the backend after this
+    handoff and before the same draw surfaces are rasterized.
+
+RenderBackend_NVRHI resolves the same jointCache handle to:
+
+  vertexCache.frameData[drawListNum].jointBuffer.GetAPIObject();
+  byte offset extracted from the handle.
+
+This is renderer-authoritative current-pose data. GEO-07 must stop recovering
+the pose through staticModelWithJoints->jointsInverted when its new gate is
+active.
+
+CURRENT PT SKINNING ROUTE
+-------------------------
+The existing r_pathTracingGpuSkinning modes are diagnostic/cutover scaffolding:
+
+  mode 0:
+    capture CPU pre-skins and feeds the merged dynamic BLAS;
+
+  mode 1:
+    capture still CPU pre-skins;
+    CPU code copies current joint matrices into a PT buffer;
+    compute writes a separate diagnostic output;
+
+  mode 2:
+    capture still CPU pre-skins;
+    the same CPU-copied joints drive compute;
+    compute overwrites the merged dynamic vertex range before BLAS build.
+
+Therefore mode 2 proves compute ordering and numerical parity but is not
+authoritative jointCache consumption and does not remove CPU skinning cost.
+
+The current retained temporal bridge is also not authoritative:
+
+  m_smokePreviousSkinnedSurfaceRecords;
+  m_smokePreviousSkinnedVertexData;
+  m_smokePreviousSkinnedJointMatrices.
+
+All three are process-global PathTracePrimaryPass members overwritten after
+every 3D view. geometry_geo18 proved that a subview which omits a Fatzombie can
+erase its primary-view record. GEO-07 must not use that bridge for authoritative
+previous output.
+
+DIRECT BINDING VERSUS STAGED COMPACT ARRAY
+-------------------------------------------
+Direct binding is technically possible but rejected for the first cut:
+
+  the raster buffer's structured stride is 16 bytes while the existing PT
+    shader's PathTraceSkinnedJointMatrix stride is 48 bytes;
+  direct use would require a shader ABI/resource-type change and row-addressed
+    absolute offsets;
+  it exposes the entire frame joint allocation to every job;
+  current storage is only one vertex-cache frame slot, while previous skinning
+    must survive under an explicit logical history owner;
+  a direct current binding does not solve previous-pose ownership.
+
+Selected design: staged compact joint array.
+
+For every accepted job, resolve jointCache with vertexCache.GetJointBuffer on
+the backend, then enqueue a same-command-list GPU buffer copy:
+
+  source:
+    renderer vertex-cache joint buffer;
+  source offset:
+    resolved joint subrange offset;
+  size:
+    jointCount * sizeof(idJointMat), required to equal the handle range;
+  destination:
+    compact PT-owned current-joint buffer;
+  destination offset:
+    checked append allocation in 48-byte matrix units.
+
+Benefits:
+
+  consumes the renderer-authoritative GPU-visible bytes;
+  performs no CPU pose read/copy;
+  preserves the already-validated 48-byte PT shader ABI;
+  bounds each job to its declared joint range;
+  stays on the same command list before skinning dispatch and BLAS work;
+  permits the compact buffer to become owner-keyed previous input next frame.
+
+The cost is one bounded GPU copy per distinct staged joint range. GEO-07 must
+measure copy count/bytes/time; deduplication is allowed only for identical
+jointCache subranges belonging to the same live instance. No cross-instance or
+per-model pose sharing is allowed.
+
+AUTHORITATIVE JOB CONTRACT
+--------------------------
+Each candidate job must contain value-owned metadata only:
+
+  PtCanonicalHistoryOwnerKey historyOwner;
+  PtCanonicalInstanceKey instance;
+  PtCanonicalMeshKey sourceMesh;
+  uint32 modelSurfaceIndex;
+  uint64 jointCacheHandle;
+  uint64 jointSourceByteOffset;
+  uint64 jointByteCount;
+  uint32 jointCount;
+  uint64 sourceVertexOffset/count;
+  uint64 outputVertexOffset/count;
+  uint64 previousOutputOffset/count or invalid;
+  current and previous object-to-world rows;
+  terminal funnel result and history-invalid reason.
+
+Acceptance requires:
+
+  a valid primary history owner;
+  a valid canonical skinned instance/source binding;
+  r_useGPUSkinning=1;
+  current jointCache handle resolves to the backend draw-list joint buffer;
+  handle byte size equals jointCount * 48 without overflow;
+  every source joint index is below jointCount;
+  immutable source and mutable output ranges pass checked 64-bit bounds;
+  current and previous state belong to the same history owner.
+
+Subview policy for the first cut:
+
+  subviews may skin current geometry for their own rendering;
+  they must not read or overwrite PrimaryGameplay previous state;
+  until a durable Subview owner producer exists, previous motion is invalid for
+    subview jobs rather than borrowed from the primary view.
+
+FAILURE AND FALLBACK
+--------------------
+Only a job that completes joint resolution, staging and compute dispatch may
+skip CPU pre-skinning. Every other surface remains in the current CPU path with
+one named result:
+
+  gateDisabled;
+  notPrimaryHistoryOwner;
+  invalidCanonicalIdentity;
+  jointCacheMissing;
+  jointCacheStale;
+  jointRangeMismatch;
+  unsupportedLayout;
+  invalidWeightsOrJoints;
+  sourceRangeUnavailable;
+  outputAllocationFailure;
+  stagingCopyFailure;
+  dispatchFailure;
+  cpuFallback.
+
+There is no bind-pose/zero-output fallback. The existing GEO-03 terminal
+accounting invariant remains mandatory:
+
+  resultTotal == candidates
+  exact == 1
+
+ORDERED IMPLEMENTATION SLICES
+-----------------------------
+1. Add a default-off GEO-07 master gate and jointCache range diagnostics.
+   Capture the handle, canonical instance/source keys, history owner, byte
+   range, and backend resolution result without changing geometry output.
+
+2. Add checked compact-joint copy planning and a CPU harness for overflow,
+   alignment, range mismatch, duplicate same-instance range reuse, and
+   cross-instance non-reuse. Still do not dispatch from the copied data.
+
+3. Execute current-joint GPU copies on the scene command list, bind the compact
+   buffer to the existing shader, and compare output against GEO-03 CPU
+   references. CPU pre-skinning remains enabled in this slice.
+
+4. Replace the global previous-joint bridge with PrimaryGameplay-owner state.
+   First observation, map change, teleport, surface mismatch, or subview use
+   marks previous invalid. Re-run current/previous/motion parity.
+
+5. Allocate per-instance mutable output ranges and source them from GEO-06
+   immutable records. Prove two zombies sharing a mesh use distinct outputs.
+
+6. Under the master gate only, skip CPU pre-skinning for jobs that reached
+   dispatchedGpu. Preserve CPU reference generation only for an armed parity
+   readback. All failed jobs take the named CPU fallback.
+
+7. Measure identical-content CPU skin time, source upload, joint copy
+   count/bytes, mutable output bytes, dispatch time, and exact funnel totals.
+   Gate off must restore the accepted CPU path.
+
+ENTRY RESULT
+------------
+  PASS - raster current-pose producer and backend handle decoder identified
+  PASS - frame ownership, alignment, format and queue order identified
+  PASS - current jointCache is usable without a parallel pose evaluator
+  PASS - jointCache alone has no valid previous-pose contract
+  PASS - global last-3D-view bridge rejected as authoritative history
+  PASS - staged compact GPU copy selected over direct binding
+  PASS - live BLAS promotion remains deferred to GEO-08
+

@@ -74,6 +74,13 @@ GEO-06 FILES
     handoffs. Records the correction that resolved material binding is
     instance/route state rather than immutable mesh-source content.
 
+GEO-07 FILES
+------------
+  GEO-07_entry_audit.txt
+    Renderer jointCache production/format/lifetime audit, rejection of the
+    global last-view temporal bridge, staged compact GPU-joint decision,
+    authoritative job/fallback contract, and ordered implementation slices.
+
 NAMING
 ------
 Use:

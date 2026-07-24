@@ -169,13 +169,30 @@ offsets are excluded. Material/emission revisions are compatibility inputs
 which may reset payload history without pretending the geometric primitive is
 a different object.
 
+D18. GEO-07 JOINTCACHE BINDING STRATEGY
+---------------------------------------
+Decision: use a staged compact GPU joint array for the first authoritative PT
+skinning cut, not direct binding of the raster vertex-cache joint buffer.
+
+R_SetupDrawSurfJoints already publishes the authoritative current pose through
+drawSurf_t::jointCache. On the backend, resolve that handle to the current
+draw-list joint buffer and exact byte range, then issue bounded GPU-to-GPU
+copies into a PT-owned compact 48-byte-matrix buffer on the scene command list.
+This preserves the validated skinning shader ABI and avoids CPU pose reads.
+
+Direct binding is deferred because the raster buffer has 16-byte structured
+stride, whole-frame scope and only vertex-cache-frame lifetime. It does not
+provide same-owner previous state. The compact current buffer is retained as
+previous input only by the matching PtCanonicalHistoryOwnerKey. Subviews must
+not read or overwrite PrimaryGameplay history.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
   Q2  OPEN, owned by GEO-07/GEO-12: measure write-vs-derive attributes.
   Q3  OPEN, owned by GEO-06: offset BLAS-build microbenchmark.
   Q4  OPEN, owned by GEO-04/GEO-06: enumerate sceneOrigin consumers first.
-  Q5  OPEN, owned by GEO-03/GEO-07: direct joint binding vs staged array.
+  Q5  RESOLVED by D18: staged compact GPU joint array for the first cut.
   Q6  RESOLVED FOR MIGRATION by D05: GPU default path, explicit CPU fallback.
   Q7  PARTIALLY RESOLVED by capture; implementation proof in GEO-04/GEO-07.
   Q8  RESOLVED FOR FIRST CUT: fixed rebuild cadence, tune in GEO-08.
