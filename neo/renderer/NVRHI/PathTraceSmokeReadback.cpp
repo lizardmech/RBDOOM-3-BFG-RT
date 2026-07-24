@@ -342,6 +342,7 @@ void PathTracePrimaryPass::QueueStaticContractShaderSample(nvrhi::ICommandList* 
     {
         common->Printf("PathTracePrimaryPass: PT static contract shader sample unavailable before copy\n");
         m_staticContractShaderReadbackRequested = false;
+        m_canonicalRigidHitSample = false;
         return;
     }
 
@@ -360,6 +361,7 @@ void PathTracePrimaryPass::QueueStaticContractShaderSample(nvrhi::ICommandList* 
     {
         common->Printf("PathTracePrimaryPass: PT static contract shader readback buffer creation failed\n");
         m_staticContractShaderReadbackRequested = false;
+        m_canonicalRigidHitSample = false;
         return;
     }
 
@@ -375,6 +377,7 @@ void PathTracePrimaryPass::QueueStaticContractShaderSample(nvrhi::ICommandList* 
             static_cast<unsigned long long>(sourceOffset),
             static_cast<unsigned long long>(history.current->getDesc().byteSize));
         m_staticContractShaderReadbackRequested = false;
+        m_canonicalRigidHitSample = false;
         return;
     }
 
@@ -425,6 +428,7 @@ void PathTracePrimaryPass::ReadBackStaticContractShaderSample()
     {
         common->Printf("PathTracePrimaryPass: PT static contract shader sample readback map failed\n");
         m_staticContractShaderReadbackQueued = false;
+        m_canonicalRigidHitSample = false;
         return;
     }
 
@@ -442,36 +446,86 @@ void PathTracePrimaryPass::ReadBackStaticContractShaderSample()
     const bool materialIdMatches = valid && record->materialAndSurface[0] == m_staticContractExpectedMaterialId;
     const bool materialIndexMatches = valid && record->materialAndSurface[1] == m_staticContractExpectedMaterialIndex;
 
-    common->Printf(
-        "PathTracePrimaryPass: PT static contract shaderSample frame=%llu pixel=%d/%d dimensions=%d/%d version=%u validFlags=0x%08x status=%u instance=%u primitive=%u material(id/index)=%u/%u surfaceClass=%u reject=%u(%s) expected(instance/primitiveFirst/count/materialId/materialIndex)=%u/%u/%u/%u/%u match(valid/instance/primitive/materialId/materialIndex)=%d/%d/%d/%d/%d\n",
-        static_cast<unsigned long long>(m_staticContractShaderSampleFrame),
-        m_staticContractShaderSampleX,
-        m_staticContractShaderSampleY,
-        m_staticContractShaderSampleWidth,
-        m_staticContractShaderSampleHeight,
-        record->header[0],
-        validFlags,
-        record->header[2],
-        instanceId,
-        primitiveIndex,
-        record->materialAndSurface[0],
-        record->materialAndSurface[1],
-        record->materialAndSurface[3],
-        rejectReason,
-        StaticContractRejectReasonName(rejectReason),
-        m_staticContractExpectedInstance,
-        m_staticContractExpectedPrimitiveFirst,
-        m_staticContractExpectedPrimitiveCount,
-        m_staticContractExpectedMaterialId,
-        m_staticContractExpectedMaterialIndex,
-        valid ? 1 : 0,
-        instanceMatches ? 1 : 0,
-        primitiveMatches ? 1 : 0,
-        materialIdMatches ? 1 : 0,
-        materialIndexMatches ? 1 : 0);
+    if (m_canonicalRigidHitSample)
+    {
+        const bool rigidInstance =
+            valid &&
+            instanceId >= m_canonicalRigidHitFirstInstance &&
+            instanceId - m_canonicalRigidHitFirstInstance <
+                m_canonicalRigidHitInstanceCount;
+        common->Printf(
+            "PathTracePrimaryPass: GEO06 canonical rigid hit frame=%llu traversal=%s pixel=%d/%d dimensions=%d/%d version=%u validFlags=0x%08x status=%u triangleFlags=0x%08x rigid=%d rigidRange(first/count)=%u/%u instance=%u primitive=%u material(id/index/flags/class)=%u/%u/0x%08x/%u emissive(texture/rgb)=0x%08x/%.9g:%.9g:%.9g currentXYZ=%.9g:%.9g:%.9g previousXYZW=%.9g:%.9g:%.9g:%.9g reject=%u(%s)\n",
+            static_cast<unsigned long long>(
+                m_staticContractShaderSampleFrame),
+            m_canonicalRigidHitTraversalSelected
+                ? "canonical"
+                : "legacy",
+            m_staticContractShaderSampleX,
+            m_staticContractShaderSampleY,
+            m_staticContractShaderSampleWidth,
+            m_staticContractShaderSampleHeight,
+            record->header[0],
+            validFlags,
+            record->header[2],
+            record->header[3],
+            rigidInstance ? 1 : 0,
+            m_canonicalRigidHitFirstInstance,
+            m_canonicalRigidHitInstanceCount,
+            instanceId,
+            primitiveIndex,
+            record->materialAndSurface[0],
+            record->materialAndSurface[1],
+            record->materialAndSurface[2],
+            record->materialAndSurface[3],
+            record->instancePrimitiveObject[3],
+            record->emissiveAndHeight[0],
+            record->emissiveAndHeight[1],
+            record->emissiveAndHeight[2],
+            record->worldPositionAndViewDepth[0],
+            record->worldPositionAndViewDepth[1],
+            record->worldPositionAndViewDepth[2],
+            record->previousPositionOrMotion[0],
+            record->previousPositionOrMotion[1],
+            record->previousPositionOrMotion[2],
+            record->previousPositionOrMotion[3],
+            rejectReason,
+            StaticContractRejectReasonName(rejectReason));
+    }
+    else
+    {
+        common->Printf(
+            "PathTracePrimaryPass: PT static contract shaderSample frame=%llu pixel=%d/%d dimensions=%d/%d version=%u validFlags=0x%08x status=%u instance=%u primitive=%u material(id/index)=%u/%u surfaceClass=%u reject=%u(%s) expected(instance/primitiveFirst/count/materialId/materialIndex)=%u/%u/%u/%u/%u match(valid/instance/primitive/materialId/materialIndex)=%d/%d/%d/%d/%d\n",
+            static_cast<unsigned long long>(
+                m_staticContractShaderSampleFrame),
+            m_staticContractShaderSampleX,
+            m_staticContractShaderSampleY,
+            m_staticContractShaderSampleWidth,
+            m_staticContractShaderSampleHeight,
+            record->header[0],
+            validFlags,
+            record->header[2],
+            instanceId,
+            primitiveIndex,
+            record->materialAndSurface[0],
+            record->materialAndSurface[1],
+            record->materialAndSurface[3],
+            rejectReason,
+            StaticContractRejectReasonName(rejectReason),
+            m_staticContractExpectedInstance,
+            m_staticContractExpectedPrimitiveFirst,
+            m_staticContractExpectedPrimitiveCount,
+            m_staticContractExpectedMaterialId,
+            m_staticContractExpectedMaterialIndex,
+            valid ? 1 : 0,
+            instanceMatches ? 1 : 0,
+            primitiveMatches ? 1 : 0,
+            materialIdMatches ? 1 : 0,
+            materialIndexMatches ? 1 : 0);
+    }
 
     device->unmapBuffer(m_staticContractShaderReadbackBuffer);
     m_staticContractShaderReadbackQueued = false;
+    m_canonicalRigidHitSample = false;
 }
 
 void PathTracePrimaryPass::QueueStaticContractGeometrySample(

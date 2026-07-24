@@ -473,6 +473,10 @@ private:
     uint32_t m_staticContractExpectedPrimitiveCount = 0;
     uint32_t m_staticContractExpectedMaterialId = 0;
     uint32_t m_staticContractExpectedMaterialIndex = UINT32_MAX;
+    bool m_canonicalRigidHitSample = false;
+    bool m_canonicalRigidHitTraversalSelected = false;
+    uint32_t m_canonicalRigidHitFirstInstance = 0;
+    uint32_t m_canonicalRigidHitInstanceCount = 0;
     nvrhi::BufferHandle m_staticContractGeometryReadbackBuffer;
     bool m_staticContractGeometryReadbackQueued = false;
     int m_staticContractGeometryReadbackDelayFrames = 0;

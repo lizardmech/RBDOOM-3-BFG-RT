@@ -161,6 +161,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_staticContractShaderReadbackRequested = false;
     m_staticContractShaderReadbackQueued = false;
     m_staticContractShaderReadbackDelayFrames = 0;
+    m_canonicalRigidHitSample = false;
     m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiTemporalReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiPreviousReservoirBuffer = nullptr;

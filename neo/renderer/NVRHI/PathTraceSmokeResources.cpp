@@ -1829,6 +1829,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_staticContractShaderReadbackRequested = false;
     m_staticContractShaderReadbackQueued = false;
     m_staticContractShaderReadbackDelayFrames = 0;
+    m_canonicalRigidHitSample = false;
     m_staticContractGeometryReadbackBuffer = nullptr;
     m_staticContractGeometryReadbackQueued = false;
     m_staticContractGeometryReadbackDelayFrames = 0;

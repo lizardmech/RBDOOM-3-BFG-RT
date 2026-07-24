@@ -1612,3 +1612,109 @@ There must be no visible geometry, material, lighting, reflection, shadow or
 motion change at either toggle; no fail-closed message while the canonical
 dump is taken; and no producer rejection, fatal error, Vulkan error, device
 removal or crash.
+
+STEP 11 CANONICAL RIGID TRAVERSAL NUMERIC RUNTIME PASS (2026-07-24)
+-------------------------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo33.log
+
+Legacy frame 1065:
+
+  planned = 111;
+  legacy/canonical descriptors = 111/111;
+  exact mappings = 111;
+  failures = 0/0/0;
+  submit requested/eligible/selected = 0/1/0;
+  traversal = legacy.
+
+Canonical frame 2539:
+
+  planned = 121;
+  legacy/canonical descriptors = 121/121;
+  exact mappings = 121;
+  failures = 0/0/0;
+  submit requested/eligible/selected = 1/1/1;
+  traversal = canonical.
+
+Rollback frame 2860:
+
+  planned = 121;
+  legacy/canonical descriptors = 121/121;
+  exact mappings = 121;
+  failures = 0/0/0;
+  submit requested/eligible/selected = 0/1/0;
+  traversal = legacy.
+
+The canonical selection therefore reached the live TLAS and the rollback
+restored legacy selection. Canonical source coverage remained exact in every
+capture, and the steady rollback interval performed no BLAS create, build or
+retirement. No fail-closed message, fatal error, Vulkan error, device removal,
+allocation failure or readback failure appears in the log. No visible
+regression was reported with the returned capture.
+
+STEP 11 FINAL RESULT
+--------------------
+  PASS - the default-off gate selects canonical descriptors only at exact parity
+  PASS - the selected descriptors reach the live TLAS
+  PASS - disabling the gate restores the legacy descriptors
+  PASS - canonical and rollback captures retain exact identity/source coverage
+  PASS - no partial canonical route or fail-closed transition was observed
+
+STEP 12 CENTER-PIXEL PRIMARY-HIT TUPLE READBACK (2026-07-24)
+-------------------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  r_pathTracingGeometryCanonicalRigidHitDump is a one-shot command;
+  it reuses the existing bounded primary-surface readback path and copies one
+  176-byte center-pixel record after the live ray dispatch;
+  the record is labeled from the actual descriptor selection decision, not
+  merely from the requested traversal cvar;
+  it reports whether the hit instance is inside the current rigid TLAS range;
+  it reports instance, primitive, triangle flags, material ID/index/flags,
+  surface class, emissive texture/radiance, current position, previous
+  position/motion selector, valid flags and debug status;
+  no shader ABI or SPIR-V changed;
+  the command refuses to overwrite an in-flight readback and asks for a retry.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release --target RBDoom3BFG
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    4BD79EF889D48588481C28DC98DC9DDEA7AD6E9F95D2A75C9B5742CDFA851F50
+  mtime:
+    2026-07-24 21:14:43 Australia/Sydney
+
+Focused runtime acceptance:
+
+  enable the shadow registry and canonical BLAS provider;
+  select a broad, opaque rigid .lwo prop and hold the crosshair well inside
+    one surface, away from an edge;
+  set canonical traversal to 0 and issue the hit dump;
+  wait at least three rendered frames for the legacy readback line;
+  without moving the camera, set canonical traversal to 1;
+  issue the hit dump again and wait for the canonical readback line;
+  restore canonical traversal to 0 and condump geometry_geo34.log.
+
+Both lines must report:
+
+  validFlags has RT_PRIMARY_SURFACE_VALID;
+  status = 0;
+  rigid = 1;
+  identical dimensions and center pixel;
+  identical instance, primitive, triangle flags, material ID/index/flags,
+    surface class and emissive texture/radiance;
+  identical object-motion validity and previous-position selector.
+
+Current and previous XYZ should be identical for a stationary object, except
+for a possible sub-pixel primary-ray difference when projection jitter is
+active. Any position difference must remain on the same primitive and must not
+alter the discrete tuple. A non-rigid center hit is an invalid sample and must
+be repeated while aiming at a rigid prop.

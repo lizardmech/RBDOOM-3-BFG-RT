@@ -321,6 +321,12 @@ idCVar r_pathTracingGeometryCanonicalRigidTraversal(
     CVAR_RENDERER | CVAR_INTEGER,
     "GEO-06 default-off canonical rigid TLAS traversal; requires exact descriptor parity and fails closed to legacy" );
 
+idCVar r_pathTracingGeometryCanonicalRigidHitDump(
+    "r_pathTracingGeometryCanonicalRigidHitDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot GEO-06 center-pixel primary-hit tuple readback for legacy/canonical rigid traversal comparison" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

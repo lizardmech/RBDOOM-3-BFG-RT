@@ -6179,6 +6179,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;
     std::vector<nvrhi::rt::InstanceDesc> rigidTlasRouteInstances;
+    bool canonicalRigidTraversalSelected = false;
     const bool routeRigidTlasInstances = enableRigidRouteForMode;
     {
         OPTICK_EVENT("PT Rigid TLAS Instance Descs");
@@ -6246,6 +6247,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 {
                     rigidTlasRouteInstances.swap(
                         canonicalRigidTlasInstances);
+                    canonicalRigidTraversalSelected = true;
                 }
                 else if (canonicalRigidTraversalRequested &&
                     (m_smokeGeometryFrameIndex % 120ull) == 1ull)
@@ -7161,10 +7163,45 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.lastSceneTimingLogMs = &g_smokeLastSceneTimingLogMs;
     sceneLogDesc.sceneRebuildLogged = &m_smokeSceneRebuildLogged;
     sceneLogDesc.sceneLogCooldownFrames = &m_smokeSceneLogCooldownFrames;
+    if (r_pathTracingGeometryCanonicalRigidHitDump.GetInteger() != 0)
+    {
+        r_pathTracingGeometryCanonicalRigidHitDump.SetInteger(0);
+        if (!m_staticContractShaderReadbackRequested &&
+            !m_staticContractShaderReadbackQueued)
+        {
+            m_staticContractShaderReadbackRequested = true;
+            m_staticContractShaderSampleFrame =
+                geometryUniverseStats.frameIndex;
+            m_staticContractShaderSampleWidth = m_frameResources.width;
+            m_staticContractShaderSampleHeight = m_frameResources.height;
+            m_staticContractShaderSampleX =
+                Max(0, m_frameResources.width / 2);
+            m_staticContractShaderSampleY =
+                Max(0, m_frameResources.height / 2);
+            m_staticContractExpectedInstance = 0u;
+            m_staticContractExpectedPrimitiveFirst = UINT32_MAX;
+            m_staticContractExpectedPrimitiveCount = 0u;
+            m_staticContractExpectedMaterialId = 0u;
+            m_staticContractExpectedMaterialIndex = UINT32_MAX;
+            m_canonicalRigidHitSample = true;
+            m_canonicalRigidHitTraversalSelected =
+                canonicalRigidTraversalSelected;
+            m_canonicalRigidHitFirstInstance = 2u;
+            m_canonicalRigidHitInstanceCount =
+                static_cast<uint32_t>(
+                    rigidTlasRouteInstances.size());
+        }
+        else
+        {
+            common->Printf(
+                "PathTracePrimaryPass: GEO06 canonical rigid hit sample busy; retry after the queued readback completes\n");
+        }
+    }
     if (r_pathTracingStaticContractDump.GetInteger() != 0)
     {
         r_pathTracingStaticContractDump.SetInteger(0);
-        if (!m_staticContractShaderReadbackQueued)
+        if (!m_staticContractShaderReadbackRequested &&
+            !m_staticContractShaderReadbackQueued)
         {
             m_staticContractShaderReadbackRequested = true;
             m_staticContractShaderSampleFrame = geometryUniverseStats.frameIndex;
