@@ -69,7 +69,8 @@ GEO-06 FILES
 ------------
   GEO-06_entry_audit.txt
     Current rigid storage/BLAS addressing audit, accepted first pooled-storage
-    ABI, ordered implementation slices, and the focused MD5 predecessor gate.
+    ABI, focused MD5 predecessor proof, ordered implementation slices, and the
+    checked uint64 pool-planner/harness handoff.
 
 NAMING
 ------

@@ -142,3 +142,81 @@ NEXT GATE
 Implement step 1: pure checked uint64 allocation/range helpers and deterministic
 CPU boundary tests. Do not add GPU pools or alter the live rigid route in that
 slice.
+
+STEP 1 CHECKED POOL PLANNER (2026-07-24)
+----------------------------------------
+Implemented:
+
+  neo/renderer/NVRHI/PathTraceGeometryPoolPlan.h/.cpp
+  neo/tests/pathtrace_geometry_pool_harness.cpp
+
+The planner is pure CPU code with no renderer object, NVRHI resource, pointer,
+upload or live-route input. It defines:
+
+  checked elementCount * elementStride byte sizing;
+  aligned append allocation using uint64 byte offsets/sizes;
+  failure-atomic capacity/overflow rejection;
+  bounded geometric growth with a monotonic storage generation;
+  explicit old/new capacity, copy bytes and generation in the growth plan;
+  range rebasing only when the entire source range belongs to the previous
+  generation and lies inside the copied payload;
+  stable named results for every rejection.
+
+The deterministic PathTraceGeometryPoolHarness covers:
+
+  aligned append and padding;
+  capacity failure without state mutation;
+  empty size, zero alignment and zero element stride;
+  element counts above UINT32_MAX;
+  multiplication/alignment/end overflow;
+  absolute allocation at the 4 GiB boundary;
+  checked page-base subtraction before shader uint32 narrowing;
+  no-growth generation preservation;
+  1 KiB -> 8 KiB bounded growth and generation 7 -> 8;
+  preservation of copied range offset/size across growth;
+  wrong-generation and not-fully-copied range rejection;
+  maximum-capacity and generation-overflow rejection.
+
+Verification:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  cmake --build --preset win64-pt-dev-release
+    --target PathTraceGeometryPoolHarness
+    PASS
+  PathTraceGeometryPoolHarness
+    PASS
+  PathTraceCanonicalIdentityHarness
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+The broader PathTraceCpuPlanningHarness currently reports three assertions in
+the existing rigid-transform/BVH dirty-token planner lane. This slice changes
+none of that target's source files or inputs; those failures are recorded as
+non-gating rather than silently attributed to the pool planner.
+
+Deployed executable:
+
+  SHA-256:
+    18EEE765DD9AC699E11A4EA0FF2F32AFC9CAA93A1BA95F477C03ED65673C407C
+  mtime:
+    2026-07-24 16:24:07 Australia/Sydney
+
+Live behavior:
+
+  unchanged. The planner has no live call site and allocates no GPU resource.
+
+STEP 1 RESULT
+-------------
+  PASS - checked uint64 byte sizing/allocation
+  PASS - explicit fail-closed range and capacity errors
+  PASS - generation-safe growth/rebase planning
+  PASS - near-4-GiB and shader-page boundary coverage
+  PASS - no live route or shader change
+
+Next implementation slice:
+
+  observation-only immutable CPU source records keyed by canonical MeshKey,
+  with first-discovery/source-revision copies and no retained frame-temporary
+  srfTriangles_t pointer.
