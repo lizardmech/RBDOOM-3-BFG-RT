@@ -87,6 +87,15 @@ Required before new registry data drives traversal:
   - old and shadow material/triangle/instance counts compare exactly or every
     intentional difference is enumerated.
 
+Status 2026-07-24: satisfied for entry into GEO-07. GEO-06 provides immutable
+CPU source ownership, generation-safe split GPU pools, non-zero-offset Vulkan
+BLAS consumption, shared canonical rigid BLASes, exact fail-closed descriptor
+selection, and live primary-hit parity for geometry, material, motion and
+emissive identity. geometry_geo37 proves exact two-surface lifecycle
+add/remove/re-add with zero-build BLAS reuse. geometry_geo38 proves map
+replacement retires all 61 predecessor BLASes before exact 77/77 canonical
+descriptor selection in the new world. Checkpoint: 92e6e1e45.
+
 PHASE C GATE
 ------------
 Required before static migration:

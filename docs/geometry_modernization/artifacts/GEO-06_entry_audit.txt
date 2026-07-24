@@ -1981,4 +1981,73 @@ STEP 14 RESULT
   PASS - re-add reuses both retained BLAS with zero create/build work
   PASS - canonical traversal remains exact and selected at every checkpoint
   PASS - map restart imports, uploads, rebuilds and selects the new generation
-  PENDING - repeat map restart and require a non-zero BLAS retire interval
+  PASS - controlled map restart reports the complete old BLAS retirement
+
+STEP 14 CORRECTION RUNTIME PASS (2026-07-24)
+--------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo38.log
+  bytes:
+    157305
+  last write at inspection:
+    2026-07-24 21:46:05 Australia/Sydney
+
+The first settled checkpoint at frame 1044 establishes the predecessor
+generation:
+
+  world/publication = 3/3;
+  requested instances/unique meshes = 77/61;
+  ready/active/deferred BLAS = 61/61/0;
+  missing identity/source/pool = 0/0/0;
+  interval create/build/reuse/retire =
+    61/61/23758/1;
+  legacy/canonical descriptors = 77/77;
+  exact mappings = 77;
+  descriptor failures = 0/0/0;
+  canonical traversal selected = 1.
+
+The single retirement belongs to the earlier startup transition. It is not the
+controlled restart result.
+
+After the second mapRestart, frame 1681 reports:
+
+  world/publication = 4/4;
+  canonical records/imports/uploads = 1930/1930/1930;
+  CPU retained bytes/GPU upload bytes = 6557112/6557112;
+  requested instances/unique meshes = 77/61;
+  resolved identity/source/pool = 77/61/61;
+  ready/active/deferred BLAS = 61/61/0;
+  missing identity/source/pool = 0/0/0;
+  interval create/build/reuse/retire =
+    61/61/20277/61;
+  legacy/canonical descriptors = 77/77;
+  exact mappings = 77;
+  descriptor failures = 0/0/0;
+  canonical traversal selected = 1.
+
+The retirement count exactly equals the 61 active predecessor BLAS. The new
+world builds its own 61 records, all current identities resolve the new
+publication, and no old record can enter descriptor submission.
+
+STEP 14 CORRECTION FINAL RESULT
+-------------------------------
+  PASS - Clear retires every active canonical BLAS through the delayed queue
+  PASS - retirement count exactly matches predecessor active BLAS count
+  PASS - replacement CPU/GPU source bytes and record counts are exact
+  PASS - replacement identity/source/pool coverage is complete
+  PASS - replacement descriptor parity is exact and canonical-selected
+  PASS - no missing record, hash mismatch, missing BLAS, fatal or device error
+
+GEO-06 FINAL ACCEPTANCE SUMMARY
+-------------------------------
+  PASS - full-fidelity immutable source records match legacy payloads
+  PASS - checked 64-bit pools preserve generation-safe ranges and retirement
+  PASS - Vulkan BLAS consumes non-zero pooled vertex and index offsets
+  PASS - repeated rigid instances share unique immutable source/BLAS records
+  PASS - skinned observations remain explicit rigid-route negative controls
+  PASS - steady identical content performs zero source or GPU upload work
+  PASS - canonical traversal matches geometry, material, motion and emissives
+  PASS - spawn, removal, re-add and map replacement preserve exact lifecycle
+  PASS - all range, identity and descriptor failures are explicit/fail-closed
