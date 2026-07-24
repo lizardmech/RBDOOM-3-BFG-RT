@@ -32,6 +32,7 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "RenderCommon.h"
 #include "NVRHI/PathTraceEntityFeed.h"
+#include "NVRHI/PathTraceGeometryLifecycle.h"
 
 /*
 ==========================================================================================
@@ -885,6 +886,11 @@ void R_RenderView( viewDef_t* parms )
 
 	// RB: find closest environment probes so we can interpolate between them in the ambient shaders
 	R_FindClosestEnvironmentProbes();
+
+	// Callback-driven MD5 bind sources are not safe to traverse from lifecycle
+	// fast paths or the backend. Discover/refresh their canonical shadow
+	// records here while the frontend owns the resolved view entities.
+	PtGeometryLifecycle::ObserveFrontendDeformingEntities( parms );
 
 	// The path-tracing backend runs one frame behind the frontend with SMP.
 	// Capture its offscreen rigid feed now, while portal/entity lists belong

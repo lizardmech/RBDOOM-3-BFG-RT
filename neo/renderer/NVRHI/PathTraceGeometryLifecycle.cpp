@@ -13,6 +13,7 @@
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -132,6 +133,8 @@ struct PtGeometryShadowStats
     std::uint64_t missingSource = 0;
     std::uint64_t unsupportedTransient = 0;
     std::uint64_t deferredMeshEviction = 0;
+    std::uint64_t frontendDeformingDiscovered = 0;
+    std::uint64_t frontendDeformingRefreshed = 0;
     std::uint64_t removedVertices = 0;
     std::uint64_t removedIndexes = 0;
     std::uint64_t removedTriangles = 0;
@@ -265,7 +268,10 @@ bool ShadowTransformEquals(const PtGeometryShadowInstanceRecord& record, const i
         std::memcmp(record.axis, axis, sizeof(axis)) == 0;
 }
 
-PtCanonicalMeshSourceDomain ShadowSourceDomain(const idRenderEntityLocal* entity, const idRenderModel* model)
+PtCanonicalMeshSourceDomain ShadowSourceDomain(
+    const idRenderEntityLocal* entity,
+    const idRenderModel* model,
+    bool allowCallbackSource)
 {
     if (!entity || !model)
     {
@@ -273,7 +279,7 @@ PtCanonicalMeshSourceDomain ShadowSourceDomain(const idRenderEntityLocal* entity
     }
     // Callback/generated entities may carry a source model pointer whose virtual
     // surface interface is not part of this lifecycle hook's lifetime contract.
-    if (entity->parms.callback != nullptr)
+    if (entity->parms.callback != nullptr && !allowCallbackSource)
     {
         return PtCanonicalMeshSourceDomain::Invalid;
     }
@@ -466,7 +472,10 @@ public:
         shadowTracking = true;
     }
 
-    void ObserveEntity(const idRenderEntityLocal* entity, PtGeometryLifecycleClass geometryClass)
+    void ObserveEntity(
+        const idRenderEntityLocal* entity,
+        PtGeometryLifecycleClass geometryClass,
+        bool allowCallbackSource = false)
     {
         if (!shadowTracking || !entity || worldGeneration == 0)
         {
@@ -474,7 +483,8 @@ public:
         }
 
         const idRenderModel* model = entity->parms.hModel;
-        const PtCanonicalMeshSourceDomain sourceDomain = ShadowSourceDomain(entity, model);
+        const PtCanonicalMeshSourceDomain sourceDomain =
+            ShadowSourceDomain(entity, model, allowCallbackSource);
         if (sourceDomain == PtCanonicalMeshSourceDomain::UnsupportedTransient)
         {
             ++stats.unsupportedTransient;
@@ -549,6 +559,52 @@ public:
                 static_cast<std::uint32_t>(tri->numIndexes));
         }
         RemoveUnobservedEntitySurfaces(entity, observedKeys);
+    }
+
+    void ObserveFrontendDeformingEntity(const idRenderEntityLocal* entity)
+    {
+        if (!shadowTracking || !entity || worldGeneration == 0)
+        {
+            return;
+        }
+
+        const PtGeometryLifecycleSlotState* slot = FindSlot(entitySlots, entity->index);
+        if (!slot || !slot->alive)
+        {
+            return;
+        }
+
+        bool foundExisting = false;
+        for (PtGeometryShadowInstanceRecord& record : instances)
+        {
+            if (!record.valid ||
+                record.key.worldGeneration != worldGeneration ||
+                record.key.renderDefIndex != static_cast<std::uint32_t>(entity->index) ||
+                record.key.renderDefGeneration != slot->generation ||
+                record.key.subInstanceKind != PtCanonicalSubInstanceKind::SkinnedSurface)
+            {
+                continue;
+            }
+
+            foundExisting = true;
+            record.entityNum = entity->parms.entityNum;
+            record.lastModifiedFrameNum = entity->lastModifiedFrameNum;
+            record.geometryClass = PtGeometryLifecycleClass::Deforming;
+            CopyShadowTransform(entity, record.origin, record.axis);
+        }
+
+        if (foundExisting)
+        {
+            ++stats.frontendDeformingRefreshed;
+            return;
+        }
+
+        const std::uint64_t addedBefore = stats.added;
+        ObserveEntity(entity, PtGeometryLifecycleClass::Deforming, true);
+        if (stats.added > addedBefore)
+        {
+            ++stats.frontendDeformingDiscovered;
+        }
     }
 
     void RemoveEntity(const idRenderEntityLocal* entity, std::uint32_t generation)
@@ -637,7 +693,7 @@ public:
         }
 
         common->Printf(
-            "PathTracePrimaryPass: GEO05 shadow registry frame=%llu enabled=%d tracking=%d worldGeneration=%llu previousWorldGeneration=%llu mapLoadSerial=%llu primaryHistoryOwner=%llu resets=%llu resetDiscarded(liveInstances/meshes)=%llu/%llu funnelInterval(add/update/remove/unchanged/collision/stale/missing/transient/deferredMesh)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu records(instances/meshesReferenced/meshesZeroRef/assets/shared/maxRefs)=%llu/%llu/%llu/%d/%llu/%llu instanceClass(static/rigid/skinned)=%llu/%llu/%llu liveGeometry(v/i/t)=%llu/%llu/%llu removedGeometryInterval(v/i/t)=%llu/%llu/%llu route=observation-only\n",
+            "PathTracePrimaryPass: GEO05 shadow registry frame=%llu enabled=%d tracking=%d worldGeneration=%llu previousWorldGeneration=%llu mapLoadSerial=%llu primaryHistoryOwner=%llu resets=%llu resetDiscarded(liveInstances/meshes)=%llu/%llu funnelInterval(add/update/remove/unchanged/collision/stale/missing/transient/deferredMesh)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu frontendDeforming(discovered/refreshed)=%llu/%llu records(instances/meshesReferenced/meshesZeroRef/assets/shared/maxRefs)=%llu/%llu/%llu/%d/%llu/%llu instanceClass(static/rigid/skinned)=%llu/%llu/%llu liveGeometry(v/i/t)=%llu/%llu/%llu removedGeometryInterval(v/i/t)=%llu/%llu/%llu route=observation-only\n",
             static_cast<unsigned long long>(frameIndex),
             r_pathTracingGeometryShadowRegistry.GetInteger(),
             shadowTracking ? 1 : 0,
@@ -657,6 +713,8 @@ public:
             static_cast<unsigned long long>(stats.missingSource),
             static_cast<unsigned long long>(stats.unsupportedTransient),
             static_cast<unsigned long long>(stats.deferredMeshEviction),
+            static_cast<unsigned long long>(stats.frontendDeformingDiscovered),
+            static_cast<unsigned long long>(stats.frontendDeformingRefreshed),
             static_cast<unsigned long long>(liveInstances),
             static_cast<unsigned long long>(referencedMeshes),
             static_cast<unsigned long long>(zeroReferenceMeshes),
@@ -724,6 +782,8 @@ public:
         stats.missingSource = 0;
         stats.unsupportedTransient = 0;
         stats.deferredMeshEviction = 0;
+        stats.frontendDeformingDiscovered = 0;
+        stats.frontendDeformingRefreshed = 0;
         stats.removedVertices = 0;
         stats.removedIndexes = 0;
         stats.removedTriangles = 0;
@@ -1199,6 +1259,55 @@ const char* ClassName(PtGeometryLifecycleClass geometryClass)
             return "transient";
         default:
             return "unknown";
+    }
+}
+
+void ObserveFrontendDeformingEntities(const viewDef_t* viewDef)
+{
+    if (!viewDef || r_pathTracingGeometryShadowRegistry.GetInteger() == 0)
+    {
+        return;
+    }
+
+    idRenderWorldLocal* renderWorld = viewDef->renderWorld;
+    PtGeometryLifecycleWorldRegistry* registry = RegistryForWorld(renderWorld);
+    if (!renderWorld || !registry)
+    {
+        return;
+    }
+    SyncShadowTracking(renderWorld);
+
+    std::unordered_set<const idRenderEntityLocal*> observedEntities;
+    for (const viewEntity_t* viewEntity = viewDef->viewEntitys;
+         viewEntity != nullptr;
+         viewEntity = viewEntity->next)
+    {
+        const idRenderEntityLocal* entity = viewEntity->entityDef;
+        if (!entity ||
+            entity->world != renderWorld ||
+            !observedEntities.insert(entity).second)
+        {
+            continue;
+        }
+
+        const idRenderModel* model = entity->parms.hModel;
+        if (!model)
+        {
+            continue;
+        }
+        const bool deformingSource =
+            model->IsDynamicModel() == DM_CACHED ||
+            entity->parms.joints != nullptr ||
+            entity->parms.numJoints > 0;
+        if (!deformingSource)
+        {
+            continue;
+        }
+
+        // This runs on the frontend after R_AddModels has resolved the view's
+        // dynamic entities. It is the safe discovery boundary for callback
+        // MD5 bind sources; the backend never receives these live pointers.
+        registry->ObserveFrontendDeformingEntity(entity);
     }
 }
 

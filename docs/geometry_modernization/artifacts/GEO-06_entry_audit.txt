@@ -1,0 +1,141 @@
+GEO-06 - pooled mesh ingestion entry audit
+============================================
+Status: pool implementation blocked on focused callback-MD5 registry proof.
+Date: 2026-07-24.
+
+SCOPE
+-----
+This is the required current-code audit before GEO-06 allocation or routing
+changes. It treats the ticket and decision register as contracts, not the older
+proposal documents. No pooled buffer or live-route code is implemented here.
+
+PREDECESSOR CHECK
+-----------------
+GEO-05 now passes:
+
+  per-world owner and monotonic world generation;
+  entity slot generation and exact Free invalidation;
+  canonical mesh/instance shadow records;
+  immutable frontend SMP entity snapshot;
+  populated feed before and after same-map restart;
+  zero admission drops and no repeated portal-list crash in geometry_geo20.
+
+The audit found one missing predecessor proof: callback MD5 entities never
+produced SkinnedBindSource/SkinnedSurface shadow records. GEO-05 now contains a
+frontend-only discovery correction, but GEO-06 remains blocked until a focused
+crowded-MD5 capture proves non-zero skinned records and clean removal/restart.
+
+CURRENT RIGID ROUTE
+-------------------
+RtSmokeGeometryUniverse::RigidMeshCandidateRecord currently combines four
+different ownership domains:
+
+  source observation: const srfTriangles_t* tri and sourceRange;
+  cached CPU payload: cachedLocalVertices/cachedLocalIndexes;
+  GPU storage: one rigidVertexBuffer and rigidIndexBuffer per mesh candidate;
+  acceleration: one rigidBlas plus its desc/build state per mesh candidate.
+
+The route already shares a candidate BLAS among its eligible rigid instances.
+Its scalability problem is storage ownership: every unique candidate owns
+separate vertex/index buffers, while frame route buffers merge copies and carry
+uint32 vertexOffset/indexOffset/triangleOffset per instance.
+
+PathTraceSmokeVertex is the legacy interleaved rendered layout:
+
+  position, normal, texCoord, color, color2, tangent, bitangent.
+
+It is full fidelity, but it is not the new registry ABI. D13 requires raw
+float3 positions to be split from full-fidelity attributes immediately.
+Therefore GEO-06 must not name an interleaved PathTraceSmokeVertex allocation
+the canonical pool and defer the split.
+
+OFFSET AND BLAS AUDIT
+---------------------
+NVRHI GeometryTriangles already exposes uint64 vertexOffset and indexOffset.
+The Vulkan backend adds each offset to the corresponding buffer device address
+and uses vertexCount - 1 as maxVertex.
+
+The local wrapper is not ready:
+
+  InitSmokeTriangleGeometry accepts only an int indexOffset;
+  it hard-codes vertexOffset=0;
+  CreateSmokeBlas accepts counts but no byte ranges;
+  the wrapper assumes sizeof(PathTraceSmokeVertex) vertex stride.
+
+The canonical wrapper must accept checked byte offsets and explicit position
+stride/count. It must reject misalignment, overflow, out-of-buffer ranges and
+uint32 count narrowing before creating an acceleration structure.
+
+ACCEPTED FIRST STORAGE ABI
+--------------------------
+The first pool slice must keep these allocations logically separate:
+
+  position bytes
+    raw full-precision float3 positions used by BLAS;
+
+  attribute bytes
+    full-fidelity normal, UV, color/color2, tangent and bitangent data;
+
+  index bytes
+    uint32 local vertex indices;
+
+  triangle bytes
+    material ID, material-table binding/revision, triangle class/flags and
+    any emissive-local metadata required by current consumers.
+
+Each immutable mesh source record must contain:
+
+  canonical MeshKey;
+  source content generation/revision;
+  source checksum plus full-key equality;
+  buffer storage generation;
+  uint64 byte offset, byte size and alignment for every allocation;
+  vertex/index/triangle counts;
+  explicit residency/upload/BLAS states;
+  last-use/retirement information sufficient to keep in-flight generations
+  alive during pool growth.
+
+Canonical identity must not contain storage offsets, material state, AS handles
+or frame route indices. Shader uint32 values may be produced only by checked
+page-relative narrowing.
+
+IMPLEMENTATION ORDER AFTER THE MD5 GATE
+---------------------------------------
+1. Add pure checked uint64 allocation/range helpers and deterministic CPU tests
+   for alignment, addition/multiplication overflow, near-4-GiB offsets, page
+   narrowing and growth-generation preservation.
+2. Add observation-only CPU source records keyed by canonical MeshKey. Copy
+   immutable source payload on first discovery/source revision; do not retain a
+   frame-temporary srfTriangles_t pointer as durable ownership.
+3. Add separate position/attribute/index/triangle growable GPU pools and
+   storage-generation retirement. Keep the live rigid route unchanged.
+4. Count first upload bytes, revision uploads, steady-state upload bytes,
+   source reuse, retained bytes, rejected ranges and retired generations.
+5. Extend the BLAS descriptor wrapper with uint64 byte offsets and validate a
+   Vulkan non-zero-position/non-zero-index-offset micro-test, including first
+   and last primitive material/attribute lookup.
+6. Add same-content shadow comparison against BuildRigidLocalMeshData for
+   counts, checksums, material ranges and representative decoded endpoints.
+7. Adapt the established rigid route behind a new default-off compare gate.
+   One eligible immutable mesh owns one pooled BLAS; TLAS instances retain
+   independent transforms and InstanceKeys.
+8. Compare old/new rigid geometry, material, transform, motion, emissive and
+   lifecycle tuples. Enumerate every mismatch; do not silently fall back.
+9. Validate repeated rigid props as positive sharing controls and repeated
+   zombies/Fatzombie as negative routing controls. Skinned source records may
+   share immutable data, but no live skinned output or BLAS may enter the rigid
+   route.
+10. Validate removal/re-add, map restart and pool growth while old buffer
+    generations are in flight, then collect identical-content upload/memory/
+    BLAS/TLAS measurements.
+
+NON-GOALS
+---------
+No compression, meshlets, static-area cutover, skinned-output promotion, broad
+scene-origin rewrite, cap increase, whole-payload steady-frame hashing, or
+default-on route is part of this entry slice.
+
+NEXT GATE
+---------
+Run the focused callback-MD5 shadow-registry sequence recorded in
+GEO-05_lifecycle_owner_audit.txt. Only after it passes may step 1 above begin.

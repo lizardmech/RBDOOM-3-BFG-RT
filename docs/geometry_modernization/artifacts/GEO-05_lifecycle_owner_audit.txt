@@ -1,7 +1,8 @@
 GEO-05 - per-world lifecycle owner audit and first runtime gate
 ================================================================
-Status: initial shadow-registry implementation, runtime validation pending.
-Date: 2026-07-23.
+Status: shadow registry implemented; snapshot restoration validated; callback
+MD5 source discovery awaiting focused runtime validation.
+Date: 2026-07-23, updated 2026-07-24.
 
 HOOK AUDIT
 ----------
@@ -427,3 +428,124 @@ This slice changes no HLSL source or shader blob. Runtime restoration remains ga
 capture showing a non-zero "PT entityFeed snapshot" entity count, normal
 entity-feed admission/residency output, restored offscreen rigid behavior and
 no recurrence during traversal plus same-map restart.
+
+SNAPSHOT RESTORATION RUNTIME VALIDATION (2026-07-24)
+----------------------------------------------------
+geometry_geo20.log validates the frontend snapshot and SMP backend consumer:
+
+  path:
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo20.log
+  bytes: 50161
+  created: 2026-07-24 15:19:39 Australia/Sydney
+  modified: 2026-07-24 15:24:07 Australia/Sydney
+
+Initial capture:
+
+  marker: GEO05_SNAPSHOT_START
+  mapSerial=1
+  snapshot areas/entities=58/100
+  reachable areas=5
+  candidates/admitted=121/121
+  droppedBudget=0
+
+Immediately before same-map restart:
+
+  marker: GEO05_SNAPSHOT_BEFORE_RESTART
+  mapSerial=1
+  snapshot areas/entities=58/86
+  reachable areas=1
+  candidates/admitted=114/114
+  droppedBudget=0
+
+After same-map restart:
+
+  marker: GEO05_SNAPSHOT_AFTER_RESTART
+  mapSerial=2
+  snapshot areas/entities=58/85
+  reachable areas=1
+  candidates/admitted=113/113
+  droppedBudget=0
+
+The log contains 225 entity-feed frame reports spanning frames 4093 through
+9513. Every populated report admitted all candidates and every report had
+droppedBudget=0. Three zero-candidate reports share the same frame number as a
+preceding populated report and occur immediately after the dump cvar is
+disabled; they are secondary/console view commands, not a loss of the primary
+snapshot.
+
+There is no "frontend frame snapshot is missing" or SMP-disable warning, no
+access violation/device-removed/fatal record, and no matching RBDoom3BFG
+Application Error or Windows Error Reporting event during the capture window.
+The log ends with normal render-system, game-map and event-system shutdown.
+
+Result:
+
+  PASS - immutable frontend snapshot present under SMP
+  PASS - non-zero entity feed restored before and after map restart
+  PASS - map-load serial invalidation 1 -> 2
+  PASS - candidate admission stable with zero budget loss
+  PASS - prior portal-list access violation did not recur
+
+The structural and stability portion of the GEO-05 snapshot restoration gate is
+closed. Visual offscreen-object appearance remains a user-observed criterion
+because it is not encoded in this log.
+
+CALLBACK MD5 SOURCE-DISCOVERY PREREQUISITE (2026-07-24)
+-------------------------------------------------------
+The GEO-06 entry audit found a contradiction in the accepted GEO-05 evidence:
+crowded MD5 entities were alive in the renderer, but every shadow-registry dump
+reported:
+
+  instanceClass(static/rigid/skinned)=.../.../0
+
+The Add notification for a deferred entity occurs before its render callback
+has necessarily supplied hModel. ShadowSourceDomain also deliberately rejected
+all callback entities because lifecycle fast paths do not own a safe model
+surface traversal. Later callback fast updates use sourceStable=false, so those
+updates correctly avoid dereferencing the model but also cannot discover the
+bind source. The result was a permanent canonical-record gap for callback MD5
+entities.
+
+The bounded correction preserves the lifetime rule:
+
+  Add/Free lifecycle hooks remain instance-liveness authority;
+  R_RenderView calls ObserveFrontendDeformingEntities after R_AddModels;
+  this frontend boundary has resolved callback models and owns viewEntitys;
+  first discovery traverses the immutable DM_CACHED bind source once;
+  later observations refresh only entity values/transforms;
+  duplicate viewEntity entries are suppressed;
+  no live entity/model/surface pointer crosses to the SMP backend.
+
+New interval diagnostics:
+
+  frontendDeforming(discovered/refreshed)=<first-records>/<value-refreshes>
+
+This remains observation-only under the existing default-off
+r_pathTracingGeometryShadowRegistry gate. It does not route skinned output,
+change BLAS ownership, or modify shader inputs.
+
+Build and offline proof:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS, 2026-07-24
+  PathTraceCanonicalIdentityHarness
+    PASS
+  source/deployed executable SHA-256:
+    DB87BB860D8AC30FD2E14C505AD0D61E321A70CD1B25C3698E35CF2B5B5CC5E1
+  executable mtime:
+    2026-07-24 15:32:26 Australia/Sydney
+  SPIR-V:
+    unchanged; build reported all SPIR-V shaders up to date
+
+Focused runtime acceptance still required:
+
+  r_pathTracingGeometryShadowRegistry 1
+  mapRestart
+  visit or spawn several animated zombies, including Fatzombie if convenient
+  r_pathTracingGeometryShadowRegistryDump 1
+
+The dump must show skinned > 0 and frontendDeforming discovered/refreshed > 0.
+Sample records must identify SkinnedSurface/SkinnedBindSource. Collision and
+stale-generation counts must remain zero. Removal/re-add, offscreen return and
+same-map restart must not crash or retain the removed instance generation.

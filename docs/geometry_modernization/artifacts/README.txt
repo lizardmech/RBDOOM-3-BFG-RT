@@ -62,7 +62,14 @@ GEO-05 FILES
 ------------
   GEO-05_lifecycle_owner_audit.txt
     RenderWorld hook/teardown audit, initial per-world shadow owner and record
-    contract, bounded dump schema, and exact geometry_geo19 runtime sequence.
+    contract, bounded dump schema, geometry_geo19/20 evidence, SMP snapshot
+    restoration, and the callback-MD5 discovery prerequisite correction.
+
+GEO-06 FILES
+------------
+  GEO-06_entry_audit.txt
+    Current rigid storage/BLAS addressing audit, accepted first pooled-storage
+    ABI, ordered implementation slices, and the focused MD5 predecessor gate.
 
 NAMING
 ------

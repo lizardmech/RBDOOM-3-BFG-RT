@@ -9,6 +9,7 @@ class idRenderLightLocal;
 class idRenderModel;
 class idRenderWorldLocal;
 class PtGeometryLifecycleWorldRegistry;
+struct viewDef_t;
 
 struct PtRenderDefKey
 {
@@ -67,6 +68,7 @@ namespace PtGeometryLifecycle
     void NotifyEntityUpdated(const idRenderEntityLocal* entity, const idRenderModel* oldModel, bool modelChanged, bool sourceStable = true);
     void NotifyEntityUnchanged(const idRenderEntityLocal* entity);
     void NotifyEntityFreed(const idRenderEntityLocal* entity);
+    void ObserveFrontendDeformingEntities(const viewDef_t* viewDef);
 
     void NotifyLightAdded(const idRenderLightLocal* light);
     void NotifyLightUpdated(const idRenderLightLocal* light);
