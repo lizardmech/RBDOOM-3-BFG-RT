@@ -254,3 +254,21 @@ entities.
 This is a crash guard, not the final ownership architecture. The late portal
 area walk still consumes mutable engine structures and must be replaced by the
 engine-owned snapshot boundary in the later modernization steps.
+
+V2 DIAGNOSTIC AREA-WALK REMOVAL (2026-07-24)
+--------------------------------------------
+The guarded build completed the requested V2 residency dump, survived same-map
+reload, spawned the medkit probe and emitted both GEO-05 shadow and lifecycle
+dumps. During later ordinary traversal it crashed with 0xc0000005 at executable
+RVA 0x5f3dcb.
+
+The membership guard had rejected stale entity pointers, but exact executable
+disassembly showed this new fault at model->NumSurfaces() deeper in the same
+RefreshRigidResidencyAreaWalk path. Membership in entityDefs does not extend the
+lifetime contract of a retained hModel pointer into this late PT diagnostic.
+
+For residency V2, r_pathTracingRigidResidencyDump no longer activates the
+legacy portal-area walk. The dump now reports the V2 entity-feed/residency
+snapshot already used by the live route. The legacy walk remains reachable
+only when r_pathTracingGeometryResidencyV2 is explicitly disabled; replacing
+that legacy ownership path is later modernization work.

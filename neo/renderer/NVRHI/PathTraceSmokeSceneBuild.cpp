@@ -3724,8 +3724,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 ProduceEntityFeedRigidEntities(viewDef, m_smokeGeometryUniverse, m_instanceUniverse, materialStats);
             }
             const bool residencyV2 = r_pathTracingGeometryResidencyV2.GetInteger() != 0;
-            const bool diagnosticAreaWalk = residencyV2 && r_pathTracingRigidResidencyDump.GetInteger() != 0;
-            if (rigidResidencyEnabled && (!residencyV2 || diagnosticAreaWalk))
+            // V2 diagnostics must consume the engine/feed snapshot below. The
+            // legacy portal-area walk dereferences mutable entity hModel data
+            // and is not a safe diagnostic source after map reload or during
+            // ordinary front-end updates.
+            if (rigidResidencyEnabled && !residencyV2)
             {
                 OPTICK_EVENT("PT Legacy Residency Area Walk");
                 m_smokeGeometryUniverse.RefreshRigidResidencyAreaWalk(
