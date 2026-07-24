@@ -31,6 +31,7 @@ const int RT_PT_RIGID_BLAS_GPU_SAMPLES = 8;
 const int RT_PT_RIGID_TLAS_PLAN_SAMPLES = 8;
 const int RT_PT_RIGID_RESIDENCY_SAMPLES = 8;
 const int RT_PT_CANONICAL_RIGID_COMPARE_SAMPLES = 8;
+const int RT_PT_CANONICAL_RIGID_IDENTITY_SAMPLES = 8;
 
 struct RtSmokeSurfaceClassStats;
 struct RtSmokeMaterialStats;
@@ -246,6 +247,54 @@ struct RtPathTraceCanonicalRigidCompareStats
     int unmatchedCanonicalSources = 0;
     RtPathTraceCanonicalRigidCompareSample
         samples[RT_PT_CANONICAL_RIGID_COMPARE_SAMPLES];
+    int sampleCount = 0;
+};
+
+enum RtPathTraceCanonicalRigidIdentityFlags : uint32_t
+{
+    RT_PT_CANONICAL_RIGID_IDENTITY_EXACT = 0,
+    RT_PT_CANONICAL_RIGID_IDENTITY_INVALID_INSTANCE_KEY = 1u << 0,
+    RT_PT_CANONICAL_RIGID_IDENTITY_MISSING_BINDING = 1u << 1,
+    RT_PT_CANONICAL_RIGID_IDENTITY_INVALID_BINDING = 1u << 2,
+    RT_PT_CANONICAL_RIGID_IDENTITY_MISSING_SOURCE = 1u << 3,
+    RT_PT_CANONICAL_RIGID_IDENTITY_MISSING_LEGACY = 1u << 4,
+    RT_PT_CANONICAL_RIGID_IDENTITY_PAYLOAD_MISMATCH = 1u << 5
+};
+
+struct RtPathTraceCanonicalRigidIdentitySample
+{
+    bool valid = false;
+    uint32_t flags = 0;
+    uint64 instanceId = 0;
+    uint64 legacyMeshHash = 0;
+    uint64 canonicalInstanceHash = 0;
+    uint64 canonicalMeshHash = 0;
+    uint64 legacyChecksum = 0;
+    uint64 canonicalChecksum = 0;
+    uint32_t renderDefIndex = UINT32_MAX;
+    uint32_t renderDefGeneration = 0;
+    int modelSurfaceIndex = -1;
+    idStr materialName;
+    idStr modelName;
+};
+
+struct RtPathTraceCanonicalRigidIdentityStats
+{
+    uint64 frameIndex = 0;
+    int routeInstances = 0;
+    int validInstanceKeys = 0;
+    int identityBindings = 0;
+    int sourceBindings = 0;
+    int legacyBindings = 0;
+    int exactPayloadBindings = 0;
+    int invalidInstanceKeys = 0;
+    int missingBindings = 0;
+    int invalidBindings = 0;
+    int missingSources = 0;
+    int missingLegacyMeshes = 0;
+    int payloadMismatches = 0;
+    RtPathTraceCanonicalRigidIdentitySample
+        samples[RT_PT_CANONICAL_RIGID_IDENTITY_SAMPLES];
     int sampleCount = 0;
 };
 
@@ -692,6 +741,11 @@ public:
         BuildCanonicalRigidSourceCompareStats() const;
     void DumpCanonicalRigidSourceCompareStats(
         const RtPathTraceCanonicalRigidCompareStats& stats) const;
+    RtPathTraceCanonicalRigidIdentityStats
+        BuildCanonicalRigidIdentityStats(
+            const RtPathTraceInstanceUniverse& instanceUniverse) const;
+    void DumpCanonicalRigidIdentityStats(
+        const RtPathTraceCanonicalRigidIdentityStats& stats) const;
     bool PruneMissingStaticSurfaces();
     void NotifyStaticCacheChanged();
     void ReserveStaticSurfaceRecords(size_t surfaceCount);

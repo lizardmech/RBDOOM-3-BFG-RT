@@ -3573,10 +3573,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     RtPathTraceSceneUniverseBuildStats sceneUniverseStaticBuildStats;
     bool drawSurfMirrorFrameProducedFromDynamicCapture = false;
+    const bool geometrySourceDumpRequested =
+        r_pathTracingGeometryShadowRegistryDump.GetInteger() != 0;
     {
         OPTICK_EVENT("PT Capture Doom Surfaces");
-        const bool geometrySourceDumpRequested =
-            r_pathTracingGeometryShadowRegistryDump.GetInteger() != 0;
         m_smokeGeometryUniverse.BeginFrame(++m_smokeGeometryFrameIndex, viewDef ? viewDef->renderWorld : nullptr);
         m_smokeGeometryUniverse.ImportCanonicalSourceSnapshot(
             viewDef ? viewDef->pathTraceGeometrySourceSnapshot : nullptr);
@@ -3900,6 +3900,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_instanceUniverse,
                 rigidResidencyEnabled,
                 idMath::ClampInt(0, 8, r_pathTracingRigidResidencyPortalSteps.GetInteger()));
+        }
+        if (geometrySourceDumpRequested)
+        {
+            const RtPathTraceCanonicalRigidIdentityStats identityStats =
+                m_smokeGeometryUniverse.BuildCanonicalRigidIdentityStats(
+                    m_instanceUniverse);
+            m_smokeGeometryUniverse.DumpCanonicalRigidIdentityStats(
+                identityStats);
         }
         const int boundsOverlayMode = r_pathTracingSceneBoundsOverlay.GetInteger();
         const bool appendRigidResidencyBounds =

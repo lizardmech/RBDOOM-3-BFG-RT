@@ -1180,3 +1180,98 @@ Both identity transport dumps must report:
   world/publication/cursor and all binding counts remain unchanged;
   no producer rejection, fatal error, Vulkan error, device removal, crash or
   visible change.
+
+STEP 7 EXACT CANONICAL IDENTITY TRANSPORT RUNTIME PASS (2026-07-24)
+-------------------------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo29.log
+  bytes:
+    139254
+  last write:
+    2026-07-24 18:37:56 Australia/Sydney
+
+Populated dump at frame 2339:
+
+  world/publication/sequence/cursor = 3/3/15/3638;
+  active static/rigid/skinned/total = 1791/1679/140/3610;
+  binding slots = 3624;
+  interval upsert/reuse/revise/remove/reject/bytes =
+    3624/0/0/14/0/439424.
+
+The accounting closes exactly: 3624 upserts minus 14 removals equals 3610
+active bindings, and static + rigid + skinned also equals 3610.
+
+Steady dump at frame 2588:
+
+  world/publication/sequence/cursor remains 3/3/15/3638;
+  every binding count remains unchanged;
+  upsert/reuse/revise/remove/reject/bytes = 0/0/0/0/0/0.
+
+The wider rigid source comparison also remained exact at 139/139 payloads,
+with 126 unique and 13 equivalent-content matches and no content, endpoint or
+source-material failures. The log contains no producer rejection, fatal
+error, Vulkan error, device removal, allocation failure or readback failure.
+
+STEP 7 FINAL RESULT
+-------------------
+  PASS - lifecycle identity crosses the SMP boundary without pointer reads
+  PASS - add/remove accounting and per-class active counts close exactly
+  PASS - steady state publishes no packets and performs no backend work
+  PASS - duplicate source content remains separate canonical identity
+
+STEP 8 LIVE RIGID-ROUTE IDENTITY COVERAGE CANDIDATE (2026-07-24)
+----------------------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  after the current frame's visible/offscreen rigid instance list and
+  residency selection are complete, every live route instance constructs its
+  canonical InstanceKey from world generation, renderDef slot/generation and
+  model-surface ordinal;
+  the key must resolve the exact lifecycle-transported MeshKey;
+  that MeshKey must resolve an imported immutable source record;
+  the same route instance's legacy mesh must still exist;
+  the exact selected canonical source, rather than any equivalent-content
+  candidate, must match the legacy topology, counts, complete payload
+  checksum and source-material endpoints;
+  failures are separated into invalid instance key, missing identity,
+  invalid binding, missing source, missing legacy mesh and payload mismatch;
+  this remains shadow-only and does not alter BLAS/TLAS selection.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release --target RBDoom3BFG
+    PASS
+  PathTraceGeometryIdentityTransportHarness
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    E2A082897810C41927E3627A04EF84B604ECA08C1F99E33E1B38BDF6AFDF7425
+  mtime:
+    2026-07-24 18:43:51 Australia/Sydney
+
+Focused runtime acceptance:
+
+  keep r_pathTracingGeometryShadowRegistry 1;
+  mapRestart;
+  traverse the representative rigid-prop area for at least ten seconds;
+  r_pathTracingGeometryShadowRegistryDump 1;
+  wait ten seconds without changing areas;
+  r_pathTracingGeometryShadowRegistryDump 1.
+
+Both coverage dumps must report:
+
+  route > 0;
+  route = validKey = identity = source = legacy = exact;
+  invalidKey/missingIdentity/invalidBinding/missingSource/missingLegacy/
+    payload = 0/0/0/0/0/0;
+  every sample flags = 0;
+  every sample legacy and canonical checksum is equal and non-zero;
+  the steady dump retains identical coverage counts;
+  no producer rejection, fatal error, Vulkan error, device removal, crash or
+  visible change.

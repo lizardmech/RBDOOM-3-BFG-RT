@@ -1976,6 +1976,252 @@ void RtSmokeGeometryUniverse::DumpCanonicalRigidSourceCompareStats(
     }
 }
 
+RtPathTraceCanonicalRigidIdentityStats
+RtSmokeGeometryUniverse::BuildCanonicalRigidIdentityStats(
+    const RtPathTraceInstanceUniverse& instanceUniverse) const
+{
+    RtPathTraceCanonicalRigidIdentityStats stats;
+    stats.frameIndex = m_currentFrameIndex;
+    std::vector<RtPathTraceRigidRouteInstanceObservation> instances;
+    BuildRigidRouteInstanceList(instanceUniverse, instances);
+    stats.routeInstances = static_cast<int>(instances.size());
+
+    struct LegacyPayloadSignature
+    {
+        bool valid = false;
+        uint64 checksum = 0;
+        uint64 topologySignature = 0;
+        uint32_t vertexCount = 0;
+        uint32_t indexCount = 0;
+    };
+    std::unordered_map<uint64, LegacyPayloadSignature> legacySignatures;
+
+    const auto appendSample =
+        [&stats](const RtPathTraceCanonicalRigidIdentitySample& sample) {
+            if (stats.sampleCount <
+                RT_PT_CANONICAL_RIGID_IDENTITY_SAMPLES)
+            {
+                stats.samples[stats.sampleCount++] = sample;
+                return;
+            }
+            if (sample.flags == 0)
+            {
+                return;
+            }
+            for (int sampleIndex = stats.sampleCount - 1;
+                sampleIndex >= 0;
+                --sampleIndex)
+            {
+                if (stats.samples[sampleIndex].flags == 0)
+                {
+                    stats.samples[sampleIndex] = sample;
+                    return;
+                }
+            }
+        };
+
+    for (const RtPathTraceRigidRouteInstanceObservation& instance :
+        instances)
+    {
+        RtPathTraceCanonicalRigidIdentitySample sample;
+        sample.valid = true;
+        sample.instanceId = instance.instanceId;
+        sample.legacyMeshHash = instance.meshHash;
+        sample.modelSurfaceIndex = instance.modelSurfaceIndex;
+        sample.materialName = instance.materialName;
+        sample.modelName = instance.modelName;
+
+        PtCanonicalInstanceKey canonicalInstance;
+        canonicalInstance.worldGeneration =
+            instance.renderDefKey.worldGeneration;
+        canonicalInstance.renderDefIndex =
+            instance.renderDefKey.index >= 0
+                ? static_cast<uint32_t>(instance.renderDefKey.index)
+                : UINT32_MAX;
+        canonicalInstance.renderDefGeneration =
+            instance.renderDefKey.generation;
+        canonicalInstance.subInstanceKind =
+            PtCanonicalSubInstanceKind::RigidSurface;
+        canonicalInstance.modelSurfaceIndex =
+            instance.modelSurfaceIndex >= 0
+                ? static_cast<uint32_t>(instance.modelSurfaceIndex)
+                : UINT32_MAX;
+        canonicalInstance.jointSubmeshIndex = -1;
+        sample.renderDefIndex = canonicalInstance.renderDefIndex;
+        sample.renderDefGeneration =
+            canonicalInstance.renderDefGeneration;
+        sample.canonicalInstanceHash =
+            PtHashCanonicalInstanceKey(canonicalInstance);
+        if (!PtCanonicalInstanceKeyIsValid(canonicalInstance))
+        {
+            ++stats.invalidInstanceKeys;
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_IDENTITY_INVALID_INSTANCE_KEY;
+            appendSample(sample);
+            continue;
+        }
+        ++stats.validInstanceKeys;
+
+        const PtGeometryIdentityBinding* binding =
+            m_canonicalIdentityRegistry.Find(canonicalInstance);
+        if (binding == nullptr)
+        {
+            ++stats.missingBindings;
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_IDENTITY_MISSING_BINDING;
+            appendSample(sample);
+            continue;
+        }
+        ++stats.identityBindings;
+        sample.canonicalMeshHash = binding->meshHash;
+        if (binding->meshKey.sourceDomain !=
+                PtCanonicalMeshSourceDomain::RegisteredRenderModel ||
+            binding->meshKey.deformationClass !=
+                PtCanonicalDeformationClass::Rigid ||
+            binding->meshKey.modelSurfaceIndex !=
+                canonicalInstance.modelSurfaceIndex)
+        {
+            ++stats.invalidBindings;
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_IDENTITY_INVALID_BINDING;
+            appendSample(sample);
+            continue;
+        }
+
+        const PtGeometrySourceRecord* source =
+            m_canonicalSourceRegistry.Find(binding->meshKey);
+        if (source == nullptr)
+        {
+            ++stats.missingSources;
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_IDENTITY_MISSING_SOURCE;
+            appendSample(sample);
+            continue;
+        }
+        ++stats.sourceBindings;
+        sample.canonicalChecksum = source->sourceChecksum;
+
+        const auto meshIt =
+            m_rigidMeshCandidateLookup.find(instance.meshHash);
+        if (meshIt == m_rigidMeshCandidateLookup.end() ||
+            meshIt->second >= m_rigidMeshCandidateRecords.size() ||
+            !m_rigidMeshCandidateRecords[meshIt->second].valid)
+        {
+            ++stats.missingLegacyMeshes;
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_IDENTITY_MISSING_LEGACY;
+            appendSample(sample);
+            continue;
+        }
+        ++stats.legacyBindings;
+        const RigidMeshCandidateRecord& legacy =
+            m_rigidMeshCandidateRecords[meshIt->second];
+
+        LegacyPayloadSignature signature;
+        const auto signatureIt =
+            legacySignatures.find(instance.meshHash);
+        if (signatureIt != legacySignatures.end())
+        {
+            signature = signatureIt->second;
+        }
+        else
+        {
+            PtGeometrySourcePayload payload;
+            signature.valid = BuildCanonicalComparePayload(
+                legacy,
+                payload,
+                signature.topologySignature);
+            if (signature.valid)
+            {
+                signature.vertexCount =
+                    static_cast<uint32_t>(payload.positions.size());
+                signature.indexCount =
+                    static_cast<uint32_t>(payload.indexes.size());
+                signature.checksum = PtChecksumGeometrySourcePayload(
+                    CanonicalComparePayloadView(payload));
+            }
+            legacySignatures.emplace(instance.meshHash, signature);
+        }
+        sample.legacyChecksum = signature.checksum;
+
+        const uint32_t expectedSourceMaterial =
+            canonicalInstance.modelSurfaceIndex;
+        const bool sourceMaterialsValid =
+            !source->payload.triangles.empty() &&
+            source->payload.triangles.front().sourceMaterialSlot ==
+                expectedSourceMaterial &&
+            source->payload.triangles.back().sourceMaterialSlot ==
+                expectedSourceMaterial;
+        if (!signature.valid ||
+            legacy.modelSurfaceIndex != instance.modelSurfaceIndex ||
+            source->key.vertexCount != signature.vertexCount ||
+            source->key.indexCount != signature.indexCount ||
+            source->key.topologySignature !=
+                signature.topologySignature ||
+            source->sourceChecksum != signature.checksum ||
+            !sourceMaterialsValid)
+        {
+            ++stats.payloadMismatches;
+            sample.flags |=
+                RT_PT_CANONICAL_RIGID_IDENTITY_PAYLOAD_MISMATCH;
+            appendSample(sample);
+            continue;
+        }
+
+        ++stats.exactPayloadBindings;
+        appendSample(sample);
+    }
+    return stats;
+}
+
+void RtSmokeGeometryUniverse::DumpCanonicalRigidIdentityStats(
+    const RtPathTraceCanonicalRigidIdentityStats& stats) const
+{
+    common->Printf(
+        "PathTracePrimaryPass: GEO06 canonical rigid identity coverage frame=%llu route/validKey/identity/source/legacy/exact=%d/%d/%d/%d/%d/%d failures(invalidKey/missingIdentity/invalidBinding/missingSource/missingLegacy/payload)=%d/%d/%d/%d/%d/%d route=shadow-only\n",
+        static_cast<unsigned long long>(stats.frameIndex),
+        stats.routeInstances,
+        stats.validInstanceKeys,
+        stats.identityBindings,
+        stats.sourceBindings,
+        stats.legacyBindings,
+        stats.exactPayloadBindings,
+        stats.invalidInstanceKeys,
+        stats.missingBindings,
+        stats.invalidBindings,
+        stats.missingSources,
+        stats.missingLegacyMeshes,
+        stats.payloadMismatches);
+    for (int sampleIndex = 0;
+        sampleIndex < stats.sampleCount;
+        ++sampleIndex)
+    {
+        const RtPathTraceCanonicalRigidIdentitySample& sample =
+            stats.samples[sampleIndex];
+        if (!sample.valid)
+        {
+            continue;
+        }
+        common->Printf(
+            "PathTracePrimaryPass: GEO06 canonical rigid identity sample %d flags=0x%x instance=%llu legacyMesh=%llu canonical(instance/mesh)=%llu/%llu slot/generation/surface=%u/%u/%d checksum(legacy/canonical)=%llu/%llu material='%s' model='%s'\n",
+            sampleIndex,
+            sample.flags,
+            static_cast<unsigned long long>(sample.instanceId),
+            static_cast<unsigned long long>(sample.legacyMeshHash),
+            static_cast<unsigned long long>(
+                sample.canonicalInstanceHash),
+            static_cast<unsigned long long>(
+                sample.canonicalMeshHash),
+            sample.renderDefIndex,
+            sample.renderDefGeneration,
+            sample.modelSurfaceIndex,
+            static_cast<unsigned long long>(sample.legacyChecksum),
+            static_cast<unsigned long long>(sample.canonicalChecksum),
+            sample.materialName.c_str(),
+            sample.modelName.c_str());
+    }
+}
+
 void RtSmokeGeometryUniverse::RetireRigidBlas(RigidMeshCandidateRecord& record)
 {
     if (record.rigidBlas && r_pathTracingAsyncBvh.GetInteger() != 0)
