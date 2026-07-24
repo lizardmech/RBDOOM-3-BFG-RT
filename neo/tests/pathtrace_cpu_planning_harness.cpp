@@ -527,6 +527,8 @@ void TestRigidPlan()
     observations[0].hasPreviousObjectToWorld = true;
     observations[0].transformContinuous = true;
     observations[0].seenThisFrame = false;
+    observations[0].canonicalBlasRecordIndex = 7;
+    observations[0].canonicalMeshHash = 101;
 
     observations[1] = observations[0];
     observations[1].meshHash = 200;
@@ -559,6 +561,8 @@ void TestRigidPlan()
         plan.instances[0].hasPreviousTransform &&
         plan.instances[0].transformContinuous &&
         !plan.instances[0].sourceSeenThisFrame &&
+        plan.instances[0].canonicalBlasRecordIndex == 7 &&
+        plan.instances[0].canonicalMeshHash == 101 &&
         plan.instances[0].previousTransform[12] == -2.0f,
         "rigid TLAS emitted instance metadata is deterministic");
 
@@ -573,6 +577,17 @@ void TestRigidPlan()
     Check(plan.tlasInstanceSignature != changedTransformPlan.tlasInstanceSignature,
         "rigid TLAS plan signature tracks emitted transform metadata");
     observations[0].previousObjectToWorld[12] = -2.0f;
+
+    const uint64_t baseCanonicalRouteToken =
+        BuildSmokeRigidTlasPlanInputToken(desc);
+    observations[0].canonicalBlasRecordIndex = 8;
+    Check(baseCanonicalRouteToken != BuildSmokeRigidTlasPlanInputToken(desc),
+        "rigid TLAS plan input token tracks canonical BLAS record handles");
+    observations[0].canonicalBlasRecordIndex = 7;
+    observations[0].canonicalMeshHash = 102;
+    Check(baseCanonicalRouteToken != BuildSmokeRigidTlasPlanInputToken(desc),
+        "rigid TLAS plan input token tracks canonical mesh identity");
+    observations[0].canonicalMeshHash = 101;
 
     RtSmokeRigidTlasObservation invalidPreviousObservation = observations[0];
     invalidPreviousObservation.hasPreviousObjectToWorld = false;

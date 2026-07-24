@@ -1567,6 +1567,19 @@ static uint64_t HashSmokeBvhFramePlanningFrameInput(
     return hash;
 }
 
+static uint64_t HashSmokeBvhDirtyTokenState(
+    uint64_t hash,
+    const RtSmokeBvhDirtyTokenState& token)
+{
+    hash = HashSmokePlanBytes(hash, &token.geometryContentSignature, sizeof(token.geometryContentSignature));
+    hash = HashSmokePlanBytes(hash, &token.activeBlasInputSignature, sizeof(token.activeBlasInputSignature));
+    hash = HashSmokePlanBytes(hash, &token.residentSetSignature, sizeof(token.residentSetSignature));
+    hash = HashSmokePlanBytes(hash, &token.materialGeneration, sizeof(token.materialGeneration));
+    hash = HashSmokePlanBytes(hash, &token.activeSetSignature, sizeof(token.activeSetSignature));
+    hash = HashSmokePlanBytes(hash, &token.tlasInstanceSignature, sizeof(token.tlasInstanceSignature));
+    return hash;
+}
+
 uint64_t BuildSmokeBvhFramePlanningInputToken(
     const RtSmokeBvhFramePlanningInput& input)
 {
@@ -1575,6 +1588,11 @@ uint64_t BuildSmokeBvhFramePlanningInputToken(
         BuildSmokeStaticBucketWorkPlanInputToken(input.staticBucketWorkInput);
     hash = HashSmokePlanBytes(hash, &staticBucketToken, sizeof(staticBucketToken));
     hash = HashSmokeBvhFramePlanningFrameInput(hash, input.frameTokenInput);
+    hash = HashSmokePlanBytes(hash, &input.previousDirtyTokenValid, sizeof(input.previousDirtyTokenValid));
+    if (input.previousDirtyTokenValid)
+    {
+        hash = HashSmokeBvhDirtyTokenState(hash, input.previousDirtyToken);
+    }
     return hash;
 }
 
@@ -1586,6 +1604,11 @@ uint64_t BuildSmokeBvhFramePlanningInputToken(
         BuildSmokeStaticBucketWorkPlanInputToken(snapshot.staticBucketWorkSnapshot);
     hash = HashSmokePlanBytes(hash, &staticBucketToken, sizeof(staticBucketToken));
     hash = HashSmokeBvhFramePlanningFrameInput(hash, snapshot.frameTokenInput);
+    hash = HashSmokePlanBytes(hash, &snapshot.previousDirtyTokenValid, sizeof(snapshot.previousDirtyTokenValid));
+    if (snapshot.previousDirtyTokenValid)
+    {
+        hash = HashSmokeBvhDirtyTokenState(hash, snapshot.previousDirtyToken);
+    }
     return hash;
 }
 
@@ -1725,6 +1748,9 @@ bool AppendSmokeRigidTlasPlanObservation(
     instance.meshHash = observation.meshHash;
     instance.sourceInstanceId = observation.instanceId;
     instance.routeRecordIndex = observation.routeRecordIndex;
+    instance.canonicalBlasRecordIndex =
+        observation.canonicalBlasRecordIndex;
+    instance.canonicalMeshHash = observation.canonicalMeshHash;
     instance.sourceSeenThisFrame = observation.seenThisFrame;
     instance.hasPreviousTransform = observation.hasPreviousObjectToWorld;
     instance.transformContinuous =
@@ -1816,6 +1842,21 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
         hash = HashSmokePlanBytes(hash, &observation.meshHash, sizeof(observation.meshHash));
         hash = HashSmokePlanBytes(hash, &observation.instanceId, sizeof(observation.instanceId));
         hash = HashSmokePlanBytes(hash, &observation.routeRecordIndex, sizeof(observation.routeRecordIndex));
+        hash = HashSmokePlanBytes(hash, &observation.canonicalBlasRecordIndex, sizeof(observation.canonicalBlasRecordIndex));
+        hash = HashSmokePlanBytes(hash, &observation.canonicalMeshHash, sizeof(observation.canonicalMeshHash));
+        const uint32_t instanceFlags =
+            (observation.seenThisFrame ? 1u : 0u) |
+            (observation.hasPreviousObjectToWorld ? 2u : 0u) |
+            (observation.hasPreviousObjectToWorld &&
+                    observation.transformContinuous
+                ? 4u
+                : 0u);
+        hash = HashSmokePlanBytes(hash, &instanceFlags, sizeof(instanceFlags));
+        hash = HashSmokePlanBytes(hash, observation.objectToWorld, sizeof(observation.objectToWorld));
+        if (observation.hasPreviousObjectToWorld)
+        {
+            hash = HashSmokePlanBytes(hash, observation.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
+        }
         ++emittedInstances;
     }
     hash = HashSmokePlanBytes(hash, &processedObservations, sizeof(processedObservations));
@@ -1859,6 +1900,8 @@ static uint64_t BuildSmokeRigidTlasInstanceSignature(
         hash = HashSmokePlanBytes(hash, &instance.meshHash, sizeof(instance.meshHash));
         hash = HashSmokePlanBytes(hash, &instance.sourceInstanceId, sizeof(instance.sourceInstanceId));
         hash = HashSmokePlanBytes(hash, &instance.routeRecordIndex, sizeof(instance.routeRecordIndex));
+        hash = HashSmokePlanBytes(hash, &instance.canonicalBlasRecordIndex, sizeof(instance.canonicalBlasRecordIndex));
+        hash = HashSmokePlanBytes(hash, &instance.canonicalMeshHash, sizeof(instance.canonicalMeshHash));
         hash = HashSmokePlanBytes(hash, &instanceFlags, sizeof(instanceFlags));
         hash = HashSmokePlanBytes(hash, instance.transform, sizeof(instance.transform));
         hash = HashSmokePlanBytes(hash, instance.previousTransform, sizeof(instance.previousTransform));

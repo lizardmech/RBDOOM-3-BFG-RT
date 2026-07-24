@@ -6199,6 +6199,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
             const int routedRigidInstances =
                 m_smokeGeometryUniverse.BuildRigidTlasInstanceDescs(rigidTlasPlan, rigidTlasRouteInstances);
+            if (geometrySourceDumpRequested &&
+                r_pathTracingGeometryCanonicalRigidBlas.GetInteger() != 0)
+            {
+                std::vector<nvrhi::rt::InstanceDesc>
+                    canonicalRigidTlasInstances;
+                const RtPathTraceCanonicalRigidTlasStats
+                    canonicalRigidTlasStats =
+                        m_smokeGeometryUniverse.
+                            BuildCanonicalRigidTlasInstanceDescs(
+                                rigidTlasPlan,
+                                routedRigidInstances,
+                                canonicalRigidTlasInstances);
+                m_smokeGeometryUniverse.DumpCanonicalRigidTlasStats(
+                    canonicalRigidTlasStats);
+            }
             if (r_pathTracingSmokeLog.GetInteger() != 0 && routedRigidInstances > 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
             {
                 common->Printf("PathTracePrimaryPass: PT rigid TLAS route debug mode active mode=%d routedInstances=%d renderPath=dynamicFallback traceMask=%s\n",

@@ -1371,3 +1371,121 @@ Both coverage dumps must report:
   the steady dump retains identical coverage counts;
   no producer rejection, fatal error, Vulkan error, device removal, crash or
   visible change.
+
+STEP 9 CANONICAL POOLED RIGID BLAS RUNTIME PASS (2026-07-24)
+------------------------------------------------------------
+Capture:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo31.log
+
+Populated frame 1529 reports:
+
+  requested instances/unique meshes = 188/125;
+  resolved identity/source/pool = 188/125/125;
+  ready/active/deferred = 125/180/0;
+  missing identity/source/pool = 0/0/0;
+  interval create/build/reuse/retire/buildUs =
+    180/180/56154/0/4541.
+
+The 180 active records include canonical meshes encountered earlier during
+traversal and retained by the cache. The current request contains 125 unique
+meshes, and all 125 are ready; active is therefore expected to be greater than
+the current request rather than equal to it.
+
+Steady frame 1758 retains the same 188/125 request and 125 ready records:
+
+  interval create/build/reuse/retire/buildUs =
+    0/0/28573/0/0.
+
+The corresponding exact route coverage is unchanged in both dumps:
+
+  route/validKey/identity/source/legacy/exact =
+    188/188/188/188/188/188;
+  invalidKey/missingIdentity/invalidBinding/missingSource/missingLegacy/
+    payload = 0/0/0/0/0/0.
+
+The log contains no fatal error, Vulkan error, device removal, allocation
+failure or readback failure.
+
+STEP 9 FINAL RESULT
+-------------------
+  PASS - every requested canonical mesh resolves pooled GPU source storage
+  PASS - every currently requested unique mesh has one ready canonical BLAS
+  PASS - steady state performs no create, build, retirement or source upload
+  PASS - retained records do not make current request accounting ambiguous
+  PASS - traversal remains legacy and the canonical route remains shadow-only
+
+STEP 10 CANONICAL RIGID TLAS DESCRIPTOR SHADOW COMPARE (2026-07-24)
+-------------------------------------------------------------------
+Implemented but not yet runtime-accepted:
+
+  each accepted rigid TLAS plan entry transports a backend-local dense
+  canonical BLAS record index plus the canonical mesh hash;
+  the record index is produced only after a full canonical MeshKey lookup, so
+  mesh-hash collisions cannot select the record;
+  input tokens and emitted-plan signatures include this route metadata;
+  accepted current and valid previous transforms are now included in the
+  rigid-plan input token, closing the pre-existing async cache-key omission;
+  valid previous BVH dirty-token state is now included in the frame-planning
+  input token, closing the corresponding pre-existing async cache-key omission;
+  a parallel descriptor list uses the canonical BLAS while preserving the
+  legacy instance ID, trace mask, hit-group contribution, transform, cached
+  source filtering and cull flags;
+  descriptor construction rejects a missing record index, mesh-hash mismatch,
+  missing BLAS or unsubmitted build with separate counters;
+  the canonical descriptors are discarded after comparison. They are not
+  submitted to the TLAS, and traversal remains legacy.
+
+CPU verification:
+
+  PathTraceCpuPlanningHarness
+    PASS
+    including transform, canonical record/hash, previous-dirty-token,
+    immutable snapshot and deterministic signature coverage.
+
+Build verification:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS
+  all SPIR-V shaders
+    up to date; no shader source or blob changed
+
+Runtime-candidate executable:
+
+  SHA-256:
+    F92FD16E4A76253AE8DB56E2BF4E9D4422A619376ABB083340851FA7A0011FB7
+  mtime:
+    2026-07-24 20:58:28 Australia/Sydney
+
+Focused runtime acceptance:
+
+  keep r_pathTracingGeometryShadowRegistry 1;
+  keep r_pathTracingGeometryCanonicalRigidBlas 1;
+  mapRestart;
+  traverse the representative rigid-prop area for at least ten seconds;
+  echo === GEO06_CANONICAL_RIGID_TLAS_POPULATED ===;
+  r_pathTracingGeometryShadowRegistryDump 1;
+  wait ten seconds without changing areas;
+  echo === GEO06_CANONICAL_RIGID_TLAS_STEADY ===;
+  r_pathTracingGeometryShadowRegistryDump 1;
+  condump geometry_geo32.log.
+
+Both canonical TLAS descriptor dumps must report:
+
+  enabled = 1 and planned > 0;
+  descriptors legacy = canonical;
+  exactRecordMappings = legacy descriptors = canonical descriptors;
+  missingIndex/hashMismatch/missingBlas = 0/0/0;
+  submit=shadow-only and traversal=legacy.
+
+The canonical rigid BLAS dump must still report:
+
+  requested instances > 0 and requested unique meshes > 0;
+  resolved identity = requested instances;
+  resolved source = resolved pool = ready = requested unique meshes;
+  deferred = 0 and missing identity/source/pool = 0/0/0;
+  the steady interval has create/build/retire = 0/0/0.
+
+There must be no producer rejection, fatal error, Vulkan error, device
+removal, crash or visible change.

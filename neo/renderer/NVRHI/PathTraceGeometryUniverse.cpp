@@ -2276,6 +2276,23 @@ RtSmokeGeometryUniverse::FindCanonicalRigidBlasRecord(
     return nullptr;
 }
 
+uint32 RtSmokeGeometryUniverse::FindCanonicalRigidBlasRecordIndex(
+    const PtCanonicalMeshKey& key,
+    uint64 meshHash) const
+{
+    const auto range = m_canonicalRigidBlasLookup.equal_range(meshHash);
+    for (auto it = range.first; it != range.second; ++it)
+    {
+        if (it->second < m_canonicalRigidBlasRecords.size() &&
+            m_canonicalRigidBlasRecords[it->second].key == key &&
+            it->second <= std::numeric_limits<uint32>::max())
+        {
+            return static_cast<uint32>(it->second);
+        }
+    }
+    return std::numeric_limits<uint32>::max();
+}
+
 void RtSmokeGeometryUniverse::RetireCanonicalRigidBlas(
     CanonicalRigidBlasRecord& record)
 {
@@ -5833,6 +5850,34 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
             observation.hasBlas = record.rigidBlas;
             observation.routeRecordIndex = static_cast<uint32_t>(it->second);
         }
+        PtCanonicalInstanceKey canonicalInstance;
+        canonicalInstance.worldGeneration =
+            instance.renderDefKey.worldGeneration;
+        canonicalInstance.renderDefIndex =
+            instance.renderDefKey.index >= 0
+                ? static_cast<uint32_t>(instance.renderDefKey.index)
+                : UINT32_MAX;
+        canonicalInstance.renderDefGeneration =
+            instance.renderDefKey.generation;
+        canonicalInstance.subInstanceKind =
+            PtCanonicalSubInstanceKind::RigidSurface;
+        canonicalInstance.modelSurfaceIndex =
+            instance.modelSurfaceIndex >= 0
+                ? static_cast<uint32_t>(instance.modelSurfaceIndex)
+                : UINT32_MAX;
+        canonicalInstance.jointSubmeshIndex = -1;
+        const PtGeometryIdentityBinding* binding =
+            PtCanonicalInstanceKeyIsValid(canonicalInstance)
+                ? m_canonicalIdentityRegistry.Find(canonicalInstance)
+                : nullptr;
+        if (binding != nullptr)
+        {
+            observation.canonicalMeshHash = binding->meshHash;
+            observation.canonicalBlasRecordIndex =
+                FindCanonicalRigidBlasRecordIndex(
+                    binding->meshKey,
+                    binding->meshHash);
+        }
         snapshot.observations.push_back(observation);
     }
     return snapshot;
@@ -5893,6 +5938,95 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
     }
 
     return static_cast<int>(instanceDescs.size() - firstDesc);
+}
+
+RtPathTraceCanonicalRigidTlasStats
+RtSmokeGeometryUniverse::BuildCanonicalRigidTlasInstanceDescs(
+    const RtSmokeRigidTlasPlan& plan,
+    int legacyDescriptorCount,
+    std::vector<nvrhi::rt::InstanceDesc>& instanceDescs) const
+{
+    RtPathTraceCanonicalRigidTlasStats stats;
+    stats.frameIndex = m_currentFrameIndex;
+    stats.enabled =
+        r_pathTracingGeometryCanonicalRigidBlas.GetInteger() != 0 ? 1 : 0;
+    stats.plannedInstances = static_cast<int>(plan.instances.size());
+    stats.legacyDescriptors = legacyDescriptorCount;
+    if (!stats.enabled)
+    {
+        return stats;
+    }
+
+    for (const RtSmokePlanTlasInstance& plannedInstance :
+        plan.instances)
+    {
+        if (!plannedInstance.sourceSeenThisFrame &&
+            r_pathTracingResidencyRouteCachedTlas.GetInteger() == 0)
+        {
+            continue;
+        }
+        if (plannedInstance.canonicalBlasRecordIndex >=
+            m_canonicalRigidBlasRecords.size())
+        {
+            ++stats.missingRecordIndex;
+            continue;
+        }
+        const CanonicalRigidBlasRecord& record =
+            m_canonicalRigidBlasRecords[
+                plannedInstance.canonicalBlasRecordIndex];
+        if (record.meshHash != plannedInstance.canonicalMeshHash)
+        {
+            ++stats.meshHashMismatch;
+            continue;
+        }
+        ++stats.exactRecordMappings;
+        if (!record.blas || !record.buildSubmitted)
+        {
+            ++stats.missingBlas;
+            continue;
+        }
+
+        nvrhi::rt::AffineTransform transform;
+        BuildRigidTlasAffineTransform(
+            plannedInstance.transform,
+            transform);
+        const bool cachedSource =
+            !plannedInstance.sourceSeenThisFrame;
+        const uint32 instanceMask =
+            cachedSource &&
+            r_pathTracingResidencyRouteCachedTraceMask.GetInteger() == 0
+                ? 0u
+                : plannedInstance.instanceMask;
+        nvrhi::rt::InstanceDesc instanceDesc;
+        instanceDesc
+            .setInstanceID(plannedInstance.instanceId)
+            .setInstanceMask(instanceMask)
+            .setInstanceContributionToHitGroupIndex(
+                plannedInstance.hitGroupContribution)
+            .setFlags(
+                nvrhi::rt::InstanceFlags::TriangleCullDisable)
+            .setTransform(transform)
+            .setBLAS(record.blas);
+        instanceDescs.push_back(instanceDesc);
+        ++stats.canonicalDescriptors;
+    }
+    return stats;
+}
+
+void RtSmokeGeometryUniverse::DumpCanonicalRigidTlasStats(
+    const RtPathTraceCanonicalRigidTlasStats& stats) const
+{
+    common->Printf(
+        "PathTracePrimaryPass: GEO06 canonical rigid TLAS descriptors frame=%llu enabled=%d planned=%d descriptors(legacy/canonical)=%d/%d exactRecordMappings=%d failures(missingIndex/hashMismatch/missingBlas)=%d/%d/%d submit=shadow-only traversal=legacy\n",
+        static_cast<unsigned long long>(stats.frameIndex),
+        stats.enabled,
+        stats.plannedInstances,
+        stats.legacyDescriptors,
+        stats.canonicalDescriptors,
+        stats.exactRecordMappings,
+        stats.missingRecordIndex,
+        stats.meshHashMismatch,
+        stats.missingBlas);
 }
 
 int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(

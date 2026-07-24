@@ -150,6 +150,9 @@ struct RtSmokePlanTlasInstance
     uint64_t meshHash = 0;
     uint64_t sourceInstanceId = 0;
     uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    uint32_t canonicalBlasRecordIndex =
+        std::numeric_limits<uint32_t>::max();
+    uint64_t canonicalMeshHash = 0;
     bool sourceSeenThisFrame = true;
     bool hasPreviousTransform = false;
     bool transformContinuous = false;
@@ -625,6 +628,9 @@ struct RtSmokeRigidTlasObservation
     bool residencyEnabled = false;
     bool hasBlas = false;
     uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    uint32_t canonicalBlasRecordIndex =
+        std::numeric_limits<uint32_t>::max();
+    uint64_t canonicalMeshHash = 0;
     bool seenThisFrame = true;
     bool hasPreviousObjectToWorld = false;
     bool transformContinuous = false;

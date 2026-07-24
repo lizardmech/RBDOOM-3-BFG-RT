@@ -320,6 +320,19 @@ struct RtPathTraceCanonicalRigidBlasStats
     uint64 buildSubmitMicroseconds = 0;
 };
 
+struct RtPathTraceCanonicalRigidTlasStats
+{
+    uint64 frameIndex = 0;
+    int enabled = 0;
+    int plannedInstances = 0;
+    int legacyDescriptors = 0;
+    int canonicalDescriptors = 0;
+    int exactRecordMappings = 0;
+    int missingRecordIndex = 0;
+    int meshHashMismatch = 0;
+    int missingBlas = 0;
+};
+
 struct RtPathTraceRigidBlasPlanSample
 {
     bool valid = false;
@@ -774,6 +787,13 @@ public:
         const RtPathTraceInstanceUniverse& instanceUniverse,
         bool enabled);
     void DumpCanonicalRigidBlasStats();
+    RtPathTraceCanonicalRigidTlasStats
+        BuildCanonicalRigidTlasInstanceDescs(
+            const RtSmokeRigidTlasPlan& plan,
+            int legacyDescriptorCount,
+            std::vector<nvrhi::rt::InstanceDesc>& instanceDescs) const;
+    void DumpCanonicalRigidTlasStats(
+        const RtPathTraceCanonicalRigidTlasStats& stats) const;
     bool PruneMissingStaticSurfaces();
     void NotifyStaticCacheChanged();
     void ReserveStaticSurfaceRecords(size_t surfaceCount);
@@ -964,6 +984,9 @@ private:
     CanonicalRigidBlasRecord* FindCanonicalRigidBlasRecord(
         const PtCanonicalMeshKey& key,
         uint64 meshHash);
+    uint32_t FindCanonicalRigidBlasRecordIndex(
+        const PtCanonicalMeshKey& key,
+        uint64 meshHash) const;
     void RetireCanonicalRigidBlas(
         CanonicalRigidBlasRecord& record);
     void ReleaseExpiredCanonicalRigidBlas();
