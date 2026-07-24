@@ -20,6 +20,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+extern idCVar com_smp;
+
 namespace {
 
 void BuildEntityFeedNormalTexMatrix(const idMaterial* material, float matrix[6])
@@ -1672,6 +1674,25 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
     OPTICK_EVENT("PT EntityFeed Produce");
     if (r_pathTracingEntityFeed.GetInteger() == 0)
     {
+        return;
+    }
+    // This producer runs in the backend. With com_smp enabled, the frontend
+    // can unlink and recycle portal areaReference_t nodes, update entityDefs,
+    // and free idRenderEntityLocal objects while the backend consumes the
+    // previous frame. RenderCommon.h explicitly forbids backend entityDef
+    // dereferences for that reason. Until the entity feed is carried through
+    // a frontend-owned frame snapshot, fail closed instead of racing the
+    // mutable portal/entity lists.
+    if (com_smp.GetBool())
+    {
+        static bool warnedUnsafeSmpFeed = false;
+        if (!warnedUnsafeSmpFeed)
+        {
+            warnedUnsafeSmpFeed = true;
+            common->Warning(
+                "PathTracePrimaryPass: entityFeed disabled while com_smp=1; "
+                "backend portal/entityDef traversal requires a frontend frame snapshot");
+        }
         return;
     }
 

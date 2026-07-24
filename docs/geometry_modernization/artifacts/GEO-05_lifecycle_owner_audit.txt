@@ -302,3 +302,52 @@ The mapLoadSerial/worldGeneration omissions were independent correctness bugs:
 a same-map reload could otherwise retain surface/material/model facts from the
 previous world generation even when the world pointer and slot generation were
 reused.
+
+SECOND EXACT SYMBOL CORRECTION AND SMP CONTAINMENT (2026-07-24)
+---------------------------------------------------------------
+The first guarded build did not remove the crash. The replacement executable
+was confirmed live: its PE timestamp changed from 0x6a62dd49 to 0x6a62e01a and
+the fault RVA moved from 0x005f3dcb to 0x005f4be2.
+
+The matching Release map places CaptureEntityFeedRigidSurfaces at RVA
+0x005f31f0. Exact disassembly of the replacement executable resolves
+0x005f4be2 to:
+
+  mov rcx, qword ptr [rcx]
+
+This is the increment of the portal-area linked-list walk:
+
+  ref = ref->areaNext
+
+The crashing value can therefore be a node that the frontend unlinked and
+returned to areaReferenceAllocator while the backend was processing the
+previous frame. The animated-object correlation is causal evidence: ordinary
+animated entity updates rebuild their area references. RenderCommon.h states
+the governing engine contract directly:
+
+  * viewEntity_t is a frame-temporary backend copy because the frontend may
+    modify idRenderEntityLocal simultaneously in SMP mode;
+  * the backend must not reference viewEntity_t::entityDef.
+
+The entity feed violated the stronger form of that contract by walking
+renderWorld->portalAreas[].entityRefs and dereferencing entityDefs from the
+backend. Pointer-membership checks cannot repair a concurrently mutating list;
+the node can be freed after any check.
+
+Containment:
+
+  * with the default com_smp=1, ProduceEntityFeedRigidEntities now fails closed
+    before reading renderWorld, portal entityRefs, or entityDefs;
+  * the existing frame-owned draw-surface mirror remains the visible-geometry
+    producer;
+  * com_smp=0 retains the old feed for single-thread diagnosis only.
+
+Required architectural follow-up:
+
+  Build an immutable, frontend-owned entity-feed frame snapshot and attach it
+  to the view command. It must contain value-copied identity, transform,
+  classification, material, area-membership, and stable rigid mesh references.
+  The backend must consume that snapshot without dereferencing
+  idRenderEntityLocal, areaReference_t, or mutable renderWorld entity arrays.
+  The off-screen rigid feed must not be re-enabled under SMP until this
+  producer/consumer handoff is validated.
