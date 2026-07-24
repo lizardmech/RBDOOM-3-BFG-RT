@@ -31,6 +31,7 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "RenderCommon.h"
+#include "NVRHI/PathTraceEntityFeed.h"
 
 /*
 ==========================================================================================
@@ -884,6 +885,11 @@ void R_RenderView( viewDef_t* parms )
 
 	// RB: find closest environment probes so we can interpolate between them in the ambient shaders
 	R_FindClosestEnvironmentProbes();
+
+	// The path-tracing backend runs one frame behind the frontend with SMP.
+	// Capture its offscreen rigid feed now, while portal/entity lists belong
+	// exclusively to the frontend, and carry only immutable frame data across.
+	CapturePathTraceEntityFeedFrameSnapshot( parms );
 
 	// add the rendering commands for this viewDef
 	R_AddDrawViewCmd( parms, false );

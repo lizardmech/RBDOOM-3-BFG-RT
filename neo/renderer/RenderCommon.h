@@ -75,6 +75,7 @@ class MaskedOcclusionCulling;
 
 class idRenderWorldLocal;
 struct viewEntity_t;
+struct RtPathTraceEntityFeedFrameSnapshot;
 struct viewLight_t;
 struct viewEnvprobe_t;
 
@@ -593,6 +594,9 @@ struct viewDef_t
 
 	viewLight_t*		viewLights;				// chain of all viewLights effecting view
 	viewEntity_t* 		viewEntitys;			// chain of all viewEntities effecting view, including off screen ones casting shadows
+	// Immutable frontend-owned PT entity-feed snapshot. The backend must not
+	// walk renderWorld entityDefs or portal entityRefs while SMP is active.
+	const RtPathTraceEntityFeedFrameSnapshot* pathTraceEntityFeedSnapshot;
 	// we use viewEntities as a check to see if a given view consists solely
 	// of 2D rendering, which we can optimize in certain ways.  A 2D view will
 	// not have any viewEntities

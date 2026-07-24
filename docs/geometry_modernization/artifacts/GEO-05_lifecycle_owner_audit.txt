@@ -351,3 +351,79 @@ Required architectural follow-up:
   idRenderEntityLocal, areaReference_t, or mutable renderWorld entity arrays.
   The off-screen rigid feed must not be re-enabled under SMP until this
   producer/consumer handoff is validated.
+
+SMP CONTAINMENT RUNTIME VALIDATION (2026-07-24)
+-----------------------------------------------
+The containment executable completed the full geometry_geo19 test without a
+crash. The log contains the requested visible, leave/return, PDA return,
+spawn/remove and same-map-restart markers:
+
+  GEO05_VISIBLE
+  GEO05_RETURNED
+  GEO05_PDA_RETURN
+  GEO05_REMOVED
+  GEO05_MAP_RESTART_BEFORE
+  GEO05_MAP_RESTART_AFTER
+
+The same-map restart advanced mapLoadSerial 3 -> 4, worldGeneration 4 -> 5,
+primaryHistoryOwner 4 -> 5 and reset count 3 -> 4. The post-restart registry
+repopulated with collision=0 and stale=0. The log ends in the normal render,
+game-map and event-system shutdown sequence. No later Windows application
+error was recorded after the earlier crashing executable.
+
+This validates the root-cause isolation: withholding the backend portal/entity
+walk under com_smp removes the recurring access violation while the existing
+draw-surface path and lifecycle registry continue through all requested
+transitions.
+
+FRONTEND FRAME SNAPSHOT RESTORATION (2026-07-24)
+------------------------------------------------
+The next implementation replaces the containment-only shutdown with a frame
+snapshot captured in R_RenderView immediately before R_AddDrawViewCmd.
+
+Frontend producer contract:
+
+  * compute the reachable portal-area set while the frontend owns the live
+    render world;
+  * walk portal entity references only on the frontend;
+  * admit only non-world DM_STATIC models with drawing surfaces and reject
+    callback, force-update, jointed, depth-hack and generated-model entities
+    before the command boundary;
+  * clone the required renderEntity values, transform matrices, reference
+    bounds and stable renderer-asset pointers into frame memory;
+  * clear callbackData, callback, joints, GUI, remote-view, sound, decal,
+    overlay, interaction and live area-reference pointers;
+  * capture the lifecycle render-def key, model epoch, map-load serial,
+    area/depth and current-frame visibility as values;
+  * build frame-owned area lists whose nodes refer only to frame-owned entity
+    clones.
+
+Backend consumer contract:
+
+  * com_smp requires the snapshot attached to the exact view command; a
+    missing snapshot still fails closed;
+  * reachable areas, entity membership, area links, identity, epoch,
+    transform and visibility come from the snapshot;
+  * the render-world pointer is opaque identity and the residency store uses
+    the captured map-load serial instead of reading mutable world fields;
+  * visible draw-surface matching uses the captured source pointer only as an
+    opaque map key and never dereferences it;
+  * only stable DM_STATIC model, triangle, material, skin and shader assets are
+    retained for same-frame classification and mesh ingestion;
+  * the old animated/single-bone/joint/reachable diagnostic walks are disabled
+    under com_smp because they independently dereference live entity arrays.
+
+Offline result:
+
+  win64-pt-dev-release: PASS
+  All SPIR-V shaders are up to date.
+  PathTraceCanonicalIdentityHarness: PASS
+  executable bytes: 15571456
+  executable SHA-256:
+    3086BD2E6C074099396E137EE376ECE82017FE9D67014F32A6A4F096CF0C73A8
+  build and E:/prog/rbdoom-3-BFG-prebuilt deployed hashes match.
+
+This slice changes no HLSL source or shader blob. Runtime restoration remains gated on a
+capture showing a non-zero "PT entityFeed snapshot" entity count, normal
+entity-feed admission/residency output, restored offscreen rigid behavior and
+no recurrence during traversal plus same-map restart.

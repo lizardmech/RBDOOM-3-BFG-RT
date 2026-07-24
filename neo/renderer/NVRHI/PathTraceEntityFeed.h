@@ -1,11 +1,39 @@
 #pragma once
 
+#include "PathTraceGeometryLifecycle.h"
+#include "../RenderCommon.h"
+
 #include <vector>
 
-struct viewDef_t;
 class RtPathTraceInstanceUniverse;
 class RtSmokeGeometryUniverse;
 struct RtSmokeMaterialStats;
+
+struct RtPathTraceEntityFeedFrameEntity
+{
+    // A value clone constructed in frame memory. Pointers inside parms are
+    // limited to stable renderer assets; frontend-owned callback/joint/gui/
+    // remote-view/sound pointers are cleared by the producer.
+    idRenderEntityLocal entity;
+    const idRenderEntityLocal* sourceIdentity = nullptr;
+    PtRenderDefKey renderDefKey;
+    uint32_t modelEpoch = 0;
+    int currentArea = -1;
+    int areaDepth = -1;
+    bool onScreen = false;
+    areaReference_t areaRef = {};
+};
+
+struct RtPathTraceEntityFeedFrameSnapshot
+{
+    uint64 mapLoadSerial = 0;
+    int numAreas = 0;
+    int entityCount = 0;
+    bool* reachableAreas = nullptr;
+    int* areaDepth = nullptr;
+    areaReference_t* areaHeads = nullptr;
+    RtPathTraceEntityFeedFrameEntity* entities = nullptr;
+};
 
 struct RtPathTraceEntityFeedStats
 {
@@ -37,6 +65,7 @@ struct RtPathTraceEntityFeedStats
 };
 
 void DumpEntityFeedStats(const RtPathTraceEntityFeedStats& s);
+void CapturePathTraceEntityFeedFrameSnapshot(viewDef_t* viewDef);
 std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int maxDepth, float maxDistance);
 void DumpEntityFeedSingleBoneDiagnostics(const viewDef_t* viewDef);
 void DumpEntityFeedJointAdvanceProbe(const viewDef_t* viewDef);

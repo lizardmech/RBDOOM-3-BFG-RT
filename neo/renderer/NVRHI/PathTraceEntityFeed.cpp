@@ -17,6 +17,7 @@
 #include "../RenderWorld_local.h"
 
 #include <algorithm>
+#include <new>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -368,29 +369,39 @@ struct EntityFeedResidentSurfaceStore
     int lastGcFrame = -1;
     std::vector<EntityFeedResidentEntitySlot> entitySlots;
 
-    void ResetForWorld(const idRenderWorldLocal* world)
+    void ResetForWorld(
+        const idRenderWorldLocal* world,
+        uint64 newMapLoadSerial,
+        const char* newMapName = "",
+        ID_TIME_T newMapTimeStamp = 0)
     {
         renderWorld = world;
-        mapName = world ? world->mapName : "";
-        mapTimeStamp = world ? world->mapTimeStamp : 0;
-        mapLoadSerial = world ? world->mapLoadSerial : 0;
+        mapName = newMapName ? newMapName : "";
+        mapTimeStamp = newMapTimeStamp;
+        mapLoadSerial = newMapLoadSerial;
         lastGcFrame = -1;
         entitySlots.clear();
     }
 };
 
-EntityFeedResidentSurfaceStore& EntityFeedResidentStoreForWorld(const idRenderWorldLocal* renderWorld)
+EntityFeedResidentSurfaceStore& EntityFeedResidentStoreForWorld(
+    const idRenderWorldLocal* renderWorld,
+    const RtPathTraceEntityFeedFrameSnapshot* frontendSnapshot)
 {
     static EntityFeedResidentSurfaceStore store;
-    const char* mapName = renderWorld ? renderWorld->mapName.c_str() : "";
-    const ID_TIME_T mapTimeStamp = renderWorld ? renderWorld->mapTimeStamp : 0;
-    const uint64 mapLoadSerial = renderWorld ? renderWorld->mapLoadSerial : 0;
+    // With an SMP snapshot, renderWorld is an opaque identity only. Reading
+    // map fields from it would reintroduce a frontend/backend data race.
+    const bool useSnapshot = frontendSnapshot != nullptr;
+    const char* mapName = useSnapshot ? "" : (renderWorld ? renderWorld->mapName.c_str() : "");
+    const ID_TIME_T mapTimeStamp = useSnapshot ? 0 : (renderWorld ? renderWorld->mapTimeStamp : 0);
+    const uint64 mapLoadSerial =
+        useSnapshot ? frontendSnapshot->mapLoadSerial : (renderWorld ? renderWorld->mapLoadSerial : 0);
     if (store.renderWorld != renderWorld ||
         store.mapName.Icmp(mapName) != 0 ||
         store.mapTimeStamp != mapTimeStamp ||
         store.mapLoadSerial != mapLoadSerial)
     {
-        store.ResetForWorld(renderWorld);
+        store.ResetForWorld(renderWorld, mapLoadSerial, mapName, mapTimeStamp);
     }
     return store;
 }
@@ -845,6 +856,7 @@ int EntityFeedAreaDepth(const std::vector<int>& areaDepth, int areaIndex)
 std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     const viewDef_t* viewDef,
     idRenderWorldLocal* renderWorld,
+    const RtPathTraceEntityFeedFrameSnapshot* frontendSnapshot,
     const std::vector<bool>& reachableAreas,
     const std::vector<int>& areaDepth,
     const EntityFeedVisibleDrawSurfMap& visibleDrawSurfs,
@@ -860,14 +872,19 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     std::unordered_set<uint32_t> registeredMaterialIds;
     std::unordered_set<const idRenderEntityLocal*> scannedEntities;
     std::unordered_set<const idRenderEntityLocal*> liveEntityDefs;
+    std::unordered_map<const idRenderEntityLocal*, const RtPathTraceEntityFeedFrameEntity*> snapshotEntities;
     EntityFeedCaptureMaterialCache materialCache;
     const bool residencyEnabled = EntityFeedResidencyEnabled();
     EntityFeedResidentSurfaceStore* residentStore = nullptr;
     capturedSurfaces.reserve(rigidRouteMaxInstances);
     candidateInstanceIds.reserve(rigidRouteMaxInstances * 2);
     registeredMaterialIds.reserve(128);
-    scannedEntities.reserve(renderWorld ? renderWorld->entityDefs.Num() : 0);
-    liveEntityDefs.reserve(renderWorld ? renderWorld->entityDefs.Num() : 0);
+    const int entityReserve = frontendSnapshot
+        ? frontendSnapshot->entityCount
+        : (renderWorld ? renderWorld->entityDefs.Num() : 0);
+    scannedEntities.reserve(entityReserve);
+    liveEntityDefs.reserve(entityReserve);
+    snapshotEntities.reserve(entityReserve);
     materialCache.materialRecords.reserve(256);
     materialCache.materialEmissive.reserve(256);
     materialCache.activeEmissiveStage.reserve(256);
@@ -876,17 +893,29 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     {
         return capturedSurfaces;
     }
-    for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)
+    if (frontendSnapshot)
     {
-        const idRenderEntityLocal* liveEntity = renderWorld->entityDefs[entityIndex];
-        if (liveEntity)
+        for (int entityIndex = 0; entityIndex < frontendSnapshot->entityCount; ++entityIndex)
         {
-            liveEntityDefs.insert(liveEntity);
+            const RtPathTraceEntityFeedFrameEntity& frameEntity = frontendSnapshot->entities[entityIndex];
+            liveEntityDefs.insert(&frameEntity.entity);
+            snapshotEntities[&frameEntity.entity] = &frameEntity;
+        }
+    }
+    else
+    {
+        for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)
+        {
+            const idRenderEntityLocal* liveEntity = renderWorld->entityDefs[entityIndex];
+            if (liveEntity)
+            {
+                liveEntityDefs.insert(liveEntity);
+            }
         }
     }
     if (residencyEnabled)
     {
-        residentStore = &EntityFeedResidentStoreForWorld(renderWorld);
+        residentStore = &EntityFeedResidentStoreForWorld(renderWorld, frontendSnapshot);
         stats.residencyEvictedRecords += PruneEntityFeedResidentStore(*residentStore, tr.frameCount);
     }
 
@@ -897,7 +926,8 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             continue;
         }
         ++stats.reachableAreas;
-        if (areaIndex < 0 || areaIndex >= renderWorld->numPortalAreas)
+        const int areaCount = frontendSnapshot ? frontendSnapshot->numAreas : renderWorld->numPortalAreas;
+        if (areaIndex < 0 || areaIndex >= areaCount)
         {
             continue;
         }
@@ -935,8 +965,10 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
         };
         const int areaVisitStartMs = Sys_Milliseconds();
         OPTICK_EVENT_DYNAMIC(beyondViewArea ? "PT EntityFeed Visit BeyondView" : "PT EntityFeed Visit PlayerArea");
-        portalArea_t* area = &renderWorld->portalAreas[areaIndex];
-        for (areaReference_t* ref = area->entityRefs.areaNext; ref != &area->entityRefs; ref = ref->areaNext)
+        areaReference_t* areaHead = frontendSnapshot
+            ? &frontendSnapshot->areaHeads[areaIndex]
+            : &renderWorld->portalAreas[areaIndex].entityRefs;
+        for (areaReference_t* ref = areaHead->areaNext; ref != areaHead; ref = ref->areaNext)
         {
             if (beyondViewArea)
             {
@@ -951,10 +983,14 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             {
                 continue;
             }
-            if (entity->world != renderWorld ||
-                entity->index < 0 ||
-                entity->index >= renderWorld->entityDefs.Num() ||
-                renderWorld->entityDefs[entity->index] != entity)
+            const auto snapshotEntityIt = snapshotEntities.find(entity);
+            const RtPathTraceEntityFeedFrameEntity* frameEntity =
+                snapshotEntityIt != snapshotEntities.end() ? snapshotEntityIt->second : nullptr;
+            if (!frameEntity &&
+                (entity->world != renderWorld ||
+                 entity->index < 0 ||
+                 entity->index >= renderWorld->entityDefs.Num() ||
+                 renderWorld->entityDefs[entity->index] != entity))
             {
                 continue;
             }
@@ -981,13 +1017,20 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             {
                 continue;
             }
-            PtRenderDefKey entityRenderDefKey;
-            uint32_t entityModelEpoch = 0;
+            PtRenderDefKey entityRenderDefKey =
+                frameEntity ? frameEntity->renderDefKey : PtRenderDefKey();
+            uint32_t entityModelEpoch = frameEntity ? frameEntity->modelEpoch : 0;
             uint64 entityMaterialTokenBase = 0;
             EntityFeedResidentEntitySlot* residentEntitySlot = nullptr;
             if (residentStore)
             {
-                entityRenderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+                if (!frameEntity)
+                {
+                    entityRenderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+                    entityModelEpoch = PtGeometryLifecycle::EntityModelEpoch(
+                        entityRenderDefKey.world,
+                        entityRenderDefKey.index);
+                }
                 residentEntitySlot = FindOrCreateEntityFeedResidentEntitySlot(residentStore, entityRenderDefKey);
                 if (residentEntitySlot)
                 {
@@ -996,7 +1039,6 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                         continue;
                     }
                     residentEntitySlot->lastScannedFrame = tr.frameCount;
-                    entityModelEpoch = PtGeometryLifecycle::EntityModelEpoch(entityRenderDefKey.world, entityRenderDefKey.index);
                     entityMaterialTokenBase = EntityFeedEntityMaterialTokenBase(renderEntity);
                 }
             }
@@ -1088,7 +1130,14 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 bool visibleDrawSurf = false;
                 {
                     OPTICK_EVENT("PT EntityFeed Capture Visible Test");
-                    visibleDrawSurf = EntityFeedSurfaceHasVisibleDrawSurf(visibleDrawSurfs, entity, surfaceIndex, tri, material);
+                    const idRenderEntityLocal* visibleIdentity =
+                        frameEntity ? frameEntity->sourceIdentity : entity;
+                    visibleDrawSurf = EntityFeedSurfaceHasVisibleDrawSurf(
+                        visibleDrawSurfs,
+                        visibleIdentity,
+                        surfaceIndex,
+                        tri,
+                        material);
                 }
                 if (promotedEmissiveCard && visibleDrawSurf)
                 {
@@ -1169,7 +1218,9 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                         memcpy(captured.objectToWorld, entity->modelMatrix, sizeof(captured.objectToWorld));
                         captured.distance = distance;
                         captured.projectedSize = EntityFeedProjectedSizeProxy(entity, distance);
-                        captured.onScreen = entity->viewCount == tr.viewCount;
+                        captured.onScreen = frameEntity
+                            ? frameEntity->onScreen
+                            : entity->viewCount == tr.viewCount;
                         captured.emissive = residentRecord->emissive;
                         captured.materialName = residentRecord->materialName;
                         captured.modelName = residentRecord->modelName;
@@ -1228,8 +1279,16 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 uint32_t modelEpoch = entityModelEpoch;
                 if (!residentEntitySlot)
                 {
-                    renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
-                    modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
+                    if (frameEntity)
+                    {
+                        renderDefKey = frameEntity->renderDefKey;
+                        modelEpoch = frameEntity->modelEpoch;
+                    }
+                    else
+                    {
+                        renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+                        modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
+                    }
                 }
                 uint32_t sourceFlags = RT_PT_INSTANCE_SOURCE_RIGID | RT_PT_INSTANCE_SOURCE_ENTITY_FEED;
                 if (renderEntity.customShader != nullptr || renderEntity.customSkin != nullptr)
@@ -1280,7 +1339,9 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     memcpy(captured.objectToWorld, entity->modelMatrix, sizeof(captured.objectToWorld));
                     captured.distance = distance;
                     captured.projectedSize = EntityFeedProjectedSizeProxy(entity, distance);
-                    captured.onScreen = entity->viewCount == tr.viewCount;
+                    captured.onScreen = frameEntity
+                        ? frameEntity->onScreen
+                        : entity->viewCount == tr.viewCount;
                     {
                         OPTICK_EVENT("PT EntityFeed Capture Material Facts");
                         captured.emissive = EntityFeedMaterialIsEmissiveCached(materialCache, materialId);
@@ -1478,6 +1539,200 @@ EntityFeedReachableAreaSet BuildEntityFeedReachableAreaSet(const viewDef_t* view
 
 }
 
+void CapturePathTraceEntityFeedFrameSnapshot(viewDef_t* viewDef)
+{
+    if (!viewDef)
+    {
+        return;
+    }
+    viewDef->pathTraceEntityFeedSnapshot = nullptr;
+
+    if (r_pathTracing.GetInteger() == 0 || r_pathTracingEntityFeed.GetInteger() == 0)
+    {
+        return;
+    }
+
+    idRenderWorldLocal* renderWorld = viewDef->renderWorld;
+    if (!renderWorld)
+    {
+        return;
+    }
+
+    const EntityFeedReachableAreaSet reachableAreaSet = BuildEntityFeedReachableAreaSet(
+        viewDef,
+        r_pathTracingEntityFeedMaxDepth.GetInteger(),
+        r_pathTracingEntityFeedMaxDistance.GetFloat());
+    const int areaCount = static_cast<int>(reachableAreaSet.reachableAreas.size());
+    if (areaCount <= 0)
+    {
+        return;
+    }
+
+    struct SnapshotSource
+    {
+        idRenderEntityLocal* entity = nullptr;
+        PtRenderDefKey renderDefKey;
+        uint32_t modelEpoch = 0;
+        int currentArea = -1;
+        int areaDepth = -1;
+        bool onScreen = false;
+    };
+
+    std::vector<SnapshotSource> sources;
+    std::unordered_set<const idRenderEntityLocal*> seenEntities;
+    sources.reserve(renderWorld->entityDefs.Num());
+    seenEntities.reserve(renderWorld->entityDefs.Num());
+
+    // This is deliberately a frontend-only walk. The snapshot crosses the
+    // command boundary; the mutable portal links and entityDefs do not.
+    for (int areaIndex = 0; areaIndex < areaCount; ++areaIndex)
+    {
+        if (!reachableAreaSet.reachableAreas[areaIndex] ||
+            areaIndex < 0 ||
+            areaIndex >= renderWorld->numPortalAreas)
+        {
+            continue;
+        }
+
+        portalArea_t* area = &renderWorld->portalAreas[areaIndex];
+        for (areaReference_t* ref = area->entityRefs.areaNext;
+             ref != &area->entityRefs;
+             ref = ref->areaNext)
+        {
+            idRenderEntityLocal* entity = ref ? ref->entity : nullptr;
+            if (!entity || !seenEntities.insert(entity).second)
+            {
+                continue;
+            }
+            if (entity->world != renderWorld ||
+                entity->index < 0 ||
+                entity->index >= renderWorld->entityDefs.Num() ||
+                renderWorld->entityDefs[entity->index] != entity)
+            {
+                continue;
+            }
+
+            const renderEntity_t& renderEntity = entity->parms;
+            idRenderModel* model = renderEntity.hModel;
+            if (!model ||
+                renderEntity.callback != nullptr ||
+                renderEntity.forceUpdate != 0 ||
+                renderEntity.joints != nullptr ||
+                renderEntity.numJoints > 0 ||
+                renderEntity.weaponDepthHack ||
+                renderEntity.modelDepthHack != 0.0f ||
+                entity->dynamicModel != nullptr ||
+                entity->cachedDynamicModel != nullptr ||
+                model->IsStaticWorldModel() ||
+                model->IsDynamicModel() != DM_STATIC ||
+                !model->ModelHasDrawingSurfaces() ||
+                model->NumSurfaces() <= 0)
+            {
+                continue;
+            }
+
+            SnapshotSource source;
+            source.entity = entity;
+            source.renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+            source.modelEpoch = PtGeometryLifecycle::EntityModelEpoch(
+                source.renderDefKey.world,
+                source.renderDefKey.index);
+            source.currentArea = areaIndex;
+            source.areaDepth = EntityFeedAreaDepth(reachableAreaSet.areaDepth, areaIndex);
+            source.onScreen = entity->viewCount == tr.viewCount;
+            sources.push_back(source);
+        }
+    }
+
+    void* snapshotMemory = R_ClearedFrameAlloc(
+        sizeof(RtPathTraceEntityFeedFrameSnapshot),
+        FRAME_ALLOC_VIEW_DEF);
+    RtPathTraceEntityFeedFrameSnapshot* snapshot =
+        new (snapshotMemory) RtPathTraceEntityFeedFrameSnapshot();
+    snapshot->mapLoadSerial = renderWorld->mapLoadSerial;
+    snapshot->numAreas = areaCount;
+    snapshot->entityCount = static_cast<int>(sources.size());
+    snapshot->reachableAreas = static_cast<bool*>(R_FrameAlloc(
+        areaCount * sizeof(snapshot->reachableAreas[0]),
+        FRAME_ALLOC_VIEW_DEF));
+    snapshot->areaDepth = static_cast<int*>(R_FrameAlloc(
+        areaCount * sizeof(snapshot->areaDepth[0]),
+        FRAME_ALLOC_VIEW_DEF));
+    snapshot->areaHeads = static_cast<areaReference_t*>(R_ClearedFrameAlloc(
+        areaCount * sizeof(snapshot->areaHeads[0]),
+        FRAME_ALLOC_VIEW_ENTITY));
+    for (int areaIndex = 0; areaIndex < areaCount; ++areaIndex)
+    {
+        snapshot->reachableAreas[areaIndex] = reachableAreaSet.reachableAreas[areaIndex];
+        snapshot->areaDepth[areaIndex] = reachableAreaSet.areaDepth[areaIndex];
+        snapshot->areaHeads[areaIndex].areaNext = &snapshot->areaHeads[areaIndex];
+        snapshot->areaHeads[areaIndex].areaPrev = &snapshot->areaHeads[areaIndex];
+    }
+
+    if (snapshot->entityCount > 0)
+    {
+        snapshot->entities = static_cast<RtPathTraceEntityFeedFrameEntity*>(R_FrameAlloc(
+            snapshot->entityCount * sizeof(snapshot->entities[0]),
+            FRAME_ALLOC_VIEW_ENTITY));
+    }
+
+    for (int entityIndex = 0; entityIndex < snapshot->entityCount; ++entityIndex)
+    {
+        const SnapshotSource& source = sources[entityIndex];
+        RtPathTraceEntityFeedFrameEntity* destination =
+            new (&snapshot->entities[entityIndex]) RtPathTraceEntityFeedFrameEntity();
+        idRenderEntityLocal& clone = destination->entity;
+
+        clone.parms = source.entity->parms;
+        clone.parms.callback = nullptr;
+        clone.parms.callbackData = nullptr;
+        clone.parms.referenceSound = nullptr;
+        for (int guiIndex = 0; guiIndex < MAX_RENDERENTITY_GUI; ++guiIndex)
+        {
+            clone.parms.gui[guiIndex] = nullptr;
+        }
+        clone.parms.remoteRenderView = nullptr;
+        clone.parms.numJoints = 0;
+        clone.parms.joints = nullptr;
+
+        memcpy(clone.modelMatrix, source.entity->modelMatrix, sizeof(clone.modelMatrix));
+        clone.modelRenderMatrix = source.entity->modelRenderMatrix;
+        clone.inverseBaseModelProject = source.entity->inverseBaseModelProject;
+        clone.world = source.entity->world;
+        clone.index = source.entity->index;
+        clone.lastModifiedFrameNum = source.entity->lastModifiedFrameNum;
+        clone.dynamicModel = nullptr;
+        clone.dynamicModelFrameCount = 0;
+        clone.cachedDynamicModel = nullptr;
+        clone.localReferenceBounds = source.entity->localReferenceBounds;
+        clone.globalReferenceBounds = source.entity->globalReferenceBounds;
+        clone.viewCount = source.entity->viewCount;
+        clone.viewEntity = nullptr;
+        clone.decals = nullptr;
+        clone.overlays = nullptr;
+        clone.entityRefs = nullptr;
+        clone.firstInteraction = nullptr;
+        clone.lastInteraction = nullptr;
+        clone.needsPortalSky = source.entity->needsPortalSky;
+
+        destination->sourceIdentity = source.entity;
+        destination->renderDefKey = source.renderDefKey;
+        destination->modelEpoch = source.modelEpoch;
+        destination->currentArea = source.currentArea;
+        destination->areaDepth = source.areaDepth;
+        destination->onScreen = source.onScreen;
+
+        areaReference_t* areaHead = &snapshot->areaHeads[source.currentArea];
+        destination->areaRef.entity = &clone;
+        destination->areaRef.areaPrev = areaHead->areaPrev;
+        destination->areaRef.areaNext = areaHead;
+        areaHead->areaPrev->areaNext = &destination->areaRef;
+        areaHead->areaPrev = &destination->areaRef;
+    }
+
+    viewDef->pathTraceEntityFeedSnapshot = snapshot;
+}
+
 std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int maxDepth, float maxDistance)
 {
     return BuildEntityFeedReachableAreaSet(viewDef, maxDepth, maxDistance).reachableAreas;
@@ -1486,7 +1741,7 @@ std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int ma
 void DumpEntityFeedSingleBoneDiagnostics(const viewDef_t* viewDef)
 {
     static int lastDumpFrame = -120;
-    if (r_pathTracingEntityFeedDump.GetInteger() == 0)
+    if (r_pathTracingEntityFeedDump.GetInteger() == 0 || com_smp.GetBool())
     {
         return;
     }
@@ -1549,7 +1804,7 @@ void DumpEntityFeedSingleBoneDiagnostics(const viewDef_t* viewDef)
 
 void DumpEntityFeedJointAdvanceProbe(const viewDef_t* viewDef)
 {
-    if (r_pathTracingEntityFeedDump.GetInteger() == 0)
+    if (r_pathTracingEntityFeedDump.GetInteger() == 0 || com_smp.GetBool())
     {
         return;
     }
@@ -1588,7 +1843,7 @@ void DumpEntityFeedJointAdvanceProbe(const viewDef_t* viewDef)
 
 void DumpEntityFeedReachableCandidateStats(const viewDef_t* viewDef)
 {
-    if (r_pathTracingEntityFeedDump.GetInteger() == 0)
+    if (r_pathTracingEntityFeedDump.GetInteger() == 0 || com_smp.GetBool())
     {
         return;
     }
@@ -1676,14 +1931,12 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
     {
         return;
     }
-    // This producer runs in the backend. With com_smp enabled, the frontend
-    // can unlink and recycle portal areaReference_t nodes, update entityDefs,
-    // and free idRenderEntityLocal objects while the backend consumes the
-    // previous frame. RenderCommon.h explicitly forbids backend entityDef
-    // dereferences for that reason. Until the entity feed is carried through
-    // a frontend-owned frame snapshot, fail closed instead of racing the
-    // mutable portal/entity lists.
-    if (com_smp.GetBool())
+    const RtPathTraceEntityFeedFrameSnapshot* frontendSnapshot =
+        viewDef ? viewDef->pathTraceEntityFeedSnapshot : nullptr;
+    // The backend may use the legacy live walk only when it is not concurrent
+    // with the frontend. SMP requires the immutable snapshot attached to this
+    // exact view command.
+    if (com_smp.GetBool() && !frontendSnapshot)
     {
         static bool warnedUnsafeSmpFeed = false;
         if (!warnedUnsafeSmpFeed)
@@ -1691,7 +1944,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
             warnedUnsafeSmpFeed = true;
             common->Warning(
                 "PathTracePrimaryPass: entityFeed disabled while com_smp=1; "
-                "backend portal/entityDef traversal requires a frontend frame snapshot");
+                "frontend frame snapshot is missing");
         }
         return;
     }
@@ -1703,6 +1956,17 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
     }
 
     EntityFeedReachableAreaSet reachableAreaSet;
+    if (frontendSnapshot)
+    {
+        reachableAreaSet.reachableAreas.reserve(frontendSnapshot->numAreas);
+        reachableAreaSet.areaDepth.reserve(frontendSnapshot->numAreas);
+        for (int areaIndex = 0; areaIndex < frontendSnapshot->numAreas; ++areaIndex)
+        {
+            reachableAreaSet.reachableAreas.push_back(frontendSnapshot->reachableAreas[areaIndex]);
+            reachableAreaSet.areaDepth.push_back(frontendSnapshot->areaDepth[areaIndex]);
+        }
+    }
+    else
     {
         OPTICK_EVENT("PT EntityFeed Reachable Areas");
         reachableAreaSet = BuildEntityFeedReachableAreaSet(
@@ -1732,6 +1996,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
     const std::vector<EntityFeedCapturedRigidSurface> capturedSurfaces = CaptureEntityFeedRigidSurfaces(
         viewDef,
         renderWorld,
+        frontendSnapshot,
         reachableAreaSet.reachableAreas,
         reachableAreaSet.areaDepth,
         visibleDrawSurfs,
@@ -1771,6 +2036,16 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
 
     if (r_pathTracingEntityFeedDump.GetInteger() != 0)
     {
+        static int lastSnapshotDumpFrame = -120;
+        if (frontendSnapshot && tr.frameCount - lastSnapshotDumpFrame >= 120)
+        {
+            lastSnapshotDumpFrame = tr.frameCount;
+            common->Printf(
+                "PathTracePrimaryPass: PT entityFeed snapshot mapSerial=%llu areas=%d entities=%d\n",
+                static_cast<unsigned long long>(frontendSnapshot->mapLoadSerial),
+                frontendSnapshot->numAreas,
+                frontendSnapshot->entityCount);
+        }
         DumpEntityFeedStats(stats);
     }
     DumpEntityFeedResidencyStatsIfNeeded(stats);
