@@ -19,6 +19,7 @@ enum class PtJointCacheCopyPlanResult : std::uint32_t
     ArithmeticOverflow,
     SourceRangeMismatch,
     SourceMisaligned,
+    SourceBufferBoundsExceeded,
     DestinationMisaligned,
     CapacityExceeded
 };
@@ -27,6 +28,7 @@ struct PtJointCacheCopyRequest
 {
     PtCanonicalInstanceKey instance;
     std::uint64_t sourceBufferIdentity = 0;
+    std::uint64_t sourceBufferBytes = 0;
     std::uint64_t sourceOffsetBytes = 0;
     std::uint64_t sourceRangeBytes = 0;
     std::uint64_t jointCount = 0;

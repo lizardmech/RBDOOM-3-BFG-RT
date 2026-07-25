@@ -1,6 +1,7 @@
 GEO-07 - authoritative jointCache GPU skinning entry audit
 ==========================================================
-Status: entry audit and slices 1-2 complete; slice 2 runtime acceptance pending.
+Status: slices 1-2 accepted; slice 3 current-joint copy implemented with
+runtime acceptance pending.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 030ac8c20.
@@ -392,3 +393,105 @@ Runtime acceptance for slice 2:
   require copyPlan new + reused = jointCache resolved;
   require copyPlan bytes <= resolved range bytes;
   retain all slice 1 range, funnel and GEO-03 parity requirements.
+
+SLICE 2 RUNTIME ACCEPTANCE - GEOMETRY_GEO40 (2026-07-25)
+---------------------------------------------------------
+Crowded animated area, frame 2360:
+
+  candidates:
+    8
+  canonical instance/history owner:
+    8/8
+  jointCache present/resolved/stale:
+    8/8/0
+  range match/mismatch/bytes:
+    8/0/17088
+  copy plan new/reused/rejected/bytes:
+    8/0/0/17088
+  funnel dispatched/resultTotal/exact:
+    8/8/1
+
+Every planned destination was contiguous in 48-byte matrix units:
+
+  0, 2016, 4032, 6048, 9024, 12000, 14976, 15072
+
+The final range ended at byte 17088 exactly. No resolved byte was lost or
+overrun.
+
+GEO-03 parity remained accepted:
+
+  current/previous vertices:
+    2691/2691
+  samples:
+    24
+  current/previous/motion failures:
+    0/0/0
+  non-finite outputs:
+    0
+  max current/previous/motion error:
+    0.0000610351562/0/0.0000610351562
+  pass:
+    1
+
+Result:
+
+  PASS - checked compact-copy planning is accepted for live renderer ranges.
+
+SLICE 3 AUTHORITATIVE CURRENT-JOINT COPY (2026-07-25)
+------------------------------------------------------
+Implemented behind the existing default-off master gate. When the gate and
+r_pathTracingGpuSkinning mode 1 or 2 are both active:
+
+  resolve every accepted dispatch's jointCache on the backend;
+  validate canonical instance, jointCount * 48, 16-byte source alignment,
+    underlying renderer-buffer bounds, compact capacity and uint32 shader
+    matrix offset;
+  allocate/reuse the existing PT current-joint buffer at the exact planned
+    compact byte size;
+  skip the CPU upload for that current-joint buffer;
+  submit one same-command-list GPU copy for every unique accepted plan;
+  transition the compact destination to ShaderResource;
+  bind it as the existing PathTraceSkinnedJointMatrix current input;
+  run the unchanged GPU skinning shader and GEO-03 readback.
+
+The planner now also takes the underlying renderer buffer byte size and rejects
+a resolved subrange whose end exceeds that buffer. The CPU harness covers this
+failure.
+
+Failure remains non-authoritative:
+
+  if planning is incomplete, the existing CPU-copied joint input remains;
+  if pre-submit validation fails, the comparison dispatch is suppressed;
+  CPU pre-skinning still produces the live dynamic geometry in every case;
+  mode 1 remains a separate comparison output;
+  no CPU-skin skip, dynamic BLAS input change, or traversal cutover occurs.
+
+The one-shot GEO07 audit now reports:
+
+  stage requested/ready/submitted/copies/bytes;
+  route=authoritative-current-copy only after all planned copies were
+    submitted;
+  the existing independent late range/plan audit and exact funnel totals.
+
+Offline verification:
+
+  PathTraceJointCacheCopyPlanHarness:
+    PASS
+  cmake --build --preset win64-pt-dev-release:
+    PASS
+  all SPIR-V shaders:
+    up to date; no shader source or blob changed
+  deployed executable:
+    15678464 bytes
+    2026-07-25 11:12:52 Australia/Sydney
+    SHA-256 E610ED730FD9EB82318E7BE0EB007F7A16BC491AA26FB4E756365CCF553AE911
+
+Runtime acceptance for slice 3:
+
+  repeat the geometry_geo40 one-shot commands in mode 1;
+  require stage requested/ready/submitted = 1/1/1;
+  require stage copies = copyPlan new;
+  require stage bytes = copyPlan bytes = resolved bytes;
+  require route=authoritative-current-copy;
+  retain range rejected/stale = 0, exact funnel accounting and GEO-03 parity
+    pass.

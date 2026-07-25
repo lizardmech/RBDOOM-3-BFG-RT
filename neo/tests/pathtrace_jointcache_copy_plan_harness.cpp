@@ -40,6 +40,7 @@ PtJointCacheCopyRequest MakeRequest(
     PtJointCacheCopyRequest request;
     request.instance = instance;
     request.sourceBufferIdentity = sourceBuffer;
+    request.sourceBufferBytes = 4096;
     request.sourceOffsetBytes = sourceOffset;
     request.sourceRangeBytes =
         jointCount * PT_JOINT_CACHE_MATRIX_BYTES;
@@ -123,10 +124,17 @@ void TestOverflowAlignmentAndRangeMismatch()
         2,
         std::numeric_limits<std::uint64_t>::max() - 47,
         2);
+    request.sourceBufferBytes = std::numeric_limits<std::uint64_t>::max();
     Expect(
         PtPlanJointCacheCopy(planner, request, plan) ==
             PtJointCacheCopyPlanResult::ArithmeticOverflow,
         "source range end must reject uint64 overflow");
+
+    request = MakeRequest(MakeInstance(20, 0), 2, 4080, 1);
+    Expect(
+        PtPlanJointCacheCopy(planner, request, plan) ==
+            PtJointCacheCopyPlanResult::SourceBufferBoundsExceeded,
+        "resolved source range must fit the renderer buffer");
 
     Expect(
         PtInitializeJointCacheCopyPlanner(planner, 4096, 16) ==

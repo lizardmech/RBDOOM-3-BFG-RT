@@ -122,6 +122,10 @@ PtJointCacheCopyPlanResult PtPlanJointCacheCopy(
     {
         return PtJointCacheCopyPlanResult::ArithmeticOverflow;
     }
+    if (sourceEndBytes > request.sourceBufferBytes)
+    {
+        return PtJointCacheCopyPlanResult::SourceBufferBoundsExceeded;
+    }
     if (planner.usedBytes % PT_JOINT_CACHE_MATRIX_BYTES != 0)
     {
         return PtJointCacheCopyPlanResult::DestinationMisaligned;
@@ -181,6 +185,8 @@ const char* PtJointCacheCopyPlanResultName(
             return "source-range-mismatch";
         case PtJointCacheCopyPlanResult::SourceMisaligned:
             return "source-misaligned";
+        case PtJointCacheCopyPlanResult::SourceBufferBoundsExceeded:
+            return "source-buffer-bounds-exceeded";
         case PtJointCacheCopyPlanResult::DestinationMisaligned:
             return "destination-misaligned";
         case PtJointCacheCopyPlanResult::CapacityExceeded:

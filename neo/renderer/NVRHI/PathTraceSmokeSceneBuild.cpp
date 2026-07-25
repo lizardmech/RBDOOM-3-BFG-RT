@@ -2455,6 +2455,31 @@ struct RtSmokeSkinnedGpuScaffoldBuild
     int singleBoneObserved = 0;
 };
 
+struct RtSmokeJointCacheStageCopy
+{
+    nvrhi::BufferHandle sourceBuffer;
+    uint64 sourceOffsetBytes = 0;
+    uint64 destinationOffsetBytes = 0;
+    uint64 byteCount = 0;
+    size_t dispatchIndex = 0;
+};
+
+struct RtSmokeJointCacheStageBuild
+{
+    bool requested = false;
+    bool ready = false;
+    bool submitted = false;
+    PtJointCacheCopyPlanner planner;
+    std::vector<PtJointCacheCopyPlanResult> dispatchResults;
+    std::vector<PtJointCacheCopyPlan> dispatchPlans;
+    std::vector<RtSmokeJointCacheStageCopy> copies;
+    int accepted = 0;
+    int rejected = 0;
+    int resolved = 0;
+    int stale = 0;
+    uint64 submittedBytes = 0;
+};
+
 const char* SmokeSkinnedGpuResultName(RtSmokeSkinnedGpuScaffoldBuild::Result result)
 {
     using Result = RtSmokeSkinnedGpuScaffoldBuild::Result;
@@ -2521,6 +2546,7 @@ void FinalizeSmokeSkinnedGpuFunnel(
 
 void DumpSmokeSkinnedGpuFunnel(
     const RtSmokeSkinnedGpuScaffoldBuild& build,
+    const RtSmokeJointCacheStageBuild& jointCacheStage,
     const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
     int mode,
     uint64 frameIndex)
@@ -2632,6 +2658,11 @@ void DumpSmokeSkinnedGpuFunnel(
         copyRequest.sourceBufferIdentity = static_cast<uint64>(
             reinterpret_cast<std::uintptr_t>(
                 jointRange.GetAPIObject()));
+        copyRequest.sourceBufferBytes =
+            jointRange.GetAPIObject()
+                ? static_cast<uint64>(
+                    jointRange.GetAPIObject()->getDesc().byteSize)
+                : 0;
         copyRequest.sourceOffsetBytes =
             static_cast<uint64>(jointRange.GetOffset());
         copyRequest.sourceRangeBytes = rangeBytes;
@@ -2658,7 +2689,7 @@ void DumpSmokeSkinnedGpuFunnel(
         }
     }
     common->Printf(
-        "PathTracePrimaryPass: GEO07 jointCache audit frame=%llu gate=%d candidates=%llu canonicalInstance/historyOwner=%d/%d handle(present/resolved/stale)=%d/%d/%d range(match/mismatch/bytes)=%d/%d/%llu buffers=%llu copyPlan(new/reused/rejected/bytes)=%d/%d/%d/%llu source=renderer-drawList-jointCache route=plan-only\n",
+        "PathTracePrimaryPass: GEO07 jointCache audit frame=%llu gate=%d candidates=%llu canonicalInstance/historyOwner=%d/%d handle(present/resolved/stale)=%d/%d/%d range(match/mismatch/bytes)=%d/%d/%llu buffers=%llu copyPlan(new/reused/rejected/bytes)=%d/%d/%d/%llu stage(requested/ready/submitted/copies/bytes)=%d/%d/%d/%llu/%llu source=renderer-drawList-jointCache route=%s\n",
         static_cast<unsigned long long>(frameIndex),
         r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() != 0
             ? 1
@@ -2677,7 +2708,17 @@ void DumpSmokeSkinnedGpuFunnel(
         copyPlanNew,
         copyPlanReused,
         copyPlanRejected,
-        static_cast<unsigned long long>(copyPlanner.usedBytes));
+        static_cast<unsigned long long>(copyPlanner.usedBytes),
+        jointCacheStage.requested ? 1 : 0,
+        jointCacheStage.ready ? 1 : 0,
+        jointCacheStage.submitted ? 1 : 0,
+        static_cast<unsigned long long>(
+            jointCacheStage.copies.size()),
+        static_cast<unsigned long long>(
+            jointCacheStage.submittedBytes),
+        jointCacheStage.submitted
+            ? "authoritative-current-copy"
+            : "plan-only");
 
     int detailCount = 0;
     for (int pass = 0; pass < 2 && detailCount < 16; ++pass)
@@ -3256,6 +3297,212 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
     return build;
 }
 
+RtSmokeJointCacheStageBuild BuildSmokeJointCacheStage(
+    bool requested,
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
+    RtSmokeSkinnedGpuScaffoldBuild& scaffold)
+{
+    RtSmokeJointCacheStageBuild stage;
+    stage.requested = requested;
+    if (!requested)
+    {
+        return stage;
+    }
+
+    uint64 capacityBytes = 0;
+    if (!PtCheckedMulU64(
+            static_cast<uint64>(scaffold.currentJointMatrices.size()),
+            PT_JOINT_CACHE_MATRIX_BYTES,
+            capacityBytes) ||
+        PtInitializeJointCacheCopyPlanner(
+            stage.planner,
+            capacityBytes) != PtJointCacheCopyPlanResult::PlannedCopy)
+    {
+        stage.rejected =
+            static_cast<int>(scaffold.dispatchRecords.size());
+        return stage;
+    }
+
+    stage.dispatchResults.assign(
+        scaffold.dispatchRecords.size(),
+        PtJointCacheCopyPlanResult::InvalidState);
+    stage.dispatchPlans.resize(scaffold.dispatchRecords.size());
+    for (size_t dispatchIndex = 0;
+        dispatchIndex < scaffold.dispatchRecords.size();
+        ++dispatchIndex)
+    {
+        const PathTraceSkinnedSurfaceDispatchRecord& dispatch =
+            scaffold.dispatchRecords[dispatchIndex];
+        if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS) == 0u ||
+            dispatch.surfaceRecordIndex >= records.size())
+        {
+            ++stage.rejected;
+            continue;
+        }
+
+        const RtSmokeSkinnedSurfaceRecord& record =
+            records[dispatch.surfaceRecordIndex];
+        idUniformBuffer jointRange;
+        if (record.jointCacheHandle == 0 ||
+            !vertexCache.GetJointBuffer(
+                static_cast<vertCacheHandle_t>(
+                    record.jointCacheHandle),
+                &jointRange))
+        {
+            ++stage.stale;
+            ++stage.rejected;
+            continue;
+        }
+        ++stage.resolved;
+
+        nvrhi::IBuffer* sourceBuffer = jointRange.GetAPIObject();
+        PtJointCacheCopyRequest request;
+        request.instance = record.canonicalInstance;
+        request.sourceBufferIdentity = static_cast<uint64>(
+            reinterpret_cast<std::uintptr_t>(sourceBuffer));
+        request.sourceBufferBytes =
+            sourceBuffer
+                ? static_cast<uint64>(
+                    sourceBuffer->getDesc().byteSize)
+                : 0;
+        request.sourceOffsetBytes =
+            static_cast<uint64>(jointRange.GetOffset());
+        request.sourceRangeBytes =
+            static_cast<uint64>(jointRange.GetSize());
+        request.jointCount =
+            record.jointCount > 0
+                ? static_cast<uint64>(record.jointCount)
+                : 0;
+
+        PtJointCacheCopyPlan& plan =
+            stage.dispatchPlans[dispatchIndex];
+        const PtJointCacheCopyPlanResult result =
+            PtPlanJointCacheCopy(
+                stage.planner,
+                request,
+                plan);
+        stage.dispatchResults[dispatchIndex] = result;
+        if (result != PtJointCacheCopyPlanResult::PlannedCopy &&
+            result != PtJointCacheCopyPlanResult::ReusedCopy)
+        {
+            ++stage.rejected;
+            continue;
+        }
+
+        const uint64 destinationMatrixOffset =
+            plan.destinationOffsetBytes /
+                PT_JOINT_CACHE_MATRIX_BYTES;
+        if (plan.destinationOffsetBytes %
+                PT_JOINT_CACHE_MATRIX_BYTES != 0 ||
+            destinationMatrixOffset > UINT32_MAX)
+        {
+            stage.dispatchResults[dispatchIndex] =
+                PtJointCacheCopyPlanResult::DestinationMisaligned;
+            ++stage.rejected;
+            continue;
+        }
+
+        ++stage.accepted;
+        if (result == PtJointCacheCopyPlanResult::PlannedCopy)
+        {
+            RtSmokeJointCacheStageCopy copy;
+            copy.sourceBuffer = sourceBuffer;
+            copy.sourceOffsetBytes = plan.sourceOffsetBytes;
+            copy.destinationOffsetBytes =
+                plan.destinationOffsetBytes;
+            copy.byteCount = plan.byteCount;
+            copy.dispatchIndex = dispatchIndex;
+            stage.copies.push_back(copy);
+        }
+    }
+
+    stage.ready =
+        !stage.dispatchResults.empty() &&
+        stage.accepted ==
+            static_cast<int>(stage.dispatchResults.size()) &&
+        stage.rejected == 0 &&
+        !stage.copies.empty() &&
+        stage.planner.usedBytes != 0;
+    if (stage.ready)
+    {
+        for (size_t dispatchIndex = 0;
+            dispatchIndex < scaffold.dispatchRecords.size();
+            ++dispatchIndex)
+        {
+            scaffold.dispatchRecords[dispatchIndex].currentJointOffset =
+                static_cast<uint32_t>(
+                    stage.dispatchPlans[dispatchIndex].
+                        destinationOffsetBytes /
+                    PT_JOINT_CACHE_MATRIX_BYTES);
+        }
+    }
+    return stage;
+}
+
+bool SubmitSmokeJointCacheStageCopies(
+    nvrhi::ICommandList* commandList,
+    nvrhi::BufferHandle destinationBuffer,
+    RtSmokeJointCacheStageBuild& stage)
+{
+    stage.submitted = false;
+    stage.submittedBytes = 0;
+    if (!commandList ||
+        !destinationBuffer ||
+        !stage.ready ||
+        stage.copies.empty())
+    {
+        return false;
+    }
+
+    const uint64 destinationBufferBytes =
+        static_cast<uint64>(
+            destinationBuffer->getDesc().byteSize);
+    if (stage.planner.usedBytes > destinationBufferBytes)
+    {
+        return false;
+    }
+    for (const RtSmokeJointCacheStageCopy& copy : stage.copies)
+    {
+        if (!copy.sourceBuffer ||
+            copy.byteCount == 0 ||
+            copy.destinationOffsetBytes >
+                destinationBufferBytes ||
+            copy.byteCount >
+                destinationBufferBytes -
+                    copy.destinationOffsetBytes)
+        {
+            return false;
+        }
+        const uint64 sourceBufferBytes =
+            static_cast<uint64>(
+                copy.sourceBuffer->getDesc().byteSize);
+        if (copy.sourceOffsetBytes > sourceBufferBytes ||
+            copy.byteCount >
+                sourceBufferBytes - copy.sourceOffsetBytes)
+        {
+            return false;
+        }
+    }
+
+    for (const RtSmokeJointCacheStageCopy& copy : stage.copies)
+    {
+        commandList->copyBuffer(
+            destinationBuffer,
+            copy.destinationOffsetBytes,
+            copy.sourceBuffer,
+            copy.sourceOffsetBytes,
+            copy.byteCount);
+        stage.submittedBytes += copy.byteCount;
+    }
+    commandList->setBufferState(
+        destinationBuffer,
+        nvrhi::ResourceStates::ShaderResource);
+    commandList->commitBarriers();
+    stage.submitted =
+        stage.submittedBytes == stage.planner.usedBytes;
+    return stage.submitted;
+}
+
 int SmokeSkinnedGpuComputeVertexCount(const std::vector<PathTraceSkinnedSurfaceDispatchRecord>& dispatchRecords)
 {
     int vertexCount = 0;
@@ -3584,6 +3831,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<uint32_t> dynamicTriangleIdentityData;
     std::vector<RtSmokeSkinnedSurfaceRecord> currentSkinnedSurfaceRecords;
     RtSmokeSkinnedGpuScaffoldBuild skinnedGpuScaffold;
+    RtSmokeJointCacheStageBuild jointCacheStage;
     int sourceSurfaces = 0;
     int sourceVerts = 0;
     int sourceIndexes = 0;
@@ -3972,6 +4220,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         OPTICK_EVENT("PT Skinned Triangle Dispatch Index");
         BuildSmokeSkinnedTriangleDispatchIndex(skinnedGpuScaffold, static_cast<int>(dynamicIndexData.size() / 3));
+    }
+    {
+        OPTICK_EVENT("PT Skinned JointCache Stage Plan");
+        const bool authoritativeCurrentJointsRequested =
+            r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() != 0 &&
+            gpuSkinningMode > 0;
+        jointCacheStage = BuildSmokeJointCacheStage(
+            authoritativeCurrentJointsRequested,
+            currentSkinnedSurfaceRecords,
+            skinnedGpuScaffold);
     }
     {
         OPTICK_EVENT("PT Retain Skinned Joints");
@@ -5192,7 +5450,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.skinnedPreviousPositionBytes = skinnedGpuScaffold.previousPositions.size() * sizeof(PathTraceSkinnedPreviousPosition);
     bufferCreateDesc.skinnedSurfaceDispatchBytes = skinnedGpuScaffold.dispatchRecords.size() * sizeof(PathTraceSkinnedSurfaceDispatchRecord);
     bufferCreateDesc.skinnedTriangleDispatchIndexBytes = skinnedGpuScaffold.dynamicTriangleDispatchIndexes.size() * sizeof(uint32_t);
-    bufferCreateDesc.skinnedCurrentJointMatrixBytes = skinnedGpuScaffold.currentJointMatrices.size() * sizeof(PathTraceSkinnedJointMatrix);
+    bufferCreateDesc.skinnedCurrentJointMatrixBytes =
+        jointCacheStage.ready
+            ? static_cast<size_t>(
+                jointCacheStage.planner.usedBytes)
+            : skinnedGpuScaffold.currentJointMatrices.size() *
+                sizeof(PathTraceSkinnedJointMatrix);
     bufferCreateDesc.skinnedPreviousJointMatrixBytes = skinnedGpuScaffold.previousJointMatrices.size() * sizeof(PathTraceSkinnedJointMatrix);
     }
     RtSmokeSceneBufferCreateResult bufferCreateResult;
@@ -5207,6 +5470,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             DumpSmokeSkinnedGpuFunnel(
                 skinnedGpuScaffold,
+                jointCacheStage,
                 currentSkinnedSurfaceRecords,
                 gpuSkinningMode,
                 m_smokeGeometryFrameIndex);
@@ -5917,6 +6181,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     skinnedGpuScaffold.currentOutputVertices,
                     nvrhi::ResourceStates::ShaderResource,
                     false));
+    const RtSmokeBufferUploadItem skinnedCurrentJointUploadItem =
+        jointCacheStage.ready
+            ? MakeSmokeBufferStateItem(
+                smokeSkinnedCurrentJointMatrixBuffer,
+                nvrhi::ResourceStates::CopyDest)
+            : MakeSmokeVectorUploadItem(
+                smokeSkinnedCurrentJointMatrixBuffer,
+                skinnedGpuScaffold.currentJointMatrices,
+                nvrhi::ResourceStates::ShaderResource,
+                false);
 
     RtSmokeStaticVertexUploadPlanInput staticVertexUploadPlanInput;
     staticVertexUploadPlanInput.forceRebuildWithoutUpload = forceStaticBlasRebuildWithoutUpload;
@@ -5986,7 +6260,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeSkinnedPreviousPositionBuffer, *skinnedPreviousPositionUploadData, skinnedGpuComputeReady ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedSurfaceDispatchBuffer, skinnedGpuComputeDispatchRecords, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedTriangleDispatchIndexBuffer, skinnedGpuScaffold.dynamicTriangleDispatchIndexes, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokeSkinnedCurrentJointMatrixBuffer, skinnedGpuScaffold.currentJointMatrices, nvrhi::ResourceStates::ShaderResource, false),
+        skinnedCurrentJointUploadItem,
         MakeSmokeVectorUploadItem(smokeSkinnedPreviousJointMatrixBuffer, skinnedGpuScaffold.previousJointMatrices, nvrhi::ResourceStates::ShaderResource, false)
     };
     RtSmokeBufferUploadBatchDesc uploadBatchDesc;
@@ -6006,9 +6280,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
         }
     }
+    if (jointCacheStage.ready)
+    {
+        OPTICK_EVENT("PT Skinned JointCache Stage Copies");
+        if (!SubmitSmokeJointCacheStageCopies(
+                commandList,
+                smokeSkinnedCurrentJointMatrixBuffer,
+                jointCacheStage))
+        {
+            common->Printf(
+                "PathTracePrimaryPass: GEO07 renderer jointCache staging copy validation failed; GPU comparison dispatch suppressed\n");
+        }
+    }
+    const bool skinnedGpuJointInputReady =
+        !jointCacheStage.ready ||
+        jointCacheStage.submitted;
     {
         OPTICK_EVENT("PT Skinned GPU Compute Dispatch");
-        if (skinnedGpuComputeReady)
+        if (skinnedGpuComputeReady &&
+            skinnedGpuJointInputReady)
         {
             nvrhi::BufferHandle previousJointMatrixBuffer = smokeSkinnedPreviousJointMatrixBuffer ? smokeSkinnedPreviousJointMatrixBuffer : smokeSkinnedCurrentJointMatrixBuffer;
             const nvrhi::BufferHandle previousBoundPreviousJointMatrixBuffer =
@@ -6064,6 +6354,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         DumpSmokeSkinnedGpuFunnel(
             skinnedGpuScaffold,
+            jointCacheStage,
             currentSkinnedSurfaceRecords,
             gpuSkinningMode,
             geometryUniverseStats.frameIndex);

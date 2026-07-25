@@ -80,8 +80,9 @@ GEO-07 FILES
     Renderer jointCache production/format/lifetime audit, rejection of the
     global last-view temporal bridge, staged compact GPU-joint decision,
     authoritative job/fallback contract, ordered implementation slices,
-    geometry_geo39 entry acceptance, and the checked plan-only compact-copy
-    planner/harness contract.
+    geometry_geo39 entry acceptance, geometry_geo40 compact-plan acceptance,
+    and the default-off authoritative current-joint GPU-copy comparison
+    contract.
 
 NAMING
 ------

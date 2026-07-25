@@ -37,12 +37,13 @@ route consumes the new helpers yet.
       -> GEO-08 per-instance update/refit BLAS
       -> GEO-09 temporal/material/emissive integration and skinned promotion
 
-GEO-07 status 2026-07-25: slices 1 and 2 are implemented behind the default-off
+GEO-07 status 2026-07-25: slices 1 and 2 are accepted behind the default-off
 master gate. geometry_geo39 accepts live renderer jointCache range transport,
 canonical instance/history ownership, and retained GEO-03 current/previous
-numeric parity. Checked compact-copy planning and its CPU edge-case harness are
-complete; the deployed route remains plan-only pending one runtime dump. No GPU
-joint copy, authoritative dispatch, CPU-skin skip, or BLAS cutover is active.
+numeric parity. geometry_geo40 accepts checked compact-copy planning with exact
+8/8 range accounting and 17088 contiguous bytes. Slice 3 now submits those
+current-joint ranges to the existing GPU comparison shader; runtime acceptance
+is pending. CPU pre-skinning and legacy BLAS traversal remain authoritative.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
