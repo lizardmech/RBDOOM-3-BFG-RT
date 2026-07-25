@@ -7180,7 +7180,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 // initial sample directly. This intentionally bypasses the trace/shade split,
 // ray-query path, NEE-cache secondary path, and continuation bounce so Nsight
 // can compare a stripped producer shape against the existing staged producer.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_SIMPLE)
 [shader("raygeneration")]
+#endif
 void FirstIndirectSimpleRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7239,7 +7241,9 @@ void FirstIndirectSimpleRayGen()
 
 // Lean split baseline, pass A: keep the simple producer's constrained primary
 // normal sampling but only write the secondary surface and hit geometry.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_LEAN_TRACE)
 [shader("raygeneration")]
+#endif
 void FirstIndirectLeanTraceRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7288,7 +7292,9 @@ void FirstIndirectLeanTraceRayGen()
 
 // Lean split baseline, pass B: consume the trace G-buffer and run only the
 // stripped one-sample secondary shade used by the simple producer.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_LEAN_SHADE)
 [shader("raygeneration")]
+#endif
 void FirstIndirectLeanShadeRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7318,7 +7324,9 @@ void FirstIndirectLeanShadeRayGen()
 // Pass A of the producer trace/shade split: trace the indirect bounce, rebuild
 // the secondary surface, and stash it in CleanGiProducerSurfaceBuffer. No
 // direct lighting / shadow rays here, so this entry point stays narrow.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_TRACE)
 [shader("raygeneration")]
+#endif
 void FirstIndirectTraceRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7371,7 +7379,9 @@ void FirstIndirectTraceRayGen()
 // ray-query path currently covers glossy/specular-eligible surfaces correctly,
 // but rough diffuse surfaces need the known-good trace path until the pure
 // query producer is fixed.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_ROUGH_FALLBACK)
 [shader("raygeneration")]
+#endif
 void FirstIndirectTraceRoughFallbackRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7543,7 +7553,9 @@ void FirstIndirectTraceRoughFallbackRayGen()
 // already been directly shaded into ProducerRadiance, so this pass may reuse
 // the 144-byte surface buffer for the tertiary hit. The secondary BSDF weight
 // is reduced to a compact RGB throughput scratch value before the overwrite.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_CONTINUATION_TRACE)
 [shader("raygeneration")]
+#endif
 void FirstIndirectContinuationTraceRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7638,7 +7650,9 @@ void FirstIndirectContinuationTraceRayGen()
 // Continuation shade pass: consume only the packed tertiary surface plus the
 // compact secondary throughput. This kernel owns light selection and its
 // shadow ray; it contains no material TraceRay or hit reconstruction.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_CONTINUATION_SHADE)
 [shader("raygeneration")]
+#endif
 void FirstIndirectContinuationShadeRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7686,7 +7700,9 @@ void FirstIndirectContinuationShadeRayGen()
 
 // Combined continuation fallback used only by the optional split-specular
 // seed route, whose receiver metadata cannot reuse the normal producer output.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_CONTINUATION)
 [shader("raygeneration")]
+#endif
 void FirstIndirectContinuationRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7728,7 +7744,9 @@ void FirstIndirectContinuationRayGen()
 // Pass B of the producer trace/shade split: load the surface produced by the
 // trace pass and run the divergent direct-NEE (the 4-way light sampling +
 // shadow rays). Isolated from the bounce-trace/geometry machinery.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_SHADE)
 [shader("raygeneration")]
+#endif
 void FirstIndirectShadeRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7882,7 +7900,9 @@ void FirstIndirectShadeRayGen()
     SmokeOutput[pixel] = float4(color, 1.0);
 }
 
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_SHADE_FAST)
 [shader("raygeneration")]
+#endif
 void FirstIndirectShadeFastRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7921,7 +7941,9 @@ void FirstIndirectShadeFastRayGen()
 // broadening the temporal entry point. Always dispatched (it owns the INIT
 // clear the temporal contract depends on); the expensive seeds self-gate on
 // their cvars. Runs after the diffuse producer, before the temporal contract.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_SEED_NO_SPEC)
 [shader("raygeneration")]
+#endif
 void SeedNoSpecRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7944,7 +7966,9 @@ void SeedNoSpecRayGen()
     CleanGiSeedInitPageFromNeeCache(pixel, surfaceValid, record);
 }
 
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_SPECULAR_TRACE)
 [shader("raygeneration")]
+#endif
 void FirstIndirectSpecularTraceRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -7986,7 +8010,9 @@ void FirstIndirectSpecularTraceRayGen()
     CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
 }
 
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_SPECULAR_SHADE)
 [shader("raygeneration")]
+#endif
 void FirstIndirectSpecularShadeRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -8035,7 +8061,9 @@ void FirstIndirectSpecularShadeRayGen()
     CleanGiMergePackedSpecularSeedIntoInitPage(pixel, receiver, producer, RAB_GetNextRandom(rng));
 }
 
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FIRST_INDIRECT_SPECULAR_SHADE_FAST)
 [shader("raygeneration")]
+#endif
 void FirstIndirectSpecularShadeFastRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -8081,7 +8109,9 @@ void FirstIndirectSpecularShadeFastRayGen()
     CleanGiMergePackedSpecularSeedIntoInitPage(pixel, receiver, producer, RAB_GetNextRandom(rng));
 }
 
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_SEED)
 [shader("raygeneration")]
+#endif
 void SeedRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -8106,7 +8136,9 @@ void SeedRayGen()
     CleanGiSeedInitPageFromNeeCache(pixel, surfaceValid, record);
 }
 
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_REUSE)
 [shader("raygeneration")]
+#endif
 void ReuseRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;

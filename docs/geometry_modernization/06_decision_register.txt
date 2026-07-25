@@ -523,6 +523,52 @@ records 2/3 without changing either monolithic GI blob. No skinned comparison
 BLAS enters the shared TLAS until both mixed pipelines receive bounded runtime
 creation proof and the contribution planner has exact offline assertions.
 
+D36. GI RAYGEN PIPELINES WARM IN SOURCE-PARTITIONED, HOST-BOUNDED STEPS
+-----------------------------------------------------------------------
+Decision: the eager clean-GI Vulkan pipeline construction used by the first
+mixed-module checkpoint is rejected. Its first user run left Windows alive and
+the game progressing underneath, but starved system input badly enough that
+the machine had to be shut down with the power button. There was no Vulkan
+device-removed report and no new condump. This is a failed runtime gate, not an
+accepted slow first-load result.
+
+DXC export filtering is not the partition boundary: a filtered compile still
+spends minutes legalizing the monolithic source before pruning. Each of the
+sixteen GI raygeneration attributes is therefore source-gated. The Vulkan
+build emits one debug and one production library per raygen. Every library
+contains exactly:
+
+  its one intended raygeneration entry;
+  Miss and ShadowMiss;
+  AnyHit, ShadowAnyHit, ClosestHit, and ShadowClosestHit.
+
+The runtime creates one pipeline for one such library at a time. It orders
+lighter modules before heavier ones, leaves fifteen ordinary frames between
+pipeline builds, and does not overwrite the existing PT/DI output while
+warmup is incomplete. The Vulkan backend opts these pipelines into
+VK_KHR_deferred_host_operations with one joining thread and a one-millisecond
+yield between driver work units. If a driver completes synchronously, the
+small source-partitioned library remains the fallback bound.
+
+`r_pathTracingCleanRestirGiPipelineWarmupLimit` is the bounded validation gate.
+Its normal default is 16. Values 0 and 1 allow a user run to prove the base
+executable and then only the smallest pipeline build; values 2..15 stop after
+that many ordered modules. Raising the value resumes from the retained index.
+No partial limit makes GI dispatchable.
+
+Offline acceptance is exact: 32/32 blobs pass `spirv-val --target-env
+vulkan1.2`; all 32 have the seven-entry inventory above; their combined size
+is 24,526,784 bytes; and the largest single blob is 2,148,184 bytes. The
+monolithic debug and production hashes remain
+FDAEE58F4981A5ED662E89119FF7B87F9E629C05CE0AD6C064BFE1DF0D0B550A and
+425B224669C89E9FB5DA84E6F6B2CE94E354FD0F79B3E890F37C5FA85B799FFF.
+The release build and exact SBT contribution harness pass.
+
+D36 is not runtime-accepted. The lock-producing executable is superseded and
+must not be launched again. No comparison skinned BLAS enters a TLAS until a
+later, explicitly bounded user run proves the partitioned warmup preserves
+system responsiveness and reaches 16/16 initialization.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

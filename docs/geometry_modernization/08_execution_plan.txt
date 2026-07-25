@@ -255,6 +255,16 @@ and the release build pass while both monolithic GI blobs remain byte-exact.
 Step 7 remains blocked pending bounded mixed-pipeline runtime creation proof
 and exact offline SBT-contribution assertions.
 
+The contribution planner/harness now passes, but the first mixed-module runtime
+gate failed: eager clean-GI pipeline construction starved Windows input even
+though the process and operating system remained alive. D36 supersedes that
+build with sixteen source-partitioned Vulkan raygen pipelines per
+debug/production variant, a fifteen-frame inter-build gap, and one yielding
+deferred-host-operation joiner. A default-16 cvar can cap warmup at 0..15 for
+bounded incremental tests. The 32/32 exact SPIR-V validation gate and release
+build pass. Runtime acceptance, step 7, and comparison TLAS insertion remain
+blocked until user runs at limits 0, 1, then 16 prove responsive warmup.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

@@ -839,3 +839,79 @@ offline-only until a bounded user-run proves mixed-module Vulkan pipeline
 creation without broad smoke logging. Step 7 remains forbidden until that
 runtime proof passes and an exact offline SBT-contribution planner/harness
 proves legacy records 0/1 and skinned records 2/3 for every ray type.
+
+STEP 6B5 - FAILED RUNTIME GATE AND PARTITIONED GI WARMUP, OFFLINE
+-----------------------------------------------------------------
+Failed user-run evidence:
+
+  checkpoint behavior =
+    game remained alive/progressing underneath;
+    Windows lost all input during first-load pipeline work;
+    power-button request produced a normal shutdown;
+  Vulkan device removed = not reported
+  new condump = not recovered
+  disposition = eager mixed-module GI pipeline creation rejected
+
+The SBT contribution planner itself is accepted offline:
+
+  legacy primary/shadow records = 0/1
+  skinned primary/shadow records = 2/3
+  geometry index = 0
+  geometry multiplier = 1
+  unknown ray contribution / multi-geometry / insufficient table =
+    fail closed
+  PathTraceSkinnedHitRouteHarness = PASS
+
+Replacement architecture:
+
+  - all sixteen `[shader("raygeneration")]` attributes in the GI source have
+    independent source-level export masks;
+  - Vulkan CMake output contains one debug and one production library for each
+    raygen; no DX12 split output is built;
+  - one NVRHI ray pipeline and shader table is created per library;
+  - warmup builds only one pipeline, waits fifteen ordinary frames, then
+    attempts the next;
+  - `r_pathTracingCleanRestirGiPipelineWarmupLimit` defaults to 16, while
+    0..15 stop before or after that many ordered modules for bounded testing;
+  - modules are ordered from lighter to heavier and incomplete warmup preserves
+    the existing PT/DI output rather than clearing it magenta;
+  - split GI pipelines opt into Vulkan deferred host operations with one
+    joiner and a one-millisecond yield between driver work units;
+  - synchronous-driver fallback is still bounded by the source-partitioned
+    library instead of the 16-raygen monolith.
+
+Exact shader proof:
+
+  split blobs = 32/32 present
+  spirv-val --target-env vulkan1.2 = 32/32 PASS
+  entrypoint inventory = 32/32 exact
+  entries per blob =
+    one intended raygen;
+    Miss / ShadowMiss;
+    AnyHit / ShadowAnyHit;
+    ClosestHit / ShadowClosestHit
+  total bytes = 24,526,784
+  largest blob =
+    debug pathtrace_clean_restir_gi_seed.rt.bin, 2,148,184 bytes
+  monolithic debug SHA-256 =
+    FDAEE58F4981A5ED662E89119FF7B87F9E629C05CE0AD6C064BFE1DF0D0B550A
+  monolithic production SHA-256 =
+    425B224669C89E9FB5DA84E6F6B2CE94E354FD0F79B3E890F37C5FA85B799FFF
+  compact GI hit module SHA-256 =
+    9152AAF8252E0CC6B3470DDDE9724BD6815396445BD785DD79A7F791146F2483
+  cmake --build --preset win64-pt-dev-release = PASS
+  deployed executable size = 15,772,672 bytes
+  deployed executable SHA-256 =
+    E6E589FCEAA7547EC9F9DA3D5E776CA0A2111E5A5BE7DB9BB95B54328EADA2EA
+  deployed split Vulkan blobs = 32/32 hash-exact, 24,526,784 bytes
+  DX12 shader compilation = not run
+  runtime launch = not run
+
+BOUNDARY AND NEXT
+-----------------
+The lock-producing checkpoint is superseded and must not be launched again.
+The replacement is checkpointed and deployed but remains runtime-unaccepted.
+Any runtime gate must be user-run, bounded, use no broad smoke log, and first
+start with warmup limit 0, then 1, before raising the limit incrementally
+toward responsive 16/16 production warmup. Step 7 and all skinned comparison
+TLAS insertion remain forbidden.

@@ -136,8 +136,14 @@ STEPS
    candidate handling, and verified b2 offsets 144/464/516/672/684/688.
    Debug and production GI pipelines append its primary/shadow groups at SBT
    slots 2/3; both monolithic GI blobs remain byte-identical. No skinned
-   comparison BLAS may enter a TLAS until bounded mixed-library runtime proof
-   passes and the SBT contribution planner has exact offline assertions.
+   comparison BLAS may enter a TLAS. The exact SBT contribution planner and
+   harness now pass, but the first eager mixed-library user run failed by
+   starving Windows input during GI pipeline construction. The replacement
+   partitions all sixteen GI raygens at source level, validates 32/32 Vulkan
+   blobs with exact seven-entry inventories, warms one pipeline at a time with
+   a fifteen-frame gap, and uses one yielding deferred-host-operation joiner.
+   This mitigation is offline-only until a bounded user run reaches 16/16
+   initialization without system input loss.
 7. Add comparison TLAS routing while the merged dynamic BLAS remains live.
    Record instance/primitive totals, sampled hit identities, bounds,
    material/triangle IDs, and motion inputs. A compare failure must select only

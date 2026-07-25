@@ -556,3 +556,18 @@ NO LONGER OPEN TO SPECULATION
   remain hash-identical. No TLAS contribution selects the new records and no
   runtime launch was performed. Bounded mixed-pipeline creation proof and an
   exact SBT contribution-planner harness remain mandatory before step 7.
+- The first user-run mixed-module checkpoint fails its runtime gate. During
+  clean-GI pipeline creation the game continued underneath, but Windows lost
+  all input until the user requested a normal power-button shutdown. There was
+  no device-removed report, hard hardware reset, or new condump. The eager
+  pipeline construction is therefore rejected even though its release build
+  passed. The replacement is offline-only: sixteen source-masked GI raygen
+  libraries per debug/production variant, one pipeline build at a time,
+  fifteen normal frames between builds, and a single yielding Vulkan deferred
+  host-operation joiner. A default-16 warmup-limit cvar permits bounded 0,
+  1, then incremental module validation without dispatching partial GI. All 32
+  blobs pass Vulkan 1.2 validation and contain
+  exactly one intended raygen plus six required miss/hit entries. Total size is
+  24,526,784 bytes and the largest blob is 2,148,184 bytes. The monolithic GI
+  hashes remain unchanged and the SBT route harness passes. Runtime acceptance
+  remains open; the superseded lock-producing executable must not be launched.

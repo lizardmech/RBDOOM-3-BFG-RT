@@ -102,6 +102,23 @@ set(PATH_TRACING_CLEAN_RTXDI_DI_TEMPORAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DI
 set(PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.hlsl)
 set(PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.hlsl)
 set(PATH_TRACING_CLEAN_RESTIR_GI_SKINNED_HITS_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_skinned_hits.rt.hlsl)
+set(PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_RAYGENS
+    "first_indirect_simple|CLEAN_GI_EXPORT_FIRST_INDIRECT_SIMPLE"
+    "first_indirect_lean_trace|CLEAN_GI_EXPORT_FIRST_INDIRECT_LEAN_TRACE"
+    "first_indirect_lean_shade|CLEAN_GI_EXPORT_FIRST_INDIRECT_LEAN_SHADE"
+    "first_indirect_trace|CLEAN_GI_EXPORT_FIRST_INDIRECT_TRACE"
+    "first_indirect_rough_fallback|CLEAN_GI_EXPORT_FIRST_INDIRECT_ROUGH_FALLBACK"
+    "first_indirect_continuation_trace|CLEAN_GI_EXPORT_FIRST_INDIRECT_CONTINUATION_TRACE"
+    "first_indirect_continuation_shade|CLEAN_GI_EXPORT_FIRST_INDIRECT_CONTINUATION_SHADE"
+    "first_indirect_continuation|CLEAN_GI_EXPORT_FIRST_INDIRECT_CONTINUATION"
+    "first_indirect_shade|CLEAN_GI_EXPORT_FIRST_INDIRECT_SHADE"
+    "first_indirect_shade_fast|CLEAN_GI_EXPORT_FIRST_INDIRECT_SHADE_FAST"
+    "seed_no_spec|CLEAN_GI_EXPORT_SEED_NO_SPEC"
+    "first_indirect_specular_trace|CLEAN_GI_EXPORT_FIRST_INDIRECT_SPECULAR_TRACE"
+    "first_indirect_specular_shade|CLEAN_GI_EXPORT_FIRST_INDIRECT_SPECULAR_SHADE"
+    "first_indirect_specular_shade_fast|CLEAN_GI_EXPORT_FIRST_INDIRECT_SPECULAR_SHADE_FAST"
+    "seed|CLEAN_GI_EXPORT_SEED"
+    "reuse|CLEAN_GI_EXPORT_REUSE")
 set(PATH_TRACING_CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_producer_rayquery.cs.hlsl)
 set(PATH_TRACING_CLEAN_RESTIR_GI_TEMPORAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_temporal.cs.hlsl)
 set(PATH_TRACING_CLEAN_RESTIR_GI_SKY_RESOLVE_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_sky_resolve.cs.hlsl)
@@ -540,6 +557,32 @@ if(USE_VULKAN)
         DEPENDS ${PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES}
         COMMENT "Compiling clean-room ReSTIR GI production RT shader library (SPIR-V)"
         VERBATIM)
+    foreach(PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_RAYGEN IN LISTS PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_RAYGENS)
+        string(REPLACE "|" ";" PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_FIELDS "${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_RAYGEN}")
+        list(GET PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_FIELDS 0 PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_STEM)
+        list(GET PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_FIELDS 1 PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_DEFINE)
+        set(PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_DEBUG_OUTPUT
+            ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/split/debug/pathtrace_clean_restir_gi_${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_STEM}.rt.bin)
+        set(PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_PRODUCTION_OUTPUT
+            ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/split/production/pathtrace_clean_restir_gi_${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_STEM}.rt.bin)
+        add_custom_command(
+            OUTPUT ${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_DEBUG_OUTPUT}
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/split/debug
+            COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV -D RBPT_ENABLE_BLUE_NOISE -D CLEAN_GI_FILTER_RAYGEN_EXPORTS -D ${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_DEFINE} ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_DEBUG_OUTPUT} ${PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE}
+            DEPENDS ${PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES}
+            COMMENT "Compiling clean-room ReSTIR GI split ${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_STEM} debug RT shader library (SPIR-V)"
+            VERBATIM)
+        add_custom_command(
+            OUTPUT ${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_PRODUCTION_OUTPUT}
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/split/production
+            COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV -D RBPT_ENABLE_BLUE_NOISE -D CLEAN_GI_VIEW_STATIC=0 -D CLEAN_GI_FILTER_RAYGEN_EXPORTS -D ${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_DEFINE} ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_PRODUCTION_OUTPUT} ${PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE}
+            DEPENDS ${PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES}
+            COMMENT "Compiling clean-room ReSTIR GI split ${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_STEM} production RT shader library (SPIR-V)"
+            VERBATIM)
+        list(APPEND PATH_TRACING_SHADER_OUTPUTS
+            ${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_DEBUG_OUTPUT}
+            ${PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_PRODUCTION_OUTPUT})
+    endforeach()
     add_custom_command(
         OUTPUT ${PATH_TRACING_CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_SPIRV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi

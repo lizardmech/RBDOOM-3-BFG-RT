@@ -104,237 +104,174 @@ static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 224, "GI constants 
 
 const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
 
-bool CleanRestirGiEnsurePipeline(
-    PathTraceCleanRestirGiRayTracingPipelineState& state,
-    const PathTraceCleanRestirGiDispatchInputs& inputs,
-    bool productionView)
+void CleanRestirGiAddCommonComputeBindingLayoutItems(
+    nvrhi::BindingLayoutDesc& layoutDesc);
+
+struct CleanRestirGiRayPipelineSpec
 {
-    if (state.shaderTable)
+    const char* blobStem;
+    const char* rayGenerationShader;
+    nvrhi::rt::ShaderTableHandle
+        PathTraceCleanRestirGiRayTracingPipelineState::* shaderTable;
+};
+
+const CleanRestirGiRayPipelineSpec CLEAN_RESTIR_GI_RAY_PIPELINE_SPECS[] = {
+    // Warm the smallest modules first and leave the largest seed/reuse
+    // modules until last. Combined with the inter-build cooldown below this
+    // avoids a burst of consecutive driver compiler stalls at level startup.
+    { "seed_no_spec", "SeedNoSpecRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::seedNoSpecShaderTable },
+    { "first_indirect_specular_trace", "FirstIndirectSpecularTraceRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::specularSeedTraceShaderTable },
+    { "first_indirect_trace", "FirstIndirectTraceRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::producerShaderTable },
+    { "first_indirect_lean_trace", "FirstIndirectLeanTraceRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::producerLeanTraceShaderTable },
+    { "first_indirect_continuation_trace", "FirstIndirectContinuationTraceRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::continuationTraceShaderTable },
+    { "first_indirect_continuation_shade", "FirstIndirectContinuationShadeRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::continuationShadeShaderTable },
+    { "first_indirect_lean_shade", "FirstIndirectLeanShadeRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::producerLeanShadeShaderTable },
+    { "first_indirect_shade_fast", "FirstIndirectShadeFastRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::shadeFastShaderTable },
+    { "first_indirect_specular_shade_fast", "FirstIndirectSpecularShadeFastRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::specularSeedShadeFastShaderTable },
+    { "first_indirect_specular_shade", "FirstIndirectSpecularShadeRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::specularSeedShadeShaderTable },
+    { "first_indirect_continuation", "FirstIndirectContinuationRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::continuationShaderTable },
+    { "first_indirect_simple", "FirstIndirectSimpleRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::producerSimpleShaderTable },
+    { "first_indirect_rough_fallback", "FirstIndirectTraceRoughFallbackRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::producerRoughFallbackShaderTable },
+    { "first_indirect_shade", "FirstIndirectShadeRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::shadeShaderTable },
+    { "reuse", "ReuseRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::reuseShaderTable },
+    { "seed", "SeedRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::seedShaderTable }
+};
+
+const uint32_t CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT =
+    sizeof(CLEAN_RESTIR_GI_RAY_PIPELINE_SPECS) /
+    sizeof(CLEAN_RESTIR_GI_RAY_PIPELINE_SPECS[0]);
+static_assert(CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT == 16,
+    "GI split-pipeline table must cover every ray-generation entry point");
+const uint32_t CLEAN_RESTIR_GI_PIPELINE_WARMUP_INTERVAL_FRAMES = 15;
+
+bool CleanRestirGiLoadShaderLibrary(
+    nvrhi::IDevice* device,
+    const char* shaderPath,
+    const char* label,
+    nvrhi::ShaderLibraryHandle& shaderLibrary)
+{
+    void* shaderData = nullptr;
+    ID_TIME_T shaderTimestamp = 0;
+    const int shaderSize =
+        fileSystem->ReadFile(
+            shaderPath,
+            &shaderData,
+            &shaderTimestamp);
+    if (shaderSize <= 0 || !shaderData)
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: couldn't read %s shader %s\n",
+            label,
+            shaderPath);
+        return false;
+    }
+    shaderLibrary =
+        device->createShaderLibrary(shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!shaderLibrary)
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: failed to create %s shader library\n",
+            label);
+        return false;
+    }
+    return true;
+}
+
+bool CleanRestirGiEnsureRayTracingBindingLayout(
+    PathTraceCleanRestirGiRayTracingPipelineState& state,
+    const PathTraceCleanRestirGiDispatchInputs& inputs)
+{
+    if (state.bindingLayout)
     {
         return true;
     }
-    if (state.pipelineInitAttempted)
-    {
-        return false;
-    }
-    state.pipelineInitAttempted = true;
 
-    const char* shaderPath = nullptr;
-    if (inputs.isD3D12)
-    {
-        shaderPath = productionView
-            ? "renderprogs2/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_production.rt.bin"
-            : "renderprogs2/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin";
-    }
-    else if (inputs.isVulkan)
-    {
-        shaderPath = productionView
-            ? "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_production.rt.bin"
-            : "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin";
-    }
-    else
-    {
-        common->Printf("PathTraceCleanRestirGi: unsupported graphics API\n");
-        return false;
-    }
-
-    void* shaderData = nullptr;
-    ID_TIME_T shaderTimestamp = 0;
-    const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData, &shaderTimestamp);
-    if (shaderSize <= 0 || !shaderData)
-    {
-        common->Printf("PathTraceCleanRestirGi: couldn't read GI shader %s\n", shaderPath);
-        return false;
-    }
-    state.shaderLibrary = inputs.device->createShaderLibrary(shaderData, shaderSize);
-    Mem_Free(shaderData);
-    if (!state.shaderLibrary)
-    {
-        common->Printf("PathTraceCleanRestirGi: failed to create GI shader library\n");
-        return false;
-    }
-    if (inputs.isVulkan)
-    {
-        const char* skinnedHitShaderPath =
-            "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_skinned_hits.rt.bin";
-        shaderData = nullptr;
-        shaderTimestamp = 0;
-        const int skinnedHitShaderSize =
-            fileSystem->ReadFile(skinnedHitShaderPath, &shaderData, &shaderTimestamp);
-        if (skinnedHitShaderSize <= 0 || !shaderData)
-        {
-            common->Printf(
-                "PathTraceCleanRestirGi: couldn't read GI compact skinned-hit shader %s\n",
-                skinnedHitShaderPath);
-            return false;
-        }
-        state.skinnedHitShaderLibrary =
-            inputs.device->createShaderLibrary(shaderData, skinnedHitShaderSize);
-        Mem_Free(shaderData);
-        if (!state.skinnedHitShaderLibrary)
-        {
-            common->Printf(
-                "PathTraceCleanRestirGi: failed to create GI compact skinned-hit shader library\n");
-            return false;
-        }
-    }
-
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::AllRayTracing;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setConstantBufferOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    CleanRestirGiAddCommonComputeBindingLayoutItems(layoutDesc);
+    state.bindingLayout =
+        inputs.device->createBindingLayout(layoutDesc);
     if (!state.bindingLayout)
     {
-        nvrhi::BindingLayoutDesc layoutDesc;
-        layoutDesc.visibility = nvrhi::ShaderType::AllRayTracing;
-        layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
-            .setShaderResourceOffset(0)
-            .setConstantBufferOffset(0)
-            .setUnorderedAccessViewOffset(0);
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(7));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(8));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(9));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(10));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(11));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(12));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(13));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(14));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(23));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(28));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(46));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(74));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(76));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(87));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(69));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(80));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(92)); // producer trace/shade G-buffer
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(81));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(82));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(83));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(84));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(85));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(86));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(93));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(94));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(48));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(51));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(127)); // blue-noise mask array (RBPT_ENABLE_BLUE_NOISE)
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
-        state.bindingLayout = inputs.device->createBindingLayout(layoutDesc);
-        if (!state.bindingLayout)
-        {
-            common->Printf("PathTraceCleanRestirGi: failed to create GI binding layout\n");
-            return false;
-        }
+        common->Printf(
+            "PathTraceCleanRestirGi: failed to create GI binding layout\n");
+        return false;
     }
+    return true;
+}
 
-    nvrhi::ShaderHandle producerTraceRayGen = state.shaderLibrary->getShader("FirstIndirectTraceRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerSimpleRayGen = state.shaderLibrary->getShader("FirstIndirectSimpleRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerLeanTraceRayGen = state.shaderLibrary->getShader("FirstIndirectLeanTraceRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerLeanShadeRayGen = state.shaderLibrary->getShader("FirstIndirectLeanShadeRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerRoughFallbackRayGen = state.shaderLibrary->getShader("FirstIndirectTraceRoughFallbackRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle continuationRayGen = state.shaderLibrary->getShader("FirstIndirectContinuationRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle continuationTraceRayGen = state.shaderLibrary->getShader("FirstIndirectContinuationTraceRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle continuationShadeRayGen = state.shaderLibrary->getShader("FirstIndirectContinuationShadeRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerShadeRayGen = state.shaderLibrary->getShader("FirstIndirectShadeRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerShadeFastRayGen = state.shaderLibrary->getShader("FirstIndirectShadeFastRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle seedRayGen = state.shaderLibrary->getShader("SeedRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle seedNoSpecRayGen = state.shaderLibrary->getShader("SeedNoSpecRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle specularSeedTraceRayGen = state.shaderLibrary->getShader("FirstIndirectSpecularTraceRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle specularSeedShadeRayGen = state.shaderLibrary->getShader("FirstIndirectSpecularShadeRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle specularSeedShadeFastRayGen = state.shaderLibrary->getShader("FirstIndirectSpecularShadeFastRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle reuseRayGen = state.shaderLibrary->getShader("ReuseRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle miss = state.shaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss);
-    nvrhi::ShaderHandle shadowMiss = state.shaderLibrary->getShader("ShadowMiss", nvrhi::ShaderType::Miss);
-    nvrhi::ShaderHandle closestHit = state.shaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit);
-    nvrhi::ShaderHandle anyHit = state.shaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit);
-    nvrhi::ShaderHandle shadowClosestHit = state.shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
-    nvrhi::ShaderHandle shadowAnyHit = state.shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
-    nvrhi::ShaderHandle skinnedClosestHit;
-    nvrhi::ShaderHandle skinnedAnyHit;
-    nvrhi::ShaderHandle skinnedShadowClosestHit;
-    nvrhi::ShaderHandle skinnedShadowAnyHit;
-    if (state.skinnedHitShaderLibrary)
+bool CleanRestirGiGetHitShaders(
+    nvrhi::IShaderLibrary* legacyLibrary,
+    nvrhi::IShaderLibrary* skinnedLibrary,
+    nvrhi::ShaderHandle& miss,
+    nvrhi::ShaderHandle& shadowMiss,
+    nvrhi::ShaderHandle& closestHit,
+    nvrhi::ShaderHandle& anyHit,
+    nvrhi::ShaderHandle& shadowClosestHit,
+    nvrhi::ShaderHandle& shadowAnyHit,
+    nvrhi::ShaderHandle& skinnedClosestHit,
+    nvrhi::ShaderHandle& skinnedAnyHit,
+    nvrhi::ShaderHandle& skinnedShadowClosestHit,
+    nvrhi::ShaderHandle& skinnedShadowAnyHit)
+{
+    miss = legacyLibrary->getShader(
+        "Miss", nvrhi::ShaderType::Miss);
+    shadowMiss = legacyLibrary->getShader(
+        "ShadowMiss", nvrhi::ShaderType::Miss);
+    closestHit = legacyLibrary->getShader(
+        "ClosestHit", nvrhi::ShaderType::ClosestHit);
+    anyHit = legacyLibrary->getShader(
+        "AnyHit", nvrhi::ShaderType::AnyHit);
+    shadowClosestHit = legacyLibrary->getShader(
+        "ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
+    shadowAnyHit = legacyLibrary->getShader(
+        "ShadowAnyHit", nvrhi::ShaderType::AnyHit);
+    if (skinnedLibrary)
     {
-        skinnedClosestHit = state.skinnedHitShaderLibrary->getShader(
+        skinnedClosestHit = skinnedLibrary->getShader(
             "CleanGiSkinnedClosestHit",
             nvrhi::ShaderType::ClosestHit);
-        skinnedAnyHit = state.skinnedHitShaderLibrary->getShader(
+        skinnedAnyHit = skinnedLibrary->getShader(
             "CleanGiSkinnedAnyHit",
             nvrhi::ShaderType::AnyHit);
-        skinnedShadowClosestHit = state.skinnedHitShaderLibrary->getShader(
+        skinnedShadowClosestHit = skinnedLibrary->getShader(
             "CleanGiSkinnedShadowClosestHit",
             nvrhi::ShaderType::ClosestHit);
-        skinnedShadowAnyHit = state.skinnedHitShaderLibrary->getShader(
+        skinnedShadowAnyHit = skinnedLibrary->getShader(
             "CleanGiSkinnedShadowAnyHit",
             nvrhi::ShaderType::AnyHit);
     }
-    if (!producerTraceRayGen || !producerSimpleRayGen || !producerLeanTraceRayGen || !producerLeanShadeRayGen ||
-        !producerRoughFallbackRayGen || !continuationRayGen || !continuationTraceRayGen || !continuationShadeRayGen ||
-        !producerShadeRayGen || !producerShadeFastRayGen || !seedRayGen || !seedNoSpecRayGen ||
-        !specularSeedTraceRayGen || !specularSeedShadeRayGen || !specularSeedShadeFastRayGen || !reuseRayGen ||
-        !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
-    {
-        common->Printf("PathTraceCleanRestirGi: GI shader library is missing required entry points\n");
-        return false;
-    }
-    if (state.skinnedHitShaderLibrary &&
-        (!skinnedClosestHit || !skinnedAnyHit ||
-            !skinnedShadowClosestHit || !skinnedShadowAnyHit))
-    {
-        common->Printf(
-            "PathTraceCleanRestirGi: GI compact skinned-hit shader library is missing required entry points\n");
-        return false;
-    }
+    return
+        miss && shadowMiss &&
+        closestHit && anyHit &&
+        shadowClosestHit && shadowAnyHit &&
+        (!skinnedLibrary ||
+            (skinnedClosestHit && skinnedAnyHit &&
+                skinnedShadowClosestHit &&
+                skinnedShadowAnyHit));
+}
 
-    nvrhi::rt::PipelineDesc pipelineDesc;
-    pipelineDesc.globalBindingLayouts = { state.bindingLayout, inputs.textureBindlessLayout };
-    pipelineDesc.shaders = {
-        { "", producerTraceRayGen, nullptr },
-        { "", producerSimpleRayGen, nullptr },
-        { "", producerLeanTraceRayGen, nullptr },
-        { "", producerLeanShadeRayGen, nullptr },
-        { "", producerRoughFallbackRayGen, nullptr },
-        { "", continuationRayGen, nullptr },
-        { "", continuationTraceRayGen, nullptr },
-        { "", continuationShadeRayGen, nullptr },
-        { "", producerShadeRayGen, nullptr },
-        { "", producerShadeFastRayGen, nullptr },
-        { "", seedRayGen, nullptr },
-        { "", seedNoSpecRayGen, nullptr },
-        { "", specularSeedTraceRayGen, nullptr },
-        { "", specularSeedShadeRayGen, nullptr },
-        { "", specularSeedShadeFastRayGen, nullptr },
-        { "", reuseRayGen, nullptr },
-        { "", miss, nullptr },
-        { "", shadowMiss, nullptr }
-    };
+void CleanRestirGiAddHitGroups(
+    nvrhi::rt::PipelineDesc& pipelineDesc,
+    const nvrhi::ShaderHandle& closestHit,
+    const nvrhi::ShaderHandle& anyHit,
+    const nvrhi::ShaderHandle& shadowClosestHit,
+    const nvrhi::ShaderHandle& shadowAnyHit,
+    const nvrhi::ShaderHandle& skinnedClosestHit,
+    const nvrhi::ShaderHandle& skinnedAnyHit,
+    const nvrhi::ShaderHandle& skinnedShadowClosestHit,
+    const nvrhi::ShaderHandle& skinnedShadowAnyHit)
+{
     pipelineDesc.hitGroups = {
         { "HitGroup", closestHit, anyHit, nullptr, nullptr, false },
         { "ShadowHitGroup", shadowClosestHit, shadowAnyHit, nullptr, nullptr, false }
     };
-    if (state.skinnedHitShaderLibrary)
+    if (skinnedClosestHit)
     {
         pipelineDesc.hitGroups.push_back({
             "SkinnedHitGroup",
@@ -353,81 +290,391 @@ bool CleanRestirGiEnsurePipeline(
             false
         });
     }
+}
+
+void CleanRestirGiInitializeShaderTable(
+    const nvrhi::rt::ShaderTableHandle& shaderTable,
+    const char* rayGenerationShader,
+    bool hasSkinnedHitGroups)
+{
+    shaderTable->setRayGenerationShader(rayGenerationShader);
+    shaderTable->addMissShader("Miss");
+    shaderTable->addMissShader("ShadowMiss");
+    shaderTable->addHitGroup("HitGroup");
+    shaderTable->addHitGroup("ShadowHitGroup");
+    if (hasSkinnedHitGroups)
+    {
+        shaderTable->addHitGroup("SkinnedHitGroup");
+        shaderTable->addHitGroup("SkinnedShadowHitGroup");
+    }
+}
+
+bool CleanRestirGiBuildSingleRayPipeline(
+    PathTraceCleanRestirGiRayTracingPipelineState& state,
+    const PathTraceCleanRestirGiDispatchInputs& inputs,
+    nvrhi::IShaderLibrary* passLibrary,
+    const CleanRestirGiRayPipelineSpec& spec,
+    nvrhi::rt::PipelineHandle& pipeline,
+    nvrhi::rt::ShaderTableHandle& shaderTable)
+{
+    nvrhi::ShaderHandle rayGeneration =
+        passLibrary->getShader(
+            spec.rayGenerationShader,
+            nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle miss;
+    nvrhi::ShaderHandle shadowMiss;
+    nvrhi::ShaderHandle closestHit;
+    nvrhi::ShaderHandle anyHit;
+    nvrhi::ShaderHandle shadowClosestHit;
+    nvrhi::ShaderHandle shadowAnyHit;
+    nvrhi::ShaderHandle skinnedClosestHit;
+    nvrhi::ShaderHandle skinnedAnyHit;
+    nvrhi::ShaderHandle skinnedShadowClosestHit;
+    nvrhi::ShaderHandle skinnedShadowAnyHit;
+    if (!rayGeneration ||
+        !CleanRestirGiGetHitShaders(
+            passLibrary,
+            state.skinnedHitShaderLibrary,
+            miss,
+            shadowMiss,
+            closestHit,
+            anyHit,
+            shadowClosestHit,
+            shadowAnyHit,
+            skinnedClosestHit,
+            skinnedAnyHit,
+            skinnedShadowClosestHit,
+            skinnedShadowAnyHit))
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: split GI pass %s is missing required entry points\n",
+            spec.blobStem);
+        return false;
+    }
+
+    nvrhi::rt::PipelineDesc pipelineDesc;
+    pipelineDesc.globalBindingLayouts = {
+        state.bindingLayout,
+        inputs.textureBindlessLayout
+    };
+    pipelineDesc.shaders = {
+        { "", rayGeneration, nullptr },
+        { "", miss, nullptr },
+        { "", shadowMiss, nullptr }
+    };
+    CleanRestirGiAddHitGroups(
+        pipelineDesc,
+        closestHit,
+        anyHit,
+        shadowClosestHit,
+        shadowAnyHit,
+        skinnedClosestHit,
+        skinnedAnyHit,
+        skinnedShadowClosestHit,
+        skinnedShadowAnyHit);
     pipelineDesc.maxPayloadSize = 64;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
+    pipelineDesc.useDeferredHostOperations = true;
 
-    state.pipeline = inputs.device->createRayTracingPipeline(pipelineDesc);
+    pipeline =
+        inputs.device->createRayTracingPipeline(pipelineDesc);
+    if (!pipeline)
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: failed to create split GI pass %s pipeline\n",
+            spec.blobStem);
+        return false;
+    }
+    shaderTable = pipeline->createShaderTable();
+    if (!shaderTable)
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: failed to create split GI pass %s shader table\n",
+            spec.blobStem);
+        pipeline = nullptr;
+        return false;
+    }
+    CleanRestirGiInitializeShaderTable(
+        shaderTable,
+        spec.rayGenerationShader,
+        state.skinnedHitShaderLibrary != nullptr);
+    return true;
+}
+
+bool CleanRestirGiEnsureVulkanSplitPipeline(
+    PathTraceCleanRestirGiRayTracingPipelineState& state,
+    const PathTraceCleanRestirGiDispatchInputs& inputs,
+    bool productionView)
+{
+    if (state.pipelineBuildFailed)
+    {
+        return false;
+    }
+    if (state.pipelineBuildIndex >=
+        CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT)
+    {
+        return state.shaderTable != nullptr;
+    }
+    const uint32_t pipelineBuildLimit =
+        static_cast<uint32_t>(idMath::ClampInt(
+            0,
+            static_cast<int>(CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT),
+            r_pathTracingCleanRestirGiPipelineWarmupLimit.GetInteger()));
+    if (state.pipelineBuildIndex >= pipelineBuildLimit)
+    {
+        return false;
+    }
+    if (!CleanRestirGiEnsureRayTracingBindingLayout(
+            state, inputs))
+    {
+        state.pipelineBuildFailed = true;
+        return false;
+    }
+    if (!state.skinnedHitShaderLibrary &&
+        !CleanRestirGiLoadShaderLibrary(
+            inputs.device,
+            "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_skinned_hits.rt.bin",
+            "GI compact skinned-hit",
+            state.skinnedHitShaderLibrary))
+    {
+        state.pipelineBuildFailed = true;
+        return false;
+    }
+    if (state.pipelineBuildCooldownFrames > 0)
+    {
+        --state.pipelineBuildCooldownFrames;
+        return false;
+    }
+
+    const CleanRestirGiRayPipelineSpec& spec =
+        CLEAN_RESTIR_GI_RAY_PIPELINE_SPECS[
+            state.pipelineBuildIndex];
+    idStr shaderPath;
+    shaderPath.Format(
+        "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/split/%s/pathtrace_clean_restir_gi_%s.rt.bin",
+        productionView ? "production" : "debug",
+        spec.blobStem);
+    nvrhi::ShaderLibraryHandle passLibrary;
+    if (!CleanRestirGiLoadShaderLibrary(
+            inputs.device,
+            shaderPath.c_str(),
+            "split GI pass",
+            passLibrary))
+    {
+        state.pipelineBuildFailed = true;
+        return false;
+    }
+
+    nvrhi::rt::PipelineHandle passPipeline;
+    nvrhi::rt::ShaderTableHandle passShaderTable;
+    if (!CleanRestirGiBuildSingleRayPipeline(
+            state,
+            inputs,
+            passLibrary,
+            spec,
+            passPipeline,
+            passShaderTable))
+    {
+        state.pipelineBuildFailed = true;
+        return false;
+    }
+    state.pipeline = passPipeline;
+    state.*(spec.shaderTable) = passShaderTable;
+    ++state.pipelineBuildIndex;
+    state.pipelineBuildCooldownFrames =
+        CLEAN_RESTIR_GI_PIPELINE_WARMUP_INTERVAL_FRAMES;
+    common->Printf(
+        "PathTraceCleanRestirGi: GI %s split pipeline warmup %u/%u pass=%s\n",
+        productionView ? "production" : "debug",
+        state.pipelineBuildIndex,
+        CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT,
+        spec.blobStem);
+
+    if (state.pipelineBuildIndex <
+        CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT)
+    {
+        return false;
+    }
+    state.shaderTable = state.reuseShaderTable;
+    common->Printf(
+        "PathTraceCleanRestirGi: GI %s split pipelines initialized\n",
+        productionView ? "production" : "debug");
+    return true;
+}
+
+bool CleanRestirGiEnsureD3D12MonolithicPipeline(
+    PathTraceCleanRestirGiRayTracingPipelineState& state,
+    const PathTraceCleanRestirGiDispatchInputs& inputs,
+    bool productionView)
+{
+    if (state.pipelineInitAttempted)
+    {
+        return false;
+    }
+    state.pipelineInitAttempted = true;
+    if (!CleanRestirGiEnsureRayTracingBindingLayout(
+            state, inputs))
+    {
+        return false;
+    }
+
+    const char* shaderPath = productionView
+        ? "renderprogs2/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_production.rt.bin"
+        : "renderprogs2/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin";
+    if (!CleanRestirGiLoadShaderLibrary(
+            inputs.device,
+            shaderPath,
+            "GI monolithic",
+            state.shaderLibrary))
+    {
+        return false;
+    }
+
+    nvrhi::rt::PipelineDesc pipelineDesc;
+    pipelineDesc.globalBindingLayouts = {
+        state.bindingLayout,
+        inputs.textureBindlessLayout
+    };
+    for (uint32_t pipelineIndex = 0;
+        pipelineIndex <
+            CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT;
+        ++pipelineIndex)
+    {
+        const CleanRestirGiRayPipelineSpec& spec =
+            CLEAN_RESTIR_GI_RAY_PIPELINE_SPECS[
+                pipelineIndex];
+        nvrhi::ShaderHandle rayGeneration =
+            state.shaderLibrary->getShader(
+                spec.rayGenerationShader,
+                nvrhi::ShaderType::RayGeneration);
+        if (!rayGeneration)
+        {
+            common->Printf(
+                "PathTraceCleanRestirGi: GI monolithic shader is missing %s\n",
+                spec.rayGenerationShader);
+            return false;
+        }
+        pipelineDesc.shaders.push_back({
+            "",
+            rayGeneration,
+            nullptr
+        });
+    }
+
+    nvrhi::ShaderHandle miss;
+    nvrhi::ShaderHandle shadowMiss;
+    nvrhi::ShaderHandle closestHit;
+    nvrhi::ShaderHandle anyHit;
+    nvrhi::ShaderHandle shadowClosestHit;
+    nvrhi::ShaderHandle shadowAnyHit;
+    nvrhi::ShaderHandle skinnedClosestHit;
+    nvrhi::ShaderHandle skinnedAnyHit;
+    nvrhi::ShaderHandle skinnedShadowClosestHit;
+    nvrhi::ShaderHandle skinnedShadowAnyHit;
+    if (!CleanRestirGiGetHitShaders(
+            state.shaderLibrary,
+            nullptr,
+            miss,
+            shadowMiss,
+            closestHit,
+            anyHit,
+            shadowClosestHit,
+            shadowAnyHit,
+            skinnedClosestHit,
+            skinnedAnyHit,
+            skinnedShadowClosestHit,
+            skinnedShadowAnyHit))
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: GI monolithic shader is missing hit/miss entry points\n");
+        return false;
+    }
+    pipelineDesc.shaders.push_back({
+        "",
+        miss,
+        nullptr
+    });
+    pipelineDesc.shaders.push_back({
+        "",
+        shadowMiss,
+        nullptr
+    });
+    CleanRestirGiAddHitGroups(
+        pipelineDesc,
+        closestHit,
+        anyHit,
+        shadowClosestHit,
+        shadowAnyHit,
+        skinnedClosestHit,
+        skinnedAnyHit,
+        skinnedShadowClosestHit,
+        skinnedShadowAnyHit);
+    pipelineDesc.maxPayloadSize = 64;
+    pipelineDesc.maxAttributeSize = 8;
+    pipelineDesc.maxRecursionDepth = 1;
+    state.pipeline =
+        inputs.device->createRayTracingPipeline(pipelineDesc);
     if (!state.pipeline)
     {
-        common->Printf("PathTraceCleanRestirGi: failed to create GI pipeline\n");
+        common->Printf(
+            "PathTraceCleanRestirGi: failed to create GI monolithic pipeline\n");
         return false;
     }
-    state.producerShaderTable = state.pipeline->createShaderTable();
-    state.producerSimpleShaderTable = state.pipeline->createShaderTable();
-    state.producerLeanTraceShaderTable = state.pipeline->createShaderTable();
-    state.producerLeanShadeShaderTable = state.pipeline->createShaderTable();
-    state.producerRoughFallbackShaderTable = state.pipeline->createShaderTable();
-    state.continuationShaderTable = state.pipeline->createShaderTable();
-    state.continuationTraceShaderTable = state.pipeline->createShaderTable();
-    state.continuationShadeShaderTable = state.pipeline->createShaderTable();
-    state.shadeShaderTable = state.pipeline->createShaderTable();
-    state.shadeFastShaderTable = state.pipeline->createShaderTable();
-    state.seedShaderTable = state.pipeline->createShaderTable();
-    state.seedNoSpecShaderTable = state.pipeline->createShaderTable();
-    state.specularSeedTraceShaderTable = state.pipeline->createShaderTable();
-    state.specularSeedShadeShaderTable = state.pipeline->createShaderTable();
-    state.specularSeedShadeFastShaderTable = state.pipeline->createShaderTable();
-    state.reuseShaderTable = state.pipeline->createShaderTable();
-    if (!state.producerShaderTable || !state.producerSimpleShaderTable ||
-        !state.producerLeanTraceShaderTable || !state.producerLeanShadeShaderTable ||
-        !state.producerRoughFallbackShaderTable || !state.continuationShaderTable ||
-        !state.continuationTraceShaderTable || !state.continuationShadeShaderTable ||
-        !state.shadeShaderTable || !state.shadeFastShaderTable || !state.seedShaderTable ||
-        !state.seedNoSpecShaderTable || !state.specularSeedTraceShaderTable ||
-        !state.specularSeedShadeShaderTable || !state.specularSeedShadeFastShaderTable ||
-        !state.reuseShaderTable)
-    {
-        common->Printf("PathTraceCleanRestirGi: failed to create GI shader table\n");
-        state.pipeline = nullptr;
-        return false;
-    }
-    const auto initializeShaderTable =
-        [&](const nvrhi::rt::ShaderTableHandle& shaderTable, const char* rayGenerationShader)
-    {
-        shaderTable->setRayGenerationShader(rayGenerationShader);
-        shaderTable->addMissShader("Miss");
-        shaderTable->addMissShader("ShadowMiss");
-        shaderTable->addHitGroup("HitGroup");
-        shaderTable->addHitGroup("ShadowHitGroup");
-        if (state.skinnedHitShaderLibrary)
-        {
-            // TLAS instance contribution 2 selects these records while each
-            // TraceRay call continues to use ray contributions 0 and 1.
-            shaderTable->addHitGroup("SkinnedHitGroup");
-            shaderTable->addHitGroup("SkinnedShadowHitGroup");
-        }
-    };
-    initializeShaderTable(state.producerShaderTable, "FirstIndirectTraceRayGen");
-    initializeShaderTable(state.producerSimpleShaderTable, "FirstIndirectSimpleRayGen");
-    initializeShaderTable(state.producerLeanTraceShaderTable, "FirstIndirectLeanTraceRayGen");
-    initializeShaderTable(state.producerLeanShadeShaderTable, "FirstIndirectLeanShadeRayGen");
-    initializeShaderTable(state.producerRoughFallbackShaderTable, "FirstIndirectTraceRoughFallbackRayGen");
-    initializeShaderTable(state.continuationShaderTable, "FirstIndirectContinuationRayGen");
-    initializeShaderTable(state.continuationTraceShaderTable, "FirstIndirectContinuationTraceRayGen");
-    initializeShaderTable(state.continuationShadeShaderTable, "FirstIndirectContinuationShadeRayGen");
-    initializeShaderTable(state.shadeShaderTable, "FirstIndirectShadeRayGen");
-    initializeShaderTable(state.shadeFastShaderTable, "FirstIndirectShadeFastRayGen");
-    initializeShaderTable(state.seedShaderTable, "SeedRayGen");
-    initializeShaderTable(state.seedNoSpecShaderTable, "SeedNoSpecRayGen");
-    initializeShaderTable(state.specularSeedTraceShaderTable, "FirstIndirectSpecularTraceRayGen");
-    initializeShaderTable(state.specularSeedShadeShaderTable, "FirstIndirectSpecularShadeRayGen");
-    initializeShaderTable(state.specularSeedShadeFastShaderTable, "FirstIndirectSpecularShadeFastRayGen");
-    initializeShaderTable(state.reuseShaderTable, "ReuseRayGen");
 
+    for (uint32_t pipelineIndex = 0;
+        pipelineIndex <
+            CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT;
+        ++pipelineIndex)
+    {
+        const CleanRestirGiRayPipelineSpec& spec =
+            CLEAN_RESTIR_GI_RAY_PIPELINE_SPECS[
+                pipelineIndex];
+        nvrhi::rt::ShaderTableHandle shaderTable =
+            state.pipeline->createShaderTable();
+        if (!shaderTable)
+        {
+            common->Printf(
+                "PathTraceCleanRestirGi: failed to create GI monolithic shader table %s\n",
+                spec.blobStem);
+            state.pipeline = nullptr;
+            return false;
+        }
+        CleanRestirGiInitializeShaderTable(
+            shaderTable,
+            spec.rayGenerationShader,
+            false);
+        state.*(spec.shaderTable) = shaderTable;
+    }
     state.shaderTable = state.reuseShaderTable;
-    common->Printf("PathTraceCleanRestirGi: GI %s pipeline initialized\n", productionView ? "production" : "debug");
+    common->Printf(
+        "PathTraceCleanRestirGi: GI %s monolithic pipeline initialized\n",
+        productionView ? "production" : "debug");
     return true;
+}
+
+bool CleanRestirGiEnsurePipeline(
+    PathTraceCleanRestirGiRayTracingPipelineState& state,
+    const PathTraceCleanRestirGiDispatchInputs& inputs,
+    bool productionView)
+{
+    if (state.shaderTable)
+    {
+        return true;
+    }
+    if (inputs.isVulkan)
+    {
+        return CleanRestirGiEnsureVulkanSplitPipeline(
+            state, inputs, productionView);
+    }
+    if (inputs.isD3D12)
+    {
+        return CleanRestirGiEnsureD3D12MonolithicPipeline(
+            state, inputs, productionView);
+    }
+    common->Printf(
+        "PathTraceCleanRestirGi: unsupported graphics API\n");
+    return false;
 }
 
 void CleanRestirGiAddCommonComputeBindingLayoutItems(nvrhi::BindingLayoutDesc& layoutDesc)
@@ -1011,6 +1258,9 @@ void PathTraceCleanRestirGiRayTracingPipelineState::Release()
     specularSeedShadeShaderTable = nullptr;
     specularSeedShadeFastShaderTable = nullptr;
     reuseShaderTable = nullptr;
+    pipelineBuildIndex = 0;
+    pipelineBuildCooldownFrames = 0;
+    pipelineBuildFailed = false;
     pipelineInitAttempted = false;
 }
 
@@ -1124,7 +1374,13 @@ bool PathTraceCleanRestirGiExecute(
 
     if (!CleanRestirGiEnsurePipeline(rayTracing, inputs, view == 0))
     {
-        clearFailureOutput();
+        // Vulkan split-pipeline construction is intentionally incremental.
+        // Preserve the existing DI/PT output between builds; magenta is
+        // reserved for an actual permanent initialization failure.
+        if (!inputs.isVulkan || rayTracing.pipelineBuildFailed)
+        {
+            clearFailureOutput();
+        }
         return false;
     }
     if (!CleanRestirGiEnsureResources(state, inputs))

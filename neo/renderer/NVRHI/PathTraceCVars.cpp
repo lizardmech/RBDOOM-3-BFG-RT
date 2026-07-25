@@ -1527,6 +1527,12 @@ idCVar r_pathTracingCleanRestirGiEnable(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix ReSTIR GI lane: 0 = no GI producer/reservoir/resolve work dispatches at all; 1 = the GI lane runs through its own explicit route only" );
 
+idCVar r_pathTracingCleanRestirGiPipelineWarmupLimit(
+    "r_pathTracingCleanRestirGiPipelineWarmupLimit",
+    "16",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Vulkan clean-GI split-pipeline warmup cap: 0 builds none, 1..15 stop after that many modules for bounded validation, 16 builds the complete lane" );
+
 idCVar r_pathTracingCleanRestirGiView(
     "r_pathTracingCleanRestirGiView",
     "0",

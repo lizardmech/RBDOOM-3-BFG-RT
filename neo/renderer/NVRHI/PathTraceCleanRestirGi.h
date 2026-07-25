@@ -36,6 +36,9 @@ struct PathTraceCleanRestirGiRayTracingPipelineState
     nvrhi::rt::ShaderTableHandle specularSeedShadeShaderTable;
     nvrhi::rt::ShaderTableHandle specularSeedShadeFastShaderTable;
     nvrhi::rt::ShaderTableHandle reuseShaderTable;
+    uint32_t pipelineBuildIndex = 0;
+    uint32_t pipelineBuildCooldownFrames = 0;
+    bool pipelineBuildFailed = false;
     bool pipelineInitAttempted = false;
 
     void Release();

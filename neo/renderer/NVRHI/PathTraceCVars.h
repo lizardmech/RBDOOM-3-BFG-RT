@@ -261,6 +261,7 @@ extern idCVar r_pathTracingCleanRtxdiDiTemporalMaxHistory;
 extern idCVar r_pathTracingCleanRtxdiDiTemporalFireflyClamp;
 extern idCVar r_pathTracingCleanRtxdiDiTemporalAudit;
 extern idCVar r_pathTracingCleanRestirGiEnable;
+extern idCVar r_pathTracingCleanRestirGiPipelineWarmupLimit;
 extern idCVar r_pathTracingCleanRestirGiView;
 extern idCVar r_pathTracingCleanRestirGiTemporal;
 extern idCVar r_pathTracingCleanRestirGiPermutationSampling;
