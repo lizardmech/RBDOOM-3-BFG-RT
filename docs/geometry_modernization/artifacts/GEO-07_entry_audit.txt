@@ -495,3 +495,106 @@ Runtime acceptance for slice 3:
   require route=authoritative-current-copy;
   retain range rejected/stale = 0, exact funnel accounting and GEO-03 parity
     pass.
+
+GEOMETRY_GEO41 RESULT - STRUCTURAL PASS, OLD ORACLE REJECTED (2026-07-25)
+-------------------------------------------------------------------------
+geometry_geo41 proves that the slice-3 GPU copy itself is complete:
+
+  candidates:
+    23
+  jointCache present/resolved/stale:
+    23/23/0
+  range match/mismatch/bytes:
+    23/0/50112
+  copyPlan new/reused/rejected/bytes:
+    23/0/0/50112
+  stage requested/ready/submitted/copies/bytes:
+    1/1/1/23/50112
+  route:
+    authoritative-current-copy
+
+The old numeric oracle did not pass:
+
+  current/previous sentinel outputs:
+    8010/8010
+  samples:
+    24
+  current/previous/motion failures:
+    10/0/18
+  max current/previous/motion error:
+    0.107711792/0.0000152587891/0.107711792
+  pass:
+    0
+
+This is not evidence of matrix-layout conversion failure. idJointMat is the
+same 3x4 row-major 48-byte representation copied by AllocJoint, consumed by
+the raster skinning shader as three float4 rows, copied by the prior GEO-03
+CPU bridge, and consumed by the PT compute shader. Static/single-bone samples
+also remained exact while actively animated samples drifted.
+
+The failed oracle re-read tri->staticModelWithJoints->jointsInverted on the
+backend. That pointer is explicitly outside the draw-surface backend contract:
+drawSurf_t documents frontEndGeo as frontend-owned and mutable. With com_smp,
+the engine executes the prior command buffer while the next game/draw frontend
+generates another frame. idRenderModelMD5 reuses cachedDynamicModel and writes
+its jointsInverted allocation in place. The renderer jointCache is therefore
+the retained pose for the submitted draw surface, while the late CPU pointer
+may already contain a newer pose. geometry_geo41's animated-only current drift
+and exact retained previous bridge are the expected signature.
+
+SLICE 3 FRAME-OWNED VALIDATION ORACLE
+-------------------------------------
+Gate value 2 is now a validation-only mode. At the exact R_SetupDrawSurfJoints
+upload boundary it retains one frame-owned CPU snapshot per dynamic model and
+copies that pointer into drawSurf_t. The GPU path is unchanged: it still stages
+the renderer jointCache range GPU-to-GPU. Only the CPU comparison oracle uses
+the snapshot.
+
+The audit reports:
+
+  oracle(snapshot/comparable/sourceChanged)
+
+where sourceChanged means the later frontend-owned jointsInverted bytes differ
+from the exact upload snapshot. This directly tests the lifetime diagnosis.
+Gate value 1 retains the production-shaped no-snapshot comparison route.
+
+Offline verification:
+
+  PathTraceJointCacheCopyPlanHarness:
+    PASS
+  cmake --build --preset win64-pt-dev-release:
+    PASS
+  all SPIR-V shaders:
+    up to date; no shader source or blob changed
+  deployed executable:
+    15679488 bytes
+    2026-07-25 11:50:09 Australia/Sydney
+    SHA-256 BA81E9E221FCE412D91ABB1F30B4971DA0F9B775BD39ACCA8645589A5251EC54
+
+Required runtime proof:
+
+  r_useGPUSkinning 1
+  r_pathTracingGeometryAuthoritativeGpuSkinning 2
+  r_pathTracingGpuSkinning 1
+
+Keep animated characters visible and move for several seconds so a complete
+gate-2 frontend frame reaches the backend. Then issue:
+
+  echo === GEO07_FRAME_OWNED_ORACLE ===
+  r_pathTracingGpuSkinningParityDump 1
+
+Acceptance requires:
+
+  oracle snapshot = candidates;
+  oracle comparable = candidates;
+  oracle sourceChanged > 0 in the animated test;
+  stage requested/ready/submitted = 1/1/1;
+  stage copies/bytes exactly match copyPlan new/bytes and resolved bytes;
+  route=authoritative-current-copy;
+  exact funnel accounting;
+  current/previous/motion parity pass=1.
+
+Restore:
+
+  r_pathTracingGpuSkinning 0
+  r_pathTracingGeometryAuthoritativeGpuSkinning 0

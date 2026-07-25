@@ -279,6 +279,7 @@ static const idDrawVert* SmokeDrawSurfaceVertices(const drawSurf_t* drawSurf, co
 }
 
 static const idJointMat* SmokeDrawSurfaceCpuSkinningJoints(
+    const drawSurf_t* drawSurf,
     const srfTriangles_t* tri,
     bool verticesFromFrameCache)
 {
@@ -288,6 +289,12 @@ static const idJointMat* SmokeDrawSurfaceCpuSkinningJoints(
     if (verticesFromFrameCache)
     {
         return nullptr;
+    }
+    if (drawSurf &&
+        drawSurf->jointCacheCpuSnapshot != nullptr &&
+        drawSurf->jointCacheCpuSnapshotCount > 0)
+    {
+        return drawSurf->jointCacheCpuSnapshot;
     }
     return GetSmokeRtCpuSkinningJoints(tri);
 }
@@ -365,7 +372,7 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
 
             bool verticesFromFrameCache = false;
             const idDrawVert* sourceVertices = SmokeDrawSurfaceVertices(drawSurf, tri, verticesFromFrameCache);
-            const idJointMat* rtCpuSkinningJoints = SmokeDrawSurfaceCpuSkinningJoints(tri, verticesFromFrameCache);
+            const idJointMat* rtCpuSkinningJoints = SmokeDrawSurfaceCpuSkinningJoints(drawSurf, tri, verticesFromFrameCache);
             const triIndex_t* sourceIndexes = SmokeDrawSurfaceIndexes(drawSurf, tri);
             if (!sourceVertices || !sourceIndexes)
             {
@@ -965,7 +972,7 @@ int AppendSmokeSurfaceGeometry(
     const uint32_t indexBase = static_cast<uint32_t>(vertices.size());
     bool verticesFromFrameCache = false;
     const idDrawVert* sourceVertices = SmokeDrawSurfaceVertices(drawSurf, tri, verticesFromFrameCache);
-    const idJointMat* rtCpuSkinningJoints = SmokeDrawSurfaceCpuSkinningJoints(tri, verticesFromFrameCache);
+    const idJointMat* rtCpuSkinningJoints = SmokeDrawSurfaceCpuSkinningJoints(drawSurf, tri, verticesFromFrameCache);
     const int classIndex = idMath::ClampInt(0, classCount - 1, static_cast<int>(surfaceClassId & triangleClassMask));
     const bool activeEmissiveStage = SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf);
     const uint32_t perSurfaceTriangleFlags = activeEmissiveStage ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF;
@@ -1139,6 +1146,11 @@ void AddSmokeSkinnedSurfaceRecord(
     record.canonicalInstance.jointSubmeshIndex = -1;
     record.jointCacheHandle =
         static_cast<uint64_t>(drawSurf->jointCache);
+    record.jointCacheCpuSnapshot =
+        reinterpret_cast<uintptr_t>(
+            drawSurf->jointCacheCpuSnapshot);
+    record.jointCacheCpuSnapshotCount =
+        drawSurf->jointCacheCpuSnapshotCount;
     record.currentVertexOffset = currentVertexOffset;
     record.currentIndexOffset = currentIndexOffset;
     record.currentTriangleOffset = currentTriangleOffset;
@@ -1147,7 +1159,7 @@ void AddSmokeSkinnedSurfaceRecord(
     record.triangleCount = triangleCount;
     bool verticesFromFrameCache = false;
     SmokeDrawSurfaceVertices(drawSurf, tri, verticesFromFrameCache);
-    const idJointMat* rtCpuSkinningJoints = SmokeDrawSurfaceCpuSkinningJoints(tri, verticesFromFrameCache);
+    const idJointMat* rtCpuSkinningJoints = SmokeDrawSurfaceCpuSkinningJoints(drawSurf, tri, verticesFromFrameCache);
     record.rtCpuSkinned = rtCpuSkinningJoints != nullptr;
     record.basePoseLikely = SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri);
     record.entityIndex = record.key.entityIndex;
@@ -1162,8 +1174,46 @@ void AddSmokeSkinnedSurfaceRecord(
     }
     else
     {
-        record.jointCount = tri->staticModelWithJoints ? tri->staticModelWithJoints->numInvertedJoints : (renderEntity ? renderEntity->numJoints : 0);
+        record.jointCount =
+            record.jointCacheCpuSnapshotCount > 0
+                ? record.jointCacheCpuSnapshotCount
+                : (tri->staticModelWithJoints ? tri->staticModelWithJoints->numInvertedJoints : (renderEntity ? renderEntity->numJoints : 0));
         record.jointSource = reinterpret_cast<uintptr_t>(tri->staticModelWithJoints ? static_cast<const void*>(tri->staticModelWithJoints) : static_cast<const void*>(renderEntity ? renderEntity->joints : nullptr));
+    }
+    if (record.jointCacheCpuSnapshot != 0 &&
+        record.jointCacheCpuSnapshotCount == record.jointCount &&
+        record.jointCount > 0)
+    {
+        const idJointMat* snapshot =
+            reinterpret_cast<const idJointMat*>(
+                record.jointCacheCpuSnapshot);
+        const idJointMat* liveJoints =
+            GetSmokeRtCpuSkinningJoints(tri);
+        record.jointCacheCpuSourceComparable =
+            liveJoints != nullptr;
+        for (int jointIndex = 0;
+            record.jointCacheCpuSourceComparable &&
+            jointIndex < record.jointCount;
+            ++jointIndex)
+        {
+            idJointMat liveJoint;
+            if (!SmokeTryCopyMemory(
+                    &liveJoint,
+                    liveJoints + jointIndex,
+                    sizeof(liveJoint)))
+            {
+                record.jointCacheCpuSourceComparable = false;
+                break;
+            }
+            if (memcmp(
+                    &liveJoint,
+                    snapshot + jointIndex,
+                    sizeof(liveJoint)) != 0)
+            {
+                record.jointCacheCpuSourceChanged = true;
+                break;
+            }
+        }
     }
     record.bucketIndex = bucketIndex;
     if (renderEntity)
@@ -1717,7 +1767,7 @@ void AddSmokeDynamicGeometryStats(RtSmokeDynamicGeometryStats& stats, RtSmokeSur
         {
             bool verticesFromFrameCache = false;
             SmokeDrawSurfaceVertices(drawSurf, tri, verticesFromFrameCache);
-            if (SmokeDrawSurfaceCpuSkinningJoints(tri, verticesFromFrameCache) != nullptr)
+            if (SmokeDrawSurfaceCpuSkinningJoints(drawSurf, tri, verticesFromFrameCache) != nullptr)
             {
                 ++stats.skinnedRtCpuSkinnedSurfaces;
                 stats.skinnedRtCpuSkinnedIndexes += indexes;
@@ -2312,7 +2362,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             std::vector<uint32_t>& bucketIdentities = bucketTriangleIdentityData[bucketIndex];
             bool verticesFromFrameCache = false;
             SmokeDrawSurfaceVertices(drawSurf, tri, verticesFromFrameCache);
-            const bool usesRtCpuSkinning = SmokeDrawSurfaceCpuSkinningJoints(tri, verticesFromFrameCache) != nullptr;
+            const bool usesRtCpuSkinning = SmokeDrawSurfaceCpuSkinningJoints(drawSurf, tri, verticesFromFrameCache) != nullptr;
             const int bucketVertexStart = static_cast<int>(bucketVertices.size());
             const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
             const int bucketTriangleStart = static_cast<int>(bucketClasses.size());

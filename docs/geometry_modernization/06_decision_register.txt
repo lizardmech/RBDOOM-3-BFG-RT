@@ -186,6 +186,20 @@ provide same-owner previous state. The compact current buffer is retained as
 previous input only by the matching PtCanonicalHistoryOwnerKey. Subviews must
 not read or overwrite PrimaryGameplay history.
 
+D21. GPU-SKINNING PARITY ORACLES MUST BE FRAME-OWNED
+----------------------------------------------------
+Decision: do not use tri->staticModelWithJoints->jointsInverted as a backend
+numeric oracle for a submitted draw surface. drawSurf_t explicitly identifies
+frontEndGeo as mutable frontend-owned state, and the SMP loop can regenerate a
+cached dynamic model in place while the backend executes the previous command
+buffer. The renderer jointCache retains the submitted pose; the late CPU model
+pointer may contain a newer pose.
+
+Production mode consumes jointCache without a CPU pose copy. When exact
+same-frame validation is armed, retain a bounded frame-owned copy at the
+R_SetupDrawSurfJoints upload boundary and transport it through drawSurf_t. This
+copy is validation-only and must be removed from production measurements.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

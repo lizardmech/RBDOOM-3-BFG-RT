@@ -77,6 +77,9 @@ idRenderModelStatic::idRenderModelStatic()
 	numInvertedJoints = 0;
 	jointsInverted = NULL;
 	jointsInvertedBuffer = 0;
+	jointsInvertedParitySnapshot = NULL;
+	jointsInvertedParitySnapshotBuffer = 0;
+	jointsInvertedParitySnapshotFrame = -1;
 }
 
 /*

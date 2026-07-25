@@ -144,6 +144,9 @@ public:
 	int							numInvertedJoints;
 	idJointMat* 				jointsInverted;
 	vertCacheHandle_t			jointsInvertedBuffer;
+	const idJointMat*			jointsInvertedParitySnapshot;
+	vertCacheHandle_t			jointsInvertedParitySnapshotBuffer;
+	int							jointsInvertedParitySnapshotFrame;
 
 protected:
 	int							lastModifiedFrame;

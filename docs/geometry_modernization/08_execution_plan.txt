@@ -41,9 +41,13 @@ GEO-07 status 2026-07-25: slices 1 and 2 are accepted behind the default-off
 master gate. geometry_geo39 accepts live renderer jointCache range transport,
 canonical instance/history ownership, and retained GEO-03 current/previous
 numeric parity. geometry_geo40 accepts checked compact-copy planning with exact
-8/8 range accounting and 17088 contiguous bytes. Slice 3 now submits those
-current-joint ranges to the existing GPU comparison shader; runtime acceptance
-is pending. CPU pre-skinning and legacy BLAS traversal remain authoritative.
+8/8 range accounting and 17088 contiguous bytes. geometry_geo41 accepts slice
+3's structural GPU copy (23 ranges and 50112 bytes exact) but rejects the old
+numeric oracle: the late backend CPU pose pointer is mutable frontend-owned
+cached-model memory. Gate value 2 now retains a validation-only frame-owned
+snapshot at the exact jointCache upload boundary. Slice 3 remains pending that
+corrected numeric proof. CPU pre-skinning and legacy BLAS traversal remain
+authoritative.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

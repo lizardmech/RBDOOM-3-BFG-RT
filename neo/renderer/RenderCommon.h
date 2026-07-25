@@ -97,6 +97,8 @@ struct drawSurf_t
 	vertCacheHandle_t		indexCache;			// triIndex_t
 	vertCacheHandle_t		ambientCache;		// idDrawVert
 	vertCacheHandle_t		jointCache;			// idJointMat
+	const idJointMat*		jointCacheCpuSnapshot;	// frame-owned validation copy of the exact jointCache upload source
+	int						jointCacheCpuSnapshotCount;
 	const viewEntity_t* 	space;
 	const idMaterial* 		material;			// may be NULL for shadow volumes
 	uint64					extraGLState;		// Extra GL state |'d with material->stage[].drawStateBits

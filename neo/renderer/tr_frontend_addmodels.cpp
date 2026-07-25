@@ -40,6 +40,7 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "RenderCommon.h"
 #include "Model_local.h"
+#include "NVRHI/PathTraceCVars.h"
 
 idCVar r_skipStaticShadows( "r_skipStaticShadows", "0", CVAR_RENDERER | CVAR_BOOL, "skip static shadows" );
 idCVar r_skipDynamicShadows( "r_skipDynamicShadows", "0", CVAR_RENDERER | CVAR_BOOL, "skip dynamic shadows" );
@@ -279,6 +280,9 @@ R_SetupDrawSurfJoints
 */
 void R_SetupDrawSurfJoints( drawSurf_t* drawSurf, const srfTriangles_t* tri, const idMaterial* shader, nvrhi::ICommandList* commandList )
 {
+	drawSurf->jointCacheCpuSnapshot = NULL;
+	drawSurf->jointCacheCpuSnapshotCount = 0;
+
 	// RB: added check wether GPU skinning is available at all
 	if( tri->staticModelWithJoints == NULL || !r_useGPUSkinning.GetBool() )
 	{
@@ -293,8 +297,25 @@ void R_SetupDrawSurfJoints( drawSurf_t* drawSurf, const srfTriangles_t* tri, con
 	if( !vertexCache.CacheIsCurrent( model->jointsInvertedBuffer ) )
 	{
 		model->jointsInvertedBuffer = vertexCache.AllocJoint( model->jointsInverted, model->numInvertedJoints, sizeof( idJointMat ), commandList );
+		if( r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() >= 2 )
+		{
+			const int snapshotBytes = model->numInvertedJoints * sizeof( idJointMat );
+			idJointMat* snapshot = static_cast<idJointMat*>( R_FrameAlloc( snapshotBytes, FRAME_ALLOC_SURFACE_TRIANGLES ) );
+			memcpy( snapshot, model->jointsInverted, snapshotBytes );
+			model->jointsInvertedParitySnapshot = snapshot;
+			model->jointsInvertedParitySnapshotBuffer = model->jointsInvertedBuffer;
+			model->jointsInvertedParitySnapshotFrame = tr.frameCount;
+		}
 	}
 	drawSurf->jointCache = model->jointsInvertedBuffer;
+	if( r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() >= 2 &&
+		model->jointsInvertedParitySnapshot != NULL &&
+		model->jointsInvertedParitySnapshotBuffer == model->jointsInvertedBuffer &&
+		model->jointsInvertedParitySnapshotFrame == tr.frameCount )
+	{
+		drawSurf->jointCacheCpuSnapshot = model->jointsInvertedParitySnapshot;
+		drawSurf->jointCacheCpuSnapshotCount = model->numInvertedJoints;
+	}
 }
 
 /*

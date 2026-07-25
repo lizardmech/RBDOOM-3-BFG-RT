@@ -392,3 +392,8 @@ NO LONGER OPEN TO SPECULATION
   separate contract.
 - The lifecycle hook shape works and exact deletion is observable.
 - The comm1 loss is not a frontend, raster, cap, or broad material failure.
+- geometry_geo41 proves exact renderer jointCache range submission for 23
+  skinned surfaces and 50112 bytes. Its numeric failure rejects the late
+  frontend-owned cached-model pose pointer as a same-frame oracle; it does not
+  reject the structurally exact GPU copy. GEO-07 now requires a frame-owned
+  upload-boundary oracle before slice-3 acceptance.

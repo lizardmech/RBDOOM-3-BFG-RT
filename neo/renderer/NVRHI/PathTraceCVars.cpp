@@ -331,7 +331,7 @@ idCVar r_pathTracingGeometryAuthoritativeGpuSkinning(
     "r_pathTracingGeometryAuthoritativeGpuSkinning",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "GEO-07 default-off master gate; current slice stages renderer jointCache bytes for parity while CPU skinning and BLAS stay authoritative" );
+    "GEO-07 default-off master gate; 1 stages renderer jointCache bytes, 2 also retains an exact frame-owned CPU upload snapshot for validation; CPU skinning and BLAS stay authoritative" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

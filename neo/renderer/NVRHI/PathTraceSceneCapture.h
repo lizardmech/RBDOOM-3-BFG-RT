@@ -253,6 +253,10 @@ struct RtSmokeSkinnedSurfaceRecord
     PtCanonicalHistoryOwnerKey historyOwner;
     PtCanonicalInstanceKey canonicalInstance;
     uint64_t jointCacheHandle = 0;
+    uintptr_t jointCacheCpuSnapshot = 0;
+    int jointCacheCpuSnapshotCount = 0;
+    bool jointCacheCpuSourceComparable = false;
+    bool jointCacheCpuSourceChanged = false;
     int currentVertexOffset = 0;
     int currentIndexOffset = 0;
     int currentTriangleOffset = 0;

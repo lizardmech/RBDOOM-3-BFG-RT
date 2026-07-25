@@ -2592,6 +2592,9 @@ void DumpSmokeSkinnedGpuFunnel(
     int jointRangeSizeMismatch = 0;
     int canonicalInstanceValid = 0;
     int historyOwnerValid = 0;
+    int jointSnapshotAvailable = 0;
+    int jointSnapshotComparable = 0;
+    int jointSnapshotSourceChanged = 0;
     uint64 resolvedJointBytes = 0;
     std::unordered_set<nvrhi::IBuffer*> resolvedJointBuffers;
     PtJointCacheCopyPlanner copyPlanner;
@@ -2618,6 +2621,15 @@ void DumpSmokeSkinnedGpuFunnel(
             PtCanonicalHistoryOwnerKeyIsValid(record.historyOwner)
                 ? 1
                 : 0;
+        const bool snapshotAvailable =
+            record.jointCacheCpuSnapshot != 0 &&
+            record.jointCacheCpuSnapshotCount == record.jointCount &&
+            record.jointCount > 0;
+        jointSnapshotAvailable += snapshotAvailable ? 1 : 0;
+        jointSnapshotComparable +=
+            record.jointCacheCpuSourceComparable ? 1 : 0;
+        jointSnapshotSourceChanged +=
+            record.jointCacheCpuSourceChanged ? 1 : 0;
         if (record.jointCacheHandle == 0)
         {
             continue;
@@ -2689,11 +2701,9 @@ void DumpSmokeSkinnedGpuFunnel(
         }
     }
     common->Printf(
-        "PathTracePrimaryPass: GEO07 jointCache audit frame=%llu gate=%d candidates=%llu canonicalInstance/historyOwner=%d/%d handle(present/resolved/stale)=%d/%d/%d range(match/mismatch/bytes)=%d/%d/%llu buffers=%llu copyPlan(new/reused/rejected/bytes)=%d/%d/%d/%llu stage(requested/ready/submitted/copies/bytes)=%d/%d/%d/%llu/%llu source=renderer-drawList-jointCache route=%s\n",
+        "PathTracePrimaryPass: GEO07 jointCache audit frame=%llu gate=%d candidates=%llu canonicalInstance/historyOwner=%d/%d handle(present/resolved/stale)=%d/%d/%d range(match/mismatch/bytes)=%d/%d/%llu buffers=%llu copyPlan(new/reused/rejected/bytes)=%d/%d/%d/%llu stage(requested/ready/submitted/copies/bytes)=%d/%d/%d/%llu/%llu oracle(snapshot/comparable/sourceChanged)=%d/%d/%d source=renderer-drawList-jointCache route=%s\n",
         static_cast<unsigned long long>(frameIndex),
-        r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() != 0
-            ? 1
-            : 0,
+        r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger(),
         static_cast<unsigned long long>(records.size()),
         canonicalInstanceValid,
         historyOwnerValid,
@@ -2716,6 +2726,9 @@ void DumpSmokeSkinnedGpuFunnel(
             jointCacheStage.copies.size()),
         static_cast<unsigned long long>(
             jointCacheStage.submittedBytes),
+        jointSnapshotAvailable,
+        jointSnapshotComparable,
+        jointSnapshotSourceChanged,
         jointCacheStage.submitted
             ? "authoritative-current-copy"
             : "plan-only");
@@ -2746,7 +2759,7 @@ void DumpSmokeSkinnedGpuFunnel(
                         record.jointCacheHandle),
                     &jointRange);
             common->Printf(
-                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d previousValid=%d invalid=0x%08x temporal=0x%08x canonical(instance/history)=%d/%d jointCache(handle/resolved/bytes)=0x%llx/%d/%d copyPlan(result/dst/bytes)=%s/%llu/%llu result=%s\n",
+                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d previousValid=%d invalid=0x%08x temporal=0x%08x canonical(instance/history)=%d/%d jointCache(handle/resolved/bytes)=0x%llx/%d/%d oracle(snapshot/comparable/sourceChanged)=%d/%d/%d copyPlan(result/dst/bytes)=%s/%llu/%llu result=%s\n",
                 detailCount,
                 static_cast<unsigned long long>(recordIndex),
                 record.entityIndex,
@@ -2766,6 +2779,13 @@ void DumpSmokeSkinnedGpuFunnel(
                     record.jointCacheHandle),
                 jointRangeResolved ? 1 : 0,
                 jointRangeResolved ? jointRange.GetSize() : 0,
+                record.jointCacheCpuSnapshot != 0 &&
+                    record.jointCacheCpuSnapshotCount ==
+                        record.jointCount
+                    ? 1
+                    : 0,
+                record.jointCacheCpuSourceComparable ? 1 : 0,
+                record.jointCacheCpuSourceChanged ? 1 : 0,
                 PtJointCacheCopyPlanResultName(
                     copyPlanResults[recordIndex]),
                 static_cast<unsigned long long>(
@@ -3087,6 +3107,13 @@ void CopySmokeJointMatrixRows(PathTraceSkinnedJointMatrix& dst, const idJointMat
 
 const idJointMat* SmokeSkinnedRecordJoints(const RtSmokeSkinnedSurfaceRecord& record)
 {
+    if (record.jointCacheCpuSnapshot != 0 &&
+        record.jointCacheCpuSnapshotCount == record.jointCount &&
+        record.jointCount > 0)
+    {
+        return reinterpret_cast<const idJointMat*>(
+            record.jointCacheCpuSnapshot);
+    }
     const srfTriangles_t* tri = reinterpret_cast<const srfTriangles_t*>(record.key.tri);
     return GetSmokeRtCpuSkinningJoints(tri);
 }
