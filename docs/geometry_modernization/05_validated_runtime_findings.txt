@@ -433,3 +433,11 @@ NO LONGER OPEN TO SPECULATION
   harness separately proves stable reuse, resize tombstones, exact retirement,
   render-def/world generation replacement, growth and explicit in-flight
   release. Existing joint staging and 24-sample parity remain accepted.
+- geometry_geo58_auto and geometry_geo60_auto accept the shared-source/
+  distinct-output comparison route. Twelve records resolve and dispatch from
+  11 unique value-owned sources; source vertices fall from 9889 per-instance
+  vertices to 6839 unique vertices with no numeric regression. The two
+  3050-vertex Fatzombies both read source offset 3651 and write output offsets
+  3651 and 6701, proving explicit source sharing and non-overlapping output.
+  geometry_geo59_auto disables the source-registry gate, restores the legacy
+  9889/9889 comparison layout, and retains the 24-sample parity pass.

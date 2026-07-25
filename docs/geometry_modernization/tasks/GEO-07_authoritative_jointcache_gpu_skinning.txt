@@ -40,8 +40,11 @@ STEPS
    registry. Mutable ranges are keyed by full canonical InstanceKey, never by
    shared MeshKey; removal and storage-generation retirement are explicit.
    Two zombies sharing one MD5 source must retain distinct output ranges.
-5. Schedule skinning after authoritative joint writes and before BLAS update on
-   the same queue/command-list dependency chain.
+5. Use the accepted slice-5C mode-1 comparison route: pack each exact
+   value-owned source once per unique MeshKey/checksum, bind distinct
+   full-InstanceKey output offsets, and schedule skinning after authoritative
+   joint writes on the same command-list chain. CPU pre-skinning and live BLAS
+   inputs remain unchanged until step 6.
 6. Route each candidate through the GEO-03 funnel. Only `dispatchedGpu` may skip
    CPU pre-skinning; every other result uses the named CPU fallback or explicit
    single-bone route.

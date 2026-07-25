@@ -1,7 +1,7 @@
 GEO-07 - authoritative jointCache GPU skinning entry audit
 ==========================================================
-Status: slices 1-4 and slices 5A-5B are accepted. Slice 5C, routing comparison
-dispatches from shared immutable sources into distinct mutable ranges, is next.
+Status: slices 1-5 are accepted. Slice 6, guarded CPU pre-skin removal for jobs
+that reached dispatchedGpu, is next.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 030ac8c20.
@@ -1101,3 +1101,113 @@ Result:
   NEXT - slice 5C may create/bind comparison storage using these ranges. It
          must retain the current CPU and BLAS routes while validating the new
          shared-source/distinct-output dispatch.
+
+SLICE 5C SHARED-SOURCE / DISTINCT-OUTPUT COMPARISON ROUTE (2026-07-25)
+----------------------------------------------------------------------
+The mode-1 comparison path now selects the slice-5C route only when:
+
+  r_pathTracingGpuSkinning = 1
+  r_pathTracingGeometryAuthoritativeGpuSkinning != 0
+  r_pathTracingGeometryShadowRegistry != 0
+
+For each accepted record it:
+
+  resolves InstanceKey -> exact MeshKey -> slice-5A source record;
+  converts the value-owned source position/attribute payload to the existing
+    PathTraceSkinnedSourceVertex shader ABI;
+  packs each exact (MeshKey, source checksum) once for the current comparison
+    build, so duplicate instances share one source offset;
+  resolves the full InstanceKey's slice-5B output range;
+  sizes the comparison output vector/buffer to the allocator storage capacity;
+  seeds CPU reference data at that persistent range only for validation;
+  dispatches the unchanged compute shader with the shared source offset and
+    distinct output offset.
+
+The source conversion reconstructs the original byte joint indices from the
+value-owned normalized color stream and retains normalized byte weights,
+position, normal, tangent/sign, UV and color. Canonical source and output
+failure are now separate named funnel results:
+
+  invalidCanonicalSource
+  invalidPersistentOutput
+
+This is still a comparison route. It does not:
+
+  change mode 2's merged dynamic-buffer overwrite;
+  feed the new output buffer to a BLAS;
+  skip CPU pre-skinning;
+  remove the retained CPU validation seed;
+  bind the split GEO-06 GPU position/attribute pools directly.
+
+The current comparison upload repacks one source per unique MeshKey each frame.
+It therefore proves correct immutable ownership and instance sharing, but a
+persistent packed-source upload/cache decision remains part of the later
+cutover/performance work.
+
+Runtime acceptance, geometry_geo58_auto:
+
+  route enabled = 1
+  candidates/source resolved/source packed/source reused = 12/12/11/1
+  exact outputs/dispatches = 12/12
+  unique/uploaded source vertices = 6839/6839
+  output capacity/vector vertices = 16384/16384
+  invalid canonical source/output = 0/0
+  dispatched/resultTotal/exact = 12/12/1
+  parity samples/current/previous/motion failures = 24/0/0/0
+  maximum current error = 0.0000152587891
+  parity pass = 1
+
+The prior transient path uploaded 9889 source vertices for these 12 records.
+The new path uploads 6839 because the two 3050-vertex Fatzombie instances share
+one immutable source record.
+
+Explicit shared-source/distinct-output proof, geometry_geo60_auto:
+
+  entity 107 Fatzombie:
+    vertices = 3050
+    source offset = 3651
+    output offset = 3651
+
+  entity 106 Fatzombie:
+    vertices = 3050
+    source offset = 3651
+    output offset = 6701
+
+Both dispatches read [3651, 6701) from the shared source. Their output ranges
+are [3651, 6701) and [6701, 9751): adjacent and non-overlapping. The same run
+retained 12/12 exact source and output resolution and the 24-sample parity pass
+at 0.0000152587891 maximum error.
+
+Rollback A/B, geometry_geo59_auto:
+
+  r_pathTracingGeometryShadowRegistry = 0
+  source/output route enabled = 0
+  allocator source gate/world valid = 0/0
+  legacy source/output vertices = 9889/9889
+  candidates/dispatched/resultTotal/exact = 12/12/12/1
+  parity samples/current/previous/motion failures = 24/0/0/0
+  parity pass = 1
+
+Gate-off therefore restores the prior comparison source/output layout without
+altering the master jointCache path.
+
+Offline/build/deploy:
+
+  all five geometry source/joint/history/output harnesses:
+    PASS
+  cmake --build --preset win64-pt-dev-release:
+    PASS
+  all SPIR-V shaders:
+    up to date; no shader source or blob changed
+  deployed executable:
+    15702016 bytes
+    2026-07-25 14:16:23 Australia/Sydney
+    SHA-256 24A79A7580D10F9CCF1806AFE82059C6FC8D6711B563E0F5E743F8C8640B6802
+
+Result:
+
+  PASS - slice 5C proves shared immutable source consumption and distinct
+         full-InstanceKey GPU outputs with unchanged numeric parity.
+  NEXT - slice 6 may skip CPU pre-skinning only for jobs that complete this
+         route as dispatchedGpu. Every named failure remains on CPU fallback,
+         and live BLAS promotion is still deferred to GEO-08.

@@ -90,9 +90,21 @@ reuse, world replacement, growth, explicit in-flight release, overflow and
 atomic capacity rejection. geometry_geo57_auto plans 12/12 exact ranges for
 9889 vertices, with zero rejection/overlap; the one shared immutable-source
 pair is non-aliased. Current dispatch buffers and BLAS traversal are unchanged.
-Slice 5C is next: bind comparison dispatches to the shared immutable source and
-distinct instance outputs. Shared MeshKey ownership never permits shared pose,
-history, output, or later BLAS state.
+Shared MeshKey ownership never permits shared pose, history, output, or later
+BLAS state.
+
+Slice 5C is now accepted for the mode-1 comparison route. With both canonical
+gates enabled, geometry_geo58_auto resolves 12/12 source records and output
+ranges, packs 11 unique sources with one reuse, dispatches all 12 records, and
+passes 24 current/previous/motion samples at 0.0000152587891 maximum error.
+Source upload falls from the legacy 9889 per-instance vertices to 6839 unique
+vertices. geometry_geo60_auto explicitly proves the two 3050-vertex
+Fatzombies read the same source offset 3651 while writing distinct output
+offsets 3651 and 6701. geometry_geo59_auto disables the source-registry gate,
+selects the legacy 9889/9889 comparison layout, and retains exact parity.
+CPU pre-skinning and live BLAS traversal remain authoritative. Slice 6 is next:
+only a job that completes as dispatchedGpu may skip CPU pre-skinning; every
+named source/output/joint/dispatch failure must retain the CPU fallback.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

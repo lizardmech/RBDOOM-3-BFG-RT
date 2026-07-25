@@ -281,7 +281,7 @@ struct RtSmokeSkinnedSurfaceRecord
     int retainedVertexOffset = -1;
     int retainedJointOffset = -1;
     int gpuSourceVertexOffset = -1;
-    int gpuOutputVertexOffset = -1;
+    int64 gpuOutputVertexOffset = -1;
     int gpuPreviousPositionOffset = -1;
     int bucketIndex = 0;
     bool hasEntityOrigin = false;

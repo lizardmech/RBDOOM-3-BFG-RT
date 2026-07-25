@@ -234,6 +234,22 @@ Slice 5B is planner-only. Physical buffer creation, copy/rewrite behavior and
 dispatch routing belong to slice 5C and must keep the current route live until
 numeric comparison passes.
 
+D24. FIRST SHARED-SOURCE COMPARISON ROUTE
+-----------------------------------------
+Decision: validate immutable-source ownership without changing the skinning
+shader ABI or live BLAS route. In mode 1 with both canonical gates enabled,
+convert the value-owned slice-5A record to PathTraceSkinnedSourceVertex once
+per exact MeshKey/checksum in the current comparison build, then dispatch every
+instance to its slice-5B full-InstanceKey output range.
+
+This deliberately separates contract proof from a direct binding of the split
+GEO-06 GPU position/attribute pools. It removes duplicate per-instance source
+packing within the frame and proves two independently posed actors can share
+source bytes while writing non-overlapping outputs. Persistent source upload,
+CPU pre-skin removal and live BLAS use require their later gates and evidence.
+Disabling the canonical source-registry gate restores the prior transient
+comparison layout.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

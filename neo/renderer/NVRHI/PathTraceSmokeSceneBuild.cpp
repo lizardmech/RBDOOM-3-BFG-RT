@@ -47,6 +47,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <future>
 #include <limits>
@@ -2447,6 +2448,8 @@ struct RtSmokeSkinnedGpuScaffoldBuild
         NotReadyJointData,
         UnsupportedLayout,
         InvalidWeightsOrJoints,
+        InvalidCanonicalSource,
+        InvalidPersistentOutput,
         AllocationFailure,
         ExplicitSingleBoneRoute,
         CpuFallback,
@@ -2454,6 +2457,14 @@ struct RtSmokeSkinnedGpuScaffoldBuild
     };
     std::vector<Result> recordResults;
     int singleBoneObserved = 0;
+    bool canonicalSourceOutputRoute = false;
+    int canonicalSourceResolved = 0;
+    int canonicalSourcePacked = 0;
+    int canonicalSourceReused = 0;
+    int canonicalOutputExact = 0;
+    int canonicalDispatches = 0;
+    uint64 canonicalSourceVertices = 0;
+    uint64 canonicalOutputCapacityVertices = 0;
 };
 
 struct RtSmokeJointCacheStageCopy
@@ -2547,6 +2558,8 @@ const char* SmokeSkinnedGpuResultName(RtSmokeSkinnedGpuScaffoldBuild::Result res
         case Result::NotReadyJointData: return "notReadyJointData";
         case Result::UnsupportedLayout: return "unsupportedLayout";
         case Result::InvalidWeightsOrJoints: return "invalidWeightsOrJoints";
+        case Result::InvalidCanonicalSource: return "invalidCanonicalSource";
+        case Result::InvalidPersistentOutput: return "invalidPersistentOutput";
         case Result::AllocationFailure: return "allocationFailure";
         case Result::ExplicitSingleBoneRoute: return "explicitSingleBoneRoute";
         case Result::CpuFallback: return "cpuFallback";
@@ -2847,7 +2860,7 @@ void DumpSmokeSkinnedGpuFunnel(
     }
     const bool exact = resultTotal == static_cast<int>(build.recordResults.size());
     common->Printf(
-        "PathTracePrimaryPass: PT GPU skinning funnel frame=%llu mode=%d candidates=%llu eligibleGpu=%d dispatchedGpu=%d notReadyJointData=%d unsupportedLayout=%d invalidWeightsOrJoints=%d allocationFailure=%d explicitSingleBoneRoute=%d cpuFallback=%d singleBoneObserved=%d resultTotal=%d exact=%d\n",
+        "PathTracePrimaryPass: PT GPU skinning funnel frame=%llu mode=%d candidates=%llu eligibleGpu=%d dispatchedGpu=%d notReadyJointData=%d unsupportedLayout=%d invalidWeightsOrJoints=%d invalidCanonicalSource=%d invalidPersistentOutput=%d allocationFailure=%d explicitSingleBoneRoute=%d cpuFallback=%d singleBoneObserved=%d resultTotal=%d exact=%d\n",
         static_cast<unsigned long long>(frameIndex),
         mode,
         static_cast<unsigned long long>(build.recordResults.size()),
@@ -2856,6 +2869,8 @@ void DumpSmokeSkinnedGpuFunnel(
         counts[static_cast<int>(Result::NotReadyJointData)],
         counts[static_cast<int>(Result::UnsupportedLayout)],
         counts[static_cast<int>(Result::InvalidWeightsOrJoints)],
+        counts[static_cast<int>(Result::InvalidCanonicalSource)],
+        counts[static_cast<int>(Result::InvalidPersistentOutput)],
         counts[static_cast<int>(Result::AllocationFailure)],
         counts[static_cast<int>(Result::ExplicitSingleBoneRoute)],
         counts[static_cast<int>(Result::CpuFallback)],
@@ -3074,6 +3089,29 @@ void DumpSmokeSkinnedGpuFunnel(
         static_cast<unsigned long long>(
             sizeof(PathTraceSmokeVertex)));
 
+    common->Printf(
+        "PathTracePrimaryPass: GEO07 skinned source-output dispatch frame=%llu routeEnabled=%d candidates/sourceResolved/sourcePacked/sourceReused/outputExact/dispatches=%llu/%d/%d/%d/%d/%d sourceVertices(unique/uploaded)=%llu/%llu outputVertices(capacity/vector)=%llu/%llu route=%s\n",
+        static_cast<unsigned long long>(frameIndex),
+        build.canonicalSourceOutputRoute ? 1 : 0,
+        static_cast<unsigned long long>(
+            build.recordResults.size()),
+        build.canonicalSourceResolved,
+        build.canonicalSourcePacked,
+        build.canonicalSourceReused,
+        build.canonicalOutputExact,
+        build.canonicalDispatches,
+        static_cast<unsigned long long>(
+            build.canonicalSourceVertices),
+        static_cast<unsigned long long>(
+            build.sourceVertices.size()),
+        static_cast<unsigned long long>(
+            build.canonicalOutputCapacityVertices),
+        static_cast<unsigned long long>(
+            build.currentOutputVertices.size()),
+        build.canonicalSourceOutputRoute
+            ? "immutable-source-to-instance-output"
+            : "legacy-transient-source-output");
+
     int bindSourceBindings = 0;
     int bindSourceRecords = 0;
     int bindSourceContractExact = 0;
@@ -3161,7 +3199,7 @@ void DumpSmokeSkinnedGpuFunnel(
                         record.jointCacheHandle),
                     &jointRange);
             common->Printf(
-                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d previousValid=%d invalid=0x%08x temporal=0x%08x canonical(instance/history)=%d/%d jointCache(handle/resolved/bytes)=0x%llx/%d/%d oracle(snapshot/comparable/sourceChanged)=%d/%d/%d copyPlan(result/dst/bytes)=%s/%llu/%llu result=%s\n",
+                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d previousValid=%d invalid=0x%08x temporal=0x%08x canonical(instance/history)=%d/%d gpu(source/output/previous)=%d/%lld/%d jointCache(handle/resolved/bytes)=0x%llx/%d/%d oracle(snapshot/comparable/sourceChanged)=%d/%d/%d copyPlan(result/dst/bytes)=%s/%llu/%llu result=%s\n",
                 detailCount,
                 static_cast<unsigned long long>(recordIndex),
                 record.entityIndex,
@@ -3177,6 +3215,10 @@ void DumpSmokeSkinnedGpuFunnel(
                     record.canonicalInstance) ? 1 : 0,
                 PtCanonicalHistoryOwnerKeyIsValid(
                     record.historyOwner) ? 1 : 0,
+                record.gpuSourceVertexOffset,
+                static_cast<long long>(
+                    record.gpuOutputVertexOffset),
+                record.gpuPreviousPositionOffset,
                 static_cast<unsigned long long>(
                     record.jointCacheHandle),
                 jointRangeResolved ? 1 : 0,
@@ -3490,6 +3532,103 @@ PathTraceSkinnedSourceVertex BuildSmokeSkinnedSourceVertex(const idDrawVert& dra
     return vertex;
 }
 
+PathTraceSkinnedSourceVertex BuildSmokeSkinnedSourceVertex(
+    const PtGeometrySourcePosition& position,
+    const PtGeometrySourceAttribute& attribute)
+{
+    PathTraceSkinnedSourceVertex vertex = {};
+    vertex.localPosition[0] = position.xyz[0];
+    vertex.localPosition[1] = position.xyz[1];
+    vertex.localPosition[2] = position.xyz[2];
+    vertex.localPosition[3] = 1.0f;
+    vertex.localNormal[0] = attribute.normal[0];
+    vertex.localNormal[1] = attribute.normal[1];
+    vertex.localNormal[2] = attribute.normal[2];
+    vertex.localNormal[3] = 0.0f;
+    vertex.localTangent[0] = attribute.tangent[0];
+    vertex.localTangent[1] = attribute.tangent[1];
+    vertex.localTangent[2] = attribute.tangent[2];
+    vertex.localTangent[3] = attribute.bitangentSign;
+    vertex.texCoord[0] = attribute.texCoord[0];
+    vertex.texCoord[1] = attribute.texCoord[1];
+    vertex.texCoord[2] = attribute.texCoord[0];
+    vertex.texCoord[3] = attribute.texCoord[1];
+    for (int component = 0; component < 4; ++component)
+    {
+        vertex.color[component] =
+            attribute.color[component];
+        vertex.jointIndices[component] =
+            static_cast<uint32_t>(
+                idMath::ClampInt(
+                    0,
+                    255,
+                    static_cast<int>(
+                        attribute.color[component] *
+                            255.0f +
+                        0.5f)));
+        vertex.jointWeights[component] =
+            attribute.color2[component];
+    }
+    return vertex;
+}
+
+bool SmokeSkinnedCanonicalSourceLayoutAndWeightsValid(
+    const PtGeometrySourceRecord* source,
+    int vertexCount,
+    int jointCount)
+{
+    if (source == nullptr ||
+        vertexCount <= 0 ||
+        jointCount <= 0 ||
+        source->payload.positions.size() !=
+            static_cast<size_t>(vertexCount) ||
+        source->payload.attributes.size() !=
+            static_cast<size_t>(vertexCount))
+    {
+        return false;
+    }
+    for (int vertexIndex = 0;
+        vertexIndex < vertexCount;
+        ++vertexIndex)
+    {
+        const PtGeometrySourcePosition& position =
+            source->payload.positions[
+                static_cast<size_t>(vertexIndex)];
+        const PtGeometrySourceAttribute& attribute =
+            source->payload.attributes[
+                static_cast<size_t>(vertexIndex)];
+        if (!std::isfinite(position.xyz[0]) ||
+            !std::isfinite(position.xyz[1]) ||
+            !std::isfinite(position.xyz[2]))
+        {
+            return false;
+        }
+        float weightSum = 0.0f;
+        for (int component = 0; component < 4; ++component)
+        {
+            const int jointIndex =
+                static_cast<int>(
+                    attribute.color[component] *
+                        255.0f +
+                    0.5f);
+            if (jointIndex < 0 ||
+                jointIndex >= jointCount ||
+                !std::isfinite(
+                    attribute.color2[component]))
+            {
+                return false;
+            }
+            weightSum += attribute.color2[component];
+        }
+        if (weightSum < 254.0f / 255.0f ||
+            weightSum > 256.0f / 255.0f)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 void CopySmokeObjectToWorldRows(float dst[12], const float src[12])
 {
     for (int i = 0; i < 12; ++i)
@@ -3574,6 +3713,9 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
     int scaffoldMode,
     int gpuSkinningMode,
     bool buildGpuSkinningInputs,
+    bool canonicalSourceOutputRoute,
+    const RtSmokeGeometryUniverse* geometryUniverse,
+    const PtSkinnedOutputAllocator* outputAllocator,
     std::vector<RtSmokeSkinnedSurfaceRecord>& currentRecords,
     const std::vector<RtSmokeSkinnedSurfaceRecord>& previousRecords,
     const std::vector<PathTraceSmokeVertex>& dynamicVertexData,
@@ -3582,16 +3724,100 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
 {
     RtSmokeSkinnedGpuScaffoldBuild build;
     using Result = RtSmokeSkinnedGpuScaffoldBuild::Result;
+    build.canonicalSourceOutputRoute =
+        canonicalSourceOutputRoute;
+    if (canonicalSourceOutputRoute &&
+        outputAllocator != nullptr)
+    {
+        build.canonicalOutputCapacityVertices =
+            outputAllocator->Stats().capacityVertices;
+        if (buildGpuSkinningInputs &&
+            build.canonicalOutputCapacityVertices <=
+                static_cast<uint64>(
+                    std::numeric_limits<size_t>::max()) &&
+            build.canonicalOutputCapacityVertices <=
+                UINT32_MAX)
+        {
+            build.currentOutputVertices.resize(
+                static_cast<size_t>(
+                    build.canonicalOutputCapacityVertices));
+        }
+    }
     build.recordResults.assign(currentRecords.size(), Result::CpuFallback);
     if (currentRecords.empty())
     {
         return build;
     }
 
+    struct CanonicalSourcePack
+    {
+        PtCanonicalMeshKey key;
+        uint64 checksum = 0;
+        int vertexOffset = -1;
+    };
+    std::vector<CanonicalSourcePack> canonicalSourcePacks;
+
     for (int recordIndex = 0; recordIndex < static_cast<int>(currentRecords.size()); ++recordIndex)
     {
         RtSmokeSkinnedSurfaceRecord& record = currentRecords[recordIndex];
         const srfTriangles_t* tri = reinterpret_cast<const srfTriangles_t*>(record.key.tri);
+        const PtGeometrySourceRecord* canonicalSource = nullptr;
+        const PtSkinnedOutputRange* persistentOutput = nullptr;
+        if (canonicalSourceOutputRoute &&
+            geometryUniverse != nullptr &&
+            outputAllocator != nullptr)
+        {
+            const PtGeometryIdentityBinding* binding =
+                geometryUniverse->
+                    FindCanonicalIdentityBinding(
+                        record.canonicalInstance);
+            canonicalSource =
+                binding != nullptr
+                    ? geometryUniverse->
+                        FindCanonicalSourceRecord(
+                            binding->meshKey)
+                    : nullptr;
+            if (canonicalSource == nullptr ||
+                binding == nullptr ||
+                canonicalSource->key != binding->meshKey ||
+                canonicalSource->key.sourceDomain !=
+                    PtCanonicalMeshSourceDomain::SkinnedBindSource ||
+                canonicalSource->key.deformationClass !=
+                    PtCanonicalDeformationClass::Skinned ||
+                canonicalSource->key.vertexCount !=
+                    static_cast<uint32_t>(record.vertexCount) ||
+                canonicalSource->sourceChecksum == 0)
+            {
+                canonicalSource = nullptr;
+            }
+            else
+            {
+                ++build.canonicalSourceResolved;
+            }
+            persistentOutput =
+                outputAllocator->Find(
+                    record.canonicalInstance);
+            if (persistentOutput != nullptr &&
+                persistentOutput->vertexCount ==
+                    static_cast<uint64>(record.vertexCount) &&
+                persistentOutput->storageGeneration ==
+                    outputAllocator->Stats().
+                        storageGeneration &&
+                persistentOutput->vertexOffset <=
+                    build.canonicalOutputCapacityVertices &&
+                persistentOutput->vertexCount <=
+                    build.canonicalOutputCapacityVertices -
+                        persistentOutput->vertexOffset &&
+                persistentOutput->vertexOffset <=
+                    UINT32_MAX)
+            {
+                ++build.canonicalOutputExact;
+            }
+            else
+            {
+                persistentOutput = nullptr;
+            }
+        }
         record.gpuSourceVertexOffset = -1;
         record.gpuOutputVertexOffset = -1;
         record.gpuPreviousPositionOffset = -1;
@@ -3602,13 +3828,32 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
         }
 
         const bool layoutUnsupported =
-            (tri && !tri->verts) ||
             record.vertexCount <= 0 ||
-            (tri && record.vertexCount > tri->numVerts) ||
-            !SmokeSkinnedCurrentVertexRangeValid(record, dynamicVertexData);
+            !SmokeSkinnedCurrentVertexRangeValid(
+                record,
+                dynamicVertexData) ||
+            (!canonicalSourceOutputRoute &&
+                ((tri && !tri->verts) ||
+                    (tri &&
+                        record.vertexCount >
+                            tri->numVerts)));
         if (gpuSkinningMode > 0)
         {
-            if (!tri || !tri->verts || layoutUnsupported)
+            if (canonicalSourceOutputRoute &&
+                canonicalSource == nullptr)
+            {
+                build.recordResults[recordIndex] =
+                    Result::InvalidCanonicalSource;
+            }
+            else if (canonicalSourceOutputRoute &&
+                persistentOutput == nullptr)
+            {
+                build.recordResults[recordIndex] =
+                    Result::InvalidPersistentOutput;
+            }
+            else if (layoutUnsupported ||
+                (!canonicalSourceOutputRoute &&
+                    (!tri || !tri->verts)))
             {
                 build.recordResults[recordIndex] = Result::UnsupportedLayout;
             }
@@ -3618,7 +3863,15 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
             {
                 build.recordResults[recordIndex] = Result::NotReadyJointData;
             }
-            else if (!SmokeSkinnedSourceLayoutAndWeightsValid(tri, record.vertexCount, record.jointCount))
+            else if (canonicalSourceOutputRoute
+                ? !SmokeSkinnedCanonicalSourceLayoutAndWeightsValid(
+                    canonicalSource,
+                    record.vertexCount,
+                    record.jointCount)
+                : !SmokeSkinnedSourceLayoutAndWeightsValid(
+                    tri,
+                    record.vertexCount,
+                    record.jointCount))
             {
                 build.recordResults[recordIndex] = Result::InvalidWeightsOrJoints;
             }
@@ -3630,10 +3883,14 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
 
         if (scaffoldMode <= 0 ||
             !record.rtCpuSkinned ||
-            !tri ||
-            !tri->verts ||
             record.vertexCount <= 0 ||
-            record.vertexCount > tri->numVerts ||
+            (!canonicalSourceOutputRoute &&
+                (!tri ||
+                    !tri->verts ||
+                    record.vertexCount > tri->numVerts)) ||
+            (canonicalSourceOutputRoute &&
+                (canonicalSource == nullptr ||
+                    persistentOutput == nullptr)) ||
             !SmokeSkinnedCurrentVertexRangeValid(record, dynamicVertexData) ||
             (gpuSkinningMode > 0 && build.recordResults[recordIndex] != Result::EligibleGpu))
         {
@@ -3642,12 +3899,124 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
 
         if (buildGpuSkinningInputs)
         {
-            record.gpuSourceVertexOffset = static_cast<int>(build.sourceVertices.size());
-            record.gpuOutputVertexOffset = static_cast<int>(build.currentOutputVertices.size());
-            for (int vertexIndex = 0; vertexIndex < record.vertexCount; ++vertexIndex)
+            if (canonicalSourceOutputRoute)
             {
-                build.sourceVertices.push_back(BuildSmokeSkinnedSourceVertex(tri->verts[vertexIndex]));
-                build.currentOutputVertices.push_back(dynamicVertexData[record.currentVertexOffset + vertexIndex]);
+                const CanonicalSourcePack* sourcePack = nullptr;
+                for (const CanonicalSourcePack& candidate :
+                    canonicalSourcePacks)
+                {
+                    if (candidate.key ==
+                            canonicalSource->key &&
+                        candidate.checksum ==
+                            canonicalSource->
+                                sourceChecksum)
+                    {
+                        sourcePack = &candidate;
+                        break;
+                    }
+                }
+                if (sourcePack == nullptr)
+                {
+                    if (build.sourceVertices.size() >
+                            static_cast<size_t>(INT_MAX) ||
+                        canonicalSource->payload.positions.
+                                size() >
+                            static_cast<size_t>(INT_MAX) -
+                                build.sourceVertices.size())
+                    {
+                        build.recordResults[recordIndex] =
+                            Result::InvalidCanonicalSource;
+                        continue;
+                    }
+                    CanonicalSourcePack added;
+                    added.key = canonicalSource->key;
+                    added.checksum =
+                        canonicalSource->sourceChecksum;
+                    added.vertexOffset =
+                        static_cast<int>(
+                            build.sourceVertices.size());
+                    for (int vertexIndex = 0;
+                        vertexIndex < record.vertexCount;
+                        ++vertexIndex)
+                    {
+                        build.sourceVertices.push_back(
+                            BuildSmokeSkinnedSourceVertex(
+                                canonicalSource->
+                                    payload.positions[
+                                        static_cast<size_t>(
+                                            vertexIndex)],
+                                canonicalSource->
+                                    payload.attributes[
+                                        static_cast<size_t>(
+                                            vertexIndex)]));
+                    }
+                    build.canonicalSourceVertices +=
+                        static_cast<uint64>(
+                            record.vertexCount);
+                    ++build.canonicalSourcePacked;
+                    canonicalSourcePacks.push_back(added);
+                    sourcePack =
+                        &canonicalSourcePacks.back();
+                }
+                else
+                {
+                    ++build.canonicalSourceReused;
+                }
+
+                const uint64 outputOffset =
+                    persistentOutput->vertexOffset;
+                if (outputOffset >
+                        static_cast<uint64>(
+                            std::numeric_limits<int64>::max()) ||
+                    outputOffset >
+                        build.currentOutputVertices.size() ||
+                    static_cast<uint64>(
+                        record.vertexCount) >
+                        build.currentOutputVertices.size() -
+                            outputOffset)
+                {
+                    build.recordResults[recordIndex] =
+                        Result::InvalidPersistentOutput;
+                    continue;
+                }
+                record.gpuSourceVertexOffset =
+                    sourcePack->vertexOffset;
+                record.gpuOutputVertexOffset =
+                    static_cast<int64>(outputOffset);
+                for (int vertexIndex = 0;
+                    vertexIndex < record.vertexCount;
+                    ++vertexIndex)
+                {
+                    build.currentOutputVertices[
+                        static_cast<size_t>(
+                            outputOffset) +
+                        static_cast<size_t>(
+                            vertexIndex)] =
+                        dynamicVertexData[
+                            record.currentVertexOffset +
+                            vertexIndex];
+                }
+            }
+            else
+            {
+                record.gpuSourceVertexOffset =
+                    static_cast<int>(
+                        build.sourceVertices.size());
+                record.gpuOutputVertexOffset =
+                    static_cast<int64>(
+                        build.currentOutputVertices.size());
+                for (int vertexIndex = 0;
+                    vertexIndex < record.vertexCount;
+                    ++vertexIndex)
+                {
+                    build.sourceVertices.push_back(
+                        BuildSmokeSkinnedSourceVertex(
+                            tri->verts[vertexIndex]));
+                    build.currentOutputVertices.push_back(
+                        dynamicVertexData[
+                            record.currentVertexOffset +
+                            vertexIndex]);
+                }
             }
         }
 
@@ -3673,7 +4042,14 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
 
         PathTraceSkinnedSurfaceDispatchRecord dispatch = {};
         dispatch.sourceVertexOffset = record.gpuSourceVertexOffset >= 0 ? static_cast<uint32_t>(record.gpuSourceVertexOffset) : UINT32_MAX;
-        dispatch.outputVertexOffset = record.gpuOutputVertexOffset >= 0 ? static_cast<uint32_t>(record.gpuOutputVertexOffset) : UINT32_MAX;
+        dispatch.outputVertexOffset =
+            record.gpuOutputVertexOffset >= 0 &&
+                static_cast<uint64>(
+                    record.gpuOutputVertexOffset) <=
+                    UINT32_MAX
+                ? static_cast<uint32_t>(
+                    record.gpuOutputVertexOffset)
+                : UINT32_MAX;
         dispatch.previousPositionOffset = record.gpuPreviousPositionOffset >= 0 ? static_cast<uint32_t>(record.gpuPreviousPositionOffset) : UINT32_MAX;
         dispatch.vertexCount = static_cast<uint32_t>(record.vertexCount);
         dispatch.currentJointOffset = UINT32_MAX;
@@ -3721,6 +4097,10 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
             }
         }
         build.dispatchRecords.push_back(dispatch);
+        if (canonicalSourceOutputRoute)
+        {
+            ++build.canonicalDispatches;
+        }
     }
 
     return build;
@@ -4770,12 +5150,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingDLSSRRGuideDebugView.GetInteger() != 0;
     const int skinnedScaffoldMode = skinnedMotionBridgeNeedsScaffold ? Max(1, gpuSkinningMode) : gpuSkinningMode;
     const bool buildSkinnedGpuSkinningInputs = gpuSkinningMode > 0;
+    const bool canonicalSkinnedSourceOutputRoute =
+        gpuSkinningMode == 1 &&
+        r_pathTracingGeometryAuthoritativeGpuSkinning.
+            GetInteger() != 0 &&
+        r_pathTracingGeometryShadowRegistry.
+            GetInteger() != 0;
     {
         OPTICK_EVENT("PT Skinned GPU Scaffold");
         skinnedGpuScaffold = BuildSmokeSkinnedGpuScaffold(
             skinnedScaffoldMode,
             gpuSkinningMode,
             buildSkinnedGpuSkinningInputs,
+            canonicalSkinnedSourceOutputRoute,
+            &m_smokeGeometryUniverse,
+            &m_smokeSkinnedOutputAllocator,
             currentSkinnedSurfaceRecords,
             previousSkinnedRecords,
             dynamicVertexData,
