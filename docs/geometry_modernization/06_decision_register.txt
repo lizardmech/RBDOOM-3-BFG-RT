@@ -514,9 +514,14 @@ hit variants into a pipeline, but this repository's payload, resource, and SBT
 contracts remain authoritative.
 
 D35 is offline-only until bounded runtime pipeline creation succeeds. Clean-GI
-must receive an equivalent compact hit boundary, including its alpha,
-translucency, and liquid-pool candidate behavior, before any skinned comparison
-BLAS enters the shared TLAS.
+now has the equivalent compact boundary: its 172,820-byte module preserves the
+full hit payload plus alpha, translucency, and liquid-pool candidate behavior.
+It exports only primary/shadow any-hit and closest-hit stages, passes Vulkan
+1.2 validation, and disassembles to the intended resource bindings and b2
+offsets 144/464/516/672/684/688. Both GI pipelines append the new groups at
+records 2/3 without changing either monolithic GI blob. No skinned comparison
+BLAS enters the shared TLAS until both mixed pipelines receive bounded runtime
+creation proof and the contribution planner has exact offline assertions.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

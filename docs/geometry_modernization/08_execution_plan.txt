@@ -248,10 +248,12 @@ A compact 17,196-byte hit-only Vulkan module preserves the sentinel payload
 and material-visibility contract, and NVRHI appends its primary/shadow groups
 at SBT records 2/3 while legacy records remain 0/1. SPIR-V validation,
 entry-point/binding disassembly, and the release build pass; no TLAS descriptor
-selects the new records yet. Clean-GI still requires an equivalent compact
-module with full alpha, translucency, and liquid-pool candidate behavior.
-Step 7 remains blocked pending that split and bounded mixed-pipeline runtime
-creation proof.
+selects the new records yet. Clean-GI now has an equivalent 172,820-byte
+compact module with its full alpha, translucency, and liquid-pool candidate
+behavior. Vulkan validation, entry-point/binding/constant-offset disassembly,
+and the release build pass while both monolithic GI blobs remain byte-exact.
+Step 7 remains blocked pending bounded mixed-pipeline runtime creation proof
+and exact offline SBT-contribution assertions.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

@@ -542,5 +542,17 @@ NO LONGER OPEN TO SPECULATION
   The release build passes and the rebuilt sentinel and both clean-GI blobs
   remain hash-identical to the previously deployed blobs. NVRHI now constructs
   the clean-DI sentinel as a mixed-module pipeline with skinned SBT records
-  appended at 2/3. No TLAS contribution selects those records yet, no runtime
-  launch was performed, and clean-GI remains the hard gate.
+  appended at 2/3. No TLAS contribution selects those records yet and no
+  runtime launch was performed.
+- GEO-08 step 6B4 removes the equivalent clean-GI compiler-budget blocker
+  offline. A separate 172,820-byte Vulkan module supplies four clean-GI
+  skinned primary/shadow hit exports while preserving the exact payload,
+  alpha/translucency rejection, and liquid-pool candidate contract.
+  `spirv-val` passes; disassembly confirms bindings
+  b2/t13/t14/t18/t19/t28/t29/t76/t87 plus bindless t0/s0 and b2 offsets
+  144/464/516/672/684/688. Both debug and production GI pipelines append its
+  hit groups at records 2/3. The release build passes, the build-produced blob
+  matches the direct DXC artifact byte-for-byte, and both monolithic GI blobs
+  remain hash-identical. No TLAS contribution selects the new records and no
+  runtime launch was performed. Bounded mixed-pipeline creation proof and an
+  exact SBT contribution-planner harness remain mandatory before step 7.

@@ -153,6 +153,31 @@ bool CleanRestirGiEnsurePipeline(
         common->Printf("PathTraceCleanRestirGi: failed to create GI shader library\n");
         return false;
     }
+    if (inputs.isVulkan)
+    {
+        const char* skinnedHitShaderPath =
+            "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_skinned_hits.rt.bin";
+        shaderData = nullptr;
+        shaderTimestamp = 0;
+        const int skinnedHitShaderSize =
+            fileSystem->ReadFile(skinnedHitShaderPath, &shaderData, &shaderTimestamp);
+        if (skinnedHitShaderSize <= 0 || !shaderData)
+        {
+            common->Printf(
+                "PathTraceCleanRestirGi: couldn't read GI compact skinned-hit shader %s\n",
+                skinnedHitShaderPath);
+            return false;
+        }
+        state.skinnedHitShaderLibrary =
+            inputs.device->createShaderLibrary(shaderData, skinnedHitShaderSize);
+        Mem_Free(shaderData);
+        if (!state.skinnedHitShaderLibrary)
+        {
+            common->Printf(
+                "PathTraceCleanRestirGi: failed to create GI compact skinned-hit shader library\n");
+            return false;
+        }
+    }
 
     if (!state.bindingLayout)
     {
@@ -246,6 +271,25 @@ bool CleanRestirGiEnsurePipeline(
     nvrhi::ShaderHandle anyHit = state.shaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit);
     nvrhi::ShaderHandle shadowClosestHit = state.shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
     nvrhi::ShaderHandle shadowAnyHit = state.shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
+    nvrhi::ShaderHandle skinnedClosestHit;
+    nvrhi::ShaderHandle skinnedAnyHit;
+    nvrhi::ShaderHandle skinnedShadowClosestHit;
+    nvrhi::ShaderHandle skinnedShadowAnyHit;
+    if (state.skinnedHitShaderLibrary)
+    {
+        skinnedClosestHit = state.skinnedHitShaderLibrary->getShader(
+            "CleanGiSkinnedClosestHit",
+            nvrhi::ShaderType::ClosestHit);
+        skinnedAnyHit = state.skinnedHitShaderLibrary->getShader(
+            "CleanGiSkinnedAnyHit",
+            nvrhi::ShaderType::AnyHit);
+        skinnedShadowClosestHit = state.skinnedHitShaderLibrary->getShader(
+            "CleanGiSkinnedShadowClosestHit",
+            nvrhi::ShaderType::ClosestHit);
+        skinnedShadowAnyHit = state.skinnedHitShaderLibrary->getShader(
+            "CleanGiSkinnedShadowAnyHit",
+            nvrhi::ShaderType::AnyHit);
+    }
     if (!producerTraceRayGen || !producerSimpleRayGen || !producerLeanTraceRayGen || !producerLeanShadeRayGen ||
         !producerRoughFallbackRayGen || !continuationRayGen || !continuationTraceRayGen || !continuationShadeRayGen ||
         !producerShadeRayGen || !producerShadeFastRayGen || !seedRayGen || !seedNoSpecRayGen ||
@@ -253,6 +297,14 @@ bool CleanRestirGiEnsurePipeline(
         !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
     {
         common->Printf("PathTraceCleanRestirGi: GI shader library is missing required entry points\n");
+        return false;
+    }
+    if (state.skinnedHitShaderLibrary &&
+        (!skinnedClosestHit || !skinnedAnyHit ||
+            !skinnedShadowClosestHit || !skinnedShadowAnyHit))
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: GI compact skinned-hit shader library is missing required entry points\n");
         return false;
     }
 
@@ -282,6 +334,25 @@ bool CleanRestirGiEnsurePipeline(
         { "HitGroup", closestHit, anyHit, nullptr, nullptr, false },
         { "ShadowHitGroup", shadowClosestHit, shadowAnyHit, nullptr, nullptr, false }
     };
+    if (state.skinnedHitShaderLibrary)
+    {
+        pipelineDesc.hitGroups.push_back({
+            "SkinnedHitGroup",
+            skinnedClosestHit,
+            skinnedAnyHit,
+            nullptr,
+            nullptr,
+            false
+        });
+        pipelineDesc.hitGroups.push_back({
+            "SkinnedShadowHitGroup",
+            skinnedShadowClosestHit,
+            skinnedShadowAnyHit,
+            nullptr,
+            nullptr,
+            false
+        });
+    }
     pipelineDesc.maxPayloadSize = 64;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
@@ -321,101 +392,38 @@ bool CleanRestirGiEnsurePipeline(
         state.pipeline = nullptr;
         return false;
     }
-    state.producerShaderTable->setRayGenerationShader("FirstIndirectTraceRayGen");
-    state.producerShaderTable->addMissShader("Miss");
-    state.producerShaderTable->addMissShader("ShadowMiss");
-    state.producerShaderTable->addHitGroup("HitGroup");
-    state.producerShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.producerSimpleShaderTable->setRayGenerationShader("FirstIndirectSimpleRayGen");
-    state.producerSimpleShaderTable->addMissShader("Miss");
-    state.producerSimpleShaderTable->addMissShader("ShadowMiss");
-    state.producerSimpleShaderTable->addHitGroup("HitGroup");
-    state.producerSimpleShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.producerLeanTraceShaderTable->setRayGenerationShader("FirstIndirectLeanTraceRayGen");
-    state.producerLeanTraceShaderTable->addMissShader("Miss");
-    state.producerLeanTraceShaderTable->addMissShader("ShadowMiss");
-    state.producerLeanTraceShaderTable->addHitGroup("HitGroup");
-    state.producerLeanTraceShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.producerLeanShadeShaderTable->setRayGenerationShader("FirstIndirectLeanShadeRayGen");
-    state.producerLeanShadeShaderTable->addMissShader("Miss");
-    state.producerLeanShadeShaderTable->addMissShader("ShadowMiss");
-    state.producerLeanShadeShaderTable->addHitGroup("HitGroup");
-    state.producerLeanShadeShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.producerRoughFallbackShaderTable->setRayGenerationShader("FirstIndirectTraceRoughFallbackRayGen");
-    state.producerRoughFallbackShaderTable->addMissShader("Miss");
-    state.producerRoughFallbackShaderTable->addMissShader("ShadowMiss");
-    state.producerRoughFallbackShaderTable->addHitGroup("HitGroup");
-    state.producerRoughFallbackShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.continuationShaderTable->setRayGenerationShader("FirstIndirectContinuationRayGen");
-    state.continuationShaderTable->addMissShader("Miss");
-    state.continuationShaderTable->addMissShader("ShadowMiss");
-    state.continuationShaderTable->addHitGroup("HitGroup");
-    state.continuationShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.continuationTraceShaderTable->setRayGenerationShader("FirstIndirectContinuationTraceRayGen");
-    state.continuationTraceShaderTable->addMissShader("Miss");
-    state.continuationTraceShaderTable->addMissShader("ShadowMiss");
-    state.continuationTraceShaderTable->addHitGroup("HitGroup");
-    state.continuationTraceShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.continuationShadeShaderTable->setRayGenerationShader("FirstIndirectContinuationShadeRayGen");
-    state.continuationShadeShaderTable->addMissShader("Miss");
-    state.continuationShadeShaderTable->addMissShader("ShadowMiss");
-    state.continuationShadeShaderTable->addHitGroup("HitGroup");
-    state.continuationShadeShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.shadeShaderTable->setRayGenerationShader("FirstIndirectShadeRayGen");
-    state.shadeShaderTable->addMissShader("Miss");
-    state.shadeShaderTable->addMissShader("ShadowMiss");
-    state.shadeShaderTable->addHitGroup("HitGroup");
-    state.shadeShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.shadeFastShaderTable->setRayGenerationShader("FirstIndirectShadeFastRayGen");
-    state.shadeFastShaderTable->addMissShader("Miss");
-    state.shadeFastShaderTable->addMissShader("ShadowMiss");
-    state.shadeFastShaderTable->addHitGroup("HitGroup");
-    state.shadeFastShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.seedShaderTable->setRayGenerationShader("SeedRayGen");
-    state.seedShaderTable->addMissShader("Miss");
-    state.seedShaderTable->addMissShader("ShadowMiss");
-    state.seedShaderTable->addHitGroup("HitGroup");
-    state.seedShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.seedNoSpecShaderTable->setRayGenerationShader("SeedNoSpecRayGen");
-    state.seedNoSpecShaderTable->addMissShader("Miss");
-    state.seedNoSpecShaderTable->addMissShader("ShadowMiss");
-    state.seedNoSpecShaderTable->addHitGroup("HitGroup");
-    state.seedNoSpecShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.specularSeedTraceShaderTable->setRayGenerationShader("FirstIndirectSpecularTraceRayGen");
-    state.specularSeedTraceShaderTable->addMissShader("Miss");
-    state.specularSeedTraceShaderTable->addMissShader("ShadowMiss");
-    state.specularSeedTraceShaderTable->addHitGroup("HitGroup");
-    state.specularSeedTraceShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.specularSeedShadeShaderTable->setRayGenerationShader("FirstIndirectSpecularShadeRayGen");
-    state.specularSeedShadeShaderTable->addMissShader("Miss");
-    state.specularSeedShadeShaderTable->addMissShader("ShadowMiss");
-    state.specularSeedShadeShaderTable->addHitGroup("HitGroup");
-    state.specularSeedShadeShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.specularSeedShadeFastShaderTable->setRayGenerationShader("FirstIndirectSpecularShadeFastRayGen");
-    state.specularSeedShadeFastShaderTable->addMissShader("Miss");
-    state.specularSeedShadeFastShaderTable->addMissShader("ShadowMiss");
-    state.specularSeedShadeFastShaderTable->addHitGroup("HitGroup");
-    state.specularSeedShadeFastShaderTable->addHitGroup("ShadowHitGroup");
-
-    state.reuseShaderTable->setRayGenerationShader("ReuseRayGen");
-    state.reuseShaderTable->addMissShader("Miss");
-    state.reuseShaderTable->addMissShader("ShadowMiss");
-    state.reuseShaderTable->addHitGroup("HitGroup");
-    state.reuseShaderTable->addHitGroup("ShadowHitGroup");
+    const auto initializeShaderTable =
+        [&](const nvrhi::rt::ShaderTableHandle& shaderTable, const char* rayGenerationShader)
+    {
+        shaderTable->setRayGenerationShader(rayGenerationShader);
+        shaderTable->addMissShader("Miss");
+        shaderTable->addMissShader("ShadowMiss");
+        shaderTable->addHitGroup("HitGroup");
+        shaderTable->addHitGroup("ShadowHitGroup");
+        if (state.skinnedHitShaderLibrary)
+        {
+            // TLAS instance contribution 2 selects these records while each
+            // TraceRay call continues to use ray contributions 0 and 1.
+            shaderTable->addHitGroup("SkinnedHitGroup");
+            shaderTable->addHitGroup("SkinnedShadowHitGroup");
+        }
+    };
+    initializeShaderTable(state.producerShaderTable, "FirstIndirectTraceRayGen");
+    initializeShaderTable(state.producerSimpleShaderTable, "FirstIndirectSimpleRayGen");
+    initializeShaderTable(state.producerLeanTraceShaderTable, "FirstIndirectLeanTraceRayGen");
+    initializeShaderTable(state.producerLeanShadeShaderTable, "FirstIndirectLeanShadeRayGen");
+    initializeShaderTable(state.producerRoughFallbackShaderTable, "FirstIndirectTraceRoughFallbackRayGen");
+    initializeShaderTable(state.continuationShaderTable, "FirstIndirectContinuationRayGen");
+    initializeShaderTable(state.continuationTraceShaderTable, "FirstIndirectContinuationTraceRayGen");
+    initializeShaderTable(state.continuationShadeShaderTable, "FirstIndirectContinuationShadeRayGen");
+    initializeShaderTable(state.shadeShaderTable, "FirstIndirectShadeRayGen");
+    initializeShaderTable(state.shadeFastShaderTable, "FirstIndirectShadeFastRayGen");
+    initializeShaderTable(state.seedShaderTable, "SeedRayGen");
+    initializeShaderTable(state.seedNoSpecShaderTable, "SeedNoSpecRayGen");
+    initializeShaderTable(state.specularSeedTraceShaderTable, "FirstIndirectSpecularTraceRayGen");
+    initializeShaderTable(state.specularSeedShadeShaderTable, "FirstIndirectSpecularShadeRayGen");
+    initializeShaderTable(state.specularSeedShadeFastShaderTable, "FirstIndirectSpecularShadeFastRayGen");
+    initializeShaderTable(state.reuseShaderTable, "ReuseRayGen");
 
     state.shaderTable = state.reuseShaderTable;
     common->Printf("PathTraceCleanRestirGi: GI %s pipeline initialized\n", productionView ? "production" : "debug");
@@ -984,6 +992,7 @@ void PathTraceCleanRestirGiRayTracingPipelineState::Release()
 {
     bindingLayout = nullptr;
     shaderLibrary = nullptr;
+    skinnedHitShaderLibrary = nullptr;
     pipeline = nullptr;
     shaderTable = nullptr;
     producerShaderTable = nullptr;

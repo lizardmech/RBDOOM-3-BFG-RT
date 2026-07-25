@@ -785,3 +785,57 @@ hit module that preserves its complete alpha/translucency/liquid-candidate
 contract. Step 7 remains forbidden until that module compiles, both mixed
 pipelines receive bounded runtime creation proof, and the SBT contribution
 planner is covered by exact offline assertions.
+
+STEP 6B4 - CLEAN-GI COMPACT SKINNED-HIT LIBRARY, OFFLINE
+---------------------------------------------------------
+Implemented:
+
+  source =
+    remix_restir_gi/pathtrace_clean_restir_gi_skinned_hits.rt.hlsl
+  output =
+    remix_restir_gi/pathtrace_clean_restir_gi_skinned_hits.rt.bin
+  size = 172,820 bytes
+  SHA-256 =
+    9152AAF8252E0CC6B3470DDDE9724BD6815396445BD785DD79A7F791146F2483
+  exports =
+    CleanGiSkinnedAnyHit
+    CleanGiSkinnedShadowAnyHit
+    CleanGiSkinnedClosestHit
+    CleanGiSkinnedShadowClosestHit
+  descriptor bindings =
+    b2, t13, t14, t18, t19, t28, t29, t76, t87, bindless t0 space1, s0
+  b2 member offsets =
+    144, 464, 516, 672, 684, 688
+  spirv-val --target-env vulkan1.2 = PASS
+
+The compact module preserves the clean-GI hit payload layout, material and
+dynamic-material lookup, texture/alpha sampling, stochastic visibility,
+glass/GUI/decal/filter/translucency decisions, semantic liquid-pool detection,
+and four-candidate liquid evidence storage. Skinned route metadata supplies
+the canonical source triangle while t28 and t29 supply source-local indexes
+and current world-space vertices.
+
+Both clean-GI pipeline variants load this module on Vulkan and append
+`SkinnedHitGroup` / `SkinnedShadowHitGroup` after legacy records 0/1 in all
+sixteen shader tables. D3D12 retains the prior one-module path and no DX12
+shader was compiled. No TLAS instance-contribution route changed.
+
+Build proof:
+
+  direct DXC compile = PASS
+  build-produced blob equals direct DXC output byte-for-byte
+  cmake --build --preset win64-pt-dev-release = PASS
+  existing clean-GI debug blob SHA-256 =
+    FDAEE58F4981A5ED662E89119FF7B87F9E629C05CE0AD6C064BFE1DF0D0B550A
+  existing clean-GI production blob SHA-256 =
+    425B224669C89E9FB5DA84E6F6B2CE94E354FD0F79B3E890F37C5FA85B799FFF
+  both match the previous checkpoint byte-for-byte
+  runtime launch = not run
+
+BOUNDARY AND NEXT
+-----------------
+Clean-DI and clean-GI no longer have a compiler-budget blocker. They remain
+offline-only until a bounded user-run proves mixed-module Vulkan pipeline
+creation without broad smoke logging. Step 7 remains forbidden until that
+runtime proof passes and an exact offline SBT-contribution planner/harness
+proves legacy records 0/1 and skinned records 2/3 for every ray type.

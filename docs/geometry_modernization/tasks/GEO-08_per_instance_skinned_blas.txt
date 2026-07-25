@@ -108,8 +108,8 @@ STEPS
    pass in geometry_geo68_auto; exact removal and completion-owned replacement
    pass in geometry_geo69_auto and geometry_geo71_auto.
 6. PARTIALLY ACCEPTED THROUGH GPU TRANSPORT, THE FIRST 6B2 CONSUMER
-   CONVERSION, AND AN OFFLINE CLEAN-DI HIT-LIBRARY SPLIT; CLEAN-GI AND RUNTIME
-   PROOF REMAIN. Define the
+   CONVERSION, AND OFFLINE CLEAN-DI/CLEAN-GI HIT-LIBRARY SPLITS; RUNTIME
+   PROOF REMAINS. Define the
    shader hit-routing contract before adding TLAS instances.
    Prove canonical instance ID, primitive-to-source-triangle lookup, material
    table lookup, current/previous position lookup, and emissive identity for a
@@ -131,9 +131,13 @@ STEPS
    reconstruction. Step 6B3 adds a 17,196-byte clean-DI skinned-hit library
    with four exports and appends its primary/shadow groups at SBT slots 2/3.
    `spirv-val`, disassembly, and the release build pass; the existing sentinel
-   blob remains byte-identical. Clean-GI still needs the equivalent narrow
-   boundary. No skinned comparison BLAS may enter a TLAS until clean-GI is
-   split and bounded mixed-library/runtime proof passes.
+   blob remains byte-identical. Step 6B4 adds the equivalent clean-GI module:
+   172,820 bytes, four exports, exact GI payload/alpha/translucency/liquid-pool
+   candidate handling, and verified b2 offsets 144/464/516/672/684/688.
+   Debug and production GI pipelines append its primary/shadow groups at SBT
+   slots 2/3; both monolithic GI blobs remain byte-identical. No skinned
+   comparison BLAS may enter a TLAS until bounded mixed-library runtime proof
+   passes and the SBT contribution planner has exact offline assertions.
 7. Add comparison TLAS routing while the merged dynamic BLAS remains live.
    Record instance/primitive totals, sampled hit identities, bounds,
    material/triangle IDs, and motion inputs. A compare failure must select only
