@@ -149,6 +149,7 @@ struct RtSmokePlanTlasInstance
     uint32_t flags = 0;
     uint64_t meshHash = 0;
     uint64_t sourceInstanceId = 0;
+    uint32_t materialId = 0;
     uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
     uint32_t canonicalBlasRecordIndex =
         std::numeric_limits<uint32_t>::max();
@@ -622,6 +623,7 @@ struct RtSmokeRigidTlasObservation
 {
     uint64_t meshHash = 0;
     uint64_t instanceId = 0;
+    uint32_t materialId = 0;
     uint32_t sourceFlags = 0;
     bool hasMeshRecord = false;
     bool meshSeenThisFrame = false;

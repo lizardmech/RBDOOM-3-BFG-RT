@@ -588,3 +588,23 @@ NO LONGER OPEN TO SPECULATION
   dynamic index/vertex fallbacks at t28/t29 until physical skinned storage
   exists, while the future TLAS contribution gate remains fail-closed.
   Production view 0 preserves DI/PT output on an optional-input miss.
+- geometry_geo78.log through geometry_geo83.log reach all sixteen ordered
+  production pipelines without a crash, device removal, or loss of Windows
+  input. The bounded construction mitigation is therefore accepted for system
+  responsiveness, but not for performance: observed game-thread gaps include
+  27 seconds at `first_indirect_specular_shade`, 47 seconds at
+  `first_indirect_shade`, and 92 seconds on first full dispatch. These stalls
+  remain an explicit optimization defect.
+- geometry_geo84.log isolates the remaining black rigid objects from GI.
+  `r_pathTracingCleanRestirGiResolve 0/1` does not change them, while
+  `r_pathTracingRigidTlasRoute 0` restores their materials. The concrete
+  producer/consumer mismatch is per-instance material identity: canonical
+  rigid mesh hashes intentionally exclude materials for BLAS sharing, but the
+  rigid TLAS planning snapshot dropped `materialOverrideId`, route material
+  collection admitted only the shared mesh record's material, and shaders read
+  shared per-triangle material arrays. The replacement carries material ID
+  through the TLAS plan/signature, admits it to the table, resolves a
+  per-instance material index, and makes all rigid-hit consumers use the
+  existing per-instance route fields. Offline harness, release build, and
+  42/42 affected Vulkan `spirv-val` checks pass; live visual acceptance remains
+  pending.

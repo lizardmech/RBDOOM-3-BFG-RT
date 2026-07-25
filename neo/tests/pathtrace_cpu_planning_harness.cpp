@@ -511,6 +511,7 @@ void TestRigidPlan()
     RtSmokeRigidTlasObservation observations[4];
     observations[0].meshHash = 100;
     observations[0].instanceId = 10;
+    observations[0].materialId = 123;
     observations[0].sourceFlags = 0x2;
     observations[0].hasMeshRecord = true;
     observations[0].meshSeenThisFrame = true;
@@ -558,6 +559,7 @@ void TestRigidPlan()
     Check(plan.tlasInstanceSignature != 0, "rigid TLAS plan emits deterministic instance signature");
     Check(plan.instances[0].instanceId == 2 &&
         plan.instances[0].meshHash == 100 &&
+        plan.instances[0].materialId == 123 &&
         plan.instances[0].hasPreviousTransform &&
         plan.instances[0].transformContinuous &&
         !plan.instances[0].sourceSeenThisFrame &&
@@ -607,6 +609,15 @@ void TestRigidPlan()
     Check(plan.tlasInstanceSignature != changedTransformPlan.tlasInstanceSignature,
         "rigid TLAS plan signature tracks emitted transform metadata");
     observations[0].previousObjectToWorld[12] = -2.0f;
+
+    observations[0].materialId = 124;
+    Check(baseRigidToken != BuildSmokeRigidTlasPlanInputToken(desc),
+        "rigid TLAS plan input token tracks per-instance material identity");
+    const RtSmokeRigidTlasPlan changedMaterialPlan = BuildSmokeRigidTlasPlan(desc);
+    Check(plan.tlasInstanceSignature != changedMaterialPlan.tlasInstanceSignature &&
+        changedMaterialPlan.instances[0].materialId == 124,
+        "rigid TLAS plan preserves per-instance material identity");
+    observations[0].materialId = 123;
 
     const uint64_t baseCanonicalRouteToken =
         BuildSmokeRigidTlasPlanInputToken(desc);

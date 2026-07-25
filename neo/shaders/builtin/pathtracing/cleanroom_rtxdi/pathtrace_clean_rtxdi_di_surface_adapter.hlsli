@@ -107,7 +107,7 @@ uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitive
         return 0xffffffffu;
     }
 
-    return SmokeRigidRouteTriangleMaterialIndexes[routedPrimitiveIndex];
+    return routeInstance.materialIndex;
 }
 
 #if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
@@ -161,7 +161,7 @@ uint PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(uint instanceId, uint p
         return 0xffffffffu;
     }
 
-    return SmokeRigidRouteTriangleMaterials[routedPrimitiveIndex];
+    return routeInstance.materialId;
 }
 
 uint PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)

@@ -960,11 +960,37 @@ Replacement executable:
   SPIR-V rebuild = none; all Vulkan blobs up to date
   deployment = executable hash-exact; Vulkan blobs unchanged
 
+geometry_geo78 through geometry_geo84:
+
+  production split warmup = 16/16 reached
+  fatal/device-removal/NVRHI errors = 0
+  Windows input starvation = not reproduced
+  longest observed main-thread gaps = 27 s, 47 s, 92 s
+  performance disposition = rejected pending further optimization
+  GI resolve 0/1 effect on black rigid materials = none
+  rigid TLAS route 0 effect = materials restored
+
+Rigid material localization and offline replacement:
+
+  canonical mesh/BLAS identity = material-independent
+  per-instance material lost at = rigid TLAS planning snapshot
+  stale consumer = shared rigid per-triangle material arrays
+  replacement authority =
+    RtSmokePlanTlasInstance.materialId
+    -> PathTraceRigidRouteInstance.materialId/materialIndex
+  PathTraceCpuPlanningHarness = PASS, including material token/signature proof
+  affected Vulkan blobs = 42/42 `spirv-val --target-env vulkan1.2` PASS
+  split GI blobs = 32/32 present
+  oldest rebuilt blob newer than newest edited shader = PASS
+  cmake --build --preset win64-pt-dev-release = PASS
+  DX12 shader compilation = not run
+  runtime visual acceptance = pending
+
 BOUNDARY AND NEXT
 -----------------
 The lock-producing checkpoint is superseded and must not be launched again.
-The replacement is checkpointed and deployed but remains runtime-unaccepted.
-Any runtime gate must be user-run, bounded, use no broad smoke log, and first
-start with warmup limit 0, then 1, before raising the limit incrementally
-toward responsive 16/16 production warmup. Step 7 and all skinned comparison
-TLAS insertion remain forbidden.
+Source-partitioned production pipeline creation is accepted for system
+responsiveness at 16/16, but the long construction/first-dispatch stalls remain
+unaccepted. The per-instance rigid material repair must receive a narrow
+user-run visual A/B before step 7 adds any skinned comparison TLAS instance.
+Do not use a clean-GI debug view or broad smoke logging for that test.

@@ -1747,6 +1747,7 @@ bool AppendSmokeRigidTlasPlanObservation(
     instance.instanceMask = desc.instanceMask;
     instance.meshHash = observation.meshHash;
     instance.sourceInstanceId = observation.instanceId;
+    instance.materialId = observation.materialId;
     instance.routeRecordIndex = observation.routeRecordIndex;
     instance.canonicalBlasRecordIndex =
         observation.canonicalBlasRecordIndex;
@@ -1841,6 +1842,7 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
 
         hash = HashSmokePlanBytes(hash, &observation.meshHash, sizeof(observation.meshHash));
         hash = HashSmokePlanBytes(hash, &observation.instanceId, sizeof(observation.instanceId));
+        hash = HashSmokePlanBytes(hash, &observation.materialId, sizeof(observation.materialId));
         hash = HashSmokePlanBytes(hash, &observation.routeRecordIndex, sizeof(observation.routeRecordIndex));
         hash = HashSmokePlanBytes(hash, &observation.canonicalBlasRecordIndex, sizeof(observation.canonicalBlasRecordIndex));
         hash = HashSmokePlanBytes(hash, &observation.canonicalMeshHash, sizeof(observation.canonicalMeshHash));
@@ -1899,6 +1901,7 @@ static uint64_t BuildSmokeRigidTlasInstanceSignature(
         hash = HashSmokePlanBytes(hash, &instance.instanceMask, sizeof(instance.instanceMask));
         hash = HashSmokePlanBytes(hash, &instance.meshHash, sizeof(instance.meshHash));
         hash = HashSmokePlanBytes(hash, &instance.sourceInstanceId, sizeof(instance.sourceInstanceId));
+        hash = HashSmokePlanBytes(hash, &instance.materialId, sizeof(instance.materialId));
         hash = HashSmokePlanBytes(hash, &instance.routeRecordIndex, sizeof(instance.routeRecordIndex));
         hash = HashSmokePlanBytes(hash, &instance.canonicalBlasRecordIndex, sizeof(instance.canonicalBlasRecordIndex));
         hash = HashSmokePlanBytes(hash, &instance.canonicalMeshHash, sizeof(instance.canonicalMeshHash));

@@ -326,7 +326,7 @@ uint PathTraceReGIRLoadTriangleMaterialIndex(uint instanceId, uint primitiveInde
             if (primitiveIndex < routeInstance.triangleCount &&
                 routeInstance.triangleOffset + primitiveIndex < PathTraceReGIRRigidRouteTriangleCount())
             {
-                materialIndex = SmokeRigidRouteTriangleMaterialIndexes[routeInstance.triangleOffset + primitiveIndex];
+                materialIndex = routeInstance.materialIndex;
             }
         }
     }
@@ -373,7 +373,7 @@ uint PathTraceReGIRLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
     const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
     return primitiveIndex < routeInstance.triangleCount &&
         routeInstance.triangleOffset + primitiveIndex < PathTraceReGIRRigidRouteTriangleCount()
-        ? SmokeRigidRouteTriangleMaterials[routeInstance.triangleOffset + primitiveIndex]
+        ? routeInstance.materialId
         : 0xffffffffu;
 }
 
@@ -1676,7 +1676,7 @@ void ClosestHit(inout PathTraceReGIRPayload payload, BuiltInTriangleIntersection
         payload.vertexColorAdd = saturate(v0.color2 * barycentrics.x + v1.color2 * barycentrics.y + v2.color2 * barycentrics.z);
         payload.surfaceClass = RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
         payload.triangleClassAndFlags = RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
-        payload.materialId = SmokeRigidRouteTriangleMaterials[routeInstance.triangleOffset + primitiveIndex];
+        payload.materialId = routeInstance.materialId;
         payload.materialIndex = PathTraceReGIRLoadTriangleMaterialIndex(instanceId, primitiveIndex);
         return;
     }

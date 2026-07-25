@@ -1202,7 +1202,7 @@ uint CleanGiLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
     {
         return 0xffffffffu;
     }
-    return SmokeRigidRouteTriangleMaterialIndexes[routedPrimitiveIndex];
+    return route.materialIndex;
 }
 
 uint CleanGiLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
@@ -1250,7 +1250,7 @@ uint CleanGiLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
     {
         return route.materialId;
     }
-    return SmokeRigidRouteTriangleMaterials[routedPrimitiveIndex];
+    return route.materialId;
 }
 
 uint CleanGiLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)

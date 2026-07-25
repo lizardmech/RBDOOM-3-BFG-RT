@@ -5726,9 +5726,13 @@ std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(cons
         {
             continue;
         }
-        if (std::find(materialIds.begin(), materialIds.end(), record.materialId) == materialIds.end())
+        const uint32_t materialId =
+            plannedInstance.materialId != 0u
+                ? plannedInstance.materialId
+                : record.materialId;
+        if (std::find(materialIds.begin(), materialIds.end(), materialId) == materialIds.end())
         {
-            materialIds.push_back(record.materialId);
+            materialIds.push_back(materialId);
         }
     }
     return materialIds;
@@ -5894,6 +5898,7 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
         RtSmokeRigidTlasObservation observation;
         observation.meshHash = instance.meshHash;
         observation.instanceId = instance.instanceId;
+        observation.materialId = instance.materialOverrideId;
         observation.sourceFlags = instance.sourceFlags;
         observation.residencyEnabled = m_rigidResidencyEnabled;
         observation.seenThisFrame = instance.seenThisFrame;
@@ -6289,8 +6294,14 @@ RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
         routeInstance.vertexOffset = geometryRange.vertexOffset;
         routeInstance.indexOffset = geometryRange.indexOffset;
         routeInstance.triangleOffset = geometryRange.triangleOffset;
-        routeInstance.materialId = geometryRange.materialId;
-        routeInstance.materialIndex = geometryRange.materialIndex;
+        routeInstance.materialId =
+            plannedInstance.materialId != 0u
+                ? plannedInstance.materialId
+                : geometryRange.materialId;
+        routeInstance.materialIndex = FindRigidRouteMaterialTableIndex(
+            snapshot.materialTableIds,
+            routeInstance.materialId,
+            build.stats.missingMaterialTableIndex);
         routeInstance.vertexCount = geometryRange.vertexCount;
         routeInstance.indexCount = geometryRange.indexCount;
         routeInstance.triangleCount = geometryRange.triangleCount;
@@ -6482,8 +6493,14 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
         routeInstance.vertexOffset = geometryRange.vertexOffset;
         routeInstance.indexOffset = geometryRange.indexOffset;
         routeInstance.triangleOffset = geometryRange.triangleOffset;
-        routeInstance.materialId = geometryRange.materialId;
-        routeInstance.materialIndex = geometryRange.materialIndex;
+        routeInstance.materialId =
+            plannedInstance.materialId != 0u
+                ? plannedInstance.materialId
+                : geometryRange.materialId;
+        routeInstance.materialIndex = FindRigidRouteMaterialTableIndex(
+            materialTableIds,
+            routeInstance.materialId,
+            build.stats.missingMaterialTableIndex);
         routeInstance.vertexCount = geometryRange.vertexCount;
         routeInstance.indexCount = geometryRange.indexCount;
         routeInstance.triangleCount = geometryRange.triangleCount;

@@ -267,6 +267,18 @@ entry, so the next build adds one-shot scheduler/input-gate evidence. Runtime
 acceptance, step 7, and comparison TLAS insertion remain blocked until user
 runs at limits 1 through 16 prove responsive warmup.
 
+geometry_geo78 through geometry_geo83 complete the bounded production warmup
+through 16/16 without reproducing Windows input starvation. This accepts the
+source-partitioned construction shape for responsiveness, not performance:
+individual construction gaps reach 47 seconds and first full dispatch reaches
+92 seconds. geometry_geo84 then localizes black rigid materials to the existing
+source3 rigid TLAS route, not GI. The rigid plan had discarded per-instance
+material identity while sharing a material-independent canonical mesh/BLAS.
+The offline replacement carries material through the plan and makes all rigid
+hit consumers use per-instance route material fields. Step 7 remains blocked
+only until that narrow visual repair is accepted; pipeline warmup no longer
+blocks it.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

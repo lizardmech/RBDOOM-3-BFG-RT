@@ -581,6 +581,29 @@ requires the exact physical buffers before contribution 2 can be selected.
 Missing optional producer inputs in production view 0 disable GI for the frame
 without clearing the already-valid DI/PT output magenta.
 
+D37. RIGID BLAS IDENTITY EXCLUDES MATERIAL; ROUTE INSTANCES OWN MATERIAL
+-----------------------------------------------------------------------
+Decision: a canonical rigid mesh remains geometry/topology identity and does
+not add material ID to its hash merely to repair shading. Multiple skins and
+runtime material overrides must continue sharing one immutable BLAS. The
+material selected by a drawSurf is instead carried through
+`RtSmokeRigidTlasObservation` and `RtSmokePlanTlasInstance`, included in the
+plan token/signature, admitted into the active material table, and resolved to
+the `PathTraceRigidRouteInstance.materialId/materialIndex` fields.
+
+Every rigid-hit material consumer uses those per-instance fields after
+validating the instance and primitive range. The shared per-triangle material
+buffers remain bound for ABI stability and possible future genuinely
+multi-material geometry, but they are not authoritative for the current
+single-drawSurf rigid route.
+
+geometry_geo84 is the decisive localization: GI resolve off/on makes no
+difference, while `r_pathTracingRigidTlasRoute 0` restores the black rigid
+objects. The CPU planning harness proves that material-only changes preserve
+mesh sharing while changing both plan token and instance signature. The
+release build and 42/42 affected Vulkan validation pass. Runtime acceptance of
+the replacement is still required.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

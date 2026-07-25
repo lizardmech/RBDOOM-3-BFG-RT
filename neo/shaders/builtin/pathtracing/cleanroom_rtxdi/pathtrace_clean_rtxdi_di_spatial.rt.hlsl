@@ -682,7 +682,7 @@ uint CleanLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
         return 0xffffffffu;
     }
 
-    return SmokeRigidRouteTriangleMaterialIndexes[routedPrimitiveIndex];
+    return route.materialIndex;
 }
 
 uint CleanResolveLiveMaterialIndex(PathTracePrimarySurfaceRecord record)

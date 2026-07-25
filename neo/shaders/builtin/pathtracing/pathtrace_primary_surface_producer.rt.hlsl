@@ -1492,7 +1492,7 @@ uint LoadSmokeTriangleMaterialId(uint instanceId, uint primitiveIndex)
             if (primitiveIndex < routeInstance.triangleCount &&
                 routeInstance.triangleOffset + primitiveIndex < PathTraceRigidRouteTriangleCount())
             {
-                return SmokeRigidRouteTriangleMaterials[routeInstance.triangleOffset + primitiveIndex];
+                return routeInstance.materialId;
             }
         }
     }
@@ -1557,7 +1557,7 @@ uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
             if (primitiveIndex < routeInstance.triangleCount &&
                 routeInstance.triangleOffset + primitiveIndex < PathTraceRigidRouteTriangleCount())
             {
-                return SmokeRigidRouteTriangleMaterialIndexes[routeInstance.triangleOffset + primitiveIndex];
+                return routeInstance.materialIndex;
             }
         }
     }
@@ -3092,11 +3092,8 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
             v0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0];
             v1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1];
             v2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2];
-            routedMaterialId = SmokeRigidRouteTriangleMaterials[
-                routeInstance.triangleOffset + primitiveIndex];
-            routedMaterialIndex =
-                SmokeRigidRouteTriangleMaterialIndexes[
-                    routeInstance.triangleOffset + primitiveIndex];
+            routedMaterialId = routeInstance.materialId;
+            routedMaterialIndex = routeInstance.materialIndex;
         }
         const float3 barycentrics = float3(1.0 - attributes.barycentrics.x - attributes.barycentrics.y, attributes.barycentrics.x, attributes.barycentrics.y);
         const float3 p0 = v0.position.xyz;
