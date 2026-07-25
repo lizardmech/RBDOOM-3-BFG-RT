@@ -19,6 +19,7 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceEntityFeed.h"
+#include "PathTraceJointCacheCopyPlan.h"
 #include "PathTraceMaterialClassifier.h"
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
@@ -47,6 +48,7 @@
 #include <chrono>
 #include <cstring>
 #include <future>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -64,6 +66,9 @@ const int RT_PT_RESIDENT_BOUNDS_OVERLAY_SAFE_BOXES = 64;
 const float RT_SMOKE_SKINNED_TELEPORT_DISTANCE = 1024.0f;
 const int RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES = 64;
 const char* RT_SMOKE_SKY_ENVIRONMENT_FALLBACK_NAME = "<white-terminal-fallback>";
+static_assert(
+    sizeof(idJointMat) == PT_JOINT_CACHE_MATRIX_BYTES,
+    "GEO-07 compact joint planner must match the renderer joint ABI");
 
 int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
@@ -2563,8 +2568,22 @@ void DumpSmokeSkinnedGpuFunnel(
     int historyOwnerValid = 0;
     uint64 resolvedJointBytes = 0;
     std::unordered_set<nvrhi::IBuffer*> resolvedJointBuffers;
-    for (const RtSmokeSkinnedSurfaceRecord& record : records)
+    PtJointCacheCopyPlanner copyPlanner;
+    const PtJointCacheCopyPlanResult plannerInit =
+        PtInitializeJointCacheCopyPlanner(
+            copyPlanner,
+            std::numeric_limits<std::uint64_t>::max());
+    assert(plannerInit == PtJointCacheCopyPlanResult::PlannedCopy);
+    int copyPlanNew = 0;
+    int copyPlanReused = 0;
+    int copyPlanRejected = 0;
+    std::vector<PtJointCacheCopyPlanResult> copyPlanResults(
+        records.size(),
+        PtJointCacheCopyPlanResult::InvalidState);
+    std::vector<PtJointCacheCopyPlan> copyPlans(records.size());
+    for (size_t recordIndex = 0; recordIndex < records.size(); ++recordIndex)
     {
+        const RtSmokeSkinnedSurfaceRecord& record = records[recordIndex];
         canonicalInstanceValid +=
             PtCanonicalInstanceKeyIsValid(record.canonicalInstance)
                 ? 1
@@ -2590,14 +2609,16 @@ void DumpSmokeSkinnedGpuFunnel(
         ++jointRangeResolved;
         const uint64 rangeBytes =
             static_cast<uint64>(jointRange.GetSize());
-        const uint64 expectedBytes =
-            record.jointCount > 0
-                ? static_cast<uint64>(record.jointCount) *
-                    sizeof(idJointMat)
-                : 0;
+        uint64 expectedBytes = 0;
+        const bool expectedBytesValid =
+            record.jointCount > 0 &&
+            PtCheckedMulU64(
+                static_cast<uint64>(record.jointCount),
+                sizeof(idJointMat),
+                expectedBytes);
         resolvedJointBytes += rangeBytes;
         resolvedJointBuffers.insert(jointRange.GetAPIObject());
-        if (rangeBytes == expectedBytes)
+        if (expectedBytesValid && rangeBytes == expectedBytes)
         {
             ++jointRangeSizeMatch;
         }
@@ -2605,9 +2626,39 @@ void DumpSmokeSkinnedGpuFunnel(
         {
             ++jointRangeSizeMismatch;
         }
+
+        PtJointCacheCopyRequest copyRequest;
+        copyRequest.instance = record.canonicalInstance;
+        copyRequest.sourceBufferIdentity = static_cast<uint64>(
+            reinterpret_cast<std::uintptr_t>(
+                jointRange.GetAPIObject()));
+        copyRequest.sourceOffsetBytes =
+            static_cast<uint64>(jointRange.GetOffset());
+        copyRequest.sourceRangeBytes = rangeBytes;
+        copyRequest.jointCount =
+            record.jointCount > 0
+                ? static_cast<uint64>(record.jointCount)
+                : 0;
+        copyPlanResults[recordIndex] =
+            PtPlanJointCacheCopy(
+                copyPlanner,
+                copyRequest,
+                copyPlans[recordIndex]);
+        switch (copyPlanResults[recordIndex])
+        {
+            case PtJointCacheCopyPlanResult::PlannedCopy:
+                ++copyPlanNew;
+                break;
+            case PtJointCacheCopyPlanResult::ReusedCopy:
+                ++copyPlanReused;
+                break;
+            default:
+                ++copyPlanRejected;
+                break;
+        }
     }
     common->Printf(
-        "PathTracePrimaryPass: GEO07 jointCache audit frame=%llu gate=%d candidates=%llu canonicalInstance/historyOwner=%d/%d handle(present/resolved/stale)=%d/%d/%d range(match/mismatch/bytes)=%d/%d/%llu buffers=%llu source=renderer-drawList-jointCache route=observation-only\n",
+        "PathTracePrimaryPass: GEO07 jointCache audit frame=%llu gate=%d candidates=%llu canonicalInstance/historyOwner=%d/%d handle(present/resolved/stale)=%d/%d/%d range(match/mismatch/bytes)=%d/%d/%llu buffers=%llu copyPlan(new/reused/rejected/bytes)=%d/%d/%d/%llu source=renderer-drawList-jointCache route=plan-only\n",
         static_cast<unsigned long long>(frameIndex),
         r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() != 0
             ? 1
@@ -2622,7 +2673,11 @@ void DumpSmokeSkinnedGpuFunnel(
         jointRangeSizeMismatch,
         static_cast<unsigned long long>(resolvedJointBytes),
         static_cast<unsigned long long>(
-            resolvedJointBuffers.size()));
+            resolvedJointBuffers.size()),
+        copyPlanNew,
+        copyPlanReused,
+        copyPlanRejected,
+        static_cast<unsigned long long>(copyPlanner.usedBytes));
 
     int detailCount = 0;
     for (int pass = 0; pass < 2 && detailCount < 16; ++pass)
@@ -2650,7 +2705,7 @@ void DumpSmokeSkinnedGpuFunnel(
                         record.jointCacheHandle),
                     &jointRange);
             common->Printf(
-                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d previousValid=%d invalid=0x%08x temporal=0x%08x canonical(instance/history)=%d/%d jointCache(handle/resolved/bytes)=0x%llx/%d/%d result=%s\n",
+                "PathTracePrimaryPass: PT GPU skinning funnel detail=%d record=%llu entity/model/surface=%d/'%s'/%d vertices/joints=%d/%d singleBone=%d previousValid=%d invalid=0x%08x temporal=0x%08x canonical(instance/history)=%d/%d jointCache(handle/resolved/bytes)=0x%llx/%d/%d copyPlan(result/dst/bytes)=%s/%llu/%llu result=%s\n",
                 detailCount,
                 static_cast<unsigned long long>(recordIndex),
                 record.entityIndex,
@@ -2670,6 +2725,12 @@ void DumpSmokeSkinnedGpuFunnel(
                     record.jointCacheHandle),
                 jointRangeResolved ? 1 : 0,
                 jointRangeResolved ? jointRange.GetSize() : 0,
+                PtJointCacheCopyPlanResultName(
+                    copyPlanResults[recordIndex]),
+                static_cast<unsigned long long>(
+                    copyPlans[recordIndex].destinationOffsetBytes),
+                static_cast<unsigned long long>(
+                    copyPlans[recordIndex].byteCount),
                 SmokeSkinnedGpuResultName(result));
             ++detailCount;
         }

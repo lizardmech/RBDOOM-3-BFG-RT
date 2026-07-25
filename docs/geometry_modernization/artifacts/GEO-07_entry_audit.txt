@@ -1,8 +1,7 @@
 GEO-07 - authoritative jointCache GPU skinning entry audit
 ==========================================================
-Status: entry audit complete; staged-joint decision recorded, implementation
-not yet started.
-Date: 2026-07-24.
+Status: entry audit and slices 1-2 complete; slice 2 runtime acceptance pending.
+Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 030ac8c20.
 
@@ -285,3 +284,111 @@ Runtime acceptance:
   require present = resolved = range match = candidates;
   require stale = range mismatch = 0;
   retain the GEO-03 exact funnel and numeric parity pass.
+
+SLICE 1 RUNTIME ACCEPTANCE - GEOMETRY_GEO39 (2026-07-25)
+---------------------------------------------------------
+Crowded animated area, frame 1900:
+
+  candidates:
+    15
+  canonical instance/history owner:
+    15/15
+  jointCache present/resolved/stale:
+    15/15/0
+  range match/mismatch:
+    15/0
+  resolved renderer joint bytes:
+    32640
+  distinct renderer joint buffers:
+    1
+  funnel dispatched/resultTotal/exact:
+    15/15/1
+  single-bone observations:
+    2
+
+All bounded record details resolved the live jointCache handle and reported a
+valid canonical instance and PrimaryGameplay history owner. Multiple surfaces
+of one entity carried the same renderer joint range where expected; the
+canonical instance remains surface-specific, so the initial planner does not
+silently share that range across distinct canonical instances.
+
+GEO-03 parity remained accepted:
+
+  current/previous vertices:
+    5371/5371
+  samples:
+    24
+  current/previous/motion failures:
+    0/0/0
+  non-finite outputs:
+    0
+  max current/previous/motion error:
+    0.000122070312/0/0.000122070312
+  pass:
+    1
+
+Result:
+
+  PASS - renderer jointCache range transport is accepted as the GEO-07 entry
+         contract.
+
+SLICE 2 CHECKED COPY PLANNING (2026-07-25)
+-------------------------------------------
+Added a behavior-neutral compact-joint copy planner:
+
+  neo/renderer/NVRHI/PathTraceJointCacheCopyPlan.h/.cpp
+
+The planner:
+
+  uses checked uint64 jointCount * 48 byte sizing;
+  requires the resolved handle byte range to equal that exact size;
+  requires the renderer source offset to retain 16-byte joint-row alignment;
+  appends destinations only in whole 48-byte matrix units;
+  rejects capacity and arithmetic overflow without mutating state;
+  reuses only an exact (canonical instance, source buffer, source offset,
+    byte count) tuple;
+  never reuses an identical renderer range across different canonical
+    instances.
+
+The parity dump now runs this planner over resolved live ranges and reports:
+
+  new/reused/rejected copy-plan counts;
+  unique compact bytes;
+  per-record result, destination byte offset and byte count.
+
+This remains plan-only. No GPU copy is submitted, no compact buffer is bound,
+and CPU skinning, shader output and BLAS traversal are unchanged.
+
+Standalone CPU harness:
+
+  PathTraceJointCacheCopyPlanHarness
+
+Coverage:
+
+  checked append and capacity failure atomicity;
+  joint byte multiplication and source-range-end overflow;
+  source range mismatch;
+  source and destination alignment rejection;
+  exact duplicate same-instance reuse;
+  identical-range cross-instance non-reuse.
+
+Verification:
+
+  PathTraceJointCacheCopyPlanHarness:
+    PASS
+  cmake --build --preset win64-pt-dev-release:
+    PASS
+  all SPIR-V shaders:
+    up to date; no shader source or blob changed
+  deployed executable:
+    15671808 bytes
+    2026-07-25 10:55:07 Australia/Sydney
+    SHA-256 6921DF89F5B899B9DDCBDC001AB6E452493DDF6644562AA386D13BCB8CA87CC8
+
+Runtime acceptance for slice 2:
+
+  repeat the geometry_geo39 one-shot commands;
+  require copyPlan rejected = 0;
+  require copyPlan new + reused = jointCache resolved;
+  require copyPlan bytes <= resolved range bytes;
+  retain all slice 1 range, funnel and GEO-03 parity requirements.
