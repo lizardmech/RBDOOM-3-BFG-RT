@@ -454,3 +454,13 @@ NO LONGER OPEN TO SPECULATION
   same run passes 24 current/previous/motion parity samples with
   0.0000152587891 maximum current error. Physical growth/release is not yet
   claimed.
+- geometry_geo65_auto accepts GEO-08 slice 4 initial per-instance comparison
+  BLAS construction. Frame 1 retains 12/12 exact shadow observations and twelve
+  BuildPending records. Frame 2 creates twelve distinct retained resources,
+  records twelve AllowUpdate + PreferFastBuild initial builds, and reports
+  12/12 exact submissions with zero failure. The resources use the exact
+  per-instance output and canonical source-index ranges and are excluded from
+  every TLAS. The same run retains the 24-sample current/previous/motion parity
+  pass, zero non-finite outputs, and 0.0000152587891 maximum current error.
+  PerformUpdate, replacement retirement, growth, and traversal remain
+  unclaimed.

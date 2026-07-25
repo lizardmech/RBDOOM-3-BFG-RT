@@ -29,8 +29,15 @@ Slice 3 is accepted. Retired scene packages now own NVRHI event queries armed
 after the exact graphics command-list submission. Release polls the captured
 Vulkan queue timeline submission ID; r_pathTracingSceneRetireFrames is only an
 additional minimum delay. geometry_geo64_auto proves token 1 arms and completes
-with the delay set to zero. Slice 4 may create comparison BLAS handles, but may
-not add them to live TLAS traversal yet.
+with the delay set to zero.
+
+Slice 4 is accepted. geometry_geo65_auto creates twelve distinct per-instance
+comparison BLAS resources from twelve exact BuildPending records, records
+twelve initial builds with AllowUpdate + PreferFastBuild, and reports zero
+failure. Vertex and index input handles plus their exact generations/ranges are
+retained by each resource. The BLASes are deliberately excluded from all TLAS
+routes. Step 5 update/rebuild selection and completion-owned replacement
+retirement are next.
 
 FILES TO AUDIT FIRST
 --------------------
@@ -65,7 +72,7 @@ STEPS
    pass in geometry_geo64_auto. Retired packages now require exact
    gpu-event-query completion. A targeted physical growth/release run remains
    required before traversal cutover.
-4. Create one updateable BLAS per eligible SkinnedSurface InstanceKey using
+4. ACCEPTED FOR INITIAL COMPARISON BUILDS. Create one updateable BLAS per eligible SkinnedSurface InstanceKey using
    AllowUpdate + PreferFastBuild. Keep source mesh identity, mutable output
    identity, and AS identity separate.
 5. Schedule initial build or update only after that instance's skin dispatch.

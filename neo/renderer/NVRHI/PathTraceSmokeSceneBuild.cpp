@@ -54,6 +54,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <nvrhi/utils.h>
 
 extern DeviceManager* deviceManager;
 extern idCVar r_lightScale;
@@ -2561,6 +2562,20 @@ struct RtSmokeSkinnedBlasShadowAudit
     PtSkinnedBlasStats stats;
 };
 
+struct RtSmokeSkinnedComparisonBlasAudit
+{
+    bool gate = false;
+    int candidates = 0;
+    int buildPending = 0;
+    int exactContracts = 0;
+    int created = 0;
+    int reused = 0;
+    int replaced = 0;
+    int submitted = 0;
+    int failed = 0;
+    int activeResources = 0;
+};
+
 RtSmokeSkinnedHistoryState* FindSmokeSkinnedHistoryState(
     std::vector<RtSmokeSkinnedHistoryState>& states,
     const PtCanonicalHistoryOwnerKey& owner)
@@ -3169,6 +3184,291 @@ void DumpSmokeSkinnedBlasShadowAudit(
         audit.retireMissing,
         static_cast<unsigned long long>(
             audit.stats.retirementsReleased));
+}
+
+RtSmokeSkinnedComparisonBlasResource*
+FindSmokeSkinnedComparisonBlasResource(
+    std::vector<RtSmokeSkinnedComparisonBlasResource>& resources,
+    const PtCanonicalInstanceKey& instanceKey)
+{
+    for (RtSmokeSkinnedComparisonBlasResource& resource :
+        resources)
+    {
+        if (resource.instanceKey == instanceKey)
+        {
+            return &resource;
+        }
+    }
+    return nullptr;
+}
+
+bool SmokeSkinnedComparisonBlasContractMatches(
+    const RtSmokeSkinnedComparisonBlasResource& resource,
+    const PtSkinnedBlasRecord& state,
+    nvrhi::BufferHandle vertexBuffer,
+    nvrhi::BufferHandle indexBuffer)
+{
+    return
+        resource.instanceKey == state.instanceKey &&
+        resource.meshKey == state.meshKey &&
+        resource.sourceChecksum == state.sourceChecksum &&
+        resource.sourceGpuIndexGeneration ==
+            state.sourceGpuIndexGeneration &&
+        resource.sourceIndexOffsetBytes ==
+            state.sourceIndexOffsetBytes &&
+        resource.sourceIndexBytes == state.sourceIndexBytes &&
+        resource.outputStorageGeneration ==
+            state.outputStorageGeneration &&
+        resource.outputVertexOffsetBytes ==
+            state.outputVertexOffsetBytes &&
+        resource.outputVertexCount ==
+            state.outputVertexCount &&
+        resource.vertexBuffer == vertexBuffer &&
+        resource.indexBuffer == indexBuffer &&
+        resource.blas;
+}
+
+RtSmokeSkinnedComparisonBlasAudit
+SubmitSmokeSkinnedInitialComparisonBlases(
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
+    const RtSmokeGeometryUniverse& geometryUniverse,
+    PtSkinnedBlasStateTable& stateTable,
+    std::vector<RtSmokeSkinnedComparisonBlasResource>& resources,
+    nvrhi::IDevice* device,
+    nvrhi::ICommandList* commandList,
+    nvrhi::BufferHandle outputBuffer,
+    uint64 outputBufferGeneration,
+    bool gate,
+    uint64 frameIndex)
+{
+    RtSmokeSkinnedComparisonBlasAudit audit;
+    audit.gate = gate;
+    audit.candidates = static_cast<int>(records.size());
+    if (!gate ||
+        device == nullptr ||
+        commandList == nullptr ||
+        !outputBuffer ||
+        outputBufferGeneration == 0)
+    {
+        audit.activeResources =
+            static_cast<int>(resources.size());
+        return audit;
+    }
+
+    const uint64 sourceIndexGeneration =
+        geometryUniverse.
+            CanonicalSourceIndexPoolGeneration();
+    const uint64 sourceIndexCapacity =
+        geometryUniverse.
+            CanonicalSourceIndexPoolCapacityBytes();
+    const nvrhi::BufferHandle sourceIndexBuffer =
+        geometryUniverse.CanonicalSourceIndexBuffer();
+    if (!sourceIndexBuffer ||
+        sourceIndexGeneration == 0 ||
+        sourceIndexCapacity == 0)
+    {
+        audit.failed = audit.candidates;
+        audit.activeResources =
+            static_cast<int>(resources.size());
+        return audit;
+    }
+
+    bool inputBarriersCommitted = false;
+    for (const RtSmokeSkinnedSurfaceRecord& record : records)
+    {
+        const PtSkinnedBlasRecord* state =
+            stateTable.Find(record.canonicalInstance);
+        if (state == nullptr ||
+            state->state != PtSkinnedBlasState::BuildPending)
+        {
+            continue;
+        }
+        ++audit.buildPending;
+
+        const PtGeometryIdentityBinding* binding =
+            geometryUniverse.FindCanonicalIdentityBinding(
+                record.canonicalInstance);
+        const PtGeometrySourceRecord* source =
+            binding != nullptr
+                ? geometryUniverse.FindCanonicalSourceRecord(
+                    binding->meshKey)
+                : nullptr;
+        const PtGeometryGpuPoolRecord* sourceGpu =
+            binding != nullptr
+                ? geometryUniverse.FindCanonicalSourceGpuRecord(
+                    binding->meshKey)
+                : nullptr;
+        uint64 sourceIndexEnd = 0;
+        uint64 outputVertexBytes = 0;
+        uint64 outputEnd = 0;
+        const bool exact =
+            binding != nullptr &&
+            source != nullptr &&
+            sourceGpu != nullptr &&
+            binding->meshKey == state->meshKey &&
+            source->key == state->meshKey &&
+            source->sourceChecksum == state->sourceChecksum &&
+            sourceGpu->key == state->meshKey &&
+            sourceGpu->sourceChecksum == state->sourceChecksum &&
+            sourceGpu->indexes.storageGeneration ==
+                state->sourceGpuIndexGeneration &&
+            state->sourceGpuIndexGeneration ==
+                sourceIndexGeneration &&
+            sourceGpu->indexes.offsetBytes ==
+                state->sourceIndexOffsetBytes &&
+            sourceGpu->indexes.sizeBytes ==
+                state->sourceIndexBytes &&
+            PtCheckedAddU64(
+                state->sourceIndexOffsetBytes,
+                state->sourceIndexBytes,
+                sourceIndexEnd) &&
+            sourceIndexEnd <= sourceIndexCapacity &&
+            state->outputStorageGeneration ==
+                outputBufferGeneration &&
+            PtCheckedMulU64(
+                state->outputVertexCount,
+                sizeof(PathTraceSmokeVertex),
+                outputVertexBytes) &&
+            outputVertexBytes == state->outputVertexBytes &&
+            PtCheckedAddU64(
+                state->outputVertexOffsetBytes,
+                state->outputVertexBytes,
+                outputEnd) &&
+            outputEnd <= outputBuffer->getDesc().byteSize &&
+            state->outputVertexCount ==
+                static_cast<uint64>(record.vertexCount);
+        if (!exact)
+        {
+            stateTable.MarkSubmitted(
+                record.canonicalInstance,
+                PtSkinnedBlasAction::Build,
+                false,
+                frameIndex);
+            ++audit.failed;
+            continue;
+        }
+        ++audit.exactContracts;
+
+        RtSmokeSkinnedComparisonBlasResource* resource =
+            FindSmokeSkinnedComparisonBlasResource(
+                resources,
+                record.canonicalInstance);
+        const bool reusable =
+            resource != nullptr &&
+            SmokeSkinnedComparisonBlasContractMatches(
+                *resource,
+                *state,
+                outputBuffer,
+                sourceIndexBuffer);
+        if (!reusable)
+        {
+            nvrhi::rt::GeometryTriangles triangles;
+            triangles.vertexBuffer = outputBuffer;
+            triangles.indexBuffer = sourceIndexBuffer;
+            triangles.vertexFormat = nvrhi::Format::RGB32_FLOAT;
+            triangles.indexFormat = nvrhi::Format::R32_UINT;
+            triangles.vertexOffset =
+                state->outputVertexOffsetBytes;
+            triangles.indexOffset =
+                state->sourceIndexOffsetBytes;
+            triangles.vertexCount =
+                static_cast<uint32_t>(
+                    state->outputVertexCount);
+            triangles.indexCount =
+                state->meshKey.indexCount;
+            triangles.vertexStride =
+                sizeof(PathTraceSmokeVertex);
+            nvrhi::rt::GeometryDesc geometry;
+            geometry.setTriangles(triangles);
+
+            RtSmokeSkinnedComparisonBlasResource next;
+            next.instanceKey = state->instanceKey;
+            next.meshKey = state->meshKey;
+            next.sourceChecksum = state->sourceChecksum;
+            next.sourceGpuIndexGeneration =
+                state->sourceGpuIndexGeneration;
+            next.sourceIndexOffsetBytes =
+                state->sourceIndexOffsetBytes;
+            next.sourceIndexBytes =
+                state->sourceIndexBytes;
+            next.outputStorageGeneration =
+                state->outputStorageGeneration;
+            next.outputVertexOffsetBytes =
+                state->outputVertexOffsetBytes;
+            next.outputVertexCount =
+                state->outputVertexCount;
+            next.vertexBuffer = outputBuffer;
+            next.indexBuffer = sourceIndexBuffer;
+            next.blasDesc = nvrhi::rt::AccelStructDesc()
+                .addBottomLevelGeometry(geometry)
+                .setBuildFlags(
+                    nvrhi::rt::AccelStructBuildFlags::AllowUpdate |
+                    nvrhi::rt::AccelStructBuildFlags::PreferFastBuild)
+                .setDebugName(
+                    "PathTraceSkinnedComparisonBLAS");
+            next.blas =
+                device->createAccelStruct(next.blasDesc);
+            if (!next.blas)
+            {
+                stateTable.MarkSubmitted(
+                    record.canonicalInstance,
+                    PtSkinnedBlasAction::Build,
+                    false,
+                    frameIndex);
+                ++audit.failed;
+                continue;
+            }
+            if (resource != nullptr)
+            {
+                *resource = std::move(next);
+                ++audit.replaced;
+            }
+            else
+            {
+                resources.push_back(std::move(next));
+                resource = &resources.back();
+                ++audit.created;
+            }
+        }
+        else
+        {
+            ++audit.reused;
+        }
+
+        if (!inputBarriersCommitted)
+        {
+            commandList->setBufferState(
+                outputBuffer,
+                nvrhi::ResourceStates::
+                    AccelStructBuildInput);
+            commandList->setBufferState(
+                sourceIndexBuffer,
+                nvrhi::ResourceStates::
+                    AccelStructBuildInput);
+            commandList->commitBarriers();
+            inputBarriersCommitted = true;
+        }
+        nvrhi::utils::BuildBottomLevelAccelStruct(
+            commandList,
+            resource->blas,
+            resource->blasDesc);
+        if (stateTable.MarkSubmitted(
+                record.canonicalInstance,
+                PtSkinnedBlasAction::Build,
+                true,
+                frameIndex) ==
+            PtSkinnedBlasSubmitResult::Succeeded)
+        {
+            ++audit.submitted;
+        }
+        else
+        {
+            ++audit.failed;
+        }
+    }
+    audit.activeResources =
+        static_cast<int>(resources.size());
+    return audit;
 }
 
 void DumpSmokeSkinnedGpuFunnel(
@@ -7968,6 +8268,40 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             common->Printf("PathTracePrimaryPass: PT GPU skinning parity readback requires r_pathTracingGpuSkinning 1 or 2\n");
         }
         r_pathTracingGpuSkinningParityDump.SetInteger(0);
+    }
+
+    const RtSmokeSkinnedComparisonBlasAudit
+        skinnedComparisonBlasAudit =
+            SubmitSmokeSkinnedInitialComparisonBlases(
+                currentSkinnedSurfaceRecords,
+                m_smokeGeometryUniverse,
+                m_smokeSkinnedBlasStateTable,
+                m_smokeSkinnedComparisonBlases,
+                device,
+                commandList,
+                smokeSkinnedCurrentOutputVertexBuffer,
+                bufferCreateDesc.
+                    skinnedOutputStorageGeneration,
+                canonicalSkinnedSourceOutputRoute,
+                geometryUniverseStats.frameIndex);
+    if (skinnedComparisonBlasAudit.submitted > 0 &&
+        !m_smokeSkinnedComparisonBlasBuildLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned comparison BLAS frame=%llu gate=%d candidates/buildPending/exact=%d/%d/%d resources(created/reused/replaced/active)=%d/%d/%d/%d submitted/failed=%d/%d flags=allow-update+prefer-fast-build tlas=excluded\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            skinnedComparisonBlasAudit.gate ? 1 : 0,
+            skinnedComparisonBlasAudit.candidates,
+            skinnedComparisonBlasAudit.buildPending,
+            skinnedComparisonBlasAudit.exactContracts,
+            skinnedComparisonBlasAudit.created,
+            skinnedComparisonBlasAudit.reused,
+            skinnedComparisonBlasAudit.replaced,
+            skinnedComparisonBlasAudit.activeResources,
+            skinnedComparisonBlasAudit.submitted,
+            skinnedComparisonBlasAudit.failed);
+        m_smokeSkinnedComparisonBlasBuildLogged = true;
     }
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;

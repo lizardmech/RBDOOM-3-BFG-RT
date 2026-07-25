@@ -1495,6 +1495,12 @@ RtSmokeGeometryUniverse::CanonicalSourceIndexPoolCapacityBytes()
     return m_canonicalSourceGpuPoolStats.capacities[2];
 }
 
+nvrhi::BufferHandle
+RtSmokeGeometryUniverse::CanonicalSourceIndexBuffer() const
+{
+    return m_canonicalSourceGpuPools.IndexBuffer();
+}
+
 void RtSmokeGeometryUniverse::DumpCanonicalIdentityImportStats()
 {
     const PtGeometryIdentityRegistryStats& stats =

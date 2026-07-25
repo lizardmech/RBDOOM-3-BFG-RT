@@ -2030,6 +2030,8 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedSurfaceRecords.clear();
     m_smokeSkinnedOutputAllocator.Clear();
     m_smokeSkinnedBlasStateTable.Clear();
+    m_smokeSkinnedComparisonBlases.clear();
+    m_smokeSkinnedComparisonBlasBuildLogged = false;
     m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
     m_smokeSkinnedHistoryStates.clear();
     m_smokeSkinnedHistoryUpdateSerial = 0;

@@ -164,10 +164,14 @@ zero, geometry_geo64_auto arms token 1 with one pending package and releases it
 only after token 1 completes, leaving zero pending. The same run retains the
 12/12 exact shadow contract and parity pass.
 
-Slice 4 may now create updateable comparison BLAS handles and submit initial
-build/update work without TLAS traversal. Physical output growth and
-generation release still require a targeted runtime exercise before traversal
-cutover.
+GEO-08 slice 4 accepts initial per-instance comparison BLAS construction.
+geometry_geo65_auto maps twelve exact BuildPending records to twelve distinct
+retained resources, records twelve AllowUpdate + PreferFastBuild initial
+builds with zero failure, and explicitly excludes them from every TLAS. The
+same run retains the 24-sample skinning parity pass. Slice 5 owns PerformUpdate,
+cadence/source/output rebuild, and completion-owned replacement retirement.
+Physical output growth and generation release still require a targeted runtime
+exercise before traversal cutover.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

@@ -324,6 +324,27 @@ token 1 is armed with one pending package, then released only after token 1
 completes. This accepts the completion mechanism, but not physical buffer
 growth or live AS traversal.
 
+D29. INITIAL SKINNED COMPARISON BLAS IS ONE FULL INSTANCEKEY AND TLAS-EXCLUDED
+-------------------------------------------------------------------------------
+Decision: each exact BuildPending SkinnedSurface record owns one comparison
+BLAS resource keyed by its complete InstanceKey. The resource retains its
+vertex and index buffer handles and records the exact MeshKey, source checksum,
+source index generation/range, and output generation/range used to create it.
+Shared immutable MeshKey/index data does not permit shared mutable BLAS state.
+
+The first build uses the per-instance world-space PathTraceSmokeVertex output
+at 112-byte stride, local R32_UINT indexes from the exact GEO-06 pool record,
+and AllowUpdate + PreferFastBuild. It is recorded after the current frame's
+skin compute and input-state barriers. MarkSubmitted(Build, true) occurs only
+after command recording.
+
+These handles are diagnostic comparison resources and are excluded from every
+TLAS. geometry_geo65_auto proves 12/12 exact BuildPending contracts create and
+submit 12/12 distinct initial builds with zero failure while existing skinning
+parity remains green. This decision does not authorize PerformUpdate, rebuild
+replacement, physical output growth, or traversal. Those require explicit
+completion-owned retirement and separate runtime proof in the next slice.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

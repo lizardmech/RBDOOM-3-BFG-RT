@@ -1,6 +1,6 @@
 GEO-08 - per-instance skinned BLAS entry audit
 ==============================================
-Status: dependency correction and slices 1-3 prerequisite contracts accepted.
+Status: dependency correction and slices 1-4 prerequisite contracts accepted.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 179127951.
@@ -258,8 +258,77 @@ Final build/deploy:
 
 NEXT
 ----
-Slice 4 may create per-instance updateable comparison BLAS handles and submit
-the twelve initial BuildRequired actions, still without placing them in the
-live TLAS. Physical output growth/release remains a required runtime exercise
+Slice 4 is accepted below. Slice 5 must implement the stable-contract update
+path, cadence/source/output rebuild path, and completion-owned replacement
+retirement. Physical output growth/release remains a required runtime exercise
 before traversal cutover; geometry_geo64 proves exact initial generation and
 real submission completion, not a growth event.
+
+SLICE 4 - INITIAL PER-INSTANCE COMPARISON BLAS BUILDS
+-----------------------------------------------------
+Implemented:
+
+  one retained NVRHI BLAS resource per complete SkinnedSurface InstanceKey;
+  exact retained vertex and index input-buffer handles;
+  exact source checksum, source index generation/range, output generation/range,
+    and MeshKey stored beside the AS handle;
+  triangle geometry sourced from the per-instance 112-byte-stride GEO-07 output
+    range and the exact local-index GEO-06 canonical index-pool range;
+  AllowUpdate + PreferFastBuild on every comparison BLAS;
+  initial build submission only for BuildPending records after skin compute;
+  MarkSubmitted(Build, true) only after the build command is recorded;
+  explicit exclusion from every live or comparison TLAS.
+
+The initial builds occur on frame 2. Frame 1 commits the physical output,
+dispatches skinning, and observes the exact state-table inputs. On the next
+frame the same command-list chain dispatches the current pose, transitions the
+retained vertex/index inputs to AccelStructBuildInput, commits barriers, and
+records the twelve BLAS builds. This ordering avoids building against an
+uninitialized physical output while preserving the accepted legacy traversal.
+
+RUNTIME ACCEPTANCE
+------------------
+Autonomous prepared save:
+
+  geometry_geo65_auto.log
+  map = game/mars_city1
+
+Frame 1 retained the slice-2 contract:
+
+  candidates/dispatched/sourceGpuExact/outputExact/observed =
+    12/12/12/12/12
+  plan build/update/rebuild/pending/reject = 12/0/0/0/0
+  physical generation/bytes/UAV/AS input = 1/1835008/1/1
+
+Frame 2 initial comparison builds:
+
+  candidates/buildPending/exact = 12/12/12
+  resources created/reused/replaced/active = 12/0/0/12
+  submitted/failed = 12/0
+  flags = allow-update + prefer-fast-build
+  TLAS = excluded
+
+The same run retained the 24-sample current/previous/motion parity pass with
+zero failures, zero non-finite outputs, and maximum current error
+0.0000152587891. The process remained responsive during an additional
+approximately 25 seconds of autonomous play and emitted no fatal,
+device-removal, or validation-error marker.
+
+Offline/build/deploy:
+
+  related harness suite = 6/6 PASS
+  cmake --build --preset win64-pt-dev-release = PASS
+  all SPIR-V shaders up to date; no shader source or blob changed
+  deployed executable:
+    size 15723520 bytes
+    mtime 2026-07-25 15:08:01 Australia/Sydney
+    SHA-256 674ACF22626C6188F8849E83D19AB9BFD3E070971B5A2F07C5024A6D5080FEC6
+
+BOUNDARY AND NEXT
+-----------------
+This accepts initial BLAS creation and command submission only. It does not
+claim PerformUpdate, cadence rebuild, mismatched-resource replacement
+retirement, physical output growth, hit-routing parity, or TLAS traversal.
+Slice 5 owns those update/rebuild/retirement contracts. Until their exact
+completion ownership is proven, comparison resources remain diagnostic and
+must not enter a TLAS.

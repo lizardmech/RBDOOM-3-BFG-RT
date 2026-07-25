@@ -776,6 +776,7 @@ public:
         const PtCanonicalMeshKey& key) const;
     uint64 CanonicalSourceIndexPoolGeneration() const;
     uint64 CanonicalSourceIndexPoolCapacityBytes() const;
+    nvrhi::BufferHandle CanonicalSourceIndexBuffer() const;
     void UpdateCanonicalSourceGpuPools(
         nvrhi::IDevice* device,
         nvrhi::ICommandList* commandList);

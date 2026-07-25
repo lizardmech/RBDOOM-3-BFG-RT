@@ -70,6 +70,23 @@ struct RtRetiredSmokeScenePackage
     nvrhi::BindingSetHandle skyCubeProbeBindingSet;
 };
 
+struct RtSmokeSkinnedComparisonBlasResource
+{
+    PtCanonicalInstanceKey instanceKey;
+    PtCanonicalMeshKey meshKey;
+    uint64 sourceChecksum = 0;
+    uint64 sourceGpuIndexGeneration = 0;
+    uint64 sourceIndexOffsetBytes = 0;
+    uint64 sourceIndexBytes = 0;
+    uint64 outputStorageGeneration = 0;
+    uint64 outputVertexOffsetBytes = 0;
+    uint64 outputVertexCount = 0;
+    nvrhi::BufferHandle vertexBuffer;
+    nvrhi::BufferHandle indexBuffer;
+    nvrhi::rt::AccelStructDesc blasDesc;
+    nvrhi::rt::AccelStructHandle blas;
+};
+
 static constexpr int RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS = 3;
 
 template< typename Result >
@@ -431,6 +448,9 @@ private:
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     PtSkinnedOutputAllocator m_smokeSkinnedOutputAllocator;
     PtSkinnedBlasStateTable m_smokeSkinnedBlasStateTable;
+    std::vector<RtSmokeSkinnedComparisonBlasResource>
+        m_smokeSkinnedComparisonBlases;
+    bool m_smokeSkinnedComparisonBlasBuildLogged = false;
     RtSmokeSkinnedHistoryState m_smokeLegacySkinnedHistoryState;
     std::vector<RtSmokeSkinnedHistoryState> m_smokeSkinnedHistoryStates;
     uint64 m_smokeSkinnedHistoryUpdateSerial = 0;
