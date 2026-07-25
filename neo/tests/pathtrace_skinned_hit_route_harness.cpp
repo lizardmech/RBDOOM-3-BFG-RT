@@ -335,6 +335,110 @@ void TestGpuUploadAbi()
         "empty GPU upload must retain a safe zero-count sentinel");
 }
 
+void TestSbtContributionContract()
+{
+    struct ExpectedSelection
+    {
+        PtPathTraceSbtGeometryClass geometryClass;
+        std::uint32_t rayContribution;
+        std::uint32_t instanceContribution;
+        std::uint32_t recordIndex;
+    };
+    const ExpectedSelection expected[] = {
+        {
+            PtPathTraceSbtGeometryClass::Legacy,
+            PT_PATH_TRACE_SBT_PRIMARY_RAY_CONTRIBUTION,
+            PT_PATH_TRACE_SBT_LEGACY_INSTANCE_CONTRIBUTION,
+            0u
+        },
+        {
+            PtPathTraceSbtGeometryClass::Legacy,
+            PT_PATH_TRACE_SBT_SHADOW_RAY_CONTRIBUTION,
+            PT_PATH_TRACE_SBT_LEGACY_INSTANCE_CONTRIBUTION,
+            1u
+        },
+        {
+            PtPathTraceSbtGeometryClass::Skinned,
+            PT_PATH_TRACE_SBT_PRIMARY_RAY_CONTRIBUTION,
+            PT_PATH_TRACE_SBT_SKINNED_INSTANCE_CONTRIBUTION,
+            2u
+        },
+        {
+            PtPathTraceSbtGeometryClass::Skinned,
+            PT_PATH_TRACE_SBT_SHADOW_RAY_CONTRIBUTION,
+            PT_PATH_TRACE_SBT_SKINNED_INSTANCE_CONTRIBUTION,
+            3u
+        }
+    };
+    for (const ExpectedSelection& expectedSelection : expected)
+    {
+        PtPathTraceSbtSelectionInput input;
+        input.geometryClass =
+            expectedSelection.geometryClass;
+        input.rayContribution =
+            expectedSelection.rayContribution;
+        input.geometryContribution = 0u;
+        input.geometryMultiplier = 1u;
+        input.shaderTableRecordCount = 4u;
+        const PtPathTraceSbtSelection selection =
+            PtPlanPathTraceSbtSelection(input);
+        Expect(
+            selection.result ==
+                    PtPathTraceSbtSelectionResult::Accepted &&
+                selection.instanceContribution ==
+                    expectedSelection.instanceContribution &&
+                selection.recordIndex ==
+                    expectedSelection.recordIndex,
+            "legacy/skinned primary/shadow SBT mapping must be exact");
+    }
+
+    PtPathTraceSbtSelectionInput invalid;
+    invalid.geometryClass =
+        PtPathTraceSbtGeometryClass::Skinned;
+    invalid.shaderTableRecordCount = 4u;
+    invalid.rayContribution = 2u;
+    Expect(
+        PtPlanPathTraceSbtSelection(invalid).result ==
+            PtPathTraceSbtSelectionResult::
+                UnsupportedRayContribution,
+        "unknown ray contribution must fail closed");
+
+    invalid.rayContribution =
+        PT_PATH_TRACE_SBT_PRIMARY_RAY_CONTRIBUTION;
+    invalid.geometryContribution = 1u;
+    Expect(
+        PtPlanPathTraceSbtSelection(invalid).result ==
+            PtPathTraceSbtSelectionResult::
+                UnsupportedGeometryContribution,
+        "multi-geometry BLAS contribution must fail closed");
+
+    invalid.geometryContribution = 0u;
+    invalid.geometryMultiplier = 0u;
+    Expect(
+        PtPlanPathTraceSbtSelection(invalid).result ==
+            PtPathTraceSbtSelectionResult::
+                InvalidGeometryMultiplier,
+        "non-unit geometry multiplier must fail closed");
+
+    invalid.geometryMultiplier = 1u;
+    invalid.shaderTableRecordCount = 2u;
+    Expect(
+        PtPlanPathTraceSbtSelection(invalid).result ==
+            PtPathTraceSbtSelectionResult::
+                MissingShaderTableRecord,
+        "skinned route must reject a legacy-only shader table");
+
+    invalid.geometryClass =
+        PtPathTraceSbtGeometryClass::Legacy;
+    const PtPathTraceSbtSelection legacyOnly =
+        PtPlanPathTraceSbtSelection(invalid);
+    Expect(
+        legacyOnly.result ==
+                PtPathTraceSbtSelectionResult::Accepted &&
+            legacyOnly.recordIndex == 0u,
+        "legacy route must remain valid with two SBT records");
+}
+
 }
 
 int main()
@@ -343,6 +447,7 @@ int main()
     TestTopologyMismatchFailsClosed();
     TestDuplicateAndInstanceIdOverflow();
     TestGpuUploadAbi();
+    TestSbtContributionContract();
 
     if (g_failures != 0)
     {

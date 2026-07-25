@@ -740,3 +740,54 @@ PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
         upload.triangles.size() * sizeof(upload.triangles[0]));
     return upload;
 }
+
+PtPathTraceSbtSelection PtPlanPathTraceSbtSelection(
+    const PtPathTraceSbtSelectionInput& input)
+{
+    PtPathTraceSbtSelection selection;
+    selection.instanceContribution =
+        input.geometryClass == PtPathTraceSbtGeometryClass::Skinned
+        ? PT_PATH_TRACE_SBT_SKINNED_INSTANCE_CONTRIBUTION
+        : PT_PATH_TRACE_SBT_LEGACY_INSTANCE_CONTRIBUTION;
+
+    if (input.rayContribution >=
+        PT_PATH_TRACE_SBT_RAY_TYPE_COUNT)
+    {
+        selection.result =
+            PtPathTraceSbtSelectionResult::
+                UnsupportedRayContribution;
+        return selection;
+    }
+    if (input.geometryContribution != 0u)
+    {
+        selection.result =
+            PtPathTraceSbtSelectionResult::
+                UnsupportedGeometryContribution;
+        return selection;
+    }
+    if (input.geometryMultiplier != 1u)
+    {
+        selection.result =
+            PtPathTraceSbtSelectionResult::
+                InvalidGeometryMultiplier;
+        return selection;
+    }
+
+    selection.recordIndex =
+        selection.instanceContribution +
+        input.geometryContribution *
+            input.geometryMultiplier +
+        input.rayContribution;
+    if (selection.recordIndex >=
+        input.shaderTableRecordCount)
+    {
+        selection.result =
+            PtPathTraceSbtSelectionResult::
+                MissingShaderTableRecord;
+        return selection;
+    }
+
+    selection.result =
+        PtPathTraceSbtSelectionResult::Accepted;
+    return selection;
+}

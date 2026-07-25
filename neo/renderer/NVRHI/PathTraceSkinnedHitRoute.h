@@ -16,6 +16,16 @@ static constexpr std::uint32_t
     PT_SKINNED_HIT_ROUTE_INVALID_INDEX = UINT32_MAX;
 static constexpr std::uint32_t
     PT_SKINNED_HIT_ROUTE_MAX_SHADER_INSTANCE_ID = 0x00ffffffu;
+static constexpr std::uint32_t
+    PT_PATH_TRACE_SBT_PRIMARY_RAY_CONTRIBUTION = 0u;
+static constexpr std::uint32_t
+    PT_PATH_TRACE_SBT_SHADOW_RAY_CONTRIBUTION = 1u;
+static constexpr std::uint32_t
+    PT_PATH_TRACE_SBT_RAY_TYPE_COUNT = 2u;
+static constexpr std::uint32_t
+    PT_PATH_TRACE_SBT_LEGACY_INSTANCE_CONTRIBUTION = 0u;
+static constexpr std::uint32_t
+    PT_PATH_TRACE_SBT_SKINNED_INSTANCE_CONTRIBUTION = 2u;
 
 enum PtSkinnedHitRouteFlags : std::uint32_t
 {
@@ -40,6 +50,42 @@ enum class PtSkinnedHitRouteResult : std::uint32_t
     CanonicalHashCollision,
     ShaderInstanceIdOverflow,
     DispatchNotReady
+};
+
+enum class PtPathTraceSbtGeometryClass : std::uint32_t
+{
+    Legacy = 0,
+    Skinned
+};
+
+enum class PtPathTraceSbtSelectionResult : std::uint32_t
+{
+    Accepted = 0,
+    UnsupportedRayContribution,
+    UnsupportedGeometryContribution,
+    InvalidGeometryMultiplier,
+    MissingShaderTableRecord
+};
+
+// Exact first-cut TraceRay/SBT contract. Every legacy and per-surface skinned
+// BLAS contains one NVRHI geometry, so GeometryIndex must remain zero. Primary
+// and shadow TraceRay calls use contributions 0 and 1 with multiplier 1.
+struct PtPathTraceSbtSelectionInput
+{
+    PtPathTraceSbtGeometryClass geometryClass =
+        PtPathTraceSbtGeometryClass::Legacy;
+    std::uint32_t rayContribution = 0;
+    std::uint32_t geometryContribution = 0;
+    std::uint32_t geometryMultiplier = 1;
+    std::uint32_t shaderTableRecordCount = 0;
+};
+
+struct PtPathTraceSbtSelection
+{
+    PtPathTraceSbtSelectionResult result =
+        PtPathTraceSbtSelectionResult::MissingShaderTableRecord;
+    std::uint32_t instanceContribution = 0;
+    std::uint32_t recordIndex = 0;
 };
 
 // GEO-08 shader-facing skinned hit route. PrimitiveIndex() addresses the
@@ -204,6 +250,9 @@ PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
 PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
     const PtSkinnedHitRouteBuild& build,
     std::uint32_t emptyFirstShaderInstanceId);
+
+PtPathTraceSbtSelection PtPlanPathTraceSbtSelection(
+    const PtPathTraceSbtSelectionInput& input);
 
 const char* PtSkinnedHitRouteResultName(
     PtSkinnedHitRouteResult result);
