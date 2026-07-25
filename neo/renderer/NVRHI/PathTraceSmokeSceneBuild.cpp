@@ -9106,6 +9106,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.allowExistingTextureDescriptorTableWrites = sceneRetireFrames <= 0;
     bindingBuildDesc.sampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
     bindingBuildDesc.buffers = smokeBuffers;
+    bindingBuildDesc.skinnedSourceIndexBuffer =
+        m_smokeGeometryUniverse.CanonicalSourceIndexBuffer();
     bindingBuildDesc.primarySurfaceHistoryBuffers = m_frameResources.primarySurfaceHistoryBuffers;
     bindingBuildDesc.enableTextureProbe = enableTextureProbe;
     bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
@@ -9283,6 +9285,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.rigidRouteInstanceBuffer = smokeRigidRouteInstanceBuffer;
     sceneInputs.geometry.skinnedHitRouteRecordBuffer = smokeSkinnedHitRouteRecordBuffer;
     sceneInputs.geometry.skinnedHitRouteTriangleBuffer = smokeSkinnedHitRouteTriangleBuffer;
+    sceneInputs.geometry.skinnedSourceIndexBuffer =
+        m_smokeGeometryUniverse.CanonicalSourceIndexBuffer();
     sceneInputs.geometry.skinnedSourceVertexBuffer = smokeSkinnedSourceVertexBuffer;
     sceneInputs.geometry.skinnedCurrentOutputVertexBuffer = smokeSkinnedCurrentOutputVertexBuffer;
     sceneInputs.geometry.skinnedPreviousPositionBuffer = smokeSkinnedPreviousPositionBuffer;

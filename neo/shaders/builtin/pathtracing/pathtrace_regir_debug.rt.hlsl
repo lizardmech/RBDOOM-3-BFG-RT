@@ -150,6 +150,7 @@ StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
 StructuredBuffer<PathTraceSmokeVertex> SmokeDynamicVertices : register(t6);
+StructuredBuffer<PathTraceSmokeVertex> SmokeSkinnedCurrentVertices : register(t29);
 StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
 StructuredBuffer<uint> SmokeDynamicTriangleClasses : register(t8);
 StructuredBuffer<uint> SmokeStaticTriangleMaterials : register(t9);
@@ -303,7 +304,20 @@ uint PathTraceReGIRLoadTriangleMaterialIndex(uint instanceId, uint primitiveInde
             ? SmokeDynamicTriangleMaterialIndexes[primitiveIndex]
             : 0xffffffffu;
     }
-    else
+    else if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        if (PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle))
+        {
+            materialIndex = routeTriangle.materialIndex;
+        }
+    }
+    else if (PathTraceIsRigidHitRouteInstance(instanceId))
     {
         const uint routeInstanceIndex = instanceId - 2u;
         if (routeInstanceIndex < PathTraceReGIRRigidRouteInstanceCount())
@@ -334,6 +348,23 @@ uint PathTraceReGIRLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
             : 0xffffffffu;
     }
 
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.materialId
+            : 0xffffffffu;
+    }
+
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return 0xffffffffu;
+    }
     const uint routeInstanceIndex = instanceId - 2u;
     if (routeInstanceIndex >= PathTraceReGIRRigidRouteInstanceCount())
     {
@@ -348,7 +379,19 @@ uint PathTraceReGIRLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
 
 uint PathTraceReGIRLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 {
-    if (instanceId >= 2u)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.triangleClassAndFlags
+            : 0u;
+    }
+    if (PathTraceIsRigidHitRouteInstance(instanceId))
     {
         return RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
     }
@@ -376,6 +419,27 @@ bool PathTraceReGIRTriangleRangeValid(uint instanceId, uint primitiveIndex)
             indexOffset + 2u < PathTraceReGIRDynamicIndexCount();
     }
 
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        return PathTraceLoadSkinnedHitRouteTriangleData(
+            instanceId,
+            primitiveIndex,
+            route,
+            routeTriangle,
+            vertexIndex0,
+            vertexIndex1,
+            vertexIndex2);
+    }
+
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return false;
+    }
     const uint routeInstanceIndex = instanceId - 2u;
     if (routeInstanceIndex >= PathTraceReGIRRigidRouteInstanceCount())
     {
@@ -1501,7 +1565,70 @@ void ClosestHit(inout PathTraceReGIRPayload payload, BuiltInTriangleIntersection
         attributes.barycentrics.x,
         attributes.barycentrics.y);
 
-    if (instanceId >= 2u)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        if (!PathTraceLoadSkinnedHitRouteTriangleData(
+                instanceId,
+                primitiveIndex,
+                route,
+                routeTriangle,
+                vertexIndex0,
+                vertexIndex1,
+                vertexIndex2))
+        {
+            return;
+        }
+        const PathTraceSmokeVertex v0 = SmokeSkinnedCurrentVertices[vertexIndex0];
+        const PathTraceSmokeVertex v1 = SmokeSkinnedCurrentVertices[vertexIndex1];
+        const PathTraceSmokeVertex v2 = SmokeSkinnedCurrentVertices[vertexIndex2];
+        const float3 worldRayFallback = PathTraceReGIRSafeNormalize(
+            -WorldRayDirection(),
+            float3(0.0, 0.0, 1.0));
+        const float3 objectGeometricNormal = PathTraceReGIRSafeNormalize(
+            cross(v1.position.xyz - v0.position.xyz, v2.position.xyz - v0.position.xyz),
+            worldRayFallback);
+        payload.geometricNormal =
+            PathTraceReGIRTransformObjectNormalToWorld(objectGeometricNormal, worldRayFallback);
+        const float3 objectInterpolatedNormal = PathTraceReGIRSafeNormalize(
+            v0.normal.xyz * barycentrics.x +
+                v1.normal.xyz * barycentrics.y +
+                v2.normal.xyz * barycentrics.z,
+            objectGeometricNormal);
+        payload.normal = PathTraceReGIRTransformObjectNormalToWorld(
+            objectInterpolatedNormal,
+            payload.geometricNormal);
+        payload.texCoord =
+            v0.texCoord.xy * barycentrics.x +
+            v1.texCoord.xy * barycentrics.y +
+            v2.texCoord.xy * barycentrics.z;
+        payload.vertexColor = saturate(
+            v0.color * barycentrics.x +
+            v1.color * barycentrics.y +
+            v2.color * barycentrics.z);
+        payload.vertexColorAdd = saturate(
+            v0.color2 * barycentrics.x +
+            v1.color2 * barycentrics.y +
+            v2.color2 * barycentrics.z);
+        payload.triangleClassAndFlags =
+            routeTriangle.triangleClassAndFlags;
+        payload.surfaceClass =
+            routeTriangle.triangleClassAndFlags &
+            RT_SMOKE_TRIANGLE_CLASS_MASK;
+        payload.translucentSubtype =
+            (routeTriangle.triangleClassAndFlags &
+                RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >>
+            RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+        payload.materialId = routeTriangle.materialId;
+        payload.materialIndex = routeTriangle.materialIndex;
+        return;
+    }
+
+    if (PathTraceIsRigidHitRouteInstance(instanceId))
     {
         const uint routeInstanceIndex = instanceId - 2u;
         if (routeInstanceIndex >= PathTraceReGIRRigidRouteInstanceCount())
@@ -1551,6 +1678,11 @@ void ClosestHit(inout PathTraceReGIRPayload payload, BuiltInTriangleIntersection
         payload.triangleClassAndFlags = RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
         payload.materialId = SmokeRigidRouteTriangleMaterials[routeInstance.triangleOffset + primitiveIndex];
         payload.materialIndex = PathTraceReGIRLoadTriangleMaterialIndex(instanceId, primitiveIndex);
+        return;
+    }
+
+    if (instanceId >= 2u)
+    {
         return;
     }
 

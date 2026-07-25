@@ -99,6 +99,7 @@ struct RtPathTraceSceneInputGeometry
     nvrhi::BufferHandle rigidRouteInstanceBuffer;
     nvrhi::BufferHandle skinnedHitRouteRecordBuffer;
     nvrhi::BufferHandle skinnedHitRouteTriangleBuffer;
+    nvrhi::BufferHandle skinnedSourceIndexBuffer;
     nvrhi::BufferHandle skinnedSourceVertexBuffer;
     nvrhi::BufferHandle skinnedCurrentOutputVertexBuffer;
     nvrhi::BufferHandle skinnedPreviousPositionBuffer;

@@ -211,9 +211,79 @@ bool PathTraceCleanRtxdiDiLoadTraceHitSurface(
         return true;
     }
 
+    if (PathTraceIsSkinnedHitRouteInstance(payload.hitInstanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        if (!PathTraceLoadSkinnedHitRouteTriangleData(
+                payload.hitInstanceId,
+                payload.hitPrimitiveIndex,
+                route,
+                routeTriangle,
+                vertexIndex0,
+                vertexIndex1,
+                vertexIndex2))
+        {
+            return false;
+        }
+        const PathTraceSmokeVertex v0 =
+            SmokeSkinnedCurrentVertices[vertexIndex0];
+        const PathTraceSmokeVertex v1 =
+            SmokeSkinnedCurrentVertices[vertexIndex1];
+        const PathTraceSmokeVertex v2 =
+            SmokeSkinnedCurrentVertices[vertexIndex2];
+        surface.texCoord =
+            v0.texCoord.xy * barycentrics.x +
+            v1.texCoord.xy * barycentrics.y +
+            v2.texCoord.xy * barycentrics.z;
+        surface.normalTexCoord =
+            v0.texCoord.zw * barycentrics.x +
+            v1.texCoord.zw * barycentrics.y +
+            v2.texCoord.zw * barycentrics.z;
+        surface.vertexColor =
+            v0.color * barycentrics.x +
+            v1.color * barycentrics.y +
+            v2.color * barycentrics.z;
+        surface.vertexColorAdd =
+            v0.color2 * barycentrics.x +
+            v1.color2 * barycentrics.y +
+            v2.color2 * barycentrics.z;
+        surface.geometricNormal = RAB_SafeNormalize(
+            cross(
+                v1.position.xyz - v0.position.xyz,
+                v2.position.xyz - v0.position.xyz),
+            surface.geometricNormal);
+        surface.shadingNormal = RAB_SafeNormalize(
+            v0.normal.xyz * barycentrics.x +
+                v1.normal.xyz * barycentrics.y +
+                v2.normal.xyz * barycentrics.z,
+            surface.geometricNormal);
+        const float4 capturedTangent =
+            v0.tangent * barycentrics.x +
+            v1.tangent * barycentrics.y +
+            v2.tangent * barycentrics.z;
+        const float4 capturedBitangent =
+            v0.bitangent * barycentrics.x +
+            v1.bitangent * barycentrics.y +
+            v2.bitangent * barycentrics.z;
+        PathTraceCleanRtxdiDiBuildTraceHitTangentBasis(
+            surface.shadingNormal,
+            capturedTangent,
+            capturedBitangent,
+            1.0,
+            surface.tangent,
+            surface.bitangent);
+        surface.valid = true;
+        return true;
+    }
+
     const uint routeInstanceIndex = payload.hitInstanceId - 2u;
     const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
-    if (payload.hitInstanceId < 2u || routeInstanceIndex >= rigidRouteInstanceCount)
+    if (!PathTraceIsRigidHitRouteInstance(payload.hitInstanceId) ||
+        routeInstanceIndex >= rigidRouteInstanceCount)
     {
         return false;
     }
@@ -370,9 +440,48 @@ bool PathTraceCleanRtxdiDiReconstructPrimarySurfaceBarycentrics(
         return true;
     }
 
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        if (!PathTraceLoadSkinnedHitRouteTriangleData(
+                instanceId,
+                primitiveIndex,
+                route,
+                routeTriangle,
+                vertexIndex0,
+                vertexIndex1,
+                vertexIndex2))
+        {
+            return false;
+        }
+        const float3 p0 =
+            SmokeSkinnedCurrentVertices[vertexIndex0].position.xyz;
+        const float3 p1 =
+            SmokeSkinnedCurrentVertices[vertexIndex1].position.xyz;
+        const float3 p2 =
+            SmokeSkinnedCurrentVertices[vertexIndex2].position.xyz;
+        float3 barycentrics;
+        if (!PathTraceCleanRtxdiDiComputeTriangleBarycentrics(
+                primarySurface.worldPos,
+                p0,
+                p1,
+                p2,
+                barycentrics))
+        {
+            return false;
+        }
+        hitBarycentrics = barycentrics.yz;
+        return true;
+    }
+
     const uint routeInstanceIndex = instanceId - 2u;
     const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
-    if (instanceId < 2u || routeInstanceIndex >= rigidRouteInstanceCount)
+    if (!PathTraceIsRigidHitRouteInstance(instanceId) ||
+        routeInstanceIndex >= rigidRouteInstanceCount)
     {
         return false;
     }

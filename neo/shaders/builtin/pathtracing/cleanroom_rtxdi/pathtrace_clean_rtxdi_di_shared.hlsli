@@ -242,6 +242,7 @@ StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
 StructuredBuffer<PathTraceSmokeVertex> SmokeDynamicVertices : register(t6);
+StructuredBuffer<PathTraceSmokeVertex> SmokeSkinnedCurrentVertices : register(t29);
 StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
 StructuredBuffer<uint> SmokeDynamicTriangleClasses : register(t8);
 StructuredBuffer<uint> SmokeStaticTriangleMaterials : register(t9);

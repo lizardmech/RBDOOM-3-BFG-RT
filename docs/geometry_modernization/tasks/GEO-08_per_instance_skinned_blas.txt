@@ -107,7 +107,9 @@ STEPS
    observable full-rebuild cadence. Stable PerformUpdate and cadence rebuild
    pass in geometry_geo68_auto; exact removal and completion-owned replacement
    pass in geometry_geo69_auto and geometry_geo71_auto.
-6. PARTIALLY ACCEPTED THROUGH GPU TRANSPORT; SHADER BEHAVIOR CONVERSION REMAINS. Define the shader hit-routing contract before adding TLAS instances.
+6. PARTIALLY ACCEPTED THROUGH GPU TRANSPORT AND THE FIRST 6B2 CONSUMER
+   CONVERSION; OVERSIZED LIBRARY SPLIT AND RUNTIME PROOF REMAIN. Define the
+   shader hit-routing contract before adding TLAS instances.
    Prove canonical instance ID, primitive-to-source-triangle lookup, material
    table lookup, current/previous position lookup, and emissive identity for a
    per-surface skinned BLAS. Do not reuse the merged-dynamic instance-ID meaning
@@ -116,10 +118,18 @@ STEPS
    triangle ABI, persistent t18/t19 bindings, empty sentinels, scene-package
    lifetime ownership, and byte-exact GPU readback. geometry_geo73_auto and
    geometry_geo74_auto pass 12-route / 15,962-triangle transport with all
-   comparison BLASes excluded from the TLAS. Step 6B2 still must bind the
-   canonical source/current/previous geometry domains and completely convert
-   shader consumers; current hit behavior still treats every InstanceID >= 2
-   as rigid.
+   comparison BLASes excluded from the TLAS. Step 6B2 now binds canonical
+   source indexes at t28, current world-space output vertices at t29, and
+   previous world-space positions at t32. Primary/shadow, transmission,
+   spatial, ReGIR/NEE debug, material, class, UV/color, and motion consumers
+   compile with explicit disjoint rigid/skinned handling. The clean-DI
+   sentinel and clean-GI libraries remain lightweight because their unchanged
+   baseline SPIR-V is already 5,929,604 and 9,385,432 bytes respectively;
+   adding full skinned reconstruction makes DXC fail with SPIR-V ID overflow.
+   Both oversized libraries receive the bindings but compile out skinned hit
+   reconstruction. No skinned comparison BLAS may enter a TLAS until those
+   libraries are split or otherwise brought under the compiler budget and
+   bounded runtime proof passes.
 7. Add comparison TLAS routing while the merged dynamic BLAS remains live.
    Record instance/primitive totals, sampled hit identities, bounds,
    material/triangle IDs, and motion inputs. A compare failure must select only

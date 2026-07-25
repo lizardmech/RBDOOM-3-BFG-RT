@@ -183,6 +183,7 @@ VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<PathTraceSmokeVertex> SmokeDynamicVertices : register(t6);
+StructuredBuffer<PathTraceSmokeVertex> SmokeSkinnedCurrentVertices : register(t29);
 StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
 StructuredBuffer<PathTraceSmokeVertex> SmokeRigidRouteVertices : register(t22);
 StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
@@ -1764,7 +1765,43 @@ void ClosestHit(inout PathTraceNeeCachePayload payload, BuiltInTriangleIntersect
     payload.normal = rayFallback;
     payload.geometricNormal = rayFallback;
 
-    if (instanceId >= 2u)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        if (!PathTraceLoadSkinnedHitRouteTriangleData(
+                instanceId,
+                primitiveIndex,
+                route,
+                routeTriangle,
+                vertexIndex0,
+                vertexIndex1,
+                vertexIndex2))
+        {
+            return;
+        }
+        const PathTraceSmokeVertex v0 = SmokeSkinnedCurrentVertices[vertexIndex0];
+        const PathTraceSmokeVertex v1 = SmokeSkinnedCurrentVertices[vertexIndex1];
+        const PathTraceSmokeVertex v2 = SmokeSkinnedCurrentVertices[vertexIndex2];
+        const float3 objectGeometricNormal = PathTraceNeeCacheSafeNormalize(
+            cross(v1.position.xyz - v0.position.xyz, v2.position.xyz - v0.position.xyz),
+            rayFallback);
+        payload.geometricNormal =
+            PathTraceNeeCacheTransformObjectNormalToWorld(objectGeometricNormal, rayFallback);
+        const float3 objectNormal = PathTraceNeeCacheSafeNormalize(
+            v0.normal.xyz * barycentrics.x +
+                v1.normal.xyz * barycentrics.y +
+                v2.normal.xyz * barycentrics.z,
+            objectGeometricNormal);
+        payload.normal =
+            PathTraceNeeCacheTransformObjectNormalToWorld(objectNormal, payload.geometricNormal);
+        return;
+    }
+
+    if (PathTraceIsRigidHitRouteInstance(instanceId))
     {
         const uint routeInstanceIndex = instanceId - 2u;
         if (routeInstanceIndex >= PathTraceNeeCacheRigidRouteInstanceCount())
@@ -1802,6 +1839,11 @@ void ClosestHit(inout PathTraceNeeCachePayload payload, BuiltInTriangleIntersect
         const float3 objectNormal = PathTraceNeeCacheSafeNormalize(cross(p1 - p0, p2 - p0), rayFallback);
         payload.geometricNormal = PathTraceNeeCacheTransformObjectNormalToWorld(objectNormal, rayFallback);
         payload.normal = payload.geometricNormal;
+        return;
+    }
+
+    if (instanceId >= 2u)
+    {
         return;
     }
 

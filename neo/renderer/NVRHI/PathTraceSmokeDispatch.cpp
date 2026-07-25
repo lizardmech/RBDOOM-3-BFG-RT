@@ -1990,6 +1990,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+            SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+            SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+            SetBufferStateIfPresent(commandList, m_sceneInputs.geometry.skinnedSourceIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            SetBufferStateIfPresent(commandList, m_smokeSkinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            SetBufferStateIfPresent(commandList, m_smokeSkinnedPreviousPositionBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokePreviousStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokePreviousStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokePreviousStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -2298,6 +2303,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_smokeRigidRouteInstanceBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(18, m_smokeSkinnedHitRouteRecordBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(19, m_smokeSkinnedHitRouteTriangleBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(
+                    28,
+                    m_sceneInputs.geometry.skinnedSourceIndexBuffer
+                        ? m_sceneInputs.geometry.skinnedSourceIndexBuffer
+                        : m_smokeDynamicIndexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(
+                    29,
+                    m_smokeSkinnedCurrentOutputVertexBuffer
+                        ? m_smokeSkinnedCurrentOutputVertexBuffer
+                        : m_smokeDynamicVertexBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(27, m_smokeDoomAnalyticLightBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(45, m_smokeDoomAnalyticPreviousLightBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_frameResources.primarySurfaceHistoryBuffers.current),
@@ -2514,6 +2529,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeDoomAnalyticCurrentIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeDoomAnalyticPreviousIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeDoomAnalyticRemapBuffer, nvrhi::ResourceStates::ShaderResource);
+            SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+            SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+            SetBufferStateIfPresent(commandList, m_sceneInputs.geometry.skinnedSourceIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            SetBufferStateIfPresent(commandList, m_smokeSkinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            SetBufferStateIfPresent(commandList, m_smokeSkinnedPreviousPositionBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -2628,6 +2648,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_smokeRigidRouteInstanceBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, m_smokeSkinnedHitRouteRecordBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, m_smokeSkinnedHitRouteTriangleBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(28, cleanOptionalSrv(m_sceneInputs.geometry.skinnedSourceIndexBuffer)));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(29, cleanOptionalSrv(m_smokeSkinnedCurrentOutputVertexBuffer)));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(32, cleanOptionalSrv(m_smokeSkinnedPreviousPositionBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_frameResources.primarySurfaceHistoryBuffers.current));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, m_frameResources.primarySurfaceHistoryBuffers.previous));
@@ -2711,6 +2734,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_sceneInputs.geometry.skinnedSourceIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedPreviousPositionBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticCurrentIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticPreviousLightBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -3552,6 +3580,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
             giInputs.skinnedHitRouteRecordBuffer = m_smokeSkinnedHitRouteRecordBuffer;
             giInputs.skinnedHitRouteTriangleBuffer = m_smokeSkinnedHitRouteTriangleBuffer;
+            giInputs.skinnedSourceIndexBuffer = cleanOptionalSrv(m_sceneInputs.geometry.skinnedSourceIndexBuffer);
+            giInputs.skinnedCurrentOutputVertexBuffer = cleanOptionalSrv(m_smokeSkinnedCurrentOutputVertexBuffer);
+            giInputs.skinnedPreviousPositionBuffer = cleanOptionalSrv(m_smokeSkinnedPreviousPositionBuffer);
             giInputs.doomAnalyticLightBuffer = cleanGiNeedsDoomAnalyticLights
                 ? m_smokeDoomAnalyticLightBuffer
                 : cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer);
@@ -3982,6 +4013,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, neeCacheOptionalSrv(m_smokeRigidRouteInstanceBuffer)));
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, neeCacheOptionalSrv(m_smokeSkinnedHitRouteRecordBuffer)));
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, neeCacheOptionalSrv(m_smokeSkinnedHitRouteTriangleBuffer)));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(28, neeCacheOptionalSrv(m_sceneInputs.geometry.skinnedSourceIndexBuffer)));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(29, neeCacheOptionalSrv(m_smokeSkinnedCurrentOutputVertexBuffer)));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(32, neeCacheOptionalSrv(m_smokeSkinnedPreviousPositionBuffer)));
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, neeCacheOptionalSrv(m_smokeDoomAnalyticLightBuffer)));
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(42, neeCacheOptionalSrv(m_smokeDoomAnalyticCurrentIdentityBuffer)));
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(43, neeCacheOptionalSrv(m_smokeDoomAnalyticPreviousIdentityBuffer)));
@@ -4046,6 +4080,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, regirOptionalSrv(m_smokeRigidRouteInstanceBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, regirOptionalSrv(m_smokeSkinnedHitRouteRecordBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, regirOptionalSrv(m_smokeSkinnedHitRouteTriangleBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(28, regirOptionalSrv(m_sceneInputs.geometry.skinnedSourceIndexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(29, regirOptionalSrv(m_smokeSkinnedCurrentOutputVertexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(32, regirOptionalSrv(m_smokeSkinnedPreviousPositionBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, regirOptionalSrv(m_smokeDoomAnalyticLightBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(42, regirOptionalSrv(m_smokeDoomAnalyticCurrentIdentityBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(43, regirOptionalSrv(m_smokeDoomAnalyticPreviousIdentityBuffer)));
@@ -4165,6 +4202,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_smokeRigidRouteInstanceBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(18, m_smokeSkinnedHitRouteRecordBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(19, m_smokeSkinnedHitRouteTriangleBuffer),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(
+                28,
+                m_sceneInputs.geometry.skinnedSourceIndexBuffer
+                    ? m_sceneInputs.geometry.skinnedSourceIndexBuffer
+                    : m_smokeDynamicIndexBuffer),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(
+                29,
+                m_smokeSkinnedCurrentOutputVertexBuffer
+                    ? m_smokeSkinnedCurrentOutputVertexBuffer
+                    : m_smokeDynamicVertexBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(27, m_smokeDoomAnalyticLightBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(45, m_smokeDoomAnalyticPreviousLightBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_frameResources.primarySurfaceHistoryBuffers.current),
@@ -4703,6 +4750,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         SetBufferStateIfPresent(commandList, m_smokeRestirLightManagerPreviousToCurrentBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeRestirLightManagerCurrentPayloadBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeRestirLightManagerPreviousPayloadBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_sceneInputs.geometry.skinnedSourceIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedPreviousPositionBuffer, nvrhi::ResourceStates::ShaderResource);
         if (primarySurfaceGeometryBarriersRequired)
         {
             commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -4796,6 +4848,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         SetBufferStateIfPresent(commandList, m_smokeRestirLightManagerPreviousToCurrentBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeRestirLightManagerCurrentPayloadBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeRestirLightManagerPreviousPayloadBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_sceneInputs.geometry.skinnedSourceIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeSkinnedPreviousPositionBuffer, nvrhi::ResourceStates::ShaderResource);
         if (primarySurfaceGeometryBarriersRequired)
         {
             commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);

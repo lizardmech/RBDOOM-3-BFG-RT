@@ -165,6 +165,7 @@ struct RtSmokeBindingBuildDesc
     const std::vector<nvrhi::TextureHandle>* existingActiveTextureTable = nullptr;
     nvrhi::SamplerHandle sampler;
     RtSmokeSceneBufferHandles buffers;
+    nvrhi::BufferHandle skinnedSourceIndexBuffer;
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     bool enableTextureProbe = false;
     bool forceFallbackTexture = false;

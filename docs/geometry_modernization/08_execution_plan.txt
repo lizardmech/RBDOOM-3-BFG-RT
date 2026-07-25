@@ -222,6 +222,27 @@ the accepted mode-2 numeric proof. Step 6B2 is next: bind the geometry domains
 needed by skinned hit shading and convert every rigid-range assumption before
 step 7 can add comparison TLAS descriptors.
 
+GEO-08 step 6B2 has an offline partial checkpoint. Vulkan bindings now carry
+the canonical source-index, current-output, and previous-position domains at
+t28/t29/t32. The main primary/shadow library, clean-DI transmission and spatial
+libraries, ReGIR/NEE debug libraries, and motion/material consumers compile
+with disjoint rigid and skinned ranges. The skinning producer contract was
+rechecked: current output positions/normals/tangents and retained previous
+positions are already world-space, so skinned hit paths must not apply
+ObjectToWorldKHR a second time. Rigid paths instead use their explicit route
+transform rows.
+
+The clean-DI sentinel and clean-GI libraries are compiler-budget exceptions,
+not accepted traversal consumers. Their unchanged checkpoint SPIR-V modules
+are already 5,929,604 and 9,385,432 bytes. Full skinned reconstruction pushes
+DXC past the SPIR-V ID limit. They therefore use a lightweight route include
+that preserves baseline code generation while keeping t28/t29/t32 layouts
+ready. The full Vulkan preset build passes, but no runtime proof was attempted
+after the prior broad-log run destabilized the Windows display stack. Step 6B2
+is not complete and step 7 remains blocked until the two oversized libraries
+are split or an equivalently narrow consumer boundary compiles, followed by a
+bounded user-run validation.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

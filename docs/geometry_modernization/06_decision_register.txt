@@ -464,6 +464,30 @@ hit shading, then replace every broad `InstanceID >= 2` rigid assumption with
 explicit rigid and skinned ranges across primary, shadow, clean DI, GI,
 NEE/ReGIR debug, motion, material, and emissive consumers.
 
+D34. SKINNED OUTPUT ATTRIBUTES ARE WORLD-SPACE; OVERSIZED LIBRARIES STAY LIGHT
+-------------------------------------------------------------------------------
+Decision: the accepted GPU skinning producer writes current positions, normals,
+tangents, and bitangents in world space. Its retained previous-position output
+is also world space. Skinned hit and motion consumers therefore read these
+values directly and must not apply ObjectToWorldKHR. Rigid route vertices remain
+source-local and use the explicit current/previous transform rows stored in
+their route record.
+
+Step 6B2 binds canonical source indexes at t28, current skinned output vertices
+at t29, and previous positions at t32 across the Vulkan ray/compute layouts.
+Full reconstruction is enabled in the main primary/shadow path, clean-DI
+transmission/spatial, ReGIR/NEE debug, material/class/UV/color, and motion
+consumers.
+
+The clean-DI sentinel and clean-GI libraries are explicit temporary exceptions.
+Their unchanged baseline SPIR-V sizes are 5,929,604 and 9,385,432 bytes. Adding
+the full shared route helpers causes DXC to fail legalization with SPIR-V ID
+overflow. A lightweight include keeps their code generation at the exact
+baseline size and keeps the new descriptors bound, but does not authorize a
+skinned hit. Step 7 is blocked until these libraries are split or an equivalent
+narrow boundary compiles and bounded runtime proof succeeds. Compiler flags,
+DX12 builds, and disabling SPIR-V validation are not accepted workarounds.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

@@ -543,6 +543,16 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, desc.buffers.rigidRouteInstanceBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, desc.buffers.skinnedHitRouteRecordBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, desc.buffers.skinnedHitRouteTriangleBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            28,
+            desc.skinnedSourceIndexBuffer
+                ? desc.skinnedSourceIndexBuffer
+                : desc.buffers.dynamicIndexBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            29,
+            desc.buffers.skinnedCurrentOutputVertexBuffer
+                ? desc.buffers.skinnedCurrentOutputVertexBuffer
+                : desc.buffers.dynamicVertexBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, desc.buffers.doomAnalyticLightBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(45, desc.buffers.doomAnalyticPreviousLightBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, desc.primarySurfaceHistoryBuffers.current));
@@ -953,6 +963,8 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(28));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(45));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
@@ -1050,6 +1062,9 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(28));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
@@ -1120,6 +1135,9 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(28));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(42));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(43));
@@ -1161,6 +1179,9 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(28));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(42));
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(43));

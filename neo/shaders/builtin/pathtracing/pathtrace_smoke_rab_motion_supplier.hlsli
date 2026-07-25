@@ -59,12 +59,90 @@ bool TryPathTracePrimarySurfaceSkinnedObjectMotion(RAB_Surface surface, out floa
 {
     previousWorldPosition = float3(0.0, 0.0, 0.0);
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
-    if (surface.instanceId != 1u || surface.surfaceClass != RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
+    if (surface.surfaceClass != RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
     {
         return false;
     }
 
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_MISSING_PREVIOUS;
+    if (PathTraceIsSkinnedHitRouteInstance(surface.instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        if (!PathTraceLoadSkinnedHitRouteTriangleData(
+                surface.instanceId,
+                surface.primitiveIndex,
+                route,
+                routeTriangle,
+                vertexIndex0,
+                vertexIndex1,
+                vertexIndex2) ||
+            (route.flags & PT_SKINNED_HIT_ROUTE_HAS_PREVIOUS) == 0u ||
+            route.previousPositionOffset ==
+                PT_SKINNED_HIT_ROUTE_INVALID_INDEX)
+        {
+            return false;
+        }
+
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_RANGE_MISMATCH;
+        const uint localIndex0 = vertexIndex0 - route.outputVertexOffset;
+        const uint localIndex1 = vertexIndex1 - route.outputVertexOffset;
+        const uint localIndex2 = vertexIndex2 - route.outputVertexOffset;
+        const uint previous0 = route.previousPositionOffset + localIndex0;
+        const uint previous1 = route.previousPositionOffset + localIndex1;
+        const uint previous2 = route.previousPositionOffset + localIndex2;
+        if (previous0 >= PathTraceSkinnedPreviousPositionCount() ||
+            previous1 >= PathTraceSkinnedPreviousPositionCount() ||
+            previous2 >= PathTraceSkinnedPreviousPositionCount())
+        {
+            debugStatus =
+                RT_PRIMARY_SURFACE_DEBUG_SKINNED_PREVIOUS_OUT_OF_RANGE;
+            return false;
+        }
+
+        const float3 current0 =
+            SmokeSkinnedCurrentVertices[vertexIndex0].position.xyz;
+        const float3 current1 =
+            SmokeSkinnedCurrentVertices[vertexIndex1].position.xyz;
+        const float3 current2 =
+            SmokeSkinnedCurrentVertices[vertexIndex2].position.xyz;
+        float3 barycentrics;
+        if (!ComputeSmokeTriangleBarycentrics(
+                surface.worldPos,
+                current0,
+                current1,
+                current2,
+                barycentrics))
+        {
+            return false;
+        }
+
+        const float3 prev0 =
+            SmokeSkinnedPreviousPositions[previous0].
+                previousPosition.xyz;
+        const float3 prev1 =
+            SmokeSkinnedPreviousPositions[previous1].
+                previousPosition.xyz;
+        const float3 prev2 =
+            SmokeSkinnedPreviousPositions[previous2].
+                previousPosition.xyz;
+        previousWorldPosition =
+            prev0 * barycentrics.x +
+            prev1 * barycentrics.y +
+            prev2 * barycentrics.z;
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+        return all(previousWorldPosition == previousWorldPosition);
+    }
+
+    if (surface.instanceId != 1u)
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+        return false;
+    }
+
     const uint dispatchCount = PathTraceSkinnedSurfaceDispatchCount();
     const uint dispatchIndexCount = PathTraceSkinnedTriangleDispatchIndexCount();
     if (dispatchCount == 0u || dispatchIndexCount == 0u || PathTraceSkinnedPreviousPositionCount() == 0u)
@@ -153,7 +231,8 @@ bool TryPathTracePrimarySurfaceRigidObjectMotion(RAB_Surface surface, out float3
 {
     previousWorldPosition = float3(0.0, 0.0, 0.0);
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
-    if (surface.instanceId < 2u || surface.surfaceClass != RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+    if (!PathTraceIsRigidHitRouteInstance(surface.instanceId) ||
+        surface.surfaceClass != RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
     {
         return false;
     }

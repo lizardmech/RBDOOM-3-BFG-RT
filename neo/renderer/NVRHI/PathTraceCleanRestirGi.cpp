@@ -185,6 +185,9 @@ bool CleanRestirGiEnsurePipeline(
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(28));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(46));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
@@ -444,6 +447,9 @@ void CleanRestirGiAddCommonComputeBindingLayoutItems(nvrhi::BindingLayoutDesc& l
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(28));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(46));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
@@ -1092,6 +1098,8 @@ bool PathTraceCleanRestirGiExecute(
         !inputs.rigidRouteTriangleMaterialBuffer ||
         !inputs.rigidRouteTriangleMaterialIndexBuffer || !inputs.rigidRouteInstanceBuffer ||
         !inputs.skinnedHitRouteRecordBuffer || !inputs.skinnedHitRouteTriangleBuffer ||
+        !inputs.skinnedSourceIndexBuffer || !inputs.skinnedCurrentOutputVertexBuffer ||
+        !inputs.skinnedPreviousPositionBuffer ||
         !inputs.doomAnalyticLightBuffer ||
         !inputs.emissiveDistributionBuffer || !inputs.rluCurrentLightBuffer ||
         (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) ||
@@ -1152,6 +1160,9 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, inputs.rigidRouteInstanceBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, inputs.skinnedHitRouteRecordBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, inputs.skinnedHitRouteTriangleBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(28, inputs.skinnedSourceIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(29, inputs.skinnedCurrentOutputVertexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(32, inputs.skinnedPreviousPositionBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, inputs.doomAnalyticLightBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(46, inputs.emissiveDistributionBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(66, inputs.rluCurrentLightBuffer));
@@ -1348,6 +1359,9 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(inputs.rigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.skinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.skinnedSourceIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.skinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.skinnedPreviousPositionBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.doomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rluCurrentLightBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(neeCacheProviderResultBuffer, nvrhi::ResourceStates::ShaderResource);

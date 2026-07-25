@@ -125,6 +125,7 @@ RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<PathTraceSmokeVertex> SmokeDynamicVertices : register(t6);
+StructuredBuffer<PathTraceSmokeVertex> SmokeSkinnedCurrentVertices : register(t29);
 StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
 StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
@@ -466,6 +467,53 @@ float3 CleanTransformRigidRoutePoint(PathTraceRigidRouteInstance routeInstance, 
         dot(routeInstance.currentObjectToWorld2, float4(localPoint, 1.0)));
 }
 
+bool CleanLoadSkinnedTriangleGeometry(
+    uint instanceId,
+    uint primitiveIndex,
+    out float3 p0,
+    out float3 p1,
+    out float3 p2,
+    out float2 uv0,
+    out float2 uv1,
+    out float2 uv2)
+{
+    p0 = 0.0;
+    p1 = 0.0;
+    p2 = 0.0;
+    uv0 = 0.0;
+    uv1 = 0.0;
+    uv2 = 0.0;
+    PathTraceSkinnedHitRouteGpuRecord route;
+    PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+    uint vertexIndex0;
+    uint vertexIndex1;
+    uint vertexIndex2;
+    if (!PathTraceLoadSkinnedHitRouteTriangleData(
+            instanceId,
+            primitiveIndex,
+            route,
+            routeTriangle,
+            vertexIndex0,
+            vertexIndex1,
+            vertexIndex2))
+    {
+        return false;
+    }
+    const PathTraceSmokeVertex v0 =
+        SmokeSkinnedCurrentVertices[vertexIndex0];
+    const PathTraceSmokeVertex v1 =
+        SmokeSkinnedCurrentVertices[vertexIndex1];
+    const PathTraceSmokeVertex v2 =
+        SmokeSkinnedCurrentVertices[vertexIndex2];
+    p0 = v0.position.xyz;
+    p1 = v1.position.xyz;
+    p2 = v2.position.xyz;
+    uv0 = v0.texCoord.xy;
+    uv1 = v1.texCoord.xy;
+    uv2 = v2.texCoord.xy;
+    return true;
+}
+
 bool CleanLoadEmissiveTriangleGeometry(PathTraceSmokeEmissiveTriangle tri, out float3 p0, out float3 p1, out float3 p2, out float2 uv0, out float2 uv1, out float2 uv2)
 {
     p0 = tri.centerAndArea.xyz;
@@ -534,6 +582,23 @@ bool CleanLoadEmissiveTriangleGeometry(PathTraceSmokeEmissiveTriangle tri, out f
         return true;
     }
 
+    if (PathTraceIsSkinnedHitRouteInstance(tri.instanceId))
+    {
+        return CleanLoadSkinnedTriangleGeometry(
+            tri.instanceId,
+            primitiveIndex,
+            p0,
+            p1,
+            p2,
+            uv0,
+            uv1,
+            uv2);
+    }
+
+    if (!PathTraceIsRigidHitRouteInstance(tri.instanceId))
+    {
+        return false;
+    }
     const uint routeInstanceIndex = tri.instanceId - 2u;
     const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
     if (routeInstanceIndex >= routeInstanceCount)
@@ -585,6 +650,23 @@ uint CleanLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
             : 0xffffffffu;
     }
 
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.materialIndex
+            : 0xffffffffu;
+    }
+
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return 0xffffffffu;
+    }
     const uint routeInstanceIndex = instanceId - 2u;
     const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
     if (routeInstanceIndex >= routeInstanceCount)
@@ -681,6 +763,23 @@ bool CleanLoadSurfaceTriangleGeometry(PathTracePrimarySurfaceRecord record, out 
         return true;
     }
 
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        return CleanLoadSkinnedTriangleGeometry(
+            instanceId,
+            primitiveIndex,
+            p0,
+            p1,
+            p2,
+            uv0,
+            uv1,
+            uv2);
+    }
+
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return false;
+    }
     const uint routeInstanceIndex = instanceId - 2u;
     const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
     if (routeInstanceIndex >= routeInstanceCount)

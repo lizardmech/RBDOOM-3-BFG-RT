@@ -522,3 +522,16 @@ NO LONGER OPEN TO SPECULATION
   in minutes; after the user reported approximately 2 fps and a display-stack
   failure during exit/relaunch, no further autonomous runtime launch is
   authorized for this slice.
+- GEO-08 step 6B2 has an offline-only partial checkpoint. Canonical source
+  indexes, current world-space skinned vertices, and previous world-space
+  positions are bound at t28/t29/t32 across the active Vulkan layouts. Primary,
+  shadow, clean-DI transmission/spatial, ReGIR, NEE, material, UV/color, and
+  motion consumers compile with disjoint rigid/skinned routing. Manual Vulkan
+  compilation and the full win64-pt-dev-release preset pass. No runtime result
+  is claimed.
+- The clean-DI sentinel and clean-GI checkpoint modules are already 5,929,604
+  and 9,385,432 bytes. Adding full skinned reconstruction causes DXC SPIR-V ID
+  overflow. Lightweight includes preserve byte-identical baseline output while
+  keeping the new bindings present. This is a hard gate: neither library may
+  receive a skinned TLAS hit until it is split or otherwise compiled under the
+  ID budget and receives bounded runtime proof.

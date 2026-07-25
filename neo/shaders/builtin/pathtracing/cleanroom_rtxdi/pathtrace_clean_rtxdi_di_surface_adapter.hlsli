@@ -73,6 +73,25 @@ uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitive
             : 0xffffffffu;
     }
 
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.materialIndex
+            : 0xffffffffu;
+    }
+
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return 0xffffffffu;
+    }
+#endif
     const uint routeInstanceIndex = instanceId - 2u;
     const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
     if (routeInstanceIndex >= rigidRouteInstanceCount)
@@ -108,6 +127,25 @@ uint PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(uint instanceId, uint p
             : 0xffffffffu;
     }
 
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.materialId
+            : 0xffffffffu;
+    }
+
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return 0xffffffffu;
+    }
+#endif
     const uint routeInstanceIndex = instanceId - 2u;
     const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
     if (routeInstanceIndex >= rigidRouteInstanceCount)
@@ -142,7 +180,25 @@ uint PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(uint instanceId, uin
             : 0u;
     }
 
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.triangleClassAndFlags
+            : 0u;
+    }
+    return PathTraceIsRigidHitRouteInstance(instanceId)
+        ? RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY
+        : 0u;
+#else
     return RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
+#endif
 }
 #endif
 

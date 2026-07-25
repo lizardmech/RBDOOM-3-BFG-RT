@@ -47,10 +47,19 @@ struct PathTraceSkinnedHitRouteGpuTriangle
     uint emissiveIdentityHashHi;
 };
 
+struct PathTraceSkinnedPreviousPosition
+{
+    float4 previousPosition;
+};
+
 StructuredBuffer<PathTraceSkinnedHitRouteGpuRecord>
     SmokeSkinnedHitRouteRecords : register(t18);
 StructuredBuffer<PathTraceSkinnedHitRouteGpuTriangle>
     SmokeSkinnedHitRouteTriangles : register(t19);
+StructuredBuffer<uint>
+    SmokeSkinnedSourceIndices : register(t28);
+StructuredBuffer<PathTraceSkinnedPreviousPosition>
+    SmokeSkinnedPreviousPositions : register(t32);
 
 uint PathTraceSkinnedHitRouteCount()
 {
@@ -61,6 +70,10 @@ uint PathTraceSkinnedHitRouteFirstInstanceId()
 {
     return SmokeSkinnedHitRouteRecords[0].shaderInstanceId;
 }
+
+#define PathTraceIsRigidHitRouteInstance(instanceId) \
+    ((instanceId) >= 2u && \
+        (instanceId) - 2u < (uint)max(ToyPathInfo.w, 0.0))
 
 bool PathTraceIsSkinnedHitRouteInstance(uint instanceId)
 {
@@ -109,5 +122,71 @@ bool PathTraceLoadSkinnedHitRouteTriangle(
     routeTriangle = SmokeSkinnedHitRouteTriangles[metadataIndex];
     return routeTriangle.sourcePrimitiveIndex == primitiveIndex;
 }
+
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+static bool PathTraceLoadSkinnedHitRouteIndices(
+    PathTraceSkinnedHitRouteGpuRecord route,
+    uint primitiveIndex,
+    out uint i0,
+    out uint i1,
+    out uint i2)
+{
+    i0 = 0u;
+    i1 = 0u;
+    i2 = 0u;
+    if (primitiveIndex >= route.triangleCount ||
+        primitiveIndex * 3u + 2u >= route.indexCount)
+    {
+        return false;
+    }
+    const uint indexOffset =
+        route.sourceIndexOffset + primitiveIndex * 3u;
+    i0 = SmokeSkinnedSourceIndices[indexOffset + 0u];
+    i1 = SmokeSkinnedSourceIndices[indexOffset + 1u];
+    i2 = SmokeSkinnedSourceIndices[indexOffset + 2u];
+    return i0 < route.vertexCount &&
+        i1 < route.vertexCount &&
+        i2 < route.vertexCount;
+}
+
+static bool PathTraceLoadSkinnedHitRouteTriangleData(
+    uint instanceId,
+    uint primitiveIndex,
+    out PathTraceSkinnedHitRouteGpuRecord route,
+    out PathTraceSkinnedHitRouteGpuTriangle routeTriangle,
+    out uint outputVertexIndex0,
+    out uint outputVertexIndex1,
+    out uint outputVertexIndex2)
+{
+    route = (PathTraceSkinnedHitRouteGpuRecord)0;
+    routeTriangle = (PathTraceSkinnedHitRouteGpuTriangle)0;
+    outputVertexIndex0 = 0u;
+    outputVertexIndex1 = 0u;
+    outputVertexIndex2 = 0u;
+    uint localIndex0;
+    uint localIndex1;
+    uint localIndex2;
+    if (!PathTraceLoadSkinnedHitRoute(instanceId, route) ||
+        !PathTraceLoadSkinnedHitRouteTriangle(
+            route,
+            primitiveIndex,
+            routeTriangle) ||
+        !PathTraceLoadSkinnedHitRouteIndices(
+            route,
+            primitiveIndex,
+            localIndex0,
+            localIndex1,
+            localIndex2))
+    {
+        return false;
+    }
+    outputVertexIndex0 = route.outputVertexOffset + localIndex0;
+    outputVertexIndex1 = route.outputVertexOffset + localIndex1;
+    outputVertexIndex2 = route.outputVertexOffset + localIndex2;
+    return outputVertexIndex0 >= route.outputVertexOffset &&
+        outputVertexIndex1 >= route.outputVertexOffset &&
+        outputVertexIndex2 >= route.outputVertexOffset;
+}
+#endif
 
 #endif

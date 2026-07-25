@@ -116,6 +116,35 @@ float2 PathTraceCleanRoomTransmissionInterpolateTexCoord(uint instanceId, uint p
         return uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
     }
 
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        if (!PathTraceLoadSkinnedHitRouteTriangleData(
+                instanceId,
+                primitiveIndex,
+                route,
+                routeTriangle,
+                vertexIndex0,
+                vertexIndex1,
+                vertexIndex2))
+        {
+            return float2(0.0, 0.0);
+        }
+        return
+            SmokeSkinnedCurrentVertices[vertexIndex0].texCoord.xy *
+                barycentrics.x +
+            SmokeSkinnedCurrentVertices[vertexIndex1].texCoord.xy *
+                barycentrics.y +
+            SmokeSkinnedCurrentVertices[vertexIndex2].texCoord.xy *
+                barycentrics.z;
+    }
+#endif
+
     const uint routeInstanceIndex = instanceId - 2u;
     const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
     if (instanceId < 2u || routeInstanceIndex >= rigidRouteInstanceCount)

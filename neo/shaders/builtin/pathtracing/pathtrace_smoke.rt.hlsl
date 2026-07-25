@@ -225,11 +225,6 @@ struct PathTraceDoomAnalyticLightRemap
 
 #include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 
-struct PathTraceSkinnedPreviousPosition
-{
-    float4 previousPosition;
-};
-
 static const uint PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS = 0x00000001u;
 static const uint PT_SKINNED_DISPATCH_RT_CPU_SKINNED = 0x00000002u;
 static const uint PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM = 0x00000001u;
@@ -291,6 +286,7 @@ StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterials : register(t24);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
 StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
+StructuredBuffer<PathTraceSmokeVertex> SmokeSkinnedCurrentVertices : register(t29);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticCurrentIdentities : register(t42);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticPreviousIdentities : register(t43);
@@ -366,7 +362,6 @@ RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiCurrentReservoirs : regi
 #endif
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
-StructuredBuffer<PathTraceSkinnedPreviousPosition> SmokeSkinnedPreviousPositions : register(t32);
 StructuredBuffer<PathTraceSkinnedSurfaceDispatchRecord> SmokeSkinnedSurfaceDispatch : register(t33);
 StructuredBuffer<PathTraceSmokeVertex> SmokePreviousStaticVertices : register(t34);
 StructuredBuffer<uint> SmokePreviousStaticIndices : register(t35);
@@ -873,48 +868,39 @@ float3 BuildPerpendicular(float3 normal)
     return SafeNormalize(cross(axis, normal), float3(1.0, 0.0, 0.0));
 }
 
-float3 TransformObjectVectorToWorld(float3 objectVector)
+float3 TransformRigidRouteVector(
+    PathTraceRigidRouteInstance routeInstance,
+    float3 localVector)
 {
-    const float3x4 objectToWorld = ObjectToWorld3x4();
     return float3(
-        dot(objectToWorld[0].xyz, objectVector),
-        dot(objectToWorld[1].xyz, objectVector),
-        dot(objectToWorld[2].xyz, objectVector));
+        dot(routeInstance.currentObjectToWorld0.xyz, localVector),
+        dot(routeInstance.currentObjectToWorld1.xyz, localVector),
+        dot(routeInstance.currentObjectToWorld2.xyz, localVector));
 }
 
-float3 TransformObjectPointToWorld(float3 objectPoint)
+float RigidRouteHandednessSign(
+    PathTraceRigidRouteInstance routeInstance)
 {
-    const float3x4 objectToWorld = ObjectToWorld3x4();
-    return float3(
-        dot(objectToWorld[0], float4(objectPoint, 1.0)),
-        dot(objectToWorld[1], float4(objectPoint, 1.0)),
-        dot(objectToWorld[2], float4(objectPoint, 1.0)));
-}
-
-float3 TransformObjectNormalToWorld(float3 objectNormal, float3 fallback)
-{
-    return SafeNormalize(TransformObjectVectorToWorld(objectNormal), fallback);
-}
-
-float ObjectToWorldHandednessSign()
-{
-    const float3x4 objectToWorld = ObjectToWorld3x4();
-    const float determinant = dot(objectToWorld[0].xyz, cross(objectToWorld[1].xyz, objectToWorld[2].xyz));
-    return determinant < 0.0 ? -1.0 : 1.0;
+    return dot(
+            cross(
+                routeInstance.currentObjectToWorld0.xyz,
+                routeInstance.currentObjectToWorld1.xyz),
+            routeInstance.currentObjectToWorld2.xyz) < 0.0
+        ? -1.0
+        : 1.0;
 }
 
 bool TryBuildCapturedTangentBasis(
     float3 normal,
     float4 capturedTangent,
     float4 capturedBitangent,
-    bool transformTangentToWorld,
     float handednessSign,
     out float3 tangent,
     out float3 bitangent)
 {
     const float3 tangentFallback = BuildPerpendicular(normal);
     const float3 bitangentFallback = SafeNormalize(cross(normal, tangentFallback), float3(0.0, 1.0, 0.0));
-    const float3 rawTangent = transformTangentToWorld ? TransformObjectVectorToWorld(capturedTangent.xyz) : capturedTangent.xyz;
+    const float3 rawTangent = capturedTangent.xyz;
     const float3 projectedTangent = rawTangent - normal * dot(normal, rawTangent);
     const float tangentLengthSquared = dot(projectedTangent, projectedTangent);
     if (tangentLengthSquared <= 1.0e-8 || abs(capturedTangent.w) < 0.5)
@@ -925,7 +911,7 @@ bool TryBuildCapturedTangentBasis(
     }
 
     tangent = projectedTangent * rsqrt(tangentLengthSquared);
-    const float3 rawBitangent = transformTangentToWorld ? TransformObjectVectorToWorld(capturedBitangent.xyz) : capturedBitangent.xyz;
+    const float3 rawBitangent = capturedBitangent.xyz;
     const float3 projectedBitangent = rawBitangent - normal * dot(normal, rawBitangent) - tangent * dot(tangent, rawBitangent);
     const float bitangentLengthSquared = dot(projectedBitangent, projectedBitangent);
     if (bitangentLengthSquared > 1.0e-8)
@@ -1411,7 +1397,21 @@ uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
         }
         materialIndex = SmokeStaticTriangleMaterialIndexes[primitiveIndex];
     }
-    else if (instanceId >= 2u)
+    else if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        if (!PathTraceLoadSkinnedHitRoute(instanceId, route) ||
+            !PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle))
+        {
+            return 0xffffffffu;
+        }
+        materialIndex = routeTriangle.materialIndex;
+    }
+    else if (PathTraceIsRigidHitRouteInstance(instanceId))
     {
         const uint routeInstanceIndex = instanceId - 2u;
         if (routeInstanceIndex >= PathTraceRigidRouteInstanceCount())
@@ -1447,7 +1447,25 @@ uint LoadSmokeTriangleMaterialId(uint instanceId, uint primitiveIndex)
         }
         return SmokeStaticTriangleMaterials[primitiveIndex];
     }
-    if (instanceId >= 2u)
+    if (instanceId == 1u)
+    {
+        return primitiveIndex < PathTraceDynamicTriangleCount()
+            ? SmokeDynamicTriangleMaterials[primitiveIndex]
+            : 0xffffffffu;
+    }
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.materialId
+            : 0xffffffffu;
+    }
+    if (PathTraceIsRigidHitRouteInstance(instanceId))
     {
         const uint routeInstanceIndex = instanceId - 2u;
         if (routeInstanceIndex >= PathTraceRigidRouteInstanceCount())
@@ -1462,16 +1480,24 @@ uint LoadSmokeTriangleMaterialId(uint instanceId, uint primitiveIndex)
         }
         return SmokeRigidRouteTriangleMaterials[routeInstance.triangleOffset + primitiveIndex];
     }
-    if (primitiveIndex >= PathTraceDynamicTriangleCount())
-    {
-        return 0xffffffffu;
-    }
-    return SmokeDynamicTriangleMaterials[primitiveIndex];
+    return 0xffffffffu;
 }
 
 uint LoadSmokeTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 {
-    if (instanceId >= 2u)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.triangleClassAndFlags
+            : 0u;
+    }
+    if (PathTraceIsRigidHitRouteInstance(instanceId))
     {
         return RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
     }
@@ -1483,7 +1509,11 @@ uint LoadSmokeTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
     {
         return 0u;
     }
-    return instanceId == 0 ? SmokeStaticTriangleClasses[primitiveIndex] : SmokeDynamicTriangleClasses[primitiveIndex];
+    return instanceId == 0u
+        ? SmokeStaticTriangleClasses[primitiveIndex]
+        : (instanceId == 1u
+            ? SmokeDynamicTriangleClasses[primitiveIndex]
+            : 0u);
 }
 
 bool SmokeTriangleIndexRangeValid(uint instanceId, uint primitiveIndex)
@@ -1501,6 +1531,26 @@ bool SmokeTriangleIndexRangeValid(uint instanceId, uint primitiveIndex)
         return primitiveIndex < PathTraceDynamicTriangleCount() &&
             indexOffset <= PathTraceDynamicIndexCount() &&
             indexOffset + 2u < PathTraceDynamicIndexCount();
+    }
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        return PathTraceLoadSkinnedHitRouteTriangleData(
+            instanceId,
+            primitiveIndex,
+            route,
+            routeTriangle,
+            vertexIndex0,
+            vertexIndex1,
+            vertexIndex2);
+    }
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return false;
     }
     const uint routeInstanceIndex = instanceId - 2u;
     if (routeInstanceIndex >= PathTraceRigidRouteInstanceCount())
@@ -1521,7 +1571,34 @@ float2 InterpolateSmokeTexCoord(uint instanceId, uint primitiveIndex, float2 bar
     {
         return float2(0.0, 0.0);
     }
-    if (instanceId >= 2u)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        if (!PathTraceLoadSkinnedHitRouteTriangleData(
+                instanceId,
+                primitiveIndex,
+                route,
+                routeTriangle,
+                vertexIndex0,
+                vertexIndex1,
+                vertexIndex2))
+        {
+            return float2(0.0, 0.0);
+        }
+        const float3 weights = float3(
+            1.0 - barycentrics.x - barycentrics.y,
+            barycentrics.x,
+            barycentrics.y);
+        return
+            SmokeSkinnedCurrentVertices[vertexIndex0].texCoord.xy * weights.x +
+            SmokeSkinnedCurrentVertices[vertexIndex1].texCoord.xy * weights.y +
+            SmokeSkinnedCurrentVertices[vertexIndex2].texCoord.xy * weights.z;
+    }
+    if (PathTraceIsRigidHitRouteInstance(instanceId))
     {
         const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[instanceId - 2u];
         const uint indexOffset = routeInstance.indexOffset + primitiveIndex * 3u;
@@ -1563,7 +1640,34 @@ float4 InterpolateSmokeVertexColor(uint instanceId, uint primitiveIndex, float2 
     {
         return float4(1.0, 1.0, 1.0, 1.0);
     }
-    if (instanceId >= 2u)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        if (!PathTraceLoadSkinnedHitRouteTriangleData(
+                instanceId,
+                primitiveIndex,
+                route,
+                routeTriangle,
+                vertexIndex0,
+                vertexIndex1,
+                vertexIndex2))
+        {
+            return float4(1.0, 1.0, 1.0, 1.0);
+        }
+        const float3 weights = float3(
+            1.0 - barycentrics.x - barycentrics.y,
+            barycentrics.x,
+            barycentrics.y);
+        return saturate(
+            SmokeSkinnedCurrentVertices[vertexIndex0].color * weights.x +
+            SmokeSkinnedCurrentVertices[vertexIndex1].color * weights.y +
+            SmokeSkinnedCurrentVertices[vertexIndex2].color * weights.z);
+    }
+    if (PathTraceIsRigidHitRouteInstance(instanceId))
     {
         const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[instanceId - 2u];
         const uint indexOffset = routeInstance.indexOffset + primitiveIndex * 3u;
@@ -3536,21 +3640,19 @@ void ShadowMiss(inout PathTraceSmokeShadowPayload payload)
 void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
+    const uint primitiveIndex = PrimitiveIndex();
     if (payload.value == 2u &&
         instanceId == payload.shadowIgnoreInstanceId)
     {
-        const uint materialId = LoadSmokeTriangleMaterialId(instanceId, PrimitiveIndex());
-        if (PrimitiveIndex() == payload.shadowIgnorePrimitiveIndex || materialId == payload.shadowIgnoreMaterialId)
+        const uint materialId =
+            LoadSmokeTriangleMaterialId(instanceId, primitiveIndex);
+        if (primitiveIndex == payload.shadowIgnorePrimitiveIndex ||
+            materialId == payload.shadowIgnoreMaterialId)
         {
             IgnoreHit();
             return;
         }
     }
-    if (instanceId >= 2u)
-    {
-        return;
-    }
-    const uint primitiveIndex = PrimitiveIndex();
     const uint rejectReason = SmokeAlphaRejectReason(instanceId, primitiveIndex, attributes.barycentrics, payload.value);
     if (rejectReason != RT_STATIC_CONTRACT_REJECT_NONE)
     {
@@ -3578,10 +3680,6 @@ void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleInte
             return;
         }
     }
-    if (instanceId >= 2u)
-    {
-        return;
-    }
     if (SmokeAlphaRejectsHit(instanceId, primitiveIndex, attributes.barycentrics, payload.rayMode))
     {
         payload.hit = 0u;
@@ -3604,42 +3702,95 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.instanceId = instanceId;
     payload.geometryIndex = geometryIndex;
     payload.primitiveIndex = primitiveIndex;
-    if (instanceId >= 2u)
+    if (PathTraceIsRigidHitRouteInstance(instanceId) ||
+        PathTraceIsSkinnedHitRouteInstance(instanceId))
     {
-        const uint routeInstanceIndex = instanceId - 2u;
-        if (routeInstanceIndex >= PathTraceRigidRouteInstanceCount())
+        PathTraceSmokeVertex v0;
+        PathTraceSmokeVertex v1;
+        PathTraceSmokeVertex v2;
+        uint routedTriangleClassAndFlags =
+            RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
+        uint routedMaterialId = 0xffffffffu;
+        uint routedMaterialIndex = 0xffffffffu;
+        bool routedRigid = false;
+        PathTraceRigidRouteInstance routeInstance =
+            (PathTraceRigidRouteInstance)0;
+        if (PathTraceIsSkinnedHitRouteInstance(instanceId))
         {
-            payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_RIGID_INSTANCE_RANGE;
-            return;
+            PathTraceSkinnedHitRouteGpuRecord route;
+            PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+            uint vertexIndex0;
+            uint vertexIndex1;
+            uint vertexIndex2;
+            if (!PathTraceLoadSkinnedHitRouteTriangleData(
+                    instanceId,
+                    primitiveIndex,
+                    route,
+                    routeTriangle,
+                    vertexIndex0,
+                    vertexIndex1,
+                    vertexIndex2))
+            {
+                payload.staticContractRejectReason =
+                    RT_STATIC_CONTRACT_REJECT_RIGID_PRIMITIVE_RANGE;
+                return;
+            }
+            v0 = SmokeSkinnedCurrentVertices[vertexIndex0];
+            v1 = SmokeSkinnedCurrentVertices[vertexIndex1];
+            v2 = SmokeSkinnedCurrentVertices[vertexIndex2];
+            routedTriangleClassAndFlags =
+                routeTriangle.triangleClassAndFlags;
+            routedMaterialId = routeTriangle.materialId;
+            routedMaterialIndex = routeTriangle.materialIndex;
         }
-        const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
-        if (primitiveIndex >= routeInstance.triangleCount ||
-            routeInstance.triangleOffset + primitiveIndex >= PathTraceRigidRouteTriangleCount())
+        else
         {
-            payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_RIGID_PRIMITIVE_RANGE;
-            return;
+            routedRigid = true;
+            const uint routeInstanceIndex = instanceId - 2u;
+            routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+            if (primitiveIndex >= routeInstance.triangleCount ||
+                routeInstance.triangleOffset + primitiveIndex >=
+                    PathTraceRigidRouteTriangleCount())
+            {
+                payload.staticContractRejectReason =
+                    RT_STATIC_CONTRACT_REJECT_RIGID_PRIMITIVE_RANGE;
+                return;
+            }
+            const uint routeIndexOffset =
+                routeInstance.indexOffset + primitiveIndex * 3u;
+            if (routeIndexOffset > PathTraceRigidRouteIndexCount() ||
+                routeIndexOffset + 2u >= PathTraceRigidRouteIndexCount())
+            {
+                payload.staticContractRejectReason =
+                    RT_STATIC_CONTRACT_REJECT_RIGID_INDEX_RANGE;
+                return;
+            }
+            const uint i0 = SmokeRigidRouteIndices[routeIndexOffset + 0u];
+            const uint i1 = SmokeRigidRouteIndices[routeIndexOffset + 1u];
+            const uint i2 = SmokeRigidRouteIndices[routeIndexOffset + 2u];
+            if (i0 >= routeInstance.vertexCount ||
+                i1 >= routeInstance.vertexCount ||
+                i2 >= routeInstance.vertexCount ||
+                routeInstance.vertexOffset + i0 >=
+                    PathTraceRigidRouteVertexCount() ||
+                routeInstance.vertexOffset + i1 >=
+                    PathTraceRigidRouteVertexCount() ||
+                routeInstance.vertexOffset + i2 >=
+                    PathTraceRigidRouteVertexCount())
+            {
+                payload.staticContractRejectReason =
+                    RT_STATIC_CONTRACT_REJECT_RIGID_VERTEX_RANGE;
+                return;
+            }
+            v0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0];
+            v1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1];
+            v2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2];
+            routedMaterialId = SmokeRigidRouteTriangleMaterials[
+                routeInstance.triangleOffset + primitiveIndex];
+            routedMaterialIndex =
+                SmokeRigidRouteTriangleMaterialIndexes[
+                    routeInstance.triangleOffset + primitiveIndex];
         }
-        const uint routeIndexOffset = routeInstance.indexOffset + primitiveIndex * 3u;
-        if (routeIndexOffset > PathTraceRigidRouteIndexCount() ||
-            routeIndexOffset + 2u >= PathTraceRigidRouteIndexCount())
-        {
-            payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_RIGID_INDEX_RANGE;
-            return;
-        }
-        const uint i0 = SmokeRigidRouteIndices[routeIndexOffset + 0u];
-        const uint i1 = SmokeRigidRouteIndices[routeIndexOffset + 1u];
-        const uint i2 = SmokeRigidRouteIndices[routeIndexOffset + 2u];
-        if (i0 >= routeInstance.vertexCount || i1 >= routeInstance.vertexCount || i2 >= routeInstance.vertexCount ||
-            routeInstance.vertexOffset + i0 >= PathTraceRigidRouteVertexCount() ||
-            routeInstance.vertexOffset + i1 >= PathTraceRigidRouteVertexCount() ||
-            routeInstance.vertexOffset + i2 >= PathTraceRigidRouteVertexCount())
-        {
-            payload.staticContractRejectReason = RT_STATIC_CONTRACT_REJECT_RIGID_VERTEX_RANGE;
-            return;
-        }
-        const PathTraceSmokeVertex v0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0];
-        const PathTraceSmokeVertex v1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1];
-        const PathTraceSmokeVertex v2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2];
         const float3 barycentrics = float3(1.0 - attributes.barycentrics.x - attributes.barycentrics.y, attributes.barycentrics.x, attributes.barycentrics.y);
         const float3 p0 = v0.position.xyz;
         const float3 p1 = v1.position.xyz;
@@ -3665,24 +3816,67 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         payload.hitT = RayTCurrent();
         payload.hitBarycentrics = attributes.barycentrics;
         const float3 actualWorld = WorldRayOrigin() + WorldRayDirection() * payload.hitT;
-        const float3 tlasWorld = TransformObjectPointToWorld(localHit);
-        const float3 routeWorld = TransformPathTraceRigidRoutePoint(routeInstance.currentObjectToWorld0, routeInstance.currentObjectToWorld1, routeInstance.currentObjectToWorld2, localHit);
-        payload.debugVector = float3(length(routeWorld - actualWorld), length(tlasWorld - actualWorld), length(routeWorld - tlasWorld));
+        const float3 routeWorld = routedRigid
+            ? TransformPathTraceRigidRoutePoint(
+                routeInstance.currentObjectToWorld0,
+                routeInstance.currentObjectToWorld1,
+                routeInstance.currentObjectToWorld2,
+                localHit)
+            : localHit;
+        payload.debugVector = float3(
+            length(routeWorld - actualWorld),
+            0.0,
+            0.0);
         payload.debugFlags = 0x1u;
         const float3 worldRayFallback = SafeNormalize(-WorldRayDirection(), float3(0.0, 0.0, 1.0));
         const float3 objectGeometricNormal = SafeNormalize(cross(p1 - p0, p2 - p0), worldRayFallback);
-        payload.geometricNormal = TransformObjectNormalToWorld(objectGeometricNormal, worldRayFallback);
+        payload.geometricNormal = routedRigid
+            ? SafeNormalize(
+                TransformRigidRouteVector(
+                    routeInstance,
+                    objectGeometricNormal),
+                worldRayFallback)
+            : objectGeometricNormal;
         const float3 objectInterpolatedNormal = SafeNormalize(n0 * barycentrics.x + n1 * barycentrics.y + n2 * barycentrics.z, objectGeometricNormal);
-        payload.normal = TransformObjectNormalToWorld(objectInterpolatedNormal, payload.geometricNormal);
+        payload.normal = routedRigid
+            ? SafeNormalize(
+                TransformRigidRouteVector(
+                    routeInstance,
+                    objectInterpolatedNormal),
+                payload.geometricNormal)
+            : objectInterpolatedNormal;
         payload.texCoord = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
         payload.normalTexCoord = normalUv0 * barycentrics.x + normalUv1 * barycentrics.y + normalUv2 * barycentrics.z;
         payload.vertexColor = saturate(v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z);
         payload.vertexColorAdd = saturate(v0.color2 * barycentrics.x + v1.color2 * barycentrics.y + v2.color2 * barycentrics.z);
         const float3 tangentFallback = BuildPerpendicular(payload.normal);
         const float3 bitangentFallback = SafeNormalize(cross(payload.normal, tangentFallback), float3(0.0, 1.0, 0.0));
-        const float4 capturedTangent = t0 * barycentrics.x + t1 * barycentrics.y + t2 * barycentrics.z;
-        const float4 capturedBitangent = b0 * barycentrics.x + b1 * barycentrics.y + b2 * barycentrics.z;
-        if (!TryBuildCapturedTangentBasis(payload.normal, capturedTangent, capturedBitangent, true, ObjectToWorldHandednessSign(), payload.tangent, payload.bitangent))
+        float4 capturedTangent =
+            t0 * barycentrics.x +
+            t1 * barycentrics.y +
+            t2 * barycentrics.z;
+        float4 capturedBitangent =
+            b0 * barycentrics.x +
+            b1 * barycentrics.y +
+            b2 * barycentrics.z;
+        if (routedRigid)
+        {
+            capturedTangent.xyz = TransformRigidRouteVector(
+                routeInstance,
+                capturedTangent.xyz);
+            capturedBitangent.xyz = TransformRigidRouteVector(
+                routeInstance,
+                capturedBitangent.xyz);
+        }
+        if (!TryBuildCapturedTangentBasis(
+                payload.normal,
+                capturedTangent,
+                capturedBitangent,
+                routedRigid
+                    ? RigidRouteHandednessSign(routeInstance)
+                    : 1.0,
+                payload.tangent,
+                payload.bitangent))
         {
             const float3 dp1 = p1 - p0;
             const float3 dp2 = p2 - p0;
@@ -3694,8 +3888,16 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
                 const float inverseDeterminant = 1.0 / uvDeterminant;
                 const float3 objectRawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
                 const float3 objectRawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
-                const float3 rawTangent = TransformObjectVectorToWorld(objectRawTangent);
-                const float3 rawBitangent = TransformObjectVectorToWorld(objectRawBitangent);
+                const float3 rawTangent = routedRigid
+                    ? TransformRigidRouteVector(
+                        routeInstance,
+                        objectRawTangent)
+                    : objectRawTangent;
+                const float3 rawBitangent = routedRigid
+                    ? TransformRigidRouteVector(
+                        routeInstance,
+                        objectRawBitangent)
+                    : objectRawBitangent;
                 payload.tangent = SafeNormalize(rawTangent - payload.normal * dot(payload.normal, rawTangent), tangentFallback);
                 payload.bitangent = SafeNormalize(rawBitangent - payload.normal * dot(payload.normal, rawBitangent) - payload.tangent * dot(payload.tangent, rawBitangent), bitangentFallback);
                 if (dot(cross(payload.tangent, payload.bitangent), payload.normal) < 0.0)
@@ -3709,11 +3911,21 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
                 payload.bitangent = bitangentFallback;
             }
         }
-        payload.surfaceClass = 1u;
-        payload.translucentSubtype = 0u;
-        payload.triangleClassAndFlags = 1u;
-        payload.materialId = SmokeRigidRouteTriangleMaterials[routeInstance.triangleOffset + primitiveIndex];
-        payload.materialIndex = SmokeRigidRouteTriangleMaterialIndexes[routeInstance.triangleOffset + primitiveIndex];
+        payload.surfaceClass =
+            routedTriangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
+        payload.translucentSubtype =
+            (routedTriangleClassAndFlags &
+                RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >>
+            RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+        payload.triangleClassAndFlags = routedTriangleClassAndFlags;
+        payload.materialId = routedMaterialId;
+        payload.materialIndex = routedMaterialIndex;
+        return;
+    }
+    if (instanceId >= 2u)
+    {
+        payload.staticContractRejectReason =
+            RT_STATIC_CONTRACT_REJECT_RIGID_INSTANCE_RANGE;
         return;
     }
     if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
@@ -3770,7 +3982,13 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     const float3 bitangentFallback = SafeNormalize(cross(payload.normal, tangentFallback), float3(0.0, 1.0, 0.0));
     const float4 capturedTangent = t0 * barycentrics.x + t1 * barycentrics.y + t2 * barycentrics.z;
     const float4 capturedBitangent = b0 * barycentrics.x + b1 * barycentrics.y + b2 * barycentrics.z;
-    if (!TryBuildCapturedTangentBasis(payload.normal, capturedTangent, capturedBitangent, false, 1.0, payload.tangent, payload.bitangent))
+    if (!TryBuildCapturedTangentBasis(
+            payload.normal,
+            capturedTangent,
+            capturedBitangent,
+            1.0,
+            payload.tangent,
+            payload.bitangent))
     {
         const float3 dp1 = p1 - p0;
         const float3 dp2 = p2 - p0;

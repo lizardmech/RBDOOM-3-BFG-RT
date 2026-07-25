@@ -1,3 +1,4 @@
+#define RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT 1
 #include "pathtrace_clean_rtxdi_di_shared.hlsli"
 
 // Production view 16 is compiled as a separate shader library. Rebinding the
@@ -1412,7 +1413,11 @@ bool RAB_GetTemporalConservativeVisibility(RAB_Surface surface, RAB_Surface prev
                     record.viewDirectionAndReserved = float4(surface.viewDir, 0.0);
 
                     const bool historicalDynamicEmissive = (light.flags & RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC) != 0u;
-                    if (!historicalDynamicEmissive && light.instanceId >= 2u)
+                    const uint rigidRouteInstanceCount =
+                        (uint)max(ToyPathInfo.w, 0.0);
+                    if (!historicalDynamicEmissive &&
+                        light.instanceId >= 2u &&
+                        light.instanceId - 2u < rigidRouteInstanceCount)
                     {
                         const uint routeInstanceIndex = light.instanceId - 2u;
                         const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);

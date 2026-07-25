@@ -647,3 +647,76 @@ current-output, and previous-position domains needed for actual skinned hit
 shading, then replace all active `InstanceID >= 2` rigid assumptions with
 explicit disjoint rigid/skinned handling. Only after that conversion compiles
 and receives bounded runtime proof may step 7 add comparison TLAS descriptors.
+
+STEP 6B2 - OFFLINE PARTIAL CHECKPOINT
+-------------------------------------
+Implemented bindings:
+
+  t28 = canonical skinned source indexes
+  t29 = current skinned PathTraceSmokeVertex output
+  t32 = retained previous world-space positions
+
+The bindings are present in the main ray pipeline, clean-DI sentinel,
+transmission/spatial, clean-GI, ReGIR, and NEE layouts. Missing optional storage
+uses the existing valid fallback SRVs.
+
+Converted full consumers:
+
+  primary and shadow hit routing
+  clean-DI transmission hit-surface reconstruction
+  clean-DI spatial emissive/surface geometry
+  ReGIR and NEE debug hit reconstruction
+  material ID/index, class/flags, UV and vertex-color lookup
+  current-to-previous skinned object motion
+
+The producer contract was revalidated against pathtrace_skinning.cs.hlsl:
+current output position/normal/tangent/bitangent and retained previous position
+are already world-space. Applying ObjectToWorldKHR in the new skinned branches
+was both numerically wrong and caused DXC to make that ray-stage builtin
+reachable from RayGen. The primary and smoke paths now read skinned attributes
+directly; rigid paths use explicit route transform rows.
+
+Compiler-budget boundary:
+
+  clean-DI sentinel baseline SPIR-V = 5,929,604 bytes
+  clean-GI baseline SPIR-V          = 9,385,432 bytes
+
+Both checkpoint libraries compile before 6B2 additions. Adding full skinned
+helpers/reconstruction causes DXC legalization to fail with `SPIR-V ID
+overflow`. A lightweight PathTraceSkinnedHitRoute include preserves their exact
+baseline byte size while retaining t28/t29/t32 descriptor compatibility.
+They do not yet accept skinned hits.
+
+Offline proof:
+
+  individual Vulkan library compiles:
+    pathtrace_smoke = PASS
+    pathtrace_primary_surface_producer = PASS
+    clean-DI sentinel = PASS, exact baseline size
+    clean-DI transmission = PASS
+    clean-DI spatial = PASS
+    ReGIR debug = PASS
+    NEE debug = PASS
+    clean GI = PASS, exact baseline size
+  cmake --build --preset win64-pt-dev-release = PASS
+  all SPIR-V shaders up to date on verification pass
+  rebuilt/deployed executable size = 15,763,968 bytes
+  rebuilt/deployed executable SHA-256 =
+    09AE206E1E3EB5C54CC9BB29759426B1B68C8D9B4A9C91C8AFD5EDC6A9262EC2
+  rebuilt/deployed Vulkan SPIR-V blobs = 19/19 hash-exact
+  DX12 shader compilation = not run
+  runtime launch = not run
+
+BOUNDARY AND NEXT
+-----------------
+Step 6B2 is partial, not accepted. Before step 7 inserts a skinned comparison
+BLAS into any TLAS:
+
+  1. split the clean-DI sentinel and clean-GI shader libraries, or introduce an
+     equivalently narrow skinned hit/material boundary that compiles below the
+     SPIR-V ID ceiling;
+  2. remove the remaining lightweight `InstanceID >= 2` emissive assumptions;
+  3. rerun the Vulkan build and verify affected blob mtimes;
+  4. use a bounded user-run capture with broad smoke logging disabled and hard
+     abort limits. Autonomous runtime launch remains forbidden after the prior
+     display-stack failure.

@@ -1,3 +1,4 @@
+#define RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT 1
 #include "../PathTraceSkinnedHitRoute.hlsli"
 
 // Clean-room Remix ReSTIR GI lane driver.
@@ -239,6 +240,7 @@ StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
 StructuredBuffer<PathTraceSmokeVertex> SmokeDynamicVertices : register(t6);
+StructuredBuffer<PathTraceSmokeVertex> SmokeSkinnedCurrentVertices : register(t29);
 StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
 StructuredBuffer<uint> SmokeDynamicTriangleClasses : register(t8);
 StructuredBuffer<uint> SmokeStaticTriangleMaterials : register(t9);
@@ -1169,6 +1171,24 @@ uint CleanGiLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
             ? SmokeDynamicTriangleMaterialIndexes[primitiveIndex]
             : 0xffffffffu;
     }
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.materialIndex
+            : 0xffffffffu;
+    }
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return 0xffffffffu;
+    }
+#endif
     const uint routeInstanceIndex = instanceId - 2u;
     const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
     if (routeInstanceIndex >= routeInstanceCount)
@@ -1199,6 +1219,24 @@ uint CleanGiLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
             ? SmokeDynamicTriangleMaterials[primitiveIndex]
             : 0u;
     }
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.materialId
+            : 0u;
+    }
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return 0u;
+    }
+#endif
     const uint routeInstanceIndex = instanceId - 2u;
     const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
     if (routeInstanceIndex >= routeInstanceCount)
@@ -1229,7 +1267,25 @@ uint CleanGiLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
             ? SmokeDynamicTriangleClasses[primitiveIndex]
             : 0u;
     }
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
+            PathTraceLoadSkinnedHitRouteTriangle(
+                route,
+                primitiveIndex,
+                routeTriangle)
+            ? routeTriangle.triangleClassAndFlags
+            : 0u;
+    }
+    return PathTraceIsRigidHitRouteInstance(instanceId)
+        ? RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY
+        : 0u;
+#else
     return RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
+#endif
 }
 
 bool CleanGiHitMetadataInRange(uint instanceId, uint primitiveIndex)
@@ -1242,6 +1298,28 @@ bool CleanGiHitMetadataInRange(uint instanceId, uint primitiveIndex)
     {
         return primitiveIndex < CleanRtxdiDiDynamicTriangleCount;
     }
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSkinnedHitRouteGpuRecord route;
+        PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+        uint vertexIndex0;
+        uint vertexIndex1;
+        uint vertexIndex2;
+        return PathTraceLoadSkinnedHitRouteTriangleData(
+            instanceId,
+            primitiveIndex,
+            route,
+            routeTriangle,
+            vertexIndex0,
+            vertexIndex1,
+            vertexIndex2);
+    }
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return false;
+    }
+#endif
     const uint routeInstanceIndex = instanceId - 2u;
     const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
     if (routeInstanceIndex >= routeInstanceCount)
@@ -1948,6 +2026,40 @@ float3 CleanGiTransformRigidRouteVector(PathTraceRigidRouteInstance routeInstanc
         dot(routeInstance.currentObjectToWorld2.xyz, localVector));
 }
 
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+bool CleanGiLoadSkinnedTriangleVertices(
+    uint instanceId,
+    uint primitiveIndex,
+    out PathTraceSmokeVertex v0,
+    out PathTraceSmokeVertex v1,
+    out PathTraceSmokeVertex v2)
+{
+    v0 = (PathTraceSmokeVertex)0;
+    v1 = (PathTraceSmokeVertex)0;
+    v2 = (PathTraceSmokeVertex)0;
+    PathTraceSkinnedHitRouteGpuRecord route;
+    PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+    uint vertexIndex0;
+    uint vertexIndex1;
+    uint vertexIndex2;
+    if (!PathTraceLoadSkinnedHitRouteTriangleData(
+            instanceId,
+            primitiveIndex,
+            route,
+            routeTriangle,
+            vertexIndex0,
+            vertexIndex1,
+            vertexIndex2))
+    {
+        return false;
+    }
+    v0 = SmokeSkinnedCurrentVertices[vertexIndex0];
+    v1 = SmokeSkinnedCurrentVertices[vertexIndex1];
+    v2 = SmokeSkinnedCurrentVertices[vertexIndex2];
+    return true;
+}
+#endif
+
 bool CleanGiLoadTriangleGeometryFull(
     uint instanceId,
     uint primitiveIndex,
@@ -2034,6 +2146,35 @@ bool CleanGiLoadTriangleGeometryFull(
         return true;
     }
 
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSmokeVertex v0;
+        PathTraceSmokeVertex v1;
+        PathTraceSmokeVertex v2;
+        if (!CleanGiLoadSkinnedTriangleVertices(
+                instanceId,
+                primitiveIndex,
+                v0,
+                v1,
+                v2))
+        {
+            return false;
+        }
+        p0 = v0.position.xyz; p1 = v1.position.xyz; p2 = v2.position.xyz;
+        n0 = v0.normal.xyz; n1 = v1.normal.xyz; n2 = v2.normal.xyz;
+        uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
+        normalUv0 = v0.texCoord.zw; normalUv1 = v1.texCoord.zw; normalUv2 = v2.texCoord.zw;
+        c0 = v0.color; c1 = v1.color; c2 = v2.color;
+        c20 = v0.color2; c21 = v1.color2; c22 = v2.color2;
+        return true;
+    }
+
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return false;
+    }
+#endif
     const uint routeInstanceIndex = instanceId - 2u;
     const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
     if (routeInstanceIndex >= routeInstanceCount)
@@ -2134,6 +2275,31 @@ bool CleanGiLoadTriangleGeometry(
         return true;
     }
 
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (PathTraceIsSkinnedHitRouteInstance(instanceId))
+    {
+        PathTraceSmokeVertex v0;
+        PathTraceSmokeVertex v1;
+        PathTraceSmokeVertex v2;
+        if (!CleanGiLoadSkinnedTriangleVertices(
+                instanceId,
+                primitiveIndex,
+                v0,
+                v1,
+                v2))
+        {
+            return false;
+        }
+        p0 = v0.position.xyz; p1 = v1.position.xyz; p2 = v2.position.xyz;
+        uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
+        return true;
+    }
+
+    if (!PathTraceIsRigidHitRouteInstance(instanceId))
+    {
+        return false;
+    }
+#endif
     const uint routeInstanceIndex = instanceId - 2u;
     const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
     if (routeInstanceIndex >= routeInstanceCount)
