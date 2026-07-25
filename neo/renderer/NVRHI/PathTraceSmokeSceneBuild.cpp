@@ -2480,6 +2480,37 @@ struct RtSmokeJointCacheStageBuild
     uint64 submittedBytes = 0;
 };
 
+struct RtSmokeSkinnedHistoryAudit
+{
+    PtCanonicalHistoryOwnerKey owner;
+    bool ownerGate = false;
+    bool primaryView = false;
+    bool ownerValid = false;
+    bool previousStateFound = false;
+    bool readAllowed = false;
+    bool writeAllowed = false;
+    int currentRecords = 0;
+    int previousRecords = 0;
+    int ownerMatches = 0;
+    int ownerMismatches = 0;
+    uint64 previousUpdateSerial = 0;
+    uint64 nextUpdateSerial = 0;
+};
+
+RtSmokeSkinnedHistoryState* FindSmokeSkinnedHistoryState(
+    std::vector<RtSmokeSkinnedHistoryState>& states,
+    const PtCanonicalHistoryOwnerKey& owner)
+{
+    for (RtSmokeSkinnedHistoryState& state : states)
+    {
+        if (state.owner == owner)
+        {
+            return &state;
+        }
+    }
+    return nullptr;
+}
+
 const char* SmokeSkinnedGpuResultName(RtSmokeSkinnedGpuScaffoldBuild::Result result)
 {
     using Result = RtSmokeSkinnedGpuScaffoldBuild::Result;
@@ -2547,6 +2578,7 @@ void FinalizeSmokeSkinnedGpuFunnel(
 void DumpSmokeSkinnedGpuFunnel(
     const RtSmokeSkinnedGpuScaffoldBuild& build,
     const RtSmokeJointCacheStageBuild& jointCacheStage,
+    const RtSmokeSkinnedHistoryAudit& historyAudit,
     const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
     int mode,
     uint64 frameIndex)
@@ -2732,6 +2764,37 @@ void DumpSmokeSkinnedGpuFunnel(
         jointCacheStage.submitted
             ? "authoritative-current-copy"
             : "plan-only");
+    common->Printf(
+        "PathTracePrimaryPass: GEO07 skinned history frame=%llu gate/primary/ownerValid/stateFound/read/write=%d/%d/%d/%d/%d/%d records(current/previous/ownerMatch/ownerMismatch)=%d/%d/%d/%d owner(world/generation/kind/role)=%llu/%llu/%u/%u serial(previous/next)=%llu/%llu route=%s\n",
+        static_cast<unsigned long long>(frameIndex),
+        historyAudit.ownerGate ? 1 : 0,
+        historyAudit.primaryView ? 1 : 0,
+        historyAudit.ownerValid ? 1 : 0,
+        historyAudit.previousStateFound ? 1 : 0,
+        historyAudit.readAllowed ? 1 : 0,
+        historyAudit.writeAllowed ? 1 : 0,
+        historyAudit.currentRecords,
+        historyAudit.previousRecords,
+        historyAudit.ownerMatches,
+        historyAudit.ownerMismatches,
+        static_cast<unsigned long long>(
+            historyAudit.owner.worldGeneration),
+        static_cast<unsigned long long>(
+            historyAudit.owner.ownerGeneration),
+        static_cast<unsigned int>(
+            historyAudit.owner.ownerKind),
+        static_cast<unsigned int>(
+            historyAudit.owner.ownerRole),
+        static_cast<unsigned long long>(
+            historyAudit.previousUpdateSerial),
+        static_cast<unsigned long long>(
+            historyAudit.nextUpdateSerial),
+        !historyAudit.ownerGate
+            ? "legacy-last-view"
+            : (historyAudit.primaryView &&
+                    historyAudit.ownerValid
+                ? "primary-owner"
+                : "subview-or-invalid-no-history"));
 
     int detailCount = 0;
     for (int pass = 0; pass < 2 && detailCount < 16; ++pass)
@@ -3926,9 +3989,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             liquidPoolOffsetEnabled);
         m_smokeGeometryUniverse.Clear();
         m_smokeSkinnedSurfaceRecords.clear();
-        m_smokePreviousSkinnedSurfaceRecords.clear();
-        m_smokePreviousSkinnedVertexData.clear();
-        m_smokePreviousSkinnedJointMatrices.clear();
+        m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
+        m_smokeSkinnedHistoryStates.clear();
+        m_smokeSkinnedHistoryUpdateSerial = 0;
         m_smokePreviousStaticTriangleMaterialIndexes.clear();
         m_smokePreviousStaticSnapshotUploadSignature = 0;
         m_smokePreviousStaticMaterialIndexUploadSignature = 0;
@@ -3956,9 +4019,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 static_cast<unsigned long long>(sceneUniverseGeneration));
             m_smokeGeometryUniverse.Clear();
             m_smokeSkinnedSurfaceRecords.clear();
-            m_smokePreviousSkinnedSurfaceRecords.clear();
-            m_smokePreviousSkinnedVertexData.clear();
-            m_smokePreviousSkinnedJointMatrices.clear();
+            m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
+            m_smokeSkinnedHistoryStates.clear();
+            m_smokeSkinnedHistoryUpdateSerial = 0;
             m_smokePreviousStaticTriangleMaterialIndexes.clear();
             m_smokePreviousStaticSnapshotUploadSignature = 0;
             m_smokePreviousStaticMaterialIndexUploadSignature = 0;
@@ -3977,9 +4040,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         m_smokeGeometryUniverse.Clear();
         m_smokeSkinnedSurfaceRecords.clear();
-        m_smokePreviousSkinnedSurfaceRecords.clear();
-        m_smokePreviousSkinnedVertexData.clear();
-        m_smokePreviousSkinnedJointMatrices.clear();
+        m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
+        m_smokeSkinnedHistoryStates.clear();
+        m_smokeSkinnedHistoryUpdateSerial = 0;
         m_smokePreviousStaticTriangleMaterialIndexes.clear();
         m_smokePreviousStaticSnapshotUploadSignature = 0;
         m_smokePreviousStaticMaterialIndexUploadSignature = 0;
@@ -4217,12 +4280,103 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     std::vector<PathTraceSmokeVertex> nextPreviousSkinnedVertexData;
     std::vector<PathTraceSkinnedJointMatrix> nextPreviousSkinnedJointMatrices;
+    const std::vector<RtSmokeSkinnedSurfaceRecord> emptyPreviousSkinnedRecords;
+    const std::vector<PathTraceSmokeVertex> emptyPreviousSkinnedVertexData;
+    const std::vector<PathTraceSkinnedJointMatrix> emptyPreviousSkinnedJointMatrices;
+    RtSmokeSkinnedHistoryAudit skinnedHistoryAudit;
+    skinnedHistoryAudit.ownerGate =
+        r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() != 0;
+    const int skinnedHistoryOwnerGate =
+        skinnedHistoryAudit.ownerGate ? 1 : 0;
+    if (skinnedHistoryOwnerGate !=
+        m_smokeSkinnedHistoryOwnerGateLast)
+    {
+        m_smokeLegacySkinnedHistoryState =
+            RtSmokeSkinnedHistoryState();
+        m_smokeSkinnedHistoryStates.clear();
+        m_smokeSkinnedHistoryUpdateSerial = 0;
+        m_smokeSkinnedHistoryOwnerGateLast =
+            skinnedHistoryOwnerGate;
+    }
+    skinnedHistoryAudit.primaryView =
+        viewDef != nullptr &&
+        !viewDef->isSubview;
+    if (skinnedHistoryAudit.ownerGate &&
+        skinnedHistoryAudit.primaryView)
+    {
+        skinnedHistoryAudit.owner =
+            PtGeometryLifecycle::PrimaryHistoryOwnerKey(
+                viewDef->renderWorld);
+        skinnedHistoryAudit.ownerValid =
+            PtCanonicalHistoryOwnerKeyIsValid(
+                skinnedHistoryAudit.owner);
+    }
+    skinnedHistoryAudit.currentRecords =
+        static_cast<int>(
+            currentSkinnedSurfaceRecords.size());
+    for (const RtSmokeSkinnedSurfaceRecord& record :
+        currentSkinnedSurfaceRecords)
+    {
+        if (!skinnedHistoryAudit.ownerGate ||
+            (skinnedHistoryAudit.ownerValid &&
+                record.historyOwner ==
+                    skinnedHistoryAudit.owner))
+        {
+            ++skinnedHistoryAudit.ownerMatches;
+        }
+        else
+        {
+            ++skinnedHistoryAudit.ownerMismatches;
+        }
+    }
+    skinnedHistoryAudit.writeAllowed =
+        !skinnedHistoryAudit.ownerGate ||
+        (skinnedHistoryAudit.primaryView &&
+            skinnedHistoryAudit.ownerValid &&
+            skinnedHistoryAudit.ownerMismatches == 0);
+    RtSmokeSkinnedHistoryState* previousSkinnedHistoryState =
+        skinnedHistoryAudit.ownerGate
+            ? (skinnedHistoryAudit.writeAllowed
+                ? FindSmokeSkinnedHistoryState(
+                    m_smokeSkinnedHistoryStates,
+                    skinnedHistoryAudit.owner)
+                : nullptr)
+            : (m_smokeLegacySkinnedHistoryState.updateSerial != 0
+                ? &m_smokeLegacySkinnedHistoryState
+                : nullptr);
+    skinnedHistoryAudit.previousStateFound =
+        previousSkinnedHistoryState != nullptr;
+    skinnedHistoryAudit.readAllowed =
+        previousSkinnedHistoryState != nullptr;
+    if (previousSkinnedHistoryState)
+    {
+        skinnedHistoryAudit.previousRecords =
+            static_cast<int>(
+                previousSkinnedHistoryState->records.size());
+        skinnedHistoryAudit.previousUpdateSerial =
+            previousSkinnedHistoryState->updateSerial;
+    }
+    const std::vector<RtSmokeSkinnedSurfaceRecord>&
+        previousSkinnedRecords =
+            previousSkinnedHistoryState
+                ? previousSkinnedHistoryState->records
+                : emptyPreviousSkinnedRecords;
+    const std::vector<PathTraceSmokeVertex>&
+        previousSkinnedVertexData =
+            previousSkinnedHistoryState
+                ? previousSkinnedHistoryState->vertices
+                : emptyPreviousSkinnedVertexData;
+    const std::vector<PathTraceSkinnedJointMatrix>&
+        previousSkinnedJointMatrices =
+            previousSkinnedHistoryState
+                ? previousSkinnedHistoryState->joints
+                : emptyPreviousSkinnedJointMatrices;
     {
         OPTICK_EVENT("PT Skinned Previous Bridge");
         UpdateSmokeSkinnedPreviousCpuBridge(
             currentSkinnedSurfaceRecords,
-            m_smokePreviousSkinnedSurfaceRecords,
-            m_smokePreviousSkinnedVertexData,
+            previousSkinnedRecords,
+            previousSkinnedVertexData,
             dynamicVertexData,
             nextPreviousSkinnedVertexData);
     }
@@ -4239,10 +4393,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             gpuSkinningMode,
             buildSkinnedGpuSkinningInputs,
             currentSkinnedSurfaceRecords,
-            m_smokePreviousSkinnedSurfaceRecords,
+            previousSkinnedRecords,
             dynamicVertexData,
-            m_smokePreviousSkinnedVertexData,
-            m_smokePreviousSkinnedJointMatrices);
+            previousSkinnedVertexData,
+            previousSkinnedJointMatrices);
     }
     {
         OPTICK_EVENT("PT Skinned Triangle Dispatch Index");
@@ -4265,9 +4419,57 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             nextPreviousSkinnedJointMatrices);
     }
     m_smokeSkinnedSurfaceRecords = currentSkinnedSurfaceRecords;
-    m_smokePreviousSkinnedSurfaceRecords = m_smokeSkinnedSurfaceRecords;
-    m_smokePreviousSkinnedVertexData.swap(nextPreviousSkinnedVertexData);
-    m_smokePreviousSkinnedJointMatrices.swap(nextPreviousSkinnedJointMatrices);
+    if (skinnedHistoryAudit.writeAllowed)
+    {
+        RtSmokeSkinnedHistoryState* nextHistoryState = nullptr;
+        if (!skinnedHistoryAudit.ownerGate)
+        {
+            nextHistoryState =
+                &m_smokeLegacySkinnedHistoryState;
+        }
+        else
+        {
+            nextHistoryState =
+                FindSmokeSkinnedHistoryState(
+                    m_smokeSkinnedHistoryStates,
+                    skinnedHistoryAudit.owner);
+            if (!nextHistoryState)
+            {
+                if (m_smokeSkinnedHistoryStates.size() >= 4)
+                {
+                    const auto oldest = std::min_element(
+                        m_smokeSkinnedHistoryStates.begin(),
+                        m_smokeSkinnedHistoryStates.end(),
+                        [](const RtSmokeSkinnedHistoryState& lhs,
+                            const RtSmokeSkinnedHistoryState& rhs)
+                        {
+                            return lhs.updateSerial <
+                                rhs.updateSerial;
+                        });
+                    if (oldest !=
+                        m_smokeSkinnedHistoryStates.end())
+                    {
+                        m_smokeSkinnedHistoryStates.erase(oldest);
+                    }
+                }
+                m_smokeSkinnedHistoryStates.emplace_back();
+                nextHistoryState =
+                    &m_smokeSkinnedHistoryStates.back();
+                nextHistoryState->owner =
+                    skinnedHistoryAudit.owner;
+            }
+        }
+        nextHistoryState->records =
+            m_smokeSkinnedSurfaceRecords;
+        nextHistoryState->vertices.swap(
+            nextPreviousSkinnedVertexData);
+        nextHistoryState->joints.swap(
+            nextPreviousSkinnedJointMatrices);
+        nextHistoryState->updateSerial =
+            ++m_smokeSkinnedHistoryUpdateSerial;
+        skinnedHistoryAudit.nextUpdateSerial =
+            nextHistoryState->updateSerial;
+    }
 
     if (useDrawSurfMirrorDynamicFrame && r_pathTracingRigidMeshValidate.GetInteger() != 0)
     {
@@ -5498,6 +5700,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             DumpSmokeSkinnedGpuFunnel(
                 skinnedGpuScaffold,
                 jointCacheStage,
+                skinnedHistoryAudit,
                 currentSkinnedSurfaceRecords,
                 gpuSkinningMode,
                 m_smokeGeometryFrameIndex);
@@ -6382,6 +6585,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         DumpSmokeSkinnedGpuFunnel(
             skinnedGpuScaffold,
             jointCacheStage,
+            skinnedHistoryAudit,
             currentSkinnedSurfaceRecords,
             gpuSkinningMode,
             geometryUniverseStats.frameIndex);

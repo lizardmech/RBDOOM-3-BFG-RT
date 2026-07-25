@@ -37,17 +37,19 @@ route consumes the new helpers yet.
       -> GEO-08 per-instance update/refit BLAS
       -> GEO-09 temporal/material/emissive integration and skinned promotion
 
-GEO-07 status 2026-07-25: slices 1 and 2 are accepted behind the default-off
+GEO-07 status 2026-07-25: slices 1-3 are accepted behind the default-off
 master gate. geometry_geo39 accepts live renderer jointCache range transport,
 canonical instance/history ownership, and retained GEO-03 current/previous
 numeric parity. geometry_geo40 accepts checked compact-copy planning with exact
 8/8 range accounting and 17088 contiguous bytes. geometry_geo41 accepts slice
 3's structural GPU copy (23 ranges and 50112 bytes exact) but rejects the old
-numeric oracle: the late backend CPU pose pointer is mutable frontend-owned
-cached-model memory. Gate value 2 now retains a validation-only frame-owned
-snapshot at the exact jointCache upload boundary. Slice 3 remains pending that
-corrected numeric proof. CPU pre-skinning and legacy BLAS traversal remain
-authoritative.
+late mutable CPU oracle. geometry_geo42 closes that ambiguity: all 15 upload
+snapshots were comparable, 13 late CPU sources had changed, all 15 jointCache
+ranges and 32640 bytes submitted exactly, and 24 current/previous/motion samples
+passed at 0.0000152587891 maximum error. Slice 4 now replaces the enabled
+global last-view previous bridge with bounded full-key PrimaryGameplay owner
+states and makes subviews read/write no history; its runtime acceptance is
+pending. CPU pre-skinning and legacy BLAS traversal remain authoritative.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

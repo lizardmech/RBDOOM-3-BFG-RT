@@ -397,3 +397,8 @@ NO LONGER OPEN TO SPECULATION
   frontend-owned cached-model pose pointer as a same-frame oracle; it does not
   reject the structurally exact GPU copy. GEO-07 now requires a frame-owned
   upload-boundary oracle before slice-3 acceptance.
+- geometry_geo42 supplies that proof. Snapshot/comparable/sourceChanged is
+  15/15/13, proving most late cached-model pose sources had already changed.
+  The renderer jointCache staged all 15 ranges and 32640 bytes exactly, while
+  24 current/previous/motion samples passed with 0.0000152587891 maximum error.
+  GEO-07 slice 3 is accepted.

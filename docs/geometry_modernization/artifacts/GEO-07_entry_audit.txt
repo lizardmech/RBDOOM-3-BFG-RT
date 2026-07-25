@@ -1,7 +1,7 @@
 GEO-07 - authoritative jointCache GPU skinning entry audit
 ==========================================================
-Status: slices 1-2 accepted; slice 3 current-joint copy implemented with
-runtime acceptance pending.
+Status: slices 1-3 accepted; slice 4 owner-keyed previous bridge is pending
+runtime acceptance.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 030ac8c20.
@@ -598,3 +598,124 @@ Restore:
 
   r_pathTracingGpuSkinning 0
   r_pathTracingGeometryAuthoritativeGpuSkinning 0
+
+GEOMETRY_GEO42 RESULT - SLICE 3 ACCEPTED (2026-07-25)
+------------------------------------------------------
+The frame-owned validation oracle closed the geometry_geo41 ambiguity:
+
+  candidates/dispatched/resultTotal/exact:
+    15/15/15/1
+  canonical instance/history owner:
+    15/15
+  jointCache present/resolved/stale:
+    15/15/0
+  range match/mismatch/bytes:
+    15/0/32640
+  copyPlan new/reused/rejected/bytes:
+    15/0/0/32640
+  stage requested/ready/submitted/copies/bytes:
+    1/1/1/15/32640
+  oracle snapshot/comparable/sourceChanged:
+    15/15/13
+  route:
+    authoritative-current-copy
+
+The 13 changed sources prove that the later cached-model CPU pointer was not
+the submitted draw-surface pose. Against the exact upload-time snapshot:
+
+  samples:
+    24
+  current/previous/motion failures:
+    0/0/0
+  non-finite outputs:
+    0
+  max current/previous/motion error:
+    0.0000152587891/0.0000152587891/0.0000152587891
+  pass:
+    1
+
+Result:
+
+  PASS - renderer jointCache staging is the accepted authoritative current-pose
+    input for GEO-07;
+  PASS - same-command-list copy ordering and the existing skinning matrix ABI
+    are numerically correct;
+  PASS - gate 2 is a valid frame-owned diagnostic oracle;
+  REJECT - late backend reads of cachedDynamicModel jointsInverted as a
+    submitted-frame oracle.
+
+Slice 3 is accepted. CPU pre-skinning and legacy BLAS traversal remain live by
+design. The next slice must establish previous-pose storage keyed by canonical
+HistoryOwner before either CPU skinning or the old retained-joint bridge can be
+removed.
+
+SLICE 4 PRIMARY-OWNER PREVIOUS BRIDGE CANDIDATE (2026-07-25)
+-------------------------------------------------------------
+The remaining previous record, vertex and joint vectors were one global
+last-3D-view state. They are now value-owned history states keyed by the full
+PtCanonicalHistoryOwnerKey.
+
+With the GEO-07 gate enabled:
+
+  only a non-subview PrimaryGameplay invocation may read history;
+  every captured record must carry the exact current owner key;
+  only that invocation may advance the matching owner state;
+  subviews receive empty previous inputs and cannot write primary history;
+  first observation or a new world/owner generation has no previous state;
+  the existing topology, material, skeleton, teleport and previous-buffer
+    rejection rules remain unchanged;
+  retained states are bounded to four owners and evict the oldest update.
+
+Changing the GEO-07 gate clears both history routes. With the gate disabled,
+the legacy last-view state is still used and updated by every invocation. This
+preserves the accepted gate-off behavior while slice 4 is validated.
+
+The one-shot parity dump adds:
+
+  GEO07 skinned history
+  gate/primary/ownerValid/stateFound/read/write
+  records(current/previous/ownerMatch/ownerMismatch)
+  owner(world/generation/kind/role)
+  serial(previous/next)
+  route
+
+Runtime acceptance requires three observations under gate 2 and mode 1:
+
+1. Settled animated primary view:
+
+     gate/primary/ownerValid/stateFound/read/write = 1/1/1/1/1/1
+     ownerMatch = current records
+     ownerMismatch = 0
+     route = primary-owner
+     previous and motion parity pass
+
+2. A PDA or other actual subview invocation:
+
+     gate/primary/ownerValid/stateFound/read/write = 1/0/0/0/0/0
+     route = subview-or-invalid-no-history
+     no PrimaryGameplay state update
+
+3. Primary view after closing the subview:
+
+     the same owner world/generation/kind/role returns;
+     stateFound/read/write = 1/1/1;
+     previous serial is nonzero and next serial advances;
+     surfaces present before the subview retain valid previous history;
+     current/previous/motion parity pass.
+
+CPU pre-skinning, CPU-retained previous joint values, and legacy BLAS traversal
+remain authoritative in this slice. GPU-resident previous joints and CPU-skin
+removal are later GEO-07 slices.
+
+Offline verification:
+
+  PathTraceJointCacheCopyPlanHarness:
+    PASS
+  cmake --build --preset win64-pt-dev-release:
+    PASS
+  all SPIR-V shaders:
+    up to date; no shader source or blob changed
+  deployed executable:
+    15685120 bytes
+    2026-07-25 12:04:03 Australia/Sydney
+    SHA-256 1BE33FAACC882FD4983F22F9E84A1B3C2FB2BC2CFA735E78DA11E8E68A6EE7CC

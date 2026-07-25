@@ -1855,9 +1855,10 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeGeometryUniverse.Clear();
     m_particleDiagnosticFramesRemaining = 0;
     m_smokeSkinnedSurfaceRecords.clear();
-    m_smokePreviousSkinnedSurfaceRecords.clear();
-    m_smokePreviousSkinnedVertexData.clear();
-    m_smokePreviousSkinnedJointMatrices.clear();
+    m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
+    m_smokeSkinnedHistoryStates.clear();
+    m_smokeSkinnedHistoryUpdateSerial = 0;
+    m_smokeSkinnedHistoryOwnerGateLast = -1;
     m_sceneUniverse.Clear();
     m_instanceUniverse.Clear();
     ClearSmokeMaterialTextureRegistry();

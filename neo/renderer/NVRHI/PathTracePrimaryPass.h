@@ -40,6 +40,15 @@ class idRenderBackend;
 class TonemapPass;
 struct viewDef_t;
 
+struct RtSmokeSkinnedHistoryState
+{
+    PtCanonicalHistoryOwnerKey owner;
+    std::vector<RtSmokeSkinnedSurfaceRecord> records;
+    std::vector<PathTraceSmokeVertex> vertices;
+    std::vector<PathTraceSkinnedJointMatrix> joints;
+    uint64 updateSerial = 0;
+};
+
 struct RtRetiredSmokeScenePackage
 {
     uint64 retireFrame = 0;
@@ -413,9 +422,10 @@ private:
     uint32_t m_particleCompositeGpuTimerCursor = 0;
     uint32_t m_particleCompositeGpuTimerInvocation = 0;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
-    std::vector<RtSmokeSkinnedSurfaceRecord> m_smokePreviousSkinnedSurfaceRecords;
-    std::vector<PathTraceSmokeVertex> m_smokePreviousSkinnedVertexData;
-    std::vector<PathTraceSkinnedJointMatrix> m_smokePreviousSkinnedJointMatrices;
+    RtSmokeSkinnedHistoryState m_smokeLegacySkinnedHistoryState;
+    std::vector<RtSmokeSkinnedHistoryState> m_smokeSkinnedHistoryStates;
+    uint64 m_smokeSkinnedHistoryUpdateSerial = 0;
+    int m_smokeSkinnedHistoryOwnerGateLast = -1;
     RtPathTraceSceneUniverse m_sceneUniverse;
     RtPathTraceInstanceUniverse m_instanceUniverse;
     PathTraceRemixFramePrepare m_remixFramePrepare;
