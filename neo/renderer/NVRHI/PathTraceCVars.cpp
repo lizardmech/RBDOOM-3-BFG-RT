@@ -2302,7 +2302,7 @@ idCVar r_pathTracingSceneRetireFrames(
     "r_pathTracingSceneRetireFrames",
     "6",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Number of frames to retain replaced PT scene packages before releasing old handles; clamped 0..32" );
+    "Minimum frames to retain replaced PT scene packages after their exact graphics submission completes; clamped 0..32" );
 
 idCVar r_pathTracingSkipRaster3D(
     "r_pathTracingSkipRaster3D",

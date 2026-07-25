@@ -155,13 +155,19 @@ build-pending records, zero rejection, exact 1,835,008-byte physical storage,
 and unchanged 24-sample skinning parity. It creates no BLAS and changes no
 TLAS traversal.
 
-The next slice begins with a completion audit. The existing
-r_pathTracingSceneRetireFrames queue is a frame-age lifetime proxy and cannot
-be promoted as the explicit GPU completion required by D23/D26. Before live
-comparison BLAS submission, select and validate an NVRHI/Vulkan submission
-completion token, attach output generation plus BLAS/TLAS retirement to it,
-then exercise physical growth and delayed release. Only after that proof may
-step 4 create updateable comparison BLAS handles.
+GEO-08 slice 3 accepts the explicit completion seam. Retired scene packages
+own NVRHI event queries armed immediately after the main graphics command list
+submission. On Vulkan, the query captures the queue's timeline-semaphore
+submission ID; release polls that exact ID. r_pathTracingSceneRetireFrames is
+now only an optional minimum delay after GPU completion. With the delay set to
+zero, geometry_geo64_auto arms token 1 with one pending package and releases it
+only after token 1 completes, leaving zero pending. The same run retains the
+12/12 exact shadow contract and parity pass.
+
+Slice 4 may now create updateable comparison BLAS handles and submit initial
+build/update work without TLAS traversal. Physical output growth and
+generation release still require a targeted runtime exercise before traversal
+cutover.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

@@ -25,10 +25,12 @@ output ranges before entering the state table. geometry_geo62_auto observes
 12/12 exact jobs and requests 12 initial builds with zero rejection; no BLAS is
 created and traversal is unchanged.
 
-The next slice must establish an explicit GPU-completion token for output,
-BLAS, and TLAS retirement before creating live comparison BLAS handles. The
-existing r_pathTracingSceneRetireFrames package queue is only a conservative
-renderer-wide frame proxy and is not the final completion contract.
+Slice 3 is accepted. Retired scene packages now own NVRHI event queries armed
+after the exact graphics command-list submission. Release polls the captured
+Vulkan queue timeline submission ID; r_pathTracingSceneRetireFrames is only an
+additional minimum delay. geometry_geo64_auto proves token 1 arms and completes
+with the delay set to zero. Slice 4 may create comparison BLAS handles, but may
+not add them to live TLAS traversal yet.
 
 FILES TO AUDIT FIRST
 --------------------
@@ -57,11 +59,12 @@ STEPS
    build-pending, ready, update-pending, rebuild-pending, failed, and retiring.
    Give every transition and rejection a counter. Never key AS state by shared
    MeshKey.
-3. ACCEPTED FOR SHADOW USE. Make physical output-buffer generations follow the accepted allocator.
+3. ACCEPTED FOR SHADOW USE AND EXPLICIT COMPLETION. Make physical output-buffer generations follow the accepted allocator.
    Growth creates a new buffer and retires the old buffer plus every BLAS that
    references it. Initial generation identity and physical AS-input capability
-   pass in geometry_geo62_auto. Runtime growth and release remain blocked on
-   the explicit completion token; frame-age retirement cannot accept cutover.
+   pass in geometry_geo64_auto. Retired packages now require exact
+   gpu-event-query completion. A targeted physical growth/release run remains
+   required before traversal cutover.
 4. Create one updateable BLAS per eligible SkinnedSurface InstanceKey using
    AllowUpdate + PreferFastBuild. Keep source mesh identity, mutable output
    identity, and AS identity separate.

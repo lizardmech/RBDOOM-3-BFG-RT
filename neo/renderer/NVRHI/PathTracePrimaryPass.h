@@ -54,7 +54,10 @@ struct RtSmokeSkinnedHistoryState
 struct RtRetiredSmokeScenePackage
 {
     uint64 retireFrame = 0;
+    uint64 completionToken = 0;
     uint64 skinnedOutputStorageGeneration = 0;
+    bool completionArmed = false;
+    nvrhi::EventQueryHandle completionQuery;
     RtSmokeSceneBufferHandles buffers;
 
     nvrhi::rt::AccelStructHandle staticBlas;
@@ -226,6 +229,7 @@ public:
 
     // Called every frame when r_pathTracing >= 1
     void Execute(const viewDef_t* viewDef);
+    void OnGraphicsCommandListSubmitted();
     void InvalidateForBackBufferResize();
     void PresentDebugOutput();
     void BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport);
@@ -485,6 +489,11 @@ private:
     nvrhi::BufferHandle m_smokeSkinnedSourceVertexBuffer;
     nvrhi::BufferHandle m_smokeSkinnedCurrentOutputVertexBuffer;
     uint64 m_smokeSkinnedOutputBufferGeneration = 0;
+    uint64 m_smokeNextSceneCompletionToken = 1;
+    uint64 m_smokeLastCompletedSceneToken = 0;
+    bool m_smokeSceneCompletionQueryFailureLogged = false;
+    bool m_smokeSceneCompletionArmedLogged = false;
+    bool m_smokeSceneCompletionReleasedLogged = false;
     nvrhi::BufferHandle m_smokeSkinnedPreviousPositionBuffer;
     nvrhi::BufferHandle m_smokeSkinnedSurfaceDispatchBuffer;
     nvrhi::BufferHandle m_smokeSkinnedTriangleDispatchIndexBuffer;
@@ -682,3 +691,6 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokeReGIRDebugShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeNeeCacheDebugShaderTable;
 };
+
+void RB_PathTraceGraphicsCommandListSubmitted(
+    idRenderBackend* backend);

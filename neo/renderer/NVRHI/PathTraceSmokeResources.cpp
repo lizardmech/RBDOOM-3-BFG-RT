@@ -1789,12 +1789,21 @@ RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeSc
 
 void PathTracePrimaryPass::PushRetiredRayTracingSmokeScenePackage(RtRetiredSmokeScenePackage& package, uint64 currentFrame, int retireFrames)
 {
-    if (retireFrames <= 0)
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    package.completionQuery =
+        device ? device->createEventQuery() : nullptr;
+    if (!package.completionQuery &&
+        !m_smokeSceneCompletionQueryFailureLogged)
     {
-        return;
+        common->Printf(
+            "PathTracePrimaryPass: retired scene package has no GPU completion query; retaining until reset\n");
+        m_smokeSceneCompletionQueryFailureLogged = true;
     }
 
-    package.retireFrame = currentFrame + static_cast<uint64>(retireFrames);
+    package.retireFrame =
+        currentFrame +
+        static_cast<uint64>(Max(retireFrames, 0));
     m_retiredSmokeScenePackages.push_back(package);
 }
 
@@ -1802,11 +1811,27 @@ int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint
 {
     int releasedCount = 0;
     uint64 releasedSkinnedOutputGeneration = 0;
-    while (!m_retiredSmokeScenePackages.empty() && m_retiredSmokeScenePackages.front().retireFrame <= currentFrame)
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    while (!m_retiredSmokeScenePackages.empty())
     {
+        RtRetiredSmokeScenePackage& package =
+            m_retiredSmokeScenePackages.front();
+        if (package.retireFrame > currentFrame ||
+            !package.completionArmed ||
+            !package.completionQuery ||
+            !device ||
+            !device->pollEventQuery(
+                package.completionQuery))
+        {
+            break;
+        }
+        m_smokeLastCompletedSceneToken =
+            Max(
+                m_smokeLastCompletedSceneToken,
+                package.completionToken);
         const uint64 generation =
-            m_retiredSmokeScenePackages.front().
-                skinnedOutputStorageGeneration;
+            package.skinnedOutputStorageGeneration;
         releasedSkinnedOutputGeneration =
             Max(
                 releasedSkinnedOutputGeneration,
@@ -1846,7 +1871,65 @@ int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint
                     releasedSkinnedOutputGeneration);
         }
     }
+    if (releasedCount > 0 &&
+        !m_smokeSceneCompletionReleasedLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: PT scene completion released packages=%d completedToken=%llu pending=%zu outputGenerationThrough=%llu authority=gpu-event-query\n",
+            releasedCount,
+            static_cast<unsigned long long>(
+                m_smokeLastCompletedSceneToken),
+            m_retiredSmokeScenePackages.size(),
+            static_cast<unsigned long long>(
+                releasedSkinnedOutputGeneration));
+        m_smokeSceneCompletionReleasedLogged = true;
+    }
     return releasedCount;
+}
+
+void PathTracePrimaryPass::OnGraphicsCommandListSubmitted()
+{
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+    int armedCount = 0;
+    uint64 firstToken = 0;
+    uint64 lastToken = 0;
+    for (RtRetiredSmokeScenePackage& package :
+        m_retiredSmokeScenePackages)
+    {
+        if (package.completionArmed ||
+            !package.completionQuery)
+        {
+            continue;
+        }
+        device->setEventQuery(
+            package.completionQuery,
+            nvrhi::CommandQueue::Graphics);
+        package.completionToken =
+            m_smokeNextSceneCompletionToken++;
+        package.completionArmed = true;
+        firstToken =
+            firstToken == 0
+                ? package.completionToken
+                : firstToken;
+        lastToken = package.completionToken;
+        ++armedCount;
+    }
+    if (armedCount > 0 &&
+        !m_smokeSceneCompletionArmedLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: PT scene completion armed packages=%d tokens=%llu..%llu pending=%zu authority=gpu-event-query\n",
+            armedCount,
+            static_cast<unsigned long long>(firstToken),
+            static_cast<unsigned long long>(lastToken),
+            m_retiredSmokeScenePackages.size());
+        m_smokeSceneCompletionArmedLogged = true;
+    }
 }
 
 void PathTracePrimaryPass::ResetRayTracingSmokeAsyncCpuWork()
@@ -2030,6 +2113,11 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedSourceVertexBuffer = nullptr;
     m_smokeSkinnedCurrentOutputVertexBuffer = nullptr;
     m_smokeSkinnedOutputBufferGeneration = 0;
+    m_smokeNextSceneCompletionToken = 1;
+    m_smokeLastCompletedSceneToken = 0;
+    m_smokeSceneCompletionQueryFailureLogged = false;
+    m_smokeSceneCompletionArmedLogged = false;
+    m_smokeSceneCompletionReleasedLogged = false;
     m_smokeSkinnedPreviousPositionBuffer = nullptr;
     m_smokeSkinnedSurfaceDispatchBuffer = nullptr;
     m_smokeSkinnedTriangleDispatchIndexBuffer = nullptr;
@@ -2101,10 +2189,6 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     const uint64 currentFrame = static_cast<uint64>(Max(idLib::frameNumber, 0));
     const int retireFrames = idMath::ClampInt(0, 32, r_pathTracingSceneRetireFrames.GetInteger());
     ReleaseExpiredRetiredRayTracingSmokeScenePackages(currentFrame);
-    if (retireFrames == 0 && !m_retiredSmokeScenePackages.empty())
-    {
-        m_retiredSmokeScenePackages.clear();
-    }
 
     if ((sceneTransitionChanged || packageHandlesChanged) && previousPackageHasResources)
     {
@@ -2158,8 +2242,6 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeRigidRouteInstanceBuffer = desc.buffers.rigidRouteInstanceBuffer;
     m_smokeSkinnedSourceVertexBuffer = desc.buffers.skinnedSourceVertexBuffer;
     m_smokeSkinnedCurrentOutputVertexBuffer = desc.buffers.skinnedCurrentOutputVertexBuffer;
-    const uint64 previousSkinnedOutputGeneration =
-        m_smokeSkinnedOutputBufferGeneration;
     m_smokeSkinnedOutputBufferGeneration =
         desc.skinnedOutputStorageGeneration;
     m_smokeSkinnedPreviousPositionBuffer = desc.buffers.skinnedPreviousPositionBuffer;
@@ -2198,15 +2280,6 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeUnifiedLightRemapCount = desc.unifiedLightRemapCount;
     m_smokeRestirLightManagerCurrentPayloadCount = desc.restirLightManagerCurrentPayloadCount;
     m_smokeRestirLightManagerPreviousPayloadCount = desc.restirLightManagerPreviousPayloadCount;
-    if (retireFrames == 0 &&
-        previousSkinnedOutputGeneration != 0 &&
-        previousSkinnedOutputGeneration !=
-            m_smokeSkinnedOutputBufferGeneration)
-    {
-        m_smokeSkinnedOutputAllocator.
-            ReleaseStorageGenerationsThrough(
-                previousSkinnedOutputGeneration);
-    }
     const uint64_t uploadBytes =
         desc.sceneInputs.diagnostics.geometryUploadBytes +
         desc.sceneInputs.diagnostics.materialUploadBytes +

@@ -96,6 +96,13 @@ void RB_InvalidatePathTraceBackBufferCaches( idRenderBackend* backend )
 
 }
 
+void RB_PathTraceGraphicsCommandListSubmitted(
+	idRenderBackend* backend )
+{
+	RB_GetPathTracePrimaryPass( backend ).
+		OnGraphicsCommandListSubmitted();
+}
+
 /*
 ================
 SetVertexParm

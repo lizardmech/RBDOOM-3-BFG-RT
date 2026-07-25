@@ -38,6 +38,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "imgui.h"
 #include "../ImmediateMode.h"
 #include "PathTraceDLSSRRBridge.h"
+#include "PathTracePrimaryPass.h"
 
 #include "nvrhi/utils.h"
 #include <sys/DeviceManager.h>
@@ -2078,6 +2079,10 @@ void idRenderBackend::GL_EndFrame()
 
 	// SRS - execute after EndFrame() to avoid need for barrier command list on Vulkan
 	deviceManager->GetDevice()->executeCommandList( commandList );
+	if( r_pathTracing.GetInteger() >= 1 )
+	{
+		RB_PathTraceGraphicsCommandListSubmitted( this );
+	}
 
 	// update jitter for perspective matrix
 	taaPass->AdvanceFrame();

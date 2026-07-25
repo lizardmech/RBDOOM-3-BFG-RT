@@ -1,6 +1,6 @@
 GEO-08 - per-instance skinned BLAS entry audit
 ==============================================
-Status: dependency correction and slices 1-2 shadow contracts accepted.
+Status: dependency correction and slices 1-3 prerequisite contracts accepted.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 179127951.
@@ -205,19 +205,61 @@ Offline/build/deploy:
     mtime 2026-07-25 14:46:28 Australia/Sydney
     SHA-256 44A7212CC8DFA0B0D5194378DB50EC781AAB625691BE85DF061DF6E4C32962B6
 
-LIFETIME LIMIT AND NEXT
------------------------
-The renderer's existing retired-scene-package queue still releases handles
-after r_pathTracingSceneRetireFrames. This is the current renderer-wide
-completion proxy, not proof from a GPU fence/timeline value. It is sufficient
-to keep slice 2 behavior-neutral and prevents the allocator from acknowledging
-a generation before its retained handle is dropped, but it does not satisfy
-the final live-BLAS completion contract in D23/D26.
+SLICE 3 - EXACT GRAPHICS-SUBMISSION COMPLETION
+----------------------------------------------
+The local NVRHI/Vulkan audit found the required existing primitive:
 
-Before any per-instance BLAS is submitted or included in a TLAS, the next slice
-must audit the available NVRHI/Vulkan completion primitive and bind output
-generation plus BLAS/TLAS retirement to an explicit completed submission
-token. It must then create comparison BLAS handles while leaving legacy
-traversal authoritative. Physical growth/retirement needs a runtime exercise
-once that completion route exists; geometry_geo62 proves initial generation
-creation and exact observation, not a growth event.
+  IDevice::setEventQuery records the graphics queue's last submitted ID;
+  Vulkan implements that ID with its queue tracking timeline semaphore;
+  IDevice::pollEventQuery tests the recorded submission ID for completion.
+
+The main renderer now notifies PathTracePrimaryPass immediately after the
+frame command list is submitted. Each retired scene package owns an IEventQuery
+created before submission and is armed by that notification. Release requires
+all of:
+
+  the package's exact event query is armed;
+  pollEventQuery reports its recorded graphics submission complete;
+  the optional r_pathTracingSceneRetireFrames minimum delay has elapsed.
+
+The cvar is therefore an additional delay, no longer the authority for
+completion. A missing query fails safe by retaining the package until reset.
+Completed output generations are acknowledged to PtSkinnedOutputAllocator only
+after the last active/retained package naming that generation is gone.
+
+Runtime acceptance, geometry_geo64_auto with
+r_pathTracingSceneRetireFrames=0:
+
+  completion arm:
+    packages = 1
+    tokens = 1..1
+    pending = 1
+    authority = gpu-event-query
+
+  completion release:
+    packages = 1
+    completed token = 1
+    pending = 0
+    authority = gpu-event-query
+
+Zero configured frame delay therefore did not bypass GPU completion. The same
+run retained the exact 12/12 shadow observation and 24-sample parity pass at
+0.0000152587891 maximum current error. No device-removal or runtime error
+marker was present.
+
+Final build/deploy:
+
+  cmake --build --preset win64-pt-dev-release = PASS
+  all SPIR-V shaders up to date; no shader source or blob changed
+  deployed executable:
+    size 15714816 bytes
+    mtime 2026-07-25 14:54:18 Australia/Sydney
+    SHA-256 57A1F864398F4797BB1DA476C0A78B968644A83C085F4A5246C07449FB9E7A62
+
+NEXT
+----
+Slice 4 may create per-instance updateable comparison BLAS handles and submit
+the twelve initial BuildRequired actions, still without placing them in the
+live TLAS. Physical output growth/release remains a required runtime exercise
+before traversal cutover; geometry_geo64 proves exact initial generation and
+real submission completion, not a growth event.
