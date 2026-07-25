@@ -249,7 +249,7 @@ PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
 
 PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
     const PtSkinnedHitRouteBuild& build,
-    std::uint32_t emptyFirstShaderInstanceId);
+    std::uint32_t firstShaderInstanceId);
 
 PtPathTraceSbtSelection PtPlanPathTraceSbtSelection(
     const PtPathTraceSbtSelectionInput& input);

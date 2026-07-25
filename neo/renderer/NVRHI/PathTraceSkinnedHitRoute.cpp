@@ -640,22 +640,38 @@ std::uint64_t HashGpuUploadBytes(
 
 PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
     const PtSkinnedHitRouteBuild& build,
-    std::uint32_t emptyFirstShaderInstanceId)
+    std::uint32_t firstShaderInstanceId)
 {
     PtSkinnedHitRouteGpuUpload upload;
     const std::uint32_t routeCount =
         static_cast<std::uint32_t>(build.records.size());
     const std::uint32_t triangleCount =
         static_cast<std::uint32_t>(build.triangles.size());
+    const bool routeRangeValid =
+        routeCount == 0 ||
+        static_cast<std::uint64_t>(firstShaderInstanceId) +
+                routeCount - 1u <=
+            PT_SKINNED_HIT_ROUTE_MAX_SHADER_INSTANCE_ID;
     upload.records.reserve(std::max<std::size_t>(
         build.records.size(), 1));
     upload.triangles.reserve(std::max<std::size_t>(
         build.triangles.size(), 1));
 
-    for (const PtSkinnedHitRouteRecord& source : build.records)
+    for (std::size_t routeIndex = 0;
+         routeRangeValid &&
+         routeIndex < build.records.size();
+         ++routeIndex)
     {
+        const PtSkinnedHitRouteRecord& source =
+            build.records[routeIndex];
         PathTraceSkinnedHitRouteGpuRecord record;
-        record.shaderInstanceId = source.shaderInstanceId;
+        // The accepted build is a one-frame shadow used by the next upload.
+        // Rigid-route residency can change its instance count in between, so
+        // preserving the shadow's IDs can overlap the current rigid range.
+        // Rebase the contiguous skinned range against this frame's rigid end.
+        record.shaderInstanceId =
+            firstShaderInstanceId +
+            static_cast<std::uint32_t>(routeIndex);
         record.sourceIndexOffset = source.sourceIndexOffset;
         record.outputVertexOffset = source.outputVertexOffset;
         record.previousPositionOffset =
@@ -691,8 +707,13 @@ PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
         upload.records.push_back(record);
     }
 
-    for (const PtSkinnedHitRouteTriangle& source : build.triangles)
+    for (std::size_t triangleIndex = 0;
+         routeRangeValid &&
+         triangleIndex < build.triangles.size();
+         ++triangleIndex)
     {
+        const PtSkinnedHitRouteTriangle& source =
+            build.triangles[triangleIndex];
         PathTraceSkinnedHitRouteGpuTriangle triangle;
         triangle.sourcePrimitiveIndex =
             source.sourcePrimitiveIndex;
@@ -721,7 +742,7 @@ PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
     {
         PathTraceSkinnedHitRouteGpuRecord sentinel;
         sentinel.shaderInstanceId =
-            emptyFirstShaderInstanceId;
+            firstShaderInstanceId;
         upload.records.push_back(sentinel);
     }
     if (upload.triangles.empty())

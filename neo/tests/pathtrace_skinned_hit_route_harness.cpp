@@ -333,6 +333,28 @@ void TestGpuUploadAbi()
             empty.records[0].routeCount == 0 &&
             empty.records[0].triangleMetadataCount == 0,
         "empty GPU upload must retain a safe zero-count sentinel");
+
+    PtSkinnedHitRouteBuild twoRouteBuild = build;
+    twoRouteBuild.records.push_back(build.records.front());
+    const PtSkinnedHitRouteGpuUpload rebased =
+        PtBuildSkinnedHitRouteGpuUpload(twoRouteBuild, 211);
+    Expect(
+        rebased.records.size() == 2 &&
+            rebased.records[0].shaderInstanceId == 211 &&
+            rebased.records[1].shaderInstanceId == 212 &&
+            rebased.records[0].routeCount == 2 &&
+            rebased.records[1].routeCount == 2,
+        "GPU upload must rebase a prior-frame shadow after the rigid range");
+
+    const PtSkinnedHitRouteGpuUpload overflow =
+        PtBuildSkinnedHitRouteGpuUpload(
+            twoRouteBuild,
+            PT_SKINNED_HIT_ROUTE_MAX_SHADER_INSTANCE_ID);
+    Expect(
+        overflow.records.size() == 1 &&
+            overflow.records[0].routeCount == 0 &&
+            overflow.triangles.size() == 1,
+        "GPU upload rebasing must fail closed on 24-bit range overflow");
 }
 
 void TestSbtContributionContract()
