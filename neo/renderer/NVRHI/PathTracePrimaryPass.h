@@ -23,6 +23,7 @@
 #include "PathTraceDebugModes.h"
 #include "PathTraceSceneInputs.h"
 #include "PathTraceSceneUniverse.h"
+#include "PathTraceSkinnedBlasState.h"
 #include "PathTraceSkinnedOutputAllocator.h"
 #include "PathTraceSmokeResources.h"
 
@@ -53,6 +54,7 @@ struct RtSmokeSkinnedHistoryState
 struct RtRetiredSmokeScenePackage
 {
     uint64 retireFrame = 0;
+    uint64 skinnedOutputStorageGeneration = 0;
     RtSmokeSceneBufferHandles buffers;
 
     nvrhi::rt::AccelStructHandle staticBlas;
@@ -424,6 +426,7 @@ private:
     uint32_t m_particleCompositeGpuTimerInvocation = 0;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     PtSkinnedOutputAllocator m_smokeSkinnedOutputAllocator;
+    PtSkinnedBlasStateTable m_smokeSkinnedBlasStateTable;
     RtSmokeSkinnedHistoryState m_smokeLegacySkinnedHistoryState;
     std::vector<RtSmokeSkinnedHistoryState> m_smokeSkinnedHistoryStates;
     uint64 m_smokeSkinnedHistoryUpdateSerial = 0;
@@ -481,6 +484,7 @@ private:
     int m_smokeRigidRouteSideBufferWriteSlot = 0;
     nvrhi::BufferHandle m_smokeSkinnedSourceVertexBuffer;
     nvrhi::BufferHandle m_smokeSkinnedCurrentOutputVertexBuffer;
+    uint64 m_smokeSkinnedOutputBufferGeneration = 0;
     nvrhi::BufferHandle m_smokeSkinnedPreviousPositionBuffer;
     nvrhi::BufferHandle m_smokeSkinnedSurfaceDispatchBuffer;
     nvrhi::BufferHandle m_smokeSkinnedTriangleDispatchIndexBuffer;

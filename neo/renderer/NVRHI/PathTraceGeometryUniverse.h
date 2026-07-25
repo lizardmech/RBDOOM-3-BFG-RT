@@ -772,6 +772,10 @@ public:
         const PtCanonicalInstanceKey& key) const;
     const PtGeometrySourceRecord* FindCanonicalSourceRecord(
         const PtCanonicalMeshKey& key) const;
+    const PtGeometryGpuPoolRecord* FindCanonicalSourceGpuRecord(
+        const PtCanonicalMeshKey& key) const;
+    uint64 CanonicalSourceIndexPoolGeneration() const;
+    uint64 CanonicalSourceIndexPoolCapacityBytes() const;
     void UpdateCanonicalSourceGpuPools(
         nvrhi::IDevice* device,
         nvrhi::ICommandList* commandList);

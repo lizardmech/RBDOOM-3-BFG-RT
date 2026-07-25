@@ -2534,6 +2534,33 @@ struct RtSmokeSkinnedOutputAudit
     PtSkinnedOutputAllocatorStats stats;
 };
 
+struct RtSmokeSkinnedBlasShadowAudit
+{
+    bool gate = false;
+    bool worldValid = false;
+    bool physicalBufferExact = false;
+    bool physicalBufferChanged = false;
+    bool physicalBufferUav = false;
+    bool physicalBufferAsInput = false;
+    uint64 allocatorStorageGeneration = 0;
+    uint64 physicalStorageGeneration = 0;
+    uint64 expectedOutputBytes = 0;
+    uint64 physicalOutputBytes = 0;
+    int candidates = 0;
+    int dispatched = 0;
+    int sourceGpuExact = 0;
+    int outputExact = 0;
+    int observed = 0;
+    int buildRequired = 0;
+    int updateRequired = 0;
+    int rebuildRequired = 0;
+    int alreadyPending = 0;
+    int rejected = 0;
+    int retireApplied = 0;
+    int retireMissing = 0;
+    PtSkinnedBlasStats stats;
+};
+
 RtSmokeSkinnedHistoryState* FindSmokeSkinnedHistoryState(
     std::vector<RtSmokeSkinnedHistoryState>& states,
     const PtCanonicalHistoryOwnerKey& owner)
@@ -2831,6 +2858,317 @@ RtSmokeSkinnedOutputAudit UpdateSmokeSkinnedOutputAllocator(
     }
     audit.stats = allocator.Stats();
     return audit;
+}
+
+RtSmokeSkinnedBlasShadowAudit
+UpdateSmokeSkinnedBlasShadowState(
+    const viewDef_t* viewDef,
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
+    const RtSmokeSkinnedGpuScaffoldBuild& gpuBuild,
+    const RtSmokeGeometryUniverse& geometryUniverse,
+    const PtSkinnedOutputAllocator& outputAllocator,
+    PtSkinnedBlasStateTable& stateTable,
+    nvrhi::BufferHandle outputBuffer,
+    uint64 outputBufferGeneration,
+    bool outputBufferChanged,
+    bool gate,
+    uint64 frameIndex)
+{
+    RtSmokeSkinnedBlasShadowAudit audit;
+    audit.gate = gate;
+    audit.physicalBufferChanged = outputBufferChanged;
+    audit.candidates = static_cast<int>(records.size());
+    audit.allocatorStorageGeneration =
+        outputAllocator.Stats().storageGeneration;
+    audit.physicalStorageGeneration =
+        outputBufferGeneration;
+    if (!gate)
+    {
+        stateTable.Clear();
+        audit.stats = stateTable.Stats();
+        return audit;
+    }
+    if (viewDef == nullptr)
+    {
+        audit.stats = stateTable.Stats();
+        return audit;
+    }
+
+    stateTable.ResetIntervalStats();
+    const PtCanonicalWorldKey world =
+        PtGeometryLifecycle::CanonicalWorldKey(
+            viewDef->renderWorld);
+    audit.worldValid =
+        PtCanonicalWorldKeyIsValid(world) &&
+        stateTable.BeginWorld(
+            world.worldGeneration,
+            frameIndex);
+    if (!audit.worldValid)
+    {
+        audit.stats = stateTable.Stats();
+        return audit;
+    }
+
+    const PtGeometryIdentityTransportSnapshot* identitySnapshot =
+        viewDef->pathTraceGeometryIdentitySnapshot;
+    if (identitySnapshot != nullptr)
+    {
+        for (uint64 recordIndex = 0;
+            recordIndex < identitySnapshot->recordCount;
+            ++recordIndex)
+        {
+            const PtGeometryIdentityTransportRecord& transport =
+                identitySnapshot->records[recordIndex];
+            if (transport.operation !=
+                    PtGeometryIdentityOperation::Remove ||
+                transport.instanceKey.subInstanceKind !=
+                    PtCanonicalSubInstanceKind::SkinnedSurface)
+            {
+                continue;
+            }
+            const PtSkinnedBlasRetireResult result =
+                stateTable.Retire(
+                    transport.instanceKey,
+                    frameIndex);
+            if (result == PtSkinnedBlasRetireResult::Retired)
+            {
+                ++audit.retireApplied;
+            }
+            else
+            {
+                ++audit.retireMissing;
+            }
+        }
+    }
+
+    uint64 expectedOutputBytes = 0;
+    const bool expectedBytesValid =
+        PtCheckedMulU64(
+            outputAllocator.Stats().capacityVertices,
+            sizeof(PathTraceSmokeVertex),
+            expectedOutputBytes);
+    audit.expectedOutputBytes = expectedOutputBytes;
+    if (outputBuffer)
+    {
+        const nvrhi::BufferDesc& desc = outputBuffer->getDesc();
+        audit.physicalOutputBytes = desc.byteSize;
+        audit.physicalBufferUav = desc.canHaveUAVs;
+        audit.physicalBufferAsInput =
+            desc.isAccelStructBuildInput;
+        audit.physicalBufferExact =
+            expectedBytesValid &&
+            outputAllocator.Stats().storageGeneration != 0 &&
+            outputBufferGeneration ==
+                outputAllocator.Stats().storageGeneration &&
+            desc.byteSize >= expectedOutputBytes &&
+            desc.structStride == sizeof(PathTraceSmokeVertex) &&
+            desc.canHaveUAVs &&
+            desc.isAccelStructBuildInput;
+    }
+    if (!audit.physicalBufferExact)
+    {
+        audit.rejected = audit.candidates;
+        audit.stats = stateTable.Stats();
+        return audit;
+    }
+
+    const uint64 sourceIndexGeneration =
+        geometryUniverse.
+            CanonicalSourceIndexPoolGeneration();
+    const uint64 sourceIndexCapacity =
+        geometryUniverse.
+            CanonicalSourceIndexPoolCapacityBytes();
+    const size_t recordCount = std::min(
+        records.size(),
+        gpuBuild.recordResults.size());
+    for (size_t recordIndex = 0;
+        recordIndex < recordCount;
+        ++recordIndex)
+    {
+        if (gpuBuild.recordResults[recordIndex] !=
+            RtSmokeSkinnedGpuScaffoldBuild::Result::DispatchedGpu)
+        {
+            ++audit.rejected;
+            continue;
+        }
+        ++audit.dispatched;
+        const RtSmokeSkinnedSurfaceRecord& record =
+            records[recordIndex];
+        const PtGeometryIdentityBinding* binding =
+            geometryUniverse.FindCanonicalIdentityBinding(
+                record.canonicalInstance);
+        const PtGeometrySourceRecord* source =
+            binding != nullptr
+                ? geometryUniverse.FindCanonicalSourceRecord(
+                    binding->meshKey)
+                : nullptr;
+        const PtGeometryGpuPoolRecord* sourceGpu =
+            binding != nullptr
+                ? geometryUniverse.FindCanonicalSourceGpuRecord(
+                    binding->meshKey)
+                : nullptr;
+        uint64 expectedSourceIndexBytes = 0;
+        uint64 sourceIndexEndBytes = 0;
+        const bool sourceIndexRangeExact =
+            source != nullptr &&
+            sourceGpu != nullptr &&
+            PtCheckedMulU64(
+                static_cast<uint64>(
+                    source->key.indexCount),
+                sizeof(uint32_t),
+                expectedSourceIndexBytes) &&
+            PtCheckedAddU64(
+                sourceGpu->indexes.offsetBytes,
+                expectedSourceIndexBytes,
+                sourceIndexEndBytes) &&
+            sourceIndexEndBytes <= sourceIndexCapacity;
+        if (binding == nullptr ||
+            source == nullptr ||
+            sourceGpu == nullptr ||
+            source->key != binding->meshKey ||
+            sourceGpu->key != binding->meshKey ||
+            sourceGpu->sourceChecksum !=
+                source->sourceChecksum ||
+            sourceGpu->indexes.storageGeneration !=
+                sourceIndexGeneration ||
+            !sourceIndexRangeExact ||
+            sourceGpu->indexes.sizeBytes !=
+                expectedSourceIndexBytes)
+        {
+            ++audit.rejected;
+            continue;
+        }
+        ++audit.sourceGpuExact;
+
+        const PtSkinnedOutputRange* outputRange =
+            outputAllocator.Find(record.canonicalInstance);
+        uint64 expectedOutputRangeBytes = 0;
+        uint64 outputEndBytes = 0;
+        const bool outputRangeExact =
+            outputRange != nullptr &&
+            PtCheckedMulU64(
+                outputRange->vertexCount,
+                sizeof(PathTraceSmokeVertex),
+                expectedOutputRangeBytes) &&
+            outputRange->byteCount ==
+                expectedOutputRangeBytes &&
+            PtCheckedAddU64(
+                outputRange->byteOffset,
+                outputRange->byteCount,
+                outputEndBytes) &&
+            outputEndBytes <= audit.physicalOutputBytes;
+        if (outputRange == nullptr ||
+            outputRange->storageGeneration !=
+                outputBufferGeneration ||
+            outputRange->vertexCount !=
+                static_cast<uint64>(record.vertexCount) ||
+            !outputRangeExact)
+        {
+            ++audit.rejected;
+            continue;
+        }
+        ++audit.outputExact;
+
+        PtSkinnedBlasCandidate candidate;
+        candidate.instanceKey = record.canonicalInstance;
+        candidate.meshKey = binding->meshKey;
+        candidate.sourceChecksum = source->sourceChecksum;
+        candidate.sourceGpuIndexGeneration =
+            sourceIndexGeneration;
+        candidate.sourceIndexOffsetBytes =
+            sourceGpu->indexes.offsetBytes;
+        candidate.sourceIndexCapacityBytes =
+            sourceIndexCapacity;
+        candidate.outputStorageGeneration =
+            outputRange->storageGeneration;
+        candidate.outputVertexOffsetBytes =
+            outputRange->byteOffset;
+        candidate.outputVertexCount =
+            outputRange->vertexCount;
+        candidate.outputCapacityBytes =
+            audit.physicalOutputBytes;
+        candidate.frameIndex = frameIndex;
+        candidate.dispatchReady = true;
+        const PtSkinnedBlasObserveResult result =
+            stateTable.Observe(candidate);
+        ++audit.observed;
+        switch (result)
+        {
+            case PtSkinnedBlasObserveResult::BuildRequired:
+                ++audit.buildRequired;
+                break;
+            case PtSkinnedBlasObserveResult::UpdateRequired:
+                ++audit.updateRequired;
+                break;
+            case PtSkinnedBlasObserveResult::RebuildRequired:
+                ++audit.rebuildRequired;
+                break;
+            case PtSkinnedBlasObserveResult::AlreadyPending:
+                ++audit.alreadyPending;
+                break;
+            default:
+                ++audit.rejected;
+                break;
+        }
+    }
+    if (recordCount < records.size())
+    {
+        audit.rejected += static_cast<int>(
+            records.size() - recordCount);
+    }
+    audit.stats = stateTable.Stats();
+    return audit;
+}
+
+void DumpSmokeSkinnedBlasShadowAudit(
+    const RtSmokeSkinnedBlasShadowAudit& audit,
+    uint64 frameIndex)
+{
+    common->Printf(
+        "PathTracePrimaryPass: GEO08 skinned BLAS shadow frame=%llu gate/world/physicalExact/changed/uav/asInput=%d/%d/%d/%d/%d/%d storage(allocator/physical)=%llu/%llu outputBytes(expected/physical)=%llu/%llu candidates/dispatched/sourceGpuExact/outputExact/observed=%d/%d/%d/%d/%d plan(build/update/rebuild/pending/reject)=%d/%d/%d/%d/%d states(active/build/ready/update/rebuild/failed/retiring)=%llu/%llu/%llu/%llu/%llu/%llu/%llu retire(applied/missing/released)=%d/%d/%llu route=shadow-no-as\n",
+        static_cast<unsigned long long>(frameIndex),
+        audit.gate ? 1 : 0,
+        audit.worldValid ? 1 : 0,
+        audit.physicalBufferExact ? 1 : 0,
+        audit.physicalBufferChanged ? 1 : 0,
+        audit.physicalBufferUav ? 1 : 0,
+        audit.physicalBufferAsInput ? 1 : 0,
+        static_cast<unsigned long long>(
+            audit.allocatorStorageGeneration),
+        static_cast<unsigned long long>(
+            audit.physicalStorageGeneration),
+        static_cast<unsigned long long>(
+            audit.expectedOutputBytes),
+        static_cast<unsigned long long>(
+            audit.physicalOutputBytes),
+        audit.candidates,
+        audit.dispatched,
+        audit.sourceGpuExact,
+        audit.outputExact,
+        audit.observed,
+        audit.buildRequired,
+        audit.updateRequired,
+        audit.rebuildRequired,
+        audit.alreadyPending,
+        audit.rejected,
+        static_cast<unsigned long long>(
+            audit.stats.activeRecords),
+        static_cast<unsigned long long>(
+            audit.stats.buildPending),
+        static_cast<unsigned long long>(
+            audit.stats.ready),
+        static_cast<unsigned long long>(
+            audit.stats.updatePending),
+        static_cast<unsigned long long>(
+            audit.stats.rebuildPending),
+        static_cast<unsigned long long>(
+            audit.stats.failed),
+        static_cast<unsigned long long>(
+            audit.stats.pendingRetirements),
+        audit.retireApplied,
+        audit.retireMissing,
+        static_cast<unsigned long long>(
+            audit.stats.retirementsReleased));
 }
 
 void DumpSmokeSkinnedGpuFunnel(
@@ -6401,6 +6739,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     bufferCreateDesc.existingBuffers.skinnedSourceVertexBuffer = m_smokeSkinnedSourceVertexBuffer;
     bufferCreateDesc.existingBuffers.skinnedCurrentOutputVertexBuffer = m_smokeSkinnedCurrentOutputVertexBuffer;
+    bufferCreateDesc.existingSkinnedOutputStorageGeneration =
+        m_smokeSkinnedOutputBufferGeneration;
     bufferCreateDesc.existingBuffers.skinnedPreviousPositionBuffer = m_smokeSkinnedPreviousPositionBuffer;
     bufferCreateDesc.existingBuffers.skinnedSurfaceDispatchBuffer = m_smokeSkinnedSurfaceDispatchBuffer;
     bufferCreateDesc.existingBuffers.skinnedTriangleDispatchIndexBuffer = m_smokeSkinnedTriangleDispatchIndexBuffer;
@@ -6449,6 +6789,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.rigidRouteInstanceBytes = rigidRouteBuild.instances.size() * sizeof(PathTraceRigidRouteInstance);
     bufferCreateDesc.skinnedSourceVertexBytes = skinnedGpuScaffold.sourceVertices.size() * sizeof(PathTraceSkinnedSourceVertex);
     bufferCreateDesc.skinnedCurrentOutputVertexBytes = skinnedGpuScaffold.currentOutputVertices.size() * sizeof(PathTraceSmokeVertex);
+    bufferCreateDesc.skinnedOutputStorageGeneration =
+        canonicalSkinnedSourceOutputRoute
+            ? m_smokeSkinnedOutputAllocator.Stats().
+                storageGeneration
+            : 0;
     bufferCreateDesc.skinnedPreviousPositionBytes = skinnedGpuScaffold.previousPositions.size() * sizeof(PathTraceSkinnedPreviousPosition);
     bufferCreateDesc.skinnedSurfaceDispatchBytes = skinnedGpuScaffold.dispatchRecords.size() * sizeof(PathTraceSkinnedSurfaceDispatchRecord);
     bufferCreateDesc.skinnedTriangleDispatchIndexBytes = skinnedGpuScaffold.dynamicTriangleDispatchIndexes.size() * sizeof(uint32_t);
@@ -6558,6 +6903,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeRigidRouteInstanceBuffer = smokeBuffers.rigidRouteInstanceBuffer;
     nvrhi::BufferHandle smokeSkinnedSourceVertexBuffer = smokeBuffers.skinnedSourceVertexBuffer;
     nvrhi::BufferHandle smokeSkinnedCurrentOutputVertexBuffer = smokeBuffers.skinnedCurrentOutputVertexBuffer;
+    const bool skinnedOutputBufferChanged =
+        smokeSkinnedCurrentOutputVertexBuffer !=
+            m_smokeSkinnedCurrentOutputVertexBuffer;
     nvrhi::BufferHandle smokeSkinnedPreviousPositionBuffer = smokeBuffers.skinnedPreviousPositionBuffer;
     nvrhi::BufferHandle smokeSkinnedSurfaceDispatchBuffer = smokeBuffers.skinnedSurfaceDispatchBuffer;
     nvrhi::BufferHandle smokeSkinnedTriangleDispatchIndexBuffer = smokeBuffers.skinnedTriangleDispatchIndexBuffer;
@@ -8205,6 +8553,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         staticBlasCacheHit
             ? cachedStaticBlasGeometryGeneration
             : geometryUniverseStats.staticGeometryGeneration;
+    resourceCommitBuildDesc.skinnedOutputStorageGeneration =
+        bufferCreateDesc.skinnedOutputStorageGeneration;
     resourceCommitBuildDesc.bindingSet = bindingBuildResult.bindingSet;
     resourceCommitBuildDesc.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
     resourceCommitBuildDesc.activeTextureTable = &bindingBuildResult.activeTextureTable;
@@ -8236,6 +8586,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         OPTICK_EVENT("PT Commit Scene Resources");
         CommitRayTracingSmokeSceneResources(resourceCommitDesc);
+    }
+    const RtSmokeSkinnedBlasShadowAudit skinnedBlasShadowAudit =
+        UpdateSmokeSkinnedBlasShadowState(
+            viewDef,
+            currentSkinnedSurfaceRecords,
+            skinnedGpuScaffold,
+            m_smokeGeometryUniverse,
+            m_smokeSkinnedOutputAllocator,
+            m_smokeSkinnedBlasStateTable,
+            m_smokeSkinnedCurrentOutputVertexBuffer,
+            m_smokeSkinnedOutputBufferGeneration,
+            skinnedOutputBufferChanged,
+            canonicalSkinnedSourceOutputRoute,
+            geometryUniverseStats.frameIndex);
+    if (skinnedGpuParitySentinelRequested)
+    {
+        DumpSmokeSkinnedBlasShadowAudit(
+            skinnedBlasShadowAudit,
+            geometryUniverseStats.frameIndex);
     }
     {
         OPTICK_EVENT("PT Post Commit State Cache");

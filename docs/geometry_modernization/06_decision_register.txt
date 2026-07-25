@@ -280,9 +280,31 @@ change while work is pending, the prior planned action is invalidated rather
 than submitted against stale storage.
 
 Removal and world replacement create explicit retirement tokens. Frame age
-alone does not release an AS or its referenced output generation. The first
-slice is a pure state table and harness; physical buffers, NVRHI AS handles and
-live observation remain later GEO-08 slices.
+alone does not release an AS or its referenced output generation. Slice 1 is a
+pure state table and harness. Slice 2 adds physical initial-generation
+ownership and live shadow observation; NVRHI AS handles, explicit GPU
+completion and traversal remain later GEO-08 slices.
+
+D27. PHYSICAL SKINNED OUTPUT GENERATIONS ARE ONE-TO-ONE IN SHADOW MODE
+----------------------------------------------------------------------
+Decision: a nonzero PtSkinnedOutputAllocator storage generation owns one
+physical output buffer contract. Reuse requires the same generation, sufficient
+capacity, 112-byte stride, UAV capability, and acceleration-structure-build-
+input capability. A generation change forces a new handle; generation identity
+is propagated through commit and retired scene packages.
+
+Only a finalized dispatchedGpu GEO-07 job may be observed by the BLAS state
+table, and only after its exact GEO-06 source GPU index range and committed
+output range pass checked generation/offset/count/capacity validation.
+Observation remains shadow-only: it neither creates nor submits a BLAS and
+cannot affect TLAS traversal.
+
+The existing r_pathTracingSceneRetireFrames package queue is explicitly
+classified as a temporary renderer-wide lifetime proxy, not GPU completion
+proof. It may retain shadow resources, but it cannot authorize live BLAS/TLAS
+cutover or satisfy D23/D26 release semantics. The next GEO-08 slice must select
+an explicit NVRHI/Vulkan completed-submission token and validate physical
+growth/release against it before acceleration structures become live.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

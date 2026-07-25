@@ -441,3 +441,15 @@ NO LONGER OPEN TO SPECULATION
   3651 and 6701, proving explicit source sharing and non-overlapping output.
   geometry_geo59_auto disables the source-registry gate, restores the legacy
   9889/9889 comparison layout, and retains the 24-sample parity pass.
+- geometry_geo62_auto accepts GEO-08 slice 2's physical initial-generation and
+  live shadow-observation contract. The allocator and committed physical
+  buffer both report generation 1 and exactly 1,835,008 bytes for 16,384
+  112-byte vertices; the handle has both UAV and acceleration-build-input
+  capability. All 12 finalized dispatches resolve exact GEO-06 source index
+  ranges and exact GEO-07 output ranges, yielding 12 independent
+  build-pending state records with zero rejection. No BLAS is submitted and
+  traversal remains legacy. The same run passes 24 current/previous/motion
+  parity samples with 0.0000152587891 maximum current error. Physical growth
+  and release are not claimed: the existing scene-package frame queue is only
+  a lifetime proxy, so explicit GPU completion remains mandatory before live
+  BLAS/TLAS work.

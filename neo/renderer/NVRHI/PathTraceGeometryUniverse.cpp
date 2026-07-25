@@ -1462,6 +1462,39 @@ RtSmokeGeometryUniverse::FindCanonicalSourceRecord(
     return m_canonicalSourceRegistry.Find(key);
 }
 
+const PtGeometryGpuPoolRecord*
+RtSmokeGeometryUniverse::FindCanonicalSourceGpuRecord(
+    const PtCanonicalMeshKey& key) const
+{
+    for (size_t recordIndex = 0;
+        recordIndex <
+            m_canonicalSourceGpuPools.RecordCount();
+        ++recordIndex)
+    {
+        const PtGeometryGpuPoolRecord* record =
+            m_canonicalSourceGpuPools.RecordAt(recordIndex);
+        if (record != nullptr && record->key == key)
+        {
+            return record;
+        }
+    }
+    return nullptr;
+}
+
+uint64
+RtSmokeGeometryUniverse::CanonicalSourceIndexPoolGeneration()
+    const
+{
+    return m_canonicalSourceGpuPoolStats.generations[2];
+}
+
+uint64
+RtSmokeGeometryUniverse::CanonicalSourceIndexPoolCapacityBytes()
+    const
+{
+    return m_canonicalSourceGpuPoolStats.capacities[2];
+}
+
 void RtSmokeGeometryUniverse::DumpCanonicalIdentityImportStats()
 {
     const PtGeometryIdentityRegistryStats& stats =

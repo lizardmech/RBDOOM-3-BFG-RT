@@ -1,6 +1,6 @@
 GEO-08 - per-instance skinned BLAS entry audit
 ==============================================
-Status: dependency correction and slice-1 state contract accepted.
+Status: dependency correction and slices 1-2 shadow contracts accepted.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 179127951.
@@ -130,3 +130,94 @@ Slice 2 must create/retire physical output-buffer generations and observe the
 accepted GEO-07 job inputs into this table in shadow mode. It must not create a
 BLAS or alter TLAS traversal until the resulting source/output generation tuple
 is exact at runtime.
+
+SLICE 2 - PHYSICAL OUTPUT GENERATION AND LIVE SHADOW OBSERVATION
+----------------------------------------------------------------
+Implemented:
+
+  one physical PathTraceSkinnedCurrentOutputVertices buffer per nonzero
+    PtSkinnedOutputAllocator storage generation;
+  exact reuse only when generation, capacity, 112-byte stride, UAV capability,
+    and acceleration-structure-build-input capability all match;
+  forced physical replacement when the allocator generation changes;
+  propagation of the allocator generation through scene-resource commit and
+    retired scene packages;
+  conservative generation acknowledgement only after the corresponding
+    retained package is released and no active/retained package still names
+    that generation;
+  exact lookup of the GEO-06 canonical source GPU index-pool record;
+  live observation of only finalized dispatchedGpu GEO-07 jobs into
+    PtSkinnedBlasStateTable.
+
+The observer validates, before creating a state-table candidate:
+
+  full SkinnedSurface InstanceKey and exact identity binding;
+  exact SkinnedBindSource/Skinned MeshKey and source checksum;
+  checked source index offset/count/end against the live GEO-06 index pool
+    generation and capacity;
+  checked output offset/count/end against the committed physical buffer
+    generation and capacity;
+  successful GEO-07 compute dispatch;
+  physical UAV and acceleration-structure-build-input flags.
+
+It deliberately calls Observe only. It does not create an NVRHI acceleration
+structure and does not call MarkSubmitted. Records therefore remain
+build-pending in this shadow slice. No legacy BLAS or TLAS input changed.
+
+RUNTIME ACCEPTANCE
+------------------
+Autonomous prepared save:
+
+  geometry_geo62_auto.log
+  map = game/mars_city1
+
+First committed frame:
+
+  gate/world/physical exact/changed/UAV/AS input = 1/1/1/1/1/1
+  allocator/physical storage generation = 1/1
+  expected/physical output bytes = 1835008/1835008
+  candidates/dispatched/source GPU exact/output exact/observed =
+    12/12/12/12/12
+  plan build/update/rebuild/already-pending/rejected = 12/0/0/0/0
+  state active/build-pending = 12/12
+  retirement applied/missing/released = 0/0/0
+  route = shadow-no-as
+
+The 1,835,008-byte physical allocation is exactly 16,384 vertices at the
+112-byte PathTraceSmokeVertex stride. The two 3,050-vertex Fatzombies still
+share immutable source offset 3651 and retain distinct output offsets 3651 and
+6701.
+
+Existing numeric proof in the same run:
+
+  parity samples/current/previous/motion failures = 24/0/0/0
+  non-finite outputs = 0
+  maximum current error = 0.0000152587891
+  parity pass = 1
+
+Offline/build/deploy:
+
+  related harness suite = 6/6 PASS
+  cmake --build --preset win64-pt-dev-release = PASS
+  all SPIR-V shaders up to date; no shader source or blob changed
+  deployed executable:
+    size 15712768 bytes
+    mtime 2026-07-25 14:46:28 Australia/Sydney
+    SHA-256 44A7212CC8DFA0B0D5194378DB50EC781AAB625691BE85DF061DF6E4C32962B6
+
+LIFETIME LIMIT AND NEXT
+-----------------------
+The renderer's existing retired-scene-package queue still releases handles
+after r_pathTracingSceneRetireFrames. This is the current renderer-wide
+completion proxy, not proof from a GPU fence/timeline value. It is sufficient
+to keep slice 2 behavior-neutral and prevents the allocator from acknowledging
+a generation before its retained handle is dropped, but it does not satisfy
+the final live-BLAS completion contract in D23/D26.
+
+Before any per-instance BLAS is submitted or included in a TLAS, the next slice
+must audit the available NVRHI/Vulkan completion primitive and bind output
+generation plus BLAS/TLAS retirement to an explicit completed submission
+token. It must then create comparison BLAS handles while leaving legacy
+traversal authoritative. Physical growth/retirement needs a runtime exercise
+once that completion route exists; geometry_geo62 proves initial generation
+creation and exact observation, not a growth event.

@@ -179,6 +179,8 @@ static bool SmokeScenePackageHandlesChanged(const RtRetiredSmokeScenePackage& ol
 {
     return
         SmokeSceneBuffersChanged(oldPackage.buffers, next.buffers) ||
+        oldPackage.skinnedOutputStorageGeneration !=
+            next.skinnedOutputStorageGeneration ||
         oldPackage.staticBlas != next.staticBlas ||
         oldPackage.dynamicBlas != next.dynamicBlas ||
         oldPackage.tlas != next.tlas ||
@@ -292,7 +294,52 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.rigidRouteTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer, "PathTraceRigidRouteTriangleMaterialIndexes", desc.rigidRouteTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteInstanceBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteInstanceBuffer, "PathTraceRigidRouteInstances", desc.rigidRouteInstanceBytes, sizeof(PathTraceRigidRouteInstance), false, false, false);
     result.buffers.skinnedSourceVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSourceVertexBuffer, "PathTraceSkinnedSourceVertices", desc.skinnedSourceVertexBytes, sizeof(PathTraceSkinnedSourceVertex));
-    result.buffers.skinnedCurrentOutputVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentOutputVertexBuffer, "PathTraceSkinnedCurrentOutputVertices", desc.skinnedCurrentOutputVertexBytes, sizeof(PathTraceSmokeVertex), true);
+    nvrhi::BufferHandle existingSkinnedOutput =
+        desc.existingBuffers.skinnedCurrentOutputVertexBuffer;
+    if (desc.skinnedOutputStorageGeneration != 0)
+    {
+        if (desc.skinnedCurrentOutputVertexBytes == 0)
+        {
+            result.errorMessage =
+                "nonzero skinned output generation has no storage";
+            return result;
+        }
+        if (desc.existingSkinnedOutputStorageGeneration ==
+                desc.skinnedOutputStorageGeneration &&
+            existingSkinnedOutput)
+        {
+            const nvrhi::BufferDesc& existingDesc =
+                existingSkinnedOutput->getDesc();
+            if (existingDesc.byteSize <
+                    desc.skinnedCurrentOutputVertexBytes ||
+                existingDesc.structStride !=
+                    sizeof(PathTraceSmokeVertex) ||
+                !existingDesc.canHaveUAVs ||
+                !existingDesc.isAccelStructBuildInput)
+            {
+                result.errorMessage =
+                    "skinned output generation changed physical contract";
+                return result;
+            }
+        }
+        else
+        {
+            existingSkinnedOutput = nullptr;
+        }
+    }
+    result.buffers.skinnedCurrentOutputVertexBuffer =
+        desc.skinnedCurrentOutputVertexBytes == 0
+            ? nullptr
+            : ReuseOrCreateSmokeGeometryBuffer(
+                desc.device,
+                existingSkinnedOutput,
+                "PathTraceSkinnedCurrentOutputVertices",
+                desc.skinnedCurrentOutputVertexBytes,
+                sizeof(PathTraceSmokeVertex),
+                false,
+                false,
+                true,
+                true);
     result.buffers.skinnedPreviousPositionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousPositionBuffer, "PathTraceSkinnedPreviousPositions", desc.skinnedPreviousPositionBytes, sizeof(PathTraceSkinnedPreviousPosition), false, false, false, true, true);
     result.buffers.skinnedSurfaceDispatchBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSurfaceDispatchBuffer, "PathTraceSkinnedSurfaceDispatch", desc.skinnedSurfaceDispatchBytes, sizeof(PathTraceSkinnedSurfaceDispatchRecord), false, false, false, false, true);
     result.buffers.skinnedTriangleDispatchIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedTriangleDispatchIndexBuffer, "PathTraceSkinnedTriangleDispatchIndex", desc.skinnedTriangleDispatchIndexBytes, sizeof(uint32_t), false, false, false, false, true);
@@ -570,6 +617,8 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.hasStaticBlas = desc.hasStaticBlas;
     commitDesc.staticBlasSignature = desc.staticBlasSignature;
     commitDesc.staticBlasGeometryGeneration = desc.staticBlasGeometryGeneration;
+    commitDesc.skinnedOutputStorageGeneration =
+        desc.skinnedOutputStorageGeneration;
     commitDesc.bindingSet = desc.bindingSet;
     commitDesc.textureDescriptorTable = desc.textureDescriptorTable;
     commitDesc.skyEnvironmentCube = desc.skyEnvironmentCube;
@@ -1677,6 +1726,8 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
 RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeScenePackage() const
 {
     RtRetiredSmokeScenePackage package;
+    package.skinnedOutputStorageGeneration =
+        m_smokeSkinnedOutputBufferGeneration;
     package.buffers.staticVertexBuffer = m_smokeStaticVertexBuffer;
     package.buffers.staticIndexBuffer = m_smokeStaticIndexBuffer;
     package.buffers.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
@@ -1750,12 +1801,51 @@ void PathTracePrimaryPass::PushRetiredRayTracingSmokeScenePackage(RtRetiredSmoke
 int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint64 currentFrame)
 {
     int releasedCount = 0;
+    uint64 releasedSkinnedOutputGeneration = 0;
     while (!m_retiredSmokeScenePackages.empty() && m_retiredSmokeScenePackages.front().retireFrame <= currentFrame)
     {
+        const uint64 generation =
+            m_retiredSmokeScenePackages.front().
+                skinnedOutputStorageGeneration;
+        releasedSkinnedOutputGeneration =
+            Max(
+                releasedSkinnedOutputGeneration,
+                generation);
         m_retiredSmokeScenePackages.pop_front();
         ++releasedCount;
     }
 
+    if (releasedSkinnedOutputGeneration != 0)
+    {
+        uint64 firstRetainedGeneration =
+            m_smokeSkinnedOutputBufferGeneration;
+        for (const RtRetiredSmokeScenePackage& package :
+            m_retiredSmokeScenePackages)
+        {
+            const uint64 generation =
+                package.skinnedOutputStorageGeneration;
+            if (generation != 0 &&
+                (firstRetainedGeneration == 0 ||
+                    generation <
+                        firstRetainedGeneration))
+            {
+                firstRetainedGeneration = generation;
+            }
+        }
+        if (firstRetainedGeneration != 0 &&
+            releasedSkinnedOutputGeneration >=
+                firstRetainedGeneration)
+        {
+            releasedSkinnedOutputGeneration =
+                firstRetainedGeneration - 1;
+        }
+        if (releasedSkinnedOutputGeneration != 0)
+        {
+            m_smokeSkinnedOutputAllocator.
+                ReleaseStorageGenerationsThrough(
+                    releasedSkinnedOutputGeneration);
+        }
+    }
     return releasedCount;
 }
 
@@ -1855,6 +1945,8 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeGeometryUniverse.Clear();
     m_particleDiagnosticFramesRemaining = 0;
     m_smokeSkinnedSurfaceRecords.clear();
+    m_smokeSkinnedOutputAllocator.Clear();
+    m_smokeSkinnedBlasStateTable.Clear();
     m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
     m_smokeSkinnedHistoryStates.clear();
     m_smokeSkinnedHistoryUpdateSerial = 0;
@@ -1937,6 +2029,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeRigidRouteSideBufferWriteSlot = 0;
     m_smokeSkinnedSourceVertexBuffer = nullptr;
     m_smokeSkinnedCurrentOutputVertexBuffer = nullptr;
+    m_smokeSkinnedOutputBufferGeneration = 0;
     m_smokeSkinnedPreviousPositionBuffer = nullptr;
     m_smokeSkinnedSurfaceDispatchBuffer = nullptr;
     m_smokeSkinnedTriangleDispatchIndexBuffer = nullptr;
@@ -2065,6 +2158,10 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeRigidRouteInstanceBuffer = desc.buffers.rigidRouteInstanceBuffer;
     m_smokeSkinnedSourceVertexBuffer = desc.buffers.skinnedSourceVertexBuffer;
     m_smokeSkinnedCurrentOutputVertexBuffer = desc.buffers.skinnedCurrentOutputVertexBuffer;
+    const uint64 previousSkinnedOutputGeneration =
+        m_smokeSkinnedOutputBufferGeneration;
+    m_smokeSkinnedOutputBufferGeneration =
+        desc.skinnedOutputStorageGeneration;
     m_smokeSkinnedPreviousPositionBuffer = desc.buffers.skinnedPreviousPositionBuffer;
     m_smokeSkinnedSurfaceDispatchBuffer = desc.buffers.skinnedSurfaceDispatchBuffer;
     m_smokeSkinnedTriangleDispatchIndexBuffer = desc.buffers.skinnedTriangleDispatchIndexBuffer;
@@ -2101,6 +2198,15 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeUnifiedLightRemapCount = desc.unifiedLightRemapCount;
     m_smokeRestirLightManagerCurrentPayloadCount = desc.restirLightManagerCurrentPayloadCount;
     m_smokeRestirLightManagerPreviousPayloadCount = desc.restirLightManagerPreviousPayloadCount;
+    if (retireFrames == 0 &&
+        previousSkinnedOutputGeneration != 0 &&
+        previousSkinnedOutputGeneration !=
+            m_smokeSkinnedOutputBufferGeneration)
+    {
+        m_smokeSkinnedOutputAllocator.
+            ReleaseStorageGenerationsThrough(
+                previousSkinnedOutputGeneration);
+    }
     const uint64_t uploadBytes =
         desc.sceneInputs.diagnostics.geometryUploadBytes +
         desc.sceneInputs.diagnostics.materialUploadBytes +

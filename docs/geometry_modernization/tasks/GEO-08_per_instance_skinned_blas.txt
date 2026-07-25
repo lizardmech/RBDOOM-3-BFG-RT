@@ -16,8 +16,19 @@ PRECONDITIONS
 STATUS
 ------
 Slice 1 is accepted: the pure full-InstanceKey BLAS state table and harness
-cover exact build/update/rebuild/failure/retirement transitions. It is not
-wired to live GPU objects or traversal. Slice 2 is next.
+cover exact build/update/rebuild/failure/retirement transitions.
+
+Slice 2 is accepted in shadow mode. A nonzero allocator storage generation now
+owns a distinct physical UAV/AS-build-input output buffer, and finalized
+dispatchedGpu jobs are validated against exact GEO-06 index-pool and committed
+output ranges before entering the state table. geometry_geo62_auto observes
+12/12 exact jobs and requests 12 initial builds with zero rejection; no BLAS is
+created and traversal is unchanged.
+
+The next slice must establish an explicit GPU-completion token for output,
+BLAS, and TLAS retirement before creating live comparison BLAS handles. The
+existing r_pathTracingSceneRetireFrames package queue is only a conservative
+renderer-wide frame proxy and is not the final completion contract.
 
 FILES TO AUDIT FIRST
 --------------------
@@ -46,9 +57,11 @@ STEPS
    build-pending, ready, update-pending, rebuild-pending, failed, and retiring.
    Give every transition and rejection a counter. Never key AS state by shared
    MeshKey.
-3. Make physical output-buffer generations follow the accepted allocator.
+3. ACCEPTED FOR SHADOW USE. Make physical output-buffer generations follow the accepted allocator.
    Growth creates a new buffer and retires the old buffer plus every BLAS that
-   references it. Release only after explicit in-flight completion.
+   references it. Initial generation identity and physical AS-input capability
+   pass in geometry_geo62_auto. Runtime growth and release remain blocked on
+   the explicit completion token; frame-age retirement cannot accept cutover.
 4. Create one updateable BLAS per eligible SkinnedSurface InstanceKey using
    AllowUpdate + PreferFastBuild. Keep source mesh identity, mutable output
    identity, and AS identity separate.

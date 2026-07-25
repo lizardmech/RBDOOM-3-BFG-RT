@@ -144,6 +144,25 @@ bounds, generation, failure recovery, non-aliasing and retirement cases.
 No live scene route consumes this table yet. Slice 2 is physical output-buffer
 generation ownership plus shadow observation from the accepted GEO-07 jobs.
 
+GEO-08 slice 2 is accepted as a behavior-neutral live shadow integration.
+Every nonzero output allocator generation now maps to a generation-tagged
+physical UAV/acceleration-build-input buffer, and exact reuse is forbidden
+across generation changes. The committed generation is retained with replaced
+scene packages. Only finalized dispatchedGpu jobs with checked GEO-06 source
+index ranges and checked GEO-07 output ranges enter the BLAS state table.
+geometry_geo62_auto proves 12/12 exact observations, twelve initial
+build-pending records, zero rejection, exact 1,835,008-byte physical storage,
+and unchanged 24-sample skinning parity. It creates no BLAS and changes no
+TLAS traversal.
+
+The next slice begins with a completion audit. The existing
+r_pathTracingSceneRetireFrames queue is a frame-age lifetime proxy and cannot
+be promoted as the explicit GPU completion required by D23/D26. Before live
+comparison BLAS submission, select and validate an NVRHI/Vulkan submission
+completion token, attach output generation plus BLAS/TLAS retirement to it,
+then exercise physical growth and delayed release. Only after that proof may
+step 4 create updateable comparison BLAS handles.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction
