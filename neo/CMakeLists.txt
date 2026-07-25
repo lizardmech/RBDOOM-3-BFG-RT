@@ -539,6 +539,7 @@ set(PATH_TRACE_CPU_WORKER_NO_PCH_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometrySourceRegistry.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometrySourceTransport.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceJointCacheCopyPlan.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceSkinnedBlasState.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceSkinnedOutputAllocator.cpp
 	)
 
@@ -1596,6 +1597,16 @@ add_executable(PathTraceSkinnedOutputAllocatorHarness
 target_include_directories(PathTraceSkinnedOutputAllocatorHarness PRIVATE renderer/NVRHI)
 if(BUILD_TESTING)
 	add_test(NAME PathTraceSkinnedOutputAllocatorHarness COMMAND $<TARGET_FILE:PathTraceSkinnedOutputAllocatorHarness>)
+endif()
+
+add_executable(PathTraceSkinnedBlasStateHarness
+	tests/pathtrace_skinned_blas_state_harness.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	renderer/NVRHI/PathTraceSkinnedBlasState.cpp
+	)
+target_include_directories(PathTraceSkinnedBlasStateHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceSkinnedBlasStateHarness COMMAND $<TARGET_FILE:PathTraceSkinnedBlasStateHarness>)
 endif()
 
 add_executable(PathTraceLiquidPoolReducerHarness

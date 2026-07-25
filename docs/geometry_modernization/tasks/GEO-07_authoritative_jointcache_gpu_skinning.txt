@@ -4,8 +4,9 @@ GEO-07 - Make jointCache GPU skinning authoritative
 GOAL
 ----
 For eligible true-deforming MD5 surfaces, consume renderer-authoritative joint
-state on the GPU, write per-instance current/previous geometry, and skip CPU
-pre-skinning while retaining an explicit CPU fallback.
+state on the GPU and write validated per-instance current/previous geometry.
+Hand the proven producer and exact failure classification to GEO-08, where live
+BLAS traversal and CPU pre-skin removal must cut over together.
 
 PRECONDITIONS
 -------------
@@ -44,10 +45,11 @@ STEPS
    value-owned source once per unique MeshKey/checksum, bind distinct
    full-InstanceKey output offsets, and schedule skinning after authoritative
    joint writes on the same command-list chain. CPU pre-skinning and live BLAS
-   inputs remain unchanged until step 6.
-6. Route each candidate through the GEO-03 funnel. Only `dispatchedGpu` may skip
-   CPU pre-skinning; every other result uses the named CPU fallback or explicit
-   single-bone route.
+   inputs remain unchanged in GEO-07.
+6. Route each candidate through the GEO-03 funnel and export the exact
+   eligibility/result needed by GEO-08. `dispatchedGpu` is necessary but is not
+   by itself permission to skip CPU capture: until a BLAS consumes the new
+   output, the merged dynamic BLAS still depends on CPU-skinned vertices.
 7. Keep single-bone optimization conditional on proven rigid transform and
    identical material/motion semantics. Otherwise use normal GPU skinning.
 8. Preserve current and previous positions. On first observation, teleport, or
@@ -55,22 +57,28 @@ STEPS
    previous outputs to the GEO-04 logical view/history owner; never consume the
    global last-3D-view bridge as authoritative history.
 9. Re-run same-frame CPU/GPU readback for all GEO-03 probes and crowded clones.
-10. Measure CPU skin time, source upload, joint upload, output bytes, and GPU
-    skin dispatch time on identical geometry counts.
+10. Measure source upload, joint upload, output bytes, and GPU skin dispatch
+    time on identical geometry counts. Retain the measured CPU skin baseline
+    for the GEO-08 cutover A/B.
 
 GUARDRAILS
 ----------
 - No per-model pose sharing in the first cut.
 - No silent fallback and no T-pose sentinel output.
 - Do not promote the new outputs into live BLAS traversal here; GEO-08 owns it.
+- Do not claim CPU pre-skin removal while the merged dynamic BLAS consumes the
+  CPU-produced dynamic vertex stream.
 - Fatzombie texture failure is not a skinning failure if its geometry compares.
 
 DONE WHEN
 ---------
 - Every eligible surface has exact GPU/fallback accounting.
 - GPU current/previous outputs meet GEO-03 tolerance.
-- Eligible surfaces no longer execute CPU pre-skinning under the gate.
-- Gate off restores the previous CPU path.
+- Shared sources and distinct full-InstanceKey outputs pass runtime proof.
+- Gate off restores the previous comparison path.
+
+CPU pre-skin removal remains a Phase C acceptance condition, but the live
+cutover is completed in GEO-08 after per-instance BLAS/TLAS parity passes.
 
 CHECKPOINT
 ----------

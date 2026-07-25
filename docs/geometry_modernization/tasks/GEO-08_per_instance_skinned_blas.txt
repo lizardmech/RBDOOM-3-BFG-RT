@@ -9,8 +9,15 @@ observable policy.
 
 PRECONDITIONS
 -------------
-- GEO-07 GPU output is correct and authoritative under its gate.
+- GEO-07 GPU current/previous output is numerically correct and every candidate
+  has exact source, output, joint, dispatch, and failure accounting.
 - CPU fallback surfaces remain on the legacy route.
+
+STATUS
+------
+Slice 1 is accepted: the pure full-InstanceKey BLAS state table and harness
+cover exact build/update/rebuild/failure/retirement transitions. It is not
+wired to live GPU objects or traversal. Slice 2 is next.
 
 FILES TO AUDIT FIRST
 --------------------
@@ -18,41 +25,82 @@ FILES TO AUDIT FIRST
   neo/renderer/NVRHI/PathTraceAccelerationPlan.cpp/.h
   neo/renderer/NVRHI/PathTraceGeometryUniverse.cpp/.h
   neo/renderer/NVRHI/PathTraceInstanceUniverse.cpp/.h
+  neo/renderer/NVRHI/PathTraceSceneCapture.cpp/.h
   neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
   neo/renderer/NVRHI/PathTraceCpuWork.cpp/.h
+  neo/shaders/builtin/pathtracing/pathtrace_smoke*.hlsl*
 
 STEPS
 -----
-1. Define per-instance AS states: absent, build-pending, ready, update-pending,
-   rebuild-pending, failed, and retiring. Give every transition a counter.
-2. Create a BLAS with update support from the instance's mutable output range.
-   Keep source mesh identity separate from AS identity.
-3. Insert one TLAS instance per ready skinned BLAS with canonical instance ID,
-   transform policy, mask, and route metadata.
-4. Update eligible BLASes after skinning. Rebuild on topology/source-generation
-   change, incompatible buffer generation, policy cadence, or update failure.
-5. Start with a fixed conservative rebuild cadence. Expose cadence, build/update
-   counts, scratch bytes, and failure reason; tuning comes from measurement.
-6. Keep the old merged BLAS selectable. In compare mode, record instance and
-   primitive totals, sampled hit identities, bounds, and material/triangle IDs.
-7. Handle spawn, despawn, offscreen/return, PDA, map teardown, and buffer growth.
-   Retire AS resources only after their last in-flight TLAS use.
-8. Validate 13 Fatzombie/clone instances: one source mesh record per unique
-   surface, distinct mutable output/BLAS per live instance.
-9. Measure BLAS build/update/reuse time and counts with identical animated
-   geometry. Report merged legacy rebuild cost separately.
+1. Freeze the cutover contract before implementation:
+   - the accepted output buffer stores world-space PathTraceSmokeVertex records,
+     so the first TLAS transform is identity;
+   - BLAS vertexOffset is the full-InstanceKey output byte offset;
+   - BLAS indexOffset/count comes from the exact canonical source GPU-pool
+     record, whose indexes remain local to that source surface;
+   - compute dispatch, UAV-to-AS barrier, BLAS build/update, and TLAS build are
+     ordered on the same command-list chain;
+   - output storage generation, source checksum/generation, and BLAS generation
+     must agree before submission.
+2. Define a pure per-instance AS state machine and harness: absent,
+   build-pending, ready, update-pending, rebuild-pending, failed, and retiring.
+   Give every transition and rejection a counter. Never key AS state by shared
+   MeshKey.
+3. Make physical output-buffer generations follow the accepted allocator.
+   Growth creates a new buffer and retires the old buffer plus every BLAS that
+   references it. Release only after explicit in-flight completion.
+4. Create one updateable BLAS per eligible SkinnedSurface InstanceKey using
+   AllowUpdate + PreferFastBuild. Keep source mesh identity, mutable output
+   identity, and AS identity separate.
+5. Schedule initial build or update only after that instance's skin dispatch.
+   Use PerformUpdate only when topology, source record, output buffer and range,
+   and AS generation are unchanged. Otherwise rebuild. Start with a fixed,
+   observable full-rebuild cadence.
+6. Define the shader hit-routing contract before adding TLAS instances.
+   Prove canonical instance ID, primitive-to-source-triangle lookup, material
+   table lookup, current/previous position lookup, and emissive identity for a
+   per-surface skinned BLAS. Do not reuse the merged-dynamic instance-ID meaning
+   accidentally.
+7. Add comparison TLAS routing while the merged dynamic BLAS remains live.
+   Record instance/primitive totals, sampled hit identities, bounds,
+   material/triangle IDs, and motion inputs. A compare failure must select only
+   the legacy route.
+8. Split capture only after comparison passes. GPU-eligible skinned surfaces
+   stop appending CPU-skinned vertices/indexes to the merged dynamic BLAS, while
+   particles, callbacks, unsupported layouts, and other named failures remain
+   there. Source topology, not bind-pose positions, supplies index validity;
+   posed zero-area filtering must not silently change primitive identity.
+9. Make failure timing explicit:
+   - structural ineligibility is decided before the CPU capture split and uses
+     same-frame CPU fallback;
+   - a late command-recording/resource failure after CPU work was skipped uses
+     a validated prior-pose hold or suppresses that instance for the frame;
+   - never leave bind-pose or zero sentinel vertices traversable;
+   - do not describe a late failure as CPU fallback unless CPU vertices were
+     actually produced.
+10. Handle spawn, despawn, offscreen/return, PDA, map teardown, and buffer
+    growth. Retire AS resources only after their last in-flight TLAS use.
+11. Validate 13 Fatzombie/clone instances: one source mesh record per unique
+    surface, distinct mutable output/BLAS per live instance.
+12. Measure CPU skin time, BLAS build/update/reuse time and counts with
+    identical animated geometry. Report merged legacy rebuild cost separately.
 
 VALIDATION
 ----------
 - Per-instance update count equals eligible live skinned BLAS count.
 - No duplicate/missing TLAS instance IDs and no stale buffer generation.
 - Periodic rebuild is bounded and visible.
+- Eligible routed surfaces perform no full CPU vertex skin/copy.
+- Every remaining CPU-skinned surface has a named ineligibility/failure reason.
+- Late-failure policy cannot expose bind pose, zero sentinels, or stale storage.
 - Gate off returns to the merged BLAS with identical visible geometry.
 
 DONE WHEN
 ---------
 Eligible skinned instances traverse their own updateable BLASes with exact state
-accounting, safe retirement, and legacy comparison proof.
+accounting, safe retirement, and legacy comparison proof. Their full CPU
+pre-skin/copy is absent under the gate; ineligible surfaces retain explicit CPU
+fallback and gate-off restores the original merged route.
 
 CHECKPOINT
 ----------

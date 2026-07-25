@@ -1,0 +1,132 @@
+GEO-08 - per-instance skinned BLAS entry audit
+==============================================
+Status: dependency correction and slice-1 state contract accepted.
+Date: 2026-07-25.
+Branch: restir-development.
+Entry checkpoint: 179127951.
+
+ENTRY CONTRADICTION
+-------------------
+The old GEO-07/GEO-08 boundary required CPU pre-skinning to disappear before
+GEO-08 while also forbidding GEO-07 from routing the new output through a BLAS.
+The live renderer cannot satisfy both statements:
+
+  BuildSmokeSurfaceVertexFromSource
+    -> CPU-skinned world-space dynamicVertexData
+    -> smokeDynamicVertexBuffer
+    -> merged smokeDynamicBlas
+    -> live TLAS traversal.
+
+The accepted GEO-07 mode-1 compute output is a different buffer with no BLAS
+consumer. Skipping CPU skinning first would leave bind-pose or invalid data in
+the live merged BLAS. D25 therefore moves CPU pre-skin removal to the GEO-08
+traversal cutover.
+
+FROZEN FIRST-CUT INPUT CONTRACT
+-------------------------------
+Per eligible canonical SkinnedSurface InstanceKey:
+
+  vertex buffer/range:
+    accepted per-instance PathTraceSmokeVertex output;
+    112-byte stride;
+    checked output buffer generation, byte offset, count and capacity;
+
+  index buffer/range:
+    exact canonical GEO-06 GPU index-pool record;
+    checked pool generation, aligned byte offset, count and capacity;
+    source indexes remain local to the surface;
+
+  source identity:
+    exact SkinnedBindSource/Skinned MeshKey and nonzero source checksum;
+
+  transform:
+    identity TLAS transform for the first cut because the accepted compute
+    shader writes world-space positions and attributes;
+
+  queue order:
+    renderer joint copy -> skin compute -> UAV/AS barrier ->
+    per-instance BLAS build/update -> TLAS build;
+
+  update eligibility:
+    initial build completed;
+    full InstanceKey unchanged;
+    mesh/source/index-pool/output storage contract unchanged;
+    fixed rebuild cadence not reached;
+
+  retirement:
+    exact lifecycle removal, render-def generation replacement, world change,
+    or referenced output-buffer generation replacement;
+    release requires explicit in-flight completion.
+
+SLICE 1 - PURE STATE CONTRACT
+-----------------------------
+Added:
+
+  neo/renderer/NVRHI/PathTraceSkinnedBlasState.h
+  neo/renderer/NVRHI/PathTraceSkinnedBlasState.cpp
+  neo/tests/pathtrace_skinned_blas_state_harness.cpp
+
+PtSkinnedBlasStateTable owns no renderer pointers or GPU handles. It models:
+
+  absent;
+  build-pending;
+  ready;
+  update-pending;
+  rebuild-pending;
+  failed;
+  retiring.
+
+The table:
+
+  keys by the complete InstanceKey, never shared MeshKey;
+  validates exact skinned identity and checked source/output ranges;
+  requests update only for a stable storage contract;
+  requests rebuild for source/output generation or range change;
+  requests rebuild after a failed submission;
+  applies a fixed observable rebuild cadence;
+  invalidates already-pending work when its storage contract changes;
+  prevents an explicitly retired entity generation from resurrecting;
+  keeps retirement pending until an explicit completion token is acknowledged;
+  retires every active record on world replacement.
+
+HARNESS/BUILD/DEPLOY
+--------------------
+PathTraceSkinnedBlasStateHarness:
+
+  PASS - initial build and stable update
+  PASS - cadence rebuild and BLAS generation advance
+  PASS - source/output generation rebuild
+  PASS - pending build/update invalidation
+  PASS - distinct instances sharing one MeshKey remain distinct
+  PASS - submission failure and recovery rebuild
+  PASS - exact retirement, replacement generation and world teardown
+  PASS - explicit retirement completion
+  PASS - source/output alignment, capacity and identity rejection
+
+Related six-harness suite:
+
+  6/6 PASS
+
+Full build:
+
+  cmake --build --preset win64-pt-dev-release
+  PASS
+  all SPIR-V shaders up to date
+  no shader or SPIR-V file changed
+
+Deployed executable:
+
+  E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+  size 15702016 bytes
+  mtime 2026-07-25 14:29:05 Australia/Sydney
+  SHA-256 4829381400DF54AA1E47D228C1B169E0B9D876C030EBB7F72D5360ED0C933E10
+
+ROLLBACK AND NEXT
+-----------------
+This slice is behavior-neutral and has no live gate. Removing the new table,
+harness and CMake target restores the exact prior executable behavior.
+
+Slice 2 must create/retire physical output-buffer generations and observe the
+accepted GEO-07 job inputs into this table in shadow mode. It must not create a
+BLAS or alter TLAS traversal until the resulting source/output generation tuple
+is exact at runtime.

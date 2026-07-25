@@ -250,6 +250,40 @@ CPU pre-skin removal and live BLAS use require their later gates and evidence.
 Disabling the canonical source-registry gate restores the prior transient
 comparison layout.
 
+D25. CPU PRE-SKIN REMOVAL CUTS OVER WITH PER-INSTANCE BLAS TRAVERSAL
+--------------------------------------------------------------------
+Decision: reject the proposed standalone GEO-07 CPU pre-skin-removal slice.
+The CPU-skinned dynamic vertex stream is still the sole vertex input to the
+live merged dynamic BLAS. The accepted GEO-07 mode-1 output is separate and no
+BLAS references it. Removing the CPU transform first would make live traversal
+consume bind-pose or invalid positions; pointing traversal at the new output is
+the GEO-08 ownership change.
+
+GEO-07 therefore completes the validated GPU producer and exact failure funnel.
+GEO-08 owns the comparison BLAS/TLAS route and the eventual capture split. Only
+after per-instance hit/material/motion parity passes may eligible surfaces stop
+performing full CPU pre-skin/copy. Structural ineligibility must be decided
+before that split and retains same-frame CPU fallback. A late failure after CPU
+work was skipped must use a validated prior-pose hold or suppress the instance;
+it must never expose bind pose or be mislabeled as CPU fallback.
+
+D26. SKINNED BLAS STATE IS FULL-INSTANCE AND GENERATION-EXACT
+-------------------------------------------------------------
+Decision: one PtCanonicalInstanceKey with SkinnedSurface kind owns one BLAS
+state record. Shared MeshKey/source data never shares mutable AS state.
+
+An initial exact observation requests build. A stable source/index/output
+contract requests update. Mesh topology, source checksum, source GPU index-pool
+generation/range, output buffer generation/range, failed submission, forced
+rebuild, or the fixed rebuild cadence requests a full rebuild. If any of these
+change while work is pending, the prior planned action is invalidated rather
+than submitted against stale storage.
+
+Removal and world replacement create explicit retirement tokens. Frame age
+alone does not release an AS or its referenced output generation. The first
+slice is a pure state table and harness; physical buffers, NVRHI AS handles and
+live observation remain later GEO-08 slices.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

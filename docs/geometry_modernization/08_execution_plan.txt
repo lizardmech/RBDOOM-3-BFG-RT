@@ -102,9 +102,47 @@ vertices. geometry_geo60_auto explicitly proves the two 3050-vertex
 Fatzombies read the same source offset 3651 while writing distinct output
 offsets 3651 and 6701. geometry_geo59_auto disables the source-registry gate,
 selects the legacy 9889/9889 comparison layout, and retains exact parity.
-CPU pre-skinning and live BLAS traversal remain authoritative. Slice 6 is next:
-only a job that completes as dispatchedGpu may skip CPU pre-skinning; every
-named source/output/joint/dispatch failure must retain the CPU fallback.
+
+The slice-6 entry audit rejects CPU pre-skin removal as an independent GEO-07
+change. AppendSmokeSurfaceGeometry currently produces the only world-space
+skinned vertex stream consumed by the merged dynamic BLAS. The accepted
+mode-1 output is a separate ShaderResource buffer and is not referenced by any
+BLAS. Skipping the CPU transform before changing traversal would therefore
+feed bind-pose/invalid positions to the live BLAS. Feeding the new output to a
+BLAS is exactly the GEO-08 ownership change that the GEO-07 guardrail defers.
+
+The order is corrected as follows:
+
+  1. GEO-07 is accepted through the validated GPU source/joint/output producer
+     and exact failure funnel. Full CPU capture remains the rollback/reference
+     path.
+  2. GEO-08 first adds per-instance updateable BLAS state and comparison TLAS
+     routing from the accepted output ranges, without removing the merged
+     dynamic path.
+  3. Only after GEO-08 proves compute -> barrier -> BLAS build/update -> TLAS
+     traversal and hit/material/motion parity may eligible surfaces leave the
+     merged dynamic capture and skip full CPU pre-skinning.
+  4. Structural ineligibility must be known before capture and stays on the CPU
+     route. A failure discovered after CPU capture has been skipped cannot
+     truthfully claim same-frame CPU fallback; its explicit fail-safe must be a
+     validated prior-pose hold or route suppression, never bind-pose output.
+
+This is a dependency correction, not a relaxation of the Phase C gate. CPU
+pre-skin removal remains required before Phase C completes, but it lands with
+the GEO-08 traversal cutover rather than before it.
+
+GEO-08 slice 1 is accepted as a behavior-neutral state contract. The pure
+PtSkinnedBlasStateTable keys every record by full SkinnedSurface InstanceKey,
+requires exact skinned MeshKey/source/index-pool/output-buffer inputs, and
+emits build, update, rebuild, failed and retiring states without owning GPU
+objects. Stable contracts request update; topology/source/index-pool/output
+generation or range changes, failed submissions, explicit force, and the fixed
+cadence request rebuild. Pending work is invalidated when its storage contract
+changes. Exact removal and world replacement retire records behind explicit
+completion tokens. PathTraceSkinnedBlasStateHarness passes all transition,
+bounds, generation, failure recovery, non-aliasing and retirement cases.
+No live scene route consumes this table yet. Slice 2 is physical output-buffer
+generation ownership plus shadow observation from the accepted GEO-07 jobs.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

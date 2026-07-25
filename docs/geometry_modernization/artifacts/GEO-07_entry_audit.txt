@@ -1,7 +1,7 @@
 GEO-07 - authoritative jointCache GPU skinning entry audit
 ==========================================================
-Status: slices 1-5 are accepted. Slice 6, guarded CPU pre-skin removal for jobs
-that reached dispatchedGpu, is next.
+Status: slices 1-5 are accepted. The proposed standalone slice 6 is rejected by
+the live BLAS dependency audit; the cutover is reordered into GEO-08.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 030ac8c20.
@@ -168,11 +168,11 @@ Subview policy for the first cut:
   until a durable Subview owner producer exists, previous motion is invalid for
     subview jobs rather than borrowed from the primary view.
 
-FAILURE AND FALLBACK
---------------------
-Only a job that completes joint resolution, staging and compute dispatch may
-skip CPU pre-skinning. Every other surface remains in the current CPU path with
-one named result:
+ORIGINAL FAILURE AND FALLBACK PROPOSAL
+--------------------------------------
+The original proposal said that only a job completing joint resolution,
+staging and compute dispatch may skip CPU pre-skinning, with every other
+surface remaining in the current CPU path under one named result:
 
   gateDisabled;
   notPrimaryHistoryOwner;
@@ -188,8 +188,10 @@ one named result:
   dispatchFailure;
   cpuFallback.
 
-There is no bind-pose/zero-output fallback. The existing GEO-03 terminal
-accounting invariant remains mandatory:
+The slice-6 audit below supersedes the timing part of that proposal:
+`dispatchedGpu` is necessary but cannot authorize a skip until GEO-08 makes the
+new output traversable. There is still no bind-pose/zero-output fallback. The
+existing GEO-03 terminal accounting invariant remains mandatory:
 
   resultTotal == candidates
   exact == 1
@@ -215,9 +217,9 @@ ORDERED IMPLEMENTATION SLICES
 5. Allocate per-instance mutable output ranges and source them from GEO-06
    immutable records. Prove two zombies sharing a mesh use distinct outputs.
 
-6. Under the master gate only, skip CPU pre-skinning for jobs that reached
-   dispatchedGpu. Preserve CPU reference generation only for an armed parity
-   readback. All failed jobs take the named CPU fallback.
+6. Superseded by the slice-6 dependency audit below. Build and compare the
+   per-instance GEO-08 BLAS/TLAS route before removing CPU pre-skinning.
+   Preserve CPU reference generation until traversal parity passes.
 
 7. Measure identical-content CPU skin time, source upload, joint copy
    count/bytes, mutable output bytes, dispatch time, and exact funnel totals.
@@ -1208,6 +1210,73 @@ Result:
 
   PASS - slice 5C proves shared immutable source consumption and distinct
          full-InstanceKey GPU outputs with unchanged numeric parity.
-  NEXT - slice 6 may skip CPU pre-skinning only for jobs that complete this
-         route as dispatchedGpu. Every named failure remains on CPU fallback,
-         and live BLAS promotion is still deferred to GEO-08.
+  NEXT - perform the corrected GEO-08 BLAS/TLAS comparison cutover. CPU
+         pre-skin removal cannot precede it.
+
+SLICE-6 ENTRY AUDIT - DEPENDENCY CORRECTION
+-------------------------------------------
+The proposed standalone CPU pre-skin-removal slice is not viable.
+
+The exact live producer/consumer chain is:
+
+  AppendSmokeSurfaceGeometry
+    -> BuildSmokeSurfaceVertexFromSource
+       applies joint matrices and object-to-world on the CPU
+    -> dynamicVertexData
+    -> smokeDynamicVertexBuffer upload
+    -> merged smokeDynamicBlas build
+    -> live TLAS instance 1 traversal.
+
+The accepted mode-1 compute route instead writes:
+
+  m_smokeSkinnedCurrentOutputVertexBuffer
+
+That buffer ends in ShaderResource state and no BLAS descriptor references it.
+The current per-instance allocator supplies vertex ranges only; source indexes
+remain in the canonical GEO-06 GPU index pool.
+
+Consequences:
+
+  - skipping BuildSmokeSurfaceVertexFromSource's joint transforms while leaving
+    traversal unchanged makes the merged BLAS consume bind-pose positions;
+  - leaving zero/placeholders is worse because the BLAS remains live;
+  - redirecting the BLAS to the new output is a GEO-08 traversal promotion,
+    explicitly forbidden by the old GEO-07 guardrail;
+  - `dispatchedGpu` is finalized after capture and does not by itself provide a
+    same-frame CPU fallback if a later resource/binding failure occurs;
+  - posed positions are also used during capture for zero-area rejection and
+    attribute diagnostics, so the capture split needs an explicit replacement
+    contract rather than simply bypassing four transform calls.
+
+Validated first GEO-08 input shape:
+
+  vertex buffer:
+    per-instance output buffer, PathTraceSmokeVertex stride 112
+  vertex offset:
+    PtSkinnedOutputRange.vertexOffset * 112
+  vertex count:
+    exact canonical mesh vertexCount
+  index buffer:
+    canonical GEO-06 source index pool
+  index offset/count:
+    exact PtGeometryGpuPoolRecord index range
+  transform:
+    identity in the first cut because the compute output is world-space
+  build flags:
+    AllowUpdate + PreferFastBuild; PerformUpdate only after an initial build
+  ordering:
+    joint copy -> skin dispatch -> UAV/AS barrier -> BLAS build/update -> TLAS
+  invalidation:
+    full InstanceKey, output storage generation/range, source checksum and GPU
+    pool generation, topology, and explicit rebuild cadence
+
+Revised disposition:
+
+  GEO-07 is accepted as the numerically validated renderer-joint-to-distinct-
+  instance-output producer. The Phase C requirement to remove CPU pre-skinning
+  is not waived. It moves to the GEO-08 live traversal cutover, after a
+  comparison route proves hit identity, primitive/material addressing, motion,
+  lifecycle and rollback. Structural failures remain on same-frame CPU capture.
+  Late failures after CPU capture is skipped require an explicitly validated
+  prior-pose hold or route suppression; they cannot honestly claim CPU fallback
+  and may never expose bind-pose or zero sentinel output.
