@@ -402,3 +402,13 @@ NO LONGER OPEN TO SPECULATION
   The renderer jointCache staged all 15 ranges and 32640 bytes exactly, while
   24 current/previous/motion samples passed with 0.0000152587891 maximum error.
   GEO-07 slice 3 is accepted.
+- geometry_geo43_auto proves the slice-4 PrimaryGameplay owner survives the
+  automated doom3_1 PDA transition. Before/after records are 12/12 with zero
+  owner mismatch, the owner tuple is 2/2/1/1 in both captures, serials advance,
+  and both current/previous/motion parity summaries pass at
+  0.0000152587891 maximum error.
+- The Doom 3 BFG PDA in this run is a 2D overlay, not an isSubview render.
+  A parity request issued while it was open still reported primary=1.
+  Therefore PDA-only evidence cannot accept the slice-4 subview branch; an
+  actual mirror, remote-render, or portal subview (or a focused isSubview
+  history-selection harness) is still required.

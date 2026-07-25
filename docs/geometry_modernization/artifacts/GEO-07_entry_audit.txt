@@ -1,7 +1,7 @@
 GEO-07 - authoritative jointCache GPU skinning entry audit
 ==========================================================
-Status: slices 1-3 accepted; slice 4 owner-keyed previous bridge is pending
-runtime acceptance.
+Status: slices 1-3 accepted; slice 4 primary-view and PDA-transition behavior
+is accepted, but an actual renderer isSubview invocation is still pending.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 030ac8c20.
@@ -706,6 +706,54 @@ Runtime acceptance requires three observations under gate 2 and mode 1:
 CPU pre-skinning, CPU-retained previous joint values, and legacy BLAS traversal
 remain authoritative in this slice. GPU-resident previous joints and CPU-skin
 removal are later GEO-07 slices.
+
+Runtime result, automated save doom3_1 (2026-07-25):
+
+  launch:
+    RBDoom3BFG.exe +set com_skipIntroVideos 1 +set com_allowConsole 1
+      +set r_graphicsAPI vulkan +set r_pathTracing 1
+      +set r_pathTracingcleanrtxdidienable 1
+      +set r_pathTracingcleanrtxdidiview 16
+  enter Doom 3 at the title splash, then:
+    loadgame doom3_1
+
+  geometry_geo43_auto.log primary before PDA:
+    frame 1146
+    candidates/dispatched/exact = 12/12/1
+    history = 1/1/1/1/1/1
+    records current/previous/match/mismatch = 12/12/12/0
+    owner = 2/2/1/1
+    serial previous/next = 28/29
+    route = primary-owner
+    parity = PASS, maximum error 0.0000152587891
+
+  geometry_geo43_auto.log primary after PDA:
+    frame 1769
+    candidates/dispatched/exact = 12/12/1
+    history = 1/1/1/1/1/1
+    records current/previous/match/mismatch = 12/12/12/0
+    owner = 2/2/1/1
+    serial previous/next = 651/652
+    route = primary-owner
+    parity = PASS, maximum error 0.0000152587891
+
+The exact owner tuple returned after the PDA, the serial advanced, every
+current record matched the owner, and current/previous/motion parity stayed
+clean. This accepts the primary -> PDA -> primary transition.
+
+Important correction to the validation recipe: this BFG PDA is a 2D overlay.
+The one-shot issued while it was open still ran on a non-subview gameplay
+view (frame 1632, primary=1). A global material override and a temporary
+mirror-skinned test model also failed to schedule an isSubview PT build in
+this configuration; their one-shots were consumed by the primary view.
+Those probes were restored and removed. They are not acceptance evidence for
+the subview branch.
+
+Slice 4 therefore remains open only on observation 2. Close it with a map
+location that visibly schedules a renderer mirror/remoteRenderMap/portal
+subview, or with a focused harness that passes an actual isSubview viewDef
+through the history-selection boundary. Do not relabel a PDA-only capture as
+subview proof.
 
 Offline verification:
 
