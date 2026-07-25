@@ -53,9 +53,14 @@ the primary -> PDA -> primary transition: the owner tuple remained 2/2/1/1,
 12/12 records matched before and after, serials advanced from 28/29 to
 651/652, and both parity summaries passed at 0.0000152587891 maximum error.
 The PDA is a 2D overlay in this build, however, so it did not schedule an
-isSubview PT build. Slice 4 remains pending only on direct observation of the
-1/0/0/0/0/0 subview route. CPU pre-skinning and legacy BLAS traversal remain
-authoritative.
+isSubview PT build and is not subview evidence. The focused
+PathTraceSkinnedHistoryPolicyHarness supplies isSubview=true while deliberately
+making a matching primary state available; the live selection helper returns
+primary/ownerValid/stateFound/read/write=0/0/0/0/0 and the
+subview-or-invalid-no-history route. All seven primary, subview, invalid,
+mismatch, and legacy cases pass. Slice 4 is accepted. A real mirror/portal is
+still useful scheduling coverage but is no longer a policy blocker. CPU
+pre-skinning and legacy BLAS traversal remain authoritative.
 
 Slice-5 entry audit corrected one proposal mismatch. The accepted GEO-06
 source registry rejects SkinnedBindSource/Skinned by design and contains no

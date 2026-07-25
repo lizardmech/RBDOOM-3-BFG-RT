@@ -30,6 +30,7 @@
 #include "PathTraceDebugModes.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
+#include "PathTraceSkinnedHistoryPolicy.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSmokeResources.h"
 #include "PathTraceSurfaceDebugDumps.h"
@@ -2483,6 +2484,8 @@ struct RtSmokeJointCacheStageBuild
 struct RtSmokeSkinnedHistoryAudit
 {
     PtCanonicalHistoryOwnerKey owner;
+    PtSkinnedHistoryRoute route =
+        PtSkinnedHistoryRoute::SubviewOrInvalidNoHistory;
     bool ownerGate = false;
     bool primaryView = false;
     bool ownerValid = false;
@@ -2789,12 +2792,7 @@ void DumpSmokeSkinnedGpuFunnel(
             historyAudit.previousUpdateSerial),
         static_cast<unsigned long long>(
             historyAudit.nextUpdateSerial),
-        !historyAudit.ownerGate
-            ? "legacy-last-view"
-            : (historyAudit.primaryView &&
-                    historyAudit.ownerValid
-                ? "primary-owner"
-                : "subview-or-invalid-no-history"));
+        PtSkinnedHistoryRouteName(historyAudit.route));
 
     int detailCount = 0;
     for (int pass = 0; pass < 2 && detailCount < 16; ++pass)
@@ -4298,9 +4296,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSkinnedHistoryOwnerGateLast =
             skinnedHistoryOwnerGate;
     }
-    skinnedHistoryAudit.primaryView =
+    const bool skinnedHistoryHasView =
+        viewDef != nullptr;
+    const bool skinnedHistoryIsSubview =
         viewDef != nullptr &&
-        !viewDef->isSubview;
+        viewDef->isSubview;
+    skinnedHistoryAudit.primaryView =
+        skinnedHistoryHasView &&
+        !skinnedHistoryIsSubview;
     if (skinnedHistoryAudit.ownerGate &&
         skinnedHistoryAudit.primaryView)
     {
@@ -4329,25 +4332,53 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             ++skinnedHistoryAudit.ownerMismatches;
         }
     }
-    skinnedHistoryAudit.writeAllowed =
-        !skinnedHistoryAudit.ownerGate ||
-        (skinnedHistoryAudit.primaryView &&
-            skinnedHistoryAudit.ownerValid &&
-            skinnedHistoryAudit.ownerMismatches == 0);
-    RtSmokeSkinnedHistoryState* previousSkinnedHistoryState =
-        skinnedHistoryAudit.ownerGate
-            ? (skinnedHistoryAudit.writeAllowed
-                ? FindSmokeSkinnedHistoryState(
-                    m_smokeSkinnedHistoryStates,
-                    skinnedHistoryAudit.owner)
-                : nullptr)
-            : (m_smokeLegacySkinnedHistoryState.updateSerial != 0
-                ? &m_smokeLegacySkinnedHistoryState
-                : nullptr);
+    RtSmokeSkinnedHistoryState* matchingOwnerHistoryState =
+        skinnedHistoryAudit.ownerGate &&
+            skinnedHistoryAudit.primaryView &&
+            PtCanonicalHistoryOwnerKeyIsValid(
+                skinnedHistoryAudit.owner) &&
+            skinnedHistoryAudit.ownerMismatches == 0
+        ? FindSmokeSkinnedHistoryState(
+            m_smokeSkinnedHistoryStates,
+            skinnedHistoryAudit.owner)
+        : nullptr;
+    PtSkinnedHistoryPolicyInput skinnedHistoryPolicyInput;
+    skinnedHistoryPolicyInput.ownerGate =
+        skinnedHistoryAudit.ownerGate;
+    skinnedHistoryPolicyInput.hasView =
+        skinnedHistoryHasView;
+    skinnedHistoryPolicyInput.isSubview =
+        skinnedHistoryIsSubview;
+    skinnedHistoryPolicyInput.owner =
+        skinnedHistoryAudit.owner;
+    skinnedHistoryPolicyInput.ownerMismatchCount =
+        skinnedHistoryAudit.ownerMismatches;
+    skinnedHistoryPolicyInput.matchingOwnerStateFound =
+        matchingOwnerHistoryState != nullptr;
+    skinnedHistoryPolicyInput.legacyStateFound =
+        m_smokeLegacySkinnedHistoryState.updateSerial != 0;
+    const PtSkinnedHistoryPolicyDecision
+        skinnedHistoryDecision =
+            PtSelectSkinnedHistoryPolicy(
+                skinnedHistoryPolicyInput);
+    skinnedHistoryAudit.route =
+        skinnedHistoryDecision.route;
+    skinnedHistoryAudit.primaryView =
+        skinnedHistoryDecision.primaryView;
+    skinnedHistoryAudit.ownerValid =
+        skinnedHistoryDecision.ownerValid;
     skinnedHistoryAudit.previousStateFound =
-        previousSkinnedHistoryState != nullptr;
+        skinnedHistoryDecision.previousStateFound;
     skinnedHistoryAudit.readAllowed =
-        previousSkinnedHistoryState != nullptr;
+        skinnedHistoryDecision.readAllowed;
+    skinnedHistoryAudit.writeAllowed =
+        skinnedHistoryDecision.writeAllowed;
+    RtSmokeSkinnedHistoryState* previousSkinnedHistoryState =
+        skinnedHistoryAudit.readAllowed
+            ? (skinnedHistoryAudit.ownerGate
+                ? matchingOwnerHistoryState
+                : &m_smokeLegacySkinnedHistoryState)
+            : nullptr;
     if (previousSkinnedHistoryState)
     {
         skinnedHistoryAudit.previousRecords =

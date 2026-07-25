@@ -409,6 +409,11 @@ NO LONGER OPEN TO SPECULATION
   0.0000152587891 maximum error.
 - The Doom 3 BFG PDA in this run is a 2D overlay, not an isSubview render.
   A parity request issued while it was open still reported primary=1.
-  Therefore PDA-only evidence cannot accept the slice-4 subview branch; an
-  actual mirror, remote-render, or portal subview (or a focused isSubview
-  history-selection harness) is still required.
+  Therefore the PDA is not subview evidence.
+- PathTraceSkinnedHistoryPolicyHarness closes the slice-4 subview policy
+  branch directly. With isSubview=true, a valid primary owner, and an existing
+  matching primary state deliberately supplied, the live selection helper
+  returns primary/ownerValid/stateFound/read/write=0/0/0/0/0 and the
+  subview-or-invalid-no-history route. Seven policy cases pass. Combined with
+  geometry_geo43_auto, GEO-07 slice 4 is accepted. A real mirror/portal remains
+  useful scheduling coverage but is not required for the ownership contract.

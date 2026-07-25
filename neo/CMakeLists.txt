@@ -1578,6 +1578,15 @@ if(BUILD_TESTING)
 	add_test(NAME PathTraceJointCacheCopyPlanHarness COMMAND $<TARGET_FILE:PathTraceJointCacheCopyPlanHarness>)
 endif()
 
+add_executable(PathTraceSkinnedHistoryPolicyHarness
+	tests/pathtrace_skinned_history_policy_harness.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	)
+target_include_directories(PathTraceSkinnedHistoryPolicyHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceSkinnedHistoryPolicyHarness COMMAND $<TARGET_FILE:PathTraceSkinnedHistoryPolicyHarness>)
+endif()
+
 add_executable(PathTraceLiquidPoolReducerHarness
 	tests/pathtrace_liquid_pool_reducer_harness.cpp
 	)

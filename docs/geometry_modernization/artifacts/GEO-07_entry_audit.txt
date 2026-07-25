@@ -749,14 +749,37 @@ this configuration; their one-shots were consumed by the primary view.
 Those probes were restored and removed. They are not acceptance evidence for
 the subview branch.
 
-Slice 4 therefore remains open only on observation 2. Close it with a map
-location that visibly schedules a renderer mirror/remoteRenderMap/portal
-subview, or with a focused harness that passes an actual isSubview viewDef
-through the history-selection boundary. Do not relabel a PDA-only capture as
-subview proof.
+Slice 4 policy closure, focused harness (2026-07-25):
+
+  PathTraceSkinnedHistoryPolicyHarness passes seven direct policy cases.
+  The gated-subview case supplies:
+
+    hasView = true
+    isSubview = true
+    a valid PrimaryGameplay owner
+    matchingOwnerStateFound = true
+
+  and requires:
+
+    primary/ownerValid/stateFound/read/write = 0/0/0/0/0
+    route = subview-or-invalid-no-history
+
+  Supplying an existing primary state deliberately proves that a true subview
+  cannot borrow or overwrite it. The same helper is now the live
+  BuildRayTracingSmokeTestScene selection boundary fed directly by
+  viewDef->isSubview. Other cases cover primary reuse, first observation,
+  invalid owner, owner mismatch, and both legacy gate-off states.
+
+This accepts slice 4 by combining the live primary -> PDA -> primary parity
+run with direct branch coverage of the previously unscheduled isSubview case.
+A genuine mirror/remoteRenderMap/portal remains useful as renderer scheduling
+coverage, but it is no longer required to establish the history-selection
+contract. The PDA capture remains correctly labelled as a 2D overlay.
 
 Offline verification:
 
+  PathTraceSkinnedHistoryPolicyHarness:
+    PASS (seven policy cases, including isSubview=true)
   PathTraceJointCacheCopyPlanHarness:
     PASS
   cmake --build --preset win64-pt-dev-release:
@@ -764,9 +787,9 @@ Offline verification:
   all SPIR-V shaders:
     up to date; no shader source or blob changed
   deployed executable:
-    15685120 bytes
-    2026-07-25 12:04:03 Australia/Sydney
-    SHA-256 1BE33FAACC882FD4983F22F9E84A1B3C2FB2BC2CFA735E78DA11E8E68A6EE7CC
+    15685632 bytes
+    2026-07-25 13:00:25 Australia/Sydney
+    SHA-256 770844E16883EE5A9CAB66465C25FBE36063CCF8924F698B035B7D460C6B24EF
 
 SLICE 5 ENTRY RECONCILIATION (2026-07-25)
 -----------------------------------------
