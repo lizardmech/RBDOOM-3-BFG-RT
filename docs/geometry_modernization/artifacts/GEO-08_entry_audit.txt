@@ -930,6 +930,36 @@ resource contract fails. Diagnostic executable:
   SPIR-V rebuild = none; all Vulkan blobs up to date
   deployment = executable hash-exact; existing split blobs 32/32 retained
 
+geometry_geo77 input-gate resolution:
+
+  warmup entry = api=vulkan view=0 resolve=1 limit=0
+  core missing = 0
+  geometry missing = 0
+  route missing = 0x00000300
+  lighting missing = 0
+  temporal missing = 0
+  route bit 8 = t28 skinned source-index buffer absent
+  route bit 9 = t29 current skinned-output vertex buffer absent
+  visual result = mostly magenta with window reflections remaining
+  disposition = diagnostic sentinel observed, not accepted presentation
+
+No skinned comparison BLAS is present in the TLAS, so t28/t29 cannot be read
+through a skinned hit. The primary RT binding already uses the dynamic index
+and vertex buffers as type-compatible fallbacks in this state. GI now mirrors
+that contract. Exact physical t28/t29 storage remains mandatory before a
+future skinned instance may select SBT contribution 2. The production input
+gate no longer clears valid DI/PT output magenta.
+
+Replacement executable:
+
+  size = 15,771,136 bytes
+  SHA-256 =
+    9AD3E5FDBE66734D433EC075EDD5D5C7FA24B841D8819805A05CFDB309002782
+  cmake --build --preset win64-pt-dev-release = PASS
+  PathTraceSkinnedHitRouteHarness = PASS
+  SPIR-V rebuild = none; all Vulkan blobs up to date
+  deployment = executable hash-exact; Vulkan blobs unchanged
+
 BOUNDARY AND NEXT
 -----------------
 The lock-producing checkpoint is superseded and must not be launched again.

@@ -579,3 +579,12 @@ NO LONGER OPEN TO SPECULATION
   input-readiness gate. A bounded replacement prints one entry line and one
   grouped missing-input mask, defaults the cap to 0, and performs no additional
   shader work.
+- geometry_geo77.log identifies that gate exactly. Core, geometry, lighting,
+  and temporal masks are zero; route mask 0x300 names only missing t28 skinned
+  source indexes and t29 current skinned output vertices. Those resources are
+  legitimately absent because comparison skinned BLASes remain TLAS-excluded.
+  The mostly-magenta frame was the input gate clearing valid DI output and is
+  not accepted presentation. GI now uses the existing type-compatible legacy
+  dynamic index/vertex fallbacks at t28/t29 until physical skinned storage
+  exists, while the future TLAS contribution gate remains fail-closed.
+  Production view 0 preserves DI/PT output on an optional-input miss.

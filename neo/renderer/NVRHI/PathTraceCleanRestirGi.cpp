@@ -1427,7 +1427,13 @@ bool PathTraceCleanRestirGiExecute(
                 temporalMissing);
             state.pipelineWarmupInputGateLogged = true;
         }
-        clearFailureOutput();
+        // A missing optional producer input disables GI for this frame. Do
+        // not destroy the already-valid production DI/PT output; magenta is
+        // useful only when the user explicitly selected a GI debug view.
+        if (view != 0)
+        {
+            clearFailureOutput();
+        }
         return false;
     }
 

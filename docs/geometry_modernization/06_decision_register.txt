@@ -570,6 +570,17 @@ must not be launched again. No comparison skinned BLAS enters a TLAS until a
 later, explicitly bounded user run proves the partitioned warmup preserves
 system responsiveness and reaches 16/16 initialization.
 
+geometry_geo77 resolves the pre-pipeline input gate: only t28 skinned source
+indexes and t29 current skinned output vertices were absent
+(`route=00000300`). No skinned comparison instance exists in the TLAS at this
+stage, so requiring physical skinned storage before pipeline creation was
+incorrect. The GI binding now mirrors the accepted primary binding contract:
+t28 falls back to the legacy dynamic index buffer and t29 to the legacy dynamic
+vertex buffer until real skinned storage exists. A later TLAS cutover still
+requires the exact physical buffers before contribution 2 can be selected.
+Missing optional producer inputs in production view 0 disable GI for the frame
+without clearing the already-valid DI/PT output magenta.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

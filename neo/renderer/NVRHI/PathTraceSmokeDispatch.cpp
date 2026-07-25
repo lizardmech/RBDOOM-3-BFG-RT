@@ -3580,8 +3580,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
             giInputs.skinnedHitRouteRecordBuffer = m_smokeSkinnedHitRouteRecordBuffer;
             giInputs.skinnedHitRouteTriangleBuffer = m_smokeSkinnedHitRouteTriangleBuffer;
-            giInputs.skinnedSourceIndexBuffer = cleanOptionalSrv(m_sceneInputs.geometry.skinnedSourceIndexBuffer);
-            giInputs.skinnedCurrentOutputVertexBuffer = cleanOptionalSrv(m_smokeSkinnedCurrentOutputVertexBuffer);
+            // Match the primary RT binding contract: before a skinned route
+            // exists, t28/t29 use type-compatible legacy geometry buffers.
+            // No skinned TLAS contribution can index these fallbacks.
+            giInputs.skinnedSourceIndexBuffer =
+                m_sceneInputs.geometry.skinnedSourceIndexBuffer
+                    ? m_sceneInputs.geometry.skinnedSourceIndexBuffer
+                    : m_smokeDynamicIndexBuffer;
+            giInputs.skinnedCurrentOutputVertexBuffer =
+                m_smokeSkinnedCurrentOutputVertexBuffer
+                    ? m_smokeSkinnedCurrentOutputVertexBuffer
+                    : m_smokeDynamicVertexBuffer;
             giInputs.skinnedPreviousPositionBuffer = cleanOptionalSrv(m_smokeSkinnedPreviousPositionBuffer);
             giInputs.doomAnalyticLightBuffer = cleanGiNeedsDoomAnalyticLights
                 ? m_smokeDoomAnalyticLightBuffer
