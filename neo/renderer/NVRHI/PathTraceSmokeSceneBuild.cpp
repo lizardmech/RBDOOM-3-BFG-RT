@@ -2583,6 +2583,7 @@ void DumpSmokeSkinnedGpuFunnel(
     const RtSmokeJointCacheStageBuild& jointCacheStage,
     const RtSmokeSkinnedHistoryAudit& historyAudit,
     const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
+    const RtSmokeGeometryUniverse& geometryUniverse,
     int mode,
     uint64 frameIndex)
 {
@@ -2793,6 +2794,67 @@ void DumpSmokeSkinnedGpuFunnel(
         static_cast<unsigned long long>(
             historyAudit.nextUpdateSerial),
         PtSkinnedHistoryRouteName(historyAudit.route));
+
+    int bindSourceBindings = 0;
+    int bindSourceRecords = 0;
+    int bindSourceContractExact = 0;
+    int bindSourceChecksumValid = 0;
+    uint64 bindSourceRetainedBytes = 0;
+    std::unordered_set<uint64> bindSourceMeshes;
+    for (const RtSmokeSkinnedSurfaceRecord& record : records)
+    {
+        const PtGeometryIdentityBinding* binding =
+            geometryUniverse.FindCanonicalIdentityBinding(
+                record.canonicalInstance);
+        if (binding == nullptr)
+        {
+            continue;
+        }
+        ++bindSourceBindings;
+        const PtGeometrySourceRecord* source =
+            geometryUniverse.FindCanonicalSourceRecord(
+                binding->meshKey);
+        if (source == nullptr)
+        {
+            continue;
+        }
+        ++bindSourceRecords;
+        const bool exactContract =
+            source->key ==
+                binding->meshKey &&
+            source->key.sourceDomain ==
+                PtCanonicalMeshSourceDomain::SkinnedBindSource &&
+            source->key.deformationClass ==
+                PtCanonicalDeformationClass::Skinned &&
+            source->key.vertexCount ==
+                static_cast<uint32_t>(record.vertexCount) &&
+            source->key.indexCount ==
+                static_cast<uint32_t>(record.indexCount);
+        bindSourceContractExact += exactContract ? 1 : 0;
+        bindSourceChecksumValid +=
+            source->sourceChecksum != 0 ? 1 : 0;
+        if (bindSourceMeshes.insert(source->meshHash).second)
+        {
+            bindSourceRetainedBytes +=
+                source->retainedBytes;
+        }
+    }
+    const int sharedBindSourceInstances =
+        bindSourceRecords -
+        static_cast<int>(bindSourceMeshes.size());
+    common->Printf(
+        "PathTracePrimaryPass: GEO07 skinned bind source frame=%llu candidates=%llu binding/source/exact/checksum=%d/%d/%d/%d uniqueMeshes/sharedInstances=%llu/%d retainedBytes=%llu source=md5-deformInfo-bind-pose route=canonical-instance-to-immutable-source\n",
+        static_cast<unsigned long long>(frameIndex),
+        static_cast<unsigned long long>(records.size()),
+        bindSourceBindings,
+        bindSourceRecords,
+        bindSourceContractExact,
+        bindSourceChecksumValid,
+        static_cast<unsigned long long>(
+            bindSourceMeshes.size()),
+        sharedBindSourceInstances,
+        static_cast<unsigned long long>(
+            bindSourceRetainedBytes));
 
     int detailCount = 0;
     for (int pass = 0; pass < 2 && detailCount < 16; ++pass)
@@ -5733,6 +5795,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 jointCacheStage,
                 skinnedHistoryAudit,
                 currentSkinnedSurfaceRecords,
+                m_smokeGeometryUniverse,
                 gpuSkinningMode,
                 m_smokeGeometryFrameIndex);
             common->Printf("PathTracePrimaryPass: PT GPU skinning parity readback unavailable because scene buffer allocation failed\n");
@@ -6618,6 +6681,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             jointCacheStage,
             skinnedHistoryAudit,
             currentSkinnedSurfaceRecords,
+            m_smokeGeometryUniverse,
             gpuSkinningMode,
             geometryUniverseStats.frameIndex);
         common->Printf(

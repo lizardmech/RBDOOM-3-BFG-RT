@@ -207,6 +207,8 @@ public:
 			const idJointMat* entJointsInverted, modelSurface_t* surf );
 	void						CalculateBounds( const idJointMat* entJoints, idBounds& bounds ) const;
 	int							NearestJoint( int a, int b, int c ) const;
+	bool						GetBindPoseGeometry( const idDrawVert*& verts, int& vertexCount,
+									const triIndex_t*& indexes, int& indexCount ) const;
 
 private:
 	const idMaterial* 			shader;				// material applied to mesh
@@ -242,6 +244,8 @@ public:
 	const char* 		GetJointName( jointHandle_t handle ) const override;
 	const idJointQuat* 	GetDefaultPose() const override;
 	int					NearestJoint( int surfaceNum, int a, int b, int c ) const override;
+	bool				GetBindPoseGeometry( int surfaceNum, const idDrawVert*& verts,
+								int& vertexCount, const triIndex_t*& indexes, int& indexCount ) const;
 
 	bool				SupportsBinaryModel() override
 	{

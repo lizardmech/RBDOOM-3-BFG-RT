@@ -1,7 +1,7 @@
 GEO-07 - authoritative jointCache GPU skinning entry audit
 ==========================================================
-Status: slices 1-3 accepted; slice 4 primary-view and PDA-transition behavior
-is accepted, but an actual renderer isSubview invocation is still pending.
+Status: slices 1-4 and slice 5A are accepted. Slice 5B, the checked
+full-InstanceKey mutable-output allocator, is next.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 030ac8c20.
@@ -873,3 +873,104 @@ Revised implementation order:
 
 This is a validated correction to the proposed plan, not permission to widen
 GEO-06's accepted rigid route implicitly.
+
+SLICE 5A IMMUTABLE SKINNED BIND SOURCE (2026-07-25)
+----------------------------------------------------
+The MD5 load-time deformation record is now the proven source producer:
+
+  idMD5Mesh::deformInfo->verts
+  idMD5Mesh::deformInfo->indexes
+
+These arrays are created with the model and describe the immutable bind/source
+geometry. They are distinct from the per-frame animated srfTriangles_t
+snapshot. Read-only accessors on idMD5Mesh/idRenderModelMD5 expose this exact
+payload by model-surface ordinal.
+
+The frontend lifecycle source observer now admits only the exact pair:
+
+  sourceDomain = SkinnedBindSource
+  deformationClass = Skinned
+
+and only when:
+
+  the registered source model is idRenderModelMD5;
+  the model-surface ordinal resolves;
+  bind vertex/index counts equal the canonical MeshKey;
+  a signature over the bind index topology equals the canonical topology
+    signature.
+
+Failure increments the named skinned-negative/rejected counters. The existing
+RegisteredRenderModel/Rigid admission is unchanged, and mismatched
+domain/deformation pairs still fail closed. The source registry value-copies
+positions, attributes, indexes and triangle material slots, so no live MD5 or
+deformInfo pointer crosses into backend ownership.
+
+Focused harness:
+
+  PathTraceGeometrySourceRegistryHarness:
+    PASS
+    proven SkinnedBindSource/Skinned admission
+    value-owned checksum
+    same-key reuse without a second payload copy
+    rigid/skinned mismatched-pair rejection
+
+Transport harness:
+
+  PathTraceGeometrySourceTransportHarness:
+    PASS
+
+Runtime, autonomous prepared save:
+
+  geometry_geo55_auto.log
+  map = game/mars_city1
+  r_pathTracingGeometryShadowRegistry = 1
+
+  source registry:
+    records = 976
+    retained bytes = 7625984
+    collisions = 0
+    interval add/reuse/revise/reject = 976/780/0/0
+    skinned admitted/negative = 39/0
+
+  active skinned bind-source resolution:
+    candidates = 12
+    identity binding/source/exact/checksum = 12/12/12/12
+    unique meshes/shared instances = 11/1
+    unique retained source bytes = 933436
+    route = canonical-instance-to-immutable-source
+
+The 12 active surface instances therefore resolve through their canonical
+InstanceKeys to 11 value-owned immutable mesh records. The duplicate proves
+source sharing without claiming pose/output sharing.
+
+Existing GEO-07 contracts stayed accepted in the same frame:
+
+  jointCache range match/mismatch/bytes = 12/0/28320
+  copy stage requested/ready/submitted/copies/bytes = 1/1/1/12/28320
+  history owner = 2/2/1/1
+  parity samples/current/previous/motion failures = 24/0/0/0
+  maximum current error = 0.0000152587891
+  parity pass = 1
+
+The preceding geometry_geo54_auto run intentionally demonstrated the gate-off
+control: with r_pathTracingGeometryShadowRegistry left at its default 0, the
+active skinned records existed but imported binding/source counts were 0/0.
+This is expected and confirms that slice 5A does not bypass the observation
+gate.
+
+Build/deploy:
+
+  cmake --build --preset win64-pt-dev-release:
+    PASS
+  all SPIR-V shaders:
+    up to date; no shader source or blob changed
+  deployed executable:
+    15686656 bytes
+    2026-07-25 13:46:50 Australia/Sydney
+    SHA-256 A9F543B09F5A468FDCD346C6A6994081B9185C2DB79A714D5CF37DDF7A42E8C5
+
+Result:
+
+  PASS - slice 5A supplies the exact immutable skinned source prerequisite.
+  NEXT - slice 5B must allocate persistent mutable ranges by full InstanceKey;
+         it may reuse these shared MeshKeys but may never share their outputs.

@@ -1448,6 +1448,20 @@ void RtSmokeGeometryUniverse::ImportCanonicalIdentitySnapshot(
     m_canonicalIdentityRegistry.ApplySnapshot(snapshot);
 }
 
+const PtGeometryIdentityBinding*
+RtSmokeGeometryUniverse::FindCanonicalIdentityBinding(
+    const PtCanonicalInstanceKey& key) const
+{
+    return m_canonicalIdentityRegistry.Find(key);
+}
+
+const PtGeometrySourceRecord*
+RtSmokeGeometryUniverse::FindCanonicalSourceRecord(
+    const PtCanonicalMeshKey& key) const
+{
+    return m_canonicalSourceRegistry.Find(key);
+}
+
 void RtSmokeGeometryUniverse::DumpCanonicalIdentityImportStats()
 {
     const PtGeometryIdentityRegistryStats& stats =

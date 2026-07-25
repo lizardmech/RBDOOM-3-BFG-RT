@@ -417,3 +417,11 @@ NO LONGER OPEN TO SPECULATION
   subview-or-invalid-no-history route. Seven policy cases pass. Combined with
   geometry_geo43_auto, GEO-07 slice 4 is accepted. A real mirror/portal remains
   useful scheduling coverage but is not required for the ownership contract.
+- geometry_geo55_auto proves the first immutable skinned-source contract. All
+  12 active skinned InstanceKeys resolve through exact identity bindings to
+  value-owned MD5 deformInfo bind geometry: binding/source/exact/checksum is
+  12/12/12/12, 11 unique meshes serve 12 instances, and skinned admitted/
+  negative observations are 39/0. The same frame retains exact 12/12
+  jointCache ranges, 28320 staged bytes, and a 24-sample parity pass with
+  0.0000152587891 maximum current error. Shared bind source is now proven;
+  mutable pose/output sharing remains forbidden.

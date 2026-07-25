@@ -99,6 +99,31 @@ idMD5Mesh::~idMD5Mesh()
 	}
 }
 
+bool idMD5Mesh::GetBindPoseGeometry(
+	const idDrawVert*& verts,
+	int& vertexCount,
+	const triIndex_t*& indexes,
+	int& indexCount ) const
+{
+	verts = NULL;
+	vertexCount = 0;
+	indexes = NULL;
+	indexCount = 0;
+	if( deformInfo == NULL ||
+			deformInfo->verts == NULL ||
+			deformInfo->indexes == NULL ||
+			deformInfo->numOutputVerts <= 0 ||
+			deformInfo->numIndexes < 3 )
+	{
+		return false;
+	}
+	verts = deformInfo->verts;
+	vertexCount = deformInfo->numOutputVerts;
+	indexes = deformInfo->indexes;
+	indexCount = deformInfo->numIndexes;
+	return true;
+}
+
 /*
 ====================
 idMD5Mesh::ParseMesh
@@ -1530,6 +1555,28 @@ int idRenderModelMD5::NearestJoint( int surfaceNum, int a, int b, int c ) const
 		}
 	}
 	return 0;
+}
+
+bool idRenderModelMD5::GetBindPoseGeometry(
+	int surfaceNum,
+	const idDrawVert*& verts,
+	int& vertexCount,
+	const triIndex_t*& indexes,
+	int& indexCount ) const
+{
+	verts = NULL;
+	vertexCount = 0;
+	indexes = NULL;
+	indexCount = 0;
+	if( surfaceNum < 0 || surfaceNum >= meshes.Num() )
+	{
+		return false;
+	}
+	return meshes[ surfaceNum ].GetBindPoseGeometry(
+		verts,
+		vertexCount,
+		indexes,
+		indexCount );
 }
 
 /*

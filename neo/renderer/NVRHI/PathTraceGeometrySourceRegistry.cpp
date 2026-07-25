@@ -182,12 +182,26 @@ PtGeometrySourceObserveResult PtGeometrySourceRegistry::Observe(
         CountRejected(stats_);
         return PtGeometrySourceObserveResult::InvalidMeshKey;
     }
-    if (key.sourceDomain != PtCanonicalMeshSourceDomain::RegisteredRenderModel)
+    const bool rigidSource =
+        key.sourceDomain ==
+            PtCanonicalMeshSourceDomain::RegisteredRenderModel &&
+        key.deformationClass ==
+            PtCanonicalDeformationClass::Rigid;
+    const bool skinnedBindSource =
+        key.sourceDomain ==
+            PtCanonicalMeshSourceDomain::SkinnedBindSource &&
+        key.deformationClass ==
+            PtCanonicalDeformationClass::Skinned;
+    if (!rigidSource && !skinnedBindSource &&
+        key.sourceDomain !=
+            PtCanonicalMeshSourceDomain::RegisteredRenderModel &&
+        key.sourceDomain !=
+            PtCanonicalMeshSourceDomain::SkinnedBindSource)
     {
         CountRejected(stats_);
         return PtGeometrySourceObserveResult::IneligibleSourceDomain;
     }
-    if (key.deformationClass != PtCanonicalDeformationClass::Rigid)
+    if (!rigidSource && !skinnedBindSource)
     {
         CountRejected(stats_);
         return PtGeometrySourceObserveResult::IneligibleDeformationClass;

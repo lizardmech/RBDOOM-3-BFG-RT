@@ -9,6 +9,7 @@
 #include "PathTraceGeometrySourceTransport.h"
 #include "../Material.h"
 #include "../Model.h"
+#include "../Model_local.h"
 #include "../RenderCommon.h"
 #include "../RenderWorld_local.h"
 
@@ -150,6 +151,7 @@ struct PtGeometryShadowStats
     std::uint64_t sourceReused = 0;
     std::uint64_t sourceRevised = 0;
     std::uint64_t sourceRejected = 0;
+    std::uint64_t sourceSkinnedAdmitted = 0;
     std::uint64_t sourceSkinnedNegative = 0;
     std::uint64_t sourcePayloadCopies = 0;
     std::uint64_t sourceCopiedBytes = 0;
@@ -218,21 +220,34 @@ std::uint64_t HashShadowValue(std::uint64_t hash, std::uint64_t value)
     return hash;
 }
 
-std::uint64_t BuildShadowTopologySignature(const srfTriangles_t* tri)
+std::uint64_t BuildShadowTopologySignature(
+    const triIndex_t* indexes,
+    int vertexCount,
+    int indexCount)
 {
-    if (!tri || !tri->indexes || tri->numVerts <= 0 || tri->numIndexes < 3)
+    if (!indexes || vertexCount <= 0 || indexCount < 3)
     {
         return 0;
     }
 
     std::uint64_t hash = 1469598103934665603ull;
-    hash = HashShadowValue(hash, static_cast<std::uint32_t>(tri->numVerts));
-    hash = HashShadowValue(hash, static_cast<std::uint32_t>(tri->numIndexes));
-    for (int index = 0; index < tri->numIndexes; ++index)
+    hash = HashShadowValue(hash, static_cast<std::uint32_t>(vertexCount));
+    hash = HashShadowValue(hash, static_cast<std::uint32_t>(indexCount));
+    for (int index = 0; index < indexCount; ++index)
     {
-        hash = HashShadowValue(hash, static_cast<std::uint32_t>(tri->indexes[index]));
+        hash = HashShadowValue(hash, static_cast<std::uint32_t>(indexes[index]));
     }
     return hash != 0 ? hash : 1;
+}
+
+std::uint64_t BuildShadowTopologySignature(const srfTriangles_t* tri)
+{
+    return tri
+        ? BuildShadowTopologySignature(
+            tri->indexes,
+            tri->numVerts,
+            tri->numIndexes)
+        : 0;
 }
 
 const idMaterial* ResolveShadowSurfaceMaterial(const idRenderEntityLocal* entity, const modelSurface_t* surface)
@@ -652,7 +667,8 @@ public:
                 meshKey,
                 asset.sourceAssetGeneration,
                 tri,
-                sourceSurfaceIndex);
+                sourceSurfaceIndex,
+                sourceModel);
             TouchInstance(
                 entity,
                 geometryClass,
@@ -1049,7 +1065,7 @@ public:
         const PtGeometrySourceRegistryStats& sourceStats =
             sourceRegistry.Stats();
         common->Printf(
-            "PathTracePrimaryPass: GEO06 source registry frame=%llu records=%llu retainedBytes=%llu cumulative(collisions)=%llu interval(add/reuse/revise/reject/skinnedNegative/copies/copiedBytes)=%llu/%llu/%llu/%llu/%llu/%llu/%llu route=observation-only\n",
+            "PathTracePrimaryPass: GEO06 source registry frame=%llu records=%llu retainedBytes=%llu cumulative(collisions)=%llu interval(add/reuse/revise/reject/skinnedAdmitted/skinnedNegative/copies/copiedBytes)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu route=observation-only\n",
             static_cast<unsigned long long>(frameIndex),
             static_cast<unsigned long long>(sourceRegistry.RecordCount()),
             static_cast<unsigned long long>(sourceStats.retainedBytes),
@@ -1058,6 +1074,7 @@ public:
             static_cast<unsigned long long>(stats.sourceReused),
             static_cast<unsigned long long>(stats.sourceRevised),
             static_cast<unsigned long long>(stats.sourceRejected),
+            static_cast<unsigned long long>(stats.sourceSkinnedAdmitted),
             static_cast<unsigned long long>(stats.sourceSkinnedNegative),
             static_cast<unsigned long long>(stats.sourcePayloadCopies),
             static_cast<unsigned long long>(stats.sourceCopiedBytes));
@@ -1175,6 +1192,7 @@ public:
         stats.sourceReused = 0;
         stats.sourceRevised = 0;
         stats.sourceRejected = 0;
+        stats.sourceSkinnedAdmitted = 0;
         stats.sourceSkinnedNegative = 0;
         stats.sourcePayloadCopies = 0;
         stats.sourceCopiedBytes = 0;
@@ -1191,21 +1209,58 @@ private:
         const PtCanonicalMeshKey& meshKey,
         std::uint64_t sourceContentRevision,
         const srfTriangles_t* tri,
-        std::uint32_t sourceMaterialSlot)
+        std::uint32_t sourceMaterialSlot,
+        const idRenderModel* sourceModel)
     {
-        if (meshKey.sourceDomain == PtCanonicalMeshSourceDomain::SkinnedBindSource ||
-            meshKey.deformationClass == PtCanonicalDeformationClass::Skinned)
+        const bool skinnedBindSource =
+            meshKey.sourceDomain ==
+                PtCanonicalMeshSourceDomain::SkinnedBindSource &&
+            meshKey.deformationClass ==
+                PtCanonicalDeformationClass::Skinned;
+        const bool rigidSource =
+            meshKey.sourceDomain ==
+                PtCanonicalMeshSourceDomain::RegisteredRenderModel &&
+            meshKey.deformationClass ==
+                PtCanonicalDeformationClass::Rigid;
+        if (!skinnedBindSource && !rigidSource)
         {
-            // The resolved frontend surface contains the animated MD5
-            // snapshot, not an immutable bind source. Keep it as a measured
-            // negative control until GEO-07 supplies authoritative bind data.
-            ++stats.sourceSkinnedNegative;
             return;
         }
-        if (meshKey.sourceDomain != PtCanonicalMeshSourceDomain::RegisteredRenderModel ||
-            meshKey.deformationClass != PtCanonicalDeformationClass::Rigid)
+
+        const idDrawVert* sourceVerts =
+            tri ? tri->verts : nullptr;
+        const triIndex_t* sourceIndexes =
+            tri ? tri->indexes : nullptr;
+        int sourceVertexCount =
+            tri ? tri->numVerts : 0;
+        int sourceIndexCount =
+            tri ? tri->numIndexes : 0;
+        if (skinnedBindSource)
         {
-            return;
+            const idRenderModelMD5* md5 =
+                dynamic_cast<const idRenderModelMD5*>(sourceModel);
+            if (md5 == nullptr ||
+                !md5->GetBindPoseGeometry(
+                    static_cast<int>(meshKey.modelSurfaceIndex),
+                    sourceVerts,
+                    sourceVertexCount,
+                    sourceIndexes,
+                    sourceIndexCount) ||
+                sourceVertexCount !=
+                    static_cast<int>(meshKey.vertexCount) ||
+                sourceIndexCount !=
+                    static_cast<int>(meshKey.indexCount) ||
+                BuildShadowTopologySignature(
+                    sourceIndexes,
+                    sourceVertexCount,
+                    sourceIndexCount) !=
+                    meshKey.topologySignature)
+            {
+                ++stats.sourceSkinnedNegative;
+                ++stats.sourceRejected;
+                return;
+            }
+            ++stats.sourceSkinnedAdmitted;
         }
 
         const PtGeometrySourceRegistryStats before = sourceRegistry.Stats();
@@ -1218,9 +1273,10 @@ private:
                 sourceContentRevision,
                 nullptr);
         }
-        else if (tri == nullptr || tri->verts == nullptr ||
-            tri->indexes == nullptr || tri->numVerts <= 0 ||
-            tri->numIndexes < 3)
+        else if (sourceVerts == nullptr ||
+            sourceIndexes == nullptr ||
+            sourceVertexCount <= 0 ||
+            sourceIndexCount < 3)
         {
             ++stats.sourceRejected;
             return;
@@ -1228,19 +1284,19 @@ private:
         else
         {
             std::vector<PtGeometrySourcePosition> positions(
-                static_cast<size_t>(tri->numVerts));
+                static_cast<size_t>(sourceVertexCount));
             std::vector<PtGeometrySourceAttribute> attributes(
-                static_cast<size_t>(tri->numVerts));
+                static_cast<size_t>(sourceVertexCount));
             std::vector<std::uint32_t> indexes(
-                static_cast<size_t>(tri->numIndexes));
+                static_cast<size_t>(sourceIndexCount));
             std::vector<PtGeometrySourceTriangle> triangles(
-                static_cast<size_t>(tri->numIndexes / 3));
+                static_cast<size_t>(sourceIndexCount / 3));
 
             for (int vertexIndex = 0;
-                vertexIndex < tri->numVerts;
+                vertexIndex < sourceVertexCount;
                 ++vertexIndex)
             {
-                const idDrawVert& drawVert = tri->verts[vertexIndex];
+                const idDrawVert& drawVert = sourceVerts[vertexIndex];
                 PtGeometrySourcePosition& position =
                     positions[static_cast<size_t>(vertexIndex)];
                 position.xyz[0] = drawVert.xyz.x;
@@ -1249,10 +1305,10 @@ private:
                 attributes[static_cast<size_t>(vertexIndex)] =
                     BuildShadowSourceAttribute(drawVert);
             }
-            for (int index = 0; index < tri->numIndexes; ++index)
+            for (int index = 0; index < sourceIndexCount; ++index)
             {
                 indexes[static_cast<size_t>(index)] =
-                    static_cast<std::uint32_t>(tri->indexes[index]);
+                    static_cast<std::uint32_t>(sourceIndexes[index]);
             }
             for (PtGeometrySourceTriangle& triangle : triangles)
             {

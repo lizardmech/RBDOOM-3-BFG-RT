@@ -768,6 +768,10 @@ public:
     void ImportCanonicalSourceSnapshot(const PtGeometrySourceTransportSnapshot* snapshot);
     void ImportCanonicalIdentitySnapshot(
         const PtGeometryIdentityTransportSnapshot* snapshot);
+    const PtGeometryIdentityBinding* FindCanonicalIdentityBinding(
+        const PtCanonicalInstanceKey& key) const;
+    const PtGeometrySourceRecord* FindCanonicalSourceRecord(
+        const PtCanonicalMeshKey& key) const;
     void UpdateCanonicalSourceGpuPools(
         nvrhi::IDevice* device,
         nvrhi::ICommandList* commandList);

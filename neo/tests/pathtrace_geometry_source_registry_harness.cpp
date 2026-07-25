@@ -31,6 +31,16 @@ PtCanonicalMeshKey MakeRigidKey()
     return key;
 }
 
+PtCanonicalMeshKey MakeSkinnedBindKey()
+{
+    PtCanonicalMeshKey key = MakeRigidKey();
+    key.sourceDomain =
+        PtCanonicalMeshSourceDomain::SkinnedBindSource;
+    key.deformationClass =
+        PtCanonicalDeformationClass::Skinned;
+    return key;
+}
+
 struct TestPayload
 {
     PtGeometrySourcePosition positions[4];
@@ -190,17 +200,16 @@ void TestEligibilityAndValidation()
         "static world data is outside the rigid source slice");
 
     key = MakeRigidKey();
-    key.sourceDomain = PtCanonicalMeshSourceDomain::SkinnedBindSource;
-    key.deformationClass = PtCanonicalDeformationClass::Skinned;
-    Expect(registry.Observe(key, 1, &view) ==
-        PtGeometrySourceObserveResult::IneligibleSourceDomain,
-        "skinned bind source should be an explicit negative control");
-
-    key = MakeRigidKey();
     key.deformationClass = PtCanonicalDeformationClass::Skinned;
     Expect(registry.Observe(key, 1, &view) ==
         PtGeometrySourceObserveResult::IneligibleDeformationClass,
-        "animated snapshot data must not enter the rigid source registry");
+        "animated data under a rigid domain must fail closed");
+
+    key = MakeSkinnedBindKey();
+    key.deformationClass = PtCanonicalDeformationClass::Rigid;
+    Expect(registry.Observe(key, 1, &view) ==
+        PtGeometrySourceObserveResult::IneligibleDeformationClass,
+        "skinned bind domain must require skinned deformation");
 
     key = MakeRigidKey();
     Expect(registry.Observe(key, 0, &view) ==
@@ -237,6 +246,34 @@ void TestEligibilityAndValidation()
         "every rejected observation should have a named count");
 }
 
+void TestSkinnedBindSourceAdmission()
+{
+    PtGeometrySourceRegistry registry;
+    const PtCanonicalMeshKey key = MakeSkinnedBindKey();
+    TestPayload input;
+    const PtGeometrySourcePayloadView view = input.View();
+
+    Expect(
+        registry.Observe(key, 3, &view) ==
+            PtGeometrySourceObserveResult::Added,
+        "proven skinned bind source should be admitted");
+    const PtGeometrySourceRecord* record = registry.Find(key);
+    Expect(
+        record != nullptr &&
+            record->key.sourceDomain ==
+                PtCanonicalMeshSourceDomain::SkinnedBindSource &&
+            record->key.deformationClass ==
+                PtCanonicalDeformationClass::Skinned &&
+            record->sourceChecksum != 0,
+        "skinned bind source should retain its exact canonical contract");
+    Expect(
+        registry.Observe(key, 3, nullptr) ==
+            PtGeometrySourceObserveResult::Reused &&
+            registry.RecordCount() == 1 &&
+            registry.Stats().payloadCopies == 1,
+        "duplicate instances should reuse one value-owned bind source");
+}
+
 void TestChecksumCoversFullFidelityStreams()
 {
     TestPayload baseline;
@@ -271,6 +308,7 @@ int main()
     TestSteadyReuseDoesNotTouchPayload();
     TestRevisionReplacementAndStaleRejection();
     TestEligibilityAndValidation();
+    TestSkinnedBindSourceAdmission();
     TestChecksumCoversFullFidelityStreams();
     if (g_failures != 0)
     {

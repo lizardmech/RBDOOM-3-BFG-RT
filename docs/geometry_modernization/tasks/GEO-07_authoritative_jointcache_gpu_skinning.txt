@@ -33,12 +33,12 @@ STEPS
    register before implementation.
 3. Define a per-instance skinning job: immutable source ranges, joint range,
    vertex output range, previous output range, surface identity, and status.
-4. Establish a proven immutable skinned bind-source record before allocating
-   outputs. The accepted GEO-06 registry currently admits only
-   RegisteredRenderModel + Rigid and deliberately treats SkinnedBindSource as
-   a negative control. Then allocate mutable outputs by the full canonical
-   InstanceKey, never by shared MeshKey. Two zombies sharing one MD5 source
-   must have distinct output ranges.
+4. Use the accepted slice-5A immutable skinned bind-source record before
+   allocating outputs. Its producer is the MD5 load-time deformInfo bind
+   geometry, admitted only after exact model-surface count/topology validation
+   and value-copy into the source registry. Allocate mutable outputs by the
+   full canonical InstanceKey, never by shared MeshKey. Two zombies sharing
+   one MD5 source must have distinct output ranges.
 5. Schedule skinning after authoritative joint writes and before BLAS update on
    the same queue/command-list dependency chain.
 6. Route each candidate through the GEO-03 funnel. Only `dispatchedGpu` may skip

@@ -200,6 +200,20 @@ same-frame validation is armed, retain a bounded frame-owned copy at the
 R_SetupDrawSurfJoints upload boundary and transport it through drawSurf_t. This
 copy is validation-only and must be removed from production measurements.
 
+D22. SKINNED IMMUTABLE SOURCE PRODUCER
+--------------------------------------
+Decision: the first canonical skinned source is the MD5 model's load-time
+deformInfo vertex/index geometry, addressed by model-surface ordinal. The
+resolved per-frame srfTriangles_t is an animated snapshot and is not eligible
+as immutable source ownership.
+
+Admission requires the exact SkinnedBindSource/Skinned pair, an MD5 source
+model, matching canonical vertex/index counts, and matching index-topology
+signature. The registry value-copies the full source payload and retains no
+model/deformInfo pointer. Duplicate actors may share this MeshKey/source
+record, but their mutable output ranges, pose history and later BLAS state
+remain keyed by full InstanceKey and may not alias.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
