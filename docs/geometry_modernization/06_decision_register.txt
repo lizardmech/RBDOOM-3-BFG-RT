@@ -551,10 +551,11 @@ yield between driver work units. If a driver completes synchronously, the
 small source-partitioned library remains the fallback bound.
 
 `r_pathTracingCleanRestirGiPipelineWarmupLimit` is the bounded validation gate.
-Its normal default is 16. Values 0 and 1 allow a user run to prove the base
-executable and then only the smallest pipeline build; values 2..15 stop after
-that many ordered modules. Raising the value resumes from the retained index.
-No partial limit makes GI dispatchable.
+Its unvalidated default is 0. Value 1 allows a user run to prove only the
+smallest pipeline build; values 2..15 stop after that many ordered modules and
+16 permits the complete lane. Raising the value resumes from the retained
+index. No partial limit makes GI dispatchable. The default may move to 16 only
+after responsive 16/16 runtime acceptance.
 
 Offline acceptance is exact: 32/32 blobs pass `spirv-val --target-env
 vulkan1.2`; all 32 have the seven-entry inventory above; their combined size

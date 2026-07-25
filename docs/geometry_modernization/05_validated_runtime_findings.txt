@@ -564,10 +564,18 @@ NO LONGER OPEN TO SPECULATION
   passed. The replacement is offline-only: sixteen source-masked GI raygen
   libraries per debug/production variant, one pipeline build at a time,
   fifteen normal frames between builds, and a single yielding Vulkan deferred
-  host-operation joiner. A default-16 warmup-limit cvar permits bounded 0,
-  1, then incremental module validation without dispatching partial GI. All 32
+  host-operation joiner. A default-0 warmup-limit cvar permits bounded 1, then
+  incremental module validation without dispatching partial GI. All 32
   blobs pass Vulkan 1.2 validation and contain
   exactly one intended raygen plus six required miss/hit entries. Total size is
   24,526,784 bytes and the largest blob is 2,148,184 bytes. The monolithic GI
   hashes remain unchanged and the SBT route harness passes. Runtime acceptance
   remains open; the superseded lock-producing executable must not be launched.
+- geometry_geo75.log and geometry_geo76.log prove the replacement executable
+  remains system-responsive, the live warmup cap can be set to 1, and no GI
+  pipeline has yet compiled. The logs contain no GI entry, module-load,
+  warmup, or failure line after gameplay resumes, so the current uncertainty
+  is before pipeline creation: scheduler entry versus the silent aggregate
+  input-readiness gate. A bounded replacement prints one entry line and one
+  grouped missing-input mask, defaults the cap to 0, and performs no additional
+  shader work.

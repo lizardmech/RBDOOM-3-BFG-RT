@@ -260,10 +260,12 @@ gate failed: eager clean-GI pipeline construction starved Windows input even
 though the process and operating system remained alive. D36 supersedes that
 build with sixteen source-partitioned Vulkan raygen pipelines per
 debug/production variant, a fifteen-frame inter-build gap, and one yielding
-deferred-host-operation joiner. A default-16 cvar can cap warmup at 0..15 for
+deferred-host-operation joiner. A default-0 cvar permits only explicitly
 bounded incremental tests. The 32/32 exact SPIR-V validation gate and release
-build pass. Runtime acceptance, step 7, and comparison TLAS insertion remain
-blocked until user runs at limits 0, 1, then 16 prove responsive warmup.
+build pass. geometry_geo75/76 show responsive execution but no GI pipeline
+entry, so the next build adds one-shot scheduler/input-gate evidence. Runtime
+acceptance, step 7, and comparison TLAS insertion remain blocked until user
+runs at limits 1 through 16 prove responsive warmup.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

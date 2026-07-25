@@ -86,6 +86,8 @@ struct PathTraceCleanRestirGiState
     nvrhi::ComputePipelineHandle boilingFilterPipeline;
     bool boilingFilterInitAttempted = false;
     uint32_t frameIndex = 0;
+    bool pipelineWarmupEntryLogged = false;
+    bool pipelineWarmupInputGateLogged = false;
     bool dispatchLogged = false;
 
     void ReleaseResources();

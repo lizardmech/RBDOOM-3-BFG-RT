@@ -871,8 +871,8 @@ Replacement architecture:
   - one NVRHI ray pipeline and shader table is created per library;
   - warmup builds only one pipeline, waits fifteen ordinary frames, then
     attempts the next;
-  - `r_pathTracingCleanRestirGiPipelineWarmupLimit` defaults to 16, while
-    0..15 stop before or after that many ordered modules for bounded testing;
+  - `r_pathTracingCleanRestirGiPipelineWarmupLimit` defaults to 0 until runtime
+    acceptance, while 1..15 stop after that many ordered modules;
   - modules are ordered from lighter to heavier and incomplete warmup preserves
     the existing PT/DI output rather than clearing it magenta;
   - split GI pipelines opt into Vulkan deferred host operations with one
@@ -906,6 +906,29 @@ Exact shader proof:
   deployed split Vulkan blobs = 32/32 hash-exact, 24,526,784 bytes
   DX12 shader compilation = not run
   runtime launch = not run
+
+First bounded runtime observations:
+
+  geometry_geo75.log / geometry_geo76.log =
+    Windows input remains responsive;
+    live warmup limit query initially reports 16;
+    explicit `set ... 1` succeeds and listCvars reports 1;
+    GI enable/resolve/view report 1/1/0;
+    no GI entry, module-load, failure, or warmup line appears after gameplay;
+    no Vulkan device removal or fatal error appears.
+
+This does not accept pipeline creation because no split module was reached.
+The deployed replacement defaults the cap to 0 and emits exactly one
+warmup-entry line plus one grouped missing-input mask if the pre-pipeline
+resource contract fails. Diagnostic executable:
+
+  size = 15,771,648 bytes
+  SHA-256 =
+    B9C4B5F2AF3BE1CFF2D6650A0753C50B2AFD5BE8A3FB3A1A53CB0EEBBBDDCA7E
+  cmake --build --preset win64-pt-dev-release = PASS
+  PathTraceSkinnedHitRouteHarness = PASS
+  SPIR-V rebuild = none; all Vulkan blobs up to date
+  deployment = executable hash-exact; existing split blobs 32/32 retained
 
 BOUNDARY AND NEXT
 -----------------

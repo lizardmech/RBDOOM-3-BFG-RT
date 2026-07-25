@@ -1303,6 +1303,8 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     boilingFilterBindingLayout = nullptr;
     boilingFilterPipeline = nullptr;
     boilingFilterInitAttempted = false;
+    pipelineWarmupEntryLogged = false;
+    pipelineWarmupInputGateLogged = false;
     debugRayTracing.Release();
     productionRayTracing.Release();
 }
@@ -1343,31 +1345,88 @@ bool PathTraceCleanRestirGiExecute(
         return false;
     }
 
-    if (!inputs.device || !inputs.commandList || !inputs.outputTexture || !inputs.textureBindlessLayout || !inputs.textureDescriptorTable ||
-        inputs.width <= 0 || inputs.height <= 0 ||
-        !inputs.diConstantsBlob || inputs.diConstantsSize == 0 || inputs.diConstantsSize > CLEAN_RESTIR_GI_DI_BLOB_SIZE ||
-        !inputs.tlas || !inputs.staticVertexBuffer || !inputs.staticIndexBuffer ||
-        !inputs.dynamicVertexBuffer || !inputs.dynamicIndexBuffer ||
-        !inputs.staticTriangleClassBuffer || !inputs.dynamicTriangleClassBuffer ||
-        !inputs.staticTriangleMaterialBuffer || !inputs.dynamicTriangleMaterialBuffer ||
-        !inputs.staticTriangleMaterialIndexBuffer || !inputs.dynamicTriangleMaterialIndexBuffer ||
-        !inputs.materialTableBuffer || !inputs.liquidPoolStatusBuffer ||
-        !inputs.fallbackTexture || !inputs.skyEnvironmentCube || !inputs.emissiveTriangleBuffer ||
-        !inputs.rigidRouteVertexBuffer || !inputs.rigidRouteIndexBuffer ||
-        !inputs.rigidRouteTriangleMaterialBuffer ||
-        !inputs.rigidRouteTriangleMaterialIndexBuffer || !inputs.rigidRouteInstanceBuffer ||
-        !inputs.skinnedHitRouteRecordBuffer || !inputs.skinnedHitRouteTriangleBuffer ||
-        !inputs.skinnedSourceIndexBuffer || !inputs.skinnedCurrentOutputVertexBuffer ||
-        !inputs.skinnedPreviousPositionBuffer ||
-        !inputs.doomAnalyticLightBuffer ||
-        !inputs.emissiveDistributionBuffer || !inputs.rluCurrentLightBuffer ||
-        (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) ||
-        !inputs.diReservoirBuffer ||
-        !inputs.primarySurfaceCurrentBuffer || !inputs.primarySurfacePreviousBuffer ||
-        !inputs.motionVectorTexture || !inputs.motionVectorMaskTexture ||
-        !inputs.rrInputColorTexture || !inputs.rrGuideAlbedoTexture || !inputs.rrGuideHitDistanceTexture ||
-        !inputs.materialSampler)
+    if (!state.pipelineWarmupEntryLogged)
     {
+        common->Printf(
+            "PathTraceCleanRestirGi: warmup entry api=%s view=%d resolve=%d limit=%d\n",
+            inputs.isVulkan ? "vulkan" : (inputs.isD3D12 ? "d3d12" : "unknown"),
+            view,
+            r_pathTracingCleanRestirGiResolve.GetInteger(),
+            r_pathTracingCleanRestirGiPipelineWarmupLimit.GetInteger());
+        state.pipelineWarmupEntryLogged = true;
+    }
+
+    const uint32_t coreMissing =
+        (!inputs.device ? 1u << 0 : 0u) |
+        (!inputs.commandList ? 1u << 1 : 0u) |
+        (!inputs.outputTexture ? 1u << 2 : 0u) |
+        (!inputs.textureBindlessLayout ? 1u << 3 : 0u) |
+        (!inputs.textureDescriptorTable ? 1u << 4 : 0u) |
+        (inputs.width <= 0 ? 1u << 5 : 0u) |
+        (inputs.height <= 0 ? 1u << 6 : 0u) |
+        (!inputs.diConstantsBlob ? 1u << 7 : 0u) |
+        (inputs.diConstantsSize == 0 ? 1u << 8 : 0u) |
+        (inputs.diConstantsSize > CLEAN_RESTIR_GI_DI_BLOB_SIZE ? 1u << 9 : 0u);
+    const uint32_t geometryMissing =
+        (!inputs.tlas ? 1u << 0 : 0u) |
+        (!inputs.staticVertexBuffer ? 1u << 1 : 0u) |
+        (!inputs.staticIndexBuffer ? 1u << 2 : 0u) |
+        (!inputs.dynamicVertexBuffer ? 1u << 3 : 0u) |
+        (!inputs.dynamicIndexBuffer ? 1u << 4 : 0u) |
+        (!inputs.staticTriangleClassBuffer ? 1u << 5 : 0u) |
+        (!inputs.dynamicTriangleClassBuffer ? 1u << 6 : 0u) |
+        (!inputs.staticTriangleMaterialBuffer ? 1u << 7 : 0u) |
+        (!inputs.dynamicTriangleMaterialBuffer ? 1u << 8 : 0u) |
+        (!inputs.staticTriangleMaterialIndexBuffer ? 1u << 9 : 0u) |
+        (!inputs.dynamicTriangleMaterialIndexBuffer ? 1u << 10 : 0u) |
+        (!inputs.materialTableBuffer ? 1u << 11 : 0u) |
+        (!inputs.liquidPoolStatusBuffer ? 1u << 12 : 0u) |
+        (!inputs.fallbackTexture ? 1u << 13 : 0u) |
+        (!inputs.skyEnvironmentCube ? 1u << 14 : 0u);
+    const uint32_t routeMissing =
+        (!inputs.emissiveTriangleBuffer ? 1u << 0 : 0u) |
+        (!inputs.rigidRouteVertexBuffer ? 1u << 1 : 0u) |
+        (!inputs.rigidRouteIndexBuffer ? 1u << 2 : 0u) |
+        (!inputs.rigidRouteTriangleMaterialBuffer ? 1u << 3 : 0u) |
+        (!inputs.rigidRouteTriangleMaterialIndexBuffer ? 1u << 4 : 0u) |
+        (!inputs.rigidRouteInstanceBuffer ? 1u << 5 : 0u) |
+        (!inputs.skinnedHitRouteRecordBuffer ? 1u << 6 : 0u) |
+        (!inputs.skinnedHitRouteTriangleBuffer ? 1u << 7 : 0u) |
+        (!inputs.skinnedSourceIndexBuffer ? 1u << 8 : 0u) |
+        (!inputs.skinnedCurrentOutputVertexBuffer ? 1u << 9 : 0u) |
+        (!inputs.skinnedPreviousPositionBuffer ? 1u << 10 : 0u);
+    const uint32_t lightingMissing =
+        (!inputs.doomAnalyticLightBuffer ? 1u << 0 : 0u) |
+        (!inputs.emissiveDistributionBuffer ? 1u << 1 : 0u) |
+        (!inputs.rluCurrentLightBuffer ? 1u << 2 : 0u) |
+        (!inputs.neeCacheProviderResultBuffer &&
+            r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0
+            ? 1u << 3
+            : 0u);
+    const uint32_t temporalMissing =
+        (!inputs.diReservoirBuffer ? 1u << 0 : 0u) |
+        (!inputs.primarySurfaceCurrentBuffer ? 1u << 1 : 0u) |
+        (!inputs.primarySurfacePreviousBuffer ? 1u << 2 : 0u) |
+        (!inputs.motionVectorTexture ? 1u << 3 : 0u) |
+        (!inputs.motionVectorMaskTexture ? 1u << 4 : 0u) |
+        (!inputs.rrInputColorTexture ? 1u << 5 : 0u) |
+        (!inputs.rrGuideAlbedoTexture ? 1u << 6 : 0u) |
+        (!inputs.rrGuideHitDistanceTexture ? 1u << 7 : 0u) |
+        (!inputs.materialSampler ? 1u << 8 : 0u);
+    if (coreMissing || geometryMissing || routeMissing ||
+        lightingMissing || temporalMissing)
+    {
+        if (!state.pipelineWarmupInputGateLogged)
+        {
+            common->Printf(
+                "PathTraceCleanRestirGi: warmup input gate missing core=%08x geometry=%08x route=%08x lighting=%08x temporal=%08x\n",
+                coreMissing,
+                geometryMissing,
+                routeMissing,
+                lightingMissing,
+                temporalMissing);
+            state.pipelineWarmupInputGateLogged = true;
+        }
         clearFailureOutput();
         return false;
     }
