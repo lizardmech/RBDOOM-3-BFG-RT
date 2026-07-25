@@ -237,6 +237,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokePrimarySurfaceProducerShaderLibrary = nullptr;
     m_smokeRestirPdfNeeRluCurrentShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiSentinelShaderLibrary = nullptr;
+    m_smokeCleanRtxdiDiSkinnedHitsShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiInitialShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiTemporalShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiSpatialShaderLibrary = nullptr;

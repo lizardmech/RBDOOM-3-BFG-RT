@@ -707,6 +707,7 @@ private:
     nvrhi::ShaderLibraryHandle m_smokePrimarySurfaceProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirPdfNeeRluCurrentShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSentinelShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSkinnedHitsShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiInitialShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiTemporalShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSpatialShaderLibrary;

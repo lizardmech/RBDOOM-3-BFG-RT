@@ -243,6 +243,16 @@ is not complete and step 7 remains blocked until the two oversized libraries
 are split or an equivalently narrow consumer boundary compiles, followed by a
 bounded user-run validation.
 
+GEO-08 step 6B3 removes the clean-DI half of that compiler blocker offline.
+A compact 17,196-byte hit-only Vulkan module preserves the sentinel payload
+and material-visibility contract, and NVRHI appends its primary/shadow groups
+at SBT records 2/3 while legacy records remain 0/1. SPIR-V validation,
+entry-point/binding disassembly, and the release build pass; no TLAS descriptor
+selects the new records yet. Clean-GI still requires an equivalent compact
+module with full alpha, translucency, and liquid-pool candidate behavior.
+Step 7 remains blocked pending that split and bounded mixed-pipeline runtime
+creation proof.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

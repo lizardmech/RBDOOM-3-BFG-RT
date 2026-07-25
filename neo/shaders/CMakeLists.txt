@@ -96,6 +96,7 @@ set(PATH_TRACING_RESTIR_PDF_NEE_RLU_CURRENT_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE
 set(PATH_TRACING_REGIR_DEBUG_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl)
 set(PATH_TRACING_NEE_CACHE_DEBUG_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl)
+set(PATH_TRACING_CLEAN_RTXDI_DI_SKINNED_HITS_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_skinned_hits.rt.hlsl)
 set(PATH_TRACING_CLEAN_RTXDI_DI_INITIAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial.rt.hlsl)
 set(PATH_TRACING_CLEAN_RTXDI_DI_TEMPORAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.hlsl)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.hlsl)
@@ -388,6 +389,7 @@ if(USE_VULKAN)
     set(PATH_TRACING_REGIR_DEBUG_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/pathtrace_regir_debug.rt.bin)
     set(PATH_TRACING_NEE_CACHE_DEBUG_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/pathtrace_nee_cache_debug.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin)
+    set(PATH_TRACING_CLEAN_RTXDI_DI_SKINNED_HITS_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_skinned_hits.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_INITIAL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_TEMPORAL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin)
@@ -454,6 +456,18 @@ if(USE_VULKAN)
         COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SPIRV_OUTPUT} ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE}
         DEPENDS ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES}
         COMMENT "Compiling clean-room RTXDI DI sentinel RT shader library (SPIR-V)"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT ${PATH_TRACING_CLEAN_RTXDI_DI_SKINNED_HITS_SPIRV_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi
+        COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_CLEAN_RTXDI_DI_SKINNED_HITS_SPIRV_OUTPUT} ${PATH_TRACING_CLEAN_RTXDI_DI_SKINNED_HITS_SHADER_SOURCE}
+        DEPENDS
+            ${PATH_TRACING_CLEAN_RTXDI_DI_SKINNED_HITS_SHADER_SOURCE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/vulkan.hlsli
+            ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTraceMaterialFeatureTypes.hlsli
+            ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTraceSkinnedHitRoute.hlsli
+            ${PATH_TRACING_LIQUID_POOL_CONTROL_INCLUDE}
+        COMMENT "Compiling clean-room RTXDI DI compact skinned-hit RT shader library (SPIR-V)"
         VERBATIM)
     add_custom_command(
         OUTPUT ${PATH_TRACING_CLEAN_RTXDI_DI_INITIAL_SPIRV_OUTPUT}
@@ -545,6 +559,7 @@ if(USE_VULKAN)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_REGIR_DEBUG_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_NEE_CACHE_DEBUG_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SPIRV_OUTPUT})
+    list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_SKINNED_HITS_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_INITIAL_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_TEMPORAL_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SPIRV_OUTPUT})

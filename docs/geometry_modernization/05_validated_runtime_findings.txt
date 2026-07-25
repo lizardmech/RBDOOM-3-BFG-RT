@@ -535,3 +535,12 @@ NO LONGER OPEN TO SPECULATION
   keeping the new bindings present. This is a hard gate: neither library may
   receive a skinned TLAS hit until it is split or otherwise compiled under the
   ID budget and receives bounded runtime proof.
+- GEO-08 step 6B3 removes the clean-DI compiler-budget blocker offline. A
+  separate 17,196-byte Vulkan module supplies only the clean-DI skinned
+  primary/shadow hit exports. `spirv-val` passes; disassembly confirms four
+  entry points, bindings b2/t13/t18/t19/t80, and constant offsets 40/56/144.
+  The release build passes and the rebuilt sentinel and both clean-GI blobs
+  remain hash-identical to the previously deployed blobs. NVRHI now constructs
+  the clean-DI sentinel as a mixed-module pipeline with skinned SBT records
+  appended at 2/3. No TLAS contribution selects those records yet, no runtime
+  launch was performed, and clean-GI remains the hard gate.

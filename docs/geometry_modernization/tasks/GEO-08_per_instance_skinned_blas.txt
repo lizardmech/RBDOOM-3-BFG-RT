@@ -107,8 +107,9 @@ STEPS
    observable full-rebuild cadence. Stable PerformUpdate and cadence rebuild
    pass in geometry_geo68_auto; exact removal and completion-owned replacement
    pass in geometry_geo69_auto and geometry_geo71_auto.
-6. PARTIALLY ACCEPTED THROUGH GPU TRANSPORT AND THE FIRST 6B2 CONSUMER
-   CONVERSION; OVERSIZED LIBRARY SPLIT AND RUNTIME PROOF REMAIN. Define the
+6. PARTIALLY ACCEPTED THROUGH GPU TRANSPORT, THE FIRST 6B2 CONSUMER
+   CONVERSION, AND AN OFFLINE CLEAN-DI HIT-LIBRARY SPLIT; CLEAN-GI AND RUNTIME
+   PROOF REMAIN. Define the
    shader hit-routing contract before adding TLAS instances.
    Prove canonical instance ID, primitive-to-source-triangle lookup, material
    table lookup, current/previous position lookup, and emissive identity for a
@@ -127,9 +128,12 @@ STEPS
    baseline SPIR-V is already 5,929,604 and 9,385,432 bytes respectively;
    adding full skinned reconstruction makes DXC fail with SPIR-V ID overflow.
    Both oversized libraries receive the bindings but compile out skinned hit
-   reconstruction. No skinned comparison BLAS may enter a TLAS until those
-   libraries are split or otherwise brought under the compiler budget and
-   bounded runtime proof passes.
+   reconstruction. Step 6B3 adds a 17,196-byte clean-DI skinned-hit library
+   with four exports and appends its primary/shadow groups at SBT slots 2/3.
+   `spirv-val`, disassembly, and the release build pass; the existing sentinel
+   blob remains byte-identical. Clean-GI still needs the equivalent narrow
+   boundary. No skinned comparison BLAS may enter a TLAS until clean-GI is
+   split and bounded mixed-library/runtime proof passes.
 7. Add comparison TLAS routing while the merged dynamic BLAS remains live.
    Record instance/primitive totals, sampled hit identities, bounds,
    material/triangle IDs, and motion inputs. A compare failure must select only

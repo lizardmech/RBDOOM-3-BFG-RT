@@ -488,6 +488,36 @@ skinned hit. Step 7 is blocked until these libraries are split or an equivalent
 narrow boundary compiles and bounded runtime proof succeeds. Compiler flags,
 DX12 builds, and disabling SPIR-V validation are not accepted workarounds.
 
+D35. OVERSIZED RAY LIBRARIES USE COMPACT HIT MODULES AND A TWO-RECORD SBT STRIDE
+-------------------------------------------------------------------------------
+Decision: Vulkan ray pipelines may combine shader handles obtained from
+different NVRHI shader libraries. The Vulkan backend retains each originating
+module and registers it independently in one ray pipeline. Skinned instances
+therefore use `instanceContributionToHitGroupIndex = 2`: primary rays select
+SBT record 2 and shadow rays select record 3, preserving the existing
+primary/shadow records 0/1 for static, merged-dynamic, and rigid instances.
+
+The clean-DI sentinel implements the first half of this split. Its compact
+skinned-hit library contains only the sentinel's five-word payload ABI,
+t18/t19 route/triangle lookup, t13/t80 material visibility state, and the
+existing primary/shadow any-hit decisions. The compiled module is 17,196
+bytes, has exactly four hit exports, passes `spirv-val`, and disassembles to
+bindings b2/t13/t18/t19/t80 with b2 offsets 40, 56, and 144. NVRHI appends
+`SkinnedHitGroup` and `SkinnedShadowHitGroup` to the sentinel shader table.
+No TLAS instance uses contribution 2 in this slice, so traversal is unchanged.
+
+DXC `-exports` and `-export-shaders-only` were tested against the full sentinel
+source and still overflowed during SPIR-V legalization. Export filtering is
+therefore not an accepted substitute for a source-level compact module. Local
+Remix code supports the architectural direction by assembling narrowly scoped
+hit variants into a pipeline, but this repository's payload, resource, and SBT
+contracts remain authoritative.
+
+D35 is offline-only until bounded runtime pipeline creation succeeds. Clean-GI
+must receive an equivalent compact hit boundary, including its alpha,
+translucency, and liquid-pool candidate behavior, before any skinned comparison
+BLAS enters the shared TLAS.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

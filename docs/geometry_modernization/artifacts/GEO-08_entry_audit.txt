@@ -720,3 +720,68 @@ BLAS into any TLAS:
   4. use a bounded user-run capture with broad smoke logging disabled and hard
      abort limits. Autonomous runtime launch remains forbidden after the prior
      display-stack failure.
+
+STEP 6B3 - CLEAN-DI COMPACT SKINNED-HIT LIBRARY, OFFLINE
+---------------------------------------------------------
+Architecture proof:
+
+  - NVRHI Vulkan ray pipelines register each ShaderHandle's originating module
+    independently; one pipeline may therefore combine the sentinel raygen/miss
+    module with a compact skinned hit module.
+  - The existing TraceRay contract uses ray contribution 0 for primary and 1
+    for shadow with geometry multiplier 1. Legacy TLAS instances contribute 0.
+    A skinned TLAS contribution of 2 selects appended records 2/3 without
+    changing legacy selection.
+  - Local Remix code uses the same broad pattern of narrowly scoped hit
+    variants assembled into one ray pipeline. No reference shader source was
+    copied.
+
+Rejected compiler-only experiment:
+
+  DXC `-exports ClosestHit;AnyHit;ShadowClosestHit;ShadowAnyHit` failed with the
+  same SPIR-V ID overflow when full skinned reconstruction was enabled in the
+  sentinel source. Adding `-export-shaders-only` also failed. DXC legalizes the
+  oversized program graph before export pruning, so source separation is
+  required.
+
+Implemented compact module:
+
+  source =
+    cleanroom_rtxdi/pathtrace_clean_rtxdi_di_skinned_hits.rt.hlsl
+  output =
+    cleanroom_rtxdi/pathtrace_clean_rtxdi_di_skinned_hits.rt.bin
+  size = 17,196 bytes
+  exports =
+    CleanDiSkinnedAnyHit
+    CleanDiSkinnedShadowAnyHit
+    CleanDiSkinnedClosestHit
+    CleanDiSkinnedShadowClosestHit
+  descriptor bindings = b2, t13, t18, t19, t80
+  b2 member offsets = 40, 56, 144
+  spirv-val --target-env vulkan1.2 = PASS
+
+The clean-DI sentinel pipeline loads the compact module on Vulkan and appends
+`SkinnedHitGroup` / `SkinnedShadowHitGroup` after the legacy two records.
+DX12 retains its prior single-library construction and no DX12 shader was
+compiled. No TLAS instance contribution changes in this slice.
+
+Build proof:
+
+  cmake --build --preset win64-pt-dev-release = PASS
+  existing sentinel blob SHA-256 =
+    652A613BF6FA1AB592E3A2E9443D70353A6BCA3E87C6B690CDDA434200B51FC0
+  existing clean-GI debug blob SHA-256 =
+    FDAEE58F4981A5ED662E89119FF7B87F9E629C05CE0AD6C064BFE1DF0D0B550A
+  existing clean-GI production blob SHA-256 =
+    425B224669C89E9FB5DA84E6F6B2CE94E354FD0F79B3E890F37C5FA85B799FFF
+  all three match the previously deployed checkpoint byte-for-byte
+  runtime launch = not run
+
+BOUNDARY AND NEXT
+-----------------
+Clean-DI is no longer blocked by DXC's ID ceiling, but mixed-library Vulkan
+pipeline creation is not yet runtime-accepted. Clean-GI still needs a compact
+hit module that preserves its complete alpha/translucency/liquid-candidate
+contract. Step 7 remains forbidden until that module compiles, both mixed
+pipelines receive bounded runtime creation proof, and the SBT contribution
+planner is covered by exact offline assertions.

@@ -702,7 +702,8 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
     nvrhi::BindingLayoutHandle textureBindlessLayout,
     const char* label,
     nvrhi::rt::PipelineHandle& pipeline,
-    nvrhi::rt::ShaderTableHandle& shaderTable)
+    nvrhi::rt::ShaderTableHandle& shaderTable,
+    nvrhi::ShaderLibraryHandle skinnedHitShaderLibrary = nullptr)
 {
     pipeline = nullptr;
     shaderTable = nullptr;
@@ -720,10 +721,38 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
     nvrhi::ShaderHandle anyHit = shaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit);
     nvrhi::ShaderHandle shadowClosestHit = shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
     nvrhi::ShaderHandle shadowAnyHit = shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
+    nvrhi::ShaderHandle skinnedClosestHit;
+    nvrhi::ShaderHandle skinnedAnyHit;
+    nvrhi::ShaderHandle skinnedShadowClosestHit;
+    nvrhi::ShaderHandle skinnedShadowAnyHit;
+    if (skinnedHitShaderLibrary)
+    {
+        skinnedClosestHit = skinnedHitShaderLibrary->getShader(
+            "CleanDiSkinnedClosestHit",
+            nvrhi::ShaderType::ClosestHit);
+        skinnedAnyHit = skinnedHitShaderLibrary->getShader(
+            "CleanDiSkinnedAnyHit",
+            nvrhi::ShaderType::AnyHit);
+        skinnedShadowClosestHit = skinnedHitShaderLibrary->getShader(
+            "CleanDiSkinnedShadowClosestHit",
+            nvrhi::ShaderType::ClosestHit);
+        skinnedShadowAnyHit = skinnedHitShaderLibrary->getShader(
+            "CleanDiSkinnedShadowAnyHit",
+            nvrhi::ShaderType::AnyHit);
+    }
 
     if (!rayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
     {
         common->Printf("PathTracePrimaryPass: %s RT smoke shader library is missing one or more required entry points\n", label);
+        return false;
+    }
+    if (skinnedHitShaderLibrary &&
+        (!skinnedClosestHit || !skinnedAnyHit ||
+            !skinnedShadowClosestHit || !skinnedShadowAnyHit))
+    {
+        common->Printf(
+            "PathTracePrimaryPass: %s compact skinned-hit library is missing one or more required entry points\n",
+            label);
         return false;
     }
 
@@ -752,6 +781,25 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
             false
         }
     };
+    if (skinnedHitShaderLibrary)
+    {
+        pipelineDesc.hitGroups.push_back({
+            "SkinnedHitGroup",
+            skinnedClosestHit,
+            skinnedAnyHit,
+            nullptr,
+            nullptr,
+            false
+        });
+        pipelineDesc.hitGroups.push_back({
+            "SkinnedShadowHitGroup",
+            skinnedShadowClosestHit,
+            skinnedShadowAnyHit,
+            nullptr,
+            nullptr,
+            false
+        });
+    }
     pipelineDesc.maxPayloadSize = 64;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
@@ -776,6 +824,11 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
     shaderTable->addMissShader("ShadowMiss");
     shaderTable->addHitGroup("HitGroup");
     shaderTable->addHitGroup("ShadowHitGroup");
+    if (skinnedHitShaderLibrary)
+    {
+        shaderTable->addHitGroup("SkinnedHitGroup");
+        shaderTable->addHitGroup("SkinnedShadowHitGroup");
+    }
     return true;
 }
 
@@ -1470,7 +1523,8 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
         const char* label,
         const char* dxilShaderPath,
         const char* spirvShaderPath,
-        nvrhi::BindingLayoutHandle bindingLayoutOverride = nullptr) -> bool
+        nvrhi::BindingLayoutHandle bindingLayoutOverride = nullptr,
+        nvrhi::ShaderLibraryHandle skinnedHitShaderLibrary = nullptr) -> bool
     {
         if (shaderTable)
         {
@@ -1517,7 +1571,8 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             m_smokeTextureBindlessLayout,
             label,
             pipeline,
-            shaderTable))
+            shaderTable,
+            skinnedHitShaderLibrary))
         {
             common->Printf("PathTracePrimaryPass: %s RT smoke pipeline unavailable; matching modes will use the core placeholder path\n", label);
             pipeline = nullptr;
@@ -1551,14 +1606,33 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
     }
     case 15:
     {
-        const bool sentinelOk = initLibrary(
+        nvrhi::ShaderLibraryHandle sentinelSkinnedHitLibrary;
+        bool sentinelSkinnedHitsOk = true;
+        if (deviceManager &&
+            deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            nvrhi::IDevice* device =
+                deviceManager ? deviceManager->GetDevice() : nullptr;
+            sentinelSkinnedHitsOk =
+                device != nullptr &&
+                (m_smokeCleanRtxdiDiSkinnedHitsShaderLibrary ||
+                    LoadPathTraceSmokeShaderLibrary(
+                        device,
+                        "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_skinned_hits.rt.bin",
+                        "clean-room RTXDI DI compact skinned hits",
+                        m_smokeCleanRtxdiDiSkinnedHitsShaderLibrary));
+            sentinelSkinnedHitLibrary =
+                m_smokeCleanRtxdiDiSkinnedHitsShaderLibrary;
+        }
+        const bool sentinelOk = sentinelSkinnedHitsOk && initLibrary(
             m_smokeCleanRtxdiDiSentinelShaderLibrary,
             m_smokeCleanRtxdiDiSentinelPipeline,
             m_smokeCleanRtxdiDiSentinelShaderTable,
             "clean-room RTXDI DI sentinel",
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
-            m_smokeCleanRtxdiDiSentinelBindingLayout);
+            m_smokeCleanRtxdiDiSentinelBindingLayout,
+            sentinelSkinnedHitLibrary);
         const bool initialOk = initLibrary(
             m_smokeCleanRtxdiDiInitialShaderLibrary,
             m_smokeCleanRtxdiDiInitialPipeline,
