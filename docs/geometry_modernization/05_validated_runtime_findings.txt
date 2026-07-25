@@ -488,3 +488,19 @@ NO LONGER OPEN TO SPECULATION
   0.0000152587891 maximum error. Both runs have zero fatal, device-removal,
   NVRHI-error, or validation-error markers. Comparison BLASes remain excluded
   from every TLAS; hit routing and traversal are still unclaimed.
+- geometry_geo72_auto accepts GEO-08 step 6A's pure source-local hit-route
+  plan and live CPU shadow. Twelve submitted comparison BLAS owners produce
+  twelve collision-checked route records in shader-instance slots 113..124,
+  after static 0, merged dynamic 1, and 111 rigid-route slots. All 15,962
+  immutable-source primitives map in order to all 15,962 legacy compact
+  primitives in this scene, with zero source-only primitives, zero rejection,
+  zero canonical-instance-hash collision, and zero emissive-identity collision.
+  All twelve records have valid previous-position ranges. The planner keeps a
+  named source-only path because legacy capture can compact posed zero-area
+  triangles; source-local PrimitiveIndex must never be interpreted as the old
+  merged-dynamic primitive index. The focused route harness covers that
+  filtered-primitive case, fail-closed topology mismatch, duplicate full
+  InstanceKey rejection, and 24-bit shader-instance overflow. Both live parity
+  dumps pass at 0.0000152587891 maximum error and the log has zero fatal,
+  device-removal, NVRHI-error, or validation-error markers. No shader ABI,
+  binding, TLAS descriptor, or traversal route changes in this slice.

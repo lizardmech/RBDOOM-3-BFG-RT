@@ -194,6 +194,21 @@ zero deferral, build failure, fatal, device-removal, NVRHI-error, or validation
 error. Step 5 is therefore complete. Step 6, the canonical per-surface shader
 hit-routing contract, is next; no comparison BLAS may enter a TLAS yet.
 
+GEO-08 step 6A accepts the pure source-local hit-route plan and behavior-neutral
+live shadow. The audit found that immutable-source BLAS PrimitiveIndex and the
+legacy merged-dynamic PrimitiveIndex are not safely interchangeable because
+legacy capture can compact posed zero-area triangles. The new planner treats
+source topology as authoritative, maps legacy indexes only as an ordered
+subsequence, and retains explicit per-source-primitive material, class,
+canonical primitive, and emissive identity metadata plus exact current and
+previous vertex ranges. geometry_geo72_auto accepts 12/12 records in disjoint
+shader slots 113..124, 15,962/15,962 source-to-legacy triangle mappings, 12/12
+motion ranges, zero source-only primitives in this scene, and zero route or
+identity rejection/collision. Seven focused harnesses pass, including the
+synthetic source-only primitive case. Step 6B is next: define/upload the GPU
+route ABI and replace the current shader-wide `InstanceID >= 2 means rigid`
+assumption across every active consumer. TLAS insertion remains forbidden.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

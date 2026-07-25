@@ -468,6 +468,7 @@ private:
     bool m_smokeSkinnedComparisonBlasUpdateLogged = false;
     bool m_smokeSkinnedComparisonBlasRebuildLogged = false;
     bool m_smokeSkinnedComparisonBlasReplacementLogged = false;
+    bool m_smokeSkinnedHitRouteShadowLogged = false;
     uint64 m_smokeNextSkinnedComparisonCompletionToken = 1;
     uint64 m_smokeLastCompletedSkinnedComparisonToken = 0;
     bool m_smokeSkinnedComparisonCompletionQueryFailureLogged = false;

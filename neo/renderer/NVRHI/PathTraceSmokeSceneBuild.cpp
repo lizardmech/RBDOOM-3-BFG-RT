@@ -30,6 +30,7 @@
 #include "PathTraceDebugModes.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
+#include "PathTraceSkinnedHitRoute.h"
 #include "PathTraceSkinnedHistoryPolicy.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSmokeResources.h"
@@ -3699,6 +3700,220 @@ SubmitSmokeSkinnedComparisonBlases(
     audit.activeResources =
         static_cast<int>(resources.size());
     return audit;
+}
+
+PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
+    const std::vector<PathTraceSkinnedSurfaceDispatchRecord>&
+        dispatchRecords,
+    const RtSmokeGeometryUniverse& geometryUniverse,
+    const PtSkinnedBlasStateTable& stateTable,
+    const std::vector<RtSmokeSkinnedComparisonBlasResource>&
+        comparisonResources,
+    const std::vector<uint32_t>& dynamicIndexes,
+    const std::vector<uint32_t>& dynamicTriangleClasses,
+    const std::vector<uint32_t>& dynamicTriangleMaterialIds,
+    const std::vector<uint32_t>&
+        dynamicTriangleMaterialIndexes,
+    nvrhi::BufferHandle outputBuffer,
+    uint64 previousPositionCount,
+    uint64 outputCapacityBytes,
+    uint64 firstShaderInstanceId,
+    bool gate)
+{
+    PtSkinnedHitRouteLegacyView legacy;
+    legacy.indexes = dynamicIndexes.data();
+    legacy.indexCount = dynamicIndexes.size();
+    legacy.triangleClasses =
+        dynamicTriangleClasses.data();
+    legacy.triangleClassCount =
+        dynamicTriangleClasses.size();
+    legacy.triangleMaterialIds =
+        dynamicTriangleMaterialIds.data();
+    legacy.triangleMaterialIdCount =
+        dynamicTriangleMaterialIds.size();
+    legacy.triangleMaterialIndexes =
+        dynamicTriangleMaterialIndexes.data();
+    legacy.triangleMaterialIndexCount =
+        dynamicTriangleMaterialIndexes.size();
+
+    std::vector<PtSkinnedHitRouteCandidate> candidates;
+    if (!gate)
+    {
+        return PtBuildSkinnedHitRoutes(
+            candidates,
+            legacy,
+            firstShaderInstanceId);
+    }
+    candidates.reserve(dispatchRecords.size());
+    const uint64 sourceIndexGeneration =
+        geometryUniverse.
+            CanonicalSourceIndexPoolGeneration();
+    const uint64 sourceIndexCapacity =
+        geometryUniverse.
+            CanonicalSourceIndexPoolCapacityBytes();
+    const nvrhi::BufferHandle sourceIndexBuffer =
+        geometryUniverse.CanonicalSourceIndexBuffer();
+
+    for (const PathTraceSkinnedSurfaceDispatchRecord& dispatch :
+        dispatchRecords)
+    {
+        PtSkinnedHitRouteCandidate candidate;
+        if (dispatch.surfaceRecordIndex >= records.size())
+        {
+            candidates.push_back(candidate);
+            continue;
+        }
+        const RtSmokeSkinnedSurfaceRecord& record =
+            records[dispatch.surfaceRecordIndex];
+        candidate.instanceKey = record.canonicalInstance;
+        candidate.fallbackMaterialId = record.materialId;
+        candidate.fallbackTriangleClassAndFlags =
+            record.key.surfaceClassId;
+        candidate.previousPositionOffset =
+            dispatch.previousPositionOffset;
+        candidate.previousPositionCount =
+            previousPositionCount;
+        candidate.previousValid =
+            dispatch.previousPositionOffset != UINT32_MAX &&
+            (dispatch.flags &
+                PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) != 0u;
+        candidate.legacyVertexOffset =
+            dispatch.dynamicVertexOffset;
+        candidate.legacyVertexCount =
+            dispatch.vertexCount;
+        candidate.legacyIndexOffset =
+            dispatch.dynamicIndexOffset;
+        candidate.legacyIndexCount =
+            static_cast<uint64>(dispatch.triangleCount) * 3;
+        candidate.legacyTriangleOffset =
+            dispatch.dynamicTriangleOffset;
+        candidate.legacyTriangleCount =
+            dispatch.triangleCount;
+        if (dispatch.dynamicTriangleOffset <
+            dynamicTriangleMaterialIndexes.size())
+        {
+            candidate.fallbackMaterialIndex =
+                dynamicTriangleMaterialIndexes[
+                    dispatch.dynamicTriangleOffset];
+        }
+        if (dispatch.dynamicTriangleOffset <
+            dynamicTriangleClasses.size())
+        {
+            candidate.fallbackTriangleClassAndFlags =
+                dynamicTriangleClasses[
+                    dispatch.dynamicTriangleOffset];
+        }
+
+        const PtSkinnedBlasRecord* state =
+            stateTable.Find(record.canonicalInstance);
+        const PtGeometryIdentityBinding* binding =
+            geometryUniverse.FindCanonicalIdentityBinding(
+                record.canonicalInstance);
+        const PtGeometrySourceRecord* source =
+            binding != nullptr
+                ? geometryUniverse.FindCanonicalSourceRecord(
+                    binding->meshKey)
+                : nullptr;
+        const PtGeometryGpuPoolRecord* sourceGpu =
+            binding != nullptr
+                ? geometryUniverse.
+                    FindCanonicalSourceGpuRecord(
+                        binding->meshKey)
+                : nullptr;
+        const RtSmokeSkinnedComparisonBlasResource* resource =
+            nullptr;
+        for (const RtSmokeSkinnedComparisonBlasResource&
+            comparisonResource : comparisonResources)
+        {
+            if (comparisonResource.instanceKey ==
+                record.canonicalInstance)
+            {
+                resource = &comparisonResource;
+                break;
+            }
+        }
+        if (state != nullptr)
+        {
+            candidate.meshKey = state->meshKey;
+            candidate.sourceChecksum =
+                state->sourceChecksum;
+            candidate.sourceGpuIndexGeneration =
+                state->sourceGpuIndexGeneration;
+            candidate.sourceIndexOffsetBytes =
+                state->sourceIndexOffsetBytes;
+            candidate.outputStorageGeneration =
+                state->outputStorageGeneration;
+            candidate.outputVertexOffsetBytes =
+                state->outputVertexOffsetBytes;
+            candidate.outputVertexCount =
+                state->outputVertexCount;
+        }
+        candidate.sourceIndexCapacityBytes =
+            sourceIndexCapacity;
+        candidate.outputCapacityBytes =
+            outputCapacityBytes;
+        if (source != nullptr)
+        {
+            candidate.sourceIndexes =
+                source->payload.indexes.data();
+            candidate.sourceIndexCount =
+                source->payload.indexes.size();
+        }
+        candidate.dispatchReady =
+            state != nullptr &&
+            binding != nullptr &&
+            source != nullptr &&
+            sourceGpu != nullptr &&
+            resource != nullptr &&
+            sourceIndexBuffer &&
+            outputBuffer &&
+            sourceIndexGeneration != 0 &&
+            binding->meshKey == state->meshKey &&
+            source->key == state->meshKey &&
+            source->sourceChecksum ==
+                state->sourceChecksum &&
+            sourceGpu->key == state->meshKey &&
+            sourceGpu->sourceChecksum ==
+                state->sourceChecksum &&
+            sourceGpu->indexes.storageGeneration ==
+                sourceIndexGeneration &&
+            state->sourceGpuIndexGeneration ==
+                sourceIndexGeneration &&
+            sourceGpu->indexes.offsetBytes ==
+                state->sourceIndexOffsetBytes &&
+            sourceGpu->indexes.sizeBytes ==
+                state->sourceIndexBytes &&
+            resource->instanceKey ==
+                state->instanceKey &&
+            resource->meshKey == state->meshKey &&
+            resource->sourceChecksum ==
+                state->sourceChecksum &&
+            resource->sourceGpuIndexGeneration ==
+                state->sourceGpuIndexGeneration &&
+            resource->sourceIndexOffsetBytes ==
+                state->sourceIndexOffsetBytes &&
+            resource->sourceIndexBytes ==
+                state->sourceIndexBytes &&
+            resource->outputStorageGeneration ==
+                state->outputStorageGeneration &&
+            resource->outputVertexOffsetBytes ==
+                state->outputVertexOffsetBytes &&
+            resource->outputVertexCount ==
+                state->outputVertexCount &&
+            resource->blasGeneration ==
+                state->blasGeneration &&
+            resource->vertexBuffer == outputBuffer &&
+            resource->indexBuffer ==
+                sourceIndexBuffer &&
+            resource->blas;
+        candidates.push_back(candidate);
+    }
+
+    return PtBuildSkinnedHitRoutes(
+        candidates,
+        legacy,
+        firstShaderInstanceId);
 }
 
 void DumpSmokeSkinnedGpuFunnel(
@@ -8593,6 +8808,89 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedComparisonBlasAudit.failed,
             m_retiredSmokeSkinnedComparisonBlases.size());
         m_smokeSkinnedComparisonBlasReplacementLogged = true;
+    }
+
+    const uint64 skinnedHitRouteOutputCapacity =
+        smokeSkinnedCurrentOutputVertexBuffer
+            ? smokeSkinnedCurrentOutputVertexBuffer->
+                getDesc().byteSize
+            : 0;
+    const uint64 firstSkinnedHitRouteInstanceId =
+        2ull + rigidRouteBuild.instances.size();
+    const PtSkinnedHitRouteBuild skinnedHitRouteShadow =
+        BuildSmokeSkinnedHitRouteShadow(
+            currentSkinnedSurfaceRecords,
+            skinnedGpuScaffold.dispatchRecords,
+            m_smokeGeometryUniverse,
+            m_smokeSkinnedBlasStateTable,
+            m_smokeSkinnedComparisonBlases,
+            dynamicIndexData,
+            dynamicTriangleClassData,
+            dynamicTriangleMaterialData,
+            materialTable.dynamicMaterialIndexes,
+            smokeSkinnedCurrentOutputVertexBuffer,
+            skinnedGpuScaffold.previousPositions.size(),
+            skinnedHitRouteOutputCapacity,
+            firstSkinnedHitRouteInstanceId,
+            canonicalSkinnedSourceOutputRoute);
+    if (skinnedHitRouteShadow.stats.accepted > 0 &&
+        !m_smokeSkinnedHitRouteShadowLogged)
+    {
+        const char* firstReject = "none";
+        for (PtSkinnedHitRouteResult result :
+            skinnedHitRouteShadow.results)
+        {
+            if (result !=
+                PtSkinnedHitRouteResult::Accepted)
+            {
+                firstReject =
+                    PtSkinnedHitRouteResultName(result);
+                break;
+            }
+        }
+        const uint32 firstInstanceId =
+            !skinnedHitRouteShadow.records.empty()
+                ? skinnedHitRouteShadow.records.front().
+                    shaderInstanceId
+                : 0;
+        const uint32 lastInstanceId =
+            !skinnedHitRouteShadow.records.empty()
+                ? skinnedHitRouteShadow.records.back().
+                    shaderInstanceId
+                : 0;
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned hit-route shadow frame=%llu candidates/accepted/rejected=%llu/%llu/%llu shaderInstance(first/last)=%u/%u triangles(source/legacy/mapped/sourceOnly)=%llu/%llu/%llu/%llu motion(ready/missing)=%llu/%llu identity(instanceHashCollisions/emissiveCollisions)=%llu/%llu firstReject=%s primitiveAuthority=source-local tlas=excluded\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.candidates),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.accepted),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.rejected),
+            firstInstanceId,
+            lastInstanceId,
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.sourceTriangles),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.legacyTriangles),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.
+                    mappedLegacyTriangles),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.sourceOnlyTriangles),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.motionReady),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.motionMissing),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.
+                    canonicalHashCollisions),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.
+                    emissiveIdentityCollisions),
+            firstReject);
+        m_smokeSkinnedHitRouteShadowLogged = true;
     }
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;

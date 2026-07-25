@@ -2161,6 +2161,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedComparisonBlasUpdateLogged = false;
     m_smokeSkinnedComparisonBlasRebuildLogged = false;
     m_smokeSkinnedComparisonBlasReplacementLogged = false;
+    m_smokeSkinnedHitRouteShadowLogged = false;
     m_smokeNextSkinnedComparisonCompletionToken = 1;
     m_smokeLastCompletedSkinnedComparisonToken = 0;
     m_smokeSkinnedComparisonCompletionQueryFailureLogged = false;

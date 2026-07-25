@@ -394,6 +394,45 @@ completion owner acknowledge generation 1 with
 skinning parity remain green. These resources are still comparison-only and
 excluded from all TLAS routes; D31 does not authorize traversal.
 
+D32. SKINNED HIT PRIMITIVES ARE SOURCE-LOCAL AND USE A DISJOINT INSTANCE RANGE
+-------------------------------------------------------------------------------
+Decision: a future skinned per-surface TLAS descriptor must not reuse the
+merged-dynamic InstanceID=1 meaning, and it must not enter the existing broad
+`InstanceID >= 2` rigid interpretation. The ordered namespace is:
+
+  0                                merged static
+  1                                merged dynamic rollback/reference
+  [2, 2 + rigidRouteCount)         canonical rigid-route records
+  [2 + rigidRouteCount, ...)       per-surface skinned-route records
+
+The hardware InstanceID is a dense frame-local route-table slot, not durable
+identity. Each skinned route record retains the full InstanceKey on CPU and a
+collision-checked 64-bit canonical-instance hash for GPU identity consumers.
+The 24-bit hardware instance-ID limit is checked before a record is admitted.
+
+PrimitiveIndex for a per-surface skinned BLAS is the immutable source mesh's
+local primitive index. The route record therefore names the exact GEO-06
+source-index range, GEO-07 current-output range, optional previous-position
+range, and a per-source-primitive metadata range. Each metadata record carries
+material ID, material-table index, triangle class/flags, canonical primitive
+hash, and canonical-instance/source-primitive emissive identity.
+
+Legacy merged capture may omit posed zero-area triangles. Its compact primitive
+index is only comparison evidence: the pure planner proves the compact index
+triples are an ordered subsequence of source topology and records a legacy
+primitive index only when matched. Source-only primitives remain explicit and
+receive named surface metadata; they are never silently renumbered.
+
+geometry_geo72_auto accepts the CPU/live shadow: twelve routes occupy slots
+113..124 and map all 15,962 source primitives to 15,962 legacy primitives with
+zero source-only entries, rejection, identity collision, or missing motion
+range. The harness separately proves the filtered source-only case and
+fail-closed mismatch/duplicate/24-bit-overflow behavior. D32 does not authorize
+TLAS insertion. Current HLSL consumers still interpret every InstanceID >= 2
+as rigid; the next slice must replace that assumption and bind the skinned
+route/metadata/current/source/previous buffers consistently across primary,
+shadow, clean DI, GI, NEE/ReGIR debug, and emissive consumers.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

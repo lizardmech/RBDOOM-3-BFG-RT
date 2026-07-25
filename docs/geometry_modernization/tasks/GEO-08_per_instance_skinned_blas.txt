@@ -54,6 +54,17 @@ packages, then and only then releases allocator generation 1. The resulting
 fifteen active instances remain exact and numeric parity passes. All comparison
 resources remain TLAS-excluded. Step 6 hit-routing contract work is next.
 
+Step 6A is accepted without shader or TLAS changes. A pure source-local route
+planner now assigns skinned slots only after static, merged dynamic, and rigid
+slots; retains collision-checked full-instance identity; validates exact source
+index, current output, and optional previous-position ranges; and builds one
+material/class/canonical-primitive/emissive-identity metadata record per source
+primitive. Legacy compact triangles are an ordered comparison subsequence, not
+the primitive authority. geometry_geo72_auto accepts 12/12 routes and exact
+15,962/15,962 source/legacy mappings with 12/12 motion ranges and zero
+rejection/collision. Step 6B must define and bind the shader-facing ABI across
+all consumers before any comparison BLAS enters a TLAS.
+
 FILES TO AUDIT FIRST
 --------------------
   neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
@@ -96,11 +107,14 @@ STEPS
    observable full-rebuild cadence. Stable PerformUpdate and cadence rebuild
    pass in geometry_geo68_auto; exact removal and completion-owned replacement
    pass in geometry_geo69_auto and geometry_geo71_auto.
-6. Define the shader hit-routing contract before adding TLAS instances.
+6. PARTIALLY ACCEPTED: CPU CONTRACT AND LIVE SHADOW. Define the shader hit-routing contract before adding TLAS instances.
    Prove canonical instance ID, primitive-to-source-triangle lookup, material
    table lookup, current/previous position lookup, and emissive identity for a
    per-surface skinned BLAS. Do not reuse the merged-dynamic instance-ID meaning
-   accidentally.
+   accidentally. PathTraceSkinnedHitRoute and geometry_geo72_auto accept the
+   source-local CPU plan. The remaining slice is the GPU ABI/buffer binding and
+   complete shader-consumer conversion; current HLSL still treats every
+   InstanceID >= 2 as rigid.
 7. Add comparison TLAS routing while the merged dynamic BLAS remains live.
    Record instance/primitive totals, sampled hit identities, bounds,
    material/triangle IDs, and motion inputs. A compare failure must select only

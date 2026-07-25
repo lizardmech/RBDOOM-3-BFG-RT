@@ -488,3 +488,87 @@ owned release are proven. This does not authorize TLAS traversal. Step 6 must
 freeze and prove canonical instance ID, primitive/source-triangle, material,
 current/previous-position, motion, and emissive hit routing before a comparison
 TLAS route is added.
+
+STEP 6A - SOURCE-LOCAL HIT-ROUTE CONTRACT AND LIVE SHADOW
+---------------------------------------------------------
+Audit correction:
+
+  the comparison BLAS consumes the immutable GEO-06 source index stream;
+  `PrimitiveIndex()` is therefore source-mesh local;
+  `AppendSmokeSurfaceGeometry` can omit posed zero-area triangles from the
+    legacy merged dynamic stream;
+  the compact legacy dynamic primitive index is not a safe source primitive
+    identity and must not be reused.
+
+Implemented pure contract:
+
+  `PathTraceSkinnedHitRoute` assigns dense skinned shader-instance slots only
+    after static 0, merged dynamic 1, and every rigid-route slot;
+  the 24-bit hardware instance-ID limit is checked;
+  full InstanceKey equality remains the collision authority and a 64-bit
+    canonical hash is retained for GPU identity;
+  each route validates exact source-index generation/range, current output
+    generation/range, and optional previous-position range;
+  each source-local primitive receives material ID, material-table index,
+    triangle class/flags, canonical primitive hash, and emissive identity hash;
+  legacy compact index triples must form an ordered source-topology
+    subsequence;
+  a filtered source primitive remains a named source-only metadata record
+    rather than silently renumbering later primitives;
+  duplicate InstanceKeys, source/legacy topology mismatch, invalid ranges and
+    shader-instance overflow fail closed.
+
+Focused harness:
+
+  PathTraceSkinnedHitRouteHarness = PASS
+  synthetic source triangles = 4
+  legacy compact triangles = 3
+  mapped/source-only = 3/1
+  topology mismatch = rejected
+  duplicate full InstanceKey = rejected
+  24-bit shader-instance overflow = rejected
+
+LIVE SHADOW ACCEPTANCE
+----------------------
+Autonomous prepared save:
+
+  geometry_geo72_auto.log
+  map = game/mars_city1
+
+Frame 2 after the twelve comparison BLAS submissions:
+
+  candidates/accepted/rejected = 12/12/0
+  shader instance first/last = 113/124
+  preceding rigid route slots = 111
+  source/legacy/mapped/source-only triangles =
+    15962/15962/15962/0
+  previous-position motion ready/missing = 12/0
+  canonical-instance hash collisions = 0
+  emissive-identity collisions = 0
+  first rejection = none
+  primitive authority = source-local
+  TLAS = excluded
+
+The initial and frame-298 24-sample current/previous/motion parity summaries
+both pass with zero failures and zero non-finite output. Maximum observed error
+is 0.0000152587891. The process remained responsive and the log contains zero
+fatal, device-removal, NVRHI-error, or validation-error markers.
+
+Offline/build/deploy:
+
+  related harness suite = 7/7 PASS
+  cmake --build --preset win64-pt-dev-release = PASS
+  all SPIR-V shaders up to date; no shader source or blob changed
+  deployed executable:
+    size 15745536 bytes
+    mtime 2026-07-25 16:07:03 Australia/Sydney
+    SHA-256 A72A208AF36A6C1445CB5F6F9BBF9C82AEBEB99B30599C13D15C68713FF28671
+
+BOUNDARY AND NEXT
+-----------------
+This accepts the CPU contract and behavior-neutral live shadow only. No route
+record or metadata is uploaded for hit shaders, and no skinned comparison BLAS
+enters any TLAS. Step 6B must define the GPU ABI and update all active shader
+consumers that currently branch on `InstanceID >= 2` as rigid. Only after that
+consumer conversion compiles and has buffer/readback proof may step 7 add a
+comparison TLAS route.
