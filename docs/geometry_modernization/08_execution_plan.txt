@@ -57,6 +57,16 @@ isSubview PT build. Slice 4 remains pending only on direct observation of the
 1/0/0/0/0/0 subview route. CPU pre-skinning and legacy BLAS traversal remain
 authoritative.
 
+Slice-5 entry audit corrected one proposal mismatch. The accepted GEO-06
+source registry rejects SkinnedBindSource/Skinned by design and contains no
+immutable skinned source record. The current GPU scaffold still repacks
+tri->verts per frame and assigns incidental capture-order output offsets.
+GEO-07 must first add a proven value-owned skinned bind-source admission path
+(5A), then a checked full-InstanceKey mutable-output allocator (5B), then bind
+comparison dispatches to the shared immutable source and distinct instance
+outputs (5C). Do not weaken GEO-06's rigid-only contract or claim transient
+tri->verts as immutable ownership.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

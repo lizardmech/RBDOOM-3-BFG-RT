@@ -767,3 +767,57 @@ Offline verification:
     15685120 bytes
     2026-07-25 12:04:03 Australia/Sydney
     SHA-256 1BE33FAACC882FD4983F22F9E84A1B3C2FB2BC2CFA735E78DA11E8E68A6EE7CC
+
+SLICE 5 ENTRY RECONCILIATION (2026-07-25)
+-----------------------------------------
+The original slice-5 sentence says to allocate per-instance mutable output
+ranges and source them from GEO-06 immutable records. The live contracts do
+not yet permit that:
+
+  PtGeometrySourceRegistry::Observe accepts only:
+    sourceDomain = RegisteredRenderModel
+    deformationClass = Rigid
+
+  PtGeometryLifecycleWorldRegistry::ObserveImmutableSource explicitly counts
+  SkinnedBindSource/Skinned observations as sourceSkinnedNegative and returns.
+  Its reason is still valid: the resolved frontend surface is an animated MD5
+  snapshot, not proven immutable bind data.
+
+  GEO-06 runtime acceptance deliberately treats skinned observations as
+  negative controls. Its GPU source pools therefore contain no canonical
+  skinned bind-source record to resolve today.
+
+The current GPU-skinning scaffold instead:
+
+  reads tri->verts while building the current frame;
+  repacks PathTraceSkinnedSourceVertex for every eligible record every frame;
+  concatenates output offsets in current capture order;
+  owns one monolithic current-output buffer;
+  has no persistent full-InstanceKey range allocation or retirement contract.
+
+Different actors currently receive different concatenated offsets by
+construction, but that is an incidental frame layout, not the required
+per-instance ownership proof. Coding the old slice-5 wording directly would
+either fail every canonical source lookup or silently keep the transient
+tri->verts bridge while claiming GEO-06 ownership.
+
+Revised implementation order:
+
+  5A. Resolve each SkinnedSurface InstanceKey through the imported GEO-04/05
+      identity binding to its SkinnedBindSource MeshKey. Admit a value-owned
+      bind/source payload only after proving its producer is source pose, not
+      an animated snapshot. Require stable checksum across animation and one
+      shared source checksum for duplicate MD5 instances.
+
+  5B. Add a checked mutable-output allocator keyed by the full InstanceKey.
+      Same-instance reuse is allowed; cross-instance alias is forbidden even
+      for one shared MeshKey. Define growth generation, in-flight retirement,
+      removal and entity-slot generation behavior in a pure CPU harness.
+
+  5C. Route comparison dispatches from the immutable source record to the
+      distinct mutable range. Prove two Fatzombies share the source but have
+      non-overlapping output offsets. CPU pre-skinning and live BLAS traversal
+      remain unchanged.
+
+This is a validated correction to the proposed plan, not permission to widen
+GEO-06's accepted rigid route implicitly.
