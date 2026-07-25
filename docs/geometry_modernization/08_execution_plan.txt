@@ -181,6 +181,19 @@ failure; parity remains green and TLAS remains excluded. Changed-contract
 replacement is deliberately deferred until slice 5B supplies event-query-
 protected old-owner retirement and exact state-retirement-token release.
 
+GEO-08 slice 5B accepts changed-contract replacement, exact removal, and
+physical output-generation retirement. geometry_geo69_auto queues eleven
+removed owners with state-retirement packages, arms event tokens 1..11, and
+releases both owners and state tokens only after token 11 completes.
+geometry_geo71_auto forces output growth from generation 1 / 1,835,008 bytes
+to generation 2 / 3,670,016 bytes by spawning three Fatzombies. Twelve existing
+BLAS resources are replaced, all twelve retained packages arm and complete,
+and only afterward is allocator generation 1 actually released. The final
+15/15 exact shadow observation and 24-sample parity pass remain green, with
+zero deferral, build failure, fatal, device-removal, NVRHI-error, or validation
+error. Step 5 is therefore complete. Step 6, the canonical per-surface shader
+hit-routing contract, is next; no comparison BLAS may enter a TLAS yet.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

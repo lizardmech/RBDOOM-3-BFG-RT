@@ -1811,6 +1811,7 @@ int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint
 {
     int releasedCount = 0;
     uint64 releasedSkinnedOutputGeneration = 0;
+    std::size_t releasedSkinnedOutputStorageCount = 0;
     nvrhi::IDevice* device =
         deviceManager ? deviceManager->GetDevice() : nullptr;
     while (!m_retiredSmokeScenePackages.empty())
@@ -1857,6 +1858,33 @@ int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint
                 firstRetainedGeneration = generation;
             }
         }
+        for (const RtSmokeSkinnedComparisonBlasResource& resource :
+            m_smokeSkinnedComparisonBlases)
+        {
+            const uint64 generation =
+                resource.outputStorageGeneration;
+            if (generation != 0 &&
+                (firstRetainedGeneration == 0 ||
+                    generation <
+                        firstRetainedGeneration))
+            {
+                firstRetainedGeneration = generation;
+            }
+        }
+        for (const RtRetiredSmokeSkinnedComparisonBlasPackage& package :
+            m_retiredSmokeSkinnedComparisonBlases)
+        {
+            const uint64 generation =
+                package.resource.
+                    outputStorageGeneration;
+            if (generation != 0 &&
+                (firstRetainedGeneration == 0 ||
+                    generation <
+                        firstRetainedGeneration))
+            {
+                firstRetainedGeneration = generation;
+            }
+        }
         if (firstRetainedGeneration != 0 &&
             releasedSkinnedOutputGeneration >=
                 firstRetainedGeneration)
@@ -1866,23 +1894,78 @@ int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint
         }
         if (releasedSkinnedOutputGeneration != 0)
         {
-            m_smokeSkinnedOutputAllocator.
+            releasedSkinnedOutputStorageCount =
+                m_smokeSkinnedOutputAllocator.
                 ReleaseStorageGenerationsThrough(
                     releasedSkinnedOutputGeneration);
         }
     }
     if (releasedCount > 0 &&
-        !m_smokeSceneCompletionReleasedLogged)
+        (!m_smokeSceneCompletionReleasedLogged ||
+         releasedSkinnedOutputStorageCount != 0))
     {
         common->Printf(
-            "PathTracePrimaryPass: PT scene completion released packages=%d completedToken=%llu pending=%zu outputGenerationThrough=%llu authority=gpu-event-query\n",
+            "PathTracePrimaryPass: PT scene completion released packages=%d completedToken=%llu pending=%zu outputGenerationThrough=%llu releasedStorageGenerations=%zu authority=gpu-event-query\n",
             releasedCount,
             static_cast<unsigned long long>(
                 m_smokeLastCompletedSceneToken),
             m_retiredSmokeScenePackages.size(),
             static_cast<unsigned long long>(
-                releasedSkinnedOutputGeneration));
+                releasedSkinnedOutputGeneration),
+            releasedSkinnedOutputStorageCount);
         m_smokeSceneCompletionReleasedLogged = true;
+    }
+    return releasedCount;
+}
+
+int PathTracePrimaryPass::ReleaseCompletedRetiredSmokeSkinnedComparisonBlases(
+    uint64 currentFrame)
+{
+    int releasedCount = 0;
+    uint64 completedStateRetirementToken = 0;
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    while (!m_retiredSmokeSkinnedComparisonBlases.empty())
+    {
+        RtRetiredSmokeSkinnedComparisonBlasPackage& package =
+            m_retiredSmokeSkinnedComparisonBlases.front();
+        if (package.retireFrame > currentFrame ||
+            !package.completionArmed ||
+            !package.completionQuery ||
+            !device ||
+            !device->pollEventQuery(package.completionQuery))
+        {
+            break;
+        }
+        m_smokeLastCompletedSkinnedComparisonToken =
+            Max(
+                m_smokeLastCompletedSkinnedComparisonToken,
+                package.completionToken);
+        completedStateRetirementToken =
+            Max(
+                completedStateRetirementToken,
+                package.stateRetirementToken);
+        m_retiredSmokeSkinnedComparisonBlases.pop_front();
+        ++releasedCount;
+    }
+    if (completedStateRetirementToken != 0)
+    {
+        m_smokeSkinnedBlasStateTable.
+            ReleaseRetirementsThrough(
+                completedStateRetirementToken);
+    }
+    if (releasedCount > 0 &&
+        !m_smokeSkinnedComparisonCompletionReleasedLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned comparison retirement released packages=%d completedToken=%llu stateTokenThrough=%llu pending=%zu authority=gpu-event-query\n",
+            releasedCount,
+            static_cast<unsigned long long>(
+                m_smokeLastCompletedSkinnedComparisonToken),
+            static_cast<unsigned long long>(
+                completedStateRetirementToken),
+            m_retiredSmokeSkinnedComparisonBlases.size());
+        m_smokeSkinnedComparisonCompletionReleasedLogged = true;
     }
     return releasedCount;
 }
@@ -1929,6 +2012,44 @@ void PathTracePrimaryPass::OnGraphicsCommandListSubmitted()
             static_cast<unsigned long long>(lastToken),
             m_retiredSmokeScenePackages.size());
         m_smokeSceneCompletionArmedLogged = true;
+    }
+
+    int skinnedArmedCount = 0;
+    uint64 skinnedFirstToken = 0;
+    uint64 skinnedLastToken = 0;
+    for (RtRetiredSmokeSkinnedComparisonBlasPackage& package :
+        m_retiredSmokeSkinnedComparisonBlases)
+    {
+        if (package.completionArmed ||
+            !package.completionQuery)
+        {
+            continue;
+        }
+        device->setEventQuery(
+            package.completionQuery,
+            nvrhi::CommandQueue::Graphics);
+        package.completionToken =
+            m_smokeNextSkinnedComparisonCompletionToken++;
+        package.completionArmed = true;
+        skinnedFirstToken =
+            skinnedFirstToken == 0
+                ? package.completionToken
+                : skinnedFirstToken;
+        skinnedLastToken = package.completionToken;
+        ++skinnedArmedCount;
+    }
+    if (skinnedArmedCount > 0 &&
+        !m_smokeSkinnedComparisonCompletionArmedLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned comparison retirement armed packages=%d tokens=%llu..%llu pending=%zu authority=gpu-event-query\n",
+            skinnedArmedCount,
+            static_cast<unsigned long long>(
+                skinnedFirstToken),
+            static_cast<unsigned long long>(
+                skinnedLastToken),
+            m_retiredSmokeSkinnedComparisonBlases.size());
+        m_smokeSkinnedComparisonCompletionArmedLogged = true;
     }
 }
 
@@ -1983,7 +2104,11 @@ void PathTracePrimaryPass::ResetRayTracingSmokeAsyncCpuWork()
 
 void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
 {
-    if (r_pathTracingWaitForIdleOnPortalChange.GetInteger() != 0 && (HasRetainableRayTracingSmokeScenePackage() || !m_retiredSmokeScenePackages.empty()))
+    if (r_pathTracingWaitForIdleOnPortalChange.GetInteger() != 0 &&
+        (HasRetainableRayTracingSmokeScenePackage() ||
+            !m_retiredSmokeScenePackages.empty() ||
+            !m_smokeSkinnedComparisonBlases.empty() ||
+            !m_retiredSmokeSkinnedComparisonBlases.empty()))
     {
         nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
         if (device)
@@ -2031,9 +2156,16 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedOutputAllocator.Clear();
     m_smokeSkinnedBlasStateTable.Clear();
     m_smokeSkinnedComparisonBlases.clear();
+    m_retiredSmokeSkinnedComparisonBlases.clear();
     m_smokeSkinnedComparisonBlasBuildLogged = false;
     m_smokeSkinnedComparisonBlasUpdateLogged = false;
     m_smokeSkinnedComparisonBlasRebuildLogged = false;
+    m_smokeSkinnedComparisonBlasReplacementLogged = false;
+    m_smokeNextSkinnedComparisonCompletionToken = 1;
+    m_smokeLastCompletedSkinnedComparisonToken = 0;
+    m_smokeSkinnedComparisonCompletionQueryFailureLogged = false;
+    m_smokeSkinnedComparisonCompletionArmedLogged = false;
+    m_smokeSkinnedComparisonCompletionReleasedLogged = false;
     m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
     m_smokeSkinnedHistoryStates.clear();
     m_smokeSkinnedHistoryUpdateSerial = 0;

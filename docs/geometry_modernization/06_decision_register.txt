@@ -365,6 +365,35 @@ frame 63, all exact with zero deferral/failure and no TLAS use. Slice 5B must
 add event-query-protected replacement/removal retirement before changed
 contracts or physical generation growth can be accepted.
 
+D31. REPLACED AND REMOVED SKINNED BLAS OWNERS RETIRE BY EXACT QUEUE COMPLETION
+-------------------------------------------------------------------------------
+Decision: replacing or removing a comparison BLAS moves the exact BLAS, vertex
+buffer, index buffer and contract generations into a retained retirement
+package. Each package owns an NVRHI event query armed only after the graphics
+command list containing its last use is submitted. CPU frame age is only an
+optional minimum; package release requires the exact query to complete.
+
+State-table retirement tokens remain ordered independently from physical-owner
+packages. An exact removed InstanceKey carries its state token in the matching
+package. A token with no physical owner receives an empty completion package so
+later tokens cannot overtake it. Replacement and gate-off packages may carry
+state token zero, but still retain their physical resources through completion.
+Release advances the state table only through the greatest completed ordered
+state token.
+
+The allocator may acknowledge an old output generation only after neither an
+active comparison BLAS nor a retained comparison package names that generation.
+geometry_geo69_auto proves exact removal: eleven owners queue with eleven state
+packages, event tokens 1..11 arm, and all eleven physical owners plus state
+tokens release only after token 11 completes. geometry_geo71_auto proves
+changed-contract growth: output grows from generation 1 / 1,835,008 bytes to
+generation 2 / 3,670,016 bytes, twelve BLAS resources are replaced, their
+packages arm and complete through token 12, and only then does the scene
+completion owner acknowledge generation 1 with
+`releasedStorageGenerations=1`. Fifteen exact active records and numeric
+skinning parity remain green. These resources are still comparison-only and
+excluded from all TLAS routes; D31 does not authorize traversal.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

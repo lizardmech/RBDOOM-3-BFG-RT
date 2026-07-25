@@ -401,3 +401,90 @@ Slice 5B must move replaced and removed comparison owners into event-query-
 protected retirement packages, release the exact matching state retirement
 token only after queue completion, and exercise physical output generation
 growth/release. No TLAS promotion is authorized.
+
+SLICE 5B - REPLACEMENT, REMOVAL, AND GENERATION RETIREMENT
+----------------------------------------------------------
+Implemented:
+
+  every comparison resource records its submitted BLAS generation;
+  replacement and removal move the exact BLAS, vertex buffer, index buffer,
+    contract generations, and optional state-retirement token into a retained
+    package;
+  each package owns an NVRHI event query armed after the exact graphics
+    command-list submission;
+  release is FIFO and requires both the optional minimum frame and exact query
+    completion;
+  empty state-token packages preserve state-retirement ordering when a token
+    has no physical owner;
+  replacement and gate-off packages with state token zero still retain all
+    physical owners through queue completion;
+  output-generation acknowledgement scans active and retired comparison
+    owners, so an old allocator generation cannot release while either names
+    it;
+  comparison resources remain excluded from all TLASes.
+
+REMOVAL ACCEPTANCE
+------------------
+Autonomous prepared save:
+
+  geometry_geo69_auto.log
+  map = game/mars_city1
+
+After `killMonsters`, frame 239 queued eleven active owners and eleven exact
+state packages. Event tokens 1..11 armed after submission, then all eleven
+packages released with completedToken=11 and stateTokenThrough=11, leaving
+zero pending. Gate-off later queued the final physical owner with state token
+zero. Re-enabling reached an exact 1/1 active shadow state at frame 508. Its
+four parity samples passed with zero error. The log contains zero fatal,
+device-removal, NVRHI-error, or validation-error markers.
+
+GROWTH AND REPLACEMENT ACCEPTANCE
+---------------------------------
+Autonomous prepared save with three spawned `monster_zombie_fat` instances:
+
+  geometry_geo71_auto.log
+  map = game/mars_city1
+
+Initial physical storage was generation 1 at 1,835,008 bytes for twelve exact
+instances. At frame 240:
+
+  replaced/active = 12/15
+  submitted build/update/rebuild = 3/0/12
+  deferred/failed = 0/0
+  retained comparison packages = 12
+
+All twelve packages armed as event tokens 1..12 and released only after token
+12 completed. The following scene-completion release is the first actual
+allocator acknowledgement:
+
+  outputGenerationThrough = 1
+  releasedStorageGenerations = 1
+
+The ordering matters: comparison completion precedes generation-1 release.
+The final frame-478 shadow dump reports allocator/physical generation 2/2,
+expected/physical bytes 3,670,016/3,670,016, and exact
+candidates/dispatched/source/output/observed = 15/15/15/15/15. All fifteen
+states request normal update with zero pending rejection. The 24-sample
+current/previous/motion parity check passes with zero failures, zero non-finite
+outputs, and maximum error 0.0000152587891. The process remained responsive
+and the log contains zero fatal, device-removal, NVRHI-error, or validation-
+error markers.
+
+Offline/build/deploy:
+
+  related harness suite = 6/6 PASS
+  cmake --build --preset win64-pt-dev-release = PASS
+  all SPIR-V shaders up to date; no shader source or blob changed
+  deployed executable:
+    size 15731712 bytes
+    mtime 2026-07-25 15:43:21 Australia/Sydney
+    SHA-256 AEC104838C7A63BFEDA6E5A4D855EE295CB2E3A3C5EDDE2D3ADEE7115BD6A004
+
+BOUNDARY AND NEXT
+-----------------
+GEO-08 step 5 is accepted: initial build, stable PerformUpdate, fixed-cadence
+full rebuild, changed-contract replacement, exact removal, and GPU-completion-
+owned release are proven. This does not authorize TLAS traversal. Step 6 must
+freeze and prove canonical instance ID, primitive/source-triangle, material,
+current/previous-position, motion, and emissive hit routing before a comparison
+TLAS route is added.

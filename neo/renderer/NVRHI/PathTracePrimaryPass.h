@@ -81,10 +81,21 @@ struct RtSmokeSkinnedComparisonBlasResource
     uint64 outputStorageGeneration = 0;
     uint64 outputVertexOffsetBytes = 0;
     uint64 outputVertexCount = 0;
+    uint64 blasGeneration = 0;
     nvrhi::BufferHandle vertexBuffer;
     nvrhi::BufferHandle indexBuffer;
     nvrhi::rt::AccelStructDesc blasDesc;
     nvrhi::rt::AccelStructHandle blas;
+};
+
+struct RtRetiredSmokeSkinnedComparisonBlasPackage
+{
+    uint64 retireFrame = 0;
+    uint64 completionToken = 0;
+    uint64 stateRetirementToken = 0;
+    bool completionArmed = false;
+    nvrhi::EventQueryHandle completionQuery;
+    RtSmokeSkinnedComparisonBlasResource resource;
 };
 
 static constexpr int RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS = 3;
@@ -264,6 +275,7 @@ private:
     RtRetiredSmokeScenePackage CaptureRetiredRayTracingSmokeScenePackage() const;
     void PushRetiredRayTracingSmokeScenePackage(RtRetiredSmokeScenePackage& package, uint64 currentFrame, int retireFrames);
     int ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint64 currentFrame);
+    int ReleaseCompletedRetiredSmokeSkinnedComparisonBlases(uint64 currentFrame);
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
     void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
     void ReadBackRayTracingSmokeTest();
@@ -450,9 +462,17 @@ private:
     PtSkinnedBlasStateTable m_smokeSkinnedBlasStateTable;
     std::vector<RtSmokeSkinnedComparisonBlasResource>
         m_smokeSkinnedComparisonBlases;
+    std::deque<RtRetiredSmokeSkinnedComparisonBlasPackage>
+        m_retiredSmokeSkinnedComparisonBlases;
     bool m_smokeSkinnedComparisonBlasBuildLogged = false;
     bool m_smokeSkinnedComparisonBlasUpdateLogged = false;
     bool m_smokeSkinnedComparisonBlasRebuildLogged = false;
+    bool m_smokeSkinnedComparisonBlasReplacementLogged = false;
+    uint64 m_smokeNextSkinnedComparisonCompletionToken = 1;
+    uint64 m_smokeLastCompletedSkinnedComparisonToken = 0;
+    bool m_smokeSkinnedComparisonCompletionQueryFailureLogged = false;
+    bool m_smokeSkinnedComparisonCompletionArmedLogged = false;
+    bool m_smokeSkinnedComparisonCompletionReleasedLogged = false;
     RtSmokeSkinnedHistoryState m_smokeLegacySkinnedHistoryState;
     std::vector<RtSmokeSkinnedHistoryState> m_smokeSkinnedHistoryStates;
     uint64 m_smokeSkinnedHistoryUpdateSerial = 0;

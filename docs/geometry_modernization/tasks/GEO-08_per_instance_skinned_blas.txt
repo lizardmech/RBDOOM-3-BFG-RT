@@ -46,6 +46,14 @@ failure. Contract-changing replacement remains deliberately deferred rather
 than overwriting an owner that may be in flight. Slice 5B must add exact
 graphics-completion retirement before enabling those replacements.
 
+Slice 5B is accepted. geometry_geo69_auto proves exact removed-instance state
+tokens and eleven old owners retire only after graphics event tokens 1..11
+complete. geometry_geo71_auto forces physical output growth from generation 1
+to 2, replaces twelve old BLAS owners, arms and completes twelve retained
+packages, then and only then releases allocator generation 1. The resulting
+fifteen active instances remain exact and numeric parity passes. All comparison
+resources remain TLAS-excluded. Step 6 hit-routing contract work is next.
+
 FILES TO AUDIT FIRST
 --------------------
   neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
@@ -73,21 +81,21 @@ STEPS
    build-pending, ready, update-pending, rebuild-pending, failed, and retiring.
    Give every transition and rejection a counter. Never key AS state by shared
    MeshKey.
-3. ACCEPTED FOR SHADOW USE AND EXPLICIT COMPLETION. Make physical output-buffer generations follow the accepted allocator.
+3. ACCEPTED FOR SHADOW USE, EXPLICIT COMPLETION, AND PHYSICAL GROWTH. Make physical output-buffer generations follow the accepted allocator.
    Growth creates a new buffer and retires the old buffer plus every BLAS that
    references it. Initial generation identity and physical AS-input capability
-   pass in geometry_geo64_auto. Retired packages now require exact
-   gpu-event-query completion. A targeted physical growth/release run remains
-   required before traversal cutover.
+   pass in geometry_geo64_auto. Retired packages require exact
+   gpu-event-query completion. geometry_geo71_auto proves generation-1
+   replacement ownership and release during a real growth event.
 4. ACCEPTED FOR INITIAL COMPARISON BUILDS. Create one updateable BLAS per eligible SkinnedSurface InstanceKey using
    AllowUpdate + PreferFastBuild. Keep source mesh identity, mutable output
    identity, and AS identity separate.
-5. PARTIALLY ACCEPTED FOR STABLE CONTRACTS. Schedule initial build or update only after that instance's skin dispatch.
+5. ACCEPTED. Schedule initial build or update only after that instance's skin dispatch.
    Use PerformUpdate only when topology, source record, output buffer and range,
    and AS generation are unchanged. Otherwise rebuild. Start with a fixed,
    observable full-rebuild cadence. Stable PerformUpdate and cadence rebuild
-   pass in geometry_geo68_auto; completion-owned replacement for changed
-   contracts remains slice 5B.
+   pass in geometry_geo68_auto; exact removal and completion-owned replacement
+   pass in geometry_geo69_auto and geometry_geo71_auto.
 6. Define the shader hit-routing contract before adding TLAS instances.
    Prove canonical instance ID, primitive-to-source-triangle lookup, material
    table lookup, current/previous position lookup, and emissive identity for a

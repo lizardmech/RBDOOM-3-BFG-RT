@@ -473,3 +473,18 @@ NO LONGER OPEN TO SPECULATION
   excluded, and the 24-sample skinning parity pass remains unchanged at
   0.0000152587891 maximum current error. Changed-contract replacement,
   completion-owned retirement, and physical growth remain unclaimed.
+- geometry_geo69_auto and geometry_geo71_auto accept GEO-08 slice 5B
+  replacement/removal retirement and physical growth. Exact removal queues
+  eleven live owners with state-retirement tokens, arms event tokens 1..11,
+  and releases all eleven only after completion through both token 11
+  authorities. The growth run expands physical output from generation 1 at
+  1,835,008 bytes to generation 2 at 3,670,016 bytes, replaces twelve old BLAS
+  owners while adding three new ones, and records 3/0/12 build/update/rebuild
+  submissions with zero deferral or failure. All twelve old packages complete
+  before allocator generation 1 is acknowledged
+  (`releasedStorageGenerations=1`). The final shadow observation is exact
+  15/15 for source, output, dispatch and state, and its 24-sample parity pass
+  has zero current/previous/motion failures, zero non-finite output, and
+  0.0000152587891 maximum error. Both runs have zero fatal, device-removal,
+  NVRHI-error, or validation-error markers. Comparison BLASes remain excluded
+  from every TLAS; hit routing and traversal are still unclaimed.

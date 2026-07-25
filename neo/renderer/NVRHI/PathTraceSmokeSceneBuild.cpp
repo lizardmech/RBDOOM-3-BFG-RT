@@ -2572,12 +2572,21 @@ struct RtSmokeSkinnedComparisonBlasAudit
     int exactContracts = 0;
     int created = 0;
     int reused = 0;
+    int replaced = 0;
     int buildSubmitted = 0;
     int updateSubmitted = 0;
     int rebuildSubmitted = 0;
     int replacementDeferred = 0;
     int failed = 0;
     int activeResources = 0;
+};
+
+struct RtSmokeSkinnedComparisonRetirementAudit
+{
+    int activeRetired = 0;
+    int statePackagesQueued = 0;
+    int emptyStatePackagesQueued = 0;
+    int pendingPackages = 0;
 };
 
 RtSmokeSkinnedHistoryState* FindSmokeSkinnedHistoryState(
@@ -3227,9 +3236,154 @@ bool SmokeSkinnedComparisonBlasContractMatches(
             state.outputVertexOffsetBytes &&
         resource.outputVertexCount ==
             state.outputVertexCount &&
+        resource.blasGeneration ==
+            state.blasGeneration &&
         resource.vertexBuffer == vertexBuffer &&
         resource.indexBuffer == indexBuffer &&
         resource.blas;
+}
+
+bool SmokeSkinnedComparisonStateRetirementQueued(
+    const std::deque<
+        RtRetiredSmokeSkinnedComparisonBlasPackage>& packages,
+    uint64 stateRetirementToken)
+{
+    if (stateRetirementToken == 0)
+    {
+        return false;
+    }
+    for (const RtRetiredSmokeSkinnedComparisonBlasPackage& package :
+        packages)
+    {
+        if (package.stateRetirementToken ==
+            stateRetirementToken)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void QueueSmokeSkinnedComparisonBlasRetirement(
+    RtSmokeSkinnedComparisonBlasResource&& resource,
+    uint64 stateRetirementToken,
+    std::deque<
+        RtRetiredSmokeSkinnedComparisonBlasPackage>& packages,
+    nvrhi::IDevice* device,
+    uint64 currentFrame,
+    int retireFrames,
+    bool& queryFailureLogged)
+{
+    RtRetiredSmokeSkinnedComparisonBlasPackage package;
+    package.retireFrame =
+        currentFrame +
+        static_cast<uint64>(Max(retireFrames, 0));
+    package.stateRetirementToken =
+        stateRetirementToken;
+    package.completionQuery =
+        device ? device->createEventQuery() : nullptr;
+    package.resource = std::move(resource);
+    if (!package.completionQuery &&
+        !queryFailureLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned comparison retirement has no GPU completion query; retaining until reset\n");
+        queryFailureLogged = true;
+    }
+    packages.push_back(std::move(package));
+}
+
+RtSmokeSkinnedComparisonRetirementAudit
+SynchronizeSmokeSkinnedComparisonBlasRetirements(
+    PtSkinnedBlasStateTable& stateTable,
+    std::vector<RtSmokeSkinnedComparisonBlasResource>& resources,
+    std::deque<
+        RtRetiredSmokeSkinnedComparisonBlasPackage>& packages,
+    nvrhi::IDevice* device,
+    uint64 currentFrame,
+    int retireFrames,
+    bool& queryFailureLogged)
+{
+    RtSmokeSkinnedComparisonRetirementAudit audit;
+
+    // Preserve state-table token order in the completion queue. That makes
+    // ReleaseRetirementsThrough exact even when multiple removals arrive in
+    // one frame.
+    for (const PtSkinnedBlasRetiredRecord& retired :
+        stateTable.PendingRetirements())
+    {
+        if (SmokeSkinnedComparisonStateRetirementQueued(
+                packages,
+                retired.retirementToken))
+        {
+            continue;
+        }
+        auto resourceIt = std::find_if(
+            resources.begin(),
+            resources.end(),
+            [&retired](
+                const RtSmokeSkinnedComparisonBlasResource& resource)
+            {
+                return
+                    resource.instanceKey ==
+                        retired.instanceKey &&
+                    resource.blasGeneration ==
+                        retired.blasGeneration &&
+                    resource.outputStorageGeneration ==
+                        retired.outputStorageGeneration;
+            });
+        RtSmokeSkinnedComparisonBlasResource resource;
+        if (resourceIt != resources.end())
+        {
+            resource = std::move(*resourceIt);
+            resources.erase(resourceIt);
+            ++audit.activeRetired;
+        }
+        else
+        {
+            ++audit.emptyStatePackagesQueued;
+        }
+        QueueSmokeSkinnedComparisonBlasRetirement(
+            std::move(resource),
+            retired.retirementToken,
+            packages,
+            device,
+            currentFrame,
+            retireFrames,
+            queryFailureLogged);
+        ++audit.statePackagesQueued;
+    }
+
+    // Gate-off Clear intentionally removes pure state immediately. Retain any
+    // remaining physical owners behind the same exact queue-completion fence.
+    for (size_t resourceIndex = 0;
+        resourceIndex < resources.size();)
+    {
+        if (stateTable.Find(
+                resources[resourceIndex].instanceKey) != nullptr)
+        {
+            ++resourceIndex;
+            continue;
+        }
+        RtSmokeSkinnedComparisonBlasResource resource =
+            std::move(resources[resourceIndex]);
+        resources.erase(
+            resources.begin() +
+                static_cast<std::ptrdiff_t>(
+                    resourceIndex));
+        QueueSmokeSkinnedComparisonBlasRetirement(
+            std::move(resource),
+            0,
+            packages,
+            device,
+            currentFrame,
+            retireFrames,
+            queryFailureLogged);
+        ++audit.activeRetired;
+    }
+    audit.pendingPackages =
+        static_cast<int>(packages.size());
+    return audit;
 }
 
 RtSmokeSkinnedComparisonBlasAudit
@@ -3238,12 +3392,16 @@ SubmitSmokeSkinnedComparisonBlases(
     const RtSmokeGeometryUniverse& geometryUniverse,
     PtSkinnedBlasStateTable& stateTable,
     std::vector<RtSmokeSkinnedComparisonBlasResource>& resources,
+    std::deque<
+        RtRetiredSmokeSkinnedComparisonBlasPackage>& retiredResources,
     nvrhi::IDevice* device,
     nvrhi::ICommandList* commandList,
     nvrhi::BufferHandle outputBuffer,
     uint64 outputBufferGeneration,
     bool gate,
-    uint64 frameIndex)
+    uint64 frameIndex,
+    int retireFrames,
+    bool& retirementQueryFailureLogged)
 {
     RtSmokeSkinnedComparisonBlasAudit audit;
     audit.gate = gate;
@@ -3382,16 +3540,6 @@ SubmitSmokeSkinnedComparisonBlases(
                 outputBuffer,
                 sourceIndexBuffer);
         if (!reusable &&
-            resource != nullptr)
-        {
-            // A source/output contract change needs a new AS handle, but the
-            // prior handle may still be referenced by an in-flight graphics
-            // submission. Keep the pending state and old owner intact until
-            // the completion-owned replacement slice is active.
-            ++audit.replacementDeferred;
-            continue;
-        }
-        if (!reusable &&
             action == PtSkinnedBlasAction::Update)
         {
             stateTable.MarkSubmitted(
@@ -3460,9 +3608,27 @@ SubmitSmokeSkinnedComparisonBlases(
                 ++audit.failed;
                 continue;
             }
-            resources.push_back(std::move(next));
-            resource = &resources.back();
-            ++audit.created;
+            if (resource != nullptr)
+            {
+                RtSmokeSkinnedComparisonBlasResource retired =
+                    std::move(*resource);
+                *resource = std::move(next);
+                QueueSmokeSkinnedComparisonBlasRetirement(
+                    std::move(retired),
+                    0,
+                    retiredResources,
+                    device,
+                    frameIndex,
+                    retireFrames,
+                    retirementQueryFailureLogged);
+                ++audit.replaced;
+            }
+            else
+            {
+                resources.push_back(std::move(next));
+                resource = &resources.back();
+                ++audit.created;
+            }
         }
         else
         {
@@ -3502,6 +3668,14 @@ SubmitSmokeSkinnedComparisonBlases(
                 frameIndex) ==
             PtSkinnedBlasSubmitResult::Succeeded)
         {
+            const PtSkinnedBlasRecord* submittedState =
+                stateTable.Find(
+                    record.canonicalInstance);
+            if (submittedState != nullptr)
+            {
+                resource->blasGeneration =
+                    submittedState->blasGeneration;
+            }
             switch (action)
             {
                 case PtSkinnedBlasAction::Build:
@@ -7292,6 +7466,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Geometry Universe Stats");
         return m_smokeGeometryUniverse.GetStats(validateGeometryUniverse);
     }();
+    ReleaseCompletedRetiredSmokeSkinnedComparisonBlases(
+        geometryUniverseStats.frameIndex);
     if (r_pathTracingGeometryUniverseRangeDump.GetInteger() != 0)
     {
         m_smokeGeometryUniverse.LogStaticRangeHistory(RT_SMOKE_GEOMETRY_RANGE_DUMP_RECORDS);
@@ -8333,18 +8509,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_smokeGeometryUniverse,
                 m_smokeSkinnedBlasStateTable,
                 m_smokeSkinnedComparisonBlases,
+                m_retiredSmokeSkinnedComparisonBlases,
                 device,
                 commandList,
                 smokeSkinnedCurrentOutputVertexBuffer,
                 bufferCreateDesc.
                     skinnedOutputStorageGeneration,
                 canonicalSkinnedSourceOutputRoute,
-                geometryUniverseStats.frameIndex);
+                geometryUniverseStats.frameIndex,
+                idMath::ClampInt(
+                    0,
+                    32,
+                    r_pathTracingSceneRetireFrames.
+                        GetInteger()),
+                m_smokeSkinnedComparisonCompletionQueryFailureLogged);
     if (skinnedComparisonBlasAudit.buildSubmitted > 0 &&
         !m_smokeSkinnedComparisonBlasBuildLogged)
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO08 skinned comparison BLAS initial frame=%llu gate=%d candidates/pending(build/update/rebuild)/exact=%d/%d/%d/%d/%d resources(created/reused/active)=%d/%d/%d submitted(build/update/rebuild)/deferred/failed=%d/%d/%d/%d/%d flags=allow-update+prefer-fast-build tlas=excluded\n",
+            "PathTracePrimaryPass: GEO08 skinned comparison BLAS initial frame=%llu gate=%d candidates/pending(build/update/rebuild)/exact=%d/%d/%d/%d/%d resources(created/reused/replaced/active)=%d/%d/%d/%d submitted(build/update/rebuild)/deferred/failed=%d/%d/%d/%d/%d flags=allow-update+prefer-fast-build tlas=excluded\n",
             static_cast<unsigned long long>(
                 geometryUniverseStats.frameIndex),
             skinnedComparisonBlasAudit.gate ? 1 : 0,
@@ -8355,6 +8538,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedComparisonBlasAudit.exactContracts,
             skinnedComparisonBlasAudit.created,
             skinnedComparisonBlasAudit.reused,
+            skinnedComparisonBlasAudit.replaced,
             skinnedComparisonBlasAudit.activeResources,
             skinnedComparisonBlasAudit.buildSubmitted,
             skinnedComparisonBlasAudit.updateSubmitted,
@@ -8392,6 +8576,23 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedComparisonBlasAudit.replacementDeferred,
             skinnedComparisonBlasAudit.failed);
         m_smokeSkinnedComparisonBlasRebuildLogged = true;
+    }
+    if (skinnedComparisonBlasAudit.replaced > 0 &&
+        !m_smokeSkinnedComparisonBlasReplacementLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned comparison BLAS replacement frame=%llu replaced=%d active=%d submitted(build/update/rebuild)=%d/%d/%d deferred=%d failed=%d retirementPending=%zu authority=gpu-event-query tlas=excluded\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            skinnedComparisonBlasAudit.replaced,
+            skinnedComparisonBlasAudit.activeResources,
+            skinnedComparisonBlasAudit.buildSubmitted,
+            skinnedComparisonBlasAudit.updateSubmitted,
+            skinnedComparisonBlasAudit.rebuildSubmitted,
+            skinnedComparisonBlasAudit.replacementDeferred,
+            skinnedComparisonBlasAudit.failed,
+            m_retiredSmokeSkinnedComparisonBlases.size());
+        m_smokeSkinnedComparisonBlasReplacementLogged = true;
     }
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;
@@ -9024,6 +9225,33 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedOutputBufferChanged,
             canonicalSkinnedSourceOutputRoute,
             geometryUniverseStats.frameIndex);
+    const RtSmokeSkinnedComparisonRetirementAudit
+        skinnedComparisonRetirementAudit =
+            SynchronizeSmokeSkinnedComparisonBlasRetirements(
+                m_smokeSkinnedBlasStateTable,
+                m_smokeSkinnedComparisonBlases,
+                m_retiredSmokeSkinnedComparisonBlases,
+                device,
+                geometryUniverseStats.frameIndex,
+                idMath::ClampInt(
+                    0,
+                    32,
+                    r_pathTracingSceneRetireFrames.
+                        GetInteger()),
+                m_smokeSkinnedComparisonCompletionQueryFailureLogged);
+    if (skinnedComparisonRetirementAudit.activeRetired > 0 ||
+        skinnedComparisonRetirementAudit.statePackagesQueued > 0)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned comparison retirement queued frame=%llu activeRetired=%d statePackages=%d emptyStatePackages=%d active=%zu pending=%d authority=gpu-event-query tlas=excluded\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            skinnedComparisonRetirementAudit.activeRetired,
+            skinnedComparisonRetirementAudit.statePackagesQueued,
+            skinnedComparisonRetirementAudit.emptyStatePackagesQueued,
+            m_smokeSkinnedComparisonBlases.size(),
+            skinnedComparisonRetirementAudit.pendingPackages);
+    }
     if (skinnedGpuParitySentinelRequested)
     {
         DumpSmokeSkinnedBlasShadowAudit(
