@@ -32,6 +32,12 @@ If you have questions concerning this license or the applicable additional terms
 
 extern idCVar g_demoMode;
 
+idCVar com_autoLoadSave(
+	"com_autoLoadSave",
+	"",
+	CVAR_SYSTEM | CVAR_NOCHEAT,
+	"loads this Doom 3 save after automatic local-user registration" );
+
 static const int PEER_UPDATE_INTERVAL = 500;
 static const int MAX_MENU_OPTIONS = 6;
 
@@ -78,6 +84,23 @@ void idMenuHandler_Shell::Update()
 			nextScreen = SHELL_AREA_START;
 			transition = MENU_TRANSITION_SIMPLE;
 			state = nextState;
+			if( session->GetSignInManager().GetMasterLocalUser() == NULL )
+			{
+				session->GetSignInManager().RegisterLocalUser( 0 );
+			}
+			if( com_autoLoadSave.GetString()[ 0 ] != '\0' )
+			{
+				idStr loadCommand;
+				loadCommand.Format(
+					"wait 120\nloadgame %s\n",
+					com_autoLoadSave.GetString() );
+				com_autoLoadSave.SetString( "" );
+				cmdSystem->BufferCommandText( CMD_EXEC_APPEND, loadCommand );
+			}
+			// This PT fork defaults to Doom 3. Advance through the press-start
+			// state on the next update so the shell shows the root screen using
+			// its normal transition ordering.
+			nextState = SHELL_STATE_IDLE;
 			if( menuBar != NULL && gui != NULL )
 			{
 				menuBar->ClearSprite();

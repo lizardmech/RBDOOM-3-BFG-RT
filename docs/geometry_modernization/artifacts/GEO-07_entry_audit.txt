@@ -776,6 +776,35 @@ A genuine mirror/remoteRenderMap/portal remains useful as renderer scheduling
 coverage, but it is no longer required to establish the history-selection
 contract. The PDA capture remains correctly labelled as a 2D overlay.
 
+Autonomous launch follow-up (2026-07-25):
+
+  The shell now performs the Doom 3 local-user registration and advances from
+  press-start to the Doom 3 root screen by default. An opt-in startup cvar:
+
+    +set com_autoLoadSave doom3_1
+
+  queues the named save after 120 shell frames, then clears itself. This avoids
+  relying on synthetic raw keyboard input and leaves ordinary launches at the
+  Doom 3 root menu.
+
+  geometry_geo53_auto.log proves the complete launch and first live PT build:
+
+    map = game/mars_city1
+    candidates/dispatched/exact = 12/12/1
+    jointCache range match/mismatch/bytes = 12/0/28320
+    stage requested/ready/submitted/copies/bytes = 1/1/1/12/28320
+    history gate/primary/ownerValid/stateFound/read/write = 1/1/1/0/0/1
+    records current/previous/match/mismatch = 12/0/12/0
+    owner = 2/2/1/1
+    serial previous/next = 0/1
+    route = primary-owner
+    parity = PASS, 24 samples, maximum current error 0.0000152587891
+
+  This is the expected first-observation state: it cannot read history yet and
+  creates serial 1. The settled previous-history behavior remains covered by
+  geometry_geo43_auto; the true-subview denial is covered by the focused
+  policy harness.
+
 Offline verification:
 
   PathTraceSkinnedHistoryPolicyHarness:
@@ -788,8 +817,8 @@ Offline verification:
     up to date; no shader source or blob changed
   deployed executable:
     15685632 bytes
-    2026-07-25 13:00:25 Australia/Sydney
-    SHA-256 770844E16883EE5A9CAB66465C25FBE36063CCF8924F698B035B7D460C6B24EF
+    2026-07-25 13:31:26 Australia/Sydney
+    SHA-256 C64AF63E70A8D94E98A5C0BEAF8A6194128A891297D704B6D4FEF9D34723B3AA
 
 SLICE 5 ENTRY RECONCILIATION (2026-07-25)
 -----------------------------------------
