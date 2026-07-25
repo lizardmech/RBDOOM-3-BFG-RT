@@ -345,6 +345,26 @@ parity remains green. This decision does not authorize PerformUpdate, rebuild
 replacement, physical output growth, or traversal. Those require explicit
 completion-owned retirement and separate runtime proof in the next slice.
 
+D30. STABLE SKINNED BLAS UPDATES REUSE THE EXACT HANDLE; REPLACEMENTS DEFER
+-----------------------------------------------------------------------------
+Decision: UpdatePending may submit PerformUpdate only when the complete stored
+resource contract still matches the current state record: full InstanceKey,
+MeshKey, source checksum, source index generation/range and retained buffer,
+plus output generation/range and retained buffer. A missing update owner fails
+closed and becomes a later full rebuild.
+
+RebuildPending may record a full build on the existing AllowUpdate handle when
+that same complete contract is unchanged, including the fixed 60-frame cadence.
+A mismatch requiring a new AS handle is counted and left pending. The old
+resource is neither overwritten nor dropped because its last graphics-queue
+use has not yet been tied to a completion-owned retirement package.
+
+geometry_geo68_auto proves the stable sequence: 12 initial builds on frame 2,
+12 PerformUpdate submissions on frame 3, and 12 same-handle full rebuilds on
+frame 63, all exact with zero deferral/failure and no TLAS use. Slice 5B must
+add event-query-protected replacement/removal retirement before changed
+contracts or physical generation growth can be accepted.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

@@ -1,6 +1,7 @@
 GEO-08 - per-instance skinned BLAS entry audit
 ==============================================
-Status: dependency correction and slices 1-4 prerequisite contracts accepted.
+Status: dependency correction, slices 1-4, and slice 5A stable update/rebuild
+contract accepted.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 179127951.
@@ -258,11 +259,12 @@ Final build/deploy:
 
 NEXT
 ----
-Slice 4 is accepted below. Slice 5 must implement the stable-contract update
-path, cadence/source/output rebuild path, and completion-owned replacement
-retirement. Physical output growth/release remains a required runtime exercise
-before traversal cutover; geometry_geo64 proves exact initial generation and
-real submission completion, not a growth event.
+Slice 4 is accepted below. Slice 5A stable-contract update/cadence rebuild is
+accepted below. Slice 5B must implement completion-owned replacement
+retirement for source/output contract changes. Physical output growth/release
+remains a required runtime exercise before traversal cutover; geometry_geo64
+proves exact initial generation and real submission completion, not a growth
+event.
 
 SLICE 4 - INITIAL PER-INSTANCE COMPARISON BLAS BUILDS
 -----------------------------------------------------
@@ -332,3 +334,70 @@ retirement, physical output growth, hit-routing parity, or TLAS traversal.
 Slice 5 owns those update/rebuild/retirement contracts. Until their exact
 completion ownership is proven, comparison resources remain diagnostic and
 must not enter a TLAS.
+
+SLICE 5A - STABLE-CONTRACT UPDATE AND CADENCE REBUILD
+------------------------------------------------------
+Implemented:
+
+  UpdatePending submits the retained BLAS with
+    AllowUpdate + PreferFastBuild + PerformUpdate;
+  RebuildPending with an unchanged complete source/output contract records a
+    full build on the retained AllowUpdate handle without PerformUpdate;
+  the pure state table remains authoritative for build/update/rebuild action
+    selection and advances only after successful command recording;
+  a missing update handle fails closed so the state machine requests a full
+    rebuild on the next exact observation;
+  a source/output/handle contract mismatch is counted and deferred without
+    dropping or overwriting the prior resource;
+  comparison resources remain excluded from every TLAS.
+
+The deferral is intentional. A changed contract requires a replacement AS
+handle, and the prior handle/input buffers cannot be released until an exact
+graphics-queue completion event passes. Slice 5B owns that retirement package.
+
+RUNTIME ACCEPTANCE
+------------------
+Autonomous prepared save through `com_autoLoadSave`:
+
+  geometry_geo68_auto.log
+  map = game/mars_city1
+
+Observed ordered lifecycle:
+
+  frame 2 initial:
+    pending build/update/rebuild = 12/0/0
+    exact/created/submitted/failed = 12/12/12/0
+
+  frame 3 update:
+    pending/exact/reused/submitted = 12/12/12/12
+    deferred/failed = 0/0
+    flags = allow-update + perform-update
+
+  frame 63 cadence rebuild:
+    pending/exact/reused/submitted = 12/12/12/12
+    deferred/failed = 0/0
+    flags = allow-update + prefer-fast-build
+
+The cadence is the configured 60-frame interval after the frame-2 full build.
+The same run retained the 24-sample current/previous/motion parity pass with
+zero failures, zero non-finite outputs, and maximum current error
+0.0000152587891. The process remained responsive and emitted no NVRHI BLAS
+validation, fatal, or device-removal error. TLAS remained excluded.
+
+Offline/build/deploy:
+
+  related harness suite = 6/6 PASS
+  cmake --build --preset win64-pt-dev-release = PASS
+  all SPIR-V shaders up to date; no shader source or blob changed
+  deployed executable:
+    size 15723520 bytes
+    mtime 2026-07-25 15:24:06 Australia/Sydney
+    SHA-256 87A5AF7986392028169DEF646F390F33D69782414CBE2D32D847F17FD54D161C
+
+BOUNDARY AND NEXT
+-----------------
+This accepts stable-contract PerformUpdate and fixed-cadence full rebuild only.
+Slice 5B must move replaced and removed comparison owners into event-query-
+protected retirement packages, release the exact matching state retirement
+token only after queue completion, and exercise physical output generation
+growth/release. No TLAS promotion is authorized.

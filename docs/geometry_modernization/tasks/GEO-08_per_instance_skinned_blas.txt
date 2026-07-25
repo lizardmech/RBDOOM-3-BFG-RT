@@ -39,6 +39,13 @@ retained by each resource. The BLASes are deliberately excluded from all TLAS
 routes. Step 5 update/rebuild selection and completion-owned replacement
 retirement are next.
 
+Slice 5A is accepted for unchanged contracts. geometry_geo68_auto records
+twelve PerformUpdate submissions on frame 3 and twelve fixed-cadence full
+rebuilds on frame 63, reusing all twelve exact handles with zero deferral or
+failure. Contract-changing replacement remains deliberately deferred rather
+than overwriting an owner that may be in flight. Slice 5B must add exact
+graphics-completion retirement before enabling those replacements.
+
 FILES TO AUDIT FIRST
 --------------------
   neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
@@ -75,10 +82,12 @@ STEPS
 4. ACCEPTED FOR INITIAL COMPARISON BUILDS. Create one updateable BLAS per eligible SkinnedSurface InstanceKey using
    AllowUpdate + PreferFastBuild. Keep source mesh identity, mutable output
    identity, and AS identity separate.
-5. Schedule initial build or update only after that instance's skin dispatch.
+5. PARTIALLY ACCEPTED FOR STABLE CONTRACTS. Schedule initial build or update only after that instance's skin dispatch.
    Use PerformUpdate only when topology, source record, output buffer and range,
    and AS generation are unchanged. Otherwise rebuild. Start with a fixed,
-   observable full-rebuild cadence.
+   observable full-rebuild cadence. Stable PerformUpdate and cadence rebuild
+   pass in geometry_geo68_auto; completion-owned replacement for changed
+   contracts remains slice 5B.
 6. Define the shader hit-routing contract before adding TLAS instances.
    Prove canonical instance ID, primitive-to-source-triangle lookup, material
    table lookup, current/previous position lookup, and emissive identity for a

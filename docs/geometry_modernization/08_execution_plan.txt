@@ -173,6 +173,14 @@ cadence/source/output rebuild, and completion-owned replacement retirement.
 Physical output growth and generation release still require a targeted runtime
 exercise before traversal cutover.
 
+GEO-08 slice 5A accepts stable-contract update and cadence rebuild.
+geometry_geo68_auto reuses twelve exact resources for twelve PerformUpdate
+submissions on frame 3, then performs twelve full rebuilds on the same handles
+at the 60-frame cadence on frame 63. Both actions report zero deferral and zero
+failure; parity remains green and TLAS remains excluded. Changed-contract
+replacement is deliberately deferred until slice 5B supplies event-query-
+protected old-owner retirement and exact state-retirement-token release.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

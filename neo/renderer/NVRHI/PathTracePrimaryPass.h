@@ -451,6 +451,8 @@ private:
     std::vector<RtSmokeSkinnedComparisonBlasResource>
         m_smokeSkinnedComparisonBlases;
     bool m_smokeSkinnedComparisonBlasBuildLogged = false;
+    bool m_smokeSkinnedComparisonBlasUpdateLogged = false;
+    bool m_smokeSkinnedComparisonBlasRebuildLogged = false;
     RtSmokeSkinnedHistoryState m_smokeLegacySkinnedHistoryState;
     std::vector<RtSmokeSkinnedHistoryState> m_smokeSkinnedHistoryStates;
     uint64 m_smokeSkinnedHistoryUpdateSerial = 0;

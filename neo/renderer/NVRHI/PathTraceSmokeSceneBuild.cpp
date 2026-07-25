@@ -2567,11 +2567,15 @@ struct RtSmokeSkinnedComparisonBlasAudit
     bool gate = false;
     int candidates = 0;
     int buildPending = 0;
+    int updatePending = 0;
+    int rebuildPending = 0;
     int exactContracts = 0;
     int created = 0;
     int reused = 0;
-    int replaced = 0;
-    int submitted = 0;
+    int buildSubmitted = 0;
+    int updateSubmitted = 0;
+    int rebuildSubmitted = 0;
+    int replacementDeferred = 0;
     int failed = 0;
     int activeResources = 0;
 };
@@ -3229,7 +3233,7 @@ bool SmokeSkinnedComparisonBlasContractMatches(
 }
 
 RtSmokeSkinnedComparisonBlasAudit
-SubmitSmokeSkinnedInitialComparisonBlases(
+SubmitSmokeSkinnedComparisonBlases(
     const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
     const RtSmokeGeometryUniverse& geometryUniverse,
     PtSkinnedBlasStateTable& stateTable,
@@ -3278,12 +3282,29 @@ SubmitSmokeSkinnedInitialComparisonBlases(
     {
         const PtSkinnedBlasRecord* state =
             stateTable.Find(record.canonicalInstance);
-        if (state == nullptr ||
-            state->state != PtSkinnedBlasState::BuildPending)
+        if (state == nullptr)
         {
             continue;
         }
-        ++audit.buildPending;
+        PtSkinnedBlasAction action =
+            PtSkinnedBlasAction::None;
+        switch (state->state)
+        {
+            case PtSkinnedBlasState::BuildPending:
+                ++audit.buildPending;
+                action = PtSkinnedBlasAction::Build;
+                break;
+            case PtSkinnedBlasState::UpdatePending:
+                ++audit.updatePending;
+                action = PtSkinnedBlasAction::Update;
+                break;
+            case PtSkinnedBlasState::RebuildPending:
+                ++audit.rebuildPending;
+                action = PtSkinnedBlasAction::Rebuild;
+                break;
+            default:
+                continue;
+        }
 
         const PtGeometryIdentityBinding* binding =
             geometryUniverse.FindCanonicalIdentityBinding(
@@ -3341,7 +3362,7 @@ SubmitSmokeSkinnedInitialComparisonBlases(
         {
             stateTable.MarkSubmitted(
                 record.canonicalInstance,
-                PtSkinnedBlasAction::Build,
+                action,
                 false,
                 frameIndex);
             ++audit.failed;
@@ -3360,6 +3381,27 @@ SubmitSmokeSkinnedInitialComparisonBlases(
                 *state,
                 outputBuffer,
                 sourceIndexBuffer);
+        if (!reusable &&
+            resource != nullptr)
+        {
+            // A source/output contract change needs a new AS handle, but the
+            // prior handle may still be referenced by an in-flight graphics
+            // submission. Keep the pending state and old owner intact until
+            // the completion-owned replacement slice is active.
+            ++audit.replacementDeferred;
+            continue;
+        }
+        if (!reusable &&
+            action == PtSkinnedBlasAction::Update)
+        {
+            stateTable.MarkSubmitted(
+                record.canonicalInstance,
+                action,
+                false,
+                frameIndex);
+            ++audit.failed;
+            continue;
+        }
         if (!reusable)
         {
             nvrhi::rt::GeometryTriangles triangles;
@@ -3412,23 +3454,15 @@ SubmitSmokeSkinnedInitialComparisonBlases(
             {
                 stateTable.MarkSubmitted(
                     record.canonicalInstance,
-                    PtSkinnedBlasAction::Build,
+                    action,
                     false,
                     frameIndex);
                 ++audit.failed;
                 continue;
             }
-            if (resource != nullptr)
-            {
-                *resource = std::move(next);
-                ++audit.replaced;
-            }
-            else
-            {
-                resources.push_back(std::move(next));
-                resource = &resources.back();
-                ++audit.created;
-            }
+            resources.push_back(std::move(next));
+            resource = &resources.back();
+            ++audit.created;
         }
         else
         {
@@ -3448,18 +3482,40 @@ SubmitSmokeSkinnedInitialComparisonBlases(
             commandList->commitBarriers();
             inputBarriersCommitted = true;
         }
+        nvrhi::rt::AccelStructDesc submitDesc =
+            resource->blasDesc;
+        if (action == PtSkinnedBlasAction::Update)
+        {
+            submitDesc.buildFlags =
+                submitDesc.buildFlags |
+                nvrhi::rt::AccelStructBuildFlags::
+                    PerformUpdate;
+        }
         nvrhi::utils::BuildBottomLevelAccelStruct(
             commandList,
             resource->blas,
-            resource->blasDesc);
+            submitDesc);
         if (stateTable.MarkSubmitted(
                 record.canonicalInstance,
-                PtSkinnedBlasAction::Build,
+                action,
                 true,
                 frameIndex) ==
             PtSkinnedBlasSubmitResult::Succeeded)
         {
-            ++audit.submitted;
+            switch (action)
+            {
+                case PtSkinnedBlasAction::Build:
+                    ++audit.buildSubmitted;
+                    break;
+                case PtSkinnedBlasAction::Update:
+                    ++audit.updateSubmitted;
+                    break;
+                case PtSkinnedBlasAction::Rebuild:
+                    ++audit.rebuildSubmitted;
+                    break;
+                default:
+                    break;
+            }
         }
         else
         {
@@ -8272,7 +8328,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     const RtSmokeSkinnedComparisonBlasAudit
         skinnedComparisonBlasAudit =
-            SubmitSmokeSkinnedInitialComparisonBlases(
+            SubmitSmokeSkinnedComparisonBlases(
                 currentSkinnedSurfaceRecords,
                 m_smokeGeometryUniverse,
                 m_smokeSkinnedBlasStateTable,
@@ -8284,24 +8340,58 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     skinnedOutputStorageGeneration,
                 canonicalSkinnedSourceOutputRoute,
                 geometryUniverseStats.frameIndex);
-    if (skinnedComparisonBlasAudit.submitted > 0 &&
+    if (skinnedComparisonBlasAudit.buildSubmitted > 0 &&
         !m_smokeSkinnedComparisonBlasBuildLogged)
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO08 skinned comparison BLAS frame=%llu gate=%d candidates/buildPending/exact=%d/%d/%d resources(created/reused/replaced/active)=%d/%d/%d/%d submitted/failed=%d/%d flags=allow-update+prefer-fast-build tlas=excluded\n",
+            "PathTracePrimaryPass: GEO08 skinned comparison BLAS initial frame=%llu gate=%d candidates/pending(build/update/rebuild)/exact=%d/%d/%d/%d/%d resources(created/reused/active)=%d/%d/%d submitted(build/update/rebuild)/deferred/failed=%d/%d/%d/%d/%d flags=allow-update+prefer-fast-build tlas=excluded\n",
             static_cast<unsigned long long>(
                 geometryUniverseStats.frameIndex),
             skinnedComparisonBlasAudit.gate ? 1 : 0,
             skinnedComparisonBlasAudit.candidates,
             skinnedComparisonBlasAudit.buildPending,
+            skinnedComparisonBlasAudit.updatePending,
+            skinnedComparisonBlasAudit.rebuildPending,
             skinnedComparisonBlasAudit.exactContracts,
             skinnedComparisonBlasAudit.created,
             skinnedComparisonBlasAudit.reused,
-            skinnedComparisonBlasAudit.replaced,
             skinnedComparisonBlasAudit.activeResources,
-            skinnedComparisonBlasAudit.submitted,
+            skinnedComparisonBlasAudit.buildSubmitted,
+            skinnedComparisonBlasAudit.updateSubmitted,
+            skinnedComparisonBlasAudit.rebuildSubmitted,
+            skinnedComparisonBlasAudit.replacementDeferred,
             skinnedComparisonBlasAudit.failed);
         m_smokeSkinnedComparisonBlasBuildLogged = true;
+    }
+    if (skinnedComparisonBlasAudit.updateSubmitted > 0 &&
+        !m_smokeSkinnedComparisonBlasUpdateLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned comparison BLAS update frame=%llu pending=%d exact=%d reused=%d submitted=%d deferred=%d failed=%d flags=allow-update+perform-update tlas=excluded\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            skinnedComparisonBlasAudit.updatePending,
+            skinnedComparisonBlasAudit.exactContracts,
+            skinnedComparisonBlasAudit.reused,
+            skinnedComparisonBlasAudit.updateSubmitted,
+            skinnedComparisonBlasAudit.replacementDeferred,
+            skinnedComparisonBlasAudit.failed);
+        m_smokeSkinnedComparisonBlasUpdateLogged = true;
+    }
+    if (skinnedComparisonBlasAudit.rebuildSubmitted > 0 &&
+        !m_smokeSkinnedComparisonBlasRebuildLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned comparison BLAS cadence rebuild frame=%llu pending=%d exact=%d reused=%d submitted=%d deferred=%d failed=%d flags=allow-update+prefer-fast-build tlas=excluded\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            skinnedComparisonBlasAudit.rebuildPending,
+            skinnedComparisonBlasAudit.exactContracts,
+            skinnedComparisonBlasAudit.reused,
+            skinnedComparisonBlasAudit.rebuildSubmitted,
+            skinnedComparisonBlasAudit.replacementDeferred,
+            skinnedComparisonBlasAudit.failed);
+        m_smokeSkinnedComparisonBlasRebuildLogged = true;
     }
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;

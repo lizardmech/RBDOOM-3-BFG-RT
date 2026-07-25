@@ -464,3 +464,12 @@ NO LONGER OPEN TO SPECULATION
   pass, zero non-finite outputs, and 0.0000152587891 maximum current error.
   PerformUpdate, replacement retirement, growth, and traversal remain
   unclaimed.
+- geometry_geo68_auto accepts GEO-08 slice 5A stable-contract update and
+  cadence rebuild. After twelve initial frame-2 builds, frame 3 reuses all
+  twelve exact handles for twelve AllowUpdate + PerformUpdate submissions.
+  Frame 63 reaches the fixed 60-frame interval and records twelve full rebuilds
+  on those same handles without PerformUpdate. Both stages report zero
+  deferral and zero failure, no BLAS validation error is emitted, TLAS remains
+  excluded, and the 24-sample skinning parity pass remains unchanged at
+  0.0000152587891 maximum current error. Changed-contract replacement,
+  completion-owned retirement, and physical growth remain unclaimed.
