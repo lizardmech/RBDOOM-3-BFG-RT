@@ -1,5 +1,6 @@
 #include "../../vulkan.hlsli"
 #include "PathTraceMaterialFeatureTypes.hlsli"
+#include "PathTraceSkinnedHitRoute.hlsli"
 #include "cleanroom_common/pathtrace_liquid_pool_control.hlsli"
 #ifndef __cplusplus
 #ifndef uint16_t

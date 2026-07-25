@@ -42,6 +42,48 @@ enum class PtSkinnedHitRouteResult : std::uint32_t
     DispatchNotReady
 };
 
+// GEO-08 shader-facing skinned hit route. PrimitiveIndex() addresses the
+// source-local index stream; these offsets never name the compact legacy
+// merged-dynamic stream. The first record also carries table-wide counts so
+// every ray pipeline can classify the disjoint InstanceID range without
+// extending its constant-buffer ABI.
+struct PathTraceSkinnedHitRouteGpuRecord
+{
+    std::uint32_t shaderInstanceId = 0;
+    std::uint32_t sourceIndexOffset = 0;
+    std::uint32_t outputVertexOffset = 0;
+    std::uint32_t previousPositionOffset = UINT32_MAX;
+    std::uint32_t triangleMetadataOffset = 0;
+    std::uint32_t vertexCount = 0;
+    std::uint32_t indexCount = 0;
+    std::uint32_t triangleCount = 0;
+    std::uint32_t flags = 0;
+    std::uint32_t instanceHashLo = 0;
+    std::uint32_t instanceHashHi = 0;
+    std::uint32_t sourceChecksumLo = 0;
+    std::uint32_t sourceChecksumHi = 0;
+    std::uint32_t sourceGpuIndexGenerationLo = 0;
+    std::uint32_t sourceGpuIndexGenerationHi = 0;
+    std::uint32_t outputStorageGenerationLo = 0;
+    std::uint32_t outputStorageGenerationHi = 0;
+    std::uint32_t routeCount = 0;
+    std::uint32_t triangleMetadataCount = 0;
+    std::uint32_t padding0 = 0;
+};
+
+struct PathTraceSkinnedHitRouteGpuTriangle
+{
+    std::uint32_t sourcePrimitiveIndex = 0;
+    std::uint32_t legacyPrimitiveIndex = UINT32_MAX;
+    std::uint32_t materialId = UINT32_MAX;
+    std::uint32_t materialIndex = UINT32_MAX;
+    std::uint32_t triangleClassAndFlags = 0;
+    std::uint32_t canonicalPrimitiveHashLo = 0;
+    std::uint32_t canonicalPrimitiveHashHi = 0;
+    std::uint32_t emissiveIdentityHashLo = 0;
+    std::uint32_t emissiveIdentityHashHi = 0;
+};
+
 struct PtSkinnedHitRouteLegacyView
 {
     const std::uint32_t* indexes = nullptr;
@@ -147,10 +189,21 @@ struct PtSkinnedHitRouteBuild
     PtSkinnedHitRouteStats stats;
 };
 
+struct PtSkinnedHitRouteGpuUpload
+{
+    std::vector<PathTraceSkinnedHitRouteGpuRecord> records;
+    std::vector<PathTraceSkinnedHitRouteGpuTriangle> triangles;
+    std::uint64_t signature = 0;
+};
+
 PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
     const std::vector<PtSkinnedHitRouteCandidate>& candidates,
     const PtSkinnedHitRouteLegacyView& legacy,
     std::uint64_t firstShaderInstanceId);
+
+PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
+    const PtSkinnedHitRouteBuild& build,
+    std::uint32_t emptyFirstShaderInstanceId);
 
 const char* PtSkinnedHitRouteResultName(
     PtSkinnedHitRouteResult result);

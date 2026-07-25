@@ -433,6 +433,37 @@ as rigid; the next slice must replace that assumption and bind the skinned
 route/metadata/current/source/previous buffers consistently across primary,
 shadow, clean DI, GI, NEE/ReGIR debug, and emissive consumers.
 
+D33. SKINNED HIT-ROUTE TRANSPORT USES A HEADERED, ALWAYS-BOUND GPU TABLE
+-----------------------------------------------------------------------
+Decision: every active Vulkan ray pipeline receives two persistent structured
+SRVs, route records at t18 and source-local triangle metadata at t19. A route
+record is exactly 80 bytes and a triangle record is exactly 36 bytes. Record
+zero repeats the logical route count and total metadata count so shaders can
+classify the disjoint InstanceID range without extending a per-pass constant
+buffer. An empty table still uploads one zero-count route and triangle
+sentinel, keeping every descriptor layout valid.
+
+The GPU table is built only from the last accepted CPU hit-route shadow. Its
+logical scene-input counts must describe the bytes actually uploaded in that
+frame, not the newer shadow being prepared for the following frame. Both
+buffers participate in scene-package comparison, transition signatures,
+retirement capture, and reset/commit ownership.
+
+geometry_geo73_auto and geometry_geo74_auto prove byte-exact transport:
+12 records and 15,962 triangle records, 575,592 bytes, signature
+de825e58306bf8f1, first InstanceID 113, and exact record/triangle/header
+readback 1/1/1. All affected Vulkan pipelines initialize and no fatal,
+device-removal, NVRHI-error, or validation-error marker is present. These runs
+used GPU-skinning authority mode 1 and therefore do not supersede the accepted
+mode-2 numeric parity evidence from geometry_geo72_auto.
+
+D33 is transport-only. The helper ABI may classify and validate records, but
+no skinned comparison BLAS enters a TLAS yet. Step 6B2 must bind the canonical
+source index, current output vertex, and previous-position domains required by
+hit shading, then replace every broad `InstanceID >= 2` rigid assumption with
+explicit rigid and skinned ranges across primary, shadow, clean DI, GI,
+NEE/ReGIR debug, motion, material, and emissive consumers.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

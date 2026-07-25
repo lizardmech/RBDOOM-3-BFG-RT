@@ -57,6 +57,8 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle rigidRouteTriangleMaterialBuffer;
     nvrhi::BufferHandle rigidRouteTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle rigidRouteInstanceBuffer;
+    nvrhi::BufferHandle skinnedHitRouteRecordBuffer;
+    nvrhi::BufferHandle skinnedHitRouteTriangleBuffer;
     nvrhi::BufferHandle skinnedSourceVertexBuffer;
     nvrhi::BufferHandle skinnedCurrentOutputVertexBuffer;
     nvrhi::BufferHandle skinnedPreviousPositionBuffer;
@@ -115,6 +117,8 @@ struct RtSmokeSceneBufferCreateDesc
     size_t rigidRouteTriangleMaterialBytes = 0;
     size_t rigidRouteTriangleMaterialIndexBytes = 0;
     size_t rigidRouteInstanceBytes = 0;
+    size_t skinnedHitRouteRecordBytes = 0;
+    size_t skinnedHitRouteTriangleBytes = 0;
     size_t skinnedSourceVertexBytes = 0;
     size_t skinnedCurrentOutputVertexBytes = 0;
     size_t skinnedPreviousPositionBytes = 0;

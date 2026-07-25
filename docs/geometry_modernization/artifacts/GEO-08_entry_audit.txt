@@ -566,9 +566,84 @@ Offline/build/deploy:
 
 BOUNDARY AND NEXT
 -----------------
-This accepts the CPU contract and behavior-neutral live shadow only. No route
-record or metadata is uploaded for hit shaders, and no skinned comparison BLAS
-enters any TLAS. Step 6B must define the GPU ABI and update all active shader
-consumers that currently branch on `InstanceID >= 2` as rigid. Only after that
-consumer conversion compiles and has buffer/readback proof may step 7 add a
-comparison TLAS route.
+Step 6A accepts the CPU contract and behavior-neutral live shadow only. No
+skinned comparison BLAS enters any TLAS.
+
+STEP 6B1 - GPU ABI, PERSISTENT BINDINGS, AND EXACT READBACK
+----------------------------------------------------------
+Implemented transport:
+
+  PathTraceSkinnedHitRouteGpuRecord = 80 bytes
+  PathTraceSkinnedHitRouteGpuTriangle = 36 bytes
+  route SRV = t18
+  triangle metadata SRV = t19
+  record zero = logical route/metadata counts
+  empty table = one zero-count record plus one zero triangle sentinel
+
+The buffers are persistent scene resources. They participate in resource
+comparison, transition signatures, retirement-package capture, reset, commit,
+and every affected Vulkan RT/compute binding layout. The HLSL helper can
+classify the disjoint skinned range, load an exact route, bounds-check
+PrimitiveIndex, and load source-local triangle metadata. No helper result is
+used to change shading yet.
+
+Focused/offline proof:
+
+  PathTraceSkinnedHitRouteHarness = PASS
+  all seven related geometry harnesses = PASS
+  CPU/HLSL strides = 80/36 bytes
+  identity/generation split fields = preserved
+  source-local primitive metadata = preserved
+  empty sentinel = PASS
+  19 affected Vulkan SPIR-V blobs = rebuilt
+  DX12 shader compilation = not run
+
+Runtime transport proof:
+
+  logs = geometry_geo73_auto.log, geometry_geo74_auto.log
+  map = game/mars_city1
+  queued frame = 3
+  records/triangles = 12/15962
+  bytes = 575592
+  first instance = 113
+  header counts = 12/15962
+  exact(records/triangles/header) = 1/1/1
+  signature = de825e58306bf8f1
+  pass = 1
+  TLAS = excluded
+  fatal/device-removal/NVRHI-error/validation-error markers = 0
+
+The initial skinning parity summaries in these two logs fail 14/24 current
+samples, but the launch used
+`r_pathTracingGeometryAuthoritativeGpuSkinning 1`. Mode 1 deliberately does
+not retain the exact frame-owned CPU snapshot of the renderer joint-cache
+upload source, and both logs report
+`oracle(snapshot/comparable/sourceChanged)=0/0/0`. The GPU values match the
+accepted GEO-72 upload-source values while the unrelated live CPU pose has
+advanced. These summaries are invalid parity evidence and do not replace
+geometry_geo72_auto's mode-2 oracle-backed pass.
+
+Build/deploy proof:
+
+  cmake --build --preset win64-pt-dev-release = PASS
+  deployed executable size = 15761408 bytes
+  deployed executable SHA-256 =
+    B8C507508EE185D5F923221D2F0457628379B50440EF7222F9574806D582A5E7
+  affected SPIR-V source/deploy hashes = 19/19 exact
+  affected SPIR-V mtimes newer than the latest shader edit = 19/19
+
+Operational note:
+
+  the broad smoke-log launch produced 30.5 MB in minutes and the user reported
+  approximately 2 fps, a multi-minute exit stall, display-stack failure, and a
+  hardware reboot on the following launch. Autonomous runtime relaunches stop
+  here. Future targeted proof must avoid `r_pathTracingSmokeLog 1` and use only
+  bounded GEO-08 counters/readbacks.
+
+BOUNDARY AND NEXT
+-----------------
+Step 6B1 accepts transport only. Step 6B2 must bind the canonical source-index,
+current-output, and previous-position domains needed for actual skinned hit
+shading, then replace all active `InstanceID >= 2` rigid assumptions with
+explicit disjoint rigid/skinned handling. Only after that conversion compiles
+and receives bounded runtime proof may step 7 add comparison TLAS descriptors.

@@ -24,6 +24,7 @@
 #include "PathTraceSceneInputs.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSkinnedBlasState.h"
+#include "PathTraceSkinnedHitRoute.h"
 #include "PathTraceSkinnedOutputAllocator.h"
 #include "PathTraceSmokeResources.h"
 
@@ -341,6 +342,13 @@ private:
         int mode,
         uint64 frameIndex);
     void ReadBackGpuSkinningParitySamples();
+    void QueueSkinnedHitRouteReadback(
+        nvrhi::ICommandList* commandList,
+        nvrhi::IBuffer* recordBuffer,
+        nvrhi::IBuffer* triangleBuffer,
+        const PtSkinnedHitRouteGpuUpload& expected,
+        uint64 frameIndex);
+    void ReadBackSkinnedHitRoute();
     void ExecutePathTraceParticleComposite(nvrhi::ICommandList* commandList, const viewDef_t* viewDef);
 
     idRenderBackend* m_backend;
@@ -460,6 +468,7 @@ private:
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     PtSkinnedOutputAllocator m_smokeSkinnedOutputAllocator;
     PtSkinnedBlasStateTable m_smokeSkinnedBlasStateTable;
+    PtSkinnedHitRouteBuild m_smokeSkinnedHitRouteUploadShadow;
     std::vector<RtSmokeSkinnedComparisonBlasResource>
         m_smokeSkinnedComparisonBlases;
     std::deque<RtRetiredSmokeSkinnedComparisonBlasPackage>
@@ -526,6 +535,8 @@ private:
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteInstanceBuffer;
+    nvrhi::BufferHandle m_smokeSkinnedHitRouteRecordBuffer;
+    nvrhi::BufferHandle m_smokeSkinnedHitRouteTriangleBuffer;
     RtSmokeRigidRouteSideBufferSlot m_smokeRigidRouteSideBufferSlots[RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS];
     int m_smokeRigidRouteSideBufferReadSlot = -1;
     int m_smokeRigidRouteSideBufferWriteSlot = 0;
@@ -584,6 +595,12 @@ private:
     int m_gpuSkinningParityMode = 0;
     uint64 m_gpuSkinningParityFrame = 0;
     std::vector<GpuSkinningParitySample> m_gpuSkinningParitySamples;
+    nvrhi::BufferHandle m_skinnedHitRouteReadbackBuffer;
+    bool m_skinnedHitRouteReadbackQueued = false;
+    bool m_skinnedHitRouteReadbackCompleted = false;
+    int m_skinnedHitRouteReadbackDelayFrames = 0;
+    uint64 m_skinnedHitRouteReadbackFrame = 0;
+    PtSkinnedHitRouteGpuUpload m_skinnedHitRouteReadbackExpected;
     uint32_t m_liquidPoolLastExceptionalMask[8] = {};
     uint32_t m_liquidPoolLastOverflowCount[8] = {};
     nvrhi::BufferHandle m_smokeCleanRtxdiDiCurrentReservoirBuffer;

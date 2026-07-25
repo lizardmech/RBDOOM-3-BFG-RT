@@ -270,6 +270,71 @@ void TestDuplicateAndInstanceIdOverflow()
         "24-bit shader instance ID overflow must fail closed");
 }
 
+void TestGpuUploadAbi()
+{
+    const std::vector<std::uint32_t> sourceIndexes = {
+        0, 1, 2
+    };
+    const std::vector<std::uint32_t> legacyIndexes = {
+        10, 11, 12
+    };
+    const std::vector<std::uint32_t> one = { 4 };
+    PtSkinnedHitRouteCandidate candidate =
+        MakeCandidate(sourceIndexes);
+    candidate.meshKey.indexCount = 3;
+    candidate.legacyIndexOffset = 0;
+    candidate.legacyIndexCount = 3;
+    candidate.legacyTriangleOffset = 0;
+    candidate.legacyTriangleCount = 1;
+    const PtSkinnedHitRouteBuild build =
+        PtBuildSkinnedHitRoutes(
+            { candidate },
+            MakeLegacyView(
+                legacyIndexes,
+                one,
+                one,
+                one),
+            113);
+    const PtSkinnedHitRouteGpuUpload upload =
+        PtBuildSkinnedHitRouteGpuUpload(build, 113);
+    Expect(
+        sizeof(PathTraceSkinnedHitRouteGpuRecord) == 80 &&
+            sizeof(PathTraceSkinnedHitRouteGpuTriangle) == 36,
+        "shader-facing record strides must remain exact");
+    Expect(
+        upload.records.size() == 1 &&
+            upload.triangles.size() == 1 &&
+            upload.records[0].shaderInstanceId == 113 &&
+            upload.records[0].routeCount == 1 &&
+            upload.records[0].triangleMetadataCount == 1 &&
+            upload.records[0].triangleCount == 1 &&
+            upload.records[0].sourceIndexOffset == 16 &&
+            upload.records[0].outputVertexOffset == 12 &&
+            upload.records[0].previousPositionOffset == 30 &&
+            upload.signature != 0,
+        "GPU upload must preserve the accepted route contract");
+    Expect(
+            upload.triangles[0].sourcePrimitiveIndex == 0 &&
+            upload.triangles[0].legacyPrimitiveIndex == 0 &&
+            upload.triangles[0].materialId == 4 &&
+            upload.triangles[0].materialIndex == 4 &&
+            upload.triangles[0].canonicalPrimitiveHashLo != 0 &&
+            upload.triangles[0].emissiveIdentityHashLo != 0,
+        "GPU triangle metadata must preserve source-local identity");
+
+    const PtSkinnedHitRouteGpuUpload empty =
+        PtBuildSkinnedHitRouteGpuUpload(
+            PtSkinnedHitRouteBuild(),
+            77);
+    Expect(
+        empty.records.size() == 1 &&
+            empty.triangles.size() == 1 &&
+            empty.records[0].shaderInstanceId == 77 &&
+            empty.records[0].routeCount == 0 &&
+            empty.records[0].triangleMetadataCount == 0,
+        "empty GPU upload must retain a safe zero-count sentinel");
+}
+
 }
 
 int main()
@@ -277,6 +342,7 @@ int main()
     TestSourcePrimitiveMappingAndMotion();
     TestTopologyMismatchFailsClosed();
     TestDuplicateAndInstanceIdOverflow();
+    TestGpuUploadAbi();
 
     if (g_failures != 0)
     {

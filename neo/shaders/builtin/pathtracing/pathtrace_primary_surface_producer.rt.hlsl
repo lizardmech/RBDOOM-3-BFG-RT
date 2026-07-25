@@ -1,4 +1,5 @@
 #include "../../vulkan.hlsli"
+#include "PathTraceSkinnedHitRoute.hlsli"
 #ifndef __cplusplus
 #ifndef uint16_t
 #define uint16_t uint

@@ -1,4 +1,5 @@
 #include "../../vulkan.hlsli"
+#include "PathTraceSkinnedHitRoute.hlsli"
 #include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 #include "RtxdiBridge/RAB_NeeCache.hlsli"
 

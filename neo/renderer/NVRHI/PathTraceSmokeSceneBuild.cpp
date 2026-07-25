@@ -7383,6 +7383,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingEmissiveDistribution.GetInteger());
     }
     const int bufferCreateStartMs = Sys_Milliseconds();
+    const PtSkinnedHitRouteGpuUpload skinnedHitRouteGpuUpload =
+        PtBuildSkinnedHitRouteGpuUpload(
+            m_smokeSkinnedHitRouteUploadShadow,
+            static_cast<uint32_t>(
+                2ull + rigidRouteBuild.instances.size()));
     RtPathTraceCpuWorkGeneration rigidRouteSideBufferGeneration;
     rigidRouteSideBufferGeneration.frameIndex = 0;
     rigidRouteSideBufferGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
@@ -7482,6 +7487,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         bufferCreateDesc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
         bufferCreateDesc.existingBuffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
     }
+    bufferCreateDesc.existingBuffers.skinnedHitRouteRecordBuffer = m_smokeSkinnedHitRouteRecordBuffer;
+    bufferCreateDesc.existingBuffers.skinnedHitRouteTriangleBuffer = m_smokeSkinnedHitRouteTriangleBuffer;
     bufferCreateDesc.existingBuffers.skinnedSourceVertexBuffer = m_smokeSkinnedSourceVertexBuffer;
     bufferCreateDesc.existingBuffers.skinnedCurrentOutputVertexBuffer = m_smokeSkinnedCurrentOutputVertexBuffer;
     bufferCreateDesc.existingSkinnedOutputStorageGeneration =
@@ -7532,6 +7539,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.rigidRouteTriangleMaterialBytes = rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t);
     bufferCreateDesc.rigidRouteTriangleMaterialIndexBytes = rigidRouteBuild.triangleMaterialIndexes.size() * sizeof(uint32_t);
     bufferCreateDesc.rigidRouteInstanceBytes = rigidRouteBuild.instances.size() * sizeof(PathTraceRigidRouteInstance);
+    bufferCreateDesc.skinnedHitRouteRecordBytes = skinnedHitRouteGpuUpload.records.size() * sizeof(PathTraceSkinnedHitRouteGpuRecord);
+    bufferCreateDesc.skinnedHitRouteTriangleBytes = skinnedHitRouteGpuUpload.triangles.size() * sizeof(PathTraceSkinnedHitRouteGpuTriangle);
     bufferCreateDesc.skinnedSourceVertexBytes = skinnedGpuScaffold.sourceVertices.size() * sizeof(PathTraceSkinnedSourceVertex);
     bufferCreateDesc.skinnedCurrentOutputVertexBytes = skinnedGpuScaffold.currentOutputVertices.size() * sizeof(PathTraceSmokeVertex);
     bufferCreateDesc.skinnedOutputStorageGeneration =
@@ -7646,6 +7655,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeRigidRouteTriangleMaterialBuffer = smokeBuffers.rigidRouteTriangleMaterialBuffer;
     nvrhi::BufferHandle smokeRigidRouteTriangleMaterialIndexBuffer = smokeBuffers.rigidRouteTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle smokeRigidRouteInstanceBuffer = smokeBuffers.rigidRouteInstanceBuffer;
+    nvrhi::BufferHandle smokeSkinnedHitRouteRecordBuffer = smokeBuffers.skinnedHitRouteRecordBuffer;
+    nvrhi::BufferHandle smokeSkinnedHitRouteTriangleBuffer = smokeBuffers.skinnedHitRouteTriangleBuffer;
     nvrhi::BufferHandle smokeSkinnedSourceVertexBuffer = smokeBuffers.skinnedSourceVertexBuffer;
     nvrhi::BufferHandle smokeSkinnedCurrentOutputVertexBuffer = smokeBuffers.skinnedCurrentOutputVertexBuffer;
     const bool skinnedOutputBufferChanged =
@@ -8355,6 +8366,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialBuffer, rigidRouteBuild.triangleMaterials, nvrhi::ResourceStates::ShaderResource, skipRigidRouteSideBufferUpload),
         MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialIndexBuffer, rigidRouteBuild.triangleMaterialIndexes, nvrhi::ResourceStates::ShaderResource, skipRigidRouteSideBufferUpload),
         MakeSmokeVectorUploadItem(smokeRigidRouteInstanceBuffer, rigidRouteBuild.instances, nvrhi::ResourceStates::ShaderResource, skipRigidRouteInstanceBufferUpload),
+        MakeSmokeVectorUploadItem(smokeSkinnedHitRouteRecordBuffer, skinnedHitRouteGpuUpload.records, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeSkinnedHitRouteTriangleBuffer, skinnedHitRouteGpuUpload.triangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedSourceVertexBuffer, skinnedGpuScaffold.sourceVertices, nvrhi::ResourceStates::ShaderResource, false),
         skinnedCurrentOutputUploadItem,
         MakeSmokeVectorUploadItem(smokeSkinnedPreviousPositionBuffer, *skinnedPreviousPositionUploadData, skinnedGpuComputeReady ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::ShaderResource, false),
@@ -8379,6 +8392,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
         }
+    }
+    if (!m_skinnedHitRouteReadbackCompleted &&
+        !m_skinnedHitRouteReadbackQueued &&
+        !m_smokeSkinnedHitRouteUploadShadow.records.empty())
+    {
+        QueueSkinnedHitRouteReadback(
+            commandList,
+            smokeSkinnedHitRouteRecordBuffer,
+            smokeSkinnedHitRouteTriangleBuffer,
+            skinnedHitRouteGpuUpload,
+            m_smokeGeometryFrameIndex);
     }
     if (jointCacheStage.ready)
     {
@@ -8833,6 +8857,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedHitRouteOutputCapacity,
             firstSkinnedHitRouteInstanceId,
             canonicalSkinnedSourceOutputRoute);
+    m_smokeSkinnedHitRouteUploadShadow =
+        skinnedHitRouteShadow;
     if (skinnedHitRouteShadow.stats.accepted > 0 &&
         !m_smokeSkinnedHitRouteShadowLogged)
     {
@@ -9255,6 +9281,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.rigidRouteTriangleMaterialBuffer = smokeRigidRouteTriangleMaterialBuffer;
     sceneInputs.geometry.rigidRouteTriangleMaterialIndexBuffer = smokeRigidRouteTriangleMaterialIndexBuffer;
     sceneInputs.geometry.rigidRouteInstanceBuffer = smokeRigidRouteInstanceBuffer;
+    sceneInputs.geometry.skinnedHitRouteRecordBuffer = smokeSkinnedHitRouteRecordBuffer;
+    sceneInputs.geometry.skinnedHitRouteTriangleBuffer = smokeSkinnedHitRouteTriangleBuffer;
     sceneInputs.geometry.skinnedSourceVertexBuffer = smokeSkinnedSourceVertexBuffer;
     sceneInputs.geometry.skinnedCurrentOutputVertexBuffer = smokeSkinnedCurrentOutputVertexBuffer;
     sceneInputs.geometry.skinnedPreviousPositionBuffer = smokeSkinnedPreviousPositionBuffer;
@@ -9370,6 +9398,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.rigidRouteTriangleCount = rigidRouteBuild.stats.triangles;
     sceneInputs.geometry.rigidRouteInstanceCount = rigidRouteBuild.stats.emittedInstances;
     sceneInputs.geometry.rigidRoutePreviousTransformCount = rigidRouteBuild.stats.previousTransformInstances;
+    sceneInputs.geometry.skinnedHitRouteRecordCount =
+        skinnedHitRouteGpuUpload.records.empty()
+            ? 0
+            : static_cast<int>(
+                skinnedHitRouteGpuUpload.records.front().routeCount);
+    sceneInputs.geometry.skinnedHitRouteTriangleCount =
+        skinnedHitRouteGpuUpload.records.empty()
+            ? 0
+            : static_cast<int>(
+                skinnedHitRouteGpuUpload.records.front().
+                    triangleMetadataCount);
     sceneInputs.geometry.skinnedPreviousPositionCount = static_cast<int>(skinnedGpuScaffold.previousPositions.size());
     sceneInputs.geometry.skinnedSurfaceDispatchCount = static_cast<int>(skinnedGpuScaffold.dispatchRecords.size());
     sceneInputs.geometry.skinnedTriangleDispatchIndexCount = static_cast<int>(skinnedGpuScaffold.dynamicTriangleDispatchIndexes.size());

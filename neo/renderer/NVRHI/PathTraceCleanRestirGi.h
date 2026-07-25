@@ -133,6 +133,8 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* rigidRouteTriangleMaterialBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteInstanceBuffer = nullptr;
+    nvrhi::IBuffer* skinnedHitRouteRecordBuffer = nullptr;
+    nvrhi::IBuffer* skinnedHitRouteTriangleBuffer = nullptr;
     nvrhi::IBuffer* doomAnalyticLightBuffer = nullptr;
     nvrhi::IBuffer* rluCurrentLightBuffer = nullptr;
     nvrhi::IBuffer* neeCacheProviderResultBuffer = nullptr;

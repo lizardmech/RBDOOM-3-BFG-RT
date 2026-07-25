@@ -97,6 +97,8 @@ struct RtPathTraceSceneInputGeometry
     nvrhi::BufferHandle rigidRouteTriangleMaterialBuffer;
     nvrhi::BufferHandle rigidRouteTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle rigidRouteInstanceBuffer;
+    nvrhi::BufferHandle skinnedHitRouteRecordBuffer;
+    nvrhi::BufferHandle skinnedHitRouteTriangleBuffer;
     nvrhi::BufferHandle skinnedSourceVertexBuffer;
     nvrhi::BufferHandle skinnedCurrentOutputVertexBuffer;
     nvrhi::BufferHandle skinnedPreviousPositionBuffer;
@@ -164,6 +166,8 @@ struct RtPathTraceSceneInputGeometry
     int rigidRouteTriangleCount = 0;
     int rigidRouteInstanceCount = 0;
     int rigidRoutePreviousTransformCount = 0;
+    int skinnedHitRouteRecordCount = 0;
+    int skinnedHitRouteTriangleCount = 0;
     int skinnedPreviousPositionCount = 0;
     int skinnedSurfaceDispatchCount = 0;
     int skinnedTriangleDispatchIndexCount = 0;

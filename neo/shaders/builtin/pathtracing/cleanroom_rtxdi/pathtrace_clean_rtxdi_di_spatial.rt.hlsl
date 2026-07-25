@@ -1,5 +1,6 @@
 #include "../../../vulkan.hlsli"
 #include "../PathTracePrimarySurface.hlsli"
+#include "../PathTraceSkinnedHitRoute.hlsli"
 #include "../PathTraceMaterialFeatureTypes.hlsli"
 #include "../cleanroom_common/pathtrace_liquid_pool_control.hlsli"
 #include "Rtxdi/DI/Reservoir.hlsli"

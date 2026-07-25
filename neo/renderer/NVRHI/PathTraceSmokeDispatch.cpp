@@ -2296,6 +2296,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(24, m_smokeRigidRouteTriangleMaterialBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(25, m_smokeRigidRouteTriangleMaterialIndexBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_smokeRigidRouteInstanceBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(18, m_smokeSkinnedHitRouteRecordBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(19, m_smokeSkinnedHitRouteTriangleBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(27, m_smokeDoomAnalyticLightBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(45, m_smokeDoomAnalyticPreviousLightBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_frameResources.primarySurfaceHistoryBuffers.current),
@@ -2624,6 +2626,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, m_smokeRigidRouteTriangleMaterialBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, m_smokeRigidRouteTriangleMaterialIndexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_smokeRigidRouteInstanceBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, m_smokeSkinnedHitRouteRecordBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, m_smokeSkinnedHitRouteTriangleBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_frameResources.primarySurfaceHistoryBuffers.current));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, m_frameResources.primarySurfaceHistoryBuffers.previous));
@@ -3546,6 +3550,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
             giInputs.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
             giInputs.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+            giInputs.skinnedHitRouteRecordBuffer = m_smokeSkinnedHitRouteRecordBuffer;
+            giInputs.skinnedHitRouteTriangleBuffer = m_smokeSkinnedHitRouteTriangleBuffer;
             giInputs.doomAnalyticLightBuffer = cleanGiNeedsDoomAnalyticLights
                 ? m_smokeDoomAnalyticLightBuffer
                 : cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer);
@@ -3974,6 +3980,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(22, neeCacheOptionalSrv(m_smokeRigidRouteVertexBuffer)));
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(23, neeCacheOptionalSrv(m_smokeRigidRouteIndexBuffer)));
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, neeCacheOptionalSrv(m_smokeRigidRouteInstanceBuffer)));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, neeCacheOptionalSrv(m_smokeSkinnedHitRouteRecordBuffer)));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, neeCacheOptionalSrv(m_smokeSkinnedHitRouteTriangleBuffer)));
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, neeCacheOptionalSrv(m_smokeDoomAnalyticLightBuffer)));
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(42, neeCacheOptionalSrv(m_smokeDoomAnalyticCurrentIdentityBuffer)));
         neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(43, neeCacheOptionalSrv(m_smokeDoomAnalyticPreviousIdentityBuffer)));
@@ -4036,6 +4044,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, regirOptionalSrv(m_smokeRigidRouteTriangleMaterialBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, regirOptionalSrv(m_smokeRigidRouteTriangleMaterialIndexBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, regirOptionalSrv(m_smokeRigidRouteInstanceBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, regirOptionalSrv(m_smokeSkinnedHitRouteRecordBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, regirOptionalSrv(m_smokeSkinnedHitRouteTriangleBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, regirOptionalSrv(m_smokeDoomAnalyticLightBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(42, regirOptionalSrv(m_smokeDoomAnalyticCurrentIdentityBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(43, regirOptionalSrv(m_smokeDoomAnalyticPreviousIdentityBuffer)));
@@ -4153,6 +4163,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::BindingSetItem::StructuredBuffer_SRV(24, m_smokeRigidRouteTriangleMaterialBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(25, m_smokeRigidRouteTriangleMaterialIndexBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_smokeRigidRouteInstanceBuffer),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(18, m_smokeSkinnedHitRouteRecordBuffer),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(19, m_smokeSkinnedHitRouteTriangleBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(27, m_smokeDoomAnalyticLightBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(45, m_smokeDoomAnalyticPreviousLightBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_frameResources.primarySurfaceHistoryBuffers.current),

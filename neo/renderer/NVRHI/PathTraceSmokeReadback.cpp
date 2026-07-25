@@ -1114,6 +1114,197 @@ void PathTracePrimaryPass::ReadBackGpuSkinningParitySamples()
     m_gpuSkinningParitySamples.clear();
 }
 
+void PathTracePrimaryPass::QueueSkinnedHitRouteReadback(
+    nvrhi::ICommandList* commandList,
+    nvrhi::IBuffer* recordBuffer,
+    nvrhi::IBuffer* triangleBuffer,
+    const PtSkinnedHitRouteGpuUpload& expected,
+    uint64 frameIndex)
+{
+    if (m_skinnedHitRouteReadbackQueued ||
+        expected.records.empty() ||
+        expected.triangles.empty())
+    {
+        return;
+    }
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!commandList || !device ||
+        !recordBuffer || !triangleBuffer)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned hit-route GPU readback unavailable before copy\n");
+        return;
+    }
+
+    const uint64 recordBytes =
+        expected.records.size() *
+        sizeof(PathTraceSkinnedHitRouteGpuRecord);
+    const uint64 triangleBytes =
+        expected.triangles.size() *
+        sizeof(PathTraceSkinnedHitRouteGpuTriangle);
+    const uint64 totalBytes = recordBytes + triangleBytes;
+    if (recordBytes > recordBuffer->getDesc().byteSize ||
+        triangleBytes > triangleBuffer->getDesc().byteSize)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned hit-route GPU readback range invalid records=%llu/%llu triangles=%llu/%llu\n",
+            static_cast<unsigned long long>(recordBytes),
+            static_cast<unsigned long long>(
+                recordBuffer->getDesc().byteSize),
+            static_cast<unsigned long long>(triangleBytes),
+            static_cast<unsigned long long>(
+                triangleBuffer->getDesc().byteSize));
+        return;
+    }
+    if (!m_skinnedHitRouteReadbackBuffer ||
+        m_skinnedHitRouteReadbackBuffer->getDesc().byteSize <
+            totalBytes)
+    {
+        m_skinnedHitRouteReadbackBuffer = nullptr;
+        nvrhi::BufferDesc desc;
+        desc.byteSize = totalBytes;
+        desc.structStride = sizeof(uint32_t);
+        desc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        desc.debugName =
+            "PathTraceSkinnedHitRouteReadback";
+        desc.initialState =
+            nvrhi::ResourceStates::CopyDest;
+        desc.keepInitialState = true;
+        m_skinnedHitRouteReadbackBuffer =
+            device->createBuffer(desc);
+    }
+    if (!m_skinnedHitRouteReadbackBuffer)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned hit-route GPU readback buffer creation failed\n");
+        return;
+    }
+
+    commandList->setBufferState(
+        recordBuffer,
+        nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(
+        triangleBuffer,
+        nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(
+        m_skinnedHitRouteReadbackBuffer,
+        nvrhi::ResourceStates::CopyDest);
+    commandList->commitBarriers();
+    commandList->copyBuffer(
+        m_skinnedHitRouteReadbackBuffer,
+        0,
+        recordBuffer,
+        0,
+        recordBytes);
+    commandList->copyBuffer(
+        m_skinnedHitRouteReadbackBuffer,
+        recordBytes,
+        triangleBuffer,
+        0,
+        triangleBytes);
+    commandList->setBufferState(
+        recordBuffer,
+        nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(
+        triangleBuffer,
+        nvrhi::ResourceStates::ShaderResource);
+    commandList->commitBarriers();
+
+    m_skinnedHitRouteReadbackExpected = expected;
+    m_skinnedHitRouteReadbackFrame = frameIndex;
+    m_skinnedHitRouteReadbackDelayFrames = 3;
+    m_skinnedHitRouteReadbackQueued = true;
+    common->Printf(
+        "PathTracePrimaryPass: GEO08 skinned hit-route GPU readback queued frame=%llu records=%llu triangles=%llu bytes=%llu signature=%016llx tlas=excluded\n",
+        static_cast<unsigned long long>(frameIndex),
+        static_cast<unsigned long long>(
+            expected.records.size()),
+        static_cast<unsigned long long>(
+            expected.triangles.size()),
+        static_cast<unsigned long long>(totalBytes),
+        static_cast<unsigned long long>(expected.signature));
+}
+
+void PathTracePrimaryPass::ReadBackSkinnedHitRoute()
+{
+    if (!m_skinnedHitRouteReadbackQueued ||
+        !m_skinnedHitRouteReadbackBuffer)
+    {
+        return;
+    }
+    if (m_skinnedHitRouteReadbackDelayFrames > 0)
+    {
+        --m_skinnedHitRouteReadbackDelayFrames;
+        return;
+    }
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+    const uint8_t* bytes = static_cast<const uint8_t*>(
+        device->mapBuffer(
+            m_skinnedHitRouteReadbackBuffer,
+            nvrhi::CpuAccessMode::Read));
+    if (!bytes)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned hit-route GPU readback map failed\n");
+        m_skinnedHitRouteReadbackQueued = false;
+        return;
+    }
+
+    const size_t recordBytes =
+        m_skinnedHitRouteReadbackExpected.records.size() *
+        sizeof(PathTraceSkinnedHitRouteGpuRecord);
+    const size_t triangleBytes =
+        m_skinnedHitRouteReadbackExpected.triangles.size() *
+        sizeof(PathTraceSkinnedHitRouteGpuTriangle);
+    const bool recordsExact =
+        memcmp(
+            bytes,
+            m_skinnedHitRouteReadbackExpected.records.data(),
+            recordBytes) == 0;
+    const bool trianglesExact =
+        memcmp(
+            bytes + recordBytes,
+            m_skinnedHitRouteReadbackExpected.triangles.data(),
+            triangleBytes) == 0;
+    const PathTraceSkinnedHitRouteGpuRecord& header =
+        m_skinnedHitRouteReadbackExpected.records.front();
+    const bool headerExact =
+        header.routeCount ==
+            m_skinnedHitRouteReadbackExpected.records.size() &&
+        header.triangleMetadataCount ==
+            m_skinnedHitRouteReadbackExpected.triangles.size();
+    const bool pass =
+        recordsExact && trianglesExact && headerExact;
+    common->Printf(
+        "PathTracePrimaryPass: GEO08 skinned hit-route GPU readback summary frame=%llu records=%llu triangles=%llu firstInstance=%u counts(route/metadata)=%u/%u exact(records/triangles/header)=%d/%d/%d signature=%016llx pass=%d tlas=excluded\n",
+        static_cast<unsigned long long>(
+            m_skinnedHitRouteReadbackFrame),
+        static_cast<unsigned long long>(
+            m_skinnedHitRouteReadbackExpected.records.size()),
+        static_cast<unsigned long long>(
+            m_skinnedHitRouteReadbackExpected.triangles.size()),
+        header.shaderInstanceId,
+        header.routeCount,
+        header.triangleMetadataCount,
+        recordsExact ? 1 : 0,
+        trianglesExact ? 1 : 0,
+        headerExact ? 1 : 0,
+        static_cast<unsigned long long>(
+            m_skinnedHitRouteReadbackExpected.signature),
+        pass ? 1 : 0);
+    device->unmapBuffer(m_skinnedHitRouteReadbackBuffer);
+    m_skinnedHitRouteReadbackQueued = false;
+    m_skinnedHitRouteReadbackCompleted = pass;
+    m_skinnedHitRouteReadbackExpected =
+        PtSkinnedHitRouteGpuUpload();
+}
+
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
     ReadBackSkyCubeProbe();
@@ -1121,6 +1312,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     ReadBackStaticContractShaderSample();
     ReadBackStaticContractGeometrySample();
     ReadBackGpuSkinningParitySamples();
+    ReadBackSkinnedHitRoute();
 
     const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;

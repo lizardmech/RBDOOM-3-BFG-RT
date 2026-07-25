@@ -37,6 +37,7 @@ bool RtSmokeSceneBufferHandles::IsValid() const
         restirLightManagerCurrentToPreviousBuffer && restirLightManagerPreviousToCurrentBuffer &&
         restirLightManagerCurrentPayloadBuffer && restirLightManagerPreviousPayloadBuffer &&
         rigidRouteVertexBuffer && rigidRouteIndexBuffer && rigidRouteTriangleMaterialBuffer && rigidRouteTriangleMaterialIndexBuffer && rigidRouteInstanceBuffer &&
+        skinnedHitRouteRecordBuffer && skinnedHitRouteTriangleBuffer &&
         skinnedPreviousPositionBuffer && skinnedSurfaceDispatchBuffer && skinnedTriangleDispatchIndexBuffer;
 }
 
@@ -73,6 +74,8 @@ static uint64_t BuildPathTraceSceneTransitionSignature(const RtPathTraceSceneInp
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.staticTriangleCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.dynamicTriangleCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.rigidRouteInstanceCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.skinnedHitRouteRecordCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.skinnedHitRouteTriangleCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.materialTableEntryCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.materialFeatureRecordCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.materialFeatureParameterRecordCount));
@@ -166,6 +169,8 @@ static bool SmokeSceneBuffersChanged(const RtSmokeSceneBufferHandles& oldBuffers
         oldBuffers.rigidRouteTriangleMaterialBuffer != newBuffers.rigidRouteTriangleMaterialBuffer ||
         oldBuffers.rigidRouteTriangleMaterialIndexBuffer != newBuffers.rigidRouteTriangleMaterialIndexBuffer ||
         oldBuffers.rigidRouteInstanceBuffer != newBuffers.rigidRouteInstanceBuffer ||
+        oldBuffers.skinnedHitRouteRecordBuffer != newBuffers.skinnedHitRouteRecordBuffer ||
+        oldBuffers.skinnedHitRouteTriangleBuffer != newBuffers.skinnedHitRouteTriangleBuffer ||
         oldBuffers.skinnedSourceVertexBuffer != newBuffers.skinnedSourceVertexBuffer ||
         oldBuffers.skinnedCurrentOutputVertexBuffer != newBuffers.skinnedCurrentOutputVertexBuffer ||
         oldBuffers.skinnedPreviousPositionBuffer != newBuffers.skinnedPreviousPositionBuffer ||
@@ -293,6 +298,8 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.rigidRouteTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialBuffer, "PathTraceRigidRouteTriangleMaterials", desc.rigidRouteTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer, "PathTraceRigidRouteTriangleMaterialIndexes", desc.rigidRouteTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteInstanceBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteInstanceBuffer, "PathTraceRigidRouteInstances", desc.rigidRouteInstanceBytes, sizeof(PathTraceRigidRouteInstance), false, false, false);
+    result.buffers.skinnedHitRouteRecordBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedHitRouteRecordBuffer, "PathTraceSkinnedHitRouteRecords", desc.skinnedHitRouteRecordBytes, sizeof(PathTraceSkinnedHitRouteGpuRecord), false, false, false);
+    result.buffers.skinnedHitRouteTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedHitRouteTriangleBuffer, "PathTraceSkinnedHitRouteTriangles", desc.skinnedHitRouteTriangleBytes, sizeof(PathTraceSkinnedHitRouteGpuTriangle), false, false, false);
     result.buffers.skinnedSourceVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSourceVertexBuffer, "PathTraceSkinnedSourceVertices", desc.skinnedSourceVertexBytes, sizeof(PathTraceSkinnedSourceVertex));
     nvrhi::BufferHandle existingSkinnedOutput =
         desc.existingBuffers.skinnedCurrentOutputVertexBuffer;
@@ -534,6 +541,8 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, desc.buffers.rigidRouteTriangleMaterialBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, desc.buffers.rigidRouteTriangleMaterialIndexBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, desc.buffers.rigidRouteInstanceBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, desc.buffers.skinnedHitRouteRecordBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, desc.buffers.skinnedHitRouteTriangleBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, desc.buffers.doomAnalyticLightBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(45, desc.buffers.doomAnalyticPreviousLightBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, desc.primarySurfaceHistoryBuffers.current));
@@ -942,6 +951,8 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(45));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
@@ -1037,6 +1048,8 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
@@ -1105,6 +1118,8 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(42));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(43));
@@ -1144,6 +1159,8 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(23));
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(42));
     neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(43));
@@ -1680,6 +1697,8 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
     buffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
     buffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
     buffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+    buffers.skinnedHitRouteRecordBuffer = m_smokeSkinnedHitRouteRecordBuffer;
+    buffers.skinnedHitRouteTriangleBuffer = m_smokeSkinnedHitRouteTriangleBuffer;
     buffers.skinnedSourceVertexBuffer = m_smokeSkinnedSourceVertexBuffer;
     buffers.skinnedCurrentOutputVertexBuffer = m_smokeSkinnedCurrentOutputVertexBuffer;
     buffers.skinnedPreviousPositionBuffer = m_smokeSkinnedPreviousPositionBuffer;
@@ -1706,6 +1725,8 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
         m_smokeRestirLightManagerPreviousToCurrentBuffer ||
         m_smokeRestirLightManagerCurrentPayloadBuffer ||
         m_smokeRestirLightManagerPreviousPayloadBuffer ||
+        m_smokeSkinnedHitRouteRecordBuffer ||
+        m_smokeSkinnedHitRouteTriangleBuffer ||
         m_smokeSkinnedSourceVertexBuffer ||
         m_smokeSkinnedCurrentOutputVertexBuffer ||
         m_smokeSkinnedPreviousPositionBuffer ||
@@ -1769,6 +1790,8 @@ RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeSc
     package.buffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
     package.buffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
     package.buffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+    package.buffers.skinnedHitRouteRecordBuffer = m_smokeSkinnedHitRouteRecordBuffer;
+    package.buffers.skinnedHitRouteTriangleBuffer = m_smokeSkinnedHitRouteTriangleBuffer;
     package.buffers.skinnedSourceVertexBuffer = m_smokeSkinnedSourceVertexBuffer;
     package.buffers.skinnedCurrentOutputVertexBuffer = m_smokeSkinnedCurrentOutputVertexBuffer;
     package.buffers.skinnedPreviousPositionBuffer = m_smokeSkinnedPreviousPositionBuffer;
@@ -2241,6 +2264,8 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
     m_smokeRigidRouteTriangleMaterialIndexBuffer = nullptr;
     m_smokeRigidRouteInstanceBuffer = nullptr;
+    m_smokeSkinnedHitRouteRecordBuffer = nullptr;
+    m_smokeSkinnedHitRouteTriangleBuffer = nullptr;
     for (int slotIndex = 0; slotIndex < RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS; ++slotIndex)
     {
         m_smokeRigidRouteSideBufferSlots[slotIndex] = RtSmokeRigidRouteSideBufferSlot();
@@ -2260,6 +2285,12 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedTriangleDispatchIndexBuffer = nullptr;
     m_smokeSkinnedCurrentJointMatrixBuffer = nullptr;
     m_smokeSkinnedPreviousJointMatrixBuffer = nullptr;
+    m_smokeSkinnedHitRouteUploadShadow = PtSkinnedHitRouteBuild();
+    m_skinnedHitRouteReadbackBuffer = nullptr;
+    m_skinnedHitRouteReadbackQueued = false;
+    m_skinnedHitRouteReadbackCompleted = false;
+    m_skinnedHitRouteReadbackDelayFrames = 0;
+    m_skinnedHitRouteReadbackExpected = PtSkinnedHitRouteGpuUpload();
     m_smokeSkinnedGpuSkinningBindingSet = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterBindingSet = nullptr;
     m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
@@ -2377,6 +2408,8 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeRigidRouteTriangleMaterialBuffer = desc.buffers.rigidRouteTriangleMaterialBuffer;
     m_smokeRigidRouteTriangleMaterialIndexBuffer = desc.buffers.rigidRouteTriangleMaterialIndexBuffer;
     m_smokeRigidRouteInstanceBuffer = desc.buffers.rigidRouteInstanceBuffer;
+    m_smokeSkinnedHitRouteRecordBuffer = desc.buffers.skinnedHitRouteRecordBuffer;
+    m_smokeSkinnedHitRouteTriangleBuffer = desc.buffers.skinnedHitRouteTriangleBuffer;
     m_smokeSkinnedSourceVertexBuffer = desc.buffers.skinnedSourceVertexBuffer;
     m_smokeSkinnedCurrentOutputVertexBuffer = desc.buffers.skinnedCurrentOutputVertexBuffer;
     m_smokeSkinnedOutputBufferGeneration =

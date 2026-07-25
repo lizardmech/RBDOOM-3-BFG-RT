@@ -1,3 +1,5 @@
+#include "../PathTraceSkinnedHitRoute.hlsli"
+
 // Clean-room Remix ReSTIR GI lane driver.
 //
 // RGI-01: route sentinel + GI reservoir page ABI round-trip (view 8).

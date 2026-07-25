@@ -1,6 +1,7 @@
 #include "PathTraceSkinnedHitRoute.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <unordered_map>
 
@@ -616,4 +617,126 @@ const char* PtSkinnedHitRouteResultName(
         default:
             return "unknown";
     }
+}
+
+namespace {
+
+std::uint64_t HashGpuUploadBytes(
+    std::uint64_t hash,
+    const void* bytes,
+    std::size_t byteCount)
+{
+    const std::uint8_t* input =
+        static_cast<const std::uint8_t*>(bytes);
+    for (std::size_t index = 0; index < byteCount; ++index)
+    {
+        hash ^= input[index];
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+} // namespace
+
+PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
+    const PtSkinnedHitRouteBuild& build,
+    std::uint32_t emptyFirstShaderInstanceId)
+{
+    PtSkinnedHitRouteGpuUpload upload;
+    const std::uint32_t routeCount =
+        static_cast<std::uint32_t>(build.records.size());
+    const std::uint32_t triangleCount =
+        static_cast<std::uint32_t>(build.triangles.size());
+    upload.records.reserve(std::max<std::size_t>(
+        build.records.size(), 1));
+    upload.triangles.reserve(std::max<std::size_t>(
+        build.triangles.size(), 1));
+
+    for (const PtSkinnedHitRouteRecord& source : build.records)
+    {
+        PathTraceSkinnedHitRouteGpuRecord record;
+        record.shaderInstanceId = source.shaderInstanceId;
+        record.sourceIndexOffset = source.sourceIndexOffset;
+        record.outputVertexOffset = source.outputVertexOffset;
+        record.previousPositionOffset =
+            source.previousPositionOffset;
+        record.triangleMetadataOffset =
+            source.triangleMetadataOffset;
+        record.vertexCount = source.vertexCount;
+        record.indexCount = source.indexCount;
+        record.triangleCount = source.triangleCount;
+        record.flags = source.flags;
+        record.instanceHashLo =
+            static_cast<std::uint32_t>(source.instanceHash);
+        record.instanceHashHi =
+            static_cast<std::uint32_t>(source.instanceHash >> 32);
+        record.sourceChecksumLo =
+            static_cast<std::uint32_t>(source.sourceChecksum);
+        record.sourceChecksumHi =
+            static_cast<std::uint32_t>(source.sourceChecksum >> 32);
+        record.sourceGpuIndexGenerationLo =
+            static_cast<std::uint32_t>(
+                source.sourceGpuIndexGeneration);
+        record.sourceGpuIndexGenerationHi =
+            static_cast<std::uint32_t>(
+                source.sourceGpuIndexGeneration >> 32);
+        record.outputStorageGenerationLo =
+            static_cast<std::uint32_t>(
+                source.outputStorageGeneration);
+        record.outputStorageGenerationHi =
+            static_cast<std::uint32_t>(
+                source.outputStorageGeneration >> 32);
+        record.routeCount = routeCount;
+        record.triangleMetadataCount = triangleCount;
+        upload.records.push_back(record);
+    }
+
+    for (const PtSkinnedHitRouteTriangle& source : build.triangles)
+    {
+        PathTraceSkinnedHitRouteGpuTriangle triangle;
+        triangle.sourcePrimitiveIndex =
+            source.sourcePrimitiveIndex;
+        triangle.legacyPrimitiveIndex =
+            source.legacyPrimitiveIndex;
+        triangle.materialId = source.materialId;
+        triangle.materialIndex = source.materialIndex;
+        triangle.triangleClassAndFlags =
+            source.triangleClassAndFlags;
+        triangle.canonicalPrimitiveHashLo =
+            static_cast<std::uint32_t>(
+                source.canonicalPrimitiveHash);
+        triangle.canonicalPrimitiveHashHi =
+            static_cast<std::uint32_t>(
+                source.canonicalPrimitiveHash >> 32);
+        triangle.emissiveIdentityHashLo =
+            static_cast<std::uint32_t>(
+                source.emissiveIdentityHash);
+        triangle.emissiveIdentityHashHi =
+            static_cast<std::uint32_t>(
+                source.emissiveIdentityHash >> 32);
+        upload.triangles.push_back(triangle);
+    }
+
+    if (upload.records.empty())
+    {
+        PathTraceSkinnedHitRouteGpuRecord sentinel;
+        sentinel.shaderInstanceId =
+            emptyFirstShaderInstanceId;
+        upload.records.push_back(sentinel);
+    }
+    if (upload.triangles.empty())
+    {
+        upload.triangles.emplace_back();
+    }
+
+    upload.signature = 1469598103934665603ull;
+    upload.signature = HashGpuUploadBytes(
+        upload.signature,
+        upload.records.data(),
+        upload.records.size() * sizeof(upload.records[0]));
+    upload.signature = HashGpuUploadBytes(
+        upload.signature,
+        upload.triangles.data(),
+        upload.triangles.size() * sizeof(upload.triangles[0]));
+    return upload;
 }

@@ -1,4 +1,5 @@
 #include "../../vulkan.hlsli"
+#include "PathTraceSkinnedHitRoute.hlsli"
 #include "RtxdiBridge/RAB_ReGIR.hlsli"
 #include "Rtxdi/Utils/Math.hlsli"
 

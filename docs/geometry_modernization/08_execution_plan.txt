@@ -209,6 +209,19 @@ synthetic source-only primitive case. Step 6B is next: define/upload the GPU
 route ABI and replace the current shader-wide `InstanceID >= 2 means rigid`
 assumption across every active consumer. TLAS insertion remains forbidden.
 
+GEO-08 step 6B1 accepts the GPU route-table ABI and persistent binding seam.
+The 80-byte route and 36-byte source-triangle records are always bound at
+t18/t19, with a zero-count sentinel for an empty table and logical counts in
+record zero. The buffers follow scene-package lifetime/transition ownership.
+geometry_geo73_auto and geometry_geo74_auto read back 12 routes and 15,962
+triangles (575,592 bytes) exactly, including the header, with first InstanceID
+113 and signature de825e58306bf8f1. Every affected Vulkan pipeline initializes
+and traversal remains unchanged. Their mode-1 frame-1 skinning parity dump is
+not oracle-backed and is excluded from acceptance; geometry_geo72_auto remains
+the accepted mode-2 numeric proof. Step 6B2 is next: bind the geometry domains
+needed by skinned hit shading and convert every rigid-range assumption before
+step 7 can add comparison TLAS descriptors.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

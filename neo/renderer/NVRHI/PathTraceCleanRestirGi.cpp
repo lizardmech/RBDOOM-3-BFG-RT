@@ -183,6 +183,8 @@ bool CleanRestirGiEnsurePipeline(
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(46));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
@@ -440,6 +442,8 @@ void CleanRestirGiAddCommonComputeBindingLayoutItems(nvrhi::BindingLayoutDesc& l
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(18));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(19));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(46));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
@@ -1087,6 +1091,7 @@ bool PathTraceCleanRestirGiExecute(
         !inputs.rigidRouteVertexBuffer || !inputs.rigidRouteIndexBuffer ||
         !inputs.rigidRouteTriangleMaterialBuffer ||
         !inputs.rigidRouteTriangleMaterialIndexBuffer || !inputs.rigidRouteInstanceBuffer ||
+        !inputs.skinnedHitRouteRecordBuffer || !inputs.skinnedHitRouteTriangleBuffer ||
         !inputs.doomAnalyticLightBuffer ||
         !inputs.emissiveDistributionBuffer || !inputs.rluCurrentLightBuffer ||
         (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) ||
@@ -1145,6 +1150,8 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, inputs.rigidRouteTriangleMaterialBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, inputs.rigidRouteTriangleMaterialIndexBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, inputs.rigidRouteInstanceBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, inputs.skinnedHitRouteRecordBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, inputs.skinnedHitRouteTriangleBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, inputs.doomAnalyticLightBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(46, inputs.emissiveDistributionBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(66, inputs.rluCurrentLightBuffer));
@@ -1339,6 +1346,8 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(inputs.rigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.skinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.doomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rluCurrentLightBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(neeCacheProviderResultBuffer, nvrhi::ResourceStates::ShaderResource);

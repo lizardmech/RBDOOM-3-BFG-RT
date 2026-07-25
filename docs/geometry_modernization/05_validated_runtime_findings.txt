@@ -504,3 +504,21 @@ NO LONGER OPEN TO SPECULATION
   dumps pass at 0.0000152587891 maximum error and the log has zero fatal,
   device-removal, NVRHI-error, or validation-error markers. No shader ABI,
   binding, TLAS descriptor, or traversal route changes in this slice.
+- geometry_geo73_auto and geometry_geo74_auto accept GEO-08 step 6B1's
+  behavior-neutral GPU route-table transport. The CPU/HLSL ABI is exactly
+  80 bytes per route and 36 bytes per source-local triangle; record zero also
+  carries the logical route/metadata counts. Frame 3 uploads and reads back
+  12 routes plus 15,962 triangle records, 575,592 bytes total, with exact
+  record/triangle/header comparisons of 1/1/1 and signature
+  de825e58306bf8f1. The first hardware instance remains 113 and all comparison
+  BLASes remain TLAS-excluded. All affected Vulkan RT/compute pipelines create
+  successfully and the logs contain zero fatal, device-removal, NVRHI-error,
+  or validation-error markers. The 14/24 frame-1 skinning parity failures in
+  these two runs are not accepted comparison evidence: the autonomous launch
+  used authoritative GPU-skinning mode 1, for which the exact joint-upload CPU
+  oracle is intentionally absent (`snapshot/comparable/sourceChanged=0/0/0`).
+  geometry_geo72_auto's mode-2 oracle-backed parity remains the accepted
+  numeric result. Broad `r_pathTracingSmokeLog 1` also produced a 30.5 MB log
+  in minutes; after the user reported approximately 2 fps and a display-stack
+  failure during exit/relaunch, no further autonomous runtime launch is
+  authorized for this slice.
