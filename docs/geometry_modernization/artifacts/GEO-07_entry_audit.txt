@@ -1,7 +1,7 @@
 GEO-07 - authoritative jointCache GPU skinning entry audit
 ==========================================================
-Status: slices 1-4 and slice 5A are accepted. Slice 5B, the checked
-full-InstanceKey mutable-output allocator, is next.
+Status: slices 1-4 and slices 5A-5B are accepted. Slice 5C, routing comparison
+dispatches from shared immutable sources into distinct mutable ranges, is next.
 Date: 2026-07-25.
 Branch: restir-development.
 Entry checkpoint: 030ac8c20.
@@ -974,3 +974,130 @@ Result:
   PASS - slice 5A supplies the exact immutable skinned source prerequisite.
   NEXT - slice 5B must allocate persistent mutable ranges by full InstanceKey;
          it may reuse these shared MeshKeys but may never share their outputs.
+
+SLICE 5B FULL-INSTANCE MUTABLE-OUTPUT ALLOCATOR (2026-07-25)
+------------------------------------------------------------
+Added a behavior-neutral planning allocator:
+
+  neo/renderer/NVRHI/PathTraceSkinnedOutputAllocator.h/.cpp
+
+Ownership and range rules:
+
+  only a valid SkinnedSurface PtCanonicalInstanceKey is eligible;
+  the allocator world must equal the key's worldGeneration;
+  same full InstanceKey plus the same vertex count reuses the exact range;
+  different InstanceKeys always append distinct ranges, even when their
+    MeshKeys/source records are identical;
+  a vertex-count change appends a replacement and increments that instance's
+    allocation revision; old bytes are not silently reused;
+  an exact identity Remove retires the range and the retired key cannot
+    resurrect;
+  reusing a render-def slot requires a new renderDefGeneration and therefore a
+    new full key/range;
+  world replacement retires the active storage generation and clears all keys.
+
+Storage and lifetime rules:
+
+  offsets/counts/byte ranges use checked uint64 arithmetic;
+  shader-visible counts are bounded to uint32;
+  capacity grows geometrically only up to the configured maximum;
+  a growth preserves live offsets but creates a new monotonic storage
+    generation;
+  the old storage generation enters a pending-retirement list;
+  no pending generation is released until the caller explicitly acknowledges
+    that generation as completed;
+  retired/resize ranges are tombstoned rather than reused in the same storage
+    generation.
+
+This defines the ownership and in-flight contract without pretending a CPU
+frame age is a GPU completion fence. Slice 5B owns only planner state. It does
+not allocate an NVRHI output buffer, change dispatch offsets, alter the current
+monolithic GPU output, skip CPU skinning, or change BLAS traversal.
+
+The live shadow integration:
+
+  begins/resets by the lifecycle CanonicalWorldKey;
+  consumes exact SkinnedSurface Remove operations from the imported identity
+    transport snapshot;
+  admits a range only after the active InstanceKey resolves to the exact
+    slice-5A SkinnedBindSource/Skinned record with matching vertex count and a
+    nonzero checksum;
+  reports full-key ranges, source sharing, pairwise overlap, storage generation
+    and pending-retirement counts in the existing one-shot GEO-07 dump.
+
+Focused harness:
+
+  PathTraceSkinnedOutputAllocatorHarness:
+    PASS
+
+Coverage includes:
+
+  two different instances never alias;
+  same-instance stable reuse;
+  resize-by-append with old-byte tombstone;
+  exact retirement and retired-key non-resurrection;
+  render-def generation replacement;
+  growth generation and explicit old-storage release;
+  world replacement;
+  atomic capacity rejection;
+  byte arithmetic overflow;
+  invalid/non-skinned key rejection.
+
+Runtime, autonomous prepared save:
+
+  geometry_geo57_auto.log
+  map = game/mars_city1
+
+  output allocator:
+    gates master/source/world valid = 1/1/1
+    candidates/source eligible/ranges/exact = 12/12/12/12
+    observe add/reuse/resize/reject = 12/0/0/0
+    retire applied/missing = 0/0
+    requested/active/used/capacity vertices = 9889/9889/9889/16384
+    storage generation/pending = 1/0
+    unique sources/shared-source pairs/non-aliased pairs = 11/1/1
+    overlap pairs = 0
+    output stride = 112 bytes
+
+The first observation therefore plans 1,107,568 active bytes in twelve exact
+per-surface ranges. The one exact shared-source pair has two non-overlapping
+outputs. Stable reuse and retirement are proven by the focused harness; this
+capture contains no identity removal and correctly reports 12 first adds.
+
+Existing contracts in the same frame:
+
+  immutable binding/source/exact/checksum = 12/12/12/12
+  jointCache range match/mismatch/bytes = 12/0/28320
+  copy stage requested/ready/submitted/copies/bytes = 1/1/1/12/28320
+  parity samples/current/previous/motion failures = 24/0/0/0
+  maximum current error = 0.0000152587891
+  parity pass = 1
+
+Offline/build/deploy:
+
+  PathTraceGeometrySourceRegistryHarness:
+    PASS
+  PathTraceGeometrySourceTransportHarness:
+    PASS
+  PathTraceJointCacheCopyPlanHarness:
+    PASS
+  PathTraceSkinnedHistoryPolicyHarness:
+    PASS
+  PathTraceSkinnedOutputAllocatorHarness:
+    PASS
+  cmake --build --preset win64-pt-dev-release:
+    PASS
+  all SPIR-V shaders:
+    up to date; no shader source or blob changed
+  deployed executable:
+    15696896 bytes
+    2026-07-25 14:05:25 Australia/Sydney
+    SHA-256 E831BBFAC5954A398C349A0A34B1B3D8877872265793E81ACFCE369CFE719D7C
+
+Result:
+
+  PASS - slice 5B establishes persistent full-InstanceKey output ownership,
+         checked growth, explicit retirement and shared-source non-aliasing.
+  NEXT - slice 5C may create/bind comparison storage using these ranges. It
+         must retain the current CPU and BLAS routes while validating the new
+         shared-source/distinct-output dispatch.

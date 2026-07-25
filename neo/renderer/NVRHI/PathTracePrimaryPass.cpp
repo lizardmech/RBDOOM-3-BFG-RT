@@ -135,6 +135,14 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeTextureProbeRequestedIndex(-1)
     , m_smokeSceneOrigin(vec3_origin)
 {
+    PtSkinnedOutputAllocatorConfig skinnedOutputConfig;
+    skinnedOutputConfig.initialCapacityVertices = 16384;
+    skinnedOutputConfig.maxCapacityVertices = UINT32_MAX;
+    skinnedOutputConfig.vertexStrideBytes =
+        sizeof(PathTraceSmokeVertex);
+    m_smokeSkinnedOutputAllocator.Configure(
+        skinnedOutputConfig);
+
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
     if (device)
     {

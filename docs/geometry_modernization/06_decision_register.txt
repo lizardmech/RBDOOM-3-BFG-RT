@@ -214,6 +214,26 @@ model/deformInfo pointer. Duplicate actors may share this MeshKey/source
 record, but their mutable output ranges, pose history and later BLAS state
 remain keyed by full InstanceKey and may not alias.
 
+D23. SKINNED MUTABLE OUTPUT OWNERSHIP AND RETIREMENT
+----------------------------------------------------
+Decision: allocate skinned mutable output ranges by the complete canonical
+SkinnedSurface InstanceKey. MeshKey sharing affects only immutable source
+storage. Different InstanceKeys never alias current output, previous output,
+pose history, or later acceleration-structure state.
+
+Within one storage generation, stable key/count observations reuse their exact
+range. Resizes and new keys append; retired bytes are tombstoned rather than
+reused while they may be in flight. Exact identity Remove deltas retire exact
+keys, and an explicitly retired render-def generation cannot resurrect. A
+replacement entity-slot generation receives a new key/range.
+
+Capacity growth and world replacement create monotonic storage generations.
+The old generation remains pending until the GPU-lifetime owner explicitly
+acknowledges completion; CPU frame age is not a substitute for that signal.
+Slice 5B is planner-only. Physical buffer creation, copy/rewrite behavior and
+dispatch routing belong to slice 5C and must keep the current route live until
+numeric comparison passes.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

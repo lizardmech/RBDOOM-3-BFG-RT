@@ -72,17 +72,27 @@ covering 28320 bytes, owner 2/2/1/1, history 1/1/1/0/0/1 with serial 0/1, and
 
 Slice-5 entry audit corrected one proposal mismatch: the accepted GEO-06
 source registry originally rejected SkinnedBindSource/Skinned and the GPU
-scaffold still repacked animated tri->verts per frame. Slice 5A is now
-accepted. The source producer is the MD5 load-time deformInfo bind geometry,
-not the animated snapshot; exact model-surface counts and topology must match
-the canonical MeshKey before the registry value-copies it. geometry_geo55_auto
+scaffold still repacked animated tri->verts per frame. Slice 5A is accepted.
+The source producer is the MD5 load-time deformInfo bind geometry, not the
+animated snapshot; exact model-surface counts and topology must match the
+canonical MeshKey before the registry value-copies it. geometry_geo55_auto
 resolves all 12 active skinned InstanceKeys through 12 exact bindings to 11
 unique immutable source records, with one shared-source instance, nonzero
 checksums for all 12 resolutions, zero skinned negatives, and clean joint/
-parity results. Slice 5B is next: add a checked persistent mutable-output
-allocator by full InstanceKey. Slice 5C then binds comparison dispatches to
-the shared immutable source and distinct instance outputs. Do not claim
-shared MeshKey ownership permits shared pose/output storage.
+parity results.
+
+Slice 5B is also accepted in shadow mode. The checked allocator owns ranges by
+the full InstanceKey, appends replacements instead of aliasing retired bytes,
+tracks monotonic storage generations, and requires explicit completion before
+old storage generations can be released. Exact identity Remove deltas retire
+exact keys. The CPU harness covers stable reuse, resize, render-def generation
+reuse, world replacement, growth, explicit in-flight release, overflow and
+atomic capacity rejection. geometry_geo57_auto plans 12/12 exact ranges for
+9889 vertices, with zero rejection/overlap; the one shared immutable-source
+pair is non-aliased. Current dispatch buffers and BLAS traversal are unchanged.
+Slice 5C is next: bind comparison dispatches to the shared immutable source and
+distinct instance outputs. Shared MeshKey ownership never permits shared pose,
+history, output, or later BLAS state.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

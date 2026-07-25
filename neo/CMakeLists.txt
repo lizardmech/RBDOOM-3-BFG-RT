@@ -539,6 +539,7 @@ set(PATH_TRACE_CPU_WORKER_NO_PCH_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometrySourceRegistry.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometrySourceTransport.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceJointCacheCopyPlan.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceSkinnedOutputAllocator.cpp
 	)
 
 file(GLOB IRRXML_INCLUDES libs/irrxml/src/*.h)
@@ -1585,6 +1586,16 @@ add_executable(PathTraceSkinnedHistoryPolicyHarness
 target_include_directories(PathTraceSkinnedHistoryPolicyHarness PRIVATE renderer/NVRHI)
 if(BUILD_TESTING)
 	add_test(NAME PathTraceSkinnedHistoryPolicyHarness COMMAND $<TARGET_FILE:PathTraceSkinnedHistoryPolicyHarness>)
+endif()
+
+add_executable(PathTraceSkinnedOutputAllocatorHarness
+	tests/pathtrace_skinned_output_allocator_harness.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	renderer/NVRHI/PathTraceSkinnedOutputAllocator.cpp
+	)
+target_include_directories(PathTraceSkinnedOutputAllocatorHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceSkinnedOutputAllocatorHarness COMMAND $<TARGET_FILE:PathTraceSkinnedOutputAllocatorHarness>)
 endif()
 
 add_executable(PathTraceLiquidPoolReducerHarness

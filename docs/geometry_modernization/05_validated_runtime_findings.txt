@@ -425,3 +425,11 @@ NO LONGER OPEN TO SPECULATION
   jointCache ranges, 28320 staged bytes, and a 24-sample parity pass with
   0.0000152587891 maximum current error. Shared bind source is now proven;
   mutable pose/output sharing remains forbidden.
+- geometry_geo57_auto proves the behavior-neutral full-InstanceKey output
+  plan. Twelve eligible surfaces receive 12 exact ranges totaling 9889
+  vertices, with zero rejection or overlap. Eleven unique sources include one
+  exact shared-source pair, and that pair has two non-aliased ranges. Storage
+  generation/pending is 1/0 at first observation. The focused allocator
+  harness separately proves stable reuse, resize tombstones, exact retirement,
+  render-def/world generation replacement, growth and explicit in-flight
+  release. Existing joint staging and 24-sample parity remain accepted.

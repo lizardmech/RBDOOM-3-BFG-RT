@@ -2500,6 +2500,29 @@ struct RtSmokeSkinnedHistoryAudit
     uint64 nextUpdateSerial = 0;
 };
 
+struct RtSmokeSkinnedOutputAudit
+{
+    bool masterGate = false;
+    bool sourceRegistryGate = false;
+    bool worldValid = false;
+    int candidates = 0;
+    int sourceEligible = 0;
+    int added = 0;
+    int reused = 0;
+    int resized = 0;
+    int rejected = 0;
+    int retireApplied = 0;
+    int retireMissing = 0;
+    int rangesFound = 0;
+    int exactRanges = 0;
+    int overlapPairs = 0;
+    int sharedSourcePairs = 0;
+    int sharedSourceNonAliasedPairs = 0;
+    uint64 requestedVertices = 0;
+    std::vector<PtCanonicalMeshKey> uniqueSources;
+    PtSkinnedOutputAllocatorStats stats;
+};
+
 RtSmokeSkinnedHistoryState* FindSmokeSkinnedHistoryState(
     std::vector<RtSmokeSkinnedHistoryState>& states,
     const PtCanonicalHistoryOwnerKey& owner)
@@ -2578,10 +2601,230 @@ void FinalizeSmokeSkinnedGpuFunnel(
     }
 }
 
+bool SmokeSkinnedOutputRangesOverlap(
+    const PtSkinnedOutputRange& lhs,
+    const PtSkinnedOutputRange& rhs)
+{
+    const uint64 lhsEnd =
+        lhs.vertexOffset + lhs.vertexCount;
+    const uint64 rhsEnd =
+        rhs.vertexOffset + rhs.vertexCount;
+    return lhs.vertexOffset < rhsEnd &&
+        rhs.vertexOffset < lhsEnd;
+}
+
+RtSmokeSkinnedOutputAudit UpdateSmokeSkinnedOutputAllocator(
+    const viewDef_t* viewDef,
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
+    const RtSmokeGeometryUniverse& geometryUniverse,
+    PtSkinnedOutputAllocator& allocator,
+    bool masterGate,
+    bool sourceRegistryGate,
+    uint64 frameIndex)
+{
+    RtSmokeSkinnedOutputAudit audit;
+    audit.masterGate = masterGate;
+    audit.sourceRegistryGate = sourceRegistryGate;
+    audit.candidates = static_cast<int>(records.size());
+    if (!masterGate || !sourceRegistryGate || viewDef == nullptr)
+    {
+        audit.stats = allocator.Stats();
+        return audit;
+    }
+
+    const PtCanonicalWorldKey world =
+        PtGeometryLifecycle::CanonicalWorldKey(
+            viewDef->renderWorld);
+    audit.worldValid =
+        PtCanonicalWorldKeyIsValid(world) &&
+        allocator.BeginWorld(
+            world.worldGeneration,
+            frameIndex);
+    if (!audit.worldValid)
+    {
+        audit.stats = allocator.Stats();
+        return audit;
+    }
+
+    const PtGeometryIdentityTransportSnapshot* identitySnapshot =
+        viewDef->pathTraceGeometryIdentitySnapshot;
+    if (identitySnapshot != nullptr)
+    {
+        for (uint64 index = 0;
+            index < identitySnapshot->recordCount;
+            ++index)
+        {
+            const PtGeometryIdentityTransportRecord& transport =
+                identitySnapshot->records[index];
+            if (transport.operation !=
+                    PtGeometryIdentityOperation::Remove ||
+                transport.instanceKey.subInstanceKind !=
+                    PtCanonicalSubInstanceKind::SkinnedSurface)
+            {
+                continue;
+            }
+            const PtSkinnedOutputRetireResult result =
+                allocator.Retire(
+                    transport.instanceKey,
+                    frameIndex);
+            if (result ==
+                PtSkinnedOutputRetireResult::Retired)
+            {
+                ++audit.retireApplied;
+            }
+            else
+            {
+                ++audit.retireMissing;
+            }
+        }
+    }
+
+    struct Candidate
+    {
+        PtCanonicalInstanceKey instance;
+        PtCanonicalMeshKey mesh;
+        PtSkinnedOutputRange range;
+        bool hasRange = false;
+        int vertexCount = 0;
+    };
+    std::vector<Candidate> candidates;
+    candidates.reserve(records.size());
+    for (const RtSmokeSkinnedSurfaceRecord& record : records)
+    {
+        const PtGeometryIdentityBinding* binding =
+            geometryUniverse.FindCanonicalIdentityBinding(
+                record.canonicalInstance);
+        if (binding == nullptr)
+        {
+            ++audit.rejected;
+            continue;
+        }
+        const PtGeometrySourceRecord* source =
+            geometryUniverse.FindCanonicalSourceRecord(
+                binding->meshKey);
+        if (source == nullptr ||
+            source->key != binding->meshKey ||
+            source->key.sourceDomain !=
+                PtCanonicalMeshSourceDomain::SkinnedBindSource ||
+            source->key.deformationClass !=
+                PtCanonicalDeformationClass::Skinned ||
+            source->key.vertexCount !=
+                static_cast<uint32_t>(record.vertexCount) ||
+            source->sourceChecksum == 0)
+        {
+            ++audit.rejected;
+            continue;
+        }
+
+        ++audit.sourceEligible;
+        const uint64 requestedVertices =
+            static_cast<uint64>(record.vertexCount);
+        if (audit.requestedVertices >
+            std::numeric_limits<uint64>::max() -
+                requestedVertices)
+        {
+            ++audit.rejected;
+            continue;
+        }
+        audit.requestedVertices += requestedVertices;
+        if (std::find(
+                audit.uniqueSources.begin(),
+                audit.uniqueSources.end(),
+                source->key) ==
+            audit.uniqueSources.end())
+        {
+            audit.uniqueSources.push_back(source->key);
+        }
+        const PtSkinnedOutputObserveResult result =
+            allocator.Observe(
+                record.canonicalInstance,
+                static_cast<uint64>(record.vertexCount),
+                frameIndex);
+        switch (result)
+        {
+            case PtSkinnedOutputObserveResult::Added:
+                ++audit.added;
+                break;
+            case PtSkinnedOutputObserveResult::Reused:
+                ++audit.reused;
+                break;
+            case PtSkinnedOutputObserveResult::Resized:
+                ++audit.resized;
+                break;
+            default:
+                ++audit.rejected;
+                break;
+        }
+
+        Candidate candidate;
+        candidate.instance = record.canonicalInstance;
+        candidate.mesh = binding->meshKey;
+        candidate.vertexCount = record.vertexCount;
+        candidates.push_back(candidate);
+    }
+
+    for (Candidate& candidate : candidates)
+    {
+        const PtSkinnedOutputRange* range =
+            allocator.Find(candidate.instance);
+        if (range != nullptr)
+        {
+            candidate.range = *range;
+            candidate.hasRange = true;
+            ++audit.rangesFound;
+            if (candidate.range.vertexCount ==
+                    static_cast<uint64>(
+                        candidate.vertexCount) &&
+                candidate.range.storageGeneration ==
+                    allocator.Stats().storageGeneration)
+            {
+                ++audit.exactRanges;
+            }
+        }
+    }
+
+    for (size_t first = 0; first < candidates.size(); ++first)
+    {
+        for (size_t second = first + 1;
+            second < candidates.size();
+            ++second)
+        {
+            if (candidates[first].hasRange &&
+                candidates[second].hasRange &&
+                candidates[first].instance !=
+                    candidates[second].instance &&
+                SmokeSkinnedOutputRangesOverlap(
+                    candidates[first].range,
+                    candidates[second].range))
+            {
+                ++audit.overlapPairs;
+            }
+            if (candidates[first].mesh ==
+                    candidates[second].mesh &&
+                candidates[first].instance !=
+                    candidates[second].instance)
+            {
+                ++audit.sharedSourcePairs;
+                if (candidates[first].hasRange &&
+                    candidates[second].hasRange &&
+                    !SmokeSkinnedOutputRangesOverlap(
+                        candidates[first].range,
+                        candidates[second].range))
+                {
+                    ++audit.sharedSourceNonAliasedPairs;
+                }
+            }
+        }
+    }
+    audit.stats = allocator.Stats();
+    return audit;
+}
+
 void DumpSmokeSkinnedGpuFunnel(
     const RtSmokeSkinnedGpuScaffoldBuild& build,
     const RtSmokeJointCacheStageBuild& jointCacheStage,
     const RtSmokeSkinnedHistoryAudit& historyAudit,
+    const RtSmokeSkinnedOutputAudit& outputAudit,
     const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
     const RtSmokeGeometryUniverse& geometryUniverse,
     int mode,
@@ -2794,6 +3037,42 @@ void DumpSmokeSkinnedGpuFunnel(
         static_cast<unsigned long long>(
             historyAudit.nextUpdateSerial),
         PtSkinnedHistoryRouteName(historyAudit.route));
+
+    common->Printf(
+        "PathTracePrimaryPass: GEO07 skinned output allocator frame=%llu gates(master/source)/worldValid=%d/%d/%d candidates/sourceEligible/ranges/exact=%d/%d/%d/%d observe(add/reuse/resize/reject)=%d/%d/%d/%d retire(applied/missing)=%d/%d vertices(requested/active/used/capacity)=%llu/%llu/%llu/%llu storage(generation/pending)=%llu/%llu sources(unique/sharedPairs/nonAliasedPairs)=%llu/%d/%d overlapPairs=%d strideBytes=%llu route=shadow-full-instance-output-plan\n",
+        static_cast<unsigned long long>(frameIndex),
+        outputAudit.masterGate ? 1 : 0,
+        outputAudit.sourceRegistryGate ? 1 : 0,
+        outputAudit.worldValid ? 1 : 0,
+        outputAudit.candidates,
+        outputAudit.sourceEligible,
+        outputAudit.rangesFound,
+        outputAudit.exactRanges,
+        outputAudit.added,
+        outputAudit.reused,
+        outputAudit.resized,
+        outputAudit.rejected,
+        outputAudit.retireApplied,
+        outputAudit.retireMissing,
+        static_cast<unsigned long long>(
+            outputAudit.requestedVertices),
+        static_cast<unsigned long long>(
+            outputAudit.stats.activeVertices),
+        static_cast<unsigned long long>(
+            outputAudit.stats.usedVertices),
+        static_cast<unsigned long long>(
+            outputAudit.stats.capacityVertices),
+        static_cast<unsigned long long>(
+            outputAudit.stats.storageGeneration),
+        static_cast<unsigned long long>(
+            outputAudit.stats.pendingStorageGenerations),
+        static_cast<unsigned long long>(
+            outputAudit.uniqueSources.size()),
+        outputAudit.sharedSourcePairs,
+        outputAudit.sharedSourceNonAliasedPairs,
+        outputAudit.overlapPairs,
+        static_cast<unsigned long long>(
+            sizeof(PathTraceSmokeVertex)));
 
     int bindSourceBindings = 0;
     int bindSourceRecords = 0;
@@ -3982,6 +4261,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<RtSmokeSkinnedSurfaceRecord> currentSkinnedSurfaceRecords;
     RtSmokeSkinnedGpuScaffoldBuild skinnedGpuScaffold;
     RtSmokeJointCacheStageBuild jointCacheStage;
+    RtSmokeSkinnedOutputAudit skinnedOutputAudit;
     int sourceSurfaces = 0;
     int sourceVerts = 0;
     int sourceIndexes = 0;
@@ -4338,6 +4618,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticCacheChanged = m_smokeGeometryUniverse.PruneMissingStaticSurfaces() || staticCacheChanged;
         }
     }
+    skinnedOutputAudit =
+        UpdateSmokeSkinnedOutputAllocator(
+            viewDef,
+            currentSkinnedSurfaceRecords,
+            m_smokeGeometryUniverse,
+            m_smokeSkinnedOutputAllocator,
+            r_pathTracingGeometryAuthoritativeGpuSkinning.
+                GetInteger() != 0,
+            r_pathTracingGeometryShadowRegistry.
+                GetInteger() != 0,
+            m_smokeGeometryFrameIndex);
     std::vector<PathTraceSmokeVertex> nextPreviousSkinnedVertexData;
     std::vector<PathTraceSkinnedJointMatrix> nextPreviousSkinnedJointMatrices;
     const std::vector<RtSmokeSkinnedSurfaceRecord> emptyPreviousSkinnedRecords;
@@ -5794,6 +6085,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 skinnedGpuScaffold,
                 jointCacheStage,
                 skinnedHistoryAudit,
+                skinnedOutputAudit,
                 currentSkinnedSurfaceRecords,
                 m_smokeGeometryUniverse,
                 gpuSkinningMode,
@@ -6680,6 +6972,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedGpuScaffold,
             jointCacheStage,
             skinnedHistoryAudit,
+            skinnedOutputAudit,
             currentSkinnedSurfaceRecords,
             m_smokeGeometryUniverse,
             gpuSkinningMode,

@@ -23,6 +23,7 @@
 #include "PathTraceDebugModes.h"
 #include "PathTraceSceneInputs.h"
 #include "PathTraceSceneUniverse.h"
+#include "PathTraceSkinnedOutputAllocator.h"
 #include "PathTraceSmokeResources.h"
 
 #include <nvrhi/nvrhi.h>
@@ -422,6 +423,7 @@ private:
     uint32_t m_particleCompositeGpuTimerCursor = 0;
     uint32_t m_particleCompositeGpuTimerInvocation = 0;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
+    PtSkinnedOutputAllocator m_smokeSkinnedOutputAllocator;
     RtSmokeSkinnedHistoryState m_smokeLegacySkinnedHistoryState;
     std::vector<RtSmokeSkinnedHistoryState> m_smokeSkinnedHistoryStates;
     uint64 m_smokeSkinnedHistoryUpdateSerial = 0;
