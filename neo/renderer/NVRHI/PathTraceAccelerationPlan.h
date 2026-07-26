@@ -182,6 +182,83 @@ struct RtSmokeAccelerationSubmitPlan
     bool submitTlas = false;
 };
 
+const int RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA = -1;
+
+struct RtSmokeStaticBucketAssignmentSurface
+{
+    uint64_t surfaceKey = 0;
+    uint32_t sourceRecordIndex = std::numeric_limits<uint32_t>::max();
+    int portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+    RtSmokePlanGeometryRange range;
+    bool valid = false;
+    bool active = false;
+};
+
+struct RtSmokeStaticBucketAssignmentPlanDesc
+{
+    const RtSmokeStaticBucketAssignmentSurface* surfaces = nullptr;
+    int surfaceCount = 0;
+    uint64_t worldGeneration = 0;
+    uint64_t sourceGeneration = 0;
+    uint64_t storageGeneration = 0;
+    int portalAreaCount = 0;
+    int maxVerticesPerBucket = 0;
+    int maxIndexesPerBucket = 0;
+    int maxTrianglesPerBucket = 0;
+};
+
+struct RtSmokeStaticBucketAssignment
+{
+    uint64_t surfaceKey = 0;
+    uint32_t sourceRecordIndex = std::numeric_limits<uint32_t>::max();
+    uint32_t bucketIndex = std::numeric_limits<uint32_t>::max();
+    uint32_t localPrimitiveOffset = 0;
+    RtSmokePlanGeometryRange sourceRange;
+};
+
+struct RtSmokeStaticBucketAssignmentBucket
+{
+    uint64_t bucketKey = 0;
+    uint64_t worldGeneration = 0;
+    uint64_t sourceGeneration = 0;
+    uint64_t storageGeneration = 0;
+    int portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+    uint32_t splitIndex = 0;
+    uint32_t firstAssignment = 0;
+    uint32_t assignmentCount = 0;
+    int vertexCount = 0;
+    int indexCount = 0;
+    int triangleCount = 0;
+    bool active = false;
+    bool oversized = false;
+};
+
+struct RtSmokeStaticBucketAssignmentStats
+{
+    int inputSurfaces = 0;
+    int assignedSurfaces = 0;
+    int assignedPrimitives = 0;
+    int duplicateSurfaces = 0;
+    int unassignedAreaSurfaces = 0;
+    int invalidAreaSurfaces = 0;
+    int invalidRangeSurfaces = 0;
+    int oversizedSurfaces = 0;
+    int buckets = 0;
+    int activeBuckets = 0;
+    int fallbackBuckets = 0;
+    int splitBuckets = 0;
+    int bucketKeyCollisions = 0;
+};
+
+struct RtSmokeStaticBucketAssignmentPlan
+{
+    std::vector<RtSmokeStaticBucketAssignmentBucket> buckets;
+    std::vector<RtSmokeStaticBucketAssignment> assignments;
+    RtSmokeStaticBucketAssignmentStats stats;
+    uint64_t planSignature = 0;
+    bool exactCoverage = false;
+};
+
 struct RtSmokeStaticTlasBucketObservation
 {
     uint64_t bucketKey = 0;
@@ -841,6 +918,9 @@ RtSmokeBaseTlasPlan BuildSmokeBaseTlasPlan(bool hasStaticBlas, bool hasDynamicBl
 
 RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
     const RtSmokeAccelerationSubmitPlanInput& input);
+
+RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
+    const RtSmokeStaticBucketAssignmentPlanDesc& desc);
 
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc);

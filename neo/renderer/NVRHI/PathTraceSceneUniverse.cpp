@@ -25,6 +25,36 @@ const int PT_SCENE_UNIVERSE_MAX_SELECTION_AREAS = 16;
 const int PT_SCENE_UNIVERSE_STATIC_MAX_VERTS = 262144;
 const int PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES = 786432;
 
+int SceneUniverseStaticWorldPortalArea(
+    const idRenderModel* model,
+    int portalAreaCount)
+{
+    const char* modelName = model ? model->Name() : nullptr;
+    if (!modelName || idStr::Cmpn(modelName, "_area", 5) != 0 ||
+        modelName[5] == '\0')
+    {
+        return RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+    }
+
+    int portalArea = 0;
+    for (const char* digit = modelName + 5; *digit; ++digit)
+    {
+        if (*digit < '0' || *digit > '9')
+        {
+            return RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+        }
+        const int value = *digit - '0';
+        if (portalArea > (INT_MAX - value) / 10)
+        {
+            return RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+        }
+        portalArea = portalArea * 10 + value;
+    }
+    return portalArea >= 0 && portalArea < portalAreaCount
+        ? portalArea
+        : RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+}
+
 void DumpSceneUniverseResidencyStatsIfNeeded(const RtPathTraceSceneUniverseBuildStats& stats)
 {
     if (r_pathTracingResidencyDump.GetInteger() == 0)
@@ -1035,6 +1065,8 @@ bool RtPathTraceSceneUniverse::Build(const viewDef_t* viewDef)
         }
 
         ++m_stats.staticWorldEntities;
+        const int staticWorldPortalArea =
+            SceneUniverseStaticWorldPortalArea(model, buildAreaCount);
         for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
         {
             const modelSurface_t* modelSurface = model->Surface(surfaceIndex);
@@ -1057,6 +1089,7 @@ bool RtPathTraceSceneUniverse::Build(const viewDef_t* viewDef)
             surface.numVerts = tri->numVerts;
             surface.numIndexes = tri->numIndexes;
             surface.triangles = tri->numIndexes / 3;
+            surface.portalArea = staticWorldPortalArea;
             surface.key = BuildSceneUniverseSurfaceKey(model, entityIndex, surfaceIndex, material, tri);
             surface.legacyDrawSurfKey = BuildSceneUniverseLegacyDrawSurfKey(entity, material, tri);
             surface.bounds = SceneUniverseSurfaceWorldBounds(entity, tri);
@@ -1214,6 +1247,11 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
         const idRenderEntityLocal* entity = renderWorld->entityDefs[entityIndex];
         const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
         const bool isStaticWorldModel = model && model->IsStaticWorldModel();
+        const int staticWorldPortalArea = isStaticWorldModel
+            ? SceneUniverseStaticWorldPortalArea(
+                model,
+                renderWorld->NumAreas())
+            : RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
         const bool rigidEntityEligible = !isStaticWorldModel && includeRigidEntities && SceneUniverseRigidEntityEligible(entity, model);
         const bool isRigidEntityModel = rigidEntityEligible && (rigidEntityMode == 2 || SceneUniverseEntityHasEmissiveSurface(entity, model));
         if (!model || (!isStaticWorldModel && !isRigidEntityModel))
@@ -1258,6 +1296,9 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                     continue;
                 }
                 geometryUniverse.RefreshStaticSurfaceMaterial(key, materialId);
+                geometryUniverse.RefreshStaticSurfacePortalArea(
+                    key,
+                    staticWorldPortalArea);
 
                 ++bucketRanges.buckets[0].surfaceCount;
                 ++buildStats.surfaces;
@@ -1292,7 +1333,14 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                 continue;
             }
 
-            const RtSmokeStaticSurfaceAppend append = geometryUniverse.BeginStaticSurfaceAppend(key, surfaceClassId, materialId, tri->numVerts, tri->numIndexes);
+            const RtSmokeStaticSurfaceAppend append =
+                geometryUniverse.BeginStaticSurfaceAppend(
+                    key,
+                    surfaceClassId,
+                    materialId,
+                    tri->numVerts,
+                    tri->numIndexes,
+                    staticWorldPortalArea);
             const int emittedIndexes = AppendSceneUniverseStaticSurfaceGeometry(
                 entity,
                 material,
@@ -1517,6 +1565,9 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             }
 
             geometryUniverse.RefreshStaticSurfaceMaterial(key, materialId);
+            geometryUniverse.RefreshStaticSurfacePortalArea(
+                key,
+                surface.portalArea);
             ++buildStats.residencyCacheHits;
             if (alreadyCountedThisFrame)
             {
@@ -1601,7 +1652,14 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             return;
         }
 
-        const RtSmokeStaticSurfaceAppend append = geometryUniverse.BeginStaticSurfaceAppend(key, surfaceClassId, materialId, numVerts, numIndexes);
+        const RtSmokeStaticSurfaceAppend append =
+            geometryUniverse.BeginStaticSurfaceAppend(
+                key,
+                surfaceClassId,
+                materialId,
+                numVerts,
+                numIndexes,
+                surface.portalArea);
         const int emittedIndexes = AppendSceneUniverseStaticSurfaceGeometry(
             entity,
             material,

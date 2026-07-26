@@ -12337,6 +12337,87 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.rigidRouteTriangleCount = rigidRouteBuild.stats.triangles;
     {
         OPTICK_EVENT("PT BVH Frame Planning");
+    if (r_pathTracingGeometryStaticBucketAudit.GetInteger() != 0)
+    {
+        const int portalAreaCount =
+            viewDef && viewDef->renderWorld
+                ? viewDef->renderWorld->NumAreas()
+                : 0;
+        const int maxVerticesPerBucket = Max(
+            1,
+            r_pathTracingGeometryStaticBucketMaxVertices.GetInteger());
+        const int maxIndexesPerBucket = Max(
+            3,
+            r_pathTracingGeometryStaticBucketMaxIndexes.GetInteger());
+        const int maxTrianglesPerBucket = Max(
+            1,
+            r_pathTracingGeometryStaticBucketMaxTriangles.GetInteger());
+        const uint64 staticBucketSourceGeneration =
+            m_sceneUniverse.GetStats().generation;
+        const RtSmokeStaticBucketAssignmentPlan assignmentPlan =
+            m_smokeGeometryUniverse.BuildStaticBucketAssignmentPlan(
+                static_cast<uint64>(m_smokeSceneMapTimeStamp),
+                staticBucketSourceGeneration,
+                portalAreaCount,
+                maxVerticesPerBucket,
+                maxIndexesPerBucket,
+                maxTrianglesPerBucket);
+        const RtSmokeStaticBucketAssignmentStats& assignmentStats =
+            assignmentPlan.stats;
+        common->Printf(
+            "PathTracePrimaryPass: GEO10 static bucket assignment exact=%d signature=%llu generations(world/source/storage)=%llu/%llu/%llu limits(v/i/t)=%d/%d/%d areas=%d surfaces(input/assigned/duplicate/unassigned/invalidArea/invalidRange/oversized)=%d/%d/%d/%d/%d/%d/%d primitives(assigned/retained)=%d/%d buckets(total/active/fallback/split/keyCollision)=%d/%d/%d/%d/%d route=shadow-only\n",
+            assignmentPlan.exactCoverage ? 1 : 0,
+            static_cast<unsigned long long>(
+                assignmentPlan.planSignature),
+            static_cast<unsigned long long>(
+                static_cast<uint64>(m_smokeSceneMapTimeStamp)),
+            static_cast<unsigned long long>(
+                staticBucketSourceGeneration),
+            static_cast<unsigned long long>(
+                geometryUniverseStats.staticGeometryGeneration),
+            maxVerticesPerBucket,
+            maxIndexesPerBucket,
+            maxTrianglesPerBucket,
+            portalAreaCount,
+            assignmentStats.inputSurfaces,
+            assignmentStats.assignedSurfaces,
+            assignmentStats.duplicateSurfaces,
+            assignmentStats.unassignedAreaSurfaces,
+            assignmentStats.invalidAreaSurfaces,
+            assignmentStats.invalidRangeSurfaces,
+            assignmentStats.oversizedSurfaces,
+            assignmentStats.assignedPrimitives,
+            staticTriangleCacheCount,
+            assignmentStats.buckets,
+            assignmentStats.activeBuckets,
+            assignmentStats.fallbackBuckets,
+            assignmentStats.splitBuckets,
+            assignmentStats.bucketKeyCollisions);
+        const size_t bucketSampleCount =
+            std::min(
+                assignmentPlan.buckets.size(),
+                static_cast<size_t>(16));
+        for (size_t bucketIndex = 0;
+            bucketIndex < bucketSampleCount;
+            ++bucketIndex)
+        {
+            const RtSmokeStaticBucketAssignmentBucket& bucket =
+                assignmentPlan.buckets[bucketIndex];
+            common->Printf(
+                "PathTracePrimaryPass: GEO10 static bucket sample index=%llu key=%llu area/split=%d/%u assignments=%u rangeCounts(v/i/t)=%d/%d/%d active/oversized=%d/%d\n",
+                static_cast<unsigned long long>(bucketIndex),
+                static_cast<unsigned long long>(bucket.bucketKey),
+                bucket.portalArea,
+                bucket.splitIndex,
+                bucket.assignmentCount,
+                bucket.vertexCount,
+                bucket.indexCount,
+                bucket.triangleCount,
+                bucket.active ? 1 : 0,
+                bucket.oversized ? 1 : 0);
+        }
+        r_pathTracingGeometryStaticBucketAudit.SetInteger(0);
+    }
     std::vector<RtSmokeStaticTlasBucketObservation> staticActiveBuckets;
     m_smokeGeometryUniverse.BuildStaticTlasBucketObservations(
         staticActiveBuckets,

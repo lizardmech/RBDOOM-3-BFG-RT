@@ -1,0 +1,156 @@
+GEO-10 ENTRY AUDIT AND STEP 1/2 CHECKPOINT
+==========================================
+
+DATE
+----
+2026-07-26
+
+SCOPE
+-----
+This checkpoint validates and implements only deterministic static bucket
+identity and exact surface/primitive assignment. It does not change production
+BLAS construction, TLAS membership, shader routing, or the monolithic rollback
+path.
+
+ENTRY CONTRACT TRACE
+--------------------
+The production path still owns one static vertex/index/triangle-metadata pool,
+one static BLAS, and TLAS instance 0. The existing static-bucket planner was
+being fed one observation per persistent surface while:
+
+  monolithicStaticBlas              = true
+  shaderSupportsStaticBucketRoutes  = false
+
+Those observations were planning diagnostics, not real bucket BLAS ownership.
+The current shader contract also treats InstanceID 0 as the only static route.
+Therefore merely enabling the existing planner would mismatch BLAS primitive
+locality, triangle metadata, and the rigid/skinned InstanceID namespace.
+
+AUTHORITATIVE PORTAL-AREA OWNER
+-------------------------------
+BoundsInAreas, centerArea, and offCenterArea are useful selection evidence but
+are not the authored owner. idRenderWorldLocal::AddWorldModelEntities creates
+one static model named `_areaN` for each portal area and explicitly links that
+entity to area N. GEO-10 now parses this exact model identity and persists N on
+each static geometry record.
+
+Malformed, missing, or out-of-world `_areaN` identities use the explicit
+fallback area -1. They are counted and remain assigned; they are never silently
+dropped.
+
+STEP 1/2 IMPLEMENTATION
+-----------------------
+BuildSmokeStaticBucketAssignmentPlan is CPU-only and owns no renderer pointers
+or GPU handles. Its bucket tuple is:
+
+  world generation
+  portal area
+  deterministic size-split index
+  source generation
+  storage generation
+
+Within an area it sorts by stable surface key and source ranges, then greedily
+splits against independent vertex, index, and triangle limits. A surface larger
+than a limit receives its own explicitly oversized bucket. Invalid-area
+surfaces enter the fallback bucket. Invalid ranges and duplicate surface keys
+fail exact coverage and are counted.
+
+Each accepted surface produces exactly one assignment. The assignment records
+its bucket, source range, and bucket-local primitive offset. The resulting
+signature is independent of producer enumeration order and changes with the
+bucket generations.
+
+The diagnostic limits are currently:
+
+  vertices   65,536
+  indexes   196,608
+  triangles  65,536
+
+They are split thresholds, not admission caps. The one-shot command is:
+
+  r_pathTracingGeometryStaticBucketAudit 1
+
+It is shadow-only and resets itself after printing the summary and at most 16
+bucket samples.
+
+OFFLINE PROOF
+-------------
+PathTraceCpuPlanningHarness passes cases for:
+
+  deterministic area/key ordering;
+  deterministic size splitting;
+  producer-order independence;
+  source/storage generation identity;
+  explicit fallback assignment;
+  invalid range accounting;
+  oversized surface accounting;
+  duplicate ownership rejection.
+
+The complete pre-existing planning harness also passes.
+
+BUILD / DEPLOY
+--------------
+Vulkan release build:
+
+  command     from neo/, cmake --build --preset win64-pt-dev-release
+  result      success; all SPIR-V shaders reported up to date
+  executable  15,878,656 bytes
+  sha256      CE27505DA87732E1038C5282C5EEBB0C71ABDD37744B9B33977D91C96F073126
+  deployed    byte-identical
+
+No shader source changed. No SPIR-V or DXIL blob was rebuilt or deployed.
+
+RUNTIME PROOF
+-------------
+Accepted bounded hidden run:
+
+  geometry_geo187_auto.log
+  prepared doom3_1 save
+  smoke logging disabled
+  normal automatic shutdown
+
+Observed tuple:
+
+  exact coverage                       1
+  generations world/source/storage    1344544469 / 3 / 590
+  portal areas                         56
+  input / assigned surfaces            589 / 589
+  assigned / retained primitives       22,558 / 22,558
+  duplicate surfaces                   0
+  unassigned areas                     0
+  invalid areas                        0
+  invalid ranges                       0
+  oversized surfaces                   0
+  buckets / active buckets             14 / 14
+  fallback buckets                     0
+  size-split buckets                   0
+  bucket-key collisions                0
+
+The first run, geometry_geo186_auto.log, found the same exact coverage but
+correctly exposed that the old source-3 static-build marker can remain zero.
+The accepted run keys from RtPathTraceSceneUniverse::GetStats().generation
+instead and records source generation 3.
+
+REMAINING CONTRACT BEFORE LIVE CUTOVER
+--------------------------------------
+The current static cache contains the selected/pruned set, so all 14 observed
+buckets in this scene are active. GEO-10 must next create resident per-bucket
+storage/BLAS state whose inactive entries survive portal changes while only the
+selected active set enters TLAS.
+
+The current monolithic arrays cannot be treated as one contiguous range per
+new bucket merely because assignment is correct. Stable-key ordering and
+portal transitions can make a bucket's source surface ranges non-contiguous.
+Step 3 must copy full-fidelity source ranges into deterministic bucket-local
+pooled ranges (rebasing indexes) and create bucket-local triangle material,
+class, and source-identity tables.
+
+Only after that storage tuple is exact should live work add:
+
+  one BLAS owner per resident bucket;
+  active-set generation shared by TLAS and route upload;
+  dense checked static InstanceIDs ahead of rigid/skinned routes;
+  shader lookup of bucket-local primitive metadata;
+  old/new hit, material, emissive, and active-area comparison.
+
+The production monolithic static route remains unchanged and available.

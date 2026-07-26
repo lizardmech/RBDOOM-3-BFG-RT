@@ -381,6 +381,30 @@ idCVar r_pathTracingGeometrySkinnedEmissiveAudit(
     CVAR_RENDERER | CVAR_INTEGER,
     "One-shot GEO-09 canonical skinned-emissive audit; value 1 also injects at most 24 validation-only light records for unsafe authored emissive materials and verifies the same-frame GPU publication readback, N > 1 counts down eligible frames before arming" );
 
+idCVar r_pathTracingGeometryStaticBucketAudit(
+    "r_pathTracingGeometryStaticBucketAudit",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot GEO-10 shadow audit of deterministic portal-area static bucket assignment; does not change BLAS or TLAS routing" );
+
+idCVar r_pathTracingGeometryStaticBucketMaxVertices(
+    "r_pathTracingGeometryStaticBucketMaxVertices",
+    "65536",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-10 shadow planner maximum vertices per static portal-area bucket; oversized surfaces remain explicitly assigned" );
+
+idCVar r_pathTracingGeometryStaticBucketMaxIndexes(
+    "r_pathTracingGeometryStaticBucketMaxIndexes",
+    "196608",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-10 shadow planner maximum indexes per static portal-area bucket; splits rather than drops" );
+
+idCVar r_pathTracingGeometryStaticBucketMaxTriangles(
+    "r_pathTracingGeometryStaticBucketMaxTriangles",
+    "65536",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-10 shadow planner maximum triangles per static portal-area bucket; splits rather than drops" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

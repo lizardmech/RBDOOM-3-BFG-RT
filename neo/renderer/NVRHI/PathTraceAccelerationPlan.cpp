@@ -1,7 +1,10 @@
 #include "PathTraceAccelerationPlan.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace {
 
@@ -374,6 +377,312 @@ RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
     plan.buildDynamicBlas = input.hasDynamicBlas;
     plan.submitTlas = input.hasStaticBlas || input.hasDynamicBlas;
     plan.baseTlasPlan = BuildSmokeBaseTlasPlan(input.hasStaticBlas, input.hasDynamicBlas);
+    return plan;
+}
+
+RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
+    const RtSmokeStaticBucketAssignmentPlanDesc& desc)
+{
+    RtSmokeStaticBucketAssignmentPlan plan;
+    plan.planSignature = 1469598103934665603ull;
+    if (!desc.surfaces || desc.surfaceCount <= 0)
+    {
+        return plan;
+    }
+
+    plan.stats.inputSurfaces = desc.surfaceCount;
+    std::vector<int> sortedSurfaceIndices;
+    sortedSurfaceIndices.reserve(desc.surfaceCount);
+    for (int surfaceIndex = 0; surfaceIndex < desc.surfaceCount; ++surfaceIndex)
+    {
+        sortedSurfaceIndices.push_back(surfaceIndex);
+    }
+    std::sort(
+        sortedSurfaceIndices.begin(),
+        sortedSurfaceIndices.end(),
+        [&desc](int lhsIndex, int rhsIndex)
+        {
+            const RtSmokeStaticBucketAssignmentSurface& lhs =
+                desc.surfaces[lhsIndex];
+            const RtSmokeStaticBucketAssignmentSurface& rhs =
+                desc.surfaces[rhsIndex];
+            const int lhsArea =
+                lhs.portalArea >= 0 &&
+                    lhs.portalArea < desc.portalAreaCount
+                    ? lhs.portalArea
+                    : RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+            const int rhsArea =
+                rhs.portalArea >= 0 &&
+                    rhs.portalArea < desc.portalAreaCount
+                    ? rhs.portalArea
+                    : RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+            if (lhsArea != rhsArea)
+            {
+                return lhsArea < rhsArea;
+            }
+            if (lhs.surfaceKey != rhs.surfaceKey)
+            {
+                return lhs.surfaceKey < rhs.surfaceKey;
+            }
+            if (lhs.range.vertexOffset != rhs.range.vertexOffset)
+            {
+                return lhs.range.vertexOffset < rhs.range.vertexOffset;
+            }
+            if (lhs.range.indexOffset != rhs.range.indexOffset)
+            {
+                return lhs.range.indexOffset < rhs.range.indexOffset;
+            }
+            if (lhs.range.triangleOffset != rhs.range.triangleOffset)
+            {
+                return lhs.range.triangleOffset < rhs.range.triangleOffset;
+            }
+            return lhs.sourceRecordIndex < rhs.sourceRecordIndex;
+        });
+
+    const auto exceedsLimit = [](int current, int addition, int limit)
+    {
+        return limit > 0 &&
+            (addition > limit || current > limit - addition);
+    };
+    const auto surfaceIsOversized =
+        [&desc](const RtSmokePlanGeometryRange& range)
+        {
+            return
+                (desc.maxVerticesPerBucket > 0 &&
+                    range.vertexCount > desc.maxVerticesPerBucket) ||
+                (desc.maxIndexesPerBucket > 0 &&
+                    range.indexCount > desc.maxIndexesPerBucket) ||
+                (desc.maxTrianglesPerBucket > 0 &&
+                    range.triangleCount > desc.maxTrianglesPerBucket);
+        };
+    const auto buildBucketKey =
+        [&desc](int portalArea, uint32_t splitIndex)
+        {
+            uint64_t key = 1469598103934665603ull;
+            key = HashSmokePlanBytes(
+                key,
+                &desc.worldGeneration,
+                sizeof(desc.worldGeneration));
+            key = HashSmokePlanBytes(
+                key,
+                &portalArea,
+                sizeof(portalArea));
+            key = HashSmokePlanBytes(
+                key,
+                &splitIndex,
+                sizeof(splitIndex));
+            key = HashSmokePlanBytes(
+                key,
+                &desc.sourceGeneration,
+                sizeof(desc.sourceGeneration));
+            key = HashSmokePlanBytes(
+                key,
+                &desc.storageGeneration,
+                sizeof(desc.storageGeneration));
+            return key;
+        };
+
+    std::unordered_set<uint64_t> assignedSurfaceKeys;
+    assignedSurfaceKeys.reserve(static_cast<size_t>(desc.surfaceCount));
+    std::unordered_map<uint64_t, size_t> bucketKeyOwners;
+    bucketKeyOwners.reserve(static_cast<size_t>(desc.surfaceCount));
+    int currentArea = std::numeric_limits<int>::min();
+    uint32_t nextSplitIndex = 0;
+
+    for (int sortedIndex : sortedSurfaceIndices)
+    {
+        const RtSmokeStaticBucketAssignmentSurface& surface =
+            desc.surfaces[sortedIndex];
+        const RtSmokePlanGeometryRange& range = surface.range;
+        const bool rangeValid =
+            surface.valid &&
+            surface.surfaceKey != 0 &&
+            range.vertexOffset >= 0 &&
+            range.vertexCount > 0 &&
+            range.indexOffset >= 0 &&
+            range.indexCount > 0 &&
+            (range.indexCount % 3) == 0 &&
+            range.triangleOffset >= 0 &&
+            range.triangleCount > 0 &&
+            range.triangleCount == range.indexCount / 3;
+        if (!rangeValid)
+        {
+            ++plan.stats.invalidRangeSurfaces;
+            continue;
+        }
+        if (!assignedSurfaceKeys.insert(surface.surfaceKey).second)
+        {
+            ++plan.stats.duplicateSurfaces;
+            continue;
+        }
+
+        int portalArea = surface.portalArea;
+        if (portalArea < 0)
+        {
+            ++plan.stats.unassignedAreaSurfaces;
+            portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+        }
+        else if (portalArea >= desc.portalAreaCount)
+        {
+            ++plan.stats.invalidAreaSurfaces;
+            portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+        }
+
+        if (portalArea != currentArea)
+        {
+            currentArea = portalArea;
+            nextSplitIndex = 0;
+        }
+
+        const bool oversized = surfaceIsOversized(range);
+        if (oversized)
+        {
+            ++plan.stats.oversizedSurfaces;
+        }
+        bool needsNewBucket = plan.buckets.empty();
+        if (!needsNewBucket)
+        {
+            const RtSmokeStaticBucketAssignmentBucket& currentBucket =
+                plan.buckets.back();
+            needsNewBucket =
+                currentBucket.portalArea != portalArea ||
+                currentBucket.oversized ||
+                oversized ||
+                exceedsLimit(
+                    currentBucket.vertexCount,
+                    range.vertexCount,
+                    desc.maxVerticesPerBucket) ||
+                exceedsLimit(
+                    currentBucket.indexCount,
+                    range.indexCount,
+                    desc.maxIndexesPerBucket) ||
+                exceedsLimit(
+                    currentBucket.triangleCount,
+                    range.triangleCount,
+                    desc.maxTrianglesPerBucket);
+        }
+
+        if (needsNewBucket)
+        {
+            RtSmokeStaticBucketAssignmentBucket bucket;
+            bucket.worldGeneration = desc.worldGeneration;
+            bucket.sourceGeneration = desc.sourceGeneration;
+            bucket.storageGeneration = desc.storageGeneration;
+            bucket.portalArea = portalArea;
+            bucket.splitIndex = nextSplitIndex++;
+            bucket.bucketKey =
+                buildBucketKey(bucket.portalArea, bucket.splitIndex);
+            bucket.firstAssignment =
+                static_cast<uint32_t>(plan.assignments.size());
+            bucket.oversized = oversized;
+            if (bucket.splitIndex > 0)
+            {
+                ++plan.stats.splitBuckets;
+            }
+            if (bucket.portalArea == RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA)
+            {
+                ++plan.stats.fallbackBuckets;
+            }
+
+            const auto inserted = bucketKeyOwners.emplace(
+                bucket.bucketKey,
+                plan.buckets.size());
+            if (!inserted.second)
+            {
+                const RtSmokeStaticBucketAssignmentBucket& owner =
+                    plan.buckets[inserted.first->second];
+                if (owner.worldGeneration != bucket.worldGeneration ||
+                    owner.sourceGeneration != bucket.sourceGeneration ||
+                    owner.storageGeneration != bucket.storageGeneration ||
+                    owner.portalArea != bucket.portalArea ||
+                    owner.splitIndex != bucket.splitIndex)
+                {
+                    ++plan.stats.bucketKeyCollisions;
+                }
+            }
+            plan.buckets.push_back(bucket);
+        }
+
+        RtSmokeStaticBucketAssignmentBucket& bucket = plan.buckets.back();
+        RtSmokeStaticBucketAssignment assignment;
+        assignment.surfaceKey = surface.surfaceKey;
+        assignment.sourceRecordIndex = surface.sourceRecordIndex;
+        assignment.bucketIndex =
+            static_cast<uint32_t>(plan.buckets.size() - 1);
+        assignment.localPrimitiveOffset =
+            static_cast<uint32_t>(bucket.triangleCount);
+        assignment.sourceRange = range;
+        plan.assignments.push_back(assignment);
+
+        ++bucket.assignmentCount;
+        bucket.vertexCount += range.vertexCount;
+        bucket.indexCount += range.indexCount;
+        bucket.triangleCount += range.triangleCount;
+        bucket.active = bucket.active || surface.active;
+        ++plan.stats.assignedSurfaces;
+        plan.stats.assignedPrimitives += range.triangleCount;
+    }
+
+    plan.stats.buckets = static_cast<int>(plan.buckets.size());
+    for (const RtSmokeStaticBucketAssignmentBucket& bucket : plan.buckets)
+    {
+        if (bucket.active)
+        {
+            ++plan.stats.activeBuckets;
+        }
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &bucket.bucketKey,
+            sizeof(bucket.bucketKey));
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &bucket.portalArea,
+            sizeof(bucket.portalArea));
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &bucket.splitIndex,
+            sizeof(bucket.splitIndex));
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &bucket.assignmentCount,
+            sizeof(bucket.assignmentCount));
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &bucket.vertexCount,
+            sizeof(bucket.vertexCount));
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &bucket.indexCount,
+            sizeof(bucket.indexCount));
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &bucket.triangleCount,
+            sizeof(bucket.triangleCount));
+    }
+    for (const RtSmokeStaticBucketAssignment& assignment : plan.assignments)
+    {
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &assignment.surfaceKey,
+            sizeof(assignment.surfaceKey));
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &assignment.bucketIndex,
+            sizeof(assignment.bucketIndex));
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &assignment.localPrimitiveOffset,
+            sizeof(assignment.localPrimitiveOffset));
+        plan.planSignature = HashSmokePlanBytes(
+            plan.planSignature,
+            &assignment.sourceRange,
+            sizeof(assignment.sourceRange));
+    }
+    plan.exactCoverage =
+        plan.stats.assignedSurfaces == plan.stats.inputSurfaces &&
+        plan.stats.duplicateSurfaces == 0 &&
+        plan.stats.invalidRangeSurfaces == 0 &&
+        plan.stats.bucketKeyCollisions == 0;
     return plan;
 }
 

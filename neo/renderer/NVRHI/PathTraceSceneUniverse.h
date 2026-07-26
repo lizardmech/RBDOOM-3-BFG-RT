@@ -35,6 +35,7 @@ struct RtPathTraceSceneUniverseSurface
     int numIndexes = 0;
     int triangles = 0;
     idBounds bounds;
+    int portalArea = -1;
     int centerArea = -1;
     int offCenterArea = -1;
     int areas[8] = {};

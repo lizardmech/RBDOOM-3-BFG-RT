@@ -1760,6 +1760,148 @@ void TestAsyncStaticBucketWorkPlanning()
         "stale async static bucket work generation is rejected");
 }
 
+void TestStaticBucketAssignmentPlan()
+{
+    auto makeSurface = [](
+        uint64_t key,
+        uint32_t recordIndex,
+        int area,
+        int vertexOffset,
+        int vertexCount,
+        int indexOffset,
+        int indexCount,
+        int triangleOffset,
+        int triangleCount)
+    {
+        RtSmokeStaticBucketAssignmentSurface surface;
+        surface.surfaceKey = key;
+        surface.sourceRecordIndex = recordIndex;
+        surface.portalArea = area;
+        surface.range.vertexOffset = vertexOffset;
+        surface.range.vertexCount = vertexCount;
+        surface.range.indexOffset = indexOffset;
+        surface.range.indexCount = indexCount;
+        surface.range.triangleOffset = triangleOffset;
+        surface.range.triangleCount = triangleCount;
+        surface.valid = true;
+        surface.active = true;
+        return surface;
+    };
+
+    RtSmokeStaticBucketAssignmentSurface surfaces[3];
+    surfaces[0] = makeSurface(30, 2, 1, 8, 3, 12, 3, 4, 1);
+    surfaces[1] = makeSurface(10, 0, 0, 0, 4, 0, 6, 0, 2);
+    surfaces[2] = makeSurface(20, 1, 0, 4, 4, 6, 6, 2, 2);
+
+    RtSmokeStaticBucketAssignmentPlanDesc desc;
+    desc.surfaces = surfaces;
+    desc.surfaceCount = 3;
+    desc.worldGeneration = 11;
+    desc.sourceGeneration = 12;
+    desc.storageGeneration = 13;
+    desc.portalAreaCount = 2;
+    desc.maxVerticesPerBucket = 6;
+    desc.maxIndexesPerBucket = 9;
+    desc.maxTrianglesPerBucket = 3;
+    const RtSmokeStaticBucketAssignmentPlan plan =
+        BuildSmokeStaticBucketAssignmentPlan(desc);
+
+    Check(
+        plan.exactCoverage &&
+            plan.stats.inputSurfaces == 3 &&
+            plan.stats.assignedSurfaces == 3 &&
+            plan.stats.assignedPrimitives == 5 &&
+            plan.stats.buckets == 3 &&
+            plan.stats.splitBuckets == 1,
+        "static bucket assignment covers every primitive and splits deterministically");
+    Check(
+        plan.assignments.size() == 3 &&
+            plan.assignments[0].surfaceKey == 10 &&
+            plan.assignments[1].surfaceKey == 20 &&
+            plan.assignments[2].surfaceKey == 30 &&
+            plan.assignments[0].localPrimitiveOffset == 0 &&
+            plan.assignments[1].localPrimitiveOffset == 0 &&
+            plan.assignments[2].localPrimitiveOffset == 0,
+        "static bucket assignment order is area then stable surface key");
+    Check(
+        plan.buckets.size() == 3 &&
+            plan.buckets[0].portalArea == 0 &&
+            plan.buckets[0].splitIndex == 0 &&
+            plan.buckets[1].portalArea == 0 &&
+            plan.buckets[1].splitIndex == 1 &&
+            plan.buckets[2].portalArea == 1 &&
+            plan.buckets[2].splitIndex == 0,
+        "static bucket keys retain portal area and size split tuple");
+
+    RtSmokeStaticBucketAssignmentSurface permuted[3] = {
+        surfaces[2],
+        surfaces[0],
+        surfaces[1]
+    };
+    RtSmokeStaticBucketAssignmentPlanDesc permutedDesc = desc;
+    permutedDesc.surfaces = permuted;
+    const RtSmokeStaticBucketAssignmentPlan permutedPlan =
+        BuildSmokeStaticBucketAssignmentPlan(permutedDesc);
+    Check(
+        permutedPlan.planSignature == plan.planSignature &&
+            permutedPlan.buckets.size() == plan.buckets.size() &&
+            permutedPlan.assignments.size() == plan.assignments.size(),
+        "static bucket assignment is independent of producer enumeration order");
+
+    RtSmokeStaticBucketAssignmentPlanDesc changedGenerationDesc = desc;
+    changedGenerationDesc.storageGeneration = 14;
+    const RtSmokeStaticBucketAssignmentPlan changedGenerationPlan =
+        BuildSmokeStaticBucketAssignmentPlan(changedGenerationDesc);
+    Check(
+        changedGenerationPlan.planSignature != plan.planSignature &&
+            changedGenerationPlan.buckets[0].bucketKey !=
+                plan.buckets[0].bucketKey,
+        "static bucket identity includes storage generation");
+
+    RtSmokeStaticBucketAssignmentSurface exceptional[4];
+    exceptional[0] = makeSurface(40, 0, -1, 0, 3, 0, 3, 0, 1);
+    exceptional[1] = makeSurface(50, 1, 99, 3, 3, 3, 3, 1, 1);
+    exceptional[2] = makeSurface(60, 2, 1, 6, 12, 6, 12, 2, 4);
+    exceptional[3] = makeSurface(70, 3, 1, 18, 3, 18, 4, 6, 1);
+    RtSmokeStaticBucketAssignmentPlanDesc exceptionalDesc = desc;
+    exceptionalDesc.surfaces = exceptional;
+    exceptionalDesc.surfaceCount = 4;
+    const RtSmokeStaticBucketAssignmentPlan exceptionalPlan =
+        BuildSmokeStaticBucketAssignmentPlan(exceptionalDesc);
+    Check(
+        !exceptionalPlan.exactCoverage &&
+            exceptionalPlan.stats.assignedSurfaces == 3 &&
+            exceptionalPlan.stats.unassignedAreaSurfaces == 1 &&
+            exceptionalPlan.stats.invalidAreaSurfaces == 1 &&
+            exceptionalPlan.stats.invalidRangeSurfaces == 1 &&
+            exceptionalPlan.stats.oversizedSurfaces == 1 &&
+            exceptionalPlan.stats.fallbackBuckets == 1,
+        "static bucket assignment reports fallback, invalid, and oversized surfaces without silent drops");
+    Check(
+        exceptionalPlan.buckets.size() == 2 &&
+            exceptionalPlan.buckets[0].portalArea ==
+                RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA &&
+            exceptionalPlan.buckets[0].assignmentCount == 2 &&
+            exceptionalPlan.buckets[1].oversized &&
+            exceptionalPlan.buckets[1].assignmentCount == 1,
+        "static bucket assignment keeps invalid-area surfaces in an explicit fallback bucket");
+
+    RtSmokeStaticBucketAssignmentSurface duplicate[2] = {
+        makeSurface(80, 0, 0, 0, 3, 0, 3, 0, 1),
+        makeSurface(80, 1, 0, 3, 3, 3, 3, 1, 1)
+    };
+    RtSmokeStaticBucketAssignmentPlanDesc duplicateDesc = desc;
+    duplicateDesc.surfaces = duplicate;
+    duplicateDesc.surfaceCount = 2;
+    const RtSmokeStaticBucketAssignmentPlan duplicatePlan =
+        BuildSmokeStaticBucketAssignmentPlan(duplicateDesc);
+    Check(
+        !duplicatePlan.exactCoverage &&
+            duplicatePlan.stats.duplicateSurfaces == 1 &&
+            duplicatePlan.stats.assignedSurfaces == 1,
+        "static bucket assignment rejects duplicate surface ownership");
+}
+
 void TestStaticActiveSetPlan()
 {
     RtSmokeStaticTlasBucketObservation buckets[3];
@@ -3423,6 +3565,7 @@ int main(int argc, char** argv)
     TestStaticBucketWorkPlanTimedResult();
     TestStaticBucketWorkPlanInputToken();
     TestAsyncStaticBucketWorkPlanning();
+    TestStaticBucketAssignmentPlan();
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();

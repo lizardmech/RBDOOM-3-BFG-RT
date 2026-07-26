@@ -12,6 +12,22 @@ PRECONDITIONS
 - GEO-02 comm1 invariant is retained as a mandatory regression.
 - New static route is default off and compare-capable.
 
+IMPLEMENTATION STATUS
+---------------------
+Steps 1 and 2 are complete in shadow mode. Static world records now carry the
+authoritative `_areaN` owner assigned by AddWorldModelEntities. The CPU-only
+assignment planner uses world/area/split/source/storage identity, deterministic
+ordering, bounded splitting, explicit fallback ownership, and exact duplicate,
+unassigned, invalid-area, invalid-range, oversized, split, and key-collision
+counters.
+
+PathTraceCpuPlanningHarness passes the deterministic and failure cases.
+geometry_geo187_auto accepts 589/589 surfaces and 22,558/22,558 primitives
+across 14 active area buckets with every failure counter zero and a nonzero
+world/source/storage generation tuple. Production remains the monolithic static
+BLAS; `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
+See artifacts/GEO-10_entry_audit.txt.
+
 FILES TO AUDIT FIRST
 --------------------
   neo/renderer/NVRHI/PathTraceSceneUniverse.cpp/.h

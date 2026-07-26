@@ -733,6 +733,7 @@ struct RtSmokePersistentStaticSurfaceRecord
     uint64 key = 0;
     uint32_t surfaceClassId = 0;
     uint32_t materialId = 0;
+    int portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
     RtSmokeGeometryRangeRecord currentRange;
     RtSmokeGeometryRangeRecord previousRange;
     uint64 lastSeenFrame = 0;
@@ -752,6 +753,7 @@ struct RtSmokeStaticSurfaceAppend
     uint64 key = 0;
     uint32_t surfaceClassId = 0;
     uint32_t materialId = 0;
+    int portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
     int vertexOffset = 0;
     int indexOffset = 0;
     int triangleOffset = 0;
@@ -812,8 +814,15 @@ public:
     bool HasStaticSurface(uint64 key) const;
     RtSmokePersistentStaticSurfaceRecord* TouchStaticSurface(uint64 key);
     bool RefreshStaticSurfaceMaterial(uint64 key, uint32_t materialId);
+    bool RefreshStaticSurfacePortalArea(uint64 key, int portalArea);
     bool CanAppendStaticSurface(int vertexCount, int indexCount, int maxVertexCount, int maxIndexCount) const;
-    RtSmokeStaticSurfaceAppend BeginStaticSurfaceAppend(uint64 key, uint32_t surfaceClassId, uint32_t materialId, int vertexCount, int indexCount) const;
+    RtSmokeStaticSurfaceAppend BeginStaticSurfaceAppend(
+        uint64 key,
+        uint32_t surfaceClassId,
+        uint32_t materialId,
+        int vertexCount,
+        int indexCount,
+        int portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA) const;
     void CompleteStaticSurfaceAppend(const RtSmokeStaticSurfaceAppend& append, int emittedIndexCount);
 
     const RtSmokePersistentStaticSurfaceRecord* FindStaticSurface(uint64 key) const;
@@ -822,6 +831,13 @@ public:
         std::vector<RtSmokeStaticTlasBucketObservation>& buckets,
         bool hasStaticBlas,
         uint32_t activeReasonFlags) const;
+    RtSmokeStaticBucketAssignmentPlan BuildStaticBucketAssignmentPlan(
+        uint64 worldGeneration,
+        uint64 sourceGeneration,
+        int portalAreaCount,
+        int maxVerticesPerBucket,
+        int maxIndexesPerBucket,
+        int maxTrianglesPerBucket) const;
 
     std::vector<uint64>& StaticSurfaceKeys();
     const std::vector<uint64>& StaticSurfaceKeys() const;
