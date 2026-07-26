@@ -1082,6 +1082,28 @@ BuildSmokeStaticBucketPublicationEpochPlan(
     return plan;
 }
 
+RtSmokeStaticBucketCutoverPlan BuildSmokeStaticBucketCutoverPlan(
+    const RtSmokeStaticBucketCutoverInput& input)
+{
+    RtSmokeStaticBucketCutoverPlan plan;
+    plan.allResidentReady =
+        input.residentBuckets > 0 &&
+        input.readyBuckets == input.residentBuckets;
+    plan.publicationExact =
+        input.publicationValid &&
+        input.routeUploaded &&
+        input.activeBuckets > 0 &&
+        input.activeBuckets <= input.residentBuckets &&
+        input.tlasInstances == input.activeBuckets &&
+        input.routeRecords == input.residentBuckets;
+    plan.accepted =
+        input.requested &&
+        input.consumerSupported &&
+        plan.allResidentReady &&
+        plan.publicationExact;
+    return plan;
+}
+
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc)
 {

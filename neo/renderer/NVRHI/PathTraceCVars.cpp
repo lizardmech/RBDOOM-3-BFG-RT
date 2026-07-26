@@ -409,13 +409,13 @@ idCVar r_pathTracingGeometryStaticBucketBlas(
     "r_pathTracingGeometryStaticBucketBlas",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "GEO-10 shadow-only full-map bucket storage and per-bucket BLAS resource gate; does not insert bucket BLAS into the live TLAS" );
+    "GEO-10 standalone shadow full-map bucket storage and per-bucket BLAS resource gate; the live route cvar implies this resource gate" );
 
 idCVar r_pathTracingGeometryStaticBucketBlasBuild(
     "r_pathTracingGeometryStaticBucketBlasBuild",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Submit GEO-10 shadow-only per-bucket BLAS builds when the bucket resource gate is enabled" );
+    "Submit GEO-10 standalone shadow per-bucket BLAS builds when the bucket resource gate is enabled; the live route cvar implies build submission" );
 
 idCVar r_pathTracingGeometryStaticBucketBlasBuildLimit(
     "r_pathTracingGeometryStaticBucketBlasBuildLimit",
@@ -434,6 +434,12 @@ idCVar r_pathTracingGeometryStaticBucketPortalSteps(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Portal-neighbor depth used to derive the GEO-10 static bucket active-area mask" );
+
+idCVar r_pathTracingGeometryStaticBucketRoute(
+    "r_pathTracingGeometryStaticBucketRoute",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Default-off GEO-10 live route gate; atomically replaces monolithic static TLAS/emissive identity only for an exact current-frame bucket publication and supported clean-DI route" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

@@ -6017,10 +6017,13 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     OPTICK_EVENT("PT Static Bucket Frame Publication");
 
     RtSmokeStaticBucketFramePublication frame;
+    const bool liveRouteRequested =
+        r_pathTracingGeometryStaticBucketRoute.GetInteger() != 0;
     frame.auditRequested =
         r_pathTracingGeometryStaticBucketAudit.GetInteger() != 0;
     frame.blasEnabled =
-        r_pathTracingGeometryStaticBucketBlas.GetInteger() != 0;
+        r_pathTracingGeometryStaticBucketBlas.GetInteger() != 0 ||
+        liveRouteRequested;
     frame.enabled = frame.auditRequested || frame.blasEnabled;
     if (!frame.enabled)
     {
@@ -6139,7 +6142,8 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
 
     const bool submitBuilds =
         frame.blasEnabled &&
-        r_pathTracingGeometryStaticBucketBlasBuild.GetInteger() != 0;
+        (r_pathTracingGeometryStaticBucketBlasBuild.GetInteger() != 0 ||
+            liveRouteRequested);
     frame.gpuStats =
         staticBucketGeometryUniverse.UpdateStaticBucketBlasGpuScaffold(
             device,
@@ -8006,6 +8010,71 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 commandList,
                 m_smokeGeometryFrameIndex,
                 m_smokeSceneMapTimeStamp);
+    const bool staticBucketRouteRequested =
+        r_pathTracingGeometryStaticBucketRoute.GetInteger() != 0;
+    const bool staticBucketRouteConsumerSupported =
+        requestedDebugMode == 0 &&
+        r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
+        cleanRtxdiDiSceneBuildView >= 2 &&
+        cleanRtxdiDiSceneBuildView <= 25;
+    RtSmokeStaticBucketCutoverInput
+        staticBucketCutoverInput;
+    staticBucketCutoverInput.residentBuckets =
+        staticBucketFramePublication.
+            activePublication.residentBuckets;
+    staticBucketCutoverInput.activeBuckets =
+        staticBucketFramePublication.
+            activePublication.activeBuckets;
+    staticBucketCutoverInput.readyBuckets =
+        staticBucketFramePublication.gpuStats.readyBuckets;
+    staticBucketCutoverInput.tlasInstances =
+        static_cast<int>(
+            staticBucketFramePublication.
+                activePublication.tlasInstances.size());
+    staticBucketCutoverInput.routeRecords =
+        static_cast<int>(
+            staticBucketFramePublication.
+                activePublication.routeRecords.size());
+    staticBucketCutoverInput.requested =
+        staticBucketRouteRequested;
+    staticBucketCutoverInput.consumerSupported =
+        staticBucketRouteConsumerSupported;
+    staticBucketCutoverInput.publicationValid =
+        staticBucketFramePublication.activePublication.valid;
+    staticBucketCutoverInput.routeUploaded =
+        staticBucketFramePublication.shaderRouteUploaded;
+    const RtSmokeStaticBucketCutoverPlan
+        staticBucketCutoverPlan =
+            BuildSmokeStaticBucketCutoverPlan(
+                staticBucketCutoverInput);
+    const bool staticBucketRouteAccepted =
+        staticBucketCutoverPlan.accepted;
+    if (staticBucketRouteRequested &&
+        (staticBucketFramePublication.auditRequested ||
+            (m_smokeGeometryFrameIndex % 120ull) == 1ull))
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO10 static bucket cutover requested/accepted=%d/%d consumerSupported=%d cleanView=%d sentinelRejected=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu traversal=%s\n",
+            1,
+            staticBucketRouteAccepted ? 1 : 0,
+            staticBucketRouteConsumerSupported ? 1 : 0,
+            cleanRtxdiDiSceneBuildView,
+            cleanRtxdiDiSceneBuildView == 1 ? 1 : 0,
+            staticBucketCutoverPlan.allResidentReady ? 1 : 0,
+            staticBucketCutoverPlan.publicationExact ? 1 : 0,
+            staticBucketFramePublication.
+                activePublication.activeBuckets,
+            staticBucketFramePublication.
+                activePublication.residentBuckets,
+            staticBucketFramePublication.gpuStats.readyBuckets,
+            staticBucketFramePublication.
+                activePublication.tlasInstances.size(),
+            staticBucketFramePublication.
+                activePublication.routeRecords.size(),
+            staticBucketRouteAccepted
+                ? "bucket"
+                : "monolithic");
+    }
 
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
     const int emissiveStartMs = Sys_Milliseconds();
@@ -8044,6 +8113,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticIndexCache,
             staticTriangleClassCache,
             materialTable.staticMaterialIndexes,
+            staticBucketRouteAccepted
+                ? &staticBucketFramePublication.geometryPack
+                : nullptr,
+            staticBucketRouteAccepted
+                ? &staticBucketFramePublication.materialIndexes
+                : nullptr,
+            staticBucketRouteAccepted
+                ? &staticBucketFramePublication.activePublication
+                : nullptr,
             dynamicVertexData,
             dynamicIndexData,
             dynamicTriangleClassData,
@@ -8055,7 +8133,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
             emissiveInventoryStats);
-        if (staticBucketFramePublication.auditRequested)
+        if (staticBucketFramePublication.auditRequested &&
+            !staticBucketRouteAccepted)
         {
             RtSmokeEmissiveInventoryStats
                 staticBucketEmissiveStats;
@@ -8124,7 +8203,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 emissiveTriangles,
                 emissiveInventoryStats);
         }
-        if (r_pathTracingWorldStaticEmissives.GetInteger() != 0)
+        if (!staticBucketRouteAccepted &&
+            r_pathTracingWorldStaticEmissives.GetInteger() != 0)
         {
             const int fullLevelStaticSupplementCap = idMath::ClampInt(0, maxEmissiveRecords, r_pathTracingWorldStaticEmissiveMaxTriangles.GetInteger());
             const int fullLevelStaticSupplementLimit = Min(maxEmissiveRecords, static_cast<int>(emissiveTriangles.size()) + fullLevelStaticSupplementCap);
@@ -11941,6 +12021,28 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSkinnedEmissivePublishBindingSet = nullptr;
     }
 
+    std::vector<nvrhi::rt::InstanceDesc>
+        liveExtraTlasInstances;
+    liveExtraTlasInstances.reserve(
+        rigidTlasRouteInstances.size() +
+        (staticBucketRouteAccepted
+            ? staticBucketFramePublication.
+                activePublication.tlasInstances.size()
+            : 0u));
+    if (staticBucketRouteAccepted)
+    {
+        liveExtraTlasInstances.insert(
+            liveExtraTlasInstances.end(),
+            staticBucketFramePublication.
+                activePublication.tlasInstances.begin(),
+            staticBucketFramePublication.
+                activePublication.tlasInstances.end());
+    }
+    liveExtraTlasInstances.insert(
+        liveExtraTlasInstances.end(),
+        rigidTlasRouteInstances.begin(),
+        rigidTlasRouteInstances.end());
+
     accelSubmitDesc.commandList = commandList;
     accelSubmitDesc.tlas = m_smokeTlas;
     accelSubmitDesc.staticBlas = smokeStaticBlas;
@@ -11952,13 +12054,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             ? dynamicBlasGpuTimer->query
             : nullptr;
     accelSubmitDesc.extraTlasInstances =
-        !rigidTlasRouteInstances.empty()
-            ? &rigidTlasRouteInstances
+        !liveExtraTlasInstances.empty()
+            ? &liveExtraTlasInstances
             : nullptr;
     accelSubmitDesc.hasStaticBlas = hasStaticBlas;
     accelSubmitDesc.hasDynamicBlas = hasDynamicBlas;
     accelSubmitDesc.staticBlasCacheHit = staticBlasCacheHit;
-    accelSubmitDesc.includeStaticBlasInTlas = true;
+    accelSubmitDesc.includeStaticBlasInTlas =
+        !staticBucketRouteAccepted;
     RtSmokeAccelSubmitTiming accelSubmitTiming;
     bool accelSubmitSucceeded = false;
     if (optickGpuMarkers)

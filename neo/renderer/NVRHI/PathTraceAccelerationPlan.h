@@ -350,6 +350,26 @@ struct RtSmokeStaticBucketPublicationEpochPlan
     bool mixedEpochRejected = false;
 };
 
+struct RtSmokeStaticBucketCutoverInput
+{
+    int residentBuckets = 0;
+    int activeBuckets = 0;
+    int readyBuckets = 0;
+    int tlasInstances = 0;
+    int routeRecords = 0;
+    bool requested = false;
+    bool consumerSupported = false;
+    bool publicationValid = false;
+    bool routeUploaded = false;
+};
+
+struct RtSmokeStaticBucketCutoverPlan
+{
+    bool allResidentReady = false;
+    bool publicationExact = false;
+    bool accepted = false;
+};
+
 struct RtSmokeStaticTlasBucketObservation
 {
     uint64_t bucketKey = 0;
@@ -1017,8 +1037,10 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
     const RtSmokeStaticBucketGeometryPackDesc& desc);
 
 RtSmokeStaticBucketPublicationEpochPlan
-BuildSmokeStaticBucketPublicationEpochPlan(
-    const RtSmokeStaticBucketPublicationEpochInput& input);
+    BuildSmokeStaticBucketPublicationEpochPlan(
+        const RtSmokeStaticBucketPublicationEpochInput& input);
+RtSmokeStaticBucketCutoverPlan BuildSmokeStaticBucketCutoverPlan(
+    const RtSmokeStaticBucketCutoverInput& input);
 
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc);

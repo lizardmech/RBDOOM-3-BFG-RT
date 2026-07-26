@@ -502,16 +502,7 @@ REMAINING LIVE-CUTOVER BLOCKERS
 ------------------------------
 No bucket instance enters the production TLAS yet. Before that can happen:
 
-  1. Decide the all-views sentinel contract: either add a compact bucket hit
-     library or make its lack of bucket capability an explicit cutover-gate
-     rejection. Do not silently route bucket IDs through legacy rigid logic.
-  2. Promote the checked shadow static-emissive inventory from monolithic
-     instance 0 to stable resident-bucket InstanceID plus bucket-local
-     primitive in the same atomic cutover as traversal.
-  3. Add a default-off one-cvar rollback gate. Only an exact current-frame
-     publication with every consumer capability may set
-     includeStaticBlasInTlas=false and append active bucket descriptors.
-  4. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
+  1. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
      change, and comm1 area-41 comparisons before enabling coalescing work.
 
 PRIMARY PRODUCER CHECKED CONSUMER
@@ -822,3 +813,53 @@ rebuilt harness prints and passes:
 Production emissive records remain instance 0 because production traversal is
 still monolithic. The cutover gate must select bucket traversal and this
 bucket-local emissive inventory atomically.
+
+DEFAULT-OFF ATOMIC CUTOVER CHECKPOINT
+-------------------------------------
+`r_pathTracingGeometryStaticBucketRoute` defaults to 0. When requested it
+implies bucket resource ownership and bounded BLAS build submission, but the
+live route remains monolithic until `BuildSmokeStaticBucketCutoverPlan`
+accepts all of:
+
+  requested                         true
+  supported consumer route          debug mode 0, clean DI enabled,
+                                    clean-DI view 2 through 25
+  every resident bucket ready       ready count equals resident count
+  active publication                valid and route upload successful
+  TLAS descriptor count             active bucket count
+  route record count                resident bucket count
+
+Clean-DI view 1 is explicitly rejected because the all-views sentinel is the
+known DXC ID-ceiling exception without bucket hit support. Views 18 through 23
+resolve their geometry work through the bucket-capable view-16 path; their
+sentinel mosaic is a post-process over already produced guide textures.
+
+One accepted boolean owns both sides of the live contract:
+
+  acceleration submit:
+    retain/build the monolithic BLAS for rollback;
+    omit monolithic TLAS instance 0;
+    append only active bucket TLAS descriptors before rigid instances.
+
+  emissive inventory:
+    omit monolithic static geometry and full-level instance-0 supplement;
+    emit active bucket records first, then unchanged dynamic/rigid/skinned
+    records;
+    preserve stable resident InstanceID plus bucket-local primitive identity.
+
+If the request is off or any gate fails, both traversal and static emissives
+remain monolithic for that frame. There is no mixed live state.
+
+The rebuilt CPU harness passes:
+
+  exact fully resident publication accepted;
+  bucket-incapable consumer rejected;
+  partial resident readiness rejected;
+  incomplete resident route table rejected;
+  default-off rollback remains monolithic.
+
+The Vulkan release build succeeds and reports all SPIR-V up to date. A bounded
+automated launch was rejected as runtime evidence: the process completed common
+initialization but created no top-level window, could not receive the required
+press-start/loadgame input, and never loaded a map. It was terminated without a
+device error. Live route acceptance therefore remains open.

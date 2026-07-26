@@ -149,6 +149,22 @@ one-shot GEO-10 audit reports monolithic/bucket counts plus zero-identity and
 collision counts. Production emissive publication remains monolithic until the
 same default-off gate switches traversal and emissive identity atomically.
 
+`r_pathTracingGeometryStaticBucketRoute 1` is now that default-off gate. A
+request implies bucket resource ownership and bounded BLAS build submission,
+but continues rendering the monolithic route until every resident bucket is
+ready. Cutover additionally requires an exact current-frame publication,
+complete resident route table, successful route upload, debug mode 0, clean DI
+enabled, and clean-DI view 2 through 25. View 1 explicitly fails the gate
+because the all-views sentinel could not compile bucket hit support. Acceptance
+uses the same boolean to omit monolithic TLAS instance 0, append active bucket
+instances, and replace monolithic static-emissive records with bucket-local
+records. Setting the cvar back to 0 restores both monolithic contracts.
+
+The CPU harness accepts the exact fully resident route and rejects unsupported
+consumer, partial residency, incomplete route table, and default-off cases.
+The Vulkan release build passes with all SPIR-V up to date. Live runtime proof
+is still required before the route can be considered accepted.
+
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,
 and `r_pathTracingGeometryStaticBucketBlasBuild 1` submits bounded shadow

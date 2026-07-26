@@ -619,7 +619,14 @@ route table. The CPU harness accepts independent active-TLAS/resident-route
 counts across an active-subset change. A shadow emissive builder now emits
 active packed triangles with that stable InstanceID and bucket-local primitive
 identity, but production emissives remain monolithic until the traversal
-cutover gate switches both contracts together.
+cutover gate switches both contracts together. That default-off gate is now
+implemented: it implies resident bucket build work, waits for every resident
+BLAS, requires an exact uploaded current-frame publication, and accepts only
+clean-DI views 2 through 25 in debug mode 0. View 1 is explicitly rejected as
+the bucket-incapable sentinel. One acceptance boolean replaces TLAS instance 0
+with active bucket descriptors and selects bucket-local static emissives in the
+same frame. CPU build and failure-matrix tests pass; runtime acceptance remains
+open.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

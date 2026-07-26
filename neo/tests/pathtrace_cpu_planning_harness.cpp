@@ -1390,6 +1390,59 @@ void TestStaticBucketPublicationEpochPlan()
         "static bucket publication rejects missing epochs without misreporting a mixed epoch");
 }
 
+void TestStaticBucketCutoverPlan()
+{
+    RtSmokeStaticBucketCutoverInput input;
+    input.residentBuckets = 8;
+    input.activeBuckets = 3;
+    input.readyBuckets = 8;
+    input.tlasInstances = 3;
+    input.routeRecords = 8;
+    input.requested = true;
+    input.consumerSupported = true;
+    input.publicationValid = true;
+    input.routeUploaded = true;
+    const RtSmokeStaticBucketCutoverPlan exactPlan =
+        BuildSmokeStaticBucketCutoverPlan(input);
+    Check(exactPlan.allResidentReady &&
+        exactPlan.publicationExact &&
+        exactPlan.accepted,
+        "static bucket cutover accepts one exact fully resident publication");
+
+    input.consumerSupported = false;
+    const RtSmokeStaticBucketCutoverPlan sentinelPlan =
+        BuildSmokeStaticBucketCutoverPlan(input);
+    Check(!sentinelPlan.accepted &&
+        sentinelPlan.allResidentReady &&
+        sentinelPlan.publicationExact,
+        "static bucket cutover rejects a bucket-incapable consumer");
+
+    input.consumerSupported = true;
+    input.readyBuckets = 3;
+    const RtSmokeStaticBucketCutoverPlan partialResidencyPlan =
+        BuildSmokeStaticBucketCutoverPlan(input);
+    Check(!partialResidencyPlan.accepted &&
+        !partialResidencyPlan.allResidentReady,
+        "static bucket cutover waits for every resident bucket");
+
+    input.readyBuckets = 8;
+    input.routeRecords = 7;
+    const RtSmokeStaticBucketCutoverPlan incompleteRoutePlan =
+        BuildSmokeStaticBucketCutoverPlan(input);
+    Check(!incompleteRoutePlan.accepted &&
+        !incompleteRoutePlan.publicationExact,
+        "static bucket cutover rejects an incomplete resident route table");
+
+    input.routeRecords = 8;
+    input.requested = false;
+    const RtSmokeStaticBucketCutoverPlan rollbackPlan =
+        BuildSmokeStaticBucketCutoverPlan(input);
+    Check(!rollbackPlan.accepted &&
+        rollbackPlan.allResidentReady &&
+        rollbackPlan.publicationExact,
+        "static bucket cutover keeps the default-off rollback monolithic");
+}
+
 void TestStaticBucketRigidRouteNamespaceComposition()
 {
     RtSmokeStaticTlasBucketObservation buckets[2];
@@ -3761,6 +3814,7 @@ int main(int argc, char** argv)
     TestStaticBucketBlasBuildObservationPlan();
     TestStaticBucketWorkPlan();
     TestStaticBucketPublicationEpochPlan();
+    TestStaticBucketCutoverPlan();
     TestStaticBucketRigidRouteNamespaceComposition();
     TestStaticBucketWorkPlanSnapshot();
     TestStaticBucketWorkPlanTimedResult();
