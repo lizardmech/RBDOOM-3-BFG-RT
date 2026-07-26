@@ -8008,11 +8008,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_smokeSceneMapTimeStamp);
     const bool staticBucketRouteRequested =
         r_pathTracingGeometryStaticBucketRoute.GetInteger() != 0;
-    const bool staticBucketRouteConsumerSupported =
-        requestedDebugMode == 0 &&
-        r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
-        cleanRtxdiDiSceneBuildView >= 2 &&
-        cleanRtxdiDiSceneBuildView <= 25;
+    // The first all-consumer Vulkan shader integration produced repeatable
+    // device-loss/TDR failures, including with every GEO-10 runtime cvar at
+    // its default-off value. Keep bucket preparation available for offline
+    // validation, but fail the atomic cutover closed until the shader graph is
+    // reintroduced one pipeline at a time.
+    const bool staticBucketRouteConsumerSupported = false;
     RtSmokeStaticBucketCutoverInput
         staticBucketCutoverInput;
     staticBucketCutoverInput.residentBuckets =

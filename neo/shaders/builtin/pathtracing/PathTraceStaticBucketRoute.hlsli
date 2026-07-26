@@ -4,6 +4,14 @@
 // GEO-10 checked static-bucket route ABI. The route remains shadow-only until
 // the TLAS and every shared-TLAS hit consumer switch under the live rollback
 // gate. Separate pipelines may override the six register macros before include.
+//
+// The first integrated consumer set caused repeatable Vulkan device-loss/TDR
+// failures before a fresh geometry log could open. Keep the source contract in
+// place for offline validation, but make the route compile-time unreachable so
+// DXC can remove its buffer accesses from every production RT library.
+#ifndef RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+#define RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS 0
+#endif
 #ifndef RB_PT_STATIC_BUCKET_ROUTES_REGISTER
 #define RB_PT_STATIC_BUCKET_ROUTES_REGISTER t83
 #endif
@@ -66,6 +74,9 @@ bool PathTraceStaticBucketInstanceInPublishedRange(
     out uint routeIndex)
 {
     routeIndex = 0u;
+#if !RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+    return false;
+#else
     if (routeInfo.x !=
             PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE ||
         routeInfo.y == 0u ||
@@ -77,6 +88,7 @@ bool PathTraceStaticBucketInstanceInPublishedRange(
 
     routeIndex = instanceId - routeInfo.x;
     return routeIndex < routeInfo.y;
+#endif
 }
 
 bool PathTraceIsStaticBucketRouteInstance(

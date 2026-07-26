@@ -905,3 +905,50 @@ Containment verification:
   shader source / blob changes             none / none
   deployed executable bytes                15,917,568
   deployed executable SHA-256              9EB082FE203AABCF5C3AC21FAD98E1BE8252570ABE77CE80A13DF3DB33B628F5
+
+REPEATED DEFAULT-OFF TDR / SHADER-CONSUMER QUARANTINE
+-----------------------------------------------------
+Three follow-up builds still produced the same device-loss/reset behavior.
+The last two geometry logs ended after frame-3 skinned BLAS work, but removing
+new skinned descriptors from the TLAS and then default-disabling the comparison
+BLAS did not prevent the next reset. The final attempt opened no new geometry
+log. The deployed executable hash matched the intended build, and
+D3BFGConfig.cfg contained no archived GEO-08/GEO-10 override.
+
+The strongest surviving boundary is therefore not a runtime-enabled bucket or
+skinned route. GEO-10 added 1,046 shader-source lines across primary, spatial,
+clean-DI, and Remix-GI consumers. Those libraries are compiled and their Vulkan
+pipelines may be created or warmed even when the route cvar is zero. This is
+the only new integration class that remains active before a fresh geometry log
+can open.
+
+Containment is now stronger than a default-off cvar:
+
+  RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS     0
+  staticBucketRouteConsumerSupported              false
+
+The shared route predicate returns false at compile time so DXC can remove the
+bucket-buffer accesses from all production RT libraries. CPU cutover admission
+is also hard-rejected, so manually setting the route cvar cannot remove the
+monolithic static BLAS while shaders are quarantined. CPU assignment,
+publication, bucket storage, and explicit shadow-build diagnostics remain
+available.
+
+Do not promote or runtime-test bucket traversal from this checkpoint. First
+establish a stable default launch. Then reintroduce shader consumers one
+pipeline at a time, rebuilding and validating only the affected Vulkan SPIR-V
+at each step. Primary visibility is the first required consumer; spatial DI,
+clean-DI hit adapters, Remix GI, and motion export remain separate admission
+rungs.
+
+Quarantine verification:
+
+  affected Vulkan RT blobs invalidated/rebuilt    44 / 44
+  blob mtimes newer than shared-header edit       44 / 44
+  spirv-val --target-env vulkan1.2                 44 passed, 0 failed
+  disassembled clean-DI bucket resources          0 (constant ABI field only)
+  PathTraceCpuPlanningHarness                     passed
+  second release build                            all SPIR-V up to date
+  deployed SPIR-V source/hash mismatches           0 / 44
+  built/deployed executable hash match             yes
+  deployed executable SHA-256                     F30B12E30771EED06CB2FA3181254C18B62D0A4AA3302F6DEA03F98DC9143FCB
