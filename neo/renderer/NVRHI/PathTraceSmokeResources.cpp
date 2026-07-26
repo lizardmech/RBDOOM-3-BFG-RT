@@ -2383,6 +2383,11 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedHitRouteUploadShadow = PtSkinnedHitRouteBuild();
     m_smokeSkinnedCaptureSplitShadowMaxLogged = 0;
     m_smokeSkinnedCaptureSplitTlasMaxLogged = 0;
+    m_smokeSkinnedCaptureLastShadowAccepted = -1;
+    m_smokeSkinnedCaptureShadowTransitionsLogged = 0;
+    m_smokeSkinnedCaptureRouteSetEvictions = 0;
+    m_smokeSkinnedCapturePreCaptureInvalidations = 0;
+    m_smokeSkinnedCaptureLateRevocations = 0;
     m_skinnedHitRouteReadbackBuffer = nullptr;
     m_skinnedHitRouteReadbackQueued = false;
     m_skinnedHitRouteReadbackCompleted = false;

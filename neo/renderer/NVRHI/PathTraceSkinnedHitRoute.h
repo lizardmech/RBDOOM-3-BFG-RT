@@ -198,6 +198,7 @@ enum class PtSkinnedCaptureAdmissionResult : std::uint32_t
     OmitCpuCapture = 0,
     GateDisabled,
     MissingPriorRoute,
+    PriorRouteNotLive,
     CurrentInstanceMismatch,
     CurrentSourceMismatch,
     JointDataNotReady
@@ -214,6 +215,7 @@ struct PtSkinnedCaptureAdmissionInput
     std::uint32_t currentVertexCount = 0;
     std::uint32_t currentIndexCount = 0;
     bool jointDataReady = false;
+    bool priorRouteLive = false;
     const PtSkinnedHitRouteRecord* priorRoute = nullptr;
 };
 

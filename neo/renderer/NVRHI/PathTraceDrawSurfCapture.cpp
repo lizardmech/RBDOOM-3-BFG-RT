@@ -1266,6 +1266,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                         provisional.rtCpuSkinned &&
                         provisional.jointCount > 0 &&
                         provisional.jointSource != 0;
+                    admission.priorRouteLive =
+                        priorRoute != nullptr;
                     admission.priorRoute = priorRoute;
                     const PtSkinnedCaptureAdmissionResult
                         admissionResult =
@@ -1339,6 +1341,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                             break;
                         case PtSkinnedCaptureAdmissionResult::
                             MissingPriorRoute:
+                        case PtSkinnedCaptureAdmissionResult::
+                            PriorRouteNotLive:
                             ++captureTiming.
                                 skinnedCaptureFallbackPriorRoute;
                             break;

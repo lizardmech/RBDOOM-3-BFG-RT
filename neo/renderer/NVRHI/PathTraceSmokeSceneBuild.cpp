@@ -3290,6 +3290,161 @@ bool SmokeSkinnedTlasRouteResourceContractMatches(
         resource.indexBuffer == indexBuffer;
 }
 
+enum class SmokeSkinnedCaptureLiveResult
+{
+    Live = 0,
+    MissingBuffer,
+    MissingState,
+    StateNotRoutable,
+    MissingResource,
+    ResourceContractMismatch,
+    MissingBlas
+};
+
+const char* SmokeSkinnedCaptureLiveResultName(
+    SmokeSkinnedCaptureLiveResult result)
+{
+    switch (result)
+    {
+        case SmokeSkinnedCaptureLiveResult::Live:
+            return "live";
+        case SmokeSkinnedCaptureLiveResult::MissingBuffer:
+            return "missing-buffer";
+        case SmokeSkinnedCaptureLiveResult::MissingState:
+            return "missing-state";
+        case SmokeSkinnedCaptureLiveResult::StateNotRoutable:
+            return "state-not-routable";
+        case SmokeSkinnedCaptureLiveResult::MissingResource:
+            return "missing-resource";
+        case SmokeSkinnedCaptureLiveResult::
+            ResourceContractMismatch:
+            return "resource-contract-mismatch";
+        case SmokeSkinnedCaptureLiveResult::MissingBlas:
+            return "missing-blas";
+        default:
+            return "unknown";
+    }
+}
+
+SmokeSkinnedCaptureLiveResult
+ValidateSmokeSkinnedCaptureAcceptedBuildLive(
+    const PtSkinnedHitRouteBuild& build,
+    const PtSkinnedBlasStateTable& stateTable,
+    const std::vector<RtSmokeSkinnedComparisonBlasResource>&
+        resources,
+    nvrhi::BufferHandle vertexBuffer,
+    nvrhi::BufferHandle indexBuffer)
+{
+    if (!vertexBuffer || !indexBuffer)
+    {
+        return SmokeSkinnedCaptureLiveResult::MissingBuffer;
+    }
+    for (const PtSkinnedHitRouteRecord& route :
+        build.records)
+    {
+        const PtSkinnedBlasRecord* state =
+            stateTable.Find(route.instanceKey);
+        if (state == nullptr)
+        {
+            return SmokeSkinnedCaptureLiveResult::MissingState;
+        }
+        if (state->state != PtSkinnedBlasState::Ready &&
+            state->state != PtSkinnedBlasState::UpdatePending &&
+            state->state != PtSkinnedBlasState::RebuildPending)
+        {
+            return
+                SmokeSkinnedCaptureLiveResult::StateNotRoutable;
+        }
+        const RtSmokeSkinnedComparisonBlasResource* resource =
+            nullptr;
+        for (const RtSmokeSkinnedComparisonBlasResource& candidate :
+            resources)
+        {
+            if (candidate.instanceKey == route.instanceKey)
+            {
+                resource = &candidate;
+                break;
+            }
+        }
+        if (resource == nullptr)
+        {
+            return SmokeSkinnedCaptureLiveResult::MissingResource;
+        }
+        if (!SmokeSkinnedTlasRouteResourceContractMatches(
+                route,
+                *resource,
+                *state,
+                vertexBuffer,
+                indexBuffer))
+        {
+            return SmokeSkinnedCaptureLiveResult::
+                ResourceContractMismatch;
+        }
+        if (!resource->blas)
+        {
+            return SmokeSkinnedCaptureLiveResult::MissingBlas;
+        }
+    }
+    return SmokeSkinnedCaptureLiveResult::Live;
+}
+
+bool SmokeSkinnedHitRouteBuildUsesSourceOnlyMetadata(
+    const PtSkinnedHitRouteBuild& build)
+{
+    return
+        !build.records.empty() &&
+        std::all_of(
+            build.records.begin(),
+            build.records.end(),
+            [](const PtSkinnedHitRouteRecord& route)
+            {
+                return (route.flags &
+                    PT_SKINNED_HIT_ROUTE_HAS_SOURCE_ONLY_PRIMITIVES) !=
+                    0u;
+            });
+}
+
+bool SmokeSkinnedHitRoutesMatchOmittedCapture(
+    const std::vector<PtSkinnedHitRouteRecord>& routes,
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
+    int omittedSurfaceCount)
+{
+    if (omittedSurfaceCount <= 0)
+    {
+        return true;
+    }
+    if (routes.size() !=
+        static_cast<size_t>(omittedSurfaceCount))
+    {
+        return false;
+    }
+    std::vector<bool> matched(records.size(), false);
+    for (const PtSkinnedHitRouteRecord& route : routes)
+    {
+        bool found = false;
+        for (size_t recordIndex = 0;
+            recordIndex < records.size();
+            ++recordIndex)
+        {
+            const RtSmokeSkinnedSurfaceRecord& record =
+                records[recordIndex];
+            if (!matched[recordIndex] &&
+                record.cpuCaptureOmitted &&
+                record.canonicalInstance == route.instanceKey)
+            {
+                matched[recordIndex] = true;
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool SmokeSkinnedComparisonStateRetirementQueued(
     const std::deque<
         RtRetiredSmokeSkinnedComparisonBlasPackage>& packages,
@@ -5849,6 +6004,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<RtSmokeSkinnedSurfaceRecord> currentSkinnedSurfaceRecords;
     uint64 skinnedCaptureViewSignature = 0;
     PtSkinnedHitRouteBuild skinnedHitRouteUploadBuild;
+    uint64 skinnedHitRouteUploadBuildSignature = 0;
     const std::vector<PtSkinnedHitRouteRecord>*
         skinnedCaptureAdmissionRoutes = nullptr;
     RtSmokeSkinnedGpuScaffoldBuild skinnedGpuScaffold;
@@ -6019,12 +6175,113 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 }
                 routeSet.lastUsedFrame =
                     m_smokeGeometryFrameIndex;
-                skinnedHitRouteUploadBuild =
-                    routeSet.pendingBuild;
-                if (!routeSet.acceptedBuild.records.empty())
+                const bool acceptedSourceOnly =
+                    SmokeSkinnedHitRouteBuildUsesSourceOnlyMetadata(
+                        routeSet.acceptedBuild);
+                const bool pendingSourceOnly =
+                    SmokeSkinnedHitRouteBuildUsesSourceOnlyMetadata(
+                        routeSet.pendingBuild);
+                // A full-CPU comparison frame necessarily regenerates a
+                // legacy-mapped shadow. Once source-only metadata has passed
+                // TLAS admission, do not downgrade to that bootstrap artifact.
+                const bool retainAcceptedSourceOnly =
+                    acceptedSourceOnly &&
+                    !pendingSourceOnly;
+                if (retainAcceptedSourceOnly)
                 {
-                    skinnedCaptureAdmissionRoutes =
-                        &routeSet.acceptedBuild.records;
+                    skinnedHitRouteUploadBuild =
+                        routeSet.acceptedBuild;
+                    skinnedHitRouteUploadBuildSignature =
+                        routeSet.acceptedBuildSignature;
+                }
+                else
+                {
+                    skinnedHitRouteUploadBuild =
+                        routeSet.pendingBuild;
+                    skinnedHitRouteUploadBuildSignature =
+                        routeSet.pendingBuildSignature;
+                }
+                // Source-only material indexes and other frame-local metadata
+                // can legitimately rebuild while the exact skinned set and
+                // its live AS resources stay unchanged. That current
+                // source-only build is validated again by upload/TLAS
+                // planning below; it does not require a full CPU bootstrap
+                // frame merely because its byte signature changed.
+                const bool acceptedAdmissionCompatible =
+                    acceptedSourceOnly &&
+                    pendingSourceOnly
+                    ? true
+                    : skinnedHitRouteUploadBuildSignature != 0 &&
+                        skinnedHitRouteUploadBuildSignature ==
+                            routeSet.acceptedBuildSignature;
+                if (!routeSet.acceptedBuild.records.empty() &&
+                    acceptedAdmissionCompatible)
+                {
+                    const SmokeSkinnedCaptureLiveResult
+                        liveResult =
+                            ValidateSmokeSkinnedCaptureAcceptedBuildLive(
+                                routeSet.acceptedBuild,
+                                m_smokeSkinnedBlasStateTable,
+                                m_smokeSkinnedComparisonBlases,
+                                m_smokeSkinnedCurrentOutputVertexBuffer,
+                                m_smokeGeometryUniverse.
+                                    CanonicalSourceIndexBuffer());
+                    if (liveResult ==
+                        SmokeSkinnedCaptureLiveResult::Live)
+                    {
+                        skinnedCaptureAdmissionRoutes =
+                            &routeSet.acceptedBuild.records;
+                    }
+                    else
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO08 capture route-set invalidated before capture frame=%llu signature=%llu records=%zu reason=%s activeBlas=%zu retiredBlas=%zu outputGeneration=%llu action=cpu-fallback\n",
+                            static_cast<unsigned long long>(
+                                m_smokeGeometryFrameIndex),
+                            static_cast<unsigned long long>(
+                                routeSet.signature),
+                            routeSet.acceptedBuild.records.size(),
+                            SmokeSkinnedCaptureLiveResultName(
+                                liveResult),
+                            m_smokeSkinnedComparisonBlases.size(),
+                            m_retiredSmokeSkinnedComparisonBlases.size(),
+                            static_cast<unsigned long long>(
+                                m_smokeSkinnedOutputBufferGeneration));
+                        routeSet.acceptedBuild =
+                            PtSkinnedHitRouteBuild();
+                        routeSet.acceptedBuildSignature = 0;
+                        skinnedHitRouteUploadBuild =
+                            PtSkinnedHitRouteBuild();
+                        skinnedHitRouteUploadBuildSignature = 0;
+                        ++m_smokeSkinnedCapturePreCaptureInvalidations;
+                    }
+                }
+                else if (!routeSet.acceptedBuild.records.empty())
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO08 capture route-set comparison upgrade frame=%llu signature=%llu pending/accepted=%zu/%zu buildSignature(pending/accepted)=%llu/%llu view(id/sub/mirror/xray/gui/eye/viewport)=%d/%d/%d/%d/%d/%d/%d,%d,%d,%d action=full-cpu-until-tlas-accepted\n",
+                        static_cast<unsigned long long>(
+                            m_smokeGeometryFrameIndex),
+                        static_cast<unsigned long long>(
+                            routeSet.signature),
+                        skinnedHitRouteUploadBuild.records.size(),
+                        routeSet.acceptedBuild.records.size(),
+                        static_cast<unsigned long long>(
+                            skinnedHitRouteUploadBuildSignature),
+                        static_cast<unsigned long long>(
+                            routeSet.acceptedBuildSignature),
+                        viewDef ? viewDef->renderView.viewID : -1,
+                        viewDef && viewDef->isSubview ? 1 : 0,
+                        viewDef && viewDef->isMirror ? 1 : 0,
+                        viewDef && viewDef->isXraySubview ? 1 : 0,
+                        viewDef && viewDef->is2Dgui ? 1 : 0,
+                        viewDef
+                            ? viewDef->renderView.viewEyeBuffer
+                            : -2,
+                        viewDef ? viewDef->viewport.x1 : -1,
+                        viewDef ? viewDef->viewport.y1 : -1,
+                        viewDef ? viewDef->viewport.x2 : -1,
+                        viewDef ? viewDef->viewport.y2 : -1);
                 }
                 break;
             }
@@ -6867,16 +7124,46 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool useMaterialUniverseTable = r_pathTracingMaterialUniverseTable.GetInteger() != 0;
     const char* materialTablePath = useMaterialUniverseTable ? "universe" : "legacy";
     const int materialTextureTableMinimum = cleanRtxdiDiMaterialValidationRoute ? RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP : 0;
+    std::vector<uint32_t> materialTableSupplementalIds;
+    for (const RtSmokeSkinnedSurfaceRecord& record :
+        currentSkinnedSurfaceRecords)
+    {
+        if (record.cpuCaptureOmitted &&
+            record.materialId != UINT32_MAX)
+        {
+            // Source-only skinned routes still need a material-table entry
+            // after their legacy per-triangle material stream is removed.
+            if (materialTableSupplementalIds.empty())
+            {
+                materialTableSupplementalIds =
+                    dynamicTriangleMaterialData;
+            }
+            materialTableSupplementalIds.push_back(
+                record.materialId);
+        }
+    }
+    const std::vector<uint32_t>& materialTableDynamicIds =
+        materialTableSupplementalIds.empty()
+            ? dynamicTriangleMaterialData
+            : materialTableSupplementalIds;
     {
         OPTICK_EVENT("PT Material Table Build");
         BeginSmokeMaterialUniverseFrame();
         if (useMaterialUniverseTable)
         {
-            BuildSmokeMaterialTableFromUniverseCached(materialTable, materialTableStaticIds, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum, materialTableSignature, materialTableCacheHit);
+            BuildSmokeMaterialTableFromUniverseCached(materialTable, materialTableStaticIds, materialTableDynamicIds, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum, materialTableSignature, materialTableCacheHit);
         }
         else
         {
-            BuildSmokeMaterialTableCached(materialTable, materialTableStaticIds, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum, materialTableSignature, materialTableCacheHit);
+            BuildSmokeMaterialTableCached(materialTable, materialTableStaticIds, materialTableDynamicIds, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum, materialTableSignature, materialTableCacheHit);
+        }
+        if (!materialTableSupplementalIds.empty())
+        {
+            // The supplemental IDs populate the shared table but do not
+            // describe legacy dynamic triangles. Preserve the exact
+            // triangle-index ABI.
+            materialTable.dynamicMaterialIndexes.resize(
+                dynamicTriangleMaterialData.size());
         }
     }
     const RtSmokeMaterialTableCacheStats materialTableCacheStats = GetSmokeMaterialTableCacheStats();
@@ -9032,6 +9319,42 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             canonicalSkinnedSourceOutputRoute);
     m_smokeSkinnedHitRouteUploadShadow =
         skinnedHitRouteShadow;
+    const int skinnedShadowAccepted =
+        static_cast<int>(
+            skinnedHitRouteShadow.stats.accepted);
+    if (skinnedShadowAccepted !=
+            m_smokeSkinnedCaptureLastShadowAccepted &&
+        m_smokeSkinnedCaptureShadowTransitionsLogged < 16)
+    {
+        const char* firstReject = "none";
+        for (PtSkinnedHitRouteResult result :
+            skinnedHitRouteShadow.results)
+        {
+            if (result != PtSkinnedHitRouteResult::Accepted)
+            {
+                firstReject =
+                    PtSkinnedHitRouteResultName(result);
+                break;
+            }
+        }
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 capture route-shadow transition frame=%llu previous/current=%d/%d candidates/rejected=%llu/%llu omitted=%d firstReject=%s scaffold(dispatches/previousPositions)=%zu/%zu\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            m_smokeSkinnedCaptureLastShadowAccepted,
+            skinnedShadowAccepted,
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.candidates),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.rejected),
+            captureTiming.skinnedCaptureOmittedSurfaces,
+            firstReject,
+            skinnedGpuScaffold.dispatchRecords.size(),
+            skinnedGpuScaffold.previousPositions.size());
+        ++m_smokeSkinnedCaptureShadowTransitionsLogged;
+    }
+    m_smokeSkinnedCaptureLastShadowAccepted =
+        skinnedShadowAccepted;
     if (skinnedCaptureViewSignature != 0)
     {
         SmokeSkinnedCaptureRouteSetState* routeSet = nullptr;
@@ -9047,7 +9370,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         if (routeSet == nullptr)
         {
-            if (m_smokeSkinnedCaptureRouteSets.size() >= 8)
+            const size_t routeSetLimit =
+                static_cast<size_t>(idMath::ClampInt(
+                    1,
+                    8,
+                    r_pathTracingGeometrySkinnedCaptureRouteSetLimit.
+                        GetInteger()));
+            if (m_smokeSkinnedCaptureRouteSets.size() >=
+                routeSetLimit)
             {
                 const auto oldest = std::min_element(
                     m_smokeSkinnedCaptureRouteSets.begin(),
@@ -9061,8 +9391,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 if (oldest !=
                     m_smokeSkinnedCaptureRouteSets.end())
                 {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO08 capture route-set evicted frame=%llu signature=%llu pending/accepted=%zu/%zu age=%llu entries/limit=%zu/%zu action=cpu-fallback-on-return\n",
+                        static_cast<unsigned long long>(
+                            m_smokeGeometryFrameIndex),
+                        static_cast<unsigned long long>(
+                            oldest->signature),
+                        oldest->pendingBuild.records.size(),
+                        oldest->acceptedBuild.records.size(),
+                        static_cast<unsigned long long>(
+                            m_smokeGeometryFrameIndex -
+                            oldest->lastUsedFrame),
+                        m_smokeSkinnedCaptureRouteSets.size(),
+                        routeSetLimit);
                     m_smokeSkinnedCaptureRouteSets.erase(
                         oldest);
+                    ++m_smokeSkinnedCaptureRouteSetEvictions;
                 }
             }
             m_smokeSkinnedCaptureRouteSets.emplace_back();
@@ -9073,6 +9417,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         routeSet->pendingBuild =
             skinnedHitRouteShadow;
+        routeSet->pendingBuildSignature =
+            PtBuildSkinnedHitRouteGpuUpload(
+                skinnedHitRouteShadow,
+                0).signature;
         routeSet->lastUsedFrame =
             m_smokeGeometryFrameIndex;
     }
@@ -9274,12 +9622,29 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool skinnedTlasCompareRequested =
         r_pathTracingGeometrySkinnedTlasCompare.
             GetInteger() != 0;
+    const bool skinnedUploadMatchesOmittedCapture =
+        SmokeSkinnedHitRoutesMatchOmittedCapture(
+            skinnedHitRouteUploadCpuRecords,
+            currentSkinnedSurfaceRecords,
+            captureTiming.skinnedCaptureOmittedSurfaces);
     const bool skinnedTlasCompareGate =
         skinnedTlasCompareRequested &&
         canonicalSkinnedSourceOutputRoute &&
+        skinnedUploadMatchesOmittedCapture &&
         deviceManager &&
         deviceManager->GetGraphicsAPI() ==
             nvrhi::GraphicsAPI::VULKAN;
+    if (skinnedTlasCompareRequested &&
+        captureTiming.skinnedCaptureOmittedSurfaces > 0 &&
+        !skinnedUploadMatchesOmittedCapture)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 capture/TLAS omitted-set mismatch frame=%llu omitted/routes=%d/%zu action=suppress-and-revoke\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            captureTiming.skinnedCaptureOmittedSurfaces,
+            skinnedHitRouteUploadCpuRecords.size());
+    }
     const uint32 skinnedUploadedRouteCount =
         skinnedHitRouteGpuUpload.records.empty()
             ? 0u
@@ -9457,10 +9822,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                  skinnedTlasPlan.records.size() &&
              !skinnedHitRouteUploadBuild.records.empty())
     {
-        // Admission and upload are one indivisible accepted build for this
-        // exact visible skinned-instance set.
+        // Promote the exact upload that reached this frame's TLAS. Capture
+        // admission may have come from the preceding live source-only build,
+        // but the omitted InstanceKey set is checked against this upload
+        // before any descriptor is admitted.
         activeCaptureRouteSet->acceptedBuild =
             skinnedHitRouteUploadBuild;
+        activeCaptureRouteSet->acceptedBuildSignature =
+            skinnedHitRouteUploadBuildSignature;
         activeCaptureRouteSet->lastUsedFrame =
             m_smokeGeometryFrameIndex;
     }
@@ -9471,6 +9840,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         // suppresses this view and revokes only its exact set for next time.
         activeCaptureRouteSet->acceptedBuild =
             PtSkinnedHitRouteBuild();
+        activeCaptureRouteSet->acceptedBuildSignature = 0;
+        ++m_smokeSkinnedCaptureLateRevocations;
     }
     if (skinnedTlasDescriptorCount >
             m_smokeSkinnedCaptureSplitTlasMaxLogged &&
@@ -9499,6 +9870,44 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedTlasMotionReady);
         m_smokeSkinnedCaptureSplitTlasMaxLogged =
             skinnedTlasDescriptorCount;
+    }
+    if (r_pathTracingSmokeLog.GetInteger() != 0 &&
+        (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+    {
+        size_t acceptedRouteSets = 0;
+        size_t acceptedRoutes = 0;
+        for (const SmokeSkinnedCaptureRouteSetState& routeSet :
+            m_smokeSkinnedCaptureRouteSets)
+        {
+            if (!routeSet.acceptedBuild.records.empty())
+            {
+                ++acceptedRouteSets;
+                acceptedRoutes +=
+                    routeSet.acceptedBuild.records.size();
+            }
+        }
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 capture lifecycle frame=%llu routeSets(total/accepted/routes/limit)=%zu/%zu/%zu/%d events(evicted/preCaptureInvalidated/lateRevoked)=%llu/%llu/%llu active/retiredBlas=%zu/%zu outputGeneration=%llu authority=exact-live-resource-set\n",
+            static_cast<unsigned long long>(
+                m_smokeGeometryFrameIndex),
+            m_smokeSkinnedCaptureRouteSets.size(),
+            acceptedRouteSets,
+            acceptedRoutes,
+            idMath::ClampInt(
+                1,
+                8,
+                r_pathTracingGeometrySkinnedCaptureRouteSetLimit.
+                    GetInteger()),
+            static_cast<unsigned long long>(
+                m_smokeSkinnedCaptureRouteSetEvictions),
+            static_cast<unsigned long long>(
+                m_smokeSkinnedCapturePreCaptureInvalidations),
+            static_cast<unsigned long long>(
+                m_smokeSkinnedCaptureLateRevocations),
+            m_smokeSkinnedComparisonBlases.size(),
+            m_retiredSmokeSkinnedComparisonBlases.size(),
+            static_cast<unsigned long long>(
+                m_smokeSkinnedOutputBufferGeneration));
     }
     const bool skinnedTlasDumpRequested =
         r_pathTracingGeometrySkinnedTlasCompareDump.

@@ -315,6 +315,25 @@ surfaces on named CPU fallback. The earlier union-cache probe is explicitly
 rejected because geometry_geo99_auto caught 12 omissions but only one route
 and descriptor. Step 10 lifecycle invalidation and retirement is next.
 
+GEO-08 step 10 is accepted with a corrected admission/upload contract.
+Accepted source-only routes remain the capture-time proof for the exact live
+source/output/BLAS set; frame-local source-only material metadata may refresh
+without forcing alternating CPU bootstrap frames. The current upload must
+still match every omitted InstanceKey one-for-one and pass normal TLAS
+admission. CPU-omitted surface materials supplement the shared table without
+extending the legacy dynamic triangle-index ABI.
+
+geometry_geo113_auto proves physical 12 -> 15 growth, completion-owned BLAS
+replacement/output-generation release, despawn retirement, and cold map
+reload. geometry_geo115_auto proves offscreen/return and forced one-entry
+cache eviction. The rebuilt geometry_geo116_auto repeats growth, four forced
+evictions, despawn/respawn, zero-candidate visibility, and map teardown/reload.
+Its 15-surface set remains CPU-omitted for 115 logged frames with no repeated
+signature upgrade, omitted-set mismatch, pre-capture invalidation, late
+revocation, device failure, or crash. The BFG PDA is the already-proven 2D
+overlay and does not create a PT route set. GEO-08 step 11 clone scaling and
+step 12 timing measurement are next.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

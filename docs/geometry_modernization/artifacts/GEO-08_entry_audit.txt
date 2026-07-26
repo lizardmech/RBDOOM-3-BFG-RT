@@ -1,6 +1,6 @@
 GEO-08 - per-instance skinned BLAS entry audit
 ==============================================
-Status: steps 1-7 accepted; step 8 CPU-capture split is next.
+Status: steps 1-10 accepted; step 11 clone scaling is next.
 Date: 2026-07-26.
 Branch: restir-development.
 Entry checkpoint: 179127951.
@@ -1172,13 +1172,17 @@ output. Previous vertices can be regenerated from the retained previous joint
 matrices, so motion transport does not depend on prior CPU-skinned vertex
 history.
 
-The view cache is intentionally an eight-entry bounded exact-set cache. Each
-entry has a pending route build and an accepted route build. Capture consumes
-only the accepted build for its signature; shader upload and TLAS planning
-consume the corresponding pending build. Successful TLAS admission promotes
-that same build. A late failure clears only that signature's accepted build
-and suppresses it for the current frame. It is never reported as same-frame
-CPU fallback.
+The view cache is an exact-set cache bounded to eight entries by default; the
+validation-only limit cvar can reduce it as far as one to force eviction.
+Each entry has a pending frame-local route build and the last TLAS-accepted
+build. Capture consumes the accepted build only after its source, output
+generation, AS state, BLAS handle, and index/output buffers are revalidated.
+The current source-only upload may refresh frame-local triangle metadata
+without forcing CPU skinning merely because its byte signature changed. The
+current upload must still match the omitted InstanceKey set one-for-one and
+pass normal route/resource/BLAS/SBT/TLAS planning before promotion. A late
+failure clears only that signature's accepted build and suppresses it for the
+current frame. It is never reported as same-frame CPU fallback.
 
 Rejected automated probes:
 
@@ -1252,3 +1256,111 @@ This accepts steps 8 and 9. Step 10 must now exercise spawn, despawn,
 offscreen/return, PDA, map teardown, exact-set eviction, and physical output
 growth while proving that no accepted capture entry outlives its source,
 output generation, BLAS, or last in-flight TLAS use.
+
+STEP 10 LIFECYCLE CONTRACT CORRECTION AND ACCEPTANCE
+----------------------------------------------------
+The first step-10 runs invalidated two assumptions that the earlier step-8/9
+proof had not exercised:
+
+  - Removing a CPU-omitted surface's per-triangle legacy material stream also
+    removed its only material-table producer. geometry_geo110_auto therefore
+    rebuilt twelve routes after omission but rejected eleven as
+    `invalid-fallback-metadata`. CPU-omitted surface material IDs now
+    supplement the shared material table without extending the legacy
+    dynamic-triangle material-index ABI.
+
+  - A stable exact InstanceKey set does not imply a byte-identical route build
+    every frame. Source-only material indexes and other frame-local metadata
+    may refresh. geometry_geo108_auto and geometry_geo109_auto showed the same
+    primary view tuple alternating build signatures; geometry_geo111_auto and
+    geometry_geo113_auto then showed alternating full-CPU/source-only
+    comparison frames even after route counts remained exact. The corrected
+    rule keeps the last accepted source-only build as capture-time
+    live-resource proof, uploads the current source-only metadata build, and
+    requires an exact one-for-one omitted/upload InstanceKey match plus normal
+    TLAS admission before promotion.
+
+Rejected or diagnostic-only runs:
+
+  geometry_geo107_auto.log
+    The forced one-entry cache did evict an exact route set, but the then-live
+    admission design still allowed route-count/readiness churn. It is not
+    acceptance evidence.
+
+  geometry_geo108_auto.log and geometry_geo109_auto.log
+    These localize the signature oscillation and prove that both signatures
+    came from the identical primary-view tuple. They are diagnostic evidence.
+
+  geometry_geo110_auto.log
+    This is the decisive missing-material-table-producer failure. It is
+    rejected as runtime acceptance.
+
+  geometry_geo111_auto.log
+    Material availability is repaired, but legacy/source-only signatures still
+    alternate. It is rejected as steady-state acceptance.
+
+  geometry_geo113_auto.log
+    Useful lifecycle evidence only: 12 -> 15 growth replaces twelve old BLAS
+    owners with 3 builds plus 12 rebuilds; all twelve retirement packages
+    release after completion token 12; output generation 1 releases only
+    afterward. Despawn later queues fourteen owners, and map reload resets to
+    zero accepted routes before rebuilding and accepting 12/12. The run still
+    contains source-only signature/CPU-fallback oscillation, so it cannot
+    accept the final steady-state contract.
+
+  geometry_geo115_auto.log
+    Interim offscreen evidence from the pre-final executable. The primary view
+    remains 12/12 with zero lifecycle errors through frame 1081. Turning 180
+    degrees drops the visible skinned set to zero at frame 1200 while all
+    twelve lifecycle-live BLAS owners and their exact accepted route set remain
+    valid; no stale route is used by the zero-candidate view. On return at
+    frame 2400, the forced one-entry cache evicts the old 12-route set and
+    performs CPU fallback while the changed 14-surface set becomes ready.
+    Frame 2405 then accepts 14 omitted / 14 route / 14 descriptor /
+    14 motion-ready with zero CPU skin append. This proves offscreen/return and
+    exact-set eviction behavior, but final steady-state proof still belongs to
+    the post-build run.
+
+Accepted final proof:
+
+  geometry_geo116_auto.log
+    The rebuilt executable begins with one bounded legacy-to-source-only
+    bootstrap and accepts 12/12 at frame 6. Forced one-entry eviction plus
+    three spawned Fatzombies grows the set 12 -> 15. Frame 61 submits three
+    builds plus twelve rebuilds, frame 65 accepts
+    15 omitted / 15 route / 15 descriptor / 15 motion-ready with zero CPU skin
+    append, and completion token 12 releases all twelve replaced packages
+    before output generation 1 is released. The 15-surface source-only path
+    remains continuously CPU-omitted for 115 logged frames and is still
+    15/15 at lifecycle frame 121; the old alternating comparison-upgrade
+    pattern does not recur.
+
+    Despawn changes 15 -> 1 and queues fourteen exact retirement owners.
+    Respawn settles at two active, zero retired owners. Four deliberately
+    forced cache evictions each announce CPU fallback for the returning/new
+    exact set. A zero-candidate camera view consumes no stale route. Map reload
+    resets the route shadow to 0/12 at frame 543, rebuilds 12/12 at frame 544,
+    performs the one source-only bootstrap, and accepts 12 omitted / 12 route /
+    12 descriptor / 12 motion-ready at frame 548. The run exits through normal
+    renderer/game shutdown.
+
+    The complete log contains no omitted-set mismatch, pre-capture
+    invalidation, late revocation, fatal, device-removed, or NVRHI failure.
+    All six comparison-upgrade messages belong to a new/changed exact set's
+    bounded source-only bootstrap; no accepted stable set oscillates afterward.
+
+The existing geometry_geo43_auto result establishes that this game's PDA is a
+2D overlay rather than a PT subview: it does not create or consume a separate
+skinned route set, and the primary owner tuple before/after the overlay is
+exact. Combined with geometry_geo113_auto physical-growth/map-reset ownership,
+geometry_geo115_auto offscreen/return, and the rebuilt geometry_geo116_auto
+regression, this accepts GEO-08 step 10. Step 11 clone scaling is next.
+
+Final offline/deployment proof:
+
+  PathTraceSkinnedHitRouteHarness = PASS
+  cmake --build --preset win64-pt-dev-release = PASS
+  Vulkan SPIR-V work = all up to date; no shader source changed
+  DX12 shader compilation = not run
+  deployed executable SHA-256 =
+    B5CD487D1CC0729B93D09C214CF07FB686E58D9B22533B126CEEAA62E3BF282E

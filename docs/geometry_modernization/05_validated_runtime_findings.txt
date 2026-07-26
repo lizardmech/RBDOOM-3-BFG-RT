@@ -628,3 +628,22 @@ NO LONGER OPEN TO SPECULATION
   validation with canonical route 1 reports all previously black rigid
   objects fixed. The GEO89 direct-buffer diagnostic was removed after
   localization.
+- GEO-08 steps 8-9 remove eligible skinned surfaces from CPU capture only
+  after an exact prior route reaches the comparison TLAS. Source topology,
+  source-only material/class/primitive metadata, current GPU output, and
+  retained-joint previous positions replace all legacy dynamic ranges.
+  Structural failures remain named CPU fallbacks; late failures suppress and
+  revoke rather than claiming unavailable same-frame CPU geometry.
+- GEO-08 step 10 corrects two contracts exposed only by lifecycle testing.
+  CPU-omitted surface material IDs must still populate the shared material
+  table, without extending the legacy dynamic triangle-index stream. Also,
+  frame-local source-only metadata may refresh without requiring a
+  byte-identical accepted build; the current upload instead must match every
+  omitted InstanceKey one-for-one and pass normal TLAS admission.
+- geometry_geo113_auto proves completion-owned 12 -> 15 BLAS/output growth and
+  cold map reset. geometry_geo115_auto proves offscreen/return and forced
+  exact-set eviction. The rebuilt geometry_geo116_auto repeats growth, four
+  evictions, despawn/respawn, zero-candidate visibility, and map reload. Its
+  15-surface route stays CPU-omitted for 115 logged frames with no signature
+  oscillation, omitted-set mismatch, pre-capture invalidation, late
+  revocation, device failure, or crash. GEO-08 step 10 is accepted.

@@ -474,7 +474,9 @@ private:
         uint64 signature = 0;
         uint64 lastUsedFrame = 0;
         PtSkinnedHitRouteBuild pendingBuild;
+        uint64 pendingBuildSignature = 0;
         PtSkinnedHitRouteBuild acceptedBuild;
+        uint64 acceptedBuildSignature = 0;
     };
     std::vector<SmokeSkinnedCaptureRouteSetState>
         m_smokeSkinnedCaptureRouteSets;
@@ -489,6 +491,11 @@ private:
     bool m_smokeSkinnedHitRouteShadowLogged = false;
     uint32 m_smokeSkinnedCaptureSplitShadowMaxLogged = 0;
     uint32 m_smokeSkinnedCaptureSplitTlasMaxLogged = 0;
+    int m_smokeSkinnedCaptureLastShadowAccepted = -1;
+    uint32 m_smokeSkinnedCaptureShadowTransitionsLogged = 0;
+    uint64 m_smokeSkinnedCaptureRouteSetEvictions = 0;
+    uint64 m_smokeSkinnedCapturePreCaptureInvalidations = 0;
+    uint64 m_smokeSkinnedCaptureLateRevocations = 0;
     uint64 m_smokeNextSkinnedComparisonCompletionToken = 1;
     uint64 m_smokeLastCompletedSkinnedComparisonToken = 0;
     bool m_smokeSkinnedComparisonCompletionQueryFailureLogged = false;

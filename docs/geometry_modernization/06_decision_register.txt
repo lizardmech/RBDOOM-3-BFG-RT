@@ -673,13 +673,23 @@ set completed the full GPU route and TLAS admission contract. The set key is a
 sorted canonical-instance signature. It is not a single global last-view
 cache, an `isSubview` heuristic, or a union accumulated across views.
 
-The accepted build is indivisible: the same route build supplies both capture
-admission and the shader upload/TLAS candidates. Admission additionally
-requires exact current mesh/source checksums, vertex/index/triangle counts,
-and current joint data. Structural ineligibility known at capture time stays
-on the CPU path and is counted as gate, missing-prior-route, current-contract,
-or joint-data fallback. Particles, callbacks, unsupported layouts, and all
-non-skinned dynamic surfaces continue through the existing CPU capture.
+The accepted exact-set entry has two related but distinct duties. Its last
+TLAS-accepted source-only build proves that every omitted InstanceKey still
+owns the exact live source, output-buffer generation, BLAS resource, and
+routable AS state needed at capture time. The current frame may refresh
+source-only triangle metadata (notably material-table indexes) without
+repeating CPU skinning. That refreshed upload is admitted only when its
+InstanceKey set matches the omitted capture set one-for-one and its normal
+route/resource/BLAS/SBT/TLAS plan passes. Successful TLAS admission promotes
+that exact refreshed build. This replaces the earlier, too-strong assumption
+that byte-identical prior admission and current upload builds were required.
+
+Admission additionally requires exact current mesh/source checksums,
+vertex/index/triangle counts, and current joint data. Structural ineligibility
+known at capture time stays on the CPU path and is counted as gate,
+missing-or-retired-prior-route, current-contract, or joint-data fallback.
+Particles, callbacks, unsupported layouts, and all non-skinned dynamic
+surfaces continue through the existing CPU capture.
 
 An omitted record carries no legacy dynamic vertex/index/triangle range.
 Source-local topology supplies primitive identity and material/class metadata;
@@ -690,6 +700,9 @@ history is absent. A late route/resource/BLAS/TLAS failure cannot retroactively
 produce CPU vertices: it suppresses the affected exact set for that frame and
 revokes its accepted admission until a later full comparison succeeds. Bind
 pose, zero sentinels, and unrelated accepted view sets are never substituted.
+Materials belonging only to CPU-omitted surfaces remain supplemental members
+of the shared material table, while the legacy dynamic triangle-to-material
+index stream is truncated back to its exact legacy triangle count.
 
 geometry_geo95_auto through geometry_geo99_auto are rejected design probes.
 They exposed main/subview 12/1 alternation, disproved `isSubview` as a cache
@@ -701,7 +714,18 @@ and names the other eleven surfaces as prior-route CPU fallbacks. The main set
 omits 12 surfaces / 9,889 vertices / 47,886 indexes, records zero CPU skin
 append time, routes 12/12 with motion 12/12, uses source-only metadata, and has
 zero structural fallback. Step 8 and the explicit failure-timing contract in
-step 9 are accepted. Step 10 owns lifecycle invalidation and retirement proof.
+step 9 are accepted.
+
+geometry_geo110_auto later exposed the missing supplemental material producer,
+and geometry_geo108_auto through geometry_geo113_auto exposed the incorrect
+byte-identical-build assumption. The corrections above are accepted by the
+rebuilt geometry_geo116_auto: 12 -> 15 growth, four forced exact-set evictions,
+despawn/respawn, zero-candidate visibility, and cold map reload all pass. The
+15-surface route stays CPU-omitted for 115 logged frames without repeating its
+bootstrap upgrade. No omitted-set mismatch, pre-capture invalidation, late
+revocation, or device failure occurs. Together with geometry_geo113_auto
+completion-owned physical growth, geometry_geo115_auto offscreen/return, and
+the already-proven 2D-overlay PDA contract, step 10 is accepted.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

@@ -1125,6 +1125,10 @@ PtPlanSkinnedCaptureAdmission(
     {
         return PtSkinnedCaptureAdmissionResult::MissingPriorRoute;
     }
+    if (!input.priorRouteLive)
+    {
+        return PtSkinnedCaptureAdmissionResult::PriorRouteNotLive;
+    }
     if (!PtCanonicalInstanceKeyIsValid(input.currentInstance) ||
         input.priorRoute->instanceKey != input.currentInstance)
     {
@@ -1211,6 +1215,9 @@ const char* PtSkinnedCaptureAdmissionResultName(
         case PtSkinnedCaptureAdmissionResult::
             MissingPriorRoute:
             return "missing-prior-route";
+        case PtSkinnedCaptureAdmissionResult::
+            PriorRouteNotLive:
+            return "prior-route-not-live";
         case PtSkinnedCaptureAdmissionResult::
             CurrentInstanceMismatch:
             return "current-instance-mismatch";

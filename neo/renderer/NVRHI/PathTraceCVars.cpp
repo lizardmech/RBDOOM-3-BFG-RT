@@ -351,6 +351,12 @@ idCVar r_pathTracingGeometrySkinnedCaptureSplit(
     CVAR_RENDERER | CVAR_INTEGER,
     "GEO-08 default-off CPU capture cutover; only prior-frame exact skinned TLAS routes may omit CPU-skinned merged-dynamic geometry, with late failures suppressed" );
 
+idCVar r_pathTracingGeometrySkinnedCaptureRouteSetLimit(
+    "r_pathTracingGeometrySkinnedCaptureRouteSetLimit",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-08 bounded exact-visible-set cache size; values 1..8 support lifecycle eviction validation" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

@@ -100,8 +100,21 @@ set. The main set omits 9,889 vertices and 47,886 indexes, has zero named
 structural fallback, and records zero CPU skin append. The auxiliary set names
 the other eleven surfaces as prior-route CPU fallbacks. The rejected
 geometry_geo99_auto union design produced 12 omitted / 1 route / 1 descriptor;
-the exact-set key and indivisible upload/admission build replace it. Step 10
-lifecycle exercise is next.
+the exact-set key and one-for-one omitted/upload InstanceKey check replace it.
+The accepted route remains the capture-time live-resource proof, while
+frame-local source-only metadata may refresh in the current upload and must
+pass TLAS admission before promotion.
+
+Step 10 is accepted. geometry_geo113_auto proves physical 12 -> 15 growth,
+completion-owned replacement, and map-reset ownership. geometry_geo115_auto
+proves offscreen/return plus forced exact-set eviction. The rebuilt
+geometry_geo116_auto repeats forced eviction, 12 -> 15 growth, despawn to one,
+respawn to two, a zero-candidate view, and map reload. The 15-surface set stays
+CPU-omitted for 115 logged frames without the prior signature oscillation;
+there are no omitted-set mismatches, pre-capture invalidations, late
+revocations, fatal errors, or device failures. The BFG PDA remains the already
+proven 2D overlay and does not create a PT route set. Step 11 clone scaling is
+next.
 
 FILES TO AUDIT FIRST
 --------------------
@@ -198,8 +211,11 @@ STEPS
    - never leave bind-pose or zero sentinel vertices traversable;
    - do not describe a late failure as CPU fallback unless CPU vertices were
      actually produced.
-10. Handle spawn, despawn, offscreen/return, PDA, map teardown, and buffer
-    growth. Retire AS resources only after their last in-flight TLAS use.
+10. ACCEPTED. Handle spawn, despawn, offscreen/return, PDA, map teardown, and
+    buffer growth. Retire AS resources only after their last in-flight TLAS
+    use. geometry_geo113_auto, geometry_geo115_auto, and the rebuilt
+    geometry_geo116_auto close these cases with exact event-query retirement,
+    forced cache eviction, and cold map-reload admission.
 11. Validate 13 Fatzombie/clone instances: one source mesh record per unique
     surface, distinct mutable output/BLAS per live instance.
 12. Measure CPU skin time, BLAS build/update/reuse time and counts with

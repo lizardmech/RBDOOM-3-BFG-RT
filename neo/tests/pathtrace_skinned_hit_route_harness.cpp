@@ -638,6 +638,7 @@ void TestCaptureSplitAdmission()
     input.currentVertexCount = prior.vertexCount;
     input.currentIndexCount = prior.indexCount;
     input.jointDataReady = true;
+    input.priorRouteLive = true;
     input.priorRoute = &prior;
     Expect(
         PtPlanSkinnedCaptureAdmission(input) ==
@@ -659,6 +660,14 @@ void TestCaptureSplitAdmission()
             PtSkinnedCaptureAdmissionResult::
                 MissingPriorRoute,
         "new surfaces without a prior accepted route must retain CPU capture");
+
+    PtSkinnedCaptureAdmissionInput retired = input;
+    retired.priorRouteLive = false;
+    Expect(
+        PtPlanSkinnedCaptureAdmission(retired) ==
+            PtSkinnedCaptureAdmissionResult::
+                PriorRouteNotLive,
+        "retired prior route resources must retain same-frame CPU capture");
 
     PtSkinnedCaptureAdmissionInput changedSource = input;
     ++changedSource.currentSourceChecksum;
