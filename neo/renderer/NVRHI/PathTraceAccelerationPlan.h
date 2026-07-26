@@ -172,6 +172,8 @@ struct RtSmokeAccelerationSubmitPlanInput
     bool hasStaticBlas = false;
     bool hasDynamicBlas = false;
     bool staticBlasCacheHit = false;
+    bool includeStaticBlasInTlas = true;
+    bool hasExtraTlasInstances = false;
 };
 
 struct RtSmokeAccelerationSubmitPlan

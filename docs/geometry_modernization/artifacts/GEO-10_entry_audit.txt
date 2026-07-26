@@ -398,3 +398,119 @@ Build used the Vulkan release preset. Only
 pathtrace_primary_surface_producer.rt.bin was invalidated and regenerated;
 its SPIR-V mtime is newer than both shader edits. DXIL was neither invalidated
 nor deployed.
+
+LIVE-CUTOVER FOUNDATION: CHECKED NAMESPACE AND SHARED CLEAN-DI ABI
+-----------------------------------------------------------------
+The consumer audit rejected shifting rigid and skinned InstanceIDs. Too many
+existing primary, any-hit, temporal, clean-DI, and GI helpers assume:
+
+  static       InstanceID 0
+  dynamic      InstanceID 1
+  rigid        InstanceID 2 + rigid route index
+  skinned      after the live rigid route count
+
+Static buckets instead reserve the high 24-bit range beginning at 0x00800000.
+This remains below the Vulkan InstanceID limit and does not disturb any current
+rigid/skinned identity. Dense route index N maps to InstanceID 0x00800000 + N.
+
+The shader control tuple is:
+
+  x  first InstanceID, exactly 0x00800000
+  y  published route count, zero means unavailable
+  z  publication generation low 32 bits
+  w  publication generation high 32 bits
+
+PathTraceTryLoadStaticBucketTriangleRoute fails closed unless:
+
+  the namespace base, count, and nonzero generation are present;
+  the route buffer contains at least the published count at 48-byte stride;
+  InstanceID, generation, primitive count, and triangle topology match;
+  vertex/index/class/material/material-index ranges do not overflow and fit;
+  the packed vertex stride is exactly 112 bytes;
+  all three absolute vertex indexes stay inside the bucket's vertex range.
+
+The primary producer keeps t83 through t88. The shared clean-DI sentinel,
+initial, temporal, glass, transmission, and compact skinned-hit libraries use
+the same six resources at t100 through t105 to avoid the material-feature t87
+contract. The clean-DI constant buffer grew from 480 to 512 bytes; the new
+uint4 is appended, so every prior field offset is unchanged.
+
+The acceleration submit plan now carries two independent facts:
+
+  hasStaticBlas                 retain/build the rollback BLAS
+  includeStaticBlasInTlas       emit monolithic instance 0
+
+It also permits a TLAS containing only extra bucket/rigid/skinned instances.
+The CPU harness proves a cached monolithic BLAS can remain owned while instance
+0 is excluded and a bucket-only TLAS is submitted. Production explicitly keeps
+includeStaticBlasInTlas=true.
+
+BUILD / DEPLOY
+--------------
+Vulkan release build:
+
+  command     from neo/, cmake --build --preset win64-pt-dev-release
+  result      success
+  harness     PathTraceCpuPlanningHarness passed
+  executable sha256
+              B493433D0559E0D8EB5ADBBE190D524B25EEB90C76D6550545E2D4589C0E93BF
+  deployed    byte-identical
+
+Only these affected Vulkan blobs were invalidated, rebuilt, and deployed:
+
+  pathtrace_primary_surface_producer.rt.bin
+  pathtrace_clean_rtxdi_di_glass.rt.bin
+  pathtrace_clean_rtxdi_di_sentinel.rt.bin
+  pathtrace_clean_rtxdi_di_skinned_hits.rt.bin
+  pathtrace_clean_rtxdi_di_transmission_producer.rt.bin
+
+Every rebuilt SPIR-V mtime is newer than the shared/header edits. DXIL was not
+invalidated, rebuilt, or deployed.
+
+RUNTIME PROOF
+-------------
+Accepted bounded run:
+
+  geometry_geo197_auto.log
+  prepared doom3_1 save
+  smoke logging disabled
+  resource/build gate / per-frame limit         1 / 1 / 2
+  sentinel/initial/temporal/spatial pipelines   initialized
+  production view-16 variants                   initialized
+  glass/transmission feature pipelines          initialized
+  primary-surface producer pipeline             initialized
+  resident / active / inactive buckets          56 / 3 / 53
+  settled ready active buckets                  3
+  settled TLAS descriptors / route records      3 / 3
+  publication / TLAS / route generation
+                                                  2,074,972,187,131,457,655
+  missing BLAS/material/range/ID failures        0 / 0 / 0 / 0
+  all resident BLASes ready at frame 28          56 / 56
+  binding/device/validation errors               0
+  traversal                                      monolithic
+  shutdown                                       normal
+
+The first-load pipeline creation took several minutes and briefly exceeded
+20 GB private memory before returning to the normal approximately 11 GB band.
+geometry_geo196_auto was terminated before creation completed to protect the
+desktop and is rejected as incomplete evidence. Its lack of progress messages
+was not a shader or binding failure.
+
+REMAINING LIVE-CUTOVER BLOCKERS
+------------------------------
+No bucket instance enters the production TLAS yet. Before that can happen:
+
+  1. Move/build the current-frame bucket publication before TLAS submission and
+     binding creation; a prior-frame active set is not safe at portal changes.
+  2. Bind/declare the route ABI in standalone clean-DI spatial and Remix GI
+     layouts, then route every primary, any-hit, liquid/decal, and DI surface
+     reconstruction helper through the checked loader.
+  3. Special-case high-ID buckets in primary history, motion, and object-motion
+     logic without changing rigid/skinned predicates.
+  4. Migrate static-emissive inventory identity from monolithic instance 0 to
+     the bucket InstanceID plus bucket-local primitive contract.
+  5. Add a default-off one-cvar rollback gate. Only an exact current-frame
+     publication with every consumer capability may set
+     includeStaticBlasInTlas=false and append active bucket descriptors.
+  6. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
+     change, and comm1 area-41 comparisons before enabling coalescing work.

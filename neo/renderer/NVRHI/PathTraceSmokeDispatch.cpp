@@ -393,9 +393,10 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     float geometryInfo1[4] = {};
     float spatialInfo[4] = {};
     float emissiveDistributionInfo[4] = {};
+    uint32_t staticBucketRouteInfo[4] = {};
 };
 
-static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 480, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
+static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 512, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
 
 nvrhi::ObjectType GetPathTraceCommandObjectType()
 {
@@ -493,12 +494,15 @@ struct PathTraceSmokeConstants
     float decalInfo[4];
     float decalInfo2[4];
     float liquidPoolInfo[4];
+    uint32_t staticBucketRouteInfo[4];
 };
 
 static_assert(offsetof(PathTraceSmokeConstants, liquidPoolInfo) == offsetof(PathTraceSmokeConstants, decalInfo2) + sizeof(float) * 4,
     "PathTraceSmokeConstants liquid-pool control offset must mirror HLSL");
-static_assert(sizeof(PathTraceSmokeConstants) == offsetof(PathTraceSmokeConstants, liquidPoolInfo) + sizeof(float) * 4,
-    "PathTraceSmokeConstants liquid-pool control must remain the final float4");
+static_assert(offsetof(PathTraceSmokeConstants, staticBucketRouteInfo) == offsetof(PathTraceSmokeConstants, liquidPoolInfo) + sizeof(float) * 4,
+    "PathTraceSmokeConstants static-bucket route control must follow liquid-pool control");
+static_assert(sizeof(PathTraceSmokeConstants) == offsetof(PathTraceSmokeConstants, staticBucketRouteInfo) + sizeof(uint32_t) * 4,
+    "PathTraceSmokeConstants static-bucket route control must remain the final uint4");
 
 static void PopulatePathTraceDecalAndLiquidPoolControls(
     PathTraceSmokeConstants& constants,
@@ -1909,6 +1913,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.geometryInfo4[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticIndexCount));
             primarySurfaceConstants.geometryInfo4[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticTriangleCount));
             primarySurfaceConstants.geometryInfo4[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticMaterialIndexCount));
+            primarySurfaceConstants.staticBucketRouteInfo[0] =
+                m_sceneInputs.geometry.staticBucketRouteFirstInstanceId;
+            primarySurfaceConstants.staticBucketRouteInfo[1] =
+                m_sceneInputs.geometry.staticBucketRoutePublicationValid
+                    ? m_sceneInputs.geometry.staticBucketRouteCount
+                    : 0u;
+            primarySurfaceConstants.staticBucketRouteInfo[2] =
+                static_cast<uint32_t>(
+                    m_sceneInputs.geometry.
+                        staticBucketRouteGeneration);
+            primarySurfaceConstants.staticBucketRouteInfo[3] =
+                static_cast<uint32_t>(
+                    m_sceneInputs.geometry.
+                        staticBucketRouteGeneration >> 32);
             primarySurfaceConstants.dispatchTileInfo[2] = static_cast<float>(Max(0, m_frameResources.width));
             primarySurfaceConstants.dispatchTileInfo[3] = static_cast<float>(Max(0, m_frameResources.height));
             primarySurfaceConstants.motionVectorInfo[0] = cleanRtxdiDiView >= 5 || r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
@@ -2504,6 +2522,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             pdfNeeProducerConstants.geometryInfo4[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticIndexCount));
             pdfNeeProducerConstants.geometryInfo4[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticTriangleCount));
             pdfNeeProducerConstants.geometryInfo4[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticMaterialIndexCount));
+            pdfNeeProducerConstants.staticBucketRouteInfo[0] =
+                m_sceneInputs.geometry.staticBucketRouteFirstInstanceId;
+            pdfNeeProducerConstants.staticBucketRouteInfo[1] =
+                m_sceneInputs.geometry.staticBucketRoutePublicationValid
+                    ? m_sceneInputs.geometry.staticBucketRouteCount
+                    : 0u;
+            pdfNeeProducerConstants.staticBucketRouteInfo[2] =
+                static_cast<uint32_t>(
+                    m_sceneInputs.geometry.
+                        staticBucketRouteGeneration);
+            pdfNeeProducerConstants.staticBucketRouteInfo[3] =
+                static_cast<uint32_t>(
+                    m_sceneInputs.geometry.
+                        staticBucketRouteGeneration >> 32);
             pdfNeeProducerConstants.dispatchTileInfo[2] = static_cast<float>(Max(0, m_frameResources.width));
             pdfNeeProducerConstants.dispatchTileInfo[3] = static_cast<float>(Max(0, m_frameResources.height));
             pdfNeeProducerConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
@@ -2689,6 +2721,36 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, cleanNeeCacheProviderSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, cleanNeeCacheCellSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cleanNeeCacheCandidateSrv));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            100,
+            cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.
+                    StaticBucketRouteRecordBuffer())));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            101,
+            cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.
+                    StaticBucketVertexBuffer())));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            102,
+            cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.
+                    StaticBucketIndexBuffer())));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            103,
+            cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.
+                    StaticBucketTriangleClassBuffer())));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            104,
+            cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.
+                    StaticBucketTriangleMaterialBuffer())));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            105,
+            cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.
+                    StaticBucketTriangleMaterialIndexBuffer())));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(94, m_liquidPoolStatusBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING, m_smokeCleanRtxdiDiBlueNoise.texture));
@@ -2734,6 +2796,36 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(
+            commandList,
+            m_staticBucketGeometryUniverse.
+                StaticBucketRouteRecordBuffer(),
+            nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(
+            commandList,
+            m_staticBucketGeometryUniverse.
+                StaticBucketVertexBuffer(),
+            nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(
+            commandList,
+            m_staticBucketGeometryUniverse.
+                StaticBucketIndexBuffer(),
+            nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(
+            commandList,
+            m_staticBucketGeometryUniverse.
+                StaticBucketTriangleClassBuffer(),
+            nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(
+            commandList,
+            m_staticBucketGeometryUniverse.
+                StaticBucketTriangleMaterialBuffer(),
+            nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(
+            commandList,
+            m_staticBucketGeometryUniverse.
+                StaticBucketTriangleMaterialIndexBuffer(),
+            nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_sceneInputs.geometry.skinnedSourceIndexBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -3263,6 +3355,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.geometryInfo1[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicTriangleCount));
         cleanConstants.geometryInfo1[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteVertexCount));
         cleanConstants.geometryInfo1[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteIndexCount));
+        cleanConstants.staticBucketRouteInfo[0] =
+            m_sceneInputs.geometry.staticBucketRouteFirstInstanceId;
+        cleanConstants.staticBucketRouteInfo[1] =
+            m_sceneInputs.geometry.staticBucketRoutePublicationValid
+                ? m_sceneInputs.geometry.staticBucketRouteCount
+                : 0u;
+        cleanConstants.staticBucketRouteInfo[2] =
+            static_cast<uint32_t>(
+                m_sceneInputs.geometry.
+                    staticBucketRouteGeneration);
+        cleanConstants.staticBucketRouteInfo[3] =
+            static_cast<uint32_t>(
+                m_sceneInputs.geometry.
+                    staticBucketRouteGeneration >> 32);
         cleanConstants.spatialInfo[0] = static_cast<float>(idMath::ClampInt(1, 16, r_cleanDiSpatialSamples.GetInteger()));
         cleanConstants.spatialInfo[1] = static_cast<float>(idMath::ClampInt(1, 16, r_cleanDiSpatialDisocclusionSamples.GetInteger()));
         cleanConstants.spatialInfo[2] = idMath::ClampFloat(1.0f, 128.0f, r_cleanDiSpatialRadius.GetFloat());
@@ -4676,6 +4782,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.geometryInfo1[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicTriangleCount));
     constants.geometryInfo1[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteVertexCount));
     constants.geometryInfo1[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteIndexCount));
+    constants.staticBucketRouteInfo[0] =
+        m_sceneInputs.geometry.staticBucketRouteFirstInstanceId;
+    constants.staticBucketRouteInfo[1] =
+        m_sceneInputs.geometry.staticBucketRoutePublicationValid
+            ? m_sceneInputs.geometry.staticBucketRouteCount
+            : 0u;
+    constants.staticBucketRouteInfo[2] =
+        static_cast<uint32_t>(
+            m_sceneInputs.geometry.staticBucketRouteGeneration);
+    constants.staticBucketRouteInfo[3] =
+        static_cast<uint32_t>(
+            m_sceneInputs.geometry.staticBucketRouteGeneration >> 32);
     constants.geometryInfo2[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteTriangleCount));
     constants.geometryInfo2[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
     constants.geometryInfo2[2] = static_cast<float>(m_frameResources.primarySurfaceHistoryBuffers.surfaceCount);

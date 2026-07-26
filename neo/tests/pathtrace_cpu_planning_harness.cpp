@@ -254,8 +254,23 @@ void TestCacheAndBaseTlas()
     const RtSmokeAccelerationSubmitPlan cachedSubmitPlan = BuildSmokeAccelerationSubmitPlan(submitPlanInput);
     Check(!cachedSubmitPlan.buildStaticBlas && cachedSubmitPlan.buildDynamicBlas && cachedSubmitPlan.submitTlas, "acceleration submit plan skips cached static BLAS build");
 
+    submitPlanInput.hasDynamicBlas = false;
+    submitPlanInput.includeStaticBlasInTlas = false;
+    submitPlanInput.hasExtraTlasInstances = true;
+    const RtSmokeAccelerationSubmitPlan bucketStaticSubmitPlan =
+        BuildSmokeAccelerationSubmitPlan(submitPlanInput);
+    Check(
+        !bucketStaticSubmitPlan.buildStaticBlas &&
+            !bucketStaticSubmitPlan.buildDynamicBlas &&
+            bucketStaticSubmitPlan.submitTlas,
+        "acceleration submit plan retains cached static BLAS while submitting bucket-only TLAS");
+    Check(
+        bucketStaticSubmitPlan.baseTlasPlan.instanceCount == 0,
+        "acceleration submit plan excludes monolithic static instance independently of BLAS ownership");
+
     submitPlanInput.hasStaticBlas = false;
     submitPlanInput.hasDynamicBlas = false;
+    submitPlanInput.hasExtraTlasInstances = false;
     const RtSmokeAccelerationSubmitPlan emptySubmitPlan = BuildSmokeAccelerationSubmitPlan(submitPlanInput);
     Check(!emptySubmitPlan.buildStaticBlas && !emptySubmitPlan.buildDynamicBlas && !emptySubmitPlan.submitTlas, "acceleration submit plan rejects empty BLAS set");
 

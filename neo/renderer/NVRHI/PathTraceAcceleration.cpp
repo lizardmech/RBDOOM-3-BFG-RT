@@ -133,7 +133,14 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     OPTICK_EVENT("PT Submit Acceleration Builds Detail");
 
     timing = RtSmokeAccelSubmitTiming();
-    if (!desc.commandList || !desc.tlas || (!desc.hasStaticBlas && !desc.hasDynamicBlas))
+    const bool hasExtraTlasInstances =
+        desc.extraTlasInstances &&
+        !desc.extraTlasInstances->empty();
+    if (!desc.commandList ||
+        !desc.tlas ||
+        (!desc.hasStaticBlas &&
+            !desc.hasDynamicBlas &&
+            !hasExtraTlasInstances))
     {
         return false;
     }
@@ -142,6 +149,10 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     submitPlanInput.hasStaticBlas = desc.hasStaticBlas;
     submitPlanInput.hasDynamicBlas = desc.hasDynamicBlas;
     submitPlanInput.staticBlasCacheHit = desc.staticBlasCacheHit;
+    submitPlanInput.includeStaticBlasInTlas =
+        desc.includeStaticBlasInTlas;
+    submitPlanInput.hasExtraTlasInstances =
+        hasExtraTlasInstances;
     const RtSmokeAccelerationSubmitPlan submitPlan =
         BuildSmokeAccelerationSubmitPlan(submitPlanInput);
     if (!submitPlan.submitTlas)

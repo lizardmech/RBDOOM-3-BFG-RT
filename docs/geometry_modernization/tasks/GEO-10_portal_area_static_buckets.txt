@@ -57,6 +57,25 @@ classes, material IDs, and resolved material indexes. geometry_geo195_auto
 reports zero missing active material indexes, successful GPU route upload, and
 zero Vulkan binding errors. Live bucket instances are still excluded.
 
+The first live-cutover foundation is now present without changing traversal.
+Static buckets reserve the high 24-bit InstanceID range beginning at
+0x00800000, leaving the established static/dynamic/rigid/skinned IDs unchanged.
+The primary producer and clean-DI shared libraries receive an explicit route
+count plus both 32-bit halves of the publication generation. Their common
+loader rejects a wrong namespace, count, 48-byte record stride, generation,
+packed range, 112-byte vertex stride, index topology, or material/class range.
+The acceleration submit plan now separates retaining/building the monolithic
+static BLAS from including instance 0 in the TLAS, so rollback ownership can
+survive the eventual bucket-only submission.
+
+geometry_geo197_auto accepts creation of the enlarged clean-DI constant buffer,
+all six clean-DI route bindings, and the affected Vulkan pipelines. It settles
+to the same exact 3/3 publication, builds all 56 resident BLASes, reports zero
+binding/device/validation errors, and shuts down normally. Traversal remains
+monolithic because actual primary/any-hit/spatial/GI hit reconstruction and
+static-emissive identity have not moved. geometry_geo196_auto is rejected as an
+early-terminated first-load diagnostic, not a runtime failure.
+
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,
 and `r_pathTracingGeometryStaticBucketBlasBuild 1` submits bounded shadow

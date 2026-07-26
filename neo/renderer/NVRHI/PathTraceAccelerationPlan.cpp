@@ -375,8 +375,13 @@ RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
     RtSmokeAccelerationSubmitPlan plan;
     plan.buildStaticBlas = input.hasStaticBlas && !input.staticBlasCacheHit;
     plan.buildDynamicBlas = input.hasDynamicBlas;
-    plan.submitTlas = input.hasStaticBlas || input.hasDynamicBlas;
-    plan.baseTlasPlan = BuildSmokeBaseTlasPlan(input.hasStaticBlas, input.hasDynamicBlas);
+    plan.submitTlas =
+        (input.hasStaticBlas && input.includeStaticBlasInTlas) ||
+        input.hasDynamicBlas ||
+        input.hasExtraTlasInstances;
+    plan.baseTlasPlan = BuildSmokeBaseTlasPlan(
+        input.hasStaticBlas && input.includeStaticBlasInTlas,
+        input.hasDynamicBlas);
     return plan;
 }
 

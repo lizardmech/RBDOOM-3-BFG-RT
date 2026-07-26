@@ -574,7 +574,17 @@ The subsequent shader-ABI audit found and repaired a missing table-index
 stream: geometry_geo195_auto proves six bound bucket streams, zero unresolved
 active material indexes, stable 3/3 GPU route publication, and zero Vulkan
 binding errors. Bucket instances remain excluded pending full helper-consumer
-and emissive-identity cutover.
+and emissive-identity cutover. The next foundation checkpoint reserves
+0x00800000 as a non-overlapping static-bucket InstanceID base, publishes an
+exact route count and 64-bit generation to the primary and shared clean-DI
+constant contracts, validates every route/packed range in one common HLSL
+loader, and separates monolithic-static BLAS ownership from TLAS membership.
+geometry_geo197_auto accepts all affected Vulkan pipeline creation, zero
+binding/device/validation errors, stable 3/3 publication, all 56 resident
+bucket BLASes, and normal shutdown. No live traversal changed. Standalone
+clean-DI spatial, Remix GI, primary/any-hit reconstruction, motion/history,
+and static-emissive identity remain explicit blockers before the rollback cvar
+may omit instance 0.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

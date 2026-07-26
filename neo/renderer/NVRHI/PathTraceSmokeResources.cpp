@@ -944,7 +944,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     nvrhi::BufferDesc cleanRtxdiDiSentinelConstantsDesc;
-    cleanRtxdiDiSentinelConstantsDesc.byteSize = 480;
+    cleanRtxdiDiSentinelConstantsDesc.byteSize = 512;
     cleanRtxdiDiSentinelConstantsDesc.debugName = "PathTraceCleanRtxdiDiSentinelConstants";
     cleanRtxdiDiSentinelConstantsDesc.isConstantBuffer = true;
     cleanRtxdiDiSentinelConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
@@ -1183,6 +1183,12 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(74));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(100));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(101));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(102));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(103));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(104));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(105));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(78));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(94));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING));

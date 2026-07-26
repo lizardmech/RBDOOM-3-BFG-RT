@@ -813,6 +813,10 @@ static_assert(
     sizeof(RtPathTraceStaticBucketRouteRecord) == 48,
     "GEO-10 static bucket route ABI must remain 12 uint32 words");
 
+static constexpr uint32_t
+    RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE =
+        0x00800000u;
+
 struct RtPathTraceStaticBucketActivePublication
 {
     uint64 sourceGeneration = 0;

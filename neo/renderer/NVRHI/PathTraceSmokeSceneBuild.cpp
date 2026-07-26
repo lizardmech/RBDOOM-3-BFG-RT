@@ -11672,6 +11672,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     accelSubmitDesc.hasStaticBlas = hasStaticBlas;
     accelSubmitDesc.hasDynamicBlas = hasDynamicBlas;
     accelSubmitDesc.staticBlasCacheHit = staticBlasCacheHit;
+    accelSubmitDesc.includeStaticBlasInTlas = true;
     RtSmokeAccelSubmitTiming accelSubmitTiming;
     bool accelSubmitSucceeded = false;
     if (optickGpuMarkers)
@@ -12553,7 +12554,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                         staticBucketUniverseStats.
                             staticMaterialGeneration,
                         staticBucketMissingActiveMaterialIndexes,
-                        2u,
+                        RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE,
                         0x01u);
         const bool staticBucketShaderRouteUploaded =
             m_staticBucketGeometryUniverse.
@@ -12563,6 +12564,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     geometryPack,
                     staticBucketMaterialIndexes,
                     staticBucketActivePublication);
+        m_sceneInputs.geometry.staticBucketRouteFirstInstanceId =
+            RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE;
+        m_sceneInputs.geometry.staticBucketRouteCount =
+            staticBucketActivePublication.valid &&
+                    staticBucketShaderRouteUploaded
+                ? static_cast<uint32_t>(
+                    staticBucketActivePublication.
+                        routeRecords.size())
+                : 0u;
+        m_sceneInputs.geometry.staticBucketRouteGeneration =
+            m_sceneInputs.geometry.staticBucketRouteCount > 0
+                ? staticBucketActivePublication.
+                    publicationGeneration
+                : 0u;
+        m_sceneInputs.geometry.
+            staticBucketRoutePublicationValid =
+                m_sceneInputs.geometry.
+                        staticBucketRouteCount > 0 &&
+                    staticBucketActivePublication.valid &&
+                    staticBucketShaderRouteUploaded;
         if (staticBucketAuditRequested ||
             staticBucketGpuStats.buffersCreated > 0 ||
             staticBucketGpuStats.bufferUploads > 0 ||
@@ -12748,6 +12769,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         StaticSurfaceRecords().empty())
     {
         m_staticBucketGeometryUniverse.Clear();
+        m_sceneInputs.geometry.staticBucketRouteFirstInstanceId =
+            0u;
+        m_sceneInputs.geometry.staticBucketRouteCount = 0u;
+        m_sceneInputs.geometry.staticBucketRouteGeneration = 0u;
+        m_sceneInputs.geometry.
+            staticBucketRoutePublicationValid = false;
     }
     std::vector<RtSmokeStaticTlasBucketObservation> staticActiveBuckets;
     m_smokeGeometryUniverse.BuildStaticTlasBucketObservations(
