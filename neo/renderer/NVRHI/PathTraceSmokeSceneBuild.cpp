@@ -6017,13 +6017,10 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     OPTICK_EVENT("PT Static Bucket Frame Publication");
 
     RtSmokeStaticBucketFramePublication frame;
-    const bool liveRouteRequested =
-        r_pathTracingGeometryStaticBucketRoute.GetInteger() != 0;
     frame.auditRequested =
         r_pathTracingGeometryStaticBucketAudit.GetInteger() != 0;
     frame.blasEnabled =
-        r_pathTracingGeometryStaticBucketBlas.GetInteger() != 0 ||
-        liveRouteRequested;
+        r_pathTracingGeometryStaticBucketBlas.GetInteger() != 0;
     frame.enabled = frame.auditRequested || frame.blasEnabled;
     if (!frame.enabled)
     {
@@ -6142,8 +6139,7 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
 
     const bool submitBuilds =
         frame.blasEnabled &&
-        (r_pathTracingGeometryStaticBucketBlasBuild.GetInteger() != 0 ||
-            liveRouteRequested);
+        r_pathTracingGeometryStaticBucketBlasBuild.GetInteger() != 0;
     frame.gpuStats =
         staticBucketGeometryUniverse.UpdateStaticBucketBlasGpuScaffold(
             device,

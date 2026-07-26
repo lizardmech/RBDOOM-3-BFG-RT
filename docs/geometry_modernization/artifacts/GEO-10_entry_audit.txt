@@ -817,9 +817,10 @@ bucket-local emissive inventory atomically.
 DEFAULT-OFF ATOMIC CUTOVER CHECKPOINT
 -------------------------------------
 `r_pathTracingGeometryStaticBucketRoute` defaults to 0. When requested it
-implies bucket resource ownership and bounded BLAS build submission, but the
-live route remains monolithic until `BuildSmokeStaticBucketCutoverPlan`
-accepts all of:
+does not imply bucket resource ownership or BLAS build submission. Preparation
+remains under the explicit resource/build gates so a command-line route request
+cannot add 56 bucket allocations/builds to cold pipeline warmup. The live route
+remains monolithic until `BuildSmokeStaticBucketCutoverPlan` accepts all of:
 
   requested                         true
   supported consumer route          debug mode 0, clean DI enabled,
@@ -863,3 +864,44 @@ automated launch was rejected as runtime evidence: the process completed common
 initialization but created no top-level window, could not receive the required
 press-start/loadgame input, and never loaded a map. It was terminated without a
 device error. Live route acceptance therefore remains open.
+
+FIRST LIVE CUTOVER ATTEMPT / TDR CONTAINMENT
+--------------------------------------------
+The first manual attempt requested the route on the command line. Windows
+recorded `LiveKernelEvent 141` plus display-driver event 4101 (`nvlddmkm`
+stopped responding and recovered) immediately after a 310-second cold pipeline
+warmup. `qconsole.log` proves the route never admitted:
+
+  frames recorded                         1 through 3
+  route requested / accepted              1 / 0
+  traversal                               monolithic
+  resident / active buckets               56 / 3
+  ready buckets                           2, 4, 6
+  active TLAS / route outputs             0 / 0
+
+The same shadow build path had already reached 56/56 in
+geometry_geo193_auto, geometry_geo194_auto, geometry_geo195_auto, and
+geometry_geo197_auto. This incident therefore does not validate or invalidate
+bucket traversal. It does expose an unsafe startup policy: route request
+implicitly enabled resource ownership and build submission during the cold
+pipeline spike.
+
+The containment fix separates preparation from cutover. Route-on alone remains
+monolithic with no bucket allocation/build. Runtime validation must first allow
+the normal clean-DI pipeline warmup to finish, then explicitly enable:
+
+  r_pathTracingGeometryStaticBucketBlas 1
+  r_pathTracingGeometryStaticBucketBlasBuild 1
+
+Only after the log reaches ready/resident = 56/56 should
+`r_pathTracingGeometryStaticBucketRoute 1` request atomic admission. This keeps
+the cold-start baseline unchanged and preserves the existing fail-closed
+publication contract.
+
+Containment verification:
+
+  Vulkan release build                     passed; SPIR-V up to date
+  PathTraceCpuPlanningHarness              passed
+  shader source / blob changes             none / none
+  deployed executable bytes                15,917,568
+  deployed executable SHA-256              9EB082FE203AABCF5C3AC21FAD98E1BE8252570ABE77CE80A13DF3DB33B628F5
