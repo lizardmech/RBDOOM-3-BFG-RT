@@ -503,8 +503,9 @@ No bucket instance enters the production TLAS yet. Before that can happen:
   1. Move/build the current-frame bucket publication before TLAS submission and
      binding creation; a prior-frame active set is not safe at portal changes.
   2. Bind/declare the route ABI in standalone clean-DI spatial and Remix GI
-     layouts, then route every primary, any-hit, liquid/decal, and DI surface
-     reconstruction helper through the checked loader.
+     layouts, then route their DI/GI surface reconstruction helpers through the
+     checked loader. Primary producer closest-hit, any-hit, alpha/decal,
+     semantic-liquid, material, UV, and vertex-color consumers are complete.
   3. Special-case high-ID buckets in primary history, motion, and object-motion
      logic without changing rigid/skinned predicates.
   4. Migrate static-emissive inventory identity from monolithic instance 0 to
@@ -514,3 +515,50 @@ No bucket instance enters the production TLAS yet. Before that can happen:
      includeStaticBlasInTlas=false and append active bucket descriptors.
   6. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
      change, and comm1 area-41 comparisons before enabling coalescing work.
+
+PRIMARY PRODUCER CHECKED CONSUMER
+--------------------------------
+The primary producer now treats a static-bucket InstanceID as valid only when
+PathTraceTryLoadStaticBucketTriangleRoute accepts the published namespace,
+generation, route record, primitive, absolute indexes, and packed ranges. That
+checked route feeds:
+
+  triangle existence and index validation;
+  material ID, triangle class/flags, and material-table index;
+  alpha/decal UV and vertex-color interpolation;
+  semantic liquid-pool card position, plane, UV, tangent, and bitangent;
+  any-hit semantic-liquid route admission;
+  closest-hit position, normal, tangent basis, both UV sets, and both colors.
+
+The legacy static/dynamic fallback remains after the bucket branch. Bounded
+rigid and skinned predicates still run in their established namespaces, so no
+existing instance arithmetic changed.
+
+BUILD / DEPLOY CHECKPOINT
+-------------------------
+Vulkan release build:
+
+  command     from neo/, cmake --build --preset win64-pt-dev-release
+  result      success in 170.2 seconds
+  executable sha256
+              B493433D0559E0D8EB5ADBBE190D524B25EEB90C76D6550545E2D4589C0E93BF
+  deployed    byte-identical
+
+The shared route header and primary producer edit required invalidating and
+rebuilding exactly:
+
+  pathtrace_primary_surface_producer.rt.bin
+  pathtrace_clean_rtxdi_di_glass.rt.bin
+  pathtrace_clean_rtxdi_di_sentinel.rt.bin
+  pathtrace_clean_rtxdi_di_skinned_hits.rt.bin
+  pathtrace_clean_rtxdi_di_transmission_producer.rt.bin
+
+All five SPIR-V mtimes are newer than the edits and all deployed copies are
+byte-identical. Only the primary producer's binary content changed:
+
+  B98408864115C7DDD7AE1F7ECC6B2BE2B552C8C7A4169A5DC86FC85CF853344C
+
+The four clean-DI libraries retained their prior hashes because they do not
+call the new helper yet. DXIL was not invalidated, rebuilt, or deployed.
+Runtime pipeline creation is intentionally deferred until another coherent
+consumer slice needs it; bucket traversal remains unreachable/default off.

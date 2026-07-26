@@ -582,9 +582,13 @@ loader, and separates monolithic-static BLAS ownership from TLAS membership.
 geometry_geo197_auto accepts all affected Vulkan pipeline creation, zero
 binding/device/validation errors, stable 3/3 publication, all 56 resident
 bucket BLASes, and normal shutdown. No live traversal changed. Standalone
-clean-DI spatial, Remix GI, primary/any-hit reconstruction, motion/history,
-and static-emissive identity remain explicit blockers before the rollback cvar
-may omit instance 0.
+clean-DI spatial, Remix GI, motion/history, and static-emissive identity remain
+explicit blockers before the rollback cvar may omit instance 0. The next
+checkpoint completes primary-producer checked consumption for closest-hit,
+any-hit, alpha/decal, semantic liquid-card, material, UV, and vertex-color
+paths. Its Vulkan release build and SPIR-V-only deployment pass, but the route
+is intentionally unreachable until every remaining pipeline consumer and the
+current-frame publication order are ready.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

@@ -76,6 +76,16 @@ monolithic because actual primary/any-hit/spatial/GI hit reconstruction and
 static-emissive identity have not moved. geometry_geo196_auto is rejected as an
 early-terminated first-load diagnostic, not a runtime failure.
 
+The primary-surface producer is now the first complete checked hit consumer.
+Its triangle validation, material ID/class/table-index lookup, alpha/decal
+texture and vertex-color interpolation, semantic liquid-card evidence,
+any-hit support predicate, and closest-hit vertex reconstruction all recognize
+the reserved bucket namespace. Every bucket access goes through the common
+generation/range/topology loader before reading packed storage. Monolithic
+static, dynamic, rigid, and skinned fallback behavior is unchanged. This code
+is deliberately unreachable until the later all-consumer cutover gate admits
+bucket instances to the production TLAS.
+
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,
 and `r_pathTracingGeometryStaticBucketBlasBuild 1` submits bounded shadow

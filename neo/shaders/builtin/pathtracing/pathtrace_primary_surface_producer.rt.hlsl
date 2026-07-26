@@ -1427,6 +1427,23 @@ bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload)
 
 bool SmokeTriangleIndexRangeValid(uint instanceId, uint primitiveIndex)
 {
+    uint staticBucketRouteIndex = 0u;
+    if (PathTraceStaticBucketInstanceInPublishedRange(
+            instanceId,
+            StaticBucketRouteInfo,
+            staticBucketRouteIndex))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return PathTraceTryLoadStaticBucketTriangleRoute(
+            instanceId,
+            primitiveIndex,
+            StaticBucketRouteInfo,
+            route,
+            packedTriangleIndex,
+            packedVertexIndexes);
+    }
     if (instanceId == 0u)
     {
         return primitiveIndex < PathTraceStaticTriangleCount() &&
@@ -1471,6 +1488,26 @@ bool SmokeTriangleIndexRangeValid(uint instanceId, uint primitiveIndex)
 
 uint LoadSmokeTriangleMaterialId(uint instanceId, uint primitiveIndex)
 {
+    uint staticBucketRouteIndex = 0u;
+    if (PathTraceStaticBucketInstanceInPublishedRange(
+            instanceId,
+            StaticBucketRouteInfo,
+            staticBucketRouteIndex))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return PathTraceTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                StaticBucketRouteInfo,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleMaterials[
+                packedTriangleIndex]
+            : 0xffffffffu;
+    }
     if (instanceId == 0u && primitiveIndex < PathTraceStaticTriangleCount())
     {
         return SmokeStaticTriangleMaterials[primitiveIndex];
@@ -1509,6 +1546,26 @@ uint LoadSmokeTriangleMaterialId(uint instanceId, uint primitiveIndex)
 
 uint LoadSmokeTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 {
+    uint staticBucketRouteIndex = 0u;
+    if (PathTraceStaticBucketInstanceInPublishedRange(
+            instanceId,
+            StaticBucketRouteInfo,
+            staticBucketRouteIndex))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return PathTraceTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                StaticBucketRouteInfo,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleClasses[
+                packedTriangleIndex]
+            : 0u;
+    }
     if (instanceId == 0u && primitiveIndex < PathTraceStaticTriangleCount())
     {
         return SmokeStaticTriangleClasses[primitiveIndex];
@@ -1536,6 +1593,26 @@ uint LoadSmokeTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 
 uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
 {
+    uint staticBucketRouteIndex = 0u;
+    if (PathTraceStaticBucketInstanceInPublishedRange(
+            instanceId,
+            StaticBucketRouteInfo,
+            staticBucketRouteIndex))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return PathTraceTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                StaticBucketRouteInfo,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleMaterialIndexes[
+                packedTriangleIndex]
+            : 0xffffffffu;
+    }
     if (instanceId == 0u && primitiveIndex < PathTraceStaticTriangleCount())
     {
         return SmokeStaticTriangleMaterialIndexes[primitiveIndex];
@@ -1577,6 +1654,37 @@ float2 InterpolateSmokeTexCoord(uint instanceId, uint primitiveIndex, float2 bar
     if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
     {
         return float2(0.0, 0.0);
+    }
+    uint staticBucketRouteIndex = 0u;
+    if (PathTraceStaticBucketInstanceInPublishedRange(
+            instanceId,
+            StaticBucketRouteInfo,
+            staticBucketRouteIndex))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        if (!PathTraceTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                StaticBucketRouteInfo,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes))
+        {
+            return float2(0.0, 0.0);
+        }
+        const float3 weights = float3(
+            1.0 - barycentrics.x - barycentrics.y,
+            barycentrics.x,
+            barycentrics.y);
+        return
+            SmokeStaticBucketVertices[
+                packedVertexIndexes.x].texCoord.xy * weights.x +
+            SmokeStaticBucketVertices[
+                packedVertexIndexes.y].texCoord.xy * weights.y +
+            SmokeStaticBucketVertices[
+                packedVertexIndexes.z].texCoord.xy * weights.z;
     }
     if (PathTraceIsSkinnedHitRouteInstance(instanceId))
     {
@@ -1646,6 +1754,37 @@ float4 InterpolateSmokeVertexColor(uint instanceId, uint primitiveIndex, float2 
     if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
     {
         return float4(1.0, 1.0, 1.0, 1.0);
+    }
+    uint staticBucketRouteIndex = 0u;
+    if (PathTraceStaticBucketInstanceInPublishedRange(
+            instanceId,
+            StaticBucketRouteInfo,
+            staticBucketRouteIndex))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        if (!PathTraceTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                StaticBucketRouteInfo,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes))
+        {
+            return float4(1.0, 1.0, 1.0, 1.0);
+        }
+        const float3 weights = float3(
+            1.0 - barycentrics.x - barycentrics.y,
+            barycentrics.x,
+            barycentrics.y);
+        return saturate(
+            SmokeStaticBucketVertices[
+                packedVertexIndexes.x].color * weights.x +
+            SmokeStaticBucketVertices[
+                packedVertexIndexes.y].color * weights.y +
+            SmokeStaticBucketVertices[
+                packedVertexIndexes.z].color * weights.z);
     }
     if (PathTraceIsSkinnedHitRouteInstance(instanceId))
     {
@@ -2026,6 +2165,68 @@ bool TryBuildLiquidPoolCardEvidence(
     if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
     {
         return false;
+    }
+
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            StaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        if (!PathTraceTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                StaticBucketRouteInfo,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes))
+        {
+            return false;
+        }
+        const PathTraceSmokeVertex v0 =
+            SmokeStaticBucketVertices[packedVertexIndexes.x];
+        const PathTraceSmokeVertex v1 =
+            SmokeStaticBucketVertices[packedVertexIndexes.y];
+        const PathTraceSmokeVertex v2 =
+            SmokeStaticBucketVertices[packedVertexIndexes.z];
+        const float3 p0 = v0.position.xyz;
+        const float3 p1 = v1.position.xyz;
+        const float3 p2 = v2.position.xyz;
+        const float3 bary = float3(
+            1.0 - barycentrics.x - barycentrics.y,
+            barycentrics.x,
+            barycentrics.y);
+        cardPosition =
+            p0 * bary.x + p1 * bary.y + p2 * bary.z;
+        cardPlaneNormal = cross(p1 - p0, p2 - p0);
+        cardTexCoord =
+            v0.texCoord.xy * bary.x +
+            v1.texCoord.xy * bary.y +
+            v2.texCoord.xy * bary.z;
+        const float2 uvEdge1 =
+            v1.texCoord.xy - v0.texCoord.xy;
+        const float2 uvEdge2 =
+            v2.texCoord.xy - v0.texCoord.xy;
+        const float uvDeterminant =
+            uvEdge1.x * uvEdge2.y -
+            uvEdge1.y * uvEdge2.x;
+        if (abs(uvDeterminant) > 1.0e-10)
+        {
+            const float inverseDeterminant =
+                rcp(uvDeterminant);
+            cardTangent =
+                ((p1 - p0) * uvEdge2.y -
+                    (p2 - p0) * uvEdge1.y) *
+                inverseDeterminant;
+            cardBitangent =
+                ((p2 - p0) * uvEdge1.x -
+                    (p1 - p0) * uvEdge2.x) *
+                inverseDeterminant;
+        }
+        return LiquidPoolFinite3(cardPosition) &&
+            LiquidPoolFinite3(cardPlaneNormal) &&
+            LiquidPoolFinite2(cardTexCoord);
     }
 
     if (PathTraceIsSkinnedHitRouteInstance(instanceId))
@@ -2937,6 +3138,9 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             // geometry domain. Routed-rigid cards retain their own local
             // geometry and owner identity for resolve-time validation.
             if (instanceId < 2u ||
+                PathTraceIsStaticBucketRouteInstance(
+                    instanceId,
+                    StaticBucketRouteInfo) ||
                 PathTraceIsRigidHitRouteInstance(instanceId) ||
                 PathTraceIsSkinnedHitRouteInstance(instanceId))
             {
@@ -3225,49 +3429,92 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         return;
     }
 
-    if (instanceId >= 2u)
+    PathTraceSmokeVertex v0;
+    PathTraceSmokeVertex v1;
+    PathTraceSmokeVertex v2;
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            StaticBucketRouteInfo))
     {
-        return;
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        if (!PathTraceTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                StaticBucketRouteInfo,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes))
+        {
+            return;
+        }
+        v0 = SmokeStaticBucketVertices[packedVertexIndexes.x];
+        v1 = SmokeStaticBucketVertices[packedVertexIndexes.y];
+        v2 = SmokeStaticBucketVertices[packedVertexIndexes.z];
+    }
+    else
+    {
+        if (instanceId >= 2u ||
+            !SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+        {
+            return;
+        }
+        const uint indexOffset = primitiveIndex * 3u;
+        const uint i0 = instanceId == 0u
+            ? SmokeStaticIndices[indexOffset + 0u]
+            : SmokeDynamicIndices[indexOffset + 0u];
+        const uint i1 = instanceId == 0u
+            ? SmokeStaticIndices[indexOffset + 1u]
+            : SmokeDynamicIndices[indexOffset + 1u];
+        const uint i2 = instanceId == 0u
+            ? SmokeStaticIndices[indexOffset + 2u]
+            : SmokeDynamicIndices[indexOffset + 2u];
+        const uint vertexCount = instanceId == 0u
+            ? PathTraceStaticVertexCount()
+            : PathTraceDynamicVertexCount();
+        if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+        {
+            return;
+        }
+        if (instanceId == 0u)
+        {
+            v0 = SmokeStaticVertices[i0];
+            v1 = SmokeStaticVertices[i1];
+            v2 = SmokeStaticVertices[i2];
+        }
+        else
+        {
+            v0 = SmokeDynamicVertices[i0];
+            v1 = SmokeDynamicVertices[i1];
+            v2 = SmokeDynamicVertices[i2];
+        }
     }
 
-    if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
-    {
-        return;
-    }
-    const uint indexOffset = primitiveIndex * 3u;
-    const uint i0 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 0u] : SmokeDynamicIndices[indexOffset + 0u];
-    const uint i1 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 1u] : SmokeDynamicIndices[indexOffset + 1u];
-    const uint i2 = instanceId == 0u ? SmokeStaticIndices[indexOffset + 2u] : SmokeDynamicIndices[indexOffset + 2u];
-    const uint vertexCount = instanceId == 0u ? PathTraceStaticVertexCount() : PathTraceDynamicVertexCount();
-    if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
-    {
-        return;
-    }
-
-    const float3 p0 = (instanceId == 0u ? SmokeStaticVertices[i0].position : SmokeDynamicVertices[i0].position).xyz;
-    const float3 p1 = (instanceId == 0u ? SmokeStaticVertices[i1].position : SmokeDynamicVertices[i1].position).xyz;
-    const float3 p2 = (instanceId == 0u ? SmokeStaticVertices[i2].position : SmokeDynamicVertices[i2].position).xyz;
-    const float3 n0 = (instanceId == 0u ? SmokeStaticVertices[i0].normal : SmokeDynamicVertices[i0].normal).xyz;
-    const float3 n1 = (instanceId == 0u ? SmokeStaticVertices[i1].normal : SmokeDynamicVertices[i1].normal).xyz;
-    const float3 n2 = (instanceId == 0u ? SmokeStaticVertices[i2].normal : SmokeDynamicVertices[i2].normal).xyz;
-    const float4 t0 = instanceId == 0u ? SmokeStaticVertices[i0].tangent : SmokeDynamicVertices[i0].tangent;
-    const float4 t1 = instanceId == 0u ? SmokeStaticVertices[i1].tangent : SmokeDynamicVertices[i1].tangent;
-    const float4 t2 = instanceId == 0u ? SmokeStaticVertices[i2].tangent : SmokeDynamicVertices[i2].tangent;
-    const float4 b0 = instanceId == 0u ? SmokeStaticVertices[i0].bitangent : SmokeDynamicVertices[i0].bitangent;
-    const float4 b1 = instanceId == 0u ? SmokeStaticVertices[i1].bitangent : SmokeDynamicVertices[i1].bitangent;
-    const float4 b2 = instanceId == 0u ? SmokeStaticVertices[i2].bitangent : SmokeDynamicVertices[i2].bitangent;
-    const float2 uv0 = (instanceId == 0u ? SmokeStaticVertices[i0].texCoord : SmokeDynamicVertices[i0].texCoord).xy;
-    const float2 uv1 = (instanceId == 0u ? SmokeStaticVertices[i1].texCoord : SmokeDynamicVertices[i1].texCoord).xy;
-    const float2 uv2 = (instanceId == 0u ? SmokeStaticVertices[i2].texCoord : SmokeDynamicVertices[i2].texCoord).xy;
-    const float2 normalUv0 = (instanceId == 0u ? SmokeStaticVertices[i0].texCoord : SmokeDynamicVertices[i0].texCoord).zw;
-    const float2 normalUv1 = (instanceId == 0u ? SmokeStaticVertices[i1].texCoord : SmokeDynamicVertices[i1].texCoord).zw;
-    const float2 normalUv2 = (instanceId == 0u ? SmokeStaticVertices[i2].texCoord : SmokeDynamicVertices[i2].texCoord).zw;
-    const float4 c0 = instanceId == 0u ? SmokeStaticVertices[i0].color : SmokeDynamicVertices[i0].color;
-    const float4 c1 = instanceId == 0u ? SmokeStaticVertices[i1].color : SmokeDynamicVertices[i1].color;
-    const float4 c2 = instanceId == 0u ? SmokeStaticVertices[i2].color : SmokeDynamicVertices[i2].color;
-    const float4 c20 = instanceId == 0u ? SmokeStaticVertices[i0].color2 : SmokeDynamicVertices[i0].color2;
-    const float4 c21 = instanceId == 0u ? SmokeStaticVertices[i1].color2 : SmokeDynamicVertices[i1].color2;
-    const float4 c22 = instanceId == 0u ? SmokeStaticVertices[i2].color2 : SmokeDynamicVertices[i2].color2;
+    const float3 p0 = v0.position.xyz;
+    const float3 p1 = v1.position.xyz;
+    const float3 p2 = v2.position.xyz;
+    const float3 n0 = v0.normal.xyz;
+    const float3 n1 = v1.normal.xyz;
+    const float3 n2 = v2.normal.xyz;
+    const float4 t0 = v0.tangent;
+    const float4 t1 = v1.tangent;
+    const float4 t2 = v2.tangent;
+    const float4 b0 = v0.bitangent;
+    const float4 b1 = v1.bitangent;
+    const float4 b2 = v2.bitangent;
+    const float2 uv0 = v0.texCoord.xy;
+    const float2 uv1 = v1.texCoord.xy;
+    const float2 uv2 = v2.texCoord.xy;
+    const float2 normalUv0 = v0.texCoord.zw;
+    const float2 normalUv1 = v1.texCoord.zw;
+    const float2 normalUv2 = v2.texCoord.zw;
+    const float4 c0 = v0.color;
+    const float4 c1 = v1.color;
+    const float4 c2 = v2.color;
+    const float4 c20 = v0.color2;
+    const float4 c21 = v1.color2;
+    const float4 c22 = v2.color2;
     const float3 barycentrics = float3(1.0 - attributes.barycentrics.x - attributes.barycentrics.y, attributes.barycentrics.x, attributes.barycentrics.y);
     const uint triangleClassAndFlags = LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
     const bool forceGeometricNormal = (triangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;

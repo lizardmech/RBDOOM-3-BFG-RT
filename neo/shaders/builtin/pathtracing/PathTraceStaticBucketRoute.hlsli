@@ -79,6 +79,17 @@ bool PathTraceStaticBucketInstanceInPublishedRange(
     return routeIndex < routeInfo.y;
 }
 
+bool PathTraceIsStaticBucketRouteInstance(
+    uint instanceId,
+    uint4 routeInfo)
+{
+    uint routeIndex = 0u;
+    return PathTraceStaticBucketInstanceInPublishedRange(
+        instanceId,
+        routeInfo,
+        routeIndex);
+}
+
 bool PathTraceTryLoadStaticBucketTriangleRoute(
     uint instanceId,
     uint primitiveIndex,
