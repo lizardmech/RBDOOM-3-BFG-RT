@@ -65,6 +65,21 @@ the primitive authority. geometry_geo72_auto accepts 12/12 routes and exact
 rejection/collision. Step 6B must define and bind the shader-facing ABI across
 all consumers before any comparison BLAS enters a TLAS.
 
+Step 6B is accepted through runtime. The compact clean-DI/GI hit libraries,
+source-partitioned GI warmup, four-record SBT contract, and the rigid-route
+material/count-ABI repairs have all received their required offline and live
+proof. D38 plus the final canonical-route-1 visual confirmation closes the
+last prerequisite for step 7.
+
+Step 7 has an offline-complete, default-off comparison scaffold. Every ray
+pipeline sharing the TLAS now owns legacy primary/shadow records 0/1 and
+skinned primary/shadow records 2/3. The pure planner emits no descriptor unless
+the prior CPU route, uploaded GPU route, live BLAS resource/state contract,
+both SBT selections, and the 512-instance capacity agree exactly. The live
+route uses identity transforms, mask 0x02, contribution 2, and retains the
+legacy dynamic BLAS. Runtime tuple and visual/hit comparison are still pending;
+step 8 remains blocked.
+
 FILES TO AUDIT FIRST
 --------------------
   neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
@@ -107,9 +122,8 @@ STEPS
    observable full-rebuild cadence. Stable PerformUpdate and cadence rebuild
    pass in geometry_geo68_auto; exact removal and completion-owned replacement
    pass in geometry_geo69_auto and geometry_geo71_auto.
-6. PARTIALLY ACCEPTED THROUGH GPU TRANSPORT, THE FIRST 6B2 CONSUMER
-   CONVERSION, AND OFFLINE CLEAN-DI/CLEAN-GI HIT-LIBRARY SPLITS; RUNTIME
-   PROOF REMAINS. Define the
+6. ACCEPTED THROUGH GPU TRANSPORT, ALL CONSUMERS, COMPACT CLEAN-DI/CLEAN-GI
+   HIT LIBRARIES, AND BOUNDED RUNTIME PIPELINE CREATION. Define the
    shader hit-routing contract before adding TLAS instances.
    Prove canonical instance ID, primitive-to-source-triangle lookup, material
    table lookup, current/previous position lookup, and emissive identity for a
@@ -144,7 +158,7 @@ STEPS
    a fifteen-frame gap, and uses one yielding deferred-host-operation joiner.
    This mitigation is offline-only until a bounded user run reaches 16/16
    initialization without system input loss.
-7. Add comparison TLAS routing while the merged dynamic BLAS remains live.
+7. OFFLINE COMPLETE; RUNTIME ACCEPTANCE PENDING. Add comparison TLAS routing while the merged dynamic BLAS remains live.
    Record instance/primitive totals, sampled hit identities, bounds,
    material/triangle IDs, and motion inputs. A compare failure must select only
    the legacy route.

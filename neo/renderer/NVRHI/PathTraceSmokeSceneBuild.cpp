@@ -3244,6 +3244,52 @@ bool SmokeSkinnedComparisonBlasContractMatches(
         resource.blas;
 }
 
+bool SmokeSkinnedTlasRouteResourceContractMatches(
+    const PtSkinnedHitRouteRecord& route,
+    const RtSmokeSkinnedComparisonBlasResource& resource,
+    const PtSkinnedBlasRecord& state,
+    nvrhi::BufferHandle vertexBuffer,
+    nvrhi::BufferHandle indexBuffer)
+{
+    return
+        route.instanceKey == state.instanceKey &&
+        route.meshKey == state.meshKey &&
+        route.sourceChecksum == state.sourceChecksum &&
+        route.sourceGpuIndexGeneration ==
+            state.sourceGpuIndexGeneration &&
+        route.outputStorageGeneration ==
+            state.outputStorageGeneration &&
+        static_cast<uint64>(route.sourceIndexOffset) *
+                sizeof(uint32_t) ==
+            state.sourceIndexOffsetBytes &&
+        static_cast<uint64>(route.indexCount) *
+                sizeof(uint32_t) ==
+            state.sourceIndexBytes &&
+        static_cast<uint64>(route.outputVertexOffset) *
+                sizeof(PathTraceSmokeVertex) ==
+            state.outputVertexOffsetBytes &&
+        route.vertexCount == state.outputVertexCount &&
+        resource.instanceKey == state.instanceKey &&
+        resource.meshKey == state.meshKey &&
+        resource.sourceChecksum == state.sourceChecksum &&
+        resource.sourceGpuIndexGeneration ==
+            state.sourceGpuIndexGeneration &&
+        resource.sourceIndexOffsetBytes ==
+            state.sourceIndexOffsetBytes &&
+        resource.sourceIndexBytes ==
+            state.sourceIndexBytes &&
+        resource.outputStorageGeneration ==
+            state.outputStorageGeneration &&
+        resource.outputVertexOffsetBytes ==
+            state.outputVertexOffsetBytes &&
+        resource.outputVertexCount ==
+            state.outputVertexCount &&
+        resource.blasGeneration ==
+            state.blasGeneration &&
+        resource.vertexBuffer == vertexBuffer &&
+        resource.indexBuffer == indexBuffer;
+}
+
 bool SmokeSkinnedComparisonStateRetirementQueued(
     const std::deque<
         RtRetiredSmokeSkinnedComparisonBlasPackage>& packages,
@@ -7383,6 +7429,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingEmissiveDistribution.GetInteger());
     }
     const int bufferCreateStartMs = Sys_Milliseconds();
+    const std::vector<PtSkinnedHitRouteRecord>
+        skinnedHitRouteUploadCpuRecords =
+            r_pathTracingGeometrySkinnedTlasCompare.
+                    GetInteger() != 0
+                ? m_smokeSkinnedHitRouteUploadShadow.records
+                : std::vector<
+                    PtSkinnedHitRouteRecord>();
     const PtSkinnedHitRouteGpuUpload skinnedHitRouteGpuUpload =
         PtBuildSkinnedHitRouteGpuUpload(
             m_smokeSkinnedHitRouteUploadShadow,
@@ -9018,13 +9071,272 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
         }
     }
+
+    const bool skinnedTlasCompareRequested =
+        r_pathTracingGeometrySkinnedTlasCompare.
+            GetInteger() != 0;
+    const bool skinnedTlasCompareGate =
+        skinnedTlasCompareRequested &&
+        canonicalSkinnedSourceOutputRoute &&
+        deviceManager &&
+        deviceManager->GetGraphicsAPI() ==
+            nvrhi::GraphicsAPI::VULKAN;
+    const uint32 skinnedUploadedRouteCount =
+        skinnedHitRouteGpuUpload.records.empty()
+            ? 0u
+            : skinnedHitRouteGpuUpload.records.front().
+                routeCount;
+    PtSkinnedTlasRoutePlanInput skinnedTlasPlanInput;
+    skinnedTlasPlanInput.gate = skinnedTlasCompareGate;
+    skinnedTlasPlanInput.baseInstanceCount =
+        (hasStaticBlas ? 1u : 0u) +
+        (hasDynamicBlas ? 1u : 0u);
+    skinnedTlasPlanInput.existingExtraInstanceCount =
+        static_cast<uint32>(
+            rigidTlasRouteInstances.size());
+    skinnedTlasPlanInput.maxInstanceCount = 512u;
+    skinnedTlasPlanInput.shaderTableRecordCount = 4u;
+    skinnedTlasPlanInput.uploadedRouteCount =
+        skinnedUploadedRouteCount;
+    std::vector<
+        RtSmokeSkinnedComparisonBlasResource*>
+        skinnedTlasCandidateResources;
+    if (skinnedTlasCompareGate)
+    {
+        skinnedTlasPlanInput.candidates.reserve(
+            skinnedHitRouteUploadCpuRecords.size());
+        skinnedTlasCandidateResources.reserve(
+            skinnedHitRouteUploadCpuRecords.size());
+        const nvrhi::BufferHandle sourceIndexBuffer =
+            m_smokeGeometryUniverse.
+                CanonicalSourceIndexBuffer();
+        for (size_t routeIndex = 0;
+             routeIndex <
+                skinnedHitRouteUploadCpuRecords.size();
+             ++routeIndex)
+        {
+            const PtSkinnedHitRouteRecord& cpuRoute =
+                skinnedHitRouteUploadCpuRecords[
+                    routeIndex];
+            RtSmokeSkinnedComparisonBlasResource*
+                resource =
+                    FindSmokeSkinnedComparisonBlasResource(
+                        m_smokeSkinnedComparisonBlases,
+                        cpuRoute.instanceKey);
+            const PtSkinnedBlasRecord* state =
+                m_smokeSkinnedBlasStateTable.Find(
+                    cpuRoute.instanceKey);
+
+            PtSkinnedTlasRouteCandidate candidate;
+            candidate.cpuRoute = &cpuRoute;
+            candidate.gpuRoute =
+                routeIndex <
+                    skinnedHitRouteGpuUpload.records.size()
+                    ? &skinnedHitRouteGpuUpload.records[
+                        routeIndex]
+                    : nullptr;
+            candidate.resourceFound =
+                resource != nullptr;
+            candidate.resourceContractExact =
+                resource != nullptr &&
+                state != nullptr &&
+                SmokeSkinnedTlasRouteResourceContractMatches(
+                    cpuRoute,
+                    *resource,
+                    *state,
+                    smokeSkinnedCurrentOutputVertexBuffer,
+                    sourceIndexBuffer);
+            candidate.blasReady =
+                resource != nullptr &&
+                state != nullptr &&
+                state->state ==
+                    PtSkinnedBlasState::Ready &&
+                resource->blas;
+            skinnedTlasPlanInput.candidates.push_back(
+                candidate);
+            skinnedTlasCandidateResources.push_back(
+                resource);
+        }
+    }
+
+    const PtSkinnedTlasRoutePlan skinnedTlasPlan =
+        PtPlanSkinnedTlasRoutes(
+            skinnedTlasPlanInput);
+    const size_t firstSkinnedTlasDesc =
+        rigidTlasRouteInstances.size();
+    if (skinnedTlasPlan.result ==
+        PtSkinnedTlasRouteResult::Accepted)
+    {
+        for (const PtSkinnedTlasRouteRecord& route :
+            skinnedTlasPlan.records)
+        {
+            if (route.candidateIndex >=
+                    skinnedTlasCandidateResources.size() ||
+                !skinnedTlasCandidateResources[
+                    route.candidateIndex] ||
+                !skinnedTlasCandidateResources[
+                    route.candidateIndex]->blas)
+            {
+                continue;
+            }
+            nvrhi::rt::AffineTransform transform;
+            transform[0] = 1.0f;
+            transform[1] = 0.0f;
+            transform[2] = 0.0f;
+            transform[3] = 0.0f;
+            transform[4] = 0.0f;
+            transform[5] = 1.0f;
+            transform[6] = 0.0f;
+            transform[7] = 0.0f;
+            transform[8] = 0.0f;
+            transform[9] = 0.0f;
+            transform[10] = 1.0f;
+            transform[11] = 0.0f;
+
+            nvrhi::rt::InstanceDesc instanceDesc;
+            instanceDesc
+                .setInstanceID(route.shaderInstanceId)
+                .setInstanceMask(route.instanceMask)
+                .setInstanceContributionToHitGroupIndex(
+                    route.hitGroupContribution)
+                .setFlags(
+                    nvrhi::rt::InstanceFlags::
+                        TriangleCullDisable)
+                .setTransform(transform)
+                .setBLAS(
+                    skinnedTlasCandidateResources[
+                        route.candidateIndex]->blas);
+            rigidTlasRouteInstances.push_back(
+                instanceDesc);
+        }
+    }
+    const uint32 skinnedTlasDescriptorCount =
+        static_cast<uint32>(
+            rigidTlasRouteInstances.size() -
+            firstSkinnedTlasDesc);
+    const bool skinnedTlasDumpRequested =
+        r_pathTracingGeometrySkinnedTlasCompareDump.
+            GetInteger() != 0;
+    if (skinnedTlasDumpRequested ||
+        (skinnedTlasCompareGate &&
+            skinnedTlasPlan.result !=
+                PtSkinnedTlasRouteResult::Accepted &&
+            (m_smokeGeometryFrameIndex % 120ull) == 1ull))
+    {
+        const uint32 firstInstanceId =
+            skinnedTlasPlan.records.empty()
+                ? 0u
+                : skinnedTlasPlan.records.front().
+                    shaderInstanceId;
+        const uint32 lastInstanceId =
+            skinnedTlasPlan.records.empty()
+                ? 0u
+                : skinnedTlasPlan.records.back().
+                    shaderInstanceId;
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned TLAS compare frame=%llu requested/gate/canonical=%d/%d/%d result=%s cpu/upload/candidates/accepted/rejected/descriptors=%zu/%u/%u/%u/%u/%u shaderInstance(first/last)=%u/%u tlas(base/rigid/skinned/total/max)=%u/%zu/%u/%zu/%u failures(uploadCount/cpu/gpu/uploadContract/resource/resourceContract/blas/sbt/capacity)=%u/%u/%u/%u/%u/%u/%u/%u/%u legacyDynamic=retained sbtRecords=%u\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            skinnedTlasCompareRequested ? 1 : 0,
+            skinnedTlasCompareGate ? 1 : 0,
+            canonicalSkinnedSourceOutputRoute ? 1 : 0,
+            PtSkinnedTlasRouteResultName(
+                skinnedTlasPlan.result),
+            skinnedHitRouteUploadCpuRecords.size(),
+            skinnedUploadedRouteCount,
+            skinnedTlasPlan.stats.candidates,
+            skinnedTlasPlan.stats.accepted,
+            skinnedTlasPlan.stats.rejected,
+            skinnedTlasDescriptorCount,
+            firstInstanceId,
+            lastInstanceId,
+            skinnedTlasPlanInput.baseInstanceCount,
+            firstSkinnedTlasDesc,
+            skinnedTlasDescriptorCount,
+            static_cast<size_t>(
+                skinnedTlasPlanInput.baseInstanceCount) +
+                rigidTlasRouteInstances.size(),
+            skinnedTlasPlanInput.maxInstanceCount,
+            skinnedTlasPlan.stats.
+                uploadRouteCountMismatch,
+            skinnedTlasPlan.stats.missingCpuRoute,
+            skinnedTlasPlan.stats.missingGpuRoute,
+            skinnedTlasPlan.stats.
+                uploadContractMismatch,
+            skinnedTlasPlan.stats.missingResource,
+            skinnedTlasPlan.stats.
+                resourceContractMismatch,
+            skinnedTlasPlan.stats.missingBlas,
+            skinnedTlasPlan.stats.
+                invalidSbtSelection,
+            skinnedTlasPlan.stats.
+                tlasCapacityExceeded,
+            skinnedTlasPlanInput.
+                shaderTableRecordCount);
+        if (skinnedTlasDumpRequested)
+        {
+            const size_t sampleCount = Min(
+                static_cast<size_t>(8),
+                skinnedTlasPlan.records.size());
+            for (size_t sampleIndex = 0;
+                 sampleIndex < sampleCount;
+                 ++sampleIndex)
+            {
+                const PtSkinnedTlasRouteRecord& route =
+                    skinnedTlasPlan.records[sampleIndex];
+                const PtSkinnedHitRouteRecord* cpuRoute =
+                    route.candidateIndex <
+                        skinnedTlasPlanInput.
+                            candidates.size()
+                        ? skinnedTlasPlanInput.candidates[
+                            route.candidateIndex].cpuRoute
+                        : nullptr;
+                common->Printf(
+                    "PathTracePrimaryPass: GEO08 skinned TLAS sample=%zu instanceHash=%016llx shaderInstance=%u sourceGen=%llu outputGen=%llu sourceIndexOffset/count=%u/%u outputVertexOffset/count=%u/%u\n",
+                    sampleIndex,
+                    static_cast<unsigned long long>(
+                        cpuRoute
+                            ? cpuRoute->instanceHash
+                            : 0ull),
+                    route.shaderInstanceId,
+                    static_cast<unsigned long long>(
+                        cpuRoute
+                            ? cpuRoute->
+                                sourceGpuIndexGeneration
+                            : 0ull),
+                    static_cast<unsigned long long>(
+                        cpuRoute
+                            ? cpuRoute->
+                                outputStorageGeneration
+                            : 0ull),
+                    cpuRoute
+                        ? cpuRoute->sourceIndexOffset
+                        : 0u,
+                    cpuRoute
+                        ? cpuRoute->indexCount
+                        : 0u,
+                    cpuRoute
+                        ? cpuRoute->outputVertexOffset
+                        : 0u,
+                    cpuRoute
+                        ? cpuRoute->vertexCount
+                        : 0u);
+            }
+            r_pathTracingGeometrySkinnedTlasCompareDump.
+                SetInteger(0);
+        }
+    }
+
     accelSubmitDesc.commandList = commandList;
     accelSubmitDesc.tlas = m_smokeTlas;
     accelSubmitDesc.staticBlas = smokeStaticBlas;
     accelSubmitDesc.dynamicBlas = smokeDynamicBlas;
     accelSubmitDesc.staticBlasDesc = smokeStaticBlasDesc;
     accelSubmitDesc.dynamicBlasDesc = smokeDynamicBlasDesc;
-    accelSubmitDesc.extraTlasInstances = routeRigidTlasInstances ? &rigidTlasRouteInstances : nullptr;
+    accelSubmitDesc.extraTlasInstances =
+        !rigidTlasRouteInstances.empty()
+            ? &rigidTlasRouteInstances
+            : nullptr;
     accelSubmitDesc.hasStaticBlas = hasStaticBlas;
     accelSubmitDesc.hasDynamicBlas = hasDynamicBlas;
     accelSubmitDesc.staticBlasCacheHit = staticBlasCacheHit;

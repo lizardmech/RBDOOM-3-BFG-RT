@@ -92,6 +92,22 @@ bool CreatePathTraceMaterialFeatureRayTracingPipeline(
             nullptr,
             nullptr,
             false
+        },
+        {
+            "SkinnedHitGroup",
+            closestHit,
+            anyHit,
+            nullptr,
+            nullptr,
+            false
+        },
+        {
+            "SkinnedShadowHitGroup",
+            shadowClosestHit,
+            shadowAnyHit,
+            nullptr,
+            nullptr,
+            false
         }
     };
     pipelineDesc.maxPayloadSize = rtDesc.maxPayloadSize;
@@ -118,6 +134,8 @@ bool CreatePathTraceMaterialFeatureRayTracingPipeline(
     shaderTable->addMissShader(rtDesc.shadowMissShader);
     shaderTable->addHitGroup(rtDesc.hitGroupName);
     shaderTable->addHitGroup(rtDesc.shadowHitGroupName);
+    shaderTable->addHitGroup("SkinnedHitGroup");
+    shaderTable->addHitGroup("SkinnedShadowHitGroup");
     return true;
 }
 

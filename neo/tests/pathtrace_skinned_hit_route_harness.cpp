@@ -461,6 +461,137 @@ void TestSbtContributionContract()
         "legacy route must remain valid with two SBT records");
 }
 
+void TestSkinnedTlasRoutePlanner()
+{
+    const std::vector<std::uint32_t> sourceIndexes = {
+        0, 1, 2
+    };
+    const std::vector<std::uint32_t> legacyIndexes = {
+        10, 11, 12
+    };
+    const std::vector<std::uint32_t> one = { 4 };
+    PtSkinnedHitRouteCandidate routeCandidate =
+        MakeCandidate(sourceIndexes);
+    routeCandidate.meshKey.indexCount = 3;
+    routeCandidate.legacyIndexOffset = 0;
+    routeCandidate.legacyIndexCount = 3;
+    routeCandidate.legacyTriangleOffset = 0;
+    routeCandidate.legacyTriangleCount = 1;
+    const PtSkinnedHitRouteBuild build =
+        PtBuildSkinnedHitRoutes(
+            { routeCandidate },
+            MakeLegacyView(
+                legacyIndexes,
+                one,
+                one,
+                one),
+            31);
+    const PtSkinnedHitRouteGpuUpload upload =
+        PtBuildSkinnedHitRouteGpuUpload(build, 31);
+
+    PtSkinnedTlasRouteCandidate candidate;
+    candidate.cpuRoute = &build.records[0];
+    candidate.gpuRoute = &upload.records[0];
+    candidate.resourceFound = true;
+    candidate.resourceContractExact = true;
+    candidate.blasReady = true;
+
+    PtSkinnedTlasRoutePlanInput input;
+    input.gate = true;
+    input.baseInstanceCount = 2;
+    input.existingExtraInstanceCount = 7;
+    input.uploadedRouteCount = 1;
+    input.candidates = { candidate };
+    const PtSkinnedTlasRoutePlan accepted =
+        PtPlanSkinnedTlasRoutes(input);
+    Expect(
+        accepted.result ==
+                PtSkinnedTlasRouteResult::Accepted &&
+            accepted.records.size() == 1 &&
+            accepted.records[0].shaderInstanceId == 31 &&
+            accepted.records[0].instanceMask == 0x02u &&
+            accepted.records[0].hitGroupContribution ==
+                PT_PATH_TRACE_SBT_SKINNED_INSTANCE_CONTRIBUTION &&
+            accepted.stats.accepted == 1 &&
+            accepted.stats.rejected == 0,
+        "exact skinned route/resource/SBT tuple should emit one TLAS record");
+
+    PtSkinnedTlasRoutePlanInput disabledInput = input;
+    disabledInput.gate = false;
+    const PtSkinnedTlasRoutePlan disabled =
+        PtPlanSkinnedTlasRoutes(disabledInput);
+    Expect(
+        disabled.result ==
+                PtSkinnedTlasRouteResult::GateDisabled &&
+            disabled.records.empty() &&
+            disabled.stats.rejected == 0,
+        "disabled comparison gate must remain behavior-neutral");
+
+    PtSkinnedTlasRoutePlanInput countMismatch = input;
+    countMismatch.uploadedRouteCount = 0;
+    const PtSkinnedTlasRoutePlan countMismatchPlan =
+        PtPlanSkinnedTlasRoutes(countMismatch);
+    Expect(
+        countMismatchPlan.result ==
+                PtSkinnedTlasRouteResult::
+                    UploadRouteCountMismatch &&
+            countMismatchPlan.records.empty() &&
+            countMismatchPlan.stats.
+                uploadRouteCountMismatch == 1,
+        "CPU/upload route-count mismatch must fail closed");
+
+    PtSkinnedTlasRoutePlanInput resourceMismatch = input;
+    resourceMismatch.candidates[0].
+        resourceContractExact = false;
+    const PtSkinnedTlasRoutePlan resourceMismatchPlan =
+        PtPlanSkinnedTlasRoutes(resourceMismatch);
+    Expect(
+        resourceMismatchPlan.result ==
+                PtSkinnedTlasRouteResult::
+                    ResourceContractMismatch &&
+            resourceMismatchPlan.records.empty() &&
+            resourceMismatchPlan.stats.
+                resourceContractMismatch == 1,
+        "resource-contract mismatch must fail closed");
+
+    PtSkinnedTlasRoutePlanInput missingBlas = input;
+    missingBlas.candidates[0].blasReady = false;
+    const PtSkinnedTlasRoutePlan missingBlasPlan =
+        PtPlanSkinnedTlasRoutes(missingBlas);
+    Expect(
+        missingBlasPlan.result ==
+                PtSkinnedTlasRouteResult::MissingBlas &&
+            missingBlasPlan.records.empty() &&
+            missingBlasPlan.stats.missingBlas == 1,
+        "missing BLAS must fail closed");
+
+    PtSkinnedTlasRoutePlanInput legacyOnlySbt = input;
+    legacyOnlySbt.shaderTableRecordCount = 2;
+    const PtSkinnedTlasRoutePlan legacyOnlySbtPlan =
+        PtPlanSkinnedTlasRoutes(legacyOnlySbt);
+    Expect(
+        legacyOnlySbtPlan.result ==
+                PtSkinnedTlasRouteResult::
+                    InvalidSbtSelection &&
+            legacyOnlySbtPlan.records.empty() &&
+            legacyOnlySbtPlan.stats.
+                invalidSbtSelection == 1,
+        "legacy-only shader table must reject skinned TLAS records");
+
+    PtSkinnedTlasRoutePlanInput capacity = input;
+    capacity.existingExtraInstanceCount = 510;
+    const PtSkinnedTlasRoutePlan capacityPlan =
+        PtPlanSkinnedTlasRoutes(capacity);
+    Expect(
+        capacityPlan.result ==
+                PtSkinnedTlasRouteResult::
+                    TlasCapacityExceeded &&
+            capacityPlan.records.empty() &&
+            capacityPlan.stats.
+                tlasCapacityExceeded == 1,
+        "TLAS capacity overflow must fail closed");
+}
+
 }
 
 int main()
@@ -470,6 +601,7 @@ int main()
     TestDuplicateAndInstanceIdOverflow();
     TestGpuUploadAbi();
     TestSbtContributionContract();
+    TestSkinnedTlasRoutePlanner();
 
     if (g_failures != 0)
     {

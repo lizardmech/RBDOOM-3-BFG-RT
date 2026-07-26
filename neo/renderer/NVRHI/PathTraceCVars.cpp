@@ -333,6 +333,18 @@ idCVar r_pathTracingGeometryAuthoritativeGpuSkinning(
     CVAR_RENDERER | CVAR_INTEGER,
     "GEO-07 default-off master gate; 1 stages renderer jointCache bytes, 2 also retains an exact frame-owned CPU upload snapshot for validation; CPU skinning and BLAS stay authoritative" );
 
+idCVar r_pathTracingGeometrySkinnedTlasCompare(
+    "r_pathTracingGeometrySkinnedTlasCompare",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-08 default-off per-instance skinned TLAS comparison route; requires the canonical GPU skinning source/output route and fails closed while retaining the legacy dynamic BLAS" );
+
+idCVar r_pathTracingGeometrySkinnedTlasCompareDump(
+    "r_pathTracingGeometrySkinnedTlasCompareDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the GEO-08 per-instance skinned TLAS comparison plan once" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

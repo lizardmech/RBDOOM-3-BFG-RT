@@ -62,6 +62,8 @@ extern idCVar r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame;
 extern idCVar r_pathTracingGeometryCanonicalRigidTraversal;
 extern idCVar r_pathTracingGeometryCanonicalRigidHitDump;
 extern idCVar r_pathTracingGeometryAuthoritativeGpuSkinning;
+extern idCVar r_pathTracingGeometrySkinnedTlasCompare;
+extern idCVar r_pathTracingGeometrySkinnedTlasCompareDump;
 extern idCVar r_pathTracingGeometryResidencyV2;
 extern idCVar r_pathTracingEntityFeed;
 extern idCVar r_pathTracingEntityFeedDump;

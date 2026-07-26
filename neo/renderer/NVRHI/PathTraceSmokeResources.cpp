@@ -721,10 +721,12 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
     nvrhi::ShaderHandle anyHit = shaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit);
     nvrhi::ShaderHandle shadowClosestHit = shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
     nvrhi::ShaderHandle shadowAnyHit = shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
-    nvrhi::ShaderHandle skinnedClosestHit;
-    nvrhi::ShaderHandle skinnedAnyHit;
-    nvrhi::ShaderHandle skinnedShadowClosestHit;
-    nvrhi::ShaderHandle skinnedShadowAnyHit;
+    nvrhi::ShaderHandle skinnedClosestHit = closestHit;
+    nvrhi::ShaderHandle skinnedAnyHit = anyHit;
+    nvrhi::ShaderHandle skinnedShadowClosestHit =
+        shadowClosestHit;
+    nvrhi::ShaderHandle skinnedShadowAnyHit =
+        shadowAnyHit;
     if (skinnedHitShaderLibrary)
     {
         skinnedClosestHit = skinnedHitShaderLibrary->getShader(
@@ -746,9 +748,8 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
         common->Printf("PathTracePrimaryPass: %s RT smoke shader library is missing one or more required entry points\n", label);
         return false;
     }
-    if (skinnedHitShaderLibrary &&
-        (!skinnedClosestHit || !skinnedAnyHit ||
-            !skinnedShadowClosestHit || !skinnedShadowAnyHit))
+    if (!skinnedClosestHit || !skinnedAnyHit ||
+        !skinnedShadowClosestHit || !skinnedShadowAnyHit)
     {
         common->Printf(
             "PathTracePrimaryPass: %s compact skinned-hit library is missing one or more required entry points\n",
@@ -781,25 +782,22 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
             false
         }
     };
-    if (skinnedHitShaderLibrary)
-    {
-        pipelineDesc.hitGroups.push_back({
-            "SkinnedHitGroup",
-            skinnedClosestHit,
-            skinnedAnyHit,
-            nullptr,
-            nullptr,
-            false
-        });
-        pipelineDesc.hitGroups.push_back({
-            "SkinnedShadowHitGroup",
-            skinnedShadowClosestHit,
-            skinnedShadowAnyHit,
-            nullptr,
-            nullptr,
-            false
-        });
-    }
+    pipelineDesc.hitGroups.push_back({
+        "SkinnedHitGroup",
+        skinnedClosestHit,
+        skinnedAnyHit,
+        nullptr,
+        nullptr,
+        false
+    });
+    pipelineDesc.hitGroups.push_back({
+        "SkinnedShadowHitGroup",
+        skinnedShadowClosestHit,
+        skinnedShadowAnyHit,
+        nullptr,
+        nullptr,
+        false
+    });
     pipelineDesc.maxPayloadSize = 64;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
@@ -824,11 +822,8 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
     shaderTable->addMissShader("ShadowMiss");
     shaderTable->addHitGroup("HitGroup");
     shaderTable->addHitGroup("ShadowHitGroup");
-    if (skinnedHitShaderLibrary)
-    {
-        shaderTable->addHitGroup("SkinnedHitGroup");
-        shaderTable->addHitGroup("SkinnedShadowHitGroup");
-    }
+    shaderTable->addHitGroup("SkinnedHitGroup");
+    shaderTable->addHitGroup("SkinnedShadowHitGroup");
     return true;
 }
 
@@ -1640,7 +1635,8 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "clean-room RTXDI DI initial",
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial.rt.bin",
-            m_smokeCleanRtxdiDiSentinelBindingLayout);
+            m_smokeCleanRtxdiDiSentinelBindingLayout,
+            sentinelSkinnedHitLibrary);
         const bool temporalOk = initLibrary(
             m_smokeCleanRtxdiDiTemporalShaderLibrary,
             m_smokeCleanRtxdiDiTemporalPipeline,
@@ -1648,7 +1644,8 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "clean-room RTXDI DI temporal",
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.bin",
-            m_smokeCleanRtxdiDiSentinelBindingLayout);
+            m_smokeCleanRtxdiDiSentinelBindingLayout,
+            sentinelSkinnedHitLibrary);
         const bool initialProductionOk = initLibrary(
             m_smokeCleanRtxdiDiInitialProductionShaderLibrary,
             m_smokeCleanRtxdiDiInitialProductionPipeline,
@@ -1656,7 +1653,8 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "clean-room RTXDI DI initial production view 16",
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial_production.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial_production.rt.bin",
-            m_smokeCleanRtxdiDiSentinelBindingLayout);
+            m_smokeCleanRtxdiDiSentinelBindingLayout,
+            sentinelSkinnedHitLibrary);
         const bool temporalProductionOk = initLibrary(
             m_smokeCleanRtxdiDiTemporalProductionShaderLibrary,
             m_smokeCleanRtxdiDiTemporalProductionPipeline,
@@ -1664,7 +1662,8 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "clean-room RTXDI DI temporal production view 16",
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_production.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_production.rt.bin",
-            m_smokeCleanRtxdiDiSentinelBindingLayout);
+            m_smokeCleanRtxdiDiSentinelBindingLayout,
+            sentinelSkinnedHitLibrary);
         return sentinelOk && initialOk && temporalOk && initialProductionOk && temporalProductionOk;
     }
     case 20:

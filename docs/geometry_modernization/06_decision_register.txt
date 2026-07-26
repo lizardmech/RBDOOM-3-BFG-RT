@@ -630,6 +630,32 @@ all affected rigid objects fixed. D37 and D38 are therefore runtime-accepted
 together; canonical rigid material ownership remains per instance and its
 shader range gate now consumes the correct per-pipeline count ABI.
 
+D39. SKINNED COMPARISON TLAS SELECTION IS GLOBAL-SBT AND ALL-OR-NOTHING
+-----------------------------------------------------------------------
+Decision: a shared TLAS instance contribution is a contract with every ray
+pipeline that can traverse that TLAS. Before contribution 2 is emitted, every
+such pipeline must own primary/shadow records 2/3. Pipelines with full skinned
+hit handling may duplicate their standard handlers into those records. The
+clean-DI lightweight monolithic handlers may not: sentinel, initial, temporal,
+and production variants use the compact clean-DI hit library. Clean-GI keeps
+its accepted compact hit-library route.
+
+`r_pathTracingGeometrySkinnedTlasCompare` defaults to 0 and additionally
+requires the accepted canonical GPU skinning source/output route. With the gate
+enabled, PtPlanSkinnedTlasRoutes admits the comparison set only if the prior
+CPU route, rebased shader upload, live resource/state/BLAS tuple, primary and
+shadow SBT selections, and total TLAS capacity are all exact. One failed
+candidate suppresses every skinned comparison descriptor for that frame. The
+merged dynamic BLAS remains in the TLAS, so failure always leaves the proven
+legacy route available.
+
+The first comparison descriptors use identity transforms because their vertex
+output is world-space, mask 0x02, contribution 2, and the shader instance IDs
+from the current GPU upload. They do not reuse the prior CPU shadow IDs because
+the current rigid range can rebase those IDs between frames. Offline harness
+and release-build proof are accepted; runtime routing is not accepted until the
+prepared-scene one-shot tuple and visual/hit comparison pass.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

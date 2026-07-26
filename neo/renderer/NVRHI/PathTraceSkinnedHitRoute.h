@@ -88,6 +88,21 @@ struct PtPathTraceSbtSelection
     std::uint32_t recordIndex = 0;
 };
 
+enum class PtSkinnedTlasRouteResult : std::uint32_t
+{
+    Accepted = 0,
+    GateDisabled,
+    UploadRouteCountMismatch,
+    MissingCpuRoute,
+    MissingGpuRoute,
+    UploadContractMismatch,
+    MissingResource,
+    ResourceContractMismatch,
+    MissingBlas,
+    InvalidSbtSelection,
+    TlasCapacityExceeded
+};
+
 // GEO-08 shader-facing skinned hit route. PrimitiveIndex() addresses the
 // source-local index stream; these offsets never name the compact legacy
 // merged-dynamic stream. The first record also carries table-wide counts so
@@ -242,6 +257,64 @@ struct PtSkinnedHitRouteGpuUpload
     std::uint64_t signature = 0;
 };
 
+// Pure GEO-08 step-7 selection input. Renderer-owned BLAS handles deliberately
+// stay outside this contract: the planner only admits an exact CPU route,
+// shader upload, resource contract, and ready BLAS tuple.
+struct PtSkinnedTlasRouteCandidate
+{
+    const PtSkinnedHitRouteRecord* cpuRoute = nullptr;
+    const PathTraceSkinnedHitRouteGpuRecord* gpuRoute = nullptr;
+    bool resourceFound = false;
+    bool resourceContractExact = false;
+    bool blasReady = false;
+};
+
+struct PtSkinnedTlasRoutePlanInput
+{
+    bool gate = false;
+    std::uint32_t baseInstanceCount = 0;
+    std::uint32_t existingExtraInstanceCount = 0;
+    std::uint32_t maxInstanceCount = 512;
+    std::uint32_t shaderTableRecordCount = 4;
+    std::uint32_t uploadedRouteCount = 0;
+    std::vector<PtSkinnedTlasRouteCandidate> candidates;
+};
+
+struct PtSkinnedTlasRouteRecord
+{
+    PtCanonicalInstanceKey instanceKey;
+    std::uint32_t shaderInstanceId = 0;
+    std::uint32_t instanceMask = 0x02u;
+    std::uint32_t hitGroupContribution =
+        PT_PATH_TRACE_SBT_SKINNED_INSTANCE_CONTRIBUTION;
+    std::size_t candidateIndex = 0;
+};
+
+struct PtSkinnedTlasRouteStats
+{
+    std::uint32_t candidates = 0;
+    std::uint32_t accepted = 0;
+    std::uint32_t rejected = 0;
+    std::uint32_t uploadRouteCountMismatch = 0;
+    std::uint32_t missingCpuRoute = 0;
+    std::uint32_t missingGpuRoute = 0;
+    std::uint32_t uploadContractMismatch = 0;
+    std::uint32_t missingResource = 0;
+    std::uint32_t resourceContractMismatch = 0;
+    std::uint32_t missingBlas = 0;
+    std::uint32_t invalidSbtSelection = 0;
+    std::uint32_t tlasCapacityExceeded = 0;
+};
+
+struct PtSkinnedTlasRoutePlan
+{
+    PtSkinnedTlasRouteResult result =
+        PtSkinnedTlasRouteResult::GateDisabled;
+    std::vector<PtSkinnedTlasRouteRecord> records;
+    std::vector<PtSkinnedTlasRouteResult> candidateResults;
+    PtSkinnedTlasRouteStats stats;
+};
+
 PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
     const std::vector<PtSkinnedHitRouteCandidate>& candidates,
     const PtSkinnedHitRouteLegacyView& legacy,
@@ -254,5 +327,11 @@ PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
 PtPathTraceSbtSelection PtPlanPathTraceSbtSelection(
     const PtPathTraceSbtSelectionInput& input);
 
+PtSkinnedTlasRoutePlan PtPlanSkinnedTlasRoutes(
+    const PtSkinnedTlasRoutePlanInput& input);
+
 const char* PtSkinnedHitRouteResultName(
     PtSkinnedHitRouteResult result);
+
+const char* PtSkinnedTlasRouteResultName(
+    PtSkinnedTlasRouteResult result);

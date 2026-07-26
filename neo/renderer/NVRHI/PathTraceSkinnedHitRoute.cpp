@@ -812,3 +812,332 @@ PtPathTraceSbtSelection PtPlanPathTraceSbtSelection(
         PtPathTraceSbtSelectionResult::Accepted;
     return selection;
 }
+
+namespace {
+
+std::uint64_t JoinRouteUint64(
+    std::uint32_t low,
+    std::uint32_t high)
+{
+    return static_cast<std::uint64_t>(low) |
+        (static_cast<std::uint64_t>(high) << 32);
+}
+
+bool SkinnedTlasUploadMatchesCpu(
+    const PtSkinnedHitRouteRecord& cpu,
+    const PathTraceSkinnedHitRouteGpuRecord& gpu,
+    std::uint32_t uploadedRouteCount,
+    std::uint32_t uploadedTriangleCount)
+{
+    return
+        cpu.sourceIndexOffset == gpu.sourceIndexOffset &&
+        cpu.outputVertexOffset == gpu.outputVertexOffset &&
+        cpu.previousPositionOffset ==
+            gpu.previousPositionOffset &&
+        cpu.triangleMetadataOffset ==
+            gpu.triangleMetadataOffset &&
+        cpu.vertexCount == gpu.vertexCount &&
+        cpu.indexCount == gpu.indexCount &&
+        cpu.triangleCount == gpu.triangleCount &&
+        cpu.flags == gpu.flags &&
+        cpu.instanceHash ==
+            JoinRouteUint64(
+                gpu.instanceHashLo,
+                gpu.instanceHashHi) &&
+        cpu.sourceChecksum ==
+            JoinRouteUint64(
+                gpu.sourceChecksumLo,
+                gpu.sourceChecksumHi) &&
+        cpu.sourceGpuIndexGeneration ==
+            JoinRouteUint64(
+                gpu.sourceGpuIndexGenerationLo,
+                gpu.sourceGpuIndexGenerationHi) &&
+        cpu.outputStorageGeneration ==
+            JoinRouteUint64(
+                gpu.outputStorageGenerationLo,
+                gpu.outputStorageGenerationHi) &&
+        gpu.routeCount == uploadedRouteCount &&
+        gpu.triangleMetadataCount ==
+            uploadedTriangleCount;
+}
+
+void IncrementSkinnedTlasFailure(
+    PtSkinnedTlasRouteStats& stats,
+    PtSkinnedTlasRouteResult result)
+{
+    switch (result)
+    {
+        case PtSkinnedTlasRouteResult::
+            UploadRouteCountMismatch:
+            ++stats.uploadRouteCountMismatch;
+            break;
+        case PtSkinnedTlasRouteResult::MissingCpuRoute:
+            ++stats.missingCpuRoute;
+            break;
+        case PtSkinnedTlasRouteResult::MissingGpuRoute:
+            ++stats.missingGpuRoute;
+            break;
+        case PtSkinnedTlasRouteResult::
+            UploadContractMismatch:
+            ++stats.uploadContractMismatch;
+            break;
+        case PtSkinnedTlasRouteResult::MissingResource:
+            ++stats.missingResource;
+            break;
+        case PtSkinnedTlasRouteResult::
+            ResourceContractMismatch:
+            ++stats.resourceContractMismatch;
+            break;
+        case PtSkinnedTlasRouteResult::MissingBlas:
+            ++stats.missingBlas;
+            break;
+        case PtSkinnedTlasRouteResult::
+            InvalidSbtSelection:
+            ++stats.invalidSbtSelection;
+            break;
+        case PtSkinnedTlasRouteResult::
+            TlasCapacityExceeded:
+            ++stats.tlasCapacityExceeded;
+            break;
+        default:
+            break;
+    }
+}
+
+}
+
+PtSkinnedTlasRoutePlan PtPlanSkinnedTlasRoutes(
+    const PtSkinnedTlasRoutePlanInput& input)
+{
+    PtSkinnedTlasRoutePlan plan;
+    plan.stats.candidates =
+        static_cast<std::uint32_t>(
+            input.candidates.size());
+    plan.candidateResults.assign(
+        input.candidates.size(),
+        PtSkinnedTlasRouteResult::Accepted);
+
+    if (!input.gate)
+    {
+        plan.result =
+            PtSkinnedTlasRouteResult::GateDisabled;
+        return plan;
+    }
+
+    if (input.uploadedRouteCount !=
+        input.candidates.size())
+    {
+        plan.result =
+            PtSkinnedTlasRouteResult::
+                UploadRouteCountMismatch;
+        plan.stats.rejected = plan.stats.candidates;
+        IncrementSkinnedTlasFailure(
+            plan.stats,
+            plan.result);
+        return plan;
+    }
+
+    const std::uint64_t requestedInstanceCount =
+        static_cast<std::uint64_t>(
+            input.baseInstanceCount) +
+        input.existingExtraInstanceCount +
+        input.candidates.size();
+    if (requestedInstanceCount >
+        input.maxInstanceCount)
+    {
+        plan.result =
+            PtSkinnedTlasRouteResult::
+                TlasCapacityExceeded;
+        plan.stats.rejected = plan.stats.candidates;
+        IncrementSkinnedTlasFailure(
+            plan.stats,
+            plan.result);
+        return plan;
+    }
+
+    PtPathTraceSbtSelectionInput sbtInput;
+    sbtInput.geometryClass =
+        PtPathTraceSbtGeometryClass::Skinned;
+    sbtInput.geometryContribution = 0u;
+    sbtInput.geometryMultiplier = 1u;
+    sbtInput.shaderTableRecordCount =
+        input.shaderTableRecordCount;
+    sbtInput.rayContribution =
+        PT_PATH_TRACE_SBT_PRIMARY_RAY_CONTRIBUTION;
+    const bool primarySbtValid =
+        PtPlanPathTraceSbtSelection(sbtInput).result ==
+        PtPathTraceSbtSelectionResult::Accepted;
+    sbtInput.rayContribution =
+        PT_PATH_TRACE_SBT_SHADOW_RAY_CONTRIBUTION;
+    const bool shadowSbtValid =
+        PtPlanPathTraceSbtSelection(sbtInput).result ==
+        PtPathTraceSbtSelectionResult::Accepted;
+    if (!primarySbtValid || !shadowSbtValid)
+    {
+        plan.result =
+            PtSkinnedTlasRouteResult::
+                InvalidSbtSelection;
+        plan.stats.rejected = plan.stats.candidates;
+        IncrementSkinnedTlasFailure(
+            plan.stats,
+            plan.result);
+        return plan;
+    }
+
+    std::uint64_t uploadedTriangleCount64 = 0;
+    for (const PtSkinnedTlasRouteCandidate& candidate :
+        input.candidates)
+    {
+        if (candidate.cpuRoute)
+        {
+            uploadedTriangleCount64 +=
+                candidate.cpuRoute->triangleCount;
+        }
+    }
+    if (uploadedTriangleCount64 > UINT32_MAX)
+    {
+        plan.result =
+            PtSkinnedTlasRouteResult::
+                UploadContractMismatch;
+        plan.stats.rejected = plan.stats.candidates;
+        IncrementSkinnedTlasFailure(
+            plan.stats,
+            plan.result);
+        return plan;
+    }
+    const std::uint32_t uploadedTriangleCount =
+        static_cast<std::uint32_t>(
+            uploadedTriangleCount64);
+
+    PtSkinnedTlasRouteResult firstFailure =
+        PtSkinnedTlasRouteResult::Accepted;
+    std::uint32_t previousShaderInstanceId = 0;
+    bool havePreviousShaderInstanceId = false;
+    plan.records.reserve(input.candidates.size());
+    for (std::size_t candidateIndex = 0;
+         candidateIndex < input.candidates.size();
+         ++candidateIndex)
+    {
+        const PtSkinnedTlasRouteCandidate& candidate =
+            input.candidates[candidateIndex];
+        PtSkinnedTlasRouteResult result =
+            PtSkinnedTlasRouteResult::Accepted;
+        if (!candidate.cpuRoute)
+        {
+            result =
+                PtSkinnedTlasRouteResult::MissingCpuRoute;
+        }
+        else if (!candidate.gpuRoute)
+        {
+            result =
+                PtSkinnedTlasRouteResult::MissingGpuRoute;
+        }
+        else if (
+            candidate.gpuRoute->shaderInstanceId >
+                PT_SKINNED_HIT_ROUTE_MAX_SHADER_INSTANCE_ID ||
+            (havePreviousShaderInstanceId &&
+                candidate.gpuRoute->shaderInstanceId !=
+                    previousShaderInstanceId + 1u) ||
+            !SkinnedTlasUploadMatchesCpu(
+                *candidate.cpuRoute,
+                *candidate.gpuRoute,
+                input.uploadedRouteCount,
+                uploadedTriangleCount))
+        {
+            result =
+                PtSkinnedTlasRouteResult::
+                    UploadContractMismatch;
+        }
+        else if (!candidate.resourceFound)
+        {
+            result =
+                PtSkinnedTlasRouteResult::MissingResource;
+        }
+        else if (!candidate.resourceContractExact)
+        {
+            result =
+                PtSkinnedTlasRouteResult::
+                    ResourceContractMismatch;
+        }
+        else if (!candidate.blasReady)
+        {
+            result =
+                PtSkinnedTlasRouteResult::MissingBlas;
+        }
+
+        plan.candidateResults[candidateIndex] = result;
+        if (result != PtSkinnedTlasRouteResult::Accepted)
+        {
+            if (firstFailure ==
+                PtSkinnedTlasRouteResult::Accepted)
+            {
+                firstFailure = result;
+            }
+            IncrementSkinnedTlasFailure(
+                plan.stats,
+                result);
+            continue;
+        }
+
+        previousShaderInstanceId =
+            candidate.gpuRoute->shaderInstanceId;
+        havePreviousShaderInstanceId = true;
+        PtSkinnedTlasRouteRecord record;
+        record.instanceKey =
+            candidate.cpuRoute->instanceKey;
+        record.shaderInstanceId =
+            candidate.gpuRoute->shaderInstanceId;
+        record.candidateIndex = candidateIndex;
+        plan.records.push_back(record);
+    }
+
+    if (firstFailure !=
+        PtSkinnedTlasRouteResult::Accepted)
+    {
+        plan.result = firstFailure;
+        plan.stats.rejected = plan.stats.candidates;
+        plan.records.clear();
+        return plan;
+    }
+
+    plan.result = PtSkinnedTlasRouteResult::Accepted;
+    plan.stats.accepted = plan.stats.candidates;
+    return plan;
+}
+
+const char* PtSkinnedTlasRouteResultName(
+    PtSkinnedTlasRouteResult result)
+{
+    switch (result)
+    {
+        case PtSkinnedTlasRouteResult::Accepted:
+            return "accepted";
+        case PtSkinnedTlasRouteResult::GateDisabled:
+            return "gate-disabled";
+        case PtSkinnedTlasRouteResult::
+            UploadRouteCountMismatch:
+            return "upload-route-count-mismatch";
+        case PtSkinnedTlasRouteResult::MissingCpuRoute:
+            return "missing-cpu-route";
+        case PtSkinnedTlasRouteResult::MissingGpuRoute:
+            return "missing-gpu-route";
+        case PtSkinnedTlasRouteResult::
+            UploadContractMismatch:
+            return "upload-contract-mismatch";
+        case PtSkinnedTlasRouteResult::MissingResource:
+            return "missing-resource";
+        case PtSkinnedTlasRouteResult::
+            ResourceContractMismatch:
+            return "resource-contract-mismatch";
+        case PtSkinnedTlasRouteResult::MissingBlas:
+            return "missing-blas";
+        case PtSkinnedTlasRouteResult::
+            InvalidSbtSelection:
+            return "invalid-sbt-selection";
+        case PtSkinnedTlasRouteResult::
+            TlasCapacityExceeded:
+            return "tlas-capacity-exceeded";
+        default:
+            return "unknown";
+    }
+}
