@@ -570,6 +570,11 @@ atomically publishes 3 TLAS descriptors and 3 route records under one stable
 generation. Mixed generations and incomplete counts are rejected by the CPU
 harness. Production traversal remains the monolithic static route until the
 shader-visible checked namespace and old/new comparison gates are complete.
+The subsequent shader-ABI audit found and repaired a missing table-index
+stream: geometry_geo195_auto proves six bound bucket streams, zero unresolved
+active material indexes, stable 3/3 GPU route publication, and zero Vulkan
+binding errors. Bucket instances remain excluded pending full helper-consumer
+and emissive-identity cutover.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

@@ -49,6 +49,14 @@ the expected empty publication while the three active BLASes converge, followed
 by an exact atomic 3/3 publication. The live production TLAS remains
 monolithic; these descriptors and route records are still shadow-only.
 
+The shader-route ABI foundation is also complete in shadow mode. The audit
+found that material IDs alone were insufficient because the primary producer
+also consumes a table index per triangle. The packed route now publishes and
+binds all six checked SRV streams: route records, vertices, indexes, triangle
+classes, material IDs, and resolved material indexes. geometry_geo195_auto
+reports zero missing active material indexes, successful GPU route upload, and
+zero Vulkan binding errors. Live bucket instances are still excluded.
+
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,
 and `r_pathTracingGeometryStaticBucketBlasBuild 1` submits bounded shadow

@@ -809,6 +809,9 @@ struct RtPathTraceStaticBucketRouteRecord
     uint32_t bucketKeyLo = 0;
     uint32_t bucketKeyHi = 0;
 };
+static_assert(
+    sizeof(RtPathTraceStaticBucketRouteRecord) == 48,
+    "GEO-10 static bucket route ABI must remain 12 uint32 words");
 
 struct RtPathTraceStaticBucketActivePublication
 {
@@ -824,6 +827,7 @@ struct RtPathTraceStaticBucketActivePublication
     int activeBuckets = 0;
     int readyActiveBuckets = 0;
     int missingBlas = 0;
+    int missingMaterialIndexes = 0;
     int invalidRanges = 0;
     int instanceIdOverflow = 0;
     bool activeSetExact = false;
@@ -938,8 +942,39 @@ public:
             uint64 sourceGeneration,
             uint64 storageGeneration,
             uint64 materialGeneration,
+            int missingActiveMaterialIndexes,
             uint32_t firstInstanceId,
             uint32_t instanceMask) const;
+    bool UpdateStaticBucketShaderRouteGpuScaffold(
+        nvrhi::IDevice* device,
+        nvrhi::ICommandList* commandList,
+        const RtSmokeStaticBucketGeometryPack& geometryPack,
+        const std::vector<uint32_t>& triangleMaterialIndexes,
+        const RtPathTraceStaticBucketActivePublication& publication);
+    nvrhi::BufferHandle StaticBucketVertexBuffer() const
+    {
+        return m_staticBucketVertexBuffer;
+    }
+    nvrhi::BufferHandle StaticBucketIndexBuffer() const
+    {
+        return m_staticBucketIndexBuffer;
+    }
+    nvrhi::BufferHandle StaticBucketTriangleClassBuffer() const
+    {
+        return m_staticBucketTriangleClassBuffer;
+    }
+    nvrhi::BufferHandle StaticBucketTriangleMaterialBuffer() const
+    {
+        return m_staticBucketTriangleMaterialBuffer;
+    }
+    nvrhi::BufferHandle StaticBucketTriangleMaterialIndexBuffer() const
+    {
+        return m_staticBucketTriangleMaterialIndexBuffer;
+    }
+    nvrhi::BufferHandle StaticBucketRouteRecordBuffer() const
+    {
+        return m_staticBucketRouteRecordBuffer;
+    }
     void DumpStaticBucketActivePublication(
         const RtPathTraceStaticBucketActivePublication&
             publication) const;
@@ -1208,9 +1243,12 @@ private:
     nvrhi::BufferHandle m_staticBucketIndexBuffer;
     nvrhi::BufferHandle m_staticBucketTriangleClassBuffer;
     nvrhi::BufferHandle m_staticBucketTriangleMaterialBuffer;
+    nvrhi::BufferHandle m_staticBucketTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle m_staticBucketTriangleIdentityBuffer;
+    nvrhi::BufferHandle m_staticBucketRouteRecordBuffer;
     std::vector<StaticBucketBlasRecord> m_staticBucketBlasRecords;
     uint64 m_staticBucketUploadSignature = 0;
+    uint64 m_staticBucketShaderRouteUploadSignature = 0;
 };
 
 RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(

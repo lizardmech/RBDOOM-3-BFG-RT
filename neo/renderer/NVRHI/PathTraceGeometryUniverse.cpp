@@ -3887,15 +3887,156 @@ void RtSmokeGeometryUniverse::BuildStaticBucketTlasObservations(
     }
 }
 
+bool RtSmokeGeometryUniverse::UpdateStaticBucketShaderRouteGpuScaffold(
+    nvrhi::IDevice* device,
+    nvrhi::ICommandList* commandList,
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    const std::vector<uint32_t>& triangleMaterialIndexes,
+    const RtPathTraceStaticBucketActivePublication& publication)
+{
+    if (!device ||
+        !commandList ||
+        !geometryPack.exact ||
+        triangleMaterialIndexes.size() !=
+            geometryPack.triangleMaterials.size())
+    {
+        return false;
+    }
+
+    const size_t materialIndexBytes =
+        triangleMaterialIndexes.size() * sizeof(uint32_t);
+    const size_t routeBytes =
+        Max(
+            sizeof(RtPathTraceStaticBucketRouteRecord),
+            publication.routeRecords.size() *
+                sizeof(RtPathTraceStaticBucketRouteRecord));
+    bool buffersCreated = false;
+    if (!RigidSmokeBufferHasCapacity(
+            m_staticBucketTriangleMaterialIndexBuffer,
+            materialIndexBytes,
+            sizeof(uint32_t)))
+    {
+        m_staticBucketTriangleMaterialIndexBuffer =
+            CreateRigidSmokeBuffer(
+                device,
+                "PathTraceStaticBucketTriangleMaterialIndexes",
+                materialIndexBytes,
+                sizeof(uint32_t),
+                false,
+                false,
+                false);
+        buffersCreated = true;
+    }
+    if (!RigidSmokeBufferHasCapacity(
+            m_staticBucketRouteRecordBuffer,
+            routeBytes,
+            sizeof(RtPathTraceStaticBucketRouteRecord)))
+    {
+        m_staticBucketRouteRecordBuffer =
+            CreateRigidSmokeBuffer(
+                device,
+                "PathTraceStaticBucketRouteRecords",
+                routeBytes,
+                sizeof(RtPathTraceStaticBucketRouteRecord),
+                false,
+                false,
+                false);
+        buffersCreated = true;
+    }
+    if (!m_staticBucketTriangleMaterialIndexBuffer ||
+        !m_staticBucketRouteRecordBuffer)
+    {
+        return false;
+    }
+
+    uint64 uploadSignature = 14695981039346656037ull;
+    uploadSignature = HashSmokeBytes(
+        uploadSignature,
+        &geometryPack.contentSignature,
+        sizeof(geometryPack.contentSignature));
+    uploadSignature = HashSmokeBytes(
+        uploadSignature,
+        &publication.materialGeneration,
+        sizeof(publication.materialGeneration));
+    uploadSignature = HashSmokeBytes(
+        uploadSignature,
+        &publication.publicationGeneration,
+        sizeof(publication.publicationGeneration));
+    if (!triangleMaterialIndexes.empty())
+    {
+        uploadSignature = HashSmokeBytes(
+            uploadSignature,
+            triangleMaterialIndexes.data(),
+            materialIndexBytes);
+    }
+    if (!publication.routeRecords.empty())
+    {
+        uploadSignature = HashSmokeBytes(
+            uploadSignature,
+            publication.routeRecords.data(),
+            publication.routeRecords.size() *
+                sizeof(RtPathTraceStaticBucketRouteRecord));
+    }
+    if (!buffersCreated &&
+        uploadSignature ==
+            m_staticBucketShaderRouteUploadSignature)
+    {
+        return true;
+    }
+
+    commandList->beginTrackingBufferState(
+        m_staticBucketTriangleMaterialIndexBuffer,
+        nvrhi::ResourceStates::Common);
+    commandList->beginTrackingBufferState(
+        m_staticBucketRouteRecordBuffer,
+        nvrhi::ResourceStates::Common);
+    if (!triangleMaterialIndexes.empty())
+    {
+        commandList->writeBuffer(
+            m_staticBucketTriangleMaterialIndexBuffer,
+            triangleMaterialIndexes.data(),
+            materialIndexBytes);
+    }
+    if (!publication.routeRecords.empty())
+    {
+        commandList->writeBuffer(
+            m_staticBucketRouteRecordBuffer,
+            publication.routeRecords.data(),
+            publication.routeRecords.size() *
+                sizeof(RtPathTraceStaticBucketRouteRecord));
+    }
+    else
+    {
+        const RtPathTraceStaticBucketRouteRecord emptyRoute;
+        commandList->writeBuffer(
+            m_staticBucketRouteRecordBuffer,
+            &emptyRoute,
+            sizeof(emptyRoute));
+    }
+    commandList->setBufferState(
+        m_staticBucketTriangleMaterialIndexBuffer,
+        nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(
+        m_staticBucketRouteRecordBuffer,
+        nvrhi::ResourceStates::ShaderResource);
+    commandList->commitBarriers();
+    m_staticBucketShaderRouteUploadSignature =
+        uploadSignature;
+    return true;
+}
+
 void RtSmokeGeometryUniverse::ReleaseStaticBucketBlasGpuScaffold()
 {
     m_staticBucketVertexBuffer = nullptr;
     m_staticBucketIndexBuffer = nullptr;
     m_staticBucketTriangleClassBuffer = nullptr;
     m_staticBucketTriangleMaterialBuffer = nullptr;
+    m_staticBucketTriangleMaterialIndexBuffer = nullptr;
     m_staticBucketTriangleIdentityBuffer = nullptr;
+    m_staticBucketRouteRecordBuffer = nullptr;
     m_staticBucketBlasRecords.clear();
     m_staticBucketUploadSignature = 0;
+    m_staticBucketShaderRouteUploadSignature = 0;
 }
 
 void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
@@ -3941,6 +4082,7 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
     uint64 sourceGeneration,
     uint64 storageGeneration,
     uint64 materialGeneration,
+    int missingActiveMaterialIndexes,
     uint32_t firstInstanceId,
     uint32_t instanceMask) const
 {
@@ -3948,6 +4090,8 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
     publication.sourceGeneration = sourceGeneration;
     publication.storageGeneration = storageGeneration;
     publication.materialGeneration = materialGeneration;
+    publication.missingMaterialIndexes =
+        Max(0, missingActiveMaterialIndexes);
     publication.contentSignature =
         geometryPack.contentSignature;
     publication.residentBuckets =
@@ -4053,6 +4197,7 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
         publication.readyActiveBuckets ==
             publication.activeBuckets &&
         publication.missingBlas == 0 &&
+        publication.missingMaterialIndexes == 0 &&
         publication.invalidRanges == 0 &&
         publication.instanceIdOverflow == 0;
     if (!publication.activeSetExact)
@@ -4193,7 +4338,7 @@ void RtSmokeGeometryUniverse::DumpStaticBucketActivePublication(
         publication) const
 {
     common->Printf(
-        "PathTracePrimaryPass: GEO10 static bucket publication valid/exact/mixedRejected=%d/%d/%d generations(source/storage/material/publication/tlas/route)=%llu/%llu/%llu/%llu/%llu/%llu signatures(content/active)=%llu/%llu buckets(resident/active/ready)=%d/%d/%d outputs(tlas/routes)=%llu/%llu failures(missingBlas/invalidRange/instanceOverflow)=%d/%d/%d traversal=monolithic route=shadow-only\n",
+        "PathTracePrimaryPass: GEO10 static bucket publication valid/exact/mixedRejected=%d/%d/%d generations(source/storage/material/publication/tlas/route)=%llu/%llu/%llu/%llu/%llu/%llu signatures(content/active)=%llu/%llu buckets(resident/active/ready)=%d/%d/%d outputs(tlas/routes)=%llu/%llu failures(missingBlas/missingMaterialIndex/invalidRange/instanceOverflow)=%d/%d/%d/%d traversal=monolithic route=shadow-only\n",
         publication.valid ? 1 : 0,
         publication.activeSetExact ? 1 : 0,
         publication.mixedEpochRejected ? 1 : 0,
@@ -4221,6 +4366,7 @@ void RtSmokeGeometryUniverse::DumpStaticBucketActivePublication(
         static_cast<unsigned long long>(
             publication.routeRecords.size()),
         publication.missingBlas,
+        publication.missingMaterialIndexes,
         publication.invalidRanges,
         publication.instanceIdOverflow);
 }

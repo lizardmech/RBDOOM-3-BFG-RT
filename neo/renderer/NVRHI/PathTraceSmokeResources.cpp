@@ -582,6 +582,36 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, desc.buffers.lightCandidateBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(41, desc.buffers.skinnedTriangleDispatchIndexBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(76, desc.buffers.dynamicMaterialBuffer ? desc.buffers.dynamicMaterialBuffer : desc.buffers.lightCandidateBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            83,
+            desc.staticBucketRouteRecordBuffer
+                ? desc.staticBucketRouteRecordBuffer
+                : desc.buffers.rigidRouteInstanceBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            84,
+            desc.staticBucketVertexBuffer
+                ? desc.staticBucketVertexBuffer
+                : desc.buffers.staticVertexBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            85,
+            desc.staticBucketIndexBuffer
+                ? desc.staticBucketIndexBuffer
+                : desc.buffers.staticIndexBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            86,
+            desc.staticBucketTriangleClassBuffer
+                ? desc.staticBucketTriangleClassBuffer
+                : desc.buffers.staticTriangleClassBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            87,
+            desc.staticBucketTriangleMaterialBuffer
+                ? desc.staticBucketTriangleMaterialBuffer
+                : desc.buffers.staticTriangleMaterialBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            88,
+            desc.staticBucketTriangleMaterialIndexBuffer
+                ? desc.staticBucketTriangleMaterialIndexBuffer
+                : desc.buffers.staticTriangleMaterialIndexBuffer));
         RtPathTraceMaterialFeatureInputResources materialFeatureInputs;
         materialFeatureInputs.materialFeatureBuffer = desc.buffers.materialFeatureBuffer;
         materialFeatureInputs.materialFeatureParameterBuffer = desc.buffers.materialFeatureParameterBuffer;
@@ -1042,6 +1072,12 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(41));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(76));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(83));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(84));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(85));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(86));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(87));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(88));
     AddPathTraceMaterialFeatureInputLayoutBinding(
         bindingLayoutDesc,
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR);

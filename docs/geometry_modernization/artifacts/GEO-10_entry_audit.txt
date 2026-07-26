@@ -352,3 +352,49 @@ Only after that storage tuple is exact should live work add:
   old/new hit, material, emissive, and active-area comparison.
 
 The production monolithic static route remains unchanged and available.
+
+SHADER-ROUTE ABI FOUNDATION
+---------------------------
+The proposal's packed geometry retained material IDs but did not retain the
+material-table index consumed by primary-hit, alpha, decal, liquid, and DI
+surface helpers. That would have produced valid geometry with incorrect or
+missing materials after cutover.
+
+The corrected shadow ABI binds:
+
+  t83  checked active-bucket route records;
+  t84  full-map packed vertices;
+  t85  full-map absolute indexes;
+  t86  packed triangle class/flags;
+  t87  packed triangle material IDs;
+  t88  packed triangle material-table indexes.
+
+Each active triangle's material ID is resolved against the current material
+table. Any unresolved active index makes publication inexact and clears both
+the TLAS descriptor vector and route vector. Inactive resident triangles may
+carry the invalid sentinel until their area becomes active; they cannot enter
+the published active set.
+
+The material-index and route buffers have a separate upload signature including
+packed content, material generation, publication generation, resolved indexes,
+and route bytes. Unchanged frames reuse the upload. The primary producer now
+declares the exact 48-byte route record ABI, but no bucket instance is yet put
+in the production TLAS.
+
+Accepted bounded run:
+
+  geometry_geo195_auto.log
+  packed triangles / active triangles          50,108 / 4,777
+  resident / active / inactive buckets         56 / 3 / 53
+  active material indexes missing              0
+  settled TLAS descriptors / routes            3 / 3
+  shader-route GPU upload                       1
+  route publication generation                 9,491,606,576,403,629,953
+  all resident BLASes ready at frame 28        56 / 56
+  Vulkan binding/device errors                 0
+  shutdown                                     normal
+
+Build used the Vulkan release preset. Only
+pathtrace_primary_surface_producer.rt.bin was invalidated and regenerated;
+its SPIR-V mtime is newer than both shader edits. DXIL was neither invalidated
+nor deployed.

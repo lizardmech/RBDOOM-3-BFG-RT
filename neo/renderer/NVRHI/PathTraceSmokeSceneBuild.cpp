@@ -11771,6 +11771,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.buffers = smokeBuffers;
     bindingBuildDesc.skinnedSourceIndexBuffer =
         m_smokeGeometryUniverse.CanonicalSourceIndexBuffer();
+    bindingBuildDesc.staticBucketRouteRecordBuffer =
+        m_staticBucketGeometryUniverse.
+            StaticBucketRouteRecordBuffer();
+    bindingBuildDesc.staticBucketVertexBuffer =
+        m_staticBucketGeometryUniverse.StaticBucketVertexBuffer();
+    bindingBuildDesc.staticBucketIndexBuffer =
+        m_staticBucketGeometryUniverse.StaticBucketIndexBuffer();
+    bindingBuildDesc.staticBucketTriangleClassBuffer =
+        m_staticBucketGeometryUniverse.
+            StaticBucketTriangleClassBuffer();
+    bindingBuildDesc.staticBucketTriangleMaterialBuffer =
+        m_staticBucketGeometryUniverse.
+            StaticBucketTriangleMaterialBuffer();
+    bindingBuildDesc.staticBucketTriangleMaterialIndexBuffer =
+        m_staticBucketGeometryUniverse.
+            StaticBucketTriangleMaterialIndexBuffer();
     bindingBuildDesc.primarySurfaceHistoryBuffers = m_frameResources.primarySurfaceHistoryBuffers;
     bindingBuildDesc.enableTextureProbe = enableTextureProbe;
     bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
@@ -12408,6 +12424,69 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 assignmentPlan);
         const RtSmokeStaticBucketGeometryPackStats& packStats =
             geometryPack.stats;
+        std::unordered_map<uint32_t, uint32_t>
+            staticBucketMaterialIndexById;
+        staticBucketMaterialIndexById.reserve(
+            materialTable.materialIds.size());
+        for (uint32_t materialIndex = 0;
+            materialIndex < materialTable.materialIds.size();
+            ++materialIndex)
+        {
+            staticBucketMaterialIndexById.emplace(
+                materialTable.materialIds[materialIndex],
+                materialIndex);
+        }
+        std::vector<uint32_t> staticBucketMaterialIndexes(
+            geometryPack.triangleMaterials.size(),
+            UINT32_MAX);
+        for (size_t triangleIndex = 0;
+            triangleIndex <
+                geometryPack.triangleMaterials.size();
+            ++triangleIndex)
+        {
+            const auto materialIndex =
+                staticBucketMaterialIndexById.find(
+                    geometryPack.triangleMaterials[
+                        triangleIndex]);
+            if (materialIndex !=
+                staticBucketMaterialIndexById.end())
+            {
+                staticBucketMaterialIndexes[triangleIndex] =
+                    materialIndex->second;
+            }
+        }
+        int staticBucketMissingActiveMaterialIndexes = 0;
+        for (const RtSmokeStaticBucketPackedRecord& bucket :
+            geometryPack.buckets)
+        {
+            if (!bucket.active ||
+                bucket.range.triangleOffset < 0 ||
+                bucket.range.triangleCount <= 0)
+            {
+                continue;
+            }
+            const size_t firstTriangle =
+                static_cast<size_t>(
+                    bucket.range.triangleOffset);
+            const size_t endTriangle =
+                firstTriangle +
+                static_cast<size_t>(
+                    bucket.range.triangleCount);
+            if (endTriangle >
+                staticBucketMaterialIndexes.size())
+            {
+                staticBucketMissingActiveMaterialIndexes +=
+                    bucket.range.triangleCount;
+                continue;
+            }
+            staticBucketMissingActiveMaterialIndexes +=
+                static_cast<int>(std::count(
+                    staticBucketMaterialIndexes.begin() +
+                        firstTriangle,
+                    staticBucketMaterialIndexes.begin() +
+                        endTriangle,
+                    UINT32_MAX));
+        }
         const bool staticBucketSubmitBuilds =
             staticBucketBlasEnabled &&
             r_pathTracingGeometryStaticBucketBlasBuild.
@@ -12473,8 +12552,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                             staticGeometryGeneration,
                         staticBucketUniverseStats.
                             staticMaterialGeneration,
+                        staticBucketMissingActiveMaterialIndexes,
                         2u,
                         0x01u);
+        const bool staticBucketShaderRouteUploaded =
+            m_staticBucketGeometryUniverse.
+                UpdateStaticBucketShaderRouteGpuScaffold(
+                    device,
+                    commandList,
+                    geometryPack,
+                    staticBucketMaterialIndexes,
+                    staticBucketActivePublication);
         if (staticBucketAuditRequested ||
             staticBucketGpuStats.buffersCreated > 0 ||
             staticBucketGpuStats.bufferUploads > 0 ||
@@ -12489,7 +12577,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 DumpStaticBucketActivePublication(
                     staticBucketActivePublication);
             common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d maskValid=%d portalSteps=%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/tlas)=%llu/%llu/%llu/%llu routes(shaderSupport/blocked)=%d/%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
+                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d maskValid=%d portalSteps=%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/tlas)=%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
                 staticBucketSourceBuildStats.built ? 1 : 0,
                 staticBucketSourceBuildStats.cacheHit ? 1 : 0,
                 staticBucketActiveMaskValid ? 1 : 0,
@@ -12527,6 +12615,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     staticRoutesBlocked
                         ? 1
                         : 0,
+                staticBucketShaderRouteUploaded ? 1 : 0,
+                staticBucketMissingActiveMaterialIndexes,
                 static_cast<unsigned long long>(
                     staticBucketSourceGeneration),
                 static_cast<unsigned long long>(
