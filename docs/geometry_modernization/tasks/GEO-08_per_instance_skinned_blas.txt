@@ -71,15 +71,18 @@ material/count-ABI repairs have all received their required offline and live
 proof. D38 plus the final canonical-route-1 visual confirmation closes the
 last prerequisite for step 7.
 
-Step 7 has a structurally runtime-accepted, default-off comparison route. Every ray
+Step 7 is accepted. Every ray
 pipeline sharing the TLAS now owns legacy primary/shadow records 0/1 and
 skinned primary/shadow records 2/3. The pure planner emits no descriptor unless
 the prior CPU route, uploaded GPU route, live BLAS resource/state contract,
 both SBT selections, and the 512-instance capacity agree exactly. The live
 route uses identity transforms, mask 0x02, contribution 2, and retains the
 legacy dynamic BLAS. geometry_geo91_auto accepts 12/12 descriptors with zero
-failure buckets and exact update/rebuild stability. Visual/hit comparison is
-still pending; step 8 remains blocked.
+failure buckets and exact update/rebuild stability. The clean-DI/GI-off
+geometry_geo93_on / geometry_geo94_off routed-only A/B adds only the three
+prepared animated characters while retaining rigid props; exact route/triangle
+readback and 12/12 motion-ready inputs bind the presentation to its metadata.
+Step 8 is unblocked.
 
 FILES TO AUDIT FIRST
 --------------------
@@ -159,7 +162,7 @@ STEPS
    a fifteen-frame gap, and uses one yielding deferred-host-operation joiner.
    This mitigation is offline-only until a bounded user run reaches 16/16
    initialization without system input loss.
-7. OFFLINE COMPLETE; RUNTIME ACCEPTANCE PENDING. Add comparison TLAS routing while the merged dynamic BLAS remains live.
+7. ACCEPTED. Add comparison TLAS routing while the merged dynamic BLAS remains live.
    Record instance/primitive totals, sampled hit identities, bounds,
    material/triangle IDs, and motion inputs. A compare failure must select only
    the legacy route.

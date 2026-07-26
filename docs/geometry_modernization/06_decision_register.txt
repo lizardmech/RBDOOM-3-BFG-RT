@@ -656,7 +656,13 @@ the current rigid range can rebase those IDs between frames. Offline harness
 and release-build proof are accepted. geometry_geo91_auto accepts the runtime
 structural route: 12/12 descriptors, IDs 113..124, TLAS occupancy 125/512, all
 failure buckets zero, and exact update/rebuild stability. Presentation and
-routed-only hit/material/motion comparison remain pending.
+routed-only hit/material/motion comparison are accepted by the clean-DI/GI-off
+geometry_geo93_on / geometry_geo94_off A/B. Rigid props remain in both; the
+seated NPC and both Fatzombies appear only with comparison routing enabled.
+Exact GPU route/triangle readback and 12/12 motion-ready records bind that
+visual result to source primitive, material, emissive, current, and previous
+metadata. Step 8 may split CPU capture but may not weaken this all-or-nothing
+fallback contract.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

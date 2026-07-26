@@ -1,7 +1,6 @@
 GEO-08 - per-instance skinned BLAS entry audit
 ==============================================
-Status: steps 1-6 accepted; step 7 comparison TLAS structural route accepted
-at runtime, presentation/hit comparison pending.
+Status: steps 1-7 accepted; step 8 CPU-capture split is next.
 Date: 2026-07-26.
 Branch: restir-development.
 Entry checkpoint: 179127951.
@@ -1104,10 +1103,48 @@ initialization with only a six-second Pump warning.
 
 BOUNDARY AND NEXT
 -----------------
-Step 7 still needs presentation/hit acceptance. Compare gate off/on with the
-legacy dynamic BLAS retained, then use the existing routed-only view to verify
-skinned geometry, material, source primitive, and motion identity. The current
-headless automation surface could not capture or interact with the fullscreen
-window, so it cannot replace that visual/hit proof. Any future contract
-mismatch continues to suppress all skinned comparison descriptors. Step 8
-remains forbidden until the comparison evidence is archived.
+The first autonomous screenshot pair, geometry_geo92, was rejected because
+archived clean-DI state owned presentation. The images differed by only 0.13%
+and did not isolate the debug-mode-23 trace mask. The first clean-DI/GI-off
+control in geometry_geo93_off was also rejected because its post-load wait was
+consumed during map loading and the screenshot preceded the first PT dispatch.
+
+The accepted routed-only comparison is:
+
+  on:
+    log = geometry_geo93_on.log
+    screenshot =
+      base/screenshots/geometry_geo93_compare_on.png
+    smoke debug-mode-23 dispatch logged before capture
+    structural tuple = 12/12 descriptors, all failure buckets zero
+    visible routed skinned instances =
+      seated NPC plus two Fatzombie instances
+
+  off:
+    log = geometry_geo94_off.log
+    screenshot =
+      base/screenshots/geometry_geo94_compare_off.png
+    smoke debug-mode-23 dispatch logged before capture
+    comparison gate = 0
+    rigid routed props remain visible
+    all three animated characters are absent
+
+The images share the exact 2560x1441 camera. Compare-on adds 338,548 pixels
+where compare-off is the debug miss color; only 104 control-geometry pixels
+become misses, consistent with independent animation timing. The added
+characters have coherent posed silhouettes, normals, and distinct material
+coloration with no exploding or source-offset geometry.
+
+Together with:
+
+  exact CPU/upload/resource/BLAS/SBT route admission;
+  byte-exact 12-record / 15,962-triangle GPU readback, including material,
+    source primitive, canonical primitive, and emissive metadata;
+  motion-ready 12/12 with exact current/previous route records;
+  exact PerformUpdate and cadence-rebuild stability;
+
+this accepts GEO-08 step 7. Fail-closed behavior and the retained merged
+dynamic BLAS remain mandatory until step 8 separately proves the CPU-capture
+split. Step 8 is now unblocked; it must remove only accepted GPU-eligible
+skinned surfaces from merged CPU vertex/index capture and retain every named
+fallback class.

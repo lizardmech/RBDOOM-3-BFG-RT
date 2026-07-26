@@ -290,8 +290,13 @@ tuple is exact and retains the merged dynamic BLAS. Harness and Vulkan release
 build pass without shader changes. geometry_geo91_auto admits 12/12 exact
 comparison descriptors at IDs 113..124, with all failure buckets zero and TLAS
 occupancy 125/512; twelve exact updates and the frame-63 cadence rebuild also
-pass. Gate-off/on presentation and routed-only hit/material/motion comparison
-remain mandatory before step 8 may split CPU capture.
+pass. The accepted clean-DI/GI-off routed-only A/B then keeps rigid props in
+geometry_geo94_off while adding the seated NPC and both Fatzombies only in
+geometry_geo93_on. The comparison adds 338,548 non-miss pixels with coherent
+posed geometry, normals, and materials. Exact 12-record / 15,962-triangle
+readback plus 12/12 motion-ready routes close source primitive, material,
+emissive, and motion-input transport. Step 7 is accepted and step 8 may now
+begin the fail-closed CPU-capture split.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
