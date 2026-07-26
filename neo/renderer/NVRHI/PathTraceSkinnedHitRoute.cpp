@@ -655,6 +655,27 @@ PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
         static_cast<std::uint32_t>(build.records.size());
     const std::uint32_t triangleCount =
         static_cast<std::uint32_t>(build.triangles.size());
+    std::uint32_t previousPositionCount = 0;
+    for (const PtSkinnedHitRouteRecord& source : build.records)
+    {
+        if ((source.flags &
+                PT_SKINNED_HIT_ROUTE_HAS_PREVIOUS) == 0 ||
+            source.previousPositionOffset ==
+                PT_SKINNED_HIT_ROUTE_INVALID_INDEX)
+        {
+            continue;
+        }
+        const std::uint64_t previousEnd =
+            static_cast<std::uint64_t>(
+                source.previousPositionOffset) +
+            source.vertexCount;
+        if (previousEnd <= UINT32_MAX)
+        {
+            previousPositionCount = std::max(
+                previousPositionCount,
+                static_cast<std::uint32_t>(previousEnd));
+        }
+    }
     const bool routeRangeValid =
         routeCount == 0 ||
         static_cast<std::uint64_t>(firstShaderInstanceId) +
@@ -712,6 +733,8 @@ PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
                 source.outputStorageGeneration >> 32);
         record.routeCount = routeCount;
         record.triangleMetadataCount = triangleCount;
+        record.padding0 =
+            previousPositionCount;
         upload.records.push_back(record);
     }
 

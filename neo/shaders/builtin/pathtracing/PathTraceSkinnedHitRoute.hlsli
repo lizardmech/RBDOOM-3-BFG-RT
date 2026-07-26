@@ -31,6 +31,7 @@ struct PathTraceSkinnedHitRouteGpuRecord
     uint outputStorageGenerationHi;
     uint routeCount;
     uint triangleMetadataCount;
+    // Table-wide previous-position count in the reserved ABI word.
     uint padding0;
 };
 
@@ -191,6 +192,68 @@ static bool PathTraceLoadSkinnedHitRouteTriangleData(
     return outputVertexIndex0 >= route.outputVertexOffset &&
         outputVertexIndex1 >= route.outputVertexOffset &&
         outputVertexIndex2 >= route.outputVertexOffset;
+}
+
+static bool PathTraceLoadSkinnedHitRoutePreviousTriangleData(
+    uint instanceId,
+    uint primitiveIndex,
+    out PathTraceSkinnedHitRouteGpuRecord route,
+    out PathTraceSkinnedHitRouteGpuTriangle routeTriangle,
+    out uint currentVertexIndex0,
+    out uint currentVertexIndex1,
+    out uint currentVertexIndex2,
+    out uint previousVertexIndex0,
+    out uint previousVertexIndex1,
+    out uint previousVertexIndex2)
+{
+    previousVertexIndex0 = 0u;
+    previousVertexIndex1 = 0u;
+    previousVertexIndex2 = 0u;
+    if (!PathTraceLoadSkinnedHitRouteTriangleData(
+            instanceId,
+            primitiveIndex,
+            route,
+            routeTriangle,
+            currentVertexIndex0,
+            currentVertexIndex1,
+            currentVertexIndex2) ||
+        (route.flags & PT_SKINNED_HIT_ROUTE_HAS_PREVIOUS) == 0u ||
+        route.previousPositionOffset ==
+            PT_SKINNED_HIT_ROUTE_INVALID_INDEX)
+    {
+        return false;
+    }
+
+    const uint localIndex0 =
+        currentVertexIndex0 - route.outputVertexOffset;
+    const uint localIndex1 =
+        currentVertexIndex1 - route.outputVertexOffset;
+    const uint localIndex2 =
+        currentVertexIndex2 - route.outputVertexOffset;
+    if (localIndex0 >= route.vertexCount ||
+        localIndex1 >= route.vertexCount ||
+        localIndex2 >= route.vertexCount ||
+        route.previousPositionOffset >
+            PT_SKINNED_HIT_ROUTE_INVALID_INDEX - localIndex0 ||
+        route.previousPositionOffset >
+            PT_SKINNED_HIT_ROUTE_INVALID_INDEX - localIndex1 ||
+        route.previousPositionOffset >
+            PT_SKINNED_HIT_ROUTE_INVALID_INDEX - localIndex2)
+    {
+        return false;
+    }
+
+    previousVertexIndex0 =
+        route.previousPositionOffset + localIndex0;
+    previousVertexIndex1 =
+        route.previousPositionOffset + localIndex1;
+    previousVertexIndex2 =
+        route.previousPositionOffset + localIndex2;
+    const uint previousPositionCount =
+        SmokeSkinnedHitRouteRecords[0].padding0;
+    return previousVertexIndex0 < previousPositionCount &&
+        previousVertexIndex1 < previousPositionCount &&
+        previousVertexIndex2 < previousPositionCount;
 }
 #endif
 

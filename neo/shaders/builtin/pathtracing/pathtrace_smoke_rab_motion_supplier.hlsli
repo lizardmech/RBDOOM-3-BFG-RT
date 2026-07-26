@@ -72,28 +72,25 @@ bool TryPathTracePrimarySurfaceSkinnedObjectMotion(RAB_Surface surface, out floa
         uint vertexIndex0;
         uint vertexIndex1;
         uint vertexIndex2;
-        if (!PathTraceLoadSkinnedHitRouteTriangleData(
+        uint previous0;
+        uint previous1;
+        uint previous2;
+        if (!PathTraceLoadSkinnedHitRoutePreviousTriangleData(
                 surface.instanceId,
                 surface.primitiveIndex,
                 route,
                 routeTriangle,
                 vertexIndex0,
                 vertexIndex1,
-                vertexIndex2) ||
-            (route.flags & PT_SKINNED_HIT_ROUTE_HAS_PREVIOUS) == 0u ||
-            route.previousPositionOffset ==
-                PT_SKINNED_HIT_ROUTE_INVALID_INDEX)
+                vertexIndex2,
+                previous0,
+                previous1,
+                previous2))
         {
             return false;
         }
 
         debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_RANGE_MISMATCH;
-        const uint localIndex0 = vertexIndex0 - route.outputVertexOffset;
-        const uint localIndex1 = vertexIndex1 - route.outputVertexOffset;
-        const uint localIndex2 = vertexIndex2 - route.outputVertexOffset;
-        const uint previous0 = route.previousPositionOffset + localIndex0;
-        const uint previous1 = route.previousPositionOffset + localIndex1;
-        const uint previous2 = route.previousPositionOffset + localIndex2;
         if (previous0 >= PathTraceSkinnedPreviousPositionCount() ||
             previous1 >= PathTraceSkinnedPreviousPositionCount() ||
             previous2 >= PathTraceSkinnedPreviousPositionCount())

@@ -1,5 +1,6 @@
 #include "PathTraceSkinnedConsumerAudit.h"
 
+#include <algorithm>
 #include <unordered_map>
 
 namespace {
@@ -22,7 +23,8 @@ bool GpuRouteMatchesCpu(
     const PtSkinnedHitRouteRecord& cpu,
     const PathTraceSkinnedHitRouteGpuRecord& gpu,
     std::uint32_t routeCount,
-    std::uint32_t triangleCount)
+    std::uint32_t triangleCount,
+    std::uint32_t previousPositionCount)
 {
     return
         cpu.sourceIndexOffset == gpu.sourceIndexOffset &&
@@ -46,7 +48,9 @@ bool GpuRouteMatchesCpu(
                 gpu.outputStorageGenerationLo,
                 gpu.outputStorageGenerationHi) &&
         gpu.routeCount == routeCount &&
-        gpu.triangleMetadataCount == triangleCount;
+        gpu.triangleMetadataCount == triangleCount &&
+        gpu.padding0 ==
+            previousPositionCount;
 }
 
 bool GpuTriangleMatchesCpu(
@@ -132,6 +136,27 @@ PtSkinnedConsumerAuditStats PtAuditSkinnedConsumerContract(
     }
 
     std::unordered_map<std::uint64_t, std::size_t> emissiveOwners;
+    std::uint32_t routePreviousPositionCount = 0;
+    for (const PtSkinnedHitRouteRecord& route : cpu.records)
+    {
+        if ((route.flags &
+                PT_SKINNED_HIT_ROUTE_HAS_PREVIOUS) == 0 ||
+            route.previousPositionOffset ==
+                PT_SKINNED_HIT_ROUTE_INVALID_INDEX)
+        {
+            continue;
+        }
+        const std::uint64_t previousEnd =
+            static_cast<std::uint64_t>(
+                route.previousPositionOffset) +
+            route.vertexCount;
+        if (previousEnd <= UINT32_MAX)
+        {
+            routePreviousPositionCount = std::max(
+                routePreviousPositionCount,
+                static_cast<std::uint32_t>(previousEnd));
+        }
+    }
     for (std::size_t routeIndex = 0;
          routeIndex < cpu.records.size();
          ++routeIndex)
@@ -145,7 +170,8 @@ PtSkinnedConsumerAuditStats PtAuditSkinnedConsumerContract(
                 cpuRoute,
                 gpuRoute,
                 static_cast<std::uint32_t>(cpu.records.size()),
-                static_cast<std::uint32_t>(cpu.triangles.size())))
+                static_cast<std::uint32_t>(cpu.triangles.size()),
+                routePreviousPositionCount))
         {
             ++stats.routeUploadMismatch;
         }

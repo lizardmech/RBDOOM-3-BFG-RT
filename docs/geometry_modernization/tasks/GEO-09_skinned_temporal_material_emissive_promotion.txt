@@ -143,5 +143,17 @@ pass position, previous-position, motion, and four-channel UV comparison with
 zero UV error. Its selected legacy header matrix evaluates to identity in the
 accepted frame, so ordered-stage animation correctness is not claimed.
 
-Step 7 DI/GI/RR geometry-input comparison is next. Production traversal and
-skinned-emissive publication remain deferred to step 8.
+Step 7 is accepted by geometry_geo157_auto and geometry_geo159_auto. The audit
+fixed two geometry-input defects: primary smoke/producer shaders retained a
+144-byte skinned dispatch declaration after CPU/compute moved to 176 bytes,
+and resolved RR projected skinned secondary surfaces with camera-only motion.
+All declarations now retain the texture-matrix rows, while a bounded canonical
+route helper supplies exact current/previous triangle indices to primary and
+resolved-RR motion. The settled audit passes 4,801/4,801 exact primitives with
+zero hit or motion mismatch and 0.000305175781 maximum previous-position
+delta. Clean-DI view 16 constructs the corrected transmission/RR and
+RLU-current pipelines, validates 12 route records and 15,962 triangles, and
+shuts down normally. DI visibility and GI secondary reconstruction are
+structurally tied to the already-accepted canonical current geometry/material
+tuple. Production traversal and skinned-emissive publication remain deferred
+to step 8.

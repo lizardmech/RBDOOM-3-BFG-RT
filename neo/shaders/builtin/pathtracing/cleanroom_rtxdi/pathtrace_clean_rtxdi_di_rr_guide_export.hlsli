@@ -56,6 +56,95 @@ uint PathTraceCleanRtxdiDiResolvedSurfaceMotionSource(RAB_Surface surface)
     return 4u;
 }
 
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+bool PathTraceCleanRtxdiDiResolvedSurfaceBarycentrics(
+    float3 position,
+    float3 p0,
+    float3 p1,
+    float3 p2,
+    out float3 barycentrics)
+{
+    barycentrics = float3(0.0, 0.0, 0.0);
+    const float3 edge0 = p1 - p0;
+    const float3 edge1 = p2 - p0;
+    const float3 offset = position - p0;
+    const float d00 = dot(edge0, edge0);
+    const float d01 = dot(edge0, edge1);
+    const float d11 = dot(edge1, edge1);
+    const float d20 = dot(offset, edge0);
+    const float d21 = dot(offset, edge1);
+    const float denominator = d00 * d11 - d01 * d01;
+    if (abs(denominator) <= 1.0e-10)
+    {
+        return false;
+    }
+    const float inverseDenominator = 1.0 / denominator;
+    const float v =
+        (d11 * d20 - d01 * d21) * inverseDenominator;
+    const float w =
+        (d00 * d21 - d01 * d20) * inverseDenominator;
+    barycentrics = float3(1.0 - v - w, v, w);
+    return all(barycentrics == barycentrics);
+}
+
+bool PathTraceCleanRtxdiDiTryResolvedSkinnedPreviousPosition(
+    RAB_Surface surface,
+    out float3 previousWorldPosition)
+{
+    previousWorldPosition = float3(0.0, 0.0, 0.0);
+    if (surface.surfaceClass !=
+            RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED ||
+        !PathTraceIsSkinnedHitRouteInstance(surface.instanceId))
+    {
+        return false;
+    }
+
+    PathTraceSkinnedHitRouteGpuRecord route;
+    PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+    uint current0;
+    uint current1;
+    uint current2;
+    uint previous0;
+    uint previous1;
+    uint previous2;
+    if (!PathTraceLoadSkinnedHitRoutePreviousTriangleData(
+            surface.instanceId,
+            surface.primitiveIndex,
+            route,
+            routeTriangle,
+            current0,
+            current1,
+            current2,
+            previous0,
+            previous1,
+            previous2))
+    {
+        return false;
+    }
+
+    float3 barycentrics;
+    if (!PathTraceCleanRtxdiDiResolvedSurfaceBarycentrics(
+            surface.worldPos,
+            SmokeSkinnedCurrentVertices[current0].position.xyz,
+            SmokeSkinnedCurrentVertices[current1].position.xyz,
+            SmokeSkinnedCurrentVertices[current2].position.xyz,
+            barycentrics))
+    {
+        return false;
+    }
+
+    previousWorldPosition =
+        SmokeSkinnedPreviousPositions[previous0].
+            previousPosition.xyz * barycentrics.x +
+        SmokeSkinnedPreviousPositions[previous1].
+            previousPosition.xyz * barycentrics.y +
+        SmokeSkinnedPreviousPositions[previous2].
+            previousPosition.xyz * barycentrics.z;
+    return all(previousWorldPosition ==
+        previousWorldPosition);
+}
+#endif
+
 void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrMotion(
     uint2 pixel,
     RAB_Surface surface)
@@ -76,7 +165,27 @@ void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrMotion(
         return;
     }
 
-    const float3 delta = surface.worldPos - CleanRtxdiDiPrevCameraOriginAndValid.xyz;
+    float3 previousWorldPosition = surface.worldPos;
+#if !defined(RB_PT_SKINNED_HIT_ROUTE_LIGHTWEIGHT)
+    if (surface.surfaceClass ==
+            RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED &&
+        !PathTraceCleanRtxdiDiTryResolvedSkinnedPreviousPosition(
+            surface,
+            previousWorldPosition))
+    {
+        PathTraceMotionVectors[pixel] =
+            float4(0.0, 0.0, 0.0, 0.0);
+        PathTraceRRMotionVectors[pixel] =
+            float2(0.0, 0.0);
+        PathTraceMotionVectorMask[pixel] = sourceBits |
+            (RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS <<
+                PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT);
+        return;
+    }
+#endif
+    const float3 delta =
+        previousWorldPosition -
+        CleanRtxdiDiPrevCameraOriginAndValid.xyz;
     const float previousViewZ = dot(delta, CleanRtxdiDiPrevCameraForwardAndTanX.xyz);
     const float3 currentDelta = surface.worldPos - CleanRtxdiDiCameraOriginAndValid.xyz;
     const float currentViewZ = dot(currentDelta, CleanRtxdiDiCameraForwardAndTanX.xyz);

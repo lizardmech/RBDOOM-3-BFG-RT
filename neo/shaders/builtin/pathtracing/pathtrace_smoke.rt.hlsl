@@ -246,6 +246,8 @@ struct PathTraceSkinnedSurfaceDispatchRecord
     uint dynamicIndexOffset;
     uint dynamicTriangleOffset;
     uint triangleCount;
+    float4 texMatrix0;
+    float4 texMatrix1;
     float4 currentObjectToWorld0;
     float4 currentObjectToWorld1;
     float4 currentObjectToWorld2;

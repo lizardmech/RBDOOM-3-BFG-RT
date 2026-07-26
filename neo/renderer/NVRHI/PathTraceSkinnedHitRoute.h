@@ -129,6 +129,8 @@ struct PathTraceSkinnedHitRouteGpuRecord
     std::uint32_t outputStorageGenerationHi = 0;
     std::uint32_t routeCount = 0;
     std::uint32_t triangleMetadataCount = 0;
+    // Table-wide previous-position count. Reuses the reserved ABI word so
+    // ray pipelines can bounds-check without extending their cbuffers.
     std::uint32_t padding0 = 0;
 };
 

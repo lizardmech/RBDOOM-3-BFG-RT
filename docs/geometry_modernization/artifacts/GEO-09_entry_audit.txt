@@ -640,3 +640,123 @@ and authoritative GPU-output UV parity are accepted. The canonical producer no
 longer depends on a merged triangle offset to select its matrix. Step 7 DI/GI/
 RR geometry-input comparison is next. Production traversal/emissive
 publication remains owned by step 8.
+
+STEP 7 - DI/GI/RR GEOMETRY-INPUT AUDIT
+---------------------------------------
+The three consumers do not own equivalent geometry contracts:
+
+  clean DI direct visibility:
+    compact skinned any-hit loads canonical source-local material/class rows
+    and current output UVs for alpha/liquid rejection; closest hit is boolean
+    visibility only.
+
+  clean GI:
+    compact skinned closest hit transports InstanceID, source-local
+    PrimitiveIndex, hit T, and barycentrics. The producer reconstructs the
+    complete secondary surface from SmokeSkinnedCurrentVertices plus canonical
+    material ID/index/class. GI has no independent skinned previous-position
+    input in this path.
+
+  RR:
+    normal primary guides consume the already-accepted primary RAB_Surface and
+    shared motion supplier. Transmission/reflection PSR can replace that
+    primary with a secondary resolved surface, so this path must reconstruct
+    previous skinned position from the canonical route rather than assume
+    camera-only motion.
+
+The audit found two concrete mismatches.
+
+First, step 6 enlarged PathTraceSkinnedSurfaceDispatchRecord from 144 to 176
+bytes by inserting two texture-matrix rows. pathtrace_skinning.cs.hlsl and the
+CPU declaration matched, but pathtrace_smoke.rt.hlsl and
+pathtrace_primary_surface_producer.rt.hlsl still declared the old stride.
+Record zero was plausible while later records read the wrong bytes. The first
+step-7 probe, geometry_geo155_auto, exposed this exactly: canonical history was
+valid for 4,946 comparable samples while the stale legacy-dispatch reader was
+valid for only 20. Both shader declarations now contain texMatrix0/texMatrix1
+in the canonical ABI position.
+
+Second, PathTraceCleanRtxdiDiWriteResolvedSurfaceRrMotion classified resolved
+skinned surfaces as source kind 2 but projected surface.worldPos through both
+cameras. That is camera motion only and drops animation/deformation. The
+reserved final word in PathTraceSkinnedHitRouteGpuRecord now carries the
+table-wide bounded previous-position count. A shared checked helper resolves
+the current and previous triangle vertex indices from canonical instance and
+source-local primitive identity. Both the accepted primary motion supplier and
+resolved RR consume this helper. Resolved RR reconstructs barycentrics on the
+current triangle, interpolates the previous output positions, and fail-closes
+the motion mask if any route/history check fails.
+
+STEP 7 ACCEPTED RUNTIME
+-----------------------
+Final numeric log:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo157_auto.log
+
+Prepared doom3_1 scene, settled frame 122:
+
+  canonical skinned hits:                              5,200
+  closer legacy static occluders:                        399
+  comparable / exact mapped primitive:             4,801 / 4,801
+  legacy / canonical motion-valid:                 4,801 / 4,801
+  motion-valid / status / previous mismatches:          0 / 0 / 0
+  all hit-plus-motion mismatch buckets:                         0
+  max previous-position delta:                    0.000305175781
+  tuple / basis tolerances:                             1e-3 / 1e-2
+  accepted / motionAccepted:                              1 / 1
+
+geometry_geo156_auto first restored 4,959/4,959 motion-valid pairs with zero
+motion mismatches after the stride repair. Its combined hit verdict alone was
+false because one ray on a shared edge selected adjacent legacy primitive
+10092 instead of mapped primitive 10093 at identical hit T. The settled
+geometry_geo157_auto sample removes that coincidence and is the acceptance
+artifact.
+
+Final clean-DI/RR pipeline log:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo159_auto.log
+
+View 16 constructs the clean initial/temporal/spatial production pipelines,
+the corrected 1,902,436-byte transmission producer, and the corrected
+RLU-current variant. The route-ready dump reports the expected 2,560x1,440
+production route; canonical skinned GPU route readback passes 12 records and
+15,962 triangles exactly. Renderer, Streamline, game, and event shutdown are
+normal with no fatal, device-removed, Vulkan, NVRHI, or validation error.
+
+The prepared view does not prove that a sampled glass/reflection pixel selected
+a skinned secondary hit. Step 7 therefore claims numeric proof for the exact
+shared current/previous geometry inputs and structural proof for the resolved
+RR call path, not a scene-specific behind-glass visual quality result.
+
+STEP 7 BUILD AND DEPLOY
+-----------------------
+  preset:
+    cmake --build --preset win64-pt-dev-release
+
+  result:
+    PASS
+
+  executable SHA-256:
+    3DD8A3B1F1960C615052383C2C8E9A91FC974006C0F6045F7C39F84EFA376BBE
+
+  rebuilt and deployed Vulkan SPIR-V:
+    pathtrace_smoke.rt.bin
+      DFF943A469FFC677A8FDAF4E71DD9F0FA635444122A5180C4C45B92A374FC153
+    pathtrace_primary_surface_producer.rt.bin
+      2F1FB6FB18E2B28C02879C2FFF26D2F8DC1A309EAF72F1C40DCDC08DDA5B924B
+    cleanroom_rtxdi/pathtrace_clean_rtxdi_di_transmission_producer.rt.bin
+      FA6B43C949BEEADF7E3B4E87296FDA01B3E246A67A8AA5A457A1446EB51B65D7
+    pathtrace_restir_pdf_nee_rlu_current.rt.bin
+      69A5F3A4EAB28731AFC0A5744B7BCE51577D8E8B9D21F58D27FE5BB4AE60E46C
+
+Every affected SPIR-V timestamp is newer than its direct/include edit. Only
+Vulkan blobs were rebuilt and deployed; no DX12 shader was compiled or copied.
+
+STEP 7 DISPOSITION
+------------------
+DI visibility, GI secondary reconstruction, primary RR guides, and resolved
+RR skinned-history input are accepted at the geometry contract. Step 8 may
+promote only the surfaces that pass the complete funnel and must keep explicit
+fallback counters. Live skinned-emissive publication remains part of step 8.

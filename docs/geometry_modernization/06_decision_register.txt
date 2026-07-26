@@ -879,6 +879,29 @@ selected legacy header is identity in that frame, so ordered-stage animation
 correctness is not inferred. Unsafe descriptor rows, including the known
 Fatzombie class, remain a separate material defect.
 
+D47. SHARE BOUNDED SKINNED HISTORY WITH RESOLVED RR AND KEEP ONE DISPATCH ABI
+-----------------------------------------------------------------------------
+Decision: the reserved final word of PathTraceSkinnedHitRouteGpuRecord carries
+the table-wide previous-position bound. Current/previous triangle-index
+resolution is one checked route helper consumed by primary motion and
+clean-DI resolved RR. A resolved skinned surface must interpolate its previous
+world position from canonical previous output; camera-only reprojection is not
+accepted. Missing route/history data fail-closes motion validity.
+
+Every declaration of PathTraceSkinnedSurfaceDispatchRecord must retain the
+176-byte CPU/compute layout, including texMatrix0/texMatrix1 before transform
+rows. A matching field offset is insufficient because StructuredBuffer array
+stride is part of the shader ABI. geometry_geo155_auto demonstrated the
+record-zero trap; later records silently read the wrong stride.
+
+geometry_geo157_auto accepts 4,801/4,801 exact mapped motion pairs with zero
+validity, status, or previous-position mismatch and 0.000305175781 maximum
+previous-position delta. geometry_geo159_auto constructs the final clean-DI
+view-16 transmission/RR and RLU-current pipelines, validates 12 route records
+and 15,962 triangles, and shuts down normally. This accepts the shared
+geometry-input contract; it does not claim a scene-specific behind-glass
+skinned visual test.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
@@ -898,9 +921,9 @@ DISPOSITION OF 04_open_questions.txt
       scaffold with each retired route in GEO-13.
   Q15 PARTIALLY RESOLVED: IDs admitted; texture descriptor defect is separate.
   Q16 RESOLVED by D43/D44: primary tuple, motion, and reset policy accepted.
-  Q17 PARTIALLY RESOLVED by D45/D46: GPU-output construction/remap and
-      material/dynamic-state comparison accepted; production publication
-      remains mandatory in GEO-09 step 8.
+  Q17 PARTIALLY RESOLVED by D45/D46/D47: GPU-output construction/remap,
+      material/dynamic-state, and DI/GI/RR geometry-input comparison accepted;
+      production publication remains mandatory in GEO-09 step 8.
   Q18 OPEN and elevated by the PT-only failure, owned by GEO-01/GEO-11.
 
 DEFERRED OUTSIDE THIS PACKET

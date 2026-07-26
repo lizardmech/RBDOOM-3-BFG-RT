@@ -418,8 +418,18 @@ normal UV.zw. One Lost Soul matrix-bearing dispatch covers 86 vertices; all 24
 GPU samples pass position, motion, and four-channel UV comparison with zero UV
 error. The selected live header matrix is identity in the accepted frame, so
 this is parity evidence rather than an ordered-stage animation-quality claim.
-Step 7 DI/GI/RR geometry-input comparison is next. Q17 production publication
-remains open until step 8.
+
+GEO-09 step 7 is accepted by geometry_geo157_auto and geometry_geo159_auto.
+The audit found and repaired a stale 144-byte dispatch declaration in the
+primary smoke and primary-surface producer shaders after CPU/compute moved to
+176 bytes. It also replaced resolved-RR camera-only motion for canonical
+skinned hits with checked previous-position reconstruction from the shared
+route. The settled same-ray run accepts 4,801/4,801 exact primitives with zero
+hit or motion mismatch; clean-DI view 16 constructs the corrected
+transmission/RR and RLU-current pipelines and exits normally. DI visibility
+and GI secondary reconstruction consume the same accepted canonical
+material/current-vertex tuple. Step 8 production traversal and live
+skinned-emissive publication are next; Q17 remains open until that cutover.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
