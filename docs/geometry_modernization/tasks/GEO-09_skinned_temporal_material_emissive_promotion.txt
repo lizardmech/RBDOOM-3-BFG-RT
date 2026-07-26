@@ -79,6 +79,20 @@ both views. The focused injected-failure harness passes.
 
 The inventory also confirms the open Q17 boundary: the live emissive inventory
 still explicitly skips all skinned triangles. No emissive behavior changes in
-this slice. Step 2/3's bounded same-ray primary-hit tuple comparison is next;
-motion scenario validation and canonical GPU-output emissive harvesting remain
-open.
+this slice.
+
+Steps 2/3 are accepted by geometry_geo134_auto. The default-zero mode-58 audit
+samples 57,600 exact legacy/canonical ray pairs and maps 4,867/4,867
+unobstructed canonical skinned hits to the exact legacy primitive. All numeric,
+material, and triangle-class mismatch buckets are zero under declared 1e-3
+tuple and 1e-2 normalized-basis tolerances. GPU vertex parity passes 24/24 at
+0.0000152587891 maximum error when authoritative mode 2 retains the exact
+renderer joint-cache snapshot.
+
+The audit found and fixed one real metadata mismatch: source-only skinned
+triangles lost RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF. The canonical skinned
+capture record now transports the evaluated per-surface class/flag tuple
+without legacy offsets.
+
+Step 4 motion/history scenario validation is next. Canonical GPU-output
+emissive harvesting and temporal remap remain open for step 5.

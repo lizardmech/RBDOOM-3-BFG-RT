@@ -39,7 +39,8 @@ inline bool PathTraceDebugModeUsesRigidRoute(int debugMode)
     return (debugMode >= 23 && debugMode <= 25) ||
         (debugMode >= 39 && debugMode <= 43) ||
         (debugMode >= 47 && debugMode <= 49) ||
-        debugMode == 52;
+        debugMode == 52 ||
+        debugMode == 58;
 }
 
 inline bool PathTraceDebugModeRemovesRoutedRigidDynamic(int debugMode)

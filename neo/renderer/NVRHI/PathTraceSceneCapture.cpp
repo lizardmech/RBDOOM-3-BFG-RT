@@ -1167,6 +1167,11 @@ void AddSmokeSkinnedSurfaceRecord(
     record.modelSurfaceIndex = drawSurf->modelSurfaceIndex;
     record.modelName = renderEntity && renderEntity->hModel ? renderEntity->hModel->Name() : "<none>";
     record.materialId = materialId;
+    record.triangleClassAndFlags =
+        surfaceClassId |
+        (SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf)
+            ? 0u
+            : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
     if (verticesFromFrameCache)
     {
         record.jointCount = renderEntity ? renderEntity->numJoints : 0;

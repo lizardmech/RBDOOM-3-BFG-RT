@@ -982,7 +982,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     int routedRigidDynamicPromotedEmissive = 0;
     int routedRigidDynamicReadyByMesh = 0;
     int routedRigidDynamicReadyByResident = 0;
-    const int requestedDebugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
+    const int requestedDebugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 58, r_pathTracingDebugMode.GetInteger()));
     const bool routeMode18 = requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0;
     const bool routeResidencyV2Mode =
         r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&

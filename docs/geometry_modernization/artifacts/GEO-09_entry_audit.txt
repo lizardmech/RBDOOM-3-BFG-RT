@@ -181,3 +181,125 @@ Next:
   - validate motion/history reset scenarios;
   - then implement a shadow canonical skinned emissive inventory sourced from
     GPU output and compare its temporal remap.
+
+SAME-RAY PRIMARY-HIT AUDIT
+--------------------------
+Step 2/3 adds default-zero:
+
+  r_pathTracingGeometrySkinnedHitAudit 1
+  r_pathTracingDebugMode 58
+
+Mode 58 samples one adjacent legacy/canonical pixel pair per 8x8 block. Both
+pixels reconstruct the exact same ray at the pair midpoint. The legacy pixel
+traces mask 0x01; the canonical pixel traces mask 0x02. Numeric payloads are
+compacted into the existing primary-surface history buffer, so no shader ABI,
+descriptor, or pipeline binding changes were required. At 2560x1440 the audit
+copies 57,600 pairs / 20,275,200 bytes rather than the full 648,806,400-byte
+history.
+
+Each canonical skinned hit is mapped through InstanceID and source-local
+PrimitiveIndex to the independent legacy-backed shadow. Static geometry that
+occludes the canonical-only ray is counted separately. Only unobstructed
+exact-primitive pairs enter tuple comparison. The compared fields are:
+
+  hit T and world position;
+  geometric and shading normal;
+  tangent and bitangent;
+  UV and normal-map UV;
+  barycentrics;
+  material ID, table index, subtype, and surface class;
+  triangle class/flags.
+
+Declared tolerances:
+
+  tuple/position/geometric/UV/barycentric: 1e-3 max component
+  normalized shading/tangent/bitangent:    1e-2 max component
+
+The wider basis tolerance covers independent CPU/GPU weighted normalization.
+The accepted run's worst basis delta is 0.00529411435; its position and
+barycentric maxima are 0.000305175781 and 0.000289946795.
+
+FIRST MISMATCH FOUND AND FIXED
+------------------------------
+geometry_geo130_auto proved 5,264 canonical skinned samples but every exact
+pair disagreed in triangle flags. The source-only producer kept only surface
+class 2 and dropped RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF (0x00040000), while
+legacy triangles carried 0x00040002. `RtSmokeSkinnedSurfaceRecord` now captures
+the already-evaluated per-surface class/flag tuple, and source-only route
+metadata consumes it without consulting legacy merged offsets.
+
+JOINT-SOURCE ORACLE REQUIREMENT
+-------------------------------
+geometry_geo132_auto intentionally cross-checked mode 1 without an exact CPU
+snapshot. GPU skinning parity failed 14/24 current samples at 0.116073608 max,
+and the hit audit showed corresponding animated-surface deltas. This is a
+same-frame oracle skew: the retained CPU bridge and renderer joint-cache copy
+did not consume byte-identical joint matrices.
+
+For acceptance, authoritative mode 2 is mandatory. It retains the exact
+frame-owned CPU snapshot corresponding to the renderer joint-cache upload.
+geometry_geo134_auto then proves:
+
+  joint-cache copies:                         12 / 28,320 bytes
+  CPU-vs-GPU skinning parity:                 PASS, 24/24 samples
+  maximum GPU vertex error:                  0.0000152587891
+  sampled ray pairs:                         57,600
+  canonical skinned hits:                    5,264
+  legacy-closer static occluders:             397
+  comparable / exact mapped primitive:       4,867 / 4,867
+  all 13 hit-tuple mismatch buckets:         0
+  accepted:                                  1
+
+The accepted gates were:
+
+  r_pathTracingGpuSkinning 1
+  r_pathTracingGpuSkinningParityDump 1
+  r_pathTracingGeometryAuthoritativeGpuSkinning 2
+  r_pathTracingGeometryShadowRegistry 1
+  r_pathTracingGeometrySkinnedTlasCompare 1
+  r_pathTracingGeometrySkinnedCaptureSplit 0
+  r_pathTracingGeometrySkinnedHitAudit 1
+  r_pathTracingDebugMode 58
+  clean DI/GI disabled
+
+The game completed normal renderer/game/event shutdown with no fatal,
+device-removed, Vulkan, NVRHI, validation, or crash marker.
+
+STEP 2/3 BUILD AND DEPLOY
+-------------------------
+  focused harnesses:
+    PathTraceSkinnedConsumerAuditHarness: PASS
+    PathTraceSkinnedHitRouteHarness: PASS
+
+  preset:
+    cmake --build --preset win64-pt-dev-release
+
+  result:
+    PASS
+
+  Vulkan shader:
+    pathtrace_smoke.rt.bin
+    source edit: 2026-07-26T04:51:15.3110781Z
+    rebuilt blob: 2026-07-26T04:52:19.1596948Z
+    rebuilt newer than source: yes
+
+  The shared source also rebuilt:
+    pathtrace_restir_pdf_nee_rlu_current.rt.bin
+
+  No DX12 shader was compiled or deployed.
+
+  final executable SHA-256 after logging-only cleanup, build and deployed:
+    C851B3460486D2B77AFF37DD0B2FCB72BA5A823B24E3F87DB246EE6D13865796
+
+  Vulkan SPIR-V SHA-256:
+    pathtrace_smoke.rt.bin
+      037C1D6309EC3E0B12B1C61A68AF4C7F974F05743858504FA3AF422A0F1BF43E
+    pathtrace_restir_pdf_nee_rlu_current.rt.bin
+      D7704B958217BE893731067BF61D5514653DCB160F8253957E6E79FBCACECB69
+
+STEP 2/3 DISPOSITION
+--------------------
+Primary-hit geometry/material/class parity is accepted for the prepared
+animated scene under an exact joint-source oracle. Q16 remains open for the
+motion/history scenarios in step 4. Q17 remains open for canonical
+GPU-output emissive inventory and remap in step 5.

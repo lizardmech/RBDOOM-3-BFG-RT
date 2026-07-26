@@ -702,3 +702,20 @@ GEO-09 SKINNED CONSUMER ENTRY AUDIT
   surface class. Canonical skinned geometry therefore produces no emissive
   triangle/unified-light records. This is unchanged legacy behavior, not an
   accepted GEO-09 final state.
+- geometry_geo134_auto accepts the GEO-09 paired same-ray primary-hit audit.
+  Mode 58 samples 57,600 exact legacy/canonical ray pairs without extending
+  the shader ABI. Of 5,264 canonical skinned hits, 397 are correctly classified
+  as hidden by closer static geometry in the legacy mask; all remaining 4,867
+  pairs map to the exact legacy primitive. Material ID/index/subtype/class and
+  triangle class/flags agree, and all thirteen tuple mismatch buckets are zero.
+- The audit found and fixed a source-only metadata loss:
+  RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF was absent from canonical skinned
+  triangles. The already-evaluated per-surface class/flag tuple is now retained
+  by `RtSmokeSkinnedSurfaceRecord` and transported without legacy offsets.
+- Same-ray acceptance requires authoritative mode 2's exact renderer
+  joint-cache snapshot. Mode 1's diagnostic CPU oracle can observe a different
+  joint source on actively animated surfaces (geometry_geo132_auto:
+  14/24 failures, max 0.116073608). With mode 2, GPU vertex parity passes
+  24/24 at 0.0000152587891 max. Hit/position/geometric/UV/barycentric maxima
+  remain below 0.001; normalized shading/tangent basis remains below the
+  declared 0.01 tolerance (max 0.00529411435).

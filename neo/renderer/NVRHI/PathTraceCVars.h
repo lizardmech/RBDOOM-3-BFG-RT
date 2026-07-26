@@ -68,6 +68,7 @@ extern idCVar r_pathTracingGeometrySkinnedCaptureSplit;
 extern idCVar r_pathTracingGeometrySkinnedCaptureRouteSetLimit;
 extern idCVar r_pathTracingGeometrySkinnedTiming;
 extern idCVar r_pathTracingGeometrySkinnedConsumerAudit;
+extern idCVar r_pathTracingGeometrySkinnedHitAudit;
 extern idCVar r_pathTracingGeometryResidencyV2;
 extern idCVar r_pathTracingEntityFeed;
 extern idCVar r_pathTracingEntityFeedDump;

@@ -3032,6 +3032,61 @@ void StoreStaticContractPrimarySurfaceRecord(
     PrimarySurfaceHistoryCurrent[index] = record;
 }
 
+void StoreSkinnedHitAuditRecord(
+    uint auditIndex,
+    uint routeKind,
+    RayDesc ray,
+    PathTraceSmokePayload payload)
+{
+    if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY))
+    {
+        return;
+    }
+
+    if (auditIndex >= PathTracePrimarySurfaceHistoryCount())
+    {
+        return;
+    }
+
+    PathTracePrimarySurfaceRecord record = (PathTracePrimarySurfaceRecord)0;
+    const bool valid =
+        payload.value != 0u &&
+        !SmokePayloadIsGuiScreen(payload);
+    record.header = uint4(
+        RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION,
+        valid ? RT_PRIMARY_SURFACE_VALID : 0u,
+        routeKind,
+        valid ? payload.triangleClassAndFlags : 0u);
+    if (valid)
+    {
+        record.worldPositionAndViewDepth =
+            float4(ray.Origin + ray.Direction * payload.hitT, payload.hitT);
+        record.geometricNormalAndRoughness =
+            float4(payload.geometricNormal, 0.0);
+        record.shadingNormalAndOpacity =
+            float4(payload.normal, 0.0);
+        record.viewDirectionAndReserved =
+            float4(payload.tangent, 0.0);
+        record.albedoAndAlphaCutoff =
+            float4(payload.bitangent, 0.0);
+        record.specularF0AndReserved =
+            float4(payload.texCoord, payload.normalTexCoord);
+        record.emissiveAndHeight =
+            float4(payload.hitBarycentrics, 0.0, 0.0);
+        record.materialAndSurface = uint4(
+            payload.materialId,
+            payload.materialIndex,
+            payload.translucentSubtype,
+            payload.surfaceClass);
+        record.instancePrimitiveObject = uint4(
+            payload.instanceId,
+            payload.primitiveIndex,
+            payload.geometryIndex,
+            routeKind);
+    }
+    PrimarySurfaceHistoryCurrent[auditIndex] = record;
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -3070,6 +3125,66 @@ void RayGen()
     if (debugMode == 22u)
     {
         SmokeOutput[pixel] = RenderSmokeBoundsWireframeBoxes(ray.Origin, ray.Direction);
+        return;
+    }
+
+    if (debugMode == 58u)
+    {
+        // Adjacent pixels trace one identical ray: even pixels retain the
+        // legacy static/merged-dynamic mask and odd pixels select the routed
+        // rigid/skinned mask. Sample one pair per 8x8 block and compact those
+        // tuples into the prefix of the existing history buffer.
+        const uint2 pairPixel = uint2(pixel.x & ~1u, pixel.y);
+        const bool auditSample =
+            (pairPixel.x & 7u) == 0u &&
+            (pairPixel.y & 7u) == 0u &&
+            pairPixel.x + 1u < fullDimensions.x;
+        if (!auditSample)
+        {
+            SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+        const float2 pairUv =
+            (float2(pairPixel) + float2(1.0, 0.5)) /
+            float2(fullDimensions);
+        const float2 pairNdc = pairUv * 2.0 - 1.0;
+        RayDesc pairRay = ray;
+        pairRay.Direction = normalize(
+            CameraForwardAndTanX.xyz +
+            CameraLeftAndTanY.xyz *
+                (-pairNdc.x * CameraForwardAndTanX.w) +
+            CameraUpAndDebugMode.xyz *
+                (-pairNdc.y * CameraLeftAndTanY.w));
+
+        const bool canonicalRoute = (pixel.x & 1u) != 0u;
+        const uint auditPairWidth =
+            (fullDimensions.x + 6u) / 8u;
+        const uint auditPairIndex =
+            (pairPixel.y / 8u) * auditPairWidth +
+            pairPixel.x / 8u;
+        const uint auditIndex =
+            auditPairIndex * 2u +
+            (canonicalRoute ? 1u : 0u);
+        PathTraceSmokePayload auditPayload = InitSmokePayload();
+        TraceRay(
+            SmokeScene,
+            RAY_FLAG_NONE,
+            canonicalRoute ? 0x02u : 0x01u,
+            0,
+            1,
+            0,
+            pairRay,
+            auditPayload);
+        StoreSkinnedHitAuditRecord(
+            auditIndex,
+            canonicalRoute ? 2u : 1u,
+            pairRay,
+            auditPayload);
+        SmokeOutput[pixel] = auditPayload.value != 0u
+            ? (canonicalRoute
+                ? float4(0.0, 0.35, 1.0, 1.0)
+                : float4(1.0, 0.35, 0.0, 1.0))
+            : float4(0.0, 0.0, 0.0, 1.0);
         return;
     }
 

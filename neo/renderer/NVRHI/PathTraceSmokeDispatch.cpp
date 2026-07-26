@@ -4272,7 +4272,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
 
-    int debugMode = standaloneDebugRouteRequested ? 0 : NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
+    int debugMode = standaloneDebugRouteRequested ? 0 : NormalizePathTraceDebugMode(idMath::ClampInt(0, 58, r_pathTracingDebugMode.GetInteger()));
     m_frameResources.settings.debugMode = debugMode;
     if (PathTraceDebugModeNeedsTextureTable(debugMode) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
@@ -5155,6 +5155,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint64 dispatchRaysCompleteUs = Sys_Microseconds();
     ExecutePathTraceParticleComposite(commandList, viewDef);
     QueueStaticContractShaderSample(commandList);
+    QueueSkinnedHitAuditSamples(commandList);
     if (requestedLiquidPoolMode != 0 && liquidPoolTelemetryReady)
     {
         nvrhi::utils::BufferUavBarrier(commandList, m_liquidPoolStatusBuffer);

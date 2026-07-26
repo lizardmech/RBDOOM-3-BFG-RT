@@ -375,9 +375,18 @@ all 15,962 source-local triangles to the retained merged-dynamic material ID,
 material index, and class tuple. CPU/GPU upload, TLAS, material-table, current/
 previous range, primitive identity, and emissive identity checks have zero in
 all thirteen failure buckets. The entry audit confirms that live emissive
-harvesting still explicitly skips skinned triangles; primary-hit tuple parity
-is next, while canonical GPU-output emissive harvesting remains a later
-GEO-09 step.
+  harvesting still explicitly skips skinned triangles.
+
+GEO-09 steps 2/3 are accepted by geometry_geo134_auto. Debug mode 58 compacts
+57,600 same-ray legacy/canonical pairs from the 2560x1440 prepared animated
+scene. The exact renderer joint-cache snapshot first passes 24/24 GPU-skinning
+samples at 0.0000152587891 maximum error. The ray audit observes 5,264
+canonical skinned hits, classifies 397 closer legacy static occluders, and
+maps all remaining 4,867 hits to the exact legacy primitive. All numeric,
+material, and triangle-class mismatch buckets are zero. The audit also fixed
+the source-only loss of RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF. Motion/history
+scenario validation is next; canonical GPU-output emissive harvesting remains
+a later GEO-09 step.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

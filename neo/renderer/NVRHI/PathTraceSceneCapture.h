@@ -275,6 +275,7 @@ struct RtSmokeSkinnedSurfaceRecord
     int modelSurfaceIndex = -1;
     idStr modelName;
     uint32_t materialId = 0;
+    uint32_t triangleClassAndFlags = 0;
     uint32_t invalidReasonFlags = RT_SMOKE_SKINNED_INVALID_NONE;
     uint32_t temporalStateFlags = 0;
     int jointCount = 0;

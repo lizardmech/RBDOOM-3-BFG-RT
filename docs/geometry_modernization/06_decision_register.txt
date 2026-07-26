@@ -781,6 +781,32 @@ Do not promote skinned emissives from CPU capture: the accepted target must
 consume canonical mesh-local primitives, per-instance identity, and current
 GPU-skinned output without restoring CPU skinning.
 
+D43. GEO-09 SAME-RAY ACCEPTANCE REQUIRES AN EXACT JOINT-SOURCE ORACLE
+--------------------------------------------------------------------
+Decision: retain debug mode 58 and
+`r_pathTracingGeometrySkinnedHitAudit` as a default-zero bounded pair audit.
+Adjacent pixels reconstruct the same ray and use disjoint legacy/canonical
+masks. One pair per 8x8 block is compacted into the existing primary-surface
+buffer; no production shader ABI or descriptor is added.
+
+Compare numeric shading tuples only after canonical InstanceID/source-local
+PrimitiveIndex maps to the exact legacy primitive. Classify a closer legacy
+static hit as an occluder rather than a mismatch. Accept hit T, world position,
+geometric normal, UVs and barycentrics at 1e-3 max-component error; accept
+independently normalized shading/tangent/bitangent vectors at 1e-2.
+
+Do not use authoritative mode 1's live CPU bridge as the final parity oracle
+for animated surfaces. geometry_geo132_auto proves it can differ from the
+renderer joint-cache upload by 0.116073608. Mode 2's frame-owned snapshot binds
+both paths to the same uploaded joints. geometry_geo134_auto then passes GPU
+vertex parity at 0.0000152587891 and 4,867/4,867 exact-primitive ray pairs with
+zero tuple, material, or triangle-flag mismatches.
+
+The comparison also found that source-only skinned metadata dropped
+RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF. Preserve the already-evaluated
+per-surface class/flag tuple in the canonical skinned capture record; do not
+recover it from legacy offsets.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
@@ -799,7 +825,7 @@ DISPOSITION OF 04_open_questions.txt
   Q14 RESOLVED: retain funnel totals and bounded samples; delete duplicate
       scaffold with each retired route in GEO-13.
   Q15 PARTIALLY RESOLVED: IDs admitted; texture descriptor defect is separate.
-  Q16 OPEN and mandatory, owned by GEO-09.
+  Q16 PARTIALLY RESOLVED: primary tuple accepted; motion scenarios remain.
   Q17 OPEN and mandatory, owned by GEO-09.
   Q18 OPEN and elevated by the PT-only failure, owned by GEO-01/GEO-11.
 

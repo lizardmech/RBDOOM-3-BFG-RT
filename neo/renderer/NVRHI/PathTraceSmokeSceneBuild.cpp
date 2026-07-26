@@ -4055,7 +4055,7 @@ PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
         candidate.instanceKey = record.canonicalInstance;
         candidate.fallbackMaterialId = record.materialId;
         candidate.fallbackTriangleClassAndFlags =
-            record.key.surfaceClassId;
+            record.triangleClassAndFlags;
         candidate.previousPositionOffset =
             dispatch.previousPositionOffset;
         candidate.previousPositionCount =
@@ -5948,7 +5948,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
-    const int requestedDebugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
+    const int requestedDebugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 58, r_pathTracingDebugMode.GetInteger()));
     const int cleanRtxdiDiSceneBuildView = r_pathTracingCleanRtxdiDiView.GetInteger();
     const int cleanRtxdiDiSceneBuildResolveView =
         (cleanRtxdiDiSceneBuildView >= 18 && cleanRtxdiDiSceneBuildView <= 23) ? 16 : cleanRtxdiDiSceneBuildView;
@@ -9590,7 +9590,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             canonicalSkinnedSourceOutputRoute,
             canonicalSkinnedSourceOutputRoute);
     const PtSkinnedHitRouteBuild skinnedHitRouteLegacyAuditShadow =
-        r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0
+        (r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0 ||
+            r_pathTracingGeometrySkinnedHitAudit.GetInteger() != 0)
             ? BuildSmokeSkinnedHitRouteShadow(
                 currentSkinnedSurfaceRecords,
                 skinnedGpuScaffold.dispatchRecords,
@@ -10055,6 +10056,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 SmokeSkinnedCaptureInstanceWasOmitted(
                     currentSkinnedSurfaceRecords,
                     route.instanceKey);
+            const bool skinnedHitAuditActive =
+                requestedDebugMode == 58 &&
+                r_pathTracingGeometrySkinnedHitAudit.
+                    GetInteger() != 0;
             instanceDesc
                 .setInstanceID(route.shaderInstanceId)
                 // A newly enlarged source-only route set can pass the full
@@ -10062,7 +10067,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 // remain visible. Keep those extras in the TLAS at mask zero
                 // for this pre-admission frame so they cannot double-trace.
                 .setInstanceMask(
-                    cpuCaptureOmitted
+                    (cpuCaptureOmitted ||
+                        skinnedHitAuditActive)
                         ? route.instanceMask
                         : 0u)
                 .setInstanceContributionToHitGroupIndex(
@@ -10076,7 +10082,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                         route.candidateIndex]->blas);
             rigidTlasRouteInstances.push_back(
                 instanceDesc);
-            if (cpuCaptureOmitted)
+            if (cpuCaptureOmitted ||
+                skinnedHitAuditActive)
             {
                 ++skinnedTlasActiveDescriptorCount;
             }
@@ -10164,6 +10171,28 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<unsigned long long>(shadowAudit.emissiveIdentityInvalid),
             static_cast<unsigned long long>(shadowAudit.emissiveIdentityCollision));
         r_pathTracingGeometrySkinnedConsumerAudit.SetInteger(0);
+    }
+    if (r_pathTracingGeometrySkinnedHitAudit.GetInteger() != 0 &&
+        requestedDebugMode == 58 &&
+        !m_skinnedHitAuditRequested &&
+        !m_skinnedHitAuditReadbackQueued &&
+        !skinnedHitRouteUploadBuild.records.empty() &&
+        !skinnedHitRouteLegacyAuditShadow.records.empty() &&
+        skinnedTlasPlan.result == PtSkinnedTlasRouteResult::Accepted)
+    {
+        m_skinnedHitAuditLegacyShadow =
+            skinnedHitRouteLegacyAuditShadow;
+        m_skinnedHitAuditFrame = m_smokeGeometryFrameIndex;
+        m_skinnedHitAuditRequested = true;
+        r_pathTracingGeometrySkinnedHitAudit.SetInteger(0);
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned hit audit armed frame=%llu routes=%llu triangles=%llu mode=58\n",
+            static_cast<unsigned long long>(
+                m_skinnedHitAuditFrame),
+            static_cast<unsigned long long>(
+                m_skinnedHitAuditLegacyShadow.records.size()),
+            static_cast<unsigned long long>(
+                m_skinnedHitAuditLegacyShadow.triangles.size()));
     }
     const bool skinnedTlasUsesSourceOnlyMetadata =
         !skinnedHitRouteUploadCpuRecords.empty() &&

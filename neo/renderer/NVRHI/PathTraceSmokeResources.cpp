@@ -2393,6 +2393,14 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_skinnedHitRouteReadbackCompleted = false;
     m_skinnedHitRouteReadbackDelayFrames = 0;
     m_skinnedHitRouteReadbackExpected = PtSkinnedHitRouteGpuUpload();
+    m_skinnedHitAuditReadbackBuffer = nullptr;
+    m_skinnedHitAuditRequested = false;
+    m_skinnedHitAuditReadbackQueued = false;
+    m_skinnedHitAuditReadbackDelayFrames = 0;
+    m_skinnedHitAuditFrame = 0;
+    m_skinnedHitAuditWidth = 0;
+    m_skinnedHitAuditHeight = 0;
+    m_skinnedHitAuditLegacyShadow = PtSkinnedHitRouteBuild();
     m_smokeSkinnedGpuSkinningBindingSet = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterBindingSet = nullptr;
     m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;

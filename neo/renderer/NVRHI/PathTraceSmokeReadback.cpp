@@ -1305,6 +1305,603 @@ void PathTracePrimaryPass::ReadBackSkinnedHitRoute()
         PtSkinnedHitRouteGpuUpload();
 }
 
+void PathTracePrimaryPass::QueueSkinnedHitAuditSamples(
+    nvrhi::ICommandList* commandList)
+{
+    if (!m_skinnedHitAuditRequested ||
+        m_skinnedHitAuditReadbackQueued)
+    {
+        return;
+    }
+
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    const RtRestirPTPrimarySurfaceHistoryBufferHandles& history =
+        m_frameResources.primarySurfaceHistoryBuffers;
+    const int width = m_frameResources.width;
+    const int height = m_frameResources.height;
+    const int samplePairWidth =
+        width >= 2 ? (width + 6) / 8 : 0;
+    const int sampleHeight =
+        height > 0 ? (height + 7) / 8 : 0;
+    const uint64_t recordCount =
+        samplePairWidth > 0 && sampleHeight > 0
+            ? static_cast<uint64_t>(samplePairWidth) *
+                static_cast<uint64_t>(sampleHeight) *
+                2ull
+            : 0;
+    const uint64_t readbackBytes =
+        recordCount *
+        sizeof(RtPathTracePrimarySurfaceRecord);
+    if (!commandList || !device || !history.current ||
+        width < 2 || height <= 0 ||
+        readbackBytes == 0 ||
+        readbackBytes > history.current->getDesc().byteSize)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned hit audit unavailable before copy dimensions=%d/%d bytes=%llu historyBytes=%llu\n",
+            width,
+            height,
+            static_cast<unsigned long long>(readbackBytes),
+            static_cast<unsigned long long>(
+                history.current
+                    ? history.current->getDesc().byteSize
+                    : 0));
+        return;
+    }
+
+    if (!m_skinnedHitAuditReadbackBuffer ||
+        m_skinnedHitAuditReadbackBuffer->getDesc().byteSize <
+            readbackBytes)
+    {
+        m_skinnedHitAuditReadbackBuffer = nullptr;
+        nvrhi::BufferDesc desc;
+        desc.byteSize = readbackBytes;
+        desc.structStride = sizeof(uint32_t);
+        desc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        desc.debugName = "PathTraceSkinnedHitAuditReadback";
+        desc.initialState = nvrhi::ResourceStates::CopyDest;
+        desc.keepInitialState = true;
+        m_skinnedHitAuditReadbackBuffer =
+            device->createBuffer(desc);
+    }
+    if (!m_skinnedHitAuditReadbackBuffer)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned hit audit readback buffer creation failed bytes=%llu\n",
+            static_cast<unsigned long long>(readbackBytes));
+        return;
+    }
+
+    commandList->setBufferState(
+        history.current,
+        nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(
+        m_skinnedHitAuditReadbackBuffer,
+        nvrhi::ResourceStates::CopyDest);
+    commandList->commitBarriers();
+    commandList->copyBuffer(
+        m_skinnedHitAuditReadbackBuffer,
+        0,
+        history.current,
+        0,
+        readbackBytes);
+    commandList->setBufferState(
+        history.current,
+        nvrhi::ResourceStates::UnorderedAccess);
+    commandList->commitBarriers();
+
+    m_skinnedHitAuditWidth = width;
+    m_skinnedHitAuditHeight = height;
+    m_skinnedHitAuditRequested = false;
+    m_skinnedHitAuditReadbackQueued = true;
+    m_skinnedHitAuditReadbackDelayFrames = 3;
+    common->Printf(
+        "PathTracePrimaryPass: GEO09 skinned hit audit queued frame=%llu dimensions=%d/%d sampleGrid=%d/%d pairs=%llu bytes=%llu\n",
+        static_cast<unsigned long long>(m_skinnedHitAuditFrame),
+        width,
+        height,
+        samplePairWidth,
+        sampleHeight,
+        static_cast<unsigned long long>(
+            static_cast<uint64_t>(samplePairWidth) *
+            static_cast<uint64_t>(sampleHeight)),
+        static_cast<unsigned long long>(readbackBytes));
+}
+
+void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
+{
+    if (!m_skinnedHitAuditReadbackQueued ||
+        !m_skinnedHitAuditReadbackBuffer)
+    {
+        return;
+    }
+    if (m_skinnedHitAuditReadbackDelayFrames > 0)
+    {
+        --m_skinnedHitAuditReadbackDelayFrames;
+        return;
+    }
+
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+    const RtPathTracePrimarySurfaceRecord* records =
+        static_cast<const RtPathTracePrimarySurfaceRecord*>(
+            device->mapBuffer(
+                m_skinnedHitAuditReadbackBuffer,
+                nvrhi::CpuAccessMode::Read));
+    if (!records)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned hit audit readback map failed\n");
+        m_skinnedHitAuditReadbackQueued = false;
+        return;
+    }
+
+    constexpr float tupleTolerance = 1.0e-3f;
+    constexpr float basisTolerance = 1.0e-2f;
+    uint64_t totalPairs = 0;
+    uint64_t canonicalSkinnedHits = 0;
+    uint64_t primitiveRangeMissing = 0;
+    uint64_t legacyMisses = 0;
+    uint64_t legacyCloserOccluders = 0;
+    uint64_t comparable = 0;
+    uint64_t nonFinite = 0;
+    uint64_t primitiveMismatch = 0;
+    uint64_t distanceMismatch = 0;
+    uint64_t positionMismatch = 0;
+    uint64_t geometricNormalMismatch = 0;
+    uint64_t shadingNormalMismatch = 0;
+    uint64_t tangentMismatch = 0;
+    uint64_t bitangentMismatch = 0;
+    uint64_t uvMismatch = 0;
+    uint64_t normalUvMismatch = 0;
+    uint64_t barycentricMismatch = 0;
+    uint64_t materialMismatch = 0;
+    uint64_t triangleFlagsMismatch = 0;
+    float maxHitTDelta = 0.0f;
+    float maxPositionDelta = 0.0f;
+    float maxGeometricNormalDelta = 0.0f;
+    float maxShadingNormalDelta = 0.0f;
+    float maxTangentDelta = 0.0f;
+    float maxBitangentDelta = 0.0f;
+    float maxUvDelta = 0.0f;
+    float maxNormalUvDelta = 0.0f;
+    float maxBarycentricDelta = 0.0f;
+    int mismatchDetailsLogged = 0;
+
+    auto recordValid =
+        [](const RtPathTracePrimarySurfaceRecord& record)
+        {
+            return record.header[0] ==
+                    RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION &&
+                (record.header[1] &
+                    RT_PRIMARY_SURFACE_VALID) != 0u;
+        };
+    auto maxFloatDelta =
+        [](const float* a, const float* b, int count)
+        {
+            float delta = 0.0f;
+            for (int component = 0;
+                 component < count;
+                 ++component)
+            {
+                delta = Max(
+                    delta,
+                    idMath::Fabs(
+                        a[component] - b[component]));
+            }
+            return delta;
+        };
+    auto finiteFloats =
+        [](const float* values, int count)
+        {
+            for (int component = 0;
+                 component < count;
+                 ++component)
+            {
+                if (!std::isfinite(values[component]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+    const int samplePairWidth =
+        m_skinnedHitAuditWidth >= 2
+            ? (m_skinnedHitAuditWidth + 6) / 8
+            : 0;
+    const int sampleHeight =
+        m_skinnedHitAuditHeight > 0
+            ? (m_skinnedHitAuditHeight + 7) / 8
+            : 0;
+    for (int sampleY = 0;
+         sampleY < sampleHeight;
+         ++sampleY)
+    {
+        for (int sampleX = 0;
+             sampleX < samplePairWidth;
+             ++sampleX)
+        {
+            ++totalPairs;
+            const int x = sampleX * 8;
+            const int y = sampleY * 8;
+            const size_t legacyIndex =
+                (static_cast<size_t>(sampleY) *
+                    static_cast<size_t>(samplePairWidth) +
+                    static_cast<size_t>(sampleX)) *
+                2u;
+            const RtPathTracePrimarySurfaceRecord& legacy =
+                records[legacyIndex];
+            const RtPathTracePrimarySurfaceRecord& canonical =
+                records[legacyIndex + 1];
+            if (!recordValid(canonical))
+            {
+                continue;
+            }
+
+            const uint32_t canonicalInstance =
+                canonical.instancePrimitiveObject[0];
+            const uint32_t canonicalPrimitive =
+                canonical.instancePrimitiveObject[1];
+            const PtSkinnedHitRouteRecord* route = nullptr;
+            for (const PtSkinnedHitRouteRecord& candidate :
+                m_skinnedHitAuditLegacyShadow.records)
+            {
+                if (candidate.shaderInstanceId ==
+                    canonicalInstance)
+                {
+                    route = &candidate;
+                    break;
+                }
+            }
+            if (!route)
+            {
+                continue;
+            }
+            ++canonicalSkinnedHits;
+
+            if (canonicalPrimitive >= route->triangleCount ||
+                static_cast<uint64_t>(
+                    route->triangleMetadataOffset) +
+                    canonicalPrimitive >=
+                    m_skinnedHitAuditLegacyShadow.triangles.size())
+            {
+                ++primitiveRangeMissing;
+                continue;
+            }
+            const PtSkinnedHitRouteTriangle& triangle =
+                m_skinnedHitAuditLegacyShadow.triangles[
+                    static_cast<size_t>(
+                        route->triangleMetadataOffset) +
+                    canonicalPrimitive];
+            if (triangle.sourcePrimitiveIndex !=
+                    canonicalPrimitive ||
+                triangle.legacyPrimitiveIndex ==
+                    PT_SKINNED_HIT_ROUTE_INVALID_INDEX)
+            {
+                ++primitiveRangeMissing;
+                continue;
+            }
+            if (!recordValid(legacy))
+            {
+                ++legacyMisses;
+                continue;
+            }
+
+            const float legacyHitT =
+                legacy.worldPositionAndViewDepth[3];
+            const float canonicalHitT =
+                canonical.worldPositionAndViewDepth[3];
+            if (legacyHitT + tupleTolerance <
+                canonicalHitT)
+            {
+                ++legacyCloserOccluders;
+                continue;
+            }
+            ++comparable;
+
+            const bool primitiveMatches =
+                legacy.instancePrimitiveObject[0] == 1u &&
+                legacy.instancePrimitiveObject[1] ==
+                    triangle.legacyPrimitiveIndex;
+            if (!primitiveMatches)
+            {
+                ++primitiveMismatch;
+                if (mismatchDetailsLogged < 8)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO09 skinned hit primitive mismatch pixel=%d/%d canonical(instance/primitive)=%u/%u legacy(instance/primitive/expected)=%u/%u/%u hitT=%.9g/%.9g\n",
+                        x,
+                        y,
+                        canonicalInstance,
+                        canonicalPrimitive,
+                        legacy.instancePrimitiveObject[0],
+                        legacy.instancePrimitiveObject[1],
+                        triangle.legacyPrimitiveIndex,
+                        legacyHitT,
+                        canonicalHitT);
+                    ++mismatchDetailsLogged;
+                }
+                continue;
+            }
+
+            const bool finite =
+                finiteFloats(
+                    legacy.worldPositionAndViewDepth,
+                    4) &&
+                finiteFloats(
+                    canonical.worldPositionAndViewDepth,
+                    4) &&
+                finiteFloats(
+                    legacy.geometricNormalAndRoughness,
+                    3) &&
+                finiteFloats(
+                    canonical.geometricNormalAndRoughness,
+                    3) &&
+                finiteFloats(
+                    legacy.shadingNormalAndOpacity,
+                    3) &&
+                finiteFloats(
+                    canonical.shadingNormalAndOpacity,
+                    3) &&
+                finiteFloats(
+                    legacy.viewDirectionAndReserved,
+                    3) &&
+                finiteFloats(
+                    canonical.viewDirectionAndReserved,
+                    3) &&
+                finiteFloats(
+                    legacy.albedoAndAlphaCutoff,
+                    3) &&
+                finiteFloats(
+                    canonical.albedoAndAlphaCutoff,
+                    3) &&
+                finiteFloats(
+                    legacy.specularF0AndReserved,
+                    4) &&
+                finiteFloats(
+                    canonical.specularF0AndReserved,
+                    4) &&
+                finiteFloats(
+                    legacy.emissiveAndHeight,
+                    2) &&
+                finiteFloats(
+                    canonical.emissiveAndHeight,
+                    2);
+            if (!finite)
+            {
+                ++nonFinite;
+                continue;
+            }
+
+            const float hitTDelta =
+                idMath::Fabs(
+                    legacyHitT - canonicalHitT);
+            const float positionDelta =
+                maxFloatDelta(
+                    legacy.worldPositionAndViewDepth,
+                    canonical.worldPositionAndViewDepth,
+                    3);
+            const float geometricNormalDelta =
+                maxFloatDelta(
+                    legacy.geometricNormalAndRoughness,
+                    canonical.geometricNormalAndRoughness,
+                    3);
+            const float shadingNormalDelta =
+                maxFloatDelta(
+                    legacy.shadingNormalAndOpacity,
+                    canonical.shadingNormalAndOpacity,
+                    3);
+            const float tangentDelta =
+                maxFloatDelta(
+                    legacy.viewDirectionAndReserved,
+                    canonical.viewDirectionAndReserved,
+                    3);
+            const float bitangentDelta =
+                maxFloatDelta(
+                    legacy.albedoAndAlphaCutoff,
+                    canonical.albedoAndAlphaCutoff,
+                    3);
+            const float uvDelta =
+                maxFloatDelta(
+                    legacy.specularF0AndReserved,
+                    canonical.specularF0AndReserved,
+                    2);
+            const float normalUvDelta =
+                maxFloatDelta(
+                    legacy.specularF0AndReserved + 2,
+                    canonical.specularF0AndReserved + 2,
+                    2);
+            const float barycentricDelta =
+                maxFloatDelta(
+                    legacy.emissiveAndHeight,
+                    canonical.emissiveAndHeight,
+                    2);
+            maxHitTDelta = Max(maxHitTDelta, hitTDelta);
+            maxPositionDelta =
+                Max(maxPositionDelta, positionDelta);
+            maxGeometricNormalDelta =
+                Max(
+                    maxGeometricNormalDelta,
+                    geometricNormalDelta);
+            maxShadingNormalDelta =
+                Max(
+                    maxShadingNormalDelta,
+                    shadingNormalDelta);
+            maxTangentDelta =
+                Max(maxTangentDelta, tangentDelta);
+            maxBitangentDelta =
+                Max(maxBitangentDelta, bitangentDelta);
+            maxUvDelta = Max(maxUvDelta, uvDelta);
+            maxNormalUvDelta =
+                Max(maxNormalUvDelta, normalUvDelta);
+            maxBarycentricDelta =
+                Max(
+                    maxBarycentricDelta,
+                    barycentricDelta);
+
+            const bool materialMatches =
+                legacy.materialAndSurface[0] ==
+                    canonical.materialAndSurface[0] &&
+                legacy.materialAndSurface[1] ==
+                    canonical.materialAndSurface[1] &&
+                legacy.materialAndSurface[2] ==
+                    canonical.materialAndSurface[2] &&
+                legacy.materialAndSurface[3] ==
+                    canonical.materialAndSurface[3];
+            const bool triangleFlagsMatch =
+                legacy.header[3] ==
+                canonical.header[3];
+            distanceMismatch +=
+                hitTDelta <= tupleTolerance ? 0u : 1u;
+            positionMismatch +=
+                positionDelta <= tupleTolerance ? 0u : 1u;
+            geometricNormalMismatch +=
+                geometricNormalDelta <= tupleTolerance
+                    ? 0u
+                    : 1u;
+            shadingNormalMismatch +=
+                shadingNormalDelta <= basisTolerance
+                    ? 0u
+                    : 1u;
+            tangentMismatch +=
+                tangentDelta <= basisTolerance ? 0u : 1u;
+            bitangentMismatch +=
+                bitangentDelta <= basisTolerance ? 0u : 1u;
+            uvMismatch +=
+                uvDelta <= tupleTolerance ? 0u : 1u;
+            normalUvMismatch +=
+                normalUvDelta <= tupleTolerance ? 0u : 1u;
+            barycentricMismatch +=
+                barycentricDelta <= tupleTolerance ? 0u : 1u;
+            materialMismatch +=
+                materialMatches ? 0u : 1u;
+            triangleFlagsMismatch +=
+                triangleFlagsMatch ? 0u : 1u;
+
+            const bool tupleMatches =
+                hitTDelta <= tupleTolerance &&
+                positionDelta <= tupleTolerance &&
+                geometricNormalDelta <= tupleTolerance &&
+                shadingNormalDelta <= basisTolerance &&
+                tangentDelta <= basisTolerance &&
+                bitangentDelta <= basisTolerance &&
+                uvDelta <= tupleTolerance &&
+                normalUvDelta <= tupleTolerance &&
+                barycentricDelta <= tupleTolerance &&
+                materialMatches &&
+                triangleFlagsMatch;
+            if (!tupleMatches && mismatchDetailsLogged < 8)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO09 skinned hit mismatch pixel=%d/%d canonical(instance/primitive)=%u/%u legacy(instance/primitive/expected)=%u/%u/%u materialLegacy=%u/%u/0x%08x/%u materialCanonical=%u/%u/0x%08x/%u flags=0x%08x/0x%08x delta(t/position/geo/shading/tangent/bitangent/uv/normalUv/bary)=%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g\n",
+                    x,
+                    y,
+                    canonicalInstance,
+                    canonicalPrimitive,
+                    legacy.instancePrimitiveObject[0],
+                    legacy.instancePrimitiveObject[1],
+                    triangle.legacyPrimitiveIndex,
+                    legacy.materialAndSurface[0],
+                    legacy.materialAndSurface[1],
+                    legacy.materialAndSurface[2],
+                    legacy.materialAndSurface[3],
+                    canonical.materialAndSurface[0],
+                    canonical.materialAndSurface[1],
+                    canonical.materialAndSurface[2],
+                    canonical.materialAndSurface[3],
+                    legacy.header[3],
+                    canonical.header[3],
+                    hitTDelta,
+                    positionDelta,
+                    geometricNormalDelta,
+                    shadingNormalDelta,
+                    tangentDelta,
+                    bitangentDelta,
+                    uvDelta,
+                    normalUvDelta,
+                    barycentricDelta);
+                ++mismatchDetailsLogged;
+            }
+        }
+    }
+
+    const uint64_t mismatchTotal =
+        nonFinite +
+        primitiveMismatch +
+        distanceMismatch +
+        positionMismatch +
+        geometricNormalMismatch +
+        shadingNormalMismatch +
+        tangentMismatch +
+        bitangentMismatch +
+        uvMismatch +
+        normalUvMismatch +
+        barycentricMismatch +
+        materialMismatch +
+        triangleFlagsMismatch;
+    const bool accepted =
+        canonicalSkinnedHits > 0 &&
+        comparable > 0 &&
+        primitiveRangeMissing == 0 &&
+        mismatchTotal == 0;
+    common->Printf(
+        "PathTracePrimaryPass: GEO09 skinned hit audit frame=%llu accepted=%d dimensions=%d/%d pairs=%llu canonicalSkinned=%llu primitiveRangeMissing=%llu legacyMiss=%llu legacyCloserOccluder=%llu comparable/samePrimitive=%llu/%llu tolerance(tuple/basis)=%.9g/%.9g mismatches(nonFinite/primitive/hitT/position/geoNormal/shadingNormal/tangent/bitangent/uv/normalUv/bary/material/triangleFlags)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu maxima(hitT/position/geoNormal/shadingNormal/tangent/bitangent/uv/normalUv/bary)=%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g\n",
+        static_cast<unsigned long long>(m_skinnedHitAuditFrame),
+        accepted ? 1 : 0,
+        m_skinnedHitAuditWidth,
+        m_skinnedHitAuditHeight,
+        static_cast<unsigned long long>(totalPairs),
+        static_cast<unsigned long long>(
+            canonicalSkinnedHits),
+        static_cast<unsigned long long>(
+            primitiveRangeMissing),
+        static_cast<unsigned long long>(legacyMisses),
+        static_cast<unsigned long long>(
+            legacyCloserOccluders),
+        static_cast<unsigned long long>(comparable),
+        static_cast<unsigned long long>(
+            comparable - primitiveMismatch),
+        tupleTolerance,
+        basisTolerance,
+        static_cast<unsigned long long>(nonFinite),
+        static_cast<unsigned long long>(primitiveMismatch),
+        static_cast<unsigned long long>(distanceMismatch),
+        static_cast<unsigned long long>(positionMismatch),
+        static_cast<unsigned long long>(
+            geometricNormalMismatch),
+        static_cast<unsigned long long>(
+            shadingNormalMismatch),
+        static_cast<unsigned long long>(tangentMismatch),
+        static_cast<unsigned long long>(bitangentMismatch),
+        static_cast<unsigned long long>(uvMismatch),
+        static_cast<unsigned long long>(normalUvMismatch),
+        static_cast<unsigned long long>(
+            barycentricMismatch),
+        static_cast<unsigned long long>(materialMismatch),
+        static_cast<unsigned long long>(
+            triangleFlagsMismatch),
+        maxHitTDelta,
+        maxPositionDelta,
+        maxGeometricNormalDelta,
+        maxShadingNormalDelta,
+        maxTangentDelta,
+        maxBitangentDelta,
+        maxUvDelta,
+        maxNormalUvDelta,
+        maxBarycentricDelta);
+
+    device->unmapBuffer(m_skinnedHitAuditReadbackBuffer);
+    m_skinnedHitAuditReadbackQueued = false;
+    m_skinnedHitAuditLegacyShadow =
+        PtSkinnedHitRouteBuild();
+}
+
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
     ReadBackSkyCubeProbe();
@@ -1313,8 +1910,9 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     ReadBackStaticContractGeometrySample();
     ReadBackGpuSkinningParitySamples();
     ReadBackSkinnedHitRoute();
+    ReadBackSkinnedHitAuditSamples();
 
-    const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger()));
+    const int debugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 58, r_pathTracingDebugMode.GetInteger()));
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
     const bool cleanTemporalAuditRequested =
         r_pathTracingCleanRtxdiDiView.GetInteger() != 16 &&

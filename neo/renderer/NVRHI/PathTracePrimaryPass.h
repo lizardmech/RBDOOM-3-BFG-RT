@@ -349,6 +349,8 @@ private:
         const PtSkinnedHitRouteGpuUpload& expected,
         uint64 frameIndex);
     void ReadBackSkinnedHitRoute();
+    void QueueSkinnedHitAuditSamples(nvrhi::ICommandList* commandList);
+    void ReadBackSkinnedHitAuditSamples();
     void ExecutePathTraceParticleComposite(nvrhi::ICommandList* commandList, const viewDef_t* viewDef);
 
     idRenderBackend* m_backend;
@@ -642,6 +644,14 @@ private:
     int m_skinnedHitRouteReadbackDelayFrames = 0;
     uint64 m_skinnedHitRouteReadbackFrame = 0;
     PtSkinnedHitRouteGpuUpload m_skinnedHitRouteReadbackExpected;
+    nvrhi::BufferHandle m_skinnedHitAuditReadbackBuffer;
+    bool m_skinnedHitAuditRequested = false;
+    bool m_skinnedHitAuditReadbackQueued = false;
+    int m_skinnedHitAuditReadbackDelayFrames = 0;
+    uint64 m_skinnedHitAuditFrame = 0;
+    int m_skinnedHitAuditWidth = 0;
+    int m_skinnedHitAuditHeight = 0;
+    PtSkinnedHitRouteBuild m_skinnedHitAuditLegacyShadow;
     uint32_t m_liquidPoolLastExceptionalMask[8] = {};
     uint32_t m_liquidPoolLastOverflowCount[8] = {};
     nvrhi::BufferHandle m_smokeCleanRtxdiDiCurrentReservoirBuffer;
