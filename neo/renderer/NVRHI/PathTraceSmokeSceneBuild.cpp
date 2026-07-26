@@ -6075,6 +6075,39 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         return;
     }
+    for (GeometrySkinnedGpuTimerSlot& timer :
+        m_geometrySkinnedGpuTimers)
+    {
+        if (!timer.pending ||
+            !timer.query ||
+            idLib::frameNumber < timer.earliestPollFrame ||
+            !device->pollTimerQuery(timer.query))
+        {
+            continue;
+        }
+        const float gpuSeconds =
+            device->getTimerQueryTime(timer.query);
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 timing frame=%llu kind=%s submitted=%d gpuUs=%.1f counts(build/update/rebuild/reuse)=%u/%u/%u/%u skinned(surfaces/sourceIndexes/cpuCapturedIndexes/cpuSkinUs)=%u/%u/%u/%llu dynamicBlasIndexes=%u\n",
+            static_cast<unsigned long long>(
+                timer.geometryFrame),
+            timer.skinnedBlas
+                ? "per-instance-skinned-blas"
+                : "merged-dynamic-blas",
+            timer.submitted ? 1 : 0,
+            static_cast<double>(gpuSeconds) * 1000000.0,
+            timer.buildCount,
+            timer.updateCount,
+            timer.rebuildCount,
+            timer.reuseCount,
+            timer.skinnedSurfaceCount,
+            timer.skinnedSourceIndexes,
+            timer.cpuCapturedSkinnedIndexes,
+            static_cast<unsigned long long>(
+                timer.cpuSkinUs),
+            timer.dynamicBlasIndexes);
+        timer.pending = false;
+    }
     const bool optickGpuMarkers = r_pathTracingOptickGpuMarkers.GetInteger() != 0;
     if (optickGpuMarkers)
     {
@@ -6508,6 +6541,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 captureTiming.dynamicPassClassifyMs += mirrorCaptureTiming.dynamicPassClassifyMs;
                 captureTiming.dynamicAppendMs += mirrorCaptureTiming.dynamicAppendMs;
                 captureTiming.rtCpuSkinningAppendMs += mirrorCaptureTiming.rtCpuSkinningAppendMs;
+                captureTiming.rtCpuSkinningAppendUs += mirrorCaptureTiming.rtCpuSkinningAppendUs;
                 captureTiming.skinnedCaptureAdmissionRoutes += mirrorCaptureTiming.skinnedCaptureAdmissionRoutes;
                 captureTiming.skinnedCaptureOmittedSurfaces += mirrorCaptureTiming.skinnedCaptureOmittedSurfaces;
                 captureTiming.skinnedCaptureOmittedVerts += mirrorCaptureTiming.skinnedCaptureOmittedVerts;
@@ -9300,6 +9334,116 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingGpuSkinningParityDump.SetInteger(0);
     }
 
+    uint32 skinnedSourceIndexCount = 0;
+    for (const RtSmokeSkinnedSurfaceRecord& record :
+        currentSkinnedSurfaceRecords)
+    {
+        skinnedSourceIndexCount +=
+            static_cast<uint32>(Max(record.indexCount, 0));
+    }
+    GeometrySkinnedGpuTimerSlot* skinnedBlasGpuTimer =
+        nullptr;
+    GeometrySkinnedGpuTimerSlot* dynamicBlasGpuTimer =
+        nullptr;
+    const int requestedGeometryTimingFrames =
+        idMath::ClampInt(
+            0,
+            240,
+            r_pathTracingGeometrySkinnedTiming.
+                GetInteger());
+    if (requestedGeometryTimingFrames > 0)
+    {
+        auto acquireGeometryTimer =
+            [&](bool skinnedBlas)
+                -> GeometrySkinnedGpuTimerSlot*
+            {
+                for (int slotOffset = 0;
+                    slotOffset <
+                        GEOMETRY_SKINNED_GPU_TIMER_SLOTS;
+                    ++slotOffset)
+                {
+                    const uint32 slotIndex =
+                        (m_geometrySkinnedGpuTimerCursor +
+                            static_cast<uint32>(
+                                slotOffset)) %
+                        GEOMETRY_SKINNED_GPU_TIMER_SLOTS;
+                    GeometrySkinnedGpuTimerSlot& candidate =
+                        m_geometrySkinnedGpuTimers[
+                            slotIndex];
+                    if (candidate.pending)
+                    {
+                        continue;
+                    }
+                    if (!candidate.query)
+                    {
+                        candidate.query =
+                            device->createTimerQuery();
+                    }
+                    if (!candidate.query)
+                    {
+                        continue;
+                    }
+                    m_geometrySkinnedGpuTimerCursor =
+                        (slotIndex + 1u) %
+                        GEOMETRY_SKINNED_GPU_TIMER_SLOTS;
+                    candidate.pending = true;
+                    candidate.skinnedBlas = skinnedBlas;
+                    candidate.submitted = false;
+                    candidate.earliestPollFrame =
+                        idLib::frameNumber +
+                        static_cast<int>(NUM_FRAME_DATA);
+                    candidate.geometryFrame =
+                        geometryUniverseStats.frameIndex;
+                    candidate.buildCount = 0;
+                    candidate.updateCount = 0;
+                    candidate.rebuildCount = 0;
+                    candidate.reuseCount = 0;
+                    candidate.skinnedSurfaceCount =
+                        static_cast<uint32>(
+                            currentSkinnedSurfaceRecords.
+                                size());
+                    candidate.skinnedSourceIndexes =
+                        skinnedSourceIndexCount;
+                    candidate.cpuCapturedSkinnedIndexes =
+                        skinnedSourceIndexCount >=
+                                static_cast<uint32>(Max(
+                                    captureTiming.
+                                        skinnedCaptureOmittedIndexes,
+                                    0))
+                            ? skinnedSourceIndexCount -
+                                static_cast<uint32>(Max(
+                                    captureTiming.
+                                        skinnedCaptureOmittedIndexes,
+                                    0))
+                            : 0u;
+                    candidate.dynamicBlasIndexes =
+                        static_cast<uint32>(
+                            dynamicIndexData.size());
+                    candidate.cpuSkinUs =
+                        captureTiming.
+                            rtCpuSkinningAppendUs;
+                    return &candidate;
+                }
+                return nullptr;
+            };
+        skinnedBlasGpuTimer =
+            acquireGeometryTimer(true);
+        dynamicBlasGpuTimer =
+            acquireGeometryTimer(false);
+        if (skinnedBlasGpuTimer ||
+            dynamicBlasGpuTimer)
+        {
+            r_pathTracingGeometrySkinnedTiming.
+                SetInteger(
+                    requestedGeometryTimingFrames - 1);
+        }
+    }
+
+    if (skinnedBlasGpuTimer)
+    {
+        commandList->beginTimerQuery(
+            skinnedBlasGpuTimer->query);
+    }
     const RtSmokeSkinnedComparisonBlasAudit
         skinnedComparisonBlasAudit =
             SubmitSmokeSkinnedComparisonBlases(
@@ -9321,6 +9465,31 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     r_pathTracingSceneRetireFrames.
                         GetInteger()),
                 m_smokeSkinnedComparisonCompletionQueryFailureLogged);
+    if (skinnedBlasGpuTimer)
+    {
+        commandList->endTimerQuery(
+            skinnedBlasGpuTimer->query);
+        skinnedBlasGpuTimer->submitted =
+            skinnedComparisonBlasAudit.buildSubmitted > 0 ||
+            skinnedComparisonBlasAudit.updateSubmitted > 0 ||
+            skinnedComparisonBlasAudit.rebuildSubmitted > 0;
+        skinnedBlasGpuTimer->buildCount =
+            static_cast<uint32>(Max(
+                skinnedComparisonBlasAudit.buildSubmitted,
+                0));
+        skinnedBlasGpuTimer->updateCount =
+            static_cast<uint32>(Max(
+                skinnedComparisonBlasAudit.updateSubmitted,
+                0));
+        skinnedBlasGpuTimer->rebuildCount =
+            static_cast<uint32>(Max(
+                skinnedComparisonBlasAudit.rebuildSubmitted,
+                0));
+        skinnedBlasGpuTimer->reuseCount =
+            static_cast<uint32>(Max(
+                skinnedComparisonBlasAudit.reused,
+                0));
+    }
     if (skinnedComparisonBlasAudit.buildSubmitted > 0 &&
         !m_smokeSkinnedComparisonBlasBuildLogged)
     {
@@ -10169,6 +10338,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     accelSubmitDesc.dynamicBlas = smokeDynamicBlas;
     accelSubmitDesc.staticBlasDesc = smokeStaticBlasDesc;
     accelSubmitDesc.dynamicBlasDesc = smokeDynamicBlasDesc;
+    accelSubmitDesc.dynamicBlasTimerQuery =
+        dynamicBlasGpuTimer
+            ? dynamicBlasGpuTimer->query
+            : nullptr;
     accelSubmitDesc.extraTlasInstances =
         !rigidTlasRouteInstances.empty()
             ? &rigidTlasRouteInstances
@@ -10189,6 +10362,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     if (!accelSubmitSucceeded)
     {
+        if (dynamicBlasGpuTimer &&
+            !accelSubmitTiming.dynamicBlasTimerRecorded)
+        {
+            dynamicBlasGpuTimer->pending = false;
+        }
         common->Printf("PathTracePrimaryPass: failed to submit RT smoke acceleration structures\n");
         return;
     }
@@ -10197,6 +10375,20 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int accelSubmitMs = accelSubmitTiming.accelSubmitMs;
     RtPathTraceCpuWorkRecordRenderSubmit(m_smokeCpuWorkState, accelerationPlanGeneration, static_cast<double>(accelSubmitMs));
     const int instanceCount = accelSubmitTiming.instanceCount;
+    if (dynamicBlasGpuTimer)
+    {
+        if (accelSubmitTiming.
+                dynamicBlasTimerRecorded)
+        {
+            dynamicBlasGpuTimer->submitted = true;
+            dynamicBlasGpuTimer->buildCount = 1;
+        }
+        else
+        {
+            // No timer commands were recorded, so the slot cannot be polled.
+            dynamicBlasGpuTimer->pending = false;
+        }
+    }
 
     const nvrhi::TextureHandle fallbackTexture = globalImages && globalImages->whiteImage ? globalImages->whiteImage->GetTextureHandle() : nullptr;
     if (!fallbackTexture)

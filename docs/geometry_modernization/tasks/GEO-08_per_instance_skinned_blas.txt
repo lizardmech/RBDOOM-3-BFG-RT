@@ -224,8 +224,14 @@ STEPS
     surfaces, 78/78 shared-source pairs with non-aliased mutable ranges, zero
     overlaps, 23 exact dispatch/output/BLAS owners, and TLAS IDs 113..135 with
     every admission failure bucket zero.
-12. Measure CPU skin time, BLAS build/update/reuse time and counts with
-    identical animated geometry. Report merged legacy rebuild cost separately.
+12. ACCEPTED. Measure CPU skin time, BLAS build/update/reuse time and counts
+    with identical animated geometry. Report merged legacy rebuild cost
+    separately. geometry_geo124_auto records matched 20-frame split-off/on
+    samples for the same 12 surfaces and 47,886 indexes. Median CPU skin is
+    4,830 -> 0 us; merged dynamic BLAS is 1,076.2 -> 137.0 us; active
+    per-instance update is 68.1 us median. geometry_geo125_auto records one
+    12-BLAS initial build at 2,655.9 us, 67 update/reuse frames, and one fixed
+    cadence 12-BLAS rebuild at frame 63 / 2,516.9 us.
 
 VALIDATION
 ----------

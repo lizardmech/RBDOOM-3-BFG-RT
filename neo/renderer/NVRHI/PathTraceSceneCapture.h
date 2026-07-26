@@ -303,6 +303,7 @@ struct RtSmokeSceneCaptureTiming
     int dynamicPassClassifyMs = 0;
     int dynamicAppendMs = 0;
     int rtCpuSkinningAppendMs = 0;
+    uint64 rtCpuSkinningAppendUs = 0;
     int skinnedCaptureAdmissionRoutes = 0;
     int skinnedCaptureOmittedSurfaces = 0;
     int skinnedCaptureOmittedVerts = 0;

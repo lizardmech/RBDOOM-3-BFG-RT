@@ -39,6 +39,7 @@ struct RtSmokeAccelSubmitDesc
     nvrhi::rt::AccelStructHandle dynamicBlas;
     nvrhi::rt::AccelStructDesc staticBlasDesc;
     nvrhi::rt::AccelStructDesc dynamicBlasDesc;
+    nvrhi::TimerQueryHandle dynamicBlasTimerQuery;
     const std::vector<nvrhi::rt::InstanceDesc>* extraTlasInstances = nullptr;
     bool hasStaticBlas = false;
     bool hasDynamicBlas = false;
@@ -55,6 +56,7 @@ struct RtSmokeAccelSubmitTiming
     bool staticBlasBuildSkipped = false;
     bool dynamicBlasBuildSubmitted = false;
     bool dynamicBlasBuildSkipped = false;
+    bool dynamicBlasTimerRecorded = false;
 };
 
 struct RtSmokeBufferUploadItem

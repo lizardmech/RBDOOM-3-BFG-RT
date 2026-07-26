@@ -1386,6 +1386,29 @@ Accepted Step 11 proof:
     SBT, and capacity failure bucket zero. The material census names 13
     `models/monsters/zombie/fatty/fatty` surfaces. Step 11 is accepted.
 
+Accepted Step 12 timing proof:
+
+  geometry_geo124_auto.log
+    A single process measures the same 12 surfaces / 47,886 source indexes for
+    twenty split-off frames (89..108) and twenty split-on frames (129..148).
+    CPU skin append is 4,830 us median / 4,883.9 mean / 5,198 p95 while off,
+    and exactly zero while on. The merged dynamic BLAS contains 47,910 indexes
+    and costs 1,076.2 us median / 1,034.9 mean / 1,592.2 p95; after cutover the
+    residual contains 24 indexes and costs 137.0 us median / 194.1 mean /
+    615.2 p95. Twelve per-instance updates measure 53.5 us median while
+    comparison-only and 68.1 us median while active. The active mean/p95/max
+    are 212.2 / 814.1 / 866.2 us, so the outliers remain explicit.
+
+  geometry_geo125_auto.log
+    Startup timing captures one 12-BLAS initial build at frame 2 / 2,655.9 us,
+    67 update/reuse frames, and one fixed-cadence 12-BLAS rebuild at frame 63 /
+    2,516.9 us. The 66 active CPU-omitted updates measure 54.6 us median,
+    136.5 us mean, 547.7 us p95, and 997.1 us max. All 140 query results are
+    disjoint skinned/dynamic spans with delayed readback. The run reaches
+    normal renderer/game shutdown with no fatal or device-lost report.
+
+These results accept Step 12 and complete GEO-08.
+
 Final offline/deployment proof:
 
   PathTraceSkinnedHitRouteHarness = PASS
@@ -1393,4 +1416,4 @@ Final offline/deployment proof:
   Vulkan SPIR-V work = all up to date; no shader source changed
   DX12 shader compilation = not run
   deployed executable SHA-256 =
-    402772015C19E757CAF84985C042D5896A8148CBF3E418B158D270691A297F64
+    5B76AE95CA6C99140E0CD457A11F05D2668A6FED38E3387204FFD49AC12EED45

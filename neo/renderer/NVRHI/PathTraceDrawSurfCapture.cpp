@@ -1380,6 +1380,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
             const int bucketTriangleStart = static_cast<int>(bucketClasses.size());
             const int appendStartMs = Sys_Milliseconds();
+            const uint64 appendStartUs = Sys_Microseconds();
             const int emittedIndexes = AppendSmokeSurfaceGeometry(
                 drawSurf,
                 tri,
@@ -1396,11 +1397,14 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 skipStats,
                 attributeStats);
             const int appendMs = Sys_Milliseconds() - appendStartMs;
+            const uint64 appendUs =
+                Sys_Microseconds() - appendStartUs;
             captureTiming.dynamicAppendMs += appendMs;
             captureTiming.appendMs += appendMs;
             if (usesRtCpuSkinning)
             {
                 captureTiming.rtCpuSkinningAppendMs += appendMs;
+                captureTiming.rtCpuSkinningAppendUs += appendUs;
             }
             if (emittedIndexes <= 0)
             {

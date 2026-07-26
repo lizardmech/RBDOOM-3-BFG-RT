@@ -164,7 +164,18 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     if (submitPlan.buildDynamicBlas)
     {
         OPTICK_GPU_EVENT("PT GPU Build Dynamic BLAS");
+        if (desc.dynamicBlasTimerQuery)
+        {
+            desc.commandList->beginTimerQuery(
+                desc.dynamicBlasTimerQuery);
+        }
         nvrhi::utils::BuildBottomLevelAccelStruct(desc.commandList, desc.dynamicBlas, desc.dynamicBlasDesc);
+        if (desc.dynamicBlasTimerQuery)
+        {
+            desc.commandList->endTimerQuery(
+                desc.dynamicBlasTimerQuery);
+            timing.dynamicBlasTimerRecorded = true;
+        }
         timing.dynamicBlasBuildSubmitted = true;
         timing.dynamicBlasBuildSkipped = false;
     }

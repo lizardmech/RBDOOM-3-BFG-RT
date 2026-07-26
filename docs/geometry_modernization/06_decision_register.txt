@@ -744,6 +744,26 @@ frames without mismatch, invalidation, or failure. geometry_geo123_auto proves
 owners, 78/78 shared-source pairs non-aliased, and contiguous accepted TLAS IDs
 113..135. Step 11 is accepted.
 
+D41. GEO-08 PERFORMANCE EVIDENCE USES DISJOINT DELAYED GPU TIMERS
+----------------------------------------------------------------
+Decision: keep `r_pathTracingGeometrySkinnedTiming` as a bounded default-zero
+diagnostic. One query brackets only the per-instance skinned BLAS batch; a
+second query brackets only the merged dynamic BLAS build inside
+`SubmitSmokeAccelerationBuilds`. Results are polled no earlier than
+`NUM_FRAME_DATA` frames after recording. Each line carries action counts,
+source and CPU-captured skinned index counts, dynamic BLAS indexes, and
+microsecond CPU-skin time so split-off/on samples can be classified from the
+record itself.
+
+Do not infer GPU build cost from CPU command-recording milliseconds or combine
+the dynamic BLAS with TLAS time. Report median, mean, p95, and max because the
+active update samples contain real scheduling outliers. geometry_geo124_auto
+and geometry_geo125_auto accept the first measurement set: CPU skin
+4,830 -> 0 us median, merged/residual dynamic BLAS 1,076.2 -> 137.0 us
+median, active 12-BLAS updates 68.1 us median, initial 12-BLAS build
+2,655.9 us, and fixed-cadence rebuild 2,516.9 us at frame 63. Step 12 and
+GEO-08 are accepted.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

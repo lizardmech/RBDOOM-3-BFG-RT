@@ -346,7 +346,26 @@ The stable run records 173 consecutive 23/23 omission frames and normal
 shutdown. The one-shot ownership dump reports 11 unique immutable sources,
 23 exact mutable ranges and dispatches, 78/78 shared-source pairs non-aliased,
 zero output overlaps, 23 active BLASes, contiguous TLAS IDs 113..135, and zero
-TLAS admission failures. GEO-08 step 12 timing measurement is next.
+TLAS admission failures.
+
+GEO-08 step 12 is accepted by geometry_geo124_auto and
+geometry_geo125_auto. A bounded diagnostic uses disjoint Vulkan timer queries
+for the per-instance skinned BLAS batch and merged dynamic BLAS, with delayed
+readback and microsecond CPU-skin accounting. The same 12 surfaces /
+47,886 indexes were sampled for 20 frames in each capture-split state:
+
+  metric                         split off median   split on median
+  CPU skin append                4,830 us           0 us
+  merged/residual dynamic BLAS   1,076.2 us         137.0 us
+  12 per-instance BLAS updates   53.5 us            68.1 us
+
+The active update distribution has deliberate GPU scheduling outliers
+(20-frame mean 212.2 us, p95 814.1 us), so medians and percentiles are
+retained rather than presenting a single best sample. The 70-frame cadence
+run records one 12-BLAS initial build at 2,655.9 us, 67 update/reuse frames,
+and one bounded 12-BLAS rebuild at frame 63 / 2,516.9 us. Both runs reach
+normal shutdown without device failure. GEO-08 is complete; GEO-09 temporal,
+material, and emissive promotion is the next Phase C ticket.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

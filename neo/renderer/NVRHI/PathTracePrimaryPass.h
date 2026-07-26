@@ -465,6 +465,29 @@ private:
     ParticleCompositeGpuTimerSlot m_particleCompositeGpuTimers[PARTICLE_COMPOSITE_GPU_TIMER_SLOTS];
     uint32_t m_particleCompositeGpuTimerCursor = 0;
     uint32_t m_particleCompositeGpuTimerInvocation = 0;
+    static constexpr int GEOMETRY_SKINNED_GPU_TIMER_SLOTS = 32;
+    struct GeometrySkinnedGpuTimerSlot
+    {
+        nvrhi::TimerQueryHandle query;
+        bool pending = false;
+        bool skinnedBlas = false;
+        bool submitted = false;
+        int earliestPollFrame = 0;
+        uint64 geometryFrame = 0;
+        uint32 buildCount = 0;
+        uint32 updateCount = 0;
+        uint32 rebuildCount = 0;
+        uint32 reuseCount = 0;
+        uint32 skinnedSurfaceCount = 0;
+        uint32 skinnedSourceIndexes = 0;
+        uint32 cpuCapturedSkinnedIndexes = 0;
+        uint32 dynamicBlasIndexes = 0;
+        uint64 cpuSkinUs = 0;
+    };
+    GeometrySkinnedGpuTimerSlot
+        m_geometrySkinnedGpuTimers[
+            GEOMETRY_SKINNED_GPU_TIMER_SLOTS];
+    uint32_t m_geometrySkinnedGpuTimerCursor = 0;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     PtSkinnedOutputAllocator m_smokeSkinnedOutputAllocator;
     PtSkinnedBlasStateTable m_smokeSkinnedBlasStateTable;

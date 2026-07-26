@@ -667,3 +667,19 @@ NO LONGER OPEN TO SPECULATION
   upload/resource/BLAS/SBT/capacity failure bucket zero. The material census
   contains 13 `models/monsters/zombie/fatty/fatty` surfaces. GEO-08 step 11 is
   accepted; step 12 timing measurement is next.
+- geometry_geo124_auto accepts the identical-geometry Step 12 A/B. Twenty
+  split-off frames and twenty split-on frames each contain the same 12 skinned
+  surfaces / 47,886 source indexes. CPU skin append changes from median
+  4,830 us (mean 4,883.9, p95 5,198) to exactly zero. The merged dynamic BLAS
+  changes from 47,910 indexes and median 1,076.2 us (p95 1,592.2) to a
+  24-index residual and median 137.0 us (p95 615.2). Twelve per-instance
+  updates measure 53.5 us median while comparison-only and 68.1 us median
+  while active; the active 20-frame distribution has scheduling outliers
+  (mean 212.2, p95 814.1, max 866.2), which must not be hidden by reporting
+  only the minimum.
+- geometry_geo125_auto records the fixed action cadence with 140 successful
+  disjoint timer readbacks. The initial 12-BLAS build is 2,655.9 us at frame 2;
+  67 frames reuse the same 12 handles for PerformUpdate; frame 63 performs the
+  only 12-BLAS cadence rebuild at 2,516.9 us. The 66 active, CPU-omitted update
+  frames have median 54.6 us, mean 136.5 us, and p95 547.7 us. Both Step 12
+  runs exit normally with no fatal or device-lost report. GEO-08 is accepted.

@@ -357,6 +357,12 @@ idCVar r_pathTracingGeometrySkinnedCaptureRouteSetLimit(
     CVAR_RENDERER | CVAR_INTEGER,
     "GEO-08 bounded exact-visible-set cache size; values 1..8 support lifecycle eviction validation" );
 
+idCVar r_pathTracingGeometrySkinnedTiming(
+    "r_pathTracingGeometrySkinnedTiming",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Capture 1..240 GEO-08 frames of delayed GPU timer-query results for per-instance skinned BLAS work and the merged dynamic BLAS, with microsecond CPU skin accounting" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",
