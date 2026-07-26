@@ -591,8 +591,14 @@ is intentionally unreachable until every remaining pipeline consumer and the
 current-frame publication order are ready. Standalone clean-DI spatial now
 also declares the shared checked ABI and routes receiver/emissive geometry plus
 shadow material lookup through it; both Vulkan spatial variants build and
-deploy. Remix GI, motion/history, static-emissive identity, and publication
-ordering remain blockers.
+deploy. Remix GI now copies the complete 512-byte DI prefix, binds the same
+six checked streams in its independent layout, and routes central metadata,
+secondary-hit, ray-query, any-hit, and emissive-replay helpers through the
+checked loader. All 32 Vulkan split libraries and two compute wrappers build
+and deploy. The unused monolithic GI SPIR-V outputs were removed because the
+Vulkan runtime has no consumer and the enlarged near-limit module overflowed
+DXC's ID space. Motion/history, static-emissive identity, and current-frame
+publication ordering remain blockers.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

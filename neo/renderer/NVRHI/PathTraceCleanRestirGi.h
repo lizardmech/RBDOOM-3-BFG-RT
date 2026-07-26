@@ -106,7 +106,7 @@ struct PathTraceCleanRestirGiDispatchInputs
     int height = 0;
 
     // Live DI sentinel constants blob (PathTraceCleanRtxdiDiSentinelConstants,
-    // 480 bytes). The GI cbuffer mirrors that layout in its leading block so
+    // 512 bytes). The GI cbuffer mirrors that layout in its leading block so
     // shared DI-lane helper code sees identical values.
     const void* diConstantsBlob = nullptr;
     uint32_t diConstantsSize = 0;
@@ -125,6 +125,12 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* dynamicTriangleMaterialBuffer = nullptr;
     nvrhi::IBuffer* staticTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* dynamicTriangleMaterialIndexBuffer = nullptr;
+    nvrhi::IBuffer* staticBucketRouteRecordBuffer = nullptr;
+    nvrhi::IBuffer* staticBucketVertexBuffer = nullptr;
+    nvrhi::IBuffer* staticBucketIndexBuffer = nullptr;
+    nvrhi::IBuffer* staticBucketTriangleClassBuffer = nullptr;
+    nvrhi::IBuffer* staticBucketTriangleMaterialBuffer = nullptr;
+    nvrhi::IBuffer* staticBucketTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* materialTableBuffer = nullptr;
     nvrhi::IBuffer* materialFeatureParameterBuffer = nullptr;
     uint32_t materialFeatureParameterCount = 0;

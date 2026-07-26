@@ -3660,6 +3660,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
             giInputs.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
             giInputs.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
+            giInputs.staticBucketRouteRecordBuffer = cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.StaticBucketRouteRecordBuffer());
+            giInputs.staticBucketVertexBuffer = cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.StaticBucketVertexBuffer());
+            giInputs.staticBucketIndexBuffer = cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.StaticBucketIndexBuffer());
+            giInputs.staticBucketTriangleClassBuffer = cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.StaticBucketTriangleClassBuffer());
+            giInputs.staticBucketTriangleMaterialBuffer = cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.StaticBucketTriangleMaterialBuffer());
+            giInputs.staticBucketTriangleMaterialIndexBuffer = cleanOptionalSrv(
+                m_staticBucketGeometryUniverse.StaticBucketTriangleMaterialIndexBuffer());
             giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
             giInputs.materialFeatureParameterBuffer = m_smokeMaterialFeatureParameterBuffer;
             giInputs.materialFeatureParameterCount = static_cast<uint32_t>(

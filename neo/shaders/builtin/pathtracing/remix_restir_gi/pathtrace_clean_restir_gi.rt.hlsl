@@ -142,6 +142,20 @@ struct PathTraceSmokeVertex
     float4 bitangent;
 };
 
+#define RB_PT_STATIC_BUCKET_ROUTES_REGISTER t100
+#define RB_PT_STATIC_BUCKET_VERTICES_REGISTER t101
+#define RB_PT_STATIC_BUCKET_INDICES_REGISTER t102
+#define RB_PT_STATIC_BUCKET_CLASSES_REGISTER t103
+#define RB_PT_STATIC_BUCKET_MATERIALS_REGISTER t104
+#define RB_PT_STATIC_BUCKET_MATERIAL_INDEXES_REGISTER t105
+#include "../PathTraceStaticBucketRoute.hlsli"
+#undef RB_PT_STATIC_BUCKET_ROUTES_REGISTER
+#undef RB_PT_STATIC_BUCKET_VERTICES_REGISTER
+#undef RB_PT_STATIC_BUCKET_INDICES_REGISTER
+#undef RB_PT_STATIC_BUCKET_CLASSES_REGISTER
+#undef RB_PT_STATIC_BUCKET_MATERIALS_REGISTER
+#undef RB_PT_STATIC_BUCKET_MATERIAL_INDEXES_REGISTER
+
 struct PathTraceSmokeEmissiveTriangle
 {
     float4 centerAndArea;
@@ -369,6 +383,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     float4 CleanRtxdiDiGeometryInfo1;
     float4 CleanRtxdiDiSpatialInfo;
     float4 CleanRtxdiDiEmissiveDistributionInfo;
+    uint4 CleanRtxdiDiStaticBucketRouteInfo;
     // --- GI-owned fields below; offsets must match PathTraceCleanRestirGi.cpp ---
     uint CleanRestirGiView;
     uint CleanRestirGiTemporalEnabled;
@@ -1138,6 +1153,23 @@ bool CleanGiAllFinite3(float3 value)
 // Surface loading (GI-I-01; same adapters as the DI lane)
 // ---------------------------------------------------------------------------
 
+[noinline]
+bool CleanGiTryLoadStaticBucketTriangleRoute(
+    uint instanceId,
+    uint primitiveIndex,
+    out PathTraceStaticBucketRouteRecord route,
+    out uint packedTriangleIndex,
+    out uint3 packedVertexIndexes)
+{
+    return PathTraceTryLoadStaticBucketTriangleRoute(
+        instanceId,
+        primitiveIndex,
+        CleanRtxdiDiStaticBucketRouteInfo,
+        route,
+        packedTriangleIndex,
+        packedVertexIndexes);
+}
+
 bool CleanGiLoadSurfaceRecord(uint2 pixel, uint2 dimensions, out PathTracePrimarySurfaceRecord record)
 {
     record = (PathTracePrimarySurfaceRecord)0;
@@ -1159,6 +1191,24 @@ bool CleanGiLoadSurfaceRecord(uint2 pixel, uint2 dimensions, out PathTracePrimar
 
 uint CleanGiLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
 {
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return CleanGiTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleMaterialIndexes[
+                packedTriangleIndex]
+            : 0xffffffffu;
+    }
+
     if (instanceId == 0u)
     {
         return primitiveIndex < CleanRtxdiDiStaticTriangleCount
@@ -1207,6 +1257,24 @@ uint CleanGiLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
 
 uint CleanGiLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
 {
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return CleanGiTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleMaterials[
+                packedTriangleIndex]
+            : 0u;
+    }
+
     if (instanceId == 0u)
     {
         return primitiveIndex < CleanRtxdiDiStaticTriangleCount
@@ -1255,6 +1323,24 @@ uint CleanGiLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
 
 uint CleanGiLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 {
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return CleanGiTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleClasses[
+                packedTriangleIndex]
+            : 0u;
+    }
+
     if (instanceId == 0u)
     {
         return primitiveIndex < CleanRtxdiDiStaticTriangleCount
@@ -1290,6 +1376,21 @@ uint CleanGiLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 
 bool CleanGiHitMetadataInRange(uint instanceId, uint primitiveIndex)
 {
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return CleanGiTryLoadStaticBucketTriangleRoute(
+            instanceId,
+            primitiveIndex,
+            route,
+            packedTriangleIndex,
+            packedVertexIndexes);
+    }
+
     if (instanceId == 0u)
     {
         return primitiveIndex < CleanRtxdiDiStaticTriangleCount;
@@ -2060,6 +2161,36 @@ bool CleanGiLoadSkinnedTriangleVertices(
 }
 #endif
 
+bool CleanGiLoadStaticBucketTriangleVertices(
+    uint instanceId,
+    uint primitiveIndex,
+    out PathTraceSmokeVertex v0,
+    out PathTraceSmokeVertex v1,
+    out PathTraceSmokeVertex v2)
+{
+    v0 = (PathTraceSmokeVertex)0;
+    v1 = (PathTraceSmokeVertex)0;
+    v2 = (PathTraceSmokeVertex)0;
+
+    PathTraceStaticBucketRouteRecord route;
+    uint packedTriangleIndex;
+    uint3 packedVertexIndexes;
+    if (!CleanGiTryLoadStaticBucketTriangleRoute(
+            instanceId,
+            primitiveIndex,
+            route,
+            packedTriangleIndex,
+            packedVertexIndexes))
+    {
+        return false;
+    }
+
+    v0 = SmokeStaticBucketVertices[packedVertexIndexes.x];
+    v1 = SmokeStaticBucketVertices[packedVertexIndexes.y];
+    v2 = SmokeStaticBucketVertices[packedVertexIndexes.z];
+    return true;
+}
+
 bool CleanGiLoadTriangleGeometryFull(
     uint instanceId,
     uint primitiveIndex,
@@ -2088,6 +2219,31 @@ bool CleanGiLoadTriangleGeometryFull(
     c20 = float4(0.5, 0.5, 0.5, 0.5);
     c21 = float4(0.5, 0.5, 0.5, 0.5);
     c22 = float4(0.5, 0.5, 0.5, 0.5);
+
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceSmokeVertex v0;
+        PathTraceSmokeVertex v1;
+        PathTraceSmokeVertex v2;
+        if (!CleanGiLoadStaticBucketTriangleVertices(
+                instanceId,
+                primitiveIndex,
+                v0,
+                v1,
+                v2))
+        {
+            return false;
+        }
+        p0 = v0.position.xyz; p1 = v1.position.xyz; p2 = v2.position.xyz;
+        n0 = v0.normal.xyz; n1 = v1.normal.xyz; n2 = v2.normal.xyz;
+        uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
+        normalUv0 = v0.texCoord.zw; normalUv1 = v1.texCoord.zw; normalUv2 = v2.texCoord.zw;
+        c0 = v0.color; c1 = v1.color; c2 = v2.color;
+        c20 = v0.color2; c21 = v1.color2; c22 = v2.color2;
+        return true;
+    }
 
     if (instanceId == 0u)
     {
@@ -2225,6 +2381,27 @@ bool CleanGiLoadTriangleGeometry(
     uv0 = float2(0.0, 0.0);
     uv1 = float2(0.0, 0.0);
     uv2 = float2(0.0, 0.0);
+
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceSmokeVertex v0;
+        PathTraceSmokeVertex v1;
+        PathTraceSmokeVertex v2;
+        if (!CleanGiLoadStaticBucketTriangleVertices(
+                instanceId,
+                primitiveIndex,
+                v0,
+                v1,
+                v2))
+        {
+            return false;
+        }
+        p0 = v0.position.xyz; p1 = v1.position.xyz; p2 = v2.position.xyz;
+        uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
+        return true;
+    }
 
     if (instanceId == 0u)
     {

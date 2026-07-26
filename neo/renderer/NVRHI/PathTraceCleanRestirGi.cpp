@@ -40,7 +40,7 @@ const uint32_t LIQUID_POOL_CONTROL_PARAMETERS_READY = 1u << 3u;
 
 // Must match the DI sentinel constants blob size mirrored at the head of the
 // GI cbuffer (PathTraceCleanRtxdiDiSentinelConstants).
-const uint32_t CLEAN_RESTIR_GI_DI_BLOB_SIZE = 480u;
+const uint32_t CLEAN_RESTIR_GI_DI_BLOB_SIZE = 512u;
 const uint32_t CLEAN_RESTIR_GI_DI_ANALYTIC_LIGHT_COUNT_OFFSET = 4u * sizeof(uint32_t);
 
 // GI-owned cbuffer tail; layout must match the trailing fields of
@@ -103,6 +103,8 @@ static_assert(offsetof(PathTraceCleanRestirGiConstantsTail, liquidPoolMode) == 1
 static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 224, "GI constants tail must match the HLSL cbuffer tail layout");
 
 const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
+static_assert(CLEAN_RESTIR_GI_CONSTANTS_SIZE <= 768u,
+    "GI constants must fit the allocated constant buffer");
 
 void CleanRestirGiAddCommonComputeBindingLayoutItems(
     nvrhi::BindingLayoutDesc& layoutDesc);
@@ -713,6 +715,12 @@ void CleanRestirGiAddCommonComputeBindingLayoutItems(nvrhi::BindingLayoutDesc& l
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(76));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(87));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(100));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(101));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(102));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(103));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(104));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(105));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(69));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
@@ -1365,8 +1373,9 @@ bool PathTraceCleanRestirGiExecute(
         (inputs.width <= 0 ? 1u << 5 : 0u) |
         (inputs.height <= 0 ? 1u << 6 : 0u) |
         (!inputs.diConstantsBlob ? 1u << 7 : 0u) |
-        (inputs.diConstantsSize == 0 ? 1u << 8 : 0u) |
-        (inputs.diConstantsSize > CLEAN_RESTIR_GI_DI_BLOB_SIZE ? 1u << 9 : 0u);
+        (inputs.diConstantsSize != CLEAN_RESTIR_GI_DI_BLOB_SIZE
+            ? 1u << 8
+            : 0u);
     const uint32_t geometryMissing =
         (!inputs.tlas ? 1u << 0 : 0u) |
         (!inputs.staticVertexBuffer ? 1u << 1 : 0u) |
@@ -1503,11 +1512,41 @@ bool PathTraceCleanRestirGiExecute(
     nvrhi::IBuffer* materialFeatureParameterBuffer = inputs.materialFeatureParameterBuffer
         ? inputs.materialFeatureParameterBuffer
         : state.placeholderSrvBuffer.Get();
+    nvrhi::IBuffer* staticBucketRouteRecordBuffer =
+        inputs.staticBucketRouteRecordBuffer
+            ? inputs.staticBucketRouteRecordBuffer
+            : state.placeholderSrvBuffer.Get();
+    nvrhi::IBuffer* staticBucketVertexBuffer =
+        inputs.staticBucketVertexBuffer
+            ? inputs.staticBucketVertexBuffer
+            : state.placeholderSrvBuffer.Get();
+    nvrhi::IBuffer* staticBucketIndexBuffer =
+        inputs.staticBucketIndexBuffer
+            ? inputs.staticBucketIndexBuffer
+            : state.placeholderSrvBuffer.Get();
+    nvrhi::IBuffer* staticBucketTriangleClassBuffer =
+        inputs.staticBucketTriangleClassBuffer
+            ? inputs.staticBucketTriangleClassBuffer
+            : state.placeholderSrvBuffer.Get();
+    nvrhi::IBuffer* staticBucketTriangleMaterialBuffer =
+        inputs.staticBucketTriangleMaterialBuffer
+            ? inputs.staticBucketTriangleMaterialBuffer
+            : state.placeholderSrvBuffer.Get();
+    nvrhi::IBuffer* staticBucketTriangleMaterialIndexBuffer =
+        inputs.staticBucketTriangleMaterialIndexBuffer
+            ? inputs.staticBucketTriangleMaterialIndexBuffer
+            : state.placeholderSrvBuffer.Get();
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, neeCacheProviderResultBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, neeCacheCellBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(76, dynamicMaterialBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, neeCacheCandidateBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(87, materialFeatureParameterBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(100, staticBucketRouteRecordBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(101, staticBucketVertexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(102, staticBucketIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(103, staticBucketTriangleClassBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(104, staticBucketTriangleMaterialBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(105, staticBucketTriangleMaterialIndexBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(69, inputs.diReservoirBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, inputs.primarySurfaceCurrentBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, inputs.primarySurfacePreviousBuffer));
@@ -1699,6 +1738,12 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(dynamicMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(neeCacheCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(materialFeatureParameterBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(staticBucketRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(staticBucketVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(staticBucketIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(staticBucketTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(staticBucketTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(staticBucketTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->commitBarriers();
 

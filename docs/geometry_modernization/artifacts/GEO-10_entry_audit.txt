@@ -502,17 +502,14 @@ No bucket instance enters the production TLAS yet. Before that can happen:
 
   1. Move/build the current-frame bucket publication before TLAS submission and
      binding creation; a prior-frame active set is not safe at portal changes.
-  2. Bind/declare the route ABI in Remix GI, then route its GI surface
-     reconstruction helpers through the checked loader. Primary producer and
-     standalone clean-DI spatial checked consumers are complete.
-  3. Special-case high-ID buckets in primary history, motion, and object-motion
+  2. Special-case high-ID buckets in primary history, motion, and object-motion
      logic without changing rigid/skinned predicates.
-  4. Migrate static-emissive inventory identity from monolithic instance 0 to
+  3. Migrate static-emissive inventory identity from monolithic instance 0 to
      the bucket InstanceID plus bucket-local primitive contract.
-  5. Add a default-off one-cvar rollback gate. Only an exact current-frame
+  4. Add a default-off one-cvar rollback gate. Only an exact current-frame
      publication with every consumer capability may set
      includeStaticBlasInTlas=false and append active bucket descriptors.
-  6. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
+  5. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
      change, and comm1 area-41 comparisons before enabling coalescing work.
 
 PRIMARY PRODUCER CHECKED CONSUMER
@@ -590,3 +587,52 @@ Vulkan release build:
 
 Both blob mtimes are newer than the spatial source edit. DXIL was not
 invalidated, rebuilt, or deployed. No production traversal changed.
+
+REMIX GI CHECKED CONSUMER
+-------------------------
+The GI constants-prefix audit found a live mismatch introduced by the earlier
+clean-DI extension. PathTraceCleanRtxdiDiSentinelConstants is exactly 512
+bytes, but GI copied at most 480 bytes and wrote its private tail beginning at
+offset 480. That replaced the route tuple. GI now requires and copies the exact
+512-byte prefix; its unchanged 224-byte tail begins at offset 512, for a
+736-byte total inside the existing 768-byte allocation.
+
+GI owns a separate binding layout and set. Both now carry t100 through t105,
+using the same checked route-record, vertex, index, class, material-ID, and
+material-index buffers. Missing shadow resources bind the existing structured
+placeholder; the zero route count prevents reads. The checked loader feeds:
+
+  hit metadata range validation;
+  material ID and material-table index;
+  triangle class and flags;
+  full secondary-hit attributes;
+  compact position and UV reconstruction;
+  ray-query and trace-ray any-hit material classification;
+  emissive replay geometry after identity migration supplies bucket IDs.
+
+The full validator is behind one GI-local `[noinline]` wrapper. This avoids
+cloning its route/stride/generation/range checks into every central helper.
+
+The first build exposed that the two monolithic GI SPIR-V libraries were
+already at DXC's ID ceiling. Source/runtime tracing proves Vulkan never loads
+them: it exclusively creates pipelines from the 16 debug or 16 production
+split libraries. Monolithic loading is restricted to the D3D12/DXIL path.
+Their unused Vulkan custom commands and output-list entries were removed.
+The split runtime contract is unchanged.
+
+Accepted Vulkan release build:
+
+  command     from neo/, cmake --build --preset win64-pt-dev-release
+  result      success in 390.1 seconds
+  CPU harness PathTraceCpuPlanningHarness passed
+  GI outputs  32 split RT libraries plus producer-rayquery and temporal CS
+  stale       0 of 34
+  aggregate sha256
+              C949BBCF017F43D86F3B127D5E7FB210EFD281839DBFE291388195281AB040ED
+  executable sha256
+              B4B26AF3D56042D3EE8D99F903EF7370ABAD404637850682870FC3AF7FB607F7
+  deployed    EXE and all 34 affected GI blobs byte-identical
+
+Project regeneration also rebuilt NEE-cache debug, primary producer, ReGIR
+debug, PDF/NEE producer, and core smoke SPIR-V. Each matched its already
+deployed hash, so none was recopied. DXIL was not built or deployed.

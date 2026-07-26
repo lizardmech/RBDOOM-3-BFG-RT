@@ -93,6 +93,16 @@ shadow any-hit material lookup all fail closed through the common loader.
 Both debug and production view-16 Vulkan variants build and deploy, while the
 live TLAS remains monolithic.
 
+Remix GI now mirrors the complete 512-byte clean-DI constants prefix instead
+of placing its private tail over the final 32 bytes. Its independent layout
+binds the six bucket streams at t100 through t105. Central hit-range,
+material-ID/index, class, full-surface, compact-geometry, ray-query, any-hit,
+and emissive replay consumers use one non-inlined checked route loader. Vulkan
+uses only the split GI libraries; the two unused monolithic SPIR-V build
+outputs were removed after the enlarged source exceeded their compiler ID
+limit. All 32 runtime split libraries and both compute wrappers build and
+deploy. Bucket traversal remains off.
+
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,
 and `r_pathTracingGeometryStaticBucketBlasBuild 1` submits bounded shadow
