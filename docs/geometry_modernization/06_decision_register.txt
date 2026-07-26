@@ -601,8 +601,34 @@ geometry_geo84 is the decisive localization: GI resolve off/on makes no
 difference, while `r_pathTracingRigidTlasRoute 0` restores the black rigid
 objects. The CPU planning harness proves that material-only changes preserve
 mesh sharing while changing both plan token and instance signature. The
-release build and 42/42 affected Vulkan validation pass. Runtime acceptance of
-the replacement is still required.
+release build and 42/42 affected Vulkan validation pass. geometry_geo85
+through geometry_geo88 subsequently prove this material ownership correction
+is necessary but does not by itself restore primary-hit shading.
+
+D38. RIGID-ROUTE RANGE TEST USES THE CONSUMER'S LIVE COUNT FIELD
+----------------------------------------------------------------
+Decision: `PathTraceIsRigidHitRouteInstance` does not assume one universal
+constant-buffer field for rigid instance count. The shared include provides an
+overridable count accessor. Primary-surface, smoke, NEE-cache debug, and ReGIR
+debug consumers use their existing `GeometryInfo2.y` accessors. Clean DI/GI
+consumers retain `ToyPathInfo.w`, where their CPU constant packing deliberately
+stores the rigid count.
+
+geometry_geo89 proves the route storage itself is sound: instance 101 maps to
+route 99, the t26 material is 3510053343/index 436, all sampled t25
+primitive/index/vertex bounds pass, and the t18 skinned range is empty. The
+primary payload still contained its default material 0/class 4/zero normal
+because the former predicate tested `ToyPathInfo.w == 0` and returned before
+payload assignment. The same assumption was invalid in the smoke shader,
+where `ToyPathInfo.w` is the accumulation frame.
+
+The five-source correction forced regeneration of all 14 transitive Vulkan
+ray-tracing blobs. Every blob is newer than the source edit, the release build
+and `PathTraceSkinnedHitRouteHarness` pass, and all 15 deployed executable/blob
+hashes match their build outputs. Live canonical-route-1 validation reports
+all affected rigid objects fixed. D37 and D38 are therefore runtime-accepted
+together; canonical rigid material ownership remains per instance and its
+shader range gate now consumes the correct per-pipeline count ABI.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

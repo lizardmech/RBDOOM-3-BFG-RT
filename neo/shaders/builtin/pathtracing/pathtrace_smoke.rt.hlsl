@@ -1,5 +1,7 @@
 #include "../../vulkan.hlsli"
 #include "PathTraceMaterialFeatureTypes.hlsli"
+#define RB_PT_RIGID_HIT_ROUTE_INSTANCE_COUNT() \
+    PathTraceRigidRouteInstanceCount()
 #include "PathTraceSkinnedHitRoute.hlsli"
 #include "cleanroom_common/pathtrace_liquid_pool_control.hlsli"
 #ifndef __cplusplus

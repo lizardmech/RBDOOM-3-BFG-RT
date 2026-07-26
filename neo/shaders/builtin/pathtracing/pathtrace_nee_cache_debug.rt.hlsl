@@ -1,4 +1,6 @@
 #include "../../vulkan.hlsli"
+#define RB_PT_RIGID_HIT_ROUTE_INSTANCE_COUNT() \
+    PathTraceNeeCacheRigidRouteInstanceCount()
 #include "PathTraceSkinnedHitRoute.hlsli"
 #include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 #include "RtxdiBridge/RAB_NeeCache.hlsli"

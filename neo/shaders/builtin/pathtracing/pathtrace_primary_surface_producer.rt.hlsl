@@ -1,4 +1,6 @@
 #include "../../vulkan.hlsli"
+#define RB_PT_RIGID_HIT_ROUTE_INSTANCE_COUNT() \
+    PathTraceRigidRouteInstanceCount()
 #include "PathTraceSkinnedHitRoute.hlsli"
 #ifndef __cplusplus
 #ifndef uint16_t

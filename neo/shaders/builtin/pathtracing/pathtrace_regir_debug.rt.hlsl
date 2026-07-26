@@ -1,4 +1,6 @@
 #include "../../vulkan.hlsli"
+#define RB_PT_RIGID_HIT_ROUTE_INSTANCE_COUNT() \
+    PathTraceReGIRRigidRouteInstanceCount()
 #include "PathTraceSkinnedHitRoute.hlsli"
 #include "RtxdiBridge/RAB_ReGIR.hlsli"
 #include "Rtxdi/Utils/Math.hlsli"

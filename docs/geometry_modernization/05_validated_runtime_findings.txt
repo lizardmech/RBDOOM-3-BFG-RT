@@ -606,5 +606,25 @@ NO LONGER OPEN TO SPECULATION
   through the TLAS plan/signature, admits it to the table, resolves a
   per-instance material index, and makes all rigid-hit consumers use the
   existing per-instance route fields. Offline harness, release build, and
-  42/42 affected Vulkan `spirv-val` checks pass; live visual acceptance remains
-  pending.
+  42/42 affected Vulkan `spirv-val` checks pass. geometry_geo85.log through
+  geometry_geo88.log prove that repair was necessary but not sufficient: the
+  route record reached the GPU with the correct material while the primary
+  payload still returned its default material/class/normal tuple.
+- geometry_geo89.log closes the remaining rigid-route failure. Its direct
+  readback reports route index 99 for instance 101, material
+  3510053343/index 436, valid t25 index and vertex ranges, and no overlap with
+  the empty skinned route range. The shared
+  `PathTraceIsRigidHitRouteInstance` predicate nevertheless read its instance
+  count from `ToyPathInfo.w`. That field is zero in the primary-surface
+  producer and is the accumulation-frame field in the smoke shader; the live
+  rigid count is `GeometryInfo2.y` (116 in this capture). The hit shader
+  therefore returned before filling the payload.
+- The shared predicate now has an overridable rigid-count accessor. Primary,
+  smoke, NEE-cache debug, and ReGIR debug shaders select their existing
+  `GeometryInfo2.y` accessors; clean DI/GI retain the established
+  `ToyPathInfo.w` ABI. All 14 dependent Vulkan ray-tracing blobs were forcibly
+  regenerated and timestamp-checked, the release build and
+  `PathTraceSkinnedHitRouteHarness` pass, and deployment hashes match. User
+  validation with canonical route 1 reports all previously black rigid
+  objects fixed. The GEO89 direct-buffer diagnostic was removed after
+  localization.

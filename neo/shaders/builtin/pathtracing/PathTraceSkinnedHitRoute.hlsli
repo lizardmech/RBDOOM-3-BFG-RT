@@ -71,9 +71,14 @@ uint PathTraceSkinnedHitRouteFirstInstanceId()
     return SmokeSkinnedHitRouteRecords[0].shaderInstanceId;
 }
 
+#ifndef RB_PT_RIGID_HIT_ROUTE_INSTANCE_COUNT
+#define RB_PT_RIGID_HIT_ROUTE_INSTANCE_COUNT() \
+    ((uint)max(ToyPathInfo.w, 0.0))
+#endif
+
 #define PathTraceIsRigidHitRouteInstance(instanceId) \
     ((instanceId) >= 2u && \
-        (instanceId) - 2u < (uint)max(ToyPathInfo.w, 0.0))
+        (instanceId) - 2u < RB_PT_RIGID_HIT_ROUTE_INSTANCE_COUNT())
 
 bool PathTraceIsSkinnedHitRouteInstance(uint instanceId)
 {
