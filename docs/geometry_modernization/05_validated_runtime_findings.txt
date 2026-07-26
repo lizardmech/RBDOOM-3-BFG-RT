@@ -647,3 +647,23 @@ NO LONGER OPEN TO SPECULATION
   15-surface route stays CPU-omitted for 115 logged frames with no signature
   oscillation, omitted-set mismatch, pre-capture invalidation, late
   revocation, device failure, or crash. GEO-08 step 10 is accepted.
+- geometry_geo117_auto and geometry_geo118_auto are rejected Step 11 probes.
+  They exposed a circular dependency: a full-CPU comparison frame could retain
+  only 21 of 23 skinned surfaces because 216,054 skinned indexes exceed the
+  legacy 196,608-index merged cap. Requiring the enlarged exact set to pass
+  through that full-CPU frame therefore alternated 21 and 23 route shadows.
+- geometry_geo122_auto accepts the corrected bounded transition. The exact
+  21-route subset remains live while two new surfaces use CPU fallback; the
+  complete 23-route source-only build then enters the TLAS with 21 active and
+  two mask-zero descriptors. One frame later all 23 descriptors are active,
+  CPU skin append is zero, and 43,439 vertices / 216,054 indexes are omitted.
+  That state persists for 173 logged frames with no omitted-set mismatch,
+  comparison upgrade, invalidation, device failure, or crash, followed by
+  normal shutdown.
+- geometry_geo123_auto supplies the Step 11 ownership proof: 23/23 exact
+  mutable output ranges and dispatches, 11 unique immutable sources,
+  78/78 shared-source pairs with non-aliased output, zero overlaps, 23 active
+  BLAS owners, and a 23/23 accepted TLAS range at IDs 113..135 with every
+  upload/resource/BLAS/SBT/capacity failure bucket zero. The material census
+  contains 13 `models/monsters/zombie/fatty/fatty` surfaces. GEO-08 step 11 is
+  accepted; step 12 timing measurement is next.

@@ -216,8 +216,14 @@ STEPS
     use. geometry_geo113_auto, geometry_geo115_auto, and the rebuilt
     geometry_geo116_auto close these cases with exact event-query retirement,
     forced cache eviction, and cold map-reload admission.
-11. Validate 13 Fatzombie/clone instances: one source mesh record per unique
-    surface, distinct mutable output/BLAS per live instance.
+11. ACCEPTED. Validate 13 Fatzombie/clone instances: one source mesh record per
+    unique surface, distinct mutable output/BLAS per live instance.
+    geometry_geo122_auto crosses the old 196,608-index merged cap and remains
+    at 23 omitted routes / 43,439 vertices / 216,054 indexes for 173 logged
+    frames. geometry_geo123_auto records 11 immutable sources shared by 23
+    surfaces, 78/78 shared-source pairs with non-aliased mutable ranges, zero
+    overlaps, 23 exact dispatch/output/BLAS owners, and TLAS IDs 113..135 with
+    every admission failure bucket zero.
 12. Measure CPU skin time, BLAS build/update/reuse time and counts with
     identical animated geometry. Report merged legacy rebuild cost separately.
 

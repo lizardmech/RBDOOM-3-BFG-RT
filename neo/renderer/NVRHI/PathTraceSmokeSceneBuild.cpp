@@ -3404,35 +3404,42 @@ bool SmokeSkinnedHitRouteBuildUsesSourceOnlyMetadata(
             });
 }
 
-bool SmokeSkinnedHitRoutesMatchOmittedCapture(
-    const std::vector<PtSkinnedHitRouteRecord>& routes,
-    const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
-    int omittedSurfaceCount)
+bool SmokeSkinnedHitRouteBuildUsesAnySourceOnlyMetadata(
+    const PtSkinnedHitRouteBuild& build)
 {
-    if (omittedSurfaceCount <= 0)
-    {
-        return true;
-    }
-    if (routes.size() !=
-        static_cast<size_t>(omittedSurfaceCount))
+    return std::any_of(
+        build.records.begin(),
+        build.records.end(),
+        [](const PtSkinnedHitRouteRecord& route)
+        {
+            return (route.flags &
+                PT_SKINNED_HIT_ROUTE_HAS_SOURCE_ONLY_PRIMITIVES) !=
+                0u;
+        });
+}
+
+bool SmokeSkinnedHitRouteBuildContainsInstanceSet(
+    const PtSkinnedHitRouteBuild& container,
+    const PtSkinnedHitRouteBuild& subset)
+{
+    if (container.records.size() < subset.records.size())
     {
         return false;
     }
-    std::vector<bool> matched(records.size(), false);
-    for (const PtSkinnedHitRouteRecord& route : routes)
+    std::vector<bool> matched(container.records.size(), false);
+    for (const PtSkinnedHitRouteRecord& subsetRoute :
+        subset.records)
     {
         bool found = false;
-        for (size_t recordIndex = 0;
-            recordIndex < records.size();
-            ++recordIndex)
+        for (size_t containerIndex = 0;
+            containerIndex < container.records.size();
+            ++containerIndex)
         {
-            const RtSmokeSkinnedSurfaceRecord& record =
-                records[recordIndex];
-            if (!matched[recordIndex] &&
-                record.cpuCaptureOmitted &&
-                record.canonicalInstance == route.instanceKey)
+            if (!matched[containerIndex] &&
+                container.records[containerIndex].instanceKey ==
+                    subsetRoute.instanceKey)
             {
-                matched[recordIndex] = true;
+                matched[containerIndex] = true;
                 found = true;
                 break;
             }
@@ -3443,6 +3450,81 @@ bool SmokeSkinnedHitRoutesMatchOmittedCapture(
         }
     }
     return true;
+}
+
+bool SmokeSkinnedHitRoutesMatchOmittedCapture(
+    const std::vector<PtSkinnedHitRouteRecord>& routes,
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
+    int omittedSurfaceCount)
+{
+    if (routes.empty())
+    {
+        return omittedSurfaceCount <= 0;
+    }
+    const bool exactOmittedSubset =
+        routes.size() ==
+            static_cast<size_t>(Max(omittedSurfaceCount, 0));
+    const bool completeCurrentSet =
+        routes.size() == records.size();
+    // A transition upload is valid in either of two forms: the exact
+    // previously accepted subset whose CPU copies were omitted, or the
+    // complete current set used to pre-admit newly ready routes at mask zero.
+    // Unrelated or partial-in-between InstanceKey sets remain suppressed.
+    if (!exactOmittedSubset && !completeCurrentSet)
+    {
+        return false;
+    }
+    std::vector<bool> matched(records.size(), false);
+    int matchedOmittedSurfaces = 0;
+    for (const PtSkinnedHitRouteRecord& route : routes)
+    {
+        if ((route.flags &
+                PT_SKINNED_HIT_ROUTE_HAS_SOURCE_ONLY_PRIMITIVES) ==
+            0u)
+        {
+            return false;
+        }
+        bool found = false;
+        for (size_t recordIndex = 0;
+            recordIndex < records.size();
+            ++recordIndex)
+        {
+            const RtSmokeSkinnedSurfaceRecord& record =
+                records[recordIndex];
+            if (!matched[recordIndex] &&
+                record.canonicalInstance == route.instanceKey)
+            {
+                matched[recordIndex] = true;
+                if (record.cpuCaptureOmitted)
+                {
+                    ++matchedOmittedSurfaces;
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            return false;
+        }
+    }
+    return
+        matchedOmittedSurfaces == omittedSurfaceCount &&
+        (exactOmittedSubset || completeCurrentSet);
+}
+
+bool SmokeSkinnedCaptureInstanceWasOmitted(
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
+    const PtCanonicalInstanceKey& instanceKey)
+{
+    for (const RtSmokeSkinnedSurfaceRecord& record : records)
+    {
+        if (record.canonicalInstance == instanceKey)
+        {
+            return record.cpuCaptureOmitted;
+        }
+    }
+    return false;
 }
 
 bool SmokeSkinnedComparisonStateRetirementQueued(
@@ -3980,33 +4062,37 @@ PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
             dispatch.previousPositionOffset != UINT32_MAX &&
             (dispatch.flags &
                 PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) != 0u;
+        // Once the canonical source/output route is enabled, build its hit
+        // metadata from immutable source primitives even while a CPU copy is
+        // retained for fail-closed bootstrap. This makes the route safe to
+        // pre-admit without depending on the legacy merged-buffer capacity.
         candidate.legacyVertexOffset =
-            record.cpuCaptureOmitted
+            gate
                 ? 0u
                 : dispatch.dynamicVertexOffset;
         candidate.legacyVertexCount =
-            record.cpuCaptureOmitted
+            gate
                 ? 0u
                 : dispatch.vertexCount;
         candidate.legacyIndexOffset =
-            record.cpuCaptureOmitted
+            gate
                 ? 0u
                 : dispatch.dynamicIndexOffset;
         candidate.legacyIndexCount =
-            record.cpuCaptureOmitted
+            gate
                 ? 0u
                 : static_cast<uint64>(
                     dispatch.triangleCount) * 3;
         candidate.legacyTriangleOffset =
-            record.cpuCaptureOmitted
+            gate
                 ? 0u
                 : dispatch.dynamicTriangleOffset;
         candidate.legacyTriangleCount =
-            record.cpuCaptureOmitted
+            gate
                 ? 0u
                 : dispatch.triangleCount;
         candidate.legacyCapturePresent =
-            !record.cpuCaptureOmitted;
+            !gate;
         const int fallbackMaterialIndex =
             FindSmokeMaterialTableIndexById(
                 materialTable,
@@ -4017,7 +4103,7 @@ PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
                 static_cast<uint32_t>(
                     fallbackMaterialIndex);
         }
-        if (!record.cpuCaptureOmitted &&
+        if (!gate &&
             dispatch.dynamicTriangleOffset <
             dynamicTriangleMaterialIndexes.size())
         {
@@ -4025,7 +4111,7 @@ PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
                 dynamicTriangleMaterialIndexes[
                     dispatch.dynamicTriangleOffset];
         }
-        if (!record.cpuCaptureOmitted &&
+        if (!gate &&
             dispatch.dynamicTriangleOffset <
             dynamicTriangleClasses.size())
         {
@@ -6181,12 +6267,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 const bool pendingSourceOnly =
                     SmokeSkinnedHitRouteBuildUsesSourceOnlyMetadata(
                         routeSet.pendingBuild);
-                // A full-CPU comparison frame necessarily regenerates a
-                // legacy-mapped shadow. Once source-only metadata has passed
-                // TLAS admission, do not downgrade to that bootstrap artifact.
+                const bool pendingAnySourceOnly =
+                    SmokeSkinnedHitRouteBuildUsesAnySourceOnlyMetadata(
+                        routeSet.pendingBuild);
+                const bool pendingContainsAcceptedInstanceSet =
+                    SmokeSkinnedHitRouteBuildContainsInstanceSet(
+                        routeSet.pendingBuild,
+                        routeSet.acceptedBuild);
+                const bool pendingAcceptedInstanceSetExact =
+                    routeSet.pendingBuild.records.size() ==
+                        routeSet.acceptedBuild.records.size() &&
+                    pendingContainsAcceptedInstanceSet;
+                // Preserve the last accepted source-only build only when a
+                // same-set legacy bootstrap artifact appears. A changed set
+                // instead uploads its current source-only shadow so new
+                // instances can pass mask-zero pre-admission.
                 const bool retainAcceptedSourceOnly =
                     acceptedSourceOnly &&
-                    !pendingSourceOnly;
+                    !pendingAnySourceOnly &&
+                    pendingAcceptedInstanceSetExact;
                 if (retainAcceptedSourceOnly)
                 {
                     skinnedHitRouteUploadBuild =
@@ -6208,12 +6307,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 // planning below; it does not require a full CPU bootstrap
                 // frame merely because its byte signature changed.
                 const bool acceptedAdmissionCompatible =
-                    acceptedSourceOnly &&
-                    pendingSourceOnly
-                    ? true
-                    : skinnedHitRouteUploadBuildSignature != 0 &&
+                    (acceptedSourceOnly &&
+                        pendingSourceOnly &&
+                        pendingContainsAcceptedInstanceSet) ||
+                    (pendingAcceptedInstanceSetExact &&
+                     skinnedHitRouteUploadBuildSignature != 0 &&
                         skinnedHitRouteUploadBuildSignature ==
-                            routeSet.acceptedBuildSignature;
+                            routeSet.acceptedBuildSignature);
                 if (!routeSet.acceptedBuild.records.empty() &&
                     acceptedAdmissionCompatible)
                 {
@@ -9728,6 +9828,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedTlasPlanInput);
     const size_t firstSkinnedTlasDesc =
         rigidTlasRouteInstances.size();
+    uint32 skinnedTlasActiveDescriptorCount = 0;
     if (skinnedTlasPlan.result ==
         PtSkinnedTlasRouteResult::Accepted)
     {
@@ -9758,9 +9859,20 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             transform[11] = 0.0f;
 
             nvrhi::rt::InstanceDesc instanceDesc;
+            const bool cpuCaptureOmitted =
+                SmokeSkinnedCaptureInstanceWasOmitted(
+                    currentSkinnedSurfaceRecords,
+                    route.instanceKey);
             instanceDesc
                 .setInstanceID(route.shaderInstanceId)
-                .setInstanceMask(route.instanceMask)
+                // A newly enlarged source-only route set can pass the full
+                // upload/resource/TLAS plan while its CPU fallback extras
+                // remain visible. Keep those extras in the TLAS at mask zero
+                // for this pre-admission frame so they cannot double-trace.
+                .setInstanceMask(
+                    cpuCaptureOmitted
+                        ? route.instanceMask
+                        : 0u)
                 .setInstanceContributionToHitGroupIndex(
                     route.hitGroupContribution)
                 .setFlags(
@@ -9772,6 +9884,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                         route.candidateIndex]->blas);
             rigidTlasRouteInstances.push_back(
                 instanceDesc);
+            if (cpuCaptureOmitted)
+            {
+                ++skinnedTlasActiveDescriptorCount;
+            }
         }
     }
     const uint32 skinnedTlasDescriptorCount =
@@ -9779,7 +9895,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             rigidTlasRouteInstances.size() -
             firstSkinnedTlasDesc);
     const bool skinnedTlasUsesSourceOnlyMetadata =
-        std::any_of(
+        !skinnedHitRouteUploadCpuRecords.empty() &&
+        std::all_of(
             skinnedHitRouteUploadCpuRecords.begin(),
             skinnedHitRouteUploadCpuRecords.end(),
             [](const PtSkinnedHitRouteRecord& route)
@@ -9788,6 +9905,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     PT_SKINNED_HIT_ROUTE_HAS_SOURCE_ONLY_PRIMITIVES) !=
                     0u;
             });
+    if (skinnedTlasPlan.result ==
+            PtSkinnedTlasRouteResult::Accepted &&
+        skinnedTlasDescriptorCount >
+            skinnedTlasActiveDescriptorCount)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 capture-split TLAS pre-admission frame=%llu routes/descriptors(active/masked)=%zu/%u(%u/%u) omitted=%d metadata=source-only action=mask-cpu-fallback-until-next-frame\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            skinnedHitRouteUploadCpuRecords.size(),
+            skinnedTlasDescriptorCount,
+            skinnedTlasActiveDescriptorCount,
+            skinnedTlasDescriptorCount -
+                skinnedTlasActiveDescriptorCount,
+            captureTiming.skinnedCaptureOmittedSurfaces);
+    }
     const size_t skinnedTlasMotionReady =
         static_cast<size_t>(std::count_if(
             skinnedHitRouteUploadCpuRecords.begin(),

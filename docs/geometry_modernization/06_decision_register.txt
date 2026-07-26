@@ -678,11 +678,16 @@ TLAS-accepted source-only build proves that every omitted InstanceKey still
 owns the exact live source, output-buffer generation, BLAS resource, and
 routable AS state needed at capture time. The current frame may refresh
 source-only triangle metadata (notably material-table indexes) without
-repeating CPU skinning. That refreshed upload is admitted only when its
-InstanceKey set matches the omitted capture set one-for-one and its normal
-route/resource/BLAS/SBT/TLAS plan passes. Successful TLAS admission promotes
-that exact refreshed build. This replaces the earlier, too-strong assumption
-that byte-identical prior admission and current upload builds were required.
+repeating CPU skinning. That refreshed upload is admitted only when it either
+matches the omitted capture set one-for-one or describes the complete current
+skinned set, and its normal route/resource/BLAS/SBT/TLAS plan passes. In the
+complete-set case, routes whose CPU fallback remains present are inserted with
+TLAS mask zero for that frame. This validates the enlarged set without
+double-tracing; successful admission promotes it so the following frame can
+omit the new CPU captures. Partial sets between the exact omitted subset and
+the complete current set are rejected. This replaces both the earlier
+byte-identical-build requirement and the later circular assumption that an
+enlarged set must first fit through a full-CPU comparison frame.
 
 Admission additionally requires exact current mesh/source checksums,
 vertex/index/triangle counts, and current joint data. Structural ineligibility
@@ -726,6 +731,18 @@ bootstrap upgrade. No omitted-set mismatch, pre-capture invalidation, late
 revocation, or device failure occurs. Together with geometry_geo113_auto
 completion-owned physical growth, geometry_geo115_auto offscreen/return, and
 the already-proven 2D-overlay PDA contract, step 10 is accepted.
+
+geometry_geo117_auto and geometry_geo118_auto exposed why enlarged-set
+admission cannot require a full-CPU bootstrap: 23 live skinned surfaces contain
+216,054 indexes, so the legacy 196,608-index cap retains only 21 and forces a
+21/23 route-shadow cycle. geometry_geo122_auto accepts the source-only
+pre-admission rule. Frame 185 carries 23 routes with 21 active and two
+mask-zero descriptors; frame 186 carries 23 active descriptors and omits all
+43,439 vertices / 216,054 indexes. The state remains exact for 173 logged
+frames without mismatch, invalidation, or failure. geometry_geo123_auto proves
+11 unique immutable sources, 23 non-overlapping mutable ranges and BLAS
+owners, 78/78 shared-source pairs non-aliased, and contiguous accepted TLAS IDs
+113..135. Step 11 is accepted.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

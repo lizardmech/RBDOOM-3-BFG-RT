@@ -1354,7 +1354,37 @@ The existing geometry_geo43_auto result establishes that this game's PDA is a
 skinned route set, and the primary owner tuple before/after the overlay is
 exact. Combined with geometry_geo113_auto physical-growth/map-reset ownership,
 geometry_geo115_auto offscreen/return, and the rebuilt geometry_geo116_auto
-regression, this accepts GEO-08 step 10. Step 11 clone scaling is next.
+regression, this accepts GEO-08 step 10. Step 11 evidence follows.
+
+Step 11 clone-scaling probes:
+
+  geometry_geo117_auto.log and geometry_geo118_auto.log
+    Rejected diagnostic runs. The 13-Fatzombie scene produces 23 live skinned
+    surfaces / 216,054 indexes, above the legacy 196,608-index cap. A required
+    full-CPU comparison frame can retain only 21 surfaces, so the route shadow
+    alternates 21/23 and never converges.
+
+Accepted Step 11 proof:
+
+  geometry_geo122_auto.log
+    Frame 183 accepts the existing 21-route source-only subset while two new
+    surfaces retain named CPU fallback. Frame 185 pre-admits the complete
+    23-route build with 21 active and two mask-zero descriptors, preventing
+    duplicate tracing. Frame 186 activates all 23 descriptors and omits
+    23 surfaces / 43,439 vertices / 216,054 indexes with zero CPU skin append.
+    The exact state persists for 173 logged frames. There is no omitted-set
+    mismatch, comparison-upgrade loop, invalidation, fatal, device failure, or
+    crash, and the script reaches normal renderer/game shutdown. Lifecycle
+    frame 241 reports 23 active and zero retired BLAS resources.
+
+  geometry_geo123_auto.log
+    The one-shot ownership/readback dump reports 23/23 exact output ranges,
+    23/23 dispatches, 11 unique immutable sources, 12 shared instances,
+    78/78 shared-source pairs with non-aliased mutable ranges, zero overlaps,
+    and 23 active BLAS resources. TLAS admission is 23/23 at contiguous shader
+    InstanceIDs 113..135 with every upload, CPU/GPU contract, resource, BLAS,
+    SBT, and capacity failure bucket zero. The material census names 13
+    `models/monsters/zombie/fatty/fatty` surfaces. Step 11 is accepted.
 
 Final offline/deployment proof:
 
@@ -1363,4 +1393,4 @@ Final offline/deployment proof:
   Vulkan SPIR-V work = all up to date; no shader source changed
   DX12 shader compilation = not run
   deployed executable SHA-256 =
-    B5CD487D1CC0729B93D09C214CF07FB686E58D9B22533B126CEEAA62E3BF282E
+    402772015C19E757CAF84985C042D5896A8148CBF3E418B158D270691A297F64
