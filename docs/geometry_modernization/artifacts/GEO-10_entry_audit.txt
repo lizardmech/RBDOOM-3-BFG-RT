@@ -505,14 +505,12 @@ No bucket instance enters the production TLAS yet. Before that can happen:
   2. Decide the all-views sentinel contract: either add a compact bucket hit
      library or make its lack of bucket capability an explicit cutover-gate
      rejection. Do not silently route bucket IDs through legacy rigid logic.
-  3. Special-case high-ID buckets in primary history, motion, and object-motion
-     logic without changing rigid/skinned predicates.
-  4. Migrate static-emissive inventory identity from monolithic instance 0 to
+  3. Migrate static-emissive inventory identity from monolithic instance 0 to
      the bucket InstanceID plus bucket-local primitive contract.
-  5. Add a default-off one-cvar rollback gate. Only an exact current-frame
+  4. Add a default-off one-cvar rollback gate. Only an exact current-frame
      publication with every consumer capability may set
      includeStaticBlasInTlas=false and append active bucket descriptors.
-  6. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
+  5. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
      change, and comm1 area-41 comparisons before enabling coalescing work.
 
 PRIMARY PRODUCER CHECKED CONSUMER
@@ -701,3 +699,63 @@ B4B26AF3D56042D3EE8D99F903EF7370ABAD404637850682870FC3AF7FB607F7.
 DXIL was not built or deployed. Runtime proof is deferred because the route is
 unreachable until current-frame publication and the cutover capability gate
 are implemented.
+
+PRIMARY HISTORY AND MOTION
+--------------------------
+The primary motion supplier previously recognized only monolithic instance 0
+as static. A bucket hit therefore fell through static snapshot history and
+then failed object motion after the bounded rigid/skinned predicates rejected
+its high InstanceID.
+
+The primary producer now supplies an entry-specific predicate for checked
+bucket IDs. A bucket surface:
+
+  is reported as PT_MOTION_VECTOR_SOURCE_STATIC;
+  uses its current immutable world position as previous world position;
+  uses the existing previous-camera projection for pixel motion and depth;
+  never indexes the monolithic previous-static vertex/index/material arrays;
+  never enters rigid or skinned object-motion arithmetic.
+
+Identity comparison remains the published bucket InstanceID plus bucket-local
+primitive. A changed active-set generation changes the route tuple and fails
+closed before live traversal; a newly visible bucket naturally has no matching
+previous primary record.
+
+Accepted Vulkan release build:
+
+  command     from neo/, cmake --build --preset win64-pt-dev-release
+  result      success in 45.0 seconds
+  CPU harness PathTraceCpuPlanningHarness passed
+  changed/deployed primary producer sha256
+              2A230FC34D16C28D30392900BD84D475C3F426B3F2342A2E492C9E67276D33B9
+  unchanged legacy smoke sha256
+              DFF943A469FFC677A8FDAF4E71DD9F0FA635444122A5180C4C45B92A374FC153
+
+The NEE-cache, ReGIR, and PDF/NEE libraries rebuilt from broad dependencies and
+retained their deployed hashes. Only the primary producer was copied; its
+deployed bytes match. DXIL was not built or deployed. Runtime proof remains
+deferred while the bucket route is shadow-only.
+
+CURRENT-FRAME PUBLICATION ORDER AUDIT
+-------------------------------------
+The live build order is more stale than the earlier blocker wording implied.
+The static bucket build, active publication, and route upload currently execute
+after:
+
+  monolithic/rigid TLAS submission;
+  binding resource creation;
+  construction and commit of a fresh RtPathTraceSceneInputs package.
+
+The late block then patches `m_sceneInputs.geometry` directly. Moving only the
+call earlier is incorrect because the later scene-input commit would overwrite
+the route tuple with zeros. The required refactor is:
+
+  1. Extract the late bucket block into a current-frame publication result.
+  2. Build/upload it after material-table completion but before TLAS submit.
+  3. Feed its route buffers to binding creation.
+  4. Copy its first InstanceID, count, generation, and validity into the local
+     scene-input package before resource commit.
+  5. Only after those four identities agree may the cutover append the same
+     publication's TLAS descriptors and omit monolithic instance 0.
+
+This is the next CPU-side GEO-10 implementation slice.

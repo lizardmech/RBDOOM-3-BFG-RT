@@ -115,6 +115,14 @@ is selected, unless a compact bucket hit library is added first. This
 restriction does not affect current production because bucket traversal is
 still shadow-only.
 
+Primary history and motion now classify a checked bucket InstanceID as static
+world geometry. Bucket vertices are immutable world-space data, so their
+previous position is the current hit position and the existing previous-camera
+projection produces motion pixels and depth. This bypasses monolithic static
+snapshot indexing without entering rigid/skinned object-motion arithmetic.
+The legacy smoke library compiles the old contract byte-for-byte; only the
+primary producer enables the bucket-motion predicate.
+
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,
 and `r_pathTracingGeometryStaticBucketBlasBuild 1` submits bounded shadow

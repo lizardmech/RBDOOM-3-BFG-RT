@@ -23,6 +23,16 @@
 #ifndef PATHTRACE_SMOKE_RAB_MOTION_SUPPLIER_HLSLI
 #define PATHTRACE_SMOKE_RAB_MOTION_SUPPLIER_HLSLI
 
+#if defined(RB_PT_STATIC_BUCKET_MOTION_ENABLED)
+bool PathTraceIsStaticMotionSurface(RAB_Surface surface)
+{
+    return surface.surfaceClass == 0u &&
+        (surface.instanceId == 0u ||
+            RB_PT_STATIC_BUCKET_MOTION_INSTANCE(
+                surface.instanceId));
+}
+#endif
+
 bool ComputeSmokeTriangleBarycentrics(float3 position, float3 p0, float3 p1, float3 p2, out float3 barycentrics)
 {
     barycentrics = float3(1.0, 0.0, 0.0);
@@ -320,11 +330,27 @@ bool TryPathTracePreviousStaticSnapshotPosition(RAB_Surface currentSurface, out 
         return false;
     }
 
-    if (currentSurface.instanceId != 0u || currentSurface.surfaceClass != 0u)
+#if defined(RB_PT_STATIC_BUCKET_MOTION_ENABLED)
+    if (!PathTraceIsStaticMotionSurface(currentSurface))
+#else
+    if (currentSurface.instanceId != 0u ||
+        currentSurface.surfaceClass != 0u)
+#endif
     {
         debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
         return false;
     }
+
+#if defined(RB_PT_STATIC_BUCKET_MOTION_ENABLED)
+    if (currentSurface.instanceId != 0u)
+    {
+        // Portal-area buckets are immutable world-space geometry. Their local
+        // primitive identity is stable inside a publication generation, so
+        // only camera reprojection is required for the previous position.
+        previousPosition = currentSurface.worldPos;
+        return all(previousPosition == previousPosition);
+    }
+#endif
 
     if (PathTracePreviousStaticVertexCount() == 0u ||
         PathTracePreviousStaticIndexCount() == 0u ||
@@ -534,7 +560,12 @@ uint PathTraceMotionVectorSourceKind(RAB_Surface currentSurface)
     {
         return PT_MOTION_VECTOR_SOURCE_UNKNOWN;
     }
-    if (currentSurface.instanceId == 0u && currentSurface.surfaceClass == 0u)
+#if defined(RB_PT_STATIC_BUCKET_MOTION_ENABLED)
+    if (PathTraceIsStaticMotionSurface(currentSurface))
+#else
+    if (currentSurface.instanceId == 0u &&
+        currentSurface.surfaceClass == 0u)
+#endif
     {
         return PT_MOTION_VECTOR_SOURCE_STATIC;
     }
@@ -567,8 +598,12 @@ bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
     sourceKind = PathTraceMotionVectorSourceKind(currentSurface);
     if (RAB_IsSurfaceValid(currentSurface) &&
+#if defined(RB_PT_STATIC_BUCKET_MOTION_ENABLED)
+        PathTraceIsStaticMotionSurface(currentSurface))
+#else
         currentSurface.instanceId == 0u &&
         currentSurface.surfaceClass == 0u)
+#endif
     {
         return TryPathTracePreviousStaticSnapshotMotionPixels(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, debugStatus);
     }
@@ -591,8 +626,12 @@ bool TryPathTraceCombinedGeometryMotionPixelsAndDepth(RAB_Surface currentSurface
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
     sourceKind = PathTraceMotionVectorSourceKind(currentSurface);
     if (RAB_IsSurfaceValid(currentSurface) &&
+#if defined(RB_PT_STATIC_BUCKET_MOTION_ENABLED)
+        PathTraceIsStaticMotionSurface(currentSurface))
+#else
         currentSurface.instanceId == 0u &&
         currentSurface.surfaceClass == 0u)
+#endif
     {
         return TryPathTracePreviousStaticSnapshotMotionPixelsAndDepth(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, expectedPrevDepth, debugStatus);
     }

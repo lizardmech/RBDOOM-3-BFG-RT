@@ -603,8 +603,11 @@ attributes, barycentrics, and transmission UVs. The all-views sentinel cannot
 import bucket lookup without exceeding DXC's SPIR-V ID ceiling, so it remains
 explicitly bucket-incapable and byte-identical. The cutover capability gate
 must reject that route unless a compact bucket hit library is added.
-Motion/history, static-emissive identity, current-frame publication ordering,
-and that sentinel capability decision remain blockers.
+Primary history and motion now classify bucket hits as immutable static
+world-space geometry: previous position equals current hit position and the
+existing previous-camera projection owns pixel motion. The legacy smoke
+library remains byte-identical. Static-emissive identity, current-frame
+publication ordering, and the sentinel capability decision remain blockers.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

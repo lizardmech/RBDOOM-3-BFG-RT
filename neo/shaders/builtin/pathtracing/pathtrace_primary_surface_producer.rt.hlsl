@@ -1133,7 +1133,14 @@ int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame)
     return pixelPosition;
 }
 
+#define RB_PT_STATIC_BUCKET_MOTION_ENABLED 1
+#define RB_PT_STATIC_BUCKET_MOTION_INSTANCE(instanceId) \
+    PathTraceIsStaticBucketRouteInstance( \
+        instanceId, \
+        StaticBucketRouteInfo)
 #include "pathtrace_smoke_rab_motion_supplier.hlsli"
+#undef RB_PT_STATIC_BUCKET_MOTION_INSTANCE
+#undef RB_PT_STATIC_BUCKET_MOTION_ENABLED
 #include "cleanroom_rtxdi/pathtrace_clean_rtxdi_di_rr_geometry_guides.hlsli"
 
 void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
