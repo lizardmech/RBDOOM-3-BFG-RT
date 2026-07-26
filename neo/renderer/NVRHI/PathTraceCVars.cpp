@@ -363,6 +363,12 @@ idCVar r_pathTracingGeometrySkinnedTiming(
     CVAR_RENDERER | CVAR_INTEGER,
     "Capture 1..240 GEO-08 frames of delayed GPU timer-query results for per-instance skinned BLAS work and the merged dynamic BLAS, with microsecond CPU skin accounting" );
 
+idCVar r_pathTracingGeometrySkinnedConsumerAudit(
+    "r_pathTracingGeometrySkinnedConsumerAudit",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot GEO-09 audit of both the live accepted skinned route and same-frame legacy-backed shadow across upload/TLAS, material/class, motion-range, and primitive/emissive identity contracts" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

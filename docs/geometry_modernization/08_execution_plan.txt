@@ -367,6 +367,18 @@ and one bounded 12-BLAS rebuild at frame 63 / 2,516.9 us. Both runs reach
 normal shutdown without device failure. GEO-08 is complete; GEO-09 temporal,
 material, and emissive promotion is the next Phase C ticket.
 
+GEO-09 step 1 is accepted by geometry_geo128_auto. A default-zero one-shot
+audits the live source-only CPU/upload/TLAS route and an independent same-frame
+legacy-backed shadow without changing traversal or lighting. Both views cover
+12 routes, 15,962 triangles, and 12/12 motion-ready ranges. The shadow maps
+all 15,962 source-local triangles to the retained merged-dynamic material ID,
+material index, and class tuple. CPU/GPU upload, TLAS, material-table, current/
+previous range, primitive identity, and emissive identity checks have zero in
+all thirteen failure buckets. The entry audit confirms that live emissive
+harvesting still explicitly skips skinned triangles; primary-hit tuple parity
+is next, while canonical GPU-output emissive harvesting remains a later
+GEO-09 step.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

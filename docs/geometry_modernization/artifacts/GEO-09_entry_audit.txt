@@ -1,0 +1,183 @@
+GEO-09 entry audit - skinned temporal/material/emissive promotion
+================================================================
+Status: step 1 consumer inventory and CPU contract audit accepted, 2026-07-26.
+
+SCOPE
+-----
+This entry slice is behavior-neutral. It inventories the live skinned
+consumer funnel and adds a one-shot validator. It does not change traversal,
+materials, motion, emissive inventories, DI/GI/RR behavior, or shaders.
+
+LIVE PRODUCER AND HIT ROUTE
+---------------------------
+The accepted GEO-08 route already provides:
+
+  CPU route:
+    PtSkinnedHitRouteRecord
+      full canonical InstanceKey and MeshKey
+      collision-checked 64-bit instance hash
+      source index, current output, and previous-position ranges
+      source/output generations and source-local triangle range
+
+    PtSkinnedHitRouteTriangle
+      source-local primitive index
+      optional legacy merged-dynamic primitive index
+      material ID and material-table index
+      triangle class/flags
+      canonical primitive identity
+      canonical emissive identity
+
+  GPU route:
+    PathTraceSkinnedHitRouteGpuRecord at t18
+    PathTraceSkinnedHitRouteGpuTriangle at t19
+    immutable source indexes at t28
+    current world-space skinned output at t29
+    previous world-space positions at t32
+
+  AS route:
+    one updateable BLAS per eligible skinned surface
+    identity-transform TLAS descriptors
+    mask 0x02 for active descriptors
+    SBT contributions 2/3 for skinned primary/shadow hits
+
+CONSUMER INVENTORY
+------------------
+Primary/general PT:
+
+  PathTraceSkinnedHitRoute.hlsli
+  pathtrace_primary_surface_producer.rt.hlsl
+  pathtrace_smoke.rt.hlsl
+
+These recover source-local current vertex attributes, material ID/index, and
+triangle class. The primary payload carries instance, primitive, material,
+class, current world position, barycentrics, UV, normals, and tangent data.
+
+Temporal/motion:
+
+  pathtrace_smoke_rab_motion_supplier.hlsli
+  PathTracePrimarySurface.hlsli
+
+The motion supplier uses the route's previousPositionOffset and the same
+source-local indexes. Current and previous positions are already world-space.
+Primary-surface history packs the resulting instance/primitive/material/class
+and previous object position for ReSTIR/RR reprojection.
+
+DI/GI/debug:
+
+  cleanroom_rtxdi/pathtrace_clean_rtxdi_di_hit_surface_adapter.hlsli
+  cleanroom_rtxdi/pathtrace_clean_rtxdi_di_surface_adapter.hlsli
+  cleanroom_rtxdi/pathtrace_clean_rtxdi_di_skinned_hits.rt.hlsl
+  remix_restir_gi/pathtrace_clean_restir_gi_skinned_hits.rt.hlsl
+  pathtrace_regir_debug.rt.hlsl
+  pathtrace_nee_cache_debug.rt.hlsl
+
+These contain explicit skinned route branches. Their algorithm behavior stays
+outside GEO-09; later steps validate only geometry/material inputs.
+
+Materials:
+
+  PathTraceMaterialUniverse and PathTraceDynamicMaterialState own the material
+  table and runtime texture/state records. Canonical skinned triangles carry
+  both material ID and the current frame's material-table index.
+
+Emissives and the concrete remaining mismatch:
+
+  BuildSmokeEmissiveTriangleInventory walks captured static/dynamic payloads.
+  AppendSmokeEmissiveInventoryForGeometry explicitly skips
+  RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED.
+
+Canonical skinned triangles therefore contribute no
+PathTraceSmokeEmissiveTriangle records, emissive distribution entries, or
+unified-light records. This matches the legacy skip but does not satisfy
+GEO-09/Q17. The replacement must consume mesh-local primitives, per-instance
+identity, and current GPU-skinned positions without restoring CPU skinning.
+
+FIRST ACCEPTED VALIDATOR
+------------------------
+New default-zero cvar:
+
+  r_pathTracingGeometrySkinnedConsumerAudit 1
+
+The one-shot validates two independent views:
+
+  live:
+    exact source-only CPU route, GPU upload, and accepted TLAS plan.
+
+  shadow:
+    same frame and surface set rebuilt diagnostically with retained legacy
+    merged-dynamic offsets. It never enters a TLAS or GPU buffer.
+
+Both views validate route/triangle counts, CPU/GPU field equality, current and
+previous bounds, material-table identity, source-local primitive identity,
+canonical emissive identity, and identity collisions. The shadow additionally
+validates every mapped triangle's material ID/index and class/flags against
+the legacy arrays. Injected harness failures cover material-table,
+legacy-class, motion-range, GPU-upload, and TLAS-route mismatches.
+
+AUTOMATED EVIDENCE
+------------------
+Focused harness:
+
+  PathTraceSkinnedConsumerAuditHarness: PASS
+
+Accepted runtime:
+
+  log:
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+      geometry_geo128_auto.log
+
+  scene:
+    prepared doom3_1 save, maps/game/mars_city1
+
+  gates:
+    r_pathTracingGpuSkinning 1
+    r_pathTracingGeometryAuthoritativeGpuSkinning 1
+    r_pathTracingGeometryShadowRegistry 1
+    r_pathTracingGeometrySkinnedTlasCompare 1
+    r_pathTracingGeometrySkinnedCaptureSplit 0
+    r_pathTracingGeometrySkinnedConsumerAudit 1 -> one-shot reset to 0
+    clean DI/GI disabled
+
+  frame 3:
+    live accepted/routes/triangles:       1 / 12 / 15,962
+    live legacyMapped/sourceOnly:         0 / 15,962
+    live motionReady/missing:             12 / 0
+    shadow accepted/routes/triangles:     1 / 12 / 15,962
+    shadow legacyMapped/sourceOnly:       15,962 / 0
+    shadow motionReady/missing:           12 / 0
+    all 13 live failure buckets:          0
+    all 13 shadow failure buckets:        0
+
+The game completed normal renderer/game/event shutdown. The log contains no
+fatal, device-removed, NVRHI-error, or validation-error marker.
+
+BUILD AND DEPLOY
+----------------
+  preset:
+    cmake --build --preset win64-pt-dev-release
+
+  result:
+    PASS
+
+  shader:
+    no shader source changed
+    all SPIR-V reported up to date
+    no SPIR-V copied
+    no DX12 shader compile or deploy performed
+
+  executable SHA-256, build and deployed:
+    69896D79AEE1D12DF0229C0806EA87D29C4D00DF97B96A807D6A16DE20BF02C0
+
+ACCEPTED BOUNDARY AND NEXT STEP
+-------------------------------
+GEO-09 step 1 is accepted. This proves the metadata/identity/range seam. It is
+not shader hit-tuple parity and it does not add skinned emissive lights.
+
+Next:
+
+  - add a bounded same-ray legacy/canonical primary-hit tuple comparator for
+    instance, primitive mapping, barycentrics, world position, normal, tangent,
+    UV, material, and triangle flags;
+  - validate motion/history reset scenarios;
+  - then implement a shadow canonical skinned emissive inventory sourced from
+    GPU output and compare its temporal remap.

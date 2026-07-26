@@ -540,6 +540,7 @@ set(PATH_TRACE_CPU_WORKER_NO_PCH_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometrySourceTransport.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceJointCacheCopyPlan.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceSkinnedBlasState.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceSkinnedConsumerAudit.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceSkinnedHitRoute.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceSkinnedOutputAllocator.cpp
 	)
@@ -1618,6 +1619,17 @@ add_executable(PathTraceSkinnedHitRouteHarness
 target_include_directories(PathTraceSkinnedHitRouteHarness PRIVATE renderer/NVRHI)
 if(BUILD_TESTING)
 	add_test(NAME PathTraceSkinnedHitRouteHarness COMMAND $<TARGET_FILE:PathTraceSkinnedHitRouteHarness>)
+endif()
+
+add_executable(PathTraceSkinnedConsumerAuditHarness
+	tests/pathtrace_skinned_consumer_audit_harness.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	renderer/NVRHI/PathTraceSkinnedHitRoute.cpp
+	renderer/NVRHI/PathTraceSkinnedConsumerAudit.cpp
+	)
+target_include_directories(PathTraceSkinnedConsumerAuditHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceSkinnedConsumerAuditHarness COMMAND $<TARGET_FILE:PathTraceSkinnedConsumerAuditHarness>)
 endif()
 
 add_executable(PathTraceLiquidPoolReducerHarness

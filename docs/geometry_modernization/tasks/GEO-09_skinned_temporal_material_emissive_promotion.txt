@@ -65,3 +65,20 @@ materials, motion, or emissives; fallback remains explicit and reversible.
 CHECKPOINT
 ----------
   pt geometry GEO-09: promote canonical skinned traversal
+
+PROGRESS 2026-07-26
+-------------------
+Step 1 consumer inventory and its first behavior-neutral audit slice are
+accepted. `r_pathTracingGeometrySkinnedConsumerAudit` defaults to zero and
+compares both the live source-only CPU/upload/TLAS route and an independent
+same-frame legacy-backed shadow. geometry_geo128_auto proves 12 routes and
+15,962 triangles in both views, 15,962/15,962 legacy mappings in the shadow,
+12/12 motion-ready routes, exact material ID/index/class transport, nonzero
+primitive/emissive identities, and zero in all thirteen failure buckets for
+both views. The focused injected-failure harness passes.
+
+The inventory also confirms the open Q17 boundary: the live emissive inventory
+still explicitly skips all skinned triangles. No emissive behavior changes in
+this slice. Step 2/3's bounded same-ray primary-hit tuple comparison is next;
+motion scenario validation and canonical GPU-output emissive harvesting remain
+open.

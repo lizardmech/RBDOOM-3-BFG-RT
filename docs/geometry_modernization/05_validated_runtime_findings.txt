@@ -683,3 +683,22 @@ NO LONGER OPEN TO SPECULATION
   only 12-BLAS cadence rebuild at 2,516.9 us. The 66 active, CPU-omitted update
   frames have median 54.6 us, mean 136.5 us, and p95 547.7 us. Both Step 12
   runs exit normally with no fatal or device-lost report. GEO-08 is accepted.
+
+GEO-09 SKINNED CONSUMER ENTRY AUDIT
+-----------------------------------
+- geometry_geo128_auto accepts the first behavior-neutral GEO-09 consumer
+  audit. The live source-only route covers 12 TLAS routes and 15,962
+  source-local triangles with 12/12 previous-position ranges. An independent
+  same-frame shadow maps all 15,962 triangles to the retained legacy
+  merged-dynamic material ID/index/class tuple. Both audits have zero
+  CPU/upload/TLAS, triangle, legacy metadata, material-table, current/previous
+  range, primitive identity, emissive identity, or collision failures.
+- The current primary, motion, material, clean-DI, clean-GI, ReGIR, and NEE
+  shader paths already contain explicit canonical skinned branches. This
+  result validates their shared CPU/GPU metadata seam, not same-ray shader
+  world-position/normal/UV parity.
+- The remaining emissive mismatch is concrete: CPU emissive harvesting still
+  walks captured static/dynamic payloads and explicitly skips the skinned
+  surface class. Canonical skinned geometry therefore produces no emissive
+  triangle/unified-light records. This is unchanged legacy behavior, not an
+  accepted GEO-09 final state.

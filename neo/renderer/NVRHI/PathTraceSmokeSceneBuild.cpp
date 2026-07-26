@@ -30,6 +30,7 @@
 #include "PathTraceDebugModes.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
+#include "PathTraceSkinnedConsumerAudit.h"
 #include "PathTraceSkinnedHitRoute.h"
 #include "PathTraceSkinnedHistoryPolicy.h"
 #include "PathTraceSkinning.h"
@@ -4003,7 +4004,8 @@ PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
     uint64 previousPositionCount,
     uint64 outputCapacityBytes,
     uint64 firstShaderInstanceId,
-    bool gate)
+    bool gate,
+    bool sourceOnlyMetadata)
 {
     PtSkinnedHitRouteLegacyView legacy;
     legacy.indexes = dynamicIndexes.data();
@@ -4067,32 +4069,32 @@ PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
         // retained for fail-closed bootstrap. This makes the route safe to
         // pre-admit without depending on the legacy merged-buffer capacity.
         candidate.legacyVertexOffset =
-            gate
+            sourceOnlyMetadata
                 ? 0u
                 : dispatch.dynamicVertexOffset;
         candidate.legacyVertexCount =
-            gate
+            sourceOnlyMetadata
                 ? 0u
                 : dispatch.vertexCount;
         candidate.legacyIndexOffset =
-            gate
+            sourceOnlyMetadata
                 ? 0u
                 : dispatch.dynamicIndexOffset;
         candidate.legacyIndexCount =
-            gate
+            sourceOnlyMetadata
                 ? 0u
                 : static_cast<uint64>(
                     dispatch.triangleCount) * 3;
         candidate.legacyTriangleOffset =
-            gate
+            sourceOnlyMetadata
                 ? 0u
                 : dispatch.dynamicTriangleOffset;
         candidate.legacyTriangleCount =
-            gate
+            sourceOnlyMetadata
                 ? 0u
                 : dispatch.triangleCount;
         candidate.legacyCapturePresent =
-            !gate;
+            !sourceOnlyMetadata;
         const int fallbackMaterialIndex =
             FindSmokeMaterialTableIndexById(
                 materialTable,
@@ -4103,7 +4105,7 @@ PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
                 static_cast<uint32_t>(
                     fallbackMaterialIndex);
         }
-        if (!gate &&
+        if (!sourceOnlyMetadata &&
             dispatch.dynamicTriangleOffset <
             dynamicTriangleMaterialIndexes.size())
         {
@@ -4111,7 +4113,7 @@ PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
                 dynamicTriangleMaterialIndexes[
                     dispatch.dynamicTriangleOffset];
         }
-        if (!gate &&
+        if (!sourceOnlyMetadata &&
             dispatch.dynamicTriangleOffset <
             dynamicTriangleClasses.size())
         {
@@ -9585,7 +9587,28 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedGpuScaffold.previousPositions.size(),
             skinnedHitRouteOutputCapacity,
             firstSkinnedHitRouteInstanceId,
+            canonicalSkinnedSourceOutputRoute,
             canonicalSkinnedSourceOutputRoute);
+    const PtSkinnedHitRouteBuild skinnedHitRouteLegacyAuditShadow =
+        r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0
+            ? BuildSmokeSkinnedHitRouteShadow(
+                currentSkinnedSurfaceRecords,
+                skinnedGpuScaffold.dispatchRecords,
+                m_smokeGeometryUniverse,
+                m_smokeSkinnedBlasStateTable,
+                m_smokeSkinnedComparisonBlases,
+                dynamicIndexData,
+                dynamicTriangleClassData,
+                dynamicTriangleMaterialData,
+                materialTable.dynamicMaterialIndexes,
+                materialTable,
+                smokeSkinnedCurrentOutputVertexBuffer,
+                skinnedGpuScaffold.previousPositions.size(),
+                skinnedHitRouteOutputCapacity,
+                firstSkinnedHitRouteInstanceId,
+                canonicalSkinnedSourceOutputRoute,
+                false)
+            : PtSkinnedHitRouteBuild();
     m_smokeSkinnedHitRouteUploadShadow =
         skinnedHitRouteShadow;
     const int skinnedShadowAccepted =
@@ -10063,6 +10086,85 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         static_cast<uint32>(
             rigidTlasRouteInstances.size() -
             firstSkinnedTlasDesc);
+    if (r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0 &&
+        !skinnedHitRouteUploadBuild.records.empty() &&
+        skinnedTlasPlan.result == PtSkinnedTlasRouteResult::Accepted)
+    {
+        PtSkinnedConsumerAuditInput auditInput;
+        auditInput.cpuBuild = &skinnedHitRouteUploadBuild;
+        auditInput.gpuUpload = &skinnedHitRouteGpuUpload;
+        auditInput.tlasPlan = &skinnedTlasPlan;
+        auditInput.legacyTriangleClasses = &dynamicTriangleClassData;
+        auditInput.legacyTriangleMaterialIds = &dynamicTriangleMaterialData;
+        auditInput.legacyTriangleMaterialIndexes =
+            &materialTable.dynamicMaterialIndexes;
+        auditInput.materialTableIds = &materialTable.materialIds;
+        auditInput.currentOutputVertexCount =
+            skinnedGpuScaffold.currentOutputVertices.size();
+        auditInput.previousPositionCount =
+            skinnedGpuScaffold.previousPositions.size();
+        const PtSkinnedConsumerAuditStats liveAudit =
+            PtAuditSkinnedConsumerContract(auditInput);
+
+        const PtSkinnedHitRouteGpuUpload shadowUpload =
+            PtBuildSkinnedHitRouteGpuUpload(
+                skinnedHitRouteLegacyAuditShadow,
+                static_cast<uint32_t>(
+                    firstSkinnedHitRouteInstanceId));
+        PtSkinnedConsumerAuditInput shadowAuditInput =
+            auditInput;
+        shadowAuditInput.cpuBuild =
+            &skinnedHitRouteLegacyAuditShadow;
+        shadowAuditInput.gpuUpload = &shadowUpload;
+        shadowAuditInput.tlasPlan = nullptr;
+        shadowAuditInput.requireTlasPlan = false;
+        const PtSkinnedConsumerAuditStats shadowAudit =
+            PtAuditSkinnedConsumerContract(shadowAuditInput);
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned consumer audit frame=%llu live(accepted/routes/triangles/legacyMapped/sourceOnly/motionReady/missing)=%d/%llu/%llu/%llu/%llu/%llu/%llu shadow(accepted/routes/triangles/legacyMapped/sourceOnly/motionReady/missing)=%d/%llu/%llu/%llu/%llu/%llu/%llu failuresLive(input/routeCount/routeUpload/tlas/triangleRange/triangleUpload/legacyMetadata/materialTable/currentRange/previousRange/primitiveIdentity/emissiveIdentity/emissiveCollision)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu failuresShadow=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu\n",
+            static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
+            liveAudit.Accepted() ? 1 : 0,
+            static_cast<unsigned long long>(liveAudit.routes),
+            static_cast<unsigned long long>(liveAudit.triangles),
+            static_cast<unsigned long long>(liveAudit.mappedLegacyTriangles),
+            static_cast<unsigned long long>(liveAudit.sourceOnlyTriangles),
+            static_cast<unsigned long long>(liveAudit.motionReadyRoutes),
+            static_cast<unsigned long long>(liveAudit.motionMissingRoutes),
+            shadowAudit.Accepted() ? 1 : 0,
+            static_cast<unsigned long long>(shadowAudit.routes),
+            static_cast<unsigned long long>(shadowAudit.triangles),
+            static_cast<unsigned long long>(shadowAudit.mappedLegacyTriangles),
+            static_cast<unsigned long long>(shadowAudit.sourceOnlyTriangles),
+            static_cast<unsigned long long>(shadowAudit.motionReadyRoutes),
+            static_cast<unsigned long long>(shadowAudit.motionMissingRoutes),
+            static_cast<unsigned long long>(liveAudit.missingInput),
+            static_cast<unsigned long long>(liveAudit.routeCountMismatch),
+            static_cast<unsigned long long>(liveAudit.routeUploadMismatch),
+            static_cast<unsigned long long>(liveAudit.tlasRouteMismatch),
+            static_cast<unsigned long long>(liveAudit.triangleRangeMismatch),
+            static_cast<unsigned long long>(liveAudit.triangleUploadMismatch),
+            static_cast<unsigned long long>(liveAudit.legacyMetadataMismatch),
+            static_cast<unsigned long long>(liveAudit.materialTableMismatch),
+            static_cast<unsigned long long>(liveAudit.currentRangeMismatch),
+            static_cast<unsigned long long>(liveAudit.previousRangeMismatch),
+            static_cast<unsigned long long>(liveAudit.primitiveIdentityInvalid),
+            static_cast<unsigned long long>(liveAudit.emissiveIdentityInvalid),
+            static_cast<unsigned long long>(liveAudit.emissiveIdentityCollision),
+            static_cast<unsigned long long>(shadowAudit.missingInput),
+            static_cast<unsigned long long>(shadowAudit.routeCountMismatch),
+            static_cast<unsigned long long>(shadowAudit.routeUploadMismatch),
+            static_cast<unsigned long long>(shadowAudit.tlasRouteMismatch),
+            static_cast<unsigned long long>(shadowAudit.triangleRangeMismatch),
+            static_cast<unsigned long long>(shadowAudit.triangleUploadMismatch),
+            static_cast<unsigned long long>(shadowAudit.legacyMetadataMismatch),
+            static_cast<unsigned long long>(shadowAudit.materialTableMismatch),
+            static_cast<unsigned long long>(shadowAudit.currentRangeMismatch),
+            static_cast<unsigned long long>(shadowAudit.previousRangeMismatch),
+            static_cast<unsigned long long>(shadowAudit.primitiveIdentityInvalid),
+            static_cast<unsigned long long>(shadowAudit.emissiveIdentityInvalid),
+            static_cast<unsigned long long>(shadowAudit.emissiveIdentityCollision));
+        r_pathTracingGeometrySkinnedConsumerAudit.SetInteger(0);
+    }
     const bool skinnedTlasUsesSourceOnlyMetadata =
         !skinnedHitRouteUploadCpuRecords.empty() &&
         std::all_of(

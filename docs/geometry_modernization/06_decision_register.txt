@@ -764,6 +764,23 @@ median, active 12-BLAS updates 68.1 us median, initial 12-BLAS build
 2,655.9 us, and fixed-cadence rebuild 2,516.9 us at frame 63. Step 12 and
 GEO-08 are accepted.
 
+D42. GEO-09 FREEZES THE SKINNED CONSUMER TUPLE BEFORE BEHAVIORAL PROMOTION
+----------------------------------------------------------------------------
+Decision: keep `r_pathTracingGeometrySkinnedConsumerAudit` as a default-zero
+one-shot. It validates both the exact live source-only CPU/upload/TLAS route
+and a same-frame diagnostic route rebuilt with legacy offsets. The live view
+proves the promoted storage/AS contract; the shadow proves material ID,
+material-table index, and triangle class against retained merged-dynamic
+metadata. Neither view changes traversal, shader output, or light inventories.
+
+geometry_geo128_auto accepts the first tuple: 12 routes, 15,962 triangles,
+12/12 motion-ready, all 15,962 legacy mappings present in the shadow, and zero
+in all thirteen failure buckets in both views. This resolves the metadata
+portion of Q16/Q17 but not same-ray hit reconstruction or emissive harvesting.
+Do not promote skinned emissives from CPU capture: the accepted target must
+consume canonical mesh-local primitives, per-instance identity, and current
+GPU-skinned output without restoring CPU skinning.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
