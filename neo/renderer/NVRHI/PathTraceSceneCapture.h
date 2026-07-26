@@ -268,6 +268,7 @@ struct RtSmokeSkinnedSurfaceRecord
     int previousTriangleOffset = -1;
     bool previousValid = false;
     bool rtCpuSkinned = false;
+    bool cpuCaptureOmitted = false;
     bool basePoseLikely = false;
     int entityIndex = -1;
     int drawSurfIndex = -1;
@@ -302,6 +303,14 @@ struct RtSmokeSceneCaptureTiming
     int dynamicPassClassifyMs = 0;
     int dynamicAppendMs = 0;
     int rtCpuSkinningAppendMs = 0;
+    int skinnedCaptureAdmissionRoutes = 0;
+    int skinnedCaptureOmittedSurfaces = 0;
+    int skinnedCaptureOmittedVerts = 0;
+    int skinnedCaptureOmittedIndexes = 0;
+    int skinnedCaptureFallbackGate = 0;
+    int skinnedCaptureFallbackPriorRoute = 0;
+    int skinnedCaptureFallbackCurrentContract = 0;
+    int skinnedCaptureFallbackJointData = 0;
     int appendMs = 0;
     int bucketMergeMs = 0;
     int staticCachedSurfaces = 0;

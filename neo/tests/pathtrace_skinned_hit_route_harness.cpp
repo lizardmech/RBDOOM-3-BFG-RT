@@ -592,6 +592,91 @@ void TestSkinnedTlasRoutePlanner()
         "TLAS capacity overflow must fail closed");
 }
 
+void TestCaptureSplitAdmission()
+{
+    const std::vector<std::uint32_t> sourceIndexes = {
+        0, 1, 2
+    };
+    PtSkinnedHitRouteCandidate routeCandidate =
+        MakeCandidate(sourceIndexes);
+    routeCandidate.meshKey.indexCount = 3;
+    routeCandidate.legacyCapturePresent = false;
+    routeCandidate.legacyVertexOffset = 0;
+    routeCandidate.legacyVertexCount = 0;
+    routeCandidate.legacyIndexOffset = 0;
+    routeCandidate.legacyIndexCount = 0;
+    routeCandidate.legacyTriangleOffset = 0;
+    routeCandidate.legacyTriangleCount = 0;
+    routeCandidate.fallbackMaterialId = 9;
+    routeCandidate.fallbackMaterialIndex = 4;
+    routeCandidate.fallbackTriangleClassAndFlags = 2;
+    const PtSkinnedHitRouteBuild sourceOnlyBuild =
+        PtBuildSkinnedHitRoutes(
+            { routeCandidate },
+            PtSkinnedHitRouteLegacyView(),
+            31);
+    Expect(
+        sourceOnlyBuild.stats.accepted == 1 &&
+            sourceOnlyBuild.stats.sourceTriangles == 1 &&
+            sourceOnlyBuild.stats.legacyTriangles == 0 &&
+            sourceOnlyBuild.stats.sourceOnlyTriangles == 1 &&
+            sourceOnlyBuild.triangles.size() == 1 &&
+            sourceOnlyBuild.triangles[0].
+                    legacyPrimitiveIndex ==
+                PT_SKINNED_HIT_ROUTE_INVALID_INDEX &&
+            sourceOnlyBuild.triangles[0].materialId == 9 &&
+            sourceOnlyBuild.triangles[0].materialIndex == 4,
+        "CPU-omitted route must preserve source topology and explicit fallback metadata");
+
+    const PtSkinnedHitRouteRecord& prior =
+        sourceOnlyBuild.records[0];
+    PtSkinnedCaptureAdmissionInput input;
+    input.gate = true;
+    input.currentInstance = prior.instanceKey;
+    input.currentMesh = prior.meshKey;
+    input.currentSourceChecksum = prior.sourceChecksum;
+    input.currentVertexCount = prior.vertexCount;
+    input.currentIndexCount = prior.indexCount;
+    input.jointDataReady = true;
+    input.priorRoute = &prior;
+    Expect(
+        PtPlanSkinnedCaptureAdmission(input) ==
+            PtSkinnedCaptureAdmissionResult::
+                OmitCpuCapture,
+        "exact prior route plus current source and joints should omit CPU capture");
+
+    PtSkinnedCaptureAdmissionInput disabled = input;
+    disabled.gate = false;
+    Expect(
+        PtPlanSkinnedCaptureAdmission(disabled) ==
+            PtSkinnedCaptureAdmissionResult::GateDisabled,
+        "capture split gate off must retain CPU capture");
+
+    PtSkinnedCaptureAdmissionInput missing = input;
+    missing.priorRoute = nullptr;
+    Expect(
+        PtPlanSkinnedCaptureAdmission(missing) ==
+            PtSkinnedCaptureAdmissionResult::
+                MissingPriorRoute,
+        "new surfaces without a prior accepted route must retain CPU capture");
+
+    PtSkinnedCaptureAdmissionInput changedSource = input;
+    ++changedSource.currentSourceChecksum;
+    Expect(
+        PtPlanSkinnedCaptureAdmission(changedSource) ==
+            PtSkinnedCaptureAdmissionResult::
+                CurrentSourceMismatch,
+        "changed source topology must retain same-frame CPU capture");
+
+    PtSkinnedCaptureAdmissionInput missingJoints = input;
+    missingJoints.jointDataReady = false;
+    Expect(
+        PtPlanSkinnedCaptureAdmission(missingJoints) ==
+            PtSkinnedCaptureAdmissionResult::
+                JointDataNotReady,
+        "missing current joints must retain same-frame CPU capture");
+}
+
 }
 
 int main()
@@ -602,6 +687,7 @@ int main()
     TestGpuUploadAbi();
     TestSbtContributionContract();
     TestSkinnedTlasRoutePlanner();
+    TestCaptureSplitAdmission();
 
     if (g_failures != 0)
     {

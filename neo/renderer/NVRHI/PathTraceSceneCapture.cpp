@@ -1262,6 +1262,10 @@ void FinalizeSmokeSkinnedSurfaceRecordOffsets(
         {
             continue;
         }
+        if (record.cpuCaptureOmitted)
+        {
+            continue;
+        }
         record.currentVertexOffset += range.vertexOffset;
         record.currentIndexOffset += range.indexOffset;
         record.currentTriangleOffset += range.triangleOffset;

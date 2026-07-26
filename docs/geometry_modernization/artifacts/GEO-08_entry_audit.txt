@@ -1148,3 +1148,107 @@ dynamic BLAS remain mandatory until step 8 separately proves the CPU-capture
 split. Step 8 is now unblocked; it must remove only accepted GPU-eligible
 skinned surfaces from merged CPU vertex/index capture and retain every named
 fallback class.
+
+STEP 8/9 CPU-CAPTURE SPLIT AUDIT AND ACCEPTANCE
+-----------------------------------------------
+The cutover is controlled by the independent, default-off
+`r_pathTracingGeometrySkinnedCaptureSplit` gate. The planner is pure and is
+covered by PathTraceSkinnedHitRouteHarness cases for gate-off, absent prior
+route, changed source contract, missing joints, and source-only route
+construction. A live surface is admitted before append only when:
+
+  - the split gate is enabled;
+  - an earlier use of the same exact visible-set signature completed route,
+    resource, BLAS, SBT, capacity, and TLAS admission;
+  - full InstanceKey and mesh/source checksum identity match;
+  - source vertex/index/triangle counts match;
+  - current joint data is present.
+
+An admitted surface records `cpuCaptureOmitted`, leaves its legacy dynamic
+offsets invalid, and appends neither CPU-skinned vertices nor indexes. Its hit
+route uses canonical source indexes plus source-only material, class, primitive,
+and emissive metadata. Current vertices are generated into per-instance GPU
+output. Previous vertices can be regenerated from the retained previous joint
+matrices, so motion transport does not depend on prior CPU-skinned vertex
+history.
+
+The view cache is intentionally an eight-entry bounded exact-set cache. Each
+entry has a pending route build and an accepted route build. Capture consumes
+only the accepted build for its signature; shader upload and TLAS planning
+consume the corresponding pending build. Successful TLAS admission promotes
+that same build. A late failure clears only that signature's accepted build
+and suppresses it for the current frame. It is never reported as same-frame
+CPU fallback.
+
+Rejected automated probes:
+
+  geometry_geo95_auto.log
+    A single global prior-route cache alternated between main-view 12 and
+    auxiliary-view 1. It remained safe by falling back to CPU but could not
+    make the intended cutover.
+
+  geometry_geo96_auto.log
+    The run quit after map load before a PT frame and contains no acceptance
+    evidence.
+
+  geometry_geo97_auto.log
+    `isSubview` did not distinguish the alternating 12/1 capture sets.
+
+  geometry_geo98_auto.log
+    A union cache stabilized omission but did not prove upload alignment.
+
+  geometry_geo99_auto.log
+    The bounded diagnostic caught the decisive unsafe tuple:
+    omitted/routes/descriptors = 12/1/1. The union design was removed.
+
+  geometry_geo103_split_on.png
+    Captured a black shutdown frame.
+
+  geometry_geo104_split_on.png
+    Captured the Doom 3 menu; automatic load had not entered the game.
+
+  geometry_geo105_split_on.png
+    No valid new presentation frame was obtained. It is not visual evidence.
+
+Accepted automated structural proof:
+
+  geometry_geo102_auto.log
+    initial comparison:
+      CPU/upload/candidates/accepted/descriptors = 12/12/12/12/12
+      shader IDs = 113..124
+      all admission failure buckets = 0
+    auxiliary exact set:
+      omitted surfaces/verts/indexes = 1/477/1950
+      CPU fallback gate/prior/current/joints = 0/11/0/0
+      routes/descriptors/motion-ready = 1/1/1
+      CPU skin append = 5 ms for the eleven fallback surfaces
+    main exact set:
+      omitted surfaces/verts/indexes = 12/9889/47886
+      CPU fallback gate/prior/current/joints = 0/0/0/0
+      routes/descriptors/motion-ready = 12/12/12
+      CPU skin append = 0 ms
+    both accepted sets use source-only metadata and late-failure suppression.
+
+  geometry_geo105_auto.log
+    Repeats the accepted 1/1/1 auxiliary and 12/12/12 main tuples with the
+    main capture again reporting zero CPU skin append. No fatal,
+    device-removed, or NVRHI submission failure was observed.
+
+The earlier geometry_geo93_on / geometry_geo94_off pair remains the accepted
+visual proof for the identical comparison route, material, pose, and motion
+contract. The failed screenshot automation above is not used to claim fresh
+visual proof of CPU omission.
+
+Offline and deployment proof:
+
+  PathTraceSkinnedHitRouteHarness = PASS
+  cmake --build --preset win64-pt-dev-release = PASS
+  Vulkan SPIR-V work = all up to date; no shader source changed
+  DX12 shader compilation = not run
+  deployed executable SHA-256 =
+    E28C97A426E21F2624E620C7DC227C061864FC0C3AE6BB8EE5C304710BEFC599
+
+This accepts steps 8 and 9. Step 10 must now exercise spawn, despawn,
+offscreen/return, PDA, map teardown, exact-set eviction, and physical output
+growth while proving that no accepted capture entry outlives its source,
+output generation, BLAS, or last in-flight TLAS use.

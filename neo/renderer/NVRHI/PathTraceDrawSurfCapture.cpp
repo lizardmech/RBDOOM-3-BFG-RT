@@ -14,6 +14,7 @@
 #include "PathTraceRigidIdentity.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
+#include "PathTraceSkinnedHitRoute.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
@@ -765,6 +766,102 @@ void CapturePathTraceDrawSurfMirror(
     }
 }
 
+uint64 BuildPathTraceSkinnedCaptureViewSignature(
+    const viewDef_t* viewDef)
+{
+    if (!viewDef || !viewDef->drawSurfs)
+    {
+        return 0;
+    }
+
+    std::vector<uint64> instanceHashes;
+    for (int surfaceIndex = 0;
+        surfaceIndex < viewDef->numDrawSurfs;
+        ++surfaceIndex)
+    {
+        const drawSurf_t* drawSurf =
+            viewDef->drawSurfs[surfaceIndex];
+        const srfTriangles_t* tri = nullptr;
+        if (!ValidateSmokeDrawSurface(
+                viewDef,
+                drawSurf,
+                tri,
+                nullptr) ||
+            PathTraceParticleCompositeSurfaceRoute(
+                viewDef,
+                drawSurf,
+                tri) ==
+                RtPathTraceParticleSurfaceRoute::CompositeOnly)
+        {
+            continue;
+        }
+        const RtSmokeSurfaceClass classified =
+            ClassifySmokeSurface(viewDef, drawSurf, tri);
+        const RtSmokeSurfaceClass surfaceClass =
+            PtMirrorEffectiveSurfaceClass(
+                drawSurf,
+                tri,
+                classified);
+        if (surfaceClass !=
+            RtSmokeSurfaceClass::SkinnedDeformed)
+        {
+            continue;
+        }
+
+        const uint32_t surfaceClassId =
+            SmokeSurfaceClassAndSubtypeId(
+                surfaceClass,
+                RtSmokeTranslucentSubtype::Unknown);
+        const uint32_t baseMaterialId =
+            SmokeMaterialId(
+                drawSurf ? drawSurf->material : nullptr);
+        const uint32_t materialId =
+            SmokeRuntimeMaterialTableIdForDrawSurf(
+                drawSurf,
+                baseMaterialId);
+        std::vector<RtSmokeSkinnedSurfaceRecord> records;
+        AddSmokeSkinnedSurfaceRecord(
+            &records,
+            drawSurf,
+            tri,
+            surfaceClassId,
+            materialId,
+            surfaceIndex,
+            -1,
+            -1,
+            -1,
+            -1,
+            tri->numVerts,
+            tri->numIndexes,
+            tri->numIndexes / 3);
+        if (!records.empty() &&
+            PtCanonicalInstanceKeyIsValid(
+                records.front().canonicalInstance))
+        {
+            instanceHashes.push_back(
+                PtHashCanonicalInstanceKey(
+                    records.front().canonicalInstance));
+        }
+    }
+
+    if (instanceHashes.empty())
+    {
+        return 0;
+    }
+    std::sort(instanceHashes.begin(), instanceHashes.end());
+    uint64 hash = 1469598103934665603ull;
+    const uint64 count =
+        static_cast<uint64>(instanceHashes.size());
+    hash ^= count;
+    hash *= 1099511628211ull;
+    for (uint64 instanceHash : instanceHashes)
+    {
+        hash ^= instanceHash;
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
 bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     const viewDef_t* viewDef,
     const RtPathTraceSceneUniverse* sceneUniverse,
@@ -789,7 +886,9 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache,
     RtPathTraceInstanceUniverse* instanceUniverse,
     std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines,
-    bool recordAllInstanceClasses)
+    bool recordAllInstanceClasses,
+    const std::vector<PtSkinnedHitRouteRecord>*
+        skinnedCaptureAdmissionRoutes)
 {
     OPTICK_EVENT("PT Capture Dynamic Frame From DrawSurf Mirror");
 
@@ -894,6 +993,19 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuBuild.GetInteger() != 0;
+    const bool skinnedCaptureSplitGate =
+        r_pathTracingGeometrySkinnedCaptureSplit.GetInteger() != 0 &&
+        r_pathTracingGeometrySkinnedTlasCompare.GetInteger() != 0 &&
+        r_pathTracingGpuSkinning.GetInteger() == 1 &&
+        r_pathTracingGeometryAuthoritativeGpuSkinning.
+            GetInteger() != 0 &&
+        r_pathTracingGeometryShadowRegistry.GetInteger() != 0 &&
+        skinnedCaptureAdmissionRoutes != nullptr;
+    captureTiming.skinnedCaptureAdmissionRoutes =
+        skinnedCaptureAdmissionRoutes != nullptr
+            ? static_cast<int>(
+                skinnedCaptureAdmissionRoutes->size())
+            : 0;
 
     {
         OPTICK_EVENT("PT Capture Dynamic Surface Loop");
@@ -1074,6 +1186,175 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 }
             }
 
+            if (surfaceClass ==
+                    RtSmokeSurfaceClass::SkinnedDeformed &&
+                skinnedSurfaceRecords != nullptr)
+            {
+                std::vector<RtSmokeSkinnedSurfaceRecord>
+                    provisionalRecords;
+                provisionalRecords.reserve(1);
+                AddSmokeSkinnedSurfaceRecord(
+                    &provisionalRecords,
+                    drawSurf,
+                    tri,
+                    surfaceClassId,
+                    materialId,
+                    surfaceIndex,
+                    -1,
+                    -1,
+                    -1,
+                    -1,
+                    tri->numVerts,
+                    tri->numIndexes,
+                    tri->numIndexes / 3);
+                if (!provisionalRecords.empty())
+                {
+                    RtSmokeSkinnedSurfaceRecord& provisional =
+                        provisionalRecords.front();
+                    const PtSkinnedHitRouteRecord* priorRoute =
+                        nullptr;
+                    if (skinnedCaptureAdmissionRoutes != nullptr)
+                    {
+                        for (const PtSkinnedHitRouteRecord& route :
+                            *skinnedCaptureAdmissionRoutes)
+                        {
+                            if (route.instanceKey ==
+                                provisional.canonicalInstance)
+                            {
+                                priorRoute = &route;
+                                break;
+                            }
+                        }
+                    }
+                    const PtGeometryIdentityBinding* binding =
+                        geometryUniverse != nullptr
+                            ? geometryUniverse->
+                                FindCanonicalIdentityBinding(
+                                    provisional.
+                                        canonicalInstance)
+                            : nullptr;
+                    const PtGeometrySourceRecord* source =
+                        binding != nullptr &&
+                            geometryUniverse != nullptr
+                            ? geometryUniverse->
+                                FindCanonicalSourceRecord(
+                                    binding->meshKey)
+                            : nullptr;
+                    PtSkinnedCaptureAdmissionInput admission;
+                    admission.gate = skinnedCaptureSplitGate;
+                    admission.currentInstance =
+                        provisional.canonicalInstance;
+                    if (binding != nullptr)
+                    {
+                        admission.currentMesh =
+                            binding->meshKey;
+                    }
+                    if (source != nullptr)
+                    {
+                        admission.currentSourceChecksum =
+                            source->sourceChecksum;
+                        admission.currentVertexCount =
+                            static_cast<uint32_t>(
+                                source->payload.positions.
+                                    size());
+                        admission.currentIndexCount =
+                            static_cast<uint32_t>(
+                                source->payload.indexes.
+                                    size());
+                    }
+                    admission.jointDataReady =
+                        provisional.rtCpuSkinned &&
+                        provisional.jointCount > 0 &&
+                        provisional.jointSource != 0;
+                    admission.priorRoute = priorRoute;
+                    const PtSkinnedCaptureAdmissionResult
+                        admissionResult =
+                            PtPlanSkinnedCaptureAdmission(
+                                admission);
+                    if (admissionResult ==
+                        PtSkinnedCaptureAdmissionResult::
+                            OmitCpuCapture)
+                    {
+                        provisional.cpuCaptureOmitted = true;
+                        provisional.currentVertexOffset = -1;
+                        provisional.currentIndexOffset = -1;
+                        provisional.currentTriangleOffset = -1;
+                        provisional.vertexCount =
+                            static_cast<int>(
+                                admission.currentVertexCount);
+                        provisional.indexCount =
+                            static_cast<int>(
+                                admission.currentIndexCount);
+                        provisional.triangleCount =
+                            provisional.indexCount / 3;
+                        provisional.bucketIndex = -1;
+                        skinnedSurfaceRecords->push_back(
+                            provisional);
+
+                        const int sourceIndexCount =
+                            provisional.indexCount;
+                        AddMirrorMaterialStats(
+                            materialStats,
+                            drawSurf->material,
+                            sourceIndexCount,
+                            surfaceClass,
+                            translucentSubtype);
+                        AddSmokeDynamicMaterialEvalStatsForMaterialId(
+                            materialStats,
+                            drawSurf,
+                            sourceIndexCount,
+                            materialId);
+                        ++sourceSurfaces;
+                        sourceVerts += provisional.vertexCount;
+                        sourceIndexes += sourceIndexCount;
+                        AddMirrorSurfaceClassStats(
+                            classStats,
+                            surfaceClass,
+                            provisional.vertexCount,
+                            sourceIndexCount);
+                        AddMirrorDynamicGeometryStats(
+                            dynamicStats,
+                            surfaceClass,
+                            drawSurf,
+                            tri,
+                            sourceIndexCount);
+                        ++dynamicSurfaces;
+                        ++captureTiming.
+                            skinnedCaptureOmittedSurfaces;
+                        captureTiming.
+                            skinnedCaptureOmittedVerts +=
+                                provisional.vertexCount;
+                        captureTiming.
+                            skinnedCaptureOmittedIndexes +=
+                                sourceIndexCount;
+                        continue;
+                    }
+
+                    switch (admissionResult)
+                    {
+                        case PtSkinnedCaptureAdmissionResult::
+                            GateDisabled:
+                            ++captureTiming.
+                                skinnedCaptureFallbackGate;
+                            break;
+                        case PtSkinnedCaptureAdmissionResult::
+                            MissingPriorRoute:
+                            ++captureTiming.
+                                skinnedCaptureFallbackPriorRoute;
+                            break;
+                        case PtSkinnedCaptureAdmissionResult::
+                            JointDataNotReady:
+                            ++captureTiming.
+                                skinnedCaptureFallbackJointData;
+                            break;
+                        default:
+                            ++captureTiming.
+                                skinnedCaptureFallbackCurrentContract;
+                            break;
+                    }
+                }
+            }
+
             if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES ||
                 dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
                 dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
@@ -1217,6 +1498,18 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             skippedRoutedRigidDynamicSurfaces,
             skippedRoutedRigidDynamicIndexes,
             skippedRoutedRigidDynamicByInstance);
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 skinned capture split gate=%d priorRoutes=%d omitted(surfaces/verts/indexes)=%d/%d/%d cpuFallback(gate/priorRoute/currentContract/joints)=%d/%d/%d/%d lateFailurePolicy=suppress\n",
+            skinnedCaptureSplitGate ? 1 : 0,
+            captureTiming.skinnedCaptureAdmissionRoutes,
+            captureTiming.skinnedCaptureOmittedSurfaces,
+            captureTiming.skinnedCaptureOmittedVerts,
+            captureTiming.skinnedCaptureOmittedIndexes,
+            captureTiming.skinnedCaptureFallbackGate,
+            captureTiming.skinnedCaptureFallbackPriorRoute,
+            captureTiming.
+                skinnedCaptureFallbackCurrentContract,
+            captureTiming.skinnedCaptureFallbackJointData);
         if (overlapDumpRequested && requestedDebugMode != 24)
         {
             r_pathTracingRigidRouteOverlapDump.SetInteger(0);

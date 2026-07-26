@@ -469,6 +469,15 @@ private:
     PtSkinnedOutputAllocator m_smokeSkinnedOutputAllocator;
     PtSkinnedBlasStateTable m_smokeSkinnedBlasStateTable;
     PtSkinnedHitRouteBuild m_smokeSkinnedHitRouteUploadShadow;
+    struct SmokeSkinnedCaptureRouteSetState
+    {
+        uint64 signature = 0;
+        uint64 lastUsedFrame = 0;
+        PtSkinnedHitRouteBuild pendingBuild;
+        PtSkinnedHitRouteBuild acceptedBuild;
+    };
+    std::vector<SmokeSkinnedCaptureRouteSetState>
+        m_smokeSkinnedCaptureRouteSets;
     std::vector<RtSmokeSkinnedComparisonBlasResource>
         m_smokeSkinnedComparisonBlases;
     std::deque<RtRetiredSmokeSkinnedComparisonBlasPackage>
@@ -478,6 +487,8 @@ private:
     bool m_smokeSkinnedComparisonBlasRebuildLogged = false;
     bool m_smokeSkinnedComparisonBlasReplacementLogged = false;
     bool m_smokeSkinnedHitRouteShadowLogged = false;
+    uint32 m_smokeSkinnedCaptureSplitShadowMaxLogged = 0;
+    uint32 m_smokeSkinnedCaptureSplitTlasMaxLogged = 0;
     uint64 m_smokeNextSkinnedComparisonCompletionToken = 1;
     uint64 m_smokeLastCompletedSkinnedComparisonToken = 0;
     bool m_smokeSkinnedComparisonCompletionQueryFailureLogged = false;

@@ -202,41 +202,48 @@ PtSkinnedHitRouteResult ValidateCandidate(
     {
         return PtSkinnedHitRouteResult::InvalidPreviousContract;
     }
-    if (candidate.legacyVertexCount == 0 ||
-        candidate.legacyVertexCount !=
-            candidate.outputVertexCount ||
-        candidate.legacyIndexCount == 0 ||
-        candidate.legacyTriangleCount == 0 ||
-        !CheckedMul(
-            candidate.legacyTriangleCount,
-            3,
-            expectedLegacyIndexCount) ||
-        candidate.legacyIndexCount !=
-            expectedLegacyIndexCount ||
-        legacy.indexes == nullptr ||
-        legacy.triangleClasses == nullptr ||
-        legacy.triangleMaterialIds == nullptr ||
-        legacy.triangleMaterialIndexes == nullptr ||
-        !CheckedAdd(
-            candidate.legacyVertexOffset,
-            candidate.legacyVertexCount,
-            legacyVertexEnd) ||
-        !CheckedAdd(
-            candidate.legacyIndexOffset,
-            candidate.legacyIndexCount,
-            legacyIndexEnd) ||
-        !CheckedAdd(
-            candidate.legacyTriangleOffset,
-            candidate.legacyTriangleCount,
-            legacyTriangleEnd) ||
-        legacyIndexEnd > legacy.indexCount ||
-        legacyTriangleEnd > legacy.triangleClassCount ||
-        legacyTriangleEnd >
-            legacy.triangleMaterialIdCount ||
-        legacyTriangleEnd >
-            legacy.triangleMaterialIndexCount)
+    if (candidate.legacyCapturePresent &&
+        (candidate.legacyVertexCount == 0 ||
+         candidate.legacyVertexCount !=
+             candidate.outputVertexCount ||
+         candidate.legacyIndexCount == 0 ||
+         candidate.legacyTriangleCount == 0 ||
+         !CheckedMul(
+             candidate.legacyTriangleCount,
+             3,
+             expectedLegacyIndexCount) ||
+         candidate.legacyIndexCount !=
+             expectedLegacyIndexCount ||
+         legacy.indexes == nullptr ||
+         legacy.triangleClasses == nullptr ||
+         legacy.triangleMaterialIds == nullptr ||
+         legacy.triangleMaterialIndexes == nullptr ||
+         !CheckedAdd(
+             candidate.legacyVertexOffset,
+             candidate.legacyVertexCount,
+             legacyVertexEnd) ||
+         !CheckedAdd(
+             candidate.legacyIndexOffset,
+             candidate.legacyIndexCount,
+             legacyIndexEnd) ||
+         !CheckedAdd(
+             candidate.legacyTriangleOffset,
+             candidate.legacyTriangleCount,
+             legacyTriangleEnd) ||
+         legacyIndexEnd > legacy.indexCount ||
+         legacyTriangleEnd > legacy.triangleClassCount ||
+         legacyTriangleEnd >
+             legacy.triangleMaterialIdCount ||
+         legacyTriangleEnd >
+             legacy.triangleMaterialIndexCount))
     {
         return PtSkinnedHitRouteResult::InvalidLegacyRange;
+    }
+    if (!candidate.legacyCapturePresent)
+    {
+        legacyVertexEnd = 0;
+        legacyIndexEnd = 0;
+        legacyTriangleEnd = 0;
     }
     return PtSkinnedHitRouteResult::Accepted;
 }
@@ -357,7 +364,8 @@ PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
 
             bool mapped = false;
             std::uint64_t legacyPrimitive = 0;
-            if (legacyLocalTriangle <
+            if (candidate.legacyCapturePresent &&
+                legacyLocalTriangle <
                 candidate.legacyTriangleCount)
             {
                 const std::uint64_t legacyIndex =
@@ -1105,6 +1113,54 @@ PtSkinnedTlasRoutePlan PtPlanSkinnedTlasRoutes(
     return plan;
 }
 
+PtSkinnedCaptureAdmissionResult
+PtPlanSkinnedCaptureAdmission(
+    const PtSkinnedCaptureAdmissionInput& input)
+{
+    if (!input.gate)
+    {
+        return PtSkinnedCaptureAdmissionResult::GateDisabled;
+    }
+    if (input.priorRoute == nullptr)
+    {
+        return PtSkinnedCaptureAdmissionResult::MissingPriorRoute;
+    }
+    if (!PtCanonicalInstanceKeyIsValid(input.currentInstance) ||
+        input.priorRoute->instanceKey != input.currentInstance)
+    {
+        return PtSkinnedCaptureAdmissionResult::
+            CurrentInstanceMismatch;
+    }
+    if (!PtCanonicalMeshKeyIsValid(input.currentMesh) ||
+        input.currentMesh.sourceDomain !=
+            PtCanonicalMeshSourceDomain::SkinnedBindSource ||
+        input.currentMesh.deformationClass !=
+            PtCanonicalDeformationClass::Skinned ||
+        input.priorRoute->meshKey != input.currentMesh ||
+        input.currentSourceChecksum == 0 ||
+        input.priorRoute->sourceChecksum !=
+            input.currentSourceChecksum ||
+        input.currentVertexCount == 0 ||
+        input.currentIndexCount == 0 ||
+        input.currentIndexCount % 3u != 0u ||
+        input.priorRoute->vertexCount !=
+            input.currentVertexCount ||
+        input.priorRoute->indexCount !=
+            input.currentIndexCount ||
+        input.priorRoute->triangleCount !=
+            input.currentIndexCount / 3u)
+    {
+        return PtSkinnedCaptureAdmissionResult::
+            CurrentSourceMismatch;
+    }
+    if (!input.jointDataReady)
+    {
+        return PtSkinnedCaptureAdmissionResult::
+            JointDataNotReady;
+    }
+    return PtSkinnedCaptureAdmissionResult::OmitCpuCapture;
+}
+
 const char* PtSkinnedTlasRouteResultName(
     PtSkinnedTlasRouteResult result)
 {
@@ -1137,6 +1193,33 @@ const char* PtSkinnedTlasRouteResultName(
         case PtSkinnedTlasRouteResult::
             TlasCapacityExceeded:
             return "tlas-capacity-exceeded";
+        default:
+            return "unknown";
+    }
+}
+
+const char* PtSkinnedCaptureAdmissionResultName(
+    PtSkinnedCaptureAdmissionResult result)
+{
+    switch (result)
+    {
+        case PtSkinnedCaptureAdmissionResult::
+            OmitCpuCapture:
+            return "omit-cpu-capture";
+        case PtSkinnedCaptureAdmissionResult::GateDisabled:
+            return "gate-disabled";
+        case PtSkinnedCaptureAdmissionResult::
+            MissingPriorRoute:
+            return "missing-prior-route";
+        case PtSkinnedCaptureAdmissionResult::
+            CurrentInstanceMismatch:
+            return "current-instance-mismatch";
+        case PtSkinnedCaptureAdmissionResult::
+            CurrentSourceMismatch:
+            return "current-source-mismatch";
+        case PtSkinnedCaptureAdmissionResult::
+            JointDataNotReady:
+            return "joint-data-not-ready";
         default:
             return "unknown";
     }

@@ -298,6 +298,23 @@ readback plus 12/12 motion-ready routes close source primitive, material,
 emissive, and motion-input transport. Step 7 is accepted and step 8 may now
 begin the fail-closed CPU-capture split.
 
+GEO-08 steps 8 and 9 accept the default-off CPU-capture split and its explicit
+failure timing. Admission is keyed by the exact sorted visible skinned-instance
+set and consumes only a previously TLAS-accepted build for that same signature.
+Known structural failures remain on the CPU route with named counters; omitted
+surfaces carry source-only primitive metadata and no legacy dynamic ranges.
+Retained previous joint matrices preserve the previous-pose GPU route. Any
+late route/resource/BLAS/TLAS failure suppresses and revokes only the affected
+set instead of pretending CPU vertices exist.
+
+geometry_geo102_auto and geometry_geo105_auto repeat the accepted main-view
+tuple: 12 omitted surfaces, 9,889 vertices and 47,886 indexes removed from CPU
+capture, zero CPU skin append, 12/12 routes/descriptors, and 12/12 motion-ready.
+The auxiliary exact set independently routes 1/1/1 and leaves the other eleven
+surfaces on named CPU fallback. The earlier union-cache probe is explicitly
+rejected because geometry_geo99_auto caught 12 omissions but only one route
+and descriptor. Step 10 lifecycle invalidation and retirement is next.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

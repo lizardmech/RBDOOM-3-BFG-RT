@@ -3761,6 +3761,7 @@ PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
     const std::vector<uint32_t>& dynamicTriangleMaterialIds,
     const std::vector<uint32_t>&
         dynamicTriangleMaterialIndexes,
+    const RtSmokeMaterialTableBuild& materialTable,
     nvrhi::BufferHandle outputBuffer,
     uint64 previousPositionCount,
     uint64 outputCapacityBytes,
@@ -3825,25 +3826,52 @@ PtSkinnedHitRouteBuild BuildSmokeSkinnedHitRouteShadow(
             (dispatch.flags &
                 PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) != 0u;
         candidate.legacyVertexOffset =
-            dispatch.dynamicVertexOffset;
+            record.cpuCaptureOmitted
+                ? 0u
+                : dispatch.dynamicVertexOffset;
         candidate.legacyVertexCount =
-            dispatch.vertexCount;
+            record.cpuCaptureOmitted
+                ? 0u
+                : dispatch.vertexCount;
         candidate.legacyIndexOffset =
-            dispatch.dynamicIndexOffset;
+            record.cpuCaptureOmitted
+                ? 0u
+                : dispatch.dynamicIndexOffset;
         candidate.legacyIndexCount =
-            static_cast<uint64>(dispatch.triangleCount) * 3;
+            record.cpuCaptureOmitted
+                ? 0u
+                : static_cast<uint64>(
+                    dispatch.triangleCount) * 3;
         candidate.legacyTriangleOffset =
-            dispatch.dynamicTriangleOffset;
+            record.cpuCaptureOmitted
+                ? 0u
+                : dispatch.dynamicTriangleOffset;
         candidate.legacyTriangleCount =
-            dispatch.triangleCount;
-        if (dispatch.dynamicTriangleOffset <
+            record.cpuCaptureOmitted
+                ? 0u
+                : dispatch.triangleCount;
+        candidate.legacyCapturePresent =
+            !record.cpuCaptureOmitted;
+        const int fallbackMaterialIndex =
+            FindSmokeMaterialTableIndexById(
+                materialTable,
+                record.materialId);
+        if (fallbackMaterialIndex >= 0)
+        {
+            candidate.fallbackMaterialIndex =
+                static_cast<uint32_t>(
+                    fallbackMaterialIndex);
+        }
+        if (!record.cpuCaptureOmitted &&
+            dispatch.dynamicTriangleOffset <
             dynamicTriangleMaterialIndexes.size())
         {
             candidate.fallbackMaterialIndex =
                 dynamicTriangleMaterialIndexes[
                     dispatch.dynamicTriangleOffset];
         }
-        if (dispatch.dynamicTriangleOffset <
+        if (!record.cpuCaptureOmitted &&
+            dispatch.dynamicTriangleOffset <
             dynamicTriangleClasses.size())
         {
             candidate.fallbackTriangleClassAndFlags =
@@ -4956,11 +4984,14 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
             ++build.singleBoneObserved;
         }
 
+        const bool currentCpuRangeValid =
+            SmokeSkinnedCurrentVertexRangeValid(
+                record,
+                dynamicVertexData);
         const bool layoutUnsupported =
             record.vertexCount <= 0 ||
-            !SmokeSkinnedCurrentVertexRangeValid(
-                record,
-                dynamicVertexData) ||
+            (!record.cpuCaptureOmitted &&
+                !currentCpuRangeValid) ||
             (!canonicalSourceOutputRoute &&
                 ((tri && !tri->verts) ||
                     (tri &&
@@ -5020,7 +5051,8 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
             (canonicalSourceOutputRoute &&
                 (canonicalSource == nullptr ||
                     persistentOutput == nullptr)) ||
-            !SmokeSkinnedCurrentVertexRangeValid(record, dynamicVertexData) ||
+            (!record.cpuCaptureOmitted &&
+                !currentCpuRangeValid) ||
             (gpuSkinningMode > 0 && build.recordResults[recordIndex] != Result::EligibleGpu))
         {
             continue;
@@ -5112,18 +5144,21 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
                     sourcePack->vertexOffset;
                 record.gpuOutputVertexOffset =
                     static_cast<int64>(outputOffset);
-                for (int vertexIndex = 0;
-                    vertexIndex < record.vertexCount;
-                    ++vertexIndex)
+                if (!record.cpuCaptureOmitted)
                 {
-                    build.currentOutputVertices[
-                        static_cast<size_t>(
-                            outputOffset) +
-                        static_cast<size_t>(
-                            vertexIndex)] =
-                        dynamicVertexData[
-                            record.currentVertexOffset +
-                            vertexIndex];
+                    for (int vertexIndex = 0;
+                        vertexIndex < record.vertexCount;
+                        ++vertexIndex)
+                    {
+                        build.currentOutputVertices[
+                            static_cast<size_t>(
+                                outputOffset) +
+                            static_cast<size_t>(
+                                vertexIndex)] =
+                            dynamicVertexData[
+                                record.currentVertexOffset +
+                                vertexIndex];
+                    }
                 }
             }
             else
@@ -5149,6 +5184,10 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
             }
         }
 
+        const RtSmokeSkinnedSurfaceRecord* previousRecord =
+            FindSmokeSkinnedPreviousRecord(
+                previousRecords,
+                record);
         const bool hasPreviousPositionRange =
             record.previousValid &&
             record.previousVertexOffset >= 0 &&
@@ -5168,6 +5207,31 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
                 build.previousPositions.push_back(previousPosition);
             }
         }
+        const uint32_t requiredGpuPreviousFlags =
+            RT_SMOKE_SKINNED_TEMPORAL_TOPOLOGY_STABLE |
+            RT_SMOKE_SKINNED_TEMPORAL_LOD_STABLE |
+            RT_SMOKE_SKINNED_TEMPORAL_TRANSFORM_CONTINUOUS |
+            RT_SMOKE_SKINNED_TEMPORAL_DEFORMATION_CONTINUOUS;
+        const bool hasGpuPreviousJointPose =
+            previousRecord != nullptr &&
+            (record.temporalStateFlags &
+                requiredGpuPreviousFlags) ==
+                    requiredGpuPreviousFlags &&
+            previousRecord->jointCount == record.jointCount &&
+            SmokeSkinnedJointRangeValid(
+                *previousRecord,
+                previousSkinnedJointMatrices);
+        if (!hasPreviousPositionRange &&
+            hasGpuPreviousJointPose)
+        {
+            record.gpuPreviousPositionOffset =
+                static_cast<int>(
+                    build.previousPositions.size());
+            build.previousPositions.resize(
+                build.previousPositions.size() +
+                    static_cast<size_t>(
+                        record.vertexCount));
+        }
 
         PathTraceSkinnedSurfaceDispatchRecord dispatch = {};
         dispatch.sourceVertexOffset = record.gpuSourceVertexOffset >= 0 ? static_cast<uint32_t>(record.gpuSourceVertexOffset) : UINT32_MAX;
@@ -5185,16 +5249,30 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
         dispatch.previousJointOffset = UINT32_MAX;
         dispatch.surfaceRecordIndex = static_cast<uint32_t>(recordIndex);
         dispatch.flags = PT_SKINNED_DISPATCH_RT_CPU_SKINNED | PT_SKINNED_DISPATCH_SOURCE_READY;
-        dispatch.dynamicVertexOffset = static_cast<uint32_t>(record.currentVertexOffset);
-        dispatch.dynamicIndexOffset = static_cast<uint32_t>(record.currentIndexOffset);
-        dispatch.dynamicTriangleOffset = static_cast<uint32_t>(record.currentTriangleOffset);
-        dispatch.triangleCount = static_cast<uint32_t>(record.triangleCount);
-        if (record.previousValid && record.gpuPreviousPositionOffset >= 0)
+        dispatch.dynamicVertexOffset =
+            record.cpuCaptureOmitted
+                ? UINT32_MAX
+                : static_cast<uint32_t>(
+                    record.currentVertexOffset);
+        dispatch.dynamicIndexOffset =
+            record.cpuCaptureOmitted
+                ? UINT32_MAX
+                : static_cast<uint32_t>(
+                    record.currentIndexOffset);
+        dispatch.dynamicTriangleOffset =
+            record.cpuCaptureOmitted
+                ? UINT32_MAX
+                : static_cast<uint32_t>(
+                    record.currentTriangleOffset);
+        dispatch.triangleCount =
+            static_cast<uint32_t>(record.triangleCount);
+        if ((hasPreviousPositionRange ||
+                hasGpuPreviousJointPose) &&
+            record.gpuPreviousPositionOffset >= 0)
         {
             dispatch.flags |= PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS;
         }
         CopySmokeObjectToWorldRows(dispatch.currentObjectToWorld, record.objectToWorld);
-        const RtSmokeSkinnedSurfaceRecord* previousRecord = FindSmokeSkinnedPreviousRecord(previousRecords, record);
         CopySmokeObjectToWorldRows(dispatch.previousObjectToWorld, previousRecord ? previousRecord->objectToWorld : record.objectToWorld);
         if (buildGpuSkinningInputs)
         {
@@ -5212,7 +5290,8 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
             {
                 build.recordResults[recordIndex] = Result::NotReadyJointData;
             }
-            if (record.previousValid &&
+            if ((hasPreviousPositionRange ||
+                    hasGpuPreviousJointPose) &&
                 previousRecord &&
                 previousRecord->jointCount == record.jointCount &&
                 SmokeSkinnedJointRangeValid(*previousRecord, previousSkinnedJointMatrices))
@@ -5768,6 +5847,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<uint32_t> dynamicTriangleInstanceData;
     std::vector<uint32_t> dynamicTriangleIdentityData;
     std::vector<RtSmokeSkinnedSurfaceRecord> currentSkinnedSurfaceRecords;
+    uint64 skinnedCaptureViewSignature = 0;
+    PtSkinnedHitRouteBuild skinnedHitRouteUploadBuild;
+    const std::vector<PtSkinnedHitRouteRecord>*
+        skinnedCaptureAdmissionRoutes = nullptr;
     RtSmokeSkinnedGpuScaffoldBuild skinnedGpuScaffold;
     RtSmokeJointCacheStageBuild jointCacheStage;
     RtSmokeSkinnedOutputAudit skinnedOutputAudit;
@@ -5838,6 +5921,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             liquidPoolOffsetEnabled);
         m_smokeGeometryUniverse.Clear();
         m_smokeSkinnedSurfaceRecords.clear();
+        m_smokeSkinnedCaptureRouteSets.clear();
         m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
         m_smokeSkinnedHistoryStates.clear();
         m_smokeSkinnedHistoryUpdateSerial = 0;
@@ -5868,6 +5952,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 static_cast<unsigned long long>(sceneUniverseGeneration));
             m_smokeGeometryUniverse.Clear();
             m_smokeSkinnedSurfaceRecords.clear();
+            m_smokeSkinnedCaptureRouteSets.clear();
             m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
             m_smokeSkinnedHistoryStates.clear();
             m_smokeSkinnedHistoryUpdateSerial = 0;
@@ -5889,6 +5974,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         m_smokeGeometryUniverse.Clear();
         m_smokeSkinnedSurfaceRecords.clear();
+        m_smokeSkinnedCaptureRouteSets.clear();
         m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
         m_smokeSkinnedHistoryStates.clear();
         m_smokeSkinnedHistoryUpdateSerial = 0;
@@ -5918,6 +6004,31 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeGeometryUniverse.UpdateCanonicalSourceGpuPools(
             device,
             commandList);
+        if (useDrawSurfMirrorDynamicFrame)
+        {
+            skinnedCaptureViewSignature =
+                BuildPathTraceSkinnedCaptureViewSignature(
+                    viewDef);
+            for (SmokeSkinnedCaptureRouteSetState& routeSet :
+                m_smokeSkinnedCaptureRouteSets)
+            {
+                if (routeSet.signature !=
+                    skinnedCaptureViewSignature)
+                {
+                    continue;
+                }
+                routeSet.lastUsedFrame =
+                    m_smokeGeometryFrameIndex;
+                skinnedHitRouteUploadBuild =
+                    routeSet.pendingBuild;
+                if (!routeSet.acceptedBuild.records.empty())
+                {
+                    skinnedCaptureAdmissionRoutes =
+                        &routeSet.acceptedBuild.records;
+                }
+                break;
+            }
+        }
         if (geometrySourceDumpRequested)
         {
             m_smokeGeometryUniverse.DumpCanonicalSourceImportStats();
@@ -6006,7 +6117,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 r_pathTracingSmokeLog.GetInteger() != 0 ||
                 r_pathTracingSceneBoundsOverlay.GetInteger() != 0 ||
                 rigidResidencyBoundsDebug;
-            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, &currentSkinnedSurfaceRecords, nullptr, &m_instanceUniverse, &m_smokeBoundsOverlayLines, drawSurfMirrorFullDiagnostics);
+            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, &currentSkinnedSurfaceRecords, nullptr, &m_instanceUniverse, &m_smokeBoundsOverlayLines, drawSurfMirrorFullDiagnostics, skinnedCaptureAdmissionRoutes);
 
             {
                 OPTICK_EVENT("PT Merge Mirror Capture Stats");
@@ -6040,6 +6151,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 captureTiming.dynamicPassClassifyMs += mirrorCaptureTiming.dynamicPassClassifyMs;
                 captureTiming.dynamicAppendMs += mirrorCaptureTiming.dynamicAppendMs;
                 captureTiming.rtCpuSkinningAppendMs += mirrorCaptureTiming.rtCpuSkinningAppendMs;
+                captureTiming.skinnedCaptureAdmissionRoutes += mirrorCaptureTiming.skinnedCaptureAdmissionRoutes;
+                captureTiming.skinnedCaptureOmittedSurfaces += mirrorCaptureTiming.skinnedCaptureOmittedSurfaces;
+                captureTiming.skinnedCaptureOmittedVerts += mirrorCaptureTiming.skinnedCaptureOmittedVerts;
+                captureTiming.skinnedCaptureOmittedIndexes += mirrorCaptureTiming.skinnedCaptureOmittedIndexes;
+                captureTiming.skinnedCaptureFallbackGate += mirrorCaptureTiming.skinnedCaptureFallbackGate;
+                captureTiming.skinnedCaptureFallbackPriorRoute += mirrorCaptureTiming.skinnedCaptureFallbackPriorRoute;
+                captureTiming.skinnedCaptureFallbackCurrentContract += mirrorCaptureTiming.skinnedCaptureFallbackCurrentContract;
+                captureTiming.skinnedCaptureFallbackJointData += mirrorCaptureTiming.skinnedCaptureFallbackJointData;
                 captureTiming.bucketMergeMs += mirrorCaptureTiming.bucketMergeMs;
                 captureTiming.appendMs += mirrorCaptureTiming.appendMs;
                 captureTiming.validationMs += mirrorCaptureTiming.validationMs;
@@ -7433,12 +7552,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         skinnedHitRouteUploadCpuRecords =
             r_pathTracingGeometrySkinnedTlasCompare.
                     GetInteger() != 0
-                ? m_smokeSkinnedHitRouteUploadShadow.records
+                ? skinnedHitRouteUploadBuild.records
                 : std::vector<
                     PtSkinnedHitRouteRecord>();
     const PtSkinnedHitRouteGpuUpload skinnedHitRouteGpuUpload =
         PtBuildSkinnedHitRouteGpuUpload(
-            m_smokeSkinnedHitRouteUploadShadow,
+            skinnedHitRouteUploadBuild,
             static_cast<uint32_t>(
                 2ull + rigidRouteBuild.instances.size()));
     RtPathTraceCpuWorkGeneration rigidRouteSideBufferGeneration;
@@ -8448,7 +8567,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     if (!m_skinnedHitRouteReadbackCompleted &&
         !m_skinnedHitRouteReadbackQueued &&
-        !m_smokeSkinnedHitRouteUploadShadow.records.empty())
+        !skinnedHitRouteUploadBuild.records.empty())
     {
         QueueSkinnedHitRouteReadback(
             commandList,
@@ -8905,6 +9024,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             dynamicTriangleClassData,
             dynamicTriangleMaterialData,
             materialTable.dynamicMaterialIndexes,
+            materialTable,
             smokeSkinnedCurrentOutputVertexBuffer,
             skinnedGpuScaffold.previousPositions.size(),
             skinnedHitRouteOutputCapacity,
@@ -8912,6 +9032,85 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             canonicalSkinnedSourceOutputRoute);
     m_smokeSkinnedHitRouteUploadShadow =
         skinnedHitRouteShadow;
+    if (skinnedCaptureViewSignature != 0)
+    {
+        SmokeSkinnedCaptureRouteSetState* routeSet = nullptr;
+        for (SmokeSkinnedCaptureRouteSetState& candidate :
+            m_smokeSkinnedCaptureRouteSets)
+        {
+            if (candidate.signature ==
+                skinnedCaptureViewSignature)
+            {
+                routeSet = &candidate;
+                break;
+            }
+        }
+        if (routeSet == nullptr)
+        {
+            if (m_smokeSkinnedCaptureRouteSets.size() >= 8)
+            {
+                const auto oldest = std::min_element(
+                    m_smokeSkinnedCaptureRouteSets.begin(),
+                    m_smokeSkinnedCaptureRouteSets.end(),
+                    [](const SmokeSkinnedCaptureRouteSetState& lhs,
+                        const SmokeSkinnedCaptureRouteSetState& rhs)
+                    {
+                        return lhs.lastUsedFrame <
+                            rhs.lastUsedFrame;
+                    });
+                if (oldest !=
+                    m_smokeSkinnedCaptureRouteSets.end())
+                {
+                    m_smokeSkinnedCaptureRouteSets.erase(
+                        oldest);
+                }
+            }
+            m_smokeSkinnedCaptureRouteSets.emplace_back();
+            routeSet =
+                &m_smokeSkinnedCaptureRouteSets.back();
+            routeSet->signature =
+                skinnedCaptureViewSignature;
+        }
+        routeSet->pendingBuild =
+            skinnedHitRouteShadow;
+        routeSet->lastUsedFrame =
+            m_smokeGeometryFrameIndex;
+    }
+    if (skinnedHitRouteShadow.stats.accepted >
+            m_smokeSkinnedCaptureSplitShadowMaxLogged &&
+        captureTiming.skinnedCaptureOmittedSurfaces > 0 &&
+        skinnedHitRouteShadow.stats.accepted > 0 &&
+        skinnedHitRouteShadow.stats.rejected == 0 &&
+        skinnedHitRouteShadow.stats.accepted ==
+            static_cast<uint64>(
+                captureTiming.
+                    skinnedCaptureOmittedSurfaces) &&
+        skinnedHitRouteShadow.stats.legacyTriangles == 0 &&
+        skinnedHitRouteShadow.stats.sourceOnlyTriangles ==
+            skinnedHitRouteShadow.stats.sourceTriangles)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 capture-split route shadow frame=%llu accepted/rejected=%llu/%llu triangles(source/legacy/sourceOnly)=%llu/%llu/%llu motion(ready/missing)=%llu/%llu metadata=source-only\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.accepted),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.rejected),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.sourceTriangles),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.legacyTriangles),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.sourceOnlyTriangles),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.motionReady),
+            static_cast<unsigned long long>(
+                skinnedHitRouteShadow.stats.motionMissing));
+        m_smokeSkinnedCaptureSplitShadowMaxLogged =
+            static_cast<uint32>(
+                skinnedHitRouteShadow.stats.accepted);
+    }
     if (skinnedHitRouteShadow.stats.accepted > 0 &&
         !m_smokeSkinnedHitRouteShadowLogged)
     {
@@ -9214,6 +9413,93 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         static_cast<uint32>(
             rigidTlasRouteInstances.size() -
             firstSkinnedTlasDesc);
+    const bool skinnedTlasUsesSourceOnlyMetadata =
+        std::any_of(
+            skinnedHitRouteUploadCpuRecords.begin(),
+            skinnedHitRouteUploadCpuRecords.end(),
+            [](const PtSkinnedHitRouteRecord& route)
+            {
+                return (route.flags &
+                    PT_SKINNED_HIT_ROUTE_HAS_SOURCE_ONLY_PRIMITIVES) !=
+                    0u;
+            });
+    const size_t skinnedTlasMotionReady =
+        static_cast<size_t>(std::count_if(
+            skinnedHitRouteUploadCpuRecords.begin(),
+            skinnedHitRouteUploadCpuRecords.end(),
+            [](const PtSkinnedHitRouteRecord& route)
+            {
+                return (route.flags &
+                    PT_SKINNED_HIT_ROUTE_HAS_PREVIOUS) !=
+                    0u;
+            }));
+    SmokeSkinnedCaptureRouteSetState* activeCaptureRouteSet =
+        nullptr;
+    for (SmokeSkinnedCaptureRouteSetState& routeSet :
+        m_smokeSkinnedCaptureRouteSets)
+    {
+        if (routeSet.signature ==
+            skinnedCaptureViewSignature)
+        {
+            activeCaptureRouteSet = &routeSet;
+            break;
+        }
+    }
+    if (!skinnedTlasCompareRequested)
+    {
+        m_smokeSkinnedCaptureRouteSets.clear();
+        activeCaptureRouteSet = nullptr;
+    }
+    else if (activeCaptureRouteSet != nullptr &&
+             skinnedTlasPlan.result ==
+                 PtSkinnedTlasRouteResult::Accepted &&
+             skinnedTlasDescriptorCount ==
+                 skinnedTlasPlan.records.size() &&
+             !skinnedHitRouteUploadBuild.records.empty())
+    {
+        // Admission and upload are one indivisible accepted build for this
+        // exact visible skinned-instance set.
+        activeCaptureRouteSet->acceptedBuild =
+            skinnedHitRouteUploadBuild;
+        activeCaptureRouteSet->lastUsedFrame =
+            m_smokeGeometryFrameIndex;
+    }
+    else if (activeCaptureRouteSet != nullptr &&
+             !skinnedHitRouteUploadBuild.records.empty())
+    {
+        // A late route/resource/BLAS failure after CPU capture omission
+        // suppresses this view and revokes only its exact set for next time.
+        activeCaptureRouteSet->acceptedBuild =
+            PtSkinnedHitRouteBuild();
+    }
+    if (skinnedTlasDescriptorCount >
+            m_smokeSkinnedCaptureSplitTlasMaxLogged &&
+        captureTiming.skinnedCaptureOmittedSurfaces > 0 &&
+        skinnedTlasPlan.result ==
+            PtSkinnedTlasRouteResult::Accepted &&
+        skinnedTlasDescriptorCount ==
+            skinnedTlasPlan.records.size() &&
+        skinnedTlasDescriptorCount > 0 &&
+        skinnedTlasDescriptorCount ==
+            static_cast<uint32>(
+                captureTiming.
+                    skinnedCaptureOmittedSurfaces) &&
+        skinnedTlasUsesSourceOnlyMetadata)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO08 capture-split TLAS accepted frame=%llu omitted(surfaces/verts/indexes)=%d/%d/%d cpuSkinAppendMs=%d routes/descriptors/motionReady=%zu/%u/%zu metadata=source-only lateFailurePolicy=suppress\n",
+            static_cast<unsigned long long>(
+                geometryUniverseStats.frameIndex),
+            captureTiming.skinnedCaptureOmittedSurfaces,
+            captureTiming.skinnedCaptureOmittedVerts,
+            captureTiming.skinnedCaptureOmittedIndexes,
+            captureTiming.rtCpuSkinningAppendMs,
+            skinnedHitRouteUploadCpuRecords.size(),
+            skinnedTlasDescriptorCount,
+            skinnedTlasMotionReady);
+        m_smokeSkinnedCaptureSplitTlasMaxLogged =
+            skinnedTlasDescriptorCount;
+    }
     const bool skinnedTlasDumpRequested =
         r_pathTracingGeometrySkinnedTlasCompareDump.
             GetInteger() != 0;

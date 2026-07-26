@@ -84,6 +84,25 @@ prepared animated characters while retaining rigid props; exact route/triangle
 readback and 12/12 motion-ready inputs bind the presentation to its metadata.
 Step 8 is unblocked.
 
+Steps 8 and 9 are accepted. The default-off capture-split gate admits omission
+only from the accepted route build for the same exact visible-set signature.
+Structural failures are decided before append and remain named CPU fallbacks.
+An omitted record has no legacy dynamic ranges; canonical source topology and
+source-only material/class/primitive metadata feed the per-instance route.
+Retained previous joint matrices regenerate previous GPU positions after CPU
+vertex history disappears. Late route/resource/BLAS/TLAS failure suppresses
+and revokes that exact set rather than claiming impossible same-frame CPU
+fallback.
+
+geometry_geo102_auto and geometry_geo105_auto repeatedly accept an auxiliary
+1 omitted / 1 route / 1 descriptor / 1 motion-ready set and the main 12/12/12
+set. The main set omits 9,889 vertices and 47,886 indexes, has zero named
+structural fallback, and records zero CPU skin append. The auxiliary set names
+the other eleven surfaces as prior-route CPU fallbacks. The rejected
+geometry_geo99_auto union design produced 12 omitted / 1 route / 1 descriptor;
+the exact-set key and indivisible upload/admission build replace it. Step 10
+lifecycle exercise is next.
+
 FILES TO AUDIT FIRST
 --------------------
   neo/renderer/NVRHI/PathTraceAcceleration.cpp/.h
@@ -166,12 +185,12 @@ STEPS
    Record instance/primitive totals, sampled hit identities, bounds,
    material/triangle IDs, and motion inputs. A compare failure must select only
    the legacy route.
-8. Split capture only after comparison passes. GPU-eligible skinned surfaces
+8. ACCEPTED. Split capture only after comparison passes. GPU-eligible skinned surfaces
    stop appending CPU-skinned vertices/indexes to the merged dynamic BLAS, while
    particles, callbacks, unsupported layouts, and other named failures remain
    there. Source topology, not bind-pose positions, supplies index validity;
    posed zero-area filtering must not silently change primitive identity.
-9. Make failure timing explicit:
+9. ACCEPTED. Make failure timing explicit:
    - structural ineligibility is decided before the CPU capture split and uses
      same-frame CPU fallback;
    - a late command-recording/resource failure after CPU work was skipped uses

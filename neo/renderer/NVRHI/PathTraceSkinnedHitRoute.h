@@ -189,7 +189,32 @@ struct PtSkinnedHitRouteCandidate
     std::uint32_t fallbackMaterialIndex =
         PT_SKINNED_HIT_ROUTE_INVALID_INDEX;
     std::uint32_t fallbackTriangleClassAndFlags = 0;
+    bool legacyCapturePresent = true;
     bool dispatchReady = false;
+};
+
+enum class PtSkinnedCaptureAdmissionResult : std::uint32_t
+{
+    OmitCpuCapture = 0,
+    GateDisabled,
+    MissingPriorRoute,
+    CurrentInstanceMismatch,
+    CurrentSourceMismatch,
+    JointDataNotReady
+};
+
+struct PtSkinnedHitRouteRecord;
+
+struct PtSkinnedCaptureAdmissionInput
+{
+    bool gate = false;
+    PtCanonicalInstanceKey currentInstance;
+    PtCanonicalMeshKey currentMesh;
+    std::uint64_t currentSourceChecksum = 0;
+    std::uint32_t currentVertexCount = 0;
+    std::uint32_t currentIndexCount = 0;
+    bool jointDataReady = false;
+    const PtSkinnedHitRouteRecord* priorRoute = nullptr;
 };
 
 struct PtSkinnedHitRouteRecord
@@ -330,8 +355,15 @@ PtPathTraceSbtSelection PtPlanPathTraceSbtSelection(
 PtSkinnedTlasRoutePlan PtPlanSkinnedTlasRoutes(
     const PtSkinnedTlasRoutePlanInput& input);
 
+PtSkinnedCaptureAdmissionResult
+PtPlanSkinnedCaptureAdmission(
+    const PtSkinnedCaptureAdmissionInput& input);
+
 const char* PtSkinnedHitRouteResultName(
     PtSkinnedHitRouteResult result);
 
 const char* PtSkinnedTlasRouteResultName(
     PtSkinnedTlasRouteResult result);
+
+const char* PtSkinnedCaptureAdmissionResultName(
+    PtSkinnedCaptureAdmissionResult result);

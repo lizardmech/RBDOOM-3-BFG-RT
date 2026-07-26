@@ -345,6 +345,12 @@ idCVar r_pathTracingGeometrySkinnedTlasCompareDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump the GEO-08 per-instance skinned TLAS comparison plan once" );
 
+idCVar r_pathTracingGeometrySkinnedCaptureSplit(
+    "r_pathTracingGeometrySkinnedCaptureSplit",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-08 default-off CPU capture cutover; only prior-frame exact skinned TLAS routes may omit CPU-skinned merged-dynamic geometry, with late failures suppressed" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

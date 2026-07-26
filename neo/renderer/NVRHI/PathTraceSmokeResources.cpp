@@ -2270,6 +2270,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeGeometryUniverse.Clear();
     m_particleDiagnosticFramesRemaining = 0;
     m_smokeSkinnedSurfaceRecords.clear();
+    m_smokeSkinnedCaptureRouteSets.clear();
     m_smokeSkinnedOutputAllocator.Clear();
     m_smokeSkinnedBlasStateTable.Clear();
     m_smokeSkinnedComparisonBlases.clear();
@@ -2380,6 +2381,8 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedCurrentJointMatrixBuffer = nullptr;
     m_smokeSkinnedPreviousJointMatrixBuffer = nullptr;
     m_smokeSkinnedHitRouteUploadShadow = PtSkinnedHitRouteBuild();
+    m_smokeSkinnedCaptureSplitShadowMaxLogged = 0;
+    m_smokeSkinnedCaptureSplitTlasMaxLogged = 0;
     m_skinnedHitRouteReadbackBuffer = nullptr;
     m_skinnedHitRouteReadbackQueued = false;
     m_skinnedHitRouteReadbackCompleted = false;
