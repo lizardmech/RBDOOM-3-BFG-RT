@@ -385,8 +385,14 @@ canonical skinned hits, classifies 397 closer legacy static occluders, and
 maps all remaining 4,867 hits to the exact legacy primitive. All numeric,
 material, and triangle-class mismatch buckets are zero. The audit also fixed
 the source-only loss of RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF. Motion/history
-scenario validation is next; canonical GPU-output emissive harvesting remains
-a later GEO-09 step.
+validation is accepted by geometry_geo136_auto and geometry_geo137_auto:
+4,769 and 4,953 exact mapped pairs have matching valid flags, supplier status,
+and previous world position. The live temporal classifier is also the
+directly tested `PtSelectSkinnedSurfaceTemporalPolicy`; its harness covers
+first observation, continuous animation/locomotion, spawn, teleport,
+offscreen return, material/class change, topology/skeleton failure, and
+missing previous storage. Canonical GPU-output emissive harvesting and remap
+is the next GEO-09 step.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

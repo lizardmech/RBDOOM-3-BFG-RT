@@ -1462,6 +1462,13 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
     uint64_t barycentricMismatch = 0;
     uint64_t materialMismatch = 0;
     uint64_t triangleFlagsMismatch = 0;
+    uint64_t legacyMotionValid = 0;
+    uint64_t canonicalMotionValid = 0;
+    uint64_t motionComparable = 0;
+    uint64_t motionInvalidBoth = 0;
+    uint64_t motionValidityMismatch = 0;
+    uint64_t motionStatusMismatch = 0;
+    uint64_t previousPositionMismatch = 0;
     float maxHitTDelta = 0.0f;
     float maxPositionDelta = 0.0f;
     float maxGeometricNormalDelta = 0.0f;
@@ -1471,6 +1478,7 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
     float maxUvDelta = 0.0f;
     float maxNormalUvDelta = 0.0f;
     float maxBarycentricDelta = 0.0f;
+    float maxPreviousPositionDelta = 0.0f;
     int mismatchDetailsLogged = 0;
 
     auto recordValid =
@@ -1757,6 +1765,64 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
             const bool triangleFlagsMatch =
                 legacy.header[3] ==
                 canonical.header[3];
+            const uint32_t requiredMotionFlags =
+                RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION |
+                RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION;
+            const bool legacyHasMotion =
+                (legacy.header[1] & requiredMotionFlags) ==
+                    requiredMotionFlags &&
+                legacy.previousPositionOrMotion[3] >= 0.5f;
+            const bool canonicalHasMotion =
+                (canonical.header[1] & requiredMotionFlags) ==
+                    requiredMotionFlags &&
+                canonical.previousPositionOrMotion[3] >= 0.5f;
+            legacyMotionValid += legacyHasMotion ? 1u : 0u;
+            canonicalMotionValid += canonicalHasMotion ? 1u : 0u;
+            motionValidityMismatch +=
+                legacyHasMotion == canonicalHasMotion ? 0u : 1u;
+            motionStatusMismatch +=
+                legacy.instancePrimitiveObject[3] ==
+                        canonical.instancePrimitiveObject[3]
+                    ? 0u
+                    : 1u;
+            float previousPositionDelta = 0.0f;
+            if (legacyHasMotion && canonicalHasMotion)
+            {
+                ++motionComparable;
+                const bool finitePrevious =
+                    finiteFloats(
+                        legacy.previousPositionOrMotion,
+                        3) &&
+                    finiteFloats(
+                        canonical.previousPositionOrMotion,
+                        3);
+                if (!finitePrevious)
+                {
+                    ++nonFinite;
+                    previousPositionDelta =
+                        std::numeric_limits<float>::infinity();
+                }
+                else
+                {
+                    previousPositionDelta =
+                        maxFloatDelta(
+                            legacy.previousPositionOrMotion,
+                            canonical.previousPositionOrMotion,
+                            3);
+                    maxPreviousPositionDelta =
+                        Max(
+                            maxPreviousPositionDelta,
+                            previousPositionDelta);
+                    previousPositionMismatch +=
+                        previousPositionDelta <= tupleTolerance
+                            ? 0u
+                            : 1u;
+                }
+            }
+            else if (!legacyHasMotion && !canonicalHasMotion)
+            {
+                ++motionInvalidBoth;
+            }
             distanceMismatch +=
                 hitTDelta <= tupleTolerance ? 0u : 1u;
             positionMismatch +=
@@ -1795,11 +1861,15 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
                 normalUvDelta <= tupleTolerance &&
                 barycentricDelta <= tupleTolerance &&
                 materialMatches &&
-                triangleFlagsMatch;
+                triangleFlagsMatch &&
+                legacyHasMotion == canonicalHasMotion &&
+                legacy.instancePrimitiveObject[3] ==
+                    canonical.instancePrimitiveObject[3] &&
+                previousPositionDelta <= tupleTolerance;
             if (!tupleMatches && mismatchDetailsLogged < 8)
             {
                 common->Printf(
-                    "PathTracePrimaryPass: GEO09 skinned hit mismatch pixel=%d/%d canonical(instance/primitive)=%u/%u legacy(instance/primitive/expected)=%u/%u/%u materialLegacy=%u/%u/0x%08x/%u materialCanonical=%u/%u/0x%08x/%u flags=0x%08x/0x%08x delta(t/position/geo/shading/tangent/bitangent/uv/normalUv/bary)=%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g\n",
+                    "PathTracePrimaryPass: GEO09 skinned hit mismatch pixel=%d/%d canonical(instance/primitive)=%u/%u legacy(instance/primitive/expected)=%u/%u/%u materialLegacy=%u/%u/0x%08x/%u materialCanonical=%u/%u/0x%08x/%u flags=0x%08x/0x%08x motion(valid/status)=%d/%u:%d/%u delta(t/position/geo/shading/tangent/bitangent/uv/normalUv/bary/previous)=%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g\n",
                     x,
                     y,
                     canonicalInstance,
@@ -1817,6 +1887,10 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
                     canonical.materialAndSurface[3],
                     legacy.header[3],
                     canonical.header[3],
+                    legacyHasMotion ? 1 : 0,
+                    legacy.instancePrimitiveObject[3],
+                    canonicalHasMotion ? 1 : 0,
+                    canonical.instancePrimitiveObject[3],
                     hitTDelta,
                     positionDelta,
                     geometricNormalDelta,
@@ -1825,7 +1899,8 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
                     bitangentDelta,
                     uvDelta,
                     normalUvDelta,
-                    barycentricDelta);
+                    barycentricDelta,
+                    previousPositionDelta);
                 ++mismatchDetailsLogged;
             }
         }
@@ -1844,16 +1919,25 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
         normalUvMismatch +
         barycentricMismatch +
         materialMismatch +
-        triangleFlagsMismatch;
+        triangleFlagsMismatch +
+        motionValidityMismatch +
+        motionStatusMismatch +
+        previousPositionMismatch;
     const bool accepted =
         canonicalSkinnedHits > 0 &&
         comparable > 0 &&
         primitiveRangeMissing == 0 &&
         mismatchTotal == 0;
+    const bool motionAccepted =
+        motionComparable > 0 &&
+        motionValidityMismatch == 0 &&
+        motionStatusMismatch == 0 &&
+        previousPositionMismatch == 0;
     common->Printf(
-        "PathTracePrimaryPass: GEO09 skinned hit audit frame=%llu accepted=%d dimensions=%d/%d pairs=%llu canonicalSkinned=%llu primitiveRangeMissing=%llu legacyMiss=%llu legacyCloserOccluder=%llu comparable/samePrimitive=%llu/%llu tolerance(tuple/basis)=%.9g/%.9g mismatches(nonFinite/primitive/hitT/position/geoNormal/shadingNormal/tangent/bitangent/uv/normalUv/bary/material/triangleFlags)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu maxima(hitT/position/geoNormal/shadingNormal/tangent/bitangent/uv/normalUv/bary)=%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g\n",
+        "PathTracePrimaryPass: GEO09 skinned hit audit frame=%llu accepted=%d motionAccepted=%d dimensions=%d/%d pairs=%llu canonicalSkinned=%llu primitiveRangeMissing=%llu legacyMiss=%llu legacyCloserOccluder=%llu comparable/samePrimitive=%llu/%llu tolerance(tuple/basis)=%.9g/%.9g mismatches(nonFinite/primitive/hitT/position/geoNormal/shadingNormal/tangent/bitangent/uv/normalUv/bary/material/triangleFlags/motionValid/motionStatus/previousPosition)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu motion(legacyValid/canonicalValid/comparable/invalidBoth)=%llu/%llu/%llu/%llu maxima(hitT/position/geoNormal/shadingNormal/tangent/bitangent/uv/normalUv/bary/previousPosition)=%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g/%.9g\n",
         static_cast<unsigned long long>(m_skinnedHitAuditFrame),
         accepted ? 1 : 0,
+        motionAccepted ? 1 : 0,
         m_skinnedHitAuditWidth,
         m_skinnedHitAuditHeight,
         static_cast<unsigned long long>(totalPairs),
@@ -1886,6 +1970,17 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
         static_cast<unsigned long long>(materialMismatch),
         static_cast<unsigned long long>(
             triangleFlagsMismatch),
+        static_cast<unsigned long long>(
+            motionValidityMismatch),
+        static_cast<unsigned long long>(
+            motionStatusMismatch),
+        static_cast<unsigned long long>(
+            previousPositionMismatch),
+        static_cast<unsigned long long>(legacyMotionValid),
+        static_cast<unsigned long long>(
+            canonicalMotionValid),
+        static_cast<unsigned long long>(motionComparable),
+        static_cast<unsigned long long>(motionInvalidBoth),
         maxHitTDelta,
         maxPositionDelta,
         maxGeometricNormalDelta,
@@ -1894,7 +1989,8 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
         maxBitangentDelta,
         maxUvDelta,
         maxNormalUvDelta,
-        maxBarycentricDelta);
+        maxBarycentricDelta,
+        maxPreviousPositionDelta);
 
     device->unmapBuffer(m_skinnedHitAuditReadbackBuffer);
     m_skinnedHitAuditReadbackQueued = false;

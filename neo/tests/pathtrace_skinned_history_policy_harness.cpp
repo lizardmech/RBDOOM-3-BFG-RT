@@ -163,6 +163,153 @@ void TestLegacyFirstObservation()
         "gate-off first observation should write without reading");
 }
 
+PtSkinnedSurfaceTemporalPolicyInput MakeStableSurfaceInput()
+{
+    PtSkinnedSurfaceTemporalPolicyInput input;
+    input.rtCpuSkinned = true;
+    input.hadPreviousFrame = true;
+    input.previousSurfaceFound = true;
+    input.loosePreviousSurfaceFound = true;
+    return input;
+}
+
+void TestSurfaceFirstObservationRejectsHistory()
+{
+    PtSkinnedSurfaceTemporalPolicyInput input;
+    input.rtCpuSkinned = true;
+
+    const PtSkinnedSurfaceTemporalPolicyDecision decision =
+        PtSelectSkinnedSurfaceTemporalPolicy(input);
+    Expect(
+        !decision.previousValid &&
+            decision.invalidReasonFlags ==
+                RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_FRAME &&
+            decision.temporalStateFlags == 0u,
+        "first skinned observation must reject previous motion");
+}
+
+void TestStableAnimatedAndLocomotingSurfaceAcceptsHistory()
+{
+    const PtSkinnedSurfaceTemporalPolicyDecision decision =
+        PtSelectSkinnedSurfaceTemporalPolicy(
+            MakeStableSurfaceInput());
+    const std::uint32_t requiredFlags =
+        RT_SMOKE_SKINNED_TEMPORAL_HAS_VALID_PREVIOUS |
+        RT_SMOKE_SKINNED_TEMPORAL_TOPOLOGY_STABLE |
+        RT_SMOKE_SKINNED_TEMPORAL_LOD_STABLE |
+        RT_SMOKE_SKINNED_TEMPORAL_TRANSFORM_CONTINUOUS |
+        RT_SMOKE_SKINNED_TEMPORAL_DEFORMATION_CONTINUOUS |
+        RT_SMOKE_SKINNED_TEMPORAL_MATERIAL_STABLE |
+        RT_SMOKE_SKINNED_TEMPORAL_PREVIOUS_BUFFER_VALID;
+    Expect(
+        decision.previousValid &&
+            decision.invalidReasonFlags ==
+                RT_SMOKE_SKINNED_INVALID_NONE &&
+            (decision.temporalStateFlags & requiredFlags) ==
+                requiredFlags,
+        "stable animated or continuously locomoting surface should accept history");
+}
+
+void TestSpawnAndOffscreenReturnRejectHistory()
+{
+    PtSkinnedSurfaceTemporalPolicyInput input;
+    input.rtCpuSkinned = true;
+    input.hadPreviousFrame = true;
+
+    const PtSkinnedSurfaceTemporalPolicyDecision decision =
+        PtSelectSkinnedSurfaceTemporalPolicy(input);
+    Expect(
+        !decision.previousValid &&
+            decision.invalidReasonFlags ==
+                RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_SURFACE &&
+            decision.temporalStateFlags == 0u,
+        "spawned or offscreen-returning surface must reject absent previous identity");
+}
+
+void TestTeleportRejectsHistory()
+{
+    PtSkinnedSurfaceTemporalPolicyInput input =
+        MakeStableSurfaceInput();
+    input.transformContinuous = false;
+
+    const PtSkinnedSurfaceTemporalPolicyDecision decision =
+        PtSelectSkinnedSurfaceTemporalPolicy(input);
+    Expect(
+        !decision.previousValid &&
+            (decision.invalidReasonFlags &
+                RT_SMOKE_SKINNED_INVALID_TRANSFORM_DISCONTINUITY) !=
+                0u &&
+            (decision.temporalStateFlags &
+                RT_SMOKE_SKINNED_TEMPORAL_TRANSFORM_CONTINUOUS) ==
+                0u &&
+            (decision.temporalStateFlags &
+                RT_SMOKE_SKINNED_TEMPORAL_HAS_VALID_PREVIOUS) ==
+                0u,
+        "teleported surface must reject history and clear transform continuity");
+}
+
+void TestMaterialAndSurfaceClassChangesRejectHistory()
+{
+    PtSkinnedSurfaceTemporalPolicyInput materialInput;
+    materialInput.rtCpuSkinned = true;
+    materialInput.hadPreviousFrame = true;
+    materialInput.loosePreviousSurfaceFound = true;
+    materialInput.materialStable = false;
+    const PtSkinnedSurfaceTemporalPolicyDecision materialDecision =
+        PtSelectSkinnedSurfaceTemporalPolicy(materialInput);
+    Expect(
+        !materialDecision.previousValid &&
+            materialDecision.invalidReasonFlags ==
+                RT_SMOKE_SKINNED_INVALID_MATERIAL_CHANGED,
+        "material identity change must reject skinned history");
+
+    PtSkinnedSurfaceTemporalPolicyInput classInput =
+        materialInput;
+    classInput.materialStable = true;
+    classInput.surfaceClassStable = false;
+    const PtSkinnedSurfaceTemporalPolicyDecision classDecision =
+        PtSelectSkinnedSurfaceTemporalPolicy(classInput);
+    Expect(
+        !classDecision.previousValid &&
+            classDecision.invalidReasonFlags ==
+                RT_SMOKE_SKINNED_INVALID_SURFACE_CLASS_CHANGED,
+        "surface class change must reject skinned history");
+}
+
+void TestTopologySkeletonAndBufferFailuresRejectHistory()
+{
+    PtSkinnedSurfaceTemporalPolicyInput input =
+        MakeStableSurfaceInput();
+    input.vertexCountStable = false;
+    input.indexCountStable = false;
+    input.triangleCountStable = false;
+    input.skeletonStable = false;
+    input.previousBufferAvailable = false;
+
+    const PtSkinnedSurfaceTemporalPolicyDecision decision =
+        PtSelectSkinnedSurfaceTemporalPolicy(input);
+    const std::uint32_t requiredReasons =
+        RT_SMOKE_SKINNED_INVALID_VERTEX_COUNT_MISMATCH |
+        RT_SMOKE_SKINNED_INVALID_INDEX_COUNT_MISMATCH |
+        RT_SMOKE_SKINNED_INVALID_TRIANGLE_COUNT_MISMATCH |
+        RT_SMOKE_SKINNED_INVALID_SKELETON_CHANGED |
+        RT_SMOKE_SKINNED_INVALID_PREVIOUS_BUFFER_UNAVAILABLE;
+    Expect(
+        !decision.previousValid &&
+            (decision.invalidReasonFlags & requiredReasons) ==
+                requiredReasons &&
+            (decision.temporalStateFlags &
+                RT_SMOKE_SKINNED_TEMPORAL_TOPOLOGY_STABLE) ==
+                0u &&
+            (decision.temporalStateFlags &
+                RT_SMOKE_SKINNED_TEMPORAL_DEFORMATION_CONTINUOUS) ==
+                0u &&
+            (decision.temporalStateFlags &
+                RT_SMOKE_SKINNED_TEMPORAL_PREVIOUS_BUFFER_VALID) ==
+                0u,
+        "topology, skeleton, and previous-buffer failures must reject history");
+}
+
 } // namespace
 
 int main()
@@ -174,6 +321,12 @@ int main()
     TestGatedOwnerMismatch();
     TestLegacyHistoryPresent();
     TestLegacyFirstObservation();
+    TestSurfaceFirstObservationRejectsHistory();
+    TestStableAnimatedAndLocomotingSurfaceAcceptsHistory();
+    TestSpawnAndOffscreenReturnRejectHistory();
+    TestTeleportRejectsHistory();
+    TestMaterialAndSurfaceClassChangesRejectHistory();
+    TestTopologySkeletonAndBufferFailuresRejectHistory();
 
     if (g_failures != 0)
     {

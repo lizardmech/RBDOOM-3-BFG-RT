@@ -303,3 +303,109 @@ Primary-hit geometry/material/class parity is accepted for the prepared
 animated scene under an exact joint-source oracle. Q16 remains open for the
 motion/history scenarios in step 4. Q17 remains open for canonical
 GPU-output emissive inventory and remap in step 5.
+
+STEP 4 - MOTION AND HISTORY RESET CONTRACT
+------------------------------------------
+The mode-58 compact records now also carry the result of the live
+`TryPathTracePrimarySurfaceObjectMotion` supplier. For each exact mapped
+legacy/canonical primitive the CPU readback compares:
+
+  object-motion and previous-position valid flags
+  motion failure/debug status
+  previous world position at 1e-3 max-component tolerance
+
+This reuses the existing 176-byte primary-surface record and the accepted
+57,600-pair compact readback. It adds no shader ABI, binding, or production
+history behavior.
+
+`r_pathTracingGeometrySkinnedHitAudit` retains value 1 as next-eligible-frame
+arming. Values greater than 1 now count down eligible geometry frames before
+arming, allowing deterministic settled-animation sampling without console
+input.
+
+First probe, geometry_geo135_auto:
+
+  frame:                                      3
+  exact mapped primitives:                    4,865
+  motion-valid legacy/canonical/comparable:   4,865 / 4,865 / 4,865
+  motion validity/status/previous mismatch:   0 / 0 / 0
+  previous-position maximum:                  0.000869750977
+  motion accepted by the separated verdict:  yes
+
+The old combined `accepted` field was zero because one unrelated hit-distance
+sample measured 0.00115966797 against the already-declared 0.001 hit
+tolerance. This run is retained as a rejected combined-hit probe; it did not
+motivate widening either tolerance.
+
+Delayed settled probe, geometry_geo136_auto:
+
+  requested countdown / armed frame:          120 / 122
+  canonical skinned hits:                     5,168
+  exact mapped primitives:                    4,769 / 4,769
+  motion-valid legacy/canonical/comparable:   4,769 / 4,769 / 4,769
+  all 16 hit + motion mismatch buckets:       0
+  previous-position maximum:                  0.00048828125
+  combined accepted / motion accepted:        1 / 1
+
+The per-surface reset classification was then extracted, without changing its
+inputs or outputs, into `PtSelectSkinnedSurfaceTemporalPolicy`, which the live
+scene builder now calls. `PathTraceSkinnedHistoryPolicyHarness` directly
+proves:
+
+  first observation rejects with NO_PREVIOUS_FRAME
+  stable animation and continuous locomotion accept complete prior state
+  newly spawned and offscreen-returning surfaces reject absent prior identity
+  transform discontinuity rejects and clears transform continuity
+  material or surface-class identity changes reject
+  topology, skeleton, or previous-buffer failures reject
+
+A removed instance produces no current surface record and therefore no motion
+record. If it returns later, the absent exact prior identity takes the same
+explicit NO_PREVIOUS_SURFACE reset path covered above.
+
+Post-extraction runtime, geometry_geo137_auto:
+
+  armed frame:                                 62
+  canonical skinned hits:                     5,346
+  exact mapped primitives:                    4,953 / 4,953
+  all 16 hit + motion mismatch buckets:       0
+  motion-valid legacy/canonical/comparable:   4,953 / 4,953 / 4,953
+  previous-position maximum:                  0.00048828125
+  combined accepted / motion accepted:        1 / 1
+  GPU skinning parity:                        PASS, 24/24
+
+Both accepted delayed runs completed normal renderer, Streamline, game, and
+event shutdown with no fatal, device-removed, Vulkan, NVRHI, or validation
+error marker.
+
+STEP 4 BUILD AND DEPLOY
+-----------------------
+  focused harness:
+    PathTraceSkinnedHistoryPolicyHarness: PASS
+
+  preset:
+    cmake --build --preset win64-pt-dev-release
+
+  result:
+    PASS
+
+  Vulkan shader:
+    pathtrace_smoke.rt.bin
+    source edit: 2026-07-26T05:10:08Z
+    rebuilt blob: 2026-07-26T05:11:14Z
+    rebuilt newer than source: yes
+    SHA-256:
+      6577CA88A019C094FC15A923274F098E9804F58E64AADC9F85029B59A6E6CE97
+
+  final executable SHA-256 after temporal-policy extraction:
+    351C678899A75E5C4D422CB678E34C3ACC4C0CE29976EC6035625AF329312A19
+
+  Only the affected Vulkan smoke blob and executable were deployed. No DX12
+  shader was compiled or deployed.
+
+STEP 4 DISPOSITION
+------------------
+Stable animated previous-position parity and every owned reset decision are
+accepted. Q16 is resolved for the canonical skinned motion/history contract.
+Step 5 canonical GPU-output emissive inventory and temporal remap is next;
+Q17 remains open.

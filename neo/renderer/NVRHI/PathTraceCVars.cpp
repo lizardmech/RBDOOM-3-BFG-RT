@@ -373,7 +373,7 @@ idCVar r_pathTracingGeometrySkinnedHitAudit(
     "r_pathTracingGeometrySkinnedHitAudit",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot GEO-09 full-frame paired same-ray comparison of legacy merged-dynamic and canonical per-instance skinned primary-hit tuples; requires debug mode 58 and the comparison route" );
+    "GEO-09 paired same-ray comparison of legacy merged-dynamic and canonical per-instance skinned hit/motion tuples; value 1 arms on the next eligible frame, N > 1 counts down eligible frames before arming; requires debug mode 58 and the comparison route" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

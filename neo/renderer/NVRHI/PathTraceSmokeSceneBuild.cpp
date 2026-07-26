@@ -4742,32 +4742,61 @@ void UpdateSmokeSkinnedPreviousCpuBridge(
     nextPreviousSkinnedVertexData.clear();
     for (RtSmokeSkinnedSurfaceRecord& current : currentRecords)
     {
-        uint32_t reasons = RT_SMOKE_SKINNED_INVALID_NONE;
-        uint32_t temporalFlags = 0;
         const RtSmokeSkinnedSurfaceRecord* previous = FindSmokeSkinnedPreviousRecord(previousRecords, current);
-        if (!current.rtCpuSkinned)
+        const RtSmokeSkinnedSurfaceRecord* loosePrevious =
+            previous
+                ? previous
+                : FindSmokeSkinnedPreviousLooseRecord(
+                    previousRecords,
+                    current);
+
+        PtSkinnedSurfaceTemporalPolicyInput policyInput;
+        policyInput.rtCpuSkinned = current.rtCpuSkinned;
+        policyInput.hadPreviousFrame = hadPreviousFrame;
+        policyInput.previousSurfaceFound = previous != nullptr;
+        policyInput.loosePreviousSurfaceFound =
+            loosePrevious != nullptr;
+        if (loosePrevious)
         {
-            reasons |= RT_SMOKE_SKINNED_INVALID_NOT_RT_CPU_SKINNED;
+            policyInput.materialStable =
+                loosePrevious->key.materialId ==
+                    current.key.materialId;
+            policyInput.surfaceClassStable =
+                loosePrevious->key.surfaceClassId ==
+                    current.key.surfaceClassId;
         }
-        if (!hadPreviousFrame)
+        if (previous)
         {
-            reasons |= RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_FRAME;
+            policyInput.vertexCountStable =
+                previous->vertexCount == current.vertexCount;
+            policyInput.indexCountStable =
+                previous->indexCount == current.indexCount;
+            policyInput.triangleCountStable =
+                previous->triangleCount == current.triangleCount;
+            policyInput.skeletonStable =
+                previous->jointCount == current.jointCount &&
+                previous->jointSource == current.jointSource;
+            policyInput.transformContinuous =
+                !(
+                    previous->hasEntityOrigin &&
+                    current.hasEntityOrigin &&
+                    (current.entityOrigin -
+                        previous->entityOrigin).LengthSqr() >
+                        teleportDistanceSqr);
+            policyInput.previousBufferAvailable =
+                previous->retainedVertexOffset >= 0 &&
+                previous->vertexCount > 0 &&
+                previous->retainedVertexOffset <=
+                    static_cast<int>(
+                        previousSkinnedVertexData.size()) &&
+                previous->vertexCount <=
+                    static_cast<int>(
+                        previousSkinnedVertexData.size()) -
+                        previous->retainedVertexOffset;
         }
-        else if (!previous)
+
+        if (hadPreviousFrame && !previous)
         {
-            const RtSmokeSkinnedSurfaceRecord* loosePrevious = FindSmokeSkinnedPreviousLooseRecord(previousRecords, current);
-            if (loosePrevious && loosePrevious->key.surfaceClassId != current.key.surfaceClassId)
-            {
-                reasons |= RT_SMOKE_SKINNED_INVALID_SURFACE_CLASS_CHANGED;
-            }
-            else if (loosePrevious && loosePrevious->key.materialId != current.key.materialId)
-            {
-                reasons |= RT_SMOKE_SKINNED_INVALID_MATERIAL_CHANGED;
-            }
-            else
-            {
-                reasons |= RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_SURFACE;
-            }
             if (dumpIdentityMisses)
             {
                 int sameEntityCandidates = 0;
@@ -4816,71 +4845,25 @@ void UpdateSmokeSkinnedPreviousCpuBridge(
                 }
             }
         }
-        else
-        {
-            if (previous->vertexCount != current.vertexCount)
-            {
-                reasons |= RT_SMOKE_SKINNED_INVALID_VERTEX_COUNT_MISMATCH;
-            }
-            if (previous->indexCount != current.indexCount)
-            {
-                reasons |= RT_SMOKE_SKINNED_INVALID_INDEX_COUNT_MISMATCH;
-            }
-            if (previous->triangleCount != current.triangleCount)
-            {
-                reasons |= RT_SMOKE_SKINNED_INVALID_TRIANGLE_COUNT_MISMATCH;
-            }
-            if (previous->jointCount != current.jointCount || previous->jointSource != current.jointSource)
-            {
-                reasons |= RT_SMOKE_SKINNED_INVALID_SKELETON_CHANGED;
-            }
-            if (previous->hasEntityOrigin && current.hasEntityOrigin && (current.entityOrigin - previous->entityOrigin).LengthSqr() > teleportDistanceSqr)
-            {
-                reasons |= RT_SMOKE_SKINNED_INVALID_TRANSFORM_DISCONTINUITY;
-            }
-            if (previous->retainedVertexOffset < 0 ||
-                previous->vertexCount <= 0 ||
-                previous->retainedVertexOffset > static_cast<int>(previousSkinnedVertexData.size()) ||
-                previous->vertexCount > static_cast<int>(previousSkinnedVertexData.size()) - previous->retainedVertexOffset)
-            {
-                reasons |= RT_SMOKE_SKINNED_INVALID_PREVIOUS_BUFFER_UNAVAILABLE;
-            }
 
-            if ((reasons & (RT_SMOKE_SKINNED_INVALID_VERTEX_COUNT_MISMATCH | RT_SMOKE_SKINNED_INVALID_INDEX_COUNT_MISMATCH | RT_SMOKE_SKINNED_INVALID_TRIANGLE_COUNT_MISMATCH)) == 0u)
-            {
-                temporalFlags |= RT_SMOKE_SKINNED_TEMPORAL_TOPOLOGY_STABLE;
-            }
-            temporalFlags |= RT_SMOKE_SKINNED_TEMPORAL_LOD_STABLE;
-            if ((reasons & RT_SMOKE_SKINNED_INVALID_TRANSFORM_DISCONTINUITY) == 0u)
-            {
-                temporalFlags |= RT_SMOKE_SKINNED_TEMPORAL_TRANSFORM_CONTINUOUS;
-            }
-            if ((reasons & RT_SMOKE_SKINNED_INVALID_SKELETON_CHANGED) == 0u && current.rtCpuSkinned)
-            {
-                temporalFlags |= RT_SMOKE_SKINNED_TEMPORAL_DEFORMATION_CONTINUOUS;
-            }
-            temporalFlags |= RT_SMOKE_SKINNED_TEMPORAL_MATERIAL_STABLE;
-            if ((reasons & RT_SMOKE_SKINNED_INVALID_PREVIOUS_BUFFER_UNAVAILABLE) == 0u)
-            {
-                temporalFlags |= RT_SMOKE_SKINNED_TEMPORAL_PREVIOUS_BUFFER_VALID;
-            }
-        }
-
-        if (previous && reasons == RT_SMOKE_SKINNED_INVALID_NONE)
+        const PtSkinnedSurfaceTemporalPolicyDecision policy =
+            PtSelectSkinnedSurfaceTemporalPolicy(policyInput);
+        if (policy.previousValid)
         {
             current.previousValid = true;
             current.previousVertexOffset = previous->retainedVertexOffset;
             current.previousIndexOffset = previous->currentIndexOffset;
             current.previousTriangleOffset = previous->currentTriangleOffset;
-            temporalFlags |= RT_SMOKE_SKINNED_TEMPORAL_HAS_VALID_PREVIOUS;
         }
         else
         {
             current.previousValid = false;
         }
 
-        current.invalidReasonFlags = reasons;
-        current.temporalStateFlags = temporalFlags;
+        current.invalidReasonFlags =
+            policy.invalidReasonFlags;
+        current.temporalStateFlags =
+            policy.temporalStateFlags;
     }
 
     nextPreviousSkinnedVertexData.reserve(dynamicVertexData.size());
@@ -10172,7 +10155,20 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<unsigned long long>(shadowAudit.emissiveIdentityCollision));
         r_pathTracingGeometrySkinnedConsumerAudit.SetInteger(0);
     }
-    if (r_pathTracingGeometrySkinnedHitAudit.GetInteger() != 0 &&
+    const int skinnedHitAuditCountdown =
+        r_pathTracingGeometrySkinnedHitAudit.GetInteger();
+    if (skinnedHitAuditCountdown > 1 &&
+        requestedDebugMode == 58 &&
+        !m_skinnedHitAuditRequested &&
+        !m_skinnedHitAuditReadbackQueued &&
+        !skinnedHitRouteUploadBuild.records.empty() &&
+        !skinnedHitRouteLegacyAuditShadow.records.empty() &&
+        skinnedTlasPlan.result == PtSkinnedTlasRouteResult::Accepted)
+    {
+        r_pathTracingGeometrySkinnedHitAudit.SetInteger(
+            skinnedHitAuditCountdown - 1);
+    }
+    else if (skinnedHitAuditCountdown == 1 &&
         requestedDebugMode == 58 &&
         !m_skinnedHitAuditRequested &&
         !m_skinnedHitAuditReadbackQueued &&

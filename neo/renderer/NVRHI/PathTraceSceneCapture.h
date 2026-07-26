@@ -9,6 +9,7 @@
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceGeometry.h"
 #include "PathTraceGeometryUniverse.h"
+#include "PathTraceSkinnedHistoryPolicy.h"
 #include "PathTraceSurfaceClassification.h"
 
 #include <cstdint>
@@ -204,33 +205,6 @@ struct RtSmokeBucketRange
 struct RtSmokeBucketRanges
 {
     RtSmokeBucketRange buckets[RT_SMOKE_CLASS_COUNT];
-};
-
-enum RtSmokeSkinnedSurfaceInvalidReasonFlags : uint32_t
-{
-    RT_SMOKE_SKINNED_INVALID_NONE = 0u,
-    RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_FRAME = 1u << 0,
-    RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_SURFACE = 1u << 1,
-    RT_SMOKE_SKINNED_INVALID_VERTEX_COUNT_MISMATCH = 1u << 2,
-    RT_SMOKE_SKINNED_INVALID_INDEX_COUNT_MISMATCH = 1u << 3,
-    RT_SMOKE_SKINNED_INVALID_TRIANGLE_COUNT_MISMATCH = 1u << 4,
-    RT_SMOKE_SKINNED_INVALID_MATERIAL_CHANGED = 1u << 5,
-    RT_SMOKE_SKINNED_INVALID_SURFACE_CLASS_CHANGED = 1u << 6,
-    RT_SMOKE_SKINNED_INVALID_NOT_RT_CPU_SKINNED = 1u << 7,
-    RT_SMOKE_SKINNED_INVALID_SKELETON_CHANGED = 1u << 8,
-    RT_SMOKE_SKINNED_INVALID_TRANSFORM_DISCONTINUITY = 1u << 9,
-    RT_SMOKE_SKINNED_INVALID_PREVIOUS_BUFFER_UNAVAILABLE = 1u << 10
-};
-
-enum RtSmokeSkinnedSurfaceTemporalStateFlags : uint32_t
-{
-    RT_SMOKE_SKINNED_TEMPORAL_HAS_VALID_PREVIOUS = 1u << 0,
-    RT_SMOKE_SKINNED_TEMPORAL_TOPOLOGY_STABLE = 1u << 1,
-    RT_SMOKE_SKINNED_TEMPORAL_LOD_STABLE = 1u << 2,
-    RT_SMOKE_SKINNED_TEMPORAL_TRANSFORM_CONTINUOUS = 1u << 3,
-    RT_SMOKE_SKINNED_TEMPORAL_DEFORMATION_CONTINUOUS = 1u << 4,
-    RT_SMOKE_SKINNED_TEMPORAL_MATERIAL_STABLE = 1u << 5,
-    RT_SMOKE_SKINNED_TEMPORAL_PREVIOUS_BUFFER_VALID = 1u << 6
 };
 
 struct RtSmokeSkinnedSurfaceKey

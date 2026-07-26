@@ -807,6 +807,30 @@ RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF. Preserve the already-evaluated
 per-surface class/flag tuple in the canonical skinned capture record; do not
 recover it from legacy offsets.
 
+D44. ACCEPT SKINNED MOTION ONLY WITH NUMERIC PREVIOUS-POSITION AND RESET PROOF
+-----------------------------------------------------------------------------
+Decision: extend the accepted paired mode-58 record with the existing motion
+supplier's valid flags, debug status, and previous world position. Compare
+only exact mapped legacy/canonical primitives and retain the 1e-3
+max-component position tolerance. Report a separate motion verdict so an
+unrelated primary-hit tolerance failure cannot hide a valid or invalid motion
+result.
+
+Values greater than one for `r_pathTracingGeometrySkinnedHitAudit` are a
+bounded eligible-frame countdown. This permits settled-animation sampling
+without adding an always-on audit.
+
+Extract the live per-surface temporal classification into a pure policy used
+by both the scene builder and focused harness. First observation, spawn,
+offscreen return, transform discontinuity, material/class change, topology or
+skeleton change, and unavailable previous storage must reject history.
+Continuous animation/locomotion accepts it. Removal emits no current record.
+
+geometry_geo136_auto and geometry_geo137_auto accept 4,769 and 4,953 exact
+motion pairs with zero validity, status, or previous-position mismatches; both
+have 0.00048828125 maximum previous-position delta. The post-extraction
+PathTraceSkinnedHistoryPolicyHarness and release runtime pass. Q16 is resolved.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
@@ -825,7 +849,7 @@ DISPOSITION OF 04_open_questions.txt
   Q14 RESOLVED: retain funnel totals and bounded samples; delete duplicate
       scaffold with each retired route in GEO-13.
   Q15 PARTIALLY RESOLVED: IDs admitted; texture descriptor defect is separate.
-  Q16 PARTIALLY RESOLVED: primary tuple accepted; motion scenarios remain.
+  Q16 RESOLVED by D43/D44: primary tuple, motion, and reset policy accepted.
   Q17 OPEN and mandatory, owned by GEO-09.
   Q18 OPEN and elevated by the PT-only failure, owned by GEO-01/GEO-11.
 

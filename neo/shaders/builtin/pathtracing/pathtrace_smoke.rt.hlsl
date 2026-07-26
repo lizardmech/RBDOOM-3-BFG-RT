@@ -3059,6 +3059,27 @@ void StoreSkinnedHitAuditRecord(
         valid ? payload.triangleClassAndFlags : 0u);
     if (valid)
     {
+        const RAB_Surface surface =
+            RAB_BuildSurfaceFromSmokePayload(
+                payload,
+                ray.Origin,
+                ray.Direction,
+                true);
+        float3 previousWorldPosition;
+        uint motionDebugStatus;
+        const bool hasObjectMotion =
+            TryPathTracePrimarySurfaceObjectMotion(
+                surface,
+                previousWorldPosition,
+                motionDebugStatus);
+        if (hasObjectMotion)
+        {
+            record.header.y |=
+                RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION |
+                RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION;
+            record.previousPositionOrMotion =
+                float4(previousWorldPosition, 1.0);
+        }
         record.worldPositionAndViewDepth =
             float4(ray.Origin + ray.Direction * payload.hitT, payload.hitT);
         record.geometricNormalAndRoughness =
@@ -3082,7 +3103,7 @@ void StoreSkinnedHitAuditRecord(
             payload.instanceId,
             payload.primitiveIndex,
             payload.geometryIndex,
-            routeKind);
+            motionDebugStatus);
     }
     PrimarySurfaceHistoryCurrent[auditIndex] = record;
 }

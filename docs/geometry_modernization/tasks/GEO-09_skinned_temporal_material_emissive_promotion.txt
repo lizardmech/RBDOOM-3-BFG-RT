@@ -94,5 +94,16 @@ triangles lost RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF. The canonical skinned
 capture record now transports the evaluated per-surface class/flag tuple
 without legacy offsets.
 
-Step 4 motion/history scenario validation is next. Canonical GPU-output
+Step 4 is accepted by geometry_geo136_auto and geometry_geo137_auto. The
+mode-58 audit compares the legacy/canonical motion-valid flags, supplier
+status, and previous world position on exact mapped primitives. Settled
+frames 122 and 62 pass 4,769 and 4,953 comparable motion pairs with zero
+motion mismatches and 0.00048828125 maximum previous-position delta.
+
+The live per-surface temporal classifier now calls the pure
+`PtSelectSkinnedSurfaceTemporalPolicy`. Its focused harness passes first
+observation, continuous animation/locomotion, spawn, teleport, offscreen
+return, material/class changes, topology/skeleton failure, and unavailable
+previous storage. Removed surfaces have no current motion record; return uses
+the explicit absent-previous reset. Q16 is resolved. Canonical GPU-output
 emissive harvesting and temporal remap remain open for step 5.

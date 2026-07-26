@@ -719,3 +719,16 @@ GEO-09 SKINNED CONSUMER ENTRY AUDIT
   24/24 at 0.0000152587891 max. Hit/position/geometric/UV/barycentric maxima
   remain below 0.001; normalized shading/tangent basis remains below the
   declared 0.01 tolerance (max 0.00529411435).
+- geometry_geo136_auto and geometry_geo137_auto accept GEO-09 skinned motion
+  parity at settled animation frames 122 and 62. They compare 4,769 and 4,953
+  exact mapped primitives respectively. Motion validity, failure status, and
+  previous world position match in every sample; the latter run has zero in
+  all sixteen hit-plus-motion buckets and a 0.00048828125 maximum previous
+  position delta.
+- The live per-surface temporal decision now calls the directly tested
+  `PtSelectSkinnedSurfaceTemporalPolicy`. Its focused harness passes first
+  observation, stable animation/locomotion, spawn, teleport, offscreen return,
+  material/class change, topology/skeleton failure, and unavailable previous
+  buffer cases. Removed surfaces emit no current record; a later return takes
+  the explicit absent-previous reset. Q16 is resolved for skinned
+  motion/history; canonical GPU-output emissive inventory remains open.
