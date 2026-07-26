@@ -1048,6 +1048,33 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
     return pack;
 }
 
+RtSmokeStaticBucketPublicationEpochPlan
+BuildSmokeStaticBucketPublicationEpochPlan(
+    const RtSmokeStaticBucketPublicationEpochInput& input)
+{
+    RtSmokeStaticBucketPublicationEpochPlan plan;
+    plan.generationValid =
+        input.expectedGeneration != 0 &&
+        input.tlasGeneration != 0 &&
+        input.routeGeneration != 0;
+    plan.generationsMatch =
+        plan.generationValid &&
+        input.expectedGeneration == input.tlasGeneration &&
+        input.expectedGeneration == input.routeGeneration;
+    plan.countsMatch =
+        input.activeBuckets >= 0 &&
+        input.tlasInstances == input.activeBuckets &&
+        input.routeRecords == input.activeBuckets;
+    plan.accepted =
+        input.activeSetExact &&
+        plan.generationsMatch &&
+        plan.countsMatch;
+    plan.mixedEpochRejected =
+        plan.generationValid &&
+        !plan.generationsMatch;
+    return plan;
+}
+
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc)
 {

@@ -794,6 +794,45 @@ struct RtPathTraceStaticBucketBlasGpuStats
     uint64 buildSubmitMicroseconds = 0;
 };
 
+struct RtPathTraceStaticBucketRouteRecord
+{
+    uint32_t instanceId = 0;
+    uint32_t vertexOffset = 0;
+    uint32_t indexOffset = 0;
+    uint32_t triangleOffset = 0;
+    uint32_t vertexCount = 0;
+    uint32_t indexCount = 0;
+    uint32_t triangleCount = 0;
+    uint32_t surfaceCount = 0;
+    uint32_t generationLo = 0;
+    uint32_t generationHi = 0;
+    uint32_t bucketKeyLo = 0;
+    uint32_t bucketKeyHi = 0;
+};
+
+struct RtPathTraceStaticBucketActivePublication
+{
+    uint64 sourceGeneration = 0;
+    uint64 storageGeneration = 0;
+    uint64 materialGeneration = 0;
+    uint64 contentSignature = 0;
+    uint64 activeSetSignature = 0;
+    uint64 publicationGeneration = 0;
+    uint64 tlasGeneration = 0;
+    uint64 routeGeneration = 0;
+    int residentBuckets = 0;
+    int activeBuckets = 0;
+    int readyActiveBuckets = 0;
+    int missingBlas = 0;
+    int invalidRanges = 0;
+    int instanceIdOverflow = 0;
+    bool activeSetExact = false;
+    bool valid = false;
+    bool mixedEpochRejected = false;
+    std::vector<nvrhi::rt::InstanceDesc> tlasInstances;
+    std::vector<RtPathTraceStaticBucketRouteRecord> routeRecords;
+};
+
 class RtSmokeGeometryUniverse
 {
 public:
@@ -893,6 +932,17 @@ public:
     void ReleaseStaticBucketBlasGpuScaffold();
     void DumpStaticBucketBlasGpuStats(
         const RtPathTraceStaticBucketBlasGpuStats& stats) const;
+    RtPathTraceStaticBucketActivePublication
+        BuildStaticBucketActivePublication(
+            const RtSmokeStaticBucketGeometryPack& geometryPack,
+            uint64 sourceGeneration,
+            uint64 storageGeneration,
+            uint64 materialGeneration,
+            uint32_t firstInstanceId,
+            uint32_t instanceMask) const;
+    void DumpStaticBucketActivePublication(
+        const RtPathTraceStaticBucketActivePublication&
+            publication) const;
 
     std::vector<uint64>& StaticSurfaceKeys();
     const std::vector<uint64>& StaticSurfaceKeys() const;

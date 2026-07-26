@@ -1298,6 +1298,71 @@ void TestStaticBucketWorkPlan()
         "static bucket work plan keeps exact monolithic static BLAS on the current route namespace");
 }
 
+void TestStaticBucketPublicationEpochPlan()
+{
+    RtSmokeStaticBucketPublicationEpochInput input;
+    input.expectedGeneration = 100;
+    input.tlasGeneration = 100;
+    input.routeGeneration = 100;
+    input.activeBuckets = 3;
+    input.tlasInstances = 3;
+    input.routeRecords = 3;
+    input.activeSetExact = true;
+    const RtSmokeStaticBucketPublicationEpochPlan exactPlan =
+        BuildSmokeStaticBucketPublicationEpochPlan(input);
+    Check(exactPlan.generationValid &&
+        exactPlan.generationsMatch &&
+        exactPlan.countsMatch &&
+        exactPlan.accepted &&
+        !exactPlan.mixedEpochRejected,
+        "static bucket publication accepts one exact TLAS and route epoch");
+
+    input.routeGeneration = 101;
+    const RtSmokeStaticBucketPublicationEpochPlan mixedRoutePlan =
+        BuildSmokeStaticBucketPublicationEpochPlan(input);
+    Check(!mixedRoutePlan.accepted &&
+        mixedRoutePlan.mixedEpochRejected,
+        "static bucket publication rejects a mixed route epoch");
+
+    input.routeGeneration = 100;
+    input.tlasGeneration = 99;
+    const RtSmokeStaticBucketPublicationEpochPlan mixedTlasPlan =
+        BuildSmokeStaticBucketPublicationEpochPlan(input);
+    Check(!mixedTlasPlan.accepted &&
+        mixedTlasPlan.mixedEpochRejected,
+        "static bucket publication rejects a mixed TLAS epoch");
+
+    input.tlasGeneration = 100;
+    input.routeRecords = 2;
+    const RtSmokeStaticBucketPublicationEpochPlan countPlan =
+        BuildSmokeStaticBucketPublicationEpochPlan(input);
+    Check(!countPlan.accepted &&
+        countPlan.generationsMatch &&
+        !countPlan.countsMatch &&
+        !countPlan.mixedEpochRejected,
+        "static bucket publication rejects incomplete route records");
+
+    input.routeRecords = 3;
+    input.activeSetExact = false;
+    const RtSmokeStaticBucketPublicationEpochPlan inexactPlan =
+        BuildSmokeStaticBucketPublicationEpochPlan(input);
+    Check(!inexactPlan.accepted &&
+        inexactPlan.generationsMatch &&
+        inexactPlan.countsMatch,
+        "static bucket publication rejects an inexact active set");
+
+    input.activeSetExact = true;
+    input.expectedGeneration = 0;
+    input.tlasGeneration = 0;
+    input.routeGeneration = 0;
+    const RtSmokeStaticBucketPublicationEpochPlan zeroPlan =
+        BuildSmokeStaticBucketPublicationEpochPlan(input);
+    Check(!zeroPlan.generationValid &&
+        !zeroPlan.accepted &&
+        !zeroPlan.mixedEpochRejected,
+        "static bucket publication rejects missing epochs without misreporting a mixed epoch");
+}
+
 void TestStaticBucketRigidRouteNamespaceComposition()
 {
     RtSmokeStaticTlasBucketObservation buckets[2];
@@ -3668,6 +3733,7 @@ int main(int argc, char** argv)
     TestStaticBucketBlasBuildBatchPlan();
     TestStaticBucketBlasBuildObservationPlan();
     TestStaticBucketWorkPlan();
+    TestStaticBucketPublicationEpochPlan();
     TestStaticBucketRigidRouteNamespaceComposition();
     TestStaticBucketWorkPlanSnapshot();
     TestStaticBucketWorkPlanTimedResult();

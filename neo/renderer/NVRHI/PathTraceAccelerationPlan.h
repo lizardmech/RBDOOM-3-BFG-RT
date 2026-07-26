@@ -327,6 +327,26 @@ struct RtSmokeStaticBucketGeometryPack
     bool exact = false;
 };
 
+struct RtSmokeStaticBucketPublicationEpochInput
+{
+    uint64_t expectedGeneration = 0;
+    uint64_t tlasGeneration = 0;
+    uint64_t routeGeneration = 0;
+    int activeBuckets = 0;
+    int tlasInstances = 0;
+    int routeRecords = 0;
+    bool activeSetExact = false;
+};
+
+struct RtSmokeStaticBucketPublicationEpochPlan
+{
+    bool generationValid = false;
+    bool generationsMatch = false;
+    bool countsMatch = false;
+    bool accepted = false;
+    bool mixedEpochRejected = false;
+};
+
 struct RtSmokeStaticTlasBucketObservation
 {
     uint64_t bucketKey = 0;
@@ -992,6 +1012,10 @@ RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
 
 RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
     const RtSmokeStaticBucketGeometryPackDesc& desc);
+
+RtSmokeStaticBucketPublicationEpochPlan
+BuildSmokeStaticBucketPublicationEpochPlan(
+    const RtSmokeStaticBucketPublicationEpochInput& input);
 
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc);

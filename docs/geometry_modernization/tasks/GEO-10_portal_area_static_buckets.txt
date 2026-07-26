@@ -14,7 +14,7 @@ PRECONDITIONS
 
 IMPLEMENTATION STATUS
 ---------------------
-Steps 1 through 4 are complete in shadow mode. Static world records now carry the
+Steps 1 through 5 are complete in shadow mode. Static world records now carry the
 authoritative `_areaN` owner assigned by AddWorldModelEntities. The CPU-only
 assignment planner uses world/area/split/source/storage identity, deterministic
 ordering, bounded splitting, explicit fallback ownership, and exact duplicate,
@@ -39,6 +39,15 @@ builds all 56 bucket BLASes at two per frame. The selected-area mask marks only
 3 buckets active and retains 53 inactive. No bucket enters the production TLAS;
 the shadow planner blocks its route because shader support is deliberately
 still false.
+
+Step 5 derives one publication generation from the source, storage, material,
+packed-content, and active-set identities. The active TLAS descriptors and
+checked route records are constructed together and carry that same generation.
+Publication fails closed until every active bucket BLAS is ready, if counts
+differ, or if any generation is zero or mixed. geometry_geo194_auto observes
+the expected empty publication while the three active BLASes converge, followed
+by an exact atomic 3/3 publication. The live production TLAS remains
+monolithic; these descriptors and route records are still shadow-only.
 
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,

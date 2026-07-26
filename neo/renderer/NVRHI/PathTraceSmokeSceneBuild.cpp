@@ -12463,6 +12463,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticBucketShadowWorkPlan =
                 BuildSmokeStaticBucketWorkPlan(
                     staticBucketShadowWorkInput);
+        const RtPathTraceStaticBucketActivePublication
+            staticBucketActivePublication =
+                m_staticBucketGeometryUniverse.
+                    BuildStaticBucketActivePublication(
+                        geometryPack,
+                        staticBucketSourceGeneration,
+                        staticBucketUniverseStats.
+                            staticGeometryGeneration,
+                        staticBucketUniverseStats.
+                            staticMaterialGeneration,
+                        2u,
+                        0x01u);
         if (staticBucketAuditRequested ||
             staticBucketGpuStats.buffersCreated > 0 ||
             staticBucketGpuStats.bufferUploads > 0 ||
@@ -12473,6 +12485,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_staticBucketGeometryUniverse.
                 DumpStaticBucketBlasGpuStats(
                     staticBucketGpuStats);
+            m_staticBucketGeometryUniverse.
+                DumpStaticBucketActivePublication(
+                    staticBucketActivePublication);
             common->Printf(
                 "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d maskValid=%d portalSteps=%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/tlas)=%llu/%llu/%llu/%llu routes(shaderSupport/blocked)=%d/%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
                 staticBucketSourceBuildStats.built ? 1 : 0,

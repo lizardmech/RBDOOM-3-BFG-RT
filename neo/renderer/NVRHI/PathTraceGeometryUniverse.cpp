@@ -3935,6 +3935,296 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
         stats.skippedInexactPack);
 }
 
+RtPathTraceStaticBucketActivePublication
+RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    uint64 sourceGeneration,
+    uint64 storageGeneration,
+    uint64 materialGeneration,
+    uint32_t firstInstanceId,
+    uint32_t instanceMask) const
+{
+    RtPathTraceStaticBucketActivePublication publication;
+    publication.sourceGeneration = sourceGeneration;
+    publication.storageGeneration = storageGeneration;
+    publication.materialGeneration = materialGeneration;
+    publication.contentSignature =
+        geometryPack.contentSignature;
+    publication.residentBuckets =
+        static_cast<int>(geometryPack.buckets.size());
+    publication.activeSetSignature =
+        14695981039346656037ull;
+
+    for (const RtSmokeStaticBucketPackedRecord& bucket :
+        geometryPack.buckets)
+    {
+        if (!bucket.active)
+        {
+            continue;
+        }
+        ++publication.activeBuckets;
+        publication.activeSetSignature = HashSmokeBytes(
+            publication.activeSetSignature,
+            &bucket.bucketKey,
+            sizeof(bucket.bucketKey));
+        publication.activeSetSignature = HashSmokeBytes(
+            publication.activeSetSignature,
+            &bucket.range,
+            sizeof(bucket.range));
+
+        if (bucket.range.vertexOffset < 0 ||
+            bucket.range.vertexCount <= 0 ||
+            bucket.range.indexOffset < 0 ||
+            bucket.range.indexCount <= 0 ||
+            bucket.range.triangleOffset < 0 ||
+            bucket.range.triangleCount <= 0 ||
+            bucket.range.indexCount !=
+                bucket.range.triangleCount * 3)
+        {
+            ++publication.invalidRanges;
+            continue;
+        }
+
+        const StaticBucketBlasRecord* blasRecord = nullptr;
+        for (const StaticBucketBlasRecord& candidate :
+            m_staticBucketBlasRecords)
+        {
+            if (candidate.bucketKey == bucket.bucketKey)
+            {
+                blasRecord = &candidate;
+                break;
+            }
+        }
+        if (!blasRecord ||
+            !blasRecord->blas ||
+            !blasRecord->buildSubmitted)
+        {
+            ++publication.missingBlas;
+            continue;
+        }
+        ++publication.readyActiveBuckets;
+    }
+
+    publication.publicationGeneration =
+        14695981039346656037ull;
+    publication.publicationGeneration = HashSmokeBytes(
+        publication.publicationGeneration,
+        &publication.sourceGeneration,
+        sizeof(publication.sourceGeneration));
+    publication.publicationGeneration = HashSmokeBytes(
+        publication.publicationGeneration,
+        &publication.storageGeneration,
+        sizeof(publication.storageGeneration));
+    publication.publicationGeneration = HashSmokeBytes(
+        publication.publicationGeneration,
+        &publication.materialGeneration,
+        sizeof(publication.materialGeneration));
+    publication.publicationGeneration = HashSmokeBytes(
+        publication.publicationGeneration,
+        &publication.contentSignature,
+        sizeof(publication.contentSignature));
+    publication.publicationGeneration = HashSmokeBytes(
+        publication.publicationGeneration,
+        &publication.activeSetSignature,
+        sizeof(publication.activeSetSignature));
+    publication.publicationGeneration = HashSmokeBytes(
+        publication.publicationGeneration,
+        &publication.activeBuckets,
+        sizeof(publication.activeBuckets));
+    if (publication.publicationGeneration == 0)
+    {
+        publication.publicationGeneration = 1;
+    }
+
+    const uint64 lastInstanceId =
+        static_cast<uint64>(firstInstanceId) +
+        static_cast<uint64>(
+            Max(0, publication.activeBuckets - 1));
+    if (publication.activeBuckets > 0 &&
+        lastInstanceId > 0x00ffffffull)
+    {
+        publication.instanceIdOverflow =
+            publication.activeBuckets;
+    }
+    publication.activeSetExact =
+        geometryPack.exact &&
+        storageGeneration == m_staticGeometryGeneration &&
+        publication.activeBuckets > 0 &&
+        publication.readyActiveBuckets ==
+            publication.activeBuckets &&
+        publication.missingBlas == 0 &&
+        publication.invalidRanges == 0 &&
+        publication.instanceIdOverflow == 0;
+    if (!publication.activeSetExact)
+    {
+        return publication;
+    }
+
+    publication.tlasInstances.reserve(
+        publication.activeBuckets);
+    publication.routeRecords.reserve(
+        publication.activeBuckets);
+    uint32_t activeIndex = 0;
+    for (const RtSmokeStaticBucketPackedRecord& bucket :
+        geometryPack.buckets)
+    {
+        if (!bucket.active)
+        {
+            continue;
+        }
+        const StaticBucketBlasRecord* blasRecord = nullptr;
+        for (const StaticBucketBlasRecord& candidate :
+            m_staticBucketBlasRecords)
+        {
+            if (candidate.bucketKey == bucket.bucketKey)
+            {
+                blasRecord = &candidate;
+                break;
+            }
+        }
+        if (!blasRecord ||
+            !blasRecord->blas ||
+            !blasRecord->buildSubmitted)
+        {
+            publication.tlasInstances.clear();
+            publication.routeRecords.clear();
+            publication.activeSetExact = false;
+            ++publication.missingBlas;
+            return publication;
+        }
+
+        const uint32_t instanceId =
+            firstInstanceId + activeIndex;
+        nvrhi::rt::AffineTransform transform;
+        transform[0] = 1.0f;
+        transform[1] = 0.0f;
+        transform[2] = 0.0f;
+        transform[3] = 0.0f;
+        transform[4] = 0.0f;
+        transform[5] = 1.0f;
+        transform[6] = 0.0f;
+        transform[7] = 0.0f;
+        transform[8] = 0.0f;
+        transform[9] = 0.0f;
+        transform[10] = 1.0f;
+        transform[11] = 0.0f;
+        nvrhi::rt::InstanceDesc instanceDesc;
+        instanceDesc
+            .setInstanceID(instanceId)
+            .setInstanceMask(instanceMask)
+            .setInstanceContributionToHitGroupIndex(0)
+            .setFlags(
+                nvrhi::rt::InstanceFlags::TriangleCullDisable)
+            .setTransform(transform)
+            .setBLAS(blasRecord->blas);
+        publication.tlasInstances.push_back(instanceDesc);
+
+        RtPathTraceStaticBucketRouteRecord route;
+        route.instanceId = instanceId;
+        route.vertexOffset =
+            static_cast<uint32_t>(
+                bucket.range.vertexOffset);
+        route.indexOffset =
+            static_cast<uint32_t>(
+                bucket.range.indexOffset);
+        route.triangleOffset =
+            static_cast<uint32_t>(
+                bucket.range.triangleOffset);
+        route.vertexCount =
+            static_cast<uint32_t>(
+                bucket.range.vertexCount);
+        route.indexCount =
+            static_cast<uint32_t>(
+                bucket.range.indexCount);
+        route.triangleCount =
+            static_cast<uint32_t>(
+                bucket.range.triangleCount);
+        route.surfaceCount = bucket.assignmentCount;
+        route.generationLo =
+            static_cast<uint32_t>(
+                publication.publicationGeneration);
+        route.generationHi =
+            static_cast<uint32_t>(
+                publication.publicationGeneration >> 32);
+        route.bucketKeyLo =
+            static_cast<uint32_t>(bucket.bucketKey);
+        route.bucketKeyHi =
+            static_cast<uint32_t>(bucket.bucketKey >> 32);
+        publication.routeRecords.push_back(route);
+        ++activeIndex;
+    }
+
+    publication.tlasGeneration =
+        publication.publicationGeneration;
+    publication.routeGeneration =
+        publication.publicationGeneration;
+    RtSmokeStaticBucketPublicationEpochInput epochInput;
+    epochInput.expectedGeneration =
+        publication.publicationGeneration;
+    epochInput.tlasGeneration =
+        publication.tlasGeneration;
+    epochInput.routeGeneration =
+        publication.routeGeneration;
+    epochInput.activeBuckets =
+        publication.activeBuckets;
+    epochInput.tlasInstances =
+        static_cast<int>(
+            publication.tlasInstances.size());
+    epochInput.routeRecords =
+        static_cast<int>(
+            publication.routeRecords.size());
+    epochInput.activeSetExact =
+        publication.activeSetExact;
+    const RtSmokeStaticBucketPublicationEpochPlan epochPlan =
+        BuildSmokeStaticBucketPublicationEpochPlan(epochInput);
+    publication.valid = epochPlan.accepted;
+    publication.mixedEpochRejected =
+        epochPlan.mixedEpochRejected;
+    if (!publication.valid)
+    {
+        publication.tlasInstances.clear();
+        publication.routeRecords.clear();
+    }
+    return publication;
+}
+
+void RtSmokeGeometryUniverse::DumpStaticBucketActivePublication(
+    const RtPathTraceStaticBucketActivePublication&
+        publication) const
+{
+    common->Printf(
+        "PathTracePrimaryPass: GEO10 static bucket publication valid/exact/mixedRejected=%d/%d/%d generations(source/storage/material/publication/tlas/route)=%llu/%llu/%llu/%llu/%llu/%llu signatures(content/active)=%llu/%llu buckets(resident/active/ready)=%d/%d/%d outputs(tlas/routes)=%llu/%llu failures(missingBlas/invalidRange/instanceOverflow)=%d/%d/%d traversal=monolithic route=shadow-only\n",
+        publication.valid ? 1 : 0,
+        publication.activeSetExact ? 1 : 0,
+        publication.mixedEpochRejected ? 1 : 0,
+        static_cast<unsigned long long>(
+            publication.sourceGeneration),
+        static_cast<unsigned long long>(
+            publication.storageGeneration),
+        static_cast<unsigned long long>(
+            publication.materialGeneration),
+        static_cast<unsigned long long>(
+            publication.publicationGeneration),
+        static_cast<unsigned long long>(
+            publication.tlasGeneration),
+        static_cast<unsigned long long>(
+            publication.routeGeneration),
+        static_cast<unsigned long long>(
+            publication.contentSignature),
+        static_cast<unsigned long long>(
+            publication.activeSetSignature),
+        publication.residentBuckets,
+        publication.activeBuckets,
+        publication.readyActiveBuckets,
+        static_cast<unsigned long long>(
+            publication.tlasInstances.size()),
+        static_cast<unsigned long long>(
+            publication.routeRecords.size()),
+        publication.missingBlas,
+        publication.invalidRanges,
+        publication.instanceIdOverflow);
+}
+
 std::vector<uint64>& RtSmokeGeometryUniverse::StaticSurfaceKeys()
 {
     return m_staticSurfaceKeys;

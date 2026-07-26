@@ -561,7 +561,15 @@ rigid-route end, and material table instead of uploading the cached admission
 build. geometry_geo185_auto accepts 12 routes / 15,962 triangles with all
 thirteen live/shadow failure buckets zero, no refresh rejection, and normal
 shutdown. Repeated portal traversal is visually stable with logging disabled.
-GEO-09 is closed; GEO-10 portal-area static buckets is next.
+GEO-09 is closed. GEO-10 steps 1 through 5 are complete in shadow mode.
+geometry_geo193_auto proves cap-free full-map resident storage, 56 persistent
+bucket BLASes, and a 3-active / 53-inactive portal selection with exact
+50,108-triangle coverage. geometry_geo194_auto proves fail-closed shared
+publication: the output remains empty while active BLASes are missing, then
+atomically publishes 3 TLAS descriptors and 3 route records under one stable
+generation. Mixed generations and incomplete counts are rejected by the CPU
+harness. Production traversal remains the monolithic static route until the
+shader-visible checked namespace and old/new comparison gates are complete.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
