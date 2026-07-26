@@ -59,6 +59,29 @@ bool PathTraceCleanRoomIsCachedRigidRouteHit(uint instanceId)
 
 uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
 {
+#if defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) || \
+    defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY) || \
+    defined(CLEAN_RTXDI_DI_GLASS_ENTRY) || \
+    defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleMaterialIndexes[
+                packedTriangleIndex]
+            : 0xffffffffu;
+    }
+#endif
+
     if (instanceId == 0u)
     {
         return primitiveIndex < CleanRtxdiDiStaticTriangleCount
@@ -113,6 +136,24 @@ uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitive
 #if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
 uint PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
 {
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleMaterials[
+                packedTriangleIndex]
+            : 0xffffffffu;
+    }
+
     if (instanceId == 0u)
     {
         return primitiveIndex < CleanRtxdiDiStaticTriangleCount
@@ -166,6 +207,23 @@ uint PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(uint instanceId, uint p
 
 uint PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 {
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleClasses[packedTriangleIndex]
+            : 0u;
+    }
+
     if (instanceId == 0u)
     {
         return primitiveIndex < CleanRtxdiDiStaticTriangleCount

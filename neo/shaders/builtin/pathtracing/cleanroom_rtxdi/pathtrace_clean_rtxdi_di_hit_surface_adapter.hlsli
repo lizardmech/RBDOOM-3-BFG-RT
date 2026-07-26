@@ -138,6 +138,57 @@ PathTraceCleanRtxdiDiTraceHitSurface PathTraceCleanRtxdiDiEmptyTraceHitSurface()
     return surface;
 }
 
+void PathTraceCleanRtxdiDiPopulateIdentityTraceHitSurface(
+    PathTraceSmokeVertex v0,
+    PathTraceSmokeVertex v1,
+    PathTraceSmokeVertex v2,
+    float3 barycentrics,
+    inout PathTraceCleanRtxdiDiTraceHitSurface surface)
+{
+    surface.texCoord =
+        v0.texCoord.xy * barycentrics.x +
+        v1.texCoord.xy * barycentrics.y +
+        v2.texCoord.xy * barycentrics.z;
+    surface.normalTexCoord =
+        v0.texCoord.zw * barycentrics.x +
+        v1.texCoord.zw * barycentrics.y +
+        v2.texCoord.zw * barycentrics.z;
+    surface.vertexColor =
+        v0.color * barycentrics.x +
+        v1.color * barycentrics.y +
+        v2.color * barycentrics.z;
+    surface.vertexColorAdd =
+        v0.color2 * barycentrics.x +
+        v1.color2 * barycentrics.y +
+        v2.color2 * barycentrics.z;
+    surface.geometricNormal = RAB_SafeNormalize(
+        cross(
+            v1.position.xyz - v0.position.xyz,
+            v2.position.xyz - v0.position.xyz),
+        surface.geometricNormal);
+    surface.shadingNormal = RAB_SafeNormalize(
+        v0.normal.xyz * barycentrics.x +
+            v1.normal.xyz * barycentrics.y +
+            v2.normal.xyz * barycentrics.z,
+        surface.geometricNormal);
+    const float4 capturedTangent =
+        v0.tangent * barycentrics.x +
+        v1.tangent * barycentrics.y +
+        v2.tangent * barycentrics.z;
+    const float4 capturedBitangent =
+        v0.bitangent * barycentrics.x +
+        v1.bitangent * barycentrics.y +
+        v2.bitangent * barycentrics.z;
+    PathTraceCleanRtxdiDiBuildTraceHitTangentBasis(
+        surface.shadingNormal,
+        capturedTangent,
+        capturedBitangent,
+        1.0,
+        surface.tangent,
+        surface.bitangent);
+    surface.valid = true;
+}
+
 bool PathTraceCleanRtxdiDiLoadTraceHitSurface(
     PathTraceCleanRtxdiPayload payload,
     out PathTraceCleanRtxdiDiTraceHitSurface surface)
@@ -147,6 +198,32 @@ bool PathTraceCleanRtxdiDiLoadTraceHitSurface(
         1.0 - payload.hitBarycentrics.x - payload.hitBarycentrics.y,
         payload.hitBarycentrics.x,
         payload.hitBarycentrics.y);
+
+    if (PathTraceIsStaticBucketRouteInstance(
+            payload.hitInstanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        if (!PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+                payload.hitInstanceId,
+                payload.hitPrimitiveIndex,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes))
+        {
+            return false;
+        }
+
+        PathTraceCleanRtxdiDiPopulateIdentityTraceHitSurface(
+            SmokeStaticBucketVertices[packedVertexIndexes.x],
+            SmokeStaticBucketVertices[packedVertexIndexes.y],
+            SmokeStaticBucketVertices[packedVertexIndexes.z],
+            barycentrics,
+            surface);
+        return true;
+    }
 
     if (payload.hitInstanceId == 0u || payload.hitInstanceId == 1u)
     {
@@ -408,6 +485,40 @@ bool PathTraceCleanRtxdiDiReconstructPrimarySurfaceBarycentrics(
     hitBarycentrics = float2(0.0, 0.0);
     const uint instanceId = primarySurface.instanceId;
     const uint primitiveIndex = primarySurface.primitiveIndex;
+
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        if (!PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes))
+        {
+            return false;
+        }
+
+        float3 barycentrics;
+        if (!PathTraceCleanRtxdiDiComputeTriangleBarycentrics(
+                primarySurface.worldPos,
+                SmokeStaticBucketVertices[
+                    packedVertexIndexes.x].position.xyz,
+                SmokeStaticBucketVertices[
+                    packedVertexIndexes.y].position.xyz,
+                SmokeStaticBucketVertices[
+                    packedVertexIndexes.z].position.xyz,
+                barycentrics))
+        {
+            return false;
+        }
+        hitBarycentrics = barycentrics.yz;
+        return true;
+    }
 
     if (instanceId == 0u || instanceId == 1u)
     {

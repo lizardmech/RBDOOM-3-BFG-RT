@@ -597,8 +597,14 @@ secondary-hit, ray-query, any-hit, and emissive-replay helpers through the
 checked loader. All 32 Vulkan split libraries and two compute wrappers build
 and deploy. The unused monolithic GI SPIR-V outputs were removed because the
 Vulkan runtime has no consumer and the enlarged near-limit module overflowed
-DXC's ID space. Motion/history, static-emissive identity, and current-frame
-publication ordering remain blockers.
+DXC's ID space. Shared clean-DI initial, temporal, glass, and transmission
+consumers now use the same checked route for material metadata, secondary-hit
+attributes, barycentrics, and transmission UVs. The all-views sentinel cannot
+import bucket lookup without exceeding DXC's SPIR-V ID ceiling, so it remains
+explicitly bucket-incapable and byte-identical. The cutover capability gate
+must reject that route unless a compact bucket hit library is added.
+Motion/history, static-emissive identity, current-frame publication ordering,
+and that sentinel capability decision remain blockers.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

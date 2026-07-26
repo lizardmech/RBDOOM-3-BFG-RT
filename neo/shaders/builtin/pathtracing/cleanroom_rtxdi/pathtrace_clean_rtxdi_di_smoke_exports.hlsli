@@ -91,6 +91,35 @@ float2 PathTraceCleanRoomTransmissionInterpolateTexCoord(uint instanceId, uint p
         hitBarycentrics.x,
         hitBarycentrics.y);
 
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        if (!PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes))
+        {
+            return float2(0.0, 0.0);
+        }
+
+        return
+            SmokeStaticBucketVertices[
+                packedVertexIndexes.x].texCoord.xy *
+                barycentrics.x +
+            SmokeStaticBucketVertices[
+                packedVertexIndexes.y].texCoord.xy *
+                barycentrics.y +
+            SmokeStaticBucketVertices[
+                packedVertexIndexes.z].texCoord.xy *
+                barycentrics.z;
+    }
+
     if (instanceId == 0u || instanceId == 1u)
     {
         const uint vertexCount = instanceId == 0u ? (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0) : (uint)max(CleanRtxdiDiGeometryInfo0.w, 0.0);

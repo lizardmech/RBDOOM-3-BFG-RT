@@ -357,6 +357,31 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     uint4 CleanRtxdiDiStaticBucketRouteInfo;
 };
 
+// The all-views sentinel is already at DXC's SPIR-V ID ceiling. Keep bucket
+// consumption entry-specific until the live cutover has a compact bucket hit
+// library or rejects sentinel routing through its capability gate.
+#if defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) || \
+    defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY) || \
+    defined(CLEAN_RTXDI_DI_GLASS_ENTRY) || \
+    defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
+[noinline]
+bool PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+    uint instanceId,
+    uint primitiveIndex,
+    out PathTraceStaticBucketRouteRecord route,
+    out uint packedTriangleIndex,
+    out uint3 packedVertexIndexes)
+{
+    return PathTraceTryLoadStaticBucketTriangleRoute(
+        instanceId,
+        primitiveIndex,
+        CleanRtxdiDiStaticBucketRouteInfo,
+        route,
+        packedTriangleIndex,
+        packedVertexIndexes);
+}
+#endif
+
 cbuffer PathTraceMaterialFeatureRuntimeConstants : register(b88)
 {
     float4 PathTraceMaterialFeatureRuntimeInfoPacked;

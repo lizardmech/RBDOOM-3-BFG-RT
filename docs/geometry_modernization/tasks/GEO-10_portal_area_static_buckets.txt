@@ -103,6 +103,18 @@ outputs were removed after the enlarged source exceeded their compiler ID
 limit. All 32 runtime split libraries and both compute wrappers build and
 deploy. Bucket traversal remains off.
 
+The bucket-capable clean-DI libraries now use the same checked loader for live
+material-table recovery, material ID/class lookup, full secondary-hit
+attributes, primary-record barycentric recovery, and transmission UVs. This
+covers initial and temporal debug/production, glass, and transmission. The
+all-views sentinel is already at DXC's Vulkan ID ceiling: importing even the
+smallest live bucket lookup overflows legalization. It therefore remains
+byte-identical and explicitly does not advertise bucket capability. The later
+cutover gate must reject bucket TLAS submission whenever that sentinel route
+is selected, unless a compact bucket hit library is added first. This
+restriction does not affect current production because bucket traversal is
+still shadow-only.
+
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,
 and `r_pathTracingGeometryStaticBucketBlasBuild 1` submits bounded shadow

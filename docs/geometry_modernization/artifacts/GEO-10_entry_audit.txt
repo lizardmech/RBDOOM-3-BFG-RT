@@ -502,14 +502,17 @@ No bucket instance enters the production TLAS yet. Before that can happen:
 
   1. Move/build the current-frame bucket publication before TLAS submission and
      binding creation; a prior-frame active set is not safe at portal changes.
-  2. Special-case high-ID buckets in primary history, motion, and object-motion
+  2. Decide the all-views sentinel contract: either add a compact bucket hit
+     library or make its lack of bucket capability an explicit cutover-gate
+     rejection. Do not silently route bucket IDs through legacy rigid logic.
+  3. Special-case high-ID buckets in primary history, motion, and object-motion
      logic without changing rigid/skinned predicates.
-  3. Migrate static-emissive inventory identity from monolithic instance 0 to
+  4. Migrate static-emissive inventory identity from monolithic instance 0 to
      the bucket InstanceID plus bucket-local primitive contract.
-  4. Add a default-off one-cvar rollback gate. Only an exact current-frame
+  5. Add a default-off one-cvar rollback gate. Only an exact current-frame
      publication with every consumer capability may set
      includeStaticBlasInTlas=false and append active bucket descriptors.
-  5. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
+  6. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
      change, and comm1 area-41 comparisons before enabling coalescing work.
 
 PRIMARY PRODUCER CHECKED CONSUMER
@@ -636,3 +639,65 @@ Accepted Vulkan release build:
 Project regeneration also rebuilt NEE-cache debug, primary producer, ReGIR
 debug, PDF/NEE producer, and core smoke SPIR-V. Each matched its already
 deployed hash, so none was recopied. DXIL was not built or deployed.
+
+SHARED CLEAN-DI CHECKED CONSUMERS
+---------------------------------
+The shared clean-DI audit found four central legacy-only consumers despite the
+six bucket SRVs and route tuple already being bound:
+
+  material-table, material-ID, and triangle-class lookup;
+  secondary-hit full vertex reconstruction;
+  primary-record barycentric reconstruction;
+  transmission alpha/decal UV reconstruction.
+
+Initial, temporal, glass, and transmission variants now recognize the reserved
+bucket namespace before legacy static/dynamic/rigid/skinned arithmetic. One
+non-inlined wrapper calls the common checked route loader. No packed material,
+index, or vertex access occurs unless namespace, publication generation,
+record stride, primitive and topology, absolute ranges, and all buffer strides
+match.
+
+The all-views sentinel exposed a distinct compiler-capability boundary. It is
+5,928,388 bytes and already at DXC's SPIR-V ID ceiling. Importing any live
+bucket lookup causes legalization to fail with `ID overflow`; excluding bucket
+lookup returns the exact pre-change sentinel hash. The sentinel is therefore
+explicitly bucket-incapable for this shadow-only checkpoint. Initial,
+temporal, glass, and transmission compile bucket support under their
+entry-specific defines. A live cutover must either use a separate compact
+bucket hit library or reject the sentinel route through the capability gate.
+
+Accepted Vulkan release build:
+
+  command     from neo/, cmake --build --preset win64-pt-dev-release
+  result      success in 316.7 seconds
+  CPU harness PathTraceCpuPlanningHarness passed
+  changed/deployed SPIR-V:
+    initial debug
+      A6E64232C180861092BAE157CF412A8C10F24DB686FB6A9464699A9C03CAACB2
+    temporal debug
+      86D654A60C8C40F42A8F7BB829460B891660765021C794BB340D6DDEF004548E
+    initial production
+      E1533376C32B9B183E33804CA571FD6877788F0F0E9C087D0DDAE6C53C94D62B
+    temporal production
+      B2301014DBA3C4E0CC7D523182223DC5736EB4E7F51283BF9B3F16DC0401E061
+    glass
+      49952A9EDA60B29FFA30D7B87040A918E2AFA40D767485C072DEAF4AB687DA17
+    transmission producer
+      48694E37D0878E85F5ACC2DCFB17FE8454FED949F594D836F7342364116D2266
+
+All six deployed copies are byte-identical and newer than their shared HLSLI
+edits. Sentinel and both spatial variants rebuilt because of broad dependency
+lists but retained their deployed hashes:
+
+  sentinel
+    1909661C3F562771DEDC7085E0F7E6B19AD48F8ADF63E0C132C62970087EF538
+  spatial debug
+    5DE13C4B46C242C5377D38AEFB25C833EB386C20A34F91C596C2297522D0CE25
+  spatial production
+    2357BDB24E2F61003DD7BEEEF1535638603F44CFD443EFDEC26BD1F49C3F00F9
+
+The executable was unchanged and already deployed at
+B4B26AF3D56042D3EE8D99F903EF7370ABAD404637850682870FC3AF7FB607F7.
+DXIL was not built or deployed. Runtime proof is deferred because the route is
+unreachable until current-frame publication and the cutover capability gate
+are implemented.
