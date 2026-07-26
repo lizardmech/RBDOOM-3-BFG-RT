@@ -8478,6 +8478,65 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             emissiveDistribution.totalPdf,
             r_pathTracingEmissiveDistribution.GetInteger());
     }
+    if (captureTiming.skinnedCaptureOmittedSurfaces > 0 &&
+        canonicalSkinnedSourceOutputRoute &&
+        m_smokeSkinnedCurrentOutputVertexBuffer)
+    {
+        // The cached build is only pre-capture admission evidence. Its CPU
+        // route IDs and per-triangle material indexes belong to the frame in
+        // which that view set was last observed. Rebuild those route records
+        // from this frame's draw surfaces, rigid-route end, and material table
+        // before creating the upload. This keeps alternating portal sets from
+        // addressing stale current-frame slots.
+        const uint64 currentOutputCapacity =
+            m_smokeSkinnedCurrentOutputVertexBuffer->
+                getDesc().byteSize;
+        PtSkinnedHitRouteBuild currentFrameUploadBuild =
+            BuildSmokeSkinnedHitRouteShadow(
+                currentSkinnedSurfaceRecords,
+                skinnedGpuScaffold.dispatchRecords,
+                m_smokeGeometryUniverse,
+                m_smokeSkinnedBlasStateTable,
+                m_smokeSkinnedComparisonBlases,
+                dynamicIndexData,
+                dynamicTriangleClassData,
+                dynamicTriangleMaterialData,
+                materialTable.dynamicMaterialIndexes,
+                materialTable,
+                m_smokeSkinnedCurrentOutputVertexBuffer,
+                skinnedGpuScaffold.previousPositions.size(),
+                currentOutputCapacity,
+                2ull + rigidRouteBuild.instances.size(),
+                true,
+                true);
+        if (SmokeSkinnedHitRoutesMatchOmittedCapture(
+                currentFrameUploadBuild.records,
+                currentSkinnedSurfaceRecords,
+                captureTiming.skinnedCaptureOmittedSurfaces))
+        {
+            skinnedHitRouteUploadBuild =
+                std::move(currentFrameUploadBuild);
+            skinnedHitRouteUploadBuildSignature =
+                PtBuildSkinnedHitRouteGpuUpload(
+                    skinnedHitRouteUploadBuild,
+                    0).signature;
+        }
+        else
+        {
+            common->Printf(
+                "PathTracePrimaryPass: GEO08 current-frame route refresh rejected frame=%llu omitted/current/routes/rejected=%d/%zu/%zu/%llu action=suppress-and-revoke\n",
+                static_cast<unsigned long long>(
+                    m_smokeGeometryFrameIndex),
+                captureTiming.skinnedCaptureOmittedSurfaces,
+                currentSkinnedSurfaceRecords.size(),
+                currentFrameUploadBuild.records.size(),
+                static_cast<unsigned long long>(
+                    currentFrameUploadBuild.stats.rejected));
+            skinnedHitRouteUploadBuild =
+                PtSkinnedHitRouteBuild();
+            skinnedHitRouteUploadBuildSignature = 0;
+        }
+    }
     const int bufferCreateStartMs = Sys_Milliseconds();
     const std::vector<PtSkinnedHitRouteRecord>
         skinnedHitRouteUploadCpuRecords =
@@ -11219,7 +11278,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeGeometryFrameIndex;
     }
     else if (activeCaptureRouteSet != nullptr &&
-             !skinnedHitRouteUploadBuild.records.empty())
+             (captureTiming.skinnedCaptureOmittedSurfaces > 0 ||
+              !skinnedHitRouteUploadBuild.records.empty()))
     {
         // A late route/resource/BLAS failure after CPU capture omission
         // suppresses this view and revokes only its exact set for next time.

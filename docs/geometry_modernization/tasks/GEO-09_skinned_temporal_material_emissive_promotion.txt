@@ -213,10 +213,31 @@ cannot restore the old downward pitch, so the automated raster probe hits
 glass rather than the historical floor candidate.
 
 Automated crowded, lifecycle, map-transition, static-contract, and comm1
-residency coverage is therefore complete. Ticket closure still requires two
-short visual/UI observations on this exact executable: verify that comm1
-area-41 brush geometry remains visible while moving, and toggle the PDA open
-and closed once while confirming the primary scene has no missing geometry,
-T-pose, material change, light pop, or history disruption. The old
-geometry_geo43_auto proof establishes that the BFG PDA is a 2D overlay, but it
-is not substituted for a post-step-8B visual regression.
+residency coverage is therefore complete.
+
+The final visual/UI pass initially found one remaining defect: skinned
+surfaces flickered while crossing portal boundaries. comm1 brush movement,
+PDA open/close, materials, lights, animation pose, and the other requested
+scene checks were otherwise clean. geometry_geo182 proved the flicker belonged
+to capture-split promotion: disabling
+`r_pathTracingGeometrySkinnedCaptureSplit` kept 17 skinned TLAS descriptors
+masked and stopped the defect.
+
+The first attempted consecutive-frame cache gate was rejected because it made
+both random and portal-transition glitches worse. It inserted avoidable
+CPU-merged/TLAS route identity changes and is not retained. The accepted repair
+keeps the cached exact set only as pre-capture admission evidence, then rebuilds
+the uploaded CPU/GPU route and source-local triangle metadata from the current
+draw surfaces, current rigid-route end, and current material table. A failed
+same-frame refresh suppresses and revokes the route instead of tracing stale
+current-frame slots.
+
+geometry_geo185_auto accepts the corrected path with 12 routes and 15,962
+triangles, 12/12 motion ready, and all thirteen live and independent-shadow
+failure buckets zero. The current-frame refresh has no rejection, capture
+splitting omits 9,889 vertices and 47,886 indexes with zero CPU skin append,
+and shutdown is normal. A later 12 -> 11 visibility-set transition retains
+the full CPU comparison and masks all 11 pre-admission descriptors. The final
+interactive pass runs with verbose logging disabled and confirms repeated
+portal traversal is visually stable with no random glitches or Windows-input
+stall. GEO-09 is complete; proceed to GEO-10.

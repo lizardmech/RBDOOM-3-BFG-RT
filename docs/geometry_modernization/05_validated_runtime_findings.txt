@@ -830,3 +830,25 @@ GEO-09 SKINNED CONSUMER ENTRY AUDIT
   sample reports a valid hit. The automation preserves position and yaw but
   cannot express the earlier downward pitch, so a moving visual brush check
   remains before GEO-09 closure.
+- The final visual pass accepts comm1 brush movement, PDA open/close, material,
+  light, and pose behavior, but initially finds skinned surfaces flickering at
+  portal transitions. geometry_geo182 proves the promoted capture-split route
+  owns the symptom: disabling capture splitting masks all 17 skinned
+  descriptors and stops the flicker.
+- A consecutive-frame admission experiment makes random and portal glitches
+  worse and is rejected. The accepted correction leaves cached route sets as
+  admission evidence only, then rebuilds the CPU/GPU upload and source-local
+  triangle metadata against the current rigid-route end and material table.
+  This removes previous-view route IDs/material indexes without inserting a
+  CPU/TLAS identity-switch frame.
+- geometry_geo185_auto accepts the corrected upload: 12 live and 12 shadow
+  routes cover 15,962 triangles with 12/12 motion ready and every one of the
+  thirteen failure buckets zero on both paths. Twelve surfaces, 9,889
+  vertices, and 47,886 indexes are omitted with zero CPU skin append; no
+  current-frame refresh is rejected and shutdown is normal. A later 12 -> 11
+  visibility transition masks the new set for pre-admission rather than
+  tracing stale slots.
+- Repeated user-driven portal traversal is visually stable on the corrected
+  executable with no random glitches. Interactive runs must keep
+  `r_pathTracingSmokeLog 0`; continuous smoke logging can flood the in-game
+  console enough to starve Windows GUI input. GEO-09 is complete.
