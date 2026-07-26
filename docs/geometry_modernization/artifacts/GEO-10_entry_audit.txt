@@ -278,7 +278,7 @@ active-set identities into a nonzero publication generation. One loop then
 creates:
 
   one identity-transform TLAS instance descriptor per active bucket;
-  one checked packed-range route record for the same dense InstanceID;
+  one checked packed-range route record per stable resident-bucket ordinal;
   identical generation values for TLAS and route publication.
 
 The route record preserves absolute packed vertex/index/triangle offsets,
@@ -286,7 +286,9 @@ counts, surface count, bucket key, and the 64-bit publication generation.
 The CPU epoch validator requires:
 
   expected, TLAS, and route generations are all nonzero and equal;
-  active bucket, TLAS descriptor, and route record counts are equal;
+  active bucket and TLAS descriptor counts are equal;
+  resident bucket and route record counts are equal;
+  active bucket count does not exceed resident bucket count;
   the active set is exact and every active BLAS is ready;
   every packed range is valid and the 24-bit InstanceID namespace fits.
 
@@ -503,8 +505,9 @@ No bucket instance enters the production TLAS yet. Before that can happen:
   1. Decide the all-views sentinel contract: either add a compact bucket hit
      library or make its lack of bucket capability an explicit cutover-gate
      rejection. Do not silently route bucket IDs through legacy rigid logic.
-  2. Migrate static-emissive inventory identity from monolithic instance 0 to
-     the bucket InstanceID plus bucket-local primitive contract.
+  2. Promote the checked shadow static-emissive inventory from monolithic
+     instance 0 to stable resident-bucket InstanceID plus bucket-local
+     primitive in the same atomic cutover as traversal.
   3. Add a default-off one-cvar rollback gate. Only an exact current-frame
      publication with every consumer capability may set
      includeStaticBlasInTlas=false and append active bucket descriptors.
@@ -765,3 +768,57 @@ deployed. Runtime proof is deferred because traversal remains shadow-only. The
 next CPU-side slice is bucket-local static-emissive identity; only after that
 and the sentinel capability decision may cutover append this exact
 publication's TLAS descriptors and omit monolithic instance 0.
+
+STABLE BUCKET AND STATIC-EMISSIVE IDENTITY CHECKPOINT
+-----------------------------------------------------
+The first emissive trace found that the active publication assigned dense
+InstanceIDs only across the current active subset. That was unsuitable for
+history: if an earlier resident bucket became active or inactive, every later
+still-visible bucket could receive a different InstanceID.
+
+The corrected publication assigns:
+
+  InstanceID = 0x00800000 + stable resident-bucket ordinal
+
+Only active buckets receive TLAS descriptors. The checked route buffer contains
+one record for every resident bucket, including inactive residents, so direct
+`InstanceID - firstInstanceId` lookup remains valid without an indirection
+table. Inactive route records are harmless because their BLASes are absent from
+the TLAS. Active material-index completeness and active BLAS readiness remain
+fail-closed requirements.
+
+The epoch validator now requires:
+
+  TLAS descriptor count = active bucket count
+  route record count    = resident bucket count
+  active count          <= resident count
+  TLAS / route / expected generation all equal and nonzero
+
+The CPU harness proves both an 8-resident / 3-active publication and a changed
+8-resident / 2-active publication retain complete routes. This prevents portal
+membership alone from renumbering a surviving bucket.
+
+`AppendSmokeStaticBucketEmissiveTriangleInventory` consumes the same current
+frame pack, material-index array, and publication. For every active bucket it
+validates the resident ordinal, route/range tuple, and topology, then emits:
+
+  instanceId      stable resident-bucket InstanceID
+  primitiveIndex  bucket-local primitive index
+  identity hash   material + instance + local primitive + class
+
+Static inventory statistics and material candidate summaries now classify the
+reserved bucket namespace as static rather than treating every nonzero
+InstanceID as dynamic. `r_pathTracingGeometryStaticBucketAudit 1` prints a
+shadow comparison with monolithic/bucket triangle counts and zero/collision
+identity counters when the active publication is ready.
+
+The Vulkan release build succeeds with all SPIR-V already up to date. The
+rebuilt harness prints and passes:
+
+  static bucket publication accepts active TLAS and resident route counts
+  static bucket publication keeps resident routes complete when the active
+  subset changes
+
+Production emissive records remain instance 0 because production traversal is
+still monolithic. The cutover gate must select bucket traversal and this
+bucket-local emissive inventory atomically.

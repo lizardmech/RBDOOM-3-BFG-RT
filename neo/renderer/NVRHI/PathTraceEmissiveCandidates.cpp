@@ -33,6 +33,14 @@ uint64 BuildSmokeEmissiveTriangleIdentity(uint32_t materialId, uint32_t instance
     return hash;
 }
 
+bool SmokeEmissiveInstanceIsStatic(uint32_t instanceId)
+{
+    return instanceId == 0u ||
+        (instanceId >=
+            RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE &&
+         instanceId <= 0x00ffffffu);
+}
+
 uint64 BuildSmokeEmissiveTriangleIdentity64(uint32_t materialId, uint64 instanceId, uint32_t primitiveIndex, uint32_t materialIndex, uint32_t triangleClassAndFlags)
 {
     uint64 hash = 1469598103934665603ull;
@@ -139,7 +147,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
                 ? (*triangleIdentityIds)[primitiveIndex]
                 : static_cast<uint32_t>(primitiveIndex);
         ++stats.totalTriangles;
-        if (instanceId == 0)
+        if (SmokeEmissiveInstanceIsStatic(identityInstanceId))
         {
             ++stats.staticTriangles;
         }
@@ -240,6 +248,118 @@ void AppendSmokeEmissiveInventoryForGeometry(
 
     stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
+}
+
+void AppendSmokeStaticBucketEmissiveTriangleInventory(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    const std::vector<uint32_t>& triangleMaterialIndexes,
+    const RtPathTraceStaticBucketActivePublication& publication,
+    uint32_t emissiveMaterialFlag,
+    uint32_t triangleClassMask,
+    uint32_t skinnedSurfaceClassId,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    RtSmokeEmissiveInventoryStats& stats)
+{
+    OPTICK_EVENT("PT Static Bucket Emissive Inventory");
+
+    if (!geometryPack.exact ||
+        !publication.valid ||
+        publication.routeRecords.size() != geometryPack.buckets.size() ||
+        geometryPack.vertexBytes.empty() ||
+        (geometryPack.vertexBytes.size() %
+            sizeof(PathTraceSmokeVertex)) != 0)
+    {
+        return;
+    }
+
+    std::vector<PathTraceSmokeVertex> vertices(
+        geometryPack.vertexBytes.size() /
+        sizeof(PathTraceSmokeVertex));
+    std::memcpy(
+        vertices.data(),
+        geometryPack.vertexBytes.data(),
+        geometryPack.vertexBytes.size());
+
+    for (size_t routeIndex = 0;
+         routeIndex < publication.routeRecords.size();
+         ++routeIndex)
+    {
+        const RtSmokeStaticBucketPackedRecord& bucket =
+            geometryPack.buckets[routeIndex];
+        if (!bucket.active)
+        {
+            continue;
+        }
+
+        const RtPathTraceStaticBucketRouteRecord& route =
+            publication.routeRecords[routeIndex];
+        const uint32_t expectedInstanceId =
+            RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE +
+            static_cast<uint32_t>(routeIndex);
+        const uint64_t indexEnd =
+            static_cast<uint64_t>(route.indexOffset) +
+            static_cast<uint64_t>(route.indexCount);
+        const uint64_t triangleEnd =
+            static_cast<uint64_t>(route.triangleOffset) +
+            static_cast<uint64_t>(route.triangleCount);
+        const bool routeMatchesBucket =
+            route.instanceId == expectedInstanceId &&
+            route.vertexOffset ==
+                static_cast<uint32_t>(bucket.range.vertexOffset) &&
+            route.indexOffset ==
+                static_cast<uint32_t>(bucket.range.indexOffset) &&
+            route.triangleOffset ==
+                static_cast<uint32_t>(bucket.range.triangleOffset) &&
+            route.vertexCount ==
+                static_cast<uint32_t>(bucket.range.vertexCount) &&
+            route.indexCount ==
+                static_cast<uint32_t>(bucket.range.indexCount) &&
+            route.triangleCount ==
+                static_cast<uint32_t>(bucket.range.triangleCount) &&
+            route.indexCount == route.triangleCount * 3u &&
+            indexEnd <= geometryPack.indexes.size() &&
+            triangleEnd <= geometryPack.triangleClasses.size() &&
+            triangleEnd <= triangleMaterialIndexes.size();
+        if (!routeMatchesBucket)
+        {
+            stats.skippedInvalidMaterialTriangles +=
+                static_cast<int>(route.triangleCount);
+            continue;
+        }
+
+        const std::vector<uint32_t> bucketIndexes(
+            geometryPack.indexes.begin() + route.indexOffset,
+            geometryPack.indexes.begin() + indexEnd);
+        const std::vector<uint32_t> bucketTriangleClasses(
+            geometryPack.triangleClasses.begin() +
+                route.triangleOffset,
+            geometryPack.triangleClasses.begin() +
+                triangleEnd);
+        const std::vector<uint32_t> bucketMaterialIndexes(
+            triangleMaterialIndexes.begin() +
+                route.triangleOffset,
+            triangleMaterialIndexes.begin() +
+                triangleEnd);
+        AppendSmokeEmissiveInventoryForGeometry(
+            materialIds,
+            materials,
+            vertices,
+            bucketIndexes,
+            bucketTriangleClasses,
+            bucketMaterialIndexes,
+            route.instanceId,
+            nullptr,
+            nullptr,
+            emissiveMaterialFlag,
+            triangleClassMask,
+            skinnedSurfaceClassId,
+            maxRecords,
+            emissiveTriangles,
+            stats);
+    }
 }
 
 void FinalizeSmokeEmissiveTriangleSamplingFields(std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles, const RtSmokeEmissiveInventoryStats& stats)
@@ -1246,7 +1366,7 @@ void BuildSmokeEmissiveLightCandidateSummaries(
         }
 
         ++candidate->triangles;
-        if (record.instanceId == 0)
+        if (SmokeEmissiveInstanceIsStatic(record.instanceId))
         {
             ++candidate->staticTriangles;
         }
@@ -1352,7 +1472,7 @@ RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
         }
 
         ++stats.totalTriangles;
-        if (record.instanceId == 0)
+        if (SmokeEmissiveInstanceIsStatic(record.instanceId))
         {
             ++stats.staticTriangles;
         }

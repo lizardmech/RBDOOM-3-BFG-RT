@@ -611,7 +611,15 @@ once before emissive construction, acceleration submission, binding creation,
 and scene-input commit. Its pack, route upload, active publication, and
 generation are shared by all later consumers, and the fresh scene-input package
 receives that tuple before commit. Static-emissive identity and the sentinel
-capability decision remain blockers.
+capability decision remain blockers. The emissive audit also rejected IDs
+dense-packed only across the active subset because a portal transition could
+renumber a still-visible bucket. Bucket InstanceIDs now derive from stable
+resident ordinals; active TLAS descriptors are sparse over a complete resident
+route table. The CPU harness accepts independent active-TLAS/resident-route
+counts across an active-subset change. A shadow emissive builder now emits
+active packed triangles with that stable InstanceID and bucket-local primitive
+identity, but production emissives remain monolithic until the traversal
+cutover gate switches both contracts together.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

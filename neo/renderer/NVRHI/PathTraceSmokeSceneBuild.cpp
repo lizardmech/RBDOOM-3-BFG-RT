@@ -8055,6 +8055,64 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
             emissiveInventoryStats);
+        if (staticBucketFramePublication.auditRequested)
+        {
+            RtSmokeEmissiveInventoryStats
+                staticBucketEmissiveStats;
+            std::vector<PathTraceSmokeEmissiveTriangle>
+                staticBucketEmissiveTriangles;
+            AppendSmokeStaticBucketEmissiveTriangleInventory(
+                materialTable.materialIds,
+                materialTable.materials,
+                staticBucketFramePublication.geometryPack,
+                staticBucketFramePublication.materialIndexes,
+                staticBucketFramePublication.activePublication,
+                RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
+                RT_SMOKE_TRIANGLE_CLASS_MASK,
+                static_cast<uint32_t>(
+                    RtSmokeSurfaceClass::SkinnedDeformed),
+                maxEmissiveRecords,
+                staticBucketEmissiveTriangles,
+                staticBucketEmissiveStats);
+            std::unordered_set<uint64_t>
+                staticBucketEmissiveIdentities;
+            int staticBucketEmissiveZeroIdentities = 0;
+            int staticBucketEmissiveIdentityCollisions = 0;
+            for (const PathTraceSmokeEmissiveTriangle& record :
+                 staticBucketEmissiveTriangles)
+            {
+                const uint64_t identity =
+                    static_cast<uint64_t>(record.identityHashLo) |
+                    (static_cast<uint64_t>(
+                        record.identityHashHi) << 32);
+                if (identity == 0)
+                {
+                    ++staticBucketEmissiveZeroIdentities;
+                }
+                else if (!staticBucketEmissiveIdentities.
+                    insert(identity).second)
+                {
+                    ++staticBucketEmissiveIdentityCollisions;
+                }
+            }
+            common->Printf(
+                "PathTracePrimaryPass: GEO10 static bucket emissive identity publicationValid=%d routes(active/resident)=%d/%zu triangles(monolithic/bucket/captured/invalid)=%d/%d/%d/%d identities(zero/collision)=%d/%d traversal=shadow-only\n",
+                staticBucketFramePublication.
+                    activePublication.valid
+                        ? 1
+                        : 0,
+                staticBucketFramePublication.
+                    activePublication.activeBuckets,
+                staticBucketFramePublication.
+                    activePublication.routeRecords.size(),
+                emissiveInventoryStats.staticTriangles,
+                staticBucketEmissiveStats.staticTriangles,
+                staticBucketEmissiveStats.capturedTriangles,
+                staticBucketEmissiveStats.
+                    skippedInvalidMaterialTriangles,
+                staticBucketEmissiveZeroIdentities,
+                staticBucketEmissiveIdentityCollisions);
+        }
         if (enableRigidRouteForMode && (cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives))
         {
             AppendSmokeRigidRouteEmissiveTriangleInventory(

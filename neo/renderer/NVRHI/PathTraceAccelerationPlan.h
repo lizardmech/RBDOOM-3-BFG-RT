@@ -334,6 +334,7 @@ struct RtSmokeStaticBucketPublicationEpochInput
     uint64_t expectedGeneration = 0;
     uint64_t tlasGeneration = 0;
     uint64_t routeGeneration = 0;
+    int residentBuckets = 0;
     int activeBuckets = 0;
     int tlasInstances = 0;
     int routeRecords = 0;

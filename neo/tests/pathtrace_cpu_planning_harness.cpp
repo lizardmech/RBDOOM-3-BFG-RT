@@ -1319,9 +1319,10 @@ void TestStaticBucketPublicationEpochPlan()
     input.expectedGeneration = 100;
     input.tlasGeneration = 100;
     input.routeGeneration = 100;
+    input.residentBuckets = 8;
     input.activeBuckets = 3;
     input.tlasInstances = 3;
-    input.routeRecords = 3;
+    input.routeRecords = 8;
     input.activeSetExact = true;
     const RtSmokeStaticBucketPublicationEpochPlan exactPlan =
         BuildSmokeStaticBucketPublicationEpochPlan(input);
@@ -1330,7 +1331,18 @@ void TestStaticBucketPublicationEpochPlan()
         exactPlan.countsMatch &&
         exactPlan.accepted &&
         !exactPlan.mixedEpochRejected,
-        "static bucket publication accepts one exact TLAS and route epoch");
+        "static bucket publication accepts active TLAS and resident route counts");
+
+    input.activeBuckets = 2;
+    input.tlasInstances = 2;
+    const RtSmokeStaticBucketPublicationEpochPlan
+        changedActiveSetPlan =
+            BuildSmokeStaticBucketPublicationEpochPlan(input);
+    Check(changedActiveSetPlan.accepted &&
+        changedActiveSetPlan.countsMatch,
+        "static bucket publication keeps resident routes complete when the active subset changes");
+    input.activeBuckets = 3;
+    input.tlasInstances = 3;
 
     input.routeGeneration = 101;
     const RtSmokeStaticBucketPublicationEpochPlan mixedRoutePlan =
@@ -1348,7 +1360,7 @@ void TestStaticBucketPublicationEpochPlan()
         "static bucket publication rejects a mixed TLAS epoch");
 
     input.tlasGeneration = 100;
-    input.routeRecords = 2;
+    input.routeRecords = 7;
     const RtSmokeStaticBucketPublicationEpochPlan countPlan =
         BuildSmokeStaticBucketPublicationEpochPlan(input);
     Check(!countPlan.accepted &&
@@ -1357,7 +1369,7 @@ void TestStaticBucketPublicationEpochPlan()
         !countPlan.mixedEpochRejected,
         "static bucket publication rejects incomplete route records");
 
-    input.routeRecords = 3;
+    input.routeRecords = 8;
     input.activeSetExact = false;
     const RtSmokeStaticBucketPublicationEpochPlan inexactPlan =
         BuildSmokeStaticBucketPublicationEpochPlan(input);

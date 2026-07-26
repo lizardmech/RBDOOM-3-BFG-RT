@@ -12,6 +12,8 @@
 
 struct viewDef_t;
 struct RtPathTraceRigidRouteBuild;
+struct RtSmokeStaticBucketGeometryPack;
+struct RtPathTraceStaticBucketActivePublication;
 
 struct PathTraceSmokeMaterial
 {
@@ -285,6 +287,18 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
     const std::vector<PathTraceSmokeMaterial>& materials,
     const RtPathTraceRigidRouteBuild& rigidRouteBuild,
     uint32_t emissiveMaterialFlag,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    RtSmokeEmissiveInventoryStats& stats);
+void AppendSmokeStaticBucketEmissiveTriangleInventory(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    const std::vector<uint32_t>& triangleMaterialIndexes,
+    const RtPathTraceStaticBucketActivePublication& publication,
+    uint32_t emissiveMaterialFlag,
+    uint32_t triangleClassMask,
+    uint32_t skinnedSurfaceClassId,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     RtSmokeEmissiveInventoryStats& stats);

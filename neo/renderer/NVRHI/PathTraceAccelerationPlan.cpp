@@ -1067,9 +1067,11 @@ BuildSmokeStaticBucketPublicationEpochPlan(
         input.expectedGeneration == input.tlasGeneration &&
         input.expectedGeneration == input.routeGeneration;
     plan.countsMatch =
+        input.residentBuckets >= 0 &&
         input.activeBuckets >= 0 &&
+        input.activeBuckets <= input.residentBuckets &&
         input.tlasInstances == input.activeBuckets &&
-        input.routeRecords == input.activeBuckets;
+        input.routeRecords == input.residentBuckets;
     plan.accepted =
         input.activeSetExact &&
         plan.generationsMatch &&

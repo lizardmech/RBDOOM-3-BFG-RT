@@ -4183,12 +4183,12 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
     const uint64 lastInstanceId =
         static_cast<uint64>(firstInstanceId) +
         static_cast<uint64>(
-            Max(0, publication.activeBuckets - 1));
-    if (publication.activeBuckets > 0 &&
+            Max(0, publication.residentBuckets - 1));
+    if (publication.residentBuckets > 0 &&
         lastInstanceId > 0x00ffffffull)
     {
         publication.instanceIdOverflow =
-            publication.activeBuckets;
+            publication.residentBuckets;
     }
     publication.activeSetExact =
         geometryPack.exact &&
@@ -4208,61 +4208,60 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
     publication.tlasInstances.reserve(
         publication.activeBuckets);
     publication.routeRecords.reserve(
-        publication.activeBuckets);
-    uint32_t activeIndex = 0;
+        publication.residentBuckets);
+    uint32_t residentIndex = 0;
     for (const RtSmokeStaticBucketPackedRecord& bucket :
         geometryPack.buckets)
     {
-        if (!bucket.active)
-        {
-            continue;
-        }
-        const StaticBucketBlasRecord* blasRecord = nullptr;
-        for (const StaticBucketBlasRecord& candidate :
-            m_staticBucketBlasRecords)
-        {
-            if (candidate.bucketKey == bucket.bucketKey)
-            {
-                blasRecord = &candidate;
-                break;
-            }
-        }
-        if (!blasRecord ||
-            !blasRecord->blas ||
-            !blasRecord->buildSubmitted)
-        {
-            publication.tlasInstances.clear();
-            publication.routeRecords.clear();
-            publication.activeSetExact = false;
-            ++publication.missingBlas;
-            return publication;
-        }
-
         const uint32_t instanceId =
-            firstInstanceId + activeIndex;
-        nvrhi::rt::AffineTransform transform;
-        transform[0] = 1.0f;
-        transform[1] = 0.0f;
-        transform[2] = 0.0f;
-        transform[3] = 0.0f;
-        transform[4] = 0.0f;
-        transform[5] = 1.0f;
-        transform[6] = 0.0f;
-        transform[7] = 0.0f;
-        transform[8] = 0.0f;
-        transform[9] = 0.0f;
-        transform[10] = 1.0f;
-        transform[11] = 0.0f;
-        nvrhi::rt::InstanceDesc instanceDesc;
-        instanceDesc
-            .setInstanceID(instanceId)
-            .setInstanceMask(instanceMask)
-            .setInstanceContributionToHitGroupIndex(0)
-            .setFlags(
-                nvrhi::rt::InstanceFlags::TriangleCullDisable)
-            .setTransform(transform)
-            .setBLAS(blasRecord->blas);
-        publication.tlasInstances.push_back(instanceDesc);
+            firstInstanceId + residentIndex;
+        if (bucket.active)
+        {
+            const StaticBucketBlasRecord* blasRecord = nullptr;
+            for (const StaticBucketBlasRecord& candidate :
+                m_staticBucketBlasRecords)
+            {
+                if (candidate.bucketKey == bucket.bucketKey)
+                {
+                    blasRecord = &candidate;
+                    break;
+                }
+            }
+            if (!blasRecord ||
+                !blasRecord->blas ||
+                !blasRecord->buildSubmitted)
+            {
+                publication.tlasInstances.clear();
+                publication.routeRecords.clear();
+                publication.activeSetExact = false;
+                ++publication.missingBlas;
+                return publication;
+            }
+
+            nvrhi::rt::AffineTransform transform;
+            transform[0] = 1.0f;
+            transform[1] = 0.0f;
+            transform[2] = 0.0f;
+            transform[3] = 0.0f;
+            transform[4] = 0.0f;
+            transform[5] = 1.0f;
+            transform[6] = 0.0f;
+            transform[7] = 0.0f;
+            transform[8] = 0.0f;
+            transform[9] = 0.0f;
+            transform[10] = 1.0f;
+            transform[11] = 0.0f;
+            nvrhi::rt::InstanceDesc instanceDesc;
+            instanceDesc
+                .setInstanceID(instanceId)
+                .setInstanceMask(instanceMask)
+                .setInstanceContributionToHitGroupIndex(0)
+                .setFlags(
+                    nvrhi::rt::InstanceFlags::TriangleCullDisable)
+                .setTransform(transform)
+                .setBLAS(blasRecord->blas);
+            publication.tlasInstances.push_back(instanceDesc);
+        }
 
         RtPathTraceStaticBucketRouteRecord route;
         route.instanceId = instanceId;
@@ -4296,7 +4295,7 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
         route.bucketKeyHi =
             static_cast<uint32_t>(bucket.bucketKey >> 32);
         publication.routeRecords.push_back(route);
-        ++activeIndex;
+        ++residentIndex;
     }
 
     publication.tlasGeneration =
@@ -4310,6 +4309,8 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
         publication.tlasGeneration;
     epochInput.routeGeneration =
         publication.routeGeneration;
+    epochInput.residentBuckets =
+        publication.residentBuckets;
     epochInput.activeBuckets =
         publication.activeBuckets;
     epochInput.tlasInstances =

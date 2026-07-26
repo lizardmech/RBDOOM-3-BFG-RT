@@ -133,6 +133,22 @@ receives the route count, generation, and validity before resource commit.
 This closes the stale publication-order blocker while traversal remains
 shadow-only.
 
+The emissive-identity audit then rejected dense active-subset InstanceIDs:
+adding or removing an earlier portal-area bucket could renumber a still-visible
+bucket. Publication now assigns InstanceID from the stable resident-bucket
+ordinal. The TLAS still contains only active buckets, while the checked route
+table contains one record for every resident bucket. CPU validation accepts an
+active TLAS count independently from the complete resident route count and
+proves the route count remains complete when the active subset changes.
+
+A shadow static-emissive builder now reads the exact current-frame packed
+bucket ranges and emits only active-bucket records using resident InstanceID
+plus bucket-local primitive index. Static/dynamic summaries recognize both
+monolithic instance 0 and the reserved bucket namespace as static. The
+one-shot GEO-10 audit reports monolithic/bucket counts plus zero-identity and
+collision counts. Production emissive publication remains monolithic until the
+same default-off gate switches traversal and emissive identity atomically.
+
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,
 and `r_pathTracingGeometryStaticBucketBlasBuild 1` submits bounded shadow
