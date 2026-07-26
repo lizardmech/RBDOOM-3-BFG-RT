@@ -500,17 +500,15 @@ REMAINING LIVE-CUTOVER BLOCKERS
 ------------------------------
 No bucket instance enters the production TLAS yet. Before that can happen:
 
-  1. Move/build the current-frame bucket publication before TLAS submission and
-     binding creation; a prior-frame active set is not safe at portal changes.
-  2. Decide the all-views sentinel contract: either add a compact bucket hit
+  1. Decide the all-views sentinel contract: either add a compact bucket hit
      library or make its lack of bucket capability an explicit cutover-gate
      rejection. Do not silently route bucket IDs through legacy rigid logic.
-  3. Migrate static-emissive inventory identity from monolithic instance 0 to
+  2. Migrate static-emissive inventory identity from monolithic instance 0 to
      the bucket InstanceID plus bucket-local primitive contract.
-  4. Add a default-off one-cvar rollback gate. Only an exact current-frame
+  3. Add a default-off one-cvar rollback gate. Only an exact current-frame
      publication with every consumer capability may set
      includeStaticBlasInTlas=false and append active bucket descriptors.
-  5. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
+  4. Run old/new hit tuple, material, emissive, portal-transition, PDA, map
      change, and comm1 area-41 comparisons before enabling coalescing work.
 
 PRIMARY PRODUCER CHECKED CONSUMER
@@ -736,26 +734,34 @@ retained their deployed hashes. Only the primary producer was copied; its
 deployed bytes match. DXIL was not built or deployed. Runtime proof remains
 deferred while the bucket route is shadow-only.
 
-CURRENT-FRAME PUBLICATION ORDER AUDIT
--------------------------------------
-The live build order is more stale than the earlier blocker wording implied.
-The static bucket build, active publication, and route upload currently execute
-after:
+CURRENT-FRAME PUBLICATION ORDER CHECKPOINT
+------------------------------------------
+The audit found the old build order was more stale than the earlier blocker
+wording implied. Static bucket build, active publication, and route upload
+executed after:
 
   monolithic/rigid TLAS submission;
   binding resource creation;
   construction and commit of a fresh RtPathTraceSceneInputs package.
 
-The late block then patches `m_sceneInputs.geometry` directly. Moving only the
-call earlier is incorrect because the later scene-input commit would overwrite
-the route tuple with zeros. The required refactor is:
+The late block then patched `m_sceneInputs.geometry` directly. Moving only the
+call earlier would have been incorrect because the later scene-input commit
+would overwrite the route tuple with zeros.
 
-  1. Extract the late bucket block into a current-frame publication result.
-  2. Build/upload it after material-table completion but before TLAS submit.
-  3. Feed its route buffers to binding creation.
-  4. Copy its first InstanceID, count, generation, and validity into the local
-     scene-input package before resource commit.
-  5. Only after those four identities agree may the cutover append the same
-     publication's TLAS descriptors and omit monolithic instance 0.
+The corrected path now:
 
-This is the next CPU-side GEO-10 implementation slice.
+  1. Builds one `RtSmokeStaticBucketFramePublication` immediately after
+     material-table completion and before emissive inventory.
+  2. Carries the assignment, pack, resolved material indexes, BLAS update,
+     active publication, route upload, and exact generation in that result.
+  3. Makes current bucket buffers available before binding creation.
+  4. Copies the result's first InstanceID, route count, generation, and
+     validity into the fresh local scene-input package before resource commit.
+  5. Leaves the later diagnostics read-only over the captured result.
+
+The Vulkan release build succeeds, reports every SPIR-V shader up to date, and
+the complete PathTraceCpuPlanningHarness passes. No shader was invalidated or
+deployed. Runtime proof is deferred because traversal remains shadow-only. The
+next CPU-side slice is bucket-local static-emissive identity; only after that
+and the sentinel capability decision may cutover append this exact
+publication's TLAS descriptors and omit monolithic instance 0.

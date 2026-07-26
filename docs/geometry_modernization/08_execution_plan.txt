@@ -606,8 +606,12 @@ must reject that route unless a compact bucket hit library is added.
 Primary history and motion now classify bucket hits as immutable static
 world-space geometry: previous position equals current hit position and the
 existing previous-camera projection owns pixel motion. The legacy smoke
-library remains byte-identical. Static-emissive identity, current-frame
-publication ordering, and the sentinel capability decision remain blockers.
+library remains byte-identical. Current-frame bucket preparation now executes
+once before emissive construction, acceleration submission, binding creation,
+and scene-input commit. Its pack, route upload, active publication, and
+generation are shared by all later consumers, and the fresh scene-input package
+receives that tuple before commit. Static-emissive identity and the sentinel
+capability decision remain blockers.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

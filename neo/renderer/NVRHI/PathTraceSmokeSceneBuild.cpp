@@ -5981,6 +5981,222 @@ std::vector<uint32_t> BuildUniqueMaterialIdsPreservingOrder(const std::vector<ui
     return uniqueIds;
 }
 
+struct RtSmokeStaticBucketFramePublication
+{
+    bool enabled = false;
+    bool auditRequested = false;
+    bool blasEnabled = false;
+    bool activeMaskValid = false;
+    bool shaderRouteUploaded = false;
+    int portalAreaCount = 0;
+    int maxVerticesPerBucket = 0;
+    int maxIndexesPerBucket = 0;
+    int maxTrianglesPerBucket = 0;
+    int missingActiveMaterialIndexes = 0;
+    uint64 sourceGeneration = 0;
+    RtPathTraceSceneUniverseBuildStats sourceBuildStats;
+    RtSmokeGeometryUniverseStats universeStats;
+    RtSmokeStaticBucketAssignmentPlan assignmentPlan;
+    RtSmokeStaticBucketGeometryPack geometryPack;
+    std::vector<uint32_t> materialIndexes;
+    RtPathTraceStaticBucketBlasGpuStats gpuStats;
+    RtSmokeStaticBucketWorkPlan shadowWorkPlan;
+    RtPathTraceStaticBucketActivePublication activePublication;
+};
+
+RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
+    const viewDef_t* viewDef,
+    RtPathTraceSceneUniverse& sceneUniverse,
+    RtSmokeGeometryUniverse& staticBucketGeometryUniverse,
+    const std::vector<uint32_t>& materialIds,
+    nvrhi::IDevice* device,
+    nvrhi::ICommandList* commandList,
+    uint64 frameIndex,
+    ID_TIME_T mapTimeStamp)
+{
+    OPTICK_EVENT("PT Static Bucket Frame Publication");
+
+    RtSmokeStaticBucketFramePublication frame;
+    frame.auditRequested =
+        r_pathTracingGeometryStaticBucketAudit.GetInteger() != 0;
+    frame.blasEnabled =
+        r_pathTracingGeometryStaticBucketBlas.GetInteger() != 0;
+    frame.enabled = frame.auditRequested || frame.blasEnabled;
+    if (!frame.enabled)
+    {
+        if (!staticBucketGeometryUniverse.StaticSurfaceRecords().empty())
+        {
+            staticBucketGeometryUniverse.Clear();
+        }
+        return frame;
+    }
+
+    RtSmokeSurfaceClassStats classStats;
+    RtSmokeSurfaceSkipStats skipStats;
+    RtSmokeAttributeStats attributeStats;
+    RtSmokeMaterialStats materialStats;
+    RtSmokeBucketRanges ranges;
+    staticBucketGeometryUniverse.BeginFrame(frameIndex, viewDef ? viewDef->renderWorld : nullptr);
+    frame.sourceBuildStats = sceneUniverse.BuildFullStaticBucketGeometry(
+        viewDef,
+        staticBucketGeometryUniverse,
+        classStats,
+        skipStats,
+        attributeStats,
+        materialStats,
+        ranges);
+    staticBucketGeometryUniverse.EndFrame();
+
+    std::vector<bool> activeAreas;
+    frame.activeMaskValid = sceneUniverse.BuildPortalAreaActiveMask(
+        viewDef,
+        idMath::ClampInt(
+            0,
+            8,
+            r_pathTracingGeometryStaticBucketPortalSteps.GetInteger()),
+        activeAreas);
+    frame.portalAreaCount =
+        viewDef && viewDef->renderWorld
+            ? viewDef->renderWorld->NumAreas()
+            : 0;
+    frame.maxVerticesPerBucket = Max(
+        1,
+        r_pathTracingGeometryStaticBucketMaxVertices.GetInteger());
+    frame.maxIndexesPerBucket = Max(
+        3,
+        r_pathTracingGeometryStaticBucketMaxIndexes.GetInteger());
+    frame.maxTrianglesPerBucket = Max(
+        1,
+        r_pathTracingGeometryStaticBucketMaxTriangles.GetInteger());
+    frame.sourceGeneration = sceneUniverse.GetStats().generation;
+    frame.universeStats =
+        staticBucketGeometryUniverse.GetStats(true);
+    frame.assignmentPlan =
+        staticBucketGeometryUniverse.BuildStaticBucketAssignmentPlan(
+            static_cast<uint64>(mapTimeStamp),
+            frame.sourceGeneration,
+            frame.portalAreaCount,
+            frame.maxVerticesPerBucket,
+            frame.maxIndexesPerBucket,
+            frame.maxTrianglesPerBucket,
+            frame.activeMaskValid ? &activeAreas : nullptr);
+    frame.geometryPack =
+        staticBucketGeometryUniverse.BuildStaticBucketGeometryPack(
+            frame.assignmentPlan);
+
+    std::unordered_map<uint32_t, uint32_t> materialIndexById;
+    materialIndexById.reserve(materialIds.size());
+    for (uint32_t materialIndex = 0;
+         materialIndex < materialIds.size();
+         ++materialIndex)
+    {
+        materialIndexById.emplace(
+            materialIds[materialIndex],
+            materialIndex);
+    }
+    frame.materialIndexes.assign(
+        frame.geometryPack.triangleMaterials.size(),
+        UINT32_MAX);
+    for (size_t triangleIndex = 0;
+         triangleIndex < frame.geometryPack.triangleMaterials.size();
+         ++triangleIndex)
+    {
+        const auto materialIndex = materialIndexById.find(
+            frame.geometryPack.triangleMaterials[triangleIndex]);
+        if (materialIndex != materialIndexById.end())
+        {
+            frame.materialIndexes[triangleIndex] =
+                materialIndex->second;
+        }
+    }
+
+    for (const RtSmokeStaticBucketPackedRecord& bucket :
+         frame.geometryPack.buckets)
+    {
+        if (!bucket.active ||
+            bucket.range.triangleOffset < 0 ||
+            bucket.range.triangleCount <= 0)
+        {
+            continue;
+        }
+        const size_t firstTriangle =
+            static_cast<size_t>(bucket.range.triangleOffset);
+        const size_t endTriangle =
+            firstTriangle +
+            static_cast<size_t>(bucket.range.triangleCount);
+        if (endTriangle > frame.materialIndexes.size())
+        {
+            frame.missingActiveMaterialIndexes +=
+                bucket.range.triangleCount;
+            continue;
+        }
+        frame.missingActiveMaterialIndexes +=
+            static_cast<int>(std::count(
+                frame.materialIndexes.begin() + firstTriangle,
+                frame.materialIndexes.begin() + endTriangle,
+                UINT32_MAX));
+    }
+
+    const bool submitBuilds =
+        frame.blasEnabled &&
+        r_pathTracingGeometryStaticBucketBlasBuild.GetInteger() != 0;
+    frame.gpuStats =
+        staticBucketGeometryUniverse.UpdateStaticBucketBlasGpuScaffold(
+            device,
+            commandList,
+            frame.geometryPack,
+            frame.blasEnabled,
+            submitBuilds,
+            idMath::ClampInt(
+                0,
+                1024,
+                r_pathTracingGeometryStaticBucketBlasBuildLimit.GetInteger()),
+            r_pathTracingGeometryStaticBucketBlasForceRebuild.GetInteger() != 0);
+
+    std::vector<RtSmokeStaticTlasBucketObservation> tlasObservations;
+    staticBucketGeometryUniverse.BuildStaticBucketTlasObservations(
+        frame.geometryPack,
+        tlasObservations);
+    RtSmokeStaticBucketWorkPlanInput workInput;
+    workInput.buckets =
+        tlasObservations.empty() ? nullptr : tlasObservations.data();
+    workInput.bucketCount =
+        static_cast<int>(tlasObservations.size());
+    workInput.geometryContentSignature =
+        frame.geometryPack.contentSignature;
+    workInput.materialGeneration =
+        frame.universeStats.staticMaterialGeneration;
+    workInput.totalVertexCount =
+        frame.geometryPack.stats.packedVertices;
+    workInput.totalIndexCount =
+        frame.geometryPack.stats.packedIndexes;
+    workInput.totalTriangleCount =
+        frame.geometryPack.stats.packedTriangles;
+    workInput.monolithicStaticBlas = false;
+    workInput.hasStaticBlas = frame.gpuStats.readyBuckets > 0;
+    workInput.enableStaticRoutes = true;
+    workInput.shaderSupportsStaticBucketRoutes = false;
+    frame.shadowWorkPlan = BuildSmokeStaticBucketWorkPlan(workInput);
+
+    frame.activePublication =
+        staticBucketGeometryUniverse.BuildStaticBucketActivePublication(
+            frame.geometryPack,
+            frame.sourceGeneration,
+            frame.universeStats.staticGeometryGeneration,
+            frame.universeStats.staticMaterialGeneration,
+            frame.missingActiveMaterialIndexes,
+            RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE,
+            0x01u);
+    frame.shaderRouteUploaded =
+        staticBucketGeometryUniverse.UpdateStaticBucketShaderRouteGpuScaffold(
+            device,
+            commandList,
+            frame.geometryPack,
+            frame.materialIndexes,
+            frame.activePublication);
+    return frame;
+}
+
 }
 
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
@@ -7778,6 +7994,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Material Diagnostic Triggers");
         RunSmokeMaterialDiagnosticTriggers(materialDiagnosticDesc);
     }
+
+    const RtSmokeStaticBucketFramePublication
+        staticBucketFramePublication =
+            BuildSmokeStaticBucketFramePublication(
+                viewDef,
+                m_sceneUniverse,
+                m_staticBucketGeometryUniverse,
+                materialTable.materialIds,
+                device,
+                commandList,
+                m_smokeGeometryFrameIndex,
+                m_smokeSceneMapTimeStamp);
 
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
     const int emissiveStartMs = Sys_Milliseconds();
@@ -11974,6 +12202,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.skinnedTriangleDispatchIndexBuffer = smokeSkinnedTriangleDispatchIndexBuffer;
     sceneInputs.geometry.skinnedCurrentJointMatrixBuffer = smokeSkinnedCurrentJointMatrixBuffer;
     sceneInputs.geometry.skinnedPreviousJointMatrixBuffer = smokeSkinnedPreviousJointMatrixBuffer;
+    sceneInputs.geometry.staticBucketRouteFirstInstanceId =
+        RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE;
+    sceneInputs.geometry.staticBucketRouteCount =
+        staticBucketFramePublication.activePublication.valid &&
+                staticBucketFramePublication.shaderRouteUploaded
+            ? static_cast<uint32_t>(
+                staticBucketFramePublication.
+                    activePublication.routeRecords.size())
+            : 0u;
+    sceneInputs.geometry.staticBucketRouteGeneration =
+        sceneInputs.geometry.staticBucketRouteCount > 0
+            ? staticBucketFramePublication.
+                activePublication.publicationGeneration
+            : 0u;
+    sceneInputs.geometry.staticBucketRoutePublicationValid =
+        sceneInputs.geometry.staticBucketRouteCount > 0 &&
+        staticBucketFramePublication.activePublication.valid &&
+        staticBucketFramePublication.shaderRouteUploaded;
     sceneInputs.geometry.staticVertexCount = staticVertexCacheCount;
     sceneInputs.geometry.staticIndexCount = staticIndexCacheCount;
     sceneInputs.geometry.staticTriangleCount = staticTriangleCacheCount;
@@ -12355,235 +12601,51 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         OPTICK_EVENT("PT BVH Frame Planning");
     const bool staticBucketAuditRequested =
-        r_pathTracingGeometryStaticBucketAudit.GetInteger() != 0;
+        staticBucketFramePublication.auditRequested;
     const bool staticBucketBlasEnabled =
-        r_pathTracingGeometryStaticBucketBlas.GetInteger() != 0;
-    if (staticBucketAuditRequested || staticBucketBlasEnabled)
+        staticBucketFramePublication.blasEnabled;
+    if (staticBucketFramePublication.enabled)
     {
-        RtSmokeSurfaceClassStats staticBucketClassStats;
-        RtSmokeSurfaceSkipStats staticBucketSkipStats;
-        RtSmokeAttributeStats staticBucketAttributeStats;
-        RtSmokeMaterialStats staticBucketMaterialStats;
-        RtSmokeBucketRanges staticBucketRanges;
-        m_staticBucketGeometryUniverse.BeginFrame(
-            m_smokeGeometryFrameIndex,
-            renderWorld);
-        const RtPathTraceSceneUniverseBuildStats
+        const RtPathTraceSceneUniverseBuildStats&
             staticBucketSourceBuildStats =
-                m_sceneUniverse.BuildFullStaticBucketGeometry(
-                    viewDef,
-                    m_staticBucketGeometryUniverse,
-                    staticBucketClassStats,
-                    staticBucketSkipStats,
-                    staticBucketAttributeStats,
-                    staticBucketMaterialStats,
-                    staticBucketRanges);
-        m_staticBucketGeometryUniverse.EndFrame();
-        std::vector<bool> staticBucketActiveAreas;
+                staticBucketFramePublication.sourceBuildStats;
         const bool staticBucketActiveMaskValid =
-            m_sceneUniverse.BuildPortalAreaActiveMask(
-                viewDef,
-                idMath::ClampInt(
-                    0,
-                    8,
-                    r_pathTracingGeometryStaticBucketPortalSteps.
-                        GetInteger()),
-                staticBucketActiveAreas);
+            staticBucketFramePublication.activeMaskValid;
         const int portalAreaCount =
-            viewDef && viewDef->renderWorld
-                ? viewDef->renderWorld->NumAreas()
-                : 0;
-        const int maxVerticesPerBucket = Max(
-            1,
-            r_pathTracingGeometryStaticBucketMaxVertices.GetInteger());
-        const int maxIndexesPerBucket = Max(
-            3,
-            r_pathTracingGeometryStaticBucketMaxIndexes.GetInteger());
-        const int maxTrianglesPerBucket = Max(
-            1,
-            r_pathTracingGeometryStaticBucketMaxTriangles.GetInteger());
+            staticBucketFramePublication.portalAreaCount;
+        const int maxVerticesPerBucket =
+            staticBucketFramePublication.maxVerticesPerBucket;
+        const int maxIndexesPerBucket =
+            staticBucketFramePublication.maxIndexesPerBucket;
+        const int maxTrianglesPerBucket =
+            staticBucketFramePublication.maxTrianglesPerBucket;
         const uint64 staticBucketSourceGeneration =
-            m_sceneUniverse.GetStats().generation;
-        const RtSmokeGeometryUniverseStats
+            staticBucketFramePublication.sourceGeneration;
+        const RtSmokeGeometryUniverseStats&
             staticBucketUniverseStats =
-                m_staticBucketGeometryUniverse.GetStats(true);
-        const RtSmokeStaticBucketAssignmentPlan assignmentPlan =
-            m_staticBucketGeometryUniverse.BuildStaticBucketAssignmentPlan(
-                static_cast<uint64>(m_smokeSceneMapTimeStamp),
-                staticBucketSourceGeneration,
-                portalAreaCount,
-                maxVerticesPerBucket,
-                maxIndexesPerBucket,
-                maxTrianglesPerBucket,
-                staticBucketActiveMaskValid
-                    ? &staticBucketActiveAreas
-                    : nullptr);
+                staticBucketFramePublication.universeStats;
+        const RtSmokeStaticBucketAssignmentPlan& assignmentPlan =
+            staticBucketFramePublication.assignmentPlan;
         const RtSmokeStaticBucketAssignmentStats& assignmentStats =
             assignmentPlan.stats;
-        const RtSmokeStaticBucketGeometryPack geometryPack =
-            m_staticBucketGeometryUniverse.BuildStaticBucketGeometryPack(
-                assignmentPlan);
+        const RtSmokeStaticBucketGeometryPack& geometryPack =
+            staticBucketFramePublication.geometryPack;
         const RtSmokeStaticBucketGeometryPackStats& packStats =
             geometryPack.stats;
-        std::unordered_map<uint32_t, uint32_t>
-            staticBucketMaterialIndexById;
-        staticBucketMaterialIndexById.reserve(
-            materialTable.materialIds.size());
-        for (uint32_t materialIndex = 0;
-            materialIndex < materialTable.materialIds.size();
-            ++materialIndex)
-        {
-            staticBucketMaterialIndexById.emplace(
-                materialTable.materialIds[materialIndex],
-                materialIndex);
-        }
-        std::vector<uint32_t> staticBucketMaterialIndexes(
-            geometryPack.triangleMaterials.size(),
-            UINT32_MAX);
-        for (size_t triangleIndex = 0;
-            triangleIndex <
-                geometryPack.triangleMaterials.size();
-            ++triangleIndex)
-        {
-            const auto materialIndex =
-                staticBucketMaterialIndexById.find(
-                    geometryPack.triangleMaterials[
-                        triangleIndex]);
-            if (materialIndex !=
-                staticBucketMaterialIndexById.end())
-            {
-                staticBucketMaterialIndexes[triangleIndex] =
-                    materialIndex->second;
-            }
-        }
-        int staticBucketMissingActiveMaterialIndexes = 0;
-        for (const RtSmokeStaticBucketPackedRecord& bucket :
-            geometryPack.buckets)
-        {
-            if (!bucket.active ||
-                bucket.range.triangleOffset < 0 ||
-                bucket.range.triangleCount <= 0)
-            {
-                continue;
-            }
-            const size_t firstTriangle =
-                static_cast<size_t>(
-                    bucket.range.triangleOffset);
-            const size_t endTriangle =
-                firstTriangle +
-                static_cast<size_t>(
-                    bucket.range.triangleCount);
-            if (endTriangle >
-                staticBucketMaterialIndexes.size())
-            {
-                staticBucketMissingActiveMaterialIndexes +=
-                    bucket.range.triangleCount;
-                continue;
-            }
-            staticBucketMissingActiveMaterialIndexes +=
-                static_cast<int>(std::count(
-                    staticBucketMaterialIndexes.begin() +
-                        firstTriangle,
-                    staticBucketMaterialIndexes.begin() +
-                        endTriangle,
-                    UINT32_MAX));
-        }
-        const bool staticBucketSubmitBuilds =
-            staticBucketBlasEnabled &&
-            r_pathTracingGeometryStaticBucketBlasBuild.
-                GetInteger() != 0;
-        const RtPathTraceStaticBucketBlasGpuStats
+        const int staticBucketMissingActiveMaterialIndexes =
+            staticBucketFramePublication.
+                missingActiveMaterialIndexes;
+        const RtPathTraceStaticBucketBlasGpuStats&
             staticBucketGpuStats =
-                m_staticBucketGeometryUniverse.
-                    UpdateStaticBucketBlasGpuScaffold(
-                        device,
-                        commandList,
-                        geometryPack,
-                        staticBucketBlasEnabled,
-                        staticBucketSubmitBuilds,
-                        idMath::ClampInt(
-                            0,
-                            1024,
-                            r_pathTracingGeometryStaticBucketBlasBuildLimit.
-                                GetInteger()),
-                        r_pathTracingGeometryStaticBucketBlasForceRebuild.
-                            GetInteger() != 0);
-        std::vector<RtSmokeStaticTlasBucketObservation>
-            staticBucketTlasObservations;
-        m_staticBucketGeometryUniverse.
-            BuildStaticBucketTlasObservations(
-                geometryPack,
-                staticBucketTlasObservations);
-        RtSmokeStaticBucketWorkPlanInput
-            staticBucketShadowWorkInput;
-        staticBucketShadowWorkInput.buckets =
-            staticBucketTlasObservations.empty()
-                ? nullptr
-                : staticBucketTlasObservations.data();
-        staticBucketShadowWorkInput.bucketCount =
-            static_cast<int>(
-                staticBucketTlasObservations.size());
-        staticBucketShadowWorkInput.geometryContentSignature =
-            geometryPack.contentSignature;
-        staticBucketShadowWorkInput.materialGeneration =
-            staticBucketUniverseStats.staticMaterialGeneration;
-        staticBucketShadowWorkInput.totalVertexCount =
-            packStats.packedVertices;
-        staticBucketShadowWorkInput.totalIndexCount =
-            packStats.packedIndexes;
-        staticBucketShadowWorkInput.totalTriangleCount =
-            packStats.packedTriangles;
-        staticBucketShadowWorkInput.monolithicStaticBlas = false;
-        staticBucketShadowWorkInput.hasStaticBlas =
-            staticBucketGpuStats.readyBuckets > 0;
-        staticBucketShadowWorkInput.enableStaticRoutes = true;
-        staticBucketShadowWorkInput.
-            shaderSupportsStaticBucketRoutes = false;
-        const RtSmokeStaticBucketWorkPlan
+                staticBucketFramePublication.gpuStats;
+        const RtSmokeStaticBucketWorkPlan&
             staticBucketShadowWorkPlan =
-                BuildSmokeStaticBucketWorkPlan(
-                    staticBucketShadowWorkInput);
-        const RtPathTraceStaticBucketActivePublication
+                staticBucketFramePublication.shadowWorkPlan;
+        const RtPathTraceStaticBucketActivePublication&
             staticBucketActivePublication =
-                m_staticBucketGeometryUniverse.
-                    BuildStaticBucketActivePublication(
-                        geometryPack,
-                        staticBucketSourceGeneration,
-                        staticBucketUniverseStats.
-                            staticGeometryGeneration,
-                        staticBucketUniverseStats.
-                            staticMaterialGeneration,
-                        staticBucketMissingActiveMaterialIndexes,
-                        RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE,
-                        0x01u);
+                staticBucketFramePublication.activePublication;
         const bool staticBucketShaderRouteUploaded =
-            m_staticBucketGeometryUniverse.
-                UpdateStaticBucketShaderRouteGpuScaffold(
-                    device,
-                    commandList,
-                    geometryPack,
-                    staticBucketMaterialIndexes,
-                    staticBucketActivePublication);
-        m_sceneInputs.geometry.staticBucketRouteFirstInstanceId =
-            RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE;
-        m_sceneInputs.geometry.staticBucketRouteCount =
-            staticBucketActivePublication.valid &&
-                    staticBucketShaderRouteUploaded
-                ? static_cast<uint32_t>(
-                    staticBucketActivePublication.
-                        routeRecords.size())
-                : 0u;
-        m_sceneInputs.geometry.staticBucketRouteGeneration =
-            m_sceneInputs.geometry.staticBucketRouteCount > 0
-                ? staticBucketActivePublication.
-                    publicationGeneration
-                : 0u;
-        m_sceneInputs.geometry.
-            staticBucketRoutePublicationValid =
-                m_sceneInputs.geometry.
-                        staticBucketRouteCount > 0 &&
-                    staticBucketActivePublication.valid &&
-                    staticBucketShaderRouteUploaded;
+            staticBucketFramePublication.shaderRouteUploaded;
         if (staticBucketAuditRequested ||
             staticBucketGpuStats.buffersCreated > 0 ||
             staticBucketGpuStats.bufferUploads > 0 ||
@@ -12764,17 +12826,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         r_pathTracingGeometryStaticBucketAudit.SetInteger(0);
         }
-    }
-    else if (!m_staticBucketGeometryUniverse.
-        StaticSurfaceRecords().empty())
-    {
-        m_staticBucketGeometryUniverse.Clear();
-        m_sceneInputs.geometry.staticBucketRouteFirstInstanceId =
-            0u;
-        m_sceneInputs.geometry.staticBucketRouteCount = 0u;
-        m_sceneInputs.geometry.staticBucketRouteGeneration = 0u;
-        m_sceneInputs.geometry.
-            staticBucketRoutePublicationValid = false;
     }
     std::vector<RtSmokeStaticTlasBucketObservation> staticActiveBuckets;
     m_smokeGeometryUniverse.BuildStaticTlasBucketObservations(
