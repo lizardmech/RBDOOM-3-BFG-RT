@@ -686,6 +686,368 @@ RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
     return plan;
 }
 
+RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
+    const RtSmokeStaticBucketGeometryPackDesc& desc)
+{
+    RtSmokeStaticBucketGeometryPack pack;
+    pack.contentSignature = 1469598103934665603ull;
+    const RtSmokeStaticBucketAssignmentPlan* assignmentPlan =
+        desc.assignmentPlan;
+    if (!assignmentPlan ||
+        !desc.vertices ||
+        desc.vertexStride == 0 ||
+        desc.totalVertexCount <= 0 ||
+        !desc.indexes ||
+        desc.totalIndexCount <= 0 ||
+        !desc.triangleClasses ||
+        !desc.triangleMaterials ||
+        desc.totalTriangleCount <= 0)
+    {
+        return pack;
+    }
+
+    pack.stats.inputBuckets =
+        static_cast<int>(assignmentPlan->buckets.size());
+    pack.stats.inputAssignments =
+        static_cast<int>(assignmentPlan->assignments.size());
+    pack.buckets.reserve(assignmentPlan->buckets.size());
+    pack.indexes.reserve(
+        static_cast<size_t>(
+            assignmentPlan->stats.assignedPrimitives) * 3);
+    pack.triangleClasses.reserve(
+        assignmentPlan->stats.assignedPrimitives);
+    pack.triangleMaterials.reserve(
+        assignmentPlan->stats.assignedPrimitives);
+    pack.triangleIdentities.reserve(
+        assignmentPlan->stats.assignedPrimitives);
+
+    const uint8_t* sourceVertexBytes =
+        static_cast<const uint8_t*>(desc.vertices);
+    for (size_t bucketIndex = 0;
+        bucketIndex < assignmentPlan->buckets.size();
+        ++bucketIndex)
+    {
+        const RtSmokeStaticBucketAssignmentBucket& sourceBucket =
+            assignmentPlan->buckets[bucketIndex];
+        const uint64_t assignmentEnd =
+            static_cast<uint64_t>(sourceBucket.firstAssignment) +
+            sourceBucket.assignmentCount;
+        if (sourceBucket.assignmentCount == 0 ||
+            sourceBucket.firstAssignment >
+                assignmentPlan->assignments.size() ||
+            assignmentEnd > assignmentPlan->assignments.size())
+        {
+            ++pack.stats.invalidBucketRanges;
+            continue;
+        }
+
+        RtSmokeStaticBucketPackedRecord bucket;
+        bucket.bucketKey = sourceBucket.bucketKey;
+        bucket.portalArea = sourceBucket.portalArea;
+        bucket.splitIndex = sourceBucket.splitIndex;
+        bucket.firstAssignment = sourceBucket.firstAssignment;
+        bucket.assignmentCount = sourceBucket.assignmentCount;
+        bucket.range.vertexOffset =
+            static_cast<int>(pack.vertexBytes.size() /
+                desc.vertexStride);
+        bucket.range.indexOffset =
+            static_cast<int>(pack.indexes.size());
+        bucket.range.triangleOffset =
+            static_cast<int>(pack.triangleClasses.size());
+        bucket.vertexByteOffset =
+            static_cast<uint64_t>(pack.vertexBytes.size());
+        bucket.indexByteOffset =
+            static_cast<uint64_t>(pack.indexes.size()) *
+            sizeof(uint32_t);
+        bucket.triangleMetadataByteOffset =
+            static_cast<uint64_t>(pack.triangleClasses.size()) *
+            sizeof(uint32_t);
+        bucket.active = sourceBucket.active;
+        bucket.oversized = sourceBucket.oversized;
+
+        const int packedSurfacesBeforeBucket =
+            pack.stats.packedSurfaces;
+        bool bucketValid = true;
+        for (uint32_t assignmentOffset = 0;
+            assignmentOffset < sourceBucket.assignmentCount;
+            ++assignmentOffset)
+        {
+            const uint32_t assignmentIndex =
+                sourceBucket.firstAssignment + assignmentOffset;
+            const RtSmokeStaticBucketAssignment& assignment =
+                assignmentPlan->assignments[assignmentIndex];
+            const RtSmokePlanGeometryRange& sourceRange =
+                assignment.sourceRange;
+            if (assignment.bucketIndex != bucketIndex)
+            {
+                ++pack.stats.invalidAssignments;
+                bucketValid = false;
+                break;
+            }
+            if (!PlanRangeValid(
+                    sourceRange.vertexOffset,
+                    sourceRange.vertexCount,
+                    desc.totalVertexCount) ||
+                !PlanRangeValid(
+                    sourceRange.indexOffset,
+                    sourceRange.indexCount,
+                    desc.totalIndexCount) ||
+                !PlanRangeValid(
+                    sourceRange.triangleOffset,
+                    sourceRange.triangleCount,
+                    desc.totalTriangleCount) ||
+                sourceRange.vertexCount <= 0 ||
+                sourceRange.indexCount <= 0 ||
+                sourceRange.triangleCount <= 0 ||
+                sourceRange.indexCount !=
+                    sourceRange.triangleCount * 3)
+            {
+                ++pack.stats.sourceRangeMismatches;
+                bucketValid = false;
+                break;
+            }
+
+            const uint32_t expectedLocalPrimitiveOffset =
+                static_cast<uint32_t>(
+                    pack.triangleClasses.size() -
+                    static_cast<size_t>(
+                        bucket.range.triangleOffset));
+            if (assignment.localPrimitiveOffset !=
+                expectedLocalPrimitiveOffset)
+            {
+                ++pack.stats.localPrimitiveOffsetErrors;
+                bucketValid = false;
+                break;
+            }
+
+            const size_t sourceVertexByteOffset =
+                static_cast<size_t>(sourceRange.vertexOffset) *
+                desc.vertexStride;
+            const size_t sourceVertexByteSize =
+                static_cast<size_t>(sourceRange.vertexCount) *
+                desc.vertexStride;
+            const uint32_t packedSurfaceVertexOffset =
+                static_cast<uint32_t>(
+                    pack.vertexBytes.size() /
+                    desc.vertexStride);
+            pack.vertexBytes.insert(
+                pack.vertexBytes.end(),
+                sourceVertexBytes + sourceVertexByteOffset,
+                sourceVertexBytes + sourceVertexByteOffset +
+                    sourceVertexByteSize);
+
+            const uint32_t sourceVertexBegin =
+                static_cast<uint32_t>(sourceRange.vertexOffset);
+            const uint32_t sourceVertexEnd =
+                sourceVertexBegin +
+                static_cast<uint32_t>(sourceRange.vertexCount);
+            for (int sourceIndexOffset = 0;
+                sourceIndexOffset < sourceRange.indexCount;
+                ++sourceIndexOffset)
+            {
+                const uint32_t sourceIndex =
+                    desc.indexes[
+                        sourceRange.indexOffset +
+                        sourceIndexOffset];
+                if (sourceIndex < sourceVertexBegin ||
+                    sourceIndex >= sourceVertexEnd)
+                {
+                    ++pack.stats.indexRangeErrors;
+                    bucketValid = false;
+                    break;
+                }
+                pack.indexes.push_back(
+                    packedSurfaceVertexOffset +
+                    (sourceIndex - sourceVertexBegin));
+            }
+            if (!bucketValid)
+            {
+                break;
+            }
+
+            pack.triangleClasses.insert(
+                pack.triangleClasses.end(),
+                desc.triangleClasses +
+                    sourceRange.triangleOffset,
+                desc.triangleClasses +
+                    sourceRange.triangleOffset +
+                    sourceRange.triangleCount);
+            pack.triangleMaterials.insert(
+                pack.triangleMaterials.end(),
+                desc.triangleMaterials +
+                    sourceRange.triangleOffset,
+                desc.triangleMaterials +
+                    sourceRange.triangleOffset +
+                    sourceRange.triangleCount);
+            for (int sourcePrimitiveIndex = 0;
+                sourcePrimitiveIndex <
+                    sourceRange.triangleCount;
+                ++sourcePrimitiveIndex)
+            {
+                RtSmokeStaticBucketTriangleIdentity identity;
+                identity.surfaceKey = assignment.surfaceKey;
+                identity.sourceRecordIndex =
+                    assignment.sourceRecordIndex;
+                identity.sourcePrimitiveIndex =
+                    static_cast<uint32_t>(sourcePrimitiveIndex);
+                pack.triangleIdentities.push_back(identity);
+            }
+            ++pack.stats.packedSurfaces;
+        }
+
+        if (!bucketValid)
+        {
+            pack.vertexBytes.resize(
+                static_cast<size_t>(bucket.vertexByteOffset));
+            pack.indexes.resize(
+                static_cast<size_t>(
+                    bucket.indexByteOffset /
+                    sizeof(uint32_t)));
+            pack.triangleClasses.resize(
+                static_cast<size_t>(
+                    bucket.triangleMetadataByteOffset /
+                    sizeof(uint32_t)));
+            pack.triangleMaterials.resize(
+                pack.triangleClasses.size());
+            pack.triangleIdentities.resize(
+                pack.triangleClasses.size());
+            pack.stats.packedSurfaces =
+                packedSurfacesBeforeBucket;
+            continue;
+        }
+
+        bucket.range.vertexCount =
+            static_cast<int>(
+                pack.vertexBytes.size() /
+                desc.vertexStride) -
+            bucket.range.vertexOffset;
+        bucket.range.indexCount =
+            static_cast<int>(pack.indexes.size()) -
+            bucket.range.indexOffset;
+        bucket.range.triangleCount =
+            static_cast<int>(pack.triangleClasses.size()) -
+            bucket.range.triangleOffset;
+        bucket.vertexByteSize =
+            static_cast<uint64_t>(bucket.range.vertexCount) *
+            desc.vertexStride;
+        bucket.indexByteSize =
+            static_cast<uint64_t>(bucket.range.indexCount) *
+            sizeof(uint32_t);
+        bucket.triangleMetadataByteSize =
+            static_cast<uint64_t>(bucket.range.triangleCount) *
+            sizeof(uint32_t);
+        if (bucket.range.vertexCount != sourceBucket.vertexCount ||
+            bucket.range.indexCount != sourceBucket.indexCount ||
+            bucket.range.triangleCount !=
+                sourceBucket.triangleCount)
+        {
+            ++pack.stats.countMismatches;
+        }
+        pack.buckets.push_back(bucket);
+    }
+
+    pack.stats.packedBuckets =
+        static_cast<int>(pack.buckets.size());
+    pack.stats.packedVertices =
+        static_cast<int>(
+            pack.vertexBytes.size() / desc.vertexStride);
+    pack.stats.packedIndexes =
+        static_cast<int>(pack.indexes.size());
+    pack.stats.packedTriangles =
+        static_cast<int>(pack.triangleClasses.size());
+    if (pack.triangleClasses.size() !=
+            pack.triangleMaterials.size() ||
+        pack.triangleClasses.size() !=
+            pack.triangleIdentities.size() ||
+        pack.stats.packedSurfaces !=
+            assignmentPlan->stats.assignedSurfaces ||
+        pack.stats.packedTriangles !=
+            assignmentPlan->stats.assignedPrimitives)
+    {
+        ++pack.stats.countMismatches;
+    }
+
+    pack.contentSignature = HashSmokePlanBytes(
+        pack.contentSignature,
+        &desc.vertexStride,
+        sizeof(desc.vertexStride));
+    if (!pack.vertexBytes.empty())
+    {
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            pack.vertexBytes.data(),
+            pack.vertexBytes.size());
+    }
+    if (!pack.indexes.empty())
+    {
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            pack.indexes.data(),
+            pack.indexes.size() * sizeof(pack.indexes[0]));
+    }
+    if (!pack.triangleClasses.empty())
+    {
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            pack.triangleClasses.data(),
+            pack.triangleClasses.size() *
+                sizeof(pack.triangleClasses[0]));
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            pack.triangleMaterials.data(),
+            pack.triangleMaterials.size() *
+                sizeof(pack.triangleMaterials[0]));
+    }
+    for (const RtSmokeStaticBucketPackedRecord& bucket :
+        pack.buckets)
+    {
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            &bucket.bucketKey,
+            sizeof(bucket.bucketKey));
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            &bucket.portalArea,
+            sizeof(bucket.portalArea));
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            &bucket.splitIndex,
+            sizeof(bucket.splitIndex));
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            &bucket.range,
+            sizeof(bucket.range));
+    }
+    for (const RtSmokeStaticBucketTriangleIdentity& identity :
+        pack.triangleIdentities)
+    {
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            &identity.surfaceKey,
+            sizeof(identity.surfaceKey));
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            &identity.sourceRecordIndex,
+            sizeof(identity.sourceRecordIndex));
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            &identity.sourcePrimitiveIndex,
+            sizeof(identity.sourcePrimitiveIndex));
+    }
+
+    pack.exact =
+        assignmentPlan->exactCoverage &&
+        pack.stats.packedBuckets == pack.stats.inputBuckets &&
+        pack.stats.packedSurfaces == pack.stats.inputAssignments &&
+        pack.stats.invalidBucketRanges == 0 &&
+        pack.stats.invalidAssignments == 0 &&
+        pack.stats.sourceRangeMismatches == 0 &&
+        pack.stats.indexRangeErrors == 0 &&
+        pack.stats.localPrimitiveOffsetErrors == 0 &&
+        pack.stats.countMismatches == 0;
+    return pack;
+}
+
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc)
 {

@@ -14,7 +14,7 @@ PRECONDITIONS
 
 IMPLEMENTATION STATUS
 ---------------------
-Steps 1 and 2 are complete in shadow mode. Static world records now carry the
+Steps 1 through 3 are complete in shadow mode. Static world records now carry the
 authoritative `_areaN` owner assigned by AddWorldModelEntities. The CPU-only
 assignment planner uses world/area/split/source/storage identity, deterministic
 ordering, bounded splitting, explicit fallback ownership, and exact duplicate,
@@ -24,9 +24,13 @@ counters.
 PathTraceCpuPlanningHarness passes the deterministic and failure cases.
 geometry_geo187_auto accepts 589/589 surfaces and 22,558/22,558 primitives
 across 14 active area buckets with every failure counter zero and a nonzero
-world/source/storage generation tuple. Production remains the monolithic static
-BLAS; `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
-See artifacts/GEO-10_entry_audit.txt.
+world/source/storage generation tuple. geometry_geo189_auto and
+geometry_geo190_auto then produce identical fresh-process assignment and
+packed-content signatures while copying all 26,926 vertices, 67,674 indexes,
+and 22,558 material/class/source-identity triangles into contiguous
+bucket-local ranges with all six packing failure counters zero. Production
+remains the monolithic static BLAS; `r_pathTracingGeometryStaticBucketAudit 1`
+is a one-shot shadow audit. See artifacts/GEO-10_entry_audit.txt.
 
 FILES TO AUDIT FIRST
 --------------------

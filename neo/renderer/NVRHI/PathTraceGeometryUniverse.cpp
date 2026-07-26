@@ -3063,6 +3063,24 @@ bool RtSmokeGeometryUniverse::RefreshStaticSurfacePortalArea(
     return true;
 }
 
+bool RtSmokeGeometryUniverse::RefreshStaticSurfaceBucketKey(
+    uint64 key,
+    uint64 bucketSurfaceKey)
+{
+    RtSmokePersistentStaticSurfaceRecord* record =
+        FindStaticSurfaceMutable(key);
+    if (!record || !record->valid ||
+        bucketSurfaceKey == 0 ||
+        record->bucketSurfaceKey == bucketSurfaceKey)
+    {
+        return false;
+    }
+
+    record->bucketSurfaceKey = bucketSurfaceKey;
+    ++m_generation;
+    return true;
+}
+
 bool RtSmokeGeometryUniverse::HasStaticSurface(uint64 key) const
 {
     return FindStaticSurface(key) != nullptr;
@@ -3112,10 +3130,15 @@ RtSmokeStaticSurfaceAppend RtSmokeGeometryUniverse::BeginStaticSurfaceAppend(
     uint32_t materialId,
     int vertexCount,
     int indexCount,
-    int portalArea) const
+    int portalArea,
+    uint64 bucketSurfaceKey) const
 {
     RtSmokeStaticSurfaceAppend append;
     append.key = key;
+    append.bucketSurfaceKey =
+        bucketSurfaceKey != 0
+            ? bucketSurfaceKey
+            : key;
     append.surfaceClassId = surfaceClassId;
     append.materialId = materialId;
     append.portalArea = portalArea;
@@ -3137,6 +3160,7 @@ void RtSmokeGeometryUniverse::CompleteStaticSurfaceAppend(const RtSmokeStaticSur
     RtSmokePersistentStaticSurfaceRecord record;
     record.valid = true;
     record.key = append.key;
+    record.bucketSurfaceKey = append.bucketSurfaceKey;
     record.surfaceClassId = append.surfaceClassId;
     record.materialId = append.materialId;
     record.portalArea = append.portalArea;
@@ -3261,7 +3285,10 @@ RtSmokeGeometryUniverse::BuildStaticBucketAssignmentPlan(
         const RtSmokePersistentStaticSurfaceRecord& record =
             m_staticSurfaceRecords[recordIndex];
         RtSmokeStaticBucketAssignmentSurface surface;
-        surface.surfaceKey = record.key;
+        surface.surfaceKey =
+            record.bucketSurfaceKey != 0
+                ? record.bucketSurfaceKey
+                : record.key;
         surface.sourceRecordIndex =
             static_cast<uint32_t>(recordIndex);
         surface.portalArea = record.portalArea;
@@ -3300,6 +3327,40 @@ RtSmokeGeometryUniverse::BuildStaticBucketAssignmentPlan(
     desc.maxIndexesPerBucket = maxIndexesPerBucket;
     desc.maxTrianglesPerBucket = maxTrianglesPerBucket;
     return ::BuildSmokeStaticBucketAssignmentPlan(desc);
+}
+
+RtSmokeStaticBucketGeometryPack
+RtSmokeGeometryUniverse::BuildStaticBucketGeometryPack(
+    const RtSmokeStaticBucketAssignmentPlan& assignmentPlan) const
+{
+    RtSmokeStaticBucketGeometryPackDesc desc;
+    desc.assignmentPlan = &assignmentPlan;
+    desc.vertices =
+        m_staticVertexCache.empty()
+            ? nullptr
+            : m_staticVertexCache.data();
+    desc.vertexStride = sizeof(PathTraceSmokeVertex);
+    desc.totalVertexCount =
+        static_cast<int>(m_staticVertexCache.size());
+    desc.indexes =
+        m_staticIndexCache.empty()
+            ? nullptr
+            : m_staticIndexCache.data();
+    desc.totalIndexCount =
+        static_cast<int>(m_staticIndexCache.size());
+    desc.triangleClasses =
+        m_staticTriangleClassCache.empty()
+            ? nullptr
+            : m_staticTriangleClassCache.data();
+    desc.triangleMaterials =
+        m_staticTriangleMaterialCache.empty()
+            ? nullptr
+            : m_staticTriangleMaterialCache.data();
+    desc.totalTriangleCount = static_cast<int>(
+        Min(
+            m_staticTriangleClassCache.size(),
+            m_staticTriangleMaterialCache.size()));
+    return ::BuildSmokeStaticBucketGeometryPack(desc);
 }
 
 std::vector<uint64>& RtSmokeGeometryUniverse::StaticSurfaceKeys()

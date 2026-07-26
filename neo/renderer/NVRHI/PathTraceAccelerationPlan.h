@@ -259,6 +259,74 @@ struct RtSmokeStaticBucketAssignmentPlan
     bool exactCoverage = false;
 };
 
+struct RtSmokeStaticBucketTriangleIdentity
+{
+    uint64_t surfaceKey = 0;
+    uint32_t sourceRecordIndex = std::numeric_limits<uint32_t>::max();
+    uint32_t sourcePrimitiveIndex = 0;
+};
+
+struct RtSmokeStaticBucketPackedRecord
+{
+    uint64_t bucketKey = 0;
+    int portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
+    uint32_t splitIndex = 0;
+    uint32_t firstAssignment = 0;
+    uint32_t assignmentCount = 0;
+    RtSmokePlanGeometryRange range;
+    uint64_t vertexByteOffset = 0;
+    uint64_t vertexByteSize = 0;
+    uint64_t indexByteOffset = 0;
+    uint64_t indexByteSize = 0;
+    uint64_t triangleMetadataByteOffset = 0;
+    uint64_t triangleMetadataByteSize = 0;
+    bool active = false;
+    bool oversized = false;
+};
+
+struct RtSmokeStaticBucketGeometryPackDesc
+{
+    const RtSmokeStaticBucketAssignmentPlan* assignmentPlan = nullptr;
+    const void* vertices = nullptr;
+    size_t vertexStride = 0;
+    int totalVertexCount = 0;
+    const uint32_t* indexes = nullptr;
+    int totalIndexCount = 0;
+    const uint32_t* triangleClasses = nullptr;
+    const uint32_t* triangleMaterials = nullptr;
+    int totalTriangleCount = 0;
+};
+
+struct RtSmokeStaticBucketGeometryPackStats
+{
+    int inputBuckets = 0;
+    int inputAssignments = 0;
+    int packedBuckets = 0;
+    int packedSurfaces = 0;
+    int packedVertices = 0;
+    int packedIndexes = 0;
+    int packedTriangles = 0;
+    int invalidBucketRanges = 0;
+    int invalidAssignments = 0;
+    int sourceRangeMismatches = 0;
+    int indexRangeErrors = 0;
+    int localPrimitiveOffsetErrors = 0;
+    int countMismatches = 0;
+};
+
+struct RtSmokeStaticBucketGeometryPack
+{
+    std::vector<RtSmokeStaticBucketPackedRecord> buckets;
+    std::vector<uint8_t> vertexBytes;
+    std::vector<uint32_t> indexes;
+    std::vector<uint32_t> triangleClasses;
+    std::vector<uint32_t> triangleMaterials;
+    std::vector<RtSmokeStaticBucketTriangleIdentity> triangleIdentities;
+    RtSmokeStaticBucketGeometryPackStats stats;
+    uint64_t contentSignature = 0;
+    bool exact = false;
+};
+
 struct RtSmokeStaticTlasBucketObservation
 {
     uint64_t bucketKey = 0;
@@ -921,6 +989,9 @@ RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
 
 RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
     const RtSmokeStaticBucketAssignmentPlanDesc& desc);
+
+RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
+    const RtSmokeStaticBucketGeometryPackDesc& desc);
 
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc);

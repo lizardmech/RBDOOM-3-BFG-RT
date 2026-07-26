@@ -1858,6 +1858,114 @@ void TestStaticBucketAssignmentPlan()
                 plan.buckets[0].bucketKey,
         "static bucket identity includes storage generation");
 
+    std::vector<HarnessSmokeVertex> packSourceVertices(11);
+    for (size_t vertexIndex = 0;
+        vertexIndex < packSourceVertices.size();
+        ++vertexIndex)
+    {
+        packSourceVertices[vertexIndex].position[0] =
+            static_cast<float>(vertexIndex);
+        packSourceVertices[vertexIndex].position[3] = 1.0f;
+    }
+    std::vector<uint32_t> packSourceIndexes = {
+        0, 1, 2, 0, 2, 3,
+        4, 5, 6, 4, 6, 7,
+        8, 9, 10
+    };
+    std::vector<uint32_t> packSourceClasses = {
+        101, 102, 201, 202, 301
+    };
+    std::vector<uint32_t> packSourceMaterials = {
+        11, 12, 21, 22, 31
+    };
+    RtSmokeStaticBucketGeometryPackDesc packDesc;
+    packDesc.assignmentPlan = &plan;
+    packDesc.vertices = packSourceVertices.data();
+    packDesc.vertexStride = sizeof(packSourceVertices[0]);
+    packDesc.totalVertexCount =
+        static_cast<int>(packSourceVertices.size());
+    packDesc.indexes = packSourceIndexes.data();
+    packDesc.totalIndexCount =
+        static_cast<int>(packSourceIndexes.size());
+    packDesc.triangleClasses = packSourceClasses.data();
+    packDesc.triangleMaterials = packSourceMaterials.data();
+    packDesc.totalTriangleCount =
+        static_cast<int>(packSourceClasses.size());
+    const RtSmokeStaticBucketGeometryPack pack =
+        BuildSmokeStaticBucketGeometryPack(packDesc);
+    Check(
+        pack.exact &&
+            pack.stats.packedBuckets == 3 &&
+            pack.stats.packedSurfaces == 3 &&
+            pack.stats.packedVertices == 11 &&
+            pack.stats.packedIndexes == 15 &&
+            pack.stats.packedTriangles == 5,
+        "static bucket geometry pack preserves exact surface and primitive coverage");
+    Check(
+        pack.buckets.size() == 3 &&
+            pack.buckets[0].range.vertexOffset == 0 &&
+            pack.buckets[0].range.vertexCount == 4 &&
+            pack.buckets[0].range.indexOffset == 0 &&
+            pack.buckets[0].range.indexCount == 6 &&
+            pack.buckets[0].range.triangleOffset == 0 &&
+            pack.buckets[0].range.triangleCount == 2 &&
+            pack.buckets[1].range.vertexOffset == 4 &&
+            pack.buckets[1].range.indexOffset == 6 &&
+            pack.buckets[1].range.triangleOffset == 2 &&
+            pack.buckets[2].range.vertexOffset == 8 &&
+            pack.buckets[2].range.indexOffset == 12 &&
+            pack.buckets[2].range.triangleOffset == 4,
+        "static bucket geometry pack emits contiguous bucket-local pooled ranges");
+    Check(
+        pack.indexes == packSourceIndexes &&
+            pack.triangleClasses == packSourceClasses &&
+            pack.triangleMaterials == packSourceMaterials,
+        "static bucket geometry pack preserves rebased topology, class, and material identity");
+    Check(
+        pack.triangleIdentities.size() == 5 &&
+            pack.triangleIdentities[0].surfaceKey == 10 &&
+            pack.triangleIdentities[0].sourcePrimitiveIndex == 0 &&
+            pack.triangleIdentities[1].surfaceKey == 10 &&
+            pack.triangleIdentities[1].sourcePrimitiveIndex == 1 &&
+            pack.triangleIdentities[2].surfaceKey == 20 &&
+            pack.triangleIdentities[4].surfaceKey == 30,
+        "static bucket geometry pack preserves surface-local primitive identity");
+
+    RtSmokeStaticBucketGeometryPackDesc permutedPackDesc = packDesc;
+    permutedPackDesc.assignmentPlan = &permutedPlan;
+    const RtSmokeStaticBucketGeometryPack permutedPack =
+        BuildSmokeStaticBucketGeometryPack(permutedPackDesc);
+    Check(
+        permutedPack.exact &&
+            permutedPack.contentSignature == pack.contentSignature,
+        "static bucket packed payload is independent of producer enumeration order");
+
+    std::vector<uint32_t> invalidPackIndexes = packSourceIndexes;
+    invalidPackIndexes[6] = 99;
+    RtSmokeStaticBucketGeometryPackDesc invalidIndexPackDesc =
+        packDesc;
+    invalidIndexPackDesc.indexes = invalidPackIndexes.data();
+    const RtSmokeStaticBucketGeometryPack invalidIndexPack =
+        BuildSmokeStaticBucketGeometryPack(invalidIndexPackDesc);
+    Check(
+        !invalidIndexPack.exact &&
+            invalidIndexPack.stats.indexRangeErrors == 1 &&
+            invalidIndexPack.stats.packedBuckets == 2 &&
+            invalidIndexPack.stats.packedSurfaces == 2,
+        "static bucket geometry pack rejects and rolls back an out-of-surface index");
+
+    RtSmokeStaticBucketAssignmentPlan invalidOffsetPlan = plan;
+    invalidOffsetPlan.assignments[1].localPrimitiveOffset = 1;
+    RtSmokeStaticBucketGeometryPackDesc invalidOffsetPackDesc =
+        packDesc;
+    invalidOffsetPackDesc.assignmentPlan = &invalidOffsetPlan;
+    const RtSmokeStaticBucketGeometryPack invalidOffsetPack =
+        BuildSmokeStaticBucketGeometryPack(invalidOffsetPackDesc);
+    Check(
+        !invalidOffsetPack.exact &&
+            invalidOffsetPack.stats.localPrimitiveOffsetErrors == 1,
+        "static bucket geometry pack rejects mismatched bucket-local primitive offsets");
+
     RtSmokeStaticBucketAssignmentSurface exceptional[4];
     exceptional[0] = makeSurface(40, 0, -1, 0, 3, 0, 3, 0, 1);
     exceptional[1] = makeSurface(50, 1, 99, 3, 3, 3, 3, 1, 1);

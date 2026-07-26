@@ -731,6 +731,7 @@ struct RtSmokePersistentStaticSurfaceRecord
 {
     bool valid = false;
     uint64 key = 0;
+    uint64 bucketSurfaceKey = 0;
     uint32_t surfaceClassId = 0;
     uint32_t materialId = 0;
     int portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
@@ -751,6 +752,7 @@ struct RtSmokePersistentStaticSurfaceRecord
 struct RtSmokeStaticSurfaceAppend
 {
     uint64 key = 0;
+    uint64 bucketSurfaceKey = 0;
     uint32_t surfaceClassId = 0;
     uint32_t materialId = 0;
     int portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA;
@@ -815,6 +817,9 @@ public:
     RtSmokePersistentStaticSurfaceRecord* TouchStaticSurface(uint64 key);
     bool RefreshStaticSurfaceMaterial(uint64 key, uint32_t materialId);
     bool RefreshStaticSurfacePortalArea(uint64 key, int portalArea);
+    bool RefreshStaticSurfaceBucketKey(
+        uint64 key,
+        uint64 bucketSurfaceKey);
     bool CanAppendStaticSurface(int vertexCount, int indexCount, int maxVertexCount, int maxIndexCount) const;
     RtSmokeStaticSurfaceAppend BeginStaticSurfaceAppend(
         uint64 key,
@@ -822,7 +827,8 @@ public:
         uint32_t materialId,
         int vertexCount,
         int indexCount,
-        int portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA) const;
+        int portalArea = RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA,
+        uint64 bucketSurfaceKey = 0) const;
     void CompleteStaticSurfaceAppend(const RtSmokeStaticSurfaceAppend& append, int emittedIndexCount);
 
     const RtSmokePersistentStaticSurfaceRecord* FindStaticSurface(uint64 key) const;
@@ -838,6 +844,8 @@ public:
         int maxVerticesPerBucket,
         int maxIndexesPerBucket,
         int maxTrianglesPerBucket) const;
+    RtSmokeStaticBucketGeometryPack BuildStaticBucketGeometryPack(
+        const RtSmokeStaticBucketAssignmentPlan& assignmentPlan) const;
 
     std::vector<uint64>& StaticSurfaceKeys();
     const std::vector<uint64>& StaticSurfaceKeys() const;

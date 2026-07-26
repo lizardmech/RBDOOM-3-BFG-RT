@@ -60,6 +60,13 @@ its bucket, source range, and bucket-local primitive offset. The resulting
 signature is independent of producer enumeration order and changes with the
 bucket generations.
 
+The legacy persistent-cache lookup key is not used as bucket identity. A first
+step-3 run proved it could change between fresh processes even when every
+generation and geometry count was identical. Static records now retain a
+separate authored key derived from model name, entity/surface ordinal, material
+name, and geometry shape. The legacy key remains untouched for cache lookup and
+GEO-02 rollback behavior.
+
 The diagnostic limits are currently:
 
   vertices   65,536
@@ -88,14 +95,32 @@ PathTraceCpuPlanningHarness passes cases for:
 
 The complete pre-existing planning harness also passes.
 
+STEP 3 SHADOW GEOMETRY
+----------------------
+BuildSmokeStaticBucketGeometryPack copies each assigned full-fidelity source
+range into deterministic bucket-local order. It:
+
+  copies PathTraceSmokeVertex bytes without format conversion;
+  rebases each absolute source index into the packed vertex pool;
+  requires every index to remain inside its source surface vertex range;
+  copies triangle class and material IDs exactly;
+  emits surface key, source-record index, and source-local primitive index for
+  every packed triangle;
+  records 64-bit vertex, index, and triangle-metadata byte ranges per bucket;
+  rolls back an entire bucket on any invalid assignment or topology range.
+
+The standalone harness proves exact copying, rebasing, material/class identity,
+surface-local primitive identity, producer-order independence, bad-index
+rejection, and local-primitive-offset rejection.
+
 BUILD / DEPLOY
 --------------
 Vulkan release build:
 
   command     from neo/, cmake --build --preset win64-pt-dev-release
   result      success; all SPIR-V shaders reported up to date
-  executable  15,878,656 bytes
-  sha256      CE27505DA87732E1038C5282C5EEBB0C71ABDD37744B9B33977D91C96F073126
+  executable  15,885,824 bytes
+  sha256      DB0BA30417DA85B873BD9F7FDEA635084185A24140D7C438CC0118C80AC9CBC8
   deployed    byte-identical
 
 No shader source changed. No SPIR-V or DXIL blob was rebuilt or deployed.
@@ -131,6 +156,33 @@ correctly exposed that the old source-3 static-build marker can remain zero.
 The accepted run keys from RtPathTraceSceneUniverse::GetStats().generation
 instead and records source generation 3.
 
+Accepted step-3 fresh-process pair:
+
+  geometry_geo189_auto.log
+  geometry_geo190_auto.log
+
+Both runs report identical:
+
+  assignment signature                  4,574,964,168,719,382,777
+  packed-content signature             16,544,752,560,581,014,688
+  buckets input / packed                14 / 14
+  surfaces input / packed               589 / 589
+  source vertices / indexes / triangles 26,926 / 67,674 / 22,558
+  packed vertices / indexes / triangles 26,926 / 67,674 / 22,558
+  vertex bytes                          3,015,712
+  index bytes                             270,696
+  class bytes                              90,232
+  material bytes                           90,232
+  triangle-identity bytes                 360,928
+  six packing failure counters          all zero
+  shutdown                              normal
+
+geometry_geo188_auto is retained as a rejected diagnostic. Its geometry pack
+was exact, but comparing it with the preceding fresh run exposed that the
+legacy cache key made otherwise identical assignment/content signatures
+process-dependent. The separate authored bucket-surface key removes that
+instability in the accepted pair.
+
 REMAINING CONTRACT BEFORE LIVE CUTOVER
 --------------------------------------
 The current static cache contains the selected/pruned set, so all 14 observed
@@ -138,12 +190,10 @@ buckets in this scene are active. GEO-10 must next create resident per-bucket
 storage/BLAS state whose inactive entries survive portal changes while only the
 selected active set enters TLAS.
 
-The current monolithic arrays cannot be treated as one contiguous range per
-new bucket merely because assignment is correct. Stable-key ordering and
-portal transitions can make a bucket's source surface ranges non-contiguous.
-Step 3 must copy full-fidelity source ranges into deterministic bucket-local
-pooled ranges (rebasing indexes) and create bucket-local triangle material,
-class, and source-identity tables.
+The shadow pack now creates contiguous full-fidelity bucket-local pooled ranges
+and exact triangle material, class, and source-identity tables. The next slice
+must give that payload persistent storage generation and GPU buffer ownership;
+the one-shot shadow vectors are not yet resident resources.
 
 Only after that storage tuple is exact should live work add:
 

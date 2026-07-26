@@ -12364,6 +12364,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 maxTrianglesPerBucket);
         const RtSmokeStaticBucketAssignmentStats& assignmentStats =
             assignmentPlan.stats;
+        const RtSmokeStaticBucketGeometryPack geometryPack =
+            m_smokeGeometryUniverse.BuildStaticBucketGeometryPack(
+                assignmentPlan);
+        const RtSmokeStaticBucketGeometryPackStats& packStats =
+            geometryPack.stats;
         common->Printf(
             "PathTracePrimaryPass: GEO10 static bucket assignment exact=%d signature=%llu generations(world/source/storage)=%llu/%llu/%llu limits(v/i/t)=%d/%d/%d areas=%d surfaces(input/assigned/duplicate/unassigned/invalidArea/invalidRange/oversized)=%d/%d/%d/%d/%d/%d/%d primitives(assigned/retained)=%d/%d buckets(total/active/fallback/split/keyCollision)=%d/%d/%d/%d/%d route=shadow-only\n",
             assignmentPlan.exactCoverage ? 1 : 0,
@@ -12393,6 +12398,41 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             assignmentStats.fallbackBuckets,
             assignmentStats.splitBuckets,
             assignmentStats.bucketKeyCollisions);
+        common->Printf(
+            "PathTracePrimaryPass: GEO10 static bucket geometry exact=%d signature=%llu buckets(input/packed)=%d/%d surfaces(input/packed)=%d/%d geometry(sourceV/sourceI/sourceT/packedV/packedI/packedT)=%d/%d/%d/%d/%d/%d bytes(vertex/index/class/material/identity)=%llu/%llu/%llu/%llu/%llu failures(bucketRange/assignment/sourceRange/indexRange/localPrimitiveOffset/count)=%d/%d/%d/%d/%d/%d route=shadow-only\n",
+            geometryPack.exact ? 1 : 0,
+            static_cast<unsigned long long>(
+                geometryPack.contentSignature),
+            packStats.inputBuckets,
+            packStats.packedBuckets,
+            packStats.inputAssignments,
+            packStats.packedSurfaces,
+            staticVertexCacheCount,
+            staticIndexCacheCount,
+            staticTriangleCacheCount,
+            packStats.packedVertices,
+            packStats.packedIndexes,
+            packStats.packedTriangles,
+            static_cast<unsigned long long>(
+                geometryPack.vertexBytes.size()),
+            static_cast<unsigned long long>(
+                geometryPack.indexes.size() *
+                sizeof(geometryPack.indexes[0])),
+            static_cast<unsigned long long>(
+                geometryPack.triangleClasses.size() *
+                sizeof(geometryPack.triangleClasses[0])),
+            static_cast<unsigned long long>(
+                geometryPack.triangleMaterials.size() *
+                sizeof(geometryPack.triangleMaterials[0])),
+            static_cast<unsigned long long>(
+                geometryPack.triangleIdentities.size() *
+                sizeof(geometryPack.triangleIdentities[0])),
+            packStats.invalidBucketRanges,
+            packStats.invalidAssignments,
+            packStats.sourceRangeMismatches,
+            packStats.indexRangeErrors,
+            packStats.localPrimitiveOffsetErrors,
+            packStats.countMismatches);
         const size_t bucketSampleCount =
             std::min(
                 assignmentPlan.buckets.size(),
@@ -12403,8 +12443,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             const RtSmokeStaticBucketAssignmentBucket& bucket =
                 assignmentPlan.buckets[bucketIndex];
+            const RtSmokeStaticBucketPackedRecord* packedBucket =
+                bucketIndex < geometryPack.buckets.size()
+                    ? &geometryPack.buckets[bucketIndex]
+                    : nullptr;
             common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket sample index=%llu key=%llu area/split=%d/%u assignments=%u rangeCounts(v/i/t)=%d/%d/%d active/oversized=%d/%d\n",
+                "PathTracePrimaryPass: GEO10 static bucket sample index=%llu key=%llu area/split=%d/%u assignments=%u rangeCounts(v/i/t)=%d/%d/%d packedOffsets(v/i/t)=%d/%d/%d packedBytes(v/i/t)=%llu/%llu/%llu active/oversized=%d/%d\n",
                 static_cast<unsigned long long>(bucketIndex),
                 static_cast<unsigned long long>(bucket.bucketKey),
                 bucket.portalArea,
@@ -12413,6 +12457,28 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 bucket.vertexCount,
                 bucket.indexCount,
                 bucket.triangleCount,
+                packedBucket
+                    ? packedBucket->range.vertexOffset
+                    : -1,
+                packedBucket
+                    ? packedBucket->range.indexOffset
+                    : -1,
+                packedBucket
+                    ? packedBucket->range.triangleOffset
+                    : -1,
+                static_cast<unsigned long long>(
+                    packedBucket
+                        ? packedBucket->vertexByteSize
+                        : 0),
+                static_cast<unsigned long long>(
+                    packedBucket
+                        ? packedBucket->indexByteSize
+                        : 0),
+                static_cast<unsigned long long>(
+                    packedBucket
+                        ? packedBucket->
+                            triangleMetadataByteSize
+                        : 0),
                 bucket.active ? 1 : 0,
                 bucket.oversized ? 1 : 0);
         }

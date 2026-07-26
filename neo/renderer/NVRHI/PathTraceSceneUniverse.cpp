@@ -1277,6 +1277,13 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
             }
 
             const uint64 key = BuildSceneUniverseLegacyDrawSurfKey(entity, material, tri);
+            const uint64 bucketSurfaceKey =
+                BuildSceneUniverseSurfaceKey(
+                    model,
+                    entityIndex,
+                    surfaceIndex,
+                    material,
+                    tri);
             const RtSmokeSurfaceClass surfaceClass = isRigidEntityModel ? RtSmokeSurfaceClass::RigidEntity : RtSmokeSurfaceClass::StaticWorld;
             const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, RtSmokeTranslucentSubtype::Unknown);
             const uint32_t baseMaterialId = SmokeMaterialId(material);
@@ -1299,6 +1306,9 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                 geometryUniverse.RefreshStaticSurfacePortalArea(
                     key,
                     staticWorldPortalArea);
+                geometryUniverse.RefreshStaticSurfaceBucketKey(
+                    key,
+                    bucketSurfaceKey);
 
                 ++bucketRanges.buckets[0].surfaceCount;
                 ++buildStats.surfaces;
@@ -1340,7 +1350,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                     materialId,
                     tri->numVerts,
                     tri->numIndexes,
-                    staticWorldPortalArea);
+                    staticWorldPortalArea,
+                    bucketSurfaceKey);
             const int emittedIndexes = AppendSceneUniverseStaticSurfaceGeometry(
                 entity,
                 material,
@@ -1568,6 +1579,9 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             geometryUniverse.RefreshStaticSurfacePortalArea(
                 key,
                 surface.portalArea);
+            geometryUniverse.RefreshStaticSurfaceBucketKey(
+                key,
+                surface.key);
             ++buildStats.residencyCacheHits;
             if (alreadyCountedThisFrame)
             {
@@ -1659,7 +1673,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
                 materialId,
                 numVerts,
                 numIndexes,
-                surface.portalArea);
+                surface.portalArea,
+                surface.key);
         const int emittedIndexes = AppendSceneUniverseStaticSurfaceGeometry(
             entity,
             material,
