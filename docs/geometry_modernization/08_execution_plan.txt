@@ -588,7 +588,11 @@ checkpoint completes primary-producer checked consumption for closest-hit,
 any-hit, alpha/decal, semantic liquid-card, material, UV, and vertex-color
 paths. Its Vulkan release build and SPIR-V-only deployment pass, but the route
 is intentionally unreachable until every remaining pipeline consumer and the
-current-frame publication order are ready.
+current-frame publication order are ready. Standalone clean-DI spatial now
+also declares the shared checked ABI and routes receiver/emissive geometry plus
+shadow material lookup through it; both Vulkan spatial variants build and
+deploy. Remix GI, motion/history, static-emissive identity, and publication
+ordering remain blockers.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

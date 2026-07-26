@@ -86,6 +86,13 @@ static, dynamic, rigid, and skinned fallback behavior is unchanged. This code
 is deliberately unreachable until the later all-consumer cutover gate admits
 bucket instances to the production TLAS.
 
+Standalone clean-DI spatial now consumes the same checked route tuple and six
+packed SRVs already present in its binding set. Its receiver triangle
+reconstruction, emissive replay geometry, live material-index recovery, and
+shadow any-hit material lookup all fail closed through the common loader.
+Both debug and production view-16 Vulkan variants build and deploy, while the
+live TLAS remains monolithic.
+
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,
 and `r_pathTracingGeometryStaticBucketBlasBuild 1` submits bounded shadow

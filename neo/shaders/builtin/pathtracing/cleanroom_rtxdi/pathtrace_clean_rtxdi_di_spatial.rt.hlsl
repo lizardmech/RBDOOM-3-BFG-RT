@@ -92,6 +92,20 @@ struct PathTraceSmokeVertex
     float4 bitangent;
 };
 
+#define RB_PT_STATIC_BUCKET_ROUTES_REGISTER t100
+#define RB_PT_STATIC_BUCKET_VERTICES_REGISTER t101
+#define RB_PT_STATIC_BUCKET_INDICES_REGISTER t102
+#define RB_PT_STATIC_BUCKET_CLASSES_REGISTER t103
+#define RB_PT_STATIC_BUCKET_MATERIALS_REGISTER t104
+#define RB_PT_STATIC_BUCKET_MATERIAL_INDEXES_REGISTER t105
+#include "../PathTraceStaticBucketRoute.hlsli"
+#undef RB_PT_STATIC_BUCKET_ROUTES_REGISTER
+#undef RB_PT_STATIC_BUCKET_VERTICES_REGISTER
+#undef RB_PT_STATIC_BUCKET_INDICES_REGISTER
+#undef RB_PT_STATIC_BUCKET_CLASSES_REGISTER
+#undef RB_PT_STATIC_BUCKET_MATERIALS_REGISTER
+#undef RB_PT_STATIC_BUCKET_MATERIAL_INDEXES_REGISTER
+
 struct PathTraceSmokeEmissiveTriangle
 {
     float4 centerAndArea;
@@ -210,6 +224,7 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     float4 CleanRtxdiDiGeometryInfo1;
     float4 CleanRtxdiDiSpatialInfo;
     float4 CleanRtxdiDiEmissiveDistributionInfo;
+    uint4 CleanRtxdiDiStaticBucketRouteInfo;
 };
 
 // Keep the cbuffer ABI intact, then specialize subsequent view tests in the
@@ -514,6 +529,52 @@ bool CleanLoadSkinnedTriangleGeometry(
     return true;
 }
 
+bool CleanLoadStaticBucketTriangleGeometry(
+    uint instanceId,
+    uint primitiveIndex,
+    out float3 p0,
+    out float3 p1,
+    out float3 p2,
+    out float2 uv0,
+    out float2 uv1,
+    out float2 uv2)
+{
+    p0 = 0.0;
+    p1 = 0.0;
+    p2 = 0.0;
+    uv0 = 0.0;
+    uv1 = 0.0;
+    uv2 = 0.0;
+
+    PathTraceStaticBucketRouteRecord route;
+    uint packedTriangleIndex;
+    uint3 packedVertexIndexes;
+    if (!PathTraceTryLoadStaticBucketTriangleRoute(
+            instanceId,
+            primitiveIndex,
+            CleanRtxdiDiStaticBucketRouteInfo,
+            route,
+            packedTriangleIndex,
+            packedVertexIndexes))
+    {
+        return false;
+    }
+
+    const PathTraceSmokeVertex v0 =
+        SmokeStaticBucketVertices[packedVertexIndexes.x];
+    const PathTraceSmokeVertex v1 =
+        SmokeStaticBucketVertices[packedVertexIndexes.y];
+    const PathTraceSmokeVertex v2 =
+        SmokeStaticBucketVertices[packedVertexIndexes.z];
+    p0 = v0.position.xyz;
+    p1 = v1.position.xyz;
+    p2 = v2.position.xyz;
+    uv0 = v0.texCoord.xy;
+    uv1 = v1.texCoord.xy;
+    uv2 = v2.texCoord.xy;
+    return true;
+}
+
 bool CleanLoadEmissiveTriangleGeometry(PathTraceSmokeEmissiveTriangle tri, out float3 p0, out float3 p1, out float3 p2, out float2 uv0, out float2 uv1, out float2 uv2)
 {
     p0 = tri.centerAndArea.xyz;
@@ -524,6 +585,21 @@ bool CleanLoadEmissiveTriangleGeometry(PathTraceSmokeEmissiveTriangle tri, out f
     uv2 = tri.centroidUvAndWeight.xy;
 
     const uint primitiveIndex = tri.primitiveIndex;
+    if (PathTraceIsStaticBucketRouteInstance(
+            tri.instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        return CleanLoadStaticBucketTriangleGeometry(
+            tri.instanceId,
+            primitiveIndex,
+            p0,
+            p1,
+            p2,
+            uv0,
+            uv1,
+            uv2);
+    }
+
     if (tri.instanceId == 0u)
     {
         const uint vertexCount = (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0);
@@ -636,6 +712,25 @@ bool CleanLoadEmissiveTriangleGeometry(PathTraceSmokeEmissiveTriangle tri, out f
 
 uint CleanLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
 {
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return PathTraceTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                CleanRtxdiDiStaticBucketRouteInfo,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleMaterialIndexes[
+                packedTriangleIndex]
+            : 0xffffffffu;
+    }
+
     if (instanceId == 0u)
     {
         return primitiveIndex < CleanRtxdiDiStaticTriangleCount
@@ -705,6 +800,21 @@ bool CleanLoadSurfaceTriangleGeometry(PathTracePrimarySurfaceRecord record, out 
 
     const uint instanceId = record.instancePrimitiveObject.x;
     const uint primitiveIndex = record.instancePrimitiveObject.y;
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        return CleanLoadStaticBucketTriangleGeometry(
+            instanceId,
+            primitiveIndex,
+            p0,
+            p1,
+            p2,
+            uv0,
+            uv1,
+            uv2);
+    }
+
     if (instanceId == 0u)
     {
         const uint vertexCount = (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0);
