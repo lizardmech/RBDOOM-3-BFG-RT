@@ -34,6 +34,7 @@ struct PathTraceSkinnedPreviousPosition
 
 static const uint PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS = 0x00000001u;
 static const uint PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS = 0x00000010u;
+static const uint PT_SKINNED_DISPATCH_HAS_TEX_MATRIX = 0x00000020u;
 static const uint PT_SKINNED_INVALID_OFFSET = 0xffffffffu;
 
 struct PathTraceSkinnedSurfaceDispatchRecord
@@ -50,6 +51,8 @@ struct PathTraceSkinnedSurfaceDispatchRecord
     uint dynamicIndexOffset;
     uint dynamicTriangleOffset;
     uint triangleCount;
+    float4 texMatrix0;
+    float4 texMatrix1;
     float4 currentObjectToWorld0;
     float4 currentObjectToWorld1;
     float4 currentObjectToWorld2;
@@ -172,6 +175,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     outputVertex.position = float4(worldPosition, 1.0);
     outputVertex.normal = float4(worldNormal, 0.0);
     outputVertex.texCoord = sourceVertex.texCoord;
+    if ((dispatchRecord.flags & PT_SKINNED_DISPATCH_HAS_TEX_MATRIX) != 0u)
+    {
+        outputVertex.texCoord.xy = float2(
+            dot(dispatchRecord.texMatrix0.xyz, float3(sourceVertex.texCoord.xy, 1.0)),
+            dot(dispatchRecord.texMatrix1.xyz, float3(sourceVertex.texCoord.xy, 1.0)));
+    }
     outputVertex.color = sourceVertex.color;
     outputVertex.color2 = float4(sourceVertex.jointWeights.xyz, sourceVertex.jointWeights.w);
     outputVertex.tangent = float4(worldTangent, sourceVertex.localTangent.w);

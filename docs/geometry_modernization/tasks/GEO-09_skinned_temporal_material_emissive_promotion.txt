@@ -124,3 +124,24 @@ constant material view and reports `productionBehaviorChanged=0`; production
 material flags and light inventories remain unchanged. The comparison portion
 of Q17 is resolved. Live publication waits for step 8. Step 6 material texture
 binding and dynamic material state parity is next.
+
+Step 6 is accepted by geometry_geo154_auto. The audit resolves canonical
+surface material IDs to the exact shared material table and dynamic-record
+rows without requiring a legacy triangle offset. Across 15 dispatches and
+16,564 triangles, all material ID/index, row completeness, and dynamic-record
+ownership mismatch buckets are zero. Unsafe diffuse/normal/specular rows,
+including the known Fatzombie class, remain separately classified material
+defects.
+
+The audit found and fixed one real UV-state mismatch. Legacy merged geometry
+baked the evaluated texture matrix into vertex UV.xy, while canonical GPU
+skinning copied immutable source UVs. The compute dispatch now carries the
+canonical surface's evaluated 2x3 matrix and pathtrace_skinning.cs.hlsl applies
+it once at output production, preserving UV.zw. A Lost Soul supplies one live
+matrix-bearing dispatch covering 86 vertices. All 24 authoritative samples
+pass position, previous-position, motion, and four-channel UV comparison with
+zero UV error. Its selected legacy header matrix evaluates to identity in the
+accepted frame, so ordered-stage animation correctness is not claimed.
+
+Step 7 DI/GI/RR geometry-input comparison is next. Production traversal and
+skinned-emissive publication remain deferred to step 8.

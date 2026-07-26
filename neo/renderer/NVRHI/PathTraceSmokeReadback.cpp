@@ -988,10 +988,14 @@ void PathTracePrimaryPass::ReadBackGpuSkinningParitySamples()
     int currentFailures = 0;
     int previousFailures = 0;
     int motionFailures = 0;
+    int texCoordFailures = 0;
+    int texMatrixSamples = 0;
+    int texMatrixChangedSamples = 0;
     int nonFiniteOutputs = 0;
     float maxCurrentError = 0.0f;
     float maxPreviousError = 0.0f;
     float maxMotionError = 0.0f;
+    float maxTexCoordError = 0.0f;
 
     for (size_t sampleIndex = 0; sampleIndex < m_gpuSkinningParitySamples.size(); ++sampleIndex)
     {
@@ -1011,6 +1015,63 @@ void PathTracePrimaryPass::ReadBackGpuSkinningParitySamples()
         maxCurrentError = Max(maxCurrentError, currentError);
         currentFailures += currentPass ? 0 : 1;
         nonFiniteOutputs += GpuSkinningPositionFinite(actualCurrent) ? 0 : 1;
+        const float* cpuTexCoord =
+            sample.cpuCurrent.texCoord;
+        const float* actualTexCoord =
+            gpuCurrent[sampleIndex].texCoord;
+        bool texCoordPass = true;
+        bool texCoordFinite = true;
+        float texCoordError = 0.0f;
+        for (int component = 0; component < 4; ++component)
+        {
+            const bool componentFinite =
+                std::isfinite(cpuTexCoord[component]) &&
+                std::isfinite(actualTexCoord[component]);
+            texCoordFinite = texCoordFinite &&
+                componentFinite;
+            if (!componentFinite)
+            {
+                texCoordPass = false;
+                texCoordError = 1.0e30f;
+                continue;
+            }
+            const float componentError = idMath::Fabs(
+                cpuTexCoord[component] -
+                actualTexCoord[component]);
+            const float scale = Max(
+                1.0f,
+                Max(
+                    idMath::Fabs(cpuTexCoord[component]),
+                    idMath::Fabs(actualTexCoord[component])));
+            texCoordError = Max(
+                texCoordError,
+                componentError);
+            if (componentError >
+                absoluteTolerance +
+                    relativeTolerance * scale)
+            {
+                texCoordPass = false;
+            }
+        }
+        maxTexCoordError = Max(
+            maxTexCoordError,
+            texCoordError);
+        texCoordFailures += texCoordPass ? 0 : 1;
+        texMatrixSamples +=
+            sample.hasDynamicTexMatrix ? 1 : 0;
+        const float texMatrixSourceDelta = Max(
+            idMath::Fabs(
+                cpuTexCoord[0] -
+                sample.source.texCoord[0]),
+            idMath::Fabs(
+                cpuTexCoord[1] -
+                sample.source.texCoord[1]));
+        texMatrixChangedSamples +=
+            sample.hasDynamicTexMatrix &&
+                texMatrixSourceDelta > 1.0e-6f
+            ? 1
+            : 0;
+        nonFiniteOutputs += texCoordFinite ? 0 : 1;
 
         bool previousPass = true;
         bool motionPass = true;
@@ -1095,23 +1156,54 @@ void PathTracePrimaryPass::ReadBackGpuSkinningParitySamples()
             previousPass ? 1 : 0,
             motionError,
             motionPass ? 1 : 0);
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned material-state sample=%llu materialIndex=%u dynamicTexMatrix=%d sourceTexCoord=(%.9g %.9g %.9g %.9g) cpuTexCoord=(%.9g %.9g %.9g %.9g) gpuTexCoord=(%.9g %.9g %.9g %.9g) sourceDelta=%.9g finite/error/pass=%d/%.9g/%d\n",
+            static_cast<unsigned long long>(sampleIndex),
+            sample.materialIndex,
+            sample.hasDynamicTexMatrix ? 1 : 0,
+            sample.source.texCoord[0],
+            sample.source.texCoord[1],
+            sample.source.texCoord[2],
+            sample.source.texCoord[3],
+            cpuTexCoord[0],
+            cpuTexCoord[1],
+            cpuTexCoord[2],
+            cpuTexCoord[3],
+            actualTexCoord[0],
+            actualTexCoord[1],
+            actualTexCoord[2],
+            actualTexCoord[3],
+            texMatrixSourceDelta,
+            texCoordFinite ? 1 : 0,
+            texCoordError,
+            texCoordPass ? 1 : 0);
     }
 
     common->Printf(
-        "PathTracePrimaryPass: PT GPU skinning parity summary frame=%llu mode=%d samples=%llu currentFailures=%d previousFailures=%d motionFailures=%d nonFiniteOutputs=%d maxError(current/previous/motion)=%.9g/%.9g/%.9g tolerance(abs/rel)=%.9g/%.9g pass=%d\n",
+        "PathTracePrimaryPass: PT GPU skinning parity summary frame=%llu mode=%d samples=%llu currentFailures=%d previousFailures=%d motionFailures=%d texCoordFailures=%d texMatrixSamples=%d texMatrixChangedSamples=%d nonFiniteOutputs=%d maxError(current/previous/motion/texCoord)=%.9g/%.9g/%.9g/%.9g tolerance(abs/rel)=%.9g/%.9g pass=%d\n",
         static_cast<unsigned long long>(m_gpuSkinningParityFrame),
         m_gpuSkinningParityMode,
         static_cast<unsigned long long>(m_gpuSkinningParitySamples.size()),
         currentFailures,
         previousFailures,
         motionFailures,
+        texCoordFailures,
+        texMatrixSamples,
+        texMatrixChangedSamples,
         nonFiniteOutputs,
         maxCurrentError,
         maxPreviousError,
         maxMotionError,
+        maxTexCoordError,
         absoluteTolerance,
         relativeTolerance,
-        currentFailures == 0 && previousFailures == 0 && motionFailures == 0 && nonFiniteOutputs == 0 ? 1 : 0);
+        currentFailures == 0 &&
+                previousFailures == 0 &&
+                motionFailures == 0 &&
+                texCoordFailures == 0 &&
+                nonFiniteOutputs == 0
+            ? 1
+            : 0);
 
     device->unmapBuffer(m_gpuSkinningParityReadbackBuffer);
     m_gpuSkinningParityReadbackQueued = false;

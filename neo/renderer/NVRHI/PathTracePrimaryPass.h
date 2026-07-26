@@ -307,7 +307,9 @@ private:
         uint64 previousByteOffset = 0;
         uint32_t previousInvalidReasonFlags = 0;
         uint32_t temporalStateFlags = 0;
+        uint32_t materialIndex = UINT32_MAX;
         bool hasPrevious = false;
+        bool hasDynamicTexMatrix = false;
         PathTraceSkinnedSourceVertex source = {};
         PathTraceSmokeVertex cpuCurrent = {};
         PathTraceSkinnedPreviousPosition cpuPrevious = {};

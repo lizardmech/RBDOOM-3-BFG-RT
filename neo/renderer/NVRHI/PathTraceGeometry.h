@@ -47,7 +47,8 @@ enum PathTraceSkinnedSurfaceDispatchFlags : uint32_t
     PT_SKINNED_DISPATCH_RT_CPU_SKINNED = 1u << 1,
     PT_SKINNED_DISPATCH_SOURCE_READY = 1u << 2,
     PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS = 1u << 3,
-    PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS = 1u << 4
+    PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS = 1u << 4,
+    PT_SKINNED_DISPATCH_HAS_TEX_MATRIX = 1u << 5
 };
 
 struct PathTraceSkinnedSurfaceDispatchRecord
@@ -64,9 +65,14 @@ struct PathTraceSkinnedSurfaceDispatchRecord
     uint32_t dynamicIndexOffset = 0;
     uint32_t dynamicTriangleOffset = 0;
     uint32_t triangleCount = 0;
+    float texMatrix0[4];
+    float texMatrix1[4];
     float currentObjectToWorld[12];
     float previousObjectToWorld[12];
 };
+static_assert(
+    sizeof(PathTraceSkinnedSurfaceDispatchRecord) == 176,
+    "PathTraceSkinnedSurfaceDispatchRecord HLSL ABI mismatch");
 
 enum PathTraceRigidRouteInstanceFlags : uint32_t
 {

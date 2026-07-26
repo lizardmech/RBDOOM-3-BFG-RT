@@ -857,6 +857,28 @@ buckets are zero; stable, spawn, despawn, and identical-instance transition
 checks pass. This resolves Q17 comparison. Production publication remains
 owned by GEO-09 step 8.
 
+D46. APPLY SKINNED DYNAMIC UV STATE ONCE AT THE CANONICAL OUTPUT PRODUCER
+-----------------------------------------------------------------------
+Decision: resolve the skinned surface material-table row from canonical
+surface material ID and carry its evaluated 2x3 texture matrix in the GPU
+skinning dispatch. Apply it to output UV.xy in pathtrace_skinning.cs.hlsl and
+preserve normal UV.zw. Do not add separate transform code to every ray
+consumer.
+
+Retained merged triangle material ID/index data is comparison evidence only.
+It must not be required when step 8 omits CPU capture. Every consumer continues
+to load the same shared material table, feature/parameter rows, bindless
+indices, and dynamic-record row selected by canonical material index.
+
+geometry_geo154_auto accepts 15 dispatches, 16,564 triangles, 15 shared table
+rows, and eight dynamic records with zero range, mixed-material, index, ID,
+table-row, or dynamic-record mismatches. One 86-vertex Lost Soul dispatch
+exercises the matrix-bearing compute branch. Twenty-four GPU samples have zero
+UV failures and zero maximum UV error; position/motion parity also passes. The
+selected legacy header is identity in that frame, so ordered-stage animation
+correctness is not inferred. Unsafe descriptor rows, including the known
+Fatzombie class, remain a separate material defect.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
@@ -876,8 +898,9 @@ DISPOSITION OF 04_open_questions.txt
       scaffold with each retired route in GEO-13.
   Q15 PARTIALLY RESOLVED: IDs admitted; texture descriptor defect is separate.
   Q16 RESOLVED by D43/D44: primary tuple, motion, and reset policy accepted.
-  Q17 PARTIALLY RESOLVED by D45: GPU-output construction/remap comparison
-      accepted; production publication remains mandatory in GEO-09 step 8.
+  Q17 PARTIALLY RESOLVED by D45/D46: GPU-output construction/remap and
+      material/dynamic-state comparison accepted; production publication
+      remains mandatory in GEO-09 step 8.
   Q18 OPEN and elevated by the PT-only failure, owned by GEO-01/GEO-11.
 
 DEFERRED OUTSIDE THIS PACKET

@@ -5384,6 +5384,231 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
     return build;
 }
 
+struct RtSmokeSkinnedMaterialStateAudit
+{
+    uint64 dispatches = 0;
+    uint64 triangles = 0;
+    uint64 tableRows = 0;
+    uint64 dynamicRecords = 0;
+    uint64 texMatrixDispatches = 0;
+    uint64 texMatrixVertices = 0;
+    uint64 invalidTriangleRange = 0;
+    uint64 mixedMaterialDispatches = 0;
+    uint64 invalidMaterialIndex = 0;
+    uint64 materialIdMismatch = 0;
+    uint64 incompleteTableRow = 0;
+    uint64 dynamicRecordMismatch = 0;
+    uint64 routedUnsafeDiffuse = 0;
+    uint64 routedUnsafeAlpha = 0;
+    uint64 routedUnsafeNormal = 0;
+    uint64 routedUnsafeSpecular = 0;
+    uint64 routedUnsafeEmissive = 0;
+
+    bool Accepted() const
+    {
+        return dispatches > 0 &&
+            triangles > 0 &&
+            invalidTriangleRange == 0 &&
+            mixedMaterialDispatches == 0 &&
+            invalidMaterialIndex == 0 &&
+            materialIdMismatch == 0 &&
+            incompleteTableRow == 0 &&
+            dynamicRecordMismatch == 0;
+    }
+};
+
+RtSmokeSkinnedMaterialStateAudit ApplySmokeSkinnedMaterialStateToDispatches(
+    RtSmokeSkinnedGpuScaffoldBuild& scaffold,
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& surfaceRecords,
+    const std::vector<uint32_t>& triangleMaterialIds,
+    const std::vector<uint32_t>& triangleMaterialIndexes,
+    const RtSmokeMaterialTableBuild& table,
+    const std::vector<PathTraceDynamicMaterialRecord>& records)
+{
+    RtSmokeSkinnedMaterialStateAudit stats;
+    std::unordered_set<uint32_t> auditedTableRows;
+    for (PathTraceSkinnedSurfaceDispatchRecord& dispatch :
+        scaffold.dispatchRecords)
+    {
+        dispatch.flags &= ~PT_SKINNED_DISPATCH_HAS_TEX_MATRIX;
+        dispatch.texMatrix0[0] = 1.0f;
+        dispatch.texMatrix0[1] = 0.0f;
+        dispatch.texMatrix0[2] = 0.0f;
+        dispatch.texMatrix0[3] = 0.0f;
+        dispatch.texMatrix1[0] = 0.0f;
+        dispatch.texMatrix1[1] = 1.0f;
+        dispatch.texMatrix1[2] = 0.0f;
+        dispatch.texMatrix1[3] = 0.0f;
+        ++stats.dispatches;
+
+        if (dispatch.surfaceRecordIndex >=
+                surfaceRecords.size() ||
+            dispatch.triangleCount == 0)
+        {
+            ++stats.invalidTriangleRange;
+            continue;
+        }
+        const RtSmokeSkinnedSurfaceRecord& surfaceRecord =
+            surfaceRecords[dispatch.surfaceRecordIndex];
+        const uint32_t materialId =
+            surfaceRecord.materialId;
+        const int resolvedMaterialIndex =
+            FindSmokeMaterialTableIndexById(
+                table,
+                materialId);
+        if (resolvedMaterialIndex < 0)
+        {
+            ++stats.invalidMaterialIndex;
+            continue;
+        }
+        const uint32_t materialIndex =
+            static_cast<uint32_t>(resolvedMaterialIndex);
+        const uint64 triangleOffset =
+            dispatch.dynamicTriangleOffset;
+        const uint64 triangleCount =
+            dispatch.triangleCount;
+        stats.triangles += triangleCount;
+        if (!surfaceRecord.cpuCaptureOmitted)
+        {
+            if (triangleOffset == UINT32_MAX ||
+                triangleOffset >
+                    triangleMaterialIds.size() ||
+                triangleCount >
+                    triangleMaterialIds.size() -
+                        triangleOffset ||
+                triangleOffset >
+                    triangleMaterialIndexes.size() ||
+                triangleCount >
+                    triangleMaterialIndexes.size() -
+                        triangleOffset)
+            {
+                ++stats.invalidTriangleRange;
+                continue;
+            }
+            bool uniformMaterial = true;
+            for (uint64 triangle = 0;
+                triangle < triangleCount;
+                ++triangle)
+            {
+                const size_t triangleIndex =
+                    static_cast<size_t>(
+                        triangleOffset + triangle);
+                if (triangleMaterialIds[triangleIndex] !=
+                        materialId ||
+                    triangleMaterialIndexes[triangleIndex] !=
+                        materialIndex)
+                {
+                    uniformMaterial = false;
+                    break;
+                }
+            }
+            if (!uniformMaterial)
+            {
+                ++stats.mixedMaterialDispatches;
+                continue;
+            }
+        }
+        if (materialIndex >= table.materialIds.size() ||
+            materialIndex >= table.materials.size() ||
+            materialIndex >= table.materialInfos.size())
+        {
+            ++stats.invalidMaterialIndex;
+            continue;
+        }
+        if (table.materialIds[materialIndex] != materialId)
+        {
+            ++stats.materialIdMismatch;
+            continue;
+        }
+        if (materialIndex >= table.materialFacts.size() ||
+            materialIndex >= table.materialFeatures.size() ||
+            materialIndex >= table.materialFeatureParameters.size())
+        {
+            ++stats.incompleteTableRow;
+            continue;
+        }
+
+        if (auditedTableRows.insert(materialIndex).second)
+        {
+            ++stats.tableRows;
+            const RtSmokeMaterialTextureInfo& info =
+                table.materialInfos[materialIndex];
+            stats.routedUnsafeDiffuse +=
+                info.diffuseImage && !info.hasSafeTexture ? 1u : 0u;
+            stats.routedUnsafeAlpha +=
+                info.alphaImage && !info.hasSafeAlphaTexture ? 1u : 0u;
+            stats.routedUnsafeNormal +=
+                info.normalImage && !info.hasSafeNormalTexture ? 1u : 0u;
+            stats.routedUnsafeSpecular +=
+                info.specularImage && !info.hasSafeSpecularTexture ? 1u : 0u;
+            stats.routedUnsafeEmissive +=
+                info.emissiveImage && !info.hasSafeEmissiveTexture ? 1u : 0u;
+        }
+
+        if (materialIndex < records.size() &&
+            (records[materialIndex].flags &
+                RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) != 0u)
+        {
+            const PathTraceDynamicMaterialRecord& record =
+                records[materialIndex];
+            if (record.materialIndex != materialIndex ||
+                record.materialId != materialId)
+            {
+                ++stats.dynamicRecordMismatch;
+                continue;
+            }
+            ++stats.dynamicRecords;
+        }
+        if (!SmokeDynamicMaterialRecordHasTexMatrix(
+                records,
+                materialIndex))
+        {
+            continue;
+        }
+
+        const PathTraceDynamicMaterialRecord& record =
+            records[materialIndex];
+        dispatch.flags |= PT_SKINNED_DISPATCH_HAS_TEX_MATRIX;
+        memcpy(
+            dispatch.texMatrix0,
+            record.texMatrix0,
+            sizeof(dispatch.texMatrix0));
+        memcpy(
+            dispatch.texMatrix1,
+            record.texMatrix1,
+            sizeof(dispatch.texMatrix1));
+        ++stats.texMatrixDispatches;
+
+        const uint64 outputOffset = dispatch.outputVertexOffset;
+        const uint64 vertexCount = dispatch.vertexCount;
+        if (outputOffset == UINT32_MAX ||
+            outputOffset > scaffold.currentOutputVertices.size() ||
+            vertexCount >
+                scaffold.currentOutputVertices.size() - outputOffset)
+        {
+            ++stats.invalidTriangleRange;
+            dispatch.flags &= ~PT_SKINNED_DISPATCH_HAS_TEX_MATRIX;
+            continue;
+        }
+        for (uint64 vertex = 0; vertex < vertexCount; ++vertex)
+        {
+            PathTraceSmokeVertex& output =
+                scaffold.currentOutputVertices[
+                    static_cast<size_t>(outputOffset + vertex)];
+            const idVec2 transformed =
+                SmokeApplyDynamicMaterialTexMatrix(
+                    record,
+                    idVec2(
+                        output.texCoord[0],
+                        output.texCoord[1]));
+            output.texCoord[0] = transformed.x;
+            output.texCoord[1] = transformed.y;
+            ++stats.texMatrixVertices;
+        }
+    }
+    return stats;
+}
+
 RtSmokeJointCacheStageBuild BuildSmokeJointCacheStage(
     bool requested,
     const std::vector<RtSmokeSkinnedSurfaceRecord>& records,
@@ -7230,6 +7455,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Dynamic Material Records");
         return BuildSmokeDynamicMaterialRecords(materialTable, materialStats, viewDef);
     }();
+    const RtSmokeSkinnedMaterialStateAudit skinnedMaterialStateAudit =
+        ApplySmokeSkinnedMaterialStateToDispatches(
+            skinnedGpuScaffold,
+            currentSkinnedSurfaceRecords,
+            dynamicTriangleMaterialData,
+            materialTable.dynamicMaterialIndexes,
+            materialTable,
+            dynamicMaterialRecords);
     // Persistent/static geometry owns immutable authored vertices. Runtime
     // material variants can still live in that route (for example fanspin), so
     // apply their matrices to a per-frame upload copy rather than accumulating
@@ -9078,6 +9311,43 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedGpuCurrentSentinelVertices,
             skinnedGpuPreviousSentinelPositions,
             skinnedGpuParitySentinelRequested ? 1 : 0);
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned material-state audit accepted=%d sharedTable=1 dispatches=%llu triangles=%llu tableRows=%llu dynamicRecords=%llu texMatrix(dispatches/vertices)=%llu/%llu mismatch(range/mixedMaterial/index/id/tableRow/dynamicRecord)=%llu/%llu/%llu/%llu/%llu/%llu routedUnsafe(diffuse/alpha/normal/specular/emissive)=%llu/%llu/%llu/%llu/%llu\n",
+            skinnedMaterialStateAudit.Accepted() ? 1 : 0,
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.dispatches),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.triangles),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.tableRows),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.dynamicRecords),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.texMatrixDispatches),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.texMatrixVertices),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.invalidTriangleRange),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.mixedMaterialDispatches),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.invalidMaterialIndex),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.materialIdMismatch),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.incompleteTableRow),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.dynamicRecordMismatch),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.routedUnsafeDiffuse),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.routedUnsafeAlpha),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.routedUnsafeNormal),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.routedUnsafeSpecular),
+            static_cast<unsigned long long>(
+                skinnedMaterialStateAudit.routedUnsafeEmissive));
 
         if (skinnedGpuComputeDispatched)
         {
@@ -9140,6 +9410,19 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     sizeof(PathTraceSmokeVertex);
                 sample.previousInvalidReasonFlags = record.invalidReasonFlags;
                 sample.temporalStateFlags = record.temporalStateFlags;
+                const int sampleMaterialIndex =
+                    FindSmokeMaterialTableIndexById(
+                        materialTable,
+                        record.materialId);
+                if (sampleMaterialIndex >= 0)
+                {
+                    sample.materialIndex =
+                        static_cast<uint32_t>(
+                            sampleMaterialIndex);
+                }
+                sample.hasDynamicTexMatrix =
+                    (dispatch.flags &
+                        PT_SKINNED_DISPATCH_HAS_TEX_MATRIX) != 0u;
                 sample.source =
                     skinnedGpuScaffold.sourceVertices[static_cast<size_t>(sourceIndex)];
                 sample.cpuCurrent =
@@ -9220,7 +9503,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 return false;
             };
 
-            // First reserve samples for the player and requested monster probes.
+            // First reserve every observed dynamic texture-matrix surface. UV
+            // parity is the GEO-09 material-state seam and must not be crowded
+            // out by the broader position/motion sample set.
+            for (int dispatchIndex = 0;
+                dispatchIndex <
+                    static_cast<int>(
+                        skinnedGpuComputeDispatchRecords.size()) &&
+                static_cast<int>(paritySamples.size()) <
+                    maxParitySamples;
+                ++dispatchIndex)
+            {
+                if ((skinnedGpuComputeDispatchRecords[dispatchIndex].flags &
+                        PT_SKINNED_DISPATCH_HAS_TEX_MATRIX) != 0u)
+                {
+                    appendParitySample(
+                        dispatchIndex,
+                        representativeVertex(dispatchIndex));
+                }
+            }
+            // Then reserve samples for the player and requested monster probes.
             for (int dispatchIndex = 0;
                 dispatchIndex < static_cast<int>(skinnedGpuComputeDispatchRecords.size()) &&
                 static_cast<int>(paritySamples.size()) < maxParitySamples;

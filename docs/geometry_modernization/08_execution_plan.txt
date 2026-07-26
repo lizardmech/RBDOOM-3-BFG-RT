@@ -407,9 +407,19 @@ all zero; stable, spawn, despawn, and identical-instance remap checks pass.
 The scene has no production-eligible skinned emissive material. Authored
 monster glow stages are discovered as emissive/light-candidate but their
 images have no safe RT texture handle. A private validation material view
-supplies positive geometry coverage without changing production. Step 6
-material texture binding and dynamic-state parity is next. Q17 production
-publication remains open until step 8.
+supplies positive geometry coverage without changing production.
+
+GEO-09 step 6 is accepted by geometry_geo154_auto. Canonical surface material
+IDs resolve 15 shared material-table rows for 16,564 triangles and eight live
+dynamic records with zero ID/index/row/record mismatch. The one concrete gap
+was fixed at the producer: GPU skinning now applies the evaluated per-surface
+texture matrix to UV.xy, matching legacy merged geometry while preserving
+normal UV.zw. One Lost Soul matrix-bearing dispatch covers 86 vertices; all 24
+GPU samples pass position, motion, and four-channel UV comparison with zero UV
+error. The selected live header matrix is identity in the accepted frame, so
+this is parity evidence rather than an ordered-stage animation-quality claim.
+Step 7 DI/GI/RR geometry-input comparison is next. Q17 production publication
+remains open until step 8.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

@@ -532,3 +532,111 @@ portion of Q17. Production still skips skinned triangles in the live
 CPU-built inventory, and the runtime material universe currently exposes no
 safe skinned emissive-light candidate in this scene. Production cutover stays
 open for GEO-09 step 8; step 6 material binding/state parity is next.
+
+STEP 6 MATERIAL/UV CONTRACT
+---------------------------
+The trace found one concrete mismatch before promotion. Legacy merged dynamic
+geometry applies the evaluated `PathTraceDynamicMaterialRecord` texture matrix
+to vertex UV.xy on the CPU. Canonical GPU skinning previously copied the
+immutable source UV unchanged. Material ID/index parity therefore did not by
+itself guarantee texture lookup parity for a skinned surface with
+`RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX`.
+
+The fix belongs at the canonical skinned-output producer, not in each ray
+consumer:
+
+  the per-surface compute dispatch carries the evaluated 2x3 texture matrix;
+  matrix selection resolves the material-table row from the canonical
+  `RtSmokeSkinnedSurfaceRecord.materialId`;
+  retained merged triangle offsets are used only to compare the old material
+  ID/index tuple while CPU capture exists;
+  CPU-capture-omitted surfaces can resolve the same row without a legacy
+  triangle offset;
+  pathtrace_skinning.cs.hlsl writes transformed UV.xy and preserves the
+  independent normal-map UV.zw channels.
+
+This keeps primary, shadow-any-hit, DI, GI, RR, ReGIR, NEE, alpha-test, and
+decal consumers on one canonical output instead of duplicating matrix logic.
+They already load the exact shared `PathTraceSmokeMaterial` and
+`PathTraceDynamicMaterialRecord` row selected by the route material index.
+
+The existing default-zero `r_pathTracingGpuSkinningParityDump` now:
+
+  audits every routed surface material ID against the shared table row;
+  validates material/facts/feature/parameter row completeness;
+  validates live dynamic-record material ID/index ownership;
+  reports routed unsafe descriptor classes separately;
+  reserves samples for matrix-bearing skinned surfaces first;
+  compares all four GPU/CPU UV channels in addition to position and motion.
+
+STEP 6 ACCEPTED RUNTIME
+-----------------------
+Final log:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo154_auto.log
+
+Scene:
+
+  prepared doom3_1 save, maps/game/mars_city1
+  one monster_flying_lostsoul spawned for a scrolling-stage material
+
+Accepted frame 179:
+
+  dispatches / source triangles:                       15 / 16,564
+  distinct shared material-table rows:                       15
+  valid live dynamic records:                                 8
+  texture-matrix dispatches / vertices:                    1 / 86
+  range / mixed-material / index / ID mismatch:          0 / 0 / 0 / 0
+  incomplete table row / dynamic-record mismatch:           0 / 0
+  routed unsafe diffuse/alpha/normal/specular/emissive: 2 / 0 / 1 / 1 / 0
+  GPU parity samples / texture-matrix samples:             24 / 1
+  position / previous / motion / UV failures:          0 / 0 / 0 / 0
+  max current / previous / motion error:  0.0000610351562 /
+                                           0.0000152587891 /
+                                           0.0000610351562
+  max UV error:                                               0
+  non-finite outputs:                                         0
+  accepted:                                                    1
+
+The live matrix-bearing Lost Soul record selected the same identity matrix as
+the legacy header at the sampled frame, so `texMatrixChangedSamples=0`. This
+proves exact old/new state consumption and executes the matrix branch, but it
+does not claim a non-identity live transform. Ordered-stage animation quality
+is an existing material-system question outside geometry promotion.
+
+The unsafe descriptor counts remain classified material data. In particular,
+the known Fatzombie texture rejection is not reclassified as a geometry
+failure and no descriptor safety rule is weakened.
+
+The game completed normal renderer, Streamline, game, and event shutdown.
+The log contains no fatal, device-removed, Vulkan, NVRHI, or validation-error
+marker.
+
+STEP 6 BUILD AND DEPLOY
+-----------------------
+  preset:
+    cmake --build --preset win64-pt-dev-release
+
+  result:
+    PASS
+
+  final executable SHA-256:
+    B948378FF6EE0F899F2EAF7B56623442F0154227B9F333FC7B109F64448F3AF3
+
+  rebuilt Vulkan shader:
+    base/renderprogs2/spirv/builtin/pathtracing/pathtrace_skinning.cs.bin
+
+  SPIR-V SHA-256:
+    97132DC3F4446136E31F6CA7CE7CAE357956FE86802FD2B82A608E114A0E32DB
+
+The SPIR-V timestamp is newer than the shader edit. Only that SPIR-V blob and
+the executable were deployed; no DX12 shader was compiled or copied.
+
+STEP 6 DISPOSITION
+------------------
+Material-table identity, bindless row selection, live dynamic-record ownership,
+and authoritative GPU-output UV parity are accepted. The canonical producer no
+longer depends on a merged triangle offset to select its matrix. Step 7 DI/GI/
+RR geometry-input comparison is next. Production traversal/emissive
+publication remains owned by step 8.

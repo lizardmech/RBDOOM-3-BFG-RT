@@ -750,3 +750,14 @@ GEO-09 SKINNED CONSUMER ENTRY AUDIT
   identical-instance transition checks pass. Production behavior is
   unchanged and shutdown is normal. Step 5 comparison is accepted; live
   skinned-emissive publication remains a step-8 cutover decision.
+- geometry_geo154_auto accepts GEO-09 material and dynamic-state parity. The
+  audit resolves 15 canonical surface material IDs to 15 shared table rows
+  covering 16,564 triangles and eight valid dynamic records. All legacy
+  material ID/index, row-completeness, and dynamic-record ownership mismatch
+  buckets are zero. One Lost Soul dispatch exercises the texture-matrix branch
+  across 86 vertices. All 24 authoritative GPU samples match CPU position,
+  previous position, motion, and four-channel UV output; maximum UV error is
+  zero and shutdown is normal. The selected live header matrix is identity at
+  the sampled frame, so the result establishes old/new parity without claiming
+  a non-identity ordered-stage animation test. Known unsafe descriptor rows
+  remain reported separately and are not treated as geometry failures.
