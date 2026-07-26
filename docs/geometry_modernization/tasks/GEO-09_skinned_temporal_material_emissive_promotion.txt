@@ -184,3 +184,39 @@ stride. The final run shuts down normally and production material safety/default
 light behavior is unchanged. The audit-disabled geometry_geo171_auto companion
 emits no publication/injection lines, retains the 12-surface exact-set route,
 and shuts down normally. Step 9 regression coverage is next.
+
+Step 9 automated contract coverage is accepted by geometry_geo172_auto through
+geometry_geo181_auto. The ordinary-cache save matrix spans Mars City,
+Underground, and Alpha Labs. Its audited settled sets contain 2, 7, and 15
+canonical routes with every live and independent legacy-shadow consumer
+failure bucket zero. geometry_geo180_auto constructs a controlled eight-
+Fatzombie crowd after arming the comparison before the changed exact set:
+20 live and 20 shadow routes cover 56,730 triangles, all 56,730 shadow
+triangles map to legacy metadata, motion is ready 20/20, and all thirteen
+failure buckets are zero on both paths. Production then omits 34,289 vertices
+and 170,190 indexes with no CPU skin append.
+
+geometry_geo177_auto exercises 12 -> 15 spawn growth, 15 -> 1 despawn, 1 -> 2
+respawn, exact-set eviction, GPU-query retirement, and a Mars City -> Alpha
+Labs transition. Each accepted live set has zero consumer failures; the
+forced-one-entry comparison shadow is intentionally absent on sampled
+transition frames and is not parity evidence. Twelve replaced BLAS packages
+release only through completion token 12, the map transition clears scene
+caches, the new world accepts a fresh route, and shutdown is normal.
+
+geometry_geo181_auto loads comm1, teleports to the recovered failure location,
+and confirms area 41. Static cache/BLAS/shader counts agree at
+30,071/71,568/23,856 vertices/indexes/triangles; count, handle, signature,
+stale-BLAS, and frame-slot mismatch counters are all zero, the vertex upload
+range is valid, and the shader sample is a valid hit. Console `setviewpos`
+cannot restore the old downward pitch, so the automated raster probe hits
+glass rather than the historical floor candidate.
+
+Automated crowded, lifecycle, map-transition, static-contract, and comm1
+residency coverage is therefore complete. Ticket closure still requires two
+short visual/UI observations on this exact executable: verify that comm1
+area-41 brush geometry remains visible while moving, and toggle the PDA open
+and closed once while confirming the primary scene has no missing geometry,
+T-pose, material change, light pop, or history disruption. The old
+geometry_geo43_auto proof establishes that the BFG PDA is a 2D overlay, but it
+is not substituted for a post-step-8B visual regression.

@@ -905,3 +905,100 @@ match. No DX12 shader was compiled or copied.
 
 Step 8B resolves Q17 publication. GEO-09 step 9 crowded/static/comm1/lifecycle/
 PDA/map-transition regression remains before ticket closure.
+
+STEP 9 - AUTOMATED REGRESSION MATRIX (2026-07-26)
+-------------------------------------------------
+Ordinary-cache save coverage:
+
+  geometry_geo172_auto
+    Mars City alternate animated set; 15 canonical surfaces omit
+    5,371 vertices / 25,554 indexes. All settled capture fallback buckets are
+    zero and shutdown is normal.
+
+  geometry_geo173_auto
+    Underground EP Aerobic Stabilizer; 7 routes / 5,194 triangles in both
+    live and shadow views, 7/7 motion ready, all consumer failures zero.
+
+  geometry_geo174_auto
+    Underground Garage; 7 routes / 5,916 triangles in both views, 7/7 motion
+    ready, all consumer failures zero.
+
+  geometry_geo175_auto and geometry_geo176_auto
+    Mars City Security Operations and Alpha Labs Reception; each accepts
+    2 routes / 2,281 triangles in both views with all consumer failures zero.
+    Alpha Labs also completes the cadence rebuild and normal shutdown.
+
+Controlled crowd:
+
+  geometry_geo180_auto
+    Eight Fatzombies are spawned after the audit is delayed two render frames,
+    preserving the changed exact set's full-CPU comparison frame. The accepted
+    audit is:
+
+      live routes / triangles / source-only:       20 / 56,730 / 56,730
+      shadow routes / triangles / legacy-mapped:  20 / 56,730 / 56,730
+      motion ready live / shadow:                  20 / 20
+      thirteen live failure buckets:               all zero
+      thirteen shadow failure buckets:             all zero
+
+    Production TLAS acceptance then omits 20 surfaces, 34,289 vertices, and
+    170,190 indexes with CPU skin append time zero. Shutdown is normal.
+    geometry_geo178_auto and geometry_geo179_auto are test-ordering diagnostics:
+    they armed the legacy shadow after cutover or before spawned render defs
+    entered the next frame. Their production-live results pass, but their empty
+    shadow samples are not parity evidence.
+
+Lifecycle and map transition:
+
+  geometry_geo177_auto
+    The prepared 12-route set grows to 15 after three Fatzombie spawns. Twelve
+    replaced BLAS packages arm and release through exact GPU completion token
+    12 before output generation 1 is released. `killMonsters` changes 15 -> 1
+    and queues fourteen retirement owners; one respawn settles at two routes.
+    A Mars City -> Alpha Labs transition increments the map serial, clears
+    scene caches, and accepts a fresh 1-route / 2,896-triangle exact set.
+
+    Every sampled production-live set reports zero in input, route-count,
+    route-upload, TLAS, triangle-range/upload, legacy-metadata, material-table,
+    current/previous range, primitive-identity, emissive-identity, and
+    emissive-collision failures. The validation-only one-entry route cache
+    deliberately evicts the independent comparison shadow at each changed set,
+    so its `routeCount=1` samples are transition evidence only. Ordinary-cache
+    parity is supplied by geometry_geo173/174/175/176/180.
+
+comm1/static:
+
+  geometry_geo181_auto
+    Directly loads comm1, enables god/noclip, and teleports to the recovered
+    failure position `-2010.63 1956.57 288.53`, landing in area 41. The
+    one-shot static contract reports:
+
+      cache/BLAS/shader vertices:   30,071 / 30,071 / 30,071
+      cache/BLAS/shader indexes:    71,568 / 71,568 / 71,568
+      cache/BLAS/shader triangles:  23,856 / 23,856 / 23,856
+      tuple mismatch counts/handles/signature/stale/frame-slot: 0/0/0/0/0
+      vertex upload range: offset 308, count 46, 5,152 bytes, valid/reused
+      shader sample: validFlags 0x3, status hit, reject none
+
+    The horizontal automation ray hits `textures/glass/outdoor_glass1`;
+    `setviewpos` accepts yaw but not pitch, so it cannot reproduce the old
+    downward floor probe. This is accepted area-41 residency and static
+    producer/storage/publication evidence, not a replacement for visual brush
+    visibility while moving.
+
+All accepted runs exit through normal renderer, Streamline, game, and event
+shutdown. None prints a UAV binding error, device loss, fatal, or Vulkan
+validation failure.
+
+Remaining step-9 observations:
+
+  1. In comm1 area 41, visually confirm the brush sections remain visible
+     while moving through the old failure boundary.
+  2. In a scene with promoted characters, open and close the PDA once and
+     confirm no missing geometry, T-pose, material change, light pop, or
+     temporal disruption. The prior geometry_geo43_auto result proves this
+     build's PDA is a 2D overlay, but current post-step-8B visual confirmation
+     is still required.
+
+No further automated contract mismatch is open. GEO-09 remains at step 9 only
+for those two visual/UI observations.

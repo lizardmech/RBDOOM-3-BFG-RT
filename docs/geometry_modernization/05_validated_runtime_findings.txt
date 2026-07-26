@@ -810,3 +810,23 @@ GEO-09 SKINNED CONSUMER ENTRY AUDIT
   production skinned-emissive work, retains the accepted 12-surface exact-set
   capture omission with all four fallback buckets zero, and shuts down
   normally. This confirms the geo170 light injection is validation-only.
+- geometry_geo180_auto accepts the post-publication crowd regression. Eight
+  spawned Fatzombies produce 20 live and 20 independent legacy-shadow routes
+  over 56,730 triangles. Every shadow triangle maps to legacy metadata,
+  motion is ready 20/20 in both views, and all thirteen failure buckets are
+  zero for both. Production omits 34,289 vertices and 170,190 indexes with
+  zero CPU skin append before normal shutdown.
+- geometry_geo177_auto accepts production-live spawn/despawn/respawn and map
+  transition behavior under deliberate one-entry exact-set eviction. The
+  route grows 12 -> 15, drops 15 -> 1, returns 1 -> 2, then Mars City ->
+  Alpha Labs clears scene caches and accepts a fresh route. Every live consumer
+  failure bucket is zero. Twelve replaced BLAS packages release only after
+  completion token 12. The evicted comparison shadow is transition-only;
+  ordinary-cache parity comes from geometry_geo173/174/175/176/180.
+- geometry_geo181_auto lands at comm1 area 41 on the current executable.
+  Static cache, BLAS, and shader counts agree at 30,071 vertices, 71,568
+  indexes, and 23,856 triangles. Count/handle/signature/stale/frame-slot
+  mismatches are zero, the static vertex-upload range is valid, and the shader
+  sample reports a valid hit. The automation preserves position and yaw but
+  cannot express the earlier downward pitch, so a moving visual brush check
+  remains before GEO-09 closure.

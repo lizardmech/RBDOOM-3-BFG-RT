@@ -544,6 +544,16 @@ Required before deleting the monolithic static path:
   - compressed attributes match full-fidelity shading within declared error and
     wide-UV meshes take the explicit fallback.
 
+GEO-09 step-9 status 2026-07-26: automated Phase-C regression coverage is
+complete. geometry_geo180_auto proves a controlled 20-route / 56,730-triangle
+crowd with exact live/shadow consumer parity and zero CPU skin append.
+geometry_geo177_auto proves spawn/despawn/respawn retirement plus an in-process
+Mars City -> Alpha Labs reset, while the multi-save matrix covers 2-, 7-, and
+15-route settled sets. geometry_geo181_auto returns to comm1 area 41 and
+reports exact static cache/BLAS/shader counts with zero tuple mismatches.
+GEO-09 remains open only for the current-executable visual brush-movement and
+PDA-open/close observations; those are not replaced by numeric logs.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 The modernization is complete only when:
