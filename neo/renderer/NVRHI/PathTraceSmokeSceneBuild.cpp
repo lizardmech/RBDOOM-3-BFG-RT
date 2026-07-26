@@ -9217,7 +9217,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool skinnedTlasDumpRequested =
         r_pathTracingGeometrySkinnedTlasCompareDump.
             GetInteger() != 0;
-    if (skinnedTlasDumpRequested ||
+    const bool skinnedTlasDumpReady =
+        !skinnedTlasCompareGate ||
+        skinnedTlasPlan.result !=
+            PtSkinnedTlasRouteResult::Accepted ||
+        skinnedUploadedRouteCount > 0u ||
+        m_smokeGeometryFrameIndex >= 120ull;
+    if ((skinnedTlasDumpRequested &&
+            skinnedTlasDumpReady) ||
         (skinnedTlasCompareGate &&
             skinnedTlasPlan.result !=
                 PtSkinnedTlasRouteResult::Accepted &&
@@ -9273,7 +9280,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 tlasCapacityExceeded,
             skinnedTlasPlanInput.
                 shaderTableRecordCount);
-        if (skinnedTlasDumpRequested)
+        if (skinnedTlasDumpRequested &&
+            skinnedTlasDumpReady)
         {
             const size_t sampleCount = Min(
                 static_cast<size_t>(8),

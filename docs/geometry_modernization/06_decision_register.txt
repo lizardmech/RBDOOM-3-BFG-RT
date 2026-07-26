@@ -653,8 +653,10 @@ The first comparison descriptors use identity transforms because their vertex
 output is world-space, mask 0x02, contribution 2, and the shader instance IDs
 from the current GPU upload. They do not reuse the prior CPU shadow IDs because
 the current rigid range can rebase those IDs between frames. Offline harness
-and release-build proof are accepted; runtime routing is not accepted until the
-prepared-scene one-shot tuple and visual/hit comparison pass.
+and release-build proof are accepted. geometry_geo91_auto accepts the runtime
+structural route: 12/12 descriptors, IDs 113..124, TLAS occupancy 125/512, all
+failure buckets zero, and exact update/rebuild stability. Presentation and
+routed-only hit/material/motion comparison remain pending.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

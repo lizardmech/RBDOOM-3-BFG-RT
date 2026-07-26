@@ -280,16 +280,18 @@ shared rigid-range predicate to read each consumer's live count field.
 geometry_geo89 plus the final canonical-route-1 visual confirmation accept
 both repairs; pipeline warmup and rigid materials no longer block step 7.
 
-GEO-08 step 7A is now offline-complete and runtime-pending. All ray pipelines
+GEO-08 step 7A is structurally accepted at runtime. All ray pipelines
 sharing the TLAS own four ordered records: legacy primary/shadow 0/1 and
 skinned primary/shadow 2/3. A pure all-or-nothing planner validates the prior
 CPU route, rebased shader upload, exact live resource/state/BLAS contract, both
 SBT selections, and the 512-entry TLAS capacity. The default-off live gate adds
 identity-transform, mask-0x02, contribution-2 descriptors only when the whole
 tuple is exact and retains the merged dynamic BLAS. Harness and Vulkan release
-build pass without shader changes. A bounded prepared-scene run must now
-archive the exact one-shot tuple and gate-off/on visual/hit comparison before
-step 8 may split CPU capture.
+build pass without shader changes. geometry_geo91_auto admits 12/12 exact
+comparison descriptors at IDs 113..124, with all failure buckets zero and TLAS
+occupancy 125/512; twelve exact updates and the frame-63 cadence rebuild also
+pass. Gate-off/on presentation and routed-only hit/material/motion comparison
+remain mandatory before step 8 may split CPU capture.
 
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS

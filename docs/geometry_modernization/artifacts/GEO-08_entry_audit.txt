@@ -1,7 +1,7 @@
 GEO-08 - per-instance skinned BLAS entry audit
 ==============================================
-Status: steps 1-6 accepted; step 7 comparison TLAS scaffold offline-complete
-and runtime-pending.
+Status: steps 1-6 accepted; step 7 comparison TLAS structural route accepted
+at runtime, presentation/hit comparison pending.
 Date: 2026-07-26.
 Branch: restir-development.
 Entry checkpoint: 179127951.
@@ -1029,7 +1029,8 @@ Before any descriptor is emitted, PtPlanSkinnedTlasRoutes requires:
 
 Failure is all-or-nothing for the skinned comparison descriptors. It does not
 remove the legacy dynamic BLAS or partial-route the candidates. The one-shot
-line reports CPU/upload/candidate/accepted/rejected/descriptor totals, first
+waits through startup until a non-empty upload, a real failure, or frame 120;
+then it reports CPU/upload/candidate/accepted/rejected/descriptor totals, first
 and last shader IDs, TLAS occupancy, and an exact failure bucket. Up to eight
 accepted route tuples follow.
 
@@ -1058,16 +1059,55 @@ Offline proof:
   DX12 shader compilation = not run
   deployed executable size = 15,779,840 bytes
   deployed executable SHA-256 =
-    46DE5E30A8063FE1CEA8FFEFF49A66761D1601ADBCBC21BE709C4B54956B423E
+    D162DF157B778CF921440DBDE4DBC313BD1B6E1E524C24EB06DD5AD51BC87714
   build/deploy hash match = PASS
+
+AUTOMATED RUNTIME STRUCTURAL ACCEPTANCE
+---------------------------------------
+First run, geometry_geo90_auto.log:
+
+  save loaded = game/mars_city1
+  first one-shot = frame 1, accepted empty route 0/0
+  mixed clean-DI pipeline creation = completed
+  longest startup Pump gap = 212 seconds
+  frame 2 route shadow = 12/12 accepted, 15,962 triangles, motion 12/12
+  frame 3 GPU readback = records/triangles/header exact 1/1/1
+
+The empty frame-1 result was a diagnostic-timing defect, not a route failure.
+The one-shot now remains armed until it sees a non-empty upload, a real
+failure, or frame 120.
+
+Second run, geometry_geo91_auto.log:
+
+  save = game/mars_city1
+  process responsive through capture and 60-second stability dwell
+  requested/gate/canonical = 1/1/1
+  result = accepted
+  CPU/upload/candidates/accepted/rejected/descriptors =
+    12/12/12/12/0/12
+  shader instance first/last = 113/124
+  TLAS base/rigid/skinned/total/max = 2/111/12/125/512
+  all nine failure buckets = 0
+  legacy dynamic BLAS = retained
+  SBT records = 4
+  bounded route samples = 8, all with nonzero identity and exact source/output
+    generations/ranges
+  frame 3 PerformUpdate = 12 exact/reused/submitted, zero deferred/failed
+  frame 63 cadence rebuild = 12 exact/reused/submitted, zero deferred/failed
+  fatal/device-removed/NVRHI submission failures = 0
+
+This accepts the structural comparison TLAS route and its update/rebuild
+stability. The first run's 212-second clean-DI construction gap is not a
+geometry-route failure, but remains a startup-performance issue caused by the
+new four-record mixed pipelines; the warm second run completed pipeline
+initialization with only a six-second Pump warning.
 
 BOUNDARY AND NEXT
 -----------------
-This is not runtime-accepted. Deploy the executable only, then capture one
-bounded run in the prepared character scene. The decisive one-shot tuple must
-show result=accepted, cpu=upload=candidates=accepted=descriptors, zero rejected
-and zero failure buckets, SBT records 4, and TLAS total <= 512. Compare gate
-off/on with the legacy dynamic BLAS retained, then use the existing routed-only
-view to verify skinned geometry/material/motion identity. Any mismatch keeps
-all skinned comparison descriptors out of the TLAS. Step 8 remains forbidden
-until that evidence is archived.
+Step 7 still needs presentation/hit acceptance. Compare gate off/on with the
+legacy dynamic BLAS retained, then use the existing routed-only view to verify
+skinned geometry, material, source primitive, and motion identity. The current
+headless automation surface could not capture or interact with the fullscreen
+window, so it cannot replace that visual/hit proof. Any future contract
+mismatch continues to suppress all skinned comparison descriptors. Step 8
+remains forbidden until the comparison evidence is archived.

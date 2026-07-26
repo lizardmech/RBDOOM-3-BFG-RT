@@ -71,14 +71,15 @@ material/count-ABI repairs have all received their required offline and live
 proof. D38 plus the final canonical-route-1 visual confirmation closes the
 last prerequisite for step 7.
 
-Step 7 has an offline-complete, default-off comparison scaffold. Every ray
+Step 7 has a structurally runtime-accepted, default-off comparison route. Every ray
 pipeline sharing the TLAS now owns legacy primary/shadow records 0/1 and
 skinned primary/shadow records 2/3. The pure planner emits no descriptor unless
 the prior CPU route, uploaded GPU route, live BLAS resource/state contract,
 both SBT selections, and the 512-instance capacity agree exactly. The live
 route uses identity transforms, mask 0x02, contribution 2, and retains the
-legacy dynamic BLAS. Runtime tuple and visual/hit comparison are still pending;
-step 8 remains blocked.
+legacy dynamic BLAS. geometry_geo91_auto accepts 12/12 descriptors with zero
+failure buckets and exact update/rebuild stability. Visual/hit comparison is
+still pending; step 8 remains blocked.
 
 FILES TO AUDIT FIRST
 --------------------
