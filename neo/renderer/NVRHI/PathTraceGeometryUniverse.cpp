@@ -771,7 +771,14 @@ bool RigidSmokeBufferHasCapacity(nvrhi::BufferHandle buffer, size_t byteSize, ui
     return buffer && buffer->getDesc().byteSize >= RigidSmokeBufferRequiredBytes(byteSize, structStride);
 }
 
-nvrhi::BufferHandle CreateRigidSmokeBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer)
+nvrhi::BufferHandle CreateRigidSmokeBuffer(
+    nvrhi::IDevice* device,
+    const char* debugName,
+    size_t byteSize,
+    uint32_t structStride,
+    bool vertexBuffer,
+    bool indexBuffer,
+    bool accelStructBuildInput = true)
 {
     if (!device)
     {
@@ -784,7 +791,7 @@ nvrhi::BufferHandle CreateRigidSmokeBuffer(nvrhi::IDevice* device, const char* d
     desc.structStride = structStride;
     desc.isVertexBuffer = vertexBuffer;
     desc.isIndexBuffer = indexBuffer;
-    desc.isAccelStructBuildInput = true;
+    desc.isAccelStructBuildInput = accelStructBuildInput;
     desc.initialState = nvrhi::ResourceStates::Common;
     desc.keepInitialState = true;
     return device->createBuffer(desc);
@@ -1403,6 +1410,7 @@ void RtSmokeGeometryUniverse::Clear()
     // as a canonical source-publication replacement instead of dropping BLAS
     // handles and their retirement queue immediately.
     ReleaseCanonicalRigidBlasScaffold();
+    ReleaseStaticBucketBlasGpuScaffold();
     const uint64 canonicalRigidBlasRetired =
         m_canonicalRigidBlasStats.blasRetired;
 
@@ -3267,7 +3275,8 @@ RtSmokeGeometryUniverse::BuildStaticBucketAssignmentPlan(
     int portalAreaCount,
     int maxVerticesPerBucket,
     int maxIndexesPerBucket,
-    int maxTrianglesPerBucket) const
+    int maxTrianglesPerBucket,
+    const std::vector<bool>* activePortalAreas) const
 {
     std::vector<RtSmokeStaticBucketAssignmentSurface> surfaces;
     surfaces.reserve(m_staticSurfaceRecords.size());
@@ -3312,7 +3321,16 @@ RtSmokeGeometryUniverse::BuildStaticBucketAssignmentPlan(
                 indexCount,
                 triangleCount,
                 materialTriangleCount);
-        surface.active = record.seenThisFrame;
+        surface.active =
+            activePortalAreas
+                ? (record.portalArea ==
+                        RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA ||
+                    (record.portalArea >= 0 &&
+                        record.portalArea <
+                            static_cast<int>(
+                                activePortalAreas->size()) &&
+                        (*activePortalAreas)[record.portalArea]))
+                : record.seenThisFrame;
         surfaces.push_back(surface);
     }
 
@@ -3361,6 +3379,560 @@ RtSmokeGeometryUniverse::BuildStaticBucketGeometryPack(
             m_staticTriangleClassCache.size(),
             m_staticTriangleMaterialCache.size()));
     return ::BuildSmokeStaticBucketGeometryPack(desc);
+}
+
+RtPathTraceStaticBucketBlasGpuStats
+RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
+    nvrhi::IDevice* device,
+    nvrhi::ICommandList* commandList,
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    bool enabled,
+    bool submitBuilds,
+    int maxBuildsPerFrame,
+    bool forceRebuild)
+{
+    RtPathTraceStaticBucketBlasGpuStats stats;
+    stats.frameIndex = m_currentFrameIndex;
+    stats.contentSignature = geometryPack.contentSignature;
+    stats.uploadSignature = m_staticBucketUploadSignature;
+    stats.enabled = enabled ? 1 : 0;
+    stats.submitBuilds = submitBuilds ? 1 : 0;
+    stats.residentBuckets =
+        static_cast<int>(geometryPack.buckets.size());
+    stats.vertexCount = geometryPack.stats.packedVertices;
+    stats.indexCount = geometryPack.stats.packedIndexes;
+    stats.triangleCount = geometryPack.stats.packedTriangles;
+    stats.vertexBytes = geometryPack.vertexBytes.size();
+    stats.indexBytes =
+        geometryPack.indexes.size() * sizeof(uint32_t);
+    stats.metadataBytes =
+        geometryPack.triangleClasses.size() *
+            sizeof(uint32_t) +
+        geometryPack.triangleMaterials.size() *
+            sizeof(uint32_t) +
+        geometryPack.triangleIdentities.size() *
+            sizeof(RtSmokeStaticBucketTriangleIdentity);
+    for (const RtSmokeStaticBucketPackedRecord& bucket :
+        geometryPack.buckets)
+    {
+        if (bucket.active)
+        {
+            ++stats.activeBuckets;
+        }
+    }
+
+    if (!enabled)
+    {
+        ReleaseStaticBucketBlasGpuScaffold();
+        return stats;
+    }
+    if (!geometryPack.exact ||
+        geometryPack.vertexBytes.empty() ||
+        geometryPack.indexes.empty() ||
+        geometryPack.triangleClasses.empty() ||
+        geometryPack.triangleClasses.size() !=
+            geometryPack.triangleMaterials.size() ||
+        geometryPack.triangleClasses.size() !=
+            geometryPack.triangleIdentities.size())
+    {
+        ++stats.skippedInexactPack;
+        return stats;
+    }
+    if (!device)
+    {
+        ++stats.skippedNoDevice;
+        return stats;
+    }
+    if (!commandList)
+    {
+        ++stats.skippedNoCommandList;
+        return stats;
+    }
+
+    const size_t vertexBytes = geometryPack.vertexBytes.size();
+    const size_t indexBytes =
+        geometryPack.indexes.size() * sizeof(uint32_t);
+    const size_t classBytes =
+        geometryPack.triangleClasses.size() * sizeof(uint32_t);
+    const size_t materialBytes =
+        geometryPack.triangleMaterials.size() * sizeof(uint32_t);
+    const size_t identityBytes =
+        geometryPack.triangleIdentities.size() *
+        sizeof(RtSmokeStaticBucketTriangleIdentity);
+    bool buffersCreated = false;
+    auto ensureBuffer =
+        [&](nvrhi::BufferHandle& buffer,
+            const char* debugName,
+            size_t byteSize,
+            uint32_t structStride,
+            bool vertexBuffer,
+            bool indexBuffer,
+            bool accelStructBuildInput) -> bool
+    {
+        if (RigidSmokeBufferHasCapacity(
+                buffer,
+                byteSize,
+                structStride))
+        {
+            return true;
+        }
+        buffer = CreateRigidSmokeBuffer(
+            device,
+            debugName,
+            byteSize,
+            structStride,
+            vertexBuffer,
+            indexBuffer,
+            accelStructBuildInput);
+        if (buffer)
+        {
+            buffersCreated = true;
+            ++stats.buffersCreated;
+        }
+        return buffer != nullptr;
+    };
+
+    const bool buffersValid =
+        ensureBuffer(
+            m_staticBucketVertexBuffer,
+            "PathTraceStaticBucketVertices",
+            vertexBytes,
+            sizeof(PathTraceSmokeVertex),
+            true,
+            false,
+            true) &&
+        ensureBuffer(
+            m_staticBucketIndexBuffer,
+            "PathTraceStaticBucketIndexes",
+            indexBytes,
+            sizeof(uint32_t),
+            false,
+            true,
+            true) &&
+        ensureBuffer(
+            m_staticBucketTriangleClassBuffer,
+            "PathTraceStaticBucketTriangleClasses",
+            classBytes,
+            sizeof(uint32_t),
+            false,
+            false,
+            false) &&
+        ensureBuffer(
+            m_staticBucketTriangleMaterialBuffer,
+            "PathTraceStaticBucketTriangleMaterials",
+            materialBytes,
+            sizeof(uint32_t),
+            false,
+            false,
+            false) &&
+        ensureBuffer(
+            m_staticBucketTriangleIdentityBuffer,
+            "PathTraceStaticBucketTriangleIdentities",
+            identityBytes,
+            sizeof(RtSmokeStaticBucketTriangleIdentity),
+            false,
+            false,
+            false);
+    if (!buffersValid)
+    {
+        ++stats.invalidBuckets;
+        return stats;
+    }
+
+    const bool uploadRequired =
+        buffersCreated ||
+        m_staticBucketUploadSignature !=
+            geometryPack.contentSignature;
+    if (uploadRequired)
+    {
+        commandList->beginTrackingBufferState(
+            m_staticBucketVertexBuffer,
+            nvrhi::ResourceStates::Common);
+        commandList->beginTrackingBufferState(
+            m_staticBucketIndexBuffer,
+            nvrhi::ResourceStates::Common);
+        commandList->beginTrackingBufferState(
+            m_staticBucketTriangleClassBuffer,
+            nvrhi::ResourceStates::Common);
+        commandList->beginTrackingBufferState(
+            m_staticBucketTriangleMaterialBuffer,
+            nvrhi::ResourceStates::Common);
+        commandList->beginTrackingBufferState(
+            m_staticBucketTriangleIdentityBuffer,
+            nvrhi::ResourceStates::Common);
+        commandList->writeBuffer(
+            m_staticBucketVertexBuffer,
+            geometryPack.vertexBytes.data(),
+            vertexBytes);
+        commandList->writeBuffer(
+            m_staticBucketIndexBuffer,
+            geometryPack.indexes.data(),
+            indexBytes);
+        commandList->writeBuffer(
+            m_staticBucketTriangleClassBuffer,
+            geometryPack.triangleClasses.data(),
+            classBytes);
+        commandList->writeBuffer(
+            m_staticBucketTriangleMaterialBuffer,
+            geometryPack.triangleMaterials.data(),
+            materialBytes);
+        commandList->writeBuffer(
+            m_staticBucketTriangleIdentityBuffer,
+            geometryPack.triangleIdentities.data(),
+            identityBytes);
+        commandList->setBufferState(
+            m_staticBucketVertexBuffer,
+            nvrhi::ResourceStates::AccelStructBuildInput);
+        commandList->setBufferState(
+            m_staticBucketIndexBuffer,
+            nvrhi::ResourceStates::AccelStructBuildInput);
+        commandList->setBufferState(
+            m_staticBucketTriangleClassBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(
+            m_staticBucketTriangleMaterialBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(
+            m_staticBucketTriangleIdentityBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        commandList->commitBarriers();
+        stats.bufferUploads = 5;
+        stats.uploadBytes =
+            vertexBytes +
+            indexBytes +
+            classBytes +
+            materialBytes +
+            identityBytes;
+        m_staticBucketUploadSignature =
+            geometryPack.contentSignature;
+    }
+
+    for (StaticBucketBlasRecord& record :
+        m_staticBucketBlasRecords)
+    {
+        record.seenThisUpdate = false;
+    }
+
+    int buildsRemaining =
+        maxBuildsPerFrame > 0
+            ? maxBuildsPerFrame
+            : std::numeric_limits<int>::max();
+    for (const RtSmokeStaticBucketPackedRecord& bucket :
+        geometryPack.buckets)
+    {
+        if (bucket.range.vertexOffset < 0 ||
+            bucket.range.vertexCount <= 0 ||
+            bucket.range.indexOffset < 0 ||
+            bucket.range.indexCount <= 0 ||
+            bucket.range.triangleOffset < 0 ||
+            bucket.range.triangleCount <= 0 ||
+            bucket.range.indexCount !=
+                bucket.range.triangleCount * 3 ||
+            bucket.indexByteOffset +
+                    bucket.indexByteSize >
+                indexBytes)
+        {
+            ++stats.invalidBuckets;
+            continue;
+        }
+
+        StaticBucketBlasRecord* record = nullptr;
+        for (StaticBucketBlasRecord& candidate :
+            m_staticBucketBlasRecords)
+        {
+            if (candidate.bucketKey == bucket.bucketKey)
+            {
+                record = &candidate;
+                break;
+            }
+        }
+        if (!record)
+        {
+            StaticBucketBlasRecord added;
+            added.bucketKey = bucket.bucketKey;
+            m_staticBucketBlasRecords.push_back(added);
+            record = &m_staticBucketBlasRecords.back();
+        }
+        record->seenThisUpdate = true;
+
+        uint64 inputSignature = 14695981039346656037ull;
+        inputSignature = HashSmokeBytes(
+            inputSignature,
+            &geometryPack.contentSignature,
+            sizeof(geometryPack.contentSignature));
+        inputSignature = HashSmokeBytes(
+            inputSignature,
+            &bucket.bucketKey,
+            sizeof(bucket.bucketKey));
+        inputSignature = HashSmokeBytes(
+            inputSignature,
+            &bucket.range,
+            sizeof(bucket.range));
+        const uintptr_t vertexBufferIdentity =
+            reinterpret_cast<uintptr_t>(
+                m_staticBucketVertexBuffer.Get());
+        const uintptr_t indexBufferIdentity =
+            reinterpret_cast<uintptr_t>(
+                m_staticBucketIndexBuffer.Get());
+        inputSignature = HashSmokeBytes(
+            inputSignature,
+            &vertexBufferIdentity,
+            sizeof(vertexBufferIdentity));
+        inputSignature = HashSmokeBytes(
+            inputSignature,
+            &indexBufferIdentity,
+            sizeof(indexBufferIdentity));
+
+        const bool rangeCompatible =
+            record->range.vertexOffset ==
+                bucket.range.vertexOffset &&
+            record->range.vertexCount ==
+                bucket.range.vertexCount &&
+            record->range.indexOffset ==
+                bucket.range.indexOffset &&
+            record->range.indexCount ==
+                bucket.range.indexCount &&
+            record->range.triangleOffset ==
+                bucket.range.triangleOffset &&
+            record->range.triangleCount ==
+                bucket.range.triangleCount;
+        const bool inputChanged =
+            record->inputSignature != 0 &&
+            record->inputSignature != inputSignature;
+        if (record->blas &&
+            (inputChanged ||
+                !rangeCompatible ||
+                buffersCreated))
+        {
+            record->blas = nullptr;
+            record->buildSubmitted = false;
+            ++stats.blasRetired;
+        }
+
+        const bool needsBuild =
+            submitBuilds &&
+            (forceRebuild ||
+                uploadRequired ||
+                !record->blas ||
+                !record->buildSubmitted ||
+                inputChanged);
+        if (needsBuild && buildsRemaining > 0)
+        {
+            if (!record->blas)
+            {
+                nvrhi::rt::GeometryTriangles triangles;
+                triangles.vertexBuffer =
+                    m_staticBucketVertexBuffer;
+                triangles.indexBuffer =
+                    m_staticBucketIndexBuffer;
+                triangles.vertexFormat =
+                    nvrhi::Format::RGB32_FLOAT;
+                triangles.indexFormat =
+                    nvrhi::Format::R32_UINT;
+                triangles.vertexOffset = 0;
+                triangles.indexOffset =
+                    bucket.indexByteOffset;
+                triangles.vertexCount =
+                    geometryPack.stats.packedVertices;
+                triangles.indexCount =
+                    bucket.range.indexCount;
+                triangles.vertexStride =
+                    sizeof(PathTraceSmokeVertex);
+                nvrhi::rt::GeometryDesc geometry;
+                geometry.setTriangles(triangles);
+                record->blasDesc =
+                    nvrhi::rt::AccelStructDesc()
+                        .addBottomLevelGeometry(geometry)
+                        .setBuildFlags(
+                            nvrhi::rt::
+                                AccelStructBuildFlags::
+                                    PreferFastTrace)
+                        .setDebugName(
+                            "PathTraceStaticBucketBLAS");
+                record->blas =
+                    device->createAccelStruct(
+                        record->blasDesc);
+                if (record->blas)
+                {
+                    ++stats.blasCreated;
+                }
+            }
+            if (record->blas)
+            {
+                const auto buildStart =
+                    std::chrono::steady_clock::now();
+                nvrhi::utils::BuildBottomLevelAccelStruct(
+                    commandList,
+                    record->blas,
+                    record->blasDesc);
+                const auto buildEnd =
+                    std::chrono::steady_clock::now();
+                stats.buildSubmitMicroseconds +=
+                    static_cast<uint64>(
+                        std::chrono::duration_cast<
+                            std::chrono::microseconds>(
+                            buildEnd - buildStart).count());
+                record->buildSubmitted = true;
+                ++stats.blasBuilt;
+                --buildsRemaining;
+            }
+        }
+        else if (record->blas &&
+            record->buildSubmitted &&
+            !needsBuild)
+        {
+            ++stats.blasReused;
+        }
+
+        record->inputSignature = inputSignature;
+        record->range = bucket.range;
+    }
+
+    for (size_t recordIndex = 0;
+        recordIndex < m_staticBucketBlasRecords.size();)
+    {
+        if (m_staticBucketBlasRecords[recordIndex].
+                seenThisUpdate)
+        {
+            ++recordIndex;
+            continue;
+        }
+        if (m_staticBucketBlasRecords[recordIndex].blas)
+        {
+            ++stats.blasRetired;
+        }
+        m_staticBucketBlasRecords.erase(
+            m_staticBucketBlasRecords.begin() +
+            recordIndex);
+    }
+    for (const StaticBucketBlasRecord& record :
+        m_staticBucketBlasRecords)
+    {
+        if (record.blas && record.buildSubmitted)
+        {
+            ++stats.readyBuckets;
+        }
+        else
+        {
+            ++stats.deferredBuckets;
+        }
+    }
+    stats.uploadSignature = m_staticBucketUploadSignature;
+    return stats;
+}
+
+void RtSmokeGeometryUniverse::BuildStaticBucketTlasObservations(
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    std::vector<RtSmokeStaticTlasBucketObservation>& buckets) const
+{
+    buckets.clear();
+    buckets.reserve(geometryPack.buckets.size());
+    for (size_t bucketIndex = 0;
+        bucketIndex < geometryPack.buckets.size();
+        ++bucketIndex)
+    {
+        const RtSmokeStaticBucketPackedRecord& packed =
+            geometryPack.buckets[bucketIndex];
+        const StaticBucketBlasRecord* blasRecord = nullptr;
+        for (const StaticBucketBlasRecord& candidate :
+            m_staticBucketBlasRecords)
+        {
+            if (candidate.bucketKey == packed.bucketKey)
+            {
+                blasRecord = &candidate;
+                break;
+            }
+        }
+
+        RtSmokeStaticTlasBucketObservation observation;
+        observation.bucketKey = packed.bucketKey;
+        observation.activeReasonFlags =
+            packed.active
+                ? RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA
+                : 0u;
+        observation.resident = true;
+        observation.active = packed.active;
+        observation.hasBlas =
+            blasRecord &&
+            blasRecord->blas &&
+            blasRecord->buildSubmitted;
+        observation.routeRecordIndex =
+            static_cast<uint32_t>(bucketIndex);
+        observation.residentVertexOffset =
+            packed.range.vertexOffset;
+        observation.residentIndexOffset =
+            packed.range.indexOffset;
+        observation.residentTriangleOffset =
+            packed.range.triangleOffset;
+        observation.residentSurfaceCount =
+            static_cast<int>(packed.assignmentCount);
+        observation.residentVertexCount =
+            packed.range.vertexCount;
+        observation.residentIndexCount =
+            packed.range.indexCount;
+        observation.residentTriangleCount =
+            packed.range.triangleCount;
+        if (packed.active)
+        {
+            observation.activeSurfaceCount =
+                observation.residentSurfaceCount;
+            observation.activeVertexCount =
+                observation.residentVertexCount;
+            observation.activeIndexCount =
+                observation.residentIndexCount;
+            observation.activeTriangleCount =
+                observation.residentTriangleCount;
+        }
+        buckets.push_back(observation);
+    }
+}
+
+void RtSmokeGeometryUniverse::ReleaseStaticBucketBlasGpuScaffold()
+{
+    m_staticBucketVertexBuffer = nullptr;
+    m_staticBucketIndexBuffer = nullptr;
+    m_staticBucketTriangleClassBuffer = nullptr;
+    m_staticBucketTriangleMaterialBuffer = nullptr;
+    m_staticBucketTriangleIdentityBuffer = nullptr;
+    m_staticBucketBlasRecords.clear();
+    m_staticBucketUploadSignature = 0;
+}
+
+void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
+    const RtPathTraceStaticBucketBlasGpuStats& stats) const
+{
+    common->Printf(
+        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/invalid)=%d/%d/%d/%d/%d geometry(v/i/t)=%d/%d/%d bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident traversal=monolithic route=shadow-only\n",
+        static_cast<unsigned long long>(stats.frameIndex),
+        stats.enabled,
+        stats.submitBuilds,
+        static_cast<unsigned long long>(
+            stats.contentSignature),
+        static_cast<unsigned long long>(
+            stats.uploadSignature),
+        stats.residentBuckets,
+        stats.activeBuckets,
+        stats.readyBuckets,
+        stats.deferredBuckets,
+        stats.invalidBuckets,
+        stats.vertexCount,
+        stats.indexCount,
+        stats.triangleCount,
+        static_cast<unsigned long long>(stats.vertexBytes),
+        static_cast<unsigned long long>(stats.indexBytes),
+        static_cast<unsigned long long>(stats.metadataBytes),
+        static_cast<unsigned long long>(stats.uploadBytes),
+        stats.buffersCreated,
+        stats.bufferUploads,
+        stats.blasCreated,
+        stats.blasBuilt,
+        stats.blasReused,
+        stats.blasRetired,
+        static_cast<unsigned long long>(
+            stats.buildSubmitMicroseconds),
+        stats.skippedNoDevice,
+        stats.skippedNoCommandList,
+        stats.skippedInexactPack);
 }
 
 std::vector<uint64>& RtSmokeGeometryUniverse::StaticSurfaceKeys()

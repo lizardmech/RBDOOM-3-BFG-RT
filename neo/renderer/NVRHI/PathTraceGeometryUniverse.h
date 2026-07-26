@@ -763,6 +763,37 @@ struct RtSmokeStaticSurfaceAppend
     int requestedIndexCount = 0;
 };
 
+struct RtPathTraceStaticBucketBlasGpuStats
+{
+    uint64 frameIndex = 0;
+    uint64 contentSignature = 0;
+    uint64 uploadSignature = 0;
+    int enabled = 0;
+    int submitBuilds = 0;
+    int residentBuckets = 0;
+    int activeBuckets = 0;
+    int readyBuckets = 0;
+    int deferredBuckets = 0;
+    int invalidBuckets = 0;
+    int vertexCount = 0;
+    int indexCount = 0;
+    int triangleCount = 0;
+    uint64 vertexBytes = 0;
+    uint64 indexBytes = 0;
+    uint64 metadataBytes = 0;
+    uint64 uploadBytes = 0;
+    int buffersCreated = 0;
+    int bufferUploads = 0;
+    int blasCreated = 0;
+    int blasBuilt = 0;
+    int blasReused = 0;
+    int blasRetired = 0;
+    int skippedNoDevice = 0;
+    int skippedNoCommandList = 0;
+    int skippedInexactPack = 0;
+    uint64 buildSubmitMicroseconds = 0;
+};
+
 class RtSmokeGeometryUniverse
 {
 public:
@@ -843,9 +874,25 @@ public:
         int portalAreaCount,
         int maxVerticesPerBucket,
         int maxIndexesPerBucket,
-        int maxTrianglesPerBucket) const;
+        int maxTrianglesPerBucket,
+        const std::vector<bool>* activePortalAreas = nullptr) const;
     RtSmokeStaticBucketGeometryPack BuildStaticBucketGeometryPack(
         const RtSmokeStaticBucketAssignmentPlan& assignmentPlan) const;
+    RtPathTraceStaticBucketBlasGpuStats
+        UpdateStaticBucketBlasGpuScaffold(
+            nvrhi::IDevice* device,
+            nvrhi::ICommandList* commandList,
+            const RtSmokeStaticBucketGeometryPack& geometryPack,
+            bool enabled,
+            bool submitBuilds,
+            int maxBuildsPerFrame,
+            bool forceRebuild);
+    void BuildStaticBucketTlasObservations(
+        const RtSmokeStaticBucketGeometryPack& geometryPack,
+        std::vector<RtSmokeStaticTlasBucketObservation>& buckets) const;
+    void ReleaseStaticBucketBlasGpuScaffold();
+    void DumpStaticBucketBlasGpuStats(
+        const RtPathTraceStaticBucketBlasGpuStats& stats) const;
 
     std::vector<uint64>& StaticSurfaceKeys();
     const std::vector<uint64>& StaticSurfaceKeys() const;
@@ -1005,6 +1052,17 @@ private:
         bool buildSubmitted = false;
     };
 
+    struct StaticBucketBlasRecord
+    {
+        uint64 bucketKey = 0;
+        uint64 inputSignature = 0;
+        RtSmokePlanGeometryRange range;
+        nvrhi::rt::AccelStructDesc blasDesc;
+        nvrhi::rt::AccelStructHandle blas;
+        bool buildSubmitted = false;
+        bool seenThisUpdate = false;
+    };
+
     struct RetiredCanonicalRigidBlas
     {
         nvrhi::rt::AccelStructHandle blas;
@@ -1096,6 +1154,13 @@ private:
     int m_rigidResidencyAreaWalkInstancesThisFrame = 0;
     bool m_rigidResidencyEnabled = false;
     const idRenderWorldLocal* m_rigidResidencyWorld = nullptr;
+    nvrhi::BufferHandle m_staticBucketVertexBuffer;
+    nvrhi::BufferHandle m_staticBucketIndexBuffer;
+    nvrhi::BufferHandle m_staticBucketTriangleClassBuffer;
+    nvrhi::BufferHandle m_staticBucketTriangleMaterialBuffer;
+    nvrhi::BufferHandle m_staticBucketTriangleIdentityBuffer;
+    std::vector<StaticBucketBlasRecord> m_staticBucketBlasRecords;
+    uint64 m_staticBucketUploadSignature = 0;
 };
 
 RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(

@@ -405,6 +405,36 @@ idCVar r_pathTracingGeometryStaticBucketMaxTriangles(
     CVAR_RENDERER | CVAR_INTEGER,
     "GEO-10 shadow planner maximum triangles per static portal-area bucket; splits rather than drops" );
 
+idCVar r_pathTracingGeometryStaticBucketBlas(
+    "r_pathTracingGeometryStaticBucketBlas",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-10 shadow-only full-map bucket storage and per-bucket BLAS resource gate; does not insert bucket BLAS into the live TLAS" );
+
+idCVar r_pathTracingGeometryStaticBucketBlasBuild(
+    "r_pathTracingGeometryStaticBucketBlasBuild",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Submit GEO-10 shadow-only per-bucket BLAS builds when the bucket resource gate is enabled" );
+
+idCVar r_pathTracingGeometryStaticBucketBlasBuildLimit(
+    "r_pathTracingGeometryStaticBucketBlasBuildLimit",
+    "2",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum GEO-10 shadow-only static bucket BLAS builds submitted per frame; 0 means no limit" );
+
+idCVar r_pathTracingGeometryStaticBucketBlasForceRebuild(
+    "r_pathTracingGeometryStaticBucketBlasForceRebuild",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Force already-built GEO-10 shadow bucket BLAS records to rebuild for validation" );
+
+idCVar r_pathTracingGeometryStaticBucketPortalSteps(
+    "r_pathTracingGeometryStaticBucketPortalSteps",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Portal-neighbor depth used to derive the GEO-10 static bucket active-area mask" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

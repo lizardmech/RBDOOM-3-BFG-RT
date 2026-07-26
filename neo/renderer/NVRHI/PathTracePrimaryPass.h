@@ -447,6 +447,7 @@ private:
 	int m_pathTracePostLutHeight = 0;
     bool m_pathTracePostLutInvalidLogged = false;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
+    RtSmokeGeometryUniverse m_staticBucketGeometryUniverse;
     RtPathTraceParticleCapture m_particleCapture;
     nvrhi::BindingLayoutHandle m_particleLightingBindingLayout;
     nvrhi::ShaderHandle m_particleLightingShader;

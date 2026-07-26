@@ -991,6 +991,7 @@ void RtPathTraceSceneUniverse::Clear()
     m_surfaceSelectionStamp = 0;
     m_fullStaticGeometryGeneration = 0;
     m_fullStaticGeometryRigidMode = 0;
+    m_fullStaticBucketGeometryGeneration = 0;
     ++m_generation;
 }
 
@@ -1216,6 +1217,50 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
     RtSmokeMaterialStats& materialStats,
     RtSmokeBucketRanges& bucketRanges)
 {
+    return BuildFullStaticGeometryInternal(
+        viewDef,
+        geometryUniverse,
+        classStats,
+        skipStats,
+        attributeStats,
+        materialStats,
+        bucketRanges,
+        false,
+        false);
+}
+
+RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticBucketGeometry(
+    const viewDef_t* viewDef,
+    RtSmokeGeometryUniverse& geometryUniverse,
+    RtSmokeSurfaceClassStats& classStats,
+    RtSmokeSurfaceSkipStats& skipStats,
+    RtSmokeAttributeStats& attributeStats,
+    RtSmokeMaterialStats& materialStats,
+    RtSmokeBucketRanges& bucketRanges)
+{
+    return BuildFullStaticGeometryInternal(
+        viewDef,
+        geometryUniverse,
+        classStats,
+        skipStats,
+        attributeStats,
+        materialStats,
+        bucketRanges,
+        true,
+        true);
+}
+
+RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeometryInternal(
+    const viewDef_t* viewDef,
+    RtSmokeGeometryUniverse& geometryUniverse,
+    RtSmokeSurfaceClassStats& classStats,
+    RtSmokeSurfaceSkipStats& skipStats,
+    RtSmokeAttributeStats& attributeStats,
+    RtSmokeMaterialStats& materialStats,
+    RtSmokeBucketRanges& bucketRanges,
+    bool bypassLegacyCaps,
+    bool staticWorldOnly)
+{
     RtPathTraceSceneUniverseBuildStats buildStats;
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
     if (!renderWorld || !EnsureBuilt(viewDef))
@@ -1227,11 +1272,20 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
     std::vector<uint32_t>& staticIndexes = geometryUniverse.StaticIndexes();
     std::vector<uint32_t>& staticTriangleClasses = geometryUniverse.StaticTriangleClasses();
     std::vector<uint32_t>& staticTriangleMaterials = geometryUniverse.StaticTriangleMaterials();
-    const int rigidEntityMode = r_pathTracingSceneSource.GetInteger() == 2 ? idMath::ClampInt(0, 2, r_pathTracingSceneSource2RigidEntities.GetInteger()) : 0;
+    const int rigidEntityMode =
+        staticWorldOnly
+            ? 0
+            : (r_pathTracingSceneSource.GetInteger() == 2
+                ? idMath::ClampInt(0, 2, r_pathTracingSceneSource2RigidEntities.GetInteger())
+                : 0);
     const bool includeRigidEntities = rigidEntityMode > 0;
+    uint64& cachedGeometryGeneration =
+        staticWorldOnly
+            ? m_fullStaticBucketGeometryGeneration
+            : m_fullStaticGeometryGeneration;
     const bool canTouchCachedBuild =
-        m_fullStaticGeometryGeneration == m_generation &&
-        m_fullStaticGeometryRigidMode == rigidEntityMode &&
+        cachedGeometryGeneration == m_generation &&
+        (staticWorldOnly || m_fullStaticGeometryRigidMode == rigidEntityMode) &&
         !geometryUniverse.StaticSurfaceRecords().empty() &&
         !staticVertices.empty() &&
         !staticIndexes.empty() &&
@@ -1336,7 +1390,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                 continue;
             }
 
-            if (!geometryUniverse.CanAppendStaticSurface(tri->numVerts, tri->numIndexes, PT_SCENE_UNIVERSE_STATIC_MAX_VERTS, PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES))
+            if (!bypassLegacyCaps &&
+                !geometryUniverse.CanAppendStaticSurface(tri->numVerts, tri->numIndexes, PT_SCENE_UNIVERSE_STATIC_MAX_VERTS, PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES))
             {
                 ++skipStats.limitExceeded;
                 ++buildStats.skippedLimits;
@@ -1417,10 +1472,59 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
 
     if (!canTouchCachedBuild)
     {
-        m_fullStaticGeometryGeneration = m_generation;
-        m_fullStaticGeometryRigidMode = rigidEntityMode;
+        cachedGeometryGeneration = m_generation;
+        if (!staticWorldOnly)
+        {
+            m_fullStaticGeometryRigidMode = rigidEntityMode;
+        }
     }
     return buildStats;
+}
+
+bool RtPathTraceSceneUniverse::BuildPortalAreaActiveMask(
+    const viewDef_t* viewDef,
+    int portalSteps,
+    std::vector<bool>& selectedAreas)
+{
+    selectedAreas.clear();
+    idRenderWorldLocal* renderWorld =
+        viewDef ? viewDef->renderWorld : nullptr;
+    if (!renderWorld || !EnsureBuilt(viewDef))
+    {
+        return false;
+    }
+
+    const bool bruteForceFullMap =
+        r_pathTracingPortalBruteforceFullMap.GetInteger() != 0;
+    const RtPathTraceSceneUniverseSelectionStats selection =
+        BuildSelectionStats(
+            viewDef,
+            idMath::ClampInt(0, 8, portalSteps),
+            false);
+    if (!selection.valid)
+    {
+        return false;
+    }
+
+    selectedAreas.assign(
+        renderWorld->NumAreas(),
+        bruteForceFullMap);
+    if (!bruteForceFullMap)
+    {
+        for (int areaListIndex = 0;
+            areaListIndex < selection.selectedAreaListCount;
+            ++areaListIndex)
+        {
+            const int area =
+                selection.selectedAreaList[areaListIndex];
+            if (area >= 0 &&
+                area < static_cast<int>(selectedAreas.size()))
+            {
+                selectedAreas[area] = true;
+            }
+        }
+    }
+    return true;
 }
 
 RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStaticGeometry(

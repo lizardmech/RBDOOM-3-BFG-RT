@@ -2344,6 +2344,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeBvhDirtyPreviousToken = RtSmokeBvhDirtyTokenState();
     m_smokeSceneRebuildLogged = false;
     m_smokeGeometryUniverse.Clear();
+    m_staticBucketGeometryUniverse.Clear();
     m_particleDiagnosticFramesRemaining = 0;
     m_smokeSkinnedSurfaceRecords.clear();
     m_smokeSkinnedCaptureRouteSets.clear();

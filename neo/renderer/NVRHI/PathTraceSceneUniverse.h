@@ -130,13 +130,16 @@ public:
     void Clear();
     bool EnsureBuilt(const viewDef_t* viewDef);
     RtPathTraceSceneUniverseBuildStats BuildFullStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges);
+    RtPathTraceSceneUniverseBuildStats BuildFullStaticBucketGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges);
     RtPathTraceSceneUniverseBuildStats BuildSelectedStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, int portalSteps);
+    bool BuildPortalAreaActiveMask(const viewDef_t* viewDef, int portalSteps, std::vector<bool>& selectedAreas);
 
     const RtPathTraceSceneUniverseStats& GetStats() const;
     const std::vector<RtPathTraceSceneUniverseSurface>& Surfaces() const;
 
 private:
     bool Build(const viewDef_t* viewDef);
+    RtPathTraceSceneUniverseBuildStats BuildFullStaticGeometryInternal(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, bool bypassLegacyCaps, bool staticWorldOnly);
     RtPathTraceSceneUniverseSelectionStats BuildSelectionStats(const viewDef_t* viewDef, int portalSteps, bool countSelectedSurfaces) const;
 
     const idRenderWorldLocal* m_renderWorld = nullptr;
@@ -145,6 +148,7 @@ private:
     uint64 m_generation = 0;
     uint64 m_fullStaticGeometryGeneration = 0;
     int m_fullStaticGeometryRigidMode = 0;
+    uint64 m_fullStaticBucketGeometryGeneration = 0;
     RtPathTraceSceneUniverseStats m_stats;
     std::vector<RtPathTraceSceneUniverseSurface> m_surfaces;
     std::vector<RtPathTraceSceneUniverseAreaStats> m_areaStats;

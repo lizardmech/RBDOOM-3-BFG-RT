@@ -14,7 +14,7 @@ PRECONDITIONS
 
 IMPLEMENTATION STATUS
 ---------------------
-Steps 1 through 3 are complete in shadow mode. Static world records now carry the
+Steps 1 through 4 are complete in shadow mode. Static world records now carry the
 authoritative `_areaN` owner assigned by AddWorldModelEntities. The CPU-only
 assignment planner uses world/area/split/source/storage identity, deterministic
 ordering, bounded splitting, explicit fallback ownership, and exact duplicate,
@@ -29,8 +29,21 @@ geometry_geo190_auto then produce identical fresh-process assignment and
 packed-content signatures while copying all 26,926 vertices, 67,674 indexes,
 and 22,558 material/class/source-identity triangles into contiguous
 bucket-local ranges with all six packing failure counters zero. Production
-remains the monolithic static BLAS; `r_pathTracingGeometryStaticBucketAudit 1`
-is a one-shot shadow audit. See artifacts/GEO-10_entry_audit.txt.
+remains the monolithic static BLAS.
+
+The step-4 source is now a separate cap-free full-map resident universe, not
+the selected/pruned production cache. geometry_geo193_auto packs 1,789/1,789
+surfaces and 50,108/50,108 triangles into 56 area buckets, uploads 8,846,672
+bytes of vertex/index/class/material/identity storage once, and incrementally
+builds all 56 bucket BLASes at two per frame. The selected-area mask marks only
+3 buckets active and retains 53 inactive. No bucket enters the production TLAS;
+the shadow planner blocks its route because shader support is deliberately
+still false.
+
+`r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
+`r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,
+and `r_pathTracingGeometryStaticBucketBlasBuild 1` submits bounded shadow
+builds. All are default off. See artifacts/GEO-10_entry_audit.txt.
 
 FILES TO AUDIT FIRST
 --------------------
