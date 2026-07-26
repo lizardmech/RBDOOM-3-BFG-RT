@@ -779,3 +779,11 @@ GEO-09 SKINNED CONSUMER ENTRY AUDIT
   records and 15,962 triangles, and exits normally. The prepared view does not
   claim a sampled behind-glass skinned pixel; that last call-path statement is
   structural, backed by the numerically accepted shared geometry inputs.
+- geometry_geo160_auto accepts the step-8 production traversal defaults
+  without launch-time geometry overrides. Twelve eligible surfaces omit 9,889
+  vertices and 47,886 indexes from merged CPU capture, CPU skin append time is
+  zero, and 12/12 canonical TLAS descriptors plus motion routes are active.
+  The settled plan has zero upload, route, resource, BLAS, SBT, or capacity
+  failures; the exact-set cache records no eviction, invalidation, or late
+  revocation, all four capture fallback buckets are zero, and shutdown is
+  normal. The independently reversible gates remain the rollback path.

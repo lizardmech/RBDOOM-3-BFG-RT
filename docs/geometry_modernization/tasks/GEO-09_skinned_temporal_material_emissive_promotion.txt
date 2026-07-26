@@ -157,3 +157,13 @@ shuts down normally. DI visibility and GI secondary reconstruction are
 structurally tied to the already-accepted canonical current geometry/material
 tuple. Production traversal and skinned-emissive publication remain deferred
 to step 8.
+
+Step 8A production traversal is accepted by geometry_geo160_auto. The fresh
+launch supplies no geometry migration gate overrides. The canonical registry,
+authoritative GPU producer, per-instance TLAS route, and exact-set CPU-capture
+split now default on while preserving independent rollback. Twelve eligible
+surfaces omit 9,889 vertices and 47,886 indexes, CPU skin append time is zero,
+and all 12 TLAS descriptors and motion routes are active. Upload, route,
+resource, BLAS, SBT, capacity, and the four settled capture fallback buckets
+are all zero-failure; no route set is evicted, invalidated, or late-revoked.
+Step 8B same-frame GPU-output skinned-emissive publication remains.

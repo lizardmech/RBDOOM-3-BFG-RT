@@ -902,6 +902,29 @@ and 15,962 triangles, and shuts down normally. This accepts the shared
 geometry-input contract; it does not claim a scene-specific behind-glass
 skinned visual test.
 
+D48. PROMOTE ONLY THE EXISTING EXACT-SET SKINNED ROUTE
+------------------------------------------------------
+Decision: the accepted canonical registry, authoritative GPU producer,
+per-instance TLAS route, and exact-set CPU-capture split now default on. This
+is a default promotion of the D40 admission funnel, not a new permissive path.
+The individual cvars remain reversible and setting any required producer or
+route gate to zero restores legacy capture.
+
+No surface may omit CPU capture from current-frame optimism. Admission still
+requires a previously TLAS-accepted build for the identical sorted visible
+InstanceKey set, exact source/output generations and ranges, live resource and
+BLAS state, matching GPU route upload, valid SBT selection, and TLAS capacity.
+Structural failures retain same-frame CPU capture with named gate, prior-route,
+current-contract, and joint counters. Late failures remain suppress-and-revoke.
+
+geometry_geo160_auto supplies no migration-gate overrides and accepts 12
+surfaces, 9,889 omitted vertices, 47,886 omitted indexes, zero CPU skin append
+time, and 12/12 active descriptors with motion. All TLAS failure buckets and
+all four settled capture fallback buckets are zero. The route-set lifecycle
+has zero eviction, invalidation, or late revocation and shutdown is normal.
+This resolves production traversal only; skinned-emissive publication remains
+the final Q17 requirement.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
@@ -921,9 +944,9 @@ DISPOSITION OF 04_open_questions.txt
       scaffold with each retired route in GEO-13.
   Q15 PARTIALLY RESOLVED: IDs admitted; texture descriptor defect is separate.
   Q16 RESOLVED by D43/D44: primary tuple, motion, and reset policy accepted.
-  Q17 PARTIALLY RESOLVED by D45/D46/D47: GPU-output construction/remap,
-      material/dynamic-state, and DI/GI/RR geometry-input comparison accepted;
-      production publication remains mandatory in GEO-09 step 8.
+  Q17 PARTIALLY RESOLVED by D45/D46/D47/D48: GPU-output construction/remap,
+      material/dynamic-state, DI/GI/RR input comparison, and production
+      traversal accepted; skinned-emissive publication remains mandatory.
   Q18 OPEN and elevated by the PT-only failure, owned by GEO-01/GEO-11.
 
 DEFERRED OUTSIDE THIS PACKET

@@ -431,6 +431,17 @@ and GI secondary reconstruction consume the same accepted canonical
 material/current-vertex tuple. Step 8 production traversal and live
 skinned-emissive publication are next; Q17 remains open until that cutover.
 
+GEO-09 step 8A promotes the already-accepted exact-set route rather than
+introducing a broader production shortcut. geometry_geo160_auto uses fresh
+defaults with no geometry gate overrides: 12 surfaces omit 9,889 vertices and
+47,886 indexes, CPU skin append time is zero, and 12/12 TLAS descriptors plus
+motion routes are active. The settled TLAS plan and all four capture fallback
+buckets are zero-failure; the route-set lifecycle records no eviction,
+invalidation, or late revocation and shutdown is normal. The canonical
+registry, authoritative GPU producer, skinned TLAS route, and capture split
+now default on but remain independently reversible. Step 8B live skinned
+emissive publication is the remaining GEO-09 implementation slice.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

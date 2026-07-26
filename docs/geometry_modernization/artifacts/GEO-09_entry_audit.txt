@@ -760,3 +760,53 @@ DI visibility, GI secondary reconstruction, primary RR guides, and resolved
 RR skinned-history input are accepted at the geometry contract. Step 8 may
 promote only the surfaces that pass the complete funnel and must keep explicit
 fallback counters. Live skinned-emissive publication remains part of step 8.
+
+STEP 8A - PRODUCTION TRAVERSAL CUTOVER (2026-07-26)
+---------------------------------------------------
+The production cutover reuses the accepted GEO-08 exact-visible-set admission;
+it does not add a less strict fast path. These migration gates now default on:
+
+  r_pathTracingGeometryShadowRegistry = 1
+  r_pathTracingGeometryAuthoritativeGpuSkinning = 1
+  r_pathTracingGpuSkinning = 1
+  r_pathTracingGeometrySkinnedTlasCompare = 1
+  r_pathTracingGeometrySkinnedCaptureSplit = 1
+
+Each gate remains independently reversible. A surface omits merged CPU capture
+only after the preceding identical visible set completed source, output,
+resource, BLAS, route-upload, SBT, and TLAS checks. Gate, missing-prior-route,
+current-contract, and joint failures retain the same-frame CPU path. A failure
+after omission masks the descriptor and revokes that exact set for the next
+frame.
+
+Fresh-default runtime:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo160_auto.log
+
+The launch supplied no geometry migration gate overrides. At frame 4 it:
+
+  omitted surfaces / vertices / indexes:         12 / 9,889 / 47,886
+  CPU skin append time:                                           0 ms
+  canonical routes / TLAS descriptors / motion-ready:      12 / 12 / 12
+
+At frame 119 the TLAS plan accepted 12/12 candidates and every upload, CPU,
+GPU, resource, BLAS, SBT, and capacity failure bucket was zero. Frame 121
+retained one exact route set containing all 12 routes with zero eviction,
+pre-capture invalidation, or late revocation. The periodic capture funnel
+reported zero gate, prior-route, current-contract, and joint fallback for the
+settled set. Renderer, Streamline, game, and event shutdown were normal.
+
+Build/deploy:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS; all SPIR-V already up to date
+
+  deployed executable SHA-256:
+    5835F5461DFAB0B8E423F5D60410E34625F9ABEEC3CBBDF224865CFBD867E59F
+
+The full hash was checked equal between build and deployment. No shader source,
+DX12 blob, or SPIR-V artifact changed in this traversal-only slice.
+
+Step 8A accepts production traversal for eligible exact-set surfaces. Step 8B
+still owns same-frame canonical GPU-output skinned-emissive publication.

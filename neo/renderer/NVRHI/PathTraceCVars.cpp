@@ -287,9 +287,9 @@ idCVar r_pathTracingGeometryLifecycleDump(
 
 idCVar r_pathTracingGeometryShadowRegistry(
     "r_pathTracingGeometryShadowRegistry",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "GEO-05 observation-only per-render-world geometry registry; never drives traversal" );
+    "Canonical per-render-world instance/source registry required by production geometry routes; set to 0 for legacy-only fallback" );
 
 idCVar r_pathTracingGeometryShadowRegistryDump(
     "r_pathTracingGeometryShadowRegistryDump",
@@ -329,15 +329,15 @@ idCVar r_pathTracingGeometryCanonicalRigidHitDump(
 
 idCVar r_pathTracingGeometryAuthoritativeGpuSkinning(
     "r_pathTracingGeometryAuthoritativeGpuSkinning",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "GEO-07 default-off master gate; 1 stages renderer jointCache bytes, 2 also retains an exact frame-owned CPU upload snapshot for validation; CPU skinning and BLAS stay authoritative" );
+    "Authoritative PT GPU-skinning source gate; 0 keeps legacy CPU capture, 1 stages renderer jointCache bytes for production, 2 also retains an exact frame-owned CPU upload snapshot for validation" );
 
 idCVar r_pathTracingGeometrySkinnedTlasCompare(
     "r_pathTracingGeometrySkinnedTlasCompare",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "GEO-08 default-off per-instance skinned TLAS comparison route; requires the canonical GPU skinning source/output route and fails closed while retaining the legacy dynamic BLAS" );
+    "Per-instance canonical skinned TLAS route; requires the authoritative GPU source/output contract and fails closed to the legacy dynamic BLAS" );
 
 idCVar r_pathTracingGeometrySkinnedTlasCompareDump(
     "r_pathTracingGeometrySkinnedTlasCompareDump",
@@ -347,9 +347,9 @@ idCVar r_pathTracingGeometrySkinnedTlasCompareDump(
 
 idCVar r_pathTracingGeometrySkinnedCaptureSplit(
     "r_pathTracingGeometrySkinnedCaptureSplit",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "GEO-08 default-off CPU capture cutover; only prior-frame exact skinned TLAS routes may omit CPU-skinned merged-dynamic geometry, with late failures suppressed" );
+    "Production CPU-capture cutover; only prior-frame exact skinned TLAS routes may omit CPU-skinned merged-dynamic geometry, with late failures suppressed and revoked" );
 
 idCVar r_pathTracingGeometrySkinnedCaptureRouteSetLimit(
     "r_pathTracingGeometrySkinnedCaptureRouteSetLimit",
@@ -2210,9 +2210,9 @@ idCVar r_pathTracingNsightGpuMarkers(
 
 idCVar r_pathTracingGpuSkinning(
     "r_pathTracingGpuSkinning",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental PT skinned GPU-skinning scaffold: 0 = CPU-skinned bridge only, 1 = diagnostic compute output buffer, 2 = compute overwrites skinned dynamic vertices before BLAS build" );
+    "PT skinned geometry producer: 0 = legacy CPU-skinned bridge only, 1 = canonical per-instance GPU output for production routes, 2 = diagnostic compute overwrite of merged dynamic vertices before BLAS build" );
 
 idCVar r_pathTracingGpuSkinningParityDump(
     "r_pathTracingGpuSkinningParityDump",
