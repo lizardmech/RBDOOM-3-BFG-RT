@@ -1056,5 +1056,39 @@ the user reports no random glitches and normal responsiveness. Continuous
 console volume can starve the Windows GUI; keep it off outside bounded hidden
 runs.
 
-No automated or visual contract mismatch remains. GEO-09 is accepted and
-closed.
+POST-CLOSE PRE-ADMISSION TDR CORRECTION
+---------------------------------------
+Two later GEO-10 validation launches ended in Windows `LiveKernelEvent 141`
+GPU resets at the same GEO-08 frame-3 boundary. The second launch had every
+GEO-10 resource/build/route gate off, so GEO-10 was excluded. Its final log
+sequence was:
+
+  12 skinned comparison BLAS updates submitted;
+  12 source-only routes accepted;
+  12 pre-admission TLAS descriptors emitted with instanceMask 0;
+  NVIDIA display driver reset before frame 4.
+
+The old pre-admission policy retained CPU fallback geometry but still inserted
+the newly built/updated skinned BLAS handles into the Vulkan TLAS at mask zero.
+Mask zero prevents ray intersections; it does not exclude the instance from the
+TLAS build or its acceleration-structure dependencies.
+
+The corrected policy separates descriptor validation from descriptor
+submission. An exact current upload/resource/BLAS contract may still promote
+the route set for next-frame capture omission, but any route whose CPU fallback
+is retained is omitted from the current TLAS vector entirely. Only routes with
+current CPU-capture omission (or the explicit hit-audit view) submit nonzero
+instance-mask descriptors. The next frame retains the existing exact-set check
+before those descriptors can become live.
+
+GEO-09 remains functionally closed, but this correction requires a fresh
+startup and portal regression before the post-close runtime evidence is
+restored.
+
+Correction build verification:
+
+  Vulkan release build                     passed; SPIR-V up to date
+  PathTraceCpuPlanningHarness              passed
+  shader source / blob changes             none / none
+  deployed executable bytes                15,917,568
+  deployed executable SHA-256              3EE94FBD2773F3EAC5FF293B9BEA2243DD8B7828B3198310EBCDAAB1C64E3FFF

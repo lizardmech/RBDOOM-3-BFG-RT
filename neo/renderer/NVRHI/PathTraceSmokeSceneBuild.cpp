@@ -11218,6 +11218,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skinnedTlasPlanInput);
     const size_t firstSkinnedTlasDesc =
         rigidTlasRouteInstances.size();
+    uint32 skinnedTlasValidatedDescriptorCount = 0;
     uint32 skinnedTlasActiveDescriptorCount = 0;
     if (skinnedTlasPlan.result ==
         PtSkinnedTlasRouteResult::Accepted)
@@ -11257,17 +11258,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 requestedDebugMode == 58 &&
                 r_pathTracingGeometrySkinnedHitAudit.
                     GetInteger() != 0;
+            ++skinnedTlasValidatedDescriptorCount;
+            if (!cpuCaptureOmitted &&
+                !skinnedHitAuditActive)
+            {
+                // Validation of a new source-only route set is sufficient to
+                // promote it for next-frame capture omission. Do not submit
+                // its freshly built/updated BLAS to the TLAS at mask zero:
+                // zero-mask instances cannot trace, still participate in the
+                // Vulkan TLAS build, and have produced repeatable driver TDRs
+                // on the pre-admission frame.
+                continue;
+            }
             instanceDesc
                 .setInstanceID(route.shaderInstanceId)
-                // A newly enlarged source-only route set can pass the full
-                // upload/resource/TLAS plan while its CPU fallback extras
-                // remain visible. Keep those extras in the TLAS at mask zero
-                // for this pre-admission frame so they cannot double-trace.
-                .setInstanceMask(
-                    (cpuCaptureOmitted ||
-                        skinnedHitAuditActive)
-                        ? route.instanceMask
-                        : 0u)
+                .setInstanceMask(route.instanceMask)
                 .setInstanceContributionToHitGroupIndex(
                     route.hitGroupContribution)
                 .setFlags(
@@ -11279,11 +11284,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                         route.candidateIndex]->blas);
             rigidTlasRouteInstances.push_back(
                 instanceDesc);
-            if (cpuCaptureOmitted ||
-                skinnedHitAuditActive)
-            {
-                ++skinnedTlasActiveDescriptorCount;
-            }
+            ++skinnedTlasActiveDescriptorCount;
         }
     }
     const uint32 skinnedTlasDescriptorCount =
@@ -11580,18 +11581,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             });
     if (skinnedTlasPlan.result ==
             PtSkinnedTlasRouteResult::Accepted &&
-        skinnedTlasDescriptorCount >
-            skinnedTlasActiveDescriptorCount)
+        skinnedTlasValidatedDescriptorCount >
+            skinnedTlasDescriptorCount)
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO08 capture-split TLAS pre-admission frame=%llu routes/descriptors(active/masked)=%zu/%u(%u/%u) omitted=%d metadata=source-only action=mask-cpu-fallback-until-next-frame\n",
+            "PathTracePrimaryPass: GEO08 capture-split TLAS pre-admission frame=%llu routes/descriptors(validated/submitted/deferred)=%zu/%u/%u/%u omitted=%d metadata=source-only action=exclude-cpu-fallback-until-next-frame\n",
             static_cast<unsigned long long>(
                 geometryUniverseStats.frameIndex),
             skinnedHitRouteUploadCpuRecords.size(),
+            skinnedTlasValidatedDescriptorCount,
             skinnedTlasDescriptorCount,
-            skinnedTlasActiveDescriptorCount,
-            skinnedTlasDescriptorCount -
-                skinnedTlasActiveDescriptorCount,
+            skinnedTlasValidatedDescriptorCount -
+                skinnedTlasDescriptorCount,
             captureTiming.skinnedCaptureOmittedSurfaces);
     }
     const size_t skinnedTlasMotionReady =
@@ -11624,14 +11625,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     else if (activeCaptureRouteSet != nullptr &&
              skinnedTlasPlan.result ==
                  PtSkinnedTlasRouteResult::Accepted &&
-             skinnedTlasDescriptorCount ==
+             skinnedTlasValidatedDescriptorCount ==
                  skinnedTlasPlan.records.size() &&
              !skinnedHitRouteUploadBuild.records.empty())
     {
-        // Promote the exact upload that reached this frame's TLAS. Capture
-        // admission may have come from the preceding live source-only build,
-        // but the omitted InstanceKey set is checked against this upload
-        // before any descriptor is admitted.
+        // Promote the exact upload whose descriptor/resource contracts were
+        // validated this frame. Pre-admission descriptors remain outside the
+        // TLAS while their CPU fallback is retained; the omitted InstanceKey
+        // set is checked against this upload before next-frame submission.
         activeCaptureRouteSet->acceptedBuild =
             skinnedHitRouteUploadBuild;
         activeCaptureRouteSet->acceptedBuildSignature =

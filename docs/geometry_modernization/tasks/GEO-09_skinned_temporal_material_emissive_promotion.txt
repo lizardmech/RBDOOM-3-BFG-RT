@@ -237,7 +237,12 @@ triangles, 12/12 motion ready, and all thirteen live and independent-shadow
 failure buckets zero. The current-frame refresh has no rejection, capture
 splitting omits 9,889 vertices and 47,886 indexes with zero CPU skin append,
 and shutdown is normal. A later 12 -> 11 visibility-set transition retains
-the full CPU comparison and masks all 11 pre-admission descriptors. The final
-interactive pass runs with verbose logging disabled and confirms repeated
+the full CPU comparison and historically left all 11 pre-admission descriptors
+at mask zero. The final interactive pass runs with verbose logging disabled and confirms repeated
 portal traversal is visually stable with no random glitches or Windows-input
 stall. GEO-09 is complete; proceed to GEO-10.
+
+A later repeated `LiveKernelEvent 141` investigation proved that mask-zero
+instances still entered the Vulkan TLAS build on the pre-admission frame. The
+post-close correction now validates those descriptor/resource contracts but
+excludes their BLASes from the TLAS until CPU capture is actually omitted.
