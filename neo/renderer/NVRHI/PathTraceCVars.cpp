@@ -335,9 +335,9 @@ idCVar r_pathTracingGeometryAuthoritativeGpuSkinning(
 
 idCVar r_pathTracingGeometrySkinnedTlasCompare(
     "r_pathTracingGeometrySkinnedTlasCompare",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Per-instance canonical skinned TLAS route; requires the authoritative GPU source/output contract and fails closed to the legacy dynamic BLAS" );
+    "Experimental per-instance canonical skinned TLAS route; default off after repeatable Vulkan BLAS-update TDRs and fails closed to the legacy dynamic BLAS" );
 
 idCVar r_pathTracingGeometrySkinnedTlasCompareDump(
     "r_pathTracingGeometrySkinnedTlasCompareDump",
@@ -347,9 +347,9 @@ idCVar r_pathTracingGeometrySkinnedTlasCompareDump(
 
 idCVar r_pathTracingGeometrySkinnedCaptureSplit(
     "r_pathTracingGeometrySkinnedCaptureSplit",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Production CPU-capture cutover; only prior-frame exact skinned TLAS routes may omit CPU-skinned merged-dynamic geometry, with late failures suppressed and revoked" );
+    "Experimental CPU-capture cutover; default off with the per-instance skinned TLAS route and only prior-frame exact routes may omit CPU-skinned merged-dynamic geometry" );
 
 idCVar r_pathTracingGeometrySkinnedCaptureRouteSetLimit(
     "r_pathTracingGeometrySkinnedCaptureRouteSetLimit",

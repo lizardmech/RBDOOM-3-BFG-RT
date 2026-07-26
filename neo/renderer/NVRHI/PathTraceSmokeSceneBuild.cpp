@@ -10656,7 +10656,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 smokeSkinnedCurrentOutputVertexBuffer,
                 bufferCreateDesc.
                     skinnedOutputStorageGeneration,
-                canonicalSkinnedSourceOutputRoute,
+                canonicalSkinnedSourceOutputRoute &&
+                    r_pathTracingGeometrySkinnedTlasCompare.
+                        GetInteger() != 0,
                 geometryUniverseStats.frameIndex,
                 idMath::ClampInt(
                     0,

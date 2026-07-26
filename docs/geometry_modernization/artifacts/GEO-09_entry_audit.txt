@@ -1092,3 +1092,45 @@ Correction build verification:
   shader source / blob changes             none / none
   deployed executable bytes                15,917,568
   deployed executable SHA-256              3EE94FBD2773F3EAC5FF293B9BEA2243DD8B7828B3198310EBCDAAB1C64E3FFF
+
+THIRD TDR / DEFAULT PROMOTION REVOKED
+-------------------------------------
+geometry_geo203 proves that excluding pre-admission descriptors was necessary
+but not sufficient:
+
+  GEO-10 enabled/build/route                0 / 0 / 0
+  skinned BLAS frame 2                      12 initial builds
+  skinned BLAS frame 3                      12 perform-update submissions
+  pre-admission descriptors                 validated/submitted/deferred =
+                                             12 / 0 / 12
+  final logged operation                    pre-admission CPU summary
+  Windows result                            LiveKernelEvent 141 and
+                                             nvlddmkm recovery
+
+No skinned comparison BLAS entered the frame-3 TLAS, yet the driver reset at
+the same boundary. The remaining repeatable GPU-side change is the batch of 12
+in-place BLAS updates over the shared GPU-skinned output buffer. The accepted
+runtime evidence that promoted this route to default-on is therefore revoked.
+
+Fail-closed containment restores both original design defaults:
+
+  r_pathTracingGeometrySkinnedTlasCompare   0
+  r_pathTracingGeometrySkinnedCaptureSplit  0
+
+The comparison cvar now also gates `SubmitSmokeSkinnedComparisonBlases`
+directly. Authoritative GPU-skinning source/output publication may remain
+available to non-BLAS consumers, but normal startup creates, builds, and
+updates no per-instance skinned comparison BLASes. The merged dynamic BLAS and
+CPU-captured skinned geometry remain the production fallback.
+
+Re-enabling the per-instance route requires a separate Vulkan BLAS-update
+investigation. Do not restore either default until repeated startup, portal,
+animated-object, and map-reload runs complete without a GPU reset.
+
+Fail-closed build verification:
+
+  Vulkan release build                     passed; SPIR-V up to date
+  PathTraceCpuPlanningHarness              passed
+  shader source / blob changes             none / none
+  deployed executable bytes                15,917,568
+  deployed executable SHA-256              93A04C8FF6CF8C1B6D28B16235B23C74CBFC0C8DAF1463B66C16AE0C4EF7E2E6

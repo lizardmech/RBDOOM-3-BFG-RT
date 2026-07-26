@@ -246,3 +246,10 @@ A later repeated `LiveKernelEvent 141` investigation proved that mask-zero
 instances still entered the Vulkan TLAS build on the pre-admission frame. The
 post-close correction now validates those descriptor/resource contracts but
 excludes their BLASes from the TLAS until CPU capture is actually omitted.
+
+A third run still reset the driver with submitted descriptors at zero,
+isolating the remaining trigger to the batch of 12 in-place per-instance BLAS
+updates. Default promotion is revoked: both the per-instance TLAS comparison
+and capture split return to default off, and the comparison cvar directly gates
+BLAS creation/build/update submission. Production uses the merged dynamic BLAS
+until a separate Vulkan update-path investigation is accepted.

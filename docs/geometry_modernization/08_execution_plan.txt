@@ -561,7 +561,12 @@ rigid-route end, and material table instead of uploading the cached admission
 build. geometry_geo185_auto accepts 12 routes / 15,962 triangles with all
 thirteen live/shadow failure buckets zero, no refresh rejection, and normal
 shutdown. Repeated portal traversal is visually stable with logging disabled.
-GEO-09 is closed. GEO-10 steps 1 through 5 are complete in shadow mode.
+GEO-09 implementation is retained but its default promotion is revoked after
+three repeatable Vulkan `LiveKernelEvent 141` resets at the per-instance
+skinned BLAS update boundary. Production has returned to the merged dynamic
+BLAS and CPU-capture fallback; the per-instance TLAS comparison and capture
+split are default off pending a separate update-path investigation. GEO-10
+steps 1 through 5 are complete in shadow mode.
 geometry_geo193_auto proves cap-free full-map resident storage, 56 persistent
 bucket BLASes, and a 3-active / 53-inactive portal selection with exact
 50,108-triangle coverage. geometry_geo194_auto proves fail-closed shared
