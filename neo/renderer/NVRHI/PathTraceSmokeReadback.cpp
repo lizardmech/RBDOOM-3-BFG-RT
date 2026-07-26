@@ -13,11 +13,15 @@
 #include "../Image.h"
 #include "../../sys/DeviceManager.h"
 
+#include <cmath>
+#include <unordered_set>
+
 extern DeviceManager* deviceManager;
 
 namespace {
 
 const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
+const int RT_SMOKE_EMISSIVE_AUDIT_MAX_RECORDS = 65536;
 const int CLEAN_TEMPORAL_AUDIT_FLAG_SCALE = 262143;
 const uint32_t CLEAN_TEMPORAL_DIAG_CURRENT_VALID = 1u << 0u;
 const uint32_t CLEAN_TEMPORAL_DIAG_CURRENT_SURFACE_VALID = 1u << 3u;
@@ -1114,6 +1118,672 @@ void PathTracePrimaryPass::ReadBackGpuSkinningParitySamples()
     m_gpuSkinningParitySamples.clear();
 }
 
+void PathTracePrimaryPass::QueueSkinnedEmissiveAudit(
+    nvrhi::ICommandList* commandList,
+    nvrhi::IBuffer* currentOutputBuffer,
+    nvrhi::IBuffer* previousPositionBuffer,
+    nvrhi::ResourceStates currentRestoreState,
+    const std::vector<PtSkinnedEmissiveAuditTriangle>& triangles,
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const std::vector<PathTraceSmokeVertex>& cpuCurrentVertices,
+    const std::vector<PathTraceSkinnedPreviousPosition>& cpuPreviousPositions,
+    uint64 frameIndex,
+    int forcedMaterialCount,
+    int productionEligibleMaterialCount)
+{
+    if (m_skinnedEmissiveAuditReadbackQueued)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned emissive GPU-output audit ignored because a readback is already queued\n");
+        return;
+    }
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!commandList || !device ||
+        !currentOutputBuffer || !previousPositionBuffer ||
+        triangles.empty() || cpuCurrentVertices.empty())
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned emissive GPU-output audit unavailable before copy\n");
+        return;
+    }
+
+    const uint64 currentBytes =
+        static_cast<uint64>(cpuCurrentVertices.size()) *
+        sizeof(PathTraceSmokeVertex);
+    const uint64 previousBytes =
+        static_cast<uint64>(cpuPreviousPositions.size()) *
+        sizeof(PathTraceSkinnedPreviousPosition);
+    if (currentBytes > currentOutputBuffer->getDesc().byteSize ||
+        previousBytes > previousPositionBuffer->getDesc().byteSize)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned emissive GPU-output audit range invalid current=%llu/%llu previous=%llu/%llu\n",
+            static_cast<unsigned long long>(currentBytes),
+            static_cast<unsigned long long>(
+                currentOutputBuffer->getDesc().byteSize),
+            static_cast<unsigned long long>(previousBytes),
+            static_cast<unsigned long long>(
+                previousPositionBuffer->getDesc().byteSize));
+        return;
+    }
+
+    const uint64 totalBytes = currentBytes + previousBytes;
+    if (!m_skinnedEmissiveAuditReadbackBuffer ||
+        m_skinnedEmissiveAuditReadbackBuffer->
+            getDesc().byteSize < totalBytes)
+    {
+        m_skinnedEmissiveAuditReadbackBuffer = nullptr;
+        nvrhi::BufferDesc desc;
+        desc.byteSize = totalBytes;
+        desc.structStride = sizeof(uint32_t);
+        desc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        desc.debugName =
+            "PathTraceSkinnedEmissiveAuditReadback";
+        desc.initialState =
+            nvrhi::ResourceStates::CopyDest;
+        desc.keepInitialState = true;
+        m_skinnedEmissiveAuditReadbackBuffer =
+            device->createBuffer(desc);
+    }
+    if (!m_skinnedEmissiveAuditReadbackBuffer)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned emissive GPU-output audit readback buffer creation failed\n");
+        return;
+    }
+
+    m_skinnedEmissiveAuditTriangles = triangles;
+    m_skinnedEmissiveAuditMaterialIds = materialIds;
+    m_skinnedEmissiveAuditMaterials = materials;
+    m_skinnedEmissiveAuditExpectedCurrentVertices =
+        cpuCurrentVertices;
+    m_skinnedEmissiveAuditExpectedPreviousPositions =
+        cpuPreviousPositions;
+    m_skinnedEmissiveAuditExpected =
+        BuildSmokeCanonicalSkinnedEmissiveAuditInventory(
+            materialIds,
+            materials,
+            cpuCurrentVertices,
+            cpuPreviousPositions,
+            triangles,
+            RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
+            RT_SMOKE_EMISSIVE_AUDIT_MAX_RECORDS);
+    m_skinnedEmissiveAuditFrame = frameIndex;
+    m_skinnedEmissiveAuditCurrentBytes = currentBytes;
+    m_skinnedEmissiveAuditPreviousBytes = previousBytes;
+    m_skinnedEmissiveAuditForcedMaterialCount =
+        forcedMaterialCount;
+    m_skinnedEmissiveAuditProductionEligibleMaterialCount =
+        productionEligibleMaterialCount;
+
+    commandList->setBufferState(
+        currentOutputBuffer,
+        nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(
+        previousPositionBuffer,
+        nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(
+        m_skinnedEmissiveAuditReadbackBuffer,
+        nvrhi::ResourceStates::CopyDest);
+    commandList->commitBarriers();
+    commandList->copyBuffer(
+        m_skinnedEmissiveAuditReadbackBuffer,
+        0,
+        currentOutputBuffer,
+        0,
+        currentBytes);
+    if (previousBytes > 0)
+    {
+        commandList->copyBuffer(
+            m_skinnedEmissiveAuditReadbackBuffer,
+            currentBytes,
+            previousPositionBuffer,
+            0,
+            previousBytes);
+    }
+    commandList->setBufferState(
+        currentOutputBuffer,
+        currentRestoreState);
+    commandList->setBufferState(
+        previousPositionBuffer,
+        nvrhi::ResourceStates::ShaderResource);
+    commandList->commitBarriers();
+
+    m_skinnedEmissiveAuditReadbackQueued = true;
+    m_skinnedEmissiveAuditReadbackDelayFrames = 3;
+    common->Printf(
+        "PathTracePrimaryPass: GEO09 skinned emissive GPU-output audit queued frame=%llu triangles=%llu bytes(current/previous)=%llu/%llu materials(productionEligible/validationForced)=%d/%d expected(current/previous)=%llu/%llu productionBehaviorChanged=0\n",
+        static_cast<unsigned long long>(frameIndex),
+        static_cast<unsigned long long>(triangles.size()),
+        static_cast<unsigned long long>(currentBytes),
+        static_cast<unsigned long long>(previousBytes),
+        productionEligibleMaterialCount,
+        forcedMaterialCount,
+        static_cast<unsigned long long>(
+            m_skinnedEmissiveAuditExpected.current.size()),
+        static_cast<unsigned long long>(
+            m_skinnedEmissiveAuditExpected.previous.size()));
+}
+
+void PathTracePrimaryPass::ReadBackSkinnedEmissiveAudit()
+{
+    if (!m_skinnedEmissiveAuditReadbackQueued ||
+        !m_skinnedEmissiveAuditReadbackBuffer)
+    {
+        return;
+    }
+    if (m_skinnedEmissiveAuditReadbackDelayFrames > 0)
+    {
+        --m_skinnedEmissiveAuditReadbackDelayFrames;
+        return;
+    }
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+    const uint8_t* readbackBytes =
+        static_cast<const uint8_t*>(
+            device->mapBuffer(
+                m_skinnedEmissiveAuditReadbackBuffer,
+                nvrhi::CpuAccessMode::Read));
+    if (!readbackBytes)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned emissive GPU-output audit readback map failed\n");
+        m_skinnedEmissiveAuditReadbackQueued = false;
+        return;
+    }
+
+    std::vector<PathTraceSmokeVertex> gpuCurrent(
+        static_cast<size_t>(
+            m_skinnedEmissiveAuditCurrentBytes /
+            sizeof(PathTraceSmokeVertex)));
+    std::vector<PathTraceSkinnedPreviousPosition> gpuPrevious(
+        static_cast<size_t>(
+            m_skinnedEmissiveAuditPreviousBytes /
+            sizeof(PathTraceSkinnedPreviousPosition)));
+    if (!gpuCurrent.empty())
+    {
+        memcpy(
+            gpuCurrent.data(),
+            readbackBytes,
+            static_cast<size_t>(
+                m_skinnedEmissiveAuditCurrentBytes));
+    }
+    if (!gpuPrevious.empty())
+    {
+        memcpy(
+            gpuPrevious.data(),
+            readbackBytes +
+                m_skinnedEmissiveAuditCurrentBytes,
+            static_cast<size_t>(
+                m_skinnedEmissiveAuditPreviousBytes));
+    }
+
+    const PtSkinnedEmissiveAuditInventory actual =
+        BuildSmokeCanonicalSkinnedEmissiveAuditInventory(
+            m_skinnedEmissiveAuditMaterialIds,
+            m_skinnedEmissiveAuditMaterials,
+            gpuCurrent,
+            gpuPrevious,
+            m_skinnedEmissiveAuditTriangles,
+            RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
+            RT_SMOKE_EMISSIVE_AUDIT_MAX_RECORDS);
+    const std::vector<PathTraceEmissiveLightRemap>
+        expectedRemap = BuildSmokeCanonicalEmissiveLightRemap(
+            m_skinnedEmissiveAuditExpected.current,
+            m_skinnedEmissiveAuditExpected.previous);
+    const std::vector<PathTraceEmissiveLightRemap>
+        actualRemap = BuildSmokeCanonicalEmissiveLightRemap(
+            actual.current,
+            actual.previous);
+
+    constexpr float vertexAbsoluteTolerance = 1.0e-3f;
+    constexpr float aggregateAbsoluteTolerance = 1.0e-2f;
+    constexpr float relativeTolerance = 1.0e-5f;
+    uint64 currentVertexMismatch = 0;
+    uint64 previousVertexMismatch = 0;
+    float maxCurrentVertexError = 0.0f;
+    float maxPreviousVertexError = 0.0f;
+    std::unordered_set<uint32_t> comparedCurrentVertices;
+    std::unordered_set<uint32_t> comparedPreviousPositions;
+    for (const PtSkinnedEmissiveAuditTriangle& triangle :
+        m_skinnedEmissiveAuditTriangles)
+    {
+        for (int corner = 0; corner < 3; ++corner)
+        {
+            const uint32_t currentIndex =
+                triangle.currentVertexIndexes[corner];
+            if (currentIndex <
+                    gpuCurrent.size() &&
+                currentIndex <
+                    m_skinnedEmissiveAuditExpectedCurrentVertices.
+                        size() &&
+                comparedCurrentVertices.insert(
+                    currentIndex).second)
+            {
+                const float* expectedPosition =
+                    m_skinnedEmissiveAuditExpectedCurrentVertices[
+                        currentIndex].position;
+                const float* actualPosition =
+                    gpuCurrent[currentIndex].position;
+                maxCurrentVertexError =
+                    Max(maxCurrentVertexError,
+                        GpuSkinningPositionMaxError(
+                            expectedPosition,
+                            actualPosition));
+                currentVertexMismatch +=
+                    GpuSkinningPositionWithinTolerance(
+                        expectedPosition,
+                        actualPosition,
+                        vertexAbsoluteTolerance,
+                        relativeTolerance)
+                        ? 0u
+                        : 1u;
+            }
+            if (triangle.hasPrevious)
+            {
+                const uint32_t previousIndex =
+                    triangle.previousPositionIndexes[corner];
+                if (previousIndex <
+                        gpuPrevious.size() &&
+                    previousIndex <
+                        m_skinnedEmissiveAuditExpectedPreviousPositions.
+                            size() &&
+                    comparedPreviousPositions.insert(
+                        previousIndex).second)
+                {
+                    const float* expectedPosition =
+                        m_skinnedEmissiveAuditExpectedPreviousPositions[
+                            previousIndex].previousPosition;
+                    const float* actualPosition =
+                        gpuPrevious[previousIndex].
+                            previousPosition;
+                    maxPreviousVertexError =
+                        Max(maxPreviousVertexError,
+                            GpuSkinningPositionMaxError(
+                                expectedPosition,
+                                actualPosition));
+                    previousVertexMismatch +=
+                        GpuSkinningPositionWithinTolerance(
+                            expectedPosition,
+                            actualPosition,
+                            vertexAbsoluteTolerance,
+                            relativeTolerance)
+                            ? 0u
+                            : 1u;
+                }
+            }
+        }
+    }
+    uint64 identityMismatch = 0;
+    uint64 metadataMismatch = 0;
+    uint64 numericMismatch = 0;
+    uint64 remapMismatch = 0;
+    uint64 zeroIdentity = 0;
+    uint64 identityCollisions = 0;
+    uint64 remapValid = 0;
+    uint64 remapPreviousMissing = 0;
+    float maxNumericError = 0.0f;
+    std::unordered_set<uint64> identities;
+    std::unordered_set<uint32_t> emissiveInstances;
+    std::unordered_set<uint32_t> emissiveMaterials;
+
+    auto compareRecords =
+        [&](const std::vector<PathTraceSmokeEmissiveTriangle>& expected,
+            const std::vector<PathTraceSmokeEmissiveTriangle>& observed)
+        {
+            const size_t compareCount =
+                Min(expected.size(), observed.size());
+            for (size_t recordIndex = 0;
+                recordIndex < compareCount;
+                ++recordIndex)
+            {
+                const PathTraceSmokeEmissiveTriangle& lhs =
+                    expected[recordIndex];
+                const PathTraceSmokeEmissiveTriangle& rhs =
+                    observed[recordIndex];
+                if (lhs.identityHashLo != rhs.identityHashLo ||
+                    lhs.identityHashHi != rhs.identityHashHi)
+                {
+                    ++identityMismatch;
+                }
+                if (lhs.materialIndex != rhs.materialIndex ||
+                    lhs.instanceId != rhs.instanceId ||
+                    lhs.primitiveIndex != rhs.primitiveIndex ||
+                    lhs.flags != rhs.flags ||
+                    lhs.emissiveTextureIndex !=
+                        rhs.emissiveTextureIndex ||
+                    lhs.materialId != rhs.materialId ||
+                    lhs.universeMaterialIndex !=
+                        rhs.universeMaterialIndex ||
+                    lhs.padding0 != rhs.padding0)
+                {
+                    ++metadataMismatch;
+                }
+                const float* lhsFloats =
+                    lhs.centerAndArea;
+                const float* rhsFloats =
+                    rhs.centerAndArea;
+                for (int component = 0;
+                    component < 24;
+                    ++component)
+                {
+                    const float delta =
+                        idMath::Fabs(
+                            lhsFloats[component] -
+                            rhsFloats[component]);
+                    const float tolerance =
+                        aggregateAbsoluteTolerance +
+                        relativeTolerance *
+                            Max(idMath::Fabs(
+                                    lhsFloats[component]),
+                                idMath::Fabs(
+                                    rhsFloats[component]));
+                    maxNumericError =
+                        Max(maxNumericError, delta);
+                    if (!std::isfinite(
+                            lhsFloats[component]) ||
+                        !std::isfinite(
+                            rhsFloats[component]) ||
+                        delta > tolerance)
+                    {
+                        ++numericMismatch;
+                    }
+                }
+            }
+            if (expected.size() != observed.size())
+            {
+                metadataMismatch +=
+                    static_cast<uint64>(
+                        expected.size() > observed.size()
+                            ? expected.size() - observed.size()
+                            : observed.size() - expected.size());
+            }
+        };
+    compareRecords(
+        m_skinnedEmissiveAuditExpected.current,
+        actual.current);
+    compareRecords(
+        m_skinnedEmissiveAuditExpected.previous,
+        actual.previous);
+
+    for (const PathTraceSmokeEmissiveTriangle& record :
+        actual.current)
+    {
+        emissiveInstances.insert(record.instanceId);
+        emissiveMaterials.insert(record.materialId);
+        const uint64 identity =
+            (static_cast<uint64>(record.identityHashHi) <<
+                32ull) |
+            record.identityHashLo;
+        if (identity == 0)
+        {
+            ++zeroIdentity;
+        }
+        else if (!identities.insert(identity).second)
+        {
+            ++identityCollisions;
+        }
+    }
+    const size_t remapCompareCount =
+        Min(expectedRemap.size(), actualRemap.size());
+    for (size_t remapIndex = 0;
+        remapIndex < remapCompareCount;
+        ++remapIndex)
+    {
+        const PathTraceEmissiveLightRemap& lhs =
+            expectedRemap[remapIndex];
+        const PathTraceEmissiveLightRemap& rhs =
+            actualRemap[remapIndex];
+        if (memcmp(&lhs, &rhs, sizeof(lhs)) != 0)
+        {
+            ++remapMismatch;
+        }
+        remapValid +=
+            (rhs.flags & RT_SMOKE_EMISSIVE_REMAP_VALID) != 0u
+                ? 1u
+                : 0u;
+        remapPreviousMissing +=
+            (rhs.flags &
+                RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_MISSING) !=
+                    0u
+                ? 1u
+                : 0u;
+    }
+    if (expectedRemap.size() != actualRemap.size())
+    {
+        remapMismatch +=
+            static_cast<uint64>(
+                expectedRemap.size() > actualRemap.size()
+                    ? expectedRemap.size() -
+                        actualRemap.size()
+                    : actualRemap.size() -
+                        expectedRemap.size());
+    }
+
+    bool stableRemapTest = false;
+    bool spawnRemapTest = false;
+    bool despawnRemapTest = false;
+    bool identicalInstanceRemapTest = false;
+    if (!actual.current.empty())
+    {
+        const std::vector<PathTraceEmissiveLightRemap>
+            stableRemap =
+                BuildSmokeCanonicalEmissiveLightRemap(
+                    actual.current,
+                    actual.current);
+        stableRemapTest =
+            stableRemap.size() == actual.current.size();
+        for (size_t recordIndex = 0;
+            stableRemapTest &&
+            recordIndex < stableRemap.size();
+            ++recordIndex)
+        {
+            stableRemapTest =
+                (stableRemap[recordIndex].flags &
+                    RT_SMOKE_EMISSIVE_REMAP_VALID) != 0u &&
+                stableRemap[recordIndex].
+                    currentToPreviousIndex ==
+                    static_cast<int32_t>(recordIndex) &&
+                stableRemap[recordIndex].
+                    previousToCurrentIndex ==
+                    static_cast<int32_t>(recordIndex);
+        }
+
+        std::vector<PathTraceSmokeEmissiveTriangle>
+            spawnedCurrent = actual.current;
+        PathTraceSmokeEmissiveTriangle spawnedRecord =
+            actual.current.front();
+        uint64 spawnedIdentity =
+            (static_cast<uint64>(
+                spawnedRecord.identityHashHi) << 32ull) |
+            spawnedRecord.identityHashLo;
+        spawnedIdentity ^= 0x9e3779b97f4a7c15ull;
+        while (spawnedIdentity == 0 ||
+            identities.find(spawnedIdentity) !=
+                identities.end())
+        {
+            ++spawnedIdentity;
+        }
+        spawnedRecord.identityHashLo =
+            static_cast<uint32_t>(
+                spawnedIdentity & 0xffffffffu);
+        spawnedRecord.identityHashHi =
+            static_cast<uint32_t>(
+                spawnedIdentity >> 32);
+        ++spawnedRecord.instanceId;
+        spawnedCurrent.push_back(spawnedRecord);
+        const std::vector<PathTraceEmissiveLightRemap>
+            spawnRemap =
+                BuildSmokeCanonicalEmissiveLightRemap(
+                    spawnedCurrent,
+                    actual.current);
+        const size_t spawnedIndex =
+            spawnedCurrent.size() - 1;
+        spawnRemapTest =
+            spawnRemap.size() == spawnedCurrent.size() &&
+            (spawnRemap[spawnedIndex].flags &
+                RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_MISSING) !=
+                0u &&
+            (spawnRemap[spawnedIndex].flags &
+                RT_SMOKE_EMISSIVE_REMAP_VALID) == 0u;
+
+        std::vector<PathTraceSmokeEmissiveTriangle>
+            despawnedCurrent = actual.current;
+        despawnedCurrent.pop_back();
+        const std::vector<PathTraceEmissiveLightRemap>
+            despawnRemap =
+                BuildSmokeCanonicalEmissiveLightRemap(
+                    despawnedCurrent,
+                    actual.current);
+        const size_t removedIndex =
+            actual.current.size() - 1;
+        despawnRemapTest =
+            despawnRemap.size() == actual.current.size() &&
+            (despawnRemap[removedIndex].flags &
+                RT_SMOKE_EMISSIVE_REMAP_CURRENT_MISSING) !=
+                0u &&
+            (despawnRemap[removedIndex].flags &
+                RT_SMOKE_EMISSIVE_REMAP_VALID) == 0u;
+
+        std::vector<PathTraceSmokeEmissiveTriangle>
+            identicalInstances;
+        identicalInstances.push_back(
+            actual.current.front());
+        identicalInstances.push_back(spawnedRecord);
+        const std::vector<PathTraceEmissiveLightRemap>
+            identicalRemap =
+                BuildSmokeCanonicalEmissiveLightRemap(
+                    identicalInstances,
+                    identicalInstances);
+        const uint32_t duplicateFlags =
+            RT_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE |
+            RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE;
+        identicalInstanceRemapTest =
+            identicalRemap.size() == 2 &&
+            (identicalRemap[0].flags &
+                RT_SMOKE_EMISSIVE_REMAP_VALID) != 0u &&
+            (identicalRemap[1].flags &
+                RT_SMOKE_EMISSIVE_REMAP_VALID) != 0u &&
+            (identicalRemap[0].flags & duplicateFlags) == 0u &&
+            (identicalRemap[1].flags & duplicateFlags) == 0u;
+    }
+
+    const bool countersExact =
+        actual.inputTriangles ==
+            m_skinnedEmissiveAuditExpected.inputTriangles &&
+        actual.invalidTriangles ==
+            m_skinnedEmissiveAuditExpected.invalidTriangles &&
+        actual.nonEmissiveTriangles ==
+            m_skinnedEmissiveAuditExpected.nonEmissiveTriangles &&
+        actual.runtimeInactiveTriangles ==
+            m_skinnedEmissiveAuditExpected.runtimeInactiveTriangles &&
+        actual.zeroIdentityTriangles ==
+            m_skinnedEmissiveAuditExpected.zeroIdentityTriangles &&
+        actual.zeroAreaCurrentTriangles ==
+            m_skinnedEmissiveAuditExpected.zeroAreaCurrentTriangles &&
+        actual.zeroAreaPreviousTriangles ==
+            m_skinnedEmissiveAuditExpected.zeroAreaPreviousTriangles &&
+        actual.missingPreviousTriangles ==
+            m_skinnedEmissiveAuditExpected.missingPreviousTriangles;
+    const bool accepted =
+        !actual.current.empty() &&
+        m_skinnedEmissiveAuditForcedMaterialCount > 0 &&
+        countersExact &&
+        identityMismatch == 0 &&
+        metadataMismatch == 0 &&
+        numericMismatch == 0 &&
+        remapMismatch == 0 &&
+        currentVertexMismatch == 0 &&
+        previousVertexMismatch == 0 &&
+        zeroIdentity == 0 &&
+        identityCollisions == 0 &&
+        stableRemapTest &&
+        spawnRemapTest &&
+        despawnRemapTest &&
+        identicalInstanceRemapTest;
+    common->Printf(
+        "PathTracePrimaryPass: GEO09 skinned emissive GPU-output audit summary frame=%llu accepted=%d productionBehaviorChanged=0 materials(productionEligible/validationForced)=%d/%d triangles(input/nonEmissive/inactive/invalid/zeroIdentity)=%llu/%llu/%llu/%llu/%llu inventory(expectedCurrent/actualCurrent/expectedPrevious/actualPrevious/instances/materials)=%llu/%llu/%llu/%llu/%llu/%llu geometry(zeroAreaCurrent/zeroAreaPrevious/missingPrevious)=%llu/%llu/%llu vertices(comparedCurrent/comparedPrevious/mismatchCurrent/mismatchPrevious/maxCurrent/maxPrevious)=%llu/%llu/%llu/%llu/%.9g/%.9g compare(identity/metadata/numeric/remap/countersExact/maxAggregateError)= %llu/%llu/%llu/%llu/%d/%.9g identity(zero/collisions)=%llu/%llu remap(valid/previousMissing/total)=%llu/%llu/%llu transition(stable/spawn/despawn/identicalInstance)=%d/%d/%d/%d tolerance(vertexAbs/aggregateAbs/rel)=%.9g/%.9g/%.9g\n",
+        static_cast<unsigned long long>(
+            m_skinnedEmissiveAuditFrame),
+        accepted ? 1 : 0,
+        m_skinnedEmissiveAuditProductionEligibleMaterialCount,
+        m_skinnedEmissiveAuditForcedMaterialCount,
+        static_cast<unsigned long long>(
+            actual.inputTriangles),
+        static_cast<unsigned long long>(
+            actual.nonEmissiveTriangles),
+        static_cast<unsigned long long>(
+            actual.runtimeInactiveTriangles),
+        static_cast<unsigned long long>(
+            actual.invalidTriangles),
+        static_cast<unsigned long long>(
+            actual.zeroIdentityTriangles),
+        static_cast<unsigned long long>(
+            m_skinnedEmissiveAuditExpected.current.size()),
+        static_cast<unsigned long long>(
+            actual.current.size()),
+        static_cast<unsigned long long>(
+            m_skinnedEmissiveAuditExpected.previous.size()),
+        static_cast<unsigned long long>(
+            actual.previous.size()),
+        static_cast<unsigned long long>(
+            emissiveInstances.size()),
+        static_cast<unsigned long long>(
+            emissiveMaterials.size()),
+        static_cast<unsigned long long>(
+            actual.zeroAreaCurrentTriangles),
+        static_cast<unsigned long long>(
+            actual.zeroAreaPreviousTriangles),
+        static_cast<unsigned long long>(
+            actual.missingPreviousTriangles),
+        static_cast<unsigned long long>(
+            comparedCurrentVertices.size()),
+        static_cast<unsigned long long>(
+            comparedPreviousPositions.size()),
+        static_cast<unsigned long long>(
+            currentVertexMismatch),
+        static_cast<unsigned long long>(
+            previousVertexMismatch),
+        maxCurrentVertexError,
+        maxPreviousVertexError,
+        static_cast<unsigned long long>(identityMismatch),
+        static_cast<unsigned long long>(metadataMismatch),
+        static_cast<unsigned long long>(numericMismatch),
+        static_cast<unsigned long long>(remapMismatch),
+        countersExact ? 1 : 0,
+        maxNumericError,
+        static_cast<unsigned long long>(zeroIdentity),
+        static_cast<unsigned long long>(identityCollisions),
+        static_cast<unsigned long long>(remapValid),
+        static_cast<unsigned long long>(
+            remapPreviousMissing),
+        static_cast<unsigned long long>(actualRemap.size()),
+        stableRemapTest ? 1 : 0,
+        spawnRemapTest ? 1 : 0,
+        despawnRemapTest ? 1 : 0,
+        identicalInstanceRemapTest ? 1 : 0,
+        vertexAbsoluteTolerance,
+        aggregateAbsoluteTolerance,
+        relativeTolerance);
+
+    device->unmapBuffer(
+        m_skinnedEmissiveAuditReadbackBuffer);
+    m_skinnedEmissiveAuditReadbackQueued = false;
+    m_skinnedEmissiveAuditTriangles.clear();
+    m_skinnedEmissiveAuditMaterialIds.clear();
+    m_skinnedEmissiveAuditMaterials.clear();
+    m_skinnedEmissiveAuditExpectedCurrentVertices.clear();
+    m_skinnedEmissiveAuditExpectedPreviousPositions.clear();
+    m_skinnedEmissiveAuditExpected =
+        PtSkinnedEmissiveAuditInventory();
+}
+
 void PathTracePrimaryPass::QueueSkinnedHitRouteReadback(
     nvrhi::ICommandList* commandList,
     nvrhi::IBuffer* recordBuffer,
@@ -2005,6 +2675,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     ReadBackStaticContractShaderSample();
     ReadBackStaticContractGeometrySample();
     ReadBackGpuSkinningParitySamples();
+    ReadBackSkinnedEmissiveAudit();
     ReadBackSkinnedHitRoute();
     ReadBackSkinnedHitAuditSamples();
 

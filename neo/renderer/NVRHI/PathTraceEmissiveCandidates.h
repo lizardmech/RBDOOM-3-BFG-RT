@@ -100,6 +100,33 @@ struct RtSmokeEmissiveDistributionBuild
     bool valid = false;
 };
 
+struct PtSkinnedEmissiveAuditTriangle
+{
+    uint32_t currentVertexIndexes[3] = {};
+    uint32_t previousPositionIndexes[3] = {};
+    uint32_t materialIndex = UINT32_MAX;
+    uint32_t materialId = 0;
+    uint32_t instanceId = 0;
+    uint32_t primitiveIndex = 0;
+    uint32_t triangleClassAndFlags = 0;
+    uint64_t identityHash = 0;
+    bool hasPrevious = false;
+};
+
+struct PtSkinnedEmissiveAuditInventory
+{
+    std::vector<PathTraceSmokeEmissiveTriangle> current;
+    std::vector<PathTraceSmokeEmissiveTriangle> previous;
+    uint64_t inputTriangles = 0;
+    uint64_t invalidTriangles = 0;
+    uint64_t nonEmissiveTriangles = 0;
+    uint64_t runtimeInactiveTriangles = 0;
+    uint64_t zeroIdentityTriangles = 0;
+    uint64_t zeroAreaCurrentTriangles = 0;
+    uint64_t zeroAreaPreviousTriangles = 0;
+    uint64_t missingPreviousTriangles = 0;
+};
+
 const uint32_t RT_SMOKE_LIGHT_CANDIDATE_TEXTURED = 0x00000001u;
 const uint32_t RT_SMOKE_LIGHT_CANDIDATE_SAFE_TEXTURE = 0x00000002u;
 const uint32_t RT_SMOKE_LIGHT_CANDIDATE_HAS_STATIC_TRIANGLES = 0x00000004u;
@@ -200,6 +227,17 @@ void FinalizeSmokeEmissiveTriangleSamplingFields(
     const RtSmokeEmissiveInventoryStats& stats);
 RtSmokeEmissiveDistributionBuild BuildSmokeEmissiveDistribution(
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles);
+PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const std::vector<PathTraceSmokeVertex>& currentVertices,
+    const std::vector<PathTraceSkinnedPreviousPosition>& previousPositions,
+    const std::vector<PtSkinnedEmissiveAuditTriangle>& triangles,
+    uint32_t emissiveMaterialFlag,
+    int maxRecords);
+std::vector<PathTraceEmissiveLightRemap> BuildSmokeCanonicalEmissiveLightRemap(
+    const std::vector<PathTraceSmokeEmissiveTriangle>& currentTriangles,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& previousTriangles);
 void AppendSmokeRigidRouteEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,

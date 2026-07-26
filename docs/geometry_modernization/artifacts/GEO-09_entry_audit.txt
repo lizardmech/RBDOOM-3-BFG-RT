@@ -409,3 +409,126 @@ Stable animated previous-position parity and every owned reset decision are
 accepted. Q16 is resolved for the canonical skinned motion/history contract.
 Step 5 canonical GPU-output emissive inventory and temporal remap is next;
 Q17 remains open.
+
+STEP 5 MATERIAL BOUNDARY AUDIT
+------------------------------
+The first source-local census separated three materially different cases:
+
+  no emissive stage
+  emissive but not a light candidate
+  production-eligible emissive light candidate
+
+geometry_geo147_auto spawned Archvile, Revenant, Bruiser, and Cacodemon
+actors. Five routed monster materials were discovered as emissive and as
+light candidates:
+
+  models/monsters/bruiser/bruiser3
+  models/monsters/revenant/reye
+  models/monsters/archvile/archvilehand2
+  models/monsters/cacodemon/cacoeye
+  models/monsters/cacodemon/cacobrain
+
+All five had an authored emissive image but no RT texture handle:
+
+  image / handle / safe = 1 / 0 / 0
+
+The material universe therefore correctly withheld
+RT_SMOKE_MATERIAL_EMISSIVE and
+RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE. Promoting those surfaces with a
+constant white fallback would light the entire mesh and is not a valid
+geometry fix. Step 5 does not weaken texture safety or alter production
+material flags. This is a separate material-texture binding limitation, wider
+than the already-known Fatzombie descriptor defect.
+
+STEP 5 GPU-OUTPUT SHADOW
+------------------------
+`r_pathTracingGeometrySkinnedEmissiveAudit` remains default zero. Value 1
+arms the next eligible frame; larger values count down eligible geometry
+frames. The one-shot:
+
+  reads the authoritative current skinned output and previous-position GPU
+  buffers asynchronously;
+  resolves immutable source-local indices through the canonical mesh record;
+  carries canonical instance, local primitive, material, triangle flags, and
+  emissive identity into triangle-light records;
+  builds current and previous inventories with the same shared remap helper
+  used by production emissive lights;
+  compares them with a same-frame CPU oracle without changing production
+  geometry, materials, lights, or shaders.
+
+For positive geometry coverage only, the audit makes a private material-table
+copy and force-enables materials that discovery already classified as
+emissive/light-candidate but production rejected for an unsafe texture. It
+uses the discovered constant stage color and never publishes that view to
+production. Every log states `productionBehaviorChanged=0`.
+
+Authoritative referenced vertex positions retain the existing 1e-3 absolute
+and 1e-5 relative tolerance. Derived center/area/normal/weight/PDF values use
+a separate 1e-2 absolute aggregate tolerance because small vertex errors can
+amplify through cross products and normalization. Identity, material,
+primitive, flags, and remap remain exact.
+
+The shared remap helper also runs four focused transition cases over accepted
+real records:
+
+  stable inventory maps every record to itself;
+  one added record reports previous-missing;
+  one removed record reports current-missing;
+  a second identical-model-style record with a distinct instance identity
+  maps without duplicate flags.
+
+STEP 5 ACCEPTED RUNTIME
+-----------------------
+Final log:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo152_auto.log
+
+Scene:
+
+  prepared doom3_1 save, maps/game/mars_city1
+  Archvile, Revenant, Bruiser, and three Cacodemons spawned
+
+Accepted frame 241:
+
+  canonical routes / source triangles:              31 / 35,814
+  production eligible / validation-forced materials: 0 / 9
+  validation current / previous records:         2,398 / 2,398
+  unique emissive instances / materials:              8 / 8
+  runtime-inactive triangles:                         1,840
+  referenced current / previous vertices:         22,579 / 22,579
+  current / previous vertex failures:                  0 / 0
+  max current / previous vertex error:       0.000122070312
+  identity / metadata / numeric / remap mismatch:       0 / 0 / 0 / 0
+  max aggregate-record error:                0.000736236572
+  zero identities / collisions:                       0 / 0
+  valid settled remaps:                         2,398 / 2,398
+  stable / spawn / despawn / identical transition:     1 / 1 / 1 / 1
+  accepted:                                              1
+
+The game completed normal renderer, Streamline, game, and event shutdown.
+The log contains no fatal, device-removed, Vulkan, NVRHI, or validation-error
+marker.
+
+STEP 5 BUILD AND DEPLOY
+-----------------------
+  preset:
+    cmake --build --preset win64-pt-dev-release
+
+  result:
+    PASS
+
+  final executable SHA-256:
+    AC0E0C131B4937B4946DC1659B538C8CE04C3A09CAFA3594D875CE5D646BE1E1
+
+No shader source changed in step 5. The build reported all SPIR-V shaders up
+to date; no DX12 or SPIR-V blob was copied. Only the executable was deployed.
+
+STEP 5 DISPOSITION
+------------------
+The canonical GPU-output inventory construction, identity, current/previous
+geometry, and remap comparison are accepted. This resolves the comparison
+portion of Q17. Production still skips skinned triangles in the live
+CPU-built inventory, and the runtime material universe currently exposes no
+safe skinned emissive-light candidate in this scene. Production cutover stays
+open for GEO-09 step 8; step 6 material binding/state parity is next.

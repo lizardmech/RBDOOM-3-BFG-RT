@@ -732,3 +732,21 @@ GEO-09 SKINNED CONSUMER ENTRY AUDIT
   buffer cases. Removed surfaces emit no current record; a later return takes
   the explicit absent-previous reset. Q16 is resolved for skinned
   motion/history; canonical GPU-output emissive inventory remains open.
+- geometry_geo147_auto proves that the zero live skinned-emissive count is an
+  upstream texture-safety boundary, not missing geometry metadata. Bruiser,
+  Revenant, Archvile, and Cacodemon glow materials are discovered as emissive
+  light candidates, but their authored emissive images have no RT texture
+  handle (`image/handle/safe = 1/0/0`). The material universe correctly
+  suppresses emissive flags rather than applying a false whole-mesh constant
+  fallback. GEO-09 does not weaken this rule.
+- geometry_geo152_auto accepts the default-zero GEO-09 GPU-output emissive
+  shadow. It resolves 31 canonical routes and 35,814 source-local triangles,
+  privately force-enables nine already-classified-but-texture-unsafe material
+  views for validation only, and builds 2,398 current plus 2,398 previous
+  records across eight instances/materials. All 22,579 referenced current and
+  previous vertices pass at 0.000122070312 maximum error; identity, metadata,
+  numeric-record, and remap mismatches are zero. All 2,398 settled records
+  remap, identity collisions are zero, and focused stable/spawn/despawn/
+  identical-instance transition checks pass. Production behavior is
+  unchanged and shutdown is normal. Step 5 comparison is accepted; live
+  skinned-emissive publication remains a step-8 cutover decision.

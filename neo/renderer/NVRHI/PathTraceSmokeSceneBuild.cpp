@@ -2258,162 +2258,6 @@ uint64_t SumSmokeSkippedUploadBytes(const RtSmokeBufferUploadItem* items, int fi
     return bytes;
 }
 
-uint64_t SmokeEmissiveIdentityKey(const PathTraceSmokeEmissiveTriangle& triangle)
-{
-    return (static_cast<uint64_t>(triangle.identityHashHi) << 32ull) | static_cast<uint64_t>(triangle.identityHashLo);
-}
-
-bool SmokeEmissiveLightRecordsCompatible(const PathTraceSmokeEmissiveTriangle& current, const PathTraceSmokeEmissiveTriangle& previous)
-{
-    return current.identityHashLo == previous.identityHashLo &&
-        current.identityHashHi == previous.identityHashHi &&
-        current.materialId == previous.materialId &&
-        current.universeMaterialIndex == previous.universeMaterialIndex &&
-        current.emissiveTextureIndex == previous.emissiveTextureIndex;
-}
-
-void BuildSmokeEmissiveIdentityMap(
-    const std::vector<PathTraceSmokeEmissiveTriangle>& triangles,
-    std::unordered_map<uint64_t, int>& identityToIndex)
-{
-    identityToIndex.clear();
-    identityToIndex.reserve(triangles.size());
-    for (int triangleIndex = 0; triangleIndex < static_cast<int>(triangles.size()); ++triangleIndex)
-    {
-        const uint64_t identityKey = SmokeEmissiveIdentityKey(triangles[triangleIndex]);
-        if (identityKey == 0)
-        {
-            continue;
-        }
-
-        const auto insertResult = identityToIndex.emplace(identityKey, triangleIndex);
-        if (!insertResult.second)
-        {
-            insertResult.first->second = -1;
-        }
-    }
-}
-
-std::vector<PathTraceEmissiveLightRemap> BuildSmokeEmissiveLightRemap(
-    const std::vector<PathTraceSmokeEmissiveTriangle>& currentTriangles,
-    const std::vector<PathTraceSmokeEmissiveTriangle>& previousTriangles)
-{
-    std::vector<PathTraceEmissiveLightRemap> remap(std::max(currentTriangles.size(), previousTriangles.size()));
-    std::unordered_map<uint64_t, int> currentByIdentity;
-    std::unordered_map<uint64_t, int> previousByIdentity;
-    BuildSmokeEmissiveIdentityMap(currentTriangles, currentByIdentity);
-    BuildSmokeEmissiveIdentityMap(previousTriangles, previousByIdentity);
-
-    for (int currentIndex = 0; currentIndex < static_cast<int>(currentTriangles.size()); ++currentIndex)
-    {
-        const uint64_t identityKey = SmokeEmissiveIdentityKey(currentTriangles[currentIndex]);
-        if (identityKey == 0)
-        {
-            if (currentIndex < static_cast<int>(remap.size()))
-            {
-                remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_CURRENT_ZERO_IDENTITY;
-            }
-            continue;
-        }
-
-        const auto currentIt = currentByIdentity.find(identityKey);
-        if (currentIt == currentByIdentity.end() || currentIt->second != currentIndex)
-        {
-            if (currentIndex < static_cast<int>(remap.size()))
-            {
-                remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE;
-            }
-            continue;
-        }
-
-        const auto previousIt = previousByIdentity.find(identityKey);
-        if (previousIt == previousByIdentity.end())
-        {
-            if (currentIndex < static_cast<int>(remap.size()))
-            {
-                remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_MISSING;
-            }
-            continue;
-        }
-        if (previousIt->second < 0)
-        {
-            if (currentIndex < static_cast<int>(remap.size()))
-            {
-                remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE;
-            }
-            continue;
-        }
-
-        const int previousIndex = previousIt->second;
-        if (previousIndex >= static_cast<int>(previousTriangles.size()) ||
-            !SmokeEmissiveLightRecordsCompatible(currentTriangles[currentIndex], previousTriangles[previousIndex]))
-        {
-            if (currentIndex < static_cast<int>(remap.size()))
-            {
-                remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_INCOMPATIBLE;
-            }
-            if (previousIndex >= 0 && previousIndex < static_cast<int>(remap.size()))
-            {
-                remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_INCOMPATIBLE;
-            }
-            continue;
-        }
-
-        if (currentIndex < static_cast<int>(remap.size()))
-        {
-            remap[currentIndex].currentToPreviousIndex = previousIndex;
-            remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_VALID;
-        }
-        if (previousIndex < static_cast<int>(remap.size()))
-        {
-            remap[previousIndex].previousToCurrentIndex = currentIndex;
-            remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_VALID;
-        }
-    }
-
-    for (int previousIndex = 0; previousIndex < static_cast<int>(previousTriangles.size()); ++previousIndex)
-    {
-        const uint64_t identityKey = SmokeEmissiveIdentityKey(previousTriangles[previousIndex]);
-        if (identityKey == 0)
-        {
-            if (previousIndex < static_cast<int>(remap.size()))
-            {
-                remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_ZERO_IDENTITY;
-            }
-            continue;
-        }
-
-        const auto previousIt = previousByIdentity.find(identityKey);
-        if (previousIt == previousByIdentity.end() || previousIt->second != previousIndex)
-        {
-            if (previousIndex < static_cast<int>(remap.size()))
-            {
-                remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE;
-            }
-            continue;
-        }
-
-        const auto currentIt = currentByIdentity.find(identityKey);
-        if (currentIt == currentByIdentity.end())
-        {
-            if (previousIndex < static_cast<int>(remap.size()))
-            {
-                remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_CURRENT_MISSING;
-            }
-            continue;
-        }
-        if (currentIt->second < 0)
-        {
-            if (previousIndex < static_cast<int>(remap.size()))
-            {
-                remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE;
-            }
-        }
-    }
-
-    return remap;
-}
-
 uint64 ComputeSmokeReservoirStructuralSignature(
     uint64 materialTableSignature,
     uint64 staticBlasSignature,
@@ -7794,7 +7638,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         : std::vector<PathTraceSmokeEmissiveTriangle>();
     const std::vector<PathTraceEmissiveLightRemap> emissiveLightRemap = [&]() {
         OPTICK_EVENT("PT Emissive Light Remap");
-        return BuildSmokeEmissiveLightRemap(emissiveTriangles, previousEmissiveTriangles);
+        return BuildSmokeCanonicalEmissiveLightRemap(emissiveTriangles, previousEmissiveTriangles);
     }();
     const int cleanRtxdiDiView = r_pathTracingCleanRtxdiDiView.GetInteger();
     const int cleanRtxdiDiResolveView =
@@ -9052,6 +8896,171 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     FinalizeSmokeSkinnedGpuFunnel(skinnedGpuScaffold, skinnedGpuComputeDispatched);
+    if (r_pathTracingGeometrySkinnedEmissiveAudit.GetInteger() == 1 &&
+        skinnedGpuComputeDispatched &&
+        !skinnedHitRouteUploadBuild.records.empty())
+    {
+        std::unordered_set<uint32_t> routedMaterialIndexes;
+        for (const PtSkinnedHitRouteTriangle& triangle :
+            skinnedHitRouteUploadBuild.triangles)
+        {
+            if (triangle.materialIndex <
+                materialTable.materials.size())
+            {
+                routedMaterialIndexes.insert(
+                    triangle.materialIndex);
+            }
+        }
+
+        std::vector<PathTraceSmokeMaterial>
+            auditMaterialViews = materialTable.materials;
+        int productionEligibleMaterialCount = 0;
+        int forcedMaterialCount = 0;
+        for (uint32_t materialIndex :
+            routedMaterialIndexes)
+        {
+            PathTraceSmokeMaterial& material =
+                auditMaterialViews[materialIndex];
+            if ((material.flags &
+                    RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE) !=
+                0u)
+            {
+                ++productionEligibleMaterialCount;
+                continue;
+            }
+            if (materialIndex >=
+                materialTable.materialInfos.size())
+            {
+                continue;
+            }
+            const RtSmokeMaterialTextureInfo& info =
+                materialTable.materialInfos[materialIndex];
+            if (!info.emissive ||
+                !info.emissiveLightCandidate)
+            {
+                continue;
+            }
+
+            // Validation only: the production material universe correctly
+            // rejects an authored emissive image without a safe RT texture
+            // handle. Use its discovered constant stage color solely to prove
+            // canonical GPU-output geometry, identity, and temporal remap.
+            material.flags |=
+                RT_SMOKE_MATERIAL_EMISSIVE |
+                RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE;
+            material.emissiveColor[0] =
+                info.emissiveColor.x;
+            material.emissiveColor[1] =
+                info.emissiveColor.y;
+            material.emissiveColor[2] =
+                info.emissiveColor.z;
+            material.emissiveColor[3] =
+                info.emissiveColor.w;
+            ++forcedMaterialCount;
+        }
+
+        std::vector<PtSkinnedEmissiveAuditTriangle>
+            auditTriangles;
+        auditTriangles.reserve(
+            skinnedHitRouteUploadBuild.triangles.size());
+        for (const PtSkinnedHitRouteRecord& route :
+            skinnedHitRouteUploadBuild.records)
+        {
+            const PtGeometrySourceRecord* source =
+                m_smokeGeometryUniverse.
+                    FindCanonicalSourceRecord(route.meshKey);
+            for (uint32_t localPrimitive = 0;
+                localPrimitive < route.triangleCount;
+                ++localPrimitive)
+            {
+                const uint64 metadataIndex =
+                    static_cast<uint64>(
+                        route.triangleMetadataOffset) +
+                    localPrimitive;
+                if (metadataIndex >=
+                    skinnedHitRouteUploadBuild.
+                        triangles.size())
+                {
+                    continue;
+                }
+                const PtSkinnedHitRouteTriangle& triangle =
+                    skinnedHitRouteUploadBuild.triangles[
+                        static_cast<size_t>(metadataIndex)];
+                PtSkinnedEmissiveAuditTriangle audit = {};
+                audit.materialIndex =
+                    triangle.materialIndex;
+                audit.materialId = triangle.materialId;
+                audit.instanceId = route.shaderInstanceId;
+                audit.primitiveIndex =
+                    triangle.sourcePrimitiveIndex;
+                audit.triangleClassAndFlags =
+                    triangle.triangleClassAndFlags;
+                audit.identityHash =
+                    triangle.emissiveIdentityHash;
+                audit.hasPrevious =
+                    (route.flags &
+                        PT_SKINNED_HIT_ROUTE_HAS_PREVIOUS) !=
+                        0u &&
+                    route.previousPositionOffset !=
+                        PT_SKINNED_HIT_ROUTE_INVALID_INDEX;
+                for (int corner = 0; corner < 3; ++corner)
+                {
+                    audit.currentVertexIndexes[corner] =
+                        UINT32_MAX;
+                    audit.previousPositionIndexes[corner] =
+                        UINT32_MAX;
+                }
+                const uint64 sourceIndexOffset =
+                    static_cast<uint64>(
+                        triangle.sourcePrimitiveIndex) *
+                    3ull;
+                if (source &&
+                    sourceIndexOffset + 2ull <
+                        source->payload.indexes.size())
+                {
+                    for (int corner = 0;
+                        corner < 3;
+                        ++corner)
+                    {
+                        const uint32_t localVertex =
+                            source->payload.indexes[
+                                static_cast<size_t>(
+                                    sourceIndexOffset +
+                                    corner)];
+                        audit.currentVertexIndexes[corner] =
+                            route.outputVertexOffset +
+                            localVertex;
+                        if (audit.hasPrevious)
+                        {
+                            audit.previousPositionIndexes[
+                                corner] =
+                                    route.
+                                        previousPositionOffset +
+                                    localVertex;
+                        }
+                    }
+                }
+                auditTriangles.push_back(audit);
+            }
+        }
+
+        QueueSkinnedEmissiveAudit(
+            commandList,
+            smokeSkinnedGpuComputeOutputBuffer,
+            smokeSkinnedPreviousPositionBuffer,
+            skinnedGpuComputeTargetsDynamicVertices
+                ? nvrhi::ResourceStates::
+                    AccelStructBuildInput
+                : nvrhi::ResourceStates::ShaderResource,
+            auditTriangles,
+            materialTable.materialIds,
+            auditMaterialViews,
+            skinnedGpuScaffold.currentOutputVertices,
+            skinnedGpuScaffold.previousPositions,
+            geometryUniverseStats.frameIndex,
+            forcedMaterialCount,
+            productionEligibleMaterialCount);
+    }
     if (r_pathTracingGpuSkinningParityDump.GetInteger() != 0)
     {
         DumpSmokeSkinnedGpuFunnel(
@@ -10154,6 +10163,169 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<unsigned long long>(shadowAudit.emissiveIdentityInvalid),
             static_cast<unsigned long long>(shadowAudit.emissiveIdentityCollision));
         r_pathTracingGeometrySkinnedConsumerAudit.SetInteger(0);
+    }
+    const int skinnedEmissiveAuditCountdown =
+        r_pathTracingGeometrySkinnedEmissiveAudit.GetInteger();
+    if (skinnedEmissiveAuditCountdown > 1 &&
+        !skinnedHitRouteUploadBuild.records.empty())
+    {
+        r_pathTracingGeometrySkinnedEmissiveAudit.SetInteger(
+            skinnedEmissiveAuditCountdown - 1);
+    }
+    else if (skinnedEmissiveAuditCountdown == 1 &&
+        !skinnedHitRouteUploadBuild.records.empty())
+    {
+        uint64 emissiveAuditTriangles = 0;
+        uint64 emissiveAuditInvalid = 0;
+        uint64 emissiveAuditNonEmissive = 0;
+        uint64 emissiveAuditNonCandidate = 0;
+        uint64 emissiveAuditStageOff = 0;
+        uint64 emissiveAuditEligible = 0;
+        uint64 emissiveAuditZeroIdentity = 0;
+        uint64 emissiveAuditIdentityCollisions = 0;
+        std::unordered_set<uint64> emissiveAuditIdentities;
+        std::unordered_set<uint64> emissiveAuditInstances;
+        std::unordered_set<uint32_t> emissiveAuditMaterials;
+        std::unordered_set<uint32_t> emissiveAuditRoutedMaterials;
+        for (const PtSkinnedHitRouteRecord& route :
+            skinnedHitRouteUploadBuild.records)
+        {
+            for (uint32_t primitiveIndex = 0;
+                primitiveIndex < route.triangleCount;
+                ++primitiveIndex)
+            {
+                ++emissiveAuditTriangles;
+                const uint64 triangleIndex =
+                    static_cast<uint64>(
+                        route.triangleMetadataOffset) +
+                    primitiveIndex;
+                if (triangleIndex >=
+                    skinnedHitRouteUploadBuild.triangles.size())
+                {
+                    ++emissiveAuditInvalid;
+                    continue;
+                }
+                const PtSkinnedHitRouteTriangle& triangle =
+                    skinnedHitRouteUploadBuild.triangles[
+                        static_cast<size_t>(triangleIndex)];
+                if (triangle.materialIndex >=
+                    materialTable.materials.size())
+                {
+                    ++emissiveAuditInvalid;
+                    continue;
+                }
+                const PathTraceSmokeMaterial& material =
+                    materialTable.materials[
+                        triangle.materialIndex];
+                emissiveAuditRoutedMaterials.insert(
+                    triangle.materialIndex);
+                if ((material.flags &
+                        RT_SMOKE_MATERIAL_EMISSIVE) == 0u)
+                {
+                    ++emissiveAuditNonEmissive;
+                    continue;
+                }
+                if ((material.flags &
+                        RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE) == 0u)
+                {
+                    ++emissiveAuditNonCandidate;
+                    continue;
+                }
+                if ((triangle.triangleClassAndFlags &
+                        RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) !=
+                    0u)
+                {
+                    ++emissiveAuditStageOff;
+                    continue;
+                }
+                ++emissiveAuditEligible;
+                emissiveAuditInstances.insert(
+                    route.instanceHash);
+                emissiveAuditMaterials.insert(
+                    triangle.materialIndex);
+                if (triangle.emissiveIdentityHash == 0)
+                {
+                    ++emissiveAuditZeroIdentity;
+                }
+                else if (!emissiveAuditIdentities.insert(
+                        triangle.emissiveIdentityHash).second)
+                {
+                    ++emissiveAuditIdentityCollisions;
+                }
+            }
+        }
+        const bool accepted =
+            emissiveAuditTriangles > 0 &&
+            emissiveAuditInvalid == 0 &&
+            emissiveAuditZeroIdentity == 0 &&
+            emissiveAuditIdentityCollisions == 0 &&
+                emissiveAuditTriangles ==
+                    emissiveAuditInvalid +
+                    emissiveAuditNonEmissive +
+                    emissiveAuditNonCandidate +
+                    emissiveAuditStageOff +
+                    emissiveAuditEligible;
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned emissive source census frame=%llu accepted=%d routes=%llu triangles(total/invalid/nonEmissive/nonCandidate/stageOff/eligible)=%llu/%llu/%llu/%llu/%llu/%llu eligible(instances/materials/identities/zero/collisions)=%llu/%llu/%llu/%llu/%llu routedMaterials=%llu route=canonical-source-local currentPositionSource=gpu-output-pending\n",
+            static_cast<unsigned long long>(
+                m_smokeGeometryFrameIndex),
+            accepted ? 1 : 0,
+            static_cast<unsigned long long>(
+                skinnedHitRouteUploadBuild.records.size()),
+            static_cast<unsigned long long>(
+                emissiveAuditTriangles),
+            static_cast<unsigned long long>(
+                emissiveAuditInvalid),
+            static_cast<unsigned long long>(
+                emissiveAuditNonEmissive),
+            static_cast<unsigned long long>(
+                emissiveAuditNonCandidate),
+            static_cast<unsigned long long>(
+                emissiveAuditStageOff),
+            static_cast<unsigned long long>(
+                emissiveAuditEligible),
+            static_cast<unsigned long long>(
+                emissiveAuditInstances.size()),
+            static_cast<unsigned long long>(
+                emissiveAuditMaterials.size()),
+            static_cast<unsigned long long>(
+                emissiveAuditIdentities.size()),
+            static_cast<unsigned long long>(
+                emissiveAuditZeroIdentity),
+            static_cast<unsigned long long>(
+                emissiveAuditIdentityCollisions),
+            static_cast<unsigned long long>(
+                emissiveAuditRoutedMaterials.size()));
+        int emissiveAuditMaterialPrintCount = 0;
+        for (uint32_t materialIndex : emissiveAuditRoutedMaterials)
+        {
+            if (emissiveAuditMaterialPrintCount >= 32 ||
+                materialIndex >= materialTable.materials.size() ||
+                materialIndex >= materialTable.materialIds.size())
+            {
+                continue;
+            }
+            const PathTraceSmokeMaterial& material =
+                materialTable.materials[materialIndex];
+            const RtSmokeMaterialTextureInfo* info =
+                materialIndex < materialTable.materialInfos.size()
+                    ? &materialTable.materialInfos[materialIndex]
+                    : nullptr;
+            common->Printf(
+                "PathTracePrimaryPass: GEO09 skinned emissive material tableIndex=%u materialId=%u name=%s flags=0x%08x emissive=%d candidate=%d image/handle/safe=%d/%d/%d reason=%s\n",
+                materialIndex,
+                materialTable.materialIds[materialIndex],
+                info ? info->materialName.c_str() : "<missing-info>",
+                material.flags,
+                info && info->emissive ? 1 : 0,
+                info && info->emissiveLightCandidate ? 1 : 0,
+                info && info->hasEmissiveImage ? 1 : 0,
+                info && info->hasEmissiveTextureHandle ? 1 : 0,
+                info && info->hasSafeEmissiveTexture ? 1 : 0,
+                info ? info->emissiveReason.c_str() : "<missing-info>");
+            ++emissiveAuditMaterialPrintCount;
+        }
+        r_pathTracingGeometrySkinnedEmissiveAudit.SetInteger(0);
     }
     const int skinnedHitAuditCountdown =
         r_pathTracingGeometrySkinnedHitAudit.GetInteger();

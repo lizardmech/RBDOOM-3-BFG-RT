@@ -831,6 +831,32 @@ motion pairs with zero validity, status, or previous-position mismatches; both
 have 0.00048828125 maximum previous-position delta. The post-extraction
 PathTraceSkinnedHistoryPolicyHarness and release runtime pass. Q16 is resolved.
 
+D45. VALIDATE SKINNED EMISSIVES FROM GPU OUTPUT WITHOUT WEAKENING MATERIAL SAFETY
+--------------------------------------------------------------------------------
+Decision: keep `r_pathTracingGeometrySkinnedEmissiveAudit` default zero and
+behavior neutral. Reconstruct its current/previous records from authoritative
+GPU skinning output, immutable canonical source indices, per-instance identity,
+and source-local primitive metadata. Use the same remap helper as the live
+emissive inventory.
+
+Do not classify an authored emissive image without a safe RT texture handle as
+a production mesh light. geometry_geo147_auto proves this is the active monster
+boundary. For positive geometry validation only, a private material-table copy
+may use the already-discovered constant stage color; it must never be published
+and every result must state `productionBehaviorChanged=0`.
+
+Keep the authoritative vertex comparison at 1e-3 absolute / 1e-5 relative.
+Derived center, area, normal, weight, and PDF fields use 1e-2 absolute because
+cross products and normalization amplify accepted vertex error. Metadata,
+identity, and remap remain exact.
+
+geometry_geo152_auto accepts 31 routes, 35,814 source triangles, 2,398 current
+and previous records, eight instances/materials, and 22,579 referenced current
+and previous vertices. Vertex failures and all identity/metadata/record/remap
+buckets are zero; stable, spawn, despawn, and identical-instance transition
+checks pass. This resolves Q17 comparison. Production publication remains
+owned by GEO-09 step 8.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
@@ -850,7 +876,8 @@ DISPOSITION OF 04_open_questions.txt
       scaffold with each retired route in GEO-13.
   Q15 PARTIALLY RESOLVED: IDs admitted; texture descriptor defect is separate.
   Q16 RESOLVED by D43/D44: primary tuple, motion, and reset policy accepted.
-  Q17 OPEN and mandatory, owned by GEO-09.
+  Q17 PARTIALLY RESOLVED by D45: GPU-output construction/remap comparison
+      accepted; production publication remains mandatory in GEO-09 step 8.
   Q18 OPEN and elevated by the PT-only failure, owned by GEO-01/GEO-11.
 
 DEFERRED OUTSIDE THIS PACKET

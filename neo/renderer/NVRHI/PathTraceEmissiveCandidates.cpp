@@ -11,6 +11,7 @@
 #include "../RenderCommon.h"
 
 #include <algorithm>
+#include <unordered_map>
 
 namespace {
 
@@ -309,6 +310,403 @@ RtSmokeEmissiveDistributionBuild BuildSmokeEmissiveDistribution(const std::vecto
     }
 
     return build;
+}
+
+PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const std::vector<PathTraceSmokeVertex>& currentVertices,
+    const std::vector<PathTraceSkinnedPreviousPosition>& previousPositions,
+    const std::vector<PtSkinnedEmissiveAuditTriangle>& triangles,
+    uint32_t emissiveMaterialFlag,
+    int maxRecords)
+{
+    PtSkinnedEmissiveAuditInventory inventory;
+    inventory.inputTriangles = triangles.size();
+    maxRecords = Max(1, maxRecords);
+
+    auto appendRecord =
+        [&](const PtSkinnedEmissiveAuditTriangle& source,
+            const PathTraceSmokeMaterial& material,
+            bool previous,
+            std::vector<PathTraceSmokeEmissiveTriangle>& destination)
+        {
+            idVec3 positions[3];
+            idVec2 texCoords[3];
+            for (int corner = 0; corner < 3; ++corner)
+            {
+                const uint32_t currentIndex =
+                    source.currentVertexIndexes[corner];
+                if (currentIndex >= currentVertices.size())
+                {
+                    ++inventory.invalidTriangles;
+                    return;
+                }
+                texCoords[corner] =
+                    SmokeVertexTexCoord(currentVertices[currentIndex]);
+                if (previous)
+                {
+                    const uint32_t previousIndex =
+                        source.previousPositionIndexes[corner];
+                    if (previousIndex >= previousPositions.size())
+                    {
+                        ++inventory.invalidTriangles;
+                        return;
+                    }
+                    const float* previousPosition =
+                        previousPositions[previousIndex].
+                            previousPosition;
+                    positions[corner] = idVec3(
+                        previousPosition[0],
+                        previousPosition[1],
+                        previousPosition[2]);
+                }
+                else
+                {
+                    positions[corner] =
+                        SmokeVertexPosition(
+                            currentVertices[currentIndex]);
+                }
+            }
+
+            const idVec3 edge01 = positions[1] - positions[0];
+            const idVec3 edge02 = positions[2] - positions[0];
+            idVec3 areaNormal = edge01.Cross(edge02);
+            const float doubleArea = areaNormal.Length();
+            if (doubleArea <= 1.0e-6f)
+            {
+                if (previous)
+                {
+                    ++inventory.zeroAreaPreviousTriangles;
+                }
+                else
+                {
+                    ++inventory.zeroAreaCurrentTriangles;
+                }
+                return;
+            }
+            if (static_cast<int>(destination.size()) >= maxRecords)
+            {
+                return;
+            }
+
+            const float area = doubleArea * 0.5f;
+            areaNormal *= 1.0f / doubleArea;
+            const float luminance =
+                SmokeMaterialEmissiveLuminance(material);
+            const float sampleWeight = area * luminance;
+            const idVec3 center =
+                (positions[0] + positions[1] + positions[2]) *
+                (1.0f / 3.0f);
+
+            PathTraceSmokeEmissiveTriangle record = {};
+            record.centerAndArea[0] = center.x;
+            record.centerAndArea[1] = center.y;
+            record.centerAndArea[2] = center.z;
+            record.centerAndArea[3] = area;
+            record.normalAndLuminance[0] = areaNormal.x;
+            record.normalAndLuminance[1] = areaNormal.y;
+            record.normalAndLuminance[2] = areaNormal.z;
+            record.normalAndLuminance[3] = luminance;
+            record.uvBounds[0] =
+                Min(texCoords[0].x,
+                    Min(texCoords[1].x, texCoords[2].x));
+            record.uvBounds[1] =
+                Min(texCoords[0].y,
+                    Min(texCoords[1].y, texCoords[2].y));
+            record.uvBounds[2] =
+                Max(texCoords[0].x,
+                    Max(texCoords[1].x, texCoords[2].x));
+            record.uvBounds[3] =
+                Max(texCoords[0].y,
+                    Max(texCoords[1].y, texCoords[2].y));
+            record.centroidUvAndWeight[0] =
+                (texCoords[0].x + texCoords[1].x +
+                    texCoords[2].x) *
+                (1.0f / 3.0f);
+            record.centroidUvAndWeight[1] =
+                (texCoords[0].y + texCoords[1].y +
+                    texCoords[2].y) *
+                (1.0f / 3.0f);
+            record.centroidUvAndWeight[2] = sampleWeight;
+            record.estimatedRadianceAndLuminance[0] =
+                Max(0.0f, material.emissiveColor[0]);
+            record.estimatedRadianceAndLuminance[1] =
+                Max(0.0f, material.emissiveColor[1]);
+            record.estimatedRadianceAndLuminance[2] =
+                Max(0.0f, material.emissiveColor[2]);
+            record.estimatedRadianceAndLuminance[3] =
+                luminance;
+            record.sampleWeightAndPdf[0] = sampleWeight;
+            record.sampleWeightAndPdf[2] = area;
+            record.materialIndex = source.materialIndex;
+            record.instanceId = source.instanceId;
+            record.primitiveIndex = source.primitiveIndex;
+            record.flags = material.flags;
+            record.emissiveTextureIndex =
+                material.emissiveTextureIndex;
+            record.emissiveTextureWidth =
+                material.emissiveTextureWidth;
+            record.emissiveTextureHeight =
+                material.emissiveTextureHeight;
+            record.materialId = source.materialId;
+            const RtSmokeMaterialTextureInfo info =
+                ResolveSmokeMaterialTextureInfo(
+                    source.materialId,
+                    source.materialIndex);
+            record.universeMaterialIndex =
+                GetSmokeMaterialUniverseFacts(
+                    source.materialId,
+                    info).universeIndex;
+            record.identityHashLo =
+                static_cast<uint32_t>(
+                    source.identityHash & 0xffffffffu);
+            record.identityHashHi =
+                static_cast<uint32_t>(
+                    source.identityHash >> 32);
+            record.padding0 = source.triangleClassAndFlags;
+            destination.push_back(record);
+        };
+
+    for (const PtSkinnedEmissiveAuditTriangle& source : triangles)
+    {
+        if (source.materialIndex >= materials.size() ||
+            source.materialIndex >= materialIds.size() ||
+            materialIds[source.materialIndex] != source.materialId)
+        {
+            ++inventory.invalidTriangles;
+            continue;
+        }
+        const PathTraceSmokeMaterial& material =
+            materials[source.materialIndex];
+        if ((material.flags & emissiveMaterialFlag) == 0u)
+        {
+            ++inventory.nonEmissiveTriangles;
+            continue;
+        }
+        if ((source.triangleClassAndFlags &
+                RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) != 0u)
+        {
+            ++inventory.runtimeInactiveTriangles;
+            continue;
+        }
+        if (source.identityHash == 0)
+        {
+            ++inventory.zeroIdentityTriangles;
+            continue;
+        }
+
+        appendRecord(
+            source,
+            material,
+            false,
+            inventory.current);
+        if (source.hasPrevious)
+        {
+            appendRecord(
+                source,
+                material,
+                true,
+                inventory.previous);
+        }
+        else
+        {
+            ++inventory.missingPreviousTriangles;
+        }
+    }
+
+    RtSmokeEmissiveInventoryStats currentStats =
+        BuildSmokeEmissiveInventoryStatsForRecords(
+            materialIds,
+            inventory.current);
+    RtSmokeEmissiveInventoryStats previousStats =
+        BuildSmokeEmissiveInventoryStatsForRecords(
+            materialIds,
+            inventory.previous);
+    FinalizeSmokeEmissiveTriangleSamplingFields(
+        inventory.current,
+        currentStats);
+    FinalizeSmokeEmissiveTriangleSamplingFields(
+        inventory.previous,
+        previousStats);
+    return inventory;
+}
+
+std::vector<PathTraceEmissiveLightRemap>
+BuildSmokeCanonicalEmissiveLightRemap(
+    const std::vector<PathTraceSmokeEmissiveTriangle>&
+        currentTriangles,
+    const std::vector<PathTraceSmokeEmissiveTriangle>&
+        previousTriangles)
+{
+    auto identityKey =
+        [](const PathTraceSmokeEmissiveTriangle& triangle)
+        {
+            return
+                (static_cast<uint64>(
+                    triangle.identityHashHi) << 32ull) |
+                static_cast<uint64>(
+                    triangle.identityHashLo);
+        };
+    auto compatible =
+        [](const PathTraceSmokeEmissiveTriangle& current,
+            const PathTraceSmokeEmissiveTriangle& previous)
+        {
+            return
+                current.identityHashLo ==
+                    previous.identityHashLo &&
+                current.identityHashHi ==
+                    previous.identityHashHi &&
+                current.materialId == previous.materialId &&
+                current.universeMaterialIndex ==
+                    previous.universeMaterialIndex &&
+                current.emissiveTextureIndex ==
+                    previous.emissiveTextureIndex;
+        };
+    auto buildIdentityMap =
+        [&](const std::vector<
+                PathTraceSmokeEmissiveTriangle>& triangles,
+            std::unordered_map<uint64, int>& map)
+        {
+            map.clear();
+            map.reserve(triangles.size());
+            for (int triangleIndex = 0;
+                triangleIndex <
+                    static_cast<int>(triangles.size());
+                ++triangleIndex)
+            {
+                const uint64 identity =
+                    identityKey(triangles[triangleIndex]);
+                if (identity == 0)
+                {
+                    continue;
+                }
+                const auto result =
+                    map.emplace(identity, triangleIndex);
+                if (!result.second)
+                {
+                    result.first->second = -1;
+                }
+            }
+        };
+
+    std::vector<PathTraceEmissiveLightRemap> remap(
+        std::max(
+            currentTriangles.size(),
+            previousTriangles.size()));
+    std::unordered_map<uint64, int> currentByIdentity;
+    std::unordered_map<uint64, int> previousByIdentity;
+    buildIdentityMap(
+        currentTriangles,
+        currentByIdentity);
+    buildIdentityMap(
+        previousTriangles,
+        previousByIdentity);
+
+    for (int currentIndex = 0;
+        currentIndex <
+            static_cast<int>(currentTriangles.size());
+        ++currentIndex)
+    {
+        const uint64 identity =
+            identityKey(currentTriangles[currentIndex]);
+        if (identity == 0)
+        {
+            remap[currentIndex].flags |=
+                RT_SMOKE_EMISSIVE_REMAP_CURRENT_ZERO_IDENTITY;
+            continue;
+        }
+        const auto currentIt =
+            currentByIdentity.find(identity);
+        if (currentIt == currentByIdentity.end() ||
+            currentIt->second != currentIndex)
+        {
+            remap[currentIndex].flags |=
+                RT_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE;
+            continue;
+        }
+        const auto previousIt =
+            previousByIdentity.find(identity);
+        if (previousIt == previousByIdentity.end())
+        {
+            remap[currentIndex].flags |=
+                RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_MISSING;
+            continue;
+        }
+        if (previousIt->second < 0)
+        {
+            remap[currentIndex].flags |=
+                RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE;
+            continue;
+        }
+
+        const int previousIndex = previousIt->second;
+        if (previousIndex >=
+                static_cast<int>(
+                    previousTriangles.size()) ||
+            !compatible(
+                currentTriangles[currentIndex],
+                previousTriangles[previousIndex]))
+        {
+            remap[currentIndex].flags |=
+                RT_SMOKE_EMISSIVE_REMAP_INCOMPATIBLE;
+            if (previousIndex >= 0 &&
+                previousIndex <
+                    static_cast<int>(remap.size()))
+            {
+                remap[previousIndex].flags |=
+                    RT_SMOKE_EMISSIVE_REMAP_INCOMPATIBLE;
+            }
+            continue;
+        }
+
+        remap[currentIndex].currentToPreviousIndex =
+            previousIndex;
+        remap[currentIndex].flags |=
+            RT_SMOKE_EMISSIVE_REMAP_VALID;
+        remap[previousIndex].previousToCurrentIndex =
+            currentIndex;
+        remap[previousIndex].flags |=
+            RT_SMOKE_EMISSIVE_REMAP_VALID;
+    }
+
+    for (int previousIndex = 0;
+        previousIndex <
+            static_cast<int>(previousTriangles.size());
+        ++previousIndex)
+    {
+        const uint64 identity =
+            identityKey(previousTriangles[previousIndex]);
+        if (identity == 0)
+        {
+            remap[previousIndex].flags |=
+                RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_ZERO_IDENTITY;
+            continue;
+        }
+        const auto previousIt =
+            previousByIdentity.find(identity);
+        if (previousIt == previousByIdentity.end() ||
+            previousIt->second != previousIndex)
+        {
+            remap[previousIndex].flags |=
+                RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE;
+            continue;
+        }
+        const auto currentIt =
+            currentByIdentity.find(identity);
+        if (currentIt == currentByIdentity.end())
+        {
+            remap[previousIndex].flags |=
+                RT_SMOKE_EMISSIVE_REMAP_CURRENT_MISSING;
+            continue;
+        }
+        if (currentIt->second < 0)
+        {
+            remap[previousIndex].flags |=
+                RT_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE;
+        }
+    }
+    return remap;
 }
 
 void AppendSmokeRigidRouteEmissiveTriangleInventory(

@@ -107,3 +107,20 @@ return, material/class changes, topology/skeleton failure, and unavailable
 previous storage. Removed surfaces have no current motion record; return uses
 the explicit absent-previous reset. Q16 is resolved. Canonical GPU-output
 emissive harvesting and temporal remap remain open for step 5.
+
+Step 5 comparison is accepted by geometry_geo152_auto. The default-zero
+emissive audit reads authoritative current/previous GPU skinning outputs and
+reconstructs canonical records from immutable mesh-local indices, per-instance
+identity, local primitive, material, and retained triangle flags. It compares
+2,398 current and 2,398 previous records across eight live emissive instances,
+with zero vertex, identity, metadata, aggregate-record, remap, or collision
+failures. The shared remap helper passes stable, added, removed, and distinct
+identical-model-instance cases.
+
+The test scene has zero safe production candidates: monster glow materials are
+correctly discovered as emissive/light-candidate, but their authored emissive
+images have no RT texture handle. The audit uses a private validation-only
+constant material view and reports `productionBehaviorChanged=0`; production
+material flags and light inventories remain unchanged. The comparison portion
+of Q17 is resolved. Live publication waits for step 8. Step 6 material texture
+binding and dynamic material state parity is next.

@@ -2256,6 +2256,16 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_gpuSkinningParityReadbackQueued = false;
     m_gpuSkinningParityReadbackDelayFrames = 0;
     m_gpuSkinningParitySamples.clear();
+    m_skinnedEmissiveAuditReadbackBuffer = nullptr;
+    m_skinnedEmissiveAuditReadbackQueued = false;
+    m_skinnedEmissiveAuditReadbackDelayFrames = 0;
+    m_skinnedEmissiveAuditTriangles.clear();
+    m_skinnedEmissiveAuditMaterialIds.clear();
+    m_skinnedEmissiveAuditMaterials.clear();
+    m_skinnedEmissiveAuditExpectedCurrentVertices.clear();
+    m_skinnedEmissiveAuditExpectedPreviousPositions.clear();
+    m_skinnedEmissiveAuditExpected =
+        PtSkinnedEmissiveAuditInventory();
     m_smokeSkyEnvironmentSourceName.Clear();
     m_smokeSceneBuilt = false;
     m_smokeTestDispatched = false;

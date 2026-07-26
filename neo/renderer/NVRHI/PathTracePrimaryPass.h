@@ -342,6 +342,20 @@ private:
         int mode,
         uint64 frameIndex);
     void ReadBackGpuSkinningParitySamples();
+    void QueueSkinnedEmissiveAudit(
+        nvrhi::ICommandList* commandList,
+        nvrhi::IBuffer* currentOutputBuffer,
+        nvrhi::IBuffer* previousPositionBuffer,
+        nvrhi::ResourceStates currentRestoreState,
+        const std::vector<PtSkinnedEmissiveAuditTriangle>& triangles,
+        const std::vector<uint32_t>& materialIds,
+        const std::vector<PathTraceSmokeMaterial>& materials,
+        const std::vector<PathTraceSmokeVertex>& cpuCurrentVertices,
+        const std::vector<PathTraceSkinnedPreviousPosition>& cpuPreviousPositions,
+        uint64 frameIndex,
+        int forcedMaterialCount,
+        int productionEligibleMaterialCount);
+    void ReadBackSkinnedEmissiveAudit();
     void QueueSkinnedHitRouteReadback(
         nvrhi::ICommandList* commandList,
         nvrhi::IBuffer* recordBuffer,
@@ -638,6 +652,25 @@ private:
     int m_gpuSkinningParityMode = 0;
     uint64 m_gpuSkinningParityFrame = 0;
     std::vector<GpuSkinningParitySample> m_gpuSkinningParitySamples;
+    nvrhi::BufferHandle m_skinnedEmissiveAuditReadbackBuffer;
+    bool m_skinnedEmissiveAuditReadbackQueued = false;
+    int m_skinnedEmissiveAuditReadbackDelayFrames = 0;
+    uint64 m_skinnedEmissiveAuditFrame = 0;
+    uint64 m_skinnedEmissiveAuditCurrentBytes = 0;
+    uint64 m_skinnedEmissiveAuditPreviousBytes = 0;
+    int m_skinnedEmissiveAuditForcedMaterialCount = 0;
+    int m_skinnedEmissiveAuditProductionEligibleMaterialCount = 0;
+    std::vector<PtSkinnedEmissiveAuditTriangle>
+        m_skinnedEmissiveAuditTriangles;
+    std::vector<uint32_t> m_skinnedEmissiveAuditMaterialIds;
+    std::vector<PathTraceSmokeMaterial>
+        m_skinnedEmissiveAuditMaterials;
+    std::vector<PathTraceSmokeVertex>
+        m_skinnedEmissiveAuditExpectedCurrentVertices;
+    std::vector<PathTraceSkinnedPreviousPosition>
+        m_skinnedEmissiveAuditExpectedPreviousPositions;
+    PtSkinnedEmissiveAuditInventory
+        m_skinnedEmissiveAuditExpected;
     nvrhi::BufferHandle m_skinnedHitRouteReadbackBuffer;
     bool m_skinnedHitRouteReadbackQueued = false;
     bool m_skinnedHitRouteReadbackCompleted = false;
