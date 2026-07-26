@@ -38,7 +38,8 @@ bool RtSmokeSceneBufferHandles::IsValid() const
         restirLightManagerCurrentPayloadBuffer && restirLightManagerPreviousPayloadBuffer &&
         rigidRouteVertexBuffer && rigidRouteIndexBuffer && rigidRouteTriangleMaterialBuffer && rigidRouteTriangleMaterialIndexBuffer && rigidRouteInstanceBuffer &&
         skinnedHitRouteRecordBuffer && skinnedHitRouteTriangleBuffer &&
-        skinnedPreviousPositionBuffer && skinnedSurfaceDispatchBuffer && skinnedTriangleDispatchIndexBuffer;
+        skinnedPreviousPositionBuffer && skinnedSurfaceDispatchBuffer && skinnedTriangleDispatchIndexBuffer &&
+        skinnedEmissiveWorkBuffer;
 }
 
 static uint64_t HashPathTraceTransitionValue(uint64_t hash, uint64_t value)
@@ -177,7 +178,8 @@ static bool SmokeSceneBuffersChanged(const RtSmokeSceneBufferHandles& oldBuffers
         oldBuffers.skinnedSurfaceDispatchBuffer != newBuffers.skinnedSurfaceDispatchBuffer ||
         oldBuffers.skinnedTriangleDispatchIndexBuffer != newBuffers.skinnedTriangleDispatchIndexBuffer ||
         oldBuffers.skinnedCurrentJointMatrixBuffer != newBuffers.skinnedCurrentJointMatrixBuffer ||
-        oldBuffers.skinnedPreviousJointMatrixBuffer != newBuffers.skinnedPreviousJointMatrixBuffer;
+        oldBuffers.skinnedPreviousJointMatrixBuffer != newBuffers.skinnedPreviousJointMatrixBuffer ||
+        oldBuffers.skinnedEmissiveWorkBuffer != newBuffers.skinnedEmissiveWorkBuffer;
 }
 
 static bool SmokeScenePackageHandlesChanged(const RtRetiredSmokeScenePackage& oldPackage, const RtSmokeSceneResourceCommitDesc& next)
@@ -276,8 +278,8 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.materialFeatureBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialFeatureBuffer, "PathTraceMaterialFeatureRecords", desc.materialFeatureBytes, sizeof(RtPathTraceMaterialFeatureRecord), false, false, false);
     result.buffers.materialFeatureParameterBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialFeatureParameterBuffer, "PathTraceMaterialFeatureParameters", desc.materialFeatureParameterBytes, sizeof(RtPathTraceMaterialFeatureParameterRecord), false, false, false);
     result.buffers.dynamicMaterialBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicMaterialBuffer, "PathTraceDynamicMaterialRecords", desc.dynamicMaterialBytes, sizeof(PathTraceDynamicMaterialRecord));
-    result.buffers.emissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveTriangleBuffer, "PathTraceSmokeEmissiveTriangles", desc.emissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false);
-    result.buffers.previousEmissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousEmissiveTriangleBuffer, "PathTraceSmokePreviousEmissiveTriangles", desc.previousEmissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false);
+    result.buffers.emissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveTriangleBuffer, "PathTraceSmokeEmissiveTriangles", desc.emissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false, true);
+    result.buffers.previousEmissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousEmissiveTriangleBuffer, "PathTraceSmokePreviousEmissiveTriangles", desc.previousEmissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false, true);
     result.buffers.emissiveRemapBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveRemapBuffer, "PathTraceSmokeEmissiveRemap", desc.emissiveRemapBytes, sizeof(PathTraceEmissiveLightRemap), false, false, false);
     result.buffers.emissiveDistributionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveDistributionBuffer, "PathTraceEmissiveDistribution", desc.emissiveDistributionBytes, sizeof(PathTraceEmissiveDistributionEntry), false, false, false);
     result.buffers.lightCandidateBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.lightCandidateBuffer, "PathTraceSmokeLightCandidates", desc.lightCandidateBytes, sizeof(PathTraceSmokeLightCandidate), false, false, false);
@@ -286,13 +288,13 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.doomAnalyticCurrentIdentityBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticCurrentIdentityBuffer, "PathTraceDoomAnalyticCurrentIdentities", desc.doomAnalyticCurrentIdentityBytes, sizeof(PathTraceDoomAnalyticLightCandidateIdentity), false, false, false);
     result.buffers.doomAnalyticPreviousIdentityBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticPreviousIdentityBuffer, "PathTraceDoomAnalyticPreviousIdentities", desc.doomAnalyticPreviousIdentityBytes, sizeof(PathTraceDoomAnalyticLightCandidateIdentity), false, false, false);
     result.buffers.doomAnalyticRemapBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticRemapBuffer, "PathTraceDoomAnalyticRemap", desc.doomAnalyticRemapBytes, sizeof(PathTraceDoomAnalyticLightRemap), false, false, false);
-    result.buffers.unifiedLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedLightBuffer, "PathTraceUnifiedLights", desc.unifiedLightBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false);
-    result.buffers.unifiedPreviousLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPreviousLightBuffer, "PathTraceUnifiedPreviousLights", desc.unifiedPreviousLightBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false);
+    result.buffers.unifiedLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedLightBuffer, "PathTraceUnifiedLights", desc.unifiedLightBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
+    result.buffers.unifiedPreviousLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPreviousLightBuffer, "PathTraceUnifiedPreviousLights", desc.unifiedPreviousLightBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
     result.buffers.unifiedLightRemapBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedLightRemapBuffer, "PathTraceUnifiedLightRemap", desc.unifiedLightRemapBytes, sizeof(uint32_t), false, false, false);
     result.buffers.restirLightManagerCurrentToPreviousBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerCurrentToPreviousBuffer, "PathTraceRestirLightManagerCurrentToPrevious", desc.restirLightManagerCurrentToPreviousBytes, sizeof(uint32_t), false, false, false);
     result.buffers.restirLightManagerPreviousToCurrentBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerPreviousToCurrentBuffer, "PathTraceRestirLightManagerPreviousToCurrent", desc.restirLightManagerPreviousToCurrentBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.restirLightManagerCurrentPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerCurrentPayloadBuffer, "PathTraceRestirLightManagerCurrentPayload", desc.restirLightManagerCurrentPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false);
-    result.buffers.restirLightManagerPreviousPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerPreviousPayloadBuffer, "PathTraceRestirLightManagerPreviousPayload", desc.restirLightManagerPreviousPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false);
+    result.buffers.restirLightManagerCurrentPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerCurrentPayloadBuffer, "PathTraceRestirLightManagerCurrentPayload", desc.restirLightManagerCurrentPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
+    result.buffers.restirLightManagerPreviousPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerPreviousPayloadBuffer, "PathTraceRestirLightManagerPreviousPayload", desc.restirLightManagerPreviousPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
     result.buffers.rigidRouteVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteVertexBuffer, "PathTraceRigidRouteVertices", desc.rigidRouteVertexBytes, sizeof(PathTraceSmokeVertex), false, false, false);
     result.buffers.rigidRouteIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteIndexBuffer, "PathTraceRigidRouteIndices", desc.rigidRouteIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialBuffer, "PathTraceRigidRouteTriangleMaterials", desc.rigidRouteTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
@@ -300,6 +302,7 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.rigidRouteInstanceBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteInstanceBuffer, "PathTraceRigidRouteInstances", desc.rigidRouteInstanceBytes, sizeof(PathTraceRigidRouteInstance), false, false, false);
     result.buffers.skinnedHitRouteRecordBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedHitRouteRecordBuffer, "PathTraceSkinnedHitRouteRecords", desc.skinnedHitRouteRecordBytes, sizeof(PathTraceSkinnedHitRouteGpuRecord), false, false, false);
     result.buffers.skinnedHitRouteTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedHitRouteTriangleBuffer, "PathTraceSkinnedHitRouteTriangles", desc.skinnedHitRouteTriangleBytes, sizeof(PathTraceSkinnedHitRouteGpuTriangle), false, false, false);
+    result.buffers.skinnedEmissiveWorkBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedEmissiveWorkBuffer, "PathTraceSkinnedEmissiveWork", desc.skinnedEmissiveWorkBytes, sizeof(PathTraceSkinnedEmissiveGpuWork), false, false, false);
     result.buffers.skinnedSourceVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSourceVertexBuffer, "PathTraceSkinnedSourceVertices", desc.skinnedSourceVertexBytes, sizeof(PathTraceSkinnedSourceVertex));
     nvrhi::BufferHandle existingSkinnedOutput =
         desc.existingBuffers.skinnedCurrentOutputVertexBuffer;
@@ -1346,6 +1349,64 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         }
     }
 
+    nvrhi::BindingLayoutDesc
+        skinnedEmissivePublishBindingLayoutDesc;
+    skinnedEmissivePublishBindingLayoutDesc.visibility =
+        nvrhi::ShaderType::Compute;
+    skinnedEmissivePublishBindingLayoutDesc.bindingOffsets =
+        nvrhi::VulkanBindingOffsets()
+            .setShaderResourceOffset(0)
+            .setUnorderedAccessViewOffset(384);
+    skinnedEmissivePublishBindingLayoutDesc.addItem(
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
+    skinnedEmissivePublishBindingLayoutDesc.addItem(
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
+    skinnedEmissivePublishBindingLayoutDesc.addItem(
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
+    for (uint32_t slot = 0; slot < 6; ++slot)
+    {
+        skinnedEmissivePublishBindingLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_UAV(
+                slot));
+    }
+    m_smokeSkinnedEmissivePublishBindingLayout =
+        device->createBindingLayout(
+            skinnedEmissivePublishBindingLayoutDesc);
+    if (!m_smokeSkinnedEmissivePublishBindingLayout)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: failed to create PT skinned emissive publication binding layout\n");
+    }
+    else
+    {
+        const programInfo_t publishProgram =
+            renderProgManager.GetProgramInfo(
+                BUILTIN_PT_SKINNED_EMISSIVE_PUBLISH_CS);
+        m_smokeSkinnedEmissivePublishShader =
+            publishProgram.cs;
+        if (!m_smokeSkinnedEmissivePublishShader)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: PT skinned emissive publication shader unavailable\n");
+        }
+        else
+        {
+            nvrhi::ComputePipelineDesc pipelineDesc;
+            pipelineDesc.CS =
+                m_smokeSkinnedEmissivePublishShader;
+            pipelineDesc.bindingLayouts = {
+                m_smokeSkinnedEmissivePublishBindingLayout
+            };
+            m_smokeSkinnedEmissivePublishPipeline =
+                device->createComputePipeline(pipelineDesc);
+            if (!m_smokeSkinnedEmissivePublishPipeline)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: failed to create PT skinned emissive publication compute pipeline\n");
+            }
+        }
+    }
+
     nvrhi::BindingLayoutDesc cleanBoilingFilterBindingLayoutDesc;
     cleanBoilingFilterBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
     cleanBoilingFilterBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
@@ -1800,6 +1861,7 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
     buffers.skinnedTriangleDispatchIndexBuffer = m_smokeSkinnedTriangleDispatchIndexBuffer;
     buffers.skinnedCurrentJointMatrixBuffer = m_smokeSkinnedCurrentJointMatrixBuffer;
     buffers.skinnedPreviousJointMatrixBuffer = m_smokeSkinnedPreviousJointMatrixBuffer;
+    buffers.skinnedEmissiveWorkBuffer = m_smokeSkinnedEmissiveWorkBuffer;
 
     return
         buffers.IsValid() ||
@@ -1893,6 +1955,7 @@ RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeSc
     package.buffers.skinnedTriangleDispatchIndexBuffer = m_smokeSkinnedTriangleDispatchIndexBuffer;
     package.buffers.skinnedCurrentJointMatrixBuffer = m_smokeSkinnedCurrentJointMatrixBuffer;
     package.buffers.skinnedPreviousJointMatrixBuffer = m_smokeSkinnedPreviousJointMatrixBuffer;
+    package.buffers.skinnedEmissiveWorkBuffer = m_smokeSkinnedEmissiveWorkBuffer;
     package.staticBlas = m_smokeStaticBlas;
     package.dynamicBlas = m_smokeDynamicBlas;
     package.tlas = m_smokeTlas;
@@ -2266,6 +2329,9 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_skinnedEmissiveAuditExpectedPreviousPositions.clear();
     m_skinnedEmissiveAuditExpected =
         PtSkinnedEmissiveAuditInventory();
+    m_skinnedEmissivePublishAuditReadbackBuffer = nullptr;
+    m_skinnedEmissivePublishAuditReadbackQueued = false;
+    m_skinnedEmissivePublishAuditRecordCount = 0;
     m_smokeSkyEnvironmentSourceName.Clear();
     m_smokeSceneBuilt = false;
     m_smokeTestDispatched = false;
@@ -2390,9 +2456,11 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedTriangleDispatchIndexBuffer = nullptr;
     m_smokeSkinnedCurrentJointMatrixBuffer = nullptr;
     m_smokeSkinnedPreviousJointMatrixBuffer = nullptr;
+    m_smokeSkinnedEmissiveWorkBuffer = nullptr;
     m_smokeSkinnedHitRouteUploadShadow = PtSkinnedHitRouteBuild();
     m_smokeSkinnedCaptureSplitShadowMaxLogged = 0;
     m_smokeSkinnedCaptureSplitTlasMaxLogged = 0;
+    m_smokeSkinnedEmissivePublishMaxLogged = 0;
     m_smokeSkinnedCaptureLastShadowAccepted = -1;
     m_smokeSkinnedCaptureShadowTransitionsLogged = 0;
     m_smokeSkinnedCaptureRouteSetEvictions = 0;
@@ -2412,9 +2480,13 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_skinnedHitAuditHeight = 0;
     m_skinnedHitAuditLegacyShadow = PtSkinnedHitRouteBuild();
     m_smokeSkinnedGpuSkinningBindingSet = nullptr;
+    m_smokeSkinnedEmissivePublishBindingSet = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterBindingSet = nullptr;
     m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
     m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
+    m_smokeSkinnedEmissivePublishCurrentOutputBuffer = nullptr;
+    m_smokeSkinnedEmissivePublishPreviousPositionBuffer = nullptr;
+    m_smokeSkinnedEmissivePublishWorkBuffer = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterInputTexture = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterOutputTexture = nullptr;
     m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
@@ -2539,6 +2611,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeSkinnedTriangleDispatchIndexBuffer = desc.buffers.skinnedTriangleDispatchIndexBuffer;
     m_smokeSkinnedCurrentJointMatrixBuffer = desc.buffers.skinnedCurrentJointMatrixBuffer;
     m_smokeSkinnedPreviousJointMatrixBuffer = desc.buffers.skinnedPreviousJointMatrixBuffer;
+    m_smokeSkinnedEmissiveWorkBuffer = desc.buffers.skinnedEmissiveWorkBuffer;
     m_smokeStaticBlasDesc = desc.staticBlasDesc;
     m_smokeStaticBlas = desc.staticBlas;
     m_smokeDynamicBlas = desc.dynamicBlas;

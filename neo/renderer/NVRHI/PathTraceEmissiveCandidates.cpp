@@ -327,6 +327,7 @@ PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory
 
     auto appendRecord =
         [&](const PtSkinnedEmissiveAuditTriangle& source,
+            uint32_t sourceTriangleIndex,
             const PathTraceSmokeMaterial& material,
             bool previous,
             std::vector<PathTraceSmokeEmissiveTriangle>& destination)
@@ -466,10 +467,24 @@ PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory
                     source.identityHash >> 32);
             record.padding0 = source.triangleClassAndFlags;
             destination.push_back(record);
+            if (previous)
+            {
+                inventory.previousSourceTriangleIndexes.
+                    push_back(sourceTriangleIndex);
+            }
+            else
+            {
+                inventory.currentSourceTriangleIndexes.
+                    push_back(sourceTriangleIndex);
+            }
         };
 
-    for (const PtSkinnedEmissiveAuditTriangle& source : triangles)
+    for (uint32_t sourceTriangleIndex = 0;
+         sourceTriangleIndex < triangles.size();
+         ++sourceTriangleIndex)
     {
+        const PtSkinnedEmissiveAuditTriangle& source =
+            triangles[sourceTriangleIndex];
         if (source.materialIndex >= materials.size() ||
             source.materialIndex >= materialIds.size() ||
             materialIds[source.materialIndex] != source.materialId)
@@ -498,6 +513,7 @@ PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory
 
         appendRecord(
             source,
+            sourceTriangleIndex,
             material,
             false,
             inventory.current);
@@ -505,6 +521,7 @@ PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory
         {
             appendRecord(
                 source,
+                sourceTriangleIndex,
                 material,
                 true,
                 inventory.previous);

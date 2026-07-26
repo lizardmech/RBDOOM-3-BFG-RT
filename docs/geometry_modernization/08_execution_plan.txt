@@ -442,6 +442,19 @@ registry, authoritative GPU producer, skinned TLAS route, and capture split
 now default on but remain independently reversible. Step 8B live skinned
 emissive publication is the remaining GEO-09 implementation slice.
 
+GEO-09 step 8B is accepted by geometry_geo170_auto. Immutable mesh-local
+primitive/material/identity planning creates bounded placeholder records
+without CPU skinning. After authoritative GPU skinning and final exact-set TLAS
+acceptance, a Vulkan compute pass publishes current/previous geometry into the
+emissive, unified-light, and Remix manager payload buffers; rejection
+fail-closes weights. The validation-only scene injection publishes 24 current
+and 24 previous records with zero metadata/numeric mismatch and
+0.000000954 maximum error. SPIR-V work-record offsets and 64-byte stride are
+explicitly verified, destination reuse requires UAV capability, and shutdown
+is normal. The prepared scene has no safe production skinned-emissive material,
+so no material-safety rule was weakened. GEO-09 implementation through step 8
+is complete; step 9 regression coverage remains before closing the ticket.
+
   PHASE D - migrate static world and scheduling
     GEO-10 portal-area static bucket BLAS
       -> GEO-11 build budget, TLAS lifetime, and BLAS compaction

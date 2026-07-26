@@ -1359,6 +1359,124 @@ void PathTracePrimaryPass::QueueSkinnedEmissiveAudit(
             m_skinnedEmissiveAuditExpected.previous.size()));
 }
 
+void PathTracePrimaryPass::QueueSkinnedEmissivePublishAudit(
+    nvrhi::ICommandList* commandList,
+    nvrhi::IBuffer* emissiveTriangleBuffer,
+    nvrhi::IBuffer* previousEmissiveTriangleBuffer,
+    uint32 firstCurrentRecord,
+    uint32 firstPreviousRecord,
+    uint32 recordCount)
+{
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!commandList || !device || !emissiveTriangleBuffer ||
+        !previousEmissiveTriangleBuffer ||
+        recordCount == 0 ||
+        m_skinnedEmissivePublishAuditReadbackQueued)
+    {
+        return;
+    }
+    const uint64 currentSourceOffset =
+        static_cast<uint64>(firstCurrentRecord) *
+        sizeof(PathTraceSmokeEmissiveTriangle);
+    const uint64 previousSourceOffset =
+        static_cast<uint64>(firstPreviousRecord) *
+        sizeof(PathTraceSmokeEmissiveTriangle);
+    const uint64 byteCount =
+        static_cast<uint64>(recordCount) *
+        sizeof(PathTraceSmokeEmissiveTriangle);
+    if (currentSourceOffset >
+            emissiveTriangleBuffer->getDesc().byteSize ||
+        byteCount >
+            emissiveTriangleBuffer->getDesc().byteSize -
+                currentSourceOffset ||
+        previousSourceOffset >
+            previousEmissiveTriangleBuffer->getDesc().byteSize ||
+        byteCount >
+            previousEmissiveTriangleBuffer->getDesc().byteSize -
+                previousSourceOffset)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned emissive publication audit range invalid current/previous/count=%u/%u/%u currentBytes=%llu/%llu previousBytes=%llu/%llu\n",
+            firstCurrentRecord,
+            firstPreviousRecord,
+            recordCount,
+            static_cast<unsigned long long>(
+                currentSourceOffset + byteCount),
+            static_cast<unsigned long long>(
+                emissiveTriangleBuffer->getDesc().byteSize),
+            static_cast<unsigned long long>(
+                previousSourceOffset + byteCount),
+            static_cast<unsigned long long>(
+                previousEmissiveTriangleBuffer->
+                    getDesc().byteSize));
+        return;
+    }
+    const uint64 readbackByteCount = byteCount * 2ull;
+    if (!m_skinnedEmissivePublishAuditReadbackBuffer ||
+        m_skinnedEmissivePublishAuditReadbackBuffer->
+            getDesc().byteSize < readbackByteCount)
+    {
+        m_skinnedEmissivePublishAuditReadbackBuffer = nullptr;
+        nvrhi::BufferDesc desc;
+        desc.byteSize = readbackByteCount;
+        desc.structStride =
+            sizeof(PathTraceSmokeEmissiveTriangle);
+        desc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        desc.debugName =
+            "PathTraceSkinnedEmissivePublishAuditReadback";
+        desc.initialState =
+            nvrhi::ResourceStates::CopyDest;
+        desc.keepInitialState = true;
+        m_skinnedEmissivePublishAuditReadbackBuffer =
+            device->createBuffer(desc);
+    }
+    if (!m_skinnedEmissivePublishAuditReadbackBuffer)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO09 skinned emissive publication audit readback buffer creation failed\n");
+        return;
+    }
+
+    commandList->setBufferState(
+        emissiveTriangleBuffer,
+        nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(
+        previousEmissiveTriangleBuffer,
+        nvrhi::ResourceStates::CopySource);
+    commandList->setBufferState(
+        m_skinnedEmissivePublishAuditReadbackBuffer,
+        nvrhi::ResourceStates::CopyDest);
+    commandList->commitBarriers();
+    commandList->copyBuffer(
+        m_skinnedEmissivePublishAuditReadbackBuffer,
+        0,
+        emissiveTriangleBuffer,
+        currentSourceOffset,
+        byteCount);
+    commandList->copyBuffer(
+        m_skinnedEmissivePublishAuditReadbackBuffer,
+        byteCount,
+        previousEmissiveTriangleBuffer,
+        previousSourceOffset,
+        byteCount);
+    commandList->setBufferState(
+        emissiveTriangleBuffer,
+        nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(
+        previousEmissiveTriangleBuffer,
+        nvrhi::ResourceStates::ShaderResource);
+    commandList->commitBarriers();
+    m_skinnedEmissivePublishAuditRecordCount = recordCount;
+    m_skinnedEmissivePublishAuditReadbackQueued = true;
+    common->Printf(
+        "PathTracePrimaryPass: GEO09 skinned emissive publication audit queued current/previous/count=%u/%u/%u bytes=%llu\n",
+        firstCurrentRecord,
+        firstPreviousRecord,
+        recordCount,
+        static_cast<unsigned long long>(readbackByteCount));
+}
+
 void PathTracePrimaryPass::ReadBackSkinnedEmissiveAudit()
 {
     if (!m_skinnedEmissiveAuditReadbackQueued ||
@@ -1425,6 +1543,250 @@ void PathTracePrimaryPass::ReadBackSkinnedEmissiveAudit()
             m_skinnedEmissiveAuditTriangles,
             RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
             RT_SMOKE_EMISSIVE_AUDIT_MAX_RECORDS);
+    if (m_skinnedEmissivePublishAuditReadbackQueued &&
+        m_skinnedEmissivePublishAuditReadbackBuffer)
+    {
+        const PathTraceSmokeEmissiveTriangle* published =
+            static_cast<const PathTraceSmokeEmissiveTriangle*>(
+                device->mapBuffer(
+                    m_skinnedEmissivePublishAuditReadbackBuffer,
+                    nvrhi::CpuAccessMode::Read));
+        if (published)
+        {
+            const uint32 compareCount = Min(
+                m_skinnedEmissivePublishAuditRecordCount,
+                static_cast<uint32>(actual.current.size()));
+            const PathTraceSmokeEmissiveTriangle*
+                publishedPrevious =
+                    published +
+                    m_skinnedEmissivePublishAuditRecordCount;
+            const uint32 comparePreviousCount = Min(
+                m_skinnedEmissivePublishAuditRecordCount,
+                static_cast<uint32>(actual.previous.size()));
+            uint64 metadataMismatch = 0;
+            uint64 numericMismatch = 0;
+            uint64 previousMetadataMismatch = 0;
+            uint64 previousNumericMismatch = 0;
+            uint64 numericMismatchByField[24] = {};
+            float maxNumericError = 0.0f;
+            uint32 firstNumericMismatchRecord = UINT32_MAX;
+            constexpr float absoluteTolerance = 1.0e-2f;
+            constexpr float relativeTolerance = 1.0e-5f;
+            for (uint32 recordIndex = 0;
+                 recordIndex < compareCount;
+                 ++recordIndex)
+            {
+                const PathTraceSmokeEmissiveTriangle& expected =
+                    actual.current[recordIndex];
+                const PathTraceSmokeEmissiveTriangle& observed =
+                    published[recordIndex];
+                if (expected.materialIndex !=
+                        observed.materialIndex ||
+                    expected.instanceId != observed.instanceId ||
+                    expected.primitiveIndex !=
+                        observed.primitiveIndex ||
+                    expected.materialId != observed.materialId ||
+                    expected.identityHashLo !=
+                        observed.identityHashLo ||
+                    expected.identityHashHi !=
+                        observed.identityHashHi)
+                {
+                    ++metadataMismatch;
+                }
+                const int comparedFloatIndexes[] = {
+                    0, 1, 2, 3,
+                    4, 5, 6, 7,
+                    8, 9, 10, 11,
+                    12, 13, 14,
+                    20, 22
+                };
+                const float* expectedFloats =
+                    expected.centerAndArea;
+                const float* observedFloats =
+                    observed.centerAndArea;
+                for (int floatIndex : comparedFloatIndexes)
+                {
+                    const float delta = idMath::Fabs(
+                        expectedFloats[floatIndex] -
+                        observedFloats[floatIndex]);
+                    const float tolerance =
+                        absoluteTolerance +
+                        relativeTolerance *
+                            Max(idMath::Fabs(
+                                    expectedFloats[floatIndex]),
+                                idMath::Fabs(
+                                    observedFloats[floatIndex]));
+                    maxNumericError =
+                        Max(maxNumericError, delta);
+                    if (!std::isfinite(
+                            observedFloats[floatIndex]) ||
+                        delta > tolerance)
+                    {
+                        if (firstNumericMismatchRecord == UINT32_MAX)
+                        {
+                            firstNumericMismatchRecord = recordIndex;
+                        }
+                        ++numericMismatch;
+                        ++numericMismatchByField[floatIndex];
+                    }
+                }
+            }
+            for (uint32 recordIndex = 0;
+                 recordIndex < comparePreviousCount;
+                 ++recordIndex)
+            {
+                const PathTraceSmokeEmissiveTriangle& expected =
+                    actual.previous[recordIndex];
+                const PathTraceSmokeEmissiveTriangle& observed =
+                    publishedPrevious[recordIndex];
+                if (expected.materialIndex !=
+                        observed.materialIndex ||
+                    expected.instanceId != observed.instanceId ||
+                    expected.primitiveIndex !=
+                        observed.primitiveIndex ||
+                    expected.materialId != observed.materialId ||
+                    expected.identityHashLo !=
+                        observed.identityHashLo ||
+                    expected.identityHashHi !=
+                        observed.identityHashHi)
+                {
+                    ++previousMetadataMismatch;
+                }
+                const int comparedFloatIndexes[] = {
+                    0, 1, 2, 3,
+                    4, 5, 6, 7,
+                    8, 9, 10, 11,
+                    12, 13, 14,
+                    20, 22
+                };
+                const float* expectedFloats =
+                    expected.centerAndArea;
+                const float* observedFloats =
+                    observed.centerAndArea;
+                for (int floatIndex : comparedFloatIndexes)
+                {
+                    const float delta = idMath::Fabs(
+                        expectedFloats[floatIndex] -
+                        observedFloats[floatIndex]);
+                    const float tolerance =
+                        absoluteTolerance +
+                        relativeTolerance *
+                            Max(idMath::Fabs(
+                                    expectedFloats[floatIndex]),
+                                idMath::Fabs(
+                                    observedFloats[floatIndex]));
+                    maxNumericError =
+                        Max(maxNumericError, delta);
+                    if (!std::isfinite(
+                            observedFloats[floatIndex]) ||
+                        delta > tolerance)
+                    {
+                        ++previousNumericMismatch;
+                    }
+                }
+            }
+            if (firstNumericMismatchRecord != UINT32_MAX)
+            {
+                const PathTraceSmokeEmissiveTriangle& expected =
+                    actual.current[firstNumericMismatchRecord];
+                const PathTraceSmokeEmissiveTriangle& observed =
+                    published[firstNumericMismatchRecord];
+                common->Printf(
+                    "PathTracePrimaryPass: GEO09 skinned emissive publication first numeric mismatch record=%u centerArea expected=(%.6f %.6f %.6f %.6f) observed=(%.6f %.6f %.6f %.6f) normalLum expected=(%.6f %.6f %.6f %.6f) observed=(%.6f %.6f %.6f %.6f) uvBounds expected=(%.6f %.6f %.6f %.6f) observed=(%.6f %.6f %.6f %.6f) centroidWeight expected=(%.6f %.6f %.6f) observed=(%.6f %.6f %.6f) sampleWeightArea expected=(%.6f %.6f) observed=(%.6f %.6f)\n",
+                    firstNumericMismatchRecord,
+                    expected.centerAndArea[0],
+                    expected.centerAndArea[1],
+                    expected.centerAndArea[2],
+                    expected.centerAndArea[3],
+                    observed.centerAndArea[0],
+                    observed.centerAndArea[1],
+                    observed.centerAndArea[2],
+                    observed.centerAndArea[3],
+                    expected.normalAndLuminance[0],
+                    expected.normalAndLuminance[1],
+                    expected.normalAndLuminance[2],
+                    expected.normalAndLuminance[3],
+                    observed.normalAndLuminance[0],
+                    observed.normalAndLuminance[1],
+                    observed.normalAndLuminance[2],
+                    observed.normalAndLuminance[3],
+                    expected.uvBounds[0],
+                    expected.uvBounds[1],
+                    expected.uvBounds[2],
+                    expected.uvBounds[3],
+                    observed.uvBounds[0],
+                    observed.uvBounds[1],
+                    observed.uvBounds[2],
+                    observed.uvBounds[3],
+                    expected.centroidUvAndWeight[0],
+                    expected.centroidUvAndWeight[1],
+                    expected.centroidUvAndWeight[2],
+                    observed.centroidUvAndWeight[0],
+                    observed.centroidUvAndWeight[1],
+                    observed.centroidUvAndWeight[2],
+                    expected.sampleWeightAndPdf[0],
+                    expected.sampleWeightAndPdf[2],
+                    observed.sampleWeightAndPdf[0],
+                    observed.sampleWeightAndPdf[2]);
+                common->Printf(
+                    "PathTracePrimaryPass: GEO09 skinned emissive publication numeric mismatch fields centerArea=%llu/%llu/%llu/%llu normalLum=%llu/%llu/%llu/%llu uvBounds=%llu/%llu/%llu/%llu centroidWeight=%llu/%llu/%llu sampleWeightArea=%llu/%llu\n",
+                    static_cast<unsigned long long>(numericMismatchByField[0]),
+                    static_cast<unsigned long long>(numericMismatchByField[1]),
+                    static_cast<unsigned long long>(numericMismatchByField[2]),
+                    static_cast<unsigned long long>(numericMismatchByField[3]),
+                    static_cast<unsigned long long>(numericMismatchByField[4]),
+                    static_cast<unsigned long long>(numericMismatchByField[5]),
+                    static_cast<unsigned long long>(numericMismatchByField[6]),
+                    static_cast<unsigned long long>(numericMismatchByField[7]),
+                    static_cast<unsigned long long>(numericMismatchByField[8]),
+                    static_cast<unsigned long long>(numericMismatchByField[9]),
+                    static_cast<unsigned long long>(numericMismatchByField[10]),
+                    static_cast<unsigned long long>(numericMismatchByField[11]),
+                    static_cast<unsigned long long>(numericMismatchByField[12]),
+                    static_cast<unsigned long long>(numericMismatchByField[13]),
+                    static_cast<unsigned long long>(numericMismatchByField[14]),
+                    static_cast<unsigned long long>(numericMismatchByField[20]),
+                    static_cast<unsigned long long>(numericMismatchByField[22]));
+            }
+            common->Printf(
+                "PathTracePrimaryPass: GEO09 skinned emissive publication audit summary expected(current/previous)=%llu/%llu published=%u compared(current/previous)=%u/%u mismatch(currentMetadata/currentNumeric/previousMetadata/previousNumeric)=%llu/%llu/%llu/%llu maxError=%.9f pass=%d\n",
+                static_cast<unsigned long long>(
+                    actual.current.size()),
+                static_cast<unsigned long long>(
+                    actual.previous.size()),
+                m_skinnedEmissivePublishAuditRecordCount,
+                compareCount,
+                comparePreviousCount,
+                static_cast<unsigned long long>(
+                    metadataMismatch),
+                static_cast<unsigned long long>(
+                    numericMismatch),
+                static_cast<unsigned long long>(
+                    previousMetadataMismatch),
+                static_cast<unsigned long long>(
+                    previousNumericMismatch),
+                maxNumericError,
+                compareCount ==
+                        m_skinnedEmissivePublishAuditRecordCount &&
+                    comparePreviousCount ==
+                        m_skinnedEmissivePublishAuditRecordCount &&
+                    metadataMismatch == 0 &&
+                    numericMismatch == 0 &&
+                    previousMetadataMismatch == 0 &&
+                    previousNumericMismatch == 0
+                    ? 1
+                    : 0);
+            device->unmapBuffer(
+                m_skinnedEmissivePublishAuditReadbackBuffer);
+        }
+        else
+        {
+            common->Printf(
+                "PathTracePrimaryPass: GEO09 skinned emissive publication audit map failed\n");
+        }
+        m_skinnedEmissivePublishAuditReadbackQueued = false;
+        m_skinnedEmissivePublishAuditRecordCount = 0;
+    }
     const std::vector<PathTraceEmissiveLightRemap>
         expectedRemap = BuildSmokeCanonicalEmissiveLightRemap(
             m_skinnedEmissiveAuditExpected.current,

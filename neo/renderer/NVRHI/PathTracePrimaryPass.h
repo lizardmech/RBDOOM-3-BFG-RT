@@ -358,6 +358,13 @@ private:
         int forcedMaterialCount,
         int productionEligibleMaterialCount);
     void ReadBackSkinnedEmissiveAudit();
+    void QueueSkinnedEmissivePublishAudit(
+        nvrhi::ICommandList* commandList,
+        nvrhi::IBuffer* emissiveTriangleBuffer,
+        nvrhi::IBuffer* previousEmissiveTriangleBuffer,
+        uint32 firstCurrentRecord,
+        uint32 firstPreviousRecord,
+        uint32 recordCount);
     void QueueSkinnedHitRouteReadback(
         nvrhi::ICommandList* commandList,
         nvrhi::IBuffer* recordBuffer,
@@ -532,6 +539,7 @@ private:
     bool m_smokeSkinnedHitRouteShadowLogged = false;
     uint32 m_smokeSkinnedCaptureSplitShadowMaxLogged = 0;
     uint32 m_smokeSkinnedCaptureSplitTlasMaxLogged = 0;
+    uint32 m_smokeSkinnedEmissivePublishMaxLogged = 0;
     int m_smokeSkinnedCaptureLastShadowAccepted = -1;
     uint32 m_smokeSkinnedCaptureShadowTransitionsLogged = 0;
     uint64 m_smokeSkinnedCaptureRouteSetEvictions = 0;
@@ -673,6 +681,10 @@ private:
         m_skinnedEmissiveAuditExpectedPreviousPositions;
     PtSkinnedEmissiveAuditInventory
         m_skinnedEmissiveAuditExpected;
+    nvrhi::BufferHandle
+        m_skinnedEmissivePublishAuditReadbackBuffer;
+    bool m_skinnedEmissivePublishAuditReadbackQueued = false;
+    uint32 m_skinnedEmissivePublishAuditRecordCount = 0;
     nvrhi::BufferHandle m_skinnedHitRouteReadbackBuffer;
     bool m_skinnedHitRouteReadbackQueued = false;
     bool m_skinnedHitRouteReadbackCompleted = false;
@@ -728,16 +740,28 @@ private:
     nvrhi::BindingLayoutHandle m_smokeNeeCacheDebugBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeNeeCachePrimarySurfaceUpdateBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeSkinnedGpuSkinningBindingLayout;
+    nvrhi::BindingLayoutHandle
+        m_smokeSkinnedEmissivePublishBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeCleanRtxdiDiBoilingFilterBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeSkyCubeProbeBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeSkySurfaceResolveBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
     nvrhi::BindingSetHandle m_smokeBindingSet;
     nvrhi::BindingSetHandle m_smokeSkinnedGpuSkinningBindingSet;
+    nvrhi::BindingSetHandle
+        m_smokeSkinnedEmissivePublishBindingSet;
     nvrhi::BindingSetHandle m_smokeCleanRtxdiDiBoilingFilterBindingSet;
     nvrhi::BindingSetHandle m_smokeSkyCubeProbeBindingSet;
     nvrhi::BufferHandle m_smokeSkinnedGpuSkinningOutputBuffer;
     nvrhi::BufferHandle m_smokeSkinnedGpuSkinningPreviousPositionBuffer;
+    nvrhi::BufferHandle
+        m_smokeSkinnedEmissivePublishCurrentOutputBuffer;
+    nvrhi::BufferHandle
+        m_smokeSkinnedEmissivePublishPreviousPositionBuffer;
+    nvrhi::BufferHandle
+        m_smokeSkinnedEmissivePublishWorkBuffer;
+    nvrhi::BufferHandle
+        m_smokeSkinnedEmissiveWorkBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiSentinelConstantsBuffer;
     nvrhi::BufferHandle m_smokeSkySurfaceResolveConstantsBuffer;
     nvrhi::BufferHandle m_smokeMaterialFeatureRuntimeConstantsBuffer;
@@ -804,11 +828,15 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
     RtPathTraceCleanRtxdiDiMaterialFeatureState m_smokeCleanRtxdiDiMaterialFeatures;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
+    nvrhi::ShaderHandle
+        m_smokeSkinnedEmissivePublishShader;
     nvrhi::ShaderHandle m_smokeCleanRtxdiDiBoilingFilterShader;
     nvrhi::ShaderHandle m_smokeSkyCubeProbeShader;
     nvrhi::ShaderHandle m_smokeSkySurfaceResolveShader;
     nvrhi::ShaderHandle m_smokeNeeCachePrimarySurfaceUpdateShader;
     nvrhi::ComputePipelineHandle m_smokeSkinnedGpuSkinningPipeline;
+    nvrhi::ComputePipelineHandle
+        m_smokeSkinnedEmissivePublishPipeline;
     nvrhi::ComputePipelineHandle m_smokeCleanRtxdiDiBoilingFilterPipeline;
     nvrhi::ComputePipelineHandle m_smokeSkyCubeProbePipeline;
     nvrhi::ComputePipelineHandle m_smokeSkySurfaceResolvePipeline;

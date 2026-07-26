@@ -117,6 +117,8 @@ struct PtSkinnedEmissiveAuditInventory
 {
     std::vector<PathTraceSmokeEmissiveTriangle> current;
     std::vector<PathTraceSmokeEmissiveTriangle> previous;
+    std::vector<uint32_t> currentSourceTriangleIndexes;
+    std::vector<uint32_t> previousSourceTriangleIndexes;
     uint64_t inputTriangles = 0;
     uint64_t invalidTriangles = 0;
     uint64_t nonEmissiveTriangles = 0;
@@ -126,6 +128,46 @@ struct PtSkinnedEmissiveAuditInventory
     uint64_t zeroAreaPreviousTriangles = 0;
     uint64_t missingPreviousTriangles = 0;
 };
+
+static constexpr uint32_t
+    PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX = UINT32_MAX;
+static constexpr uint32_t
+    PT_SKINNED_EMISSIVE_GPU_WRITE_PREVIOUS = 1u << 0;
+static constexpr uint32_t
+    PT_SKINNED_EMISSIVE_GPU_WRITE_CURRENT_UNIFIED = 1u << 1;
+static constexpr uint32_t
+    PT_SKINNED_EMISSIVE_GPU_WRITE_PREVIOUS_UNIFIED = 1u << 2;
+static constexpr uint32_t
+    PT_SKINNED_EMISSIVE_GPU_WRITE_CURRENT_PAYLOAD = 1u << 3;
+static constexpr uint32_t
+    PT_SKINNED_EMISSIVE_GPU_WRITE_PREVIOUS_PAYLOAD = 1u << 4;
+static constexpr uint32_t
+    PT_SKINNED_EMISSIVE_GPU_PUBLISH_ENABLED = 1u << 5;
+
+struct PathTraceSkinnedEmissiveGpuWork
+{
+    uint32_t currentVertexIndexes[3] = {};
+    uint32_t previousPositionIndexes[3] = {};
+    uint32_t currentEmissiveIndex =
+        PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX;
+    uint32_t previousEmissiveIndex =
+        PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX;
+    uint32_t currentUnifiedIndex =
+        PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX;
+    uint32_t previousUnifiedIndex =
+        PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX;
+    uint32_t currentPayloadIndex =
+        PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX;
+    uint32_t previousPayloadIndex =
+        PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX;
+    uint32_t workItemCount = 0;
+    uint32_t flags = 0;
+    uint32_t padding0 = 0;
+    uint32_t padding1 = 0;
+};
+static_assert(
+    sizeof(PathTraceSkinnedEmissiveGpuWork) == 64,
+    "PathTraceSkinnedEmissiveGpuWork must match HLSL layout");
 
 const uint32_t RT_SMOKE_LIGHT_CANDIDATE_TEXTURED = 0x00000001u;
 const uint32_t RT_SMOKE_LIGHT_CANDIDATE_SAFE_TEXTURE = 0x00000002u;

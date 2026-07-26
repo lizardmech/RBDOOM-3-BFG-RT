@@ -7782,6 +7782,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
     const int emissiveStartMs = Sys_Milliseconds();
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
+    std::vector<PathTraceSmokeEmissiveTriangle>
+        previousEmissiveTriangles =
+            m_sceneInputs.valid
+                ? m_smokePreviousEmissiveTriangles
+                : std::vector<
+                    PathTraceSmokeEmissiveTriangle>();
+    std::vector<PtSkinnedEmissiveAuditTriangle>
+        skinnedEmissiveSourceTriangles;
+    PtSkinnedEmissiveAuditInventory
+        skinnedEmissiveInventory;
+    std::vector<PathTraceSkinnedEmissiveGpuWork>
+        skinnedEmissiveGpuWork;
+    size_t skinnedEmissiveCurrentBase = 0;
+    size_t skinnedEmissivePreviousBase = 0;
+    const bool skinnedEmissivePublishValidation =
+        r_pathTracingGeometrySkinnedEmissiveAudit.
+            GetInteger() == 1;
+    int skinnedEmissivePublishValidationForcedMaterials = 0;
+    uint32 skinnedEmissivePublishValidationFallbackMaterial =
+        UINT32_MAX;
     RtSmokeEmissiveDistributionBuild emissiveDistribution;
     std::vector<PathTraceSmokeLightCandidate> lightCandidates;
     std::vector<PathTraceDoomAnalyticLightCandidate> doomAnalyticLights;
@@ -7832,6 +7852,336 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 emissiveTriangles,
                 emissiveInventoryStats);
         }
+
+        std::vector<PathTraceSmokeVertex>
+            skinnedEmissivePlaceholderVertices =
+                skinnedGpuScaffold.currentOutputVertices;
+        std::vector<PathTraceSkinnedPreviousPosition>
+            skinnedEmissivePlaceholderPrevious =
+                skinnedGpuScaffold.previousPositions;
+        for (const PtSkinnedHitRouteRecord& route :
+            skinnedHitRouteUploadBuild.records)
+        {
+            if (!SmokeSkinnedCaptureInstanceWasOmitted(
+                    currentSkinnedSurfaceRecords,
+                    route.instanceKey))
+            {
+                continue;
+            }
+            const PtGeometrySourceRecord* source =
+                m_smokeGeometryUniverse.
+                    FindCanonicalSourceRecord(route.meshKey);
+            if (!source ||
+                source->payload.positions.size() !=
+                    route.vertexCount ||
+                source->payload.attributes.size() !=
+                    route.vertexCount ||
+                route.outputVertexOffset >
+                    skinnedEmissivePlaceholderVertices.size() ||
+                route.vertexCount >
+                    skinnedEmissivePlaceholderVertices.size() -
+                        route.outputVertexOffset)
+            {
+                continue;
+            }
+
+            for (uint32_t vertexIndex = 0;
+                 vertexIndex < route.vertexCount;
+                 ++vertexIndex)
+            {
+                const PathTraceSkinnedSourceVertex sourceVertex =
+                    BuildSmokeSkinnedSourceVertex(
+                        source->payload.positions[vertexIndex],
+                        source->payload.attributes[vertexIndex]);
+                PathTraceSmokeVertex placeholder = {};
+                for (int component = 0;
+                     component < 4;
+                     ++component)
+                {
+                    placeholder.position[component] =
+                        sourceVertex.localPosition[component];
+                    placeholder.normal[component] =
+                        sourceVertex.localNormal[component];
+                    placeholder.texCoord[component] =
+                        sourceVertex.texCoord[component];
+                    placeholder.color[component] =
+                        sourceVertex.color[component];
+                    placeholder.color2[component] =
+                        sourceVertex.jointWeights[component];
+                    placeholder.tangent[component] =
+                        sourceVertex.localTangent[component];
+                }
+                skinnedEmissivePlaceholderVertices[
+                    route.outputVertexOffset +
+                    vertexIndex] = placeholder;
+                if ((route.flags &
+                        PT_SKINNED_HIT_ROUTE_HAS_PREVIOUS) !=
+                        0u &&
+                    route.previousPositionOffset !=
+                        PT_SKINNED_HIT_ROUTE_INVALID_INDEX &&
+                    route.previousPositionOffset <
+                        skinnedEmissivePlaceholderPrevious.
+                            size() &&
+                    vertexIndex <
+                        skinnedEmissivePlaceholderPrevious.
+                            size() -
+                            route.previousPositionOffset)
+                {
+                    PathTraceSkinnedPreviousPosition&
+                        previous =
+                            skinnedEmissivePlaceholderPrevious[
+                                route.previousPositionOffset +
+                                vertexIndex];
+                    for (int component = 0;
+                         component < 4;
+                         ++component)
+                    {
+                        previous.previousPosition[component] =
+                            sourceVertex.localPosition[component];
+                    }
+                }
+            }
+
+            for (uint32_t localPrimitive = 0;
+                 localPrimitive < route.triangleCount;
+                 ++localPrimitive)
+            {
+                const uint64 metadataIndex =
+                    static_cast<uint64>(
+                        route.triangleMetadataOffset) +
+                    localPrimitive;
+                if (metadataIndex >=
+                    skinnedHitRouteUploadBuild.triangles.
+                        size())
+                {
+                    continue;
+                }
+                const PtSkinnedHitRouteTriangle& triangle =
+                    skinnedHitRouteUploadBuild.triangles[
+                        static_cast<size_t>(metadataIndex)];
+                const uint64 sourceIndexOffset =
+                    static_cast<uint64>(
+                        triangle.sourcePrimitiveIndex) *
+                    3ull;
+                if (sourceIndexOffset + 2ull >=
+                    source->payload.indexes.size())
+                {
+                    continue;
+                }
+
+                PtSkinnedEmissiveAuditTriangle item = {};
+                item.materialIndex = triangle.materialIndex;
+                item.materialId = triangle.materialId;
+                item.instanceId = route.shaderInstanceId;
+                item.primitiveIndex =
+                    triangle.sourcePrimitiveIndex;
+                item.triangleClassAndFlags =
+                    triangle.triangleClassAndFlags;
+                item.identityHash =
+                    triangle.emissiveIdentityHash;
+                item.hasPrevious =
+                    (route.flags &
+                        PT_SKINNED_HIT_ROUTE_HAS_PREVIOUS) !=
+                        0u &&
+                    route.previousPositionOffset !=
+                        PT_SKINNED_HIT_ROUTE_INVALID_INDEX;
+                for (int corner = 0; corner < 3; ++corner)
+                {
+                    const uint32_t localVertex =
+                        source->payload.indexes[
+                            static_cast<size_t>(
+                                sourceIndexOffset +
+                                corner)];
+                    item.currentVertexIndexes[corner] =
+                        route.outputVertexOffset +
+                        localVertex;
+                    item.previousPositionIndexes[corner] =
+                        item.hasPrevious
+                            ? route.previousPositionOffset +
+                                localVertex
+                            : UINT32_MAX;
+                }
+                skinnedEmissiveSourceTriangles.push_back(
+                    item);
+            }
+        }
+
+        const int skinnedEmissiveCapacity =
+            Max(
+                0,
+                maxEmissiveRecords -
+                    static_cast<int>(
+                        emissiveTriangles.size()));
+        std::vector<PathTraceSmokeMaterial>
+            skinnedEmissiveMaterialViews;
+        std::vector<PtSkinnedEmissiveAuditTriangle>
+            skinnedEmissiveValidationTriangleViews;
+        const std::vector<PathTraceSmokeMaterial>*
+            skinnedEmissiveMaterials =
+                &materialTable.materials;
+        const std::vector<PtSkinnedEmissiveAuditTriangle>*
+            skinnedEmissiveTriangles =
+                &skinnedEmissiveSourceTriangles;
+        if (skinnedEmissivePublishValidation)
+        {
+            skinnedEmissiveMaterialViews =
+                materialTable.materials;
+            std::unordered_set<uint32_t>
+                visitedMaterialIndexes;
+            for (const PtSkinnedEmissiveAuditTriangle& source :
+                skinnedEmissiveSourceTriangles)
+            {
+                if (!visitedMaterialIndexes.insert(
+                        source.materialIndex).second ||
+                    source.materialIndex >=
+                        skinnedEmissiveMaterialViews.size() ||
+                    source.materialIndex >=
+                        materialTable.materialInfos.size())
+                {
+                    continue;
+                }
+                PathTraceSmokeMaterial& material =
+                    skinnedEmissiveMaterialViews[
+                        source.materialIndex];
+                if ((material.flags &
+                        RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE) !=
+                    0u)
+                {
+                    continue;
+                }
+                const RtSmokeMaterialTextureInfo& info =
+                    materialTable.materialInfos[
+                        source.materialIndex];
+                if (!info.emissive ||
+                    !info.emissiveLightCandidate)
+                {
+                    continue;
+                }
+                material.flags |=
+                    RT_SMOKE_MATERIAL_EMISSIVE |
+                    RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE;
+                material.emissiveColor[0] =
+                    info.emissiveColor.x;
+                material.emissiveColor[1] =
+                    info.emissiveColor.y;
+                material.emissiveColor[2] =
+                    info.emissiveColor.z;
+                material.emissiveColor[3] =
+                    info.emissiveColor.w;
+                ++skinnedEmissivePublishValidationForcedMaterials;
+            }
+            if (skinnedEmissivePublishValidationForcedMaterials ==
+                    0 &&
+                !skinnedEmissiveSourceTriangles.empty())
+            {
+                const uint32 materialIndex =
+                    skinnedEmissiveSourceTriangles.front().
+                        materialIndex;
+                if (materialIndex <
+                        skinnedEmissiveMaterialViews.size())
+                {
+                    PathTraceSmokeMaterial& material =
+                        skinnedEmissiveMaterialViews[
+                            materialIndex];
+                    material.flags |=
+                        RT_SMOKE_MATERIAL_EMISSIVE |
+                        RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE;
+                    material.emissiveColor[0] = 1.0f;
+                    material.emissiveColor[1] = 0.5f;
+                    material.emissiveColor[2] = 0.25f;
+                    material.emissiveColor[3] = 1.0f;
+                    skinnedEmissivePublishValidationFallbackMaterial =
+                        materialIndex;
+                    ++skinnedEmissivePublishValidationForcedMaterials;
+                    skinnedEmissiveValidationTriangleViews =
+                        skinnedEmissiveSourceTriangles;
+                    for (PtSkinnedEmissiveAuditTriangle& source :
+                        skinnedEmissiveValidationTriangleViews)
+                    {
+                        if (source.materialIndex == materialIndex)
+                        {
+                            source.triangleClassAndFlags &=
+                                ~RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF;
+                        }
+                    }
+                    skinnedEmissiveTriangles =
+                        &skinnedEmissiveValidationTriangleViews;
+                }
+            }
+            skinnedEmissiveMaterials =
+                &skinnedEmissiveMaterialViews;
+        }
+        if (skinnedEmissiveCapacity > 0 &&
+            !skinnedEmissiveSourceTriangles.empty())
+        {
+            const int skinnedEmissiveRecordLimit =
+                skinnedEmissivePublishValidation
+                    ? Min(skinnedEmissiveCapacity, 24)
+                    : skinnedEmissiveCapacity;
+            skinnedEmissiveInventory =
+                BuildSmokeCanonicalSkinnedEmissiveAuditInventory(
+                    materialTable.materialIds,
+                    *skinnedEmissiveMaterials,
+                    skinnedEmissivePlaceholderVertices,
+                    skinnedEmissivePlaceholderPrevious,
+                    *skinnedEmissiveTriangles,
+                    RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
+                    skinnedEmissiveRecordLimit);
+            skinnedEmissiveCurrentBase =
+                emissiveTriangles.size();
+            emissiveTriangles.insert(
+                emissiveTriangles.end(),
+                skinnedEmissiveInventory.current.begin(),
+                skinnedEmissiveInventory.current.end());
+            if (skinnedEmissivePublishValidation)
+            {
+                skinnedEmissivePreviousBase =
+                    previousEmissiveTriangles.size();
+                previousEmissiveTriangles.insert(
+                    previousEmissiveTriangles.end(),
+                    skinnedEmissiveInventory.previous.begin(),
+                    skinnedEmissiveInventory.previous.end());
+            }
+            skinnedEmissiveGpuWork.reserve(
+                skinnedEmissiveInventory.current.size());
+            for (size_t recordIndex = 0;
+                 recordIndex <
+                    skinnedEmissiveInventory.current.size();
+                 ++recordIndex)
+            {
+                const uint32_t sourceTriangleIndex =
+                    skinnedEmissiveInventory.
+                        currentSourceTriangleIndexes[
+                            recordIndex];
+                const PtSkinnedEmissiveAuditTriangle& source =
+                    skinnedEmissiveSourceTriangles[
+                        sourceTriangleIndex];
+                PathTraceSkinnedEmissiveGpuWork work = {};
+                for (int corner = 0; corner < 3; ++corner)
+                {
+                    work.currentVertexIndexes[corner] =
+                        source.currentVertexIndexes[corner];
+                    work.previousPositionIndexes[corner] =
+                        source.previousPositionIndexes[corner];
+                }
+                work.currentEmissiveIndex =
+                    static_cast<uint32_t>(
+                        skinnedEmissiveCurrentBase +
+                        recordIndex);
+                skinnedEmissiveGpuWork.push_back(work);
+            }
+            if (skinnedEmissivePublishValidation &&
+                !skinnedEmissiveGpuWork.empty())
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO09 skinned emissive publication validation inventory frame=%llu work=%zu forcedMaterials=%d cap=%d defaultProductionBehaviorChanged=0 validationLightInjection=1\n",
+                    static_cast<unsigned long long>(
+                        m_smokeGeometryFrameIndex),
+                    skinnedEmissiveGpuWork.size(),
+                    skinnedEmissivePublishValidationForcedMaterials,
+                    skinnedEmissiveRecordLimit);
+            }
+        }
         const int fullLevelStaticEmissiveTriangles = emissiveInventoryStats.fullLevelStaticTriangles;
         const int routedRigidEmissiveTriangles = emissiveInventoryStats.routedRigidTriangles;
         const int routedRigidInstances = emissiveInventoryStats.routedRigidInstances;
@@ -7847,7 +8197,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const float routedRigidArea = emissiveInventoryStats.routedRigidArea;
         const float routedRigidWeightedLuminance = emissiveInventoryStats.routedRigidWeightedLuminance;
         const int runtimeInactiveEmissiveTrianglesBeforeStatsRebuild = emissiveInventoryStats.skippedRuntimeInactiveTriangles;
-        FinalizeSmokeEmissiveTriangleSamplingFields(emissiveTriangles, emissiveInventoryStats);
         emissiveInventoryStats = BuildSmokeEmissiveInventoryStatsForRecords(materialTable.materialIds, emissiveTriangles);
         emissiveInventoryStats.fullLevelStaticTriangles = fullLevelStaticEmissiveTriangles;
         emissiveInventoryStats.routedRigidTriangles = routedRigidEmissiveTriangles;
@@ -7864,11 +8213,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         emissiveInventoryStats.routedRigidArea = routedRigidArea;
         emissiveInventoryStats.routedRigidWeightedLuminance = routedRigidWeightedLuminance;
         emissiveInventoryStats.skippedRuntimeInactiveTriangles = runtimeInactiveEmissiveTrianglesBeforeStatsRebuild;
+        FinalizeSmokeEmissiveTriangleSamplingFields(emissiveTriangles, emissiveInventoryStats);
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
     }
-    const std::vector<PathTraceSmokeEmissiveTriangle> previousEmissiveTriangles = m_sceneInputs.valid
-        ? m_smokePreviousEmissiveTriangles
-        : std::vector<PathTraceSmokeEmissiveTriangle>();
     const std::vector<PathTraceEmissiveLightRemap> emissiveLightRemap = [&]() {
         OPTICK_EVENT("PT Emissive Light Remap");
         return BuildSmokeCanonicalEmissiveLightRemap(emissiveTriangles, previousEmissiveTriangles);
@@ -8019,6 +8366,107 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             doomAnalyticRemap.universeRemap,
             idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat()));
     }();
+    const auto findEmissiveLightRecord =
+        [](const std::vector<PathTraceUnifiedLightRecord>& records,
+           uint32_t sourceIndex) -> uint32_t
+        {
+            for (uint32_t recordIndex = 0;
+                 recordIndex < records.size();
+                 ++recordIndex)
+            {
+                const PathTraceUnifiedLightRecord& record =
+                    records[recordIndex];
+                if (record.type ==
+                        PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE &&
+                    record.sourceIndex == sourceIndex)
+                {
+                    return recordIndex;
+                }
+            }
+            return PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX;
+        };
+    for (PathTraceSkinnedEmissiveGpuWork& work :
+        skinnedEmissiveGpuWork)
+    {
+        if (work.currentEmissiveIndex >=
+                emissiveLightRemap.size())
+        {
+            continue;
+        }
+        work.currentUnifiedIndex =
+            findEmissiveLightRecord(
+                unifiedLights.currentLights,
+                work.currentEmissiveIndex);
+        if (work.currentUnifiedIndex !=
+            PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX)
+        {
+            work.flags |=
+                PT_SKINNED_EMISSIVE_GPU_WRITE_CURRENT_UNIFIED;
+        }
+        work.currentPayloadIndex =
+            findEmissiveLightRecord(
+                restirLightManagerCurrentPayloadRecords,
+                work.currentEmissiveIndex);
+        if (work.currentPayloadIndex !=
+            PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX)
+        {
+            work.flags |=
+                PT_SKINNED_EMISSIVE_GPU_WRITE_CURRENT_PAYLOAD;
+        }
+
+        const PathTraceEmissiveLightRemap& remap =
+            emissiveLightRemap[
+                work.currentEmissiveIndex];
+        const bool previousVertexIndexesValid =
+            work.previousPositionIndexes[0] != UINT32_MAX &&
+            work.previousPositionIndexes[1] != UINT32_MAX &&
+            work.previousPositionIndexes[2] != UINT32_MAX;
+        if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_VALID) == 0u ||
+            remap.currentToPreviousIndex < 0 ||
+            !previousVertexIndexesValid)
+        {
+            continue;
+        }
+        work.previousEmissiveIndex =
+            static_cast<uint32_t>(
+                remap.currentToPreviousIndex);
+        if (work.previousEmissiveIndex >=
+            previousEmissiveTriangles.size())
+        {
+            work.previousEmissiveIndex =
+                PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX;
+            continue;
+        }
+        work.flags |=
+            PT_SKINNED_EMISSIVE_GPU_WRITE_PREVIOUS;
+        work.previousUnifiedIndex =
+            findEmissiveLightRecord(
+                unifiedLights.previousLights,
+                work.previousEmissiveIndex);
+        if (work.previousUnifiedIndex !=
+            PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX)
+        {
+            work.flags |=
+                PT_SKINNED_EMISSIVE_GPU_WRITE_PREVIOUS_UNIFIED;
+        }
+        work.previousPayloadIndex =
+            findEmissiveLightRecord(
+                restirLightManagerPreviousPayloadRecords,
+                work.previousEmissiveIndex);
+        if (work.previousPayloadIndex !=
+            PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX)
+        {
+            work.flags |=
+                PT_SKINNED_EMISSIVE_GPU_WRITE_PREVIOUS_PAYLOAD;
+        }
+    }
+    for (PathTraceSkinnedEmissiveGpuWork& work :
+        skinnedEmissiveGpuWork)
+    {
+        work.workItemCount =
+            static_cast<uint32_t>(
+                skinnedEmissiveGpuWork.size());
+    }
     if (r_pathTracingSmokeLog.GetInteger() != 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
     {
         common->Printf("PathTracePrimaryPass: RT smoke emissive distribution entries=%d valid=%d zeroPdf=%d fallback=%d fallbackWeight=%.3f totalPdf=%.6f cvar=%d\n",
@@ -8153,6 +8601,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.skinnedTriangleDispatchIndexBuffer = m_smokeSkinnedTriangleDispatchIndexBuffer;
     bufferCreateDesc.existingBuffers.skinnedCurrentJointMatrixBuffer = m_smokeSkinnedCurrentJointMatrixBuffer;
     bufferCreateDesc.existingBuffers.skinnedPreviousJointMatrixBuffer = m_smokeSkinnedPreviousJointMatrixBuffer;
+    bufferCreateDesc.existingBuffers.skinnedEmissiveWorkBuffer =
+        m_smokeSkinnedEmissiveWorkBuffer;
     bufferCreateDesc.staticVertexBytes = staticVertexCache.size() * sizeof(staticVertexCache[0]);
     bufferCreateDesc.staticIndexBytes = staticIndexCache.size() * sizeof(staticIndexCache[0]);
     bufferCreateDesc.staticTriangleClassBytes = staticTriangleClassCache.size() * sizeof(staticTriangleClassCache[0]);
@@ -8213,6 +8663,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             : skinnedGpuScaffold.currentJointMatrices.size() *
                 sizeof(PathTraceSkinnedJointMatrix);
     bufferCreateDesc.skinnedPreviousJointMatrixBytes = skinnedGpuScaffold.previousJointMatrices.size() * sizeof(PathTraceSkinnedJointMatrix);
+    bufferCreateDesc.skinnedEmissiveWorkBytes =
+        skinnedEmissiveGpuWork.size() *
+        sizeof(PathTraceSkinnedEmissiveGpuWork);
     }
     RtSmokeSceneBufferCreateResult bufferCreateResult;
     {
@@ -8322,6 +8775,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeSkinnedTriangleDispatchIndexBuffer = smokeBuffers.skinnedTriangleDispatchIndexBuffer;
     nvrhi::BufferHandle smokeSkinnedCurrentJointMatrixBuffer = smokeBuffers.skinnedCurrentJointMatrixBuffer;
     nvrhi::BufferHandle smokeSkinnedPreviousJointMatrixBuffer = smokeBuffers.skinnedPreviousJointMatrixBuffer;
+    nvrhi::BufferHandle smokeSkinnedEmissiveWorkBuffer =
+        smokeBuffers.skinnedEmissiveWorkBuffer;
     const int bufferCreateMs = Sys_Milliseconds() - bufferCreateStartMs;
 
     const int staticVertexCount = static_cast<int>(staticVertexCache.size());
@@ -9029,7 +9484,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeSkinnedSurfaceDispatchBuffer, skinnedGpuComputeDispatchRecords, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedTriangleDispatchIndexBuffer, skinnedGpuScaffold.dynamicTriangleDispatchIndexes, nvrhi::ResourceStates::ShaderResource, false),
         skinnedCurrentJointUploadItem,
-        MakeSmokeVectorUploadItem(smokeSkinnedPreviousJointMatrixBuffer, skinnedGpuScaffold.previousJointMatrices, nvrhi::ResourceStates::ShaderResource, false)
+        MakeSmokeVectorUploadItem(smokeSkinnedPreviousJointMatrixBuffer, skinnedGpuScaffold.previousJointMatrices, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeSkinnedEmissiveWorkBuffer, skinnedEmissiveGpuWork, nvrhi::ResourceStates::ShaderResource, false)
     };
     RtSmokeBufferUploadBatchDesc uploadBatchDesc;
     uploadBatchDesc.commandList = commandList;
@@ -9191,6 +9647,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 info.emissiveColor.w;
             ++forcedMaterialCount;
         }
+        if (forcedMaterialCount == 0 &&
+            skinnedEmissivePublishValidationFallbackMaterial !=
+                UINT32_MAX &&
+            skinnedEmissivePublishValidationFallbackMaterial <
+                auditMaterialViews.size())
+        {
+            PathTraceSmokeMaterial& material =
+                auditMaterialViews[
+                    skinnedEmissivePublishValidationFallbackMaterial];
+            material.flags |=
+                RT_SMOKE_MATERIAL_EMISSIVE |
+                RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE;
+            material.emissiveColor[0] = 1.0f;
+            material.emissiveColor[1] = 0.5f;
+            material.emissiveColor[2] = 0.25f;
+            material.emissiveColor[3] = 1.0f;
+            ++forcedMaterialCount;
+        }
 
         std::vector<PtSkinnedEmissiveAuditTriangle>
             auditTriangles;
@@ -9228,6 +9702,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     triangle.sourcePrimitiveIndex;
                 audit.triangleClassAndFlags =
                     triangle.triangleClassAndFlags;
+                if (skinnedEmissivePublishValidationFallbackMaterial !=
+                        UINT32_MAX &&
+                    audit.materialIndex ==
+                        skinnedEmissivePublishValidationFallbackMaterial)
+                {
+                    audit.triangleClassAndFlags &=
+                        ~RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF;
+                }
                 audit.identityHash =
                     triangle.emissiveIdentityHash;
                 audit.hasPrevious =
@@ -10931,6 +11413,186 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingGeometrySkinnedTlasCompareDump.
                 SetInteger(0);
         }
+    }
+
+    const bool skinnedEmissivePublishAccepted =
+        skinnedGpuComputeDispatched &&
+        !skinnedEmissiveGpuWork.empty() &&
+        skinnedTlasPlan.result ==
+            PtSkinnedTlasRouteResult::Accepted &&
+        skinnedTlasDescriptorCount ==
+            skinnedTlasPlan.records.size() &&
+        skinnedTlasActiveDescriptorCount ==
+            static_cast<uint32>(Max(
+                captureTiming.skinnedCaptureOmittedSurfaces,
+                0)) &&
+        captureTiming.skinnedCaptureOmittedSurfaces > 0;
+    if (!skinnedEmissiveGpuWork.empty())
+    {
+        for (PathTraceSkinnedEmissiveGpuWork& work :
+            skinnedEmissiveGpuWork)
+        {
+            if (skinnedEmissivePublishAccepted)
+            {
+                work.flags |=
+                    PT_SKINNED_EMISSIVE_GPU_PUBLISH_ENABLED;
+            }
+            else
+            {
+                work.flags &=
+                    ~PT_SKINNED_EMISSIVE_GPU_PUBLISH_ENABLED;
+            }
+        }
+
+        commandList->writeBuffer(
+            smokeSkinnedEmissiveWorkBuffer,
+            skinnedEmissiveGpuWork.data(),
+            skinnedEmissiveGpuWork.size() *
+                sizeof(PathTraceSkinnedEmissiveGpuWork));
+
+        const bool skinnedEmissivePublishResourcesReady =
+            m_smokeSkinnedEmissivePublishPipeline &&
+            m_smokeSkinnedEmissivePublishBindingLayout &&
+            smokeSkinnedCurrentOutputVertexBuffer &&
+            smokeSkinnedPreviousPositionBuffer &&
+            smokeSkinnedEmissiveWorkBuffer &&
+            smokeEmissiveTriangleBuffer &&
+            smokePreviousEmissiveTriangleBuffer &&
+            smokeUnifiedLightBuffer &&
+            smokeUnifiedPreviousLightBuffer &&
+            smokeRestirLightManagerCurrentPayloadBuffer &&
+            smokeRestirLightManagerPreviousPayloadBuffer;
+        if (skinnedEmissivePublishResourcesReady)
+        {
+            nvrhi::BindingSetDesc publishBindingSetDesc;
+            publishBindingSetDesc.bindings = {
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(
+                    0,
+                    smokeSkinnedCurrentOutputVertexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(
+                    1,
+                    smokeSkinnedPreviousPositionBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(
+                    2,
+                    smokeSkinnedEmissiveWorkBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                    0,
+                    smokeEmissiveTriangleBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                    1,
+                    smokePreviousEmissiveTriangleBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                    2,
+                    smokeUnifiedLightBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                    3,
+                    smokeUnifiedPreviousLightBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                    4,
+                    smokeRestirLightManagerCurrentPayloadBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                    5,
+                    smokeRestirLightManagerPreviousPayloadBuffer)
+            };
+            m_smokeSkinnedEmissivePublishBindingSet =
+                device->createBindingSet(
+                    publishBindingSetDesc,
+                    m_smokeSkinnedEmissivePublishBindingLayout);
+            if (m_smokeSkinnedEmissivePublishBindingSet)
+            {
+                nvrhi::ComputeState publishComputeState;
+                publishComputeState.pipeline =
+                    m_smokeSkinnedEmissivePublishPipeline;
+                publishComputeState.bindings = {
+                    m_smokeSkinnedEmissivePublishBindingSet
+                };
+                commandList->setComputeState(
+                    publishComputeState);
+                commandList->dispatch(
+                    (static_cast<uint32>(
+                        skinnedEmissiveGpuWork.size()) +
+                        63u) /
+                        64u,
+                    1,
+                    1);
+                commandList->setBufferState(
+                    smokeSkinnedCurrentOutputVertexBuffer,
+                    nvrhi::ResourceStates::ShaderResource);
+                commandList->setBufferState(
+                    smokeSkinnedPreviousPositionBuffer,
+                    nvrhi::ResourceStates::ShaderResource);
+                commandList->setBufferState(
+                    smokeSkinnedEmissiveWorkBuffer,
+                    nvrhi::ResourceStates::ShaderResource);
+                commandList->setBufferState(
+                    smokeEmissiveTriangleBuffer,
+                    nvrhi::ResourceStates::ShaderResource);
+                commandList->setBufferState(
+                    smokePreviousEmissiveTriangleBuffer,
+                    nvrhi::ResourceStates::ShaderResource);
+                commandList->setBufferState(
+                    smokeUnifiedLightBuffer,
+                    nvrhi::ResourceStates::ShaderResource);
+                commandList->setBufferState(
+                    smokeUnifiedPreviousLightBuffer,
+                    nvrhi::ResourceStates::ShaderResource);
+                commandList->setBufferState(
+                    smokeRestirLightManagerCurrentPayloadBuffer,
+                    nvrhi::ResourceStates::ShaderResource);
+                commandList->setBufferState(
+                    smokeRestirLightManagerPreviousPayloadBuffer,
+                    nvrhi::ResourceStates::ShaderResource);
+                commandList->commitBarriers();
+                if (skinnedEmissivePublishValidation &&
+                    skinnedEmissivePublishAccepted)
+                {
+                    QueueSkinnedEmissivePublishAudit(
+                        commandList,
+                        smokeEmissiveTriangleBuffer,
+                        smokePreviousEmissiveTriangleBuffer,
+                        static_cast<uint32>(
+                            skinnedEmissiveCurrentBase),
+                        static_cast<uint32>(
+                            skinnedEmissivePreviousBase),
+                        static_cast<uint32>(
+                            skinnedEmissiveGpuWork.size()));
+                }
+            }
+        }
+
+        if (skinnedEmissiveGpuWork.size() >
+                m_smokeSkinnedEmissivePublishMaxLogged ||
+            (r_pathTracingSmokeLog.GetInteger() != 0 &&
+                (m_smokeGeometryFrameIndex % 120ull) == 1ull))
+        {
+            const size_t previousMapped =
+                static_cast<size_t>(std::count_if(
+                    skinnedEmissiveGpuWork.begin(),
+                    skinnedEmissiveGpuWork.end(),
+                    [](const PathTraceSkinnedEmissiveGpuWork& work)
+                    {
+                        return (work.flags &
+                            PT_SKINNED_EMISSIVE_GPU_WRITE_PREVIOUS) !=
+                            0u;
+                    }));
+            common->Printf(
+                "PathTracePrimaryPass: GEO09 skinned emissive publication frame=%llu accepted=%d work=%zu previousMapped=%zu pipeline=%d route=canonical-gpu-output\n",
+                static_cast<unsigned long long>(
+                    geometryUniverseStats.frameIndex),
+                skinnedEmissivePublishAccepted ? 1 : 0,
+                skinnedEmissiveGpuWork.size(),
+                previousMapped,
+                m_smokeSkinnedEmissivePublishBindingSet
+                    ? 1
+                    : 0);
+            m_smokeSkinnedEmissivePublishMaxLogged =
+                static_cast<uint32>(
+                    skinnedEmissiveGpuWork.size());
+        }
+    }
+    else
+    {
+        m_smokeSkinnedEmissivePublishBindingSet = nullptr;
     }
 
     accelSubmitDesc.commandList = commandList;

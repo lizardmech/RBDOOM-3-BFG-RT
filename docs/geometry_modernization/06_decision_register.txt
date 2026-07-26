@@ -925,6 +925,36 @@ has zero eviction, invalidation, or late revocation and shutdown is normal.
 This resolves production traversal only; skinned-emissive publication remains
 the final Q17 requirement.
 
+D49. PUBLISH SKINNED EMISSIVES ONLY AFTER GPU OUTPUT AND FINAL ROUTE ACCEPTANCE
+-----------------------------------------------------------------------------
+Decision: retain CPU construction only for bounded immutable topology,
+material, identity, temporal-remap, and proposal-PDF planning. Do not recover
+current or previous skinned positions on the CPU. After canonical GPU skinning
+and the final exact-set TLAS plan both accept, a Vulkan compute pass replaces
+the current/previous emissive geometry and mirrors it into the unified-light
+and Remix light-manager payload records. A rejected route fail-closes the
+planned record weights instead of publishing stale placeholder geometry.
+
+The proposal distribution and sourcePdf remain the CPU-planned distribution;
+the compute pass updates geometry, area, current sample weight, and downstream
+light payload geometry without changing the probability of the proposal that
+selected it. This preserves a valid selection-PDF contract while avoiding a
+global GPU prefix-sum in GEO-09.
+
+Every GPU work-record field is scalar. The Vulkan compiler's default structured
+buffer layout aligned `uint3` to 16 bytes, producing an 80-byte shader stride
+against a 64-byte C++ upload. The accepted SPIR-V declares member offsets
+0,4,...,60 and ArrayStride 64. All six write destinations must be created with
+`canHaveUAVs`; buffer reuse rejects an older non-UAV allocation.
+
+geometry_geo170_auto uses a validation-only constant emissive material because
+the prepared scene has zero texture-safe production skinned emitters. It
+publishes 24 current and 24 seeded-previous records after an accepted 12-route
+canonical plan. Both domains compare exactly in metadata and within
+0.000000954 numerically; all four mismatch buckets are zero and shutdown is
+normal. Default production behavior is unchanged. This resolves the remaining
+Q17 publication requirement.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
@@ -944,9 +974,9 @@ DISPOSITION OF 04_open_questions.txt
       scaffold with each retired route in GEO-13.
   Q15 PARTIALLY RESOLVED: IDs admitted; texture descriptor defect is separate.
   Q16 RESOLVED by D43/D44: primary tuple, motion, and reset policy accepted.
-  Q17 PARTIALLY RESOLVED by D45/D46/D47/D48: GPU-output construction/remap,
-      material/dynamic-state, DI/GI/RR input comparison, and production
-      traversal accepted; skinned-emissive publication remains mandatory.
+  Q17 RESOLVED by D45/D46/D47/D48/D49: GPU-output construction/remap,
+      material/dynamic-state, DI/GI/RR input comparison, production traversal,
+      and same-frame current/previous skinned-emissive publication accepted.
   Q18 OPEN and elevated by the PT-only failure, owned by GEO-01/GEO-11.
 
 DEFERRED OUTSIDE THIS PACKET

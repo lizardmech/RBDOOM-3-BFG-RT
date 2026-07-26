@@ -379,7 +379,7 @@ idCVar r_pathTracingGeometrySkinnedEmissiveAudit(
     "r_pathTracingGeometrySkinnedEmissiveAudit",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot GEO-09 source-local census of canonical skinned triangles eligible for emissive inventory; value 1 arms on the next eligible frame, N > 1 counts down eligible frames before arming" );
+    "One-shot GEO-09 canonical skinned-emissive audit; value 1 also injects at most 24 validation-only light records for unsafe authored emissive materials and verifies the same-frame GPU publication readback, N > 1 counts down eligible frames before arming" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

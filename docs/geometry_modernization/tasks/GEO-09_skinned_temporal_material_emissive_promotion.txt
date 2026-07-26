@@ -167,3 +167,20 @@ and all 12 TLAS descriptors and motion routes are active. Upload, route,
 resource, BLAS, SBT, capacity, and the four settled capture fallback buckets
 are all zero-failure; no route set is evicted, invalidated, or late-revoked.
 Step 8B same-frame GPU-output skinned-emissive publication remains.
+
+Step 8B is accepted by geometry_geo170_auto. CPU planning uses immutable
+mesh-local primitive/material/identity data only; after canonical GPU skinning
+and final TLAS acceptance, a Vulkan compute pass replaces current/previous
+emissive geometry and mirrors it into unified-light and Remix manager payload
+records. The validation-only constant material view produces 24 bounded
+current and 24 previous records because the prepared scene has no texture-safe
+production skinned-emissive material. All current/previous metadata and
+numeric mismatch buckets are zero with 0.000000954 maximum error.
+
+Bring-up fixed two exact contracts: all six write destinations now require UAV
+capability, and scalar shader work fields keep Vulkan SPIR-V at the C++ ABI's
+offsets 0,4,...,60 and ArrayStride 64 instead of `uint3`'s rejected 80-byte
+stride. The final run shuts down normally and production material safety/default
+light behavior is unchanged. The audit-disabled geometry_geo171_auto companion
+emits no publication/injection lines, retains the 12-surface exact-set route,
+and shuts down normally. Step 9 regression coverage is next.

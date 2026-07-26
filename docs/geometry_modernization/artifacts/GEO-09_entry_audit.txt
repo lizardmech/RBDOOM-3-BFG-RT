@@ -810,3 +810,98 @@ DX12 blob, or SPIR-V artifact changed in this traversal-only slice.
 
 Step 8A accepts production traversal for eligible exact-set surfaces. Step 8B
 still owns same-frame canonical GPU-output skinned-emissive publication.
+
+STEP 8B - SAME-FRAME GPU-OUTPUT EMISSIVE PUBLICATION (2026-07-26)
+----------------------------------------------------------------
+Production construction now appends eligible canonical skinned records from
+immutable mesh-local primitive, material, identity, and triangle-state data.
+Their CPU geometry is a planning placeholder only. A 64-byte work record maps
+each planned record to canonical current vertices, previous positions, the
+emissive current/previous slots, unified-light slots, and Remix light-manager
+payload slots.
+
+Publication occurs after authoritative GPU skinning and after the final
+per-instance TLAS route plan. The work item is enabled only when the compute
+dispatch ran, the exact-set TLAS plan accepted, all planned descriptors are
+active, and CPU capture was actually omitted for the settled set. Otherwise
+the shader zeros the current sampleable geometry/weight and corresponding
+unified/payload weight. No CPU current/previous skinning was restored.
+
+The compute pass updates:
+
+  - current center, area, normal, UV bounds, centroid, and sample weight;
+  - previous center, area, normal, UV bounds, centroid, and sample weight when
+    the temporal remap has a previous record;
+  - matching current/previous unified-light geometry and weight;
+  - matching current/previous Remix light-manager payload geometry and weight.
+
+The CPU-planned proposal PDF/CDF remains unchanged. It is the probability of
+the proposal that selected the record; current GPU geometry changes the
+sample's area/weight, not that already-constructed selection probability.
+
+Two rejected bring-up runs supplied concrete fixes:
+
+  geometry_geo166_auto
+    Six destination calls passed `vertexBuffer=true` in the positional
+    allocator API instead of `unorderedAccess=true`. NVRHI correctly rejected
+    all six StructuredBuffer_UAV bindings. The calls now request UAV capability,
+    and reuse rejects any older buffer whose descriptor lacks canHaveUAVs.
+
+  geometry_geo168_auto
+    The pass dispatched without changing placeholders. SPIR-V disassembly
+    showed HLSL `uint3` aligned the work record to ArrayStride 80 while C++
+    uploaded 64-byte records. Scalar index fields now compile to:
+
+      member offsets: 0, 4, 8, ..., 60
+      ArrayStride: 64
+
+Accepted runtime:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo170_auto.log
+
+The prepared scene has no texture-safe production skinned-emissive candidate.
+The existing default-zero audit therefore creates one private constant
+material view, caps validation publication at 24 records, and seeds the
+matching canonical previous inventory. It does not alter the production
+material table or default light inventory.
+
+  route accepted / pipeline:                              1 / 1
+  work / previousMapped:                                24 / 24
+  expected current / previous:                         772 / 772
+  compared current / previous:                          24 / 24
+  current metadata / numeric mismatch:                    0 / 0
+  previous metadata / numeric mismatch:                   0 / 0
+  maximum numeric error:                            0.000000954
+  publication pass:                                             1
+
+Renderer, Streamline, game, and event shutdown are normal. There is no UAV
+binding failure, fatal, device-lost, Vulkan, or shutdown error.
+
+Audit-disabled companion:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo171_auto.log
+
+It emits zero skinned-emissive validation/publication lines, retains 12
+CPU-omitted exact-set surfaces with all four capture fallback buckets zero,
+and shuts down normally. The accepted synthetic light publication therefore
+does not leak into default production behavior.
+
+Build/deploy:
+
+  cmake --build --preset win64-pt-dev-release
+    PASS; all unrelated SPIR-V up to date
+
+  deployed executable SHA-256:
+    9B827475E3AB2E0C56674949E4A2FA65EF1EE6BC5EBCEB3F004491CBB7F719B1
+
+  rebuilt/deployed Vulkan SPIR-V:
+    pathtrace_skinned_emissive_publish.cs.bin
+      38B7E3C848F63A802B77ACBD6CCBD2F24AA6BE0AEB9178B0B6BEF60A855CDAB0
+
+The blob timestamp is newer than the shader edit and build/deployment hashes
+match. No DX12 shader was compiled or copied.
+
+Step 8B resolves Q17 publication. GEO-09 step 9 crowded/static/comm1/lifecycle/
+PDA/map-transition regression remains before ticket closure.

@@ -787,3 +787,26 @@ GEO-09 SKINNED CONSUMER ENTRY AUDIT
   failures; the exact-set cache records no eviction, invalidation, or late
   revocation, all four capture fallback buckets are zero, and shutdown is
   normal. The independently reversible gates remain the rollback path.
+- geometry_geo170_auto accepts step-8B same-frame skinned-emissive
+  publication. CPU planning contributes only immutable primitive/material/
+  identity placeholders; after authoritative skinning and final TLAS
+  acceptance, one Vulkan compute pass replaces their current and previous
+  geometry from canonical GPU output and mirrors the result into unified-light
+  and Remix light-manager payload records. The validation-only material view
+  injects 24 bounded records because the prepared scene has no safe production
+  skinned-emissive candidate. All 24 current and 24 previous records match the
+  independent GPU-output reconstruction with zero metadata or numeric
+  mismatches and 0.000000954 maximum error. The production material universe
+  and default light inventory remain unchanged.
+- Bring-up exposed two exact contract defects before acceptance. geometry_geo166
+  failed because six reused destination buffers were accidentally requested as
+  vertex buffers rather than UAV-capable buffers. geometry_geo168 then proved
+  that HLSL `uint3` alignment made the publication work record 80 bytes in
+  SPIR-V while C++ uploaded 64 bytes. Scalar index fields now produce offsets
+  0,4,...,60 and ArrayStride 64. geometry_geo170 exits normally with no UAV
+  binding, fatal, device-lost, or shutdown error.
+- geometry_geo171_auto is the audit-disabled companion run. It emits no
+  validation/publication lines because the prepared scene has zero safe
+  production skinned-emissive work, retains the accepted 12-surface exact-set
+  capture omission with all four fallback buckets zero, and shuts down
+  normally. This confirms the geo170 light injection is validation-only.

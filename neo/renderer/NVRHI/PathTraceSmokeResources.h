@@ -66,6 +66,7 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle skinnedTriangleDispatchIndexBuffer;
     nvrhi::BufferHandle skinnedCurrentJointMatrixBuffer;
     nvrhi::BufferHandle skinnedPreviousJointMatrixBuffer;
+    nvrhi::BufferHandle skinnedEmissiveWorkBuffer;
 
     bool IsValid() const;
 };
@@ -126,6 +127,7 @@ struct RtSmokeSceneBufferCreateDesc
     size_t skinnedTriangleDispatchIndexBytes = 0;
     size_t skinnedCurrentJointMatrixBytes = 0;
     size_t skinnedPreviousJointMatrixBytes = 0;
+    size_t skinnedEmissiveWorkBytes = 0;
 };
 
 struct RtSmokeSceneBufferCreateResult
