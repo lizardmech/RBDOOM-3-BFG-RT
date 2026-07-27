@@ -1,0 +1,330 @@
+GEO-10 REFERENCE CONTRACT REVIEW - 2026-07-27
+================================================
+
+PURPOSE
+-------
+This review validates the Remix/RTXDI observations supplied after the first
+GEO-10 storage-unification pivot and maps them onto the live rbdoom Vulkan
+contracts. It is a design correction, not authority to copy reference code.
+Implementation must remain locally derived and Vulkan-only.
+
+VERDICT
+-------
+The central criticism is correct: geometry identity should be a compact
+instance-base plus hardware GeometryIndex lookup, and geometry storage should
+not create a new descriptor/SBT universe for every pool.
+
+Two qualifications are load-bearing in this renderer:
+
+1. GeometryIndex identifies a geometry inside one BLAS. It does not let the
+   TLAS independently include or exclude those geometries. Portal-area
+   activation therefore still needs one independently instanced BLAS per
+   activation bucket, unless GEO-10 adopts a different rebuild or masking
+   scheme.
+
+2. Every current local TraceRay call uses geometry-contribution multiplier 1.
+   The existing BLASes contain one geometry, so GeometryIndex is zero and the
+   multiplier has been inert. A multi-geometry bucket BLAS would use
+
+     instance contribution + GeometryIndex * 1 + ray contribution
+
+   and incorrectly walk through or beyond the two-record primary/shadow SBT.
+   The reference-shaped design is not admissible until all live TraceRay
+   families prove geometry-contribution multiplier 0.
+
+The revised GEO-10 target is therefore:
+
+  one BLAS per independently active portal/size bucket;
+  multiple GeometryDesc entries per bucket BLAS, one per packed surface;
+  one stable resident surface-record array ordered bucket-contiguously;
+  InstanceID encodes the first surface-record index for the bucket;
+  GeometryIndex selects the surface record;
+  PrimitiveIndex addresses a triangle within that surface;
+  all bucket instances use the established primary/shadow SBT records;
+  all TraceRay calls use geometry-contribution multiplier 0;
+  no t100-t105 descriptors, compact hit libraries, or contribution 4/5.
+
+REFERENCE FINDINGS VALIDATED
+----------------------------
+Remix:
+
+  src/dxvk/shaders/rtx/concept/ray/ray_helper.slangh
+    Ray-hit state includes custom index, GeometryIndex, and PrimitiveIndex.
+    Surface identity is a masked per-instance base plus GeometryIndex.
+
+  src/dxvk/shaders/rtx/pass/common_bindings.slangh
+    Geometry/index storage is exposed through bindless raw-buffer arrays.
+
+  src/dxvk/shaders/rtx/concept/surface/surface.h
+    One surface record owns buffer indices and class/material properties.
+    Static is a property of that record, not a separate shading route.
+
+  src/dxvk/shaders/rtx/algorithm/resolve.slangh
+    Candidate/committed RayQuery hits carry the same geometry identity into a
+    centralized material/opacity resolver.
+
+  Source census over the local reference finds three closest-hit shader
+    source files, three miss shader source files, and no any-hit shader source
+    file. This supports the structural observation, but does not by itself
+    prescribe an immediate rewrite of rbdoom's material pipeline.
+
+RTXDI sample:
+
+  Samples/MinimalSample/Shaders/SceneGeometry.hlsli
+    The sample resolves instance, geometry, and material records in sequence.
+    Its instance record provides the first geometry-record index and hardware
+    GeometryIndex selects the row. Vertex/index data then comes from a
+    bindless raw-buffer table.
+
+  Minimal and Full sample visibility, BRDF, gbuffer, and path-tracer sources
+    use RayQuery and consume candidate/committed GeometryIndex.
+
+The RTXDI sample license is not a source-code import license for this project.
+Only the independently derived contract shape is recorded here.
+
+LOCAL CONTRACT FINDINGS
+-----------------------
+Already compatible:
+
+  - NVRHI AccelStructDesc accepts repeated addBottomLevelGeometry calls.
+  - The primary closest-hit payload already records GeometryIndex.
+  - The resident bucket pack already preserves deterministic bucket ordering,
+    deterministic per-bucket assignment ordering, and a source range per
+    surface.
+  - Packed indexes are global indexes into one resident vertex pool.
+  - Existing static bindings t3/t4/t5/t9/t11 already provide vertex, index,
+    class, material-ID, and material-table-index storage.
+  - The Vulkan NVRHI backend supports bindless raw-buffer descriptor tables,
+    although this application currently creates only a bindless texture table.
+
+Incompatible or incomplete:
+
+  - Each current bucket BLAS contains one combined GeometryDesc. The hardware
+    therefore reports GeometryIndex zero for every bucket triangle.
+  - The pack does not publish a packed surface-record array containing each
+    surface's vertex/index/triangle base and counts.
+  - Current shader helpers branch across monolithic static, dynamic, rigid,
+    skinned, and experimental bucket namespaces. Several consumers reload the
+    same routing facts separately for material ID, table index, class, UV,
+    alpha, and vertex reconstruction.
+  - Every live TraceRay call passes geometry-contribution multiplier 1.
+  - The application has a bindless texture table but no bindless geometry
+    buffer table. Adding one would still change every pipeline's global
+    layout, even though later pools would no longer add layouts.
+  - The portal active set can include/exclude only TLAS instances. It cannot
+    include one GeometryDesc from a BLAS while excluding another.
+
+CORRECTION TO THE "ONE BLAS" INTERPRETATION
+-------------------------------------------
+A single multi-geometry BLAS is useful when all of its geometries share one
+TLAS lifetime. It does not preserve GEO-10's requirement that only selected
+portal areas are traversable. The locally compatible unit is:
+
+  TLAS instance
+    -> one portal/size bucket BLAS
+       -> N per-surface geometries
+
+This keeps 56 independently resident bucket BLASes for the measured map, but
+it removes the false one-combined-geometry identity inside each BLAS. The
+benefit is simpler and more authoritative hit decoding, not fewer activation
+BLASes.
+
+REVISED RESIDENT DATA SHAPE
+---------------------------
+Do not add a bucket-specific descriptor table.
+
+The accepted first implementation should continue to bind the full resident
+pool through t3/t4/t5/t9/t11. Add a compact surface-record tail to the existing
+static class buffer t5:
+
+  t5[0 .. staticTriangleCount)
+      existing per-triangle class/flags, unchanged;
+
+  t5[staticTriangleCount ..)
+      fixed-width packed static surface records.
+
+Each surface record needs only locally proven fields:
+
+  indexOffset
+  triangleOffset
+  triangleCount
+  flags or validation word
+
+Packed indexes already refer to global t3 vertex indexes, so a shader vertex
+base is not required for the first cut. Material ID and material table index
+remain per-triangle t9/t11 reads at triangleOffset + PrimitiveIndex.
+
+This tail reuses an established descriptor. Monolithic static decoding remains
+unchanged because its triangle-class rows stay at the beginning of t5.
+
+The bucket identity formula becomes:
+
+  surfaceRecordIndex =
+      (InstanceID & surface-base mask) + GeometryIndex
+
+  triangleIndex =
+      surfaceRecord.triangleOffset + PrimitiveIndex
+
+The high InstanceID namespace bit remains a transitional single branch because
+the rest of this renderer has not yet moved to a universal surface table. A
+future unified geometry-record migration may remove that branch. GEO-10 must
+not pretend that migration has already happened.
+
+SBT CONTRACT
+------------
+Before creating a multi-geometry bucket BLAS:
+
+1. Inventory every Vulkan TraceRay call and macro expansion.
+2. Change only the geometry-contribution multiplier from 1 to 0.
+3. Prove that all currently accepted BLASes contain one geometry or otherwise
+   intentionally use the common primary/shadow hit pair.
+4. Rebuild every transitive Vulkan RT blob.
+5. Disassemble/inspect the calls and verify the multiplier is zero.
+6. Run a route-off baseline. This is a standalone checkpoint and rollback
+   boundary.
+
+Only after that baseline survives may bucket BLAS construction add more than
+one GeometryDesc.
+
+The bucket TLAS instance contribution remains zero. Ray contribution continues
+to select primary record 0 or shadow record 1. There are no bucket-only SBT
+records and no new payload ABI.
+
+SHADER DECODE CONTRACT
+----------------------
+One hit entry loads one geometry address once and passes it to material, class,
+UV, alpha, and vertex consumers. Do not call a full validator independently
+from each property accessor.
+
+Required checked inputs are:
+
+  bucket namespace accepted;
+  surfaceRecordIndex inside the published resident surface count;
+  PrimitiveIndex below surfaceRecord.triangleCount;
+  triangleOffset + PrimitiveIndex inside the static triangle count;
+  indexOffset + PrimitiveIndex * 3 + 2 inside the static index count.
+
+GetDimensions is a diagnostic or outer-boundary operation, not a repeated
+property accessor. Production counts come from the established constant
+contract.
+
+BINDLESS GEOMETRY DISPOSITION
+-----------------------------
+Bindless geometry is a sound modernization target, but it is not required to
+fix GEO-10. The current bucket route can obtain the important property--no new
+pool descriptors--by using the existing resident static pool.
+
+A later bindless-buffer migration must be a separate architecture ticket
+because it requires:
+
+  - a second bindless layout/register space;
+  - a raw-buffer descriptor table and lifetime owner;
+  - descriptor-indexing capacity and fallback policy;
+  - every RT/compute pipeline to include that global layout;
+  - stable buffer indices across pool recreation;
+  - validation on the actual supported Vulkan device.
+
+Do not couple that renderer-wide migration to portal-bucket acceptance.
+
+UNIFIED SURFACE AND RAYQUERY DISPOSITION
+----------------------------------------
+"Static is a flag" is accepted as the long-term surface-model direction. It is
+not true of the current rbdoom storage ABI, where static, dynamic, rigid, and
+skinned geometry use different buffers and address records.
+
+Likewise, centralized RayQuery material resolution is a strong follow-up
+direction, but wholesale conversion is outside GEO-10. This renderer currently
+uses any-hit behavior for alpha testing, decals, transmission, liquid-card
+collection, and material-specific routing. Moving those rules into a RayQuery
+candidate loop requires one separately validated resolver and pass-by-pass
+migration.
+
+GEO-10 may use the existing RayQuery path as comparison evidence. It must not
+rewrite DI, GI, glass, and primary traversal merely to make bucket routing
+possible.
+
+DEVICE-LOSS EVIDENCE
+--------------------
+The criticism that device losses produced insufficient GPU evidence is valid.
+The local tree already contains partial infrastructure:
+
+  - NVRHI has optional NVRHI_WITH_AFTERMATH support;
+  - its Vulkan marker path can emit NV diagnostic checkpoints;
+  - PT dispatch code already has bounded Nsight marker labels;
+  - DeviceManager_VK enables debug-utils labels when supported.
+
+It is not currently an operational crash-dump system:
+
+  - NVRHI_WITH_AFTERMATH defaults off;
+  - DeviceManager_VK does not set DeviceDesc.aftermathEnabled;
+  - the application does not initialize an Aftermath crash-dump collector;
+  - the Vulkan device-lost catch reports only "Device Removed!";
+  - no checkpoint data is queried and printed before the fatal callback.
+
+The first instrumentation task is vendor-optional
+VK_NV_device_diagnostic_checkpoints without an Aftermath SDK dependency:
+
+  1. request the extension when available;
+  2. publish stable marker payloads for PT build and dispatch boundaries;
+  3. on VK_ERROR_DEVICE_LOST, query graphics-queue checkpoint data before the
+     fatal error path;
+  4. print stage plus resolved bounded marker label;
+  5. leave the feature inert on unsupported hardware.
+
+Full Aftermath crash dumps are a later optional task because they require SDK
+integration, callbacks, device-creation diagnostics configuration, shader
+binary lookup, dump persistence, and deployment of the runtime library.
+
+ORDERED IMPLEMENTATION PLAN
+---------------------------
+REF-1. Keep the deployed bucket consumer fail-closed until the route-off safety
+       baseline is confirmed.
+
+REF-2. Add Vulkan diagnostic-checkpoint reporting as an isolated, route-off
+       change. Prove ordinary startup/shutdown before using it for a fault.
+
+REF-3. Add CPU contracts for packed surface records:
+       exact one record per assignment, bucket-contiguous ordering, stable
+       first-surface index, exact ranges, and no 23-bit InstanceID overflow.
+
+REF-4. Change all local TraceRay geometry-contribution multipliers to zero.
+       Rebuild all transitive Vulkan blobs and accept a route-off runtime
+       baseline before continuing.
+
+REF-5. Build each bucket BLAS with one GeometryDesc per packed surface.
+       Keep one independently instanced BLAS per portal/size activation bucket.
+       Do not place bucket instances in the production TLAS yet.
+
+REF-6. Append surface records to the established t5 static metadata buffer and
+       prove CPU/GPU byte layout plus unchanged monolithic triangle rows.
+
+REF-7. Add one minimal shared bucket address decode using InstanceID,
+       GeometryIndex, and PrimitiveIndex. Load it once per hit entry. Keep the
+       compile-time consumer gate and route-off runtime gate.
+
+REF-8. Validate one pipeline family at a time, starting with primary visibility
+       and opaque material lookup. Diagnostic checkpoints must be enabled for
+       the first live traversal.
+
+REF-9. Extend the same decoded address to alpha/decal, glass/transmission,
+       DI/GI, emissive replay, motion/history, and liquid collection without
+       adding descriptors, SBT records, or payload fields.
+
+REF-10. Admit atomic monolithic-to-active-bucket cutover only after all
+        consumers and the emissive identity publication agree.
+
+REF-11. Measure warm resident behavior. Acceptance still requires no full-pack
+        repack/upload on unchanged frames and a justified BLAS/TLAS cost.
+
+REJECTION GATES
+---------------
+Reject the revised route if it requires:
+
+  - t100-t105 or another per-pool fixed descriptor family;
+  - contribution 4/5 or bucket-only hit libraries;
+  - geometry-contribution multiplier 1 with multi-geometry BLASes;
+  - one GeometryDesc per triangle;
+  - inactive portal buckets inside the production TLAS;
+  - repeated GetDimensions validation per material property;
+  - a renderer-wide bindless-buffer or RayQuery rewrite inside GEO-10;
+  - live fault iteration without at least diagnostic-checkpoint evidence.

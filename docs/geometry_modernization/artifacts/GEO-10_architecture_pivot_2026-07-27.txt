@@ -410,3 +410,21 @@ Safety rebuild and deployment proof:
   deployed EXE SHA-256 matches the build output;
   all 51 deployed shader SHA-256 hashes match the rebuilt source blobs;
   no retired compact bucket hit blob remains in the deployment.
+
+SECOND ARCHITECTURE REVIEW - GEOMETRYINDEX CONTRACT
+---------------------------------------------------
+Read `GEO-10_reference_contract_review_2026-07-27.txt` before resuming GEO-10.
+It supersedes the triangle-base InstanceID target in this document.
+
+The corrected target keeps one independently instanced BLAS per portal/size
+activation bucket, but gives each bucket BLAS one GeometryDesc per packed
+surface. InstanceID encodes the bucket's first resident surface-record index,
+GeometryIndex selects the surface, and PrimitiveIndex selects a triangle
+within it. The surface-record table is appended to established static metadata
+storage, so no bucket descriptor or SBT family is added.
+
+All current TraceRay sites use geometry-contribution multiplier 1. A
+multi-geometry BLAS is forbidden until a standalone route-off checkpoint
+changes and validates that multiplier as zero across every live Vulkan ray
+family. Diagnostic-checkpoint reporting is also required before the next live
+bucket traversal.

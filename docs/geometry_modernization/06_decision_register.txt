@@ -955,6 +955,36 @@ canonical plan. Both domains compare exactly in metadata and within
 normal. Default production behavior is unchanged. This resolves the remaining
 Q17 publication requirement.
 
+D50. USE HARDWARE GEOMETRY IDENTITY INSIDE PORTAL BUCKETS
+---------------------------------------------------------
+Decision: reject both the parallel bucket shader universe and the later
+triangle-base-only decoder. Keep one independently instanced BLAS per
+portal/size activation bucket because TLAS membership cannot select individual
+geometries inside a BLAS. Inside each bucket BLAS, publish one GeometryDesc per
+packed surface and resolve:
+
+  surface record = InstanceID base + GeometryIndex
+  triangle       = surfaceRecord.triangleOffset + PrimitiveIndex
+
+Append the compact surface-record table to established static metadata storage
+and retain t3/t4/t5/t9/t11 plus primary/shadow SBT records. Do not add a
+bucket-specific descriptor, hit library, payload, or SBT contribution.
+
+This route has a new hard precondition. All current TraceRay calls use
+geometry-contribution multiplier 1, which is harmless only while every BLAS
+contains one geometry. A multi-geometry BLAS must not enter any TLAS until a
+standalone route-off checkpoint proves multiplier 0 across every live Vulkan
+ray family.
+
+Device-removal iteration must also stop relying on the last console line. The
+first diagnostic requirement is optional VK_NV device checkpoints with a
+resolved PT marker reported before the fatal device-lost path. Full Aftermath
+integration is a later task; the present NVRHI option and marker code are
+compiled off and are not an operational dump collector.
+
+Evidence and ordered work are recorded in
+`artifacts/GEO-10_reference_contract_review_2026-07-27.txt`.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

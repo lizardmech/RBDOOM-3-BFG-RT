@@ -15,16 +15,23 @@ PRECONDITIONS
 ARCHITECTURE OVERRIDE - 2026-07-27
 ----------------------------------
 Read `artifacts/GEO-10_architecture_pivot_2026-07-27.txt` before changing GEO-10
-code. It supersedes the parallel t100-t105 route-record decoder, contribution
-4/5, compact hit-library, and material hit-stage direction documented below.
-The remainder of this ticket is retained as historical evidence unless the
-pivot document explicitly preserves a contract.
+code, then read
+`artifacts/GEO-10_reference_contract_review_2026-07-27.txt`. The reference
+contract review is the newest authority. These artifacts supersede the
+parallel t100-t105 route-record decoder, contribution 4/5, compact hit-library,
+material hit-stage ladder, and triangle-base InstanceID direction documented
+below. The remainder of this ticket is retained as historical evidence unless
+the newer artifacts explicitly preserve a contract.
 
 The active direction keeps deterministic bucket assignment, resident BLASes,
-active TLAS selection, and rollback, but binds the resident pool through the
-existing static t3/t4/t5/t9/t11 slots. Bucket InstanceID encodes its global
-triangle offset and uses contribution 0/1. Resident-pack caching is a
-precondition for live traversal, not deferred performance cleanup.
+active TLAS selection, and rollback. Each independently active bucket remains
+one BLAS, but that BLAS contains one GeometryDesc per packed surface.
+InstanceID supplies the first resident surface-record index, GeometryIndex
+selects the surface, and PrimitiveIndex selects its local triangle. The
+resident pool and appended surface records use existing static t3/t4/t5/t9/t11
+slots. Every TraceRay geometry-contribution multiplier must first be proven
+zero. Resident-pack caching and Vulkan device-loss checkpoints are
+preconditions for live traversal, not deferred cleanup.
 
 IMPLEMENTATION STATUS
 ---------------------

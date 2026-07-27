@@ -678,12 +678,21 @@ hit-stage ladder. Preserve the CPU bucket assignment/pack/BLAS/TLAS work, but
 execute the ordered PIVOT-1 through PIVOT-6 plan in
 `artifacts/GEO-10_architecture_pivot_2026-07-27.txt`.
 
-The accepted target binds the cached resident bucket pool through the existing
-static t3/t4/t5/t9/t11 slots, encodes the bucket triangle base in the reserved
-24-bit InstanceID namespace, and uses existing contribution 0/1 hit records.
-It removes t100-t105, route-record decoding, contribution 4/5, compact bucket
-hit libraries, and material/GI payload coupling. Full resident-pack caching is
-required before the route may be accepted.
+The later reference review in
+`artifacts/GEO-10_reference_contract_review_2026-07-27.txt` supersedes the
+triangle-base InstanceID detail. The accepted target keeps one independently
+instanced BLAS per portal/size activation bucket, places one GeometryDesc per
+packed surface inside it, and resolves a surface as InstanceID base plus
+GeometryIndex. PrimitiveIndex is surface-local. The surface-record table and
+resident geometry use existing static t3/t4/t5/t9/t11 storage and existing
+primary/shadow hit records.
+
+Before a multi-geometry bucket BLAS is legal, every live Vulkan TraceRay call
+must prove geometry-contribution multiplier zero in a standalone route-off
+checkpoint. Before live bucket traversal resumes, Vulkan device loss must
+report diagnostic-checkpoint evidence. The route still removes t100-t105,
+route-record decoding, contribution 4/5, compact bucket hit libraries, and
+material/GI payload coupling. Full resident-pack caching remains required.
 
 The modernization is complete only when:
 
