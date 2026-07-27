@@ -895,3 +895,42 @@ Acceptance for the corrected probe requires 56/56/56 active/resident/ready,
 56/56 TLAS/routes, `fullResidentProbe=1`, bucket-resident-pool traversal, no
 missing opaque brushes or materials, and no device loss. Portal movement must
 not change the active count during mode 2.
+
+REF-8 SECOND RUNTIME RESULT - bucket9.log - 2026-07-27
+------------------------------------------------------
+The visual report was clean because the safety gate never admitted bucket
+traversal. Every mode-2 view-2 line reported:
+
+  requested / accepted                              1 / 0
+  fullResidentProbe                                  1
+  allResidentReady                                   1
+  publicationExact                                   0
+  active / resident / ready                         56 / 56 / 56
+  TLAS / routes                                      0 / 0
+  traversal                                          monolithic
+
+Changing to view 16 also rejected the primary probe and retained monolithic
+traversal, as expected. The log contains no device removal, but it is not
+decoder execution evidence.
+
+Source-contract review identified the missing edge. The mode-2 override made
+all resident bucket triangles active after the material table had already been
+built from the ordinary portal-selected static stream. Active publication
+requires every active triangle material ID to resolve to the current table, so
+it rejected the widened set.
+
+The diagnostic probe now:
+
+  - registers full world-static material metadata;
+  - appends unique resident bucket triangle material IDs to table membership;
+  - keys the material-hydration cache on that probe set;
+  - prints `materialIndexMissingActive` on every cutover diagnostic.
+
+No shader or production-route contract changed. Offline build and harness pass,
+and source/deployed executable hashes match:
+
+  6FDB534E2290DE9953A110961511BF44ACD1412C223DA11CA00E602C27122686
+
+The next run is accepted only if publication becomes exact, TLAS/routes become
+56/56, missing active material indexes are zero, and traversal reports
+bucket-resident-pool.

@@ -788,6 +788,7 @@ private:
     size_t m_smokeMaterialHydrationStaticTriangleMaterialCount = 0;
     uint64 m_smokeMaterialHydrationEmissiveSignature = 0;
     uint64 m_smokeMaterialHydrationRigidSignature = 0;
+    uint64 m_smokeMaterialHydrationStaticBucketProbeSignature = 0;
     uint64 m_smokePreviousStaticSnapshotUploadSignature = 0;
     uint64 m_smokePreviousStaticMaterialIndexUploadSignature = 0;
     uint64 m_smokeStaticTriangleMaterialUploadSignature = 0;

@@ -510,3 +510,40 @@ The repeated REF-8 run must report 56/56/56 active/resident/ready, 56/56
 TLAS/routes, `fullResidentProbe=1`, and bucket-resident-pool traversal. Reject
 on device removal, missing opaque brushes, opaque material corruption, or any
 nonzero address/publication failure.
+
+REF-8 FULL-RESIDENT PUBLICATION REPAIR - bucket9.log - 2026-07-27
+----------------------------------------------------------------
+The user reported no visual issue, but the log rejects this as decoder evidence.
+Every mode-2 view-2 frame remained on the monolithic fail-safe:
+
+  requested / accepted                              1 / 0
+  consumer supported / full-resident probe           1 / 1
+  active / resident / ready                         56 / 56 / 56
+  publication exact                                  0
+  TLAS / route outputs                               0 / 0
+  traversal                                          monolithic
+
+The full-resident active mask exposed a second diagnostic-contract mismatch.
+The frame material table was still hydrated from the ordinary portal-selected
+monolithic triangle stream, while publication now required valid material
+indexes for every resident bucket triangle. The active publication correctly
+failed closed instead of admitting a partially mapped table.
+
+For mode 2 only, material metadata and table membership now include the unique
+material IDs from the resident static-bucket triangle stream. The hydration
+cache key includes a separate signature for that set, so switching the probe on
+cannot reuse the narrower route-off table. Production modes are unchanged.
+The cutover diagnostic now prints `materialIndexMissingActive` directly.
+
+Verification:
+
+  PathTraceCpuPlanningHarness --stress20             passed
+  full win64-pt-dev-release build                    passed
+  shader source/blob changes                         none
+  source/deployed executable hashes                  equal
+  executable SHA-256
+    6FDB534E2290DE9953A110961511BF44ACD1412C223DA11CA00E602C27122686
+
+Repeat the same mode-2 test. Acceptance additionally requires
+`materialIndexMissingActive=0`; a visually correct monolithic fallback is not a
+pass.

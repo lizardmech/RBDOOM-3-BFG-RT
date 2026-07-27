@@ -681,7 +681,12 @@ decoding can be validated independently. Production still uses the ordinary
 mask and remains fail-closed. Before production cutover, step 5 must replace
 fixed-depth backend selection with a conservative immutable frontend portal
 visibility snapshot and one revision shared by TLAS membership and dependent
-publications.
+publications. The first full-resident retry (`bucket9.log`) remained
+monolithic because publication correctly rejected the widened active set
+against a material table hydrated only for the ordinary portal-selected
+subset. Mode 2 now supplements table membership and metadata from the unique
+resident bucket material IDs and keys that set into the hydration cache.
+Production material-table behavior is unchanged.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

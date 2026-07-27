@@ -7329,13 +7329,31 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
+    const int staticBucketRouteMode = idMath::ClampInt(
+        RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
+        RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+        r_pathTracingGeometryStaticBucketRoute.GetInteger());
+    const bool staticBucketPrimaryOpaqueProbe =
+        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            staticBucketRouteMode,
+            r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiView.GetInteger(),
+            r_pathTracingNsightGpuMarkers.GetInteger() != 0,
+            r_pathTracingCleanRestirGiEnable.GetInteger() != 0);
+
     RtSmokeMaterialMetadataRegistrationTiming metadataTiming;
     {
         OPTICK_EVENT("PT Register Material Metadata");
         metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
-        if (r_pathTracingWorldStaticEmissives.GetInteger() != 0 || useSceneUniverseStaticGeometry)
+        if (r_pathTracingWorldStaticEmissives.GetInteger() != 0 ||
+            useSceneUniverseStaticGeometry ||
+            staticBucketPrimaryOpaqueProbe)
         {
-            const RtSmokeMaterialMetadataRegistrationTiming worldStaticMetadataTiming = RegisterSmokeWorldStaticMaterialTextureInfo(viewDef, enableTextureProbe);
+            const RtSmokeMaterialMetadataRegistrationTiming worldStaticMetadataTiming =
+                RegisterSmokeWorldStaticMaterialTextureInfo(
+                    viewDef,
+                    enableTextureProbe ||
+                        staticBucketPrimaryOpaqueProbe);
             metadataTiming.metadataMs += worldStaticMetadataTiming.metadataMs;
             metadataTiming.registrationMs += worldStaticMetadataTiming.registrationMs;
         }
@@ -7510,6 +7528,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }();
             materialTableStaticIds.insert(materialTableStaticIds.end(), rigidRouteMaterialIds.begin(), rigidRouteMaterialIds.end());
         }
+        if (staticBucketPrimaryOpaqueProbe)
+        {
+            // The full-resident decoder probe makes every resident static
+            // bucket traceable. Its material table must therefore cover the
+            // same full resident triangle-material stream, not only the
+            // ordinary portal-selected monolithic subset.
+            const std::vector<uint32_t>&
+                staticBucketTriangleMaterialIds =
+                    m_staticBucketGeometryUniverse.
+                        StaticTriangleMaterials();
+            const std::vector<uint32_t>
+                staticBucketProbeMaterialIds =
+                    BuildUniqueMaterialIdsPreservingOrder(
+                        staticBucketTriangleMaterialIds);
+            materialTableStaticIds.insert(
+                materialTableStaticIds.end(),
+                staticBucketProbeMaterialIds.begin(),
+                staticBucketProbeMaterialIds.end());
+        }
     }
     const std::vector<uint32_t>* materialHydrationIds = nullptr;
     {
@@ -7520,12 +7557,20 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             BuildSortedUniqueMaterialIdSignature(fullLevelStaticEmissiveMaterialIds);
         const uint64 materialHydrationRigidSignature =
             BuildSortedUniqueMaterialIdSignature(rigidRouteMaterialIds);
+        const uint64 materialHydrationStaticBucketProbeSignature =
+            staticBucketPrimaryOpaqueProbe
+                ? BuildSortedUniqueMaterialIdSignature(
+                    m_staticBucketGeometryUniverse.
+                        StaticTriangleMaterials())
+                : 0;
         const bool materialHydrationIdsCacheHit =
             m_smokeMaterialHydrationIdsValid &&
             m_smokeMaterialHydrationStaticGeneration == materialHydrationStaticGeneration &&
             m_smokeMaterialHydrationStaticTriangleMaterialCount == materialHydrationStaticTriangleMaterialCount &&
             m_smokeMaterialHydrationEmissiveSignature == materialHydrationEmissiveSignature &&
-            m_smokeMaterialHydrationRigidSignature == materialHydrationRigidSignature;
+            m_smokeMaterialHydrationRigidSignature == materialHydrationRigidSignature &&
+            m_smokeMaterialHydrationStaticBucketProbeSignature ==
+                materialHydrationStaticBucketProbeSignature;
         if (!materialHydrationIdsCacheHit)
         {
             OPTICK_EVENT("PT Material Hydration Unique IDs");
@@ -7535,10 +7580,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeMaterialHydrationStaticTriangleMaterialCount = materialHydrationStaticTriangleMaterialCount;
             m_smokeMaterialHydrationEmissiveSignature = materialHydrationEmissiveSignature;
             m_smokeMaterialHydrationRigidSignature = materialHydrationRigidSignature;
+            m_smokeMaterialHydrationStaticBucketProbeSignature =
+                materialHydrationStaticBucketProbeSignature;
         }
         materialHydrationIds = &m_smokeMaterialHydrationIds;
         const RtSmokeMaterialMetadataRegistrationTiming cachedStaticMetadataTiming =
-            RegisterSmokeMaterialTextureInfoForMaterialIds(*materialHydrationIds, enableTextureProbe);
+            RegisterSmokeMaterialTextureInfoForMaterialIds(
+                *materialHydrationIds,
+                enableTextureProbe ||
+                    staticBucketPrimaryOpaqueProbe);
         metadataTiming.metadataMs += cachedStaticMetadataTiming.metadataMs;
         metadataTiming.registrationMs += cachedStaticMetadataTiming.registrationMs;
     }
@@ -8017,20 +8067,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         RunSmokeMaterialDiagnosticTriggers(materialDiagnosticDesc);
     }
 
-    const int staticBucketRouteMode = idMath::ClampInt(
-        RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
-        RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-        r_pathTracingGeometryStaticBucketRoute.GetInteger());
     const bool staticBucketRouteRequested =
         staticBucketRouteMode !=
             RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED;
-    const bool staticBucketPrimaryOpaqueProbe =
-        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
-            staticBucketRouteMode,
-            r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0,
-            r_pathTracingCleanRtxdiDiView.GetInteger(),
-            r_pathTracingNsightGpuMarkers.GetInteger() != 0,
-            r_pathTracingCleanRestirGiEnable.GetInteger() != 0);
     const RtSmokeStaticBucketFramePublication
         staticBucketFramePublication =
             BuildSmokeStaticBucketFramePublication(
@@ -8084,7 +8123,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             (m_smokeGeometryFrameIndex % 120ull) == 1ull))
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO10 static bucket cutover mode=%d requested/accepted=%d/%d consumerSupported=%d primaryOpaqueProbe=%d fullResidentProbe=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu traversal=%s\n",
+            "PathTracePrimaryPass: GEO10 static bucket cutover mode=%d requested/accepted=%d/%d consumerSupported=%d primaryOpaqueProbe=%d fullResidentProbe=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu materialIndexMissingActive=%d traversal=%s\n",
             staticBucketRouteMode,
             1,
             staticBucketRouteAccepted ? 1 : 0,
@@ -8105,6 +8144,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 activePublication.tlasInstances.size(),
             staticBucketFramePublication.
                 activePublication.routeRecords.size(),
+            staticBucketFramePublication.
+                missingActiveMaterialIndexes,
             staticBucketRouteAccepted
                 ? "bucket-resident-pool"
                 : "monolithic");
