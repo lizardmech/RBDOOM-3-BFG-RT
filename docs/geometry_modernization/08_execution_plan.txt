@@ -603,11 +603,14 @@ checked loader. All 32 Vulkan split libraries and two compute wrappers build
 and deploy. The unused monolithic GI SPIR-V outputs were removed because the
 Vulkan runtime has no consumer and the enlarged near-limit module overflowed
 DXC's ID space. Shared clean-DI initial, temporal, glass, and transmission
-consumers now use the same checked route for material metadata, secondary-hit
-attributes, barycentrics, and transmission UVs. The all-views sentinel cannot
-import bucket lookup without exceeding DXC's SPIR-V ID ceiling, so it remains
-explicitly bucket-incapable and byte-identical. The cutover capability gate
-must reject that route unless a compact bucket hit library is added.
+  consumers now use the same checked route for material metadata, secondary-hit
+  attributes, barycentrics, and transmission UVs. Directly importing that
+  decoder into the large clean-DI libraries caused device removal even with
+  traversal disabled, so the integration was quarantined. Separate compact
+  bucket hit-only libraries now provide SBT contributions 4/5 for core DI,
+  primary/spatial, glass/transmission, and clean GI. Each unselected pipeline
+  family passes default launch/save-load runtime validation without device
+  removal or visual regression.
 Primary history and motion now classify bucket hits as immutable static
 world-space geometry: previous position equals current hit position and the
 existing previous-camera projection owns pixel motion. The legacy smoke
@@ -630,8 +633,9 @@ BLAS, requires an exact uploaded current-frame publication, and accepts only
 clean-DI views 2 through 25 in debug mode 0. View 1 is explicitly rejected as
 the bucket-incapable sentinel. One acceptance boolean replaces TLAS instance 0
 with active bucket descriptors and selects bucket-local static emissives in the
-same frame. CPU build and failure-matrix tests pass; runtime acceptance remains
-open.
+  same frame. CPU build and failure-matrix tests pass. The shader-consumer
+  capability blocker is closed; runtime acceptance of the live default-off
+  cutover remains open.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

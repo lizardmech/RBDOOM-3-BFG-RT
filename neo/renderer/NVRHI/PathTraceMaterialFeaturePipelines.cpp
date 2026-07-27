@@ -38,6 +38,7 @@ bool LoadPathTraceMaterialFeatureShaderLibrary(
 bool CreatePathTraceMaterialFeatureRayTracingPipeline(
     nvrhi::IDevice* device,
     nvrhi::ShaderLibraryHandle shaderLibrary,
+    nvrhi::ShaderLibraryHandle bucketHitShaderLibrary,
     nvrhi::BindingLayoutHandle bindingLayout,
     nvrhi::BindingLayoutHandle textureBindlessLayout,
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,
@@ -62,10 +63,38 @@ bool CreatePathTraceMaterialFeatureRayTracingPipeline(
     nvrhi::ShaderHandle anyHit = shaderLibrary->getShader(rtDesc.anyHitShader, nvrhi::ShaderType::AnyHit);
     nvrhi::ShaderHandle shadowClosestHit = shaderLibrary->getShader(rtDesc.shadowClosestHitShader, nvrhi::ShaderType::ClosestHit);
     nvrhi::ShaderHandle shadowAnyHit = shaderLibrary->getShader(rtDesc.shadowAnyHitShader, nvrhi::ShaderType::AnyHit);
+    nvrhi::ShaderHandle bucketClosestHit;
+    nvrhi::ShaderHandle bucketAnyHit;
+    nvrhi::ShaderHandle bucketShadowClosestHit;
+    nvrhi::ShaderHandle bucketShadowAnyHit;
+    if (bucketHitShaderLibrary)
+    {
+        bucketClosestHit = bucketHitShaderLibrary->getShader(
+            "CleanDiMaterialBucketClosestHit",
+            nvrhi::ShaderType::ClosestHit);
+        bucketAnyHit = bucketHitShaderLibrary->getShader(
+            "CleanDiMaterialBucketAnyHit",
+            nvrhi::ShaderType::AnyHit);
+        bucketShadowClosestHit = bucketHitShaderLibrary->getShader(
+            "CleanDiMaterialBucketShadowClosestHit",
+            nvrhi::ShaderType::ClosestHit);
+        bucketShadowAnyHit = bucketHitShaderLibrary->getShader(
+            "CleanDiMaterialBucketShadowAnyHit",
+            nvrhi::ShaderType::AnyHit);
+    }
 
     if (!rayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
     {
         common->Printf("PathTracePrimaryPass: %s material-feature RT shader library is missing one or more required entry points\n", label);
+        return false;
+    }
+    if (bucketHitShaderLibrary &&
+        (!bucketClosestHit || !bucketAnyHit ||
+            !bucketShadowClosestHit || !bucketShadowAnyHit))
+    {
+        common->Printf(
+            "PathTracePrimaryPass: %s compact material static-bucket-hit library is missing one or more required entry points\n",
+            label);
         return false;
     }
 
@@ -110,6 +139,25 @@ bool CreatePathTraceMaterialFeatureRayTracingPipeline(
             false
         }
     };
+    if (bucketHitShaderLibrary)
+    {
+        pipelineDesc.hitGroups.push_back({
+            "StaticBucketHitGroup",
+            bucketClosestHit,
+            bucketAnyHit,
+            nullptr,
+            nullptr,
+            false
+        });
+        pipelineDesc.hitGroups.push_back({
+            "StaticBucketShadowHitGroup",
+            bucketShadowClosestHit,
+            bucketShadowAnyHit,
+            nullptr,
+            nullptr,
+            false
+        });
+    }
     pipelineDesc.maxPayloadSize = rtDesc.maxPayloadSize;
     pipelineDesc.maxAttributeSize = rtDesc.maxAttributeSize;
     pipelineDesc.maxRecursionDepth = rtDesc.maxRecursionDepth;
@@ -136,6 +184,11 @@ bool CreatePathTraceMaterialFeatureRayTracingPipeline(
     shaderTable->addHitGroup(rtDesc.shadowHitGroupName);
     shaderTable->addHitGroup("SkinnedHitGroup");
     shaderTable->addHitGroup("SkinnedShadowHitGroup");
+    if (bucketHitShaderLibrary)
+    {
+        shaderTable->addHitGroup("StaticBucketHitGroup");
+        shaderTable->addHitGroup("StaticBucketShadowHitGroup");
+    }
     return true;
 }
 
@@ -196,6 +249,7 @@ bool InitPathTraceMaterialFeaturePipeline(
     if (!CreatePathTraceMaterialFeatureRayTracingPipeline(
         context.device,
         shaderState.shaderLibrary,
+        context.bucketHitShaderLibrary,
         pipelineRequest.bindingLayout,
         context.textureBindlessLayout,
         pipelineRequest.shaderDesc,

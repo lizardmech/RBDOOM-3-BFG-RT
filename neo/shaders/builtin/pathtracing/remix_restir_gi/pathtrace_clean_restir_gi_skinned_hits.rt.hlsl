@@ -1,15 +1,28 @@
 #include "../../../vulkan.hlsli"
 #include "../PathTraceMaterialFeatureTypes.hlsli"
-#include "../PathTraceSkinnedHitRoute.hlsli"
 #include "../cleanroom_common/pathtrace_liquid_pool_control.hlsli"
 #include "../cleanroom_common/pathtrace_liquid_pool_modifier.hlsli"
 
-// GEO-08 compact hit-only library for the clean ReSTIR-GI ray pipeline.
+// GEO-08/GEO-10 compact hit-only library for the clean ReSTIR-GI ray pipeline.
 //
 // Keep the hit payload, material rejection, texture sampling, and liquid-pool
 // candidate behavior aligned with pathtrace_clean_restir_gi.rt.hlsl. The main
 // GI module stays below DXC's SPIR-V ID ceiling by compiling without skinned
-// reconstruction; TLAS contribution 2 selects these four exports.
+// or static-bucket reconstruction. TLAS contributions 2 and 4 select separate
+// builds of these four exports.
+
+#ifndef CLEAN_GI_HIT_ANY_EXPORT
+#define CLEAN_GI_HIT_ANY_EXPORT CleanGiSkinnedAnyHit
+#endif
+#ifndef CLEAN_GI_HIT_SHADOW_ANY_EXPORT
+#define CLEAN_GI_HIT_SHADOW_ANY_EXPORT CleanGiSkinnedShadowAnyHit
+#endif
+#ifndef CLEAN_GI_HIT_CLOSEST_EXPORT
+#define CLEAN_GI_HIT_CLOSEST_EXPORT CleanGiSkinnedClosestHit
+#endif
+#ifndef CLEAN_GI_HIT_SHADOW_CLOSEST_EXPORT
+#define CLEAN_GI_HIT_SHADOW_CLOSEST_EXPORT CleanGiSkinnedShadowClosestHit
+#endif
 
 static const uint CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY = 4u;
 
@@ -89,10 +102,35 @@ struct PathTraceSmokeVertex
     float4 bitangent;
 };
 
+#if defined(CLEAN_GI_STATIC_BUCKET_HITS)
+#define RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS 1
+#define RB_PT_STATIC_BUCKET_ROUTES_REGISTER t100
+#define RB_PT_STATIC_BUCKET_VERTICES_REGISTER t101
+#define RB_PT_STATIC_BUCKET_INDICES_REGISTER t102
+#define RB_PT_STATIC_BUCKET_CLASSES_REGISTER t103
+#define RB_PT_STATIC_BUCKET_MATERIALS_REGISTER t104
+#define RB_PT_STATIC_BUCKET_MATERIAL_INDEXES_REGISTER t105
+#include "../PathTraceStaticBucketRoute.hlsli"
+
+struct CleanGiBucketRouteTriangle
+{
+    uint materialIndex;
+    uint triangleClassAndFlags;
+};
+#define CleanGiHitRouteRecord PathTraceStaticBucketRouteRecord
+#define CleanGiHitRouteTriangle CleanGiBucketRouteTriangle
+#else
+#include "../PathTraceSkinnedHitRoute.hlsli"
+#define CleanGiHitRouteRecord PathTraceSkinnedHitRouteGpuRecord
+#define CleanGiHitRouteTriangle PathTraceSkinnedHitRouteGpuTriangle
+#endif
+
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
+#if !defined(CLEAN_GI_STATIC_BUCKET_HITS)
 StructuredBuffer<PathTraceSmokeVertex>
     SmokeSkinnedCurrentVertices : register(t29);
+#endif
 StructuredBuffer<PathTraceDynamicMaterialRecord>
     SmokeDynamicMaterials : register(t76);
 StructuredBuffer<PathTraceMaterialFeatureParameterRecord>
@@ -112,6 +150,9 @@ cbuffer PathTraceCleanRestirGiSkinnedHitConstants : register(b2)
 {
     float4 CleanRtxdiDiTextureInfo : packoffset(c9);
     float4 CleanRtxdiDiEmissiveDistributionInfo : packoffset(c29);
+#if defined(CLEAN_GI_STATIC_BUCKET_HITS)
+    uint4 CleanRtxdiDiStaticBucketRouteInfo : packoffset(c30);
+#endif
     uint CleanRestirGiFrameIndex : packoffset(c32.y);
     uint CleanRestirGiLiquidPoolMode : packoffset(c42.x);
     uint CleanRestirGiLiquidPoolControlFlags : packoffset(c42.w);
@@ -161,31 +202,74 @@ uint CleanGiSkinnedTriangleTranslucentSubtype(uint triangleClassAndFlags)
 bool CleanGiSkinnedLoadRouteTriangle(
     uint instanceId,
     uint primitiveIndex,
-    out PathTraceSkinnedHitRouteGpuRecord route,
-    out PathTraceSkinnedHitRouteGpuTriangle routeTriangle)
+    out CleanGiHitRouteRecord route,
+    out CleanGiHitRouteTriangle routeTriangle)
 {
-    route = (PathTraceSkinnedHitRouteGpuRecord)0;
-    routeTriangle = (PathTraceSkinnedHitRouteGpuTriangle)0;
+    route = (CleanGiHitRouteRecord)0;
+    routeTriangle = (CleanGiHitRouteTriangle)0;
+#if defined(CLEAN_GI_STATIC_BUCKET_HITS)
+    uint packedTriangleIndex = 0u;
+    uint3 packedVertexIndexes = uint3(0u, 0u, 0u);
+    if (!PathTraceTryLoadStaticBucketTriangleRoute(
+            instanceId,
+            primitiveIndex,
+            CleanRtxdiDiStaticBucketRouteInfo,
+            route,
+            packedTriangleIndex,
+            packedVertexIndexes))
+    {
+        return false;
+    }
+    routeTriangle.materialIndex =
+        SmokeStaticBucketTriangleMaterialIndexes[packedTriangleIndex];
+    routeTriangle.triangleClassAndFlags =
+        SmokeStaticBucketTriangleClasses[packedTriangleIndex];
+    return true;
+#else
     return PathTraceLoadSkinnedHitRoute(instanceId, route) &&
         PathTraceLoadSkinnedHitRouteTriangle(
             route,
             primitiveIndex,
             routeTriangle);
+#endif
 }
 
 bool CleanGiSkinnedLoadTriangleVertices(
     uint instanceId,
     uint primitiveIndex,
-    out PathTraceSkinnedHitRouteGpuTriangle routeTriangle,
+    out CleanGiHitRouteTriangle routeTriangle,
     out PathTraceSmokeVertex v0,
     out PathTraceSmokeVertex v1,
     out PathTraceSmokeVertex v2)
 {
-    routeTriangle = (PathTraceSkinnedHitRouteGpuTriangle)0;
+    routeTriangle = (CleanGiHitRouteTriangle)0;
     v0 = (PathTraceSmokeVertex)0;
     v1 = (PathTraceSmokeVertex)0;
     v2 = (PathTraceSmokeVertex)0;
 
+#if defined(CLEAN_GI_STATIC_BUCKET_HITS)
+    CleanGiHitRouteRecord route;
+    uint packedTriangleIndex = 0u;
+    uint3 packedVertexIndexes = uint3(0u, 0u, 0u);
+    if (!PathTraceTryLoadStaticBucketTriangleRoute(
+            instanceId,
+            primitiveIndex,
+            CleanRtxdiDiStaticBucketRouteInfo,
+            route,
+            packedTriangleIndex,
+            packedVertexIndexes))
+    {
+        return false;
+    }
+    routeTriangle.materialIndex =
+        SmokeStaticBucketTriangleMaterialIndexes[packedTriangleIndex];
+    routeTriangle.triangleClassAndFlags =
+        SmokeStaticBucketTriangleClasses[packedTriangleIndex];
+    v0 = SmokeStaticBucketVertices[packedVertexIndexes.x];
+    v1 = SmokeStaticBucketVertices[packedVertexIndexes.y];
+    v2 = SmokeStaticBucketVertices[packedVertexIndexes.z];
+    return true;
+#else
     PathTraceSkinnedHitRouteGpuRecord route;
     uint vertexIndex0;
     uint vertexIndex1;
@@ -206,6 +290,7 @@ bool CleanGiSkinnedLoadTriangleVertices(
     v1 = SmokeSkinnedCurrentVertices[vertexIndex1];
     v2 = SmokeSkinnedCurrentVertices[vertexIndex2];
     return true;
+#endif
 }
 
 uint CleanGiSkinnedDynamicMaterialRecordCount()
@@ -538,7 +623,7 @@ bool CleanGiSkinnedMaterialRejectsHit(
     float2 barycentrics,
     bool shadowRay)
 {
-    PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+    CleanGiHitRouteTriangle routeTriangle;
     PathTraceSmokeVertex v0;
     PathTraceSmokeVertex v1;
     PathTraceSmokeVertex v2;
@@ -827,7 +912,7 @@ bool CleanGiSkinnedCollectLiquidPoolCandidate(
     }
     candidates.statusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
 
-    PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+    CleanGiHitRouteTriangle routeTriangle;
     PathTraceSmokeVertex v0;
     PathTraceSmokeVertex v1;
     PathTraceSmokeVertex v2;
@@ -907,14 +992,14 @@ bool CleanGiSkinnedCollectLiquidPoolCandidate(
 }
 
 [shader("anyhit")]
-void CleanGiSkinnedAnyHit(
+void CLEAN_GI_HIT_ANY_EXPORT(
     inout PathTraceCleanRestirGiPayload payload,
     BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
     const uint primitiveIndex = PrimitiveIndex();
-    PathTraceSkinnedHitRouteGpuRecord route;
-    PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+    CleanGiHitRouteRecord route;
+    CleanGiHitRouteTriangle routeTriangle;
     if (!CleanGiSkinnedLoadRouteTriangle(
             instanceId,
             primitiveIndex,
@@ -951,14 +1036,14 @@ void CleanGiSkinnedAnyHit(
 }
 
 [shader("anyhit")]
-void CleanGiSkinnedShadowAnyHit(
+void CLEAN_GI_HIT_SHADOW_ANY_EXPORT(
     inout PathTraceCleanRestirGiPayload payload,
     BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
     const uint primitiveIndex = PrimitiveIndex();
-    PathTraceSkinnedHitRouteGpuRecord route;
-    PathTraceSkinnedHitRouteGpuTriangle routeTriangle;
+    CleanGiHitRouteRecord route;
+    CleanGiHitRouteTriangle routeTriangle;
     if (!CleanGiSkinnedLoadRouteTriangle(
             instanceId,
             primitiveIndex,
@@ -987,7 +1072,7 @@ void CleanGiSkinnedShadowAnyHit(
 }
 
 [shader("closesthit")]
-void CleanGiSkinnedClosestHit(
+void CLEAN_GI_HIT_CLOSEST_EXPORT(
     inout PathTraceCleanRestirGiPayload payload,
     BuiltInTriangleIntersectionAttributes attributes)
 {
@@ -999,7 +1084,7 @@ void CleanGiSkinnedClosestHit(
 }
 
 [shader("closesthit")]
-void CleanGiSkinnedShadowClosestHit(
+void CLEAN_GI_HIT_SHADOW_CLOSEST_EXPORT(
     inout PathTraceCleanRestirGiPayload payload,
     BuiltInTriangleIntersectionAttributes attributes)
 {

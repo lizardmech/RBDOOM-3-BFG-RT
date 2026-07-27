@@ -1195,3 +1195,167 @@ retain their accepted bucket consumers. Initial, temporal, glass,
 transmission, sentinel, and Remix GI remain compiled out. CPU cutover remains
 hard-disabled until a compact bucket-specific pipeline family exists and can be
 created only after the same cutover capability gate succeeds.
+
+COMPACT CLEAN-DI BUCKET HIT FOUNDATION
+--------------------------------------
+
+The existing GEO-08 compact skinned-hit library proves that one NVRHI ray
+tracing pipeline may take raygen/miss exports from the large clean-DI library
+and hit groups from a separate small shader library. GEO-10 now applies that
+same design to static buckets instead of importing the bucket decoder into
+every large source.
+
+The first compact module exports only:
+
+  CleanDiBucketAnyHit
+  CleanDiBucketShadowAnyHit
+  CleanDiBucketClosestHit
+  CleanDiBucketShadowClosestHit
+
+It declares the five-word core clean-DI payload, consumes the existing b2
+constants at verified byte offsets 40, 56, 144, and 480, and binds the checked
+bucket streams at t100 through t105. It retains material-table and
+material-feature visibility rules but contains no raygen, miss, reservoir,
+glass, transmission, or GI code.
+
+The clean-DI core pipeline builder appends two SBT records after the legacy and
+skinned pairs:
+
+  contribution 0/1                                  legacy primary/shadow
+  contribution 2/3                                  compact skinned primary/shadow
+  contribution 4/5                                  compact bucket primary/shadow
+
+Sentinel, initial debug/production, and temporal debug/production link the
+compact bucket library on Vulkan. Existing large blobs remain at their
+quarantine hashes. Static bucket TLAS descriptors still use contribution zero,
+and `staticBucketRouteConsumerSupported` remains hard false, so this foundation
+cannot change traversal.
+
+Foundation build proof:
+
+  Vulkan compact blob size                           22,316 bytes
+  Vulkan compact blob SHA-256
+    FCE916D532E8A09BC0D47740B3371FEC46ED6ED8E48ED914928C2CB583E9487C
+  spirv-val --target-env vulkan1.2                   passed
+  exported hit entry points                          4
+  bucket bindings                                    t100 through t105
+  PathTraceCpuPlanningHarness                        passed
+  release build                                      passed
+
+The next gate is a default launch/save-load test with this linked but
+unselected compact library. Only after that passes may the same SBT extension
+be added to spatial, primary, material-feature, and GI pipeline families.
+
+Compact clean-DI core pipeline runtime result:
+
+  default launch and save load                       passed
+  device loss / reset                                none observed
+  live bucket cutover                                hard-disabled
+
+The compact module and six-record clean-DI core pipeline layout are accepted.
+Extend the same SBT contract to primary and spatial next. Primary already
+contains an independently accepted bucket decoder, so records 4/5 may reuse
+its existing hit exports. Spatial uses the compact bucket exports with the
+same five-word payload as the clean-DI core libraries.
+
+Primary + spatial six-record SBT runtime result:
+
+  default launch and save load                       passed
+  device loss / reset                                none observed
+  shader blobs changed                               none
+  live bucket cutover                                hard-disabled
+
+The primary producer reuses its accepted bucket-aware hit exports for records
+4/5. Spatial debug and production link the 22,316-byte compact core module.
+Both expanded but unselected pipeline families are accepted.
+
+The material-feature family uses a larger ray-mode-3 payload for transmission
+hit identity, barycentrics, emissive passthrough, and bounded liquid-pool
+candidate transport. A second compact library compiles that existing hit graph
+without any glass/transmission raygen:
+
+  Vulkan compact material blob size                  181,540 bytes
+  Vulkan compact material blob SHA-256
+    EBF0005EFB72A8C7A78C203152572F4A845CEFF9FC2C0B6EB7DA9E61162F8761
+  spirv-val --target-env vulkan1.2                   passed
+  exported renamed miss/hit entry points             6
+  bucket bindings                                    t100 through t105
+  large glass quarantine SHA-256
+    53468877B7CF007DFA561829C50980B8A8B77FB0307F3BC96DC206932CF354D8
+  large transmission quarantine SHA-256
+    B064A5B1A5A42B27CB10510075986DFD115945BB665C6630796EE2D35C8975A6
+
+The generic material-feature pipeline accepts an optional auxiliary bucket-hit
+library and appends records 4/5 from it. The clean-DI material-feature facade
+loads this library only on Vulkan and shares it across glass and transmission
+pipeline states. CPU cutover remains hard-disabled and no bucket TLAS instance
+selects these records.
+
+Compact material-feature pipeline runtime result:
+
+  default launch and save load                       passed
+  device loss / reset                                none observed
+  visual regression                                 none observed
+  live bucket cutover                                hard-disabled
+
+The compact extended-payload library and six-record glass/transmission SBT
+layout are accepted. The remaining unconverted ray-pipeline family is clean
+ReSTIR GI.
+
+Clean ReSTIR GI compact bucket-hit foundation:
+
+The Vulkan split GI pipeline already used a compact skinned hit-only module
+because adding reconstruction to every split raygen library exceeds DXC's
+practical SPIR-V limits. GEO-10 parameterizes that accepted hit graph and
+builds a second module with checked static-bucket reconstruction at t100
+through t105. It preserves the GI payload, material rejection, alpha sampling,
+shadow behavior, and bounded liquid-pool candidate transport.
+
+  contribution 0/1                                  legacy primary/shadow
+  contribution 2/3                                  compact skinned primary/shadow
+  contribution 4/5                                  compact bucket primary/shadow
+
+GI compact bucket blob build proof:
+
+  Vulkan compact bucket blob size                    180,736 bytes
+  Vulkan compact bucket blob SHA-256
+    61B97284F2F586297B9F8F28B2D13F0106C8B43E75906E6CB8FB8B32C39640AE
+  spirv-val --target-env vulkan1.2                   passed
+  exported bucket hit entry points                   4
+  bucket bindings                                    t100 through t105
+  PathTraceCpuPlanningHarness                        passed
+  release build                                      passed
+
+The shared compact source caused the skinned module to be regenerated:
+
+  previous skinned blob size                         172,820 bytes
+  rebuilt skinned blob size                          172,820 bytes
+  previous skinned SHA-256
+    9152AAF8252E0CC6B3470DDDE9724BD6815396445BD785DD79A7F791146F2483
+  rebuilt skinned SHA-256
+    C5019AB78F0095F59D6DA783527324675C623B6A609A20D445DC434DDD1A3107
+  normalized SPIR-V instruction delta                constant ID order only
+
+After stripping debug names and compacting IDs, the two disassemblies differ
+only in the declaration order of the uint 0xffffffff and float 0.08 constants;
+all uses follow the corresponding renumbering and code size is identical.
+There is no functional instruction change.
+
+Every Vulkan split GI pass now loads the bucket module and appends its two SBT
+records. Static bucket TLAS instances still use contribution zero, and
+`staticBucketRouteConsumerSupported` remains hard false. The next gate is a
+default launch/save-load test of these linked but unselected GI hit groups.
+
+Compact GI pipeline runtime result:
+
+  default launch and save load                       passed
+  device loss / reset                                none observed
+  visual regression                                 none observed
+  live bucket cutover                                hard-disabled
+
+All Vulkan ray-pipeline families now expose an accepted contribution-4/5
+bucket hit pair without importing the checked decoder into their large raygen
+libraries. This closes the shader-consumer capability blocker. The next rung
+may change only `staticBucketRouteConsumerSupported` and exercise the existing
+default-off atomic cutover gate; no resource, BLAS, publication, SBT, or shader
+change is required for that first live traversal test.

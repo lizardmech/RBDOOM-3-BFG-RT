@@ -18,6 +18,7 @@ struct PathTraceCleanRestirGiRayTracingPipelineState
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::ShaderLibraryHandle shaderLibrary;
     nvrhi::ShaderLibraryHandle skinnedHitShaderLibrary;
+    nvrhi::ShaderLibraryHandle bucketHitShaderLibrary;
     nvrhi::rt::PipelineHandle pipeline;
     nvrhi::rt::ShaderTableHandle shaderTable;
     nvrhi::rt::ShaderTableHandle producerShaderTable;

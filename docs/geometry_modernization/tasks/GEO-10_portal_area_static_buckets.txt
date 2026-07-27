@@ -103,17 +103,16 @@ outputs were removed after the enlarged source exceeded their compiler ID
 limit. All 32 runtime split libraries and both compute wrappers build and
 deploy. Bucket traversal remains off.
 
-The bucket-capable clean-DI libraries now use the same checked loader for live
-material-table recovery, material ID/class lookup, full secondary-hit
-attributes, primary-record barycentric recovery, and transmission UVs. This
-covers initial and temporal debug/production, glass, and transmission. The
-all-views sentinel is already at DXC's Vulkan ID ceiling: importing even the
-smallest live bucket lookup overflows legalization. It therefore remains
-byte-identical and explicitly does not advertise bucket capability. The later
-cutover gate must reject bucket TLAS submission whenever that sentinel route
-is selected, unless a compact bucket hit library is added first. This
-restriction does not affect current production because bucket traversal is
-still shadow-only.
+The first attempt to import the checked decoder directly into every clean-DI
+consumer compiled but caused repeatable Vulkan device removal even with the
+route disabled. That integration is quarantined. Vulkan pipelines now append
+separate compact bucket hit-only modules at SBT contributions 4/5 instead:
+one for the core clean-DI payload, one for glass/transmission's extended
+payload, and one for the clean-GI payload. Primary and spatial use the same
+six-record contract. Default launch/save-load tests passed independently for
+core DI, primary/spatial, material features, and GI with no device removal or
+visual regression. The checked decoder is therefore available in every live
+Vulkan ray-pipeline family without expanding the large raygen libraries.
 
 Primary history and motion now classify a checked bucket InstanceID as static
 world geometry. Bucket vertices are immutable world-space data, so their
@@ -163,8 +162,9 @@ Setting the cvar back to 0 restores both monolithic contracts.
 
 The CPU harness accepts the exact fully resident route and rejects unsupported
 consumer, partial residency, incomplete route table, and default-off cases.
-The Vulkan release build passes with all SPIR-V up to date. Live runtime proof
-is still required before the route can be considered accepted.
+The Vulkan release build, SPIR-V validation, CPU harness, and unselected
+six-record pipeline runtime tests pass. Live bucket traversal proof is still
+required before the route can be considered accepted.
 
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,

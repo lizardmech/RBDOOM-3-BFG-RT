@@ -26,6 +26,10 @@ static constexpr std::uint32_t
     PT_PATH_TRACE_SBT_LEGACY_INSTANCE_CONTRIBUTION = 0u;
 static constexpr std::uint32_t
     PT_PATH_TRACE_SBT_SKINNED_INSTANCE_CONTRIBUTION = 2u;
+static constexpr std::uint32_t
+    PT_PATH_TRACE_SBT_STATIC_BUCKET_INSTANCE_CONTRIBUTION = 4u;
+static constexpr std::uint32_t
+    PT_PATH_TRACE_SBT_STATIC_BUCKET_RECORD_COUNT = 6u;
 
 enum PtSkinnedHitRouteFlags : std::uint32_t
 {
