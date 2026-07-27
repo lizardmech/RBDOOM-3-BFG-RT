@@ -1028,3 +1028,170 @@ Failed-rung rollback verification:
 The deployed state now retains only the two independently accepted shader
 consumer rungs: primary visibility and spatial DI. Clean-DI shared adapters and
 Remix GI are compiled out, and CPU cutover remains hard-disabled.
+
+Failed-rung rollback runtime result:
+
+  default launch and save load                     passed
+  device loss / reset                              none observed
+
+This confirms the primary + spatial checkpoint as the stable isolation base.
+The first clean-DI sub-rung enables bucket resources only in the standalone
+glass library. Initial, temporal, sentinel, and transmission-producer libraries
+remain at the compiled-out quarantine hashes. CPU cutover remains
+hard-disabled.
+
+Glass-only clean-DI isolation result:
+
+  default launch and save load                     device removed
+  changed SPIR-V libraries                         glass only
+  retained bucket resources                        t100 through t105
+  live bucket cutover                              hard-disabled
+
+This identifies the standalone glass library as one concrete failing member of
+the combined clean-DI rung. Restore its compiled-out quarantine hash before
+further testing. Audit the glass Vulkan binding layout against the six retained
+bucket resources before attempting to enable this consumer again.
+
+Glass binding audit and rollback:
+
+  shader bucket bindings                             t100 through t105
+  clean Vulkan binding-layout entries                t100 through t105 present
+  per-frame clean binding-set entries                t100 through t105 present
+  absent bucket-buffer fallback                      placeholder SRV
+  route count while CPU cutover is hard-disabled     0
+  restored glass bucket resources                    0
+  restored glass SHA-256                             53468877B7CF007DFA561829C50980B8A8B77FB0307F3BC96DC206932CF354D8
+  deployed rollback hash match                       yes
+
+The device removal is therefore not explained by a missing descriptor or live
+bucket-buffer dereference. It follows retaining the bucket decoder in the
+standalone glass RT library even though the runtime route count is zero. Keep
+the production glass blob compiled out. A later glass solution needs a separate
+bucket-aware shader/pipeline loaded only after cutover admission, rather than
+inflating the always-warmed production glass library.
+
+Glass rollback runtime result:
+
+  default launch and save load                       passed
+  device loss / reset                                none observed
+
+The primary + spatial checkpoint remains the stable base after removing the
+glass consumer. Proceed with the transmission-producer library as the next
+independent clean-DI sub-rung; keep glass, initial, temporal, and sentinel
+compiled out.
+
+Transmission-only clean-DI isolation build:
+
+  changed SPIR-V library                             transmission producer only
+  spirv-val --target-env vulkan1.2                   passed
+  retained bucket bindings                           t100 through t105
+  live bucket cutover                                hard-disabled
+  compiled size                                      2,012,788 bytes
+  quarantine size                                    1,902,508 bytes
+  compiled/deployed SHA-256
+    48694E37D0878E85F5ACC2DCFB17FE8454FED949F594D836F7342364116D2266
+  deployed source/hash mismatch                      none
+
+Runtime launch and save-load validation is pending. This test changes no
+executable and no other shader library.
+
+Transmission-only clean-DI isolation result:
+
+  default launch and save load                       device removed
+  changed SPIR-V libraries                           transmission producer only
+  retained bucket resources                          t100 through t105
+  live bucket cutover                                hard-disabled
+
+The transmission producer is independently unsafe, matching the standalone
+glass result. Restore its compiled-out quarantine blob before another launch.
+Do not expose either always-warmed material-feature library to the bucket
+decoder again; both need separate bucket-aware pipelines gated by successful
+CPU cutover admission.
+
+Transmission rollback verification:
+
+  spirv-val --target-env vulkan1.2                   passed
+  disassembled bucket resource references            0
+  restored size                                      1,902,508 bytes
+  restored/deployed SHA-256
+    B064A5B1A5A42B27CB10510075986DFD115945BB665C6630796EE2D35C8975A6
+  deployed source/hash mismatch                      none
+
+The stable deployed state again contains only the accepted primary and spatial
+shader consumers.
+
+Transmission rollback runtime result:
+
+  default launch and save load                       passed
+  device loss / reset                                none observed
+
+The final clean-DI isolation subgroup enables the bucket decoder only in the
+initial and temporal entry wrappers. This produces four Vulkan libraries:
+debug and production initial, plus debug and production temporal. Glass,
+transmission, and the standalone sentinel remain compiled out; CPU cutover
+remains hard-disabled.
+
+Initial + temporal clean-DI isolation build:
+
+  changed SPIR-V libraries                           4
+  spirv-val --target-env vulkan1.2                   4 passed, 0 failed
+  retained bucket resources per library              6
+  blobs newer than entry edits                       4 / 4
+  deployed source/hash mismatches                    0 / 4
+  initial debug
+    A6E64232C180861092BAE157CF412A8C10F24DB686FB6A9464699A9C03CAACB2
+  initial production
+    E1533376C32B9B183E33804CA571FD6877788F0F0E9C087D0DDAE6C53C94D62B
+  temporal debug
+    86D654A60C8C40F42A8F7BB829460B891660765021C794BB340D6DDEF004548E
+  temporal production
+    B2301014DBA3C4E0CC7D523182223DC5736EB4E7F51283BF9B3F16DC0401E061
+
+Runtime launch and save-load validation is pending. No executable, glass,
+transmission, sentinel, spatial, or primary blob changed for this rung.
+
+Initial + temporal clean-DI isolation result:
+
+  default launch and save load                       device removed
+  changed SPIR-V libraries                           initial/temporal only
+  live bucket cutover                                hard-disabled
+
+All clean-DI subgroups now fail independently:
+
+  initial + temporal                                 device removed
+  glass                                              device removed
+  transmission producer                              device removed
+
+Primary visibility and spatial DI remain independently accepted. Therefore the
+failure boundary is the clean-DI shared hit-surface adapter family, not a
+specific clean-DI entry point and not a live bucket route. Restore all four
+initial/temporal quarantine blobs. Do not continue binary isolation inside the
+always-warmed libraries: the next implementation step must separate bucket
+decoding into compact, cutover-gated shader pipelines.
+
+Initial + temporal rollback verification:
+
+  spirv-val --target-env vulkan1.2                   4 passed, 0 failed
+  disassembled bucket resource references            0 in all 4
+  deployed source/hash mismatches                    0 / 4
+  initial debug
+    875181647C05705F7E24BC089B21A0D8551FEE3F56B6267D62758BD260E25954
+  initial production
+    2D778F53C1ACC158640D220D6312BAB1C0705B3B85B6E769D0D800A4FB89A1B3
+  temporal debug
+    B4E2F48D6B0AFA7E00114EAFEC6C59D79D39F34173220687283C70D3EC5C1AC7
+  temporal production
+    2F270649F7579C136ADA75B4D2BB0EAC8DC9CC823EB22FDE6B336A1E6AA709E8
+
+The deployed state is restored to the stable primary + spatial checkpoint.
+
+Final rollback runtime result:
+
+  default launch and save load                       passed
+  device loss / reset                                none observed
+
+GEO-10 clean-DI isolation is complete. Primary visibility and spatial DI may
+retain their accepted bucket consumers. Initial, temporal, glass,
+transmission, sentinel, and Remix GI remain compiled out. CPU cutover remains
+hard-disabled until a compact bucket-specific pipeline family exists and can be
+created only after the same cutover capability gate succeeds.
