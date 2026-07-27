@@ -1047,6 +1047,18 @@ triangle ordering, reconstructs the exact packed vertex triple, and uses the
 existing five-word contributor transport. Apply D53's outward-face test before
 storing a bucket liquid card.
 
+D55. VALIDATE BUCKET STATIC MOTION THROUGH SENTINEL VIEW 17
+-----------------------------------------------------------
+Decision: add clean-DI view 17 to the isolated mode-2 bucket gate. View 17
+reads the motion and validity outputs already written by the bucket-aware
+primary producer and runs only the sentinel dispatch. It therefore validates
+the existing immutable-static history contract without admitting bucket
+instances to a new ray-tracing consumer.
+
+Views 18-23 remain unsupported except for the separately accepted view 19:
+their host routing can request spatial/production work and must not be used as
+a shortcut for motion proof. Markers remain required and GI remains disabled.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

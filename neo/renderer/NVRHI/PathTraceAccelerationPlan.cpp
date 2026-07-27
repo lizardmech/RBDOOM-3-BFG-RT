@@ -1683,6 +1683,7 @@ bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
         (cleanDiView == 2 ||
+            cleanDiView == 17 ||
             cleanDiView == 19) &&
         diagnosticCheckpointsEnabled &&
         !cleanGiEnabled;

@@ -759,6 +759,15 @@ GeometryIndex zero. This preserves a stable contributor key without adding a
 payload field, descriptor, SBT record, or buffer. The outward-face guard also
 prevents opposite-side liquid cards from entering the receiver reducer.
 
+The live comparison reported no liquid-card issue, accepting REF-9C.
+
+REF-9D exposes the already implemented primary static motion/history contract
+through clean-DI view 17. Bucket hits are immutable world geometry, so previous
+world position equals current and only camera reprojection contributes motion.
+View 17 is a sentinel-only consumer of the producer's motion vector, RR motion,
+and validity-mask outputs. Mode 2 now permits view 17 with markers on and GI
+off; this changes only the CPU gate and CVar help, not a shader or ray family.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

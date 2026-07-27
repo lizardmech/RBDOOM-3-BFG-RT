@@ -1203,3 +1203,36 @@ Runtime acceptance uses view 19 with the current default liquid mode 3 and
 compares a known wet card between route 0 and route 2. The receiver must remain
 visible under a stable film with no missing, floating, black, reversed, or
 route-dependent contribution.
+
+REF-9C RUNTIME ACCEPTANCE - 2026-07-27
+--------------------------------------
+The route-2 liquid-card comparison produced no reported issue. Primary
+semantic-liquid collection, canonical candidate reconstruction, and receiver
+resolve are accepted.
+
+REF-9D STATIC MOTION/HISTORY ISOLATE - 2026-07-27
+-------------------------------------------------
+The primary producer already has an arithmetic-only bucket motion hook.
+`PathTraceIsStaticMotionSurface` recognizes bucket instances as static world
+surfaces, and `TryPathTracePreviousStaticSnapshotPosition` returns the current
+world position for them. This is the correct immutable-geometry contract:
+camera reprojection supplies static motion without attempting a monolithic
+previous-buffer lookup using surface-local PrimitiveIndex.
+
+Clean-DI view 17 directly visualizes the primary producer's full and RR motion
+textures plus validity/source mask. Unlike views 18-23, view 17 remains a
+sentinel-only dispatch and does not request the spatial/production route.
+Mode 2 therefore adds view 17 to its accepted isolated views under the existing
+checkpoint-enabled, GI-off gate. No shader, descriptor, SBT, payload, or
+pipeline changed.
+
+The release executable build passes. The harness was also built through its
+explicit target (it is not part of the default build), then passed all tests
+and 20 stress iterations, including canonical liquid reconstruction and the
+view-17 support/rejection matrix. No shader rebuilt. Source and deployed
+executable hashes match:
+
+  executable
+    F1ED59CEFF624B4CD4F3CA49883D6783459F1866A900BDEA0F9150CF9E26BF00
+  retained primary producer
+    F0D7B2326A15AC33461F7D7FC9F24CB30DA5B98E948F995FA514232843F4A1DF

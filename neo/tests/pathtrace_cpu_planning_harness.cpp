@@ -2482,9 +2482,12 @@ void TestStaticBucketAssignmentPlan()
         canonicalSecondSurfaceRecord =
             multiGeometryPack.surfaceRecords[
                 secondSurfaceResolvedAddress.surfaceRecordIndex];
+    const uint32_t canonicalSourceTriangleOffset =
+        canonicalSecondSurfaceRecord.flags >>
+        RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
     const uint32_t canonicalSourceLocalPrimitive =
         secondSurfaceResolvedAddress.sourceTriangleIndex -
-        canonicalSecondSurfaceRecord.sourceTriangleOffset;
+        canonicalSourceTriangleOffset;
     const RtSmokeStaticBucketResolvedGeometryAddress
         canonicalSecondSurfaceResolvedAddress =
             BuildSmokeStaticBucketResolvedGeometryAddress(
@@ -2571,10 +2574,16 @@ void TestStaticBucketAssignmentPlan()
         IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
             true,
+            17,
+            true,
+            false) &&
+        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
             19,
             true,
             false),
-        "static bucket primary probe accepts instrumented status and post-composite albedo isolates");
+        "static bucket primary probe accepts instrumented status, motion, and post-composite albedo isolates");
     Check(
         !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,

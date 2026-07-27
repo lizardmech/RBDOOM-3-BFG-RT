@@ -439,7 +439,7 @@ idCVar r_pathTracingGeometryStaticBucketRoute(
     "r_pathTracingGeometryStaticBucketRoute",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Default-off GEO-10 route mode: 0 monolithic, 1 production request (fail-closed until all consumers agree), 2 isolated primary probe in view 2 status or view 19 post-composite albedo; never allocates/builds buckets implicitly" );
+    "Default-off GEO-10 route mode: 0 monolithic, 1 production request (fail-closed until all consumers agree), 2 isolated primary probe in view 2 status, view 17 motion, or view 19 post-composite albedo; never allocates/builds buckets implicitly" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

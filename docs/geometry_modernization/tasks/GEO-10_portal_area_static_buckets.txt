@@ -888,3 +888,56 @@ Runtime test:
      route-dependent coverage/tint.
   5. Traverse and audit once so the combined capture retains exact 56/56
      publication and no device/validation failure.
+
+REF-9C RUNTIME ACCEPTANCE - 2026-07-27
+--------------------------------------
+The user reported no issue with the route-2 liquid-card comparison. REF-9C is
+accepted for primary semantic-liquid collection and receiver resolve. No
+missing, black, floating, reversed, portal-dependent, or stability regression
+was observed.
+
+REF-9D PRIMARY STATIC MOTION/HISTORY PROBE - 2026-07-27
+-------------------------------------------------------
+The next primary-only slice requires no new hit decoder. The producer already
+classifies a checked bucket instance as immutable static world geometry in
+`pathtrace_smoke_rab_motion_supplier.hlsli`. For such a hit, previous world
+position equals current world position; the existing previous-camera
+projection produces motion pixels, depth delta, and reset policy. It does not
+index the monolithic previous-static snapshot with a surface-local primitive.
+
+Clean-DI view 17 is the existing direct motion diagnostic. It is rendered by
+the sentinel library and reads `PathTraceMotionVectors`,
+`PathTraceRRMotionVectors`, and `PathTraceMotionVectorMask` after the
+bucket-aware primary producer writes them. It does not enter initial, temporal,
+spatial, material-feature, glass, or GI ray traversal.
+
+Mode 2 now admits view 17 under the same markers-on and GI-off requirements as
+views 2 and 19. This is a CPU cutover-predicate and help-text change only; no
+shader, descriptor, SBT, payload, or pipeline binary changes.
+
+Offline/deployment proof:
+
+  full win64-pt-dev-release build                    passed
+  explicit PathTraceCpuPlanningHarness target       passed
+  PathTraceCpuPlanningHarness --stress 20           passed
+  canonical liquid address test                     passed
+  view-17 support and rejection matrix              passed
+  Vulkan shader rebuilds                             0
+  DX12 shader rebuilds                               0
+  source/deployed executable hashes                  equal
+  executable SHA-256
+    F1ED59CEFF624B4CD4F3CA49883D6783459F1866A900BDEA0F9150CF9E26BF00
+  retained primary blob SHA-256
+    F0D7B2326A15AC33461F7D7FC9F24CB30DA5B98E948F995FA514232843F4A1DF
+
+Runtime test:
+
+  1. Retain markers on, GI off, bucket BLAS/build on, and exact resident-ready
+     publication.
+  2. Set `r_pathTracingCleanRtxdiDiView 17`.
+  3. Compare route 0 and route 2 while standing still, rotating the camera,
+     walking, and crossing portals.
+  4. The static world must retain the same valid motion field and source tint;
+     reject magenta/invalid bands, portal-dependent discontinuities, or
+     persistent reset colors unique to route 2.
+  5. Return to view 19 before later material checks.
