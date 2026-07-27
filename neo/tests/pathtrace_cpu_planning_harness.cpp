@@ -2471,6 +2471,45 @@ void TestStaticBucketAssignmentPlan()
             secondSurfaceResolvedAddress.vertexIndexes[2] ==
                 multiGeometryPack.indexes[14],
         "static bucket InstanceID plus GeometryIndex plus PrimitiveIndex resolves one exact geometry address");
+    const RtSmokeStaticBucketSurfaceAddressPlan
+        canonicalSecondSurfaceAddress =
+            BuildSmokeStaticBucketSurfaceAddressPlan(
+                secondSurfaceResolvedAddress.surfaceRecordIndex,
+                1,
+                static_cast<uint32_t>(
+                    multiGeometryPack.surfaceRecords.size()));
+    const RtSmokeStaticBucketSurfaceRecord&
+        canonicalSecondSurfaceRecord =
+            multiGeometryPack.surfaceRecords[
+                secondSurfaceResolvedAddress.surfaceRecordIndex];
+    const uint32_t canonicalSourceLocalPrimitive =
+        secondSurfaceResolvedAddress.sourceTriangleIndex -
+        canonicalSecondSurfaceRecord.sourceTriangleOffset;
+    const RtSmokeStaticBucketResolvedGeometryAddress
+        canonicalSecondSurfaceResolvedAddress =
+            BuildSmokeStaticBucketResolvedGeometryAddress(
+                multiGeometryPack,
+                canonicalSecondSurfaceAddress.instanceId,
+                0,
+                canonicalSourceLocalPrimitive);
+    Check(
+        canonicalSecondSurfaceAddress.valid &&
+            canonicalSecondSurfaceResolvedAddress.valid &&
+            canonicalSecondSurfaceResolvedAddress.surfaceRecordIndex ==
+                secondSurfaceResolvedAddress.surfaceRecordIndex &&
+            canonicalSecondSurfaceResolvedAddress.triangleIndex ==
+                secondSurfaceResolvedAddress.triangleIndex &&
+            canonicalSecondSurfaceResolvedAddress.sourceTriangleIndex ==
+                secondSurfaceResolvedAddress.sourceTriangleIndex &&
+            canonicalSecondSurfaceResolvedAddress.indexOffset ==
+                secondSurfaceResolvedAddress.indexOffset &&
+            canonicalSecondSurfaceResolvedAddress.vertexIndexes[0] ==
+                secondSurfaceResolvedAddress.vertexIndexes[0] &&
+            canonicalSecondSurfaceResolvedAddress.vertexIndexes[1] ==
+                secondSurfaceResolvedAddress.vertexIndexes[1] &&
+            canonicalSecondSurfaceResolvedAddress.vertexIndexes[2] ==
+                secondSurfaceResolvedAddress.vertexIndexes[2],
+        "static bucket liquid candidate canonical surface and source triangle recover the exact geometry address");
     Check(
         !BuildSmokeStaticBucketResolvedGeometryAddress(
             multiGeometryPack,

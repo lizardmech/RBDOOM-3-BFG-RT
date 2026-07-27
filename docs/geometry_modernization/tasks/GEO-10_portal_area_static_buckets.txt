@@ -811,3 +811,80 @@ Runtime re-test:
 
 Reject if the wrong layer remains, a valid decal disappears, route-0/route-2
 color or ordering differs, publication falls back, or the device is lost.
+
+REF-9B RUNTIME DISPOSITION - 2026-07-27
+---------------------------------------
+The opposite-face correction removed the hovering/stacked artifacts in route
+2. One reversed decal remains, but the same card is reversed in route 0. Route
+0 also retains the duplicate artifact that route 2 now rejects. Therefore:
+
+  - the reversed card is baseline authored/decal behavior, not bucket decode;
+  - the duplicate is a baseline receiver-ownership defect, not a route-2
+    regression;
+  - the bucket detail-decal address, UV, source ordering, and new outward-face
+    ownership behavior pass the visual comparison.
+
+REF-9B is visually accepted. Exact publication was already proven by the same
+view-19-capable full-resident mode-2 gate; retain an audit in the next combined
+runtime capture rather than requiring a separate launch for this disposition.
+
+REF-9C LIQUID-CARD IDENTITY CHECKPOINT - 2026-07-27
+---------------------------------------------------
+The next primary-only material slice is semantic liquid-card collection. The
+audit found a concrete identity mismatch before enabling it: the existing
+liquid payload stores InstanceID and PrimitiveIndex but no GeometryIndex, while
+a bucket hit's PrimitiveIndex is only surface-local. Reusing the hardware tuple
+after any-hit would either collide across geometries or enter the deliberately
+fail-closed legacy decoder.
+
+No payload widening is required. A collected bucket liquid card is
+canonicalized as:
+
+  payload instanceId      bucket namespace | exact surfaceRecordIndex
+  payload primitiveIndex  original monolithic sourceTriangleIndex
+
+At raygen evidence reconstruction, the canonical surface record supplies its
+source-triangle offset. Subtraction recovers the surface-local primitive, and
+the accepted GeometryIndex-zero address decoder reconstructs the same packed
+triangle and vertex triple. This keeps a stable source primitive in the
+five-word liquid contributor key while retaining exact packed geometry access.
+
+Bucket any-hit now mirrors the existing semantic-liquid path: it evaluates
+stage color and coverage, stores a positive-coverage candidate, ignores the
+card as geometry, and preserves fail-closed status on missing stage state.
+The REF-9B outward-face guard also applies, preventing opposite-side liquid
+cards from becoming receiver candidates. Ordinary detail decals continue
+through the already accepted branch.
+
+The CPU harness includes a multi-geometry case proving that canonical surface
+InstanceID plus source triangle recovers the exact surface record, packed
+triangle, index offset, and vertex triple. Glass, generic transmission,
+particles, DI/GI secondary hits, and emissive replay remain closed.
+
+Offline/deployment proof:
+
+  PathTraceCpuPlanningHarness --stress 20           passed
+  canonical liquid address test                     passed
+  full win64-pt-dev-release build                    passed
+  rebuilt Vulkan blobs                                1
+  DX12 shader rebuilds                                0
+  primary blob newer than edited source             yes
+  spirv-val --target-env vulkan1.2                   passed
+  descriptor-set/binding decorations old/new       96 / 96
+  source/deployed executable hashes                  equal
+  source/deployed primary blob hashes                equal
+  executable SHA-256
+    D4039161E807CC8257E1A130D21A7A11BFF238B82B8D01ECDAB7EDBD8A2578E8
+  primary blob SHA-256
+    F0D7B2326A15AC33461F7D7FC9F24CB30DA5B98E948F995FA514232843F4A1DF
+
+Runtime test:
+
+  1. Retain the accepted view-19, markers-on, GI-off, mode-2 bucket setup.
+  2. Leave `r_pathTracingLiquidPoolMode 3`, its current production default.
+  3. Compare route 0 and route 2 on a known wet/liquid decal card.
+  4. The receiver texture must remain visible under one stable film; reject a
+     missing card, black/floating duplicate, reversed contribution, or
+     route-dependent coverage/tint.
+  5. Traverse and audit once so the combined capture retains exact 56/56
+     publication and no device/validation failure.

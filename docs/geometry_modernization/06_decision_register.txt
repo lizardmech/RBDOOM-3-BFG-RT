@@ -1031,6 +1031,22 @@ backwards duplicate. Do not widen the payload with a receiver-ownership field
 for this static case because the already resident vertex data determines the
 answer at any-hit time. Route 0 and non-bucket ray families remain unchanged.
 
+D54. CANONICALIZE BUCKET LIQUID KEYS TO SURFACE RECORD PLUS SOURCE TRIANGLE
+----------------------------------------------------------------------------
+Decision: do not widen the existing liquid candidate payload with
+GeometryIndex. For a static-bucket liquid hit, store the exact
+surfaceRecordIndex in a canonical bucket-namespace InstanceID and store the
+original monolithic sourceTriangleIndex as the primitive key. During raygen
+evidence reconstruction, subtract the surface record's encoded source offset
+and resolve the resulting local primitive with GeometryIndex zero.
+
+The raw bucket InstanceID plus hardware PrimitiveIndex is not a valid
+persistent liquid key because local primitive values repeat across
+GeometryIndex values. The canonical tuple is unique, preserves stable source
+triangle ordering, reconstructs the exact packed vertex triple, and uses the
+existing five-word contributor transport. Apply D53's outward-face test before
+storing a bucket liquid card.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

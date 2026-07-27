@@ -1151,3 +1151,55 @@ deployed hashes match:
 
 The correction remains pending the same route-0/route-2 view-19 comparison on
 the offending decals plus exact 56/56 publication evidence.
+
+REF-9B RUNTIME DISPOSITION - 2026-07-27
+---------------------------------------
+The route-2 re-test removed the hovering/stacked duplicate artifacts. The one
+remaining reversed decal is also reversed in route 0, and route 0 still shows
+the duplicate that the new bucket guard removes. The reversed card and
+route-0 duplicate are baseline decal behavior rather than bucket address, UV,
+or ordering regressions. REF-9B is visually accepted; the next combined
+capture can retain the already established exact-publication evidence.
+
+REF-9C LIQUID-CARD ADDRESS CONTRACT - 2026-07-27
+-------------------------------------------------
+Semantic liquid collection exposed the next concrete GeometryIndex gap. Its
+five-word contributor key and payload transport contain InstanceID and
+PrimitiveIndex but no GeometryIndex. A multi-geometry bucket's hardware
+PrimitiveIndex is surface-local, so storing the raw tuple is ambiguous after
+any-hit and the compatibility decoder correctly fails closed.
+
+The primary producer canonicalizes a bucket liquid candidate to the exact
+surface record:
+
+  instanceId      PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE |
+                  surfaceRecordIndex
+  primitiveIndex  sourceTriangleIndex
+
+During raygen reconstruction, the canonical record's encoded source-triangle
+offset is subtracted from the stored source triangle. The resulting local
+primitive is resolved with GeometryIndex zero through the accepted hardware
+address helper. Both the stable source identity and exact packed geometry are
+therefore available without another payload word.
+
+Bucket any-hit now applies the established semantic-liquid coverage/stage
+checks, stores only positive-coverage outward-facing cards, and ignores the
+card hit. Missing evaluated stage state remains fail-closed. A CPU
+multi-geometry test proves canonical surface/source identity recovers the same
+surface record, packed triangle, index offset, and vertex triple as the
+original hardware tuple.
+
+Offline proof and deployment pass. The planning harness including 20 stress
+iterations passes, only the primary producer Vulkan blob rebuilt, `spirv-val`
+passes, and descriptor-set plus binding decorations remain 96/96. Source and
+deployed hashes match:
+
+  executable
+    D4039161E807CC8257E1A130D21A7A11BFF238B82B8D01ECDAB7EDBD8A2578E8
+  primary producer
+    F0D7B2326A15AC33461F7D7FC9F24CB30DA5B98E948F995FA514232843F4A1DF
+
+Runtime acceptance uses view 19 with the current default liquid mode 3 and
+compares a known wet card between route 0 and route 2. The receiver must remain
+visible under a stable film with no missing, floating, black, reversed, or
+route-dependent contribution.

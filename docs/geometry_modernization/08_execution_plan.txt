@@ -745,6 +745,20 @@ triangle face with the authored vertex normal, matching the CPU lift
 convention, and collect only the outward face. Re-test the same offending
 camera positions before REF-9B acceptance.
 
+The re-test accepts REF-9B. Route 2 no longer shows the duplicate/hovering
+layers. The one remaining reversed decal is identically reversed in route 0,
+and route 0 still shows the duplicate, so neither is a bucket address or UV
+regression.
+
+REF-9C stays in the same primary producer and migrates semantic liquid-card
+collection. Because the existing liquid payload has no GeometryIndex, each
+bucket candidate uses a canonical surface-record InstanceID plus the original
+source triangle. Raygen subtracts the record's source offset to recover the
+surface-local primitive and resolve the exact packed address with
+GeometryIndex zero. This preserves a stable contributor key without adding a
+payload field, descriptor, SBT record, or buffer. The outward-face guard also
+prevents opposite-side liquid cards from entering the receiver reducer.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

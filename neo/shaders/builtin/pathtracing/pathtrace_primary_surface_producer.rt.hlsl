@@ -1543,6 +1543,59 @@ bool PathTraceStaticBucketDetailDecalFacesPrimaryRay(
     return dot(outwardFaceNormal, WorldRayDirection()) < 0.0;
 }
 
+uint PathTraceStaticBucketCanonicalSurfaceInstanceId(
+    PathTraceStaticGeometryAddress address)
+{
+    return PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE |
+        address.surfaceRecordIndex;
+}
+
+// Liquid candidates outlive any-hit and are reconstructed in raygen. Their
+// existing payload has no GeometryIndex field, so canonicalize a bucket hit to
+// one surface-record InstanceID and retain the original monolithic source
+// triangle as the primitive key. The record's source offset recovers the local
+// PrimitiveIndex without widening the payload.
+bool PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
+    uint canonicalInstanceId,
+    uint sourceTriangleIndex,
+    out PathTraceStaticGeometryAddress address)
+{
+    address = (PathTraceStaticGeometryAddress)0;
+    uint surfaceRecordIndex;
+    if (!PathTraceStaticBucketInstanceInPublishedRange(
+            canonicalInstanceId,
+            StaticBucketRouteInfo,
+            surfaceRecordIndex) ||
+        surfaceRecordIndex >= StaticBucketRouteInfo.y ||
+        surfaceRecordIndex >
+            (0xffffffffu - PathTraceStaticTriangleCount()) /
+                PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS)
+    {
+        return false;
+    }
+
+    const uint surfaceRecordWord =
+        PathTraceStaticTriangleCount() +
+        surfaceRecordIndex *
+            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS;
+    const uint sourceTriangleOffset =
+        SmokeStaticBucketTriangleClasses[
+            surfaceRecordWord + 3u] >>
+        PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
+    if (sourceTriangleIndex < sourceTriangleOffset)
+    {
+        return false;
+    }
+
+    return PathTraceTryResolvePrimaryStaticBucketHit(
+            canonicalInstanceId,
+            0u,
+            sourceTriangleIndex - sourceTriangleOffset,
+            address) &&
+        address.surfaceRecordIndex == surfaceRecordIndex &&
+        address.sourceTriangleIndex == sourceTriangleIndex;
+}
+
 bool PathTraceStaticBucketAlphaRejectsHit(
     PathTraceStaticGeometryAddress address,
     uint materialIndex,
@@ -2306,34 +2359,24 @@ bool TryBuildLiquidPoolCardEvidence(
     cardTexCoord = 0.0;
     cardTangent = 0.0;
     cardBitangent = 0.0;
-    if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
-    {
-        return false;
-    }
-
     if (PathTraceIsStaticBucketRouteInstance(
             instanceId,
             StaticBucketRouteInfo))
     {
-        PathTraceStaticBucketRouteRecord route;
-        uint packedTriangleIndex;
-        uint3 packedVertexIndexes;
-        if (!PathTraceTryLoadStaticBucketTriangleRoute(
+        PathTraceStaticGeometryAddress address;
+        if (!PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
                 instanceId,
                 primitiveIndex,
-                StaticBucketRouteInfo,
-                route,
-                packedTriangleIndex,
-                packedVertexIndexes))
+                address))
         {
             return false;
         }
         const PathTraceSmokeVertex v0 =
-            SmokeStaticBucketVertices[packedVertexIndexes.x];
+            SmokeStaticBucketVertices[address.vertexIndexes.x];
         const PathTraceSmokeVertex v1 =
-            SmokeStaticBucketVertices[packedVertexIndexes.y];
+            SmokeStaticBucketVertices[address.vertexIndexes.y];
         const PathTraceSmokeVertex v2 =
-            SmokeStaticBucketVertices[packedVertexIndexes.z];
+            SmokeStaticBucketVertices[address.vertexIndexes.z];
         const float3 p0 = v0.position.xyz;
         const float3 p1 = v1.position.xyz;
         const float3 p2 = v2.position.xyz;
@@ -2371,6 +2414,11 @@ bool TryBuildLiquidPoolCardEvidence(
         return LiquidPoolFinite3(cardPosition) &&
             LiquidPoolFinite3(cardPlaneNormal) &&
             LiquidPoolFinite2(cardTexCoord);
+    }
+
+    if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+    {
+        return false;
     }
 
     if (PathTraceIsSkinnedHitRouteInstance(instanceId))
@@ -3314,6 +3362,57 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             IgnoreHit();
             return;
         }
+        if (PathTraceLiquidPoolCollectionEnabled() &&
+            PathTraceMaterialIsSemanticLiquidPool(
+                materialIndex))
+        {
+            if (PathTraceStaticBucketDetailDecalFacesPrimaryRay(
+                    address))
+            {
+                payload.liquidStatusMask |=
+                    RT_LIQUID_POOL_STATUS_CANDIDATE;
+                const PathTraceSmokeMaterial material =
+                    LoadSmokeMaterial(materialIndex);
+                const float2 texCoord =
+                    PathTraceStaticBucketInterpolateTexCoord(
+                        address,
+                        attributes.barycentrics);
+                float4 stageColor;
+                if (TryGetLiquidPoolStageColor(
+                        materialIndex,
+                        stageColor))
+                {
+                    const float coverage =
+                        saturate(SmokeAlphaCoverage(
+                            material,
+                            texCoord)) *
+                        saturate(stageColor.a);
+                    if (coverage > 0.0)
+                    {
+                        ConditionallyStoreLiquidPoolCandidate(
+                            payload,
+                            PathTraceStaticBucketCanonicalSurfaceInstanceId(
+                                address),
+                            materialIndex,
+                            address.sourceTriangleIndex,
+                            attributes.barycentrics);
+                    }
+                }
+                else
+                {
+                    payload.liquidStatusMask |=
+                        RT_LIQUID_POOL_STATUS_FAIL_CLOSED;
+                    payload.liquidRejectionCount =
+                        payload.liquidRejectionCount ==
+                                0xffffffffu
+                            ? 0xffffffffu
+                            : payload.liquidRejectionCount +
+                                1u;
+                }
+            }
+            IgnoreHit();
+            return;
+        }
         if ((materialFlags &
                 RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u)
         {
@@ -3341,9 +3440,9 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                 triangleClassAndFlags,
                 materialFlags))
         {
-            // REF-9B admits receiver-owned detail decals. Glass, particles,
-            // liquid cards, and the remaining decal routes stay fail-closed
-            // until their address-aware consumers are migrated.
+            // REF-9B/9C admit receiver-owned detail decals and semantic liquid
+            // cards. Glass, particles, and the remaining decal routes stay
+            // fail-closed until their address-aware consumers are migrated.
             IgnoreHit();
             return;
         }
