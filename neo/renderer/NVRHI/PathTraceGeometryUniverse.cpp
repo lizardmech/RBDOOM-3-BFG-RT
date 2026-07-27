@@ -3484,11 +3484,19 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
     stats.triangleCount = geometryPack.stats.packedTriangles;
     stats.surfaceRecordCount =
         static_cast<int>(geometryPack.surfaceRecords.size());
+    stats.staticClassMetadataWordCount =
+        static_cast<int>(
+            geometryPack.staticClassMetadataWords.size());
+    stats.surfaceRecordWordOffset =
+        static_cast<int>(geometryPack.surfaceRecordWordOffset);
     stats.vertexBytes = geometryPack.vertexBytes.size();
     stats.indexBytes =
         geometryPack.indexes.size() * sizeof(uint32_t);
+    stats.surfaceRecordBytes =
+        geometryPack.surfaceRecords.size() *
+        sizeof(RtSmokeStaticBucketSurfaceRecord);
     stats.metadataBytes =
-        geometryPack.triangleClasses.size() *
+        geometryPack.staticClassMetadataWords.size() *
             sizeof(uint32_t) +
         geometryPack.triangleMaterials.size() *
             sizeof(uint32_t) +
@@ -3512,13 +3520,16 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         geometryPack.vertexBytes.empty() ||
         geometryPack.indexes.empty() ||
         geometryPack.triangleClasses.empty() ||
+        geometryPack.staticClassMetadataWords.empty() ||
         geometryPack.triangleClasses.size() !=
             geometryPack.triangleMaterials.size() ||
         geometryPack.triangleClasses.size() !=
             geometryPack.triangleIdentities.size() ||
         geometryPack.surfaceRecords.size() !=
             static_cast<size_t>(
-                geometryPack.stats.packedSurfaces))
+                geometryPack.stats.packedSurfaces) ||
+        !ValidateSmokeStaticBucketClassMetadataLayout(
+            geometryPack))
     {
         ++stats.skippedInexactPack;
         return stats;
@@ -3538,7 +3549,8 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
     const size_t indexBytes =
         geometryPack.indexes.size() * sizeof(uint32_t);
     const size_t classBytes =
-        geometryPack.triangleClasses.size() * sizeof(uint32_t);
+        geometryPack.staticClassMetadataWords.size() *
+        sizeof(uint32_t);
     const size_t materialBytes =
         geometryPack.triangleMaterials.size() * sizeof(uint32_t);
     const size_t identityBytes =
@@ -3655,7 +3667,7 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             indexBytes);
         commandList->writeBuffer(
             m_staticBucketTriangleClassBuffer,
-            geometryPack.triangleClasses.data(),
+            geometryPack.staticClassMetadataWords.data(),
             classBytes);
         commandList->writeBuffer(
             m_staticBucketTriangleMaterialBuffer,
@@ -4116,7 +4128,7 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
     const RtPathTraceStaticBucketBlasGpuStats& stats) const
 {
     common->Printf(
-        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d geometry(v/i/t/surfaceRecords/descs/invalidRecords)=%d/%d/%d/%d/%d/%d bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident traversal=monolithic route=shadow-only\n",
+        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d geometry(v/i/t/surfaceRecords/descs/invalidRecords)=%d/%d/%d/%d/%d/%d t5(words/trianglePrefix/surfaceOffset/surfaceBytes)=%d/%d/%d/%llu bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident traversal=monolithic route=shadow-only\n",
         static_cast<unsigned long long>(stats.frameIndex),
         stats.enabled,
         stats.submitBuilds,
@@ -4136,6 +4148,11 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
         stats.surfaceRecordCount,
         stats.geometryDescCount,
         stats.invalidSurfaceRecords,
+        stats.staticClassMetadataWordCount,
+        stats.triangleCount,
+        stats.surfaceRecordWordOffset,
+        static_cast<unsigned long long>(
+            stats.surfaceRecordBytes),
         static_cast<unsigned long long>(stats.vertexBytes),
         static_cast<unsigned long long>(stats.indexBytes),
         static_cast<unsigned long long>(stats.metadataBytes),

@@ -1027,6 +1027,44 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         ++pack.stats.countMismatches;
     }
 
+    const bool classMetadataSizeValid =
+        pack.triangleClasses.size() <=
+            std::numeric_limits<uint32_t>::max() &&
+        pack.surfaceRecords.size() <=
+            (std::numeric_limits<size_t>::max() -
+                pack.triangleClasses.size()) / 4u;
+    if (classMetadataSizeValid)
+    {
+        pack.surfaceRecordWordOffset =
+            static_cast<uint32_t>(pack.triangleClasses.size());
+        pack.staticClassMetadataWords.reserve(
+            pack.triangleClasses.size() +
+            pack.surfaceRecords.size() * 4u);
+        pack.staticClassMetadataWords.insert(
+            pack.staticClassMetadataWords.end(),
+            pack.triangleClasses.begin(),
+            pack.triangleClasses.end());
+        for (const RtSmokeStaticBucketSurfaceRecord& record :
+            pack.surfaceRecords)
+        {
+            pack.staticClassMetadataWords.push_back(
+                record.indexOffset);
+            pack.staticClassMetadataWords.push_back(
+                record.triangleOffset);
+            pack.staticClassMetadataWords.push_back(
+                record.triangleCount);
+            pack.staticClassMetadataWords.push_back(record.flags);
+        }
+        if (!ValidateSmokeStaticBucketClassMetadataLayout(pack))
+        {
+            ++pack.stats.classMetadataLayoutErrors;
+        }
+    }
+    else
+    {
+        ++pack.stats.classMetadataLayoutErrors;
+    }
+
     pack.contentSignature = HashSmokePlanBytes(
         pack.contentSignature,
         &desc.vertexStride,
@@ -1123,8 +1161,58 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         pack.stats.addressContractErrors == 0 &&
         pack.stats.surfaceRecordErrors == 0 &&
         pack.stats.surfaceAddressContractErrors == 0 &&
+        pack.stats.classMetadataLayoutErrors == 0 &&
         pack.stats.countMismatches == 0;
     return pack;
+}
+
+bool ValidateSmokeStaticBucketClassMetadataLayout(
+    const RtSmokeStaticBucketGeometryPack& geometryPack)
+{
+    if (geometryPack.triangleClasses.size() >
+            std::numeric_limits<uint32_t>::max() ||
+        geometryPack.surfaceRecords.size() >
+            (std::numeric_limits<size_t>::max() -
+                geometryPack.triangleClasses.size()) / 4u ||
+        geometryPack.surfaceRecordWordOffset !=
+            geometryPack.triangleClasses.size())
+    {
+        return false;
+    }
+    const size_t expectedMetadataWordCount =
+        geometryPack.triangleClasses.size() +
+        geometryPack.surfaceRecords.size() * 4u;
+    if (geometryPack.staticClassMetadataWords.size() !=
+            expectedMetadataWordCount ||
+        !std::equal(
+            geometryPack.triangleClasses.begin(),
+            geometryPack.triangleClasses.end(),
+            geometryPack.staticClassMetadataWords.begin()))
+    {
+        return false;
+    }
+    for (size_t recordIndex = 0;
+        recordIndex < geometryPack.surfaceRecords.size();
+        ++recordIndex)
+    {
+        const RtSmokeStaticBucketSurfaceRecord& record =
+            geometryPack.surfaceRecords[recordIndex];
+        const size_t wordOffset =
+            geometryPack.surfaceRecordWordOffset +
+            recordIndex * 4u;
+        if (geometryPack.staticClassMetadataWords[
+                wordOffset + 0u] != record.indexOffset ||
+            geometryPack.staticClassMetadataWords[
+                wordOffset + 1u] != record.triangleOffset ||
+            geometryPack.staticClassMetadataWords[
+                wordOffset + 2u] != record.triangleCount ||
+            geometryPack.staticClassMetadataWords[
+                wordOffset + 3u] != record.flags)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool TryEncodeSmokeStaticBucketInstanceId(

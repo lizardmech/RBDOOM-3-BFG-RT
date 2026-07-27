@@ -2328,6 +2328,45 @@ void TestStaticBucketAssignmentPlan()
             pack.surfaceRecords[2].flags ==
                 RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID,
         "static bucket geometry pack publishes one exact record per surface");
+    Check(
+        ValidateSmokeStaticBucketClassMetadataLayout(pack) &&
+            pack.surfaceRecordWordOffset ==
+                pack.triangleClasses.size() &&
+            pack.staticClassMetadataWords.size() == 17 &&
+            std::equal(
+                pack.triangleClasses.begin(),
+                pack.triangleClasses.end(),
+                pack.staticClassMetadataWords.begin()) &&
+            pack.staticClassMetadataWords[5] == 0 &&
+            pack.staticClassMetadataWords[6] == 0 &&
+            pack.staticClassMetadataWords[7] == 2 &&
+            pack.staticClassMetadataWords[8] ==
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID &&
+            pack.staticClassMetadataWords[9] == 6 &&
+            pack.staticClassMetadataWords[10] == 2 &&
+            pack.staticClassMetadataWords[11] == 2 &&
+            pack.staticClassMetadataWords[12] ==
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID &&
+            pack.staticClassMetadataWords[13] == 12 &&
+            pack.staticClassMetadataWords[14] == 4 &&
+            pack.staticClassMetadataWords[15] == 1 &&
+            pack.staticClassMetadataWords[16] ==
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID,
+        "static bucket t5 metadata preserves triangle rows and appends exact four-word surface records");
+
+    RtSmokeStaticBucketGeometryPack corruptedMetadataPack = pack;
+    corruptedMetadataPack.staticClassMetadataWords[
+        corruptedMetadataPack.surfaceRecordWordOffset + 6u] ^= 1u;
+    Check(
+        !ValidateSmokeStaticBucketClassMetadataLayout(
+            corruptedMetadataPack),
+        "static bucket t5 metadata validation rejects a corrupted surface-record tail");
+    corruptedMetadataPack = pack;
+    corruptedMetadataPack.staticClassMetadataWords[1] ^= 1u;
+    Check(
+        !ValidateSmokeStaticBucketClassMetadataLayout(
+            corruptedMetadataPack),
+        "static bucket t5 metadata validation rejects a changed triangle-class prefix");
 
     RtSmokeStaticBucketAssignmentSurface multiGeometrySurfaces[3] = {
         surfaces[0],

@@ -42,6 +42,17 @@ release build passes without rebuilding shaders. Production TLAS insertion
 remains impossible because the bucket consumer-support gate is hard-false;
 the next gate is a shadow-only bucket build with route zero.
 
+`bucket5.log` accepts that gate: 56/56 resident BLASes became ready, all 1,789
+surface records mapped to exactly 1,789 GeometryDescs, 52 buckets contained
+multiple geometries, and every invalid/publication failure counter was zero.
+Portal movement changed the active set without rebuilding the resident set;
+the user observed no issue.
+
+REF-6 appends the same 1,789 four-word surface records after the unchanged
+50,108 triangle-class words in the resident t5 upload. CPU validation rejects
+any changed prefix or mismatched tail field. No shader consumer is enabled and
+the live t5 binding remains monolithic until the later atomic route cutover.
+
 IMPLEMENTATION STATUS
 ---------------------
 Steps 1 through 5 are complete in shadow mode. Static world records now carry the

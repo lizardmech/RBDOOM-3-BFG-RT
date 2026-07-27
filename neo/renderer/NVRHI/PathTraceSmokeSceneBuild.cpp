@@ -12998,7 +12998,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             assignmentStats.splitBuckets,
             assignmentStats.bucketKeyCollisions);
         common->Printf(
-            "PathTracePrimaryPass: GEO10 static bucket geometry exact=%d cacheHit=%d signature=%llu buckets(input/packed)=%d/%d surfaces(input/packed)=%d/%d geometry(sourceV/sourceI/sourceT/packedV/packedI/packedT)=%d/%d/%d/%d/%d/%d bytes(vertex/index/class/material/identity)=%llu/%llu/%llu/%llu/%llu failures(bucketRange/assignment/sourceRange/indexRange/localPrimitiveOffset/address/count)=%d/%d/%d/%d/%d/%d/%d route=shadow-only\n",
+            "PathTracePrimaryPass: GEO10 static bucket geometry exact=%d cacheHit=%d signature=%llu buckets(input/packed)=%d/%d surfaces(input/packed)=%d/%d geometry(sourceV/sourceI/sourceT/packedV/packedI/packedT)=%d/%d/%d/%d/%d/%d bytes(vertex/index/classPrefix/t5/material/identity/surfaceRecords)=%llu/%llu/%llu/%llu/%llu/%llu/%llu failures(bucketRange/assignment/sourceRange/indexRange/localPrimitiveOffset/address/surfaceRecord/surfaceAddress/classMetadata/count)=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d route=shadow-only\n",
             geometryPack.exact ? 1 : 0,
             staticBucketFramePublication.
                 residentPackCacheHit
@@ -13025,17 +13025,27 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 geometryPack.triangleClasses.size() *
                 sizeof(geometryPack.triangleClasses[0])),
             static_cast<unsigned long long>(
+                geometryPack.staticClassMetadataWords.size() *
+                sizeof(
+                    geometryPack.staticClassMetadataWords[0])),
+            static_cast<unsigned long long>(
                 geometryPack.triangleMaterials.size() *
                 sizeof(geometryPack.triangleMaterials[0])),
             static_cast<unsigned long long>(
                 geometryPack.triangleIdentities.size() *
                 sizeof(geometryPack.triangleIdentities[0])),
+            static_cast<unsigned long long>(
+                geometryPack.surfaceRecords.size() *
+                sizeof(geometryPack.surfaceRecords[0])),
             packStats.invalidBucketRanges,
             packStats.invalidAssignments,
             packStats.sourceRangeMismatches,
             packStats.indexRangeErrors,
             packStats.localPrimitiveOffsetErrors,
             packStats.addressContractErrors,
+            packStats.surfaceRecordErrors,
+            packStats.surfaceAddressContractErrors,
+            packStats.classMetadataLayoutErrors,
             packStats.countMismatches);
         const size_t bucketSampleCount =
             std::min(

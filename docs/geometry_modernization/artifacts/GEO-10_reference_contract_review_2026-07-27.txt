@@ -576,3 +576,69 @@ Required REF-5 runtime gate:
 
 Do not start REF-6 publication/storage integration until this shadow-only
 multi-geometry BLAS checkpoint survives.
+
+REF-5 RUNTIME ACCEPTANCE - bucket5.log - 2026-07-27
+---------------------------------------------------
+The shadow-only multi-geometry checkpoint passed. The build advanced exactly
+one bucket per frame from zero to all 56 resident BLASes, then reused all 56.
+The final and later one-shot audit rows report:
+
+  resident/ready/deferred/invalid buckets       56/56/0/0
+  surface records / GeometryDesc count          1789/1789
+  multi-geometry buckets                        52
+  invalid surface records                       0
+  publication valid/exact/mixed rejected        1/1/0
+  missing BLAS/material/range/ID failures        0/0/0/0
+  resident-pack cache hit                       1
+  traversal / route                             monolithic / shadow-only
+
+Portal movement changed the active set from three buckets to two without
+rebuilding resident BLASes or changing the resident content signature. The
+user observed no issue and the log contains no device loss.
+
+REF-6 OFFLINE CHECKPOINT - 2026-07-27
+-------------------------------------
+The resident pack now materializes the accepted t5 byte layout:
+
+  uint words [0, staticTriangleCount)
+      unchanged per-triangle class/flags prefix
+
+  uint words [staticTriangleCount, ...)
+      four words per resident surface record:
+      indexOffset, triangleOffset, triangleCount, flags
+
+The t5 buffer retains uint32 stride and its established descriptor slot. The
+shadow resident upload now sizes and writes this combined word array instead
+of only the triangle-class prefix. No new GPU buffer, descriptor, SBT record,
+or payload field is introduced. Triangle, material, and index counts remain
+unchanged.
+
+The CPU pack stores the explicit surface-record word offset and validates the
+complete layout before the pack can be exact or before upload can proceed.
+Validation proves:
+
+  - the word offset equals staticTriangleCount;
+  - total words equal staticTriangleCount + surfaceRecordCount * 4;
+  - every triangle-class word in the prefix is byte-for-byte unchanged;
+  - every tail field equals its authoritative CPU surface record.
+
+Harness mutations independently corrupt a triangle prefix word and a surface
+record tail word; both fail validation. Runtime diagnostics now publish the
+t5 word count, triangle prefix, surface offset, and surface-record bytes.
+
+Verification:
+
+  PathTraceCpuPlanningHarness --stress 20           passed
+  full win64-pt-dev-release build                   passed
+  SPIR-V shader rebuilds                            none; all up to date
+
+Production still binds the monolithic t5 because route acceptance remains
+hard-false. The next runtime gate enables shadow bucket ownership/build with
+route zero and confirms:
+
+  t5.words = 50108 + 1789 * 4 = 57264
+  t5.trianglePrefix = 50108
+  t5.surfaceOffset = 50108
+  t5.surfaceBytes = 1789 * 16 = 28624
+
+No shader reads the tail until REF-7 adds the minimal shared decoder.

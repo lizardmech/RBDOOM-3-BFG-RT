@@ -782,9 +782,12 @@ struct RtPathTraceStaticBucketBlasGpuStats
     int geometryDescCount = 0;
     int multiGeometryBuckets = 0;
     int invalidSurfaceRecords = 0;
+    int staticClassMetadataWordCount = 0;
+    int surfaceRecordWordOffset = 0;
     uint64 vertexBytes = 0;
     uint64 indexBytes = 0;
     uint64 metadataBytes = 0;
+    uint64 surfaceRecordBytes = 0;
     uint64 uploadBytes = 0;
     int buffersCreated = 0;
     int bufferUploads = 0;

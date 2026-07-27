@@ -354,6 +354,7 @@ struct RtSmokeStaticBucketGeometryPackStats
     int addressContractErrors = 0;
     int surfaceRecordErrors = 0;
     int surfaceAddressContractErrors = 0;
+    int classMetadataLayoutErrors = 0;
     int countMismatches = 0;
 };
 
@@ -363,9 +364,11 @@ struct RtSmokeStaticBucketGeometryPack
     std::vector<uint8_t> vertexBytes;
     std::vector<uint32_t> indexes;
     std::vector<uint32_t> triangleClasses;
+    std::vector<uint32_t> staticClassMetadataWords;
     std::vector<uint32_t> triangleMaterials;
     std::vector<RtSmokeStaticBucketSurfaceRecord> surfaceRecords;
     std::vector<RtSmokeStaticBucketTriangleIdentity> triangleIdentities;
+    uint32_t surfaceRecordWordOffset = 0;
     RtSmokeStaticBucketGeometryPackStats stats;
     uint64_t contentSignature = 0;
     bool exact = false;
@@ -1132,6 +1135,8 @@ RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
 
 RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
     const RtSmokeStaticBucketGeometryPackDesc& desc);
+bool ValidateSmokeStaticBucketClassMetadataLayout(
+    const RtSmokeStaticBucketGeometryPack& geometryPack);
 
 bool TryEncodeSmokeStaticBucketInstanceId(
     uint32_t triangleOffset,
