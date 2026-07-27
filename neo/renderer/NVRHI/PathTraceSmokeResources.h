@@ -168,12 +168,6 @@ struct RtSmokeBindingBuildDesc
     nvrhi::SamplerHandle sampler;
     RtSmokeSceneBufferHandles buffers;
     nvrhi::BufferHandle skinnedSourceIndexBuffer;
-    nvrhi::BufferHandle staticBucketRouteRecordBuffer;
-    nvrhi::BufferHandle staticBucketVertexBuffer;
-    nvrhi::BufferHandle staticBucketIndexBuffer;
-    nvrhi::BufferHandle staticBucketTriangleClassBuffer;
-    nvrhi::BufferHandle staticBucketTriangleMaterialBuffer;
-    nvrhi::BufferHandle staticBucketTriangleMaterialIndexBuffer;
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     bool enableTextureProbe = false;
     bool forceFallbackTexture = false;

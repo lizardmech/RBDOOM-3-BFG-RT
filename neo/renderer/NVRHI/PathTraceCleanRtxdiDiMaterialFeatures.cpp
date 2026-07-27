@@ -20,8 +20,6 @@ struct RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess
         const RtPathTraceMaterialFeaturePassRegistration& registration);
     static const RtPathTraceMaterialFeatureShaderTableState* ShaderTableState(
         const RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
-    static nvrhi::ShaderLibraryHandle& BucketHitShaderLibrary(
-        RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState);
 };
 
 struct RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess
@@ -40,7 +38,6 @@ struct RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess
 struct RtPathTraceCleanRtxdiDiMaterialFeatureState::Impl
 {
     RtPathTraceMaterialFeatureShaderTableState shaderTableState;
-    nvrhi::ShaderLibraryHandle bucketHitShaderLibrary;
 };
 
 struct RtPathTraceCleanRtxdiDiMaterialFeaturePasses::Impl
@@ -78,25 +75,6 @@ static RtPathTraceMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMater
         deviceManager
             ? deviceManager->GetGraphicsAPI()
             : nvrhi::GraphicsAPI::D3D12;
-    nvrhi::ShaderLibraryHandle bucketHitShaderLibrary;
-    if (featureState &&
-        device &&
-        graphicsApi == nvrhi::GraphicsAPI::VULKAN)
-    {
-        nvrhi::ShaderLibraryHandle& ownedBucketHitShaderLibrary =
-            RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::
-                BucketHitShaderLibrary(*featureState);
-        if (ownedBucketHitShaderLibrary ||
-            LoadPathTraceMaterialFeatureShaderLibrary(
-                device,
-                "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_material_bucket_hits.rt.bin",
-                "clean-room RTXDI DI compact material static-bucket hits",
-                ownedBucketHitShaderLibrary))
-        {
-            bucketHitShaderLibrary =
-                ownedBucketHitShaderLibrary;
-        }
-    }
     return {
         featureState
             ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForRegistration(*featureState, registration)
@@ -105,8 +83,7 @@ static RtPathTraceMaterialFeaturePipelineContext BuildPathTraceCleanRtxdiDiMater
         graphicsApi,
         context.smokeTestInitialized,
         context.cleanRtxdiDiBindingLayout,
-        context.textureBindlessLayout,
-        bucketHitShaderLibrary
+        context.textureBindlessLayout
     };
 }
 
@@ -219,12 +196,6 @@ const RtPathTraceMaterialFeatureShaderTableState* RtPathTraceCleanRtxdiDiMateria
     return featureState.m_impl
         ? &featureState.m_impl->shaderTableState
         : nullptr;
-}
-
-nvrhi::ShaderLibraryHandle& RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::BucketHitShaderLibrary(
-    RtPathTraceCleanRtxdiDiMaterialFeatureState& featureState)
-{
-    return featureState.m_impl->bucketHitShaderLibrary;
 }
 
 void RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::Init(

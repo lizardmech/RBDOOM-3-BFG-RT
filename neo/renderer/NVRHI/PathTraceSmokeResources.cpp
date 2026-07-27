@@ -582,36 +582,6 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, desc.buffers.lightCandidateBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(41, desc.buffers.skinnedTriangleDispatchIndexBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(76, desc.buffers.dynamicMaterialBuffer ? desc.buffers.dynamicMaterialBuffer : desc.buffers.lightCandidateBuffer));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            83,
-            desc.staticBucketRouteRecordBuffer
-                ? desc.staticBucketRouteRecordBuffer
-                : desc.buffers.rigidRouteInstanceBuffer));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            84,
-            desc.staticBucketVertexBuffer
-                ? desc.staticBucketVertexBuffer
-                : desc.buffers.staticVertexBuffer));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            85,
-            desc.staticBucketIndexBuffer
-                ? desc.staticBucketIndexBuffer
-                : desc.buffers.staticIndexBuffer));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            86,
-            desc.staticBucketTriangleClassBuffer
-                ? desc.staticBucketTriangleClassBuffer
-                : desc.buffers.staticTriangleClassBuffer));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            87,
-            desc.staticBucketTriangleMaterialBuffer
-                ? desc.staticBucketTriangleMaterialBuffer
-                : desc.buffers.staticTriangleMaterialBuffer));
-        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            88,
-            desc.staticBucketTriangleMaterialIndexBuffer
-                ? desc.staticBucketTriangleMaterialIndexBuffer
-                : desc.buffers.staticTriangleMaterialIndexBuffer));
         RtPathTraceMaterialFeatureInputResources materialFeatureInputs;
         materialFeatureInputs.materialFeatureBuffer = desc.buffers.materialFeatureBuffer;
         materialFeatureInputs.materialFeatureParameterBuffer = desc.buffers.materialFeatureParameterBuffer;
@@ -736,9 +706,7 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
     const char* label,
     nvrhi::rt::PipelineHandle& pipeline,
     nvrhi::rt::ShaderTableHandle& shaderTable,
-    nvrhi::ShaderLibraryHandle skinnedHitShaderLibrary = nullptr,
-    nvrhi::ShaderLibraryHandle bucketHitShaderLibrary = nullptr,
-    bool appendLegacyBucketHitGroups = false)
+    nvrhi::ShaderLibraryHandle skinnedHitShaderLibrary = nullptr)
 {
     pipeline = nullptr;
     shaderTable = nullptr;
@@ -762,12 +730,6 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
         shadowClosestHit;
     nvrhi::ShaderHandle skinnedShadowAnyHit =
         shadowAnyHit;
-    nvrhi::ShaderHandle bucketClosestHit = closestHit;
-    nvrhi::ShaderHandle bucketAnyHit = anyHit;
-    nvrhi::ShaderHandle bucketShadowClosestHit =
-        shadowClosestHit;
-    nvrhi::ShaderHandle bucketShadowAnyHit =
-        shadowAnyHit;
     if (skinnedHitShaderLibrary)
     {
         skinnedClosestHit = skinnedHitShaderLibrary->getShader(
@@ -783,35 +745,9 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
             "CleanDiSkinnedShadowAnyHit",
             nvrhi::ShaderType::AnyHit);
     }
-    const bool appendBucketHitGroups =
-        bucketHitShaderLibrary || appendLegacyBucketHitGroups;
-    if (bucketHitShaderLibrary)
-    {
-        bucketClosestHit = bucketHitShaderLibrary->getShader(
-            "CleanDiBucketClosestHit",
-            nvrhi::ShaderType::ClosestHit);
-        bucketAnyHit = bucketHitShaderLibrary->getShader(
-            "CleanDiBucketAnyHit",
-            nvrhi::ShaderType::AnyHit);
-        bucketShadowClosestHit = bucketHitShaderLibrary->getShader(
-            "CleanDiBucketShadowClosestHit",
-            nvrhi::ShaderType::ClosestHit);
-        bucketShadowAnyHit = bucketHitShaderLibrary->getShader(
-            "CleanDiBucketShadowAnyHit",
-            nvrhi::ShaderType::AnyHit);
-    }
-
     if (!rayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
     {
         common->Printf("PathTracePrimaryPass: %s RT smoke shader library is missing one or more required entry points\n", label);
-        return false;
-    }
-    if (!bucketClosestHit || !bucketAnyHit ||
-        !bucketShadowClosestHit || !bucketShadowAnyHit)
-    {
-        common->Printf(
-            "PathTracePrimaryPass: %s compact static-bucket-hit library is missing one or more required entry points\n",
-            label);
         return false;
     }
     if (!skinnedClosestHit || !skinnedAnyHit ||
@@ -864,25 +800,6 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
         nullptr,
         false
     });
-    if (appendBucketHitGroups)
-    {
-        pipelineDesc.hitGroups.push_back({
-            "StaticBucketHitGroup",
-            bucketClosestHit,
-            bucketAnyHit,
-            nullptr,
-            nullptr,
-            false
-        });
-        pipelineDesc.hitGroups.push_back({
-            "StaticBucketShadowHitGroup",
-            bucketShadowClosestHit,
-            bucketShadowAnyHit,
-            nullptr,
-            nullptr,
-            false
-        });
-    }
     pipelineDesc.maxPayloadSize = 64;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
@@ -909,11 +826,6 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
     shaderTable->addHitGroup("ShadowHitGroup");
     shaderTable->addHitGroup("SkinnedHitGroup");
     shaderTable->addHitGroup("SkinnedShadowHitGroup");
-    if (appendBucketHitGroups)
-    {
-        shaderTable->addHitGroup("StaticBucketHitGroup");
-        shaderTable->addHitGroup("StaticBucketShadowHitGroup");
-    }
     return true;
 }
 
@@ -1129,12 +1041,6 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(41));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(76));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(83));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(84));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(85));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(86));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(87));
-    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(88));
     AddPathTraceMaterialFeatureInputLayoutBinding(
         bindingLayoutDesc,
         RT_MATERIAL_FEATURE_RESOURCE_MATERIAL_FEATURE_SIDECAR);
@@ -1240,12 +1146,6 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(74));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
-    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(100));
-    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(101));
-    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(102));
-    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(103));
-    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(104));
-    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(105));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(78));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(94));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING));
@@ -1679,9 +1579,7 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
         const char* dxilShaderPath,
         const char* spirvShaderPath,
         nvrhi::BindingLayoutHandle bindingLayoutOverride = nullptr,
-        nvrhi::ShaderLibraryHandle skinnedHitShaderLibrary = nullptr,
-        nvrhi::ShaderLibraryHandle bucketHitShaderLibrary = nullptr,
-        bool appendLegacyBucketHitGroups = false) -> bool
+        nvrhi::ShaderLibraryHandle skinnedHitShaderLibrary = nullptr) -> bool
     {
         if (shaderTable)
         {
@@ -1729,9 +1627,7 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             label,
             pipeline,
             shaderTable,
-            skinnedHitShaderLibrary,
-            bucketHitShaderLibrary,
-            appendLegacyBucketHitGroups))
+            skinnedHitShaderLibrary))
         {
             common->Printf("PathTracePrimaryPass: %s RT smoke pipeline unavailable; matching modes will use the core placeholder path\n", label);
             pipeline = nullptr;
@@ -1755,9 +1651,7 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_primary_surface_producer.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_primary_surface_producer.rt.bin",
             nullptr,
-            nullptr,
-            nullptr,
-            true);
+            nullptr);
         if (initialized)
         {
             common->Printf("PathTracePrimaryPass: primary-surface producer material-feature parameters bound=t81 stride=%u featureAbi=%u liquidParamAbi=%u\n",
@@ -1770,9 +1664,7 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
     case 15:
     {
         nvrhi::ShaderLibraryHandle sentinelSkinnedHitLibrary;
-        nvrhi::ShaderLibraryHandle sentinelBucketHitLibrary;
         bool sentinelSkinnedHitsOk = true;
-        bool sentinelBucketHitsOk = true;
         if (deviceManager &&
             deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
         {
@@ -1788,20 +1680,8 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
                         m_smokeCleanRtxdiDiSkinnedHitsShaderLibrary));
             sentinelSkinnedHitLibrary =
                 m_smokeCleanRtxdiDiSkinnedHitsShaderLibrary;
-            sentinelBucketHitsOk =
-                device != nullptr &&
-                (m_smokeCleanRtxdiDiBucketHitsShaderLibrary ||
-                    LoadPathTraceSmokeShaderLibrary(
-                        device,
-                        "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_bucket_hits.rt.bin",
-                        "clean-room RTXDI DI compact static-bucket hits",
-                        m_smokeCleanRtxdiDiBucketHitsShaderLibrary));
-            sentinelBucketHitLibrary =
-                m_smokeCleanRtxdiDiBucketHitsShaderLibrary;
         }
-        const bool compactHitsOk =
-            sentinelSkinnedHitsOk && sentinelBucketHitsOk;
-        const bool sentinelOk = compactHitsOk && initLibrary(
+        const bool sentinelOk = sentinelSkinnedHitsOk && initLibrary(
             m_smokeCleanRtxdiDiSentinelShaderLibrary,
             m_smokeCleanRtxdiDiSentinelPipeline,
             m_smokeCleanRtxdiDiSentinelShaderTable,
@@ -1809,8 +1689,7 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout,
-            sentinelSkinnedHitLibrary,
-            sentinelBucketHitLibrary);
+            sentinelSkinnedHitLibrary);
         const bool initialOk = initLibrary(
             m_smokeCleanRtxdiDiInitialShaderLibrary,
             m_smokeCleanRtxdiDiInitialPipeline,
@@ -1819,8 +1698,7 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout,
-            sentinelSkinnedHitLibrary,
-            sentinelBucketHitLibrary);
+            sentinelSkinnedHitLibrary);
         const bool temporalOk = initLibrary(
             m_smokeCleanRtxdiDiTemporalShaderLibrary,
             m_smokeCleanRtxdiDiTemporalPipeline,
@@ -1829,8 +1707,7 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout,
-            sentinelSkinnedHitLibrary,
-            sentinelBucketHitLibrary);
+            sentinelSkinnedHitLibrary);
         const bool initialProductionOk = initLibrary(
             m_smokeCleanRtxdiDiInitialProductionShaderLibrary,
             m_smokeCleanRtxdiDiInitialProductionPipeline,
@@ -1839,8 +1716,7 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial_production.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial_production.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout,
-            sentinelSkinnedHitLibrary,
-            sentinelBucketHitLibrary);
+            sentinelSkinnedHitLibrary);
         const bool temporalProductionOk = initLibrary(
             m_smokeCleanRtxdiDiTemporalProductionShaderLibrary,
             m_smokeCleanRtxdiDiTemporalProductionPipeline,
@@ -1849,50 +1725,27 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_production.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal_production.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout,
-            sentinelSkinnedHitLibrary,
-            sentinelBucketHitLibrary);
+            sentinelSkinnedHitLibrary);
         return sentinelOk && initialOk && temporalOk && initialProductionOk && temporalProductionOk;
     }
     case 20:
     {
-        nvrhi::ShaderLibraryHandle spatialBucketHitLibrary;
-        bool spatialBucketHitsOk = true;
-        if (deviceManager &&
-            deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
-        {
-            nvrhi::IDevice* device =
-                deviceManager ? deviceManager->GetDevice() : nullptr;
-            spatialBucketHitsOk =
-                device != nullptr &&
-                (m_smokeCleanRtxdiDiBucketHitsShaderLibrary ||
-                    LoadPathTraceSmokeShaderLibrary(
-                        device,
-                        "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_bucket_hits.rt.bin",
-                        "clean-room RTXDI DI compact static-bucket hits",
-                        m_smokeCleanRtxdiDiBucketHitsShaderLibrary));
-            spatialBucketHitLibrary =
-                m_smokeCleanRtxdiDiBucketHitsShaderLibrary;
-        }
-        const bool spatialOk = spatialBucketHitsOk && initLibrary(
+        const bool spatialOk = initLibrary(
             m_smokeCleanRtxdiDiSpatialShaderLibrary,
             m_smokeCleanRtxdiDiSpatialPipeline,
             m_smokeCleanRtxdiDiSpatialShaderTable,
             "clean-room RTXDI DI spatial",
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
-            m_smokeCleanRtxdiDiSentinelBindingLayout,
-            nullptr,
-            spatialBucketHitLibrary);
-        const bool spatialProductionOk = spatialBucketHitsOk && initLibrary(
+            m_smokeCleanRtxdiDiSentinelBindingLayout);
+        const bool spatialProductionOk = initLibrary(
             m_smokeCleanRtxdiDiSpatialProductionShaderLibrary,
             m_smokeCleanRtxdiDiSpatialProductionPipeline,
             m_smokeCleanRtxdiDiSpatialProductionShaderTable,
             "clean-room RTXDI DI spatial production view 16",
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial_production.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial_production.rt.bin",
-            m_smokeCleanRtxdiDiSentinelBindingLayout,
-            nullptr,
-            spatialBucketHitLibrary);
+            m_smokeCleanRtxdiDiSentinelBindingLayout);
         return spatialOk && spatialProductionOk;
     }
     case 17:

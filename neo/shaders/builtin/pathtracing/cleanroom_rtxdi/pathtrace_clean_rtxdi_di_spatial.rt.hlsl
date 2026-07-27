@@ -92,22 +92,6 @@ struct PathTraceSmokeVertex
     float4 bitangent;
 };
 
-#define RB_PT_STATIC_BUCKET_ROUTES_REGISTER t100
-#define RB_PT_STATIC_BUCKET_VERTICES_REGISTER t101
-#define RB_PT_STATIC_BUCKET_INDICES_REGISTER t102
-#define RB_PT_STATIC_BUCKET_CLASSES_REGISTER t103
-#define RB_PT_STATIC_BUCKET_MATERIALS_REGISTER t104
-#define RB_PT_STATIC_BUCKET_MATERIAL_INDEXES_REGISTER t105
-#define RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS 1
-#include "../PathTraceStaticBucketRoute.hlsli"
-#undef RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
-#undef RB_PT_STATIC_BUCKET_ROUTES_REGISTER
-#undef RB_PT_STATIC_BUCKET_VERTICES_REGISTER
-#undef RB_PT_STATIC_BUCKET_INDICES_REGISTER
-#undef RB_PT_STATIC_BUCKET_CLASSES_REGISTER
-#undef RB_PT_STATIC_BUCKET_MATERIALS_REGISTER
-#undef RB_PT_STATIC_BUCKET_MATERIAL_INDEXES_REGISTER
-
 struct PathTraceSmokeEmissiveTriangle
 {
     float4 centerAndArea;
@@ -145,6 +129,7 @@ StructuredBuffer<PathTraceSmokeVertex> SmokeSkinnedCurrentVertices : register(t2
 StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
 StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
+#include "../PathTraceStaticBucketRoute.hlsli"
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t15);

@@ -210,7 +210,6 @@ bool CleanRestirGiEnsureRayTracingBindingLayout(
 bool CleanRestirGiGetHitShaders(
     nvrhi::IShaderLibrary* legacyLibrary,
     nvrhi::IShaderLibrary* skinnedLibrary,
-    nvrhi::IShaderLibrary* bucketLibrary,
     nvrhi::ShaderHandle& miss,
     nvrhi::ShaderHandle& shadowMiss,
     nvrhi::ShaderHandle& closestHit,
@@ -220,11 +219,7 @@ bool CleanRestirGiGetHitShaders(
     nvrhi::ShaderHandle& skinnedClosestHit,
     nvrhi::ShaderHandle& skinnedAnyHit,
     nvrhi::ShaderHandle& skinnedShadowClosestHit,
-    nvrhi::ShaderHandle& skinnedShadowAnyHit,
-    nvrhi::ShaderHandle& bucketClosestHit,
-    nvrhi::ShaderHandle& bucketAnyHit,
-    nvrhi::ShaderHandle& bucketShadowClosestHit,
-    nvrhi::ShaderHandle& bucketShadowAnyHit)
+    nvrhi::ShaderHandle& skinnedShadowAnyHit)
 {
     miss = legacyLibrary->getShader(
         "Miss", nvrhi::ShaderType::Miss);
@@ -253,21 +248,6 @@ bool CleanRestirGiGetHitShaders(
             "CleanGiSkinnedShadowAnyHit",
             nvrhi::ShaderType::AnyHit);
     }
-    if (bucketLibrary)
-    {
-        bucketClosestHit = bucketLibrary->getShader(
-            "CleanGiBucketClosestHit",
-            nvrhi::ShaderType::ClosestHit);
-        bucketAnyHit = bucketLibrary->getShader(
-            "CleanGiBucketAnyHit",
-            nvrhi::ShaderType::AnyHit);
-        bucketShadowClosestHit = bucketLibrary->getShader(
-            "CleanGiBucketShadowClosestHit",
-            nvrhi::ShaderType::ClosestHit);
-        bucketShadowAnyHit = bucketLibrary->getShader(
-            "CleanGiBucketShadowAnyHit",
-            nvrhi::ShaderType::AnyHit);
-    }
     return
         miss && shadowMiss &&
         closestHit && anyHit &&
@@ -275,11 +255,7 @@ bool CleanRestirGiGetHitShaders(
         (!skinnedLibrary ||
             (skinnedClosestHit && skinnedAnyHit &&
                 skinnedShadowClosestHit &&
-                skinnedShadowAnyHit)) &&
-        (!bucketLibrary ||
-            (bucketClosestHit && bucketAnyHit &&
-                bucketShadowClosestHit &&
-                bucketShadowAnyHit));
+                skinnedShadowAnyHit));
 }
 
 void CleanRestirGiAddHitGroups(
@@ -291,11 +267,7 @@ void CleanRestirGiAddHitGroups(
     const nvrhi::ShaderHandle& skinnedClosestHit,
     const nvrhi::ShaderHandle& skinnedAnyHit,
     const nvrhi::ShaderHandle& skinnedShadowClosestHit,
-    const nvrhi::ShaderHandle& skinnedShadowAnyHit,
-    const nvrhi::ShaderHandle& bucketClosestHit,
-    const nvrhi::ShaderHandle& bucketAnyHit,
-    const nvrhi::ShaderHandle& bucketShadowClosestHit,
-    const nvrhi::ShaderHandle& bucketShadowAnyHit)
+    const nvrhi::ShaderHandle& skinnedShadowAnyHit)
 {
     pipelineDesc.hitGroups = {
         { "HitGroup", closestHit, anyHit, nullptr, nullptr, false },
@@ -320,32 +292,12 @@ void CleanRestirGiAddHitGroups(
             false
         });
     }
-    if (bucketClosestHit)
-    {
-        pipelineDesc.hitGroups.push_back({
-            "StaticBucketHitGroup",
-            bucketClosestHit,
-            bucketAnyHit,
-            nullptr,
-            nullptr,
-            false
-        });
-        pipelineDesc.hitGroups.push_back({
-            "StaticBucketShadowHitGroup",
-            bucketShadowClosestHit,
-            bucketShadowAnyHit,
-            nullptr,
-            nullptr,
-            false
-        });
-    }
 }
 
 void CleanRestirGiInitializeShaderTable(
     const nvrhi::rt::ShaderTableHandle& shaderTable,
     const char* rayGenerationShader,
-    bool hasSkinnedHitGroups,
-    bool hasBucketHitGroups)
+    bool hasSkinnedHitGroups)
 {
     shaderTable->setRayGenerationShader(rayGenerationShader);
     shaderTable->addMissShader("Miss");
@@ -356,11 +308,6 @@ void CleanRestirGiInitializeShaderTable(
     {
         shaderTable->addHitGroup("SkinnedHitGroup");
         shaderTable->addHitGroup("SkinnedShadowHitGroup");
-    }
-    if (hasBucketHitGroups)
-    {
-        shaderTable->addHitGroup("StaticBucketHitGroup");
-        shaderTable->addHitGroup("StaticBucketShadowHitGroup");
     }
 }
 
@@ -386,15 +333,10 @@ bool CleanRestirGiBuildSingleRayPipeline(
     nvrhi::ShaderHandle skinnedAnyHit;
     nvrhi::ShaderHandle skinnedShadowClosestHit;
     nvrhi::ShaderHandle skinnedShadowAnyHit;
-    nvrhi::ShaderHandle bucketClosestHit;
-    nvrhi::ShaderHandle bucketAnyHit;
-    nvrhi::ShaderHandle bucketShadowClosestHit;
-    nvrhi::ShaderHandle bucketShadowAnyHit;
     if (!rayGeneration ||
         !CleanRestirGiGetHitShaders(
             passLibrary,
             state.skinnedHitShaderLibrary,
-            state.bucketHitShaderLibrary,
             miss,
             shadowMiss,
             closestHit,
@@ -404,11 +346,7 @@ bool CleanRestirGiBuildSingleRayPipeline(
             skinnedClosestHit,
             skinnedAnyHit,
             skinnedShadowClosestHit,
-            skinnedShadowAnyHit,
-            bucketClosestHit,
-            bucketAnyHit,
-            bucketShadowClosestHit,
-            bucketShadowAnyHit))
+            skinnedShadowAnyHit))
     {
         common->Printf(
             "PathTraceCleanRestirGi: split GI pass %s is missing required entry points\n",
@@ -435,11 +373,7 @@ bool CleanRestirGiBuildSingleRayPipeline(
         skinnedClosestHit,
         skinnedAnyHit,
         skinnedShadowClosestHit,
-        skinnedShadowAnyHit,
-        bucketClosestHit,
-        bucketAnyHit,
-        bucketShadowClosestHit,
-        bucketShadowAnyHit);
+        skinnedShadowAnyHit);
     pipelineDesc.maxPayloadSize = 64;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
@@ -466,8 +400,7 @@ bool CleanRestirGiBuildSingleRayPipeline(
     CleanRestirGiInitializeShaderTable(
         shaderTable,
         spec.rayGenerationShader,
-        state.skinnedHitShaderLibrary != nullptr,
-        state.bucketHitShaderLibrary != nullptr);
+        state.skinnedHitShaderLibrary != nullptr);
     return true;
 }
 
@@ -506,16 +439,6 @@ bool CleanRestirGiEnsureVulkanSplitPipeline(
             "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_skinned_hits.rt.bin",
             "GI compact skinned-hit",
             state.skinnedHitShaderLibrary))
-    {
-        state.pipelineBuildFailed = true;
-        return false;
-    }
-    if (!state.bucketHitShaderLibrary &&
-        !CleanRestirGiLoadShaderLibrary(
-            inputs.device,
-            "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_bucket_hits.rt.bin",
-            "GI compact bucket-hit",
-            state.bucketHitShaderLibrary))
     {
         state.pipelineBuildFailed = true;
         return false;
@@ -651,13 +574,8 @@ bool CleanRestirGiEnsureD3D12MonolithicPipeline(
     nvrhi::ShaderHandle skinnedAnyHit;
     nvrhi::ShaderHandle skinnedShadowClosestHit;
     nvrhi::ShaderHandle skinnedShadowAnyHit;
-    nvrhi::ShaderHandle bucketClosestHit;
-    nvrhi::ShaderHandle bucketAnyHit;
-    nvrhi::ShaderHandle bucketShadowClosestHit;
-    nvrhi::ShaderHandle bucketShadowAnyHit;
     if (!CleanRestirGiGetHitShaders(
             state.shaderLibrary,
-            nullptr,
             nullptr,
             miss,
             shadowMiss,
@@ -668,11 +586,7 @@ bool CleanRestirGiEnsureD3D12MonolithicPipeline(
             skinnedClosestHit,
             skinnedAnyHit,
             skinnedShadowClosestHit,
-            skinnedShadowAnyHit,
-            bucketClosestHit,
-            bucketAnyHit,
-            bucketShadowClosestHit,
-            bucketShadowAnyHit))
+            skinnedShadowAnyHit))
     {
         common->Printf(
             "PathTraceCleanRestirGi: GI monolithic shader is missing hit/miss entry points\n");
@@ -697,11 +611,7 @@ bool CleanRestirGiEnsureD3D12MonolithicPipeline(
         skinnedClosestHit,
         skinnedAnyHit,
         skinnedShadowClosestHit,
-        skinnedShadowAnyHit,
-        bucketClosestHit,
-        bucketAnyHit,
-        bucketShadowClosestHit,
-        bucketShadowAnyHit);
+        skinnedShadowAnyHit);
     pipelineDesc.maxPayloadSize = 64;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
@@ -735,7 +645,6 @@ bool CleanRestirGiEnsureD3D12MonolithicPipeline(
         CleanRestirGiInitializeShaderTable(
             shaderTable,
             spec.rayGenerationShader,
-            false,
             false);
         state.*(spec.shaderTable) = shaderTable;
     }
@@ -806,12 +715,6 @@ void CleanRestirGiAddCommonComputeBindingLayoutItems(nvrhi::BindingLayoutDesc& l
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(76));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(87));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(100));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(101));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(102));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(103));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(104));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(105));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(69));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
@@ -1339,7 +1242,6 @@ void PathTraceCleanRestirGiRayTracingPipelineState::Release()
     bindingLayout = nullptr;
     shaderLibrary = nullptr;
     skinnedHitShaderLibrary = nullptr;
-    bucketHitShaderLibrary = nullptr;
     pipeline = nullptr;
     shaderTable = nullptr;
     producerShaderTable = nullptr;
@@ -1604,41 +1506,11 @@ bool PathTraceCleanRestirGiExecute(
     nvrhi::IBuffer* materialFeatureParameterBuffer = inputs.materialFeatureParameterBuffer
         ? inputs.materialFeatureParameterBuffer
         : state.placeholderSrvBuffer.Get();
-    nvrhi::IBuffer* staticBucketRouteRecordBuffer =
-        inputs.staticBucketRouteRecordBuffer
-            ? inputs.staticBucketRouteRecordBuffer
-            : state.placeholderSrvBuffer.Get();
-    nvrhi::IBuffer* staticBucketVertexBuffer =
-        inputs.staticBucketVertexBuffer
-            ? inputs.staticBucketVertexBuffer
-            : state.placeholderSrvBuffer.Get();
-    nvrhi::IBuffer* staticBucketIndexBuffer =
-        inputs.staticBucketIndexBuffer
-            ? inputs.staticBucketIndexBuffer
-            : state.placeholderSrvBuffer.Get();
-    nvrhi::IBuffer* staticBucketTriangleClassBuffer =
-        inputs.staticBucketTriangleClassBuffer
-            ? inputs.staticBucketTriangleClassBuffer
-            : state.placeholderSrvBuffer.Get();
-    nvrhi::IBuffer* staticBucketTriangleMaterialBuffer =
-        inputs.staticBucketTriangleMaterialBuffer
-            ? inputs.staticBucketTriangleMaterialBuffer
-            : state.placeholderSrvBuffer.Get();
-    nvrhi::IBuffer* staticBucketTriangleMaterialIndexBuffer =
-        inputs.staticBucketTriangleMaterialIndexBuffer
-            ? inputs.staticBucketTriangleMaterialIndexBuffer
-            : state.placeholderSrvBuffer.Get();
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, neeCacheProviderResultBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, neeCacheCellBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(76, dynamicMaterialBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, neeCacheCandidateBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(87, materialFeatureParameterBuffer));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(100, staticBucketRouteRecordBuffer));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(101, staticBucketVertexBuffer));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(102, staticBucketIndexBuffer));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(103, staticBucketTriangleClassBuffer));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(104, staticBucketTriangleMaterialBuffer));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(105, staticBucketTriangleMaterialIndexBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(69, inputs.diReservoirBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, inputs.primarySurfaceCurrentBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, inputs.primarySurfacePreviousBuffer));
@@ -1830,12 +1702,6 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(dynamicMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(neeCacheCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(materialFeatureParameterBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(staticBucketRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(staticBucketVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(staticBucketIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(staticBucketTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(staticBucketTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(staticBucketTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.liquidPoolStatusBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->commitBarriers();
 

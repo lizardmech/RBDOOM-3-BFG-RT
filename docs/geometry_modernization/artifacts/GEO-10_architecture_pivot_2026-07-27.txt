@@ -1,0 +1,369 @@
+GEO-10 architecture pivot - existing-static-slot bucket traversal
+=================================================================
+
+STATUS
+------
+Accepted implementation direction as of 2026-07-27.
+
+This document overrides the parallel static-bucket shader ABI described later
+in GEO-10_entry_audit.txt and GEO-10_portal_area_static_buckets.txt. Those
+sections remain historical evidence. They are not authority for new code.
+
+The GEO-10 goal remains unchanged:
+
+  build persistent portal-area/size static BLAS buckets;
+  keep the full resident bucket set cached;
+  put only the active portal subset in the TLAS;
+  preserve exact static geometry, material, class, emissive, and history
+  identity;
+  retain a one-cvar monolithic rollback until GEO-13.
+
+WHY THE CURRENT SHAPE IS REJECTED
+---------------------------------
+The first implementation turned a BLAS/TLAS topology change into a renderer-
+wide shader ABI:
+
+  six new SRVs at t100 through t105;
+  a 48-byte route record plus a checked decoder;
+  repeated decoder execution for material ID, material index, class, UV,
+  alpha, and full hit reconstruction;
+  new SBT contributions 4/5 in core, material-feature, and GI pipeline
+  families;
+  compact hit-only shader libraries and cross-module payload coupling;
+  a second independently decoded geometry universe;
+  full resident repacking every frame.
+
+The checked decoder is defensively correct in isolation, but its repeated
+GetDimensions/range/stride/generation validation does not belong in every hot
+hit path. Adding it to already large libraries also reached DXC SPIR-V ID
+limits and caused unexplained device removal during always-warmed pipeline
+creation even while bucket traversal was disabled. Splitting it into compact
+libraries made that compiler/driver symptom survivable but expanded the SBT
+and payload ABI again. The later 64-versus-176-byte material payload defect was
+a real defect, but it was exposed by this unnecessary coupling and did not
+resolve the live material-bucket crash.
+
+The seven-stage material-hit diagnostic is suspended. It required one shader
+build, not seven builds, but still required repeated risky launches to refine a
+path that this pivot deletes.
+
+RETAINED WORK
+-------------
+Keep these already implemented and tested CPU-side contracts:
+
+  deterministic area/size bucket assignment;
+  exact surface and primitive coverage accounting;
+  explicit fallback, oversized, duplicate, invalid-range, and collision
+  counters;
+  deterministic resident pack ordering;
+  exact copied vertex/index/class/material/source identity;
+  one BLAS per resident bucket;
+  bounded incremental BLAS build submission;
+  active portal-area selection;
+  active-TLAS versus resident-route generation checks;
+  monolithic static BLAS ownership separated from TLAS membership;
+  static emissive construction from the same accepted active set;
+  default-off rollback.
+
+Keep the material-feature pipeline maxPayloadSize=176 correction. The original
+transmission producer declares the extended trace payload independent of the
+compact bucket library, so 64 bytes was not an adequate descriptor contract.
+
+TARGET SHADER ABI
+-----------------
+Bucket traversal must use the existing static shader resources:
+
+  t3   static vertices
+  t4   static indexes
+  t5   static triangle class/flags
+  t9   static triangle material IDs
+  t11  static triangle material-table indexes
+
+When the monolithic route is active, these slots bind the current monolithic
+static buffers exactly as before.
+
+When the bucket route is atomically accepted, the same slots bind the cached
+resident bucket pool. No additional bucket SRV may be visible to a ray-tracing
+pipeline. The selected buffer tuple and the selected TLAS tuple must switch
+from the same acceptance boolean and frame package.
+
+Bucket instances use the existing primary/shadow SBT records:
+
+  instance contribution 0  primary hit group
+  ray contribution      1  shadow hit group
+
+No contribution 4/5 records or compact bucket hit libraries remain.
+
+ENCODED INSTANCE ID CONTRACT
+----------------------------
+Vulkan exposes a 24-bit custom instance ID. Reserve its high bit for static
+bucket hits:
+
+  namespace bit            0x00800000
+  triangle-base mask       0x007fffff
+  encoded instance ID      0x00800000 | globalTriangleOffset
+  decoded triangle base    instanceID & 0x007fffff
+  global triangle index    decodedBase + PrimitiveIndex()
+  global index offset      globalTriangleIndex * 3
+
+The full resident pack is deterministic and contains every resident bucket,
+not only the active subset. Therefore a bucket's global triangle offset remains
+stable across portal movement. Active-set changes only add/remove TLAS
+instances and do not renumber retained buckets.
+
+CPU publication must reject the route unless all of these are true:
+
+  resident pack is exact and cached for the current content generation;
+  every resident bucket range is nonempty and in bounds;
+  bucket.indexOffset == bucket.triangleOffset * 3;
+  bucket.indexCount == bucket.triangleCount * 3;
+  bucket.triangleOffset < 0x00800000;
+  bucket.triangleOffset + bucket.triangleCount <= 0x00800000;
+  encoded instance IDs are unique;
+  encoded IDs do not overlap rigid or skinned namespaces;
+  every active bucket BLAS is ready;
+  active TLAS membership is an exact subset of the cached resident pack;
+  static vertex/index/class/material/material-index buffers describe the same
+  pack generation;
+  static emissive identity uses the same encoded instance ID and local
+  PrimitiveIndex tuple;
+  the accepted buffer/TLAS/emissive tuple is committed atomically.
+
+The 23-bit triangle-offset limit is an explicit conventional-path capacity
+gate, not a silent cap. Overflow fails closed to monolithic traversal and is
+reported. Later RTX Mega Geometry work may replace this encoding, but GEO-10
+must not silently alias IDs.
+
+SHADER DECODE CONTRACT
+----------------------
+Add one small shared arithmetic helper:
+
+  IsStaticBucketInstance(instanceId)
+  DecodeStaticTriangleIndex(instanceId, primitiveIndex, totalTriangleCount)
+
+It may check:
+
+  namespace bit;
+  route-enabled/publication-valid constant;
+  decoded base plus PrimitiveIndex overflow;
+  resulting triangle index against the selected static triangle count;
+  derived indexOffset + 2 against the selected static index count.
+
+It must not:
+
+  read a route-record SRV;
+  call GetDimensions on six buffers;
+  validate a generation per hit;
+  validate the same route independently for every requested attribute.
+
+Existing static consumers then load:
+
+  material ID       SmokeStaticTriangleMaterials[globalTriangle]
+  material index    SmokeStaticTriangleMaterialIndexes[globalTriangle]
+  class/flags       SmokeStaticTriangleClasses[globalTriangle]
+  vertex indexes    SmokeStaticIndices[globalTriangle * 3 + 0..2]
+  vertices          SmokeStaticVertices[absoluteVertexIndex]
+
+Monolithic instance 0 keeps triangleBase 0. Dynamic instance 1 and the existing
+rigid/skinned namespaces retain their current decode.
+
+RESIDENT PACK LIFETIME
+----------------------
+Resident-pack caching moves before live traversal acceptance, not after crash
+debugging.
+
+The cache key includes at minimum:
+
+  world/source/storage geometry generation;
+  deterministic assignment/pack content signature;
+  material-ID generation needed by t9;
+  material-table generation needed by t11.
+
+Portal visibility and active reasons are not resident-pack keys. They produce a
+small active TLAS list from the cached bucket records.
+
+Recurring steady-state work with unchanged content must be limited to:
+
+  active portal mask derivation;
+  active bucket membership/signature comparison;
+  TLAS instance list update when membership changes;
+  material-index refresh only when its generation changes;
+  bounded dirty BLAS work only for changed bucket geometry.
+
+The full resident vertex/index/class/material/identity pack must not be rebuilt
+or uploaded merely because the camera crossed a portal.
+
+ORDERED IMPLEMENTATION SLICES
+-----------------------------
+PIVOT-1 - CPU encoding and invariant harness
+
+  Add pure helpers for encoded ID creation/decode/capacity.
+  Change active publication descriptors to contribution 0 and encoded IDs.
+  Add CPU tests for first/last legal offsets, overflow, uniqueness, collision,
+  indexOffset/triangleOffset coupling, active-subset stability, and rollback.
+  Do not enable live traversal.
+
+PIVOT-2 - resident-pack cache
+
+  Cache the exact full resident pack by content/material generations.
+  Separate resident content work from per-frame active-set work.
+  Add counters for cache hit/miss, pack CPU time, upload bytes, dirty buckets,
+  active-set changes, and TLAS-only frames.
+  Require stable encoded IDs across active-set changes.
+
+PIVOT-3 - existing static resource selection
+
+  Create one selected-static-resource tuple.
+  Route false selects monolithic t3/t4/t5/t9/t11 and monolithic counts.
+  Route accepted selects resident bucket t3/t4/t5/t9/t11 and resident counts.
+  Build every RT binding family from that selected tuple.
+  Keep t100-t105 bound only until all consumers have moved; then delete them.
+
+PIVOT-4 - arithmetic shader decode
+
+  Add the small shared helper.
+  Update primary, clean DI, spatial DI, material features, GI, shadow/alpha,
+  transmission, hit reconstruction, motion/history, and emissive replay
+  consumers.
+  Compile Vulkan only.
+  Prove preprocess/disassembly contains no t100-t105 bucket resources in the
+  new path.
+
+PIVOT-5 - collapse pipeline/SBT detour
+
+  Set bucket contribution to 0.
+  Delete compact core/material/GI bucket hit sources and blob targets.
+  Delete contribution 4/5 hit groups and six-record shader tables.
+  Delete optional auxiliary bucket-hit pipeline parameters.
+  Delete the static-bucket route-record buffer and its uploader.
+  Delete t100-t105 layouts, binding entries, transitions, and scene-input
+  fields.
+  Delete the seven-stage hit diagnostic cvar and flag bits.
+
+PIVOT-6 - runtime and performance acceptance
+
+  First run route disabled and confirm exact baseline.
+  Enable the bucket BLAS owner/build gate and wait for resident readiness.
+  Enable the route in a static-brush view without glass.
+  Test glass/PSR, portal crossings, active-set changes, PDA, map reload, skinned
+  actors, particles, and emissives.
+  Confirm no missing brushes, material changes, portal flicker, device removal,
+  or CPU crash.
+  Measure identical-content warm frames. Reject the route if the resident pack
+  rebuilds/uploads on portal-only frames or if recurring cost remains tied to
+  full-map triangle count.
+
+GPU DIAGNOSTIC SUPPORT
+----------------------
+Before another knowingly faulting experimental path is introduced, add a
+separate Vulkan diagnostic slice:
+
+  optionally enable VK_NV_device_diagnostic_checkpoints when supported;
+  emit fixed, persistent checkpoint IDs around acceleration submission,
+  primary, transmission PSR, DI initial/temporal/spatial, material features,
+  GI, and final PT dispatch;
+  query and print queue checkpoint data when NVRHI catches device loss;
+  keep r_pathTracingNsightGpuMarkers for ordinary debug labels;
+  use GPU-assisted Vulkan validation as a deliberately slow diagnostic launch,
+  not as the normal release configuration;
+  enable Nsight Aftermath only if pass-level checkpoints and validation cannot
+  localize a future fault.
+
+Diagnostic checkpoints identify the last reached pipeline stage/pass. They do
+not by themselves identify a faulting shader instruction. Instruction-level
+evidence requires GPU-assisted validation, Aftermath shader debug data, or an
+equivalent vendor tool.
+
+ROLLBACK AND WORKTREE RULES
+---------------------------
+Until PIVOT-6 passes:
+
+  r_pathTracingGeometryStaticBucketRoute defaults to 0;
+  production remains monolithic;
+  no current compact-route diagnostic is checkpointed as accepted;
+  remove only task-owned GEO-10 changes;
+  preserve unrelated dirty shader and renderer files;
+  do not deploy regenerated unrelated SPIR-V;
+  do not compile DX12 shaders.
+
+CHECKPOINT POLICY
+-----------------
+Create a checkpoint after:
+
+  PIVOT-1 plus its CPU harness passes;
+  PIVOT-2/3 establish stable cached storage and selected bindings;
+  PIVOT-4/5 build and static validation pass;
+  PIVOT-6 runtime/performance acceptance passes.
+
+Do not commit every small diagnostic adjustment.
+
+IMPLEMENTATION CHECKPOINT - 2026-07-27
+--------------------------------------
+PIVOT-1 through PIVOT-5 are implemented and statically validated.
+
+CPU/storage:
+
+  Bucket InstanceID uses 0x00800000 | globalTriangleOffset.
+  The lower 23-bit range and indexOffset == triangleOffset * 3 invariant are
+  checked before publication.
+  The full resident pack is cached across portal-only active-set changes.
+  Material-index upload has its own content/material-generation signature.
+  The former 48-byte GPU route-record buffer and uploader are gone.
+  PathTraceCpuPlanningHarness passes all cases, including ID round trips,
+  maximum/overflow bounds, disjoint-range uniqueness, active-set stability,
+  resident-pack reuse/rebuild, and atomic cutover failure cases.
+
+Host pipeline:
+
+  Accepted bucket instances use contribution 0; shadow remains the existing
+  contribution-1 offset.
+  The resident pool replaces the selected static t3/t4/t5/t9/t11 resources and
+  counts only after the exact cutover plan accepts.
+  The compact core, material-feature, and GI bucket libraries are removed.
+  Contribution 4/5 hit groups and shader-table records are removed.
+  t100-t105 layouts, bindings, transitions, and GI scene-input fields are
+  removed.
+  The old no-trace/view/material probe CVars and seven-stage hit flag are
+  removed. The single default-off route gate now selects the completed
+  resident-pool route.
+
+Shader:
+
+  PathTraceStaticBucketRoute.hlsli is arithmetic-only. It aliases the existing
+  static pool and performs no route-record or bucket-specific descriptor read.
+  Primary, clean DI, material-feature, spatial, transmission/glass, and GI
+  consumers retain one shared helper contract.
+  The GI skinned-hit library is skinned-only again.
+  The three compact bucket shader sources and CMake outputs are deleted.
+
+Build/static proof:
+
+  cmake --build --preset win64-pt-dev-release
+  succeeded in 602.7 seconds after explicitly deleting 57 affected Vulkan RT
+  blobs.
+  48 live RT blobs were regenerated.
+  spirv-val --target-env vulkan1.2 passed all 48.
+  Full disassembly found zero Binding 100 through Binding 105 decorations.
+  Every live blob mtime is newer than PathTraceStaticBucketRoute.hlsli.
+  All three retired compact bucket blobs are absent.
+  No DX12 shader target was intentionally compiled.
+
+PIVOT-6 remains open. Runtime acceptance must use the default production
+feature set, not the retired diagnostic ladder.
+
+Required first runtime sequence:
+
+  1. Start with r_pathTracingGeometryStaticBucketRoute 0 and load the known
+     static-brush/portal scene.
+  2. Set r_pathTracingGeometryStaticBucketBlas 1 and
+     r_pathTracingGeometryStaticBucketBlasBuild 1.
+  3. Wait until the GEO10 publication reports every resident bucket ready.
+  4. Set r_pathTracingGeometryStaticBucketRoute 1.
+  5. Traverse portals and inspect brushes, glass/PSR, rigid materials, skinned
+     actors, particles, emissives, PDA, and map reload.
+  6. Return route to 0 to verify immediate monolithic rollback.
+
+Runtime rejection conditions remain device removal, CPU crash, missing or
+flickering brush geometry, glass/PSR regression, material mismatch, stale
+active membership, or recurring resident-pack upload/repack work on
+portal-only frames.

@@ -1359,3 +1359,276 @@ libraries. This closes the shader-consumer capability blocker. The next rung
 may change only `staticBucketRouteConsumerSupported` and exercise the existing
 default-off atomic cutover gate; no resource, BLAS, publication, SBT, or shader
 change is required for that first live traversal test.
+
+FIRST LIVE CUTOVER RESULT AND CONTRIBUTION-4 CONTAINMENT
+--------------------------------------------------------
+
+The first live cutover did not actually select the new bucket hit groups.
+`BuildStaticBucketActivePublication` still wrote TLAS contribution zero even
+though every pipeline had reserved bucket records 4/5. Primary visibility
+appeared to work because the primary producer's legacy records are themselves
+bucket-aware. Other pipelines selected their legacy hit graph instead of the
+compact bucket graph. The user observed:
+
+  opaque brush geometry                             visible
+  brushes behind glass                              missing
+  rigid objects/reflections                         unaffected
+  portal-distance behavior                          erratic
+  portal step 8                                     temporary recovery only
+  route 0                                           immediate recovery
+
+The descriptor builder now takes an explicit contribution and the static
+bucket publication passes contribution 4. A compile-time assertion proves that
+primary contribution 4 plus shadow offset 1 fits the six-record table.
+
+Selecting contribution 4 caused an immediate Vulkan device removal when
+`r_pathTracingGeometryStaticBucketRoute 1` was activated. The route capability
+was therefore restored to fail-closed before deployment. Do not repeat the
+live route-1 test from this checkpoint.
+
+The complete clean view-16 dispatch inventory is:
+
+  primary-surface producer                          six hit records
+  clean initial production                          six hit records
+  clean temporal production                         six hit records
+  clean spatial production                          six hit records
+  glass/transmission material-feature pipelines     six hit records
+  Vulkan split clean ReSTIR GI pipelines            six hit records
+
+The legacy `pathtrace_smoke` table has four records, but clean view 16 returns
+after the clean route and never dispatches it. It is not the immediate failing
+table. The remaining boundary is either contribution-4 TLAS/SBT setup or
+execution of one compact bucket hit family.
+
+A bounded no-trace probe now separates those cases:
+
+  r_pathTracingGeometryStaticBucketRouteNoTraceProbe 1
+
+With the normal resource/build gates already at 1 and all resident BLASes
+ready, requesting route 1 under this probe publishes the exact contribution-4
+bucket descriptors with instance mask zero. It keeps monolithic instance 0 and
+monolithic static-emissive identity, so visible rendering is unchanged and no
+bucket hit shader can execute. The expected cutover line is:
+
+  requested/accepted/noTraceProbe=1/0/1
+  traversal=monolithic-plus-mask-zero-bucket-probe
+
+Interpretation:
+
+  probe survives      TLAS/SBT descriptor setup is valid; isolate compact hit
+                      execution by pipeline family next.
+  device removed      fault is before hit execution; inspect TLAS instance/SBT
+                      setup and driver validation before any shader split.
+
+Probe build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    9AC9910F460F190F45855371EE196A9A5CEA8599C45DACD6137B983D1222032F
+
+No-trace probe runtime result:
+
+  visual regression                                  none observed
+  Vulkan device removal                              none
+  active/resident/ready buckets                      2/56/56
+  active TLAS/resident route records                 2/56
+  accepted no-trace publication                      yes
+  validation warnings                               instanceMask=0 only
+
+The repeated instance-mask warnings are expected for this deliberately
+non-intersectable probe and are not a descriptor or TLAS error. This accepts
+contribution-4 TLAS construction and SBT-offset publication without hit
+execution. The repeatable live crash is now isolated to execution after a ray
+selects record 4/5.
+
+The next rung is `r_pathTracingGeometryStaticBucketRouteView2Probe 1`. It is
+admitted only when the clean-DI view is exactly 2 and the no-trace probe is
+off. View 2 dispatches the primary-surface producer followed by the sentinel
+using the compact five-word core bucket hit pair; spatial-production,
+material-feature, and clean-GI bucket pipelines do not dispatch. Route
+admission remains fail-closed in every other view.
+
+View-2 probe build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    86B6B66EFC42B9F0DF3FEBBE70B92D0A55AEB5A7D380BC415070F60CF9DAFA0C
+
+View-2 probe runtime result:
+
+  Vulkan device removal                              none
+  accepted route                                     yes
+  active/resident/ready buckets                      3/56/56
+  requested/accepted/noTrace/view2                   1/1/0/1
+  traversal                                           bucket-view2-primary-core-probe
+
+This accepts the primary producer, sentinel raygen, and compact five-word core
+bucket hit pair. The next rung is
+`r_pathTracingGeometryStaticBucketRouteView16CoreProbe 1`. It is admitted only
+when clean-DI view 16 is active and transmission producer/compose/debug, glass
+shader/debug, and clean ReSTIR GI are all explicitly disabled. It executes the
+initial, temporal, and spatial production pipelines with the same compact core
+hit pair, while excluding the separate material-feature and GI bucket-hit
+families. All other production configurations remain fail-closed.
+
+View-16 production-core probe build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    81007DDC46F6655DCBAECA4E27EFDDB3BFA291005D15A4F9F5AEB2BE44538F05
+
+View-16 production-core runtime result:
+
+  Vulkan device removal                              none
+  accepted route                                     yes
+  active/resident/ready buckets                      3..5/56/56
+  requested/accepted/noTrace/view2/core              1/1/0/0/1
+  dependencies                                       exact
+  traversal                                           bucket-view16-production-core-probe
+
+The active set changed from three to five buckets during movement without
+losing exact publication. This accepts initial, temporal, and spatial
+production with the compact core bucket hit pair.
+
+The next rung is
+`r_pathTracingGeometryStaticBucketRouteView16MaterialProbe 1`. It requires the
+normal transmission producer/compose and glass shader at 1, their debug views
+at 0, and clean ReSTIR GI at 0. It adds the transmission PSR and
+transmission/glass material-feature passes to the accepted production-core
+baseline while excluding the GI bucket-hit family.
+
+View-16 material-feature probe build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    761917DFF5A3DE59CA9C9106857EF182E6A33AE695B5D5C68B856C99ED384DD7
+
+View-16 material-feature runtime result:
+
+  Vulkan device removal                              immediate on bucket route
+  production-core baseline                          previously accepted
+  clean GI                                           excluded
+  isolated boundary                                  material-feature pipelines
+
+The material bucket hit library compiles
+`PathTraceCleanRtxdiPayload` with the trace-hit adapter enabled. Its ABI is 44
+dwords / 176 bytes:
+
+  base payload                                       5 dwords
+  hit and transmission transport                     11 dwords
+  liquid counters                                    4 dwords
+  six arrays times four retained candidates          24 dwords
+
+Both material-feature pipelines inherited the generic 64-byte maximum payload
+declaration. Linking the 176-byte compact bucket hit payload behind that
+pipeline contract is a concrete mismatch; selecting contribution records 4/5
+can overrun the declared payload. The clean material-feature registry now sets
+176 bytes explicitly for both transmission and glass pipelines. The existing
+material-feature probe remains the validation gate.
+
+Material payload fix build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    EFCBDE0B174E99F7D6D7404B8C37FFDCAA741160404B91C399AC0E98D9AC0F80
+
+The same full material probe still device-removed after the payload declaration
+fix. Therefore 64 versus 176 bytes was a real contract defect but not the sole
+failure. `spirv-val` accepts the transmission, glass, and material-bucket
+modules. SPIR-V inspection confirms that the transmission producer and bucket
+hit modules expose the same extended payload type, bucket resources use
+descriptor set 0 bindings 100 through 105, and the host layout/set binds the
+same slots.
+
+The material probe is now an ordered mode:
+
+  mode 1    standalone transmission producer; compose 0, glass 0, GI 0
+  mode 2    transmission plus PSR/compose; glass 0, GI 0
+  mode 3    transmission plus PSR/compose plus glass; GI 0
+
+Each mode is admitted only when its cvar dependencies match exactly. Start at
+mode 1. A mode-1 crash isolates the transmission producer/compact material hit
+path. Mode 1 survival followed by a mode-2 crash isolates the PSR phase. Mode 2
+survival followed by a mode-3 crash isolates the glass pipeline boundary.
+
+Staged material probe build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  spirv-val material/transmission/glass             passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    17510A4B6126C9C7222096B35AE139B25B002360EC4F796FCD760228FF71BD86
+
+Material probe mode-1 runtime result:
+
+  Vulkan device removal                              none
+  accepted route                                     yes
+  active/resident/ready buckets                      3/56/56
+  dependencies/material mode                         exact/1
+  traversal                                           bucket-view16-transmission-producer-probe
+
+This accepts the late standalone transmission producer dispatch, but not
+compact material bucket hit execution. Source inspection after the run found
+that this late phase does not issue TraceRay. The first extended-payload trace
+occurs only when transmission compose enables the pre-DI PSR phase.
+
+Material probe mode-2 runtime result:
+
+  Vulkan device removal                              yes
+  glass / clean GI                                   excluded / excluded
+  first new operation versus mode 1                  PSR TraceRay
+
+The first live selection of contribution-4/5 compact material bucket hit
+records therefore remains the failing boundary. A new fail-closed hit-stage
+selector allows cumulative isolation without another shader rebuild:
+
+  r_pathTracingGeometryStaticBucketMaterialHitStage 0  reject mode 2/3 route
+  ...HitStage 1  minimal closest-hit payload; no bucket metadata
+  ...HitStage 2  checked bucket material ID/index/class metadata
+  ...HitStage 3  source-pane rejection
+  ...HitStage 4  transparent-card/glass rejection
+  ...HitStage 5  alpha-test rejection
+  ...HitStage 6  emissive-card passthrough
+  ...HitStage 7  full liquid-pool candidate collection
+
+Stage 0 retains full production shader semantics outside this diagnostic route.
+For modes 2 and 3 the CPU admission gate requires stages 1 through 7, preventing
+an accidental repeat of the known device-removal path. Test stage 1 first with
+mode 2, glass 0, and clean GI 0.
+
+Material hit-stage ladder build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  spirv-val sentinel/material/transmission/glass    passed
+  rebuilt blob mtimes newer than final include      yes
+  built/deployed executable SHA-256
+    6D2298BA764B0D7CD35FF8709492BE39CA961626CAC67F1138D5963ECE7F5822
+  compact material bucket blob SHA-256
+    3CC6BD10DB248CA227B43BD03D478C4ACB5A13A89C53EE736DF78D852A5525BA
+
+Only the affected sentinel, compact material-bucket, and transmission-producer
+Vulkan blobs were deployed. Rebuilt initial/temporal outputs caused by
+pre-existing unrelated source edits were deliberately excluded.
+
+PERFORMANCE OBSERVATION
+-----------------------
+
+`r_pathTracingGeometryStaticBucketBlas 1` currently has very high CPU overhead.
+Although GPU buffers and completed BLASes are reused, the shadow path rebuilds
+the full static bucket source, active mask, assignment plan, packed geometry,
+and material-index resolution every frame. This is not acceptable steady-state
+behavior and no GEO-10 performance claim may be made from the current route.
+After correctness, cache the full-map resident pack by geometry/material
+generation and derive only the portal active set and TLAS list per frame.

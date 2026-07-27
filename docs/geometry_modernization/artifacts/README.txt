@@ -84,6 +84,18 @@ GEO-07 FILES
     and the default-off authoritative current-joint GPU-copy comparison
     contract.
 
+GEO-10 FILES
+------------
+  GEO-10_entry_audit.txt
+    Historical implementation and runtime evidence for portal-area static
+    buckets, including the rejected parallel route-table/SBT design.
+
+  GEO-10_architecture_pivot_2026-07-27.txt
+    Active architecture override. Keeps bucket assignment/BLAS/TLAS work but
+    routes the resident pool through existing static shader slots, encodes the
+    triangle base in InstanceID, removes contribution 4/5 and compact hit
+    libraries, and moves resident-pack caching before live acceptance.
+
 NAMING
 ------
 Use:

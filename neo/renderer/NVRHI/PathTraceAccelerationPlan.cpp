@@ -941,6 +941,15 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         bucket.triangleMetadataByteSize =
             static_cast<uint64_t>(bucket.range.triangleCount) *
             sizeof(uint32_t);
+        const RtSmokeStaticBucketInstanceAddressPlan addressPlan =
+            BuildSmokeStaticBucketInstanceAddressPlan(
+                bucket.range,
+                static_cast<int>(pack.indexes.size()),
+                static_cast<int>(pack.triangleClasses.size()));
+        if (!addressPlan.valid)
+        {
+            ++pack.stats.addressContractErrors;
+        }
         if (bucket.range.vertexCount != sourceBucket.vertexCount ||
             bucket.range.indexCount != sourceBucket.indexCount ||
             bucket.range.triangleCount !=
@@ -1049,8 +1058,123 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         pack.stats.sourceRangeMismatches == 0 &&
         pack.stats.indexRangeErrors == 0 &&
         pack.stats.localPrimitiveOffsetErrors == 0 &&
+        pack.stats.addressContractErrors == 0 &&
         pack.stats.countMismatches == 0;
     return pack;
+}
+
+bool TryEncodeSmokeStaticBucketInstanceId(
+    uint32_t triangleOffset,
+    uint32_t& instanceId)
+{
+    instanceId = 0;
+    if ((triangleOffset &
+            ~RT_SMOKE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK) != 0)
+    {
+        return false;
+    }
+    instanceId =
+        RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE |
+        triangleOffset;
+    return true;
+}
+
+bool TryDecodeSmokeStaticBucketInstanceId(
+    uint32_t instanceId,
+    uint32_t& triangleOffset)
+{
+    triangleOffset = 0;
+    if ((instanceId & ~RT_SMOKE_SHADER_INSTANCE_ID_MASK) != 0 ||
+        (instanceId &
+            RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE) == 0)
+    {
+        return false;
+    }
+    triangleOffset =
+        instanceId &
+        RT_SMOKE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK;
+    return true;
+}
+
+RtSmokeStaticBucketInstanceAddressPlan
+BuildSmokeStaticBucketInstanceAddressPlan(
+    const RtSmokePlanGeometryRange& range,
+    int totalIndexCount,
+    int totalTriangleCount)
+{
+    RtSmokeStaticBucketInstanceAddressPlan plan;
+    const int64_t indexEnd =
+        static_cast<int64_t>(range.indexOffset) +
+        static_cast<int64_t>(range.indexCount);
+    const int64_t triangleEnd =
+        static_cast<int64_t>(range.triangleOffset) +
+        static_cast<int64_t>(range.triangleCount);
+    plan.rangeValid =
+        range.indexOffset >= 0 &&
+        range.indexCount > 0 &&
+        range.triangleOffset >= 0 &&
+        range.triangleCount > 0 &&
+        totalIndexCount >= 0 &&
+        totalTriangleCount >= 0 &&
+        indexEnd <= totalIndexCount &&
+        triangleEnd <= totalTriangleCount;
+    plan.indexAddressCompatible =
+        range.indexOffset >= 0 &&
+        range.indexCount > 0 &&
+        range.triangleOffset >= 0 &&
+        range.triangleCount > 0 &&
+        static_cast<int64_t>(range.indexOffset) ==
+            static_cast<int64_t>(range.triangleOffset) * 3 &&
+        static_cast<int64_t>(range.indexCount) ==
+            static_cast<int64_t>(range.triangleCount) * 3;
+    if (range.triangleOffset >= 0)
+    {
+        plan.triangleOffset =
+            static_cast<uint32_t>(range.triangleOffset);
+        plan.triangleCount =
+            static_cast<uint32_t>(
+                range.triangleCount > 0
+                    ? range.triangleCount
+                    : 0);
+        plan.instanceIdEncodable =
+            TryEncodeSmokeStaticBucketInstanceId(
+                plan.triangleOffset,
+                plan.instanceId);
+        if (triangleEnd >
+            static_cast<int64_t>(
+                RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE))
+        {
+            plan.instanceIdEncodable = false;
+            plan.instanceId = 0;
+        }
+    }
+    plan.valid =
+        plan.rangeValid &&
+        plan.indexAddressCompatible &&
+        plan.instanceIdEncodable;
+    return plan;
+}
+
+RtSmokeStaticBucketResidentPackCachePlan
+BuildSmokeStaticBucketResidentPackCachePlan(
+    const RtSmokeStaticBucketResidentPackCacheInput& input)
+{
+    RtSmokeStaticBucketResidentPackCachePlan plan;
+    plan.reuse =
+        input.cacheValid &&
+        input.assignmentExact &&
+        input.cachedPackExact &&
+        input.assignmentPlanSignature != 0 &&
+        input.assignmentPlanSignature ==
+            input.cachedAssignmentPlanSignature &&
+        input.geometryGeneration != 0 &&
+        input.geometryGeneration ==
+            input.cachedGeometryGeneration &&
+        input.materialGeneration != 0 &&
+        input.materialGeneration ==
+            input.cachedMaterialGeneration;
+    plan.rebuild = !plan.reuse;
+    return plan;
 }
 
 RtSmokeStaticBucketPublicationEpochPlan

@@ -545,7 +545,10 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
     {
         const uint instanceId = InstanceID();
         const uint primitiveIndex = PrimitiveIndex();
-        const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(instanceId, primitiveIndex);
+        const uint materialIndex =
+            PathTraceCleanRoomLoadTriangleMaterialIndex(
+                instanceId,
+                primitiveIndex);
         if (PathTraceCleanRtxdiDiCollectLiquidPoolCandidate(
             payload,
             instanceId,
@@ -572,7 +575,11 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
         }
         if (ignoredSource ||
             blendThrough ||
-            PathTraceCleanRoomTransmissionAlphaRejectsHit(instanceId, primitiveIndex, attributes.barycentrics, materialIndex))
+            PathTraceCleanRoomTransmissionAlphaRejectsHit(
+                instanceId,
+                primitiveIndex,
+                attributes.barycentrics,
+                materialIndex))
         {
             IgnoreHit();
             return;

@@ -2721,36 +2721,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, cleanNeeCacheProviderSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, cleanNeeCacheCellSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cleanNeeCacheCandidateSrv));
-        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            100,
-            cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.
-                    StaticBucketRouteRecordBuffer())));
-        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            101,
-            cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.
-                    StaticBucketVertexBuffer())));
-        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            102,
-            cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.
-                    StaticBucketIndexBuffer())));
-        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            103,
-            cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.
-                    StaticBucketTriangleClassBuffer())));
-        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            104,
-            cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.
-                    StaticBucketTriangleMaterialBuffer())));
-        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            105,
-            cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.
-                    StaticBucketTriangleMaterialIndexBuffer())));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(94, m_liquidPoolStatusBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING, m_smokeCleanRtxdiDiBlueNoise.texture));
@@ -2796,36 +2766,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
-        SetBufferStateIfPresent(
-            commandList,
-            m_staticBucketGeometryUniverse.
-                StaticBucketRouteRecordBuffer(),
-            nvrhi::ResourceStates::ShaderResource);
-        SetBufferStateIfPresent(
-            commandList,
-            m_staticBucketGeometryUniverse.
-                StaticBucketVertexBuffer(),
-            nvrhi::ResourceStates::ShaderResource);
-        SetBufferStateIfPresent(
-            commandList,
-            m_staticBucketGeometryUniverse.
-                StaticBucketIndexBuffer(),
-            nvrhi::ResourceStates::ShaderResource);
-        SetBufferStateIfPresent(
-            commandList,
-            m_staticBucketGeometryUniverse.
-                StaticBucketTriangleClassBuffer(),
-            nvrhi::ResourceStates::ShaderResource);
-        SetBufferStateIfPresent(
-            commandList,
-            m_staticBucketGeometryUniverse.
-                StaticBucketTriangleMaterialBuffer(),
-            nvrhi::ResourceStates::ShaderResource);
-        SetBufferStateIfPresent(
-            commandList,
-            m_staticBucketGeometryUniverse.
-                StaticBucketTriangleMaterialIndexBuffer(),
-            nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeSkinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_sceneInputs.geometry.skinnedSourceIndexBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -3660,18 +3600,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
             giInputs.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
             giInputs.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
-            giInputs.staticBucketRouteRecordBuffer = cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.StaticBucketRouteRecordBuffer());
-            giInputs.staticBucketVertexBuffer = cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.StaticBucketVertexBuffer());
-            giInputs.staticBucketIndexBuffer = cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.StaticBucketIndexBuffer());
-            giInputs.staticBucketTriangleClassBuffer = cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.StaticBucketTriangleClassBuffer());
-            giInputs.staticBucketTriangleMaterialBuffer = cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.StaticBucketTriangleMaterialBuffer());
-            giInputs.staticBucketTriangleMaterialIndexBuffer = cleanOptionalSrv(
-                m_staticBucketGeometryUniverse.StaticBucketTriangleMaterialIndexBuffer());
             giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
             giInputs.materialFeatureParameterBuffer = m_smokeMaterialFeatureParameterBuffer;
             giInputs.materialFeatureParameterCount = static_cast<uint32_t>(

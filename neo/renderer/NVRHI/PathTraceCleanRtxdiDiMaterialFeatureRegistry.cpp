@@ -12,6 +12,30 @@ namespace {
 using RtPathTraceCleanRtxdiDiRouteFeatureBuilder =
     RtPathTraceMaterialFeaturePassRegistration (*)(bool cleanRouteRequested, int cleanView);
 
+// PathTraceCleanRtxdiPayload with the trace-hit adapter enabled contains five
+// base words, eleven hit/transport words, four liquid counters, and six
+// four-word liquid-candidate arrays. The transmission path declares and traces
+// this payload directly, independent of the retired compact bucket libraries.
+static constexpr uint32_t RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_PAYLOAD_DWORDS =
+    5u + 11u + 4u + (6u * 4u);
+static constexpr uint32_t RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_PAYLOAD_BYTES =
+    RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_PAYLOAD_DWORDS * sizeof(uint32_t);
+static_assert(
+    RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_PAYLOAD_BYTES == 176u,
+    "Clean RTXDI DI material-feature payload ABI must cover four liquid candidates");
+
+RtPathTraceMaterialFeatureShaderDesc BuildPathTraceCleanRtxdiDiMaterialFeatureShaderDesc(
+    const char* label,
+    const char* shaderBlobPath)
+{
+    RtPathTraceMaterialFeatureShaderDesc desc;
+    desc.label = label;
+    desc.shaderBlobPath = shaderBlobPath;
+    desc.rtPipeline.maxPayloadSize =
+        RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_PAYLOAD_BYTES;
+    return desc;
+}
+
 template<RtPathTraceCleanRtxdiDiRouteFeatureBuilder BuildFeatureRegistration>
 RtPathTraceMaterialFeaturePassRegistration BuildPathTraceCleanRtxdiDiRouteRuntimeRegistration(
     const void* contextPtr)
@@ -54,10 +78,9 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         "clean-rtxdi-di-transmission",
         BuildPathTraceCleanRtxdiDiRouteRuntimeRegistration<BuildPathTraceCleanRtxdiDiTransmissionFeatureRegistration>,
         BuildPathTraceCleanRtxdiDiTransmissionFeatureLayoutRegistration,
-        {
+        BuildPathTraceCleanRtxdiDiMaterialFeatureShaderDesc(
             "clean-room RTXDI DI transmission producer",
-            RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB("pathtrace_clean_rtxdi_di_transmission_producer")
-        },
+            RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB("pathtrace_clean_rtxdi_di_transmission_producer")),
         PathTraceObjectGlassMaterialFeatureParameterLayout(),
         {
             "cmake --build --preset win64-pt-dev-release",
@@ -83,10 +106,9 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
         "clean-rtxdi-di-glass",
         BuildPathTraceCleanRtxdiDiRouteRuntimeRegistration<BuildPathTraceCleanRtxdiDiGlassFeatureRegistration>,
         BuildPathTraceCleanRtxdiDiGlassFeatureLayoutRegistration,
-        {
+        BuildPathTraceCleanRtxdiDiMaterialFeatureShaderDesc(
             "clean-room RTXDI DI glass",
-            RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB("pathtrace_clean_rtxdi_di_glass")
-        },
+            RT_CLEAN_RTXDI_DI_MATERIAL_FEATURE_RT_BLOB("pathtrace_clean_rtxdi_di_glass")),
         PathTraceObjectGlassMaterialFeatureParameterLayout(),
         {
             "cmake --build --preset win64-pt-dev-release",

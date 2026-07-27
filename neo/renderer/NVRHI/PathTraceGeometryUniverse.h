@@ -815,7 +815,7 @@ static_assert(
 
 static constexpr uint32_t
     RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE =
-        0x00800000u;
+        RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE;
 
 struct RtPathTraceStaticBucketActivePublication
 {
@@ -925,6 +925,10 @@ public:
         const std::vector<bool>* activePortalAreas = nullptr) const;
     RtSmokeStaticBucketGeometryPack BuildStaticBucketGeometryPack(
         const RtSmokeStaticBucketAssignmentPlan& assignmentPlan) const;
+    const RtSmokeStaticBucketGeometryPack&
+        GetOrBuildStaticBucketResidentGeometryPack(
+            const RtSmokeStaticBucketAssignmentPlan& assignmentPlan,
+            bool& cacheHit);
     RtPathTraceStaticBucketBlasGpuStats
         UpdateStaticBucketBlasGpuScaffold(
             nvrhi::IDevice* device,
@@ -947,14 +951,13 @@ public:
             uint64 storageGeneration,
             uint64 materialGeneration,
             int missingActiveMaterialIndexes,
-            uint32_t firstInstanceId,
             uint32_t instanceMask) const;
-    bool UpdateStaticBucketShaderRouteGpuScaffold(
+    bool UpdateStaticBucketMaterialIndexGpuScaffold(
         nvrhi::IDevice* device,
         nvrhi::ICommandList* commandList,
         const RtSmokeStaticBucketGeometryPack& geometryPack,
         const std::vector<uint32_t>& triangleMaterialIndexes,
-        const RtPathTraceStaticBucketActivePublication& publication);
+        uint64 materialGeneration);
     nvrhi::BufferHandle StaticBucketVertexBuffer() const
     {
         return m_staticBucketVertexBuffer;
@@ -974,10 +977,6 @@ public:
     nvrhi::BufferHandle StaticBucketTriangleMaterialIndexBuffer() const
     {
         return m_staticBucketTriangleMaterialIndexBuffer;
-    }
-    nvrhi::BufferHandle StaticBucketRouteRecordBuffer() const
-    {
-        return m_staticBucketRouteRecordBuffer;
     }
     void DumpStaticBucketActivePublication(
         const RtPathTraceStaticBucketActivePublication&
@@ -1249,10 +1248,15 @@ private:
     nvrhi::BufferHandle m_staticBucketTriangleMaterialBuffer;
     nvrhi::BufferHandle m_staticBucketTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle m_staticBucketTriangleIdentityBuffer;
-    nvrhi::BufferHandle m_staticBucketRouteRecordBuffer;
     std::vector<StaticBucketBlasRecord> m_staticBucketBlasRecords;
     uint64 m_staticBucketUploadSignature = 0;
-    uint64 m_staticBucketShaderRouteUploadSignature = 0;
+    uint64 m_staticBucketMaterialIndexUploadSignature = 0;
+    RtSmokeStaticBucketGeometryPack
+        m_staticBucketResidentGeometryPack;
+    uint64 m_staticBucketResidentAssignmentPlanSignature = 0;
+    uint64 m_staticBucketResidentGeometryGeneration = 0;
+    uint64 m_staticBucketResidentMaterialGeneration = 0;
+    bool m_staticBucketResidentGeometryPackValid = false;
 };
 
 RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(

@@ -12,6 +12,20 @@ PRECONDITIONS
 - GEO-02 comm1 invariant is retained as a mandatory regression.
 - New static route is default off and compare-capable.
 
+ARCHITECTURE OVERRIDE - 2026-07-27
+----------------------------------
+Read `artifacts/GEO-10_architecture_pivot_2026-07-27.txt` before changing GEO-10
+code. It supersedes the parallel t100-t105 route-record decoder, contribution
+4/5, compact hit-library, and material hit-stage direction documented below.
+The remainder of this ticket is retained as historical evidence unless the
+pivot document explicitly preserves a contract.
+
+The active direction keeps deterministic bucket assignment, resident BLASes,
+active TLAS selection, and rollback, but binds the resident pool through the
+existing static t3/t4/t5/t9/t11 slots. Bucket InstanceID encodes its global
+triangle offset and uses contribution 0/1. Resident-pack caching is a
+precondition for live traversal, not deferred performance cleanup.
+
 IMPLEMENTATION STATUS
 ---------------------
 Steps 1 through 5 are complete in shadow mode. Static world records now carry the
@@ -165,6 +179,189 @@ consumer, partial residency, incomplete route table, and default-off cases.
 The Vulkan release build, SPIR-V validation, CPU harness, and unselected
 six-record pipeline runtime tests pass. Live bucket traversal proof is still
 required before the route can be considered accepted.
+
+The first live test exposed two separate facts. Contribution zero made primary
+brushes visible but selected legacy records in the other pipelines, producing
+missing behind-glass brushes and portal-dependent behavior. Correcting the TLAS
+descriptor to contribution 4 then caused immediate Vulkan device removal.
+Production route admission is fail-closed again.
+
+The no-trace probe survived with no visual regression. Its console spam
+contained only the expected validation warning that mask-zero instances never
+intersect. Contribution-4 TLAS construction is accepted. The next rung is:
+
+  r_pathTracingGeometryStaticBucketRoute 0
+  r_pathTracingGeometryStaticBucketRouteNoTraceProbe 0
+  r_pathTracingCleanRtxdiDiView 2
+  r_pathTracingGeometryStaticBucketRouteView2Probe 1
+  r_pathTracingGeometryStaticBucketRoute 1
+
+This is a live traversal test and may display the view-2 diagnostic output. It
+isolates primary plus compact core bucket hits; it does not admit route
+traversal in any other clean view.
+
+View-2 probe build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    86B6B66EFC42B9F0DF3FEBBE70B92D0A55AEB5A7D380BC415070F60CF9DAFA0C
+
+The view-2 probe survived with an exact accepted publication and no device
+removal. Primary, sentinel, and the compact core bucket hit pair are accepted.
+The next rung isolates the clean-DI production pipelines:
+
+  r_pathTracingGeometryStaticBucketRoute 0
+  r_pathTracingGeometryStaticBucketRouteView2Probe 0
+  r_pathTracingGeometryStaticBucketRouteView16CoreProbe 1
+  r_pathTracingCleanRtxdiDiTransmissionProducer 0
+  r_pathTracingCleanRtxdiDiTransmissionCompose 0
+  r_pathTracingCleanRtxdiDiTransmissionDebugView 0
+  r_pathTracingCleanRtxdiDiGlassShader 0
+  r_pathTracingCleanRtxdiDiGlassDebugView 0
+  r_pathTracingCleanRestirGiEnable 0
+  r_pathTracingCleanRtxdiDiView 16
+  r_pathTracingGeometryStaticBucketRoute 1
+
+The route is accepted only while every dependency above is exact. This runs
+initial, temporal, and spatial production with compact core bucket hits while
+excluding the distinct material-feature and GI bucket-hit families.
+
+View-16 production-core probe build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    81007DDC46F6655DCBAECA4E27EFDDB3BFA291005D15A4F9F5AEB2BE44538F05
+
+The view-16 production-core probe survived portal movement while the active set
+changed from three to five buckets. Initial, temporal, spatial production, and
+the compact core hit pair are accepted. The next rung adds only normal
+material-feature traversal:
+
+  r_pathTracingGeometryStaticBucketRoute 0
+  r_pathTracingGeometryStaticBucketRouteView16CoreProbe 0
+  r_pathTracingGeometryStaticBucketRouteView16MaterialProbe 1
+  r_pathTracingCleanRtxdiDiTransmissionProducer 1
+  r_pathTracingCleanRtxdiDiTransmissionCompose 1
+  r_pathTracingCleanRtxdiDiTransmissionDebugView 0
+  r_pathTracingCleanRtxdiDiGlassShader 1
+  r_pathTracingCleanRtxdiDiGlassDebugView 0
+  r_pathTracingCleanRestirGiEnable 0
+  r_pathTracingCleanRtxdiDiView 16
+  r_pathTracingGeometryStaticBucketRoute 1
+
+This restores transmission PSR and the transmission/glass passes while keeping
+the distinct GI bucket-hit family excluded.
+
+View-16 material-feature probe build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    761917DFF5A3DE59CA9C9106857EF182E6A33AE695B5D5C68B856C99ED384DD7
+
+The first material-feature probe caused immediate Vulkan device removal. The
+accepted production-core baseline and excluded GI isolate the material-feature
+pipeline. Audit found a concrete payload contract mismatch: the compact
+material bucket hit library uses a 176-byte trace-hit/liquid-candidate payload,
+while the material-feature pipelines declared a 64-byte maximum. Both clean
+material-feature pipeline descriptors now declare 176 bytes. Re-run the same
+probe after rebuilding; do not widen to GI until it passes.
+
+Material payload fix build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    EFCBDE0B174E99F7D6D7404B8C37FFDCAA741160404B91C399AC0E98D9AC0F80
+
+The full material probe still device-removed after the payload correction.
+Static SPIR-V validation, payload-type comparison, descriptor slots 100..105,
+and host bindings pass. The material probe cvar is now a mode. Test mode 1
+first:
+
+  r_pathTracingGeometryStaticBucketRoute 0
+  r_pathTracingGeometryStaticBucketRouteView16CoreProbe 0
+  r_pathTracingGeometryStaticBucketRouteView16MaterialProbe 1
+  r_pathTracingCleanRtxdiDiTransmissionProducer 1
+  r_pathTracingCleanRtxdiDiTransmissionCompose 0
+  r_pathTracingCleanRtxdiDiTransmissionDebugView 0
+  r_pathTracingCleanRtxdiDiGlassShader 0
+  r_pathTracingCleanRtxdiDiGlassDebugView 0
+  r_pathTracingCleanRestirGiEnable 0
+  r_pathTracingCleanRtxdiDiView 16
+  r_pathTracingGeometryStaticBucketRoute 1
+
+Mode 1 isolates the standalone transmission producer dispatch. Do not advance
+to mode 2 or 3 until mode 1 survives.
+
+Staged material probe build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  spirv-val material/transmission/glass             passed
+  shader source/blob changes                        none
+  built/deployed executable SHA-256
+    17510A4B6126C9C7222096B35AE139B25B002360EC4F796FCD760228FF71BD86
+
+Mode 1 survived with an exact accepted publication at 3/56/56. The standalone
+transmission producer dispatch is accepted. Source inspection then corrected
+the earlier interpretation: this late phase does not issue TraceRay, so it did
+not exercise the compact material bucket hit records. Mode 2 was the first such
+trace and device-removed with glass and GI excluded.
+
+The rebuilt diagnostic divides mode 2 into cumulative hit stages. Stage 0
+fails route admission closed. Start with stage 1:
+
+  r_pathTracingGeometryStaticBucketRoute 0
+  r_pathTracingGeometryStaticBucketRouteView16MaterialProbe 2
+  r_pathTracingGeometryStaticBucketMaterialHitStage 1
+  r_pathTracingCleanRtxdiDiTransmissionProducer 1
+  r_pathTracingCleanRtxdiDiTransmissionCompose 1
+  r_pathTracingCleanRtxdiDiTransmissionDebugView 0
+  r_pathTracingCleanRtxdiDiGlassShader 0
+  r_pathTracingCleanRtxdiDiGlassDebugView 0
+  r_pathTracingCleanRestirGiEnable 0
+  r_pathTracingGeometryStaticBucketBlas 1
+  r_pathTracingGeometryStaticBucketBlasBuild 1
+  wait for resident/ready to reach 56/56
+  r_pathTracingGeometryStaticBucketRoute 1
+
+Mode 2 adds the pre-DI transmission PSR dispatch while glass and GI remain
+excluded. The hit-stage ladder is:
+
+  1  minimal closest-hit payload, no bucket metadata
+  2  checked bucket material ID/index/class metadata
+  3  source-pane rejection
+  4  transparent-card/glass rejection
+  5  alpha-test rejection
+  6  emissive-card passthrough
+  7  full liquid-pool candidate collection
+
+For each rung, disable the route, change only
+`r_pathTracingGeometryStaticBucketMaterialHitStage`, then re-enable the route.
+Stop on the first device removal. Do not enable glass or GI during this ladder.
+
+Material hit-stage ladder build verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  Vulkan release build                              passed
+  spirv-val sentinel/material/transmission/glass    passed
+  rebuilt blob mtimes newer than final include      yes
+  built/deployed executable SHA-256
+    6D2298BA764B0D7CD35FF8709492BE39CA961626CAC67F1138D5963ECE7F5822
+  compact material bucket blob SHA-256
+    3CC6BD10DB248CA227B43BD03D478C4ACB5A13A89C53EE736DF78D852A5525BA
+
+The current shadow resource path also repacks the full resident static universe
+every frame and has high overhead. Correctness proof does not waive step 9:
+steady state must cache the resident pack and scale recurring work with portal
+active-set/TLAS changes.
 
 `r_pathTracingGeometryStaticBucketAudit 1` is a one-shot shadow audit.
 `r_pathTracingGeometryStaticBucketBlas 1` owns the full-map shadow resources,

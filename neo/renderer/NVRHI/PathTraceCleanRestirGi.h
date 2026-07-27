@@ -18,7 +18,6 @@ struct PathTraceCleanRestirGiRayTracingPipelineState
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::ShaderLibraryHandle shaderLibrary;
     nvrhi::ShaderLibraryHandle skinnedHitShaderLibrary;
-    nvrhi::ShaderLibraryHandle bucketHitShaderLibrary;
     nvrhi::rt::PipelineHandle pipeline;
     nvrhi::rt::ShaderTableHandle shaderTable;
     nvrhi::rt::ShaderTableHandle producerShaderTable;
@@ -126,12 +125,6 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* dynamicTriangleMaterialBuffer = nullptr;
     nvrhi::IBuffer* staticTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* dynamicTriangleMaterialIndexBuffer = nullptr;
-    nvrhi::IBuffer* staticBucketRouteRecordBuffer = nullptr;
-    nvrhi::IBuffer* staticBucketVertexBuffer = nullptr;
-    nvrhi::IBuffer* staticBucketIndexBuffer = nullptr;
-    nvrhi::IBuffer* staticBucketTriangleClassBuffer = nullptr;
-    nvrhi::IBuffer* staticBucketTriangleMaterialBuffer = nullptr;
-    nvrhi::IBuffer* staticBucketTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* materialTableBuffer = nullptr;
     nvrhi::IBuffer* materialFeatureParameterBuffer = nullptr;
     uint32_t materialFeatureParameterCount = 0;

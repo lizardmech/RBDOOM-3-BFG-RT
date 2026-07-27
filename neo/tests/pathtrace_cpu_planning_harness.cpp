@@ -1390,6 +1390,164 @@ void TestStaticBucketPublicationEpochPlan()
         "static bucket publication rejects missing epochs without misreporting a mixed epoch");
 }
 
+void TestStaticBucketInstanceAddressPlan()
+{
+    RtSmokePlanGeometryRange range;
+    range.vertexOffset = 4;
+    range.vertexCount = 4;
+    range.indexOffset = 6;
+    range.indexCount = 6;
+    range.triangleOffset = 2;
+    range.triangleCount = 2;
+    const RtSmokeStaticBucketInstanceAddressPlan exactPlan =
+        BuildSmokeStaticBucketInstanceAddressPlan(
+            range,
+            15,
+            5);
+    Check(
+        exactPlan.valid &&
+            exactPlan.rangeValid &&
+            exactPlan.indexAddressCompatible &&
+            exactPlan.instanceIdEncodable &&
+            exactPlan.instanceId ==
+                (RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE | 2u),
+        "static bucket InstanceID encodes the global triangle base");
+
+    uint32_t decodedTriangleOffset = 0;
+    Check(
+        TryDecodeSmokeStaticBucketInstanceId(
+            exactPlan.instanceId,
+            decodedTriangleOffset) &&
+            decodedTriangleOffset == 2,
+        "static bucket InstanceID round-trips the global triangle base");
+
+    RtSmokePlanGeometryRange mismatchedIndexRange = range;
+    mismatchedIndexRange.indexOffset = 3;
+    const RtSmokeStaticBucketInstanceAddressPlan mismatchedIndexPlan =
+        BuildSmokeStaticBucketInstanceAddressPlan(
+            mismatchedIndexRange,
+            15,
+            5);
+    Check(
+        mismatchedIndexPlan.rangeValid &&
+            !mismatchedIndexPlan.indexAddressCompatible &&
+            !mismatchedIndexPlan.valid,
+        "static bucket InstanceID contract rejects a non-shared index and triangle base");
+
+    RtSmokePlanGeometryRange overflowRange = range;
+    overflowRange.indexOffset =
+        static_cast<int>(
+            RT_SMOKE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK) * 3;
+    overflowRange.triangleOffset =
+        static_cast<int>(
+            RT_SMOKE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK);
+    overflowRange.indexCount = 3;
+    overflowRange.triangleCount = 1;
+    const RtSmokeStaticBucketInstanceAddressPlan maximumPlan =
+        BuildSmokeStaticBucketInstanceAddressPlan(
+            overflowRange,
+            overflowRange.indexOffset + overflowRange.indexCount,
+            overflowRange.triangleOffset +
+                overflowRange.triangleCount);
+    Check(
+        maximumPlan.valid &&
+            maximumPlan.instanceId ==
+                RT_SMOKE_SHADER_INSTANCE_ID_MASK,
+        "static bucket InstanceID accepts the maximum encodable triangle base");
+
+    overflowRange.indexCount = 6;
+    overflowRange.triangleCount = 2;
+    const RtSmokeStaticBucketInstanceAddressPlan overflowPlan =
+        BuildSmokeStaticBucketInstanceAddressPlan(
+            overflowRange,
+            overflowRange.indexOffset + overflowRange.indexCount,
+            overflowRange.triangleOffset +
+                overflowRange.triangleCount);
+    Check(
+        overflowPlan.rangeValid &&
+            !overflowPlan.instanceIdEncodable &&
+            !overflowPlan.valid,
+        "static bucket InstanceID rejects triangle bases outside the reserved namespace");
+
+    RtSmokePlanGeometryRange secondRange = range;
+    secondRange.indexOffset += secondRange.indexCount;
+    secondRange.triangleOffset += secondRange.triangleCount;
+    const RtSmokeStaticBucketInstanceAddressPlan secondPlan =
+        BuildSmokeStaticBucketInstanceAddressPlan(
+            secondRange,
+            18,
+            6);
+    Check(
+        secondPlan.valid &&
+            secondPlan.instanceId != exactPlan.instanceId,
+        "static bucket InstanceID is unique for disjoint nonempty resident ranges");
+    Check(
+        exactPlan.instanceId ==
+            BuildSmokeStaticBucketInstanceAddressPlan(
+                range,
+                15,
+                5).instanceId,
+        "static bucket InstanceID remains stable when active membership is recomputed");
+
+    uint32_t ignoredOffset = 0;
+    Check(
+        !TryDecodeSmokeStaticBucketInstanceId(
+            RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE - 1,
+            ignoredOffset) &&
+            !TryDecodeSmokeStaticBucketInstanceId(
+                RT_SMOKE_SHADER_INSTANCE_ID_MASK + 1,
+                ignoredOffset),
+        "static bucket InstanceID decoder rejects other namespaces and non-24-bit IDs");
+}
+
+void TestStaticBucketResidentPackCachePlan()
+{
+    RtSmokeStaticBucketResidentPackCacheInput input;
+    input.assignmentPlanSignature = 100;
+    input.geometryGeneration = 200;
+    input.materialGeneration = 300;
+    input.cachedAssignmentPlanSignature = 100;
+    input.cachedGeometryGeneration = 200;
+    input.cachedMaterialGeneration = 300;
+    input.assignmentExact = true;
+    input.cachedPackExact = true;
+    input.cacheValid = true;
+    const RtSmokeStaticBucketResidentPackCachePlan exactPlan =
+        BuildSmokeStaticBucketResidentPackCachePlan(input);
+    Check(
+        exactPlan.reuse && !exactPlan.rebuild,
+        "static bucket resident pack cache reuses an exact unchanged universe");
+
+    input.geometryGeneration = 201;
+    Check(
+        BuildSmokeStaticBucketResidentPackCachePlan(input).rebuild,
+        "static bucket resident pack cache rebuilds changed geometry");
+    input.geometryGeneration = 200;
+
+    input.materialGeneration = 301;
+    Check(
+        BuildSmokeStaticBucketResidentPackCachePlan(input).rebuild,
+        "static bucket resident pack cache rebuilds changed per-triangle material data");
+    input.materialGeneration = 300;
+
+    input.assignmentPlanSignature = 101;
+    Check(
+        BuildSmokeStaticBucketResidentPackCachePlan(input).rebuild,
+        "static bucket resident pack cache rebuilds changed bucket topology");
+    input.assignmentPlanSignature = 100;
+
+    input.assignmentExact = false;
+    Check(
+        BuildSmokeStaticBucketResidentPackCachePlan(input).rebuild,
+        "static bucket resident pack cache rejects inexact current assignment");
+    input.assignmentExact = true;
+
+    input.cacheValid = false;
+    Check(
+        BuildSmokeStaticBucketResidentPackCachePlan(input).rebuild,
+        "static bucket resident pack cache rebuilds an invalid cache");
+}
+
 void TestStaticBucketCutoverPlan()
 {
     RtSmokeStaticBucketCutoverInput input;
@@ -3814,6 +3972,8 @@ int main(int argc, char** argv)
     TestStaticBucketBlasBuildObservationPlan();
     TestStaticBucketWorkPlan();
     TestStaticBucketPublicationEpochPlan();
+    TestStaticBucketInstanceAddressPlan();
+    TestStaticBucketResidentPackCachePlan();
     TestStaticBucketCutoverPlan();
     TestStaticBucketRigidRouteNamespaceComposition();
     TestStaticBucketWorkPlanSnapshot();

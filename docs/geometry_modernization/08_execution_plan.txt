@@ -634,11 +634,57 @@ clean-DI views 2 through 25 in debug mode 0. View 1 is explicitly rejected as
 the bucket-incapable sentinel. One acceptance boolean replaces TLAS instance 0
 with active bucket descriptors and selects bucket-local static emissives in the
   same frame. CPU build and failure-matrix tests pass. The shader-consumer
-  capability blocker is closed; runtime acceptance of the live default-off
-  cutover remains open.
+  capability blocker is closed, but the first live cutover exposed a stale
+  TLAS contribution-zero descriptor: primary brushes rendered while
+  behind-glass brushes and portal traversal selected incompatible legacy
+  records. Correct contribution 4 caused immediate Vulkan device removal, so
+  live route admission is fail-closed again. A mask-zero contribution-4 probe
+  now retains monolithic traversal/emissives and separates TLAS/SBT setup from
+  compact hit execution. That probe survived with no visual regression; its
+  warning stream contained only the intentional instance-mask-zero warning.
+  Contribution-4 TLAS construction is accepted. A view-2-only live probe now
+  isolates the primary producer and compact five-word core bucket hit pair;
+  it passed with an exact accepted publication and no device removal. A
+  view-16 production-core probe now requires transmission, glass, and clean GI
+  to be explicitly disabled before it admits initial, temporal, and spatial
+  production traversal. It passed while portal movement changed the active set
+  from three to five buckets. A material-feature probe now restores normal
+  transmission PSR and transmission/glass passes while requiring clean GI off.
+  It device-removed immediately and isolated a concrete pipeline ABI mismatch:
+  the compact material hit library's trace-hit/liquid payload is 176 bytes, but
+  the material-feature pipelines declared only 64 bytes. Their descriptors now
+  declare the full payload. The full material probe still device-removed, while
+  SPIR-V validation, extended payload type parity, bucket descriptor slots, and
+  host bindings pass. The material probe is split into standalone transmission,
+  transmission PSR/compose, and glass modes; each is fail-closed on exact cvar
+  dependencies. Standalone transmission passed, but source inspection corrects
+  its scope: the late standalone dispatch does not issue TraceRay and therefore
+  did not execute compact bucket material hits. Mode 2 is the first live
+  extended-payload bucket trace and device-removed. A second fail-closed
+  selector now divides that hit path into seven cumulative rungs: minimal
+  payload, checked bucket metadata, source rejection, transparent rejection,
+  alpha rejection, emissive passthrough, and full liquid collection. Mode 2/3
+  cannot admit the route while this selector is zero. All other production
+  configurations remain fail-closed. The shadow bucket path also
+  repacks the full resident universe every frame; resident-pack caching remains
+  mandatory before performance acceptance.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
+GEO-10 architecture override (2026-07-27):
+
+The parallel bucket shader ABI is rejected. Do not continue the material
+hit-stage ladder. Preserve the CPU bucket assignment/pack/BLAS/TLAS work, but
+execute the ordered PIVOT-1 through PIVOT-6 plan in
+`artifacts/GEO-10_architecture_pivot_2026-07-27.txt`.
+
+The accepted target binds the cached resident bucket pool through the existing
+static t3/t4/t5/t9/t11 slots, encodes the bucket triangle base in the reserved
+24-bit InstanceID namespace, and uses existing contribution 0/1 hit records.
+It removes t100-t105, route-record decoding, contribution 4/5, compact bucket
+hit libraries, and material/GI payload coupling. Full resident-pack caching is
+required before the route may be accepted.
+
 The modernization is complete only when:
 
   - static world uses area/size bucket records;

@@ -17,7 +17,6 @@ struct RtPathTraceMaterialFeaturePipelineContext
     bool runtimeInitialized = false;
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::BindingLayoutHandle textureBindlessLayout;
-    nvrhi::ShaderLibraryHandle bucketHitShaderLibrary;
 };
 
 typedef RtPathTraceMaterialFeaturePipelineContext (*RtPathTraceMaterialFeaturePipelineContextCallback)(
@@ -32,7 +31,6 @@ bool LoadPathTraceMaterialFeatureShaderLibrary(
 bool CreatePathTraceMaterialFeatureRayTracingPipeline(
     nvrhi::IDevice* device,
     nvrhi::ShaderLibraryHandle shaderLibrary,
-    nvrhi::ShaderLibraryHandle bucketHitShaderLibrary,
     nvrhi::BindingLayoutHandle bindingLayout,
     nvrhi::BindingLayoutHandle textureBindlessLayout,
     const RtPathTraceMaterialFeatureShaderDesc& shaderDesc,

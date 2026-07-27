@@ -117,20 +117,6 @@ struct PathTraceSmokeVertex
     float4 bitangent;
 };
 
-#define RB_PT_STATIC_BUCKET_ROUTES_REGISTER t100
-#define RB_PT_STATIC_BUCKET_VERTICES_REGISTER t101
-#define RB_PT_STATIC_BUCKET_INDICES_REGISTER t102
-#define RB_PT_STATIC_BUCKET_CLASSES_REGISTER t103
-#define RB_PT_STATIC_BUCKET_MATERIALS_REGISTER t104
-#define RB_PT_STATIC_BUCKET_MATERIAL_INDEXES_REGISTER t105
-#include "../PathTraceStaticBucketRoute.hlsli"
-#undef RB_PT_STATIC_BUCKET_ROUTES_REGISTER
-#undef RB_PT_STATIC_BUCKET_VERTICES_REGISTER
-#undef RB_PT_STATIC_BUCKET_INDICES_REGISTER
-#undef RB_PT_STATIC_BUCKET_CLASSES_REGISTER
-#undef RB_PT_STATIC_BUCKET_MATERIALS_REGISTER
-#undef RB_PT_STATIC_BUCKET_MATERIAL_INDEXES_REGISTER
-
 struct PathTraceSmokeEmissiveTriangle
 {
     float4 centerAndArea;
@@ -263,6 +249,7 @@ StructuredBuffer<uint> SmokeStaticTriangleMaterials : register(t9);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterials : register(t10);
 StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
+#include "../PathTraceStaticBucketRoute.hlsli"
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t15);
@@ -357,9 +344,9 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     uint4 CleanRtxdiDiStaticBucketRouteInfo;
 };
 
-// The all-views sentinel is already at DXC's SPIR-V ID ceiling. Keep bucket
-// consumption entry-specific until the live cutover has a compact bucket hit
-// library or rejects sentinel routing through its capability gate.
+// Keep reconstruction entry-specific so the all-views sentinel remains below
+// DXC's SPIR-V ID ceiling. Bucket hits use the same static-buffer arithmetic
+// route as monolithic static hits; no auxiliary hit library is involved.
 #if defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) || \
     defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY) || \
     defined(CLEAN_RTXDI_DI_GLASS_ENTRY) || \

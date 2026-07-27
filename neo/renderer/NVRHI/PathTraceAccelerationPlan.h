@@ -185,6 +185,20 @@ struct RtSmokeAccelerationSubmitPlan
 };
 
 const int RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA = -1;
+static constexpr uint32_t
+    RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE =
+        0x00800000u;
+static constexpr uint32_t
+    RT_SMOKE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK =
+        0x007fffffu;
+static constexpr uint32_t
+    RT_SMOKE_SHADER_INSTANCE_ID_MASK =
+        0x00ffffffu;
+static_assert(
+    (RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE |
+        RT_SMOKE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK) ==
+        RT_SMOKE_SHADER_INSTANCE_ID_MASK,
+    "GEO-10 bucket InstanceID namespace must fill the upper half of the 24-bit shader ID");
 
 struct RtSmokeStaticBucketAssignmentSurface
 {
@@ -313,6 +327,7 @@ struct RtSmokeStaticBucketGeometryPackStats
     int sourceRangeMismatches = 0;
     int indexRangeErrors = 0;
     int localPrimitiveOffsetErrors = 0;
+    int addressContractErrors = 0;
     int countMismatches = 0;
 };
 
@@ -327,6 +342,36 @@ struct RtSmokeStaticBucketGeometryPack
     RtSmokeStaticBucketGeometryPackStats stats;
     uint64_t contentSignature = 0;
     bool exact = false;
+};
+
+struct RtSmokeStaticBucketInstanceAddressPlan
+{
+    uint32_t instanceId = 0;
+    uint32_t triangleOffset = 0;
+    uint32_t triangleCount = 0;
+    bool rangeValid = false;
+    bool indexAddressCompatible = false;
+    bool instanceIdEncodable = false;
+    bool valid = false;
+};
+
+struct RtSmokeStaticBucketResidentPackCacheInput
+{
+    uint64_t assignmentPlanSignature = 0;
+    uint64_t geometryGeneration = 0;
+    uint64_t materialGeneration = 0;
+    uint64_t cachedAssignmentPlanSignature = 0;
+    uint64_t cachedGeometryGeneration = 0;
+    uint64_t cachedMaterialGeneration = 0;
+    bool assignmentExact = false;
+    bool cachedPackExact = false;
+    bool cacheValid = false;
+};
+
+struct RtSmokeStaticBucketResidentPackCachePlan
+{
+    bool reuse = false;
+    bool rebuild = true;
 };
 
 struct RtSmokeStaticBucketPublicationEpochInput
@@ -1035,6 +1080,21 @@ RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
 
 RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
     const RtSmokeStaticBucketGeometryPackDesc& desc);
+
+bool TryEncodeSmokeStaticBucketInstanceId(
+    uint32_t triangleOffset,
+    uint32_t& instanceId);
+bool TryDecodeSmokeStaticBucketInstanceId(
+    uint32_t instanceId,
+    uint32_t& triangleOffset);
+RtSmokeStaticBucketInstanceAddressPlan
+    BuildSmokeStaticBucketInstanceAddressPlan(
+        const RtSmokePlanGeometryRange& range,
+        int totalIndexCount,
+        int totalTriangleCount);
+RtSmokeStaticBucketResidentPackCachePlan
+    BuildSmokeStaticBucketResidentPackCachePlan(
+        const RtSmokeStaticBucketResidentPackCacheInput& input);
 
 RtSmokeStaticBucketPublicationEpochPlan
     BuildSmokeStaticBucketPublicationEpochPlan(

@@ -296,9 +296,13 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
 
         const RtPathTraceStaticBucketRouteRecord& route =
             publication.routeRecords[routeIndex];
-        const uint32_t expectedInstanceId =
-            RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE +
-            static_cast<uint32_t>(routeIndex);
+        uint32_t expectedInstanceId = 0;
+        const bool instanceIdEncoded =
+            bucket.range.triangleOffset >= 0 &&
+            TryEncodeSmokeStaticBucketInstanceId(
+                static_cast<uint32_t>(
+                    bucket.range.triangleOffset),
+                expectedInstanceId);
         const uint64_t indexEnd =
             static_cast<uint64_t>(route.indexOffset) +
             static_cast<uint64_t>(route.indexCount);
@@ -306,6 +310,7 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
             static_cast<uint64_t>(route.triangleOffset) +
             static_cast<uint64_t>(route.triangleCount);
         const bool routeMatchesBucket =
+            instanceIdEncoded &&
             route.instanceId == expectedInstanceId &&
             route.vertexOffset ==
                 static_cast<uint32_t>(bucket.range.vertexOffset) &&
