@@ -367,3 +367,46 @@ Runtime rejection conditions remain device removal, CPU crash, missing or
 flickering brush geometry, glass/PSR regression, material mismatch, stale
 active membership, or recurring resident-pack upload/repack work on
 portal-only frames.
+
+RUNTIME REJECTION AND SAFETY ROLLBACK - 2026-07-27
+-------------------------------------------------
+The first two deployed runs both produced Vulkan device removal as the saved
+level entered its first PT frame. The second run explicitly set route, bucket
+resource ownership, and bucket BLAS submission to zero. Therefore the fault is
+not live bucket traversal, resident bucket allocation, or bucket BLAS build.
+
+geometry_geo90.log reaches map completion, creates every logged RT pipeline,
+records the first DI dispatch, arms scene completion, and then reports that
+idSessionLocal::Pump was not called for five seconds. This is dispatch-level
+evidence only: command recording and the final console line do not identify
+which earlier GPU command faulted.
+
+The sentinel, core, and skinned blob sizes match the pre-pivot
+geometry_geo203.log. The route-consuming primary, DI initial/temporal/spatial,
+transmission, and glass blobs changed. This rejects a sentinel-only diagnosis
+and localizes the unsafe surface to the shared bucket-consumer shader changes.
+
+Safety action:
+
+  RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS defaults to zero again;
+  both arithmetic recognition and arithmetic triangle loading compile to
+  false without touching static buffers;
+  staticBucketRouteConsumerSupported is false, so route requests fail closed;
+  resident packing, caching, upload, and shadow BLAS work remain available for
+  CPU/GPU preparation audits.
+
+Do not resume route testing until a route-off baseline survives. The next
+architecture pass must centralize the global primitive offset into the
+existing static decode path or otherwise prove a small consumer contract
+without reintroducing a parallel descriptor/SBT universe.
+
+Safety rebuild and deployment proof:
+
+  full win64-pt-dev-release build passed in 617.6 seconds;
+  all 51 rebuilt Vulkan SPIR-V blobs passed spirv-val for Vulkan 1.2;
+  disassembly contains no descriptor bindings 100 through 105;
+  disassembly contains no 0x007fffff bucket triangle-offset mask, proving
+  the arithmetic bucket consumer compiled out of the live shader graph;
+  deployed EXE SHA-256 matches the build output;
+  all 51 deployed shader SHA-256 hashes match the rebuilt source blobs;
+  no retired compact bucket hit blob remains in the deployment.

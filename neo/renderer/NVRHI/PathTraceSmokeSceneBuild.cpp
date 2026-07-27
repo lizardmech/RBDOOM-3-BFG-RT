@@ -8017,9 +8017,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_smokeSceneMapTimeStamp);
     const bool staticBucketRouteRequested =
         r_pathTracingGeometryStaticBucketRoute.GetInteger() != 0;
-    // Bucket instances now use the established static-buffer ABI and
-    // contribution-0/1 hit records, so there is no parallel consumer surface.
-    const bool staticBucketRouteConsumerSupported = true;
+    // Runtime evidence on 2026-07-27 showed repeatable device removal with
+    // bucket allocation, build, and routing all disabled. Keep the shared
+    // consumer graph compile-time unreachable and the cutover fail-closed
+    // while the changed shader family is isolated.
+    const bool staticBucketRouteConsumerSupported = false;
     RtSmokeStaticBucketCutoverInput
         staticBucketCutoverInput;
     staticBucketCutoverInput.residentBuckets =

@@ -6,6 +6,10 @@
 // 24-bit InstanceID identifies a bucket; the lower 23 bits encode its stable
 // global triangle base. No bucket-specific descriptor or route-record read is
 // required in the hit path.
+#ifndef RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+#define RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS 0
+#endif
+
 static const uint PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE =
     0x00800000u;
 static const uint PATH_TRACE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK =
@@ -43,6 +47,9 @@ bool PathTraceStaticBucketInstanceInPublishedRange(
     out uint triangleBase)
 {
     triangleBase = 0u;
+#if !RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+    return false;
+#else
     if (routeInfo.y == 0u ||
         (instanceId & ~PATH_TRACE_SHADER_INSTANCE_ID_MASK) != 0u ||
         (instanceId &
@@ -55,6 +62,7 @@ bool PathTraceStaticBucketInstanceInPublishedRange(
         instanceId &
         PATH_TRACE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK;
     return true;
+#endif
 }
 
 bool PathTraceIsStaticBucketRouteInstance(
@@ -80,6 +88,9 @@ bool PathTraceTryLoadStaticBucketTriangleRoute(
     packedTriangleIndex = 0u;
     packedVertexIndexes = uint3(0u, 0u, 0u);
 
+#if !RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+    return false;
+#else
     uint triangleBase = 0u;
     if (!PathTraceStaticBucketInstanceInPublishedRange(
             instanceId,
@@ -111,6 +122,7 @@ bool PathTraceTryLoadStaticBucketTriangleRoute(
         triangleBase;
     route.indexCount = route.triangleCount * 3u;
     return true;
+#endif
 }
 
 #endif
