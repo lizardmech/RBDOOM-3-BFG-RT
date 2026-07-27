@@ -1285,6 +1285,126 @@ BuildSmokeStaticBucketSurfaceAddressPlan(
     return plan;
 }
 
+RtSmokeStaticBucketBlasGeometryPlan
+BuildSmokeStaticBucketBlasGeometryPlan(
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    const RtSmokeStaticBucketPackedRecord& bucket)
+{
+    RtSmokeStaticBucketBlasGeometryPlan plan;
+    const RtSmokeStaticBucketSurfaceAddressPlan addressPlan =
+        BuildSmokeStaticBucketSurfaceAddressPlan(
+            bucket.firstSurfaceRecord,
+            bucket.surfaceRecordCount,
+            static_cast<uint32_t>(
+                geometryPack.surfaceRecords.size()));
+    const int64_t bucketIndexEnd =
+        static_cast<int64_t>(bucket.range.indexOffset) +
+        bucket.range.indexCount;
+    const int64_t bucketTriangleEnd =
+        static_cast<int64_t>(bucket.range.triangleOffset) +
+        bucket.range.triangleCount;
+    const bool bucketRangeValid =
+        bucket.range.vertexOffset >= 0 &&
+        bucket.range.vertexCount > 0 &&
+        bucket.range.vertexOffset <=
+            geometryPack.stats.packedVertices &&
+        static_cast<int64_t>(bucket.range.vertexOffset) +
+                bucket.range.vertexCount <=
+            geometryPack.stats.packedVertices &&
+        bucket.range.indexOffset >= 0 &&
+        bucket.range.indexCount > 0 &&
+        bucketIndexEnd <=
+            static_cast<int64_t>(geometryPack.indexes.size()) &&
+        bucket.range.triangleOffset >= 0 &&
+        bucket.range.triangleCount > 0 &&
+        bucketTriangleEnd <=
+            static_cast<int64_t>(
+                geometryPack.triangleClasses.size()) &&
+        bucket.range.indexCount ==
+            bucket.range.triangleCount * 3;
+    if (!geometryPack.exact ||
+        !addressPlan.valid ||
+        !bucketRangeValid ||
+        bucket.surfaceRecordCount != bucket.assignmentCount)
+    {
+        ++plan.invalidSurfaceRecords;
+        return plan;
+    }
+
+    plan.geometries.reserve(bucket.surfaceRecordCount);
+    uint32_t expectedIndexOffset =
+        static_cast<uint32_t>(bucket.range.indexOffset);
+    uint32_t expectedTriangleOffset =
+        static_cast<uint32_t>(bucket.range.triangleOffset);
+    for (uint32_t geometryIndex = 0;
+        geometryIndex < bucket.surfaceRecordCount;
+        ++geometryIndex)
+    {
+        const RtSmokeStaticBucketSurfaceRecord& record =
+            geometryPack.surfaceRecords[
+                bucket.firstSurfaceRecord + geometryIndex];
+        if (record.flags !=
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID ||
+            record.triangleCount == 0 ||
+            record.triangleCount >
+                std::numeric_limits<uint32_t>::max() / 3u)
+        {
+            ++plan.invalidSurfaceRecords;
+            plan.geometries.clear();
+            return plan;
+        }
+
+        const uint32_t indexCount = record.triangleCount * 3u;
+        const uint64_t indexEnd =
+            static_cast<uint64_t>(record.indexOffset) +
+            indexCount;
+        const uint64_t triangleEnd =
+            static_cast<uint64_t>(record.triangleOffset) +
+            record.triangleCount;
+        if (record.indexOffset != expectedIndexOffset ||
+            record.triangleOffset != expectedTriangleOffset ||
+            indexEnd >
+                static_cast<uint64_t>(bucketIndexEnd) ||
+            indexEnd > geometryPack.indexes.size() ||
+            triangleEnd >
+                static_cast<uint64_t>(bucketTriangleEnd) ||
+            triangleEnd >
+                geometryPack.triangleClasses.size())
+        {
+            ++plan.invalidSurfaceRecords;
+            plan.geometries.clear();
+            return plan;
+        }
+
+        RtSmokeStaticBucketBlasGeometryRange geometry;
+        geometry.indexByteOffset =
+            static_cast<uint64_t>(record.indexOffset) *
+            sizeof(uint32_t);
+        geometry.indexCount = indexCount;
+        geometry.triangleOffset = record.triangleOffset;
+        geometry.triangleCount = record.triangleCount;
+        plan.geometries.push_back(geometry);
+        expectedIndexOffset =
+            static_cast<uint32_t>(indexEnd);
+        expectedTriangleOffset =
+            static_cast<uint32_t>(triangleEnd);
+    }
+
+    plan.exact =
+        !plan.geometries.empty() &&
+        plan.geometries.size() == bucket.surfaceRecordCount &&
+        expectedIndexOffset ==
+            static_cast<uint32_t>(bucketIndexEnd) &&
+        expectedTriangleOffset ==
+            static_cast<uint32_t>(bucketTriangleEnd);
+    if (!plan.exact)
+    {
+        ++plan.invalidSurfaceRecords;
+        plan.geometries.clear();
+    }
+    return plan;
+}
+
 RtSmokeStaticBucketResidentPackCachePlan
 BuildSmokeStaticBucketResidentPackCachePlan(
     const RtSmokeStaticBucketResidentPackCacheInput& input)

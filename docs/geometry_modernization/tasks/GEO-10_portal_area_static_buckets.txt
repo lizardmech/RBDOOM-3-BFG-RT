@@ -33,6 +33,15 @@ slots. Every TraceRay geometry-contribution multiplier must first be proven
 zero. Resident-pack caching and Vulkan device-loss checkpoints are
 preconditions for live traversal, not deferred cleanup.
 
+The 2026-07-27 REF-4 route-off runtime checkpoint passed with no major issue
+after every Vulkan TraceRay geometry-contribution multiplier was changed to
+zero. REF-5 now builds each shadow bucket BLAS from one strictly validated,
+ordered GeometryDesc per surface record. CPU tests reject invalid flags,
+non-contiguous/reordered ranges, and cross-bucket record bleed. The full
+release build passes without rebuilding shaders. Production TLAS insertion
+remains impossible because the bucket consumer-support gate is hard-false;
+the next gate is a shadow-only bucket build with route zero.
+
 IMPLEMENTATION STATUS
 ---------------------
 Steps 1 through 5 are complete in shadow mode. Static world records now carry the

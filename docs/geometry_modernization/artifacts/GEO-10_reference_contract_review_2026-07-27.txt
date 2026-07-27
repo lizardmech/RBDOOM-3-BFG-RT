@@ -509,3 +509,70 @@ The first copy attempt correctly failed while the old executable was still
 open. The user closed the process; the executable was then replaced and the
 complete executable/blob package was reverified. Do not infer a runtime result
 from deployment success.
+
+REF-4 RUNTIME ACCEPTANCE - 2026-07-27
+-------------------------------------
+The user exercised the matching multiplier-zero checkpoint with static bucket
+ownership, build, and route disabled. No major issue was observed. This closes
+the standalone route-off gate and permits REF-5 multi-geometry construction in
+the shadow bucket path.
+
+REF-5 OFFLINE CHECKPOINT - 2026-07-27
+-------------------------------------
+Each resident portal/size bucket BLAS now receives one ordered GeometryDesc per
+packed surface instead of one GeometryDesc spanning the combined bucket range.
+The geometries share the existing resident vertex/index buffers. Each geometry
+uses its surface record's byte index offset and triangle-derived index count;
+the global packed vertex range remains shared because packed indexes are
+already rebased into that pool.
+
+A CPU-only descriptor plan is now the mandatory input to BLAS creation. It
+fails closed unless:
+
+  - the packed universe and surface-base address range are exact;
+  - one surface record exists for every bucket assignment;
+  - every record carries the exact valid flag and a nonzero triangle count;
+  - record index and triangle ranges are contiguous, ordered, and wholly
+    contained by both the bucket range and global packed arrays;
+  - the final record ends exactly at the bucket index and triangle ends.
+
+The BLAS cache signature/compatibility tuple now includes first surface record,
+surface-record count, and GeometryDesc count. Diagnostics report resident
+surface records, emitted descriptors, multi-geometry buckets, and invalid
+records. TLAS observations take their surface count from the authoritative
+surface-record count.
+
+Production traversal remains fail-closed. Bucket descriptors can only be
+appended to extraTlasInstances when staticBucketRouteAccepted is true, while
+consumerSupported is still hard-false. REF-5 therefore builds the new BLAS
+topology only in shadow storage and retains the monolithic static BLAS in the
+live TLAS.
+
+Verification:
+
+  PathTraceCpuPlanningHarness --stress 20           passed
+  full win64-pt-dev-release build                   passed
+  SPIR-V shader rebuilds                            none; all up to date
+
+Harness proof includes an exact two-geometry later bucket with a nonzero
+surface-record base and exact per-geometry byte index/triangle ranges. Invalid
+flags, record gaps/reordering, and cross-bucket record bleed all reject the
+entire descriptor plan.
+
+Required REF-5 runtime gate:
+
+  1. Deploy the host executable only; retain the already accepted REF-4
+     SPIR-V package.
+  2. Keep r_pathTracingGeometryStaticBucketRoute 0.
+  3. Enable r_pathTracingNsightGpuMarkers 1,
+     r_pathTracingGeometryStaticBucketBlas 1, and
+     r_pathTracingGeometryStaticBucketBlasBuild 1.
+  4. Use r_pathTracingGeometryStaticBucketBlasBuildLimit 1 to bound submission,
+     then issue r_pathTracingGeometryStaticBucketAudit 1 after the build
+     converges.
+  5. Confirm invalidRecords=0, descs=surfaceRecords, at least one
+     multiGeometry bucket, ready=resident, traversal=monolithic, and no device
+     loss or visual regression.
+
+Do not start REF-6 publication/storage integration until this shadow-only
+multi-geometry BLAS checkpoint survives.

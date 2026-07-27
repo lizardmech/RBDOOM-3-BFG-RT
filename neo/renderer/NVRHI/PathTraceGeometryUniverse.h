@@ -778,6 +778,10 @@ struct RtPathTraceStaticBucketBlasGpuStats
     int vertexCount = 0;
     int indexCount = 0;
     int triangleCount = 0;
+    int surfaceRecordCount = 0;
+    int geometryDescCount = 0;
+    int multiGeometryBuckets = 0;
+    int invalidSurfaceRecords = 0;
     uint64 vertexBytes = 0;
     uint64 indexBytes = 0;
     uint64 metadataBytes = 0;
@@ -1145,6 +1149,9 @@ private:
         uint64 bucketKey = 0;
         uint64 inputSignature = 0;
         RtSmokePlanGeometryRange range;
+        uint32_t firstSurfaceRecord = 0;
+        uint32_t surfaceRecordCount = 0;
+        uint32_t geometryDescCount = 0;
         nvrhi::rt::AccelStructDesc blasDesc;
         nvrhi::rt::AccelStructHandle blas;
         bool buildSubmitted = false;

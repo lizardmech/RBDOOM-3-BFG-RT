@@ -3482,6 +3482,8 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
     stats.vertexCount = geometryPack.stats.packedVertices;
     stats.indexCount = geometryPack.stats.packedIndexes;
     stats.triangleCount = geometryPack.stats.packedTriangles;
+    stats.surfaceRecordCount =
+        static_cast<int>(geometryPack.surfaceRecords.size());
     stats.vertexBytes = geometryPack.vertexBytes.size();
     stats.indexBytes =
         geometryPack.indexes.size() * sizeof(uint32_t);
@@ -3513,7 +3515,10 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         geometryPack.triangleClasses.size() !=
             geometryPack.triangleMaterials.size() ||
         geometryPack.triangleClasses.size() !=
-            geometryPack.triangleIdentities.size())
+            geometryPack.triangleIdentities.size() ||
+        geometryPack.surfaceRecords.size() !=
+            static_cast<size_t>(
+                geometryPack.stats.packedSurfaces))
     {
         ++stats.skippedInexactPack;
         return stats;
@@ -3715,6 +3720,23 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             ++stats.invalidBuckets;
             continue;
         }
+        const RtSmokeStaticBucketBlasGeometryPlan geometryPlan =
+            BuildSmokeStaticBucketBlasGeometryPlan(
+                geometryPack,
+                bucket);
+        if (!geometryPlan.exact)
+        {
+            ++stats.invalidBuckets;
+            stats.invalidSurfaceRecords +=
+                Max(1, geometryPlan.invalidSurfaceRecords);
+            continue;
+        }
+        stats.geometryDescCount +=
+            static_cast<int>(geometryPlan.geometries.size());
+        if (geometryPlan.geometries.size() > 1)
+        {
+            ++stats.multiGeometryBuckets;
+        }
 
         StaticBucketBlasRecord* record = nullptr;
         for (StaticBucketBlasRecord& candidate :
@@ -3748,6 +3770,14 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             inputSignature,
             &bucket.range,
             sizeof(bucket.range));
+        inputSignature = HashSmokeBytes(
+            inputSignature,
+            &bucket.firstSurfaceRecord,
+            sizeof(bucket.firstSurfaceRecord));
+        inputSignature = HashSmokeBytes(
+            inputSignature,
+            &bucket.surfaceRecordCount,
+            sizeof(bucket.surfaceRecordCount));
         const uintptr_t vertexBufferIdentity =
             reinterpret_cast<uintptr_t>(
                 m_staticBucketVertexBuffer.Get());
@@ -3775,7 +3805,13 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             record->range.triangleOffset ==
                 bucket.range.triangleOffset &&
             record->range.triangleCount ==
-                bucket.range.triangleCount;
+                bucket.range.triangleCount &&
+            record->firstSurfaceRecord ==
+                bucket.firstSurfaceRecord &&
+            record->surfaceRecordCount ==
+                bucket.surfaceRecordCount &&
+            record->geometryDescCount ==
+                geometryPlan.geometries.size();
         const bool inputChanged =
             record->inputSignature != 0 &&
             record->inputSignature != inputSignature;
@@ -3800,35 +3836,42 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         {
             if (!record->blas)
             {
-                nvrhi::rt::GeometryTriangles triangles;
-                triangles.vertexBuffer =
-                    m_staticBucketVertexBuffer;
-                triangles.indexBuffer =
-                    m_staticBucketIndexBuffer;
-                triangles.vertexFormat =
-                    nvrhi::Format::RGB32_FLOAT;
-                triangles.indexFormat =
-                    nvrhi::Format::R32_UINT;
-                triangles.vertexOffset = 0;
-                triangles.indexOffset =
-                    bucket.indexByteOffset;
-                triangles.vertexCount =
-                    geometryPack.stats.packedVertices;
-                triangles.indexCount =
-                    bucket.range.indexCount;
-                triangles.vertexStride =
-                    sizeof(PathTraceSmokeVertex);
-                nvrhi::rt::GeometryDesc geometry;
-                geometry.setTriangles(triangles);
                 record->blasDesc =
                     nvrhi::rt::AccelStructDesc()
-                        .addBottomLevelGeometry(geometry)
                         .setBuildFlags(
                             nvrhi::rt::
                                 AccelStructBuildFlags::
                                     PreferFastTrace)
                         .setDebugName(
                             "PathTraceStaticBucketBLAS");
+                for (const
+                    RtSmokeStaticBucketBlasGeometryRange&
+                        geometryRange :
+                    geometryPlan.geometries)
+                {
+                    nvrhi::rt::GeometryTriangles triangles;
+                    triangles.vertexBuffer =
+                        m_staticBucketVertexBuffer;
+                    triangles.indexBuffer =
+                        m_staticBucketIndexBuffer;
+                    triangles.vertexFormat =
+                        nvrhi::Format::RGB32_FLOAT;
+                    triangles.indexFormat =
+                        nvrhi::Format::R32_UINT;
+                    triangles.vertexOffset = 0;
+                    triangles.indexOffset =
+                        geometryRange.indexByteOffset;
+                    triangles.vertexCount =
+                        geometryPack.stats.packedVertices;
+                    triangles.indexCount =
+                        geometryRange.indexCount;
+                    triangles.vertexStride =
+                        sizeof(PathTraceSmokeVertex);
+                    nvrhi::rt::GeometryDesc geometry;
+                    geometry.setTriangles(triangles);
+                    record->blasDesc.
+                        addBottomLevelGeometry(geometry);
+                }
                 record->blas =
                     device->createAccelStruct(
                         record->blasDesc);
@@ -3866,6 +3909,13 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
 
         record->inputSignature = inputSignature;
         record->range = bucket.range;
+        record->firstSurfaceRecord =
+            bucket.firstSurfaceRecord;
+        record->surfaceRecordCount =
+            bucket.surfaceRecordCount;
+        record->geometryDescCount =
+            static_cast<uint32_t>(
+                geometryPlan.geometries.size());
     }
 
     for (size_t recordIndex = 0;
@@ -3945,7 +3995,7 @@ void RtSmokeGeometryUniverse::BuildStaticBucketTlasObservations(
         observation.residentTriangleOffset =
             packed.range.triangleOffset;
         observation.residentSurfaceCount =
-            static_cast<int>(packed.assignmentCount);
+            static_cast<int>(packed.surfaceRecordCount);
         observation.residentVertexCount =
             packed.range.vertexCount;
         observation.residentIndexCount =
@@ -4066,7 +4116,7 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
     const RtPathTraceStaticBucketBlasGpuStats& stats) const
 {
     common->Printf(
-        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/invalid)=%d/%d/%d/%d/%d geometry(v/i/t)=%d/%d/%d bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident traversal=monolithic route=shadow-only\n",
+        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d geometry(v/i/t/surfaceRecords/descs/invalidRecords)=%d/%d/%d/%d/%d/%d bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident traversal=monolithic route=shadow-only\n",
         static_cast<unsigned long long>(stats.frameIndex),
         stats.enabled,
         stats.submitBuilds,
@@ -4079,9 +4129,13 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
         stats.readyBuckets,
         stats.deferredBuckets,
         stats.invalidBuckets,
+        stats.multiGeometryBuckets,
         stats.vertexCount,
         stats.indexCount,
         stats.triangleCount,
+        stats.surfaceRecordCount,
+        stats.geometryDescCount,
+        stats.invalidSurfaceRecords,
         static_cast<unsigned long long>(stats.vertexBytes),
         static_cast<unsigned long long>(stats.indexBytes),
         static_cast<unsigned long long>(stats.metadataBytes),

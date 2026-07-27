@@ -392,6 +392,21 @@ struct RtSmokeStaticBucketSurfaceAddressPlan
     bool valid = false;
 };
 
+struct RtSmokeStaticBucketBlasGeometryRange
+{
+    uint64_t indexByteOffset = 0;
+    uint32_t indexCount = 0;
+    uint32_t triangleOffset = 0;
+    uint32_t triangleCount = 0;
+};
+
+struct RtSmokeStaticBucketBlasGeometryPlan
+{
+    std::vector<RtSmokeStaticBucketBlasGeometryRange> geometries;
+    int invalidSurfaceRecords = 0;
+    bool exact = false;
+};
+
 struct RtSmokeStaticBucketResidentPackCacheInput
 {
     uint64_t assignmentPlanSignature = 0;
@@ -1140,6 +1155,10 @@ RtSmokeStaticBucketSurfaceAddressPlan
         uint32_t firstSurfaceRecord,
         uint32_t surfaceRecordCount,
         uint32_t totalSurfaceRecordCount);
+RtSmokeStaticBucketBlasGeometryPlan
+    BuildSmokeStaticBucketBlasGeometryPlan(
+        const RtSmokeStaticBucketGeometryPack& geometryPack,
+        const RtSmokeStaticBucketPackedRecord& bucket);
 RtSmokeStaticBucketResidentPackCachePlan
     BuildSmokeStaticBucketResidentPackCachePlan(
         const RtSmokeStaticBucketResidentPackCacheInput& input);

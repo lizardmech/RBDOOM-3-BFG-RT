@@ -2375,6 +2375,71 @@ void TestStaticBucketAssignmentPlan()
             multiGeometryPack.surfaceRecords[
                 secondBucketSurfaceBase + 1].indexOffset == 12,
         "static bucket InstanceID plus GeometryIndex resolves the second surface record");
+    const RtSmokeStaticBucketBlasGeometryPlan
+        secondBucketGeometryPlan =
+            BuildSmokeStaticBucketBlasGeometryPlan(
+                multiGeometryPack,
+                multiGeometryPack.buckets[1]);
+    Check(
+        secondBucketGeometryPlan.exact &&
+            secondBucketGeometryPlan.invalidSurfaceRecords == 0 &&
+            secondBucketGeometryPlan.geometries.size() == 2 &&
+            secondBucketGeometryPlan.geometries[0].
+                indexByteOffset == 6 * sizeof(uint32_t) &&
+            secondBucketGeometryPlan.geometries[0].
+                indexCount == 6 &&
+            secondBucketGeometryPlan.geometries[0].
+                triangleOffset == 2 &&
+            secondBucketGeometryPlan.geometries[0].
+                triangleCount == 2 &&
+            secondBucketGeometryPlan.geometries[1].
+                indexByteOffset == 12 * sizeof(uint32_t) &&
+            secondBucketGeometryPlan.geometries[1].
+                indexCount == 3 &&
+            secondBucketGeometryPlan.geometries[1].
+                triangleOffset == 4 &&
+            secondBucketGeometryPlan.geometries[1].
+                triangleCount == 1,
+        "static bucket BLAS geometry plan preserves ordered per-surface ranges");
+
+    RtSmokeStaticBucketGeometryPack invalidSurfaceFlagPack =
+        multiGeometryPack;
+    invalidSurfaceFlagPack.surfaceRecords[2].flags = 0;
+    const RtSmokeStaticBucketBlasGeometryPlan invalidSurfaceFlagPlan =
+        BuildSmokeStaticBucketBlasGeometryPlan(
+            invalidSurfaceFlagPack,
+            invalidSurfaceFlagPack.buckets[1]);
+    Check(
+        !invalidSurfaceFlagPlan.exact &&
+            invalidSurfaceFlagPlan.invalidSurfaceRecords == 1 &&
+            invalidSurfaceFlagPlan.geometries.empty(),
+        "static bucket BLAS geometry plan rejects invalid surface flags");
+
+    RtSmokeStaticBucketGeometryPack gappedSurfacePack =
+        multiGeometryPack;
+    ++gappedSurfacePack.surfaceRecords[2].indexOffset;
+    const RtSmokeStaticBucketBlasGeometryPlan gappedSurfacePlan =
+        BuildSmokeStaticBucketBlasGeometryPlan(
+            gappedSurfacePack,
+            gappedSurfacePack.buckets[1]);
+    Check(
+        !gappedSurfacePlan.exact &&
+            gappedSurfacePlan.invalidSurfaceRecords == 1 &&
+            gappedSurfacePlan.geometries.empty(),
+        "static bucket BLAS geometry plan rejects gaps and reordered ranges");
+
+    RtSmokeStaticBucketPackedRecord crossBucketRecordRange =
+        multiGeometryPack.buckets[1];
+    --crossBucketRecordRange.firstSurfaceRecord;
+    const RtSmokeStaticBucketBlasGeometryPlan crossBucketPlan =
+        BuildSmokeStaticBucketBlasGeometryPlan(
+            multiGeometryPack,
+            crossBucketRecordRange);
+    Check(
+        !crossBucketPlan.exact &&
+            crossBucketPlan.invalidSurfaceRecords == 1 &&
+            crossBucketPlan.geometries.empty(),
+        "static bucket BLAS geometry plan rejects cross-bucket record bleed");
 
     RtSmokeStaticBucketGeometryPackDesc permutedPackDesc = packDesc;
     permutedPackDesc.assignmentPlan = &permutedPlan;
