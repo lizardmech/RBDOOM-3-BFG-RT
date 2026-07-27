@@ -570,3 +570,42 @@ REF-8 is accepted for opaque primary InstanceID + GeometryIndex +
 PrimitiveIndex decoding and full-resident material lookup. This does not accept
 the fixed-depth portal active-set policy, alpha/decal/glass/liquid consumers,
 secondary/query rays, static emissive replay, or production route mode 1.
+
+REF-9A PRIMARY ALPHA-TEST CHECKPOINT - 2026-07-27
+-------------------------------------------------
+The first REF-9 slice stays inside the accepted primary producer. Static-bucket
+any-hit and shadow any-hit now admit ordinary opaque plus alpha-tested
+materials. They reuse the one resolved hardware address and interpolate alpha
+UVs directly from its three packed vertex indexes. No route-table re-decode,
+descriptor, SBT record, payload field, secondary ray, glass, decal, particle,
+liquid, DI/GI, motion, or emissive contract changed.
+
+All other deferred primary classes remain ignored by mode 2. This is an
+alpha-cutout rung, not general transparency.
+
+Verification:
+
+  PathTraceCpuPlanningHarness --stress20             passed
+  full win64-pt-dev-release build                    passed
+  rebuilt Vulkan blobs                                1
+  DX12 shader rebuilds                                0
+  primary blob newer than edited source             yes
+  spirv-val --target-env vulkan1.2                   passed
+  source/deployed executable hashes                  equal
+  source/deployed primary blob hashes                equal
+  executable SHA-256
+    6FDB534E2290DE9953A110961511BF44ACD1412C223DA11CA00E602C27122686
+  primary blob SHA-256
+    7D078719E39B4BADDED618981815EA88CC0E86E272E0DD8C7A211A30FE5E7909
+
+Runtime test:
+
+  1. Keep the REF-8 view-2/GI-off/marker/BLAS settings.
+  2. Aim at a static alpha-tested cutout such as a grate or masked panel.
+  3. Compare route 0 and route 2. The silhouette and holes must match; route 2
+     must not turn the card into a solid polygon.
+  4. Traverse the existing scene and confirm opaque geometry remains stable.
+  5. Capture the log while route 2 reports exact 56/56 bucket traversal.
+
+Reject on device loss, opaque regression, solid alpha cards, wrong cutout
+coverage, or any loss of exact publication.

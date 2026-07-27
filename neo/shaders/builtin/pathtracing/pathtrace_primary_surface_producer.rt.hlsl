@@ -1451,7 +1451,7 @@ bool PathTraceTryResolvePrimaryStaticBucketHit(
         address);
 }
 
-bool PathTraceStaticBucketIsOpaquePrimaryCandidate(
+bool PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
     PathTraceStaticGeometryAddress address,
     out uint triangleClassAndFlags,
     out uint materialId,
@@ -1476,7 +1476,6 @@ bool PathTraceStaticBucketIsOpaquePrimaryCandidate(
     const PathTraceSmokeMaterial material =
         LoadSmokeMaterial(materialIndex);
     const uint deferredPrimaryFlags =
-        RT_SMOKE_MATERIAL_ALPHA_TEST |
         RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
         RT_SMOKE_MATERIAL_FILTER_DECAL |
         RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK |
@@ -1486,6 +1485,39 @@ bool PathTraceStaticBucketIsOpaquePrimaryCandidate(
         RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT |
         RT_SMOKE_MATERIAL_DETAIL_DECAL_LIQUID_POOL;
     return (material.flags & deferredPrimaryFlags) == 0u;
+}
+
+bool PathTraceStaticBucketAlphaRejectsHit(
+    PathTraceStaticGeometryAddress address,
+    uint materialIndex,
+    float2 hitBarycentrics)
+{
+    if (PathTraceSafetyDisabled(
+            RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA))
+    {
+        return false;
+    }
+
+    const PathTraceSmokeMaterial material =
+        LoadSmokeMaterial(materialIndex);
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) == 0u)
+    {
+        return false;
+    }
+
+    const float3 weights = float3(
+        1.0 - hitBarycentrics.x - hitBarycentrics.y,
+        hitBarycentrics.x,
+        hitBarycentrics.y);
+    const float2 texCoord =
+        SmokeStaticBucketVertices[
+            address.vertexIndexes.x].texCoord.xy * weights.x +
+        SmokeStaticBucketVertices[
+            address.vertexIndexes.y].texCoord.xy * weights.y +
+        SmokeStaticBucketVertices[
+            address.vertexIndexes.z].texCoord.xy * weights.z;
+    return SmokeAlphaCoverage(material, texCoord) <
+        material.alphaCutoff;
 }
 
 bool SmokeTriangleIndexRangeValid(uint instanceId, uint primitiveIndex)
@@ -3201,15 +3233,23 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
         uint triangleClassAndFlags;
         uint materialId;
         uint materialIndex;
-        if (!PathTraceStaticBucketIsOpaquePrimaryCandidate(
+        if (!PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
                 address,
                 triangleClassAndFlags,
                 materialId,
                 materialIndex))
         {
-            // REF-8 admits opaque primary visibility only. Alpha, decals,
-            // glass, particles, and liquid cards remain fail-closed until
-            // their address-aware consumers are migrated in REF-9.
+            // REF-9A admits opaque and alpha-tested primary visibility only.
+            // Decals, glass, particles, and liquid cards remain fail-closed
+            // until their address-aware consumers are migrated.
+            IgnoreHit();
+            return;
+        }
+        if (PathTraceStaticBucketAlphaRejectsHit(
+                address,
+                materialIndex,
+                attributes.barycentrics))
+        {
             IgnoreHit();
             return;
         }
@@ -3315,11 +3355,20 @@ void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleInte
                 geometryIndex,
                 primitiveIndex,
                 address) ||
-            !PathTraceStaticBucketIsOpaquePrimaryCandidate(
+            !PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
                 address,
                 triangleClassAndFlags,
                 materialId,
                 materialIndex))
+        {
+            payload.hit = 0u;
+            IgnoreHit();
+            return;
+        }
+        if (PathTraceStaticBucketAlphaRejectsHit(
+                address,
+                materialIndex,
+                attributes.barycentrics))
         {
             payload.hit = 0u;
             IgnoreHit();

@@ -697,6 +697,12 @@ hardware-address decoding only; portal visibility, non-opaque hit handling,
 secondary/query consumers, emissive replay, production mode 1, and recurring
 performance remain open.
 
+REF-9 begins with a primary-only alpha-test rung. Primary and shadow any-hit
+reuse the already resolved bucket address, interpolate UVs from its packed
+vertex triple, and apply the existing alpha cutoff. Every other non-opaque
+class remains fail-closed. The Vulkan-only build, SPIR-V validation, deployment
+hashes, and CPU harness pass; live route-0/route-2 cutout parity remains open.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

@@ -970,3 +970,39 @@ Not accepted by this result:
   - static-emissive replay identity;
   - mode-1 production cutover;
   - resident-pack recurring performance.
+
+REF-9A PRIMARY ALPHA-TEST OFFLINE CHECKPOINT - 2026-07-27
+---------------------------------------------------------
+The primary producer is widened by one material class only. For static-bucket
+hits, primary and shadow any-hit:
+
+  1. resolve InstanceID + GeometryIndex + PrimitiveIndex once;
+  2. retain opaque and alpha-tested non-translucent candidates;
+  3. load the current material table row;
+  4. interpolate UV from the resolved packed vertex triple;
+  5. apply the existing alpha coverage/cutoff decision.
+
+The safety-disable behavior remains unchanged. Additive/filter/detail decals,
+glass/portal fallback, translucent classes, particles, and liquid cards still
+fail closed. Closest-hit already consumes the same resolved vertex/material
+address and required no new ABI.
+
+No descriptors, route tables, SBT contributions, payload fields, or pipeline
+families were added. Only the primary Vulkan RT blob rebuilt.
+
+Offline/deployment proof:
+
+  CPU planning harness --stress20                    passed
+  Vulkan release build                              passed
+  rebuilt Vulkan blobs                                1
+  DX12 shader rebuilds                                0
+  primary blob mtime newer than source              yes
+  spirv-val Vulkan 1.2                              passed
+  executable deployment hash                        exact
+  primary blob deployment hash                      exact
+  primary blob SHA-256
+    7D078719E39B4BADDED618981815EA88CC0E86E272E0DD8C7A211A30FE5E7909
+
+Live acceptance requires route-0/route-2 silhouette parity on a known static
+alpha-tested surface plus the existing exact 56/56 publication and no opaque
+regression or device loss.
