@@ -1695,7 +1695,7 @@ void RayGen()
     payload.geometricNormal = float3(0.0, 0.0, 1.0);
     payload.instanceId = 0xffffffffu;
     payload.primitiveIndex = 0xffffffffu;
-    TraceRay(SmokeScene, RAY_FLAG_FORCE_OPAQUE, 0xff, 0, 1, 0, ray, payload);
+    TraceRay(SmokeScene, RAY_FLAG_FORCE_OPAQUE, 0xff, 0, 0, 0, ray, payload);
     if (payload.hit == 0u)
     {
         if (PathTraceNeeCacheDebugDispatchMode() != 3u)

@@ -127,7 +127,7 @@ bool PathTraceCleanRtxdiDiTraceTransmissionHit(
     ray.TMax = 100000.0;
     // Force non-opaque so the rayMode 3 anyhit filter always runs; it skips the
     // source pane and transparent-carded glass so the ray reaches the backdrop.
-    TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 1, 0, ray, hitPayload);
+    TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 0, 0, ray, hitPayload);
     hitPosition = ray.Origin + rayDirection * hitPayload.hitT;
     return hitPayload.value != 0u && hitPayload.hitMaterialIndex < (uint)TextureInfo.z;
 }

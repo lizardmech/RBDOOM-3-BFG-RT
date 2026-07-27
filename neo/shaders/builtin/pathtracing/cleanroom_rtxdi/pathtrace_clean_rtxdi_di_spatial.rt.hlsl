@@ -1449,7 +1449,7 @@ float CleanTraceVisibility(RAB_Surface surface, RAB_LightInfo lightInfo, RAB_Lig
         payload.ignoreMaterialIndex = tri.materialIndex;
     }
 
-    TraceRay(SmokeScene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 1, 1, 1, ray, payload);
+    TraceRay(SmokeScene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 1, 0, 1, ray, payload);
     return payload.value == 0u ? 1.0 : 0.0;
 }
 

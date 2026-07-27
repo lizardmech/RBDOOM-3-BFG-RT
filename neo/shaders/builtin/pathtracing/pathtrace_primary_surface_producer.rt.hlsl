@@ -1082,7 +1082,7 @@ bool ResolvePrimaryFilterDecalReceiver(inout PathTraceSmokePayload payload, RayD
 
     RayDesc receiverRay = ray;
     receiverRay.TMin = max(ray.TMin, max(payload.hitT - 0.05, 0.001));
-    TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, receiverRay, receiverPayload);
+    TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 0, 0, receiverRay, receiverPayload);
     if (receiverPayload.value == 0u || SmokePayloadIsGuiScreen(receiverPayload))
     {
         return false;
@@ -3033,7 +3033,7 @@ void RayGen()
     // bypassed (docs/decal_cards/08 sec.4 -- do not build on the receiver re-trace).
     const bool decalCollectMode = PathTraceDecalCollectEnabled(PathTraceDecalCompositeStage());
     payload.value = decalCollectMode ? 0u : RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE;
-    TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, ray, payload);
+    TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
     RAB_Surface surface = RAB_EmptySurface();
     if (payload.value != 0u && !SmokePayloadIsGuiScreen(payload))
     {

@@ -49,7 +49,7 @@ float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, ui
         rayFlags,
         0xff,
         1,
-        1,
+        0,
         1,
         shadowRay,
         shadowPayload);

@@ -4091,7 +4091,7 @@ float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3
     shadowPayload.ignorePrimitiveIndex = 0xffffffffu;
     shadowPayload.ignoreMaterialIndex = 0xffffffffu;
     const uint rayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE;
-    TraceRay(SmokeScene, rayFlags, 0xff, 1, 1, 1, shadowRay, shadowPayload);
+    TraceRay(SmokeScene, rayFlags, 0xff, 1, 0, 1, shadowRay, shadowPayload);
     return shadowPayload.value == 0u ? 1.0 : 0.0;
 }
 
@@ -4746,7 +4746,7 @@ bool CleanGiTraceMaterialSurfaceRay(
     payload.ignorePrimitiveIndex = ignorePrimitiveIndex;
     payload.ignoreMaterialIndex = ignoreMaterialIndex;
     const uint traceFlags = CleanGiLiquidPoolMaterialRayFlags(forceOpaqueTrace);
-    TraceRay(SmokeScene, traceFlags, 0xff, 0, 1, 0, ray, payload);
+    TraceRay(SmokeScene, traceFlags, 0xff, 0, 0, 0, ray, payload);
     if (payload.value == 0u)
     {
         return false;
@@ -5610,7 +5610,7 @@ bool CleanGiBuildProducerSurface(
     payload.ignorePrimitiveIndex = 0xffffffffu;
     payload.ignoreMaterialIndex = 0xffffffffu;
     const uint rayFlags = CleanGiLiquidPoolMaterialRayFlags(CleanRestirGiProducerOpaqueTrace != 0u);
-    TraceRay(SmokeScene, rayFlags, 0xff, 0, 1, 0, bounceRay, payload);
+    TraceRay(SmokeScene, rayFlags, 0xff, 0, 0, 0, bounceRay, payload);
     if (payload.value == 0u)
     {
         return false; // miss: zero radiance, invalid hit geometry

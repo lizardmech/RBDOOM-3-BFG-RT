@@ -1504,7 +1504,7 @@ void RayGen()
     ray.TMax = CameraOriginAndTMax.w;
 
     PathTraceReGIRPayload payload = PathTraceReGIRInitPayload();
-    TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, ray, payload);
+    TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
     if (payload.value == 0u)
     {
         SmokeOutput[pixel] = PathTraceReGIRMissColor((uint)ReGIRInfo0.y);

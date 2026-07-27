@@ -1331,7 +1331,7 @@ bool ResolvePrimaryFilterDecalReceiver(inout PathTraceSmokePayload payload, RayD
 
     RayDesc receiverRay = ray;
     receiverRay.TMin = max(ray.TMin, max(payload.hitT - 0.05, 0.001));
-    TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 1, 0, receiverRay, receiverPayload);
+    TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 0, 0, receiverRay, receiverPayload);
     if (receiverPayload.value == 0u || SmokePayloadIsGuiScreen(receiverPayload))
     {
         return false;
@@ -2089,7 +2089,7 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
             glassRay.Direction = glassEventDir;
             glassRay.TMin = 0.01;
             glassRay.TMax = min(CameraOriginAndTMax.w, max(ToyPathInfo.x, 64.0));
-            TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, glassRay, glassPayload);
+            TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 0, 0, glassRay, glassPayload);
 
             if (glassPayload.value != 0u && !SmokePayloadIsGuiScreen(glassPayload))
             {
@@ -2129,7 +2129,7 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
         bounceRay.Direction = bounceDir;
         bounceRay.TMin = 0.01;
         bounceRay.TMax = min(CameraOriginAndTMax.w, max(ToyPathInfo.x, 64.0));
-        TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, bounceRay, bouncePayload);
+        TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 0, 0, bounceRay, bouncePayload);
 
         if (bouncePayload.value != 0u && !SmokePayloadIsGuiScreen(bouncePayload))
         {
@@ -2167,7 +2167,7 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
         reflectionRay.Direction = reflectionDir;
         reflectionRay.TMin = 0.01;
         reflectionRay.TMax = min(CameraOriginAndTMax.w, max(ToyPathInfo.x, 64.0));
-        TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, reflectionRay, reflectionPayload);
+        TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 0, 0, reflectionRay, reflectionPayload);
 
         if (reflectionPayload.value != 0u && !SmokePayloadIsGuiScreen(reflectionPayload))
         {
@@ -2251,7 +2251,7 @@ float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceS
         ray.Direction = rayDirection;
         ray.TMin = lastHitT + 0.002;
         ray.TMax = min(CameraOriginAndTMax.w, firstPayload.hitT + 8.0);
-        TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, ray, nextPayload);
+        TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, nextPayload);
         layerPayload = nextPayload;
     }
 
@@ -3194,7 +3194,7 @@ void RayGen()
             RAY_FLAG_NONE,
             canonicalRoute ? 0x02u : 0x01u,
             0,
-            1,
+            0,
             0,
             pairRay,
             auditPayload);
@@ -3215,8 +3215,8 @@ void RayGen()
     {
         PathTraceSmokePayload fallbackPayload = InitSmokePayload();
         PathTraceSmokePayload rigidPayload = InitSmokePayload();
-        TraceRay(SmokeScene, RAY_FLAG_NONE, 0x01u, 0, 1, 0, ray, fallbackPayload);
-        TraceRay(SmokeScene, RAY_FLAG_NONE, 0x02u, 0, 1, 0, ray, rigidPayload);
+        TraceRay(SmokeScene, RAY_FLAG_NONE, 0x01u, 0, 0, 0, ray, fallbackPayload);
+        TraceRay(SmokeScene, RAY_FLAG_NONE, 0x02u, 0, 0, 0, ray, rigidPayload);
 
         // GEO-01 uses mode 24 as a fallback-route traversal probe. Preserve
         // the mask-0x01 hit in the normal primary-surface readback so the
@@ -3298,7 +3298,7 @@ void RayGen()
     {
         payload.value = RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE;
     }
-    TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 1, 0, ray, payload);
+    TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 0, 0, ray, payload);
     if (payload.value != 0u && !SmokePayloadIsGuiScreen(payload))
     {
         PathTraceSmokePayload filterDecalPayload;
@@ -3719,7 +3719,7 @@ void RayGen()
                     CameraLeftAndTanY.xyz * (-sampleNdc.x * CameraForwardAndTanX.w) +
                     CameraUpAndDebugMode.xyz * (-sampleNdc.y * CameraLeftAndTanY.w));
                 samplePayload = InitSmokePayload();
-                TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 1, 0, sampleRay, samplePayload);
+                TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 0, 0, sampleRay, samplePayload);
             }
 
             if (samplePayload.value == 0u)

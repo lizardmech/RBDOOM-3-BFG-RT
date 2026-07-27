@@ -437,3 +437,55 @@ Harness proof includes:
   - a later bucket with nonzero InstanceID base and two geometries;
   - base + GeometryIndex resolving that bucket's second surface;
   - maximum and overflow bounds for the 23-bit base/range.
+
+REF-4 OFFLINE CHECKPOINT - 2026-07-27
+-------------------------------------
+Every live source-level TraceRay call in the local Vulkan PT shader graph now
+uses zero for MultiplierForGeometryContributionToHitGroupIndex.
+
+The audit found 23 real calls in ten source/include files. Primary/material
+rays retain ray contribution 0 and miss index 0. Visibility/shadow rays retain
+ray contribution 1 and miss index 1. Only the geometry-contribution multiplier
+changed from 1 to 0.
+
+This preserves the established instance contribution contract:
+
+  contribution 0 + ray 0/1 -> common primary/shadow records 0/1
+  contribution 2 + ray 0/1 -> skinned primary/shadow records 2/3
+
+The old experimental contribution 4/5 bucket path remains compile-time
+fail-closed and is not an accepted consumer. A multi-geometry BLAS is still
+forbidden until the route-off runtime checkpoint below passes.
+
+Build/static proof:
+
+  - exactly 44 affected Vulkan RT blobs were resolved under the repository
+    SPIR-V root and deleted before compilation;
+  - cmake --build --preset win64-pt-dev-release completed in 585.2 seconds;
+  - all 44 intended blobs exist and are newer than the newest edited source;
+  - spirv-val --target-env vulkan1.2 passed all 44;
+  - raw-ID disassembly found 341 compiled OpTraceRayKHR instructions across
+    the 44 libraries and zero nonzero SBT geometry-stride operands;
+  - no DX12 shader output was intentionally compiled;
+  - the game was not launched and the built executable/blobs were not deployed.
+
+The broad build also regenerated shader outputs whose working-tree inputs were
+already dirty or shared by broader custom-command dependencies. Those outputs
+are not part of this checkpoint's 44-blob deploy set and do not authorize
+staging unrelated source changes.
+
+Required runtime gate:
+
+  1. Deploy the checkpoint executable and only the 44 intended Vulkan blobs.
+  2. Keep the static-bucket route, bucket BLAS ownership, and bucket BLAS build
+     controls off. The compile-time bucket consumer remains fail-closed.
+  3. Set r_pathTracingNsightGpuMarkers 1 so any device loss emits the new
+     resolved Vulkan checkpoint.
+  4. Load the known save, allow cold pipeline creation to finish, traverse the
+     portal/brush, rigid, skinned, particle, glass, DI, and GI cases, reload the
+     map once, and close normally.
+  5. Reject on device removal, CPU crash, material/geometry regression,
+     skinned portal flicker, glass/PSR failure, or zombie shutdown.
+
+Do not proceed to a multi-geometry bucket BLAS until that route-off baseline
+survives.

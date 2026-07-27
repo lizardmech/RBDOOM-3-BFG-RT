@@ -1511,7 +1511,7 @@ float PathTraceCleanRoomTraceVisibilityWithIgnore(
         rayFlags,
         0xff,
         1,
-        1,
+        0,
         1,
         shadowRay,
         shadowPayload);

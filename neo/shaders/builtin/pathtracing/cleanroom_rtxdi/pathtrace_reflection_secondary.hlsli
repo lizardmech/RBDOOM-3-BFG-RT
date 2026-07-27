@@ -96,7 +96,7 @@ bool PathTraceReflectionSecondaryTrace(
     ray.TMin = 0.01;
     ray.TMax = 100000.0;
     // TraceRay payload must be a local; nested struct members can ICE DXC.
-    TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 1, 0, ray, hitPayload);
+    TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 0, 0, ray, hitPayload);
     hit.payload = hitPayload;
     hit.hitPosition = ray.Origin + hit.rayDirection * hitPayload.hitT;
     hit.hitT = hitPayload.hitT;
@@ -223,7 +223,7 @@ float PathTraceReflectionSecondaryTraceVisibility(RAB_Surface surface, float3 sa
         RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE,
         0xff,
         1,
-        1,
+        0,
         1,
         shadowRay,
         shadowPayload);
