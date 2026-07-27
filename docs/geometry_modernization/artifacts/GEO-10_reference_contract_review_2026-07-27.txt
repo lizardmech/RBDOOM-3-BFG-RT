@@ -328,3 +328,59 @@ Reject the revised route if it requires:
   - repeated GetDimensions validation per material property;
   - a renderer-wide bindless-buffer or RayQuery rewrite inside GEO-10;
   - live fault iteration without at least diagnostic-checkpoint evidence.
+
+REF-2 IMPLEMENTATION CHECKPOINT - 2026-07-27
+--------------------------------------------
+An SDK-independent Vulkan breadcrumb path is implemented and build-verified,
+but deliberately not deployed over the pending fail-closed baseline build.
+
+Application:
+
+  DeviceManager_VK requests VK_NV_device_diagnostic_checkpoints as an optional
+  device extension. Unsupported devices retain the old inert behavior.
+
+NVRHI Vulkan backend:
+
+  - checkpoint support is tracked independently of NVRHI_WITH_AFTERMATH;
+  - command lists register their bounded marker trackers when the extension is
+    available;
+  - beginMarker publishes the tracker hash with vkCmdSetCheckpointNV;
+  - queue submission device loss queries vkGetQueueCheckpointDataNV before the
+    existing fatal callback;
+  - vkDeviceWaitIdle device loss queries every available queue before returning
+    false;
+  - each report includes numeric queue, pipeline-stage mask, marker hash,
+    resolved bounded marker path, and resolution status;
+  - a queue with no returned checkpoint prints that fact explicitly.
+
+The existing Aftermath marker helper is reused only as a bounded hash-to-label
+registry. No Aftermath SDK, crash-dump callback, diagnostic-config extension,
+or runtime DLL is enabled by this checkpoint.
+
+Build proof:
+
+  cmake --build --preset win64-pt-dev-release -- /m:1 /nr:false /v:minimal
+  succeeded after both device-loss paths were wired.
+  MSBuild reported every SPIR-V shader up to date; this checkpoint changes no
+  shader source or blob.
+
+First diagnostic runtime:
+
+  1. Preserve the default fail-closed static-bucket consumer state.
+  2. Set r_pathTracingNsightGpuMarkers 1 before loading the known scene. This
+     enables the existing fine-grained PT dispatch labels; broader renderer
+     markers remain available independently.
+  3. Confirm normal load/traversal/shutdown first.
+  4. Only after the route-off run survives may a deliberately faulting GEO-10
+     mode be used to collect a checkpoint.
+  5. Preserve the last "Vulkan device lost checkpoint" lines. The last console
+     line recorded before a stall is not a substitute for this GPU evidence.
+
+Acceptance:
+
+  - supported NVIDIA hardware produces resolved checkpoint labels on a device
+    loss;
+  - ordinary runtime behavior is unchanged when no loss occurs;
+  - unsupported hardware starts without treating the optional extension as a
+    requirement;
+  - instrumentation alone does not authorize another bucket-route iteration.
