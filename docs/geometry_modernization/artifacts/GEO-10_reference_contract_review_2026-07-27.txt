@@ -489,3 +489,23 @@ Required runtime gate:
 
 Do not proceed to a multi-geometry bucket BLAS until that route-off baseline
 survives.
+
+REF-4 DEPLOYMENT GATE - 2026-07-27
+----------------------------------
+The preceding fail-closed baseline was run before replacement and survived
+without a crash or visible issue. Its deployed executable SHA-256 was:
+
+  AE1E397B9E6B7083CEC2DAD6F2887C743EA1B9485ADDAFFD8E139B4D89A8DB21
+
+The breadcrumb-enabled, surface-record-capable, multiplier-zero checkpoint is
+now deployed for the required route-off runtime test:
+
+  built/deployed executable SHA-256
+    B3A7508524B135C4BEEEBAE2555DA298522E5E9DC8344B85FDF39AFAC201EE96
+  intended Vulkan RT blobs copied                    44
+  source/deployment blob SHA-256 mismatches           0
+
+The first copy attempt correctly failed while the old executable was still
+open. The user closed the process; the executable was then replaced and the
+complete executable/blob package was reverified. Do not infer a runtime result
+from deployment success.
