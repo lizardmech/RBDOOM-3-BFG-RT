@@ -952,3 +952,79 @@ Quarantine verification:
   deployed SPIR-V source/hash mismatches           0 / 44
   built/deployed executable hash match             yes
   deployed executable SHA-256                     F30B12E30771EED06CB2FA3181254C18B62D0A4AA3302F6DEA03F98DC9143FCB
+
+Quarantine runtime result:
+
+  reboot after repeated driver resets              completed
+  default launch and save load                     passed
+  device loss / reset                              none observed
+
+This accepts the shader-consumer quarantine as the current stable baseline.
+It does not prove which consumer was responsible, so the CPU cutover capability
+remains hard-disabled.
+
+The first isolation rung re-enables bucket-route code only in
+pathtrace_primary_surface_producer.rt.hlsl. Every clean-DI, spatial-DI, and
+Remix-GI library retains the compile-time false predicate. The CPU cutover is
+still incapable, so this rung tests primary-library compilation, pipeline
+creation, and default-route execution without inserting a bucket BLAS into the
+TLAS or changing visible geometry.
+
+Primary-only isolation result:
+
+  default launch and save load                     passed
+  runtime traversal                                monolithic by hard gate
+  device loss / reset                              none observed
+  shutdown                                         process lingered temporarily
+
+The reported post-close process was no longer present at the next read-only
+process check. Track it as a shutdown-lifecycle symptom, not as evidence of a
+GPU hang in this rung.
+
+The second isolation rung retains the accepted primary consumer and enables
+bucket-route code only in the two spatial-DI libraries. Clean-DI shared hit
+adapters and all Remix-GI libraries remain compiled out. CPU cutover remains
+hard-disabled, so this rung isolates spatial-library pipeline creation and
+default-route execution without changing the TLAS.
+
+Spatial-DI isolation result:
+
+  default launch and save load                     passed
+  runtime traversal                                monolithic by hard gate
+  device loss / reset                              none observed
+
+The third isolation rung retains primary and spatial consumers, then enables
+the shared bucket hit/surface adapters in the sentinel, initial, temporal,
+glass, and transmission clean-DI libraries. The compact skinned-hit library
+does not include the shared adapter and remains unchanged. Remix GI remains
+compiled out, and CPU cutover remains hard-disabled.
+
+Combined clean-DI shared-adapter isolation result:
+
+  default launch and save load                     device removed
+  primary consumer                                 previously passed
+  spatial-DI consumers                             previously passed
+  live bucket cutover                              hard-disabled
+
+This is a shader/pipeline regression inside the newly enabled clean-DI shared
+adapter set; it does not require a bucket TLAS instance or route cvar. Roll back
+all seven clean-DI outputs before further runtime testing. The next isolation
+sequence must split this failed rung into:
+
+  initial + temporal libraries
+  glass library
+  transmission-producer library
+
+Do not combine those sub-rungs until each passes independently.
+
+Failed-rung rollback verification:
+
+  clean-DI blobs invalidated/rebuilt                 7 / 7
+  spirv-val --target-env vulkan1.2                  7 passed, 0 failed
+  disassembled bucket resource names                0 in all 7 libraries
+  hashes restored to quarantine baseline            7 / 7
+  deployed source/hash mismatches                    0 / 7
+
+The deployed state now retains only the two independently accepted shader
+consumer rungs: primary visibility and spatial DI. Clean-DI shared adapters and
+Remix GI are compiled out, and CPU cutover remains hard-disabled.

@@ -238,7 +238,9 @@ StructuredBuffer<uint> SmokeSkinnedTriangleDispatchIndexes : register(t41);
 StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t76);
 StructuredBuffer<PathTraceMaterialFeatureRecord> PathTraceMaterialFeatures : register(t80);
 StructuredBuffer<PathTraceMaterialFeatureParameterRecord> PathTraceMaterialFeatureParameters : register(t81);
+#define RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS 1
 #include "PathTraceStaticBucketRoute.hlsli"
+#undef RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
 RWStructuredBuffer<uint> PathTraceLiquidPoolStatusCounters : register(u82);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
