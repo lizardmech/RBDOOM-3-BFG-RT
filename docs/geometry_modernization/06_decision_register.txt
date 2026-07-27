@@ -1059,6 +1059,20 @@ Views 18-23 remain unsupported except for the separately accepted view 19:
 their host routing can request spatial/production work and must not be used as
 a shortcut for motion proof. Markers remain required and GI remains disabled.
 
+D56. ISOLATE PRIMARY GLASS IDENTITY IN SENTINEL VIEW 24
+-------------------------------------------------------
+Decision: add clean-DI view 24 to the isolated mode-2 gate only after the
+primary producer recognizes address-resolved bucket portal-window and
+object-glass hits. View 24 consumes the stored primary material classification
+through the sentinel library while temporal, spatial, glass, transmission, and
+GI traversal remain suppressed.
+
+Bucket glass stochastic coverage must hash the original monolithic static
+identity: InstanceID zero plus sourceTriangleIndex. Hashing the bucket instance
+or surface-local primitive would make route 0 and route 2 select different
+samples after repacking. This decision does not admit view 25, bucket shadow
+glass, transmission PSR, glass compose, or any secondary ray consumer.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

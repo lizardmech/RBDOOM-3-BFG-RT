@@ -1496,6 +1496,29 @@ bool PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
         (materialFlags & deferredPrimaryFlags) == 0u;
 }
 
+bool PathTraceStaticBucketIsPrimaryGlassCandidate(
+    uint triangleClassAndFlags,
+    uint materialFlags)
+{
+    const uint surfaceClass =
+        triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
+    const uint translucentSubtype =
+        (triangleClassAndFlags &
+            RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >>
+        RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+    const bool portalWindow =
+        translucentSubtype ==
+            RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW;
+    const bool objectGlass =
+        translucentSubtype ==
+            RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS &&
+        (materialFlags &
+            RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK) != 0u;
+    return
+        surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        (portalWindow || objectGlass);
+}
+
 float2 PathTraceStaticBucketInterpolateTexCoord(
     PathTraceStaticGeometryAddress address,
     float2 hitBarycentrics)
@@ -2204,6 +2227,30 @@ bool SmokeGlassFallbackRejectsHit(PathTraceSmokeMaterial material, float2 texCoo
         baryCell.x * 277803737u ^
         baryCell.y * 3266489917u;
     return opacity < SmokeHashToUnitFloat(SmokeAlphaStochasticHash(hash, 37u));
+}
+
+bool PathTraceStaticBucketGlassRejectsPrimaryHit(
+    PathTraceStaticGeometryAddress address,
+    uint triangleClassAndFlags,
+    uint materialIndex,
+    float2 hitBarycentrics)
+{
+    const PathTraceSmokeMaterial material =
+        LoadSmokeMaterial(materialIndex);
+    const float2 texCoord =
+        PathTraceStaticBucketInterpolateTexCoord(
+            address,
+            hitBarycentrics);
+    // Preserve the monolithic static identity in stochastic glass coverage so
+    // route 0 and route 2 select the same samples after bucket repacking.
+    return SmokeGlassFallbackRejectsHit(
+        material,
+        texCoord,
+        hitBarycentrics,
+        0u,
+        address.sourceTriangleIndex,
+        triangleClassAndFlags,
+        false);
 }
 
 bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBarycentrics, uint rayMode)
@@ -3436,14 +3483,31 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             IgnoreHit();
             return;
         }
-        if (!PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
+        const bool primaryGlassCandidate =
+            PathTraceStaticBucketIsPrimaryGlassCandidate(
+                triangleClassAndFlags,
+                materialFlags);
+        if (!primaryGlassCandidate &&
+            !PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
                 triangleClassAndFlags,
                 materialFlags))
         {
             // REF-9B/9C admit receiver-owned detail decals and semantic liquid
-            // cards. Glass, particles, and the remaining decal routes stay
-            // fail-closed until their address-aware consumers are migrated.
+            // cards. Particles and the remaining decal routes stay fail-closed
+            // until their address-aware consumers are migrated.
             IgnoreHit();
+            return;
+        }
+        if (primaryGlassCandidate)
+        {
+            if (PathTraceStaticBucketGlassRejectsPrimaryHit(
+                    address,
+                    triangleClassAndFlags,
+                    materialIndex,
+                    attributes.barycentrics))
+            {
+                IgnoreHit();
+            }
             return;
         }
         if (PathTraceStaticBucketAlphaRejectsHit(

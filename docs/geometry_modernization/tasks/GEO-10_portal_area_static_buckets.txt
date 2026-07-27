@@ -941,3 +941,57 @@ Runtime test:
      reject magenta/invalid bands, portal-dependent discontinuities, or
      persistent reset colors unique to route 2.
   5. Return to view 19 before later material checks.
+
+REF-9D RUNTIME ACCEPTANCE - 2026-07-27
+--------------------------------------
+The route-0 and route-2 view-17 motion fields were reported visually
+identical. REF-9D is accepted.
+
+REF-9E PRIMARY GLASS CLASSIFICATION PROBE - 2026-07-27
+------------------------------------------------------
+The next bounded primary-only slice uses clean-DI view 24. Its material-
+classifier proof disables temporal and spatial work, does not select production
+view 16 in the material-feature registry, and renders through the sentinel
+library. Transmission producer, glass compose, shadow-glass, GI, and other
+secondary ray consumers remain outside this rung.
+
+Primary bucket any-hit now admits only the established glass categories:
+portal-window subtype, or object-glass subtype with its fallback material flag.
+It uses the already resolved hardware address for metadata and UVs. The
+existing stochastic glass coverage test is reused with monolithic static
+InstanceID zero and sourceTriangleIndex so bucket repacking cannot change the
+route-0 sample hash. Primary closest-hit already records GeometryIndex and
+loads the exact packed surface.
+
+Mode 2 now permits view 24 under the existing markers-on, GI-off gate. View 25
+remains explicitly rejected because it executes the transmission/PSR path.
+Bucket shadow glass also remains fail-closed.
+
+Offline/deployment proof:
+
+  full win64-pt-dev-release build                    passed
+  explicit PathTraceCpuPlanningHarness target       passed
+  PathTraceCpuPlanningHarness --stress 20           passed
+  view-24 support/view-25 rejection matrix          passed
+  rebuilt Vulkan blobs                                1
+  DX12 shader rebuilds                                0
+  primary blob newer than edited source             yes
+  spirv-val --target-env vulkan1.2                   passed
+  descriptor-set/binding decorations              48 / 48
+  source/deployed executable hashes                  equal
+  source/deployed primary blob hashes                equal
+  executable SHA-256
+    128D467C75A02F41665727DDA370B527CB0CBE08BAB25A0F2F230D308A922016
+  primary producer SHA-256
+    7B0FCD935A7C0521E29E4516D03E4C1EF13C79037AC6574F8BEB7D16B4281B4A
+
+Runtime test:
+
+  1. Retain markers on, GI off, bucket BLAS/build on, and exact 56/56
+     resident-ready publication.
+  2. Set `r_pathTracingCleanRtxdiDiView 24`.
+  3. Compare route 0 and route 2 while looking through portal-window glass and
+     at object glass, then rotate, move, and cross portals.
+  4. Material-class colors and stochastic coverage must match. Reject
+     route-2-only magenta, missing bands, coverage shimmer, or class changes.
+  5. Do not use view 25 for this rung.

@@ -2582,8 +2582,14 @@ void TestStaticBucketAssignmentPlan()
             true,
             19,
             true,
+            false) &&
+        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            24,
+            true,
             false),
-        "static bucket primary probe accepts instrumented status, motion, and post-composite albedo isolates");
+        "static bucket primary probe accepts instrumented status, motion, post-composite albedo, and material-classifier isolates");
     Check(
         !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -2595,6 +2601,12 @@ void TestStaticBucketAssignmentPlan()
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
             true,
             18,
+            true,
+            false) &&
+        !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            25,
             true,
             false) &&
         !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(

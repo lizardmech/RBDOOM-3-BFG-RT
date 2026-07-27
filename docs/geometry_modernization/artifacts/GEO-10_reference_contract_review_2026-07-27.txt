@@ -1236,3 +1236,47 @@ executable hashes match:
     F1ED59CEFF624B4CD4F3CA49883D6783459F1866A900BDEA0F9150CF9E26BF00
   retained primary producer
     F0D7B2326A15AC33461F7D7FC9F24CB30DA5B98E948F995FA514232843F4A1DF
+
+REF-9D RUNTIME ACCEPTANCE - 2026-07-27
+--------------------------------------
+The user reported that clean-DI view 17 looked identical between route 0 and
+route 2. The immutable-static motion/history contract is accepted.
+
+REF-9E PRIMARY GLASS IDENTITY ISOLATE - 2026-07-27
+--------------------------------------------------
+Clean-DI view 24 is a sentinel-only primary material-classifier proof:
+temporal and spatial reuse are disabled, the material-feature registry sees
+view 24 rather than production view 16, and transmission, glass, and GI ray
+families do not dispatch. It is therefore a bounded primary-producer consumer.
+
+Bucket any-hit now identifies portal-window and flagged object-glass surfaces
+from the once-resolved hardware address, interpolates UVs from the same packed
+vertex triple, and applies the established glass fallback coverage test. The
+stochastic hash deliberately uses static InstanceID zero and the recorded
+sourceTriangleIndex, matching the route-0 identity instead of bucket-local
+identity. Primary closest-hit already retains GeometryIndex and reconstructs
+the exact resolved geometry. Shadow glass and all PSR/secondary consumers
+remain fail-closed; view 25 remains rejected by the mode-2 gate.
+
+Offline proof and deployment:
+
+  full win64-pt-dev-release build                    passed
+  explicit PathTraceCpuPlanningHarness target       passed
+  PathTraceCpuPlanningHarness --stress 20           passed
+  view-24 support/view-25 rejection matrix          passed
+  rebuilt Vulkan blobs                                1
+  DX12 shader rebuilds                                0
+  primary blob newer than edited source             yes
+  spirv-val --target-env vulkan1.2                   passed
+  descriptor-set/binding decorations              48 / 48
+  source/deployed executable hashes                  equal
+  source/deployed primary blob hashes                equal
+  executable SHA-256
+    128D467C75A02F41665727DDA370B527CB0CBE08BAB25A0F2F230D308A922016
+  primary producer SHA-256
+    7B0FCD935A7C0521E29E4516D03E4C1EF13C79037AC6574F8BEB7D16B4281B4A
+
+Runtime acceptance compares route 0 and route 2 in view 24 at portal windows
+and object glass. Classification, coverage, camera-motion stability, and portal
+traversal must match. Any route-2-only magenta, missing band, coverage shimmer,
+or class-color change rejects the rung.

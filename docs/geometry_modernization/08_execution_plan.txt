@@ -767,6 +767,17 @@ world position equals current and only camera reprojection contributes motion.
 View 17 is a sentinel-only consumer of the producer's motion vector, RR motion,
 and validity-mask outputs. Mode 2 now permits view 17 with markers on and GI
 off; this changes only the CPU gate and CVar help, not a shader or ray family.
+The route-0/route-2 comparison was visually identical while stationary,
+rotating, moving, and crossing portals, so REF-9D is accepted.
+
+REF-9E isolates primary glass identity in clean-DI view 24. This material-
+classifier proof view suppresses temporal, spatial, material-feature,
+transmission, glass, and GI traversal. Primary bucket any-hit now admits only
+portal-window and flagged object-glass surfaces in addition to the accepted
+opaque/alpha/decal/liquid set. It reuses the hardware-resolved address for
+class, material, UV, and vertex data, and preserves route-0 stochastic coverage
+by hashing InstanceID zero plus sourceTriangleIndex. View 25 and all shadow,
+PSR, compose, and secondary glass work remain fail-closed.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

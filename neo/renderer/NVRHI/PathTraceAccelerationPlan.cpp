@@ -1684,7 +1684,8 @@ bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
         cleanDiEnabled &&
         (cleanDiView == 2 ||
             cleanDiView == 17 ||
-            cleanDiView == 19) &&
+            cleanDiView == 19 ||
+            cleanDiView == 24) &&
         diagnosticCheckpointsEnabled &&
         !cleanGiEnabled;
 }
