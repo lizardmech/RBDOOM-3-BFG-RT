@@ -1079,3 +1079,41 @@ ordinary opaque/alpha traversal. Missing decals, changed layer order,
 receiver holes, flicker, device loss, or publication fallback reject the rung.
 Glass/transmission, particles, liquid cards, secondary/query rays, emissive
 replay, portal active-set production policy, and mode 1 remain out of scope.
+
+REF-9B VISUAL-GATE CORRECTION - bucket12.log - 2026-07-27
+----------------------------------------------------------
+The log contains repeated exact 56/56 mode-2 bucket traversal, zero missing
+active material indexes, and no device, descriptor, or validation failure.
+That is execution evidence only. View 2 intentionally displays the
+primary-surface validity status, so the user's solid-green result cannot
+validate post-composite decal appearance.
+
+The reported black hovering card appeared only in view 16. Every view-16
+cutover line has `consumerSupported=0`, `accepted=0`, and
+`traversal=monolithic`; the artifact is not evidence against the REF-9B bucket
+branch. It remains a separate monolithic decal/liquid-offset issue.
+
+The isolated mode-2 predicate now accepts either:
+
+  view 2   primary validity status
+  view 19  post-composite primary RR diffuse-albedo guide
+
+Both use the same bucket-aware primary producer and sentinel output family.
+View 19 reads `PathTraceRRGuideAlbedo`, which the producer writes after detail
+decal and liquid-pool resolve. It does not request the real analytic/material
+validation path used by view 16. Diagnostic checkpoints and GI-off remain
+mandatory.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness --stress 20           passed
+  full release build                                passed
+  shader rebuilds                                    0
+  executable deployment hash                        exact
+  executable SHA-256
+    D4039161E807CC8257E1A130D21A7A11BFF238B82B8D01ECDAB7EDBD8A2578E8
+
+REF-9B visual acceptance must now compare route 0 and route 2 in view 19.
+Because the output is unlit albedo, glass/window appearance is not an
+acceptance signal. Detail-decal coverage, color, layering, and receiver
+continuity are.

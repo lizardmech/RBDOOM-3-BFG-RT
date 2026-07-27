@@ -704,3 +704,54 @@ Runtime test:
 Reject on a missing decal, a decal becoming closest geometry, changed layer
 order, receiver holes, flicker, opaque/alpha regression, device loss, or an
 inexact publication. REF-9B remains pending runtime acceptance.
+
+REF-9B VISUAL-GATE CORRECTION - bucket12.log - 2026-07-27
+----------------------------------------------------------
+`bucket12.log` mechanically accepts the new hit branch but cannot visually
+accept it. In view 2 the route repeatedly reached exact full-resident traversal:
+
+  requested / accepted                              1 / 1
+  consumer supported / primary probe                 1 / 1
+  active / resident / ready                         56 / 56 / 56
+  TLAS / routes                                     56 / 56
+  missing active material indexes                    0
+  traversal                                          bucket-resident-pool
+
+There is no device-loss, binding, or validation failure. The final audit was
+taken after switching to view 16, so it correctly reports monolithic fallback
+and is not the accepted sample. The reported black hovering card appeared only
+in view 16. It therefore cannot be caused by REF-9B bucket traversal: view 16
+had `consumerSupported=0` and never submitted the bucket TLAS.
+
+The original visual instruction was invalid because clean-DI view 2 is
+`primary-surface-status`: valid opaque surfaces are intentionally solid green.
+It proves hit validity, not decal color or layering.
+
+The mode-2 gate now also permits clean-DI view 19. View 19 reads the RR diffuse
+albedo guide written by the bucket-aware primary producer after
+`ApplyDetailDecalComposite`. It runs no analytic/material-validation resolve
+and uses the already accepted sentinel output pipeline. View 16 remains
+rejected. This supplies a direct post-composite decal image without admitting
+bucket instances to an unmigrated ray family.
+
+Verification/deployment:
+
+  PathTraceCpuPlanningHarness --stress 20           passed
+  full win64-pt-dev-release build                    passed
+  Vulkan shader rebuilds                             0
+  DX12 shader rebuilds                               0
+  source/deployed executable hashes                  equal
+  executable SHA-256
+    D4039161E807CC8257E1A130D21A7A11BFF238B82B8D01ECDAB7EDBD8A2578E8
+
+Corrected visual test:
+
+  1. Set `r_pathTracingDecalComposite 1` before loading/reloading.
+  2. Keep markers on, GI off, and bucket BLAS/build on.
+  3. Set `r_pathTracingCleanRtxdiDiView 19`.
+  4. Compare route 0 and route 2 on the same visible detail decals.
+  5. In route 2, issue the bucket audit and condump.
+
+View 19 is an unlit albedo guide, not beauty lighting; glass/windows may look
+unrepresentative. Acceptance concerns decal color/coverage/order and opaque
+receiver continuity. REF-9B remains visually pending.

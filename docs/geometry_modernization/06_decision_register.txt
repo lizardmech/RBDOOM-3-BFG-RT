@@ -1002,6 +1002,20 @@ bounds the encoding. REF-9B uses this source index only for receiver-owned
 detail-decal bin ordering; the packed index remains authoritative for geometry,
 class, material, and vertex reads.
 
+D52. VALIDATE BUCKET PRIMARY MATERIALS THROUGH THE ALBEDO GUIDE
+---------------------------------------------------------------
+Decision: retain clean-DI view 2 as the bucket hit-validity probe and add view
+19 as the bucket post-composite visual probe. View 2 is a categorical status
+image and cannot validate material appearance. View 19 reads the diffuse
+albedo guide written after the primary producer has resolved detail decals and
+liquid modifiers, without entering view 16's analytic/material-validation ray
+path.
+
+Mode 2 may therefore accept view 2 or view 19 only, with diagnostic checkpoints
+enabled and GI disabled. View 16 and every other clean-DI view remain
+fail-closed. This changes only CPU cutover gating and reuses existing shaders,
+descriptors, SBT records, payloads, and output resources.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

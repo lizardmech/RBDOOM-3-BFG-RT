@@ -2528,8 +2528,14 @@ void TestStaticBucketAssignmentPlan()
             true,
             2,
             true,
+            false) &&
+        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            19,
+            true,
             false),
-        "static bucket primary opaque probe accepts only the instrumented clean-DI view-2 isolate");
+        "static bucket primary probe accepts instrumented status and post-composite albedo isolates");
     Check(
         !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -2540,7 +2546,7 @@ void TestStaticBucketAssignmentPlan()
         !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
             true,
-            16,
+            18,
             true,
             false) &&
         !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
@@ -2555,7 +2561,7 @@ void TestStaticBucketAssignmentPlan()
             2,
             true,
             true),
-        "static bucket primary opaque probe rejects production, non-view-2, uninstrumented, and GI-enabled routes");
+        "static bucket primary probe rejects production, unsupported views, uninstrumented, and GI-enabled routes");
 
     RtSmokeStaticBucketGeometryPack invalidSurfaceFlagPack =
         multiGeometryPack;

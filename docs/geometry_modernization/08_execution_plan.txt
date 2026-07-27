@@ -723,6 +723,19 @@ pass. Runtime acceptance requires route-0/route-2 decal parity with
 `r_pathTracingDecalComposite 1`, stable stacking, exact 56/56 publication, and
 no opaque/alpha or device-loss regression.
 
+`bucket12.log` corrects the REF-9B visual gate. View 2 executed exact 56/56
+bucket traversal with no material-index, device, binding, or validation
+failure, but its solid-green primary-status output cannot show decal parity.
+The black hovering card was visible only in view 16, where the route was
+monolithic and bucket consumer support was false; it is outside this rung.
+
+Mode 2 now additionally accepts view 19, the primary producer's post-composite
+RR diffuse-albedo guide. View 19 needs the primary surface but no analytic
+resolve or secondary traversal, and it reuses the already accepted sentinel
+pipeline. View 16 remains closed. The CPU harness stress run and executable
+build/deployment pass with no shader rebuild. Use view 19 for the pending
+route-0/route-2 decal color, coverage, ordering, and receiver comparison.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):
