@@ -439,7 +439,7 @@ idCVar r_pathTracingGeometryStaticBucketRoute(
     "r_pathTracingGeometryStaticBucketRoute",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Default-off GEO-10 live route gate; never allocates/builds buckets implicitly and atomically replaces monolithic static TLAS/emissive identity only after explicit preparation reaches an exact current-frame publication" );
+    "Default-off GEO-10 route mode: 0 monolithic, 1 production request (fail-closed until all consumers agree), 2 isolated view-2 opaque-primary probe; never allocates/builds buckets implicitly" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

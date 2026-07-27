@@ -480,6 +480,13 @@ struct RtSmokeStaticBucketCutoverPlan
     bool accepted = false;
 };
 
+enum RtSmokeStaticBucketRouteMode : int
+{
+    RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED = 0,
+    RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION = 1,
+    RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE = 2
+};
+
 struct RtSmokeStaticTlasBucketObservation
 {
     uint64_t bucketKey = 0;
@@ -1189,6 +1196,12 @@ RtSmokeStaticBucketPublicationEpochPlan
         const RtSmokeStaticBucketPublicationEpochInput& input);
 RtSmokeStaticBucketCutoverPlan BuildSmokeStaticBucketCutoverPlan(
     const RtSmokeStaticBucketCutoverInput& input);
+bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+    int routeMode,
+    bool cleanDiEnabled,
+    int cleanDiView,
+    bool diagnosticCheckpointsEnabled,
+    bool cleanGiEnabled);
 
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc);

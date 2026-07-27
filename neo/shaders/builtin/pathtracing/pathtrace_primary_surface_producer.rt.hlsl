@@ -238,7 +238,9 @@ StructuredBuffer<uint> SmokeSkinnedTriangleDispatchIndexes : register(t41);
 StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t76);
 StructuredBuffer<PathTraceMaterialFeatureRecord> PathTraceMaterialFeatures : register(t80);
 StructuredBuffer<PathTraceMaterialFeatureParameterRecord> PathTraceMaterialFeatureParameters : register(t81);
+#define RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS 1
 #include "PathTraceStaticBucketRoute.hlsli"
+#undef RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
 RWStructuredBuffer<uint> PathTraceLiquidPoolStatusCounters : register(u82);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
@@ -1430,6 +1432,60 @@ bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload)
     return payload.value != 0u &&
         payload.surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
         payload.translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN;
+}
+
+bool PathTraceTryResolvePrimaryStaticBucketHit(
+    uint instanceId,
+    uint geometryIndex,
+    uint primitiveIndex,
+    out PathTraceStaticGeometryAddress address)
+{
+    return PathTraceTryResolveStaticBucketGeometryAddress(
+        instanceId,
+        geometryIndex,
+        primitiveIndex,
+        StaticBucketRouteInfo,
+        PathTraceStaticVertexCount(),
+        PathTraceStaticIndexCount(),
+        PathTraceStaticTriangleCount(),
+        address);
+}
+
+bool PathTraceStaticBucketIsOpaquePrimaryCandidate(
+    PathTraceStaticGeometryAddress address,
+    out uint triangleClassAndFlags,
+    out uint materialId,
+    out uint materialIndex)
+{
+    triangleClassAndFlags =
+        SmokeStaticBucketTriangleClasses[address.triangleIndex];
+    materialId =
+        SmokeStaticBucketTriangleMaterials[address.triangleIndex];
+    materialIndex =
+        SmokeStaticBucketTriangleMaterialIndexes[
+            address.triangleIndex];
+
+    const uint materialCount = (uint)max(TextureInfo.z, 0.0);
+    if (materialIndex >= materialCount ||
+        (triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK) ==
+            RT_SMOKE_SURFACE_CLASS_TRANSLUCENT)
+    {
+        return false;
+    }
+
+    const PathTraceSmokeMaterial material =
+        LoadSmokeMaterial(materialIndex);
+    const uint deferredPrimaryFlags =
+        RT_SMOKE_MATERIAL_ALPHA_TEST |
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+        RT_SMOKE_MATERIAL_FILTER_DECAL |
+        RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK |
+        RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK |
+        RT_SMOKE_MATERIAL_DETAIL_DECAL |
+        RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC |
+        RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT |
+        RT_SMOKE_MATERIAL_DETAIL_DECAL_LIQUID_POOL;
+    return (material.flags & deferredPrimaryFlags) == 0u;
 }
 
 bool SmokeTriangleIndexRangeValid(uint instanceId, uint primitiveIndex)
@@ -3125,7 +3181,47 @@ void ConditionallyStoreDetailDecal(inout PathTraceSmokePayload payload, uint mat
 void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
+    const uint geometryIndex = GeometryIndex();
     const uint primitiveIndex = PrimitiveIndex();
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            StaticBucketRouteInfo))
+    {
+        PathTraceStaticGeometryAddress address;
+        if (!PathTraceTryResolvePrimaryStaticBucketHit(
+                instanceId,
+                geometryIndex,
+                primitiveIndex,
+                address))
+        {
+            IgnoreHit();
+            return;
+        }
+
+        uint triangleClassAndFlags;
+        uint materialId;
+        uint materialIndex;
+        if (!PathTraceStaticBucketIsOpaquePrimaryCandidate(
+                address,
+                triangleClassAndFlags,
+                materialId,
+                materialIndex))
+        {
+            // REF-8 admits opaque primary visibility only. Alpha, decals,
+            // glass, particles, and liquid cards remain fail-closed until
+            // their address-aware consumers are migrated in REF-9.
+            IgnoreHit();
+            return;
+        }
+        if (payload.value == 2u &&
+            instanceId == payload.shadowIgnoreInstanceId &&
+            (primitiveIndex == payload.shadowIgnorePrimitiveIndex ||
+                materialId == payload.shadowIgnoreMaterialId))
+        {
+            IgnoreHit();
+        }
+        return;
+    }
     if (payload.value == 2u &&
         instanceId == payload.shadowIgnoreInstanceId)
     {
@@ -3204,7 +3300,34 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
 void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
+    const uint geometryIndex = GeometryIndex();
     const uint primitiveIndex = PrimitiveIndex();
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            StaticBucketRouteInfo))
+    {
+        PathTraceStaticGeometryAddress address;
+        uint triangleClassAndFlags;
+        uint materialId;
+        uint materialIndex;
+        if (!PathTraceTryResolvePrimaryStaticBucketHit(
+                instanceId,
+                geometryIndex,
+                primitiveIndex,
+                address) ||
+            !PathTraceStaticBucketIsOpaquePrimaryCandidate(
+                address,
+                triangleClassAndFlags,
+                materialId,
+                materialIndex))
+        {
+            payload.hit = 0u;
+            IgnoreHit();
+            return;
+        }
+        payload.hit = 1u;
+        return;
+    }
     if (PathTraceLiquidPoolCollectionEnabled() &&
         SmokeTriangleIndexRangeValid(instanceId, primitiveIndex) &&
         PathTraceMaterialIsSemanticLiquidPool(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex)))
@@ -3439,26 +3562,28 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     PathTraceSmokeVertex v0;
     PathTraceSmokeVertex v1;
     PathTraceSmokeVertex v2;
-    if (PathTraceIsStaticBucketRouteInstance(
+    PathTraceStaticGeometryAddress staticBucketAddress =
+        (PathTraceStaticGeometryAddress)0;
+    const bool staticBucketHit =
+        PathTraceIsStaticBucketRouteInstance(
             instanceId,
-            StaticBucketRouteInfo))
+            StaticBucketRouteInfo);
+    if (staticBucketHit)
     {
-        PathTraceStaticBucketRouteRecord route;
-        uint packedTriangleIndex;
-        uint3 packedVertexIndexes;
-        if (!PathTraceTryLoadStaticBucketTriangleRoute(
+        if (!PathTraceTryResolvePrimaryStaticBucketHit(
                 instanceId,
+                geometryIndex,
                 primitiveIndex,
-                StaticBucketRouteInfo,
-                route,
-                packedTriangleIndex,
-                packedVertexIndexes))
+                staticBucketAddress))
         {
             return;
         }
-        v0 = SmokeStaticBucketVertices[packedVertexIndexes.x];
-        v1 = SmokeStaticBucketVertices[packedVertexIndexes.y];
-        v2 = SmokeStaticBucketVertices[packedVertexIndexes.z];
+        v0 = SmokeStaticBucketVertices[
+            staticBucketAddress.vertexIndexes.x];
+        v1 = SmokeStaticBucketVertices[
+            staticBucketAddress.vertexIndexes.y];
+        v2 = SmokeStaticBucketVertices[
+            staticBucketAddress.vertexIndexes.z];
     }
     else
     {
@@ -3523,7 +3648,10 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     const float4 c21 = v1.color2;
     const float4 c22 = v2.color2;
     const float3 barycentrics = float3(1.0 - attributes.barycentrics.x - attributes.barycentrics.y, attributes.barycentrics.x, attributes.barycentrics.y);
-    const uint triangleClassAndFlags = LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
+    const uint triangleClassAndFlags = staticBucketHit
+        ? SmokeStaticBucketTriangleClasses[
+            staticBucketAddress.triangleIndex]
+        : LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
     const bool forceGeometricNormal = (triangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
 
     payload.value = 1u;
@@ -3574,6 +3702,12 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
     payload.translucentSubtype = (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
     payload.triangleClassAndFlags = triangleClassAndFlags;
-    payload.materialId = LoadSmokeTriangleMaterialId(instanceId, primitiveIndex);
-    payload.materialIndex = LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
+    payload.materialId = staticBucketHit
+        ? SmokeStaticBucketTriangleMaterials[
+            staticBucketAddress.triangleIndex]
+        : LoadSmokeTriangleMaterialId(instanceId, primitiveIndex);
+    payload.materialIndex = staticBucketHit
+        ? SmokeStaticBucketTriangleMaterialIndexes[
+            staticBucketAddress.triangleIndex]
+        : LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
 }

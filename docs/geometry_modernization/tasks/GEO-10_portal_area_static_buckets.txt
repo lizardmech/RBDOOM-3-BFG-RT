@@ -69,6 +69,12 @@ consumers remain compile-gated off until they are migrated one pipeline family
 at a time; this checkpoint is address-foundation proof, not live traversal
 acceptance.
 
+`bucket7.log` accepts REF-7's route-off reload baseline. REF-8 now compiles the
+decoder only into the primary-surface producer and adds route mode 2 as a
+view-2, GI-off, checkpoint-enabled opaque-primary probe. Each primary hit entry
+resolves the hardware address once. Alpha/decal/glass/liquid records and static
+bucket emissive replay remain excluded; route mode 1 is still fail-closed.
+
 IMPLEMENTATION STATUS
 ---------------------
 Steps 1 through 5 are complete in shadow mode. Static world records now carry the

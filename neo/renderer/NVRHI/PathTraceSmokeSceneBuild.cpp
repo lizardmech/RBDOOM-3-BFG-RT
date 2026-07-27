@@ -8015,13 +8015,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 commandList,
                 m_smokeGeometryFrameIndex,
                 m_smokeSceneMapTimeStamp);
+    const int staticBucketRouteMode = idMath::ClampInt(
+        RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
+        RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+        r_pathTracingGeometryStaticBucketRoute.GetInteger());
     const bool staticBucketRouteRequested =
-        r_pathTracingGeometryStaticBucketRoute.GetInteger() != 0;
-    // Runtime evidence on 2026-07-27 showed repeatable device removal with
-    // bucket allocation, build, and routing all disabled. Keep the shared
-    // consumer graph compile-time unreachable and the cutover fail-closed
-    // while the changed shader family is isolated.
-    const bool staticBucketRouteConsumerSupported = false;
+        staticBucketRouteMode !=
+            RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED;
+    const bool staticBucketPrimaryOpaqueProbe =
+        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            staticBucketRouteMode,
+            r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiView.GetInteger(),
+            r_pathTracingNsightGpuMarkers.GetInteger() != 0,
+            r_pathTracingCleanRestirGiEnable.GetInteger() != 0);
+    // Production remains fail-closed. Mode 2 admits only the primary producer
+    // while view 2 consumes its stored records without issuing secondary rays.
+    const bool staticBucketRouteConsumerSupported =
+        staticBucketPrimaryOpaqueProbe;
     RtSmokeStaticBucketCutoverInput
         staticBucketCutoverInput;
     staticBucketCutoverInput.residentBuckets =
@@ -8059,10 +8070,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             (m_smokeGeometryFrameIndex % 120ull) == 1ull))
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO10 static bucket cutover requested/accepted=%d/%d consumerSupported=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu traversal=%s\n",
+            "PathTracePrimaryPass: GEO10 static bucket cutover mode=%d requested/accepted=%d/%d consumerSupported=%d primaryOpaqueProbe=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu traversal=%s\n",
+            staticBucketRouteMode,
             1,
             staticBucketRouteAccepted ? 1 : 0,
             staticBucketRouteConsumerSupported ? 1 : 0,
+            staticBucketPrimaryOpaqueProbe ? 1 : 0,
             staticBucketCutoverPlan.allResidentReady ? 1 : 0,
             staticBucketCutoverPlan.publicationExact ? 1 : 0,
             staticBucketFramePublication.
@@ -8080,6 +8093,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
+    const bool staticBucketEmissiveRouteAccepted =
+        staticBucketRouteAccepted &&
+        !staticBucketPrimaryOpaqueProbe;
     const int emissiveStartMs = Sys_Milliseconds();
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
     std::vector<PathTraceSmokeEmissiveTriangle>
@@ -8116,13 +8132,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticIndexCache,
             staticTriangleClassCache,
             materialTable.staticMaterialIndexes,
-            staticBucketRouteAccepted
+            staticBucketEmissiveRouteAccepted
                 ? staticBucketFramePublication.geometryPack
                 : nullptr,
-            staticBucketRouteAccepted
+            staticBucketEmissiveRouteAccepted
                 ? &staticBucketFramePublication.materialIndexes
                 : nullptr,
-            staticBucketRouteAccepted
+            staticBucketEmissiveRouteAccepted
                 ? &staticBucketFramePublication.activePublication
                 : nullptr,
             dynamicVertexData,
@@ -8137,7 +8153,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             maxEmissiveRecords,
             emissiveInventoryStats);
         if (staticBucketFramePublication.auditRequested &&
-            !staticBucketRouteAccepted)
+            !staticBucketEmissiveRouteAccepted)
         {
             RtSmokeEmissiveInventoryStats
                 staticBucketEmissiveStats;
@@ -8206,7 +8222,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 emissiveTriangles,
                 emissiveInventoryStats);
         }
-        if (!staticBucketRouteAccepted &&
+        if (!staticBucketEmissiveRouteAccepted &&
             r_pathTracingWorldStaticEmissives.GetInteger() != 0)
         {
             const int fullLevelStaticSupplementCap = idMath::ClampInt(0, maxEmissiveRecords, r_pathTracingWorldStaticEmissiveMaxTriangles.GetInteger());

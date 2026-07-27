@@ -744,3 +744,97 @@ Required runtime baseline:
 
 Do not enable the route for this checkpoint. Passing it permits migration of
 the first actual hit-entry family; it does not by itself accept the decoder.
+
+REF-7 ROUTE-OFF RUNTIME ACCEPTANCE - bucket7.log - 2026-07-27
+-------------------------------------------------------------
+The route-off baseline passed its logged contract across an actual map
+shutdown/reload. The resident build restarted at 0/56, advanced in bounded
+two-BLAS batches, converged to 56/56, and then reused all 56 without another
+upload or build:
+
+  resident / active / ready / deferred             56/3/56/0
+  reused / created / built / invalid                56/0/0/0
+  surface records / GeometryDescs                   1789/1789
+  multi-geometry buckets                            52
+  t5 words / prefix / record offset         57264/50108/50108
+  t5 surface-record bytes                            28624
+  publication valid / exact / mixed rejected         1/1/0
+  missing BLAS/material/range/ID failures             0/0/0/0
+  geometry failure tuple                    all ten fields zero
+  device/cmd/pack skips                               0/0/0
+  traversal / route                         monolithic / shadow-only
+
+Nonzero missing-BLAS counts occur only while the bounded resident build is
+still incomplete; they fall to zero before the final audit. The log contains
+no device-loss, binding, validation, or crash signature. No visual regression
+was reported with the capture.
+
+REF-8 OPAQUE PRIMARY PROBE OFFLINE CHECKPOINT - 2026-07-27
+----------------------------------------------------------
+Only `pathtrace_primary_surface_producer.rt.hlsl` now compiles
+`RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS=1`. Every other RT pipeline family
+retains the fail-closed default.
+
+The primary AnyHit, ShadowAnyHit, and ClosestHit entries each resolve
+InstanceID + GeometryIndex + PrimitiveIndex exactly once. The resolved address
+is reused for triangle class, material ID, material table index, packed vertex
+indexes, and closest-hit interpolation. The probe accepts only non-translucent
+materials without alpha-test, additive/filter-decal, glass fallback, detail
+decal, or liquid-card flags. Deferred classes call IgnoreHit and therefore
+cannot enter an unmigrated alpha/decal/glass/liquid consumer.
+
+`r_pathTracingGeometryStaticBucketRoute` is now an explicit mode:
+
+  0  monolithic production route
+  1  requested production bucket route; still fail-closed
+  2  isolated opaque-primary probe
+
+Mode 2 can become consumer-supported only when:
+
+  - clean DI is enabled;
+  - clean DI view is exactly 2, whose sentinel consumes the stored primary
+    record without secondary traversal;
+  - Vulkan diagnostic markers/checkpoints are enabled;
+  - clean GI is disabled;
+  - the existing full-residency and exact-publication gate passes.
+
+The probe switches the TLAS/static bindings to active buckets but deliberately
+keeps the monolithic static-emissive inventory. This avoids admitting the
+still-unresolved emissive GeometryIndex identity under a diagnostic route.
+Mode 1 cannot pass this probe predicate.
+
+Verification:
+
+  PathTraceCpuPlanningHarness --stress 20           passed
+  full win64-pt-dev-release build                   passed
+  rebuilt Vulkan blobs                                1
+  primary blob newer than edited source             yes
+  spirv-val --target-env vulkan1.2                   passed
+  SPIR-V built-ins
+    InstanceCustomIndexKHR                           present
+    RayGeometryIndexKHR                              present
+    PrimitiveId                                      present
+  OpTraceRayKHR geometry-stride operands             0/0
+  primary blob SHA-256
+    599F835C7B6A641FA38528A519CC89BE42AF8B93EBA297B9EC299CA8BD5FE5AC
+  built executable SHA-256
+    5194461CD8769427DCA0370E5F4AA7C8B78F0CDC03E043CDE310DBE5CF8119C4
+
+Required runtime probe:
+
+  r_pathTracingGeometryStaticBucketRoute 0
+  r_pathTracingNsightGpuMarkers 1
+  r_pathTracingGeometryStaticBucketBlas 1
+  r_pathTracingGeometryStaticBucketBlasBuild 1
+  r_pathTracingCleanRestirGiEnable 0
+  r_pathTracingCleanRtxdiDiEnable 1
+  r_pathTracingCleanRtxdiDiView 2
+  wait for resident/ready to reach 56/56
+  r_pathTracingGeometryStaticBucketRoute 2
+
+View 2 is diagnostic output. Opaque brush geometry should remain present as
+valid primary surfaces; alpha cards, particles, glass, decals, and liquid
+cards are intentionally absent from this rung. Traverse portals, audit once,
+then set the route back to 0 before changing view or enabling GI. Reject on
+device removal, nonzero address/publication failures, missing opaque brushes,
+or portal-dependent opaque flicker.

@@ -1657,6 +1657,21 @@ RtSmokeStaticBucketCutoverPlan BuildSmokeStaticBucketCutoverPlan(
     return plan;
 }
 
+bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+    int routeMode,
+    bool cleanDiEnabled,
+    int cleanDiView,
+    bool diagnosticCheckpointsEnabled,
+    bool cleanGiEnabled)
+{
+    return routeMode ==
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
+        cleanDiEnabled &&
+        cleanDiView == 2 &&
+        diagnosticCheckpointsEnabled &&
+        !cleanGiEnabled;
+}
+
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc)
 {

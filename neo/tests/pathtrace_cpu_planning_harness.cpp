@@ -2477,6 +2477,40 @@ void TestStaticBucketAssignmentPlan()
             1,
             0).valid,
         "static bucket geometry address rejects out-of-range geometry, primitive, and namespace tuples");
+    Check(
+        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            2,
+            true,
+            false),
+        "static bucket primary opaque probe accepts only the instrumented clean-DI view-2 isolate");
+    Check(
+        !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
+            true,
+            2,
+            true,
+            false) &&
+        !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false) &&
+        !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            2,
+            false,
+            false) &&
+        !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            2,
+            true,
+            true),
+        "static bucket primary opaque probe rejects production, non-view-2, uninstrumented, and GI-enabled routes");
 
     RtSmokeStaticBucketGeometryPack invalidSurfaceFlagPack =
         multiGeometryPack;
