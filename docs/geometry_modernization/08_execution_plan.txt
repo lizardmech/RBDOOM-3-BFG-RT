@@ -736,6 +736,15 @@ pipeline. View 16 remains closed. The CPU harness stress run and executable
 build/deployment pass with no shader rebuild. Use view 19 for the pending
 route-0/route-2 decal color, coverage, ordering, and receiver comparison.
 
+The first view-19 comparison exposed a receiver-ownership defect: some mode-2
+decals appeared as hovering duplicates and one appeared backwards. The
+full-resident diagnostic TLAS can visit the back of a nearby opposite-side
+card, and the absolute projected-distance guard alone cannot reject it at
+grazing angles. REF-9B now requires bucket any-hit to orient the resolved
+triangle face with the authored vertex normal, matching the CPU lift
+convention, and collect only the outward face. Re-test the same offending
+camera positions before REF-9B acceptance.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

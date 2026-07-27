@@ -755,3 +755,59 @@ Corrected visual test:
 View 19 is an unlit albedo guide, not beauty lighting; glass/windows may look
 unrepresentative. Acceptance concerns decal color/coverage/order and opaque
 receiver continuity. REF-9B remains visually pending.
+
+REF-9B OPPOSITE-FACE REJECTION - 2026-07-27
+-------------------------------------------
+The corrected view-19 test rejected the first detail-decal implementation.
+Some decals matched, while others appeared as a second hovering/stacked layer;
+one wrong layer was viewed backwards. This is not an ordering-key symptom:
+the source-triangle key controls layer order but cannot flip authored UVs.
+
+The concrete mismatch is in receiver ownership. Mode 2 deliberately places the
+full resident static universe in the diagnostic TLAS. A primary ray can
+therefore visit the back of a detail-decal card on the opposite side of nearby
+thin geometry. The existing receiver guard uses absolute projected hit
+separation. At grazing angles that card can remain inside the distance
+envelope and composite onto the committed receiver, producing exactly a
+hovering duplicate or backwards texture.
+
+Static capture already defines the ownership direction. It computes the card
+face normal from the triangle, orients it with vertex 0's authored normal, and
+lifts the card along that outward direction. Bucket any-hit now repeats that
+orientation test on the resolved packed vertex triple and stores the decal only
+when its authored outward face points against the primary ray. Degenerate
+triangles fail closed. The card is still ignored as geometry in either case.
+
+This correction:
+
+  - changes only the mode-2 static-bucket detail-decal consumer;
+  - adds no payload field, descriptor, SBT record, route record, or buffer;
+  - preserves the exact source-triangle sort key and UV interpolation;
+  - leaves route 0 and every non-bucket ray family unchanged.
+
+Offline/deployment proof:
+
+  PathTraceCpuPlanningHarness --stress 20           passed
+  full win64-pt-dev-release build                    passed
+  rebuilt Vulkan blobs                                1
+  DX12 shader rebuilds                                0
+  primary blob newer than edited source             yes
+  spirv-val --target-env vulkan1.2                   passed
+  descriptor-set/binding decorations old/new       96 / 96
+  source/deployed executable hashes                  equal
+  source/deployed primary blob hashes                equal
+  executable SHA-256
+    D4039161E807CC8257E1A130D21A7A11BFF238B82B8D01ECDAB7EDBD8A2578E8
+  primary blob SHA-256
+    E3BE23D895837981A5DA77C117DCF7B8CE6DBA6C5E5206FEB887306261765BDF
+
+Runtime re-test:
+
+  1. Keep the same view-19, GI-off, markers-on, full-resident mode-2 setup.
+  2. Revisit the decals that showed hovering duplicates or backwards layers.
+  3. Compare route 0 and route 2 on the same camera positions.
+  4. Confirm legitimate front-facing decals remain visible and stable.
+  5. Capture an audit/condump proving exact 56/56 bucket traversal.
+
+Reject if the wrong layer remains, a valid decal disappears, route-0/route-2
+color or ordering differs, publication falls back, or the device is lost.

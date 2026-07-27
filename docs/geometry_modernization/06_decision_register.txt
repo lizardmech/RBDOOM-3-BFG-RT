@@ -1016,6 +1016,21 @@ enabled and GI disabled. View 16 and every other clean-DI view remain
 fail-closed. This changes only CPU cutover gating and reuses existing shaders,
 descriptors, SBT records, payloads, and output resources.
 
+D53. REJECT OPPOSITE-FACE STATIC DECALS BEFORE BUCKET COLLECTION
+----------------------------------------------------------------
+Decision: a mode-2 static-bucket detail decal is receiver-eligible only when
+the card's authored outward face points against the primary ray. Compute the
+face from the resolved packed triangle and orient it with vertex 0's authored
+normal, exactly matching `ApplySmokeDetailDecalNormalOffset`; reject degenerate
+or back-facing cards before storing the existing payload-bin entry.
+
+The absolute projected-distance receiver guard remains necessary but is not
+sufficient in the full-resident diagnostic TLAS: at grazing angles the back of
+a nearby opposite-side card can pass its envelope and appear as a hovering or
+backwards duplicate. Do not widen the payload with a receiver-ownership field
+for this static case because the already resident vertex data determines the
+answer at any-hit time. Route 0 and non-bucket ray families remain unchanged.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

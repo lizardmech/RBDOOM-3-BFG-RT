@@ -1513,6 +1513,36 @@ float2 PathTraceStaticBucketInterpolateTexCoord(
             address.vertexIndexes.z].texCoord.xy * weights.z;
 }
 
+// Static detail-decal cards are lifted along the face normal oriented by the
+// authored vertex normal (ApplySmokeDetailDecalNormalOffset). A full-resident
+// bucket TLAS can expose the back of a nearby card that belongs to the opposite
+// side of thin geometry. Its ray-T separation can still pass the receiver
+// envelope at grazing angles, so only collect the authored outward face.
+bool PathTraceStaticBucketDetailDecalFacesPrimaryRay(
+    PathTraceStaticGeometryAddress address)
+{
+    const PathTraceSmokeVertex v0 =
+        SmokeStaticBucketVertices[address.vertexIndexes.x];
+    const PathTraceSmokeVertex v1 =
+        SmokeStaticBucketVertices[address.vertexIndexes.y];
+    const PathTraceSmokeVertex v2 =
+        SmokeStaticBucketVertices[address.vertexIndexes.z];
+    float3 outwardFaceNormal = cross(
+        v1.position.xyz - v0.position.xyz,
+        v2.position.xyz - v0.position.xyz);
+    const float faceLengthSquared =
+        dot(outwardFaceNormal, outwardFaceNormal);
+    if (!(faceLengthSquared > 1.0e-12))
+    {
+        return false;
+    }
+    if (dot(outwardFaceNormal, v0.normal.xyz) < 0.0)
+    {
+        outwardFaceNormal = -outwardFaceNormal;
+    }
+    return dot(outwardFaceNormal, WorldRayDirection()) < 0.0;
+}
+
 bool PathTraceStaticBucketAlphaRejectsHit(
     PathTraceStaticGeometryAddress address,
     uint materialIndex,
@@ -3291,7 +3321,9 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                 PathTraceDecalCollectEnabled(
                     PathTraceDecalCompositeStage()) &&
                 !PathTraceSafetyDisabled(
-                    RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA))
+                    RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA) &&
+                PathTraceStaticBucketDetailDecalFacesPrimaryRay(
+                    address))
             {
                 ConditionallyStoreDetailDecalResolved(
                     payload,

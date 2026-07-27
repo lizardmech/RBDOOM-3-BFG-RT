@@ -1117,3 +1117,37 @@ REF-9B visual acceptance must now compare route 0 and route 2 in view 19.
 Because the output is unlit albedo, glass/window appearance is not an
 acceptance signal. Detail-decal coverage, color, layering, and receiver
 continuity are.
+
+REF-9B OPPOSITE-FACE CORRECTION - 2026-07-27
+--------------------------------------------
+The view-19 test found a concrete failure: some mode-2 decals gained a
+hovering duplicate layer, and one collected layer was backwards. The decoded
+UV and source sort key remain structurally exact; a backwards result instead
+identifies the back of another card being collected onto the wrong receiver.
+
+The existing receiver guard only tests absolute projected distance between
+the decal hit and committed base hit. Because mode 2 deliberately traces the
+full resident static universe, a nearby opposite-side card can enter the
+candidate bin and pass this scalar envelope at grazing incidence.
+
+The correction reuses the CPU capture contract rather than adding identity
+metadata. `ApplySmokeDetailDecalNormalOffset` computes a triangle face normal,
+orients it with vertex 0's authored normal, and lifts along that outward face.
+The bucket any-hit now computes the same orientation from the already resolved
+packed vertex triple and stores only front-facing outward cards. Degenerate
+faces fail closed. No payload, descriptor, SBT, surface-record, or sort-key
+change is introduced.
+
+The forced Vulkan-only build regenerated only
+`pathtrace_primary_surface_producer.rt.bin`. The CPU planning harness passed
+with 20 stress iterations, `spirv-val --target-env vulkan1.2` passed, and the
+old/new descriptor-set plus binding decoration counts remain 96/96. Source and
+deployed hashes match:
+
+  executable
+    D4039161E807CC8257E1A130D21A7A11BFF238B82B8D01ECDAB7EDBD8A2578E8
+  primary producer
+    E3BE23D895837981A5DA77C117DCF7B8CE6DBA6C5E5206FEB887306261765BDF
+
+The correction remains pending the same route-0/route-2 view-19 comparison on
+the offending decals plus exact 56/56 publication evidence.
