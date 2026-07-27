@@ -296,7 +296,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 DecalInfo2;
     // x=effective mode, y=debug, z=debug page, w=status telemetry bound/ready.
     float4 LiquidPoolInfo;
-    // x=reserved first InstanceID, y=published route count,
+    // x=reserved first InstanceID, y=published resident surface-record count,
     // z/w=publication generation low/high.
     uint4 StaticBucketRouteInfo;
 };

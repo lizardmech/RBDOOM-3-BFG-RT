@@ -410,6 +410,16 @@ struct RtSmokeStaticBucketBlasGeometryPlan
     bool exact = false;
 };
 
+struct RtSmokeStaticBucketResolvedGeometryAddress
+{
+    uint32_t surfaceRecordIndex = 0;
+    uint32_t triangleIndex = 0;
+    uint32_t indexOffset = 0;
+    uint32_t triangleCount = 0;
+    uint32_t vertexIndexes[3] = {};
+    bool valid = false;
+};
+
 struct RtSmokeStaticBucketResidentPackCacheInput
 {
     uint64_t assignmentPlanSignature = 0;
@@ -1164,6 +1174,12 @@ RtSmokeStaticBucketBlasGeometryPlan
     BuildSmokeStaticBucketBlasGeometryPlan(
         const RtSmokeStaticBucketGeometryPack& geometryPack,
         const RtSmokeStaticBucketPackedRecord& bucket);
+RtSmokeStaticBucketResolvedGeometryAddress
+    BuildSmokeStaticBucketResolvedGeometryAddress(
+        const RtSmokeStaticBucketGeometryPack& geometryPack,
+        uint32_t instanceId,
+        uint32_t geometryIndex,
+        uint32_t primitiveIndex);
 RtSmokeStaticBucketResidentPackCachePlan
     BuildSmokeStaticBucketResidentPackCachePlan(
         const RtSmokeStaticBucketResidentPackCacheInput& input);

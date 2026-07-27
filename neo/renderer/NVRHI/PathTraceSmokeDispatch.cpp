@@ -1917,7 +1917,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_sceneInputs.geometry.staticBucketRouteFirstInstanceId;
             primarySurfaceConstants.staticBucketRouteInfo[1] =
                 m_sceneInputs.geometry.staticBucketRoutePublicationValid
-                    ? m_sceneInputs.geometry.staticBucketRouteCount
+                    ? m_sceneInputs.geometry.
+                        staticBucketSurfaceRecordCount
                     : 0u;
             primarySurfaceConstants.staticBucketRouteInfo[2] =
                 static_cast<uint32_t>(
@@ -2526,7 +2527,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_sceneInputs.geometry.staticBucketRouteFirstInstanceId;
             pdfNeeProducerConstants.staticBucketRouteInfo[1] =
                 m_sceneInputs.geometry.staticBucketRoutePublicationValid
-                    ? m_sceneInputs.geometry.staticBucketRouteCount
+                    ? m_sceneInputs.geometry.
+                        staticBucketSurfaceRecordCount
                     : 0u;
             pdfNeeProducerConstants.staticBucketRouteInfo[2] =
                 static_cast<uint32_t>(
@@ -3299,7 +3301,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_sceneInputs.geometry.staticBucketRouteFirstInstanceId;
         cleanConstants.staticBucketRouteInfo[1] =
             m_sceneInputs.geometry.staticBucketRoutePublicationValid
-                ? m_sceneInputs.geometry.staticBucketRouteCount
+                ? m_sceneInputs.geometry.
+                    staticBucketSurfaceRecordCount
                 : 0u;
         cleanConstants.staticBucketRouteInfo[2] =
             static_cast<uint32_t>(
@@ -4726,7 +4729,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_sceneInputs.geometry.staticBucketRouteFirstInstanceId;
     constants.staticBucketRouteInfo[1] =
         m_sceneInputs.geometry.staticBucketRoutePublicationValid
-            ? m_sceneInputs.geometry.staticBucketRouteCount
+            ? m_sceneInputs.geometry.
+                staticBucketSurfaceRecordCount
             : 0u;
     constants.staticBucketRouteInfo[2] =
         static_cast<uint32_t>(

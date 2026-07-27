@@ -4206,14 +4206,22 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
                 publication.activeSetSignature,
                 &bucket.range,
                 sizeof(bucket.range));
+            publication.activeSetSignature = HashSmokeBytes(
+                publication.activeSetSignature,
+                &bucket.firstSurfaceRecord,
+                sizeof(bucket.firstSurfaceRecord));
+            publication.activeSetSignature = HashSmokeBytes(
+                publication.activeSetSignature,
+                &bucket.surfaceRecordCount,
+                sizeof(bucket.surfaceRecordCount));
         }
-        const RtSmokeStaticBucketInstanceAddressPlan addressPlan =
-            BuildSmokeStaticBucketInstanceAddressPlan(
-                bucket.range,
-                geometryPack.stats.packedIndexes,
-                geometryPack.stats.packedTriangles);
-        if (!addressPlan.rangeValid ||
-            !addressPlan.indexAddressCompatible)
+        const RtSmokeStaticBucketSurfaceAddressPlan addressPlan =
+            BuildSmokeStaticBucketSurfaceAddressPlan(
+                bucket.firstSurfaceRecord,
+                bucket.surfaceRecordCount,
+                static_cast<uint32_t>(
+                    geometryPack.surfaceRecords.size()));
+        if (!addressPlan.rangeValid)
         {
             ++publication.invalidRanges;
             continue;
@@ -4302,9 +4310,8 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
         geometryPack.buckets)
     {
         uint32_t instanceId = 0;
-        if (!TryEncodeSmokeStaticBucketInstanceId(
-                static_cast<uint32_t>(
-                    bucket.range.triangleOffset),
+        if (!TryEncodeSmokeStaticBucketSurfaceBaseInstanceId(
+                bucket.firstSurfaceRecord,
                 instanceId))
         {
             publication.tlasInstances.clear();
@@ -4382,7 +4389,7 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
         route.triangleCount =
             static_cast<uint32_t>(
                 bucket.range.triangleCount);
-        route.surfaceCount = bucket.assignmentCount;
+        route.surfaceCount = bucket.surfaceRecordCount;
         route.generationLo =
             static_cast<uint32_t>(
                 publication.publicationGeneration);

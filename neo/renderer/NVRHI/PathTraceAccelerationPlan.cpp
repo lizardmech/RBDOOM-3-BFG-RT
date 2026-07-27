@@ -1493,6 +1493,97 @@ BuildSmokeStaticBucketBlasGeometryPlan(
     return plan;
 }
 
+RtSmokeStaticBucketResolvedGeometryAddress
+BuildSmokeStaticBucketResolvedGeometryAddress(
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    uint32_t instanceId,
+    uint32_t geometryIndex,
+    uint32_t primitiveIndex)
+{
+    RtSmokeStaticBucketResolvedGeometryAddress address;
+    uint32_t surfaceRecordBase = 0;
+    if (!geometryPack.exact ||
+        !ValidateSmokeStaticBucketClassMetadataLayout(geometryPack) ||
+        !TryDecodeSmokeStaticBucketSurfaceBaseInstanceId(
+            instanceId,
+            surfaceRecordBase) ||
+        geometryIndex >
+            RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_OFFSET_MASK -
+                surfaceRecordBase)
+    {
+        return address;
+    }
+
+    const uint32_t surfaceRecordIndex =
+        surfaceRecordBase + geometryIndex;
+    if (surfaceRecordIndex >= geometryPack.surfaceRecords.size())
+    {
+        return address;
+    }
+    const size_t recordWord =
+        static_cast<size_t>(
+            geometryPack.surfaceRecordWordOffset) +
+        static_cast<size_t>(surfaceRecordIndex) * 4u;
+    const uint32_t indexOffset =
+        geometryPack.staticClassMetadataWords[recordWord + 0u];
+    const uint32_t triangleOffset =
+        geometryPack.staticClassMetadataWords[recordWord + 1u];
+    const uint32_t triangleCount =
+        geometryPack.staticClassMetadataWords[recordWord + 2u];
+    const uint32_t flags =
+        geometryPack.staticClassMetadataWords[recordWord + 3u];
+    if (flags !=
+            RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID ||
+        primitiveIndex >= triangleCount)
+    {
+        return address;
+    }
+
+    const uint64_t triangleIndex =
+        static_cast<uint64_t>(triangleOffset) +
+        primitiveIndex;
+    const uint64_t packedIndexOffset =
+        static_cast<uint64_t>(indexOffset) +
+        static_cast<uint64_t>(primitiveIndex) * 3u;
+    if (triangleIndex >= geometryPack.triangleClasses.size() ||
+        packedIndexOffset + 3u > geometryPack.indexes.size())
+    {
+        return address;
+    }
+    const uint32_t vertexIndexes[3] = {
+        geometryPack.indexes[
+            static_cast<size_t>(packedIndexOffset) + 0u],
+        geometryPack.indexes[
+            static_cast<size_t>(packedIndexOffset) + 1u],
+        geometryPack.indexes[
+            static_cast<size_t>(packedIndexOffset) + 2u]
+    };
+    if (vertexIndexes[0] >=
+            static_cast<uint32_t>(
+                geometryPack.stats.packedVertices) ||
+        vertexIndexes[1] >=
+            static_cast<uint32_t>(
+                geometryPack.stats.packedVertices) ||
+        vertexIndexes[2] >=
+            static_cast<uint32_t>(
+                geometryPack.stats.packedVertices))
+    {
+        return address;
+    }
+
+    address.surfaceRecordIndex = surfaceRecordIndex;
+    address.triangleIndex =
+        static_cast<uint32_t>(triangleIndex);
+    address.indexOffset =
+        static_cast<uint32_t>(packedIndexOffset);
+    address.triangleCount = triangleCount;
+    address.vertexIndexes[0] = vertexIndexes[0];
+    address.vertexIndexes[1] = vertexIndexes[1];
+    address.vertexIndexes[2] = vertexIndexes[2];
+    address.valid = true;
+    return address;
+}
+
 RtSmokeStaticBucketResidentPackCachePlan
 BuildSmokeStaticBucketResidentPackCachePlan(
     const RtSmokeStaticBucketResidentPackCacheInput& input)

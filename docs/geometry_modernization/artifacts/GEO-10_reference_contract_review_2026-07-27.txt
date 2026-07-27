@@ -642,3 +642,105 @@ route zero and confirms:
   t5.surfaceBytes = 1789 * 16 = 28624
 
 No shader reads the tail until REF-7 adds the minimal shared decoder.
+
+REF-6 RUNTIME ACCEPTANCE - bucket6.log - 2026-07-27
+---------------------------------------------------
+The appended-t5 shadow checkpoint passed. The final audit reports:
+
+  t5 words / triangle prefix / surface offset       57264/50108/50108
+  t5 surface-record bytes                           28624
+  resident / ready / reused bucket BLASes            56/56/56
+  surface records / GeometryDesc count               1789/1789
+  multi-geometry buckets                             52
+  invalid surface/class-layout records               0/0
+  publication valid / exact / mixed rejected          1/1/0
+  missing BLAS/material/range/ID failures             0/0/0/0
+  traversal / route                         monolithic / shadow-only
+
+The combined t5 allocation is 229,056 bytes: the unchanged 200,432-byte
+triangle-class prefix plus the exact 28,624-byte surface-record tail. The log
+contains no Vulkan device loss or publication failure, and the user observed
+no issue.
+
+REF-7 ADDRESS-FOUNDATION CHECKPOINT - 2026-07-27
+-------------------------------------------------
+The new shared decode contract is:
+
+  surfaceRecordIndex = DecodeSurfaceBase(InstanceID) + GeometryIndex()
+  triangleIndex      = surface.triangleOffset + PrimitiveIndex()
+  indexOffset        = surface.indexOffset + PrimitiveIndex() * 3
+
+`PathTraceTryResolveStaticBucketGeometryAddress` reads one four-word t5
+surface record and resolves the exact three packed vertex indexes. It rejects
+the wrong InstanceID namespace, surface-record overflow, a record outside the
+published resident count, an invalid record flag, local primitive overflow,
+global triangle/index overflow, and vertex indexes outside the static pool.
+It introduces no descriptor, route-record lookup, SBT contribution, or payload
+field.
+
+The CPU mirror
+`BuildSmokeStaticBucketResolvedGeometryAddress` uses the flattened t5 words
+rather than trusting the authoritative record object. Its harness case selects
+the second surface of a later multi-geometry bucket and proves:
+
+  surface record / triangle / packed index offset       2/4/12
+  GeometryIndex / PrimitiveIndex                        1/0
+  resolved vertices                         exact t4[12], t4[13], t4[14]
+
+Separate cases reject out-of-range GeometryIndex, PrimitiveIndex, and an
+InstanceID outside the bucket namespace.
+
+Host publication now carries the total resident surface-record count, not the
+old route-record count. That count and generation remain zero unless the
+single atomic route-acceptance gate passes. TLAS instances encode the first
+surface record for their bucket, and the active-set signature includes the
+first-record/count pair. The legacy triangle-base shader wrapper intentionally
+returns false so no unmigrated consumer can silently interpret a
+multi-geometry hit using the old address.
+
+Verification:
+
+  PathTraceCpuPlanningHarness --stress 20           passed
+  full win64-pt-dev-release build                   passed
+  affected Vulkan SPIR-V outputs rebuilt             40
+  outputs missing or older than edited source        0
+  spirv-val --target-env vulkan1.2 failures          0
+  DX12 shader outputs intentionally compiled          0
+
+The 40-output set is the actual Release custom-build dependency closure for
+the shared include: five top-level RT libraries, three ray-query compute
+shaders, and the 32 debug/production split GI libraries.
+
+Boundary for the next step:
+
+  - `RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS` remains zero;
+  - `staticBucketRouteConsumerSupported` remains hard-false;
+  - the shared decoder is therefore not live traversal acceptance;
+  - migrate one hit-entry family to pass GeometryIndex and reuse one resolved
+    address, compile that family with consumers enabled, then run its isolated
+    route gate before widening;
+  - static-emissive replay still lacks GeometryIndex in its record identity and
+    must not be admitted with a bucket-local combined PrimitiveIndex.
+
+REF-7 ROUTE-OFF DEPLOYMENT GATE - 2026-07-27
+--------------------------------------------
+The checkpoint package is deployed:
+
+  built/deployed executable SHA-256
+    27AD1966836B4698F2E2F36825FDE4F0681CD8DF193EF4A10FC99985EE644ADD
+  intended Vulkan blobs copied                              40
+  executable/blob source-deployment hash mismatches          0
+
+Required runtime baseline:
+
+  1. Keep `r_pathTracingGeometryStaticBucketRoute 0`.
+  2. Enable bucket ownership/build and let ready reach 56/56.
+  3. Traverse the known portal, brush, rigid, skinned, particle, glass, DI,
+     and GI scene; reload once and close normally.
+  4. Reject on device removal, CPU crash, missing/flickering geometry,
+     material regression, glass/PSR regression, or zombie shutdown.
+  5. Capture `r_pathTracingGeometryStaticBucketAudit 1` if any resident,
+     publication, t5-layout, or device-loss counter is nonzero.
+
+Do not enable the route for this checkpoint. Passing it permits migration of
+the first actual hit-entry family; it does not by itself accept the decoder.

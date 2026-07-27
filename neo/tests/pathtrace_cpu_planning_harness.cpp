@@ -2440,6 +2440,43 @@ void TestStaticBucketAssignmentPlan()
             secondBucketGeometryPlan.geometries[1].
                 triangleCount == 1,
         "static bucket BLAS geometry plan preserves ordered per-surface ranges");
+    const RtSmokeStaticBucketResolvedGeometryAddress
+        secondSurfaceResolvedAddress =
+            BuildSmokeStaticBucketResolvedGeometryAddress(
+                multiGeometryPack,
+                secondBucketAddress.instanceId,
+                1,
+                0);
+    Check(
+        secondSurfaceResolvedAddress.valid &&
+            secondSurfaceResolvedAddress.surfaceRecordIndex == 2 &&
+            secondSurfaceResolvedAddress.triangleIndex == 4 &&
+            secondSurfaceResolvedAddress.indexOffset == 12 &&
+            secondSurfaceResolvedAddress.triangleCount == 1 &&
+            secondSurfaceResolvedAddress.vertexIndexes[0] ==
+                multiGeometryPack.indexes[12] &&
+            secondSurfaceResolvedAddress.vertexIndexes[1] ==
+                multiGeometryPack.indexes[13] &&
+            secondSurfaceResolvedAddress.vertexIndexes[2] ==
+                multiGeometryPack.indexes[14],
+        "static bucket InstanceID plus GeometryIndex plus PrimitiveIndex resolves one exact geometry address");
+    Check(
+        !BuildSmokeStaticBucketResolvedGeometryAddress(
+            multiGeometryPack,
+            secondBucketAddress.instanceId,
+            2,
+            0).valid &&
+        !BuildSmokeStaticBucketResolvedGeometryAddress(
+            multiGeometryPack,
+            secondBucketAddress.instanceId,
+            1,
+            1).valid &&
+        !BuildSmokeStaticBucketResolvedGeometryAddress(
+            multiGeometryPack,
+            0,
+            1,
+            0).valid,
+        "static bucket geometry address rejects out-of-range geometry, primitive, and namespace tuples");
 
     RtSmokeStaticBucketGeometryPack invalidSurfaceFlagPack =
         multiGeometryPack;

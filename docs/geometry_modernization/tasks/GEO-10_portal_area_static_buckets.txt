@@ -52,6 +52,22 @@ REF-6 appends the same 1,789 four-word surface records after the unchanged
 50,108 triangle-class words in the resident t5 upload. CPU validation rejects
 any changed prefix or mismatched tail field. No shader consumer is enabled and
 the live t5 binding remains monolithic until the later atomic route cutover.
+`bucket6.log` accepts the shadow runtime gate: t5 contains 57,264 words with
+the surface tail beginning at word 50,108 and occupying 28,624 bytes. All
+56 bucket BLASes are ready/reused, all 1,789 records still map to 1,789
+GeometryDescs, and every class-layout, geometry, publication, and device-loss
+failure counter is zero.
+
+REF-7 now defines the replacement address contract in one shared helper:
+InstanceID supplies a resident surface-record base, GeometryIndex selects one
+four-word t5 record, and PrimitiveIndex selects the local triangle. A CPU
+mirror proves the exact record/triangle/index/vertex tuple and rejects invalid
+namespace, geometry, and primitive inputs. The host publishes the total
+resident surface-record count only after the route is accepted, and the old
+triangle-base compatibility loader deliberately fails closed. Shader
+consumers remain compile-gated off until they are migrated one pipeline family
+at a time; this checkpoint is address-foundation proof, not live traversal
+acceptance.
 
 IMPLEMENTATION STATUS
 ---------------------
