@@ -5991,7 +5991,9 @@ struct RtSmokeStaticBucketFramePublication
     bool enabled = false;
     bool auditRequested = false;
     bool blasEnabled = false;
+    bool portalMaskValid = false;
     bool activeMaskValid = false;
+    bool activeMaskForcedFullResident = false;
     bool materialIndexUploaded = false;
     int portalAreaCount = 0;
     int maxVerticesPerBucket = 0;
@@ -6018,7 +6020,8 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     nvrhi::IDevice* device,
     nvrhi::ICommandList* commandList,
     uint64 frameIndex,
-    ID_TIME_T mapTimeStamp)
+    ID_TIME_T mapTimeStamp,
+    bool forceFullResidentActiveSet)
 {
     OPTICK_EVENT("PT Static Bucket Frame Publication");
 
@@ -6053,18 +6056,28 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
         ranges);
     staticBucketGeometryUniverse.EndFrame();
 
+    frame.portalAreaCount =
+        viewDef && viewDef->renderWorld
+            ? viewDef->renderWorld->NumAreas()
+            : 0;
     std::vector<bool> activeAreas;
-    frame.activeMaskValid = sceneUniverse.BuildPortalAreaActiveMask(
+    frame.portalMaskValid = sceneUniverse.BuildPortalAreaActiveMask(
         viewDef,
         idMath::ClampInt(
             0,
             8,
             r_pathTracingGeometryStaticBucketPortalSteps.GetInteger()),
         activeAreas);
-    frame.portalAreaCount =
-        viewDef && viewDef->renderWorld
-            ? viewDef->renderWorld->NumAreas()
-            : 0;
+    frame.activeMaskValid = frame.portalMaskValid;
+    // Route mode 2 is a decoder-only diagnostic. Keep every resident bucket
+    // addressable so portal-neighborhood policy cannot masquerade as a shader
+    // decode failure. Production route modes continue to use the portal mask.
+    if (forceFullResidentActiveSet && frame.portalAreaCount > 0)
+    {
+        activeAreas.assign(frame.portalAreaCount, true);
+        frame.activeMaskValid = true;
+        frame.activeMaskForcedFullResident = true;
+    }
     frame.maxVerticesPerBucket = Max(
         1,
         r_pathTracingGeometryStaticBucketMaxVertices.GetInteger());
@@ -8004,17 +8017,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         RunSmokeMaterialDiagnosticTriggers(materialDiagnosticDesc);
     }
 
-    const RtSmokeStaticBucketFramePublication
-        staticBucketFramePublication =
-            BuildSmokeStaticBucketFramePublication(
-                viewDef,
-                m_sceneUniverse,
-                m_staticBucketGeometryUniverse,
-                materialTable.materialIds,
-                device,
-                commandList,
-                m_smokeGeometryFrameIndex,
-                m_smokeSceneMapTimeStamp);
     const int staticBucketRouteMode = idMath::ClampInt(
         RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
         RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
@@ -8029,6 +8031,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingCleanRtxdiDiView.GetInteger(),
             r_pathTracingNsightGpuMarkers.GetInteger() != 0,
             r_pathTracingCleanRestirGiEnable.GetInteger() != 0);
+    const RtSmokeStaticBucketFramePublication
+        staticBucketFramePublication =
+            BuildSmokeStaticBucketFramePublication(
+                viewDef,
+                m_sceneUniverse,
+                m_staticBucketGeometryUniverse,
+                materialTable.materialIds,
+                device,
+                commandList,
+                m_smokeGeometryFrameIndex,
+                m_smokeSceneMapTimeStamp,
+                staticBucketPrimaryOpaqueProbe);
     // Production remains fail-closed. Mode 2 admits only the primary producer
     // while view 2 consumes its stored records without issuing secondary rays.
     const bool staticBucketRouteConsumerSupported =
@@ -8070,12 +8084,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             (m_smokeGeometryFrameIndex % 120ull) == 1ull))
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO10 static bucket cutover mode=%d requested/accepted=%d/%d consumerSupported=%d primaryOpaqueProbe=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu traversal=%s\n",
+            "PathTracePrimaryPass: GEO10 static bucket cutover mode=%d requested/accepted=%d/%d consumerSupported=%d primaryOpaqueProbe=%d fullResidentProbe=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu traversal=%s\n",
             staticBucketRouteMode,
             1,
             staticBucketRouteAccepted ? 1 : 0,
             staticBucketRouteConsumerSupported ? 1 : 0,
             staticBucketPrimaryOpaqueProbe ? 1 : 0,
+            staticBucketFramePublication.
+                activeMaskForcedFullResident
+                    ? 1
+                    : 0,
             staticBucketCutoverPlan.allResidentReady ? 1 : 0,
             staticBucketCutoverPlan.publicationExact ? 1 : 0,
             staticBucketFramePublication.
@@ -12932,7 +12950,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 DumpStaticBucketActivePublication(
                     staticBucketActivePublication);
             common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d residentPackCacheHit=%d maskValid=%d portalSteps=%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/tlas)=%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
+                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d residentPackCacheHit=%d maskValid=%d portalMaskValid=%d fullResidentProbe=%d portalSteps=%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/tlas)=%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
                 staticBucketSourceBuildStats.built ? 1 : 0,
                 staticBucketSourceBuildStats.cacheHit ? 1 : 0,
                 staticBucketFramePublication.
@@ -12940,6 +12958,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                         ? 1
                         : 0,
                 staticBucketActiveMaskValid ? 1 : 0,
+                staticBucketFramePublication.portalMaskValid ? 1 : 0,
+                staticBucketFramePublication.
+                    activeMaskForcedFullResident
+                        ? 1
+                        : 0,
                 idMath::ClampInt(
                     0,
                     8,

@@ -669,6 +669,20 @@ with active bucket descriptors and selects bucket-local static emissives in the
   repacks the full resident universe every frame; resident-pack caching remains
   mandatory before performance acceptance.
 
+The reference-review pivot then replaced that parallel shader ABI with the
+shared resident-buffer hardware-address route. REF-7 accepted the route-off
+multi-geometry BLAS baseline. REF-8's first live view-2 probe accepted the new
+InstanceID + GeometryIndex + PrimitiveIndex decoder without address, binding,
+validation, or device-loss failures, but rejected the active-set policy:
+`portalSteps=1` exposed only a fixed graph neighborhood while the raster portal
+flood could see farther. View 16 was only monolithic fallback. The corrected
+REF-8 mode-2 diagnostic now places all 56 resident buckets in its TLAS so shader
+decoding can be validated independently. Production still uses the ordinary
+mask and remains fail-closed. Before production cutover, step 5 must replace
+fixed-depth backend selection with a conservative immutable frontend portal
+visibility snapshot and one revision shared by TLAS membership and dependent
+publications.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

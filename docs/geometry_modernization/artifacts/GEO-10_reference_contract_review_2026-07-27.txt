@@ -838,3 +838,60 @@ cards are intentionally absent from this rung. Traverse portals, audit once,
 then set the route back to 0 before changing view or enabling GI. Reject on
 device removal, nonzero address/publication failures, missing opaque brushes,
 or portal-dependent opaque flicker.
+
+REF-8 RUNTIME FINDING - bucket8.log - 2026-07-27
+------------------------------------------------
+The first live primary probe separated shader address decoding from portal
+activation:
+
+  mode 2 requested / accepted                        1 / 1
+  consumer supported / primary probe                 1 / 1
+  resident / ready buckets                          56 / 56
+  active buckets while moving                        3, 4, and 5
+  route records                                      56
+  address/publication/binding/device failures         0
+
+The user observed opaque level geometry only about one portal edge away. This
+is consistent with the host selection algorithm, not a hit-decoder failure:
+`BuildPortalAreaActiveMask` calls `BuildSelectionStats` with the default fixed
+depth of one. It does not consume the frontend's clipped recursive portal
+visibility result. View 16 remained visually correct only because the mode-2
+predicate rejected it and restored monolithic traversal.
+
+The log also captured one transient fail-closed frame: selection reported 56
+active buckets, publication became inexact with zero outputs, and cutover was
+rejected. Exact publication recovered on the following frame. No unsafe mixed
+traversal was admitted.
+
+REF-8 CORRECTED FULL-RESIDENT PROBE CHECKPOINT - 2026-07-27
+----------------------------------------------------------
+Mode 2 now forces the final diagnostic active mask to all portal areas only
+after the existing view-2, diagnostic-marker, clean-DI, and GI-off predicate
+passes. Production mode 1 and route-off shadow planning still use the ordinary
+portal mask. The portal source validity and diagnostic override are logged
+separately as `portalMaskValid` and `fullResidentProbe`.
+
+This is deliberate isolation:
+
+  REF-8 question       can InstanceID + GeometryIndex + PrimitiveIndex decode
+                       all resident opaque primary surfaces safely?
+  not answered here    which portal buckets are conservatively visible?
+
+The latter remains a step-5 blocker. Do not promote all-resident TLAS membership
+to production, and do not accept a larger fixed BFS depth as the final policy.
+The production selector needs a frontend-owned immutable snapshot derived from
+the actual portal flood, plus a revision shared by TLAS and its consumers.
+
+Offline and deployment verification:
+
+  PathTraceCpuPlanningHarness --stress20             passed
+  full win64-pt-dev-release build                    passed
+  shader rebuilds                                     0
+  source/deployed executable hashes                  equal
+  executable SHA-256
+    236C9A5EA4F8331E5BEB2BF1545F11647EE176E515A2E2BD510DB561E74871EF
+
+Acceptance for the corrected probe requires 56/56/56 active/resident/ready,
+56/56 TLAS/routes, `fullResidentProbe=1`, bucket-resident-pool traversal, no
+missing opaque brushes or materials, and no device loss. Portal movement must
+not change the active count during mode 2.

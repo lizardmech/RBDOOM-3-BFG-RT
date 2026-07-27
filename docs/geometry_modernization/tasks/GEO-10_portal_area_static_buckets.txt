@@ -467,3 +467,46 @@ DONE WHEN
 CHECKPOINT
 ----------
   pt geometry GEO-10: add portal-area static BLAS buckets
+
+REF-8 ACTIVE-SET FINDING - bucket8.log - 2026-07-27
+---------------------------------------------------
+The first live hardware-address probe did not report an address, binding,
+validation, or device-loss failure. Mode 2 repeatedly admitted exact
+publications with all 56 resident bucket BLASes ready. The active subset changed
+from three to five buckets during portal movement.
+
+The visual result is rejected. Opaque world geometry more than roughly one
+portal edge away disappeared in view 2. This matches the current selector:
+`BuildPortalAreaActiveMask` is a breadth-first portal graph neighborhood with
+`r_pathTracingGeometryStaticBucketPortalSteps=1`. Raster visibility uses the
+actual clipped recursive portal flood and can expose areas farther away.
+Increasing the fixed depth is not an accepted production repair; prior runtime
+evidence found portal step 8 only temporarily recovered the old route.
+
+View 16 was not a bucket-route success. Mode 2 rejected that view and restored
+monolithic traversal as designed.
+
+Mode 2 is now explicitly a full-resident decoder probe. After its existing
+view-2, marker-enabled, clean-DI, GI-off predicate passes, every resident portal
+bucket enters the diagnostic TLAS. Production mode 1 and route-off shadow
+planning still use the ordinary portal mask. Logs distinguish the ordinary
+`portalMaskValid` source from the final `maskValid` and the
+`fullResidentProbe` override.
+
+This diagnostic override does not close step 5 or approve all-resident
+production traversal. The production route still requires a conservative
+immutable frontend snapshot derived from actual portal visibility, with one
+revision shared by TLAS membership and every dependent publication.
+
+Corrected probe verification:
+
+  PathTraceCpuPlanningHarness --stress20             passed
+  full win64-pt-dev-release build                    passed
+  shader source/blob changes                         none
+  built/deployed executable SHA-256
+    236C9A5EA4F8331E5BEB2BF1545F11647EE176E515A2E2BD510DB561E74871EF
+
+The repeated REF-8 run must report 56/56/56 active/resident/ready, 56/56
+TLAS/routes, `fullResidentProbe=1`, and bucket-resident-pool traversal. Reject
+on device removal, missing opaque brushes, opaque material corruption, or any
+nonzero address/publication failure.
