@@ -1006,3 +1006,22 @@ Offline/deployment proof:
 Live acceptance requires route-0/route-2 silhouette parity on a known static
 alpha-tested surface plus the existing exact 56/56 publication and no opaque
 regression or device loss.
+
+REF-9A RUNTIME ACCEPTANCE - bucket11.log - 2026-07-27
+-----------------------------------------------------
+The original capture remained monolithic because
+`r_pathTracingNsightGpuMarkers` was not enabled. The updated capture enabled
+markers and then repeatedly reported exact live bucket traversal:
+
+  accepted / consumer supported                      1 / 1
+  fullResidentProbe                                  1
+  allResidentReady / publicationExact                1 / 1
+  active / resident / ready                         56 / 56 / 56
+  TLAS / routes                                     56 / 56
+  materialIndexMissingActive                         0
+  traversal                                          bucket-resident-pool
+
+The user kept the game open, moved through the scene, and reported no visual
+issue. No device-removal, descriptor, or validation failure is present.
+REF-9A is accepted. Deferred decal, glass/transmission, particle, liquid,
+secondary/query, and emissive-replay consumers remain closed.

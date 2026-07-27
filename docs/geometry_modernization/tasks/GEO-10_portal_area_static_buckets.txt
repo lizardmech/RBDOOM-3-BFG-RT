@@ -609,3 +609,21 @@ Runtime test:
 
 Reject on device loss, opaque regression, solid alpha cards, wrong cutout
 coverage, or any loss of exact publication.
+
+REF-9A RUNTIME ACCEPTANCE - bucket11.log - 2026-07-27
+-----------------------------------------------------
+The first capture was monolithic because diagnostic markers were off. After
+enabling `r_pathTracingNsightGpuMarkers 1`, the updated log repeatedly admitted:
+
+  requested / accepted                              1 / 1
+  consumer supported / primary probe                 1 / 1
+  full-resident probe                                1
+  all resident ready / publication exact             1 / 1
+  active / resident / ready                         56 / 56 / 56
+  TLAS / routes                                     56 / 56
+  missing active material indexes                    0
+  traversal                                          bucket-resident-pool
+
+The user then continued moving through the scene and reported no visual issue.
+No device-loss, binding, or validation failure appears in the log. REF-9A is
+accepted for primary and shadow alpha-test handling.

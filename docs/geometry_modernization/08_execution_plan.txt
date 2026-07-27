@@ -701,7 +701,9 @@ REF-9 begins with a primary-only alpha-test rung. Primary and shadow any-hit
 reuse the already resolved bucket address, interpolate UVs from its packed
 vertex triple, and apply the existing alpha cutoff. Every other non-opaque
 class remains fail-closed. The Vulkan-only build, SPIR-V validation, deployment
-hashes, and CPU harness pass; live route-0/route-2 cutout parity remains open.
+hashes, and CPU harness pass. The marker-enabled update to `bucket11.log`
+admits exact 56/56 bucket traversal; continued movement produced no reported
+visual issue and no device error. REF-9A is accepted.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
