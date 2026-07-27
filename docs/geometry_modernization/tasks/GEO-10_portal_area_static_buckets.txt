@@ -547,3 +547,26 @@ Verification:
 Repeat the same mode-2 test. Acceptance additionally requires
 `materialIndexMissingActive=0`; a visually correct monolithic fallback is not a
 pass.
+
+REF-8 OPAQUE PRIMARY DECODER ACCEPTANCE - bucket10.log - 2026-07-27
+-------------------------------------------------------------------
+The corrected probe passed. View 2 repeatedly admitted live bucket traversal:
+
+  requested / accepted                              1 / 1
+  consumer supported / primary probe                 1 / 1
+  full-resident probe                                1
+  all resident ready / publication exact             1 / 1
+  active / resident / ready                         56 / 56 / 56
+  TLAS / route outputs                              56 / 56
+  missing active material indexes                    0
+  traversal                                          bucket-resident-pool
+
+Switching to view 16 rejected the probe and restored monolithic traversal.
+Switching back to view 2 re-admitted the same exact 56/56 bucket publication.
+This repeated twice without device loss, Vulkan validation/binding errors, or
+reported visual corruption.
+
+REF-8 is accepted for opaque primary InstanceID + GeometryIndex +
+PrimitiveIndex decoding and full-resident material lookup. This does not accept
+the fixed-depth portal active-set policy, alpha/decal/glass/liquid consumers,
+secondary/query rays, static emissive replay, or production route mode 1.

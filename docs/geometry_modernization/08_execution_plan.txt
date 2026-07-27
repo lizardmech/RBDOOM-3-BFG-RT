@@ -688,6 +688,15 @@ subset. Mode 2 now supplements table membership and metadata from the unique
 resident bucket material IDs and keys that set into the hydration cache.
 Production material-table behavior is unchanged.
 
+`bucket10.log` accepts REF-8. The isolated view-2 producer repeatedly traversed
+all 56 resident bucket BLASes with exact 56/56 TLAS/route publication, zero
+missing active material indexes, no device loss, and no reported visual
+regression. Switching to view 16 failed closed to monolithic traversal and
+switching back re-admitted the bucket path. This accepts opaque primary
+hardware-address decoding only; portal visibility, non-opaque hit handling,
+secondary/query consumers, emissive replay, production mode 1, and recurring
+performance remain open.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

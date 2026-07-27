@@ -934,3 +934,39 @@ and source/deployed executable hashes match:
 The next run is accepted only if publication becomes exact, TLAS/routes become
 56/56, missing active material indexes are zero, and traversal reports
 bucket-resident-pool.
+
+REF-8 RUNTIME ACCEPTANCE - bucket10.log - 2026-07-27
+----------------------------------------------------
+The full-resident opaque-primary probe executed successfully:
+
+  requested / accepted                              1 / 1
+  consumer supported / primary probe                 1 / 1
+  fullResidentProbe                                  1
+  allResidentReady / publicationExact                1 / 1
+  active / resident / ready                         56 / 56 / 56
+  TLAS / routes                                     56 / 56
+  materialIndexMissingActive                         0
+  traversal                                          bucket-resident-pool
+
+The user reported no visual issue. Repeated view 2 -> 16 -> 2 changes proved
+both sides of the gate: view 16 rejected mode 2 and used monolithic traversal;
+view 2 re-admitted the same exact bucket publication. The log contains no
+device-loss, descriptor-binding, or validation failure.
+
+Accepted conclusion:
+
+  InstanceID surface-record base
+    + GeometryIndex hardware geometry ordinal
+    + PrimitiveIndex surface-local triangle
+
+correctly resolves opaque primary hits across all 56 resident multi-geometry
+bucket BLASes in the isolated primary producer.
+
+Not accepted by this result:
+
+  - fixed-depth portal active-set selection;
+  - alpha/decal, glass/transmission, liquid-card, or particle handling;
+  - secondary TraceRay or RayQuery consumers;
+  - static-emissive replay identity;
+  - mode-1 production cutover;
+  - resident-pack recurring performance.
