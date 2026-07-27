@@ -1025,3 +1025,57 @@ The user kept the game open, moved through the scene, and reported no visual
 issue. No device-removal, descriptor, or validation failure is present.
 REF-9A is accepted. Deferred decal, glass/transmission, particle, liquid,
 secondary/query, and emissive-replay consumers remain closed.
+
+REF-9B DETAIL-DECAL OFFLINE CHECKPOINT - 2026-07-27
+----------------------------------------------------
+REF-9B keeps the reference-review shape: one hardware address decode in the
+accepted primary producer and no parallel geometry namespace. Before coding,
+the live DECAL-03 contract exposed a specific mismatch. Its old static key is
+the monolithic primitive index, while bucket PrimitiveIndex is surface-local
+and repeats for each GeometryIndex. Bucket InstanceID also cannot safely
+occupy DECAL-03's high two sort-key bits.
+
+The existing fourth surface-record word resolves the mismatch without another
+buffer or record word:
+
+  bit 0       valid
+  bits 1..31  original source-range triangle offset
+
+The decoder adds the hardware PrimitiveIndex and publishes
+`sourceTriangleIndex`. This recreates the exact route-0 static primitive index
+even when bucket packing reorders surfaces; the decal store then applies the
+route-0 `0x3fffffff` primitive mask. The CPU harness includes a case where
+packed triangle 1 maps back to source triangle 3 and passes. Source ranges are
+already validated nonnegative signed-int ranges, so the 31-bit encoding
+introduces no new production limit.
+
+The primary any-hit detail-decal branch reuses the one decoded address,
+interpolates the packed vertex UV, records the existing material row and
+source sort key into the existing decal bin, and ignores the card hit. The
+receiver-owned composite and payload ABI do not change. Shadow any-hit and all
+other deferred materials remain on the REF-9A fail-closed behavior.
+
+Proof:
+
+  PathTraceCpuPlanningHarness                       passed
+  full Vulkan release build                         passed
+  spirv-val Vulkan 1.2                              passed
+  descriptor decorations REF-9A / REF-9B             96 / 96
+  hardware InstanceID/GeometryIndex/PrimitiveId     present
+  TraceRay geometry multiplier                      0
+  deployed executable SHA-256
+    A7B63FE41627B6B503961EB708ABC6B93B15F087E3C85A940069ECA3F8A2FE39
+  deployed primary producer SHA-256
+    92E2829CB31989538C78D5F53593518C0010921547B7F98F8C356C81A18C423E
+
+The build recompiled transitive disabled compatibility includes after the
+shared header edit. Only the intended primary producer SPIR-V was deployed;
+it is the sole shader with the bucket-consumer macro enabled.
+
+Runtime acceptance is intentionally narrow: load/reload with
+`r_pathTracingDecalComposite 1`, compare route 0 and route 2 on visible and
+stacked static detail decals, then confirm exact 56/56 bucket publication and
+ordinary opaque/alpha traversal. Missing decals, changed layer order,
+receiver holes, flicker, device loss, or publication fallback reject the rung.
+Glass/transmission, particles, liquid cards, secondary/query rays, emissive
+replay, portal active-set production policy, and mode 1 remain out of scope.

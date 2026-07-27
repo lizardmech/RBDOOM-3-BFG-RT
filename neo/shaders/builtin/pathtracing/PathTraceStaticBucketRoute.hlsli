@@ -18,6 +18,10 @@ static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_OFFSET_MASK =
 static const uint PATH_TRACE_SHADER_INSTANCE_ID_MASK =
     0x00ffffffu;
 static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID = 1u;
+static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT =
+    1u;
+static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK =
+    (1u << PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT) - 1u;
 static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS = 4u;
 
 #define SmokeStaticBucketVertices SmokeStaticVertices
@@ -48,6 +52,7 @@ struct PathTraceStaticGeometryAddress
 {
     uint surfaceRecordIndex;
     uint triangleIndex;
+    uint sourceTriangleIndex;
     uint indexOffset;
     uint triangleCount;
     uint3 vertexIndexes;
@@ -136,7 +141,8 @@ bool PathTraceTryResolveStaticBucketGeometryAddress(
         SmokeStaticTriangleClasses[surfaceRecordWord + 2u];
     const uint flags =
         SmokeStaticTriangleClasses[surfaceRecordWord + 3u];
-    if (flags !=
+    if ((flags &
+            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK) !=
             PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID ||
         primitiveIndex >= triangleCount ||
         triangleOffset > staticTriangleCount ||
@@ -151,6 +157,16 @@ bool PathTraceTryResolveStaticBucketGeometryAddress(
 
     const uint triangleIndex =
         triangleOffset + primitiveIndex;
+    const uint sourceTriangleOffset =
+        flags >>
+        PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
+    if (primitiveIndex >
+        0xffffffffu - sourceTriangleOffset)
+    {
+        return false;
+    }
+    const uint sourceTriangleIndex =
+        sourceTriangleOffset + primitiveIndex;
     const uint packedIndexOffset =
         indexOffset + primitiveIndex * 3u;
     if (triangleIndex >= staticTriangleCount ||
@@ -171,6 +187,7 @@ bool PathTraceTryResolveStaticBucketGeometryAddress(
 
     address.surfaceRecordIndex = surfaceRecordIndex;
     address.triangleIndex = triangleIndex;
+    address.sourceTriangleIndex = sourceTriangleIndex;
     address.indexOffset = packedIndexOffset;
     address.triangleCount = triangleCount;
     address.vertexIndexes = vertexIndexes;

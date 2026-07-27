@@ -291,6 +291,11 @@ struct RtSmokeStaticBucketTriangleIdentity
 
 static constexpr uint32_t
     RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID = 1u;
+static constexpr uint32_t
+    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT = 1u;
+static constexpr uint32_t
+    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK =
+        (1u << RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT) - 1u;
 
 struct RtSmokeStaticBucketSurfaceRecord
 {
@@ -414,6 +419,7 @@ struct RtSmokeStaticBucketResolvedGeometryAddress
 {
     uint32_t surfaceRecordIndex = 0;
     uint32_t triangleIndex = 0;
+    uint32_t sourceTriangleIndex = 0;
     uint32_t indexOffset = 0;
     uint32_t triangleCount = 0;
     uint32_t vertexIndexes[3] = {};

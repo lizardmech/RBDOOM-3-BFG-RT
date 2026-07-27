@@ -627,3 +627,80 @@ enabling `r_pathTracingNsightGpuMarkers 1`, the updated log repeatedly admitted:
 The user then continued moving through the scene and reported no visual issue.
 No device-loss, binding, or validation failure appears in the log. REF-9A is
 accepted for primary and shadow alpha-test handling.
+
+REF-9B DETAIL-DECAL OFFLINE CHECKPOINT - 2026-07-27
+----------------------------------------------------
+The second REF-9 slice admits receiver-owned detail decals in the same primary
+producer only. It does not widen glass, particles, liquid cards, secondary
+rays, GI, or spatial DI.
+
+The pre-edit audit found that the bucket InstanceID and surface-local
+PrimitiveIndex cannot reuse DECAL-03's old sort-key expression. The bucket ID
+occupies the high half of the 24-bit instance namespace, and equal local
+primitive indexes recur in different GeometryIndex values. Reusing the old
+expression would both overflow the instance component and collide across
+surfaces.
+
+The four-word surface record now stores the source monolithic triangle offset
+in bits 1..31 of its existing flags word; bit 0 remains the valid bit. The
+resolved hardware address therefore carries both:
+
+  triangleIndex        packed resident-pool metadata address
+  sourceTriangleIndex  original monolithic primitive index
+
+This is an exact preservation of the existing static DECAL-03 key after
+portal/size repacking: the decal branch applies DECAL-03's existing
+`0x3fffffff` primitive mask to `sourceTriangleIndex`. It is not a new ordering
+heuristic. The signed-int source range contract bounds the encoded offset to
+31 bits. No fifth record word or new descriptor is required.
+
+Primary any-hit resolves the address once, loads the material flags once, and
+for `RT_SMOKE_MATERIAL_DETAIL_DECAL`:
+
+  - interpolates authored UVs from the resolved packed vertex triple;
+  - stores the decal with `sourceTriangleIndex`;
+  - ignores the decal hit so the receiver remains closest.
+
+The existing decal bin, receiver-distance guard, blend operations, and
+route-0 path are unchanged. Non-collect modes still fail closed on a bucket
+detail decal.
+
+Offline/deployment proof:
+
+  PathTraceCpuPlanningHarness                      passed
+  explicit reordered-source sort-key test          passed
+  full win64-pt-dev-release build                  passed
+  DX12 shader rebuilds                              0
+  intended/deployed Vulkan blobs                    1
+  primary blob newer than both edited shaders      yes
+  spirv-val --target-env vulkan1.2                 passed
+  descriptor-set/binding decorations vs REF-9A      identical (96 / 96)
+  InstanceCustomIndex / GeometryIndex / Primitive  present
+  TraceRay geometry multiplier                      0
+  source/deployed executable hashes                 equal
+  source/deployed primary blob hashes               equal
+  executable SHA-256
+    A7B63FE41627B6B503961EB708ABC6B93B15F087E3C85A940069ECA3F8A2FE39
+  primary blob SHA-256
+    92E2829CB31989538C78D5F53593518C0010921547B7F98F8C356C81A18C423E
+
+The shared include timestamp caused the build system to recompile disabled
+DI/GI compatibility families; none of those outputs were deployed. Only the
+primary producer has the bucket consumer macro enabled.
+
+Runtime test:
+
+  1. Before loading/reloading the map, set
+     `r_pathTracingDecalComposite 1`.
+  2. Keep markers on, clean DI view 2, GI off, bucket BLAS/build on, and route
+     mode 2, matching the accepted REF-9A setup.
+  3. Compare route 0 and route 2 on one visible wall grime/detail decal. The
+     decal color, coverage, receiver, and stability must match.
+  4. If stacked detail decals are available, check that their top/bottom
+     ordering does not swap between routes or flicker while moving.
+  5. Continue ordinary traversal and capture an audit/condump that reports
+     exact 56/56 bucket traversal.
+
+Reject on a missing decal, a decal becoming closest geometry, changed layer
+order, receiver holes, flicker, opaque/alpha regression, device loss, or an
+inexact publication. REF-9B remains pending runtime acceptance.

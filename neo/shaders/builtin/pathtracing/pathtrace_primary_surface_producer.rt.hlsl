@@ -1451,11 +1451,12 @@ bool PathTraceTryResolvePrimaryStaticBucketHit(
         address);
 }
 
-bool PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
+bool PathTraceStaticBucketTryLoadPrimaryMetadata(
     PathTraceStaticGeometryAddress address,
     out uint triangleClassAndFlags,
     out uint materialId,
-    out uint materialIndex)
+    out uint materialIndex,
+    out uint materialFlags)
 {
     triangleClassAndFlags =
         SmokeStaticBucketTriangleClasses[address.triangleIndex];
@@ -1466,15 +1467,20 @@ bool PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
             address.triangleIndex];
 
     const uint materialCount = (uint)max(TextureInfo.z, 0.0);
-    if (materialIndex >= materialCount ||
-        (triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK) ==
-            RT_SMOKE_SURFACE_CLASS_TRANSLUCENT)
+    materialFlags = 0u;
+    if (materialIndex >= materialCount)
     {
         return false;
     }
 
-    const PathTraceSmokeMaterial material =
-        LoadSmokeMaterial(materialIndex);
+    materialFlags = LoadSmokeMaterial(materialIndex).flags;
+    return true;
+}
+
+bool PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
+    uint triangleClassAndFlags,
+    uint materialFlags)
+{
     const uint deferredPrimaryFlags =
         RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
         RT_SMOKE_MATERIAL_FILTER_DECAL |
@@ -1484,7 +1490,27 @@ bool PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
         RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC |
         RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT |
         RT_SMOKE_MATERIAL_DETAIL_DECAL_LIQUID_POOL;
-    return (material.flags & deferredPrimaryFlags) == 0u;
+    return
+        (triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK) !=
+            RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        (materialFlags & deferredPrimaryFlags) == 0u;
+}
+
+float2 PathTraceStaticBucketInterpolateTexCoord(
+    PathTraceStaticGeometryAddress address,
+    float2 hitBarycentrics)
+{
+    const float3 weights = float3(
+        1.0 - hitBarycentrics.x - hitBarycentrics.y,
+        hitBarycentrics.x,
+        hitBarycentrics.y);
+    return
+        SmokeStaticBucketVertices[
+            address.vertexIndexes.x].texCoord.xy * weights.x +
+        SmokeStaticBucketVertices[
+            address.vertexIndexes.y].texCoord.xy * weights.y +
+        SmokeStaticBucketVertices[
+            address.vertexIndexes.z].texCoord.xy * weights.z;
 }
 
 bool PathTraceStaticBucketAlphaRejectsHit(
@@ -1505,17 +1531,10 @@ bool PathTraceStaticBucketAlphaRejectsHit(
         return false;
     }
 
-    const float3 weights = float3(
-        1.0 - hitBarycentrics.x - hitBarycentrics.y,
-        hitBarycentrics.x,
-        hitBarycentrics.y);
     const float2 texCoord =
-        SmokeStaticBucketVertices[
-            address.vertexIndexes.x].texCoord.xy * weights.x +
-        SmokeStaticBucketVertices[
-            address.vertexIndexes.y].texCoord.xy * weights.y +
-        SmokeStaticBucketVertices[
-            address.vertexIndexes.z].texCoord.xy * weights.z;
+        PathTraceStaticBucketInterpolateTexCoord(
+            address,
+            hitBarycentrics);
     return SmokeAlphaCoverage(material, texCoord) <
         material.alphaCutoff;
 }
@@ -3160,13 +3179,12 @@ void ShadowMiss(inout PathTraceSmokeShadowPayload payload)
 // Remix-style conditionallyStoreDecal: keep the RT_SMOKE_DECAL_BIN_SIZE entries
 // with the highest sort keys (the topmost-drawn layers). The decal never commits;
 // receiver validation happens at composite time where the base hitT is known.
-void ConditionallyStoreDetailDecal(inout PathTraceSmokePayload payload, uint materialIndex, uint instanceId, uint primitiveIndex, float2 barycentrics)
+void ConditionallyStoreDetailDecalResolved(
+    inout PathTraceSmokePayload payload,
+    uint materialIndex,
+    uint sortKey,
+    float2 texCoord)
 {
-    // Draw-order proxy sort key (docs/decal_cards/02 M2, conservative v1): static
-    // capture appends in submission order, so the BLAS primitive index preserves
-    // draw order within an instance.
-    const uint sortKey = (instanceId << 30) | (primitiveIndex & 0x3fffffffu);
-
     [unroll]
     for (uint existingSlot = 0u; existingSlot < RT_SMOKE_DECAL_BIN_SIZE; ++existingSlot)
     {
@@ -3202,11 +3220,33 @@ void ConditionallyStoreDetailDecal(inout PathTraceSmokePayload payload, uint mat
         slot = lowestSlot;
     }
 
-    const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, barycentrics);
     payload.decalMaterialIndex[slot] = materialIndex;
     payload.decalPackedTexCoord[slot] = (f32tof16(texCoord.x) & 0xffffu) | (f32tof16(texCoord.y) << 16);
     payload.decalSortKey[slot] = sortKey;
     payload.decalHitT[slot] = RayTCurrent();
+}
+
+void ConditionallyStoreDetailDecal(
+    inout PathTraceSmokePayload payload,
+    uint materialIndex,
+    uint instanceId,
+    uint primitiveIndex,
+    float2 barycentrics)
+{
+    // Draw-order proxy sort key (docs/decal_cards/02 M2, conservative v1): static
+    // capture appends in submission order, so the BLAS primitive index preserves
+    // draw order within an instance.
+    const uint sortKey =
+        (instanceId << 30) |
+        (primitiveIndex & 0x3fffffffu);
+    ConditionallyStoreDetailDecalResolved(
+        payload,
+        materialIndex,
+        sortKey,
+        InterpolateSmokeTexCoord(
+            instanceId,
+            primitiveIndex,
+            barycentrics));
 }
 
 [shader("anyhit")]
@@ -3233,14 +3273,44 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
         uint triangleClassAndFlags;
         uint materialId;
         uint materialIndex;
-        if (!PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
+        uint materialFlags;
+        if (!PathTraceStaticBucketTryLoadPrimaryMetadata(
                 address,
                 triangleClassAndFlags,
                 materialId,
-                materialIndex))
+                materialIndex,
+                materialFlags))
         {
-            // REF-9A admits opaque and alpha-tested primary visibility only.
-            // Decals, glass, particles, and liquid cards remain fail-closed
+            IgnoreHit();
+            return;
+        }
+        if ((materialFlags &
+                RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u)
+        {
+            if (payload.value == 0u &&
+                PathTraceDecalCollectEnabled(
+                    PathTraceDecalCompositeStage()) &&
+                !PathTraceSafetyDisabled(
+                    RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA))
+            {
+                ConditionallyStoreDetailDecalResolved(
+                    payload,
+                    materialIndex,
+                    address.sourceTriangleIndex &
+                        0x3fffffffu,
+                    PathTraceStaticBucketInterpolateTexCoord(
+                        address,
+                        attributes.barycentrics));
+            }
+            IgnoreHit();
+            return;
+        }
+        if (!PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
+                triangleClassAndFlags,
+                materialFlags))
+        {
+            // REF-9B admits receiver-owned detail decals. Glass, particles,
+            // liquid cards, and the remaining decal routes stay fail-closed
             // until their address-aware consumers are migrated.
             IgnoreHit();
             return;
@@ -3350,16 +3420,21 @@ void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleInte
         uint triangleClassAndFlags;
         uint materialId;
         uint materialIndex;
+        uint materialFlags;
         if (!PathTraceTryResolvePrimaryStaticBucketHit(
                 instanceId,
                 geometryIndex,
                 primitiveIndex,
                 address) ||
-            !PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
+            !PathTraceStaticBucketTryLoadPrimaryMetadata(
                 address,
                 triangleClassAndFlags,
                 materialId,
-                materialIndex))
+                materialIndex,
+                materialFlags) ||
+            !PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
+                triangleClassAndFlags,
+                materialFlags))
         {
             payload.hit = 0u;
             IgnoreHit();

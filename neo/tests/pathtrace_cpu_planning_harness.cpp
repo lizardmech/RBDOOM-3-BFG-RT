@@ -2322,12 +2322,18 @@ void TestStaticBucketAssignmentPlan()
             pack.surfaceRecords[2].triangleOffset == 4 &&
             pack.surfaceRecords[2].triangleCount == 1 &&
             pack.surfaceRecords[0].flags ==
-                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID &&
+                ((0u <<
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT) |
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID) &&
             pack.surfaceRecords[1].flags ==
-                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID &&
+                ((2u <<
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT) |
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID) &&
             pack.surfaceRecords[2].flags ==
-                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID,
-        "static bucket geometry pack publishes one exact record per surface");
+                ((4u <<
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT) |
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID),
+        "static bucket geometry pack publishes exact records with source draw-order offsets");
     Check(
         ValidateSmokeStaticBucketClassMetadataLayout(pack) &&
             pack.surfaceRecordWordOffset ==
@@ -2346,13 +2352,17 @@ void TestStaticBucketAssignmentPlan()
             pack.staticClassMetadataWords[10] == 2 &&
             pack.staticClassMetadataWords[11] == 2 &&
             pack.staticClassMetadataWords[12] ==
-                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID &&
+                ((2u <<
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT) |
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID) &&
             pack.staticClassMetadataWords[13] == 12 &&
             pack.staticClassMetadataWords[14] == 4 &&
             pack.staticClassMetadataWords[15] == 1 &&
             pack.staticClassMetadataWords[16] ==
-                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID,
-        "static bucket t5 metadata preserves triangle rows and appends exact four-word surface records");
+                ((4u <<
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT) |
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID),
+        "static bucket t5 metadata preserves triangle rows and four-word records with source draw order");
 
     RtSmokeStaticBucketGeometryPack corruptedMetadataPack = pack;
     corruptedMetadataPack.staticClassMetadataWords[
@@ -2451,6 +2461,7 @@ void TestStaticBucketAssignmentPlan()
         secondSurfaceResolvedAddress.valid &&
             secondSurfaceResolvedAddress.surfaceRecordIndex == 2 &&
             secondSurfaceResolvedAddress.triangleIndex == 4 &&
+            secondSurfaceResolvedAddress.sourceTriangleIndex == 4 &&
             secondSurfaceResolvedAddress.indexOffset == 12 &&
             secondSurfaceResolvedAddress.triangleCount == 1 &&
             secondSurfaceResolvedAddress.vertexIndexes[0] ==
@@ -2477,6 +2488,40 @@ void TestStaticBucketAssignmentPlan()
             1,
             0).valid,
         "static bucket geometry address rejects out-of-range geometry, primitive, and namespace tuples");
+
+    RtSmokeStaticBucketAssignmentPlan reorderedSourcePlan = plan;
+    std::swap(
+        reorderedSourcePlan.assignments[0].sourceRange,
+        reorderedSourcePlan.assignments[1].sourceRange);
+    RtSmokeStaticBucketGeometryPackDesc reorderedSourcePackDesc =
+        packDesc;
+    reorderedSourcePackDesc.assignmentPlan = &reorderedSourcePlan;
+    const RtSmokeStaticBucketGeometryPack reorderedSourcePack =
+        BuildSmokeStaticBucketGeometryPack(
+            reorderedSourcePackDesc);
+    const RtSmokeStaticBucketSurfaceAddressPlan
+        reorderedSourceAddress =
+            BuildSmokeStaticBucketSurfaceAddressPlan(
+                reorderedSourcePack.buckets[0].
+                    firstSurfaceRecord,
+                reorderedSourcePack.buckets[0].
+                    surfaceRecordCount,
+                static_cast<uint32_t>(
+                    reorderedSourcePack.surfaceRecords.size()));
+    const RtSmokeStaticBucketResolvedGeometryAddress
+        reorderedSourceResolvedAddress =
+            BuildSmokeStaticBucketResolvedGeometryAddress(
+                reorderedSourcePack,
+                reorderedSourceAddress.instanceId,
+                0,
+                1);
+    Check(
+        reorderedSourcePack.exact &&
+            reorderedSourceResolvedAddress.valid &&
+            reorderedSourceResolvedAddress.triangleIndex == 1 &&
+            reorderedSourceResolvedAddress.sourceTriangleIndex == 3,
+        "static bucket geometry address preserves the monolithic primitive sort key after bucket reordering");
+
     Check(
         IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,

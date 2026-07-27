@@ -705,6 +705,24 @@ hashes, and CPU harness pass. The marker-enabled update to `bucket11.log`
 admits exact 56/56 bucket traversal; continued movement produced no reported
 visual issue and no device error. REF-9A is accepted.
 
+REF-9B is staged for runtime validation. The existing four-word surface record
+uses bit 0 as valid and bits 1..31 for the original monolithic triangle
+offset. Hardware address resolution now returns both the packed triangle index
+and the original source triangle index. The latter exactly preserves the
+route-0 static DECAL-03 sort key after bucket repacking when its existing
+30-bit primitive mask is applied, avoiding collisions between surface-local
+PrimitiveIndex values without adding a descriptor, record word, SBT entry, or
+payload field.
+
+Primary any-hit now admits `RT_SMOKE_MATERIAL_DETAIL_DECAL` into the existing
+receiver-owned decal bin using address-derived UVs and the source triangle
+sort key. All other deferred classes remain fail-closed. The CPU harness,
+including a deliberately reordered source/pack test, release build,
+Vulkan-1.2 validation, descriptor-layout comparison, and one-blob deployment
+pass. Runtime acceptance requires route-0/route-2 decal parity with
+`r_pathTracingDecalComposite 1`, stable stacking, exact 56/56 publication, and
+no opaque/alpha or device-loss regression.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

@@ -850,6 +850,9 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
             surfaceRecord.triangleCount =
                 static_cast<uint32_t>(sourceRange.triangleCount);
             surfaceRecord.flags =
+                (static_cast<uint32_t>(
+                    sourceRange.triangleOffset) <<
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT) |
                 RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID;
 
             const size_t sourceVertexByteOffset =
@@ -1431,7 +1434,8 @@ BuildSmokeStaticBucketBlasGeometryPlan(
         const RtSmokeStaticBucketSurfaceRecord& record =
             geometryPack.surfaceRecords[
                 bucket.firstSurfaceRecord + geometryIndex];
-        if (record.flags !=
+        if ((record.flags &
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK) !=
                 RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID ||
             record.triangleCount == 0 ||
             record.triangleCount >
@@ -1532,20 +1536,29 @@ BuildSmokeStaticBucketResolvedGeometryAddress(
         geometryPack.staticClassMetadataWords[recordWord + 2u];
     const uint32_t flags =
         geometryPack.staticClassMetadataWords[recordWord + 3u];
-    if (flags !=
+    if ((flags &
+            RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK) !=
             RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID ||
         primitiveIndex >= triangleCount)
     {
         return address;
     }
 
+    const uint32_t sourceTriangleOffset =
+        flags >>
+        RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
     const uint64_t triangleIndex =
         static_cast<uint64_t>(triangleOffset) +
+        primitiveIndex;
+    const uint64_t sourceTriangleIndex =
+        static_cast<uint64_t>(sourceTriangleOffset) +
         primitiveIndex;
     const uint64_t packedIndexOffset =
         static_cast<uint64_t>(indexOffset) +
         static_cast<uint64_t>(primitiveIndex) * 3u;
     if (triangleIndex >= geometryPack.triangleClasses.size() ||
+        sourceTriangleIndex >
+            std::numeric_limits<uint32_t>::max() ||
         packedIndexOffset + 3u > geometryPack.indexes.size())
     {
         return address;
@@ -1574,6 +1587,8 @@ BuildSmokeStaticBucketResolvedGeometryAddress(
     address.surfaceRecordIndex = surfaceRecordIndex;
     address.triangleIndex =
         static_cast<uint32_t>(triangleIndex);
+    address.sourceTriangleIndex =
+        static_cast<uint32_t>(sourceTriangleIndex);
     address.indexOffset =
         static_cast<uint32_t>(packedIndexOffset);
     address.triangleCount = triangleCount;

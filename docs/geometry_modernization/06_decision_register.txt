@@ -985,6 +985,23 @@ compiled off and are not an operational dump collector.
 Evidence and ordered work are recorded in
 `artifacts/GEO-10_reference_contract_review_2026-07-27.txt`.
 
+D51. PRESERVE STATIC DECAL ORDER THROUGH BUCKET REPACKING
+---------------------------------------------------------
+Decision: do not use bucket InstanceID or surface-local PrimitiveIndex as the
+detail-decal sort key. Store the original monolithic source triangle offset in
+bits 1..31 of the existing four-word surface-record flags field, retaining bit
+0 as the validity marker. Resolve `sourceTriangleOffset + PrimitiveIndex` once
+beside the packed triangle address and apply DECAL-03's existing
+`0x3fffffff` primitive mask when storing the decal.
+
+For static geometry this exactly reproduces the existing DECAL-03 monolithic
+primitive key after portal/size bucket reordering. It avoids GeometryIndex
+collisions and does not introduce a descriptor, a fifth record word, an SBT
+record, or a payload change. The existing signed-int source-range validation
+bounds the encoding. REF-9B uses this source index only for receiver-owned
+detail-decal bin ordering; the packed index remains authoritative for geometry,
+class, material, and vertex reads.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
