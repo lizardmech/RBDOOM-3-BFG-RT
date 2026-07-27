@@ -723,6 +723,8 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         assignmentPlan->stats.assignedPrimitives);
     pack.triangleMaterials.reserve(
         assignmentPlan->stats.assignedPrimitives);
+    pack.surfaceRecords.reserve(
+        assignmentPlan->stats.assignedSurfaces);
     pack.triangleIdentities.reserve(
         assignmentPlan->stats.assignedPrimitives);
 
@@ -752,6 +754,8 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         bucket.splitIndex = sourceBucket.splitIndex;
         bucket.firstAssignment = sourceBucket.firstAssignment;
         bucket.assignmentCount = sourceBucket.assignmentCount;
+        bucket.firstSurfaceRecord =
+            static_cast<uint32_t>(pack.surfaceRecords.size());
         bucket.range.vertexOffset =
             static_cast<int>(pack.vertexBytes.size() /
                 desc.vertexStride);
@@ -825,6 +829,29 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
                 break;
             }
 
+            if (pack.indexes.size() >
+                    std::numeric_limits<uint32_t>::max() -
+                        static_cast<uint32_t>(
+                            sourceRange.indexCount) ||
+                pack.triangleClasses.size() >
+                    std::numeric_limits<uint32_t>::max() -
+                        static_cast<uint32_t>(
+                            sourceRange.triangleCount))
+            {
+                ++pack.stats.surfaceRecordErrors;
+                bucketValid = false;
+                break;
+            }
+            RtSmokeStaticBucketSurfaceRecord surfaceRecord;
+            surfaceRecord.indexOffset =
+                static_cast<uint32_t>(pack.indexes.size());
+            surfaceRecord.triangleOffset =
+                static_cast<uint32_t>(pack.triangleClasses.size());
+            surfaceRecord.triangleCount =
+                static_cast<uint32_t>(sourceRange.triangleCount);
+            surfaceRecord.flags =
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID;
+
             const size_t sourceVertexByteOffset =
                 static_cast<size_t>(sourceRange.vertexOffset) *
                 desc.vertexStride;
@@ -897,6 +924,7 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
                     static_cast<uint32_t>(sourcePrimitiveIndex);
                 pack.triangleIdentities.push_back(identity);
             }
+            pack.surfaceRecords.push_back(surfaceRecord);
             ++pack.stats.packedSurfaces;
         }
 
@@ -914,6 +942,8 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
                     sizeof(uint32_t)));
             pack.triangleMaterials.resize(
                 pack.triangleClasses.size());
+            pack.surfaceRecords.resize(
+                bucket.firstSurfaceRecord);
             pack.triangleIdentities.resize(
                 pack.triangleClasses.size());
             pack.stats.packedSurfaces =
@@ -932,6 +962,9 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         bucket.range.triangleCount =
             static_cast<int>(pack.triangleClasses.size()) -
             bucket.range.triangleOffset;
+        bucket.surfaceRecordCount =
+            static_cast<uint32_t>(pack.surfaceRecords.size()) -
+            bucket.firstSurfaceRecord;
         bucket.vertexByteSize =
             static_cast<uint64_t>(bucket.range.vertexCount) *
             desc.vertexStride;
@@ -949,6 +982,17 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         if (!addressPlan.valid)
         {
             ++pack.stats.addressContractErrors;
+        }
+        const RtSmokeStaticBucketSurfaceAddressPlan
+            surfaceAddressPlan =
+                BuildSmokeStaticBucketSurfaceAddressPlan(
+                    bucket.firstSurfaceRecord,
+                    bucket.surfaceRecordCount,
+                    static_cast<uint32_t>(
+                        pack.surfaceRecords.size()));
+        if (!surfaceAddressPlan.valid)
+        {
+            ++pack.stats.surfaceAddressContractErrors;
         }
         if (bucket.range.vertexCount != sourceBucket.vertexCount ||
             bucket.range.indexCount != sourceBucket.indexCount ||
@@ -973,6 +1017,8 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
             pack.triangleMaterials.size() ||
         pack.triangleClasses.size() !=
             pack.triangleIdentities.size() ||
+        pack.surfaceRecords.size() !=
+            static_cast<size_t>(pack.stats.packedSurfaces) ||
         pack.stats.packedSurfaces !=
             assignmentPlan->stats.assignedSurfaces ||
         pack.stats.packedTriangles !=
@@ -1012,6 +1058,14 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
             pack.triangleMaterials.size() *
                 sizeof(pack.triangleMaterials[0]));
     }
+    if (!pack.surfaceRecords.empty())
+    {
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            pack.surfaceRecords.data(),
+            pack.surfaceRecords.size() *
+                sizeof(pack.surfaceRecords[0]));
+    }
     for (const RtSmokeStaticBucketPackedRecord& bucket :
         pack.buckets)
     {
@@ -1031,6 +1085,14 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
             pack.contentSignature,
             &bucket.range,
             sizeof(bucket.range));
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            &bucket.firstSurfaceRecord,
+            sizeof(bucket.firstSurfaceRecord));
+        pack.contentSignature = HashSmokePlanBytes(
+            pack.contentSignature,
+            &bucket.surfaceRecordCount,
+            sizeof(bucket.surfaceRecordCount));
     }
     for (const RtSmokeStaticBucketTriangleIdentity& identity :
         pack.triangleIdentities)
@@ -1059,6 +1121,8 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         pack.stats.indexRangeErrors == 0 &&
         pack.stats.localPrimitiveOffsetErrors == 0 &&
         pack.stats.addressContractErrors == 0 &&
+        pack.stats.surfaceRecordErrors == 0 &&
+        pack.stats.surfaceAddressContractErrors == 0 &&
         pack.stats.countMismatches == 0;
     return pack;
 }
@@ -1151,6 +1215,72 @@ BuildSmokeStaticBucketInstanceAddressPlan(
     plan.valid =
         plan.rangeValid &&
         plan.indexAddressCompatible &&
+        plan.instanceIdEncodable;
+    return plan;
+}
+
+bool TryEncodeSmokeStaticBucketSurfaceBaseInstanceId(
+    uint32_t firstSurfaceRecord,
+    uint32_t& instanceId)
+{
+    instanceId = 0;
+    if ((firstSurfaceRecord &
+            ~RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_OFFSET_MASK) != 0)
+    {
+        return false;
+    }
+    instanceId =
+        RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE |
+        firstSurfaceRecord;
+    return true;
+}
+
+bool TryDecodeSmokeStaticBucketSurfaceBaseInstanceId(
+    uint32_t instanceId,
+    uint32_t& firstSurfaceRecord)
+{
+    firstSurfaceRecord = 0;
+    if ((instanceId & ~RT_SMOKE_SHADER_INSTANCE_ID_MASK) != 0 ||
+        (instanceId &
+            RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE) == 0)
+    {
+        return false;
+    }
+    firstSurfaceRecord =
+        instanceId &
+        RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_OFFSET_MASK;
+    return true;
+}
+
+RtSmokeStaticBucketSurfaceAddressPlan
+BuildSmokeStaticBucketSurfaceAddressPlan(
+    uint32_t firstSurfaceRecord,
+    uint32_t surfaceRecordCount,
+    uint32_t totalSurfaceRecordCount)
+{
+    RtSmokeStaticBucketSurfaceAddressPlan plan;
+    plan.firstSurfaceRecord = firstSurfaceRecord;
+    plan.surfaceRecordCount = surfaceRecordCount;
+    const uint64_t surfaceRecordEnd =
+        static_cast<uint64_t>(firstSurfaceRecord) +
+        surfaceRecordCount;
+    plan.rangeValid =
+        surfaceRecordCount > 0 &&
+        firstSurfaceRecord <= totalSurfaceRecordCount &&
+        surfaceRecordEnd <= totalSurfaceRecordCount;
+    plan.instanceIdEncodable =
+        TryEncodeSmokeStaticBucketSurfaceBaseInstanceId(
+            firstSurfaceRecord,
+            plan.instanceId) &&
+        surfaceRecordEnd <=
+            static_cast<uint64_t>(
+                RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE);
+    if (!plan.instanceIdEncodable)
+    {
+        plan.instanceId = 0;
+    }
+    plan.valid =
+        plan.rangeValid &&
         plan.instanceIdEncodable;
     return plan;
 }

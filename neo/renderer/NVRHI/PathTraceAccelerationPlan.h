@@ -192,6 +192,9 @@ static constexpr uint32_t
     RT_SMOKE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK =
         0x007fffffu;
 static constexpr uint32_t
+    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_OFFSET_MASK =
+        0x007fffffu;
+static constexpr uint32_t
     RT_SMOKE_SHADER_INSTANCE_ID_MASK =
         0x00ffffffu;
 static_assert(
@@ -199,6 +202,10 @@ static_assert(
         RT_SMOKE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK) ==
         RT_SMOKE_SHADER_INSTANCE_ID_MASK,
     "GEO-10 bucket InstanceID namespace must fill the upper half of the 24-bit shader ID");
+static_assert(
+    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_OFFSET_MASK ==
+        RT_SMOKE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK,
+    "GEO-10 transition keeps the existing 23-bit bucket InstanceID payload width");
 
 struct RtSmokeStaticBucketAssignmentSurface
 {
@@ -282,6 +289,21 @@ struct RtSmokeStaticBucketTriangleIdentity
     uint32_t sourcePrimitiveIndex = 0;
 };
 
+static constexpr uint32_t
+    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID = 1u;
+
+struct RtSmokeStaticBucketSurfaceRecord
+{
+    uint32_t indexOffset = 0;
+    uint32_t triangleOffset = 0;
+    uint32_t triangleCount = 0;
+    uint32_t flags = 0;
+};
+
+static_assert(
+    sizeof(RtSmokeStaticBucketSurfaceRecord) == 16,
+    "GEO-10 surface record must remain four uint32 words");
+
 struct RtSmokeStaticBucketPackedRecord
 {
     uint64_t bucketKey = 0;
@@ -289,6 +311,8 @@ struct RtSmokeStaticBucketPackedRecord
     uint32_t splitIndex = 0;
     uint32_t firstAssignment = 0;
     uint32_t assignmentCount = 0;
+    uint32_t firstSurfaceRecord = 0;
+    uint32_t surfaceRecordCount = 0;
     RtSmokePlanGeometryRange range;
     uint64_t vertexByteOffset = 0;
     uint64_t vertexByteSize = 0;
@@ -328,6 +352,8 @@ struct RtSmokeStaticBucketGeometryPackStats
     int indexRangeErrors = 0;
     int localPrimitiveOffsetErrors = 0;
     int addressContractErrors = 0;
+    int surfaceRecordErrors = 0;
+    int surfaceAddressContractErrors = 0;
     int countMismatches = 0;
 };
 
@@ -338,6 +364,7 @@ struct RtSmokeStaticBucketGeometryPack
     std::vector<uint32_t> indexes;
     std::vector<uint32_t> triangleClasses;
     std::vector<uint32_t> triangleMaterials;
+    std::vector<RtSmokeStaticBucketSurfaceRecord> surfaceRecords;
     std::vector<RtSmokeStaticBucketTriangleIdentity> triangleIdentities;
     RtSmokeStaticBucketGeometryPackStats stats;
     uint64_t contentSignature = 0;
@@ -351,6 +378,16 @@ struct RtSmokeStaticBucketInstanceAddressPlan
     uint32_t triangleCount = 0;
     bool rangeValid = false;
     bool indexAddressCompatible = false;
+    bool instanceIdEncodable = false;
+    bool valid = false;
+};
+
+struct RtSmokeStaticBucketSurfaceAddressPlan
+{
+    uint32_t instanceId = 0;
+    uint32_t firstSurfaceRecord = 0;
+    uint32_t surfaceRecordCount = 0;
+    bool rangeValid = false;
     bool instanceIdEncodable = false;
     bool valid = false;
 };
@@ -1092,6 +1129,17 @@ RtSmokeStaticBucketInstanceAddressPlan
         const RtSmokePlanGeometryRange& range,
         int totalIndexCount,
         int totalTriangleCount);
+bool TryEncodeSmokeStaticBucketSurfaceBaseInstanceId(
+    uint32_t firstSurfaceRecord,
+    uint32_t& instanceId);
+bool TryDecodeSmokeStaticBucketSurfaceBaseInstanceId(
+    uint32_t instanceId,
+    uint32_t& firstSurfaceRecord);
+RtSmokeStaticBucketSurfaceAddressPlan
+    BuildSmokeStaticBucketSurfaceAddressPlan(
+        uint32_t firstSurfaceRecord,
+        uint32_t surfaceRecordCount,
+        uint32_t totalSurfaceRecordCount);
 RtSmokeStaticBucketResidentPackCachePlan
     BuildSmokeStaticBucketResidentPackCachePlan(
         const RtSmokeStaticBucketResidentPackCacheInput& input);

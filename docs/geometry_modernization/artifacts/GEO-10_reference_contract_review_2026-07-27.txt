@@ -384,3 +384,56 @@ Acceptance:
   - unsupported hardware starts without treating the optional extension as a
     requirement;
   - instrumentation alone does not authorize another bucket-route iteration.
+
+REF-3 IMPLEMENTATION CHECKPOINT - 2026-07-27
+--------------------------------------------
+The CPU resident pack now publishes the surface-address contract required by
+the revised architecture. This checkpoint does not upload the records, change
+a BLAS descriptor, change a shader, or alter the deployed baseline.
+
+Each packed surface emits one 16-byte plain-data record:
+
+  uint32 indexOffset
+  uint32 triangleOffset
+  uint32 triangleCount
+  uint32 flags
+
+The valid flag is explicit. Packed bucket records publish
+firstSurfaceRecord/surfaceRecordCount. Records are emitted in the same stable,
+bucket-contiguous assignment order as the vertex/index/triangle payload and
+are rolled back atomically if any surface in a bucket fails validation.
+
+The new CPU address contract:
+
+  - encodes the bucket's first surface record in the established upper-half
+    24-bit InstanceID namespace;
+  - round-trips that first record independently from the retired triangle-base
+    interpretation;
+  - rejects empty/out-of-table ranges;
+  - rejects a first-record base or bucket range crossing the 23-bit payload
+    limit;
+  - includes surface records and per-bucket record ranges in the resident
+    content signature.
+
+The old triangle-base address helper remains temporarily because the
+fail-closed pre-pivot CPU scaffold still consumes it. It is not the accepted
+future shader identity and must be removed only with the later atomic BLAS/TLAS
+cutover.
+
+Verification:
+
+  PathTraceCpuPlanningHarness                       passed
+  PathTraceCpuPlanningHarness --stress 20           passed
+  full win64-pt-dev-release build                   passed
+  SPIR-V shader rebuilds                            none; all up to date
+
+Harness proof includes:
+
+  - exact one-record-per-assignment coverage;
+  - deterministic content under producer permutation;
+  - exact index/triangle offsets and counts;
+  - rollback parity after an invalid source index;
+  - bucket-contiguous record ranges;
+  - a later bucket with nonzero InstanceID base and two geometries;
+  - base + GeometryIndex resolving that bucket's second surface;
+  - maximum and overflow bounds for the 23-bit base/range.

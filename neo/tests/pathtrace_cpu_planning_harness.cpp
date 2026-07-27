@@ -1500,6 +1500,77 @@ void TestStaticBucketInstanceAddressPlan()
         "static bucket InstanceID decoder rejects other namespaces and non-24-bit IDs");
 }
 
+void TestStaticBucketSurfaceAddressPlan()
+{
+    const RtSmokeStaticBucketSurfaceAddressPlan exactPlan =
+        BuildSmokeStaticBucketSurfaceAddressPlan(7, 3, 10);
+    Check(
+        exactPlan.valid &&
+            exactPlan.rangeValid &&
+            exactPlan.instanceIdEncodable &&
+            exactPlan.firstSurfaceRecord == 7 &&
+            exactPlan.surfaceRecordCount == 3 &&
+            exactPlan.instanceId ==
+                (RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE | 7u),
+        "static bucket surface-base InstanceID accepts an exact record range");
+
+    uint32_t decodedFirstSurfaceRecord = 0;
+    Check(
+        TryDecodeSmokeStaticBucketSurfaceBaseInstanceId(
+            exactPlan.instanceId,
+            decodedFirstSurfaceRecord) &&
+            decodedFirstSurfaceRecord == 7,
+        "static bucket surface-base InstanceID round-trips the first record");
+
+    const RtSmokeStaticBucketSurfaceAddressPlan maximumPlan =
+        BuildSmokeStaticBucketSurfaceAddressPlan(
+            RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_OFFSET_MASK,
+            1,
+            RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE);
+    Check(
+        maximumPlan.valid &&
+            maximumPlan.instanceId ==
+                RT_SMOKE_SHADER_INSTANCE_ID_MASK,
+        "static bucket surface-base InstanceID accepts the maximum one-record range");
+
+    const RtSmokeStaticBucketSurfaceAddressPlan overflowPlan =
+        BuildSmokeStaticBucketSurfaceAddressPlan(
+            RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_OFFSET_MASK,
+            2,
+            RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE + 1);
+    Check(
+        overflowPlan.rangeValid &&
+            !overflowPlan.instanceIdEncodable &&
+            !overflowPlan.valid,
+        "static bucket surface-base InstanceID rejects a record range crossing 23 bits");
+
+    const RtSmokeStaticBucketSurfaceAddressPlan outOfRangePlan =
+        BuildSmokeStaticBucketSurfaceAddressPlan(7, 4, 10);
+    Check(
+        !outOfRangePlan.rangeValid &&
+            outOfRangePlan.instanceIdEncodable &&
+            !outOfRangePlan.valid,
+        "static bucket surface-base contract rejects a range beyond the resident table");
+
+    const RtSmokeStaticBucketSurfaceAddressPlan emptyPlan =
+        BuildSmokeStaticBucketSurfaceAddressPlan(0, 0, 0);
+    Check(
+        !emptyPlan.rangeValid &&
+            emptyPlan.instanceIdEncodable &&
+            !emptyPlan.valid,
+        "static bucket surface-base contract rejects an empty bucket");
+
+    uint32_t ignoredSurfaceRecord = 0;
+    Check(
+        !TryDecodeSmokeStaticBucketSurfaceBaseInstanceId(
+            RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE - 1,
+            ignoredSurfaceRecord) &&
+            !TryDecodeSmokeStaticBucketSurfaceBaseInstanceId(
+                RT_SMOKE_SHADER_INSTANCE_ID_MASK + 1,
+                ignoredSurfaceRecord),
+        "static bucket surface-base decoder rejects other namespaces and non-24-bit IDs");
+}
+
 void TestStaticBucketResidentPackCachePlan()
 {
     RtSmokeStaticBucketResidentPackCacheInput input;
@@ -2233,6 +2304,77 @@ void TestStaticBucketAssignmentPlan()
             pack.triangleIdentities[2].surfaceKey == 20 &&
             pack.triangleIdentities[4].surfaceKey == 30,
         "static bucket geometry pack preserves surface-local primitive identity");
+    Check(
+        pack.surfaceRecords.size() == 3 &&
+            pack.buckets[0].firstSurfaceRecord == 0 &&
+            pack.buckets[0].surfaceRecordCount == 1 &&
+            pack.buckets[1].firstSurfaceRecord == 1 &&
+            pack.buckets[1].surfaceRecordCount == 1 &&
+            pack.buckets[2].firstSurfaceRecord == 2 &&
+            pack.buckets[2].surfaceRecordCount == 1 &&
+            pack.surfaceRecords[0].indexOffset == 0 &&
+            pack.surfaceRecords[0].triangleOffset == 0 &&
+            pack.surfaceRecords[0].triangleCount == 2 &&
+            pack.surfaceRecords[1].indexOffset == 6 &&
+            pack.surfaceRecords[1].triangleOffset == 2 &&
+            pack.surfaceRecords[1].triangleCount == 2 &&
+            pack.surfaceRecords[2].indexOffset == 12 &&
+            pack.surfaceRecords[2].triangleOffset == 4 &&
+            pack.surfaceRecords[2].triangleCount == 1 &&
+            pack.surfaceRecords[0].flags ==
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID &&
+            pack.surfaceRecords[1].flags ==
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID &&
+            pack.surfaceRecords[2].flags ==
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID,
+        "static bucket geometry pack publishes one exact record per surface");
+
+    RtSmokeStaticBucketAssignmentSurface multiGeometrySurfaces[3] = {
+        surfaces[0],
+        surfaces[1],
+        surfaces[2]
+    };
+    multiGeometrySurfaces[2].portalArea = 1;
+    RtSmokeStaticBucketAssignmentPlanDesc multiGeometryDesc = desc;
+    multiGeometryDesc.surfaces = multiGeometrySurfaces;
+    multiGeometryDesc.maxVerticesPerBucket = 8;
+    multiGeometryDesc.maxIndexesPerBucket = 12;
+    multiGeometryDesc.maxTrianglesPerBucket = 4;
+    const RtSmokeStaticBucketAssignmentPlan multiGeometryPlan =
+        BuildSmokeStaticBucketAssignmentPlan(multiGeometryDesc);
+    RtSmokeStaticBucketGeometryPackDesc multiGeometryPackDesc =
+        packDesc;
+    multiGeometryPackDesc.assignmentPlan = &multiGeometryPlan;
+    const RtSmokeStaticBucketGeometryPack multiGeometryPack =
+        BuildSmokeStaticBucketGeometryPack(multiGeometryPackDesc);
+    Check(
+        multiGeometryPack.exact &&
+            multiGeometryPack.buckets.size() == 2 &&
+            multiGeometryPack.surfaceRecords.size() == 3 &&
+            multiGeometryPack.buckets[0].firstSurfaceRecord == 0 &&
+            multiGeometryPack.buckets[0].surfaceRecordCount == 1 &&
+            multiGeometryPack.buckets[1].firstSurfaceRecord == 1 &&
+            multiGeometryPack.buckets[1].surfaceRecordCount == 2,
+        "static bucket records remain bucket-contiguous for multi-geometry BLAS identity");
+    const RtSmokeStaticBucketSurfaceAddressPlan secondBucketAddress =
+        BuildSmokeStaticBucketSurfaceAddressPlan(
+            multiGeometryPack.buckets[1].firstSurfaceRecord,
+            multiGeometryPack.buckets[1].surfaceRecordCount,
+            static_cast<uint32_t>(
+                multiGeometryPack.surfaceRecords.size()));
+    uint32_t secondBucketSurfaceBase = 0;
+    Check(
+        secondBucketAddress.valid &&
+            TryDecodeSmokeStaticBucketSurfaceBaseInstanceId(
+                secondBucketAddress.instanceId,
+                secondBucketSurfaceBase) &&
+            secondBucketSurfaceBase == 1 &&
+            secondBucketSurfaceBase + 1 == 2 &&
+            multiGeometryPack.surfaceRecords[
+                secondBucketSurfaceBase + 1].triangleOffset == 4 &&
+            multiGeometryPack.surfaceRecords[
+                secondBucketSurfaceBase + 1].indexOffset == 12,
+        "static bucket InstanceID plus GeometryIndex resolves the second surface record");
 
     RtSmokeStaticBucketGeometryPackDesc permutedPackDesc = packDesc;
     permutedPackDesc.assignmentPlan = &permutedPlan;
@@ -2254,7 +2396,8 @@ void TestStaticBucketAssignmentPlan()
         !invalidIndexPack.exact &&
             invalidIndexPack.stats.indexRangeErrors == 1 &&
             invalidIndexPack.stats.packedBuckets == 2 &&
-            invalidIndexPack.stats.packedSurfaces == 2,
+            invalidIndexPack.stats.packedSurfaces == 2 &&
+            invalidIndexPack.surfaceRecords.size() == 2,
         "static bucket geometry pack rejects and rolls back an out-of-surface index");
 
     RtSmokeStaticBucketAssignmentPlan invalidOffsetPlan = plan;
@@ -3973,6 +4116,7 @@ int main(int argc, char** argv)
     TestStaticBucketWorkPlan();
     TestStaticBucketPublicationEpochPlan();
     TestStaticBucketInstanceAddressPlan();
+    TestStaticBucketSurfaceAddressPlan();
     TestStaticBucketResidentPackCachePlan();
     TestStaticBucketCutoverPlan();
     TestStaticBucketRigidRouteNamespaceComposition();
