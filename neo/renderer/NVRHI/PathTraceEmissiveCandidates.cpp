@@ -261,7 +261,9 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
     uint32_t skinnedSurfaceClassId,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
-    RtSmokeEmissiveInventoryStats& stats)
+    RtSmokeEmissiveInventoryStats& stats,
+    const std::vector<uint32_t>*
+        monolithicPrimitiveIndexes)
 {
     OPTICK_EVENT("PT Static Bucket Emissive Inventory");
 
@@ -359,6 +361,12 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
             route.triangleCount,
             UINT32_MAX);
         bool identityCoverageExact = true;
+        if (monolithicPrimitiveIndexes &&
+            monolithicPrimitiveIndexes->size() !=
+                geometryPack.triangleClasses.size())
+        {
+            identityCoverageExact = false;
+        }
         const uint32_t surfaceRecordEnd =
             bucket.firstSurfaceRecord +
             bucket.surfaceRecordCount;
@@ -393,8 +401,18 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
                     surfaceRecord.triangleCount;
                  ++localPrimitiveIndex)
             {
-                if (localPrimitiveIndex >
-                    UINT32_MAX - sourceTriangleOffset)
+                const uint32_t packedTriangleIndex =
+                    surfaceRecord.triangleOffset +
+                    localPrimitiveIndex;
+                if (packedTriangleIndex >=
+                        geometryPack.triangleClasses.size() ||
+                    (monolithicPrimitiveIndexes &&
+                        packedTriangleIndex >=
+                            monolithicPrimitiveIndexes->size()) ||
+                    (!monolithicPrimitiveIndexes &&
+                        localPrimitiveIndex >
+                            UINT32_MAX -
+                                sourceTriangleOffset))
                 {
                     identityCoverageExact = false;
                     break;
@@ -402,8 +420,11 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
                 bucketIdentityPrimitiveIds[
                     bucketTriangleOffset +
                         localPrimitiveIndex] =
-                    sourceTriangleOffset +
-                        localPrimitiveIndex;
+                    monolithicPrimitiveIndexes
+                        ? (*monolithicPrimitiveIndexes)[
+                            packedTriangleIndex]
+                        : sourceTriangleOffset +
+                            localPrimitiveIndex;
             }
             if (!identityCoverageExact)
             {

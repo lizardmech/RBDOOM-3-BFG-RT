@@ -1114,3 +1114,55 @@ Runtime test:
      uses the current portal mask.
   6. Reject device loss or any visual regression, although no live route or
      shader changed in this rung.
+
+REF-9F FIRST RUNTIME RESULT - BUCKET15 - 2026-07-28
+---------------------------------------------------
+The first audit was correctly rejected:
+
+  portalPublicationValid                              1
+  routes active/resident                              3/56
+  triangles monolithic/bucket                         136/48
+  identities missing/extra                            136/48
+  invalid/zero/collision                              0/0/0
+
+This was not a shader or GPU-route failure. The monolithic side represented
+the whole draw-surface plus four-step static-preload cache, while the bucket
+side represented the one-step portal mask. The first implementation also
+decoded the packed surface record's triangle offset as if it addressed the
+monolithic cache. It actually addresses the independent full-resident bucket
+source, explaining the complete identity disjointness.
+
+REF-9F CANONICAL-SURFACE REMAP CORRECTION - 2026-07-28
+------------------------------------------------------
+The repeat audit must join the independent storage universes through their
+shared canonical static-surface key:
+
+  1. Build a key-to-live-monolithic-triangle-range table.
+  2. Enumerate only surfaces in portal-active buckets.
+  3. Remap bucket surface-local primitive N to
+     `matchedMonolithicRange.offset + N`.
+  4. Filter monolithic emissives to those same matched active surfaces.
+  5. Compare the resulting production identity sets exactly.
+
+Duplicate keys, missing active surfaces, missing primitive mappings, invalid
+triangle identities, or mismatched sets all fail closed. The new line reports:
+
+  surfaces(active/matched/missing/duplicate)
+  mapping(mapped/missing/invalid)
+  triangles(monolithicPortal/bucket/captured/invalid)
+  traversal=portal-mask-canonical-surface-shadow-only
+
+Offline proof:
+
+  full win64-pt-dev-release engine target             passed
+  PathTraceCpuPlanningHarness --stress 20             passed
+  reordered resident/monolithic surface remap         passed
+  missing active canonical surface rejection          passed
+  Vulkan shader rebuilds                              0
+  DX12 shader rebuilds                                0
+  executable SHA-256
+    27ECD743FBFC917CC4D029208A98DF79C69A2EB95D0AFF17AF181E37BECD0659
+
+Repeat acceptance requires `exact=1`, equal active/matched surface counts,
+zero missing/duplicate surface bindings, zero missing/invalid mappings, equal
+monolithicPortal/bucket identity counts, and all identity failure counts zero.

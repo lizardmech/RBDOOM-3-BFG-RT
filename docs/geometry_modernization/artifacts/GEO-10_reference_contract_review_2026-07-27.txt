@@ -1433,3 +1433,50 @@ Runtime acceptance requires this one-shot audit line:
 Primary route 2 may remain 56/56; the emissive line's active route count should
 instead match the current portal mask. This rung does not change the live
 emissive inventory.
+
+BUCKET15 REJECTION AND CANONICAL-SURFACE CORRECTION - 2026-07-28
+----------------------------------------------------------------
+`bucket15.log` proved the prior offset premise false. The portal publication
+was valid and selected 3/56 buckets, but the audit compared 136 monolithic
+emissives with 48 bucket emissives and reported all 136 missing plus all 48
+extra. There were no invalid, zero, collision, device-removal, or validation
+errors.
+
+The selection mismatch came from comparing the one-step bucket portal mask
+with the complete current draw-surface/four-step-preload monolithic cache. The
+identity mismatch came from interpreting the packed surface record's
+full-resident source offset as a monolithic-cache offset. These pools are
+independently ordered.
+
+The correction uses the already-retained canonical `surfaceKey` and
+surface-local primitive identity. It builds a checked active-bucket to live-
+monolithic remap:
+
+  canonical surface key -> monolithic triangle range
+  bucket local primitive -> monolithic range offset + local primitive
+
+The monolithic identity set is filtered to the same matched active surfaces.
+Duplicate bindings, absent active surfaces, range failures, and incomplete
+primitive coverage reject the comparison. The engine path accepts an optional
+audit-only monolithic primitive remap; production bucket emission and every
+GPU ABI remain unchanged.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness --stress 20             passed
+  reordered storage-universe remap                    passed
+  missing canonical surface rejection                 passed
+  full Vulkan release engine target                   passed
+  shader rebuilds                                     0
+  executable SHA-256
+    27ECD743FBFC917CC4D029208A98DF79C69A2EB95D0AFF17AF181E37BECD0659
+
+The next runtime line must report:
+
+  exact=1
+  portalPublicationValid=1
+  surfaces(active/matched/missing/duplicate)=N/N/0/0
+  mapping(mapped/missing/invalid)=M/0/0
+  triangles(monolithicPortal/bucket/captured/invalid)=K/K/K/0
+  identities(.../missing/extra)=K/K/.../0/0
+  traversal=portal-mask-canonical-surface-shadow-only

@@ -1105,13 +1105,22 @@ route-2 all-resident diagnostic set. The active publication owns an explicit
 resident-length bucket mask so CPU consumers do not infer membership from the
 full-resident geometry pack.
 
-Bucket emissive temporal identity is the monolithic tuple. The packed surface
-record supplies the original source-triangle offset and the surface-local
-primitive supplies the addend; bucket InstanceID and packed primitive order
-must not enter the identity hash. Acceptance requires equal unique identity
-sets, zero missing/extra/zero/collision identities, zero invalid triangles,
-and a valid portal-mask publication. This rung changes no shader, descriptor,
-SBT, TLAS submission, live emissive source, or route default.
+`bucket15.log` rejected the first implementation. The portal publication was
+valid, but it compared all 136 emissives in the draw-surface/preload cache with
+48 emissives in three one-step portal buckets. It also treated the packed
+surface record's full-resident triangle offset as the monolithic cache offset.
+Those are separate storage universes, so every identity differed.
+
+Bucket emissive temporal identity remains the live monolithic tuple. Join the
+two storage universes by canonical static-surface key, select only monolithic
+surfaces owned by the active portal buckets, and remap each bucket-local
+primitive to that matched monolithic surface's current triangle offset. Bucket
+InstanceID, resident-pool offset, and packed primitive order must not enter the
+comparison identity. Missing or duplicate canonical surface bindings fail
+closed. Acceptance requires an exact remap, equal unique identity sets, zero
+missing/extra/zero/collision identities, zero invalid triangles, and a valid
+portal-mask publication. This rung changes no shader, descriptor, SBT, TLAS
+submission, live emissive source, or route default.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

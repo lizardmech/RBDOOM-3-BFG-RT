@@ -2369,7 +2369,55 @@ void TestStaticBucketAssignmentPlan()
         secondSurfaceSourceTriangleOffset == 2 &&
             secondSurfaceSourceTriangleOffset +
                 pack.triangleIdentities[3].sourcePrimitiveIndex == 3,
-        "static bucket surface record plus local primitive recovers monolithic emissive identity");
+        "static bucket surface record plus local primitive recovers resident-source identity");
+    const std::vector<uint8_t> activeBucketMask = {
+        1u, 1u, 1u
+    };
+    const std::vector<
+        RtSmokeStaticBucketMonolithicSurfaceBinding>
+        reorderedMonolithicBindings = {
+            { 30u, 7u, 1u },
+            { 10u, 100u, 2u },
+            { 20u, 40u, 2u }
+        };
+    const RtSmokeStaticBucketMonolithicPrimitiveRemap
+        monolithicPrimitiveRemap =
+            BuildSmokeStaticBucketMonolithicPrimitiveRemap(
+                pack,
+                activeBucketMask,
+                reorderedMonolithicBindings);
+    Check(
+        monolithicPrimitiveRemap.exact &&
+            monolithicPrimitiveRemap.stats.activeBuckets == 3 &&
+            monolithicPrimitiveRemap.stats.activeSurfaces == 3 &&
+            monolithicPrimitiveRemap.stats.activeTriangles == 5 &&
+            monolithicPrimitiveRemap.stats.matchedSurfaces == 3 &&
+            monolithicPrimitiveRemap.stats.missingSurfaces == 0 &&
+            monolithicPrimitiveRemap.stats.duplicateBindings == 0 &&
+            monolithicPrimitiveRemap.stats.mappedTriangles == 5 &&
+            monolithicPrimitiveRemap.stats.missingTriangles == 0 &&
+            monolithicPrimitiveRemap.primitiveIndexes ==
+                std::vector<uint32_t>(
+                    { 100u, 101u, 40u, 41u, 7u }),
+        "static bucket canonical surface keys remap local primitives into a differently ordered monolithic cache");
+    std::vector<
+        RtSmokeStaticBucketMonolithicSurfaceBinding>
+        missingMonolithicBinding =
+            reorderedMonolithicBindings;
+    missingMonolithicBinding.pop_back();
+    const RtSmokeStaticBucketMonolithicPrimitiveRemap
+        rejectedMonolithicPrimitiveRemap =
+            BuildSmokeStaticBucketMonolithicPrimitiveRemap(
+                pack,
+                activeBucketMask,
+                missingMonolithicBinding);
+    Check(
+        !rejectedMonolithicPrimitiveRemap.exact &&
+            rejectedMonolithicPrimitiveRemap.stats.
+                missingSurfaces == 1 &&
+            rejectedMonolithicPrimitiveRemap.stats.
+                missingTriangles == 2,
+        "static bucket monolithic primitive remap rejects a missing active canonical surface");
     Check(
         pack.surfaceRecords.size() == 3 &&
             pack.buckets[0].firstSurfaceRecord == 0 &&

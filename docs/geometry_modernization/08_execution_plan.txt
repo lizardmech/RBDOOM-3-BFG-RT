@@ -800,14 +800,21 @@ one stable resident material-binding signature, and zero missing indexes.
 Twenty-two settled samples published exact 56/56 bucket TLAS/routes, with no
 device-removal or validation error.
 
-REF-9F now corrects the static-emissive shadow comparison. Route 2 still uses
-all resident buckets for primary decode validation, but the emissive audit
-constructs a second publication from the unforced portal mask. Each bucket
-emissive recovers its monolithic source primitive from the packed surface
-record's source-triangle offset plus surface-local primitive. The audit
-compares exact unique identity sets and rejects missing, extra, zero,
-collision, invalid, or inexact-publication cases. The live emissive inventory
-and every GPU route remain unchanged pending runtime acceptance.
+REF-9F's first runtime attempt was rejected by `bucket15.log`. Route 2 still
+uses all resident buckets for primary decode validation, while the emissive
+audit constructs a second publication from the unforced portal mask. The
+failed attempt incorrectly compared that three-bucket selection with the whole
+draw-surface/preload monolithic cache and assumed the resident-pack triangle
+offset was also the monolithic-cache offset.
+
+The corrected shadow now joins resident and monolithic surfaces by canonical
+static-surface key. It filters the monolithic inventory to surfaces owned by
+the active portal buckets and remaps bucket-local primitives to each matched
+monolithic surface's live triangle range. Missing or duplicate bindings reject
+the audit before identity equality can pass. The audit then compares exact
+unique production identity sets and rejects missing, extra, zero, collision,
+invalid, or inexact-remap cases. The live emissive inventory and every GPU
+route remain unchanged pending runtime acceptance.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

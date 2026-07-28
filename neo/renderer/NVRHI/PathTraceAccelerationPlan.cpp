@@ -1169,6 +1169,161 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
     return pack;
 }
 
+RtSmokeStaticBucketMonolithicPrimitiveRemap
+BuildSmokeStaticBucketMonolithicPrimitiveRemap(
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    const std::vector<uint8_t>& activeBucketMask,
+    const std::vector<RtSmokeStaticBucketMonolithicSurfaceBinding>&
+        monolithicSurfaces)
+{
+    RtSmokeStaticBucketMonolithicPrimitiveRemap remap;
+    remap.primitiveIndexes.assign(
+        geometryPack.triangleIdentities.size(),
+        UINT32_MAX);
+    if (!geometryPack.exact ||
+        geometryPack.triangleIdentities.size() !=
+            geometryPack.triangleClasses.size() ||
+        activeBucketMask.size() != geometryPack.buckets.size())
+    {
+        remap.stats.invalidTriangleIdentities =
+            static_cast<int>(
+                geometryPack.triangleIdentities.size());
+        return remap;
+    }
+
+    std::unordered_map<
+        uint64_t,
+        const RtSmokeStaticBucketMonolithicSurfaceBinding*>
+        bindingsBySurfaceKey;
+    bindingsBySurfaceKey.reserve(monolithicSurfaces.size());
+    for (const RtSmokeStaticBucketMonolithicSurfaceBinding& binding :
+         monolithicSurfaces)
+    {
+        if (binding.surfaceKey == 0 ||
+            binding.triangleCount == 0 ||
+            !bindingsBySurfaceKey.emplace(
+                binding.surfaceKey,
+                &binding).second)
+        {
+            ++remap.stats.duplicateBindings;
+        }
+    }
+
+    std::unordered_set<uint64_t> activeSurfaceKeys;
+    activeSurfaceKeys.reserve(
+        geometryPack.surfaceRecords.size());
+    for (size_t bucketIndex = 0;
+         bucketIndex < geometryPack.buckets.size();
+         ++bucketIndex)
+    {
+        if (activeBucketMask[bucketIndex] == 0u)
+        {
+            continue;
+        }
+        ++remap.stats.activeBuckets;
+        const RtSmokeStaticBucketPackedRecord& bucket =
+            geometryPack.buckets[bucketIndex];
+        const uint64_t triangleBegin =
+            static_cast<uint64_t>(
+                std::max(0, bucket.range.triangleOffset));
+        const uint64_t triangleEnd =
+            triangleBegin +
+            static_cast<uint64_t>(
+                std::max(0, bucket.range.triangleCount));
+        if (bucket.range.triangleOffset < 0 ||
+            bucket.range.triangleCount <= 0 ||
+            triangleEnd >
+                geometryPack.triangleIdentities.size())
+        {
+            remap.stats.invalidTriangleIdentities +=
+                std::max(0, bucket.range.triangleCount);
+            continue;
+        }
+        remap.stats.activeTriangles +=
+            bucket.range.triangleCount;
+        for (uint64_t packedTriangleIndex =
+                 triangleBegin;
+             packedTriangleIndex < triangleEnd;
+             ++packedTriangleIndex)
+        {
+            const RtSmokeStaticBucketTriangleIdentity& identity =
+                geometryPack.triangleIdentities[
+                    static_cast<size_t>(
+                        packedTriangleIndex)];
+            if (identity.surfaceKey == 0)
+            {
+                ++remap.stats.invalidTriangleIdentities;
+                continue;
+            }
+            activeSurfaceKeys.insert(identity.surfaceKey);
+            const auto bindingIt =
+                bindingsBySurfaceKey.find(identity.surfaceKey);
+            if (bindingIt == bindingsBySurfaceKey.end() ||
+                !bindingIt->second ||
+                identity.sourcePrimitiveIndex >=
+                    bindingIt->second->triangleCount ||
+                static_cast<uint64_t>(
+                    bindingIt->second->triangleOffset) +
+                        identity.sourcePrimitiveIndex >
+                    UINT32_MAX)
+            {
+                ++remap.stats.missingTriangles;
+                continue;
+            }
+            remap.primitiveIndexes[
+                static_cast<size_t>(packedTriangleIndex)] =
+                bindingIt->second->triangleOffset +
+                identity.sourcePrimitiveIndex;
+            ++remap.stats.mappedTriangles;
+        }
+    }
+
+    remap.stats.activeSurfaces =
+        static_cast<int>(activeSurfaceKeys.size());
+    remap.activeMonolithicSurfaces.reserve(
+        activeSurfaceKeys.size());
+    for (uint64_t surfaceKey : activeSurfaceKeys)
+    {
+        const auto bindingIt =
+            bindingsBySurfaceKey.find(surfaceKey);
+        if (bindingIt == bindingsBySurfaceKey.end() ||
+            !bindingIt->second)
+        {
+            ++remap.stats.missingSurfaces;
+            continue;
+        }
+        remap.activeMonolithicSurfaces.push_back(
+            *bindingIt->second);
+        ++remap.stats.matchedSurfaces;
+    }
+    std::sort(
+        remap.activeMonolithicSurfaces.begin(),
+        remap.activeMonolithicSurfaces.end(),
+        [](
+            const RtSmokeStaticBucketMonolithicSurfaceBinding& a,
+            const RtSmokeStaticBucketMonolithicSurfaceBinding& b)
+        {
+            if (a.triangleOffset != b.triangleOffset)
+            {
+                return a.triangleOffset < b.triangleOffset;
+            }
+            return a.surfaceKey < b.surfaceKey;
+        });
+
+    remap.exact =
+        remap.stats.activeBuckets > 0 &&
+        remap.stats.activeSurfaces > 0 &&
+        remap.stats.matchedSurfaces ==
+            remap.stats.activeSurfaces &&
+        remap.stats.missingSurfaces == 0 &&
+        remap.stats.duplicateBindings == 0 &&
+        remap.stats.mappedTriangles ==
+            remap.stats.activeTriangles &&
+        remap.stats.missingTriangles == 0 &&
+        remap.stats.invalidTriangleIdentities == 0;
+    return remap;
+}
+
 bool ValidateSmokeStaticBucketClassMetadataLayout(
     const RtSmokeStaticBucketGeometryPack& geometryPack)
 {

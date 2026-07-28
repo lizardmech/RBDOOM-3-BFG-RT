@@ -379,6 +379,42 @@ struct RtSmokeStaticBucketGeometryPack
     bool exact = false;
 };
 
+struct RtSmokeStaticBucketMonolithicSurfaceBinding
+{
+    uint64_t surfaceKey = 0;
+    uint32_t triangleOffset = 0;
+    uint32_t triangleCount = 0;
+};
+
+struct RtSmokeStaticBucketMonolithicPrimitiveRemapStats
+{
+    int activeBuckets = 0;
+    int activeSurfaces = 0;
+    int activeTriangles = 0;
+    int matchedSurfaces = 0;
+    int missingSurfaces = 0;
+    int duplicateBindings = 0;
+    int mappedTriangles = 0;
+    int missingTriangles = 0;
+    int invalidTriangleIdentities = 0;
+};
+
+struct RtSmokeStaticBucketMonolithicPrimitiveRemap
+{
+    std::vector<uint32_t> primitiveIndexes;
+    std::vector<RtSmokeStaticBucketMonolithicSurfaceBinding>
+        activeMonolithicSurfaces;
+    RtSmokeStaticBucketMonolithicPrimitiveRemapStats stats;
+    bool exact = false;
+};
+
+RtSmokeStaticBucketMonolithicPrimitiveRemap
+BuildSmokeStaticBucketMonolithicPrimitiveRemap(
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    const std::vector<uint8_t>& activeBucketMask,
+    const std::vector<RtSmokeStaticBucketMonolithicSurfaceBinding>&
+        monolithicSurfaces);
+
 struct RtSmokeStaticBucketInstanceAddressPlan
 {
     uint32_t instanceId = 0;

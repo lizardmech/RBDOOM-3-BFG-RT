@@ -8245,6 +8245,48 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticBucketFramePublication.geometryPack != nullptr &&
             staticBucketFramePublication.materialIndexes != nullptr)
         {
+            const RtSmokeStaticBucketGeometryPack&
+                staticBucketGeometryPack =
+                    *staticBucketFramePublication.geometryPack;
+            std::vector<
+                RtSmokeStaticBucketMonolithicSurfaceBinding>
+                monolithicStaticSurfaceBindings;
+            monolithicStaticSurfaceBindings.reserve(
+                m_smokeGeometryUniverse.
+                    StaticSurfaceRecords().size());
+            for (const RtSmokePersistentStaticSurfaceRecord& record :
+                 m_smokeGeometryUniverse.StaticSurfaceRecords())
+            {
+                if (!record.valid ||
+                    record.currentRange.triangles.offset < 0 ||
+                    record.currentRange.triangles.count <= 0)
+                {
+                    continue;
+                }
+                const uint64_t bucketSurfaceKey =
+                    record.bucketSurfaceKey != 0
+                        ? record.bucketSurfaceKey
+                        : record.key;
+                RtSmokeStaticBucketMonolithicSurfaceBinding binding;
+                binding.surfaceKey = bucketSurfaceKey;
+                binding.triangleOffset =
+                    static_cast<uint32_t>(
+                        record.currentRange.triangles.offset);
+                binding.triangleCount =
+                    static_cast<uint32_t>(
+                        record.currentRange.triangles.count);
+                monolithicStaticSurfaceBindings.push_back(
+                    binding);
+            }
+            const RtSmokeStaticBucketMonolithicPrimitiveRemap
+                monolithicPrimitiveRemap =
+                    BuildSmokeStaticBucketMonolithicPrimitiveRemap(
+                        staticBucketGeometryPack,
+                        staticBucketFramePublication.
+                            portalActivePublication.
+                                activeBucketMask,
+                        monolithicStaticSurfaceBindings);
+
             RtSmokeEmissiveInventoryStats
                 staticBucketEmissiveStats;
             std::vector<PathTraceSmokeEmissiveTriangle>
@@ -8252,7 +8294,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             AppendSmokeStaticBucketEmissiveTriangleInventory(
                 materialTable.materialIds,
                 materialTable.materials,
-                *staticBucketFramePublication.geometryPack,
+                staticBucketGeometryPack,
                 *staticBucketFramePublication.materialIndexes,
                 staticBucketFramePublication.
                     portalActivePublication,
@@ -8262,7 +8304,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     RtSmokeSurfaceClass::SkinnedDeformed),
                 maxEmissiveRecords,
                 staticBucketEmissiveTriangles,
-                staticBucketEmissiveStats);
+                staticBucketEmissiveStats,
+                &monolithicPrimitiveRemap.primitiveIndexes);
             std::unordered_set<uint64_t>
                 staticBucketEmissiveIdentities;
             std::unordered_set<uint64_t>
@@ -8271,6 +8314,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             int staticBucketEmissiveIdentityCollisions = 0;
             int monolithicStaticEmissiveZeroIdentities = 0;
             int monolithicStaticEmissiveIdentityCollisions = 0;
+            int portalMonolithicStaticEmissiveTriangles = 0;
             for (const PathTraceSmokeEmissiveTriangle& record :
                  emissiveTriangles)
             {
@@ -8278,6 +8322,31 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 {
                     continue;
                 }
+                bool portalActivePrimitive = false;
+                for (const
+                     RtSmokeStaticBucketMonolithicSurfaceBinding&
+                         activeSurface :
+                     monolithicPrimitiveRemap.
+                        activeMonolithicSurfaces)
+                {
+                    if (static_cast<uint64_t>(
+                            record.primitiveIndex) >=
+                            activeSurface.triangleOffset &&
+                        static_cast<uint64_t>(
+                            record.primitiveIndex) <
+                            static_cast<uint64_t>(
+                                activeSurface.triangleOffset) +
+                                activeSurface.triangleCount)
+                    {
+                        portalActivePrimitive = true;
+                        break;
+                    }
+                }
+                if (!portalActivePrimitive)
+                {
+                    continue;
+                }
+                ++portalMonolithicStaticEmissiveTriangles;
                 const uint64_t identity =
                     static_cast<uint64_t>(
                         record.identityHashLo) |
@@ -8339,14 +8408,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 staticBucketEmissiveIdentityCollisions == 0 &&
                 staticBucketEmissiveMissingIdentities == 0 &&
                 staticBucketEmissiveExtraIdentities == 0 &&
+                monolithicPrimitiveRemap.exact &&
                 staticBucketEmissiveStats.
                     skippedInvalidMaterialTriangles == 0 &&
                 staticBucketEmissiveStats.staticTriangles ==
-                    emissiveInventoryStats.staticTriangles &&
+                    portalMonolithicStaticEmissiveTriangles &&
                 monolithicStaticEmissiveIdentities.size() ==
                     staticBucketEmissiveIdentities.size();
             common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket emissive identity exact=%d portalPublicationValid=%d routes(active/resident)=%d/%zu triangles(monolithic/bucket/captured/invalid)=%d/%d/%d/%d identities(monolithic/bucket/zeroMonolithic/zeroBucket/collisionMonolithic/collisionBucket/missing/extra)=%zu/%zu/%d/%d/%d/%d/%d/%d traversal=portal-mask-shadow-only\n",
+                "PathTracePrimaryPass: GEO10 static bucket emissive identity exact=%d portalPublicationValid=%d routes(active/resident)=%d/%zu surfaces(active/matched/missing/duplicate)=%zu/%d/%d/%d mapping(mapped/missing/invalid)=%d/%d/%d triangles(monolithicPortal/bucket/captured/invalid)=%d/%d/%d/%d identities(monolithic/bucket/zeroMonolithic/zeroBucket/collisionMonolithic/collisionBucket/missing/extra)=%zu/%zu/%d/%d/%d/%d/%d/%d traversal=portal-mask-canonical-surface-shadow-only\n",
                 staticBucketEmissiveIdentityExact ? 1 : 0,
                 staticBucketFramePublication.
                     portalActivePublication.valid
@@ -8356,7 +8426,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     portalActivePublication.activeBuckets,
                 staticBucketFramePublication.
                     portalActivePublication.routeRecords.size(),
-                emissiveInventoryStats.staticTriangles,
+                static_cast<size_t>(
+                    monolithicPrimitiveRemap.stats.
+                        activeSurfaces),
+                monolithicPrimitiveRemap.stats.
+                    matchedSurfaces,
+                monolithicPrimitiveRemap.stats.
+                    missingSurfaces,
+                monolithicPrimitiveRemap.stats.
+                    duplicateBindings,
+                monolithicPrimitiveRemap.stats.
+                    mappedTriangles,
+                monolithicPrimitiveRemap.stats.
+                    missingTriangles,
+                monolithicPrimitiveRemap.stats.
+                    invalidTriangleIdentities,
+                portalMonolithicStaticEmissiveTriangles,
                 staticBucketEmissiveStats.staticTriangles,
                 staticBucketEmissiveStats.capturedTriangles,
                 staticBucketEmissiveStats.

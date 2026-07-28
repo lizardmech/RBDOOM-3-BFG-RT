@@ -301,7 +301,9 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
     uint32_t skinnedSurfaceClassId,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
-    RtSmokeEmissiveInventoryStats& stats);
+    RtSmokeEmissiveInventoryStats& stats,
+    const std::vector<uint32_t>*
+        monolithicPrimitiveIndexes = nullptr);
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,
