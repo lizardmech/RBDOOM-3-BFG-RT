@@ -3118,6 +3118,15 @@ void TestStaticBucketAssignmentPlan()
             false,
             true,
             23) &&
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            24) &&
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
             true,
@@ -3162,8 +3171,17 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             true,
-            23),
-        "static bucket view-16 isolation admits stages 19 through 23 only on the bucket route");
+            23) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            24),
+        "static bucket view-16 isolation admits stages 19 through 24 only on the bucket route");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3272,7 +3290,7 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             true,
-            24),
+            25),
         "static bucket clean-DI primary isolation rejects unsafe routes, missing transmission controls, and out-of-range stages");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         primaryPipelineOnlyPlan =
@@ -3458,6 +3476,14 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 true,
                 23);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionMaterialComposePlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                24);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
@@ -3727,6 +3753,24 @@ void TestStaticBucketAssignmentPlan()
             !transmissionClosestHitPositionDiagnosticPlan.spatial &&
             !transmissionClosestHitPositionDiagnosticPlan.materialFeatureCompose,
         "static bucket transmission probe separates legacy any-hit boundaries, bounded bucket resolve, monolithic control, temporal diagnostics, temporal-off presentation, producer tuple validation, and closest-hit position validation");
+    Check(
+        transmissionMaterialComposePlan.active &&
+            transmissionMaterialComposePlan.stage == 24 &&
+            transmissionMaterialComposePlan.transmissionPsr &&
+            transmissionMaterialComposePlan.transmissionTraceProbeMode == 0 &&
+            transmissionMaterialComposePlan.transmissionIterativeResolve &&
+            !transmissionMaterialComposePlan.transmissionMonolithicControl &&
+            !transmissionMaterialComposePlan.transmissionTupleDiagnostic &&
+            !transmissionMaterialComposePlan.
+                transmissionClosestHitPositionDiagnostic &&
+            transmissionMaterialComposePlan.initial &&
+            transmissionMaterialComposePlan.temporal &&
+            transmissionMaterialComposePlan.spatialPipelineCreation &&
+            transmissionMaterialComposePlan.spatial &&
+            transmissionMaterialComposePlan.materialFeaturePipelineCreation &&
+            transmissionMaterialComposePlan.materialFeatureRuntimeBindings &&
+            transmissionMaterialComposePlan.materialFeatureCompose,
+        "static bucket stage 24 admits material-feature composition after the accepted bounded producer and DI path");
     Check(
         IsSmokeStaticBucketBoundedTransmissionResolverRequired(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,

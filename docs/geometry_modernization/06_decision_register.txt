@@ -2890,6 +2890,67 @@ resolver. A device removal there must be isolated as a reflection/refraction
 secondary-route defect rather than attributed to straight-through bucket
 transmission.
 
+D115. STAGE 0 STILL DEVICE-REMOVES WITH BOUNDED TRANSMISSION PROMOTED
+--------------------------------------------------------------------
+The first production stage-0 route-2 run still device-removes in the
+transmission producer after the bounded resolver promotion. This separates the
+crash from the straight-through transmission resolver: stage 17 executes that
+resolver plus resolved publication and DI presentation successfully.
+
+The remaining producer differences are the features deliberately cleared by
+stage 17:
+
+  - glass reflection PSR and its mirror secondary trace/shade;
+  - opaque exact-mirror fallback;
+  - refracted rather than straight-through continuation direction.
+
+Isolate the reflection family first by disabling both glass reflection PSR and
+opaque-mirror fallback while leaving refracted PSR enabled. If that survives,
+the next split is glass reflection PSR versus opaque mirror. If it still
+device-removes, disable refracted PSR as the final stage-17 parity control.
+
+D116. STAGE-0 FEATURE PARITY SURVIVES LOAD BUT FAILS ON CAMERA MOVEMENT
+----------------------------------------------------------------------
+With glass reflection PSR, opaque mirror, and refracted PSR all disabled,
+stage 0 enters the level but device-removes when the camera moves. This is
+materially different from the immediate-load failures and makes static
+feature selection an insufficient explanation.
+
+At this point the normal producer flags match the passing stage-17
+straight-through contract, but stage 17 returns before material-feature
+composition and every later consumer. Camera movement may also change the
+active portal-bucket TLAS publication. Re-run stage 17 with deliberate camera
+motion and portal traversal:
+
+  - stage 17 also device-removes on motion: reopen bucket active-set/BLAS
+    publication and synchronization, not post-DI composition;
+  - stage 17 remains stable through the same motion: the failing boundary is
+    after DI spatial presentation, beginning with material-feature compose or
+    later history/RR work.
+
+Do not infer a refraction defect from the initial stationary survival.
+
+D117. STAGE 17 REMAINS STABLE UNDER MOTION; OPEN COMPOSE-ONLY STAGE 24
+----------------------------------------------------------------------
+Stage 17 remains stable under deliberate camera movement. This accepts active
+portal-bucket TLAS publication, bucket BLAS lifetime/synchronization, the full
+bounded transmission producer, temporal DI, and spatial DI under the reported
+motion that device-removes in normal stage 0.
+
+The next untested boundary is material-feature composition. Stage 24 extends
+the accepted stage-17 contract by exactly one downstream step:
+
+  - run bounded bucket transmission with reflection, opaque mirror, and
+    refracted PSR cleared;
+  - run initial, temporal, and spatial DI;
+  - execute the normal material-feature composition passes;
+  - return before GI, RR/DLSS, and later consumers.
+
+Stage 24 uses no new shader mode or ABI. Its CPU dispatch plan is covered by
+the planning harness. A motion-triggered device removal implicates
+material-feature composition; stable motion moves the fault to the first
+later consumer after composition.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

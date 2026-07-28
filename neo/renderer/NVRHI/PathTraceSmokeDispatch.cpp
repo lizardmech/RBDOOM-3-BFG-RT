@@ -1011,7 +1011,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 staticBucketSecondaryProbeStage == 20 ||
                 staticBucketSecondaryProbeStage == 21 ||
                 staticBucketSecondaryProbeStage == 22 ||
-                staticBucketSecondaryProbeStage == 23)) ||
+                staticBucketSecondaryProbeStage == 23 ||
+                staticBucketSecondaryProbeStage == 24)) ||
             staticBucketSecondaryMonolithicControlRequested);
     const bool staticBucketSecondaryIsolationSupported =
         IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
@@ -3628,13 +3629,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 // Keep the GEO-10 traversal probes exact regardless of the
                 // normal glass defaults. Only the straight-through
                 // transmission lane is admitted. Stages 10-16 isolate the
-                // legacy single-TraceRay path; stages 17-23 select the bounded
+                // legacy single-TraceRay path; stages 17-24 select the bounded
                 // forced-opaque iterative resolver. Stage 18 uses monolithic
                 // traversal; the others use buckets. Stages 19 and 20 stop
                 // after initial and temporal; stage 21 skips temporal and
                 // presents initial through spatial with neighbor reuse off;
                 // stage 22 writes a producer-local tuple diagnostic; stage 23
-                // splits closest-hit world position from raygen reconstruction.
+                // splits closest-hit world position from raygen reconstruction;
+                // stage 24 admits material-feature composition.
                 psrConstants.flags &= ~(
                     CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR |
                     CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION |
@@ -3706,6 +3708,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     case 23:
                         staticBucketTransmissionMarker =
                             "GEO10.View16.Stage23 TransmissionClosestHitPositionDiagnostic";
+                        break;
+                    case 24:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage24 TransmissionBeforeMaterialCompose";
                         break;
                     default:
                         staticBucketTransmissionMarker =
@@ -4156,6 +4162,19 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nsightGpuMarkers);
         };
         dispatchCleanMaterialFeatureCompose();
+        if (staticBucketSecondaryIsolationActive &&
+            staticBucketSecondaryIsolation.stage == 24)
+        {
+            if (!m_smokeTestDispatched)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO-10 view-16 stage-24 bounded bucket transmission, initial-temporal-spatial DI, and material-feature composition completed (%dx%d); GI, RR, and later consumers skipped\n",
+                    m_frameResources.width,
+                    m_frameResources.height);
+            }
+            m_smokeTestDispatched = true;
+            return;
+        }
         auto dispatchCleanRestirGi = [&](bool resolveToRrInputColor, bool dlssRrActive) -> bool
         {
             PathTraceCleanRestirGiDispatchInputs giInputs;

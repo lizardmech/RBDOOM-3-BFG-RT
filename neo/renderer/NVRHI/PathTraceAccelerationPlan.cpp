@@ -2044,11 +2044,12 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     // 22 presents the bucket hardware-hit versus packed-replay tuple directly
     // from the transmission producer and stops before initial DI. Stage 23
     // separates closest-hit world position from the raygen reconstruction
-    // used by stage 22. None
+    // used by stage 22. Stage 24 reuses the accepted stage-17 producer and
+    // admits material-feature composition before returning. None
     // restores the rejected legacy any-hit path.
     const bool transmissionContractExact =
         (probeStage <= 8 && !transmissionPsrEnabled) ||
-        (probeStage >= 9 && probeStage <= 23 &&
+        (probeStage >= 9 && probeStage <= 24 &&
             transmissionPsrEnabled);
     const bool traversalContractExact =
         (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
@@ -2057,7 +2058,8 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
                 probeStage == 20 ||
                 probeStage == 21 ||
                 probeStage == 22 ||
-                probeStage == 23)) ||
+                probeStage == 23 ||
+                probeStage == 24)) ||
         (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED &&
             probeStage == 18);
     const bool diagnosticContractExact =
@@ -2102,7 +2104,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         return plan;
     }
 
-    plan.stage = std::max(0, std::min(23, probeStage));
+    plan.stage = std::max(0, std::min(24, probeStage));
     plan.primaryPipelineCreation =
         isolationSupported &&
         routePublicationValid &&
@@ -2171,7 +2173,8 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         plan.stage == 20 ||
         plan.stage == 21 ||
         plan.stage == 22 ||
-        plan.stage == 23;
+        plan.stage == 23 ||
+        plan.stage == 24;
     plan.transmissionMonolithicControl = plan.stage == 18;
     if (plan.stage == 19 || plan.stage == 20)
     {
@@ -2228,7 +2231,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         plan.materialFeatureRuntimeBindings = true;
         plan.transmissionPsr = true;
     }
-    plan.materialFeatureCompose = false;
+    plan.materialFeatureCompose = plan.stage == 24;
     return plan;
 }
 
