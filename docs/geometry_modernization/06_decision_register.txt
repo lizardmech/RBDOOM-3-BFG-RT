@@ -2155,6 +2155,38 @@ RayDesc validity, TLAS/BLAS traversal, or acceleration-structure state. If it
 survives, those are accepted and stage 12 becomes the transmission-any-hit
 content/cost test.
 
+D95. ACCEPT HARDWARE-ONLY TRANSMISSION TRAVERSAL; OPEN ANY-HIT
+-------------------------------------------------------------
+Decision: `success11.log` accepts stage 11. Exact bucket publication again
+reaches 56/56 resident, active, ready, TLAS instances, and route records with
+no missing BLAS, material indexes, invalid ranges, or instance overflows. The
+explicit completion line confirms that the transmission producer submitted
+hardware traversal with both any-hit and closest-hit suppressed, then
+completed the accepted initial, temporal, and spatial sequence. Looking at
+windows and moving through the scene did not cause device removal.
+
+Black windows remain expected because stage 11 deliberately suppresses the
+closest-hit shader and leaves the transmission payload unresolved. The
+five-second host-pump warning is deferred work rather than device loss.
+
+This accepts the current straight-through RayDesc as a hardware traversal
+input and accepts the full-resident TLAS/BLAS traversal without hit-shader
+execution. A non-finite RayDesc or an acceleration-structure defect is
+therefore not the active explanation for the reproducible window-triggered
+device removal. Retain finite RayDesc rejection as defensive hardening, not as
+the current crash fix.
+
+Open stage 12 without rebuilding. Retain every stage-11 control and change
+only:
+
+  r_pathTracingGeometryStaticBucketSecondaryProbeStage 12
+
+Stage 12 keeps closest-hit suppressed but changes the same trace to
+`RAY_FLAG_FORCE_NON_OPAQUE`, admitting only the transmission any-hit shader.
+If it fails, the fault is inside any-hit execution or its accumulated
+full-resident traversal cost. If it survives, open stage 13 to admit
+closest-hit and payload publication.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
