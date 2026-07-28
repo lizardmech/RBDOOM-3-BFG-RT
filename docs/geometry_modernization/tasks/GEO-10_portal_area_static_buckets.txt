@@ -2025,3 +2025,29 @@ error, or diagnostic-checkpoint failure.
 
 This accepts REF-10L only. It does not accept REF-10K stage 1 and does not
 authorize another view-16 rung.
+
+REF-10M POST-LATCH STAGE-1 READMISSION - 2026-07-28
+----------------------------------------------------
+After REF-10L runtime acceptance, re-admit only the exact stage-1 support
+predicate. The corrected sequence is now:
+
+  1. a nonzero mode-2/view-16 request latches isolation immediately;
+  2. while bucket publication is incomplete, return before all pipelines;
+  3. after exact publication, create only the ordinary primary pipeline;
+  4. return before DispatchRays.
+
+Stage 2, stages 3-6, and production route mode 1 remain rejected. This is a
+CPU admission/help-text change only; no shader, descriptor, SBT, or payload
+change is required.
+
+Offline proof:
+
+  stage-1 support predicate                            passed
+  pre-publication pipeline block                       passed
+  stage-2 and malformed-contract rejection             passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  source/deployed executable hashes                    equal
+  executable SHA-256
+    C14FB0D41B6E437E75C7D236EB3E384729C99FCCB6BF6634184967ECACD70723

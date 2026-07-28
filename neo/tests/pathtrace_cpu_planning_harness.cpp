@@ -2869,7 +2869,7 @@ void TestStaticBucketAssignmentPlan()
             true),
         "static bucket primary probe rejects production, unsupported views, uninstrumented, and GI-enabled routes");
     Check(
-        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
             true,
             16,
@@ -2878,7 +2878,7 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             1),
-        "static bucket view-16 isolation rejects stage one after primary pipeline creation removed the device");
+        "static bucket view-16 isolation re-admits stage one after the pre-publication latch");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,

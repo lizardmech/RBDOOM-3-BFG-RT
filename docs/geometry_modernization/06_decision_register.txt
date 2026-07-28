@@ -1695,6 +1695,23 @@ Runtime verification (`success.log`):
 D76 is accepted for the fail-closed latch. D75 remains in force for every
 view-16 runtime stage.
 
+D77. RE-ADMIT STAGE 1 ONLY AFTER THE ACCEPTED LATCH
+----------------------------------------------------
+Decision: re-enable the exact stage-1 predicate after D76 runtime acceptance.
+The request must remain pre-pipeline until bucket publication is exact, then
+may create the ordinary primary pipeline and return before DispatchRays.
+
+Keep stage 2, stages 3-6, and production route mode 1 rejected.
+
+Verification:
+
+  post-latch stage-1/rejection matrix                  passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  deployed executable SHA-256
+    C14FB0D41B6E437E75C7D236EB3E384729C99FCCB6BF6634184967ECACD70723
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
