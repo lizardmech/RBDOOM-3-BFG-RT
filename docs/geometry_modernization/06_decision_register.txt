@@ -2215,6 +2215,58 @@ that branch is excluded and the next one-build probe must separate bounded
 any-hit invocation cost from the remaining material/class/texture operations.
 Black windows remain expected and are not an acceptance criterion.
 
+D97. LIQUID COLLECTOR EXCLUDED; INSTALL ONE-BUILD ANY-HIT CONTENT/COST SPLIT
+---------------------------------------------------------------------------
+Decision: stage 12 with `r_pathTracingLiquidPoolMode 0` still device-removed.
+The scene remains stable indefinitely while the camera is stationary and
+fails immediately when movement changes the intersected geometry. This
+excludes the default liquid-pool candidate collector and argues against a
+steady-state payload-write or uniform per-frame workload explanation. The
+remaining boundary is view-dependent transmission any-hit content or the
+number/range of intersections admitted by normal `IgnoreHit` filtering.
+
+Replace the former stage-13 full-hit rung with three cumulative isolates in
+one shader build. Expand the producer-local probe field from two to three
+bits; bit 31 remains unused. Keep closest-hit, post-DI composition, reflection,
+and refraction suppressed through these isolates:
+
+  stage 13  invoke any-hit, accept immediately before geometry/material decode
+  stage 14  execute one complete any-hit content evaluation, then accept
+             regardless of the normal IgnoreHit decision
+  stage 15  restore repeated normal any-hit filtering with TMax=4096
+  stage 16  restore the normal TMax=100000 any-hit plus closest-hit path
+
+Interpretation:
+
+  13 fails      SBT/hit-group invocation or payload transport
+  13 passes,
+  14 fails      per-intersection geometry/material/class/texture content
+  14 passes,
+  15 fails      repeated IgnoreHit traversal or short-range accumulated cost
+  15 passes     long-range traversal/intersection cost; stage 12 remains the
+                accepted failure control
+
+Keep `r_pathTracingLiquidPoolMode 0` throughout stages 13-15 so the previously
+excluded branch cannot widen a rung. Black windows remain expected. Stage 16
+is implemented for completeness but must not run until stages 13-15 identify
+an accepted boundary.
+
+Implementation keeps the expanded probe decode in a producer-only include
+rather than the shared clean-DI ABI. The CPU planning harness and 20 stress
+iterations pass after expanding the supported stage range and probe-mode
+mapping.
+
+Local proof:
+
+  - `PathTraceCpuPlanningHarness` passes normally and with `--stress 20`.
+  - `cmake --build --preset win64-pt-dev-release` completes successfully.
+  - the rebuilt Vulkan transmission-producer blob is newer than its edited
+    source, has SHA-256
+    CD1844A5EE7E0683992A40F9912D178F3EF032FBFAA95C69A219190E9F3BE47A,
+    and passes `spirv-val --target-env vulkan1.2`.
+  - only the transmission-producer SPIR-V differs from the deployed shader
+    set affected by the shared include rebuild; deploy that blob only.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

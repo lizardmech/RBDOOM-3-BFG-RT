@@ -540,6 +540,19 @@ void ShadowMiss(inout PathTraceCleanRtxdiPayload payload)
 [shader("anyhit")]
 void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
+#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PSR_TRANSPORT)
+    const uint transmissionTraceProbeMode =
+        PathTraceCleanRtxdiDiTransmissionTraceProbeMode();
+    if (payload.rayMode == 3u &&
+        transmissionTraceProbeMode == 4u)
+    {
+        // GEO-10 stage 13: prove any-hit invocation, SBT selection, and
+        // payload transport without executing any geometry/material decode.
+        payload.value = 1u;
+        AcceptHitAndEndSearch();
+        return;
+    }
+#endif
 #if RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
     const uint hardwareInstanceId = InstanceID();
     const uint hardwarePrimitiveIndex = PrimitiveIndex();
@@ -578,6 +591,52 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
                 : PathTraceCleanRoomLoadNonStaticTriangleMaterialIndex(
                     instanceId,
                     primitiveIndex);
+#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PSR_TRANSPORT)
+        if (transmissionTraceProbeMode == 5u)
+        {
+            // GEO-10 stage 14: execute the complete per-intersection any-hit
+            // content exactly once, then accept regardless of the normal
+            // IgnoreHit decision. This separates content from repetition.
+            const bool liquidCandidate =
+                PathTraceCleanRtxdiDiCollectLiquidPoolCandidate(
+                    payload,
+                    instanceId,
+                    primitiveIndex,
+                    materialIndex,
+                    attributes.barycentrics);
+            const bool ignoredSource =
+                instanceId == payload.ignoreInstanceId &&
+                (primitiveIndex == payload.ignorePrimitiveIndex ||
+                    materialIndex == payload.ignoreMaterialIndex);
+            const bool blendThrough =
+                PathTraceCleanRoomTriangleDoesNotOccludeTransmission(
+                    instanceId,
+                    primitiveIndex,
+                    materialIndex);
+            if (blendThrough)
+            {
+                PathTraceCleanRoomAccumulateTransmissionEmissiveCard(
+                    payload,
+                    instanceId,
+                    primitiveIndex,
+                    materialIndex,
+                    attributes.barycentrics);
+            }
+            const bool alphaRejected =
+                PathTraceCleanRoomTransmissionAlphaRejectsHit(
+                    instanceId,
+                    primitiveIndex,
+                    attributes.barycentrics,
+                    materialIndex);
+            payload.value = 1u |
+                (liquidCandidate ? 2u : 0u) |
+                (ignoredSource ? 4u : 0u) |
+                (blendThrough ? 8u : 0u) |
+                (alphaRejected ? 16u : 0u);
+            AcceptHitAndEndSearch();
+            return;
+        }
+#endif
         if (PathTraceCleanRtxdiDiCollectLiquidPoolCandidate(
             payload,
             instanceId,

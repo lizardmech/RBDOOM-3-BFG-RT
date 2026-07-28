@@ -62,7 +62,7 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS = 1u << 26u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION = 1u << 27u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT = 28u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK =
-    3u << CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
+    7u << CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
 const uint32_t LIQUID_POOL_CONTROL_TELEMETRY_READY = 1u << 0u;
 const uint32_t LIQUID_POOL_CONTROL_REQUESTED = 1u << 1u;
 const uint32_t LIQUID_POOL_CONTROL_ROUTE_DISABLED = 1u << 2u;
@@ -3553,7 +3553,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 // Keep the GEO-10 traversal probes exact regardless of the
                 // normal glass defaults. Only the straight-through
-                // transmission lane is admitted, and stages 10-12 control
+                // transmission lane is admitted, and stages 10-16 control
                 // how far its single TraceRay may execute.
                 psrConstants.flags &= ~(
                     CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR |
@@ -3580,9 +3580,21 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         staticBucketTransmissionMarker =
                             "GEO10.View16.Stage12 TransmissionAnyHitOnly";
                         break;
+                    case 13:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage13 TransmissionAnyHitEntryOnly";
+                        break;
+                    case 14:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage14 TransmissionAnyHitContentOnce";
+                        break;
+                    case 15:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage15 TransmissionAnyHitBounded";
+                        break;
                     default:
                         staticBucketTransmissionMarker =
-                            "GEO10.View16.Stage13 TransmissionFullHitPath";
+                            "GEO10.View16.Stage16 TransmissionFullHitPath";
                         break;
                 }
             }
@@ -3868,10 +3880,31 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                             m_frameResources.width,
                             m_frameResources.height);
                     }
+                    else if (staticBucketSecondaryIsolation.stage == 13)
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-13 transmission any-hit entry-only traversal plus initial-temporal-spatial dispatch completed (%dx%d); geometry/material decode, closest-hit, post-DI composition, and later consumers skipped\n",
+                            m_frameResources.width,
+                            m_frameResources.height);
+                    }
+                    else if (staticBucketSecondaryIsolation.stage == 14)
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-14 one complete transmission any-hit invocation plus initial-temporal-spatial dispatch completed (%dx%d); repeated IgnoreHit traversal, closest-hit, post-DI composition, and later consumers skipped\n",
+                            m_frameResources.width,
+                            m_frameResources.height);
+                    }
+                    else if (staticBucketSecondaryIsolation.stage == 15)
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-15 bounded repeated transmission any-hit traversal plus initial-temporal-spatial dispatch completed (%dx%d); TMax=4096, closest-hit, post-DI composition, and later consumers skipped\n",
+                            m_frameResources.width,
+                            m_frameResources.height);
+                    }
                     else
                     {
                         common->Printf(
-                            "PathTracePrimaryPass: GEO-10 view-16 stage-13 full transmission hit path plus initial-temporal-spatial dispatch completed (%dx%d); post-DI transmission/glass composition and later consumers skipped\n",
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-16 full transmission hit path plus initial-temporal-spatial dispatch completed (%dx%d); post-DI transmission/glass composition and later consumers skipped\n",
                             m_frameResources.width,
                             m_frameResources.height);
                     }

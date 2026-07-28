@@ -3005,8 +3005,35 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             true,
-            13),
-        "static bucket view-16 isolation admits traversal, any-hit, and full-hit transmission rungs");
+            13) &&
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            14) &&
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            15) &&
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            16),
+        "static bucket view-16 isolation admits traversal, any-hit content/cost, and full-hit transmission rungs");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3106,7 +3133,7 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             true,
-            14),
+            17),
         "static bucket clean-DI primary isolation rejects unsafe routes, missing transmission controls, and out-of-range stages");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         primaryPipelineOnlyPlan =
@@ -3205,13 +3232,37 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 12);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
-        transmissionFullHitPathPlan =
+        transmissionAnyHitEntryOnlyPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
                 true,
                 true,
                 true,
                 13);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionAnyHitContentOncePlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                14);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionAnyHitBoundedPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                15);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionFullHitPathPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                16);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
@@ -3363,11 +3414,23 @@ void TestStaticBucketAssignmentPlan()
             transmissionAnyHitOnlyPlan.stage == 12 &&
             transmissionAnyHitOnlyPlan.transmissionPsr &&
             transmissionAnyHitOnlyPlan.transmissionTraceProbeMode == 3 &&
+            transmissionAnyHitEntryOnlyPlan.active &&
+            transmissionAnyHitEntryOnlyPlan.stage == 13 &&
+            transmissionAnyHitEntryOnlyPlan.transmissionPsr &&
+            transmissionAnyHitEntryOnlyPlan.transmissionTraceProbeMode == 4 &&
+            transmissionAnyHitContentOncePlan.active &&
+            transmissionAnyHitContentOncePlan.stage == 14 &&
+            transmissionAnyHitContentOncePlan.transmissionPsr &&
+            transmissionAnyHitContentOncePlan.transmissionTraceProbeMode == 5 &&
+            transmissionAnyHitBoundedPlan.active &&
+            transmissionAnyHitBoundedPlan.stage == 15 &&
+            transmissionAnyHitBoundedPlan.transmissionPsr &&
+            transmissionAnyHitBoundedPlan.transmissionTraceProbeMode == 6 &&
             transmissionFullHitPathPlan.active &&
-            transmissionFullHitPathPlan.stage == 13 &&
+            transmissionFullHitPathPlan.stage == 16 &&
             transmissionFullHitPathPlan.transmissionPsr &&
             transmissionFullHitPathPlan.transmissionTraceProbeMode == 0,
-        "static bucket transmission probe separates no-trace, traversal-only, any-hit-only, and full-hit execution");
+        "static bucket transmission probe separates no-trace, traversal-only, any-hit content/cost, and full-hit execution");
     Check(
         waitingForPublicationPlan.active &&
             waitingForPublicationPlan.requested &&

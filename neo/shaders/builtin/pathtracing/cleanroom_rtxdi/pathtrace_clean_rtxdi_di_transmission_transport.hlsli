@@ -3,10 +3,6 @@
 
 #if defined(CLEAN_RTXDI_DI_TRANSMISSION_PSR_TRANSPORT)
 
-static const uint CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT = 28u;
-static const uint CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_MASK =
-    3u << CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
-
 static const uint CLEAN_RTXDI_DI_TRANSMISSION_GUIDE_POLICY_THIN_STRAIGHT = 0u;
 static const uint CLEAN_RTXDI_DI_TRANSMISSION_GUIDE_POLICY_STRONG_REFRACTION = 1u;
 
@@ -124,15 +120,16 @@ bool PathTraceCleanRtxdiDiTraceTransmissionHit(
         return false;
     }
 
+    const uint traceProbeMode =
+        PathTraceCleanRtxdiDiTransmissionTraceProbeMode();
     RayDesc ray;
     ray.Origin = RAB_GetSurfaceWorldPos(surface) + rayDirection * 0.05;
     ray.Direction = rayDirection;
     ray.TMin = 0.01;
-    ray.TMax = 100000.0;
-    const uint traceProbeMode =
-        (CleanRtxdiDiFlags &
-            CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_MASK) >>
-        CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
+    // GEO-10 mode 6 preserves the full repeated any-hit body while bounding
+    // the ray. It separates long-range traversal/IgnoreHit cost from a
+    // content fault already reproducible at short range.
+    ray.TMax = traceProbeMode == 6u ? 4096.0 : 100000.0;
     if (traceProbeMode == 1u)
     {
         // GEO-10 stage 10: execute the complete producer raygen prologue and
@@ -151,10 +148,11 @@ bool PathTraceCleanRtxdiDiTraceTransmissionHit(
             RAY_FLAG_FORCE_OPAQUE |
             RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
     }
-    else if (traceProbeMode == 3u)
+    else if (traceProbeMode >= 3u)
     {
-        // GEO-10 stage 12: admit transmission any-hit, but keep closest-hit
-        // suppressed. Stage 13 uses the normal full hit path.
+        // GEO-10 stages 12-15 admit progressively isolated transmission
+        // any-hit work while keeping closest-hit suppressed. Stage 16 uses
+        // mode zero and restores the normal full hit path.
         traceFlags =
             RAY_FLAG_FORCE_NON_OPAQUE |
             RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
