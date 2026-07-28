@@ -1965,6 +1965,28 @@ executable hashes are equal:
 
   B288C5998741F7665FD80A5A1F7929E936B1A0ACD21AB912C17E97E1D0E4B9DA
 
+D89. ACCEPT MATERIAL PIPELINES; OPEN PRE-DI TRANSMISSION PSR ONLY
+----------------------------------------------------------------
+Decision: the updated `success8.log` accepts stage 8. Both transmission and
+glass material-feature shader blobs loaded and their RT pipelines initialized
+between the explicit begin/completed markers. The final boundary confirms
+that accepted primary/initial/temporal/spatial work ran while
+transmission/glass `DispatchRays` remained skipped. The user observed no
+issue. The 35-second host-pump warning is the isolated pipeline warmup.
+
+Open stage 9 only when both transmission producer and compose cvars are
+enabled. Build runtime material-feature registrations for the isolation route
+and dispatch only the transmission producer in its pre-DI PSR phase. Retain
+the accepted DI sequence, then return before post-DI glass/transmission
+composition and every later consumer. Keep stages 1-8 exact with both
+transmission cvars disabled.
+
+The exact stage/cvar matrix passes the rebuilt CPU planning harness and 20
+stress iterations. The release build passes with all SPIR-V up to date.
+Source and deployed executable hashes are equal:
+
+  D62E38E88C627D290EE54905D4F9A6C534E41A79B679623C504594C9FD85F66B
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

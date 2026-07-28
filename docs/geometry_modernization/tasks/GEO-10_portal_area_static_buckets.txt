@@ -2543,3 +2543,50 @@ Local proof and deployment:
   source/deployed executable SHA-256                  equal
 
   B288C5998741F7665FD80A5A1F7929E936B1A0ACD21AB912C17E97E1D0E4B9DA
+
+REF-10X STAGE-8 ACCEPTANCE AND TRANSMISSION-PSR RUNG - 2026-07-28
+-----------------------------------------------------------------
+The updated `success8.log` supplies the complete stage-8 boundary:
+
+  transmission producer shader/pipeline              loaded/initialized
+  glass shader/pipeline                              loaded/initialized
+  material pipeline begin/completed markers          present/present
+  initial/temporal/spatial dispatch                   completed
+  transmission/glass DispatchRays                    skipped
+  device-loss/Vulkan/binding/validation failures     none
+  user visual result                                 no issues
+
+The 35-second `idSessionLocal::Pump` warning is expected deferred pipeline
+construction and is not a device error.
+
+Stage 9 adds only pre-DI transmission PSR:
+
+  - expand support from stages 1-8 to 1-9;
+  - require both `r_pathTracingCleanRtxdiDiTransmissionProducer 1` and
+    `r_pathTracingCleanRtxdiDiTransmissionCompose 1` at stage 9;
+  - continue requiring both controls off at stages 1-8;
+  - build runtime transmission/glass registrations for the active isolation
+    route, reusing the stage-8-created pipeline state;
+  - dispatch only the transmission feature with the PSR phase flag before DI;
+  - identify the checkpoint as `GEO10.View16.Stage9 TransmissionPSR`;
+  - retain initial, temporal, and spatial dispatch;
+  - return before post-DI feature composition and every later consumer.
+
+Required completion evidence:
+
+  GEO-10 view-16 stage-9 transmission-PSR plus initial-temporal-spatial dispatch completed
+
+The line must state that post-DI transmission/glass composition and later
+consumers were skipped.
+
+Local proof and deployment:
+
+  stages 1-8 transmission-off contract                passed
+  stage-9 transmission-on contract                    passed
+  stage-9 PSR-only dispatch plan                      passed
+  CPU planning stress iterations                      20
+  full release build                                  passed
+  Vulkan shader build status                          all SPIR-V up to date
+  source/deployed executable SHA-256                  equal
+
+  D62E38E88C627D290EE54905D4F9A6C534E41A79B679623C504594C9FD85F66B

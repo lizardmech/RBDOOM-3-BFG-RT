@@ -1010,9 +1010,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (cleanRtxdiDiSpatialEnabled &&
                 (cleanRtxdiDiView == 12 ||
                     (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
+    const bool staticBucketMaterialFeatureRuntimeRequested =
+        staticBucketSecondaryIsolationActive &&
+        (staticBucketSecondaryIsolation.transmissionPsr ||
+            staticBucketSecondaryIsolation.materialFeatureCompose);
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses cleanRtxdiDiMaterialFeaturePasses = BuildPathTraceCleanRtxdiDiMaterialFeaturePasses(
         cleanRtxdiDiRouteRequested &&
-            !staticBucketSecondaryIsolationActive,
+            (!staticBucketSecondaryIsolationActive ||
+                staticBucketMaterialFeatureRuntimeRequested),
         cleanRtxdiDiMaterialFeatureView,
         m_smokeCleanRtxdiDiMaterialFeatures);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
@@ -3541,7 +3546,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 PathTraceGpuMarkerScope nsightMarker(
                     commandList,
-                    "GEO10.View16.Stage2 TransmissionPSR",
+                    staticBucketSecondaryIsolationActive
+                        ? "GEO10.View16.Stage9 TransmissionPSR"
+                        : "CleanDI.TransmissionPSR",
                     nsightGpuMarkers &&
                         staticBucketSecondaryIsolationActive);
                 DispatchPathTraceCleanRtxdiDiTransmissionPsrPass(
@@ -3797,7 +3804,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             if (!m_smokeTestDispatched)
             {
-                if (staticBucketSecondaryIsolation.
+                if (staticBucketSecondaryIsolation.transmissionPsr)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-9 transmission-PSR plus initial-temporal-spatial dispatch completed (%dx%d); post-DI transmission/glass composition and later consumers skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
+                else if (staticBucketSecondaryIsolation.
                     materialFeaturePipelineCreation)
                 {
                     common->Printf(

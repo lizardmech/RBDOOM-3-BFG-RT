@@ -2957,6 +2957,17 @@ void TestStaticBucketAssignmentPlan()
             8),
         "static bucket view-16 isolation admits stage eight for material-feature pipeline creation only");
     Check(
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            9),
+        "static bucket view-16 isolation admits stage nine only with transmission PSR controls enabled");
+    Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
             true,
@@ -3037,7 +3048,16 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             false,
-            9),
+            9) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            false,
+            10),
         "static bucket clean-DI primary isolation rejects unsafe routes, transmission, and out-of-range stages");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         primaryPipelineOnlyPlan =
@@ -3103,6 +3123,14 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 true,
                 8);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionPsrOnlyPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                9);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
@@ -3215,7 +3243,19 @@ void TestStaticBucketAssignmentPlan()
             materialFeaturePipelineOnlyPlan.spatial &&
             materialFeaturePipelineOnlyPlan.materialFeaturePipelineCreation &&
             !materialFeaturePipelineOnlyPlan.transmissionPsr &&
-            !materialFeaturePipelineOnlyPlan.materialFeatureCompose,
+            !materialFeaturePipelineOnlyPlan.materialFeatureCompose &&
+            transmissionPsrOnlyPlan.active &&
+            transmissionPsrOnlyPlan.stage == 9 &&
+            transmissionPsrOnlyPlan.primaryPipelineCreation &&
+            transmissionPsrOnlyPlan.primaryDispatch &&
+            transmissionPsrOnlyPlan.cleanDiPipelineCreation &&
+            transmissionPsrOnlyPlan.initial &&
+            transmissionPsrOnlyPlan.temporal &&
+            transmissionPsrOnlyPlan.spatialPipelineCreation &&
+            transmissionPsrOnlyPlan.spatial &&
+            transmissionPsrOnlyPlan.materialFeaturePipelineCreation &&
+            transmissionPsrOnlyPlan.transmissionPsr &&
+            !transmissionPsrOnlyPlan.materialFeatureCompose,
         "static bucket primary isolate separates pipeline creation from DispatchRays");
     Check(
         waitingForPublicationPlan.active &&
