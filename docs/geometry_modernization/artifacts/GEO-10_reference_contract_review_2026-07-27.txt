@@ -1480,3 +1480,31 @@ The next runtime line must report:
   triangles(monolithicPortal/bucket/captured/invalid)=K/K/K/0
   identities(.../missing/extra)=K/K/.../0/0
   traversal=portal-mask-canonical-surface-shadow-only
+
+AUDIT ARMING FIX AFTER BUCKET16..19 - 2026-07-28
+------------------------------------------------
+The next captures repeatedly proved the canonical surface join before bucket
+publication became ready:
+
+  active/matched/missing/duplicate surfaces           263/263/0/0
+  mapped/missing/invalid primitives                   4777/0/0
+  matched monolithic portal emissives                 48
+
+They also exposed an orchestration error: the one-shot cvar was consumed on
+the first post-load frame while the BLAS build had only reached 0/56 or 2/56.
+The route later reached exact 56/56/56, but no armed audit remained.
+
+The cvar now acts as a readiness arm. Portal-only mode requires a valid portal
+publication. Route 2's forced full-resident mode additionally requires a valid
+full active publication. Premature frames retain the cvar and do not run the
+identity comparison or detailed one-shot dump. The exact frame runs both and
+resets the cvar.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness --stress 20             passed
+  readiness truth-table cases                         passed
+  full Vulkan release build                           passed
+  shader rebuilds                                     0
+  executable SHA-256
+    46B74A88A673D9E35E5899ED0259AAF95B69C4BFF9DB3C842165310246904866

@@ -414,6 +414,11 @@ BuildSmokeStaticBucketMonolithicPrimitiveRemap(
     const std::vector<uint8_t>& activeBucketMask,
     const std::vector<RtSmokeStaticBucketMonolithicSurfaceBinding>&
         monolithicSurfaces);
+bool IsSmokeStaticBucketAuditReady(
+    bool requested,
+    bool portalPublicationValid,
+    bool fullResidentRequired,
+    bool activePublicationValid);
 
 struct RtSmokeStaticBucketInstanceAddressPlan
 {

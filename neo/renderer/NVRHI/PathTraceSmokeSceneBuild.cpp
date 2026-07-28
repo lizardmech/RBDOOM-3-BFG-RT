@@ -5990,6 +5990,7 @@ struct RtSmokeStaticBucketFramePublication
 {
     bool enabled = false;
     bool auditRequested = false;
+    bool auditReady = false;
     bool blasEnabled = false;
     bool portalMaskValid = false;
     bool activeMaskValid = false;
@@ -6240,6 +6241,12 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
             geometryPack,
             *frame.materialIndexes,
             frame.materialBindingSignature);
+    frame.auditReady =
+        IsSmokeStaticBucketAuditReady(
+            frame.auditRequested,
+            frame.portalActivePublication.valid,
+            frame.activeMaskForcedFullResident,
+            frame.activePublication.valid);
     return frame;
 }
 
@@ -8240,7 +8247,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
             emissiveInventoryStats);
-        if (staticBucketFramePublication.auditRequested &&
+        if (staticBucketFramePublication.auditReady &&
             !staticBucketEmissiveRouteAccepted &&
             staticBucketFramePublication.geometryPack != nullptr &&
             staticBucketFramePublication.materialIndexes != nullptr)
@@ -13118,6 +13125,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT BVH Frame Planning");
     const bool staticBucketAuditRequested =
         staticBucketFramePublication.auditRequested;
+    const bool staticBucketAuditReady =
+        staticBucketFramePublication.auditReady;
     const bool staticBucketBlasEnabled =
         staticBucketFramePublication.blasEnabled;
     if (staticBucketFramePublication.enabled)
@@ -13241,7 +13250,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     staticBucketUniverseStats.
                         staticMaterialGeneration));
         }
-        if (staticBucketAuditRequested)
+        if (staticBucketAuditReady)
         {
         common->Printf(
             "PathTracePrimaryPass: GEO10 static bucket assignment exact=%d signature=%llu generations(world/source/storage)=%llu/%llu/%llu limits(v/i/t)=%d/%d/%d areas=%d surfaces(input/assigned/duplicate/unassigned/invalidArea/invalidRange/oversized)=%d/%d/%d/%d/%d/%d/%d primitives(assigned/retained)=%d/%d buckets(total/active/fallback/split/keyCollision)=%d/%d/%d/%d/%d route=shadow-only\n",

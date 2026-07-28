@@ -1166,3 +1166,36 @@ Offline proof:
 Repeat acceptance requires `exact=1`, equal active/matched surface counts,
 zero missing/duplicate surface bindings, zero missing/invalid mappings, equal
 monolithicPortal/bucket identity counts, and all identity failure counts zero.
+
+REF-9F AUDIT ARMING CORRECTION - BUCKET16..19 - 2026-07-28
+-----------------------------------------------------------
+Four repeat captures did not invalidate the canonical remap. Every cold-frame
+attempt reported:
+
+  surfaces(active/matched/missing/duplicate)          263/263/0/0
+  mapping(mapped/missing/invalid)                     4777/0/0
+  monolithic portal emissives                         48
+
+The comparison could not publish bucket emissives because the one-shot audit
+was entered before `loadgame` and reset on frame 1 while only 0 or 2 of 56
+BLASes were ready. Later frames reached exact 56/56/56 publication, but the
+audit was no longer armed.
+
+`r_pathTracingGeometryStaticBucketAudit 1` now remains armed until its portal
+publication is valid. When route 2 forces the full-resident diagnostic set, it
+also waits for the full active publication to become exact. The identity
+comparison, detailed dump, and reset occur only on that ready frame.
+
+Offline proof:
+
+  full win64-pt-dev-release build                     passed
+  PathTraceCpuPlanningHarness --stress 20             passed
+  cold full-resident audit readiness rejection        passed
+  exact portal plus full-resident readiness acceptance passed
+  shader rebuilds                                     0
+  executable SHA-256
+    46B74A88A673D9E35E5899ED0259AAF95B69C4BFF9DB3C842165310246904866
+
+The original startup ordering is now supported: arm the audit and BLAS gates
+before `loadgame`; the audit must wait and emit once after 56/56/56 becomes
+exact.

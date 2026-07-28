@@ -816,6 +816,14 @@ unique production identity sets and rejects missing, extra, zero, collision,
 invalid, or inexact-remap cases. The live emissive inventory and every GPU
 route remain unchanged pending runtime acceptance.
 
+`bucket16.log` through `bucket19.log` proved the canonical join itself exact
+on the cold frame (`263/263/0/0` surfaces and `4777/0/0` primitive mappings),
+but also exposed that the one-shot audit reset before the 56 bucket BLAS build
+completed. The audit now remains armed until the portal publication is valid
+and, for route 2's full-resident probe, the 56/56 active publication is exact.
+It then runs and resets once. This is CPU control-flow only; no shader or live
+route contract changed.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

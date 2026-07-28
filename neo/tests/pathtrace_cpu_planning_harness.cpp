@@ -2419,6 +2419,35 @@ void TestStaticBucketAssignmentPlan()
                 missingTriangles == 2,
         "static bucket monolithic primitive remap rejects a missing active canonical surface");
     Check(
+        !IsSmokeStaticBucketAuditReady(
+            true,
+            false,
+            true,
+            false) &&
+        !IsSmokeStaticBucketAuditReady(
+            true,
+            true,
+            true,
+            false) &&
+        IsSmokeStaticBucketAuditReady(
+            true,
+            true,
+            true,
+            true),
+        "static bucket full-resident audit remains armed until portal and active publications are exact");
+    Check(
+        !IsSmokeStaticBucketAuditReady(
+            false,
+            true,
+            false,
+            false) &&
+        IsSmokeStaticBucketAuditReady(
+            true,
+            true,
+            false,
+            false),
+        "static bucket portal-only audit requires an explicit request and exact portal publication");
+    Check(
         pack.surfaceRecords.size() == 3 &&
             pack.buckets[0].firstSurfaceRecord == 0 &&
             pack.buckets[0].surfaceRecordCount == 1 &&

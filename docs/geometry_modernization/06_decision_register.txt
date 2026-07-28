@@ -1122,6 +1122,13 @@ missing/extra/zero/collision identities, zero invalid triangles, and a valid
 portal-mask publication. This rung changes no shader, descriptor, SBT, TLAS
 submission, live emissive source, or route default.
 
+The audit cvar is an arm, not an immediate cold-frame trigger. When route 2
+forces full residency, it remains set until both the portal publication and
+the full-resident active publication are exact. Only that ready frame runs the
+comparison, detailed dump, and one-shot reset. This permits the documented
+startup command sequence without consuming the audit while BLASes are still
+building.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

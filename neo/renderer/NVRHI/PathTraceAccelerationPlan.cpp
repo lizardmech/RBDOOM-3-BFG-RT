@@ -1324,6 +1324,18 @@ BuildSmokeStaticBucketMonolithicPrimitiveRemap(
     return remap;
 }
 
+bool IsSmokeStaticBucketAuditReady(
+    bool requested,
+    bool portalPublicationValid,
+    bool fullResidentRequired,
+    bool activePublicationValid)
+{
+    return requested &&
+        portalPublicationValid &&
+        (!fullResidentRequired ||
+            activePublicationValid);
+}
+
 bool ValidateSmokeStaticBucketClassMetadataLayout(
     const RtSmokeStaticBucketGeometryPack& geometryPack)
 {
