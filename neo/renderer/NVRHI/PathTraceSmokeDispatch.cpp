@@ -3744,7 +3744,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 PathTraceGpuMarkerScope nsightMarker(
                     commandList,
                     staticBucketSecondaryIsolationActive
-                        ? "GEO10.View16.Stage6 Spatial DispatchRays"
+                        ? "GEO10.View16.Stage7 Spatial DispatchRays"
                         : "CleanDI.2 Spatial DispatchRays",
                     nsightGpuMarkers);
                 commandList->dispatchRays(cleanArgs);
@@ -3760,7 +3760,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             if (!m_smokeTestDispatched)
             {
                 common->Printf(
-                    "PathTracePrimaryPass: GEO-10 view-16 stage-6 initial-plus-temporal-plus-spatial dispatch completed (%dx%d); post-DI consumers skipped\n",
+                    "PathTracePrimaryPass: GEO-10 view-16 stage-7 initial-plus-temporal-plus-spatial dispatch completed (%dx%d); post-DI consumers skipped\n",
                     m_frameResources.width,
                     m_frameResources.height);
             }

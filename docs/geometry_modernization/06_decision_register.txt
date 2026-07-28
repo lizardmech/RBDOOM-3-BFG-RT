@@ -1921,6 +1921,28 @@ and deployed executable hashes are equal:
 
   AA3C0CC8D35765D4ECDE0274B53C537BA13CCDFF5D5BD33DC225A94912A51B60
 
+D87. ACCEPT SPATIAL PIPELINE CREATION; OPEN SPATIAL DISPATCH ONLY
+----------------------------------------------------------------
+Decision: the corrected `success7.log` accepts stage 6. Exact 56/56 bucket,
+TLAS, and route publication completed before both the spatial debug and
+production libraries loaded and initialized. The explicit pipeline-creation
+begin/completed markers bracket that work, and the final boundary confirms
+that spatial `DispatchRays` and every later consumer remained skipped. There
+is no device-loss, Vulkan, binding, or validation failure. The ten-second host
+pump warning covers deferred pipeline construction.
+
+Open stage 7 only. It retains accepted primary, initial, and temporal work,
+reuses the stage-6 spatial pipeline construction path, and adds spatial
+`DispatchRays`. Continue returning before material-feature composition,
+transmission, glass, NEE-cache/external-PDF work, GI, and production routing.
+The GPU marker and completion line must identify stage 7 rather than stage 6.
+
+The stage-6/stage-7 matrix passes the CPU planning harness and 20 stress
+iterations. The full release build reports all SPIR-V up to date. Source and
+deployed executable hashes are equal:
+
+  FF5A8BFB8FAE1166BD8C99EB6663C4AB7A4E1DEA32E5D5571DEA1EAE30172D82
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

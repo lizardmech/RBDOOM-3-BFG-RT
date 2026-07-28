@@ -2453,3 +2453,46 @@ Local proof and deployment:
   source/deployed executable SHA-256                equal
 
   AA3C0CC8D35765D4ECDE0274B53C537BA13CCDFF5D5BD33DC225A94912A51B60
+
+REF-10V STAGE-6 ACCEPTANCE AND SPATIAL-DISPATCH RUNG - 2026-07-28
+-----------------------------------------------------------------
+The corrected stage-6 runtime log contains the required evidence in order:
+
+  - exact publication reaches 56/56 resident, active, ready, TLAS, and route
+    records with zero missing BLAS, material-index, range, or instance errors;
+  - the spatial pipeline-creation begin marker is emitted;
+  - spatial debug loads and initializes;
+  - spatial production loads and initializes;
+  - the spatial pipeline-creation completed marker is emitted;
+  - the final stage-6 line confirms initial and temporal dispatch completed
+    while spatial `DispatchRays` and all later consumers were skipped.
+
+There is no device-loss, Vulkan, binding, or validation failure. The
+ten-second `idSessionLocal::Pump` warning is deferred pipeline warmup.
+
+Stage 7 is therefore the next single-variable rung:
+
+  - expand the exact isolation support range from 1-6 to 1-7;
+  - preserve stage-6 `spatialPipelineCreation=true, spatial=false`;
+  - set stage-7 `spatialPipelineCreation=true, spatial=true`;
+  - use the already loaded production spatial shader table for view 16;
+  - identify its GPU checkpoint as `GEO10.View16.Stage7 Spatial DispatchRays`;
+  - return immediately after spatial output barriers;
+  - keep material-feature composition, transmission, glass, NEE-cache,
+    external-PDF, GI, and production routing disabled.
+
+Required stage-7 completion evidence:
+
+  GEO-10 view-16 stage-7 initial-plus-temporal-plus-spatial dispatch completed
+
+The line must also state that post-DI consumers were skipped.
+
+Local proof and deployment:
+
+  stage-6 pipeline-only/stage-7 spatial matrix         passed
+  CPU planning stress iterations                      20
+  full release build                                  passed
+  Vulkan shader build status                          all SPIR-V up to date
+  source/deployed executable SHA-256                  equal
+
+  FF5A8BFB8FAE1166BD8C99EB6663C4AB7A4E1DEA32E5D5571DEA1EAE30172D82
