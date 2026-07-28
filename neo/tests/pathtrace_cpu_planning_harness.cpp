@@ -3091,6 +3091,15 @@ void TestStaticBucketAssignmentPlan()
             false,
             true,
             20) &&
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            21) &&
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
             true,
@@ -3108,8 +3117,17 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             true,
-            20),
-        "static bucket view-16 isolation admits stages 19 and 20 only on the bucket route");
+            20) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            21),
+        "static bucket view-16 isolation admits stages 19 through 21 only on the bucket route");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3218,7 +3236,7 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             true,
-            21),
+            22),
         "static bucket clean-DI primary isolation rejects unsafe routes, missing transmission controls, and out-of-range stages");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         primaryPipelineOnlyPlan =
@@ -3380,6 +3398,14 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 true,
                 20);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionInitialPresentedControlPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                21);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
@@ -3591,8 +3617,25 @@ void TestStaticBucketAssignmentPlan()
             transmissionTemporalControlPlan.temporal &&
             !transmissionTemporalControlPlan.spatialPipelineCreation &&
             !transmissionTemporalControlPlan.spatial &&
-            !transmissionTemporalControlPlan.materialFeatureCompose,
-        "static bucket transmission probe separates legacy any-hit boundaries, bounded bucket resolve, the monolithic control, and initial/temporal bucket consumption");
+            !transmissionTemporalControlPlan.materialFeatureCompose &&
+            transmissionInitialPresentedControlPlan.active &&
+            transmissionInitialPresentedControlPlan.stage == 21 &&
+            transmissionInitialPresentedControlPlan.primaryPipelineCreation &&
+            transmissionInitialPresentedControlPlan.primaryDispatch &&
+            transmissionInitialPresentedControlPlan.cleanDiPipelineCreation &&
+            transmissionInitialPresentedControlPlan.materialFeaturePipelineCreation &&
+            transmissionInitialPresentedControlPlan.materialFeatureRuntimeBindings &&
+            transmissionInitialPresentedControlPlan.transmissionPsr &&
+            transmissionInitialPresentedControlPlan.transmissionTraceProbeMode == 0 &&
+            transmissionInitialPresentedControlPlan.transmissionIterativeResolve &&
+            !transmissionInitialPresentedControlPlan.transmissionMonolithicControl &&
+            transmissionInitialPresentedControlPlan.initial &&
+            !transmissionInitialPresentedControlPlan.temporal &&
+            transmissionInitialPresentedControlPlan.spatialPipelineCreation &&
+            transmissionInitialPresentedControlPlan.spatial &&
+            !transmissionInitialPresentedControlPlan.spatialNeighborReuse &&
+            !transmissionInitialPresentedControlPlan.materialFeatureCompose,
+        "static bucket transmission probe separates legacy any-hit boundaries, bounded bucket resolve, monolithic control, temporal diagnostics, and temporal-off production presentation");
     Check(
         waitingForPublicationPlan.active &&
             waitingForPublicationPlan.requested &&

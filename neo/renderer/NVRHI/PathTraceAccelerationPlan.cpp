@@ -2039,17 +2039,19 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     // the bucket-resident bounded resolver. Stage 18 admits that same bounded
     // resolver against route-0 monolithic static traversal as a visual/replay
     // control. Stages 19 and 20 return to the bucket resolver and stop after
-    // initial or temporal respectively, isolating downstream interpretation
-    // of bucket identity. None restores the rejected legacy any-hit path.
+    // initial or temporal respectively. Stage 21 skips temporal and uses the
+    // spatial production shader only as a no-neighbor-reuse presenter. None
+    // restores the rejected legacy any-hit path.
     const bool transmissionContractExact =
         (probeStage <= 8 && !transmissionPsrEnabled) ||
-        (probeStage >= 9 && probeStage <= 20 &&
+        (probeStage >= 9 && probeStage <= 21 &&
             transmissionPsrEnabled);
     const bool traversalContractExact =
         (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
             ((probeStage >= 1 && probeStage <= 17) ||
                 probeStage == 19 ||
-                probeStage == 20)) ||
+                probeStage == 20 ||
+                probeStage == 21)) ||
         (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED &&
             probeStage == 18);
     const bool diagnosticContractExact =
@@ -2083,7 +2085,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         return plan;
     }
 
-    plan.stage = std::max(0, std::min(20, probeStage));
+    plan.stage = std::max(0, std::min(21, probeStage));
     plan.primaryPipelineCreation =
         isolationSupported &&
         routePublicationValid &&
@@ -2149,7 +2151,8 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         plan.stage == 17 ||
         plan.stage == 18 ||
         plan.stage == 19 ||
-        plan.stage == 20;
+        plan.stage == 20 ||
+        plan.stage == 21;
     plan.transmissionMonolithicControl = plan.stage == 18;
     if (plan.stage == 19 || plan.stage == 20)
     {
@@ -2165,6 +2168,18 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
             plan.materialFeaturePipelineCreation;
         plan.transmissionPsr =
             plan.materialFeatureRuntimeBindings;
+    }
+    if (plan.stage == 21)
+    {
+        // Initial publishes both current and temporal reservoir storage. Skip
+        // temporal dispatch, then use spatial solely for production resolve.
+        plan.temporal = false;
+        plan.spatialPipelineCreation = true;
+        plan.spatial = true;
+        plan.materialFeaturePipelineCreation = true;
+        plan.materialFeatureRuntimeBindings = true;
+        plan.transmissionPsr = true;
+        plan.spatialNeighborReuse = false;
     }
     plan.materialFeatureCompose = false;
     return plan;

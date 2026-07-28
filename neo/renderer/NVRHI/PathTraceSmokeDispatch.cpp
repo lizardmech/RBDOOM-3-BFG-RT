@@ -959,7 +959,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             ((staticBucketSecondaryProbeStage >= 1 &&
                     staticBucketSecondaryProbeStage <= 17) ||
                 staticBucketSecondaryProbeStage == 19 ||
-                staticBucketSecondaryProbeStage == 20)) ||
+                staticBucketSecondaryProbeStage == 20 ||
+                staticBucketSecondaryProbeStage == 21)) ||
             staticBucketSecondaryMonolithicControlRequested);
     const bool staticBucketSecondaryIsolationSupported =
         IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
@@ -3519,7 +3520,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.spatialInfo[0] = static_cast<float>(idMath::ClampInt(1, 16, r_cleanDiSpatialSamples.GetInteger()));
         cleanConstants.spatialInfo[1] = static_cast<float>(idMath::ClampInt(1, 16, r_cleanDiSpatialDisocclusionSamples.GetInteger()));
         cleanConstants.spatialInfo[2] = idMath::ClampFloat(1.0f, 128.0f, r_cleanDiSpatialRadius.GetFloat());
-        cleanConstants.spatialInfo[3] = cleanSpatialRoute && cleanRtxdiDiSpatialEnabled ? 1.0f : 0.0f;
+        cleanConstants.spatialInfo[3] =
+            cleanSpatialRoute &&
+                cleanRtxdiDiSpatialEnabled &&
+                staticBucketSecondaryIsolation.spatialNeighborReuse
+            ? 1.0f
+            : 0.0f;
         commandList->setRayTracingState(cleanState);
 
         if (cleanRtxdiDiDumpRequested)
@@ -3566,10 +3572,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 // Keep the GEO-10 traversal probes exact regardless of the
                 // normal glass defaults. Only the straight-through
                 // transmission lane is admitted. Stages 10-16 isolate the
-                // legacy single-TraceRay path; stages 17-20 select the bounded
+                // legacy single-TraceRay path; stages 17-21 select the bounded
                 // forced-opaque iterative resolver. Stage 18 uses monolithic
-                // traversal; the others use buckets, with stages 19 and 20
-                // stopping after initial and temporal respectively.
+                // traversal; the others use buckets. Stages 19 and 20 stop
+                // after initial and temporal; stage 21 skips temporal and
+                // presents initial through spatial with neighbor reuse off.
                 psrConstants.flags &= ~(
                     CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR |
                     CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION |
@@ -3629,6 +3636,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     case 20:
                         staticBucketTransmissionMarker =
                             "GEO10.View16.Stage20 TransmissionIterativeResolveTemporal";
+                        break;
+                    case 21:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage21 TransmissionIterativeResolveInitialPresented";
                         break;
                     default:
                         staticBucketTransmissionMarker =
@@ -3815,7 +3826,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
         if (staticBucketSecondaryIsolationActive &&
             staticBucketSecondaryIsolation.initial &&
-            !staticBucketSecondaryIsolation.temporal)
+            !staticBucketSecondaryIsolation.temporal &&
+            !staticBucketSecondaryIsolation.spatial)
         {
             if (!m_smokeTestDispatched)
             {
@@ -3967,6 +3979,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     {
                         common->Printf(
                             "PathTracePrimaryPass: GEO-10 view-16 stage-18 bounded forced-opaque iterative transmission resolve against monolithic static traversal plus initial-temporal-spatial dispatch completed (%dx%d); maxInteractions=8, legacy any-hit skipped, post-DI transmission/glass composition and later consumers skipped\n",
+                            m_frameResources.width,
+                            m_frameResources.height);
+                    }
+                    else if (staticBucketSecondaryIsolation.stage == 21)
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-21 bucket bounded forced-opaque iterative transmission resolve plus initial-reservoir production presentation completed (%dx%d); maxInteractions=8, temporal=0, spatialNeighborReuse=0, legacy any-hit, post-DI composition, and later consumers skipped\n",
                             m_frameResources.width,
                             m_frameResources.height);
                     }

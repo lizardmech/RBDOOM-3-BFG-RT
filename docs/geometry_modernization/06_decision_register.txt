@@ -2600,12 +2600,58 @@ before map load.
 
 Offline implementation proof:
 
-  - route-2 stages 19/20 are admitted while route 0 and stage 21 are rejected;
+  - route-2 stages 19/20 are admitted while route 0 is rejected;
   - stage 20 retains transmission PSR, the bounded resolver, initial, and
     temporal while spatial pipeline creation/dispatch and composition remain
     false;
   - the normal CPU harness and 20-iteration stress run pass;
   - the Vulkan release build succeeds with all SPIR-V shaders up to date.
+
+D104. STAGE 20 REPRODUCES BEFORE SPATIAL; OPEN TEMPORAL-OFF PRESENTATION
+-------------------------------------------------------------------------------
+Stage 20 survives and presents the expected red/white temporal reservoir
+diagnostic. The user can still see the broken behind-glass geometry in that
+diagnostic. Spatial has not executed, so spatial neighbor reuse is rejected as
+the origin of the artifact. Do not add a normal spatial-consumer rung.
+
+The spatial production shader can instead serve only as a presenter. When
+`CleanRtxdiDiSpatialInfo.w <= 0.5`, `CleanSpatialReuse` returns the center
+reservoir unchanged; the shader then runs the normal `CleanResolve` path and
+writes production radiance to `PathTraceRRInputColor` and `SmokeOutput`.
+Initial already writes its reservoir to both current and temporal storage, so
+this presenter does not require a temporal dispatch.
+
+Open stage 21 with this exact sequence:
+
+  - retain route 2, full-resident publication, material-feature bindings,
+    transmission PSR, and the bounded bucket resolver;
+  - dispatch initial;
+  - skip temporal;
+  - dispatch the spatial production shader with neighbor reuse disabled;
+  - keep post-DI composition and every later consumer blocked.
+
+Interpretation:
+
+  - stage 21 visually correct: bucket reconstruction/publication is usable and
+    temporal processing corrupts or misinterprets the bucket identity;
+  - stage 21 repeats the artifact: the defect is already in bucket
+    reconstruction/publication before temporal. Stop consumer rungs and add
+    the explicit closest-hit versus replay tuple diagnostic;
+  - stage 21 device-removes: stop and treat production resolve/visibility as
+    the next GPU fault boundary.
+
+Stage 21 requires a fresh route-2 process. Do not change route or stage live.
+
+Offline implementation proof:
+
+  - route-2 stage 21 is admitted, route-0 stage 21 and stage 22 are rejected;
+  - the dispatch plan keeps initial, spatial production presentation,
+    material-feature bindings, transmission PSR, and the bounded resolver
+    enabled while temporal and spatial neighbor reuse are false;
+  - the initial-only early return now remains armed only when no spatial
+    presenter was requested;
+  - the normal CPU harness and 20-iteration stress run pass;
+  - the Vulkan release build succeeds with every SPIR-V shader up to date.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
