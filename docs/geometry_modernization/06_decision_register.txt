@@ -2457,6 +2457,37 @@ Offline proof:
     up to date. The transmission producer remains byte-identical to the
     deployed stage-17 blob, proving this rung changes CPU control only.
 
+D100. REJECT LIVE ROUTE SWITCHING AS A CONTROL; STAGE 18 REQUIRES A FRESH LOAD
+-------------------------------------------------------------------------------
+The first attempted stage-18 comparison is invalid. Route 2/stage 17 was
+already live when route mode was changed to 0. The scene then showed broadly
+swapped material textures while skinned geometry behaved differently, and
+changing route mode back to 2 removed the device.
+
+Inspection rejects the initial suspected shader branch:
+`PathTraceCleanRoomLoadNonStaticTriangleMaterialIndex` is poorly named but
+explicitly handles monolithic static instance 0, dynamic instance 1, skinned
+routes, and rigid routes. No concrete decoder patch is authorized by this
+run.
+
+The live switch itself changes TLAS instance identity, static-buffer ownership,
+and bucket publication while primary-surface and temporal records from the
+previous route remain live. It is therefore not an A/B and must not be
+repeated. Route changes during an active map are now outside the GEO-10 test
+contract.
+
+Repeat stage 18 only from a fresh process:
+
+  - set bucket BLAS allocation/build to 0;
+  - set route 0 and stage 18 before `loadgame doom3_1`;
+  - retain the stage-17 view/marker/GI/PDF-NEE/transmission controls;
+  - do not change route or stage after the map begins loading.
+
+Only that clean startup can distinguish bounded-resolver semantics from
+bucket-hit replay. If it still swaps materials, capture a log and treat the
+route-0 hit replay as a concrete decoder/input mismatch. If it is stable and
+visually correct, stage 17 remains localized to bucket replay.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
