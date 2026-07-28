@@ -1534,11 +1534,9 @@ bool PathTraceStaticBucketDetailDecalFacesPrimaryRay(
     return dot(outwardFaceNormal, WorldRayDirection()) < 0.0;
 }
 
-// Liquid candidates outlive any-hit and are reconstructed in raygen. Their
-// existing payload has no GeometryIndex field, so canonicalize a bucket hit to
-// one surface-record InstanceID and retain the original monolithic source
-// triangle as the primitive key. The record's source offset recovers the local
-// PrimitiveIndex without widening the payload.
+// Liquid candidates outlive any-hit and are reconstructed in raygen. A bucket
+// contains one BLAS geometry, so its hardware InstanceID plus bucket-local
+// PrimitiveIndex is already a complete stable replay tuple.
 bool PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
     uint canonicalInstanceId,
     uint sourceTriangleIndex,
@@ -3365,7 +3363,7 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                     ConditionallyStoreDetailDecalResolved(
                         payload,
                         materialIndex,
-                        resolved.identityPrimitiveIndex &
+                        resolved.staticAddress.triangleIndex &
                             0x3fffffffu,
                         InterpolateSmokeTexCoord(
                             lookupInstanceId,

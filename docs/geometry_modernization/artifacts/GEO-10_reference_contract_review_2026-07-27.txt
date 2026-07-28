@@ -1932,3 +1932,34 @@ Offline proof:
   SPIR-V changes                                       none
   deployed executable SHA-256
     6BB3595C94CFBE45A5458B25BEA6A72CE2779CF4767CE4802B75363003DDF565
+
+REF-10H SHADER-SIDE ADAPTATION
+------------------------------
+The local one-add decoder is now literal:
+
+  triangleIndex =
+      (InstanceID() & 0x007fffff) + PrimitiveIndex();
+
+The remaining checks are bounds checks on that one address, not namespace
+selection among geometry universes. GeometryIndex must be zero because every
+bucket BLAS has one geometry. The hardware InstanceID/PrimitiveIndex pair is
+also the replay identity, avoiding a new identity buffer or payload field.
+
+The former surface-record suffix is no longer uploaded to the bucket class
+buffer and is no longer referenced by HLSL. CPU-only surface/source data
+remains temporarily for emissive parity and audit construction.
+
+Compiler evidence:
+
+  rebuilt Vulkan outputs                               50
+  content changes                                      9
+  byte-identical transitive rebuilds                    41
+  spirv-val failures                                   0
+  aggregate changed-blob size                          10,009,820 -> 9,917,952
+  aggregate delta                                      -91,868 bytes
+  primary producer delta                               -9,776 bytes
+  largest individual reduction                         spatial debug, -31,412
+
+The size reductions confirm that deleting the surface-record decoder removes
+real compiled shader work rather than merely moving it behind another entry.
+Only the 9 content-changing Vulkan blobs were deployed.

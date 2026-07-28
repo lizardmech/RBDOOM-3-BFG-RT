@@ -1823,3 +1823,47 @@ Offline proof:
   SPIR-V rebuild/deployment                            none
   deployed executable SHA-256
     6BB3595C94CFBE45A5458B25BEA6A72CE2779CF4767CE4802B75363003DDF565
+
+REF-10H ARITHMETIC SHADER AND REPLAY CONTRACT - 2026-07-28
+----------------------------------------------------------
+The one-geometry bucket topology makes the shader identity contract:
+
+  hardware tuple       triangle-base InstanceID + bucket-local PrimitiveIndex
+  packed lookup        DecodeTriangleBase(InstanceID) + PrimitiveIndex
+  static decoder       instance 0 + packed triangle index
+  replay tuple         unchanged hardware tuple
+  detail-decal sort    packed triangle index
+  GeometryIndex        must equal 0
+
+This tuple is stable because the full resident pack is signature-cached and
+does not change when portal activity changes. CPU emissive parity retains the
+existing surface/source mapping for comparison and record construction; that
+mapping is no longer uploaded or decoded by hit shaders.
+
+`StaticBucketRouteInfo.y` now carries the resident packed triangle count. The
+shared HLSL resolver checks the namespace, base, GeometryIndex, global triangle
+range, index range, and vertex range, then performs the single base-plus-local
+addition. The four-word surface-record load and every surface namespace test
+are deleted.
+
+All live routes remain rejected during compilation and SPIR-V inspection.
+
+Offline proof:
+
+  affected Vulkan SPIR-V validation                    9/9 passed
+  affected SPIR-V aggregate size                       -91,868 bytes
+  primary producer size                                1,050,900 -> 1,041,124
+  spatial debug size                                   388,676 -> 357,264
+  spatial production size                              353,388 -> 329,884
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  changed Vulkan blobs deployed                        9
+  DX12 blobs built/deployed                            0/0
+  deployed executable SHA-256
+    5EE62D5E7B7B53695583E96F5A5B1D1FF8E1D87782C97BF36CA6163087DDBA12
+
+Every rebuilt blob has an mtime newer than
+`PathTraceStaticBucketRoute.hlsli`. The long first build rebuilt 50 transitive
+Vulkan outputs; 41 were byte-identical to the deployed copies and were not
+copied. The CPU publication field is also renamed from the obsolete
+`staticBucketSurfaceRecordCount` to `staticBucketTriangleCount`.

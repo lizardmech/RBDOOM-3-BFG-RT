@@ -1568,6 +1568,28 @@ Verification:
   deployed executable SHA-256
     6BB3595C94CFBE45A5458B25BEA6A72CE2779CF4767CE4802B75363003DDF565
 
+D71. USE THE HARDWARE BUCKET TUPLE AS THE REPLAY IDENTITY
+---------------------------------------------------------
+Decision: after D70, retain the bucket TLAS InstanceID and bucket-local
+PrimitiveIndex in primary/DI replay records. Resolve all static data through
+`triangleBase + primitiveIndex`. Use that packed triangle index for detail
+decal ordering.
+
+The full resident pack is stable across portal-active changes, so this tuple
+does not need a separate GPU source-identity table. CPU emissive audit and
+record construction may keep the legacy surface/source map, but hit shaders
+must not read it. `StaticBucketRouteInfo.y` is reinterpreted as the resident
+packed triangle count.
+
+Verification:
+
+  spirv-val --target-env vulkan1.2                    9/9 passed
+  affected SPIR-V aggregate delta                      -91,868 bytes
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  executable SHA-256
+    5EE62D5E7B7B53695583E96F5A5B1D1FF8E1D87782C97BF36CA6163087DDBA12
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

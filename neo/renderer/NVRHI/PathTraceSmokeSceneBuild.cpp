@@ -12877,23 +12877,23 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.skinnedPreviousJointMatrixBuffer = smokeSkinnedPreviousJointMatrixBuffer;
     sceneInputs.geometry.staticBucketRouteFirstInstanceId =
         RT_PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE;
-    sceneInputs.geometry.staticBucketSurfaceRecordCount =
+    sceneInputs.geometry.staticBucketTriangleCount =
         staticBucketRouteAccepted &&
             staticBucketFramePublication.activePublication.valid &&
             staticBucketFramePublication.materialIndexUploaded &&
             staticBucketFramePublication.geometryPack
             ? static_cast<uint32_t>(
                 staticBucketFramePublication.
-                    geometryPack->surfaceRecords.size())
+                    geometryPack->triangleClasses.size())
             : 0u;
     sceneInputs.geometry.staticBucketRouteGeneration =
-        sceneInputs.geometry.staticBucketSurfaceRecordCount > 0
+        sceneInputs.geometry.staticBucketTriangleCount > 0
             ? staticBucketFramePublication.
                 activePublication.publicationGeneration
             : 0u;
     sceneInputs.geometry.staticBucketRoutePublicationValid =
         staticBucketRouteAccepted &&
-        sceneInputs.geometry.staticBucketSurfaceRecordCount > 0 &&
+        sceneInputs.geometry.staticBucketTriangleCount > 0 &&
         staticBucketFramePublication.activePublication.valid &&
         staticBucketFramePublication.materialIndexUploaded;
     sceneInputs.geometry.staticVertexCount =

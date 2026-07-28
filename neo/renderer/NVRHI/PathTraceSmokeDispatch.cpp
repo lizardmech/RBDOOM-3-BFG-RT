@@ -1952,7 +1952,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.staticBucketRouteInfo[1] =
                 m_sceneInputs.geometry.staticBucketRoutePublicationValid
                     ? m_sceneInputs.geometry.
-                        staticBucketSurfaceRecordCount
+                        staticBucketTriangleCount
                     : 0u;
             primarySurfaceConstants.staticBucketRouteInfo[2] =
                 static_cast<uint32_t>(
@@ -2584,7 +2584,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             pdfNeeProducerConstants.staticBucketRouteInfo[1] =
                 m_sceneInputs.geometry.staticBucketRoutePublicationValid
                     ? m_sceneInputs.geometry.
-                        staticBucketSurfaceRecordCount
+                        staticBucketTriangleCount
                     : 0u;
             pdfNeeProducerConstants.staticBucketRouteInfo[2] =
                 static_cast<uint32_t>(
@@ -3358,7 +3358,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.staticBucketRouteInfo[1] =
             m_sceneInputs.geometry.staticBucketRoutePublicationValid
                 ? m_sceneInputs.geometry.
-                    staticBucketSurfaceRecordCount
+                    staticBucketTriangleCount
                 : 0u;
         cleanConstants.staticBucketRouteInfo[2] =
             static_cast<uint32_t>(
@@ -4822,7 +4822,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.staticBucketRouteInfo[1] =
         m_sceneInputs.geometry.staticBucketRoutePublicationValid
             ? m_sceneInputs.geometry.
-                staticBucketSurfaceRecordCount
+                staticBucketTriangleCount
             : 0u;
     constants.staticBucketRouteInfo[2] =
         static_cast<uint32_t>(

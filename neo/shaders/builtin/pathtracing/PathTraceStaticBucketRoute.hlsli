@@ -1,28 +1,22 @@
 #ifndef PATH_TRACE_STATIC_BUCKET_ROUTE_HLSLI
 #define PATH_TRACE_STATIC_BUCKET_ROUTE_HLSLI
 
-// GEO-10 resident-pool route. Bucket BLASes use the existing static
-// t3/t4/t5/t9/t11 pool and contribution-0/1 hit records. The upper bit of the
-// 24-bit InstanceID identifies a bucket; the lower 23 bits encode its first
-// resident surface record. GeometryIndex selects the surface and
-// PrimitiveIndex selects a surface-local triangle. No bucket-specific
-// descriptor or route-record read is required in the hit path.
+// GEO-10 resident-pool route. Every bucket BLAS contains one geometry over a
+// contiguous range of the existing static t3/t4/t5/t9/t11 pool. The upper bit
+// of the 24-bit InstanceID identifies a bucket and the lower 23 bits encode
+// its packed triangle base. PrimitiveIndex is bucket-local, so one addition
+// recovers the established static-pool triangle address. GeometryIndex must be
+// zero and no descriptor, route-record, or surface-record read is required.
 #ifndef RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
 #define RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS 0
 #endif
 
 static const uint PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE =
     0x00800000u;
-static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_OFFSET_MASK =
+static const uint PATH_TRACE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK =
     0x007fffffu;
 static const uint PATH_TRACE_SHADER_INSTANCE_ID_MASK =
     0x00ffffffu;
-static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID = 1u;
-static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT =
-    1u;
-static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK =
-    (1u << PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT) - 1u;
-static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS = 4u;
 
 #define SmokeStaticBucketVertices SmokeStaticVertices
 #define SmokeStaticBucketIndices SmokeStaticIndices
@@ -30,8 +24,8 @@ static const uint PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS = 4u;
 #define SmokeStaticBucketTriangleMaterials SmokeStaticTriangleMaterials
 #define SmokeStaticBucketTriangleMaterialIndexes SmokeStaticTriangleMaterialIndexes
 
-// Compatibility shape for existing consumers. The arithmetic route only
-// populates fields that those consumers read; it is not a GPU buffer ABI.
+// Compatibility shape for consumers that still use the shared routed-static
+// helper signature. It is not a GPU buffer ABI.
 struct PathTraceStaticBucketRouteRecord
 {
     uint instanceId;
@@ -50,7 +44,7 @@ struct PathTraceStaticBucketRouteRecord
 
 struct PathTraceStaticGeometryAddress
 {
-    uint surfaceRecordIndex;
+    uint triangleBase;
     uint triangleIndex;
     uint sourceTriangleIndex;
     uint indexOffset;
@@ -61,9 +55,9 @@ struct PathTraceStaticGeometryAddress
 bool PathTraceStaticBucketInstanceInPublishedRange(
     uint instanceId,
     uint4 routeInfo,
-    out uint surfaceRecordBase)
+    out uint triangleBase)
 {
-    surfaceRecordBase = 0u;
+    triangleBase = 0u;
 #if !RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
     return false;
 #else
@@ -75,10 +69,10 @@ bool PathTraceStaticBucketInstanceInPublishedRange(
         return false;
     }
 
-    surfaceRecordBase =
+    triangleBase =
         instanceId &
-        PATH_TRACE_STATIC_BUCKET_SURFACE_OFFSET_MASK;
-    return true;
+        PATH_TRACE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK;
+    return triangleBase < routeInfo.y;
 #endif
 }
 
@@ -86,11 +80,11 @@ bool PathTraceIsStaticBucketRouteInstance(
     uint instanceId,
     uint4 routeInfo)
 {
-    uint surfaceRecordBase = 0u;
+    uint triangleBase = 0u;
     return PathTraceStaticBucketInstanceInPublishedRange(
         instanceId,
         routeInfo,
-        surfaceRecordBase);
+        triangleBase);
 }
 
 bool PathTraceTryResolveStaticBucketGeometryAddress(
@@ -107,70 +101,25 @@ bool PathTraceTryResolveStaticBucketGeometryAddress(
 #if !RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
     return false;
 #else
-    uint surfaceRecordBase = 0u;
+    uint triangleBase = 0u;
     if (!PathTraceStaticBucketInstanceInPublishedRange(
             instanceId,
             routeInfo,
-            surfaceRecordBase) ||
-        geometryIndex >
-            PATH_TRACE_STATIC_BUCKET_SURFACE_OFFSET_MASK -
-                surfaceRecordBase)
+            triangleBase) ||
+        geometryIndex != 0u ||
+        triangleBase >= staticTriangleCount ||
+        primitiveIndex >= staticTriangleCount - triangleBase)
     {
         return false;
     }
 
-    const uint surfaceRecordIndex =
-        surfaceRecordBase + geometryIndex;
-    if (surfaceRecordIndex >= routeInfo.y ||
-        surfaceRecordIndex >
-            (0xffffffffu - staticTriangleCount) /
-                PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS)
+    const uint triangleIndex = triangleBase + primitiveIndex;
+    if (triangleIndex > (0xffffffffu - 2u) / 3u)
     {
         return false;
     }
-
-    const uint surfaceRecordWord =
-        staticTriangleCount +
-        surfaceRecordIndex *
-            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS;
-    const uint indexOffset =
-        SmokeStaticTriangleClasses[surfaceRecordWord + 0u];
-    const uint triangleOffset =
-        SmokeStaticTriangleClasses[surfaceRecordWord + 1u];
-    const uint triangleCount =
-        SmokeStaticTriangleClasses[surfaceRecordWord + 2u];
-    const uint flags =
-        SmokeStaticTriangleClasses[surfaceRecordWord + 3u];
-    if ((flags &
-            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK) !=
-            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID ||
-        primitiveIndex >= triangleCount ||
-        triangleOffset > staticTriangleCount ||
-        primitiveIndex >
-            staticTriangleCount - triangleOffset ||
-        indexOffset > staticIndexCount ||
-        primitiveIndex >
-            (staticIndexCount - indexOffset) / 3u)
-    {
-        return false;
-    }
-
-    const uint triangleIndex =
-        triangleOffset + primitiveIndex;
-    const uint sourceTriangleOffset =
-        flags >>
-        PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
-    if (primitiveIndex >
-        0xffffffffu - sourceTriangleOffset)
-    {
-        return false;
-    }
-    const uint sourceTriangleIndex =
-        sourceTriangleOffset + primitiveIndex;
-    const uint packedIndexOffset =
-        indexOffset + primitiveIndex * 3u;
-    if (triangleIndex >= staticTriangleCount ||
-        packedIndexOffset > staticIndexCount ||
+    const uint packedIndexOffset = triangleIndex * 3u;
+    if (packedIndexOffset >= staticIndexCount ||
         staticIndexCount - packedIndexOffset < 3u)
     {
         return false;
@@ -185,11 +134,13 @@ bool PathTraceTryResolveStaticBucketGeometryAddress(
         return false;
     }
 
-    address.surfaceRecordIndex = surfaceRecordIndex;
+    address.triangleBase = triangleBase;
     address.triangleIndex = triangleIndex;
-    address.sourceTriangleIndex = sourceTriangleIndex;
+    // The stable replay identity is the hardware bucket-local primitive. CPU
+    // audit code retains the separate monolithic-source mapping.
+    address.sourceTriangleIndex = primitiveIndex;
     address.indexOffset = packedIndexOffset;
-    address.triangleCount = triangleCount;
+    address.triangleCount = staticTriangleCount - triangleBase;
     address.vertexIndexes = vertexIndexes;
     return true;
 #endif
@@ -200,14 +151,12 @@ uint PathTraceStaticBucketCanonicalSurfaceInstanceId(
     PathTraceStaticGeometryAddress address)
 {
     return PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE |
-        address.surfaceRecordIndex;
+        address.triangleBase;
 }
 
-// Replays a canonical surface/source tuple after the hit stage has discarded
-// GeometryIndex. The canonical InstanceID names exactly one surface record, so
-// GeometryIndex is zero and the record's authored source offset recovers the
-// surface-local PrimitiveIndex. This is also the address stored by static
-// emissive records.
+// Replay uses the same bucket InstanceID plus bucket-local PrimitiveIndex that
+// the hit stage received. The legacy name is retained temporarily so consumer
+// edits stay mechanical while the surface-record route is removed.
 bool PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
     uint canonicalInstanceId,
     uint sourceTriangleIndex,
@@ -217,58 +166,20 @@ bool PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
     uint staticTriangleCount,
     out PathTraceStaticGeometryAddress address)
 {
-    address = (PathTraceStaticGeometryAddress)0;
-    uint surfaceRecordIndex = 0u;
-    if (!PathTraceStaticBucketInstanceInPublishedRange(
-            canonicalInstanceId,
-            routeInfo,
-            surfaceRecordIndex) ||
-        surfaceRecordIndex >= routeInfo.y ||
-        surfaceRecordIndex >
-            (0xffffffffu - staticTriangleCount) /
-                PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS)
-    {
-        return false;
-    }
-
-    const uint surfaceRecordWord =
-        staticTriangleCount +
-        surfaceRecordIndex *
-            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS;
-    const uint flags =
-        SmokeStaticTriangleClasses[surfaceRecordWord + 3u];
-    if ((flags &
-            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK) !=
-            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID)
-    {
-        return false;
-    }
-
-    const uint sourceTriangleOffset =
-        flags >>
-        PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
-    if (sourceTriangleIndex < sourceTriangleOffset)
-    {
-        return false;
-    }
-
     return PathTraceTryResolveStaticBucketGeometryAddress(
-            canonicalInstanceId,
-            0u,
-            sourceTriangleIndex - sourceTriangleOffset,
-            routeInfo,
-            staticVertexCount,
-            staticIndexCount,
-            staticTriangleCount,
-            address) &&
-        address.surfaceRecordIndex == surfaceRecordIndex &&
-        address.sourceTriangleIndex == sourceTriangleIndex;
+        canonicalInstanceId,
+        0u,
+        sourceTriangleIndex,
+        routeInfo,
+        staticVertexCount,
+        staticIndexCount,
+        staticTriangleCount,
+        address);
 }
 #endif
 
-// Transitional compatibility wrapper for consumers that have not yet moved
-// GeometryIndex into their hit-entry address. It intentionally fails closed;
-// the old triangle-base interpretation is not valid for multi-geometry BLASes.
+// Transitional compatibility wrapper for consumers compiled without bucket
+// support. A supported entry point supplies its explicit-count wrapper.
 bool PathTraceTryLoadStaticBucketTriangleRoute(
     uint instanceId,
     uint primitiveIndex,

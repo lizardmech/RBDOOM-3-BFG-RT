@@ -180,7 +180,7 @@ struct RtPathTraceSceneInputGeometry
     bool skinnedGpuComputeDispatched = false;
     bool skinnedGpuComputeWritesPreviousPositions = false;
     uint32_t staticBucketRouteFirstInstanceId = 0;
-    uint32_t staticBucketSurfaceRecordCount = 0;
+    uint32_t staticBucketTriangleCount = 0;
     uint64_t staticBucketRouteGeneration = 0;
     bool staticBucketRoutePublicationValid = false;
     uint32_t capabilityFlags = 0;
