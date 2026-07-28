@@ -268,6 +268,8 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
     if (!geometryPack.exact ||
         !publication.valid ||
         publication.routeRecords.size() != geometryPack.buckets.size() ||
+        publication.activeBucketMask.size() !=
+            geometryPack.buckets.size() ||
         geometryPack.vertexBytes.empty() ||
         (geometryPack.vertexBytes.size() %
             sizeof(PathTraceSmokeVertex)) != 0)
@@ -289,7 +291,7 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
     {
         const RtSmokeStaticBucketPackedRecord& bucket =
             geometryPack.buckets[routeIndex];
-        if (!bucket.active)
+        if (publication.activeBucketMask[routeIndex] == 0u)
         {
             continue;
         }
@@ -325,7 +327,10 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
             route.indexCount == route.triangleCount * 3u &&
             indexEnd <= geometryPack.indexes.size() &&
             triangleEnd <= geometryPack.triangleClasses.size() &&
-            triangleEnd <= triangleMaterialIndexes.size();
+            triangleEnd <= triangleMaterialIndexes.size() &&
+            static_cast<uint64_t>(bucket.firstSurfaceRecord) +
+                    static_cast<uint64_t>(bucket.surfaceRecordCount) <=
+                geometryPack.surfaceRecords.size();
         if (!routeMatchesBucket)
         {
             stats.skippedInvalidMaterialTriangles +=
@@ -346,6 +351,76 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
                 route.triangleOffset,
             triangleMaterialIndexes.begin() +
                 triangleEnd);
+        std::vector<uint32_t> bucketIdentityInstanceIds(
+            route.triangleCount,
+            0u);
+        std::vector<uint32_t> bucketIdentityPrimitiveIds;
+        bucketIdentityPrimitiveIds.assign(
+            route.triangleCount,
+            UINT32_MAX);
+        bool identityCoverageExact = true;
+        const uint32_t surfaceRecordEnd =
+            bucket.firstSurfaceRecord +
+            bucket.surfaceRecordCount;
+        for (uint32_t surfaceRecordIndex =
+                 bucket.firstSurfaceRecord;
+             surfaceRecordIndex < surfaceRecordEnd;
+             ++surfaceRecordIndex)
+        {
+            const RtSmokeStaticBucketSurfaceRecord& surfaceRecord =
+                geometryPack.surfaceRecords[surfaceRecordIndex];
+            const uint32_t sourceTriangleOffset =
+                surfaceRecord.flags >>
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
+            if ((surfaceRecord.flags &
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK) !=
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID ||
+                surfaceRecord.triangleOffset < route.triangleOffset ||
+                surfaceRecord.triangleOffset >
+                    triangleEnd ||
+                surfaceRecord.triangleCount >
+                    triangleEnd -
+                        surfaceRecord.triangleOffset)
+            {
+                identityCoverageExact = false;
+                break;
+            }
+            const uint32_t bucketTriangleOffset =
+                surfaceRecord.triangleOffset -
+                route.triangleOffset;
+            for (uint32_t localPrimitiveIndex = 0;
+                 localPrimitiveIndex <
+                    surfaceRecord.triangleCount;
+                 ++localPrimitiveIndex)
+            {
+                if (localPrimitiveIndex >
+                    UINT32_MAX - sourceTriangleOffset)
+                {
+                    identityCoverageExact = false;
+                    break;
+                }
+                bucketIdentityPrimitiveIds[
+                    bucketTriangleOffset +
+                        localPrimitiveIndex] =
+                    sourceTriangleOffset +
+                        localPrimitiveIndex;
+            }
+            if (!identityCoverageExact)
+            {
+                break;
+            }
+        }
+        if (!identityCoverageExact ||
+            std::find(
+                bucketIdentityPrimitiveIds.begin(),
+                bucketIdentityPrimitiveIds.end(),
+                UINT32_MAX) !=
+                bucketIdentityPrimitiveIds.end())
+        {
+            stats.skippedInvalidMaterialTriangles +=
+                static_cast<int>(route.triangleCount);
+            continue;
+        }
         AppendSmokeEmissiveInventoryForGeometry(
             materialIds,
             materials,
@@ -354,8 +429,8 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
             bucketTriangleClasses,
             bucketMaterialIndexes,
             route.instanceId,
-            nullptr,
-            nullptr,
+            &bucketIdentityInstanceIds,
+            &bucketIdentityPrimitiveIds,
             emissiveMaterialFlag,
             triangleClassMask,
             skinnedSurfaceClassId,

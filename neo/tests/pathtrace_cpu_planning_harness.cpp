@@ -2357,8 +2357,19 @@ void TestStaticBucketAssignmentPlan()
             pack.triangleIdentities[1].surfaceKey == 10 &&
             pack.triangleIdentities[1].sourcePrimitiveIndex == 1 &&
             pack.triangleIdentities[2].surfaceKey == 20 &&
-            pack.triangleIdentities[4].surfaceKey == 30,
+            pack.triangleIdentities[2].sourcePrimitiveIndex == 0 &&
+            pack.triangleIdentities[3].sourcePrimitiveIndex == 1 &&
+            pack.triangleIdentities[4].surfaceKey == 30 &&
+            pack.triangleIdentities[4].sourcePrimitiveIndex == 0,
         "static bucket geometry pack preserves surface-local primitive identity");
+    const uint32_t secondSurfaceSourceTriangleOffset =
+        pack.surfaceRecords[1].flags >>
+        RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
+    Check(
+        secondSurfaceSourceTriangleOffset == 2 &&
+            secondSurfaceSourceTriangleOffset +
+                pack.triangleIdentities[3].sourcePrimitiveIndex == 3,
+        "static bucket surface record plus local primitive recovers monolithic emissive identity");
     Check(
         pack.surfaceRecords.size() == 3 &&
             pack.buckets[0].firstSurfaceRecord == 0 &&

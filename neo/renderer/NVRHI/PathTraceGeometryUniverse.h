@@ -844,6 +844,7 @@ struct RtPathTraceStaticBucketActivePublication
     bool activeSetExact = false;
     bool valid = false;
     bool mixedEpochRejected = false;
+    std::vector<uint8_t> activeBucketMask;
     std::vector<nvrhi::rt::InstanceDesc> tlasInstances;
     std::vector<RtPathTraceStaticBucketRouteRecord> routeRecords;
 };
@@ -965,7 +966,8 @@ public:
             uint64 storageGeneration,
             uint64 materialGeneration,
             int missingActiveMaterialIndexes,
-            uint32_t instanceMask) const;
+            uint32_t instanceMask,
+            const std::vector<bool>* activePortalAreas = nullptr) const;
     bool UpdateStaticBucketMaterialIndexGpuScaffold(
         nvrhi::IDevice* device,
         nvrhi::ICommandList* commandList,

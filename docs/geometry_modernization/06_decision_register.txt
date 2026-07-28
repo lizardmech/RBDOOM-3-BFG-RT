@@ -1097,6 +1097,22 @@ hits. The resolved material-binding signature remained constant across every
 settled sample, missing indexes remained zero, and 22 exact 56/56 cutover
 samples completed without device or validation errors.
 
+D58. COMPARE STATIC EMISSIVE REPLAY ON THE SAME PORTAL MASK AND SOURCE IDENTITY
+-------------------------------------------------------------------------------
+Decision: REF-9F remains shadow-only until a bucket emissive inventory matches
+the monolithic static inventory on the original portal-area selection, not the
+route-2 all-resident diagnostic set. The active publication owns an explicit
+resident-length bucket mask so CPU consumers do not infer membership from the
+full-resident geometry pack.
+
+Bucket emissive temporal identity is the monolithic tuple. The packed surface
+record supplies the original source-triangle offset and the surface-local
+primitive supplies the addend; bucket InstanceID and packed primitive order
+must not enter the identity hash. Acceptance requires equal unique identity
+sets, zero missing/extra/zero/collision identities, zero invalid triangles,
+and a valid portal-mask publication. This rung changes no shader, descriptor,
+SBT, TLAS submission, live emissive source, or route default.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

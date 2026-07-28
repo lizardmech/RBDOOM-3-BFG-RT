@@ -1078,3 +1078,39 @@ The repeat passed. After the expected cold build and first hydrated remap,
 The hydrated binding signature never changed. Exact 56/56 TLAS/route
 publication appeared in 22 settled samples, and the log contained no
 device-removal or validation error. REF-11A is accepted.
+
+REF-9F PORTAL-MATCHED STATIC EMISSIVE SHADOW AUDIT - 2026-07-28
+---------------------------------------------------------------
+The old audit compared the monolithic portal-selected inventory with route 2's
+all-resident 56-bucket set, producing a meaningless 4/503 count. REF-9F keeps
+the all-resident primary probe unchanged but builds a second CPU publication
+from the original portal mask. The publication carries an explicit active
+bucket mask consumed by emissive replay.
+
+Bucket emissive hashes now reconstruct route-0 identity from each packed
+surface record's source-triangle offset plus its surface-local primitive.
+Bucket InstanceID and packed ordering remain traversal data only. The live
+emissive source is still monolithic; this is exact shadow comparison evidence.
+
+Offline proof:
+
+  full win64-pt-dev-release build                    passed
+  explicit PathTraceCpuPlanningHarness target       passed
+  PathTraceCpuPlanningHarness --stress 20           passed
+  source-offset + local-primitive identity case     passed
+  Vulkan shader rebuilds                             0
+  DX12 shader rebuilds                               0
+  executable SHA-256
+    6DD492281F38D9AC514E2871CE3824AD0949C4C784076F5F7D6DB6C76D79A25A
+
+Runtime test:
+
+  1. Keep the accepted route-2/BLAS settings and let 56/56 settle.
+  2. Set `r_pathTracingGeometryStaticBucketAudit 1`.
+  3. Find `GEO10 static bucket emissive identity`.
+  4. Require `exact=1`, `portalPublicationValid=1`, equal monolithic/bucket
+     identity counts, and all zero/collision/missing/extra/invalid values zero.
+  5. The emissive route count may be smaller than 56 because it intentionally
+     uses the current portal mask.
+  6. Reject device loss or any visual regression, although no live route or
+     shader changed in this rung.

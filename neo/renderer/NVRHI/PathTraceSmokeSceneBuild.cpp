@@ -6012,6 +6012,8 @@ struct RtSmokeStaticBucketFramePublication
     RtPathTraceStaticBucketBlasGpuStats gpuStats;
     RtSmokeStaticBucketWorkPlan shadowWorkPlan;
     RtPathTraceStaticBucketActivePublication activePublication;
+    RtPathTraceStaticBucketActivePublication portalActivePublication;
+    std::vector<bool> portalActiveAreas;
 };
 
 RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
@@ -6062,14 +6064,15 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
         viewDef && viewDef->renderWorld
             ? viewDef->renderWorld->NumAreas()
             : 0;
-    std::vector<bool> activeAreas;
     frame.portalMaskValid = sceneUniverse.BuildPortalAreaActiveMask(
         viewDef,
         idMath::ClampInt(
             0,
             8,
             r_pathTracingGeometryStaticBucketPortalSteps.GetInteger()),
-        activeAreas);
+        frame.portalActiveAreas);
+    std::vector<bool> activeAreas =
+        frame.portalActiveAreas;
     frame.activeMaskValid = frame.portalMaskValid;
     // Route mode 2 is a decoder-only diagnostic. Keep every resident bucket
     // addressable so portal-neighborhood policy cannot masquerade as a shader
@@ -6191,6 +6194,45 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
             frame.universeStats.staticMaterialGeneration,
             frame.missingActiveMaterialIndexes,
             0x01u);
+    if (frame.auditRequested &&
+        frame.portalMaskValid)
+    {
+        int portalMissingMaterialIndexes = 0;
+        for (size_t bucketIndex = 0;
+             bucketIndex < geometryPack.buckets.size();
+             ++bucketIndex)
+        {
+            const RtSmokeStaticBucketPackedRecord& bucket =
+                geometryPack.buckets[bucketIndex];
+            const bool bucketActive =
+                bucket.portalArea ==
+                    RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA ||
+                (bucket.portalArea >= 0 &&
+                    bucket.portalArea <
+                        static_cast<int>(
+                            frame.portalActiveAreas.size()) &&
+                    frame.portalActiveAreas[
+                        bucket.portalArea]);
+            if (bucketActive)
+            {
+                portalMissingMaterialIndexes +=
+                    (*missingMaterialIndexesByBucket)[
+                        bucketIndex];
+            }
+        }
+        frame.portalActivePublication =
+            staticBucketGeometryUniverse.
+                BuildStaticBucketActivePublication(
+                    geometryPack,
+                    frame.sourceGeneration,
+                    frame.universeStats.
+                        staticGeometryGeneration,
+                    frame.universeStats.
+                        staticMaterialGeneration,
+                    portalMissingMaterialIndexes,
+                    0x01u,
+                    &frame.portalActiveAreas);
+    }
     frame.materialIndexUploaded =
         staticBucketGeometryUniverse.UpdateStaticBucketMaterialIndexGpuScaffold(
             device,
@@ -8212,7 +8254,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 materialTable.materials,
                 *staticBucketFramePublication.geometryPack,
                 *staticBucketFramePublication.materialIndexes,
-                staticBucketFramePublication.activePublication,
+                staticBucketFramePublication.
+                    portalActivePublication,
                 RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
                 RT_SMOKE_TRIANGLE_CLASS_MASK,
                 static_cast<uint32_t>(
@@ -8222,8 +8265,34 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 staticBucketEmissiveStats);
             std::unordered_set<uint64_t>
                 staticBucketEmissiveIdentities;
+            std::unordered_set<uint64_t>
+                monolithicStaticEmissiveIdentities;
             int staticBucketEmissiveZeroIdentities = 0;
             int staticBucketEmissiveIdentityCollisions = 0;
+            int monolithicStaticEmissiveZeroIdentities = 0;
+            int monolithicStaticEmissiveIdentityCollisions = 0;
+            for (const PathTraceSmokeEmissiveTriangle& record :
+                 emissiveTriangles)
+            {
+                if (record.instanceId != 0u)
+                {
+                    continue;
+                }
+                const uint64_t identity =
+                    static_cast<uint64_t>(
+                        record.identityHashLo) |
+                    (static_cast<uint64_t>(
+                        record.identityHashHi) << 32);
+                if (identity == 0)
+                {
+                    ++monolithicStaticEmissiveZeroIdentities;
+                }
+                else if (!monolithicStaticEmissiveIdentities.
+                    insert(identity).second)
+                {
+                    ++monolithicStaticEmissiveIdentityCollisions;
+                }
+            }
             for (const PathTraceSmokeEmissiveTriangle& record :
                  staticBucketEmissiveTriangles)
             {
@@ -8241,23 +8310,65 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     ++staticBucketEmissiveIdentityCollisions;
                 }
             }
-            common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket emissive identity publicationValid=%d routes(active/resident)=%d/%zu triangles(monolithic/bucket/captured/invalid)=%d/%d/%d/%d identities(zero/collision)=%d/%d traversal=shadow-only\n",
+            int staticBucketEmissiveMissingIdentities = 0;
+            for (uint64_t identity :
+                 monolithicStaticEmissiveIdentities)
+            {
+                if (staticBucketEmissiveIdentities.find(identity) ==
+                    staticBucketEmissiveIdentities.end())
+                {
+                    ++staticBucketEmissiveMissingIdentities;
+                }
+            }
+            int staticBucketEmissiveExtraIdentities = 0;
+            for (uint64_t identity :
+                 staticBucketEmissiveIdentities)
+            {
+                if (monolithicStaticEmissiveIdentities.find(identity) ==
+                    monolithicStaticEmissiveIdentities.end())
+                {
+                    ++staticBucketEmissiveExtraIdentities;
+                }
+            }
+            const bool staticBucketEmissiveIdentityExact =
                 staticBucketFramePublication.
-                    activePublication.valid
+                    portalActivePublication.valid &&
+                monolithicStaticEmissiveZeroIdentities == 0 &&
+                staticBucketEmissiveZeroIdentities == 0 &&
+                monolithicStaticEmissiveIdentityCollisions == 0 &&
+                staticBucketEmissiveIdentityCollisions == 0 &&
+                staticBucketEmissiveMissingIdentities == 0 &&
+                staticBucketEmissiveExtraIdentities == 0 &&
+                staticBucketEmissiveStats.
+                    skippedInvalidMaterialTriangles == 0 &&
+                staticBucketEmissiveStats.staticTriangles ==
+                    emissiveInventoryStats.staticTriangles &&
+                monolithicStaticEmissiveIdentities.size() ==
+                    staticBucketEmissiveIdentities.size();
+            common->Printf(
+                "PathTracePrimaryPass: GEO10 static bucket emissive identity exact=%d portalPublicationValid=%d routes(active/resident)=%d/%zu triangles(monolithic/bucket/captured/invalid)=%d/%d/%d/%d identities(monolithic/bucket/zeroMonolithic/zeroBucket/collisionMonolithic/collisionBucket/missing/extra)=%zu/%zu/%d/%d/%d/%d/%d/%d traversal=portal-mask-shadow-only\n",
+                staticBucketEmissiveIdentityExact ? 1 : 0,
+                staticBucketFramePublication.
+                    portalActivePublication.valid
                         ? 1
                         : 0,
                 staticBucketFramePublication.
-                    activePublication.activeBuckets,
+                    portalActivePublication.activeBuckets,
                 staticBucketFramePublication.
-                    activePublication.routeRecords.size(),
+                    portalActivePublication.routeRecords.size(),
                 emissiveInventoryStats.staticTriangles,
                 staticBucketEmissiveStats.staticTriangles,
                 staticBucketEmissiveStats.capturedTriangles,
                 staticBucketEmissiveStats.
                     skippedInvalidMaterialTriangles,
+                monolithicStaticEmissiveIdentities.size(),
+                staticBucketEmissiveIdentities.size(),
+                monolithicStaticEmissiveZeroIdentities,
                 staticBucketEmissiveZeroIdentities,
-                staticBucketEmissiveIdentityCollisions);
+                monolithicStaticEmissiveIdentityCollisions,
+                staticBucketEmissiveIdentityCollisions,
+                staticBucketEmissiveMissingIdentities,
+                staticBucketEmissiveExtraIdentities);
         }
         if (enableRigidRouteForMode && (cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives))
         {

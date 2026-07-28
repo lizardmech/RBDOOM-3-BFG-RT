@@ -4359,7 +4359,8 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
     uint64 storageGeneration,
     uint64 materialGeneration,
     int missingActiveMaterialIndexes,
-    uint32_t instanceMask) const
+    uint32_t instanceMask,
+    const std::vector<bool>* activePortalAreas) const
 {
     RtPathTraceStaticBucketActivePublication publication;
     publication.sourceGeneration = sourceGeneration;
@@ -4371,13 +4372,31 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
         geometryPack.contentSignature;
     publication.residentBuckets =
         static_cast<int>(geometryPack.buckets.size());
+    publication.activeBucketMask.assign(
+        geometryPack.buckets.size(),
+        0u);
     publication.activeSetSignature =
         14695981039346656037ull;
 
-    for (const RtSmokeStaticBucketPackedRecord& bucket :
-        geometryPack.buckets)
+    for (size_t bucketIndex = 0;
+         bucketIndex < geometryPack.buckets.size();
+         ++bucketIndex)
     {
-        if (bucket.active)
+        const RtSmokeStaticBucketPackedRecord& bucket =
+            geometryPack.buckets[bucketIndex];
+        const bool bucketActive =
+            activePortalAreas
+                ? (bucket.portalArea ==
+                        RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA ||
+                    (bucket.portalArea >= 0 &&
+                        bucket.portalArea <
+                            static_cast<int>(
+                                activePortalAreas->size()) &&
+                        (*activePortalAreas)[bucket.portalArea]))
+                : bucket.active;
+        publication.activeBucketMask[bucketIndex] =
+            bucketActive ? 1u : 0u;
+        if (bucketActive)
         {
             ++publication.activeBuckets;
             publication.activeSetSignature = HashSmokeBytes(
@@ -4413,7 +4432,7 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
             ++publication.instanceIdOverflow;
             continue;
         }
-        if (!bucket.active)
+        if (!bucketActive)
         {
             continue;
         }
@@ -4488,9 +4507,14 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
         publication.activeBuckets);
     publication.routeRecords.reserve(
         publication.residentBuckets);
-    for (const RtSmokeStaticBucketPackedRecord& bucket :
-        geometryPack.buckets)
+    for (size_t bucketIndex = 0;
+         bucketIndex < geometryPack.buckets.size();
+         ++bucketIndex)
     {
+        const RtSmokeStaticBucketPackedRecord& bucket =
+            geometryPack.buckets[bucketIndex];
+        const bool bucketActive =
+            publication.activeBucketMask[bucketIndex] != 0u;
         uint32_t instanceId = 0;
         if (!TryEncodeSmokeStaticBucketSurfaceBaseInstanceId(
                 bucket.firstSurfaceRecord,
@@ -4502,7 +4526,7 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
             ++publication.instanceIdOverflow;
             return publication;
         }
-        if (bucket.active)
+        if (bucketActive)
         {
             const StaticBucketBlasRecord* blasRecord = nullptr;
             for (const StaticBucketBlasRecord& candidate :

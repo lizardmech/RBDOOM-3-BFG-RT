@@ -1390,3 +1390,46 @@ error, invalid buffer binding, or out-of-bounds warning was present.
 The cold binding signature differs before material hydration and correctly
 causes the one required rebuild. The formerly failing late samples now retain
 the hydrated binding signature and hit the cache. REF-11A is accepted.
+
+REF-9F PORTAL-MATCHED STATIC EMISSIVE IDENTITY - 2026-07-28
+-----------------------------------------------------------
+The earlier shadow line compared four portal-selected monolithic emissive
+triangles against 503 triangles from route 2's deliberately all-resident
+primary decode set. That mismatch was a comparison-domain error, not evidence
+for or against emissive replay.
+
+The corrected audit retains the original `BuildPortalAreaActiveMask` result
+before route 2 forces all buckets active. `BuildStaticBucketActivePublication`
+can now publish an explicit portal-mask override and records one active bit per
+resident bucket. CPU emissive replay consumes that publication mask instead of
+the geometry pack's all-resident active flags.
+
+Bucket temporal identities no longer hash bucket InstanceID plus bucket-local
+primitive. For every packed surface, the existing four-word record supplies
+the monolithic source-triangle offset. Adding the surface-local primitive
+reconstructs the exact monolithic primitive used by route 0. No new metadata
+or GPU ABI is required.
+
+Offline proof:
+
+  full win64-pt-dev-release build                    passed
+  PathTraceCpuPlanningHarness target                 passed
+  PathTraceCpuPlanningHarness --stress 20            passed
+  surface-record + local primitive identity test     passed
+  Vulkan shader rebuilds                             0
+  DX12 shader rebuilds                               0
+  executable SHA-256
+    6DD492281F38D9AC514E2871CE3824AD0949C4C784076F5F7D6DB6C76D79A25A
+
+Runtime acceptance requires this one-shot audit line:
+
+  GEO10 static bucket emissive identity
+  exact=1
+  portalPublicationValid=1
+  triangles(monolithic/bucket/captured/invalid)=N/N/N/0
+  identities(monolithic/bucket/.../missing/extra)=N/N/0/0/0/0/0/0
+  traversal=portal-mask-shadow-only
+
+Primary route 2 may remain 56/56; the emissive line's active route count should
+instead match the current portal mask. This rung does not change the live
+emissive inventory.
