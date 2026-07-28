@@ -2026,9 +2026,8 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    // REF-10O accepted core DI pipeline creation. Stage 4 may dispatch only
-    // the initial DI pass and returns before temporal, spatial, transmission,
-    // or material-feature work.
+    // REF-10P removed the device during the initial DI DispatchRays call.
+    // Preserve stages 1-3, but revoke stage 4 and every later consumer.
     const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
@@ -2037,7 +2036,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         !transmissionPsrEnabled &&
-        (probeStage >= 1 && probeStage <= 4);
+        (probeStage >= 1 && probeStage <= 3);
     return diagnosticContractExact;
 }
 

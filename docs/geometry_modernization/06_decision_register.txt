@@ -1769,6 +1769,25 @@ Verification:
   deployed executable SHA-256
     A6A7959ECC06CEFDC6EA6F78DD1D0063C9DD5E414AA4DCE577D677014E1287AD
 
+D81. REJECT INITIAL DI DISPATCH
+-------------------------------
+Decision: stage 4 removed the device at the
+`GEO10.View16.Stage3 Initial DispatchRays` checkpoint. The marker uses the old
+stage label but uniquely surrounds the newly admitted initial-DI dispatch.
+
+Retain accepted stages 1-3. Revoke stage 4 and all later consumers. Audit the
+initial-production secondary hit contract before any further runtime rung.
+
+Verification:
+
+  stage-1..3 support and stage-4..6 rejection matrix   passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  source/deployed executable hashes                    equal
+  deployed executable SHA-256
+    C82977C400540475BEC350CAF732CC2BE218C452E7F112FAEFC9B061303F1F0A
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

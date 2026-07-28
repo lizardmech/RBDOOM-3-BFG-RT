@@ -2158,3 +2158,30 @@ Offline proof:
   source/deployed executable hashes                    equal
   executable SHA-256
     A6A7959ECC06CEFDC6EA6F78DD1D0063C9DD5E414AA4DCE577D677014E1287AD
+
+REF-10P RUNTIME VERDICT - REJECTED - 2026-07-28
+------------------------------------------------
+Stage 4 removed the device. The reported last GPU checkpoint was:
+
+  GEO10.View16.Stage3 Initial DispatchRays
+
+The marker retains the older cumulative-ladder number, but it labels the
+initial-DI dispatch uniquely enabled by current stage 4. Core DI pipeline
+creation and primary dispatch had already passed in REF-10O/REF-10N. The GUI
+and crosshair appeared before device removal, further confirming that startup
+and pipeline construction completed.
+
+This localizes the failure to initial secondary-ray execution. Revoke stage 4
+and keep stages 5-6 and production mode rejected. Do not advance the consumer
+ladder; the next work must audit the initial-production shader's secondary hit
+contract against the accepted primary route.
+
+Rollback verification:
+
+  stage-1..3 support and stage-4..6 rejection matrix   passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  source/deployed executable hashes                    equal
+  executable SHA-256
+    C82977C400540475BEC350CAF732CC2BE218C452E7F112FAEFC9B061303F1F0A
