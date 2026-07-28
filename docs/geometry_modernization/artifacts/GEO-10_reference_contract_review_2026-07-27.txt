@@ -1894,3 +1894,41 @@ Safety build:
   SPIR-V changes                                       none
   executable SHA-256
     45723965047A5566BD7901EA81D825E7FCC1CB5E4A0504ABB487EE6B7A7762DD
+
+REF-10G LOCAL STORAGE AUDIT - 2026-07-28
+----------------------------------------
+The local producer already satisfies the useful part of the Remix/RTXDI
+storage shape:
+
+  - one resident packed static vertex buffer;
+  - one resident packed static index buffer;
+  - parallel packed triangle class/material/material-index arrays;
+  - exact contiguous ranges for every portal bucket;
+  - signature-cached resident packing and unchanged-BLAS reuse.
+
+The mismatch is BLAS/address topology, not base storage. The current builder
+turns every source surface into a separate geometry descriptor and appends
+four words per surface to the class buffer so InstanceID plus GeometryIndex
+can recover a triangle base. That is the layer to delete.
+
+The local equivalent of the reference one-add decode is:
+
+  packedTriangleIndex =
+      DecodeTriangleBase(InstanceID()) + PrimitiveIndex();
+
+Portal active-set pruning still requires independently includable bucket
+BLASes. A single BLAS containing every bucket would not permit TLAS-level
+bucket selection, so the correct local adaptation is one BLAS per bucket with
+one geometry per BLAS, not one full-map multi-geometry BLAS.
+
+The CPU-first implementation changes only BLAS geometry construction, class
+metadata upload, cache signatures, and TLAS instance addressing. Runtime
+shader admission remains revoked pending a separate identity/replay audit.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V changes                                       none
+  deployed executable SHA-256
+    6BB3595C94CFBE45A5458B25BEA6A72CE2779CF4767CE4802B75363003DDF565

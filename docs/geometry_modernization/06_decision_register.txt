@@ -1541,6 +1541,33 @@ Safety verification:
   executable SHA-256
     45723965047A5566BD7901EA81D825E7FCC1CB5E4A0504ABB487EE6B7A7762DD
 
+D70. COLLAPSE EACH STATIC BUCKET BLAS TO ONE POOLED RANGE
+---------------------------------------------------------
+Decision: preserve the existing full-resident packed static vertex/index/
+triangle pool, but stop describing each source surface as a separate BLAS
+geometry. Each bucket is already contiguous in that pool, so its BLAS uses one
+geometry descriptor over `bucket.range.indexOffset/indexCount`. Its TLAS
+InstanceID carries `bucket.range.triangleOffset` in the existing 23-bit
+payload.
+
+This makes hardware `PrimitiveIndex` bucket-local and the packed triangle
+address a single addition. GeometryIndex is always zero and is no longer
+needed to recover geometry identity. The BLAS upload contains only the
+triangle-class prefix; legacy surface records remain CPU-only until their
+identity/replay users are removed or replaced.
+
+Do not re-admit view 16 in this CPU-first slice. Shader consumers remain
+disabled, and the former view-2 probe is also revoked, until the arithmetic
+resolver and identity/replay contract have offline proof.
+
+Verification:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V changes                                       none
+  deployed executable SHA-256
+    6BB3595C94CFBE45A5458B25BEA6A72CE2779CF4767CE4802B75363003DDF565
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

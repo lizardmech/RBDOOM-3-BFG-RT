@@ -1767,3 +1767,59 @@ Safety build:
   shaders rebuilt/deployed                             none
   executable SHA-256
     45723965047A5566BD7901EA81D825E7FCC1CB5E4A0504ABB487EE6B7A7762DD
+
+REF-10G STORAGE/TOPOLOGY AUDIT AND CPU-FIRST PIVOT - 2026-07-28
+---------------------------------------------------------------
+The post-failure source audit narrows the redesign. GEO-10 does not need a
+second vertex/index/material universe: the resident pack already contains one
+contiguous full-map static pool, with each bucket represented by an exact
+contiguous vertex/index/triangle range. Resident packing and material-index
+translation are already signature-cached.
+
+The unnecessary parallel universe begins after packing:
+
+  - one BLAS geometry descriptor is emitted per source surface;
+  - the TLAS InstanceID encodes the first surface-record index;
+  - GeometryIndex selects another four-word surface record;
+  - the hit path validates that record to reconstruct the packed triangle;
+  - the class buffer upload includes a surface-record suffix solely for that
+    reconstruction.
+
+The replacement CPU/GPU topology is therefore:
+
+  resident storage       unchanged contiguous static pool
+  bucket BLAS            one geometry descriptor over the bucket index range
+  TLAS InstanceID        namespace bit plus bucket triangle base
+  hit triangle           triangle base plus PrimitiveIndex
+  SBT contribution       0
+  GeometryIndex          structurally always 0 and not part of decode
+
+First implementation slice:
+
+  1. Make `BuildSmokeStaticBucketBlasGeometryPlan` emit exactly one contiguous
+     geometry range per valid bucket.
+  2. Make the BLAS scaffold upload only the triangle-class prefix to its class
+     buffer; surface records remain CPU-only legacy validation data.
+  3. Remove surface-record fields from the BLAS input signature so metadata
+     changes cannot retire unchanged geometry.
+  4. Publish triangle-base InstanceIDs for bucket TLAS instances and CPU route
+     observations.
+  5. Keep all shader consumers and every live route, including the old view-2
+     probe, rejected.
+
+This slice intentionally does not edit or rebuild shaders. The next slice must
+replace the shared HLSL resolver, define how liquid/decal/emissive replay keeps
+stable identity without a surface-record decode, and prove that the resulting
+primary library is smaller before runtime admission.
+
+Offline proof:
+
+  one geometry descriptor per valid bucket             passed
+  BLAS independence from legacy surface metadata       passed
+  triangle-base InstanceID boundary/overflow tests     passed
+  former view-2 and all view-16 routes rejected        passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  deployed executable SHA-256
+    6BB3595C94CFBE45A5458B25BEA6A72CE2779CF4767CE4802B75363003DDF565

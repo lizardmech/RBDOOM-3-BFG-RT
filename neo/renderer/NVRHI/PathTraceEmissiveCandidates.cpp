@@ -331,8 +331,9 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
             publication.routeRecords[routeIndex];
         uint32_t expectedInstanceId = 0;
         const bool instanceIdEncoded =
-            TryEncodeSmokeStaticBucketSurfaceBaseInstanceId(
-                bucket.firstSurfaceRecord,
+            TryEncodeSmokeStaticBucketInstanceId(
+                static_cast<uint32_t>(
+                    bucket.range.triangleOffset),
                 expectedInstanceId);
         const uint64_t indexEnd =
             static_cast<uint64_t>(route.indexOffset) +

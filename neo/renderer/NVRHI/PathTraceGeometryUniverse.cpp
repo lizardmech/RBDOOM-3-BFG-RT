@@ -3681,7 +3681,7 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         geometryPack.surfaceRecords.size() *
         sizeof(RtSmokeStaticBucketSurfaceRecord);
     stats.metadataBytes =
-        geometryPack.staticClassMetadataWords.size() *
+        geometryPack.triangleClasses.size() *
             sizeof(uint32_t) +
         geometryPack.triangleMaterials.size() *
             sizeof(uint32_t) +
@@ -3705,16 +3705,10 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         geometryPack.vertexBytes.empty() ||
         geometryPack.indexes.empty() ||
         geometryPack.triangleClasses.empty() ||
-        geometryPack.staticClassMetadataWords.empty() ||
         geometryPack.triangleClasses.size() !=
             geometryPack.triangleMaterials.size() ||
         geometryPack.triangleClasses.size() !=
-            geometryPack.triangleIdentities.size() ||
-        geometryPack.surfaceRecords.size() !=
-            static_cast<size_t>(
-                geometryPack.stats.packedSurfaces) ||
-        !ValidateSmokeStaticBucketClassMetadataLayout(
-            geometryPack))
+            geometryPack.triangleIdentities.size())
     {
         ++stats.skippedInexactPack;
         return stats;
@@ -3734,7 +3728,7 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
     const size_t indexBytes =
         geometryPack.indexes.size() * sizeof(uint32_t);
     const size_t classBytes =
-        geometryPack.staticClassMetadataWords.size() *
+        geometryPack.triangleClasses.size() *
         sizeof(uint32_t);
     const size_t materialBytes =
         geometryPack.triangleMaterials.size() * sizeof(uint32_t);
@@ -3852,7 +3846,7 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             indexBytes);
         commandList->writeBuffer(
             m_staticBucketTriangleClassBuffer,
-            geometryPack.staticClassMetadataWords.data(),
+            geometryPack.triangleClasses.data(),
             classBytes);
         commandList->writeBuffer(
             m_staticBucketTriangleMaterialBuffer,
@@ -3967,14 +3961,6 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             inputSignature,
             &bucket.range,
             sizeof(bucket.range));
-        inputSignature = HashSmokeBytes(
-            inputSignature,
-            &bucket.firstSurfaceRecord,
-            sizeof(bucket.firstSurfaceRecord));
-        inputSignature = HashSmokeBytes(
-            inputSignature,
-            &bucket.surfaceRecordCount,
-            sizeof(bucket.surfaceRecordCount));
         const uintptr_t vertexBufferIdentity =
             reinterpret_cast<uintptr_t>(
                 m_staticBucketVertexBuffer.Get());
@@ -4003,12 +3989,8 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
                 bucket.range.triangleOffset &&
             record->range.triangleCount ==
                 bucket.range.triangleCount &&
-            record->firstSurfaceRecord ==
-                bucket.firstSurfaceRecord &&
-            record->surfaceRecordCount ==
-                bucket.surfaceRecordCount &&
             record->geometryDescCount ==
-                geometryPlan.geometries.size();
+                1u;
         const bool inputChanged =
             record->inputSignature != 0 &&
             record->inputSignature != inputSignature;
@@ -4328,7 +4310,7 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
     const RtPathTraceStaticBucketBlasGpuStats& stats) const
 {
     common->Printf(
-        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d geometry(v/i/t/surfaceRecords/descs/invalidRecords)=%d/%d/%d/%d/%d/%d t5(words/trianglePrefix/surfaceOffset/surfaceBytes)=%d/%d/%d/%llu bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident traversal=monolithic route=shadow-only\n",
+        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d geometry(v/i/t/cpuSurfaceRecords/descs/invalidRanges)=%d/%d/%d/%d/%d/%d metadata(cpuClassWords/gpuClassWords/legacySurfaceOffset/cpuSurfaceBytes)=%d/%d/%d/%llu bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident blasGeometry=one-range-per-bucket traversal=monolithic route=offline-only\n",
         static_cast<unsigned long long>(stats.frameIndex),
         stats.enabled,
         stats.submitBuilds,
@@ -4434,13 +4416,14 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
                 &bucket.surfaceRecordCount,
                 sizeof(bucket.surfaceRecordCount));
         }
-        const RtSmokeStaticBucketSurfaceAddressPlan addressPlan =
-            BuildSmokeStaticBucketSurfaceAddressPlan(
-                bucket.firstSurfaceRecord,
-                bucket.surfaceRecordCount,
-                static_cast<uint32_t>(
-                    geometryPack.surfaceRecords.size()));
-        if (!addressPlan.rangeValid)
+        const RtSmokeStaticBucketInstanceAddressPlan addressPlan =
+            BuildSmokeStaticBucketInstanceAddressPlan(
+                bucket.range,
+                static_cast<int>(geometryPack.indexes.size()),
+                static_cast<int>(
+                    geometryPack.triangleClasses.size()));
+        if (!addressPlan.rangeValid ||
+            !addressPlan.indexAddressCompatible)
         {
             ++publication.invalidRanges;
             continue;
@@ -4533,10 +4516,13 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
             geometryPack.buckets[bucketIndex];
         const bool bucketActive =
             publication.activeBucketMask[bucketIndex] != 0u;
-        uint32_t instanceId = 0;
-        if (!TryEncodeSmokeStaticBucketSurfaceBaseInstanceId(
-                bucket.firstSurfaceRecord,
-                instanceId))
+        const RtSmokeStaticBucketInstanceAddressPlan addressPlan =
+            BuildSmokeStaticBucketInstanceAddressPlan(
+                bucket.range,
+                static_cast<int>(geometryPack.indexes.size()),
+                static_cast<int>(
+                    geometryPack.triangleClasses.size()));
+        if (!addressPlan.valid)
         {
             publication.tlasInstances.clear();
             publication.routeRecords.clear();
@@ -4544,6 +4530,7 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
             ++publication.instanceIdOverflow;
             return publication;
         }
+        const uint32_t instanceId = addressPlan.instanceId;
         if (bucketActive)
         {
             const StaticBucketBlasRecord* blasRecord = nullptr;

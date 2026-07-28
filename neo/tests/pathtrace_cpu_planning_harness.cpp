@@ -2686,24 +2686,16 @@ void TestStaticBucketAssignmentPlan()
     Check(
         secondBucketGeometryPlan.exact &&
             secondBucketGeometryPlan.invalidSurfaceRecords == 0 &&
-            secondBucketGeometryPlan.geometries.size() == 2 &&
+            secondBucketGeometryPlan.geometries.size() == 1 &&
             secondBucketGeometryPlan.geometries[0].
                 indexByteOffset == 6 * sizeof(uint32_t) &&
             secondBucketGeometryPlan.geometries[0].
-                indexCount == 6 &&
+                indexCount == 9 &&
             secondBucketGeometryPlan.geometries[0].
                 triangleOffset == 2 &&
             secondBucketGeometryPlan.geometries[0].
-                triangleCount == 2 &&
-            secondBucketGeometryPlan.geometries[1].
-                indexByteOffset == 12 * sizeof(uint32_t) &&
-            secondBucketGeometryPlan.geometries[1].
-                indexCount == 3 &&
-            secondBucketGeometryPlan.geometries[1].
-                triangleOffset == 4 &&
-            secondBucketGeometryPlan.geometries[1].
-                triangleCount == 1,
-        "static bucket BLAS geometry plan preserves ordered per-surface ranges");
+                triangleCount == 3,
+        "static bucket BLAS geometry plan emits one contiguous range per bucket");
     const RtSmokeStaticBucketResolvedGeometryAddress
         secondSurfaceResolvedAddress =
             BuildSmokeStaticBucketResolvedGeometryAddress(
@@ -2819,13 +2811,13 @@ void TestStaticBucketAssignmentPlan()
         "static bucket geometry address preserves the monolithic primitive sort key after bucket reordering");
 
     Check(
-        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+        !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
             true,
             2,
             true,
             false),
-        "static bucket primary probe accepts only the instrumented status isolate");
+        "static bucket primary probe stays revoked during the topology pivot");
     Check(
         !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3072,10 +3064,10 @@ void TestStaticBucketAssignmentPlan()
             invalidSurfaceFlagPack,
             invalidSurfaceFlagPack.buckets[1]);
     Check(
-        !invalidSurfaceFlagPlan.exact &&
-            invalidSurfaceFlagPlan.invalidSurfaceRecords == 1 &&
-            invalidSurfaceFlagPlan.geometries.empty(),
-        "static bucket BLAS geometry plan rejects invalid surface flags");
+        invalidSurfaceFlagPlan.exact &&
+            invalidSurfaceFlagPlan.invalidSurfaceRecords == 0 &&
+            invalidSurfaceFlagPlan.geometries.size() == 1,
+        "static bucket BLAS geometry plan is independent of legacy surface flags");
 
     RtSmokeStaticBucketGeometryPack gappedSurfacePack =
         multiGeometryPack;
@@ -3085,10 +3077,10 @@ void TestStaticBucketAssignmentPlan()
             gappedSurfacePack,
             gappedSurfacePack.buckets[1]);
     Check(
-        !gappedSurfacePlan.exact &&
-            gappedSurfacePlan.invalidSurfaceRecords == 1 &&
-            gappedSurfacePlan.geometries.empty(),
-        "static bucket BLAS geometry plan rejects gaps and reordered ranges");
+        gappedSurfacePlan.exact &&
+            gappedSurfacePlan.invalidSurfaceRecords == 0 &&
+            gappedSurfacePlan.geometries.size() == 1,
+        "static bucket BLAS geometry plan is independent of legacy surface offsets");
 
     RtSmokeStaticBucketPackedRecord crossBucketRecordRange =
         multiGeometryPack.buckets[1];
@@ -3098,10 +3090,10 @@ void TestStaticBucketAssignmentPlan()
             multiGeometryPack,
             crossBucketRecordRange);
     Check(
-        !crossBucketPlan.exact &&
-            crossBucketPlan.invalidSurfaceRecords == 1 &&
-            crossBucketPlan.geometries.empty(),
-        "static bucket BLAS geometry plan rejects cross-bucket record bleed");
+        crossBucketPlan.exact &&
+            crossBucketPlan.invalidSurfaceRecords == 0 &&
+            crossBucketPlan.geometries.size() == 1,
+        "static bucket BLAS geometry plan ignores legacy surface-record selection");
 
     RtSmokeStaticBucketGeometryPackDesc permutedPackDesc = packDesc;
     permutedPackDesc.assignmentPlan = &permutedPlan;
