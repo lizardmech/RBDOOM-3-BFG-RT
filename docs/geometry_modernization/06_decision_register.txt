@@ -2187,6 +2187,34 @@ If it fails, the fault is inside any-hit execution or its accumulated
 full-resident traversal cost. If it survives, open stage 13 to admit
 closest-hit and payload publication.
 
+D96. REJECT FULL TRANSMISSION ANY-HIT; TEST DEFAULT LIQUID COLLECTOR
+------------------------------------------------------------------
+Decision: stage 12 device-removed as the camera moved. The reported device
+error identifies the PSR any-hit producer. Stage 11 used the same RayDesc,
+full-resident TLAS/BLAS, and transmission dispatch while suppressing hit
+shaders, so this result localizes the failure to transmission any-hit
+execution or the additional cost caused by repeated non-opaque intersections.
+Do not reopen RayDesc, acceleration-structure construction, descriptors, or
+closest-hit as current hypotheses.
+
+The first stage-12-only code includes the default-on liquid-pool candidate
+collector before the normal source-pane, translucent, emissive-card, and alpha
+tests. Mode 3 permits that collector to interpolate geometry, sample
+coverage, inspect dynamic material state, and retain contributor tuples in
+the 176-byte trace payload. Test this existing runtime branch before changing
+or rebuilding shaders.
+
+Repeat the exact stage-12 configuration and change only:
+
+  r_pathTracingLiquidPoolMode 0
+
+Keep `r_pathTracingGeometryStaticBucketSecondaryProbeStage 12`. If this
+survives the same window/camera movement, the active fault is the liquid-pool
+candidate branch or its payload/cost interaction. If it still device-removes,
+that branch is excluded and the next one-build probe must separate bounded
+any-hit invocation cost from the remaining material/class/texture operations.
+Black windows remain expected and are not an acceptance criterion.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
