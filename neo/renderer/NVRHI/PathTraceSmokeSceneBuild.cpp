@@ -6001,6 +6001,7 @@ struct RtSmokeStaticBucketFramePublication
     int maxTrianglesPerBucket = 0;
     int missingActiveMaterialIndexes = 0;
     uint64 sourceGeneration = 0;
+    uint64 materialBindingSignature = 0;
     bool residentPackCacheHit = false;
     bool materialIndexCacheHit = false;
     RtPathTraceSceneUniverseBuildStats sourceBuildStats;
@@ -6107,17 +6108,14 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
                 frame.residentPackCacheHit);
     const RtSmokeStaticBucketGeometryPack& geometryPack =
         *frame.geometryPack;
-    const uint64 materialTableIdSignature =
-        BuildSmokeRigidRouteMaterialIdSignature(materialIds);
-
     const std::vector<int>*
         missingMaterialIndexesByBucket = nullptr;
     if (!staticBucketGeometryUniverse.
             GetOrBuildStaticBucketMaterialIndexes(
                 geometryPack,
                 materialIds,
-                materialTableIdSignature,
                 frame.materialIndexCacheHit,
+                frame.materialBindingSignature,
                 frame.materialIndexes,
                 missingMaterialIndexesByBucket) ||
         frame.materialIndexes == nullptr ||
@@ -6199,7 +6197,7 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
             commandList,
             geometryPack,
             *frame.materialIndexes,
-            materialTableIdSignature);
+            frame.materialBindingSignature);
     return frame;
 }
 
@@ -7516,8 +7514,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             // The full-resident decoder probe makes every resident static
             // bucket traceable. Its material table must therefore cover the
-            // same full resident triangle-material stream, not only the
-            // ordinary portal-selected monolithic subset.
+            // same full resident triangle-material stream. Keep that stable
+            // universe first so portal-selected monolithic membership cannot
+            // shift the table indexes consumed by resident bucket triangles.
             const std::vector<uint32_t>&
                 staticBucketTriangleMaterialIds =
                     m_staticBucketGeometryUniverse.
@@ -7526,10 +7525,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 staticBucketProbeMaterialIds =
                     BuildUniqueMaterialIdsPreservingOrder(
                         staticBucketTriangleMaterialIds);
-            materialTableStaticIds.insert(
-                materialTableStaticIds.end(),
-                staticBucketProbeMaterialIds.begin(),
-                staticBucketProbeMaterialIds.end());
+            std::vector<uint32_t> stableBucketMaterialIds =
+                staticBucketProbeMaterialIds;
+            stableBucketMaterialIds.insert(
+                stableBucketMaterialIds.end(),
+                materialTableStaticIds.begin(),
+                materialTableStaticIds.end());
+            materialTableStaticIds.swap(
+                stableBucketMaterialIds);
         }
     }
     const std::vector<uint32_t>* materialHydrationIds = nullptr;
@@ -12977,7 +12980,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 DumpStaticBucketActivePublication(
                     staticBucketActivePublication);
             common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d residentPack/materialIndexCacheHit=%d/%d maskValid=%d portalMaskValid=%d fullResidentProbe=%d portalSteps=%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/tlas)=%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
+                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d residentPack/materialIndexCacheHit=%d/%d maskValid=%d portalMaskValid=%d fullResidentProbe=%d portalSteps=%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/materialBinding/tlas)=%llu/%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
                 staticBucketSourceBuildStats.built ? 1 : 0,
                 staticBucketSourceBuildStats.cacheHit ? 1 : 0,
                 staticBucketFramePublication.
@@ -13020,6 +13023,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 static_cast<unsigned long long>(
                     staticBucketShadowWorkPlan.activeSetPlan.
                         residentSetSignature),
+                static_cast<unsigned long long>(
+                    staticBucketFramePublication.
+                        materialBindingSignature),
                 static_cast<unsigned long long>(
                     staticBucketShadowWorkPlan.activeSetPlan.
                         tlasInstanceSignature),

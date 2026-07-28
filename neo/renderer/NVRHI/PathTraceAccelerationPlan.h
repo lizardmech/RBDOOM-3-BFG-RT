@@ -448,11 +448,11 @@ struct RtSmokeStaticBucketResidentPackCachePlan
 struct RtSmokeStaticBucketMaterialIndexCacheInput
 {
     uint64_t residentPackSignature = 0;
-    uint64_t materialTableSignature = 0;
+    uint64_t materialBindingSignature = 0;
     int triangleCount = 0;
     int bucketCount = 0;
     uint64_t cachedResidentPackSignature = 0;
-    uint64_t cachedMaterialTableSignature = 0;
+    uint64_t cachedMaterialBindingSignature = 0;
     int cachedTriangleCount = 0;
     int cachedBucketCount = 0;
     bool residentPackExact = false;

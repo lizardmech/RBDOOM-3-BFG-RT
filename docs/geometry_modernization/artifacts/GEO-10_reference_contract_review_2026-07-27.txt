@@ -1329,4 +1329,46 @@ Runtime proof requires one settled audit line with:
   materialIndexMissingActive=0
 
 and unchanged exact 56/56 publication. A portal crossing must not turn either
-cache hit back to zero unless content or ordered table membership changed.
+cache hit back to zero unless resident content or a referenced binding changed.
+
+BUCKET13 RUNTIME OBSERVATION AND CACHE-KEY REFINEMENT - 2026-07-28
+-----------------------------------------------------------------
+`bucket13.log` proved exact 56/56 publication and zero missing active indexes.
+The resident pack hit after its initial build and the material-index cache hit
+for 25 consecutive build-ramp samples. Three late samples nevertheless
+reported:
+
+  sourceBuilt/cacheHit=1/1
+  residentPack/materialIndexCacheHit=1/0
+  materialIndexMissingActive=0
+
+The resident content signature stayed fixed. The old key hashed the complete
+ordered material table, which also contains portal-selected monolithic,
+skinned, rigid, and other dynamic supplements. Unrelated table churn therefore
+forced a 50,108-triangle static remap even when every resident static binding
+was unchanged.
+
+The corrected key caches the unique material IDs referenced by the resident
+pack, resolves only those IDs against the current table, and hashes each
+material-ID/table-index pair. Route 2 puts this full resident material universe
+first in the static input list, ahead of portal-selected and dynamic
+supplements. Portal crossing and unrelated dynamic-material changes can no
+longer shift or invalidate resident bindings. A referenced material appearing,
+disappearing, or changing index still rebuilds and uploads fail-closed.
+
+Revised offline proof:
+
+  full win64-pt-dev-release build                    passed
+  explicit PathTraceCpuPlanningHarness target       passed
+  PathTraceCpuPlanningHarness --stress 20           passed
+  unchanged pack/binding cache reuse                passed
+  binding/pack/count/inexact/invalid rejection      passed
+  Vulkan shader rebuilds                             0
+  DX12 shader rebuilds                               0
+  executable SHA-256
+    2B8D3E99C8BF930F92F57CF5646D850684BDC9667E7FF3DF1563A7382C1B7A08
+
+The active-set audit now prints
+`signatures(plan/active/resident/materialBinding/tlas)`. After the initial
+mapping build, `materialBinding` and `materialIndexCacheHit=1` must remain
+stable through portal traversal and animated-object churn.

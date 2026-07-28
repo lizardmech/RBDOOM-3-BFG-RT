@@ -1632,9 +1632,9 @@ BuildSmokeStaticBucketMaterialIndexCachePlan(
         input.residentPackSignature != 0 &&
         input.residentPackSignature ==
             input.cachedResidentPackSignature &&
-        input.materialTableSignature != 0 &&
-        input.materialTableSignature ==
-            input.cachedMaterialTableSignature &&
+        input.materialBindingSignature != 0 &&
+        input.materialBindingSignature ==
+            input.cachedMaterialBindingSignature &&
         input.triangleCount >= 0 &&
         input.triangleCount == input.cachedTriangleCount &&
         input.bucketCount >= 0 &&

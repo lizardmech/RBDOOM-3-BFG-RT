@@ -1073,20 +1073,23 @@ or surface-local primitive would make route 0 and route 2 select different
 samples after repacking. This decision does not admit view 25, bucket shadow
 glass, transmission PSR, glass compose, or any secondary ray consumer.
 
-D57. CACHE RESIDENT TRIANGLE MATERIAL INDEXES BY PACK AND TABLE IDENTITY
-------------------------------------------------------------------------
+D57. CACHE RESIDENT TRIANGLE MATERIAL INDEXES BY PACK AND BINDING IDENTITY
+--------------------------------------------------------------------------
 Decision: retain the full resident triangle-to-material-table index array and
 one missing-index count per bucket. Reuse requires the exact resident-pack
-content signature, ordered material-table ID signature, triangle count, bucket
-count, and a valid prior cache. A changed pack, table ordering, count, or
-invalid cache rebuilds the mapping.
+content signature, the resolved table index of every material ID referenced by
+that pack, exact triangle/bucket counts, and a valid prior cache. A changed
+pack, referenced binding, count, or invalid cache rebuilds the mapping.
 
 Portal visibility and active flags are deliberately absent from this key.
 Unchanged frames sum cached missing counts only across active buckets. The GPU
-upload signature uses the same pack/table/count tuple instead of rehashing all
-triangle indexes every frame. Cache invalidation remains tied to geometry-
-universe clear; releasing only GPU BLAS resources does not invalidate CPU
-mapping data that an audit-only frame still owns.
+upload signature uses the same pack/binding/count tuple instead of rehashing
+all triangle indexes every frame. Route 2 also places the full resident static
+material universe before portal-selected and dynamic supplements so portal
+membership cannot shift resident indexes. Unreferenced dynamic-table churn is
+not a cache invalidation. Cache invalidation remains tied to geometry-universe
+clear; releasing only GPU BLAS resources does not invalidate CPU mapping data
+that an audit-only frame still owns.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

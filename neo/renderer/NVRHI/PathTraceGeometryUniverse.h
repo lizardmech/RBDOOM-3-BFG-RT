@@ -939,8 +939,8 @@ public:
     bool GetOrBuildStaticBucketMaterialIndexes(
         const RtSmokeStaticBucketGeometryPack& geometryPack,
         const std::vector<uint32_t>& materialTableIds,
-        uint64 materialTableIdSignature,
         bool& cacheHit,
+        uint64& materialBindingSignature,
         const std::vector<uint32_t>*& triangleMaterialIndexes,
         const std::vector<int>*& missingMaterialIndexesByBucket);
     RtPathTraceStaticBucketBlasGpuStats
@@ -971,7 +971,7 @@ public:
         nvrhi::ICommandList* commandList,
         const RtSmokeStaticBucketGeometryPack& geometryPack,
         const std::vector<uint32_t>& triangleMaterialIndexes,
-        uint64 materialTableIdSignature);
+        uint64 materialBindingSignature);
     nvrhi::BufferHandle StaticBucketVertexBuffer() const
     {
         return m_staticBucketVertexBuffer;
@@ -1276,8 +1276,10 @@ private:
     bool m_staticBucketResidentGeometryPackValid = false;
     std::vector<uint32_t> m_staticBucketMaterialIndexes;
     std::vector<int> m_staticBucketMissingMaterialIndexesByBucket;
+    std::vector<uint32_t> m_staticBucketReferencedMaterialIds;
+    uint64 m_staticBucketReferencedMaterialIdsResidentPackSignature = 0;
     uint64 m_staticBucketMaterialIndexResidentPackSignature = 0;
-    uint64 m_staticBucketMaterialIndexTableSignature = 0;
+    uint64 m_staticBucketMaterialIndexBindingSignature = 0;
     bool m_staticBucketMaterialIndexCacheValid = false;
 };
 

@@ -1623,11 +1623,11 @@ void TestStaticBucketMaterialIndexCachePlan()
 {
     RtSmokeStaticBucketMaterialIndexCacheInput input;
     input.residentPackSignature = 100;
-    input.materialTableSignature = 200;
+    input.materialBindingSignature = 200;
     input.triangleCount = 50108;
     input.bucketCount = 56;
     input.cachedResidentPackSignature = 100;
-    input.cachedMaterialTableSignature = 200;
+    input.cachedMaterialBindingSignature = 200;
     input.cachedTriangleCount = 50108;
     input.cachedBucketCount = 56;
     input.residentPackExact = true;
@@ -1636,13 +1636,13 @@ void TestStaticBucketMaterialIndexCachePlan()
         BuildSmokeStaticBucketMaterialIndexCachePlan(input);
     Check(
         exactPlan.reuse && !exactPlan.rebuild,
-        "static bucket material-index cache reuses an exact unchanged pack and material table");
+        "static bucket material-index cache reuses an exact unchanged pack and material binding");
 
-    input.materialTableSignature = 201;
+    input.materialBindingSignature = 201;
     Check(
         BuildSmokeStaticBucketMaterialIndexCachePlan(input).rebuild,
-        "static bucket material-index cache rebuilds a changed material table");
-    input.materialTableSignature = 200;
+        "static bucket material-index cache rebuilds a changed resident material binding");
+    input.materialBindingSignature = 200;
 
     input.residentPackSignature = 101;
     Check(

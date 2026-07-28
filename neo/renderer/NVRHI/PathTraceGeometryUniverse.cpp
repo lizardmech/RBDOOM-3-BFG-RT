@@ -1431,8 +1431,10 @@ void RtSmokeGeometryUniverse::Clear()
     m_staticBucketResidentGeometryPackValid = false;
     m_staticBucketMaterialIndexes.clear();
     m_staticBucketMissingMaterialIndexesByBucket.clear();
+    m_staticBucketReferencedMaterialIds.clear();
+    m_staticBucketReferencedMaterialIdsResidentPackSignature = 0;
     m_staticBucketMaterialIndexResidentPackSignature = 0;
-    m_staticBucketMaterialIndexTableSignature = 0;
+    m_staticBucketMaterialIndexBindingSignature = 0;
     m_staticBucketMaterialIndexCacheValid = false;
     m_staticGeometryGeneration = 1;
     m_staticMaterialGeneration = 1;
@@ -3469,28 +3471,92 @@ RtSmokeGeometryUniverse::GetOrBuildStaticBucketResidentGeometryPack(
 bool RtSmokeGeometryUniverse::GetOrBuildStaticBucketMaterialIndexes(
     const RtSmokeStaticBucketGeometryPack& geometryPack,
     const std::vector<uint32_t>& materialTableIds,
-    uint64 materialTableIdSignature,
     bool& cacheHit,
+    uint64& materialBindingSignature,
     const std::vector<uint32_t>*& triangleMaterialIndexes,
     const std::vector<int>*& missingMaterialIndexesByBucket)
 {
     cacheHit = false;
+    materialBindingSignature = 0;
     triangleMaterialIndexes = nullptr;
     missingMaterialIndexesByBucket = nullptr;
+
+    if (!geometryPack.exact ||
+        geometryPack.contentSignature == 0)
+    {
+        return false;
+    }
+
+    if (m_staticBucketReferencedMaterialIdsResidentPackSignature !=
+            geometryPack.contentSignature)
+    {
+        m_staticBucketReferencedMaterialIds.clear();
+        std::unordered_set<uint32_t> referencedMaterialIds;
+        referencedMaterialIds.reserve(
+            geometryPack.triangleMaterials.size());
+        for (uint32_t materialId :
+             geometryPack.triangleMaterials)
+        {
+            if (referencedMaterialIds.insert(materialId).second)
+            {
+                m_staticBucketReferencedMaterialIds.push_back(
+                    materialId);
+            }
+        }
+        m_staticBucketReferencedMaterialIdsResidentPackSignature =
+            geometryPack.contentSignature;
+    }
+
+    std::unordered_map<uint32_t, uint32_t> materialIndexById;
+    materialIndexById.reserve(materialTableIds.size());
+    for (uint32_t materialIndex = 0;
+         materialIndex < materialTableIds.size();
+         ++materialIndex)
+    {
+        materialIndexById.emplace(
+            materialTableIds[materialIndex],
+            materialIndex);
+    }
+
+    materialBindingSignature = 14695981039346656037ull;
+    const size_t referencedMaterialCount =
+        m_staticBucketReferencedMaterialIds.size();
+    materialBindingSignature = HashSmokeBytes(
+        materialBindingSignature,
+        &referencedMaterialCount,
+        sizeof(referencedMaterialCount));
+    for (uint32_t materialId :
+         m_staticBucketReferencedMaterialIds)
+    {
+        const auto materialIndex =
+            materialIndexById.find(materialId);
+        const uint32_t resolvedMaterialIndex =
+            materialIndex != materialIndexById.end()
+                ? materialIndex->second
+                : UINT32_MAX;
+        materialBindingSignature = HashSmokeBytes(
+            materialBindingSignature,
+            &materialId,
+            sizeof(materialId));
+        materialBindingSignature = HashSmokeBytes(
+            materialBindingSignature,
+            &resolvedMaterialIndex,
+            sizeof(resolvedMaterialIndex));
+    }
 
     RtSmokeStaticBucketMaterialIndexCacheInput cacheInput;
     cacheInput.residentPackSignature =
         geometryPack.contentSignature;
-    cacheInput.materialTableSignature =
-        materialTableIdSignature;
+    cacheInput.materialBindingSignature =
+        materialBindingSignature;
     cacheInput.triangleCount = static_cast<int>(
         geometryPack.triangleMaterials.size());
     cacheInput.bucketCount = static_cast<int>(
         geometryPack.buckets.size());
     cacheInput.cachedResidentPackSignature =
         m_staticBucketMaterialIndexResidentPackSignature;
-    cacheInput.cachedMaterialTableSignature =
-        m_staticBucketMaterialIndexTableSignature;
+    cacheInput.cachedMaterialBindingSignature =
+        m_staticBucketMaterialIndexBindingSignature;
     cacheInput.cachedTriangleCount = static_cast<int>(
         m_staticBucketMaterialIndexes.size());
     cacheInput.cachedBucketCount = static_cast<int>(
@@ -3511,17 +3577,6 @@ bool RtSmokeGeometryUniverse::GetOrBuildStaticBucketMaterialIndexes(
             geometryPack.buckets.size(),
             0);
 
-        std::unordered_map<uint32_t, uint32_t>
-            materialIndexById;
-        materialIndexById.reserve(materialTableIds.size());
-        for (uint32_t materialIndex = 0;
-             materialIndex < materialTableIds.size();
-             ++materialIndex)
-        {
-            materialIndexById.emplace(
-                materialTableIds[materialIndex],
-                materialIndex);
-        }
         for (size_t triangleIndex = 0;
              triangleIndex <
                 geometryPack.triangleMaterials.size();
@@ -3573,11 +3628,11 @@ bool RtSmokeGeometryUniverse::GetOrBuildStaticBucketMaterialIndexes(
 
         m_staticBucketMaterialIndexResidentPackSignature =
             geometryPack.contentSignature;
-        m_staticBucketMaterialIndexTableSignature =
-            materialTableIdSignature;
+        m_staticBucketMaterialIndexBindingSignature =
+            materialBindingSignature;
         m_staticBucketMaterialIndexCacheValid =
             rangesValid &&
-            materialTableIdSignature != 0;
+            materialBindingSignature != 0;
         if (!m_staticBucketMaterialIndexCacheValid)
         {
             return false;
@@ -4164,7 +4219,7 @@ bool RtSmokeGeometryUniverse::UpdateStaticBucketMaterialIndexGpuScaffold(
     nvrhi::ICommandList* commandList,
     const RtSmokeStaticBucketGeometryPack& geometryPack,
     const std::vector<uint32_t>& triangleMaterialIndexes,
-    uint64 materialTableIdSignature)
+    uint64 materialBindingSignature)
 {
     if (!device ||
         !commandList ||
@@ -4206,8 +4261,8 @@ bool RtSmokeGeometryUniverse::UpdateStaticBucketMaterialIndexGpuScaffold(
         sizeof(geometryPack.contentSignature));
     uploadSignature = HashSmokeBytes(
         uploadSignature,
-        &materialTableIdSignature,
-        sizeof(materialTableIdSignature));
+        &materialBindingSignature,
+        sizeof(materialBindingSignature));
     uploadSignature = HashSmokeBytes(
         uploadSignature,
         &materialIndexBytes,

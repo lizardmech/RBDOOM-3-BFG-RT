@@ -784,10 +784,15 @@ The first REF-11 prerequisite is pulled forward before production cutover.
 The resident vertex/index/class/material pack was already cached independently
 of portal activity, but every frame still rebuilt the full triangle-to-table
 index array, rescanned active triangle ranges, and rehashed the whole array
-before deciding not to upload it. The new material-index cache keys the mapping
-by resident-pack content plus ordered material-table IDs, retains per-bucket
-missing counts, and reduces unchanged/portal-only frames to bucket-count work.
-No shader, descriptor, SBT, TLAS, or payload contract changes.
+before deciding not to upload it. The first runtime audit showed the pack cache
+working but three late remaps caused by unrelated whole-table churn. The
+material-index cache therefore keys the mapping by resident-pack content plus
+only the resolved indexes of material IDs referenced by that pack. Route 2
+places the full resident material universe first, preventing portal-selected
+or dynamic supplements from shifting those indexes. The cache retains
+per-bucket missing counts and reduces unchanged/portal-only frames to
+bucket-count work. No shader, descriptor, SBT, TLAS, or payload contract
+changes.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

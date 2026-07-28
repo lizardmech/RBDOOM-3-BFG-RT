@@ -1014,28 +1014,31 @@ The material-index cache now owns:
   - the complete resident triangle-to-table index array;
   - one missing-index count per resident bucket;
   - the resident-pack content signature;
-  - the ordered material-table ID signature;
+  - the resolved table index of every material ID referenced by the pack;
   - exact triangle and bucket counts.
 
 Portal active membership is intentionally not a cache key. An unchanged or
 portal-only frame reuses the array, sums cached missing counts for active
-buckets, and skips the GPU upload without rehashing every triangle. Any pack,
-ordered table, count, exactness, or cache-validity change rebuilds. CPU cache
-state clears with the geometry universe, not with a GPU-only BLAS release.
+buckets, and skips the GPU upload without rehashing every triangle. Route 2
+places the full resident material universe before portal-selected and dynamic
+supplements, so unrelated table churn cannot shift resident indexes. Any pack,
+referenced binding, count, exactness, or cache-validity change rebuilds. CPU
+cache state clears with the geometry universe, not with a GPU-only BLAS
+release.
 
 Offline proof:
 
   full win64-pt-dev-release build                    passed
   explicit PathTraceCpuPlanningHarness target       passed
   PathTraceCpuPlanningHarness --stress 20           passed
-  unchanged pack/table cache reuse                  passed
-  table/pack/count/inexact/invalid rejection        passed
+  unchanged pack/binding cache reuse                passed
+  binding/pack/count/inexact/invalid rejection      passed
   Vulkan shader rebuilds                             0
   DX12 shader rebuilds                               0
   retained primary producer SHA-256
     7B0FCD935A7C0521E29E4516D03E4C1EF13C79037AC6574F8BEB7D16B4281B4A
   executable SHA-256
-    E33BB40ACF8386DDFA6A2090309D52A25566697E726E8F213EF92FA087382AA7
+    2B8D3E99C8BF930F92F57CF5646D850684BDC9667E7FF3DF1563A7382C1B7A08
 
 Runtime test:
 
@@ -1046,6 +1049,18 @@ Runtime test:
      `sourceBuilt/cacheHit=1/1`,
      `residentPack/materialIndexCacheHit=1/1`, and
      `materialIndexMissingActive=0`.
-  5. Cross portals, settle, and request the audit once more. Both cache hits
-     must remain 1 unless actual content or material-table membership changed.
-  6. Reject any visual regression, device loss, or unexpected rebuild/upload.
+  5. Note the `materialBinding` value in
+     `signatures(plan/active/resident/materialBinding/tlas)`.
+  6. Cross portals and traverse near animated objects. The resident and
+     materialBinding signatures must remain stable, and both cache hits must
+     remain 1 unless resident content or a referenced binding truly changed.
+  7. Reject any visual regression, device loss, or unexpected rebuild/upload.
+
+BUCKET13 FIRST RUNTIME RESULT - 2026-07-28
+------------------------------------------
+Exact 56/56 publication and `materialIndexMissingActive=0` passed. The
+resident-pack cache stayed hot, and the material-index cache hit for 25
+consecutive build-ramp samples. Three late `materialIndexCacheHit=0` samples
+with an unchanged resident signature exposed an over-broad whole-table key.
+The binding-only key and stable resident-material prefix above are the
+required correction; runtime acceptance remains pending one repeat.
