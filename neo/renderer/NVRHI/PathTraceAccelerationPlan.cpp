@@ -2071,6 +2071,17 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     return diagnosticContractExact;
 }
 
+bool IsSmokeStaticBucketBoundedTransmissionResolverRequired(
+    int routeMode,
+    bool routePublicationValid)
+{
+    // Route 2 publishes TLAS instances over the bucket-resident pool. Its
+    // accepted production continuation is the bounded forced-opaque resolver;
+    // the legacy single-TraceRay any-hit path device-removes on this topology.
+    return routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
+        routePublicationValid;
+}
+
 RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
         bool productionView,

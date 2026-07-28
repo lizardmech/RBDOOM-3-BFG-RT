@@ -3728,6 +3728,17 @@ void TestStaticBucketAssignmentPlan()
             !transmissionClosestHitPositionDiagnosticPlan.materialFeatureCompose,
         "static bucket transmission probe separates legacy any-hit boundaries, bounded bucket resolve, monolithic control, temporal diagnostics, temporal-off presentation, producer tuple validation, and closest-hit position validation");
     Check(
+        IsSmokeStaticBucketBoundedTransmissionResolverRequired(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true) &&
+            !IsSmokeStaticBucketBoundedTransmissionResolverRequired(
+                RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+                false) &&
+            !IsSmokeStaticBucketBoundedTransmissionResolverRequired(
+                RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
+                true),
+        "static bucket production requires bounded transmission resolve only for a valid route-2 publication");
+    Check(
         waitingForPublicationPlan.active &&
             waitingForPublicationPlan.requested &&
             waitingForPublicationPlan.supported &&

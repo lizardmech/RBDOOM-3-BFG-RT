@@ -2792,6 +2792,104 @@ rigid/skinned controls retain their diagnostic colors. Once stage 23 passes,
 repeat route-2 view 16 with the stage disabled and inspect real glass before
 changing the resolver or any later DI/GI consumer.
 
+D111. STAGE 23 PASSES AFTER ROUTED DISPATCH-BUFFER CORRECTION
+-------------------------------------------------------------
+Runtime validation reports the previously red static bucket geometry as
+green. This accepts the complete stage-23 producer-local contract:
+
+  - the bucket TLAS instance and hardware primitive identity;
+  - closest-hit and bounded-loop raygen world positions;
+  - InstanceID plus PrimitiveIndex packed replay;
+  - routed index and vertex buffer selection;
+  - hardware barycentric transport.
+
+The prior red result was caused by dispatch-local consumers binding the
+retained monolithic buffers, not by bucket BLAS topology or the packed
+primitive address. Do not reopen SBT, payload, barycentric, or BLAS descriptor
+experiments for this defect without new contradictory evidence.
+
+Next gate: start a fresh route-2 process with secondary probe stage 0 and
+inspect normal view-16 glass. Acceptance requires continuous correctly
+textured brush surfaces behind glass during camera motion and portal
+traversal, with no device removal. If that passes, remove or quarantine the
+temporary GEO-10 diagnostic stages before promoting the bucket route.
+
+D112. NORMAL ROUTE-2 TRANSMISSION STILL DEVICE-REMOVES AFTER STAGE 23
+--------------------------------------------------------------------
+The first fresh stage-0 route-2 run device-removes in the clean DI
+transmission producer. This does not contradict D111: stage 23 returns
+immediately after validating the accepted hardware hit against index/vertex
+replay. It deliberately does not execute resolved-surface construction,
+material/attribute evaluation, primary-record publication, RR guide export,
+or sidecar completion.
+
+The existing stage-22 path is now the next exact gate. With the dispatch
+binding correction in place it executes
+`PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit`, compares the complete
+resolved tuple, writes a fixed diagnostic color, and returns before
+publication and guide/sidecar work:
+
+  - stage 22 device-removes: fault is inside resolved-surface construction or
+    its attribute/material reads;
+  - stage 22 survives green: resolved construction is accepted and the fault
+    is after the tuple diagnostic, beginning with primary publication, RR
+    guides, reflection ownership/shading, or sidecar finalization.
+
+Do not change the now-accepted bucket index/vertex route while running this
+gate.
+
+D113. CORRECTED STAGE 22 PASSES GREEN WITH CYAN CONTROLS
+--------------------------------------------------------
+Stage 22 survives after the routed dispatch-buffer correction. Static bucket
+hits are green and the separate skinned/rigid controls are cyan. This accepts
+resolved-surface construction, including the static index/vertex tuple,
+attributes, material ID/table index/class, and the resolved record identity.
+
+Normal stage 0 still differs materially from the accepted diagnostic route:
+the GEO-10 isolation stages clear reflection PSR, refracted PSR, and legacy
+probe modes, then stages 17 through 23 explicitly select the bounded
+forced-opaque iterative transmission resolver. Normal stage 0 does not set the
+iterative-resolve flag and therefore re-enters the legacy single-TraceRay
+any-hit path that previously device-removed during the isolation ladder.
+
+Re-run stage 17 on the corrected binding build before changing production
+defaults. Stage 17 executes the full straight-through producer publication and
+DI presentation with the accepted bounded resolver, while keeping reflection
+and refracted PSR out of the test:
+
+  - stage 17 survives with correct glass: promote the bounded resolver for
+    route-2 production and separately reintroduce reflection/refraction;
+  - stage 17 device-removes: isolate resolved-primary publication and RR-guide
+    export after the now-accepted stage-22 boundary.
+
+D114. STAGE 17 PASSES; PROMOTE BOUNDED RESOLVE FOR ROUTE 2
+----------------------------------------------------------
+Stage 17 survives on the corrected binding build and geometry behind glass is
+visually correct. Together with the green stage-22 and stage-23 results, this
+accepts the complete straight-through producer path: bounded traversal,
+resolved-surface construction, primary-record publication, guide export, and
+DI presentation.
+
+Production policy now requires the bounded forced-opaque iterative
+transmission resolver whenever route mode 2 has a valid bucket publication.
+Route 0 retains its existing behavior. The diagnostic-stage override remains
+authoritative while an isolation stage is active, so the historical ladder is
+still reproducible.
+
+The policy is expressed in
+`IsSmokeStaticBucketBoundedTransmissionResolverRequired` and covered by the CPU
+planning harness for:
+
+  - valid route-2 publication: required;
+  - route 2 without publication: not required;
+  - route 0 even with a synthetic valid flag: not required.
+
+Next gate is a fresh stage-0 route-2 run. It intentionally restores the normal
+reflection and refracted-PSR features around the now-promoted transmission
+resolver. A device removal there must be isolated as a reflection/refraction
+secondary-route defect rather than attributed to straight-through bucket
+transmission.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

@@ -1338,6 +1338,9 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool externalPdfNeeEnabled,
     bool transmissionPsrEnabled,
     int probeStage);
+bool IsSmokeStaticBucketBoundedTransmissionResolverRequired(
+    int routeMode,
+    bool routePublicationValid);
 
 struct RtSmokeStaticBucketSecondaryIsolationDispatchPlan
 {

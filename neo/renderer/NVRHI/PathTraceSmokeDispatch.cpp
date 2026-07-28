@@ -993,6 +993,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         r_pathTracingGeometryStaticBucketSecondaryProbeStage.GetInteger();
     const int staticBucketRouteMode =
         r_pathTracingGeometryStaticBucketRoute.GetInteger();
+    const bool staticBucketBoundedTransmissionResolverRequired =
+        IsSmokeStaticBucketBoundedTransmissionResolverRequired(
+            staticBucketRouteMode,
+            m_sceneInputs.geometry.staticBucketRoutePublicationValid);
     const bool staticBucketSecondaryMonolithicControlRequested =
         cleanRtxdiDiProductionView &&
         staticBucketRouteMode == RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED &&
@@ -3612,6 +3616,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             // hit before any DI/GI pass consumes them.
             PathTraceCleanRtxdiDiSentinelConstants psrConstants = dispatchConstants;
             psrConstants.flags |= CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE;
+            if (staticBucketBoundedTransmissionResolverRequired)
+            {
+                psrConstants.flags |=
+                    CLEAN_RTXDI_DI_FLAG_TRANSMISSION_ITERATIVE_RESOLVE;
+            }
             const char* staticBucketTransmissionMarker =
                 "CleanDI.TransmissionPSR";
             if (staticBucketSecondaryIsolationActive)
