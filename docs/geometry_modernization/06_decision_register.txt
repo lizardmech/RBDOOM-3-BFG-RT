@@ -2083,6 +2083,46 @@ raygen-without-trace from that one trace. Do not return to descriptor, pipeline
 creation, or general static-bucket decode hypotheses already cleared by
 stages 8 and 9.
 
+D93. REJECT CORE TRANSMISSION TRACE; INSTALL ONE-BUILD HIT-STAGE PROBE
+--------------------------------------------------------------------
+Decision: the reflection-disabled, straight-through stage-10 producer loaded
+the level and remained alive until a window entered the view, then
+device-removed. This proves producer dispatch and non-glass pixels are safe.
+The trigger is a glass pixel reaching the remaining transmission continuation
+`TraceRay`.
+
+Install all remaining isolation rungs in one shader build. Encode a two-bit
+probe mode in unused clean-DI flag bits 28-29 and derive it from the existing
+GEO-10 stage number. During isolation, forcibly clear glass reflection,
+opaque-mirror reflection, and refracted-PSR flags in the producer constants so
+normal user defaults cannot widen a rung.
+
+  stage 10  producer raygen and glass decode, return before TraceRay
+  stage 11  hardware traversal, force opaque and skip closest hit
+            (no any-hit or closest-hit shader)
+  stage 12  force non-opaque and skip closest hit (any-hit only)
+  stage 13  normal force-non-opaque any-hit plus closest-hit path
+
+Stages 10-12 intentionally leave the trace payload unresolved; visual glass
+output is not an acceptance criterion. Each stage retains accepted
+primary/initial/temporal/spatial work and returns before post-DI composition.
+The first failing rung identifies raygen/glass decode, hardware traversal,
+transmission any-hit, or closest-hit/payload publication without another
+shader rebuild.
+
+Local proof:
+
+  CPU planning harness                                passed
+  CPU planning stress iterations                      20
+  full Vulkan release build                           passed
+  transmission producer spirv-val                     passed
+  rebuilt blob newer than edited transport source     passed
+  other incidentally rebuilt clean-DI blob hashes     unchanged (5/5)
+  deployed executable SHA-256
+    3F06B4E741AFE7291B5315E8DE473EC6873F6AF2365C9AF52128C4720EB1508F
+  deployed transmission blob SHA-256
+    70D604E04CEFB43EBAD9B04BC93E1D259D6412114A735B791DBCDBF867EB2455
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

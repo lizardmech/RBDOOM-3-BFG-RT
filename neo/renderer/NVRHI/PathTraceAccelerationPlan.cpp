@@ -2031,11 +2031,13 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     // stage 6 creates spatial, stage 7 dispatches spatial, and stage 8 creates
     // the transmission/glass material-feature pipelines without runtime
     // registrations. Stage 9 admits the live material-feature registrations,
-    // bindings, state transitions, and clears without DispatchRays. Stage 10
-    // dispatches pre-DI transmission PSR only.
+    // bindings, state transitions, and clears without DispatchRays. Stages
+    // 10-13 dispatch the transmission producer with progressively admitted
+    // trace work: no TraceRay, traversal without hit shaders, any-hit only,
+    // then the full any-hit plus closest-hit path.
     const bool transmissionContractExact =
         (probeStage <= 8 && !transmissionPsrEnabled) ||
-        (probeStage >= 9 && probeStage <= 10 &&
+        (probeStage >= 9 && probeStage <= 13 &&
             transmissionPsrEnabled);
     const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
@@ -2045,7 +2047,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         transmissionContractExact &&
-        (probeStage >= 1 && probeStage <= 10);
+        (probeStage >= 1 && probeStage <= 13);
     return diagnosticContractExact;
 }
 
@@ -2069,7 +2071,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         return plan;
     }
 
-    plan.stage = std::max(0, std::min(10, probeStage));
+    plan.stage = std::max(0, std::min(13, probeStage));
     plan.primaryPipelineCreation =
         isolationSupported &&
         routePublicationValid &&
@@ -2103,6 +2105,18 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     plan.transmissionPsr =
         plan.materialFeatureRuntimeBindings &&
         plan.stage >= 10;
+    if (plan.stage == 10)
+    {
+        plan.transmissionTraceProbeMode = 1;
+    }
+    else if (plan.stage == 11)
+    {
+        plan.transmissionTraceProbeMode = 2;
+    }
+    else if (plan.stage == 12)
+    {
+        plan.transmissionTraceProbeMode = 3;
+    }
     plan.materialFeatureCompose = false;
     return plan;
 }

@@ -60,6 +60,9 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_BLUE_NOISE = 1u << 24u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR = 1u << 25u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS = 1u << 26u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION = 1u << 27u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT = 28u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK =
+    3u << CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
 const uint32_t LIQUID_POOL_CONTROL_TELEMETRY_READY = 1u << 0u;
 const uint32_t LIQUID_POOL_CONTROL_REQUESTED = 1u << 1u;
 const uint32_t LIQUID_POOL_CONTROL_ROUTE_DISABLED = 1u << 2u;
@@ -3544,12 +3547,49 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             // hit before any DI/GI pass consumes them.
             PathTraceCleanRtxdiDiSentinelConstants psrConstants = dispatchConstants;
             psrConstants.flags |= CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE;
+            const char* staticBucketTransmissionMarker =
+                "CleanDI.TransmissionPSR";
+            if (staticBucketSecondaryIsolationActive)
+            {
+                // Keep the GEO-10 traversal probes exact regardless of the
+                // normal glass defaults. Only the straight-through
+                // transmission lane is admitted, and stages 10-12 control
+                // how far its single TraceRay may execute.
+                psrConstants.flags &= ~(
+                    CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR |
+                    CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION |
+                    CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR |
+                    CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK);
+                psrConstants.flags |=
+                    (static_cast<uint32_t>(
+                        staticBucketSecondaryIsolation.
+                            transmissionTraceProbeMode) <<
+                        CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT) &
+                    CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK;
+                switch (staticBucketSecondaryIsolation.stage)
+                {
+                    case 10:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage10 TransmissionRaygenNoTrace";
+                        break;
+                    case 11:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage11 TransmissionTraversalNoHitShaders";
+                        break;
+                    case 12:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage12 TransmissionAnyHitOnly";
+                        break;
+                    default:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage13 TransmissionFullHitPath";
+                        break;
+                }
+            }
             {
                 PathTraceGpuMarkerScope nsightMarker(
                     commandList,
-                    staticBucketSecondaryIsolationActive
-                        ? "GEO10.View16.Stage10 TransmissionPSR"
-                        : "CleanDI.TransmissionPSR",
+                    staticBucketTransmissionMarker,
                     nsightGpuMarkers &&
                         staticBucketSecondaryIsolationActive);
                 DispatchPathTraceCleanRtxdiDiTransmissionPsrPass(
@@ -3807,10 +3847,34 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 if (staticBucketSecondaryIsolation.transmissionPsr)
                 {
-                    common->Printf(
-                        "PathTracePrimaryPass: GEO-10 view-16 stage-10 transmission-PSR plus initial-temporal-spatial dispatch completed (%dx%d); post-DI transmission/glass composition and later consumers skipped\n",
-                        m_frameResources.width,
-                        m_frameResources.height);
+                    if (staticBucketSecondaryIsolation.stage == 10)
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-10 transmission raygen without TraceRay plus initial-temporal-spatial dispatch completed (%dx%d); hit shaders, post-DI composition, and later consumers skipped\n",
+                            m_frameResources.width,
+                            m_frameResources.height);
+                    }
+                    else if (staticBucketSecondaryIsolation.stage == 11)
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-11 transmission traversal without hit shaders plus initial-temporal-spatial dispatch completed (%dx%d); any-hit, closest-hit, post-DI composition, and later consumers skipped\n",
+                            m_frameResources.width,
+                            m_frameResources.height);
+                    }
+                    else if (staticBucketSecondaryIsolation.stage == 12)
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-12 transmission any-hit-only traversal plus initial-temporal-spatial dispatch completed (%dx%d); closest-hit, post-DI composition, and later consumers skipped\n",
+                            m_frameResources.width,
+                            m_frameResources.height);
+                    }
+                    else
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-13 full transmission hit path plus initial-temporal-spatial dispatch completed (%dx%d); post-DI transmission/glass composition and later consumers skipped\n",
+                            m_frameResources.width,
+                            m_frameResources.height);
+                    }
                 }
                 else if (staticBucketSecondaryIsolation.
                     materialFeatureRuntimeBindings)

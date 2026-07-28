@@ -3,6 +3,10 @@
 
 #if defined(CLEAN_RTXDI_DI_TRANSMISSION_PSR_TRANSPORT)
 
+static const uint CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT = 28u;
+static const uint CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_MASK =
+    3u << CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
+
 static const uint CLEAN_RTXDI_DI_TRANSMISSION_GUIDE_POLICY_THIN_STRAIGHT = 0u;
 static const uint CLEAN_RTXDI_DI_TRANSMISSION_GUIDE_POLICY_STRONG_REFRACTION = 1u;
 
@@ -125,9 +129,37 @@ bool PathTraceCleanRtxdiDiTraceTransmissionHit(
     ray.Direction = rayDirection;
     ray.TMin = 0.01;
     ray.TMax = 100000.0;
+    const uint traceProbeMode =
+        (CleanRtxdiDiFlags &
+            CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_MASK) >>
+        CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
+    if (traceProbeMode == 1u)
+    {
+        // GEO-10 stage 10: execute the complete producer raygen prologue and
+        // glass decode, but stop before the first hardware traversal.
+        return false;
+    }
+
     // Force non-opaque so the rayMode 3 anyhit filter always runs; it skips the
     // source pane and transparent-carded glass so the ray reaches the backdrop.
-    TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 0, 0, ray, hitPayload);
+    uint traceFlags = RAY_FLAG_FORCE_NON_OPAQUE;
+    if (traceProbeMode == 2u)
+    {
+        // GEO-10 stage 11: traverse the TLAS while suppressing both any-hit
+        // (force opaque) and closest-hit execution.
+        traceFlags =
+            RAY_FLAG_FORCE_OPAQUE |
+            RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
+    }
+    else if (traceProbeMode == 3u)
+    {
+        // GEO-10 stage 12: admit transmission any-hit, but keep closest-hit
+        // suppressed. Stage 13 uses the normal full hit path.
+        traceFlags =
+            RAY_FLAG_FORCE_NON_OPAQUE |
+            RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
+    }
+    TraceRay(SmokeScene, traceFlags, 0xff, 0, 0, 0, ray, hitPayload);
     hitPosition = ray.Origin + rayDirection * hitPayload.hitT;
     return hitPayload.value != 0u && hitPayload.hitMaterialIndex < (uint)TextureInfo.z;
 }

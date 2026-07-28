@@ -1357,6 +1357,7 @@ struct RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     bool spatial = true;
     bool materialFeaturePipelineCreation = true;
     bool materialFeatureRuntimeBindings = true;
+    int transmissionTraceProbeMode = 0;
     bool materialFeatureCompose = true;
 };
 

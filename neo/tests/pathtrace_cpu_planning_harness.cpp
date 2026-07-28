@@ -2977,7 +2977,36 @@ void TestStaticBucketAssignmentPlan()
             false,
             true,
             10),
-        "static bucket view-16 isolation admits stage ten transmission PSR only with transmission controls enabled");
+        "static bucket view-16 isolation admits stage ten transmission raygen without TraceRay");
+    Check(
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            11) &&
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            12) &&
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            13),
+        "static bucket view-16 isolation admits traversal, any-hit, and full-hit transmission rungs");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3077,7 +3106,7 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             true,
-            11),
+            14),
         "static bucket clean-DI primary isolation rejects unsafe routes, missing transmission controls, and out-of-range stages");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         primaryPipelineOnlyPlan =
@@ -3152,13 +3181,37 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 9);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
-        transmissionPsrOnlyPlan =
+        transmissionRaygenNoTracePlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
                 true,
                 true,
                 true,
                 10);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionTraversalNoHitShadersPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                11);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionAnyHitOnlyPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                12);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionFullHitPathPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                13);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
@@ -3286,20 +3339,35 @@ void TestStaticBucketAssignmentPlan()
             materialFeatureRuntimeBindingsOnlyPlan.materialFeatureRuntimeBindings &&
             !materialFeatureRuntimeBindingsOnlyPlan.transmissionPsr &&
             !materialFeatureRuntimeBindingsOnlyPlan.materialFeatureCompose &&
-            transmissionPsrOnlyPlan.active &&
-            transmissionPsrOnlyPlan.stage == 10 &&
-            transmissionPsrOnlyPlan.primaryPipelineCreation &&
-            transmissionPsrOnlyPlan.primaryDispatch &&
-            transmissionPsrOnlyPlan.cleanDiPipelineCreation &&
-            transmissionPsrOnlyPlan.initial &&
-            transmissionPsrOnlyPlan.temporal &&
-            transmissionPsrOnlyPlan.spatialPipelineCreation &&
-            transmissionPsrOnlyPlan.spatial &&
-            transmissionPsrOnlyPlan.materialFeaturePipelineCreation &&
-            transmissionPsrOnlyPlan.materialFeatureRuntimeBindings &&
-            transmissionPsrOnlyPlan.transmissionPsr &&
-            !transmissionPsrOnlyPlan.materialFeatureCompose,
+            transmissionRaygenNoTracePlan.active &&
+            transmissionRaygenNoTracePlan.stage == 10 &&
+            transmissionRaygenNoTracePlan.primaryPipelineCreation &&
+            transmissionRaygenNoTracePlan.primaryDispatch &&
+            transmissionRaygenNoTracePlan.cleanDiPipelineCreation &&
+            transmissionRaygenNoTracePlan.initial &&
+            transmissionRaygenNoTracePlan.temporal &&
+            transmissionRaygenNoTracePlan.spatialPipelineCreation &&
+            transmissionRaygenNoTracePlan.spatial &&
+            transmissionRaygenNoTracePlan.materialFeaturePipelineCreation &&
+            transmissionRaygenNoTracePlan.materialFeatureRuntimeBindings &&
+            transmissionRaygenNoTracePlan.transmissionPsr &&
+            transmissionRaygenNoTracePlan.transmissionTraceProbeMode == 1 &&
+            !transmissionRaygenNoTracePlan.materialFeatureCompose,
         "static bucket primary isolate separates pipeline creation, runtime bindings, and DispatchRays");
+    Check(
+        transmissionTraversalNoHitShadersPlan.active &&
+            transmissionTraversalNoHitShadersPlan.stage == 11 &&
+            transmissionTraversalNoHitShadersPlan.transmissionPsr &&
+            transmissionTraversalNoHitShadersPlan.transmissionTraceProbeMode == 2 &&
+            transmissionAnyHitOnlyPlan.active &&
+            transmissionAnyHitOnlyPlan.stage == 12 &&
+            transmissionAnyHitOnlyPlan.transmissionPsr &&
+            transmissionAnyHitOnlyPlan.transmissionTraceProbeMode == 3 &&
+            transmissionFullHitPathPlan.active &&
+            transmissionFullHitPathPlan.stage == 13 &&
+            transmissionFullHitPathPlan.transmissionPsr &&
+            transmissionFullHitPathPlan.transmissionTraceProbeMode == 0,
+        "static bucket transmission probe separates no-trace, traversal-only, any-hit-only, and full-hit execution");
     Check(
         waitingForPublicationPlan.active &&
             waitingForPublicationPlan.requested &&
@@ -3348,6 +3416,7 @@ void TestStaticBucketAssignmentPlan()
             !activeStageZeroPlan.spatial &&
             !activeStageZeroPlan.materialFeaturePipelineCreation &&
             !activeStageZeroPlan.materialFeatureRuntimeBindings &&
+            activeStageZeroPlan.transmissionTraceProbeMode == 0 &&
             !activeStageZeroPlan.materialFeatureCompose,
         "static bucket clean-DI active publication with an invalid stage fails closed before primary");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
@@ -3370,6 +3439,7 @@ void TestStaticBucketAssignmentPlan()
             monolithicDispatchPlan.spatial &&
             monolithicDispatchPlan.materialFeaturePipelineCreation &&
             monolithicDispatchPlan.materialFeatureRuntimeBindings &&
+            monolithicDispatchPlan.transmissionTraceProbeMode == 0 &&
             monolithicDispatchPlan.materialFeatureCompose,
         "static bucket clean-DI secondary dispatch plan leaves monolithic view 16 unchanged");
 

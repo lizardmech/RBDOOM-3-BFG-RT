@@ -2735,3 +2735,71 @@ the crash to one of those removed reflection paths. A device removal assigns
 it to the remaining core transmission trace/hit-group path and authorizes one
 compiled split: raygen prologue without `TraceRay`, followed by exactly one
 straight-through trace.
+
+REF-10AB CORE-TRACE REJECTION AND FOUR-RUNG HIT PROBE - 2026-07-28
+------------------------------------------------------------------
+The reduced producer survived level entry and device-removed only when the
+camera looked at a window. With both reflection systems and refraction off,
+the first glass pixel still executes one straight-through transmission
+`TraceRay`. That is now the exact failing boundary.
+
+Compile one reusable isolation ladder rather than one shader per test.
+Reserve clean-DI flags 28-29 for a transmission trace probe mode used only by
+the GEO-10 producer isolation:
+
+  mode 1 / stage 10
+    Run producer raygen, primary glass-surface decode, material parameter
+    decode, and direction setup. Return immediately before `TraceRay`.
+
+  mode 2 / stage 11
+    Call `TraceRay` with `RAY_FLAG_FORCE_OPAQUE |
+    RAY_FLAG_SKIP_CLOSEST_HIT_SHADER`. This traverses the current bucket TLAS
+    but invokes neither any-hit nor closest-hit.
+
+  mode 3 / stage 12
+    Call `TraceRay` with `RAY_FLAG_FORCE_NON_OPAQUE |
+    RAY_FLAG_SKIP_CLOSEST_HIT_SHADER`. This invokes transmission any-hit but
+    suppresses closest-hit.
+
+  mode 0 / stage 13
+    Use the production `RAY_FLAG_FORCE_NON_OPAQUE` path with transmission
+    any-hit and closest-hit.
+
+For every stage 10-13 producer dispatch, the CPU must clear:
+
+  CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR
+  CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION
+  CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR
+
+Required checkpoint names:
+
+  GEO10.View16.Stage10 TransmissionRaygenNoTrace
+  GEO10.View16.Stage11 TransmissionTraversalNoHitShaders
+  GEO10.View16.Stage12 TransmissionAnyHitOnly
+  GEO10.View16.Stage13 TransmissionFullHitPath
+
+Test one stage at a time and stop on the first device removal. Black or
+unresolved glass is expected through stage 12. Only crash survival and the
+stage-specific completion line are acceptance evidence.
+
+Build and deployment proof:
+
+  CPU planning harness                                passed
+  CPU planning stress iterations                      20
+  full release build                                  passed
+  transmission producer spirv-val                     passed
+  transport source mtime                              2026-07-28 21:52:41
+  transmission blob mtime                             2026-07-28 21:59:59
+  source/deployed executable hash                     equal
+  source/deployed transmission blob hash              equal
+
+  executable
+    3F06B4E741AFE7291B5315E8DE473EC6873F6AF2365C9AF52128C4720EB1508F
+
+  transmission producer
+    70D604E04CEFB43EBAD9B04BC93E1D259D6412114A735B791DBCDBF867EB2455
+
+The build also recompiled sentinel, spatial debug/production, and temporal
+debug/production because the shared include timestamp was touched during the
+edit. All five hashes remained identical to the deployed versions, so they
+were not copied. Only the changed transmission producer blob was deployed.
