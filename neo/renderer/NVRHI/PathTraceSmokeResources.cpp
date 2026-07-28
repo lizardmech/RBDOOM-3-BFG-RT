@@ -706,8 +706,7 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
     const char* label,
     nvrhi::rt::PipelineHandle& pipeline,
     nvrhi::rt::ShaderTableHandle& shaderTable,
-    nvrhi::ShaderLibraryHandle skinnedHitShaderLibrary = nullptr,
-    bool useDeferredHostOperations = false)
+    nvrhi::ShaderLibraryHandle skinnedHitShaderLibrary = nullptr)
 {
     pipeline = nullptr;
     shaderTable = nullptr;
@@ -804,8 +803,6 @@ static bool CreatePathTraceSmokeRayTracingPipeline(
     pipelineDesc.maxPayloadSize = 64;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
-    pipelineDesc.useDeferredHostOperations =
-        useDeferredHostOperations;
 
     pipeline = device->createRayTracingPipeline(pipelineDesc);
     if (!pipeline)
@@ -1630,10 +1627,7 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             label,
             pipeline,
             shaderTable,
-            skinnedHitShaderLibrary,
-            restirLibraryKind == 9 &&
-                deviceManager->GetGraphicsAPI() ==
-                    nvrhi::GraphicsAPI::VULKAN))
+            skinnedHitShaderLibrary))
         {
             common->Printf("PathTracePrimaryPass: %s RT smoke pipeline unavailable; matching modes will use the core placeholder path\n", label);
             pipeline = nullptr;

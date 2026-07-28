@@ -1865,3 +1865,32 @@ Build proof:
   SPIR-V changes                                       none
   executable SHA-256
     651EED97E60460AFEAAB04D68B7A4E03FAEC02545FEDA4C130CF3C36A729F93C
+
+REF-10F STAGE-1 RESULT - DEVICE REMOVED BEFORE DISPATCH
+-------------------------------------------------------
+The split produced a decisive boundary:
+
+  final console stage     1
+  stage-2 command         absent
+  primary DispatchRays    not reached
+  Windows TDR             2026-07-28 16:11:01
+  LiveKernelEvent         141
+
+The failure is in cold route setup before ray execution. Deferred host
+pipeline creation did not prevent it. Because route-2/view-2 previously
+survived the same resident bucket AS, the remaining interaction is the cold
+primary pipeline plus the view-16 bucket route setup; the available evidence
+does not justify assigning the TDR to a shader instruction.
+
+The view-16 gate is revoked and the deferred-host experiment removed. No more
+runtime rungs are permitted on the surface-record decoder architecture. The
+next route must reduce to existing static pooled storage, one per-instance
+triangle base, contribution 0, and the established static hit decoder.
+
+Safety build:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V changes                                       none
+  executable SHA-256
+    45723965047A5566BD7901EA81D825E7FCC1CB5E4A0504ABB487EE6B7A7762DD

@@ -1730,3 +1730,40 @@ Offline proof:
   shaders rebuilt/deployed                             none
   executable SHA-256
     651EED97E60460AFEAAB04D68B7A4E03FAEC02545FEDA4C130CF3C36A729F93C
+
+REF-10F RUNTIME RESULT AND SAFETY ROLLBACK - 2026-07-28
+-------------------------------------------------------
+Stage 1 removed the device before stage 2 was entered. Console history proves
+the last command sequence selected stage 1 and never selected stage 2.
+Windows recorded LiveKernelEvent 141 and display recovery event 4101 at
+16:11:01. Therefore no primary `DispatchRays` occurred.
+
+Runtime disposition:
+
+  - stages 1 through 6 are all rejected;
+  - route 2 remains available only through the established view-2 diagnostic;
+  - the deferred-host primary-pipeline experiment is removed;
+  - no further in-game test is authorized for the view-16 surface-record
+    architecture.
+
+Next implementation slice:
+
+  1. Replace the surface-record/GeometryIndex validating route with bucket
+     BLAS topology over the existing packed static triangle pool.
+  2. Encode one triangle base in each bucket TLAS instance.
+  3. Resolve `triangleBase + PrimitiveIndex` once and feed the established
+     static lookup path.
+  4. Use contribution 0 and the existing primary hit groups.
+  5. Delete the bucket-specific shader decoder and any descriptors that become
+     dead.
+  6. Keep resident packing and unchanged bucket BLASes cached.
+  7. Prove descriptor/SBT/payload parity and primary SPIR-V size before
+     considering a new runtime gate.
+
+Safety build:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  shaders rebuilt/deployed                             none
+  executable SHA-256
+    45723965047A5566BD7901EA81D825E7FCC1CB5E4A0504ABB487EE6B7A7762DD

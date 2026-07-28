@@ -1460,6 +1460,8 @@ Verification:
 
 D68. SPLIT PRIMARY PIPELINE CREATION FROM PRIMARY DISPATCH
 ---------------------------------------------------------
+Superseded by D69 after stage 1 removed the device before stage 2 was entered.
+
 Decision: the D67 runtime attempt removed the device during the first cold
 level load. Console history proves route 2 and view 16 were enabled before any
 route-0/view-2 warm-up load. Windows recorded display event 4101 and
@@ -1500,6 +1502,44 @@ Verification:
   SPIR-V rebuild/deployment                             none
   executable SHA-256
     651EED97E60460AFEAAB04D68B7A4E03FAEC02545FEDA4C130CF3C36A729F93C
+
+D69. REVOKE THE VIEW-16 ROUTE AND END THE DISPATCH LADDER
+--------------------------------------------------------
+Decision: REF-10F stage 1 caused another NVIDIA device removal. Console
+history ends at stage 1 and contains no stage-2 command, so the primary
+`DispatchRays` was not submitted. Windows recorded display event 4101 and
+LiveKernelEvent 141 at 2026-07-28 16:11:01. Deferred host operations did not
+make the cold route stable.
+
+Reject every view-16 bucket-isolation stage again. Remove the experimental
+deferred-host request from the shared primary pipeline creator so the dormant
+diagnostic does not change established route-0/view-2 behavior. Retain the
+pure two-boundary dispatch plan and tests as evidence, but expose no live
+route from it.
+
+Do not add another runtime rung around the same pipeline/BLAS shape. The next
+GEO-10 implementation must simplify the route structurally:
+
+  - bucket BLASes remain topology over one existing pooled static universe;
+  - use one per-instance primitive base and the established static decoder;
+  - remove bucket-specific surface-record validation from hot hit shaders;
+  - add no new descriptor namespace, SBT contribution, or payload ABI;
+  - cache resident packing and BLASes rather than rebuilding the resident
+    universe per frame;
+  - recompile and inspect the primary producer before any new route admission.
+
+The confirmed missing `surfaceRecordBase < routeInfo.y` check remains a
+hardening requirement only if the surface-record route survives the redesign.
+It is not justification for rebuilding that unstable route now.
+
+Safety verification:
+
+  all view-16 bucket-isolation stages rejected          passed
+  PathTraceCpuPlanningHarness --stress 20               passed
+  win64-pt-dev-release                                  passed
+  SPIR-V rebuild/deployment                             none
+  executable SHA-256
+    45723965047A5566BD7901EA81D825E7FCC1CB5E4A0504ABB487EE6B7A7762DD
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

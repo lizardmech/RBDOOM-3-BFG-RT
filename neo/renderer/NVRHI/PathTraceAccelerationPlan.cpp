@@ -2082,10 +2082,11 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    // Stage 1 creates the primary pipeline without dispatching it. Stage 2
-    // dispatches that already-created pipeline. Both keep every secondary
-    // consumer disabled.
-    return routeMode ==
+    // REF-10F proved that the cold stage-1 route can remove the device before
+    // DispatchRays. Keep the exact contract documented but revoke runtime
+    // admission until the bucket route no longer needs this parallel shader
+    // path.
+    const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
         cleanDiView == 16 &&
@@ -2094,6 +2095,8 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !externalPdfNeeEnabled &&
         !transmissionPsrEnabled &&
         (probeStage == 1 || probeStage == 2);
+    (void)diagnosticContractExact;
+    return false;
 }
 
 RtSmokeStaticBucketSecondaryIsolationDispatchPlan

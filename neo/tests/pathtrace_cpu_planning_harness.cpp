@@ -2877,7 +2877,7 @@ void TestStaticBucketAssignmentPlan()
             true),
         "static bucket primary probe rejects production, unsupported views, uninstrumented, and GI-enabled routes");
     Check(
-        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
             true,
             16,
@@ -2886,9 +2886,9 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             1),
-        "static bucket view-16 isolation accepts pipeline-only stage one with transmission disabled");
+        "static bucket view-16 isolation rejects the failed pipeline-only stage one");
     Check(
-        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
             true,
             16,
@@ -2897,7 +2897,7 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             2),
-        "static bucket view-16 isolation accepts primary-dispatch stage two with transmission disabled");
+        "static bucket view-16 isolation rejects stage two after stage-one device removal");
     bool secondaryIsolationStagesRejected = true;
     for (int stage = 3; stage <= 6; ++stage)
     {
@@ -3029,7 +3029,7 @@ void TestStaticBucketAssignmentPlan()
             !primaryDispatchOnlyPlan.temporal &&
             !primaryDispatchOnlyPlan.spatial &&
             !primaryDispatchOnlyPlan.materialFeatureCompose,
-        "static bucket primary isolate separates deferred pipeline creation from DispatchRays");
+        "static bucket primary isolate separates pipeline creation from DispatchRays");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         activeStageZeroPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
