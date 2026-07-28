@@ -1626,6 +1626,23 @@ Verification:
   deployed executable SHA-256
     79F2069173D3D6FC49B07395F212EA3B8BCBCA5FBD962AB4A3929312277B6F35
 
+D74. ACCEPT VIEW 2 AND RE-ADMIT ONLY VIEW-16 STAGE 1
+----------------------------------------------------
+Decision: accept the rebuilt arithmetic route for the isolated view-2 primary
+probe. Re-enable only the exact view-16 stage-1 contract, which creates the
+ordinary primary pipeline and returns before DispatchRays while the isolation
+guard suppresses every secondary pipeline family.
+
+Keep stage 2, stages 3-6, and production route mode 1 rejected.
+
+Verification:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  deployed executable SHA-256
+    9F6A95266BBA6FCB1C623E06DDC80BD99EB2CE4E4E96EE9B902736752DEA76C1
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

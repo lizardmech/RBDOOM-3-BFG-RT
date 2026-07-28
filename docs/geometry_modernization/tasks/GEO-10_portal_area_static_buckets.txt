@@ -1916,3 +1916,32 @@ Offline proof:
   SPIR-V rebuild/deployment                            none
   deployed executable SHA-256
     79F2069173D3D6FC49B07395F212EA3B8BCBCA5FBD962AB4A3929312277B6F35
+
+REF-10J RUNTIME ACCEPTANCE - 2026-07-28
+---------------------------------------
+The user reported that the rebuilt route-2/view-2 probe seemed fine. The
+one-geometry bucket TLAS, contribution-0 hit groups, standard static
+descriptors, and one-add triangle decoder are accepted for the isolated
+primary status view.
+
+REF-10K VIEW-16 PRIMARY PIPELINE-ONLY READMISSION - 2026-07-28
+--------------------------------------------------------------
+The next rung re-admits only secondary-isolation stage 1 under the exact
+route-2/view-16/markers-on/GI-off/external-PDF-off/transmission-off contract.
+The dispatch plan creates the ordinary primary pipeline and returns before
+DispatchRays. Its active-isolation guard also skips clean-DI sentinel,
+initial, temporal, spatial, material-feature, external-PDF, transmission, and
+NEE-cache pipeline initialization.
+
+Stage 2 and production route mode 1 remain rejected. This is a CPU admission
+change only; no shader, descriptor, SBT, or payload change is required.
+
+Offline proof:
+
+  stage-1 positive/rejection matrix                    passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  source/deployed executable hashes                    equal
+  executable SHA-256
+    9F6A95266BBA6FCB1C623E06DDC80BD99EB2CE4E4E96EE9B902736752DEA76C1
