@@ -2013,8 +2013,7 @@ bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
         cleanDiView == 2 &&
         diagnosticCheckpointsEnabled &&
         !cleanGiEnabled;
-    (void)diagnosticContractExact;
-    return false;
+    return diagnosticContractExact;
 }
 
 bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(

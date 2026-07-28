@@ -2811,13 +2811,13 @@ void TestStaticBucketAssignmentPlan()
         "static bucket geometry address preserves the monolithic primitive sort key after bucket reordering");
 
     Check(
-        !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
             true,
             2,
             true,
             false),
-        "static bucket primary probe stays revoked during the topology pivot");
+        "static bucket primary probe re-admits only the instrumented arithmetic-route isolate");
     Check(
         !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,

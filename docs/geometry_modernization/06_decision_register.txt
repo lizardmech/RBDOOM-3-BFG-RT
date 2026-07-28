@@ -1608,6 +1608,24 @@ Verification:
   executable SHA-256
     F99804E347DBAD2CD66FAA91961050E65CDA81DDA24C04AC050140D785FABBF6
 
+D73. RE-ADMIT ONLY THE VIEW-2 ARITHMETIC PRIMARY PROBE
+------------------------------------------------------
+Decision: after D70-D72, re-enable the exact mode-2/view-2/markers-on/GI-off
+primary probe. Keep production mode, view 16, and every secondary isolation
+stage rejected.
+
+This probe validates bucket TLAS traversal and the one-add static lookup
+without entering the clean-DI pipeline family implicated by the prior cold
+device removals.
+
+Verification:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  deployed executable SHA-256
+    79F2069173D3D6FC49B07395F212EA3B8BCBCA5FBD962AB4A3929312277B6F35
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

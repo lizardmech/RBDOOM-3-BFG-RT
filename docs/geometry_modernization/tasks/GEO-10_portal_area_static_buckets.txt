@@ -1890,3 +1890,29 @@ Offline proof:
   SPIR-V rebuild/deployment                            none
   deployed executable SHA-256
     F99804E347DBAD2CD66FAA91961050E65CDA81DDA24C04AC050140D785FABBF6
+
+REF-10J BOUNDED ARITHMETIC-ROUTE READMISSION - 2026-07-28
+---------------------------------------------------------
+Re-admit only the instrumented view-2 primary opaque probe after REF-10G
+through REF-10I. This is not the failed view-16 pipeline-creation route:
+
+  accepted view                 2
+  required route mode           2
+  required clean DI             enabled
+  required GPU markers          enabled
+  required clean GI             disabled
+  view 16                       rejected
+  production route mode 1       rejected
+  secondary stages              rejected
+
+The probe now exercises one-geometry bucket BLASes, contribution 0, standard
+static descriptors, and the arithmetic triangle-base decoder. It cannot enter
+the view-16 clean-DI consumer chain that produced the prior cold TDR.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  deployed executable SHA-256
+    79F2069173D3D6FC49B07395F212EA3B8BCBCA5FBD962AB4A3929312277B6F35
