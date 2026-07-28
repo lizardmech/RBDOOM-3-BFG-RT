@@ -1780,25 +1780,48 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     staticBucketSecondaryIsolation.stage);
             }
         }
+        const bool staticBucketSpatialPipelineCreation =
+            staticBucketSecondaryIsolationActive &&
+            staticBucketSecondaryIsolation.spatialPipelineCreation;
+        const bool cleanSpatialPipelineRequested =
+            cleanRtxdiDiSpatialShaderRequested ||
+            staticBucketSpatialPipelineCreation;
+        const bool cleanSpatialPipelineMissing =
+            !m_smokeCleanRtxdiDiSpatialShaderTable ||
+            (cleanRtxdiDiProductionView &&
+                !m_smokeCleanRtxdiDiSpatialProductionShaderTable);
+        if (cleanSpatialPipelineRequested &&
+            cleanSpatialPipelineMissing)
+        {
+            if (staticBucketSpatialPipelineCreation)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO-10 spatial pipeline creation begin (stage=%d deferredHost=1)\n",
+                    staticBucketSecondaryIsolation.stage);
+            }
+            InitRayTracingSmokeRestirPipeline(20);
+        }
+        if (cleanSpatialPipelineRequested &&
+            (!m_smokeCleanRtxdiDiSpatialShaderTable ||
+                (cleanRtxdiDiProductionView &&
+                    !m_smokeCleanRtxdiDiSpatialProductionShaderTable)))
+        {
+            if (cleanRtxdiDiDumpRequested)
+            {
+                printCleanRtxdiDiDump("dispatch-entry", "clean-spatial-shader", 0);
+                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+            }
+            return;
+        }
+        if (staticBucketSpatialPipelineCreation &&
+            cleanSpatialPipelineMissing)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: GEO-10 spatial pipeline creation completed (stage=%d); spatial DispatchRays still blocked\n",
+                staticBucketSecondaryIsolation.stage);
+        }
         if (!staticBucketSecondaryIsolationActive)
         {
-            if (cleanRtxdiDiSpatialShaderRequested &&
-                (!m_smokeCleanRtxdiDiSpatialShaderTable ||
-                    (cleanRtxdiDiProductionView && !m_smokeCleanRtxdiDiSpatialProductionShaderTable)))
-            {
-                InitRayTracingSmokeRestirPipeline(20);
-            }
-            if (cleanRtxdiDiSpatialShaderRequested &&
-                (!m_smokeCleanRtxdiDiSpatialShaderTable ||
-                    (cleanRtxdiDiProductionView && !m_smokeCleanRtxdiDiSpatialProductionShaderTable)))
-            {
-                if (cleanRtxdiDiDumpRequested)
-                {
-                    printCleanRtxdiDiDump("dispatch-entry", "clean-spatial-shader", 0);
-                    r_pathTracingCleanRtxdiDiDump.SetInteger(0);
-                }
-                return;
-            }
             const RtPathTraceCleanRtxdiDiPipelineContext cleanRtxdiDiPipelineContext =
                 BuildPathTraceCleanRtxdiDiPipelineContext(
                     m_smokeTestInitialized,
@@ -3674,10 +3697,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             if (!m_smokeTestDispatched)
             {
-                common->Printf(
-                    "PathTracePrimaryPass: GEO-10 view-16 stage-5 initial-plus-temporal dispatch completed (%dx%d); spatial and later consumers skipped\n",
-                    m_frameResources.width,
-                    m_frameResources.height);
+                if (staticBucketSecondaryIsolation.spatialPipelineCreation)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-6 spatial pipelines plus initial-and-temporal dispatch completed (%dx%d); spatial DispatchRays and later consumers skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
+                else
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-5 initial-plus-temporal dispatch completed (%dx%d); spatial and later consumers skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
             }
             m_smokeTestDispatched = true;
             return;

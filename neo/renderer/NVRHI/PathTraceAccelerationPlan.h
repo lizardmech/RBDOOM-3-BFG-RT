@@ -1353,6 +1353,7 @@ struct RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     bool transmissionPsr = true;
     bool initial = true;
     bool temporal = true;
+    bool spatialPipelineCreation = true;
     bool spatial = true;
     bool materialFeatureCompose = true;
 };

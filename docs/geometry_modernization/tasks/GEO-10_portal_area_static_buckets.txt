@@ -2380,3 +2380,76 @@ Local compile proof, not yet deployed over the stage-6 test build:
 Do not deploy or open a later gate until the outstanding stage-6 runtime
 result is recorded against executable hash
 `EF43078C96959013B53B4814C430D5918078A71872A5AE702E3995C37DFC2242`.
+
+REF-10S RUNTIME RESULT CORRECTION - SUCCESS7.LOG - 2026-07-28
+--------------------------------------------------------------
+The cumulative stage-6 run did not execute spatial. Exact 56/56 publication
+completed first and the log reported:
+
+  GEO-10 view-16 stage-6 initial-plus-temporal-plus-spatial dispatch completed
+
+That message was not gated by `cleanSpatialRoute`. While secondary isolation
+was active, `cleanRtxdiDiSpatialShaderRequested` was forced false. A fresh
+process therefore loaded no spatial shader library, `cleanSpatialRoute`
+remained false, and the spatial block was bypassed. There is no spatial shader
+load line in `success7.log`.
+
+The run accepts exact bucket publication plus primary, initial, and temporal
+dispatch. It does not accept spatial. The lack of device-loss, Vulkan,
+binding, validation, or visual errors remains valid evidence for the paths
+that actually executed. The four-second `idSessionLocal::Pump` warning is
+pipeline warmup.
+
+REF-10T AUDIT-FIX DEPLOYMENT - 2026-07-28
+------------------------------------------
+The compiled REF-10T fix was deployed without changing the executable. Seven
+Vulkan blobs differed from the prior installation:
+
+  primary surface producer
+  clean-DI initial debug and production
+  clean-DI temporal debug and production
+  clean-DI glass
+  clean-DI transmission producer
+
+Sentinel and both spatial blobs are byte-identical and are not redeployed.
+All seven source/deployed hashes match. The executable remains:
+
+  EF43078C96959013B53B4814C430D5918078A71872A5AE702E3995C37DFC2242
+
+The user repeated the same route and reported no crash or visual change. That
+accepts the audit replacements for the primary, initial, and temporal paths
+which actually ran. It does not admit spatial or any later consumer.
+
+REF-10U SPATIAL PIPELINE-CREATION RUNG - 2026-07-28
+----------------------------------------------------
+Correct the control path before collecting another runtime result:
+
+  - add `spatialPipelineCreation` separately from `spatial` to the isolation
+    dispatch plan;
+  - retain stage 6 as the highest admitted diagnostic stage;
+  - at stage 6, request kind-20 spatial debug and production pipeline creation
+    even though ordinary spatial shader routing is disabled by isolation;
+  - print explicit begin/completed messages around that creation;
+  - leave `spatial=false`, retain the accepted initial and temporal dispatches,
+    and return before spatial `DispatchRays` and all later consumers;
+  - keep stage 7 rejected until stage-6 pipeline creation survives runtime.
+
+Required runtime evidence is now explicit. A valid stage-6 run must show:
+
+  GEO-10 spatial pipeline creation begin
+  GEO-10 spatial pipeline creation completed
+  GEO-10 view-16 stage-6 spatial pipelines plus initial-and-temporal dispatch completed
+
+The final line must also state that spatial `DispatchRays` and later consumers
+were skipped. This isolates device loss during spatial pipeline construction
+from device loss during spatial execution.
+
+Local proof and deployment:
+
+  CPU planning harness                              passed
+  CPU planning stress iterations                    20
+  full release build                                passed
+  Vulkan shader build status                        all SPIR-V up to date
+  source/deployed executable SHA-256                equal
+
+  AA3C0CC8D35765D4ECDE0274B53C537BA13CCDFF5D5BD33DC225A94912A51B60

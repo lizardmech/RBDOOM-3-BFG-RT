@@ -1895,6 +1895,32 @@ alpha/emissive evaluation; its `ShadowAnyHit` does not. GI, NEE-cache, and
 external-PDF shaders do not enable bucket consumers and therefore remain
 outside the production admission contract.
 
+D86. REJECT FALSE SPATIAL ACCEPTANCE; SPLIT PIPELINE CREATION FROM DISPATCH
+---------------------------------------------------------------------------
+Decision: `success7.log` and the post-D85 regression accept the audited
+primary, initial, and temporal paths, but do not accept spatial. The stage-6
+completion message was unconditional while the active isolation contract
+forced `cleanRtxdiDiSpatialShaderRequested` false. No spatial shader library
+load appears in the log and `cleanSpatialRoute` therefore remained false.
+
+Keep stages 1-5 accepted. Redefine stage 6 to create the repaired spatial debug
+and production pipelines while retaining initial and temporal dispatch, then
+return before spatial `DispatchRays` and every later consumer. A later stage
+may execute spatial only after stage-6 pipeline creation survives level load.
+
+The seven D85 shader replacements remain accepted for the paths that actually
+ran: primary, initial debug/production, temporal debug/production, glass, and
+transmission. The user's regression reported no crash or visual change. This
+result does not admit glass, transmission, spatial, or production routing; it
+only demonstrates that installing the audited blobs did not regress the
+already executing primary/initial/temporal sequence.
+
+The corrected stage matrix passes the CPU planning harness and 20 stress
+iterations. The release build reports every SPIR-V shader up to date. Source
+and deployed executable hashes are equal:
+
+  AA3C0CC8D35765D4ECDE0274B53C537BA13CCDFF5D5BD33DC225A94912A51B60
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

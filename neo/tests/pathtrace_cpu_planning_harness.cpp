@@ -2933,7 +2933,7 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             6),
-        "static bucket view-16 isolation admits stage six after spatial hit decode repair");
+        "static bucket view-16 isolation admits stage six for repaired spatial pipeline creation only");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3058,7 +3058,7 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 5);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
-        spatialDiOnlyPlan =
+        spatialPipelineOnlyPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
                 true,
@@ -3090,6 +3090,7 @@ void TestStaticBucketAssignmentPlan()
             !primaryPipelineOnlyPlan.transmissionPsr &&
             !primaryPipelineOnlyPlan.initial &&
             !primaryPipelineOnlyPlan.temporal &&
+            !primaryPipelineOnlyPlan.spatialPipelineCreation &&
             !primaryPipelineOnlyPlan.spatial &&
             !primaryPipelineOnlyPlan.materialFeatureCompose &&
             primaryDispatchOnlyPlan.active &&
@@ -3100,6 +3101,7 @@ void TestStaticBucketAssignmentPlan()
             !primaryDispatchOnlyPlan.transmissionPsr &&
             !primaryDispatchOnlyPlan.initial &&
             !primaryDispatchOnlyPlan.temporal &&
+            !primaryDispatchOnlyPlan.spatialPipelineCreation &&
             !primaryDispatchOnlyPlan.spatial &&
             !primaryDispatchOnlyPlan.materialFeatureCompose &&
             cleanDiPipelineOnlyPlan.active &&
@@ -3110,6 +3112,7 @@ void TestStaticBucketAssignmentPlan()
             !cleanDiPipelineOnlyPlan.transmissionPsr &&
             !cleanDiPipelineOnlyPlan.initial &&
             !cleanDiPipelineOnlyPlan.temporal &&
+            !cleanDiPipelineOnlyPlan.spatialPipelineCreation &&
             !cleanDiPipelineOnlyPlan.spatial &&
             !cleanDiPipelineOnlyPlan.materialFeatureCompose &&
             initialDiOnlyPlan.active &&
@@ -3119,6 +3122,7 @@ void TestStaticBucketAssignmentPlan()
             initialDiOnlyPlan.cleanDiPipelineCreation &&
             initialDiOnlyPlan.initial &&
             !initialDiOnlyPlan.temporal &&
+            !initialDiOnlyPlan.spatialPipelineCreation &&
             !initialDiOnlyPlan.spatial &&
             !initialDiOnlyPlan.transmissionPsr &&
             !initialDiOnlyPlan.materialFeatureCompose &&
@@ -3129,19 +3133,21 @@ void TestStaticBucketAssignmentPlan()
             temporalDiOnlyPlan.cleanDiPipelineCreation &&
             temporalDiOnlyPlan.initial &&
             temporalDiOnlyPlan.temporal &&
+            !temporalDiOnlyPlan.spatialPipelineCreation &&
             !temporalDiOnlyPlan.spatial &&
             !temporalDiOnlyPlan.transmissionPsr &&
             !temporalDiOnlyPlan.materialFeatureCompose &&
-            spatialDiOnlyPlan.active &&
-            spatialDiOnlyPlan.stage == 6 &&
-            spatialDiOnlyPlan.primaryPipelineCreation &&
-            spatialDiOnlyPlan.primaryDispatch &&
-            spatialDiOnlyPlan.cleanDiPipelineCreation &&
-            spatialDiOnlyPlan.initial &&
-            spatialDiOnlyPlan.temporal &&
-            spatialDiOnlyPlan.spatial &&
-            !spatialDiOnlyPlan.transmissionPsr &&
-            !spatialDiOnlyPlan.materialFeatureCompose,
+            spatialPipelineOnlyPlan.active &&
+            spatialPipelineOnlyPlan.stage == 6 &&
+            spatialPipelineOnlyPlan.primaryPipelineCreation &&
+            spatialPipelineOnlyPlan.primaryDispatch &&
+            spatialPipelineOnlyPlan.cleanDiPipelineCreation &&
+            spatialPipelineOnlyPlan.initial &&
+            spatialPipelineOnlyPlan.temporal &&
+            spatialPipelineOnlyPlan.spatialPipelineCreation &&
+            !spatialPipelineOnlyPlan.spatial &&
+            !spatialPipelineOnlyPlan.transmissionPsr &&
+            !spatialPipelineOnlyPlan.materialFeatureCompose,
         "static bucket primary isolate separates pipeline creation from DispatchRays");
     Check(
         waitingForPublicationPlan.active &&
@@ -3153,6 +3159,7 @@ void TestStaticBucketAssignmentPlan()
             !waitingForPublicationPlan.cleanDiPipelineCreation &&
             !waitingForPublicationPlan.initial &&
             !waitingForPublicationPlan.temporal &&
+            !waitingForPublicationPlan.spatialPipelineCreation &&
             !waitingForPublicationPlan.spatial &&
             unsupportedIsolationPlan.active &&
             unsupportedIsolationPlan.requested &&
@@ -3163,6 +3170,7 @@ void TestStaticBucketAssignmentPlan()
             !unsupportedIsolationPlan.cleanDiPipelineCreation &&
             !unsupportedIsolationPlan.initial &&
             !unsupportedIsolationPlan.temporal &&
+            !unsupportedIsolationPlan.spatialPipelineCreation &&
             !unsupportedIsolationPlan.spatial,
         "static bucket requested isolation fails closed before every pipeline until support and publication are valid");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
@@ -3183,6 +3191,7 @@ void TestStaticBucketAssignmentPlan()
             !activeStageZeroPlan.transmissionPsr &&
             !activeStageZeroPlan.initial &&
             !activeStageZeroPlan.temporal &&
+            !activeStageZeroPlan.spatialPipelineCreation &&
             !activeStageZeroPlan.spatial &&
             !activeStageZeroPlan.materialFeatureCompose,
         "static bucket clean-DI active publication with an invalid stage fails closed before primary");
@@ -3202,6 +3211,7 @@ void TestStaticBucketAssignmentPlan()
             monolithicDispatchPlan.transmissionPsr &&
             monolithicDispatchPlan.initial &&
             monolithicDispatchPlan.temporal &&
+            monolithicDispatchPlan.spatialPipelineCreation &&
             monolithicDispatchPlan.spatial &&
             monolithicDispatchPlan.materialFeatureCompose,
         "static bucket clean-DI secondary dispatch plan leaves monolithic view 16 unchanged");
