@@ -1621,6 +1621,28 @@ BuildSmokeStaticBucketResidentPackCachePlan(
     return plan;
 }
 
+RtSmokeStaticBucketMaterialIndexCachePlan
+BuildSmokeStaticBucketMaterialIndexCachePlan(
+    const RtSmokeStaticBucketMaterialIndexCacheInput& input)
+{
+    RtSmokeStaticBucketMaterialIndexCachePlan plan;
+    plan.reuse =
+        input.cacheValid &&
+        input.residentPackExact &&
+        input.residentPackSignature != 0 &&
+        input.residentPackSignature ==
+            input.cachedResidentPackSignature &&
+        input.materialTableSignature != 0 &&
+        input.materialTableSignature ==
+            input.cachedMaterialTableSignature &&
+        input.triangleCount >= 0 &&
+        input.triangleCount == input.cachedTriangleCount &&
+        input.bucketCount >= 0 &&
+        input.bucketCount == input.cachedBucketCount;
+    plan.rebuild = !plan.reuse;
+    return plan;
+}
+
 RtSmokeStaticBucketPublicationEpochPlan
 BuildSmokeStaticBucketPublicationEpochPlan(
     const RtSmokeStaticBucketPublicationEpochInput& input)

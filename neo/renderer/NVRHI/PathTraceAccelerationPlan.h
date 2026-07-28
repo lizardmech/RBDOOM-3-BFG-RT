@@ -445,6 +445,26 @@ struct RtSmokeStaticBucketResidentPackCachePlan
     bool rebuild = true;
 };
 
+struct RtSmokeStaticBucketMaterialIndexCacheInput
+{
+    uint64_t residentPackSignature = 0;
+    uint64_t materialTableSignature = 0;
+    int triangleCount = 0;
+    int bucketCount = 0;
+    uint64_t cachedResidentPackSignature = 0;
+    uint64_t cachedMaterialTableSignature = 0;
+    int cachedTriangleCount = 0;
+    int cachedBucketCount = 0;
+    bool residentPackExact = false;
+    bool cacheValid = false;
+};
+
+struct RtSmokeStaticBucketMaterialIndexCachePlan
+{
+    bool reuse = false;
+    bool rebuild = true;
+};
+
 struct RtSmokeStaticBucketPublicationEpochInput
 {
     uint64_t expectedGeneration = 0;
@@ -1196,6 +1216,9 @@ RtSmokeStaticBucketResolvedGeometryAddress
 RtSmokeStaticBucketResidentPackCachePlan
     BuildSmokeStaticBucketResidentPackCachePlan(
         const RtSmokeStaticBucketResidentPackCacheInput& input);
+RtSmokeStaticBucketMaterialIndexCachePlan
+    BuildSmokeStaticBucketMaterialIndexCachePlan(
+        const RtSmokeStaticBucketMaterialIndexCacheInput& input);
 
 RtSmokeStaticBucketPublicationEpochPlan
     BuildSmokeStaticBucketPublicationEpochPlan(

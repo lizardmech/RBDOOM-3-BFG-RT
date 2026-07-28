@@ -995,3 +995,57 @@ Runtime test:
   4. Material-class colors and stochastic coverage must match. Reject
      route-2-only magenta, missing bands, coverage shimmer, or class changes.
   5. Do not use view 25 for this rung.
+
+REF-9E RUNTIME ACCEPTANCE - 2026-07-28
+--------------------------------------
+The user reported no visual issue in the view-24 comparison. REF-9E is
+accepted.
+
+REF-11A RESIDENT MATERIAL-INDEX CACHE - 2026-07-28
+--------------------------------------------------
+The resident geometry pack already avoids full vertex/index/metadata repacking
+when its assignment, geometry, and material generations are unchanged. The
+remaining per-frame full-triangle path rebuilt every resident triangle's
+material-table index, rescanned active triangle ranges for missing indexes, and
+hashed the complete array before an unchanged upload could be skipped.
+
+The material-index cache now owns:
+
+  - the complete resident triangle-to-table index array;
+  - one missing-index count per resident bucket;
+  - the resident-pack content signature;
+  - the ordered material-table ID signature;
+  - exact triangle and bucket counts.
+
+Portal active membership is intentionally not a cache key. An unchanged or
+portal-only frame reuses the array, sums cached missing counts for active
+buckets, and skips the GPU upload without rehashing every triangle. Any pack,
+ordered table, count, exactness, or cache-validity change rebuilds. CPU cache
+state clears with the geometry universe, not with a GPU-only BLAS release.
+
+Offline proof:
+
+  full win64-pt-dev-release build                    passed
+  explicit PathTraceCpuPlanningHarness target       passed
+  PathTraceCpuPlanningHarness --stress 20           passed
+  unchanged pack/table cache reuse                  passed
+  table/pack/count/inexact/invalid rejection        passed
+  Vulkan shader rebuilds                             0
+  DX12 shader rebuilds                               0
+  retained primary producer SHA-256
+    7B0FCD935A7C0521E29E4516D03E4C1EF13C79037AC6574F8BEB7D16B4281B4A
+  executable SHA-256
+    E33BB40ACF8386DDFA6A2090309D52A25566697E726E8F213EF92FA087382AA7
+
+Runtime test:
+
+  1. Restart with the rebuilt executable; keep bucket BLAS/build enabled.
+  2. Let the level settle with route 2 and exact 56/56 publication.
+  3. Set `r_pathTracingGeometryStaticBucketAudit 1`.
+  4. The active-set line must report
+     `sourceBuilt/cacheHit=1/1`,
+     `residentPack/materialIndexCacheHit=1/1`, and
+     `materialIndexMissingActive=0`.
+  5. Cross portals, settle, and request the audit once more. Both cache hits
+     must remain 1 unless actual content or material-table membership changed.
+  6. Reject any visual regression, device loss, or unexpected rebuild/upload.

@@ -778,6 +778,16 @@ opaque/alpha/decal/liquid set. It reuses the hardware-resolved address for
 class, material, UV, and vertex data, and preserves route-0 stochastic coverage
 by hashing InstanceID zero plus sourceTriangleIndex. View 25 and all shadow,
 PSR, compose, and secondary glass work remain fail-closed.
+The live view-24 comparison reported no issue, so REF-9E is accepted.
+
+The first REF-11 prerequisite is pulled forward before production cutover.
+The resident vertex/index/class/material pack was already cached independently
+of portal activity, but every frame still rebuilt the full triangle-to-table
+index array, rescanned active triangle ranges, and rehashed the whole array
+before deciding not to upload it. The new material-index cache keys the mapping
+by resident-pack content plus ordered material-table IDs, retains per-bucket
+missing counts, and reduces unchanged/portal-only frames to bucket-count work.
+No shader, descriptor, SBT, TLAS, or payload contract changes.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------

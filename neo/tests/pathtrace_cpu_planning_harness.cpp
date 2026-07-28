@@ -1619,6 +1619,61 @@ void TestStaticBucketResidentPackCachePlan()
         "static bucket resident pack cache rebuilds an invalid cache");
 }
 
+void TestStaticBucketMaterialIndexCachePlan()
+{
+    RtSmokeStaticBucketMaterialIndexCacheInput input;
+    input.residentPackSignature = 100;
+    input.materialTableSignature = 200;
+    input.triangleCount = 50108;
+    input.bucketCount = 56;
+    input.cachedResidentPackSignature = 100;
+    input.cachedMaterialTableSignature = 200;
+    input.cachedTriangleCount = 50108;
+    input.cachedBucketCount = 56;
+    input.residentPackExact = true;
+    input.cacheValid = true;
+    const RtSmokeStaticBucketMaterialIndexCachePlan exactPlan =
+        BuildSmokeStaticBucketMaterialIndexCachePlan(input);
+    Check(
+        exactPlan.reuse && !exactPlan.rebuild,
+        "static bucket material-index cache reuses an exact unchanged pack and material table");
+
+    input.materialTableSignature = 201;
+    Check(
+        BuildSmokeStaticBucketMaterialIndexCachePlan(input).rebuild,
+        "static bucket material-index cache rebuilds a changed material table");
+    input.materialTableSignature = 200;
+
+    input.residentPackSignature = 101;
+    Check(
+        BuildSmokeStaticBucketMaterialIndexCachePlan(input).rebuild,
+        "static bucket material-index cache rebuilds a changed resident pack");
+    input.residentPackSignature = 100;
+
+    input.triangleCount = 50107;
+    Check(
+        BuildSmokeStaticBucketMaterialIndexCachePlan(input).rebuild,
+        "static bucket material-index cache rejects a triangle-count mismatch");
+    input.triangleCount = 50108;
+
+    input.bucketCount = 55;
+    Check(
+        BuildSmokeStaticBucketMaterialIndexCachePlan(input).rebuild,
+        "static bucket material-index cache rejects a bucket-count mismatch");
+    input.bucketCount = 56;
+
+    input.residentPackExact = false;
+    Check(
+        BuildSmokeStaticBucketMaterialIndexCachePlan(input).rebuild,
+        "static bucket material-index cache rejects an inexact resident pack");
+    input.residentPackExact = true;
+
+    input.cacheValid = false;
+    Check(
+        BuildSmokeStaticBucketMaterialIndexCachePlan(input).rebuild,
+        "static bucket material-index cache rebuilds an invalid cache");
+}
+
 void TestStaticBucketCutoverPlan()
 {
     RtSmokeStaticBucketCutoverInput input;
@@ -4404,6 +4459,7 @@ int main(int argc, char** argv)
     TestStaticBucketInstanceAddressPlan();
     TestStaticBucketSurfaceAddressPlan();
     TestStaticBucketResidentPackCachePlan();
+    TestStaticBucketMaterialIndexCachePlan();
     TestStaticBucketCutoverPlan();
     TestStaticBucketRigidRouteNamespaceComposition();
     TestStaticBucketWorkPlanSnapshot();

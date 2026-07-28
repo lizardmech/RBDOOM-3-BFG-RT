@@ -936,6 +936,13 @@ public:
         GetOrBuildStaticBucketResidentGeometryPack(
             const RtSmokeStaticBucketAssignmentPlan& assignmentPlan,
             bool& cacheHit);
+    bool GetOrBuildStaticBucketMaterialIndexes(
+        const RtSmokeStaticBucketGeometryPack& geometryPack,
+        const std::vector<uint32_t>& materialTableIds,
+        uint64 materialTableIdSignature,
+        bool& cacheHit,
+        const std::vector<uint32_t>*& triangleMaterialIndexes,
+        const std::vector<int>*& missingMaterialIndexesByBucket);
     RtPathTraceStaticBucketBlasGpuStats
         UpdateStaticBucketBlasGpuScaffold(
             nvrhi::IDevice* device,
@@ -964,7 +971,7 @@ public:
         nvrhi::ICommandList* commandList,
         const RtSmokeStaticBucketGeometryPack& geometryPack,
         const std::vector<uint32_t>& triangleMaterialIndexes,
-        uint64 materialGeneration);
+        uint64 materialTableIdSignature);
     nvrhi::BufferHandle StaticBucketVertexBuffer() const
     {
         return m_staticBucketVertexBuffer;
@@ -1267,6 +1274,11 @@ private:
     uint64 m_staticBucketResidentGeometryGeneration = 0;
     uint64 m_staticBucketResidentMaterialGeneration = 0;
     bool m_staticBucketResidentGeometryPackValid = false;
+    std::vector<uint32_t> m_staticBucketMaterialIndexes;
+    std::vector<int> m_staticBucketMissingMaterialIndexesByBucket;
+    uint64 m_staticBucketMaterialIndexResidentPackSignature = 0;
+    uint64 m_staticBucketMaterialIndexTableSignature = 0;
+    bool m_staticBucketMaterialIndexCacheValid = false;
 };
 
 RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(

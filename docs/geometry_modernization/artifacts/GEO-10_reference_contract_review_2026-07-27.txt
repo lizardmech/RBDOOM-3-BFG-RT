@@ -1280,3 +1280,53 @@ Runtime acceptance compares route 0 and route 2 in view 24 at portal windows
 and object glass. Classification, coverage, camera-motion stability, and portal
 traversal must match. Any route-2-only magenta, missing band, coverage shimmer,
 or class-color change rejects the rung.
+
+REF-9E RUNTIME ACCEPTANCE - 2026-07-28
+--------------------------------------
+The view-24 route comparison was reported visually correct. Primary
+portal-window/object-glass classification and route-0-equivalent stochastic
+coverage are accepted.
+
+REF-11A RESIDENT MATERIAL-INDEX CACHE - 2026-07-28
+--------------------------------------------------
+Audit corrected the older broad statement that the full resident geometry pack
+still repacked every frame. `GetOrBuildStaticBucketResidentGeometryPack`
+already reuses vertices, indexes, class/material metadata, surface records, and
+bucket ranges across portal changes. The remaining recurring full-triangle
+work was the material-table index mapping:
+
+  - rebuild an ID-to-table map;
+  - remap every resident triangle;
+  - count missing indexes across each active triangle range;
+  - hash the complete remapped array before skipping an unchanged GPU upload.
+
+The new cache retains the remapped triangle array and one missing count per
+resident bucket. Its key is resident-pack content signature plus the ordered
+material-table ID signature and exact triangle/bucket counts. Active portal
+membership is not a key. On a hit, only active bucket missing counts are
+summed. The upload skip uses the same identity tuple and byte count, avoiding
+another full-array hash. Geometry-universe clear invalidates the CPU cache;
+GPU-only BLAS release does not, which preserves audit-only ownership.
+
+Offline proof:
+
+  full win64-pt-dev-release build                    passed
+  explicit PathTraceCpuPlanningHarness target       passed
+  PathTraceCpuPlanningHarness --stress 20           passed
+  unchanged pack/table cache reuse                  passed
+  table/pack/count/inexact/invalid rejection        passed
+  Vulkan shader rebuilds                             0
+  DX12 shader rebuilds                               0
+  retained primary producer SHA-256
+    7B0FCD935A7C0521E29E4516D03E4C1EF13C79037AC6574F8BEB7D16B4281B4A
+  executable SHA-256
+    E33BB40ACF8386DDFA6A2090309D52A25566697E726E8F213EF92FA087382AA7
+
+Runtime proof requires one settled audit line with:
+
+  sourceBuilt/cacheHit=1/1
+  residentPack/materialIndexCacheHit=1/1
+  materialIndexMissingActive=0
+
+and unchanged exact 56/56 publication. A portal crossing must not turn either
+cache hit back to zero unless content or ordered table membership changed.

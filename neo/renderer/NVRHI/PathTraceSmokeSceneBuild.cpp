@@ -6002,11 +6002,12 @@ struct RtSmokeStaticBucketFramePublication
     int missingActiveMaterialIndexes = 0;
     uint64 sourceGeneration = 0;
     bool residentPackCacheHit = false;
+    bool materialIndexCacheHit = false;
     RtPathTraceSceneUniverseBuildStats sourceBuildStats;
     RtSmokeGeometryUniverseStats universeStats;
     RtSmokeStaticBucketAssignmentPlan assignmentPlan;
     const RtSmokeStaticBucketGeometryPack* geometryPack = nullptr;
-    std::vector<uint32_t> materialIndexes;
+    const std::vector<uint32_t>* materialIndexes = nullptr;
     RtPathTraceStaticBucketBlasGpuStats gpuStats;
     RtSmokeStaticBucketWorkPlan shadowWorkPlan;
     RtPathTraceStaticBucketActivePublication activePublication;
@@ -6106,58 +6107,41 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
                 frame.residentPackCacheHit);
     const RtSmokeStaticBucketGeometryPack& geometryPack =
         *frame.geometryPack;
+    const uint64 materialTableIdSignature =
+        BuildSmokeRigidRouteMaterialIdSignature(materialIds);
 
-    std::unordered_map<uint32_t, uint32_t> materialIndexById;
-    materialIndexById.reserve(materialIds.size());
-    for (uint32_t materialIndex = 0;
-         materialIndex < materialIds.size();
-         ++materialIndex)
+    const std::vector<int>*
+        missingMaterialIndexesByBucket = nullptr;
+    if (!staticBucketGeometryUniverse.
+            GetOrBuildStaticBucketMaterialIndexes(
+                geometryPack,
+                materialIds,
+                materialTableIdSignature,
+                frame.materialIndexCacheHit,
+                frame.materialIndexes,
+                missingMaterialIndexesByBucket) ||
+        frame.materialIndexes == nullptr ||
+        missingMaterialIndexesByBucket == nullptr ||
+        missingMaterialIndexesByBucket->size() !=
+            geometryPack.buckets.size())
     {
-        materialIndexById.emplace(
-            materialIds[materialIndex],
-            materialIndex);
-    }
-    frame.materialIndexes.assign(
-        geometryPack.triangleMaterials.size(),
-        UINT32_MAX);
-    for (size_t triangleIndex = 0;
-         triangleIndex < geometryPack.triangleMaterials.size();
-         ++triangleIndex)
-    {
-        const auto materialIndex = materialIndexById.find(
-            geometryPack.triangleMaterials[triangleIndex]);
-        if (materialIndex != materialIndexById.end())
-        {
-            frame.materialIndexes[triangleIndex] =
-                materialIndex->second;
-        }
+        return frame;
     }
 
-    for (const RtSmokeStaticBucketPackedRecord& bucket :
-         geometryPack.buckets)
+    for (size_t bucketIndex = 0;
+         bucketIndex < geometryPack.buckets.size();
+         ++bucketIndex)
     {
+        const RtSmokeStaticBucketPackedRecord& bucket =
+            geometryPack.buckets[bucketIndex];
         if (!bucket.active ||
             bucket.range.triangleOffset < 0 ||
             bucket.range.triangleCount <= 0)
         {
             continue;
         }
-        const size_t firstTriangle =
-            static_cast<size_t>(bucket.range.triangleOffset);
-        const size_t endTriangle =
-            firstTriangle +
-            static_cast<size_t>(bucket.range.triangleCount);
-        if (endTriangle > frame.materialIndexes.size())
-        {
-            frame.missingActiveMaterialIndexes +=
-                bucket.range.triangleCount;
-            continue;
-        }
         frame.missingActiveMaterialIndexes +=
-            static_cast<int>(std::count(
-                frame.materialIndexes.begin() + firstTriangle,
-                frame.materialIndexes.begin() + endTriangle,
-                UINT32_MAX));
+            (*missingMaterialIndexesByBucket)[bucketIndex];
     }
 
     const bool submitBuilds =
@@ -6214,8 +6198,8 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
             device,
             commandList,
             geometryPack,
-            frame.materialIndexes,
-            frame.universeStats.staticMaterialGeneration);
+            *frame.materialIndexes,
+            materialTableIdSignature);
     return frame;
 }
 
@@ -8195,7 +8179,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 ? staticBucketFramePublication.geometryPack
                 : nullptr,
             staticBucketEmissiveRouteAccepted
-                ? &staticBucketFramePublication.materialIndexes
+                ? staticBucketFramePublication.materialIndexes
                 : nullptr,
             staticBucketEmissiveRouteAccepted
                 ? &staticBucketFramePublication.activePublication
@@ -8212,7 +8196,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             maxEmissiveRecords,
             emissiveInventoryStats);
         if (staticBucketFramePublication.auditRequested &&
-            !staticBucketEmissiveRouteAccepted)
+            !staticBucketEmissiveRouteAccepted &&
+            staticBucketFramePublication.geometryPack != nullptr &&
+            staticBucketFramePublication.materialIndexes != nullptr)
         {
             RtSmokeEmissiveInventoryStats
                 staticBucketEmissiveStats;
@@ -8222,7 +8208,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 materialTable.materialIds,
                 materialTable.materials,
                 *staticBucketFramePublication.geometryPack,
-                staticBucketFramePublication.materialIndexes,
+                *staticBucketFramePublication.materialIndexes,
                 staticBucketFramePublication.activePublication,
                 RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
                 RT_SMOKE_TRIANGLE_CLASS_MASK,
@@ -12552,7 +12538,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         useStaticBucketResidentPool
             ? static_cast<int>(
                 staticBucketFramePublication.
-                    materialIndexes.size())
+                    materialIndexes->size())
             : static_cast<int>(
                 materialTable.staticMaterialIndexes.size());
     sceneInputs.geometry.previousStaticVertexCount = m_sceneInputs.geometry.staticVertexCount;
@@ -12991,11 +12977,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 DumpStaticBucketActivePublication(
                     staticBucketActivePublication);
             common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d residentPackCacheHit=%d maskValid=%d portalMaskValid=%d fullResidentProbe=%d portalSteps=%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/tlas)=%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
+                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d residentPack/materialIndexCacheHit=%d/%d maskValid=%d portalMaskValid=%d fullResidentProbe=%d portalSteps=%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/tlas)=%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
                 staticBucketSourceBuildStats.built ? 1 : 0,
                 staticBucketSourceBuildStats.cacheHit ? 1 : 0,
                 staticBucketFramePublication.
                     residentPackCacheHit
+                        ? 1
+                        : 0,
+                staticBucketFramePublication.
+                    materialIndexCacheHit
                         ? 1
                         : 0,
                 staticBucketActiveMaskValid ? 1 : 0,
