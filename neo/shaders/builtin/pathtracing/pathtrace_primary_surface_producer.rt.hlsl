@@ -1434,21 +1434,55 @@ bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload)
         payload.translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN;
 }
 
+bool PathTraceTryResolvePrimaryStaticBucketTriangleIndex(
+    uint instanceId,
+    uint primitiveIndex,
+    out uint triangleBase,
+    out uint triangleIndex)
+{
+    triangleBase = 0u;
+    triangleIndex = 0u;
+    const uint staticTriangleCount =
+        PathTraceStaticTriangleCount();
+    if (!PathTraceStaticBucketInstanceInPublishedRange(
+            instanceId,
+            StaticBucketRouteInfo,
+            triangleBase) ||
+        triangleBase >= staticTriangleCount ||
+        primitiveIndex >= staticTriangleCount - triangleBase)
+    {
+        return false;
+    }
+
+    triangleIndex = triangleBase + primitiveIndex;
+    return true;
+}
+
 bool PathTraceTryResolvePrimaryStaticBucketHit(
     uint instanceId,
     uint geometryIndex,
     uint primitiveIndex,
     out PathTraceStaticGeometryAddress address)
 {
-    return PathTraceTryResolveStaticBucketGeometryAddress(
-        instanceId,
-        geometryIndex,
-        primitiveIndex,
-        StaticBucketRouteInfo,
-        PathTraceStaticVertexCount(),
-        PathTraceStaticIndexCount(),
-        PathTraceStaticTriangleCount(),
-        address);
+    address = (PathTraceStaticGeometryAddress)0;
+    uint triangleBase = 0u;
+    uint triangleIndex = 0u;
+    if (geometryIndex != 0u ||
+        !PathTraceTryResolvePrimaryStaticBucketTriangleIndex(
+            instanceId,
+            primitiveIndex,
+            triangleBase,
+            triangleIndex))
+    {
+        return false;
+    }
+
+    address.triangleBase = triangleBase;
+    address.triangleIndex = triangleIndex;
+    address.sourceTriangleIndex = primitiveIndex;
+    address.triangleCount =
+        PathTraceStaticTriangleCount() - triangleBase;
+    return true;
 }
 
 struct PathTracePrimaryResolvedHit
@@ -1512,12 +1546,31 @@ bool PathTraceResolvePrimaryHit(
 bool PathTraceStaticBucketDetailDecalFacesPrimaryRay(
     PathTraceStaticGeometryAddress address)
 {
+    if (address.triangleIndex > (0xffffffffu - 2u) / 3u)
+    {
+        return false;
+    }
+    const uint indexOffset = address.triangleIndex * 3u;
+    const uint indexCount = PathTraceStaticIndexCount();
+    if (indexOffset >= indexCount ||
+        indexCount - indexOffset < 3u)
+    {
+        return false;
+    }
+    const uint3 vertexIndexes = uint3(
+        SmokeStaticIndices[indexOffset + 0u],
+        SmokeStaticIndices[indexOffset + 1u],
+        SmokeStaticIndices[indexOffset + 2u]);
+    if (any(vertexIndexes >= PathTraceStaticVertexCount()))
+    {
+        return false;
+    }
     const PathTraceSmokeVertex v0 =
-        SmokeStaticBucketVertices[address.vertexIndexes.x];
+        SmokeStaticBucketVertices[vertexIndexes.x];
     const PathTraceSmokeVertex v1 =
-        SmokeStaticBucketVertices[address.vertexIndexes.y];
+        SmokeStaticBucketVertices[vertexIndexes.y];
     const PathTraceSmokeVertex v2 =
-        SmokeStaticBucketVertices[address.vertexIndexes.z];
+        SmokeStaticBucketVertices[vertexIndexes.z];
     float3 outwardFaceNormal = cross(
         v1.position.xyz - v0.position.xyz,
         v2.position.xyz - v0.position.xyz);
@@ -1554,22 +1607,18 @@ bool PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
 
 bool SmokeTriangleIndexRangeValid(uint instanceId, uint primitiveIndex)
 {
-    uint staticBucketRouteIndex = 0u;
+    uint staticBucketTriangleBase = 0u;
+    uint staticBucketTriangleIndex = 0u;
     if (PathTraceStaticBucketInstanceInPublishedRange(
             instanceId,
             StaticBucketRouteInfo,
-            staticBucketRouteIndex))
+            staticBucketTriangleBase))
     {
-        PathTraceStaticBucketRouteRecord route;
-        uint packedTriangleIndex;
-        uint3 packedVertexIndexes;
-        return PathTraceTryLoadStaticBucketTriangleRoute(
+        return PathTraceTryResolvePrimaryStaticBucketTriangleIndex(
             instanceId,
             primitiveIndex,
-            StaticBucketRouteInfo,
-            route,
-            packedTriangleIndex,
-            packedVertexIndexes);
+            staticBucketTriangleBase,
+            staticBucketTriangleIndex);
     }
     if (instanceId == 0u)
     {
@@ -1615,22 +1664,18 @@ bool SmokeTriangleIndexRangeValid(uint instanceId, uint primitiveIndex)
 
 uint LoadSmokeTriangleMaterialId(uint instanceId, uint primitiveIndex)
 {
-    uint staticBucketRouteIndex = 0u;
+    uint staticBucketTriangleBase = 0u;
+    uint packedTriangleIndex = 0u;
     if (PathTraceStaticBucketInstanceInPublishedRange(
             instanceId,
             StaticBucketRouteInfo,
-            staticBucketRouteIndex))
+            staticBucketTriangleBase))
     {
-        PathTraceStaticBucketRouteRecord route;
-        uint packedTriangleIndex;
-        uint3 packedVertexIndexes;
-        return PathTraceTryLoadStaticBucketTriangleRoute(
+        return PathTraceTryResolvePrimaryStaticBucketTriangleIndex(
                 instanceId,
                 primitiveIndex,
-                StaticBucketRouteInfo,
-                route,
-                packedTriangleIndex,
-                packedVertexIndexes)
+                staticBucketTriangleBase,
+                packedTriangleIndex)
             ? SmokeStaticBucketTriangleMaterials[
                 packedTriangleIndex]
             : 0xffffffffu;
@@ -1673,22 +1718,18 @@ uint LoadSmokeTriangleMaterialId(uint instanceId, uint primitiveIndex)
 
 uint LoadSmokeTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 {
-    uint staticBucketRouteIndex = 0u;
+    uint staticBucketTriangleBase = 0u;
+    uint packedTriangleIndex = 0u;
     if (PathTraceStaticBucketInstanceInPublishedRange(
             instanceId,
             StaticBucketRouteInfo,
-            staticBucketRouteIndex))
+            staticBucketTriangleBase))
     {
-        PathTraceStaticBucketRouteRecord route;
-        uint packedTriangleIndex;
-        uint3 packedVertexIndexes;
-        return PathTraceTryLoadStaticBucketTriangleRoute(
+        return PathTraceTryResolvePrimaryStaticBucketTriangleIndex(
                 instanceId,
                 primitiveIndex,
-                StaticBucketRouteInfo,
-                route,
-                packedTriangleIndex,
-                packedVertexIndexes)
+                staticBucketTriangleBase,
+                packedTriangleIndex)
             ? SmokeStaticBucketTriangleClasses[
                 packedTriangleIndex]
             : 0u;
@@ -1720,22 +1761,18 @@ uint LoadSmokeTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 
 uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
 {
-    uint staticBucketRouteIndex = 0u;
+    uint staticBucketTriangleBase = 0u;
+    uint packedTriangleIndex = 0u;
     if (PathTraceStaticBucketInstanceInPublishedRange(
             instanceId,
             StaticBucketRouteInfo,
-            staticBucketRouteIndex))
+            staticBucketTriangleBase))
     {
-        PathTraceStaticBucketRouteRecord route;
-        uint packedTriangleIndex;
-        uint3 packedVertexIndexes;
-        return PathTraceTryLoadStaticBucketTriangleRoute(
+        return PathTraceTryResolvePrimaryStaticBucketTriangleIndex(
                 instanceId,
                 primitiveIndex,
-                StaticBucketRouteInfo,
-                route,
-                packedTriangleIndex,
-                packedVertexIndexes)
+                staticBucketTriangleBase,
+                packedTriangleIndex)
             ? SmokeStaticBucketTriangleMaterialIndexes[
                 packedTriangleIndex]
             : 0xffffffffu;

@@ -2321,3 +2321,62 @@ Offline proof:
   executable plus two spatial blobs deployed           hashes equal
   executable SHA-256
     EF43078C96959013B53B4814C430D5918078A71872A5AE702E3995C37DFC2242
+
+REF-10T FORWARD CONSUMER HIT-DECODE AUDIT - 2026-07-28
+-------------------------------------------------------
+Before admitting anything beyond the stage-6 spatial rung, enumerate the
+entire shader set that explicitly compiles with
+`RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS=1`:
+
+  primary surface producer
+  clean-DI initial
+  clean-DI temporal
+  clean-DI spatial
+  clean-DI glass
+  clean-DI transmission producer
+
+No GI, NEE-cache, or external-PDF shader enables the bucket contract. Those
+subsystems remain prohibited during GEO-10 production admission.
+
+Audit result:
+
+  primary
+    The accepted primary route still called the full index/vertex decoder
+    unconditionally while normalizing bucket identity, then decoded geometry
+    again in alpha or closest-hit work. Identity now uses the bounded one-add
+    tuple. Index and vertex validation is deferred to detail-decal, alpha, and
+    closest-hit branches that need geometry.
+
+  initial / temporal
+    AnyHit and ShadowAnyHit use one-add material metadata. Full geometry
+    remains only in raygen/replay reconstruction.
+
+  spatial
+    REF-10S removes full geometry from both hit stages. Full geometry remains
+    in spatial raygen reconstruction.
+
+  glass
+    AnyHit and ShadowAnyHit already use one-add metadata and declare neither
+    static indices nor static vertices.
+
+  transmission
+    Hardware-hit identity already uses one-add metadata. Three material/class
+    helpers still called the full decoder; those helpers now use one-add
+    triangle rows. Transmission AnyHit legitimately retains index/vertex
+    access for UV-dependent alpha and emissive evaluation. Its control flow
+    performs at most one such UV reconstruction for the relevant material
+    branch. ShadowAnyHit declares no static index or vertex buffers.
+
+Local compile proof, not yet deployed over the stage-6 test build:
+
+  rebuilt Vulkan libraries                            10
+  rebuilt libraries newer than edited sources         10/10
+  spirv-val                                            10/10
+  initial/temporal/spatial/glass hit metadata          index/vertex-free
+  transmission ShadowAnyHit                            index/vertex-free
+  transmission AnyHit geometry access                 retained for UV
+  primary hit geometry access                         retained lazily
+
+Do not deploy or open a later gate until the outstanding stage-6 runtime
+result is recorded against executable hash
+`EF43078C96959013B53B4814C430D5918078A71872A5AE702E3995C37DFC2242`.

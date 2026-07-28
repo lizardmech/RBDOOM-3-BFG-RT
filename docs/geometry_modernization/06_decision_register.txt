@@ -1870,6 +1870,31 @@ Verification:
   deployed executable SHA-256
     EF43078C96959013B53B4814C430D5918078A71872A5AE702E3995C37DFC2242
 
+D85. REQUIRE SOURCE-WIDE HIT-DECODE AUDIT BEFORE PRODUCTION
+------------------------------------------------------------
+Decision: do not infer that the REF-10Q/REF-10S repair covers later consumers.
+Enumerate every shader that explicitly enables static-bucket consumers and
+inspect both source call paths and compiled hit-stage interfaces before
+opening any post-spatial or production gate.
+
+The audit found two remaining metadata-only violations:
+
+  - the primary producer validated every bucket hit through the full
+    index/vertex decoder before later alpha or closest-hit geometry decode;
+  - clean-DI transmission material ID, material index, and class helpers
+    retained the full decoder despite needing only a packed triangle row.
+
+Convert both to bounded one-add metadata. Keep full decode only for consumers
+that actually reconstruct geometry: primary alpha/detail/closest-hit work,
+clean-DI trace-hit surface reconstruction, transmission UV sampling, and
+spatial raygen.
+
+Initial, temporal, spatial, and glass hit stages require no full static
+geometry buffers. Transmission `AnyHit` retains them only for UV-dependent
+alpha/emissive evaluation; its `ShadowAnyHit` does not. GI, NEE-cache, and
+external-PDF shaders do not enable bucket consumers and therefore remain
+outside the production admission contract.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

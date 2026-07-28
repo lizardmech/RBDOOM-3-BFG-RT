@@ -130,17 +130,14 @@ uint PathTraceCleanRoomLoadTriangleMaterialIndex(
             instanceId,
             CleanRtxdiDiStaticBucketRouteInfo))
     {
-        PathTraceStaticBucketRouteRecord route;
-        uint packedTriangleIndex;
-        uint3 packedVertexIndexes;
-        return PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+        PathTraceStaticGeometryAddress address;
+        return PathTraceCleanRtxdiDiTryResolveStaticBucketHardwareHit(
                 instanceId,
+                0u,
                 primitiveIndex,
-                route,
-                packedTriangleIndex,
-                packedVertexIndexes)
+                address)
             ? SmokeStaticBucketTriangleMaterialIndexes[
-                packedTriangleIndex]
+                address.triangleIndex]
             : 0xffffffffu;
     }
 #endif
@@ -160,17 +157,14 @@ uint PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(uint instanceId, uint p
             instanceId,
             CleanRtxdiDiStaticBucketRouteInfo))
     {
-        PathTraceStaticBucketRouteRecord route;
-        uint packedTriangleIndex;
-        uint3 packedVertexIndexes;
-        return PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+        PathTraceStaticGeometryAddress address;
+        return PathTraceCleanRtxdiDiTryResolveStaticBucketHardwareHit(
                 instanceId,
+                0u,
                 primitiveIndex,
-                route,
-                packedTriangleIndex,
-                packedVertexIndexes)
+                address)
             ? SmokeStaticBucketTriangleMaterials[
-                packedTriangleIndex]
+                address.triangleIndex]
             : 0xffffffffu;
     }
 
@@ -231,16 +225,13 @@ uint PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(uint instanceId, uin
             instanceId,
             CleanRtxdiDiStaticBucketRouteInfo))
     {
-        PathTraceStaticBucketRouteRecord route;
-        uint packedTriangleIndex;
-        uint3 packedVertexIndexes;
-        return PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+        PathTraceStaticGeometryAddress address;
+        return PathTraceCleanRtxdiDiTryResolveStaticBucketHardwareHit(
                 instanceId,
+                0u,
                 primitiveIndex,
-                route,
-                packedTriangleIndex,
-                packedVertexIndexes)
-            ? SmokeStaticBucketTriangleClasses[packedTriangleIndex]
+                address)
+            ? SmokeStaticBucketTriangleClasses[address.triangleIndex]
             : 0u;
     }
 
