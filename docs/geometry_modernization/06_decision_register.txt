@@ -1643,6 +1643,26 @@ Verification:
   deployed executable SHA-256
     9F6A95266BBA6FCB1C623E06DDC80BD99EB2CE4E4E96EE9B902736752DEA76C1
 
+D75. REJECT VIEW-16 STAGE 1 AGAIN
+---------------------------------
+Decision: the post-pivot stage-1 runtime test removed the device during level
+load. Revoke stage 1 and keep the complete view-16 ladder fail-closed.
+
+The exact console history proves the requested cvar contract, but a post-crash
+control-flow audit found that dispatch isolation was conditional on accepted
+route publication. During the bucket build ramp it could enter the full
+monolithic view-16 DI path. The next work must latch requested isolation
+before publication readiness and fail closed until both support and
+publication are valid.
+
+Rollback verification:
+
+  Windows LiveKernelEvent                             141 at 17:13
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  deployed executable SHA-256
+    768E6BB390AFA9AD87ECC63058E6FD4C521D770947EF7A4F6A3B9AE1561F3830
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

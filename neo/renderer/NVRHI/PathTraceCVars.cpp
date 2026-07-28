@@ -445,7 +445,7 @@ idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage(
     "r_pathTracingGeometryStaticBucketSecondaryProbeStage",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Default-off GEO-10 unified-primary view-16 probe: only stage 1 is admitted; 0 and stages 2-6 remain fail-closed" );
+    "Rejected GEO-10 unified-primary view-16 probe: all stages fail closed after stage-1 pipeline creation removed the device" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

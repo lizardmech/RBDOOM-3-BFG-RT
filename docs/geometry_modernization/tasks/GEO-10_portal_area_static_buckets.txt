@@ -1945,3 +1945,29 @@ Offline proof:
   source/deployed executable hashes                    equal
   executable SHA-256
     9F6A95266BBA6FCB1C623E06DDC80BD99EB2CE4E4E96EE9B902736752DEA76C1
+
+REF-10K RUNTIME VERDICT - REJECTED - 2026-07-28
+------------------------------------------------
+The exact stage-1 configuration removed the device as the level loaded. The
+console history confirms route 2, view 16, markers enabled, GI disabled,
+external-PDF paths disabled, transmission producer/compose disabled, and
+secondary stage 1 immediately before `loadgame doom3_1`.
+
+The intended stage 1 returns before DispatchRays, but post-crash control-flow
+audit found that its isolation guard depended on accepted route publication.
+During the bucket build ramp, the guard was inactive and dispatch fell through
+to the full monolithic view-16 DI path. The crash therefore does not localize
+to primary pipeline creation. All view-16 stages are again fail-closed. Do not
+repeat or advance the ladder until requested isolation is latched before
+publication readiness.
+
+Rollback proof:
+
+  exact console-history configuration                 confirmed
+  Windows LiveKernelEvent                             141 at 17:13
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  source/deployed executable hashes                    equal
+  fail-closed executable SHA-256
+    768E6BB390AFA9AD87ECC63058E6FD4C521D770947EF7A4F6A3B9AE1561F3830

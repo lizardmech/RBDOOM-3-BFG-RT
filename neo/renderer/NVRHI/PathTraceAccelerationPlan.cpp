@@ -2026,9 +2026,9 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    // After the arithmetic-route pivot, re-admit only stage 1: it creates the
-    // ordinary primary pipeline and returns before DispatchRays. Stage 2 and
-    // every secondary consumer remain fail-closed.
+    // REF-10K proved that the cold stage-1 path can still remove the device
+    // during primary pipeline creation, before DispatchRays. Preserve the
+    // exact diagnostic contract for documentation, but fail closed.
     const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
@@ -2038,7 +2038,8 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !externalPdfNeeEnabled &&
         !transmissionPsrEnabled &&
         probeStage == 1;
-    return diagnosticContractExact;
+    (void)diagnosticContractExact;
+    return false;
 }
 
 RtSmokeStaticBucketSecondaryIsolationDispatchPlan
