@@ -1780,6 +1780,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
         if (cleanNeeCacheBuildPrepassRequested &&
+            staticBucketSecondaryIsolation.neeCachePrimaryUpdate &&
             (!m_smokeNeeCachePrimarySurfaceUpdatePipeline || !m_smokeNeeCachePrimarySurfaceUpdateBindingLayout))
         {
             if (cleanRtxdiDiDumpRequested)
@@ -2090,6 +2091,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
 
             if (cleanNeeCacheBuildPrepassRequested &&
+                staticBucketSecondaryIsolation.neeCachePrimaryUpdate &&
                 m_smokeNeeCachePrimarySurfaceUpdatePipeline &&
                 m_smokeNeeCachePrimarySurfaceUpdateBindingLayout)
             {

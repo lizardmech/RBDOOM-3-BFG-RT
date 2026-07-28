@@ -1343,6 +1343,7 @@ struct RtSmokeStaticBucketSecondaryIsolationDispatchPlan
 {
     bool active = false;
     int stage = 0;
+    bool neeCachePrimaryUpdate = true;
     bool transmissionPsr = true;
     bool initial = true;
     bool temporal = true;

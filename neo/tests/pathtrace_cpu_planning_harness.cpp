@@ -2987,6 +2987,7 @@ void TestStaticBucketAssignmentPlan()
         secondaryIsolationDispatchStagesExact &=
             stagePlan.active &&
             stagePlan.stage == stage &&
+            !stagePlan.neeCachePrimaryUpdate &&
             stagePlan.transmissionPsr == (stage >= 2) &&
             stagePlan.initial == (stage >= 3) &&
             stagePlan.temporal == (stage >= 4) &&
@@ -3005,6 +3006,7 @@ void TestStaticBucketAssignmentPlan()
     Check(
         activeStageZeroPlan.active &&
             activeStageZeroPlan.stage == 0 &&
+            !activeStageZeroPlan.neeCachePrimaryUpdate &&
             !activeStageZeroPlan.transmissionPsr &&
             !activeStageZeroPlan.initial &&
             !activeStageZeroPlan.temporal &&
@@ -3019,6 +3021,7 @@ void TestStaticBucketAssignmentPlan()
                 1);
     Check(
         !monolithicDispatchPlan.active &&
+            monolithicDispatchPlan.neeCachePrimaryUpdate &&
             monolithicDispatchPlan.transmissionPsr &&
             monolithicDispatchPlan.initial &&
             monolithicDispatchPlan.temporal &&

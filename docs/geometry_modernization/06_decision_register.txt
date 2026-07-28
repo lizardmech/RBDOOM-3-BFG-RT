@@ -1294,6 +1294,31 @@ Offline verification:
   deployed executable SHA-256
     571E6ABBEFCF8C47B66A7709C464EC8D456F314737AF90DACD81B5B33FEE9ADE
 
+D63. CORRECT STAGE 1 TO EXCLUDE THE NEE-CACHE PRIMARY UPDATE
+-----------------------------------------------------------
+Decision: the first D62 runtime attempt is not accepted as primary-only
+evidence. Route-2/view-16/stage-1 reproduced the NVIDIA GPU hang, with Windows
+recording LiveKernelEvent 141 and display event 4101 at 2026-07-28 14:42,
+followed by the same `ucrtbase.dll` fail-fast termination. The requested
+`bucket_stage1.log` was not created, so no durable Vulkan checkpoint payload
+was available.
+
+Code inspection found that the stage limiter omitted the full-screen NEE-cache
+primary-surface compute update between the primary RT dispatch and the
+transmission pass. Stage 1 therefore did not satisfy its documented contract.
+Every active view-16 bucket-isolation stage now suppresses that adjacent
+consumer; inactive/monolithic view 16 retains its existing behavior. Repeat
+stage 1 before attributing the hang to the primary RT dispatch itself.
+
+Correction verification:
+
+  exact NEE-cache suppression plan tests              passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none; sources unchanged
+  deployed executable SHA-256
+    7BA7622537920FE2002E82B204587850010C1CABD62BD4DF6E0D4A47FB7E710F
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

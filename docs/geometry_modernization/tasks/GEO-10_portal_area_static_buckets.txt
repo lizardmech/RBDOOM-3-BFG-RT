@@ -1527,6 +1527,14 @@ publication, so this cvar cannot truncate normal view 16. An active bucket
 publication with stage 0 fails closed after primary rather than running the
 full secondary chain.
 
+All active stages suppress the adjacent full-screen NEE-cache primary-surface
+update. It is outside this cumulative clean-DI ladder; allowing it to run made
+the first stage-1 attempt ambiguous rather than a primary-only result.
+
+The corrected stage-1 executable SHA-256 is:
+
+  7BA7622537920FE2002E82B204587850010C1CABD62BD4DF6E0D4A47FB7E710F
+
 Checkpoint coverage:
 
   static-bucket BLAS build                             area/split/key label

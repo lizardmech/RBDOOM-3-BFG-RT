@@ -2113,6 +2113,10 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     }
 
     plan.stage = std::max(0, std::min(6, probeStage));
+    // The NEE-cache primary-surface update is an adjacent full-screen
+    // consumer, not part of the clean-DI stage ladder. Keep it out of every
+    // active isolation stage so stage 1 is exactly the primary RT dispatch.
+    plan.neeCachePrimaryUpdate = false;
     plan.transmissionPsr = plan.stage >= 2;
     plan.initial = plan.stage >= 3;
     plan.temporal = plan.stage >= 4;
