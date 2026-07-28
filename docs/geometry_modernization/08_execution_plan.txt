@@ -933,6 +933,19 @@ Offline proof:
 The executable and glass Vulkan blob are deployed. REF-10B now needs one
 focused view-16 route-2 runtime traversal before any production admission.
 
+REF-10B RUNTIME RESULT - REJECTED 2026-07-28
+
+The requested view-16 route-2 load caused two immediate GPU hangs. Windows
+recorded two NVIDIA display-driver recoveries (event 4101) followed by two
+matching `RBDoom3BFG.exe` fast-fail terminations in `ucrtbase.dll`
+(`0xc0000409`). No new condump or GPU crash dump was written.
+
+The secondary CPU admission is revoked and view 16 is fail-closed again.
+Keep the REF-10A canonical-address and glass compile proof, but do not treat it
+as runtime acceptance. The next REF-10 step must isolate the failing dispatch
+or obtain a GPU-side checkpoint/crash artifact before another multi-consumer
+admission. Production route mode 1 remains prohibited.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

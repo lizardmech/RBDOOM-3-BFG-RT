@@ -1473,3 +1473,35 @@ and do not use route mode 1. Acceptance requires the cutover line to report
 and `traversal=bucket-resident-pool`, with no device removal, validation error,
 missing geometry/material, portal flicker, glass failure, or emissive
 self-shadow regression.
+
+REF-10B RUNTIME REJECTION AND SAFE ROLLBACK - 2026-07-28
+--------------------------------------------------------
+The focused sequence above failed twice during level load. Both runs caused an
+NVIDIA display-driver timeout/recovery and then terminated the process. The
+Windows evidence was:
+
+  display event 4101                                  2 matching recoveries
+  provider                                             Display / nvlddmkm
+  process exception                                    0xc0000409
+  process fault module                                 ucrtbase.dll
+  new condump                                          none
+  Aftermath/checkpoint artifact                        none found
+
+This rejects the REF-10B admission. The secondary predicate is removed from
+the CPU plan, scene material hydration/publication/cutover return to the
+primary-isolate predicate, and view 16 again traverses monolithic static
+geometry. The route-aware glass shader remains compile-only; the REF-10A
+canonical tuple work remains intact.
+
+Do not repeat the full view-16 route-2 test with the rejected executable. A
+future admission must first narrow the failure to a dispatch boundary or
+produce a useful GPU crash/checkpoint artifact. Existing route-2 primary
+isolates remain available for bounded testing; route mode 1 remains closed.
+
+Rollback verification:
+
+  win64-pt-dev-release                                passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  shader rebuild                                      not required
+  deployed executable SHA-256
+    68E8DCCD42E599BDBC18D0622FE6E3387621F8AF0DAD41268B7C20CAD74C4B6C

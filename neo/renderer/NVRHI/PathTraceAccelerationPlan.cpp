@@ -2075,21 +2075,6 @@ bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
         !cleanGiEnabled;
 }
 
-bool IsSmokeStaticBucketCleanDiSecondaryProbeSupported(
-    int routeMode,
-    bool cleanDiEnabled,
-    int cleanDiView,
-    bool diagnosticCheckpointsEnabled,
-    bool cleanGiEnabled)
-{
-    return routeMode ==
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
-        cleanDiEnabled &&
-        cleanDiView == 16 &&
-        diagnosticCheckpointsEnabled &&
-        !cleanGiEnabled;
-}
-
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc)
 {

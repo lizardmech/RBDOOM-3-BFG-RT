@@ -2876,46 +2876,6 @@ void TestStaticBucketAssignmentPlan()
             true,
             true),
         "static bucket primary probe rejects production, unsupported views, uninstrumented, and GI-enabled routes");
-    Check(
-        IsSmokeStaticBucketCleanDiSecondaryProbeSupported(
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-            true,
-            16,
-            true,
-            false),
-        "static bucket clean-DI secondary probe accepts instrumented view 16");
-    Check(
-        !IsSmokeStaticBucketCleanDiSecondaryProbeSupported(
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
-            true,
-            16,
-            true,
-            false) &&
-        !IsSmokeStaticBucketCleanDiSecondaryProbeSupported(
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-            false,
-            16,
-            true,
-            false) &&
-        !IsSmokeStaticBucketCleanDiSecondaryProbeSupported(
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-            true,
-            2,
-            true,
-            false) &&
-        !IsSmokeStaticBucketCleanDiSecondaryProbeSupported(
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-            true,
-            16,
-            false,
-            false) &&
-        !IsSmokeStaticBucketCleanDiSecondaryProbeSupported(
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-            true,
-            16,
-            true,
-            true),
-        "static bucket clean-DI secondary probe rejects production, disabled DI, other views, uninstrumented, and GI-enabled routes");
 
     RtSmokeStaticBucketGeometryPack invalidSurfaceFlagPack =
         multiGeometryPack;

@@ -1224,6 +1224,35 @@ The probe predicate and all rejection cases pass the CPU harness. The glass
 consumer compiles, passes `spirv-val`, contains `RayGeometryIndexKHR`, and is
 deployed with the marker-gated executable. Runtime acceptance is still open.
 
+D61. REJECT AND REVOKE THE VIEW-16 SECONDARY-RAY PROBE
+------------------------------------------------------
+Decision: the D60 runtime admission is rejected. On 2026-07-28 the exact
+marker-gated route-2/view-16 load sequence caused two immediate NVIDIA driver
+recoveries and two matching process terminations while loading `doom3_1`.
+Windows recorded display event 4101 (`nvlddmkm stopped responding`) and the
+process subsequently terminated in `ucrtbase.dll` with exception `0xc0000409`.
+No new condump, Aftermath dump, or Vulkan checkpoint payload was produced.
+
+The CPU secondary-probe predicate and all scene-build uses of it are removed.
+View 16 therefore returns to monolithic static traversal. The REF-10A
+canonical-address shader code and the compile-only glass consumer remain
+available for diagnosis, but neither constitutes runtime authorization.
+Existing primary-only isolate views remain the only route-2 admissions, and
+route mode 1 remains fail-closed.
+
+The matching pair of driver recoveries makes this a reproducible GPU runtime
+failure, not a visual acceptance failure or a compiler-only warning. Do not
+re-admit the complete view-16 consumer set until a narrower dispatch-level
+cause is identified with evidence.
+
+Rollback verification:
+
+  win64-pt-dev-release                                passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  SPIR-V rebuild/deployment                            none; sources unchanged
+  deployed executable SHA-256
+    68E8DCCD42E599BDBC18D0622FE6E3387621F8AF0DAD41268B7C20CAD74C4B6C
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

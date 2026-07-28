@@ -1685,3 +1685,21 @@ visibility self-ignore and geometry replay.
 
 The probe is deployed but not runtime-accepted. One instrumented route-2
 view-16 traversal must pass before production cutover can be considered.
+
+REF-10B RUNTIME VERDICT - REJECTED 2026-07-28
+---------------------------------------------
+The exact instrumented view-16 admission failed twice while loading the saved
+level. Each run produced an NVIDIA driver timeout/recovery (Windows display
+event 4101) followed by the same `RBDoom3BFG.exe` process fast-fail in
+`ucrtbase.dll` with exception `0xc0000409`. No fresh condump, Aftermath dump,
+or Vulkan diagnostic-checkpoint record was available.
+
+Therefore the compile, `spirv-val`, and `RayGeometryIndexKHR` results do not
+validate the runtime contract. The CPU view-16 predicate is removed and the
+scene builder again uses only the established primary-isolate predicate for
+full-resident publication and bucket traversal. The shader-side canonical
+address work is retained as inactive compile evidence.
+
+The next investigation must identify the specific dispatch or obtain
+GPU-side fault evidence before widening runtime admission again. Repeating the
+same all-consumer view-16 gate is not an accepted diagnostic step.
