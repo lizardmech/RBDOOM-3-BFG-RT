@@ -1091,6 +1091,12 @@ not a cache invalidation. Cache invalidation remains tied to geometry-universe
 clear; releasing only GPU BLAS resources does not invalidate CPU mapping data
 that an audit-only frame still owns.
 
+Runtime acceptance: `bucket14.log` recorded the expected cold build and first
+hydrated remap, followed by 27 consecutive resident-pack/material-index cache
+hits. The resolved material-binding signature remained constant across every
+settled sample, missing indexes remained zero, and 22 exact 56/56 cutover
+samples completed without device or validation errors.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

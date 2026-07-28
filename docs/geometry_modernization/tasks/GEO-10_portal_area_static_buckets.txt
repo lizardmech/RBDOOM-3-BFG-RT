@@ -1064,3 +1064,17 @@ consecutive build-ramp samples. Three late `materialIndexCacheHit=0` samples
 with an unchanged resident signature exposed an over-broad whole-table key.
 The binding-only key and stable resident-material prefix above are the
 required correction; runtime acceptance remains pending one repeat.
+
+REF-11A RUNTIME ACCEPTANCE - BUCKET14 - 2026-07-28
+--------------------------------------------------
+The repeat passed. After the expected cold build and first hydrated remap,
+27 consecutive active-set samples reported:
+
+  sourceBuilt/cacheHit=1/1
+  residentPack/materialIndexCacheHit=1/1
+  materialBinding=8100992515290164393
+  materialIndexMissingActive=0
+
+The hydrated binding signature never changed. Exact 56/56 TLAS/route
+publication appeared in 22 settled samples, and the log contained no
+device-removal or validation error. REF-11A is accepted.

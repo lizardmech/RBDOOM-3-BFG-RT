@@ -794,6 +794,12 @@ per-bucket missing counts and reduces unchanged/portal-only frames to
 bucket-count work. No shader, descriptor, SBT, TLAS, or payload contract
 changes.
 
+REF-11A is accepted by `bucket14.log`: after the expected cold build and one
+hydrated remap, all 27 later active-set samples reported both cache hits,
+one stable resident material-binding signature, and zero missing indexes.
+Twenty-two settled samples published exact 56/56 bucket TLAS/routes, with no
+device-removal or validation error.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

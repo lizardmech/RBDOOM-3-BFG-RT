@@ -1372,3 +1372,21 @@ The active-set audit now prints
 `signatures(plan/active/resident/materialBinding/tlas)`. After the initial
 mapping build, `materialBinding` and `materialIndexCacheHit=1` must remain
 stable through portal traversal and animated-object churn.
+
+REF-11A RUNTIME ACCEPTANCE - BUCKET14 - 2026-07-28
+--------------------------------------------------
+`bucket14.log` contains 29 active-set samples:
+
+  sample 1  cold resident source/pack build          caches 0/0
+  sample 2  first complete material hydration        caches 1/0
+  samples 3-29 settled/reused                        caches 1/1
+
+All 27 settled samples retained material-binding signature
+8100992515290164393 and `materialIndexMissingActive=0`. Twenty-two cutover
+samples published exact `buckets(active/resident/ready)=56/56/56` and
+`outputs(tlas/routes)=56/56`. No device-removal, Vulkan validation, fatal
+error, invalid buffer binding, or out-of-bounds warning was present.
+
+The cold binding signature differs before material hydration and correctly
+causes the one required rebuild. The formerly failing late samples now retain
+the hydrated binding signature and hit the cache. REF-11A is accepted.
