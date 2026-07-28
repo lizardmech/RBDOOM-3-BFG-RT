@@ -4081,10 +4081,28 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             {
                 const auto buildStart =
                     std::chrono::steady_clock::now();
+                const bool diagnosticMarkers =
+                    r_pathTracingNsightGpuMarkers.GetInteger() != 0;
+                idStr diagnosticMarkerName;
+                if (diagnosticMarkers)
+                {
+                    diagnosticMarkerName.Format(
+                        "GEO10.Accel BucketBLAS Build area=%d split=%u key=%llu",
+                        bucket.portalArea,
+                        bucket.splitIndex,
+                        static_cast<unsigned long long>(
+                            bucket.bucketKey));
+                    commandList->beginMarker(
+                        diagnosticMarkerName.c_str());
+                }
                 nvrhi::utils::BuildBottomLevelAccelStruct(
                     commandList,
                     record->blas,
                     record->blasDesc);
+                if (diagnosticMarkers)
+                {
+                    commandList->endMarker();
+                }
                 const auto buildEnd =
                     std::chrono::steady_clock::now();
                 stats.buildSubmitMicroseconds +=

@@ -167,7 +167,15 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     if (submitPlan.buildStaticBlas)
     {
         OPTICK_GPU_EVENT("PT GPU Build Static BLAS");
+        if (desc.diagnosticMarkers)
+        {
+            desc.commandList->beginMarker("GEO10.Accel StaticBLAS Build");
+        }
         nvrhi::utils::BuildBottomLevelAccelStruct(desc.commandList, desc.staticBlas, desc.staticBlasDesc);
+        if (desc.diagnosticMarkers)
+        {
+            desc.commandList->endMarker();
+        }
         timing.staticBlasBuildSubmitted = true;
         timing.staticBlasBuildSkipped = false;
     }
@@ -175,6 +183,10 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     if (submitPlan.buildDynamicBlas)
     {
         OPTICK_GPU_EVENT("PT GPU Build Dynamic BLAS");
+        if (desc.diagnosticMarkers)
+        {
+            desc.commandList->beginMarker("GEO10.Accel DynamicBLAS Build");
+        }
         if (desc.dynamicBlasTimerQuery)
         {
             desc.commandList->beginTimerQuery(
@@ -186,6 +198,10 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
             desc.commandList->endTimerQuery(
                 desc.dynamicBlasTimerQuery);
             timing.dynamicBlasTimerRecorded = true;
+        }
+        if (desc.diagnosticMarkers)
+        {
+            desc.commandList->endMarker();
         }
         timing.dynamicBlasBuildSubmitted = true;
         timing.dynamicBlasBuildSkipped = false;
@@ -220,7 +236,18 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     const int tlasSubmitStartMs = Sys_Milliseconds();
     {
         OPTICK_GPU_EVENT("PT GPU Build TLAS");
+        if (desc.diagnosticMarkers)
+        {
+            desc.commandList->beginMarker(
+                desc.includeStaticBlasInTlas
+                    ? "GEO10.Accel TLAS Build monolithic-static"
+                    : "GEO10.Accel TLAS Build bucket-static");
+        }
         desc.commandList->buildTopLevelAccelStruct(desc.tlas, instanceDescs.data(), instanceDescs.size(), nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+        if (desc.diagnosticMarkers)
+        {
+            desc.commandList->endMarker();
+        }
     }
     {
         OPTICK_GPU_EVENT("PT GPU Mark TLAS BLAS For Ray Tracing");

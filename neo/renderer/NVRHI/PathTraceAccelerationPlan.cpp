@@ -2075,6 +2075,52 @@ bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
         !cleanGiEnabled;
 }
 
+bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+    int routeMode,
+    bool cleanDiEnabled,
+    int cleanDiView,
+    bool diagnosticCheckpointsEnabled,
+    bool cleanGiEnabled,
+    bool externalPdfNeeEnabled,
+    bool transmissionPsrEnabled,
+    int probeStage)
+{
+    return routeMode ==
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
+        cleanDiEnabled &&
+        cleanDiView == 16 &&
+        diagnosticCheckpointsEnabled &&
+        !cleanGiEnabled &&
+        !externalPdfNeeEnabled &&
+        transmissionPsrEnabled &&
+        probeStage >= 1 &&
+        probeStage <= 6;
+}
+
+RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+    BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+        bool productionView,
+        bool routePublicationValid,
+        int probeStage)
+{
+    RtSmokeStaticBucketSecondaryIsolationDispatchPlan plan;
+    plan.active =
+        productionView &&
+        routePublicationValid;
+    if (!plan.active)
+    {
+        return plan;
+    }
+
+    plan.stage = std::max(0, std::min(6, probeStage));
+    plan.transmissionPsr = plan.stage >= 2;
+    plan.initial = plan.stage >= 3;
+    plan.temporal = plan.stage >= 4;
+    plan.spatial = plan.stage >= 5;
+    plan.materialFeatureCompose = plan.stage >= 6;
+    return plan;
+}
+
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc)
 {

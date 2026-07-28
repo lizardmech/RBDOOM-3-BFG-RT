@@ -45,6 +45,7 @@ struct RtSmokeAccelSubmitDesc
     bool hasDynamicBlas = false;
     bool staticBlasCacheHit = false;
     bool includeStaticBlasInTlas = true;
+    bool diagnosticMarkers = false;
 };
 
 struct RtSmokeAccelSubmitTiming

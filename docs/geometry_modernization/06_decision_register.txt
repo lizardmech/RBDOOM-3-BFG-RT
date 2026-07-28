@@ -1253,6 +1253,47 @@ Rollback verification:
   deployed executable SHA-256
     68E8DCCD42E599BDBC18D0622FE6E3387621F8AF0DAD41268B7C20CAD74C4B6C
 
+D62. RE-ADMIT ONLY A CUMULATIVE, CHECKPOINTED VIEW-16 STAGE
+----------------------------------------------------------
+Decision: the rejected all-consumer D60 gate is not restored. A new default-0
+`r_pathTracingGeometryStaticBucketSecondaryProbeStage` may authorize route
+mode 2/view 16 only under the existing marker/GI-off restrictions, with
+external PDF-NEE disabled and the transmission PSR controls enabled.
+
+The cumulative stage contract is:
+
+  0  no view-16 bucket admission
+  1  bucket BLAS/TLAS plus primary-surface dispatch only
+  2  stage 1 plus pre-DI transmission PSR
+  3  stage 2 plus clean-DI initial
+  4  stage 3 plus clean-DI temporal
+  5  stage 4 plus clean-DI spatial
+  6  stage 5 plus post-DI material-feature composition
+
+When no bucket publication is active, this limiter is inert and monolithic
+view 16 is unchanged. When a bucket publication is active with stage 0 or an
+otherwise stale value, all secondary stages fail closed after primary.
+DLSS-RR evaluation is suppressed during the isolation route and clean GI is
+still rejected by the CPU admission predicate.
+
+Vulkan diagnostic checkpoints now cover individual static-bucket BLAS builds,
+the static/dynamic BLAS and TLAS submit path, primary surface, transmission
+PSR, initial, temporal, spatial, and material-feature composition. Device-lost
+checkpoint text must be made durable with `logFile 2`; debug markers alone do
+not create a persistent console log.
+
+Offline verification:
+
+  isolation admission/rejection tests                 passed
+  stages 1 through 6 exact dispatch-plan tests         passed
+  active stage 0 fail-closed test                      passed
+  monolithic view-16 non-interference test             passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none; sources unchanged
+  deployed executable SHA-256
+    571E6ABBEFCF8C47B66A7709C464EC8D456F314737AF90DACD81B5B33FEE9ADE
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

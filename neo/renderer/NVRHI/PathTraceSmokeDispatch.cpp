@@ -14,6 +14,7 @@
 #include "PathTraceSmokeDispatch.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceAcceleration.h"
+#include "PathTraceAccelerationPlan.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceLightSelection.h"
@@ -939,6 +940,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
     const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
     const bool cleanRtxdiDiProductionView = cleanRtxdiDiView == 16;
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        staticBucketSecondaryIsolation =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                cleanRtxdiDiProductionView,
+                m_sceneInputs.geometry.
+                    staticBucketRoutePublicationValid,
+                r_pathTracingGeometryStaticBucketSecondaryProbeStage.
+                    GetInteger());
+    const bool staticBucketSecondaryIsolationActive =
+        staticBucketSecondaryIsolation.active;
     const bool cleanRtxdiDiMaterialClassifierProofView = cleanRtxdiDiView == 12 || cleanRtxdiDiView == 24;
     const bool cleanRtxdiDiTemporalEnabled =
         r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0 &&
@@ -2056,7 +2067,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceArgs.width = m_frameResources.width;
             primarySurfaceArgs.height = m_frameResources.height;
             primarySurfaceArgs.depth = 1;
-            commandList->dispatchRays(primarySurfaceArgs);
+            {
+                PathTraceGpuMarkerScope nsightMarker(
+                    commandList,
+                    staticBucketSecondaryIsolationActive
+                        ? "GEO10.View16.Stage1 PrimarySurface DispatchRays"
+                        : "CleanDI.P0 PrimarySurface DispatchRays",
+                    nsightGpuMarkers);
+                commandList->dispatchRays(primarySurfaceArgs);
+            }
 
             nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
@@ -3347,24 +3366,32 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             dispatchConstants.flags |= CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS;
         }
         commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
-        if (glassReflectionProducerActive)
+        if (glassReflectionProducerActive &&
+            staticBucketSecondaryIsolation.transmissionPsr)
         {
             // Primary surface replacement for thin glass: trace through glass
             // pixels and swap their primary-surface records for the behind-glass
             // hit before any DI/GI pass consumes them.
             PathTraceCleanRtxdiDiSentinelConstants psrConstants = dispatchConstants;
             psrConstants.flags |= CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE;
-            DispatchPathTraceCleanRtxdiDiTransmissionPsrPass(
-                commandList,
-                cleanState,
-                cleanArgs,
-                m_smokeCleanRtxdiDiSentinelConstantsBuffer,
-                &psrConstants,
-                sizeof(psrConstants),
-                m_smokeMaterialFeatureRuntimeConstantsBuffer,
-                cleanRtxdiDiMaterialFeaturePasses,
-                m_frameResources,
-                nsightGpuMarkers);
+            {
+                PathTraceGpuMarkerScope nsightMarker(
+                    commandList,
+                    "GEO10.View16.Stage2 TransmissionPSR",
+                    nsightGpuMarkers &&
+                        staticBucketSecondaryIsolationActive);
+                DispatchPathTraceCleanRtxdiDiTransmissionPsrPass(
+                    commandList,
+                    cleanState,
+                    cleanArgs,
+                    m_smokeCleanRtxdiDiSentinelConstantsBuffer,
+                    &psrConstants,
+                    sizeof(psrConstants),
+                    m_smokeMaterialFeatureRuntimeConstantsBuffer,
+                    cleanRtxdiDiMaterialFeaturePasses,
+                    m_frameResources,
+                    nsightGpuMarkers);
+            }
             nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
             if (r_pathTracingSkyCubeEnvironment.GetInteger() != 0 &&
                 m_smokeSkyEnvironmentCube &&
@@ -3474,27 +3501,41 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (cleanSplitRaygenView)
         {
-            cleanState.shaderTable = cleanRtxdiDiProductionView
-                ? m_smokeCleanRtxdiDiInitialProductionShaderTable
-                : m_smokeCleanRtxdiDiInitialShaderTable;
-            commandList->setRayTracingState(cleanState);
-            {
-                PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.0 Initial DispatchRays", nsightGpuMarkers);
-                commandList->dispatchRays(cleanArgs);
-            }
-            nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
-            nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
-
-            if (cleanTemporalRaygenView)
+            if (staticBucketSecondaryIsolation.initial)
             {
                 cleanState.shaderTable = cleanRtxdiDiProductionView
-                    ? m_smokeCleanRtxdiDiTemporalProductionShaderTable
-                    : m_smokeCleanRtxdiDiTemporalShaderTable;
+                    ? m_smokeCleanRtxdiDiInitialProductionShaderTable
+                    : m_smokeCleanRtxdiDiInitialShaderTable;
                 commandList->setRayTracingState(cleanState);
                 {
-                    PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.1 Temporal DispatchRays", nsightGpuMarkers);
+                    PathTraceGpuMarkerScope nsightMarker(
+                        commandList,
+                        staticBucketSecondaryIsolationActive
+                            ? "GEO10.View16.Stage3 Initial DispatchRays"
+                            : "CleanDI.0 Initial DispatchRays",
+                        nsightGpuMarkers);
                     commandList->dispatchRays(cleanArgs);
+                }
+                nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
+                nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+
+                if (cleanTemporalRaygenView &&
+                    staticBucketSecondaryIsolation.temporal)
+                {
+                    cleanState.shaderTable = cleanRtxdiDiProductionView
+                        ? m_smokeCleanRtxdiDiTemporalProductionShaderTable
+                        : m_smokeCleanRtxdiDiTemporalShaderTable;
+                    commandList->setRayTracingState(cleanState);
+                    {
+                        PathTraceGpuMarkerScope nsightMarker(
+                            commandList,
+                            staticBucketSecondaryIsolationActive
+                                ? "GEO10.View16.Stage4 Temporal DispatchRays"
+                                : "CleanDI.1 Temporal DispatchRays",
+                            nsightGpuMarkers);
+                        commandList->dispatchRays(cleanArgs);
+                    }
                 }
             }
         }
@@ -3510,7 +3551,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
-        if (cleanSpatialRoute)
+        if (cleanSpatialRoute &&
+            staticBucketSecondaryIsolation.spatial)
         {
             commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::CopySource);
             commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::CopyDest);
@@ -3535,7 +3577,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanSpatialConstants.emissiveDistributionInfo[3] = static_cast<float>(cleanMaterialOverlayRecordCount);
             commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanSpatialConstants, sizeof(cleanSpatialConstants));
             {
-                PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.2 Spatial DispatchRays", nsightGpuMarkers);
+                PathTraceGpuMarkerScope nsightMarker(
+                    commandList,
+                    staticBucketSecondaryIsolationActive
+                        ? "GEO10.View16.Stage5 Spatial DispatchRays"
+                        : "CleanDI.2 Spatial DispatchRays",
+                    nsightGpuMarkers);
                 commandList->dispatchRays(cleanArgs);
             }
             nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiSpatialReservoirBuffer);
@@ -3544,7 +3591,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         auto dispatchCleanMaterialFeatureCompose = [&]()
         {
-            if (cleanRtxdiDiPsrMaskView)
+            if (cleanRtxdiDiPsrMaskView ||
+                !staticBucketSecondaryIsolation.
+                    materialFeatureCompose)
             {
                 return;
             }
@@ -3562,6 +3611,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
                 commandList->commitBarriers();
             }
+            PathTraceGpuMarkerScope nsightMarker(
+                commandList,
+                "GEO10.View16.Stage6 MaterialFeatureCompose",
+                nsightGpuMarkers &&
+                    staticBucketSecondaryIsolationActive);
             DispatchPathTraceCleanRtxdiDiMaterialFeaturePasses(
                 commandList,
                 cleanState,
@@ -3668,6 +3722,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return PathTraceCleanRestirGiExecute(m_cleanRestirGiState, giInputs);
         };
         const bool cleanDlssRrEvaluateRequested =
+            !staticBucketSecondaryIsolationActive &&
             cleanSpatialRoute &&
             (cleanRtxdiDiView == 12 || cleanRtxdiDiView == 16) &&
             r_pathTracingDLSSRR.GetInteger() != 0 &&

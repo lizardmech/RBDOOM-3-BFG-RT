@@ -80,6 +80,7 @@ extern idCVar r_pathTracingGeometryStaticBucketBlasBuildLimit;
 extern idCVar r_pathTracingGeometryStaticBucketBlasForceRebuild;
 extern idCVar r_pathTracingGeometryStaticBucketPortalSteps;
 extern idCVar r_pathTracingGeometryStaticBucketRoute;
+extern idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage;
 extern idCVar r_pathTracingGeometryResidencyV2;
 extern idCVar r_pathTracingEntityFeed;
 extern idCVar r_pathTracingEntityFeedDump;

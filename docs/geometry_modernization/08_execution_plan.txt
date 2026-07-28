@@ -946,6 +946,22 @@ as runtime acceptance. The next REF-10 step must isolate the failing dispatch
 or obtain a GPU-side checkpoint/crash artifact before another multi-consumer
 admission. Production route mode 1 remains prohibited.
 
+REF-10C CHECKPOINTED CUMULATIVE ISOLATION
+
+REF-10C adds a new default-off stage cvar rather than restoring REF-10B.
+Route-2/view-16 admission requires stage 1 through 6, GPU markers, GI off,
+external PDF-NEE off, and transmission PSR enabled. The dispatch planner
+admits primary only at stage 1, then transmission PSR, initial, temporal,
+spatial, and material composition one boundary at a time.
+
+Acceleration builds and every admitted ray-dispatch boundary now emit Vulkan
+diagnostic checkpoints. A run must also set `logFileName` before `logFile 2`
+so warnings produced during device removal survive the process fatal exit.
+
+Only stage 1 is authorized for the next runtime test. Do not advance stages
+without recording the previous stage result. Visual completeness is not an
+acceptance criterion until stage 6.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

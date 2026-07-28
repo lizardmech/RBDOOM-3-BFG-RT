@@ -1505,3 +1505,72 @@ Rollback verification:
   shader rebuild                                      not required
   deployed executable SHA-256
     68E8DCCD42E599BDBC18D0622FE6E3387621F8AF0DAD41268B7C20CAD74C4B6C
+
+REF-10C CHECKPOINTED VIEW-16 STAGE ISOLATION - 2026-07-28
+---------------------------------------------------------
+The next diagnostic does not restore the rejected REF-10B all-consumer gate.
+`r_pathTracingGeometryStaticBucketSecondaryProbeStage` is default 0 and is the
+additional CPU admission requirement for route-2/view-16 traversal.
+
+Stage meanings:
+
+  0  closed; monolithic view 16
+  1  bucket acceleration structures + primary surface only
+  2  + pre-DI transmission PSR
+  3  + initial
+  4  + temporal
+  5  + spatial
+  6  + post-DI transmission/glass material composition
+
+Stages are cumulative. The dispatch planner is inactive for monolithic
+publication, so this cvar cannot truncate normal view 16. An active bucket
+publication with stage 0 fails closed after primary rather than running the
+full secondary chain.
+
+Checkpoint coverage:
+
+  static-bucket BLAS build                             area/split/key label
+  monolithic or bucket TLAS build                      distinct label
+  primary surface                                      stage-1 label
+  transmission PSR                                     stage-2 outer label
+  clean-DI initial/temporal/spatial                    stage-3/4/5 labels
+  material-feature compose                             stage-6 outer label
+
+`r_pathTracingNsightGpuMarkers 1` inserts checkpoints but does not persist
+their device-lost warnings. Start the process with a flushed logfile:
+
+  +set logFileName bucket_stage1.log +set logFile 2
+
+Then set this exact stage-1 configuration before loading:
+
+  r_pathTracingNsightGpuMarkers 1
+  r_pathTracingCleanRestirGiEnable 0
+  r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 0
+  r_pathTracingRestirPdfNeeVerifierEnable 0
+  r_pathTracingCleanRtxdiDiTransmissionProducer 1
+  r_pathTracingCleanRtxdiDiTransmissionCompose 1
+  r_pathTracingCleanRtxdiDiView 16
+  r_pathTracingGeometryStaticBucketBlas 1
+  r_pathTracingGeometryStaticBucketBlasBuild 1
+  r_pathTracingGeometryStaticBucketRoute 2
+  r_pathTracingGeometryStaticBucketSecondaryProbeStage 1
+  loadgame doom3_1
+
+Stage 1 intentionally omits DI lighting and later composition, so incomplete
+or diagnostic-looking output is expected. Acceptance is no device removal and
+a cutover line containing `secondaryIsolation=1 secondaryStage=1` plus
+`traversal=bucket-resident-pool`. On failure, preserve `bucket_stage1.log`;
+its final `Vulkan device lost checkpoint` line is the primary evidence. Do not
+advance to stage 2 until the stage-1 result is recorded.
+
+Offline proof:
+
+  isolation admission/rejection tests                 passed
+  exact cumulative dispatch-plan tests                 passed
+  active stage-0 fail-closed test                      passed
+  monolithic non-interference test                     passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  shaders rebuilt/deployed                             none
+  deployed executable SHA-256
+    571E6ABBEFCF8C47B66A7709C464EC8D456F314737AF90DACD81B5B33FEE9ADE

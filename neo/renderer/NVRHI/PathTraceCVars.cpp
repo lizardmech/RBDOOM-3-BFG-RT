@@ -441,6 +441,12 @@ idCVar r_pathTracingGeometryStaticBucketRoute(
     CVAR_RENDERER | CVAR_INTEGER,
     "Default-off GEO-10 route mode: 0 monolithic, 1 production request (fail-closed until all consumers agree), 2 isolated primary probe in view 2 status, view 17 motion, view 19 post-composite albedo, or view 24 material classification; never allocates/builds buckets implicitly" );
 
+idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage(
+    "r_pathTracingGeometryStaticBucketSecondaryProbeStage",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Default-off GEO-10 view-16 isolation stage under route mode 2 and GPU markers: 0 closed, 1 primary, 2 + transmission PSR, 3 + initial, 4 + temporal, 5 + spatial, 6 + material-feature compose" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

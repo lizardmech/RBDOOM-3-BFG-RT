@@ -7371,6 +7371,23 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingCleanRtxdiDiView.GetInteger(),
             r_pathTracingNsightGpuMarkers.GetInteger() != 0,
             r_pathTracingCleanRestirGiEnable.GetInteger() != 0);
+    const int staticBucketSecondaryProbeStage =
+        r_pathTracingGeometryStaticBucketSecondaryProbeStage.GetInteger();
+    const bool staticBucketCleanDiSecondaryIsolation =
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            staticBucketRouteMode,
+            r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiView.GetInteger(),
+            r_pathTracingNsightGpuMarkers.GetInteger() != 0,
+            r_pathTracingCleanRestirGiEnable.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0 ||
+                r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
+                r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0,
+            staticBucketSecondaryProbeStage);
+    const bool staticBucketConsumerProbe =
+        staticBucketPrimaryOpaqueProbe ||
+        staticBucketCleanDiSecondaryIsolation;
 
     RtSmokeMaterialMetadataRegistrationTiming metadataTiming;
     {
@@ -7378,13 +7395,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
         if (r_pathTracingWorldStaticEmissives.GetInteger() != 0 ||
             useSceneUniverseStaticGeometry ||
-            staticBucketPrimaryOpaqueProbe)
+            staticBucketConsumerProbe)
         {
             const RtSmokeMaterialMetadataRegistrationTiming worldStaticMetadataTiming =
                 RegisterSmokeWorldStaticMaterialTextureInfo(
                     viewDef,
                     enableTextureProbe ||
-                        staticBucketPrimaryOpaqueProbe);
+                        staticBucketConsumerProbe);
             metadataTiming.metadataMs += worldStaticMetadataTiming.metadataMs;
             metadataTiming.registrationMs += worldStaticMetadataTiming.registrationMs;
         }
@@ -7559,7 +7576,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }();
             materialTableStaticIds.insert(materialTableStaticIds.end(), rigidRouteMaterialIds.begin(), rigidRouteMaterialIds.end());
         }
-        if (staticBucketPrimaryOpaqueProbe)
+        if (staticBucketConsumerProbe)
         {
             // The full-resident decoder probe makes every resident static
             // bucket traceable. Its material table must therefore cover the
@@ -7594,7 +7611,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const uint64 materialHydrationRigidSignature =
             BuildSortedUniqueMaterialIdSignature(rigidRouteMaterialIds);
         const uint64 materialHydrationStaticBucketProbeSignature =
-            staticBucketPrimaryOpaqueProbe
+            staticBucketConsumerProbe
                 ? BuildSortedUniqueMaterialIdSignature(
                     m_staticBucketGeometryUniverse.
                         StaticTriangleMaterials())
@@ -7624,7 +7641,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RegisterSmokeMaterialTextureInfoForMaterialIds(
                 *materialHydrationIds,
                 enableTextureProbe ||
-                    staticBucketPrimaryOpaqueProbe);
+                    staticBucketConsumerProbe);
         metadataTiming.metadataMs += cachedStaticMetadataTiming.metadataMs;
         metadataTiming.registrationMs += cachedStaticMetadataTiming.registrationMs;
     }
@@ -8117,11 +8134,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 commandList,
                 m_smokeGeometryFrameIndex,
                 m_smokeSceneMapTimeStamp,
-                staticBucketPrimaryOpaqueProbe);
-    // Production remains fail-closed. Mode 2 admits only the primary producer
-    // while view 2 consumes its stored records without issuing secondary rays.
+                staticBucketConsumerProbe);
+    // Production remains fail-closed. Mode 2 admits established primary
+    // isolates plus one explicit stage-bounded view-16 diagnostic route.
     const bool staticBucketRouteConsumerSupported =
-        staticBucketPrimaryOpaqueProbe;
+        staticBucketConsumerProbe;
     RtSmokeStaticBucketCutoverInput
         staticBucketCutoverInput;
     staticBucketCutoverInput.residentBuckets =
@@ -8159,12 +8176,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             (m_smokeGeometryFrameIndex % 120ull) == 1ull))
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO10 static bucket cutover mode=%d requested/accepted=%d/%d consumerSupported=%d primaryOpaqueProbe=%d fullResidentProbe=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu materialIndexMissingActive=%d traversal=%s\n",
+            "PathTracePrimaryPass: GEO10 static bucket cutover mode=%d requested/accepted=%d/%d consumerSupported=%d primaryOpaqueProbe=%d secondaryIsolation=%d secondaryStage=%d fullResidentProbe=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu materialIndexMissingActive=%d traversal=%s\n",
             staticBucketRouteMode,
             1,
             staticBucketRouteAccepted ? 1 : 0,
             staticBucketRouteConsumerSupported ? 1 : 0,
             staticBucketPrimaryOpaqueProbe ? 1 : 0,
+            staticBucketCleanDiSecondaryIsolation ? 1 : 0,
+            staticBucketCleanDiSecondaryIsolation
+                ? staticBucketSecondaryProbeStage
+                : 0,
             staticBucketFramePublication.
                 activeMaskForcedFullResident
                     ? 1
@@ -12474,6 +12495,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     accelSubmitDesc.staticBlasCacheHit = staticBlasCacheHit;
     accelSubmitDesc.includeStaticBlasInTlas =
         !staticBucketRouteAccepted;
+    accelSubmitDesc.diagnosticMarkers =
+        r_pathTracingNsightGpuMarkers.GetInteger() != 0;
     RtSmokeAccelSubmitTiming accelSubmitTiming;
     bool accelSubmitSucceeded = false;
     if (optickGpuMarkers)

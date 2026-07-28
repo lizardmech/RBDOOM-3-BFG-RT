@@ -1329,6 +1329,32 @@ bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
     int cleanDiView,
     bool diagnosticCheckpointsEnabled,
     bool cleanGiEnabled);
+bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+    int routeMode,
+    bool cleanDiEnabled,
+    int cleanDiView,
+    bool diagnosticCheckpointsEnabled,
+    bool cleanGiEnabled,
+    bool externalPdfNeeEnabled,
+    bool transmissionPsrEnabled,
+    int probeStage);
+
+struct RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+{
+    bool active = false;
+    int stage = 0;
+    bool transmissionPsr = true;
+    bool initial = true;
+    bool temporal = true;
+    bool spatial = true;
+    bool materialFeatureCompose = true;
+};
+
+RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+    BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+        bool productionView,
+        bool routePublicationValid,
+        int probeStage);
 
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc);

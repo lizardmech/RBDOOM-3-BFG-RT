@@ -2876,6 +2876,155 @@ void TestStaticBucketAssignmentPlan()
             true,
             true),
         "static bucket primary probe rejects production, unsupported views, uninstrumented, and GI-enabled routes");
+    bool secondaryIsolationStagesAccepted = true;
+    for (int stage = 1; stage <= 6; ++stage)
+    {
+        secondaryIsolationStagesAccepted &=
+            IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+                RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+                true,
+                16,
+                true,
+                false,
+                false,
+                true,
+                stage);
+    }
+    Check(
+        secondaryIsolationStagesAccepted,
+        "static bucket clean-DI secondary isolation accepts stages one through six");
+    Check(
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            1) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            false,
+            16,
+            true,
+            false,
+            false,
+            true,
+            1) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            2,
+            true,
+            false,
+            false,
+            true,
+            1) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            false,
+            false,
+            false,
+            true,
+            1) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            true,
+            false,
+            true,
+            1) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            true,
+            true,
+            1) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            false,
+            1) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            0) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            7),
+        "static bucket clean-DI secondary isolation rejects unsafe routes and out-of-range stages");
+    bool secondaryIsolationDispatchStagesExact = true;
+    for (int stage = 1; stage <= 6; ++stage)
+    {
+        const RtSmokeStaticBucketSecondaryIsolationDispatchPlan stagePlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                stage);
+        secondaryIsolationDispatchStagesExact &=
+            stagePlan.active &&
+            stagePlan.stage == stage &&
+            stagePlan.transmissionPsr == (stage >= 2) &&
+            stagePlan.initial == (stage >= 3) &&
+            stagePlan.temporal == (stage >= 4) &&
+            stagePlan.spatial == (stage >= 5) &&
+            stagePlan.materialFeatureCompose == (stage >= 6);
+    }
+    Check(
+        secondaryIsolationDispatchStagesExact,
+        "static bucket clean-DI secondary dispatch plan admits exact cumulative stage boundaries");
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        activeStageZeroPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                0);
+    Check(
+        activeStageZeroPlan.active &&
+            activeStageZeroPlan.stage == 0 &&
+            !activeStageZeroPlan.transmissionPsr &&
+            !activeStageZeroPlan.initial &&
+            !activeStageZeroPlan.temporal &&
+            !activeStageZeroPlan.spatial &&
+            !activeStageZeroPlan.materialFeatureCompose,
+        "static bucket clean-DI active publication with an invalid stage fails closed after primary");
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        monolithicDispatchPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                false,
+                1);
+    Check(
+        !monolithicDispatchPlan.active &&
+            monolithicDispatchPlan.transmissionPsr &&
+            monolithicDispatchPlan.initial &&
+            monolithicDispatchPlan.temporal &&
+            monolithicDispatchPlan.spatial &&
+            monolithicDispatchPlan.materialFeatureCompose,
+        "static bucket clean-DI secondary dispatch plan leaves monolithic view 16 unchanged");
 
     RtSmokeStaticBucketGeometryPack invalidSurfaceFlagPack =
         multiGeometryPack;

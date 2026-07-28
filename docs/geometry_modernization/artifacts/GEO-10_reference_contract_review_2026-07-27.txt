@@ -1703,3 +1703,24 @@ address work is retained as inactive compile evidence.
 The next investigation must identify the specific dispatch or obtain
 GPU-side fault evidence before widening runtime admission again. Repeating the
 same all-consumer view-16 gate is not an accepted diagnostic step.
+
+REF-10C CHECKPOINT AND DISPATCH-BOUNDARY AUDIT - 2026-07-28
+-----------------------------------------------------------
+The local Vulkan backend already converts every NVRHI `beginMarker` into
+`vkCmdSetCheckpointNV` when `VK_NV_device_diagnostic_checkpoints` is present,
+and reports resolved markers when queue submit or device idle observes device
+loss. The failed REF-10B run enabled markers but did not enable the engine's
+flushed logfile, so those callback messages were not durable.
+
+Coverage was incomplete as well: initial, temporal, spatial, and generic
+material-feature passes had markers, but the primary-surface dispatch and
+acceleration builds did not. REF-10C adds labels for bucket BLAS identity,
+bucket-vs-monolithic TLAS, primary surface, transmission PSR, and the outer
+material composition chain.
+
+A pure CPU dispatch plan now maps an active route publication and stage value
+to exact cumulative consumers. Route admission additionally rejects stage 0,
+stage values above 6, missing markers, GI, external PDF-NEE, disabled DI,
+non-view-16 selection, disabled transmission PSR, and production route mode 1.
+The first runtime rung is therefore bucket AS plus primary only, not the
+previous all-consumer route.
