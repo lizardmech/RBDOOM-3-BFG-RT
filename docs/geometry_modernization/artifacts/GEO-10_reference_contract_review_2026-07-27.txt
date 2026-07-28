@@ -1539,3 +1539,29 @@ Offline proof:
   shader rebuilds                                     0
   executable SHA-256
     4EEC941B8F3997A65BF774A009FC146BD09FAFCE83AA724555BDA0E831CFAD42
+
+BUCKET21 EMPTY-SET OVERLAY RESULT - 2026-07-28
+----------------------------------------------
+The settled route-2 audit passed every address and state-overlay invariant:
+
+  full-resident cutover requested / accepted          1 / 1
+  resident / active / ready buckets                   56 / 56 / 56
+  portal-active / resident routes                     5 / 56
+  active / matched / missing / duplicate surfaces     155 / 155 / 0 / 0
+  mapped / missing / invalid primitives               4932 / 0 / 0
+  state-overlay mapped / invalid                      4932 / 0
+  raw class / stage / non-stage mismatches            0 / 0 / 0
+  raw material-index mismatches                       3998
+  monolithic / bucket / captured emissives            0 / 0 / 0
+  identity missing / extra                            0 / 0
+  exact                                               1
+
+No device-removal, buffer-binding, or validation error was present. The result
+proves that the checked overlay covers the complete active primitive domain
+and preserves an empty live emissive set despite independently different
+resident material indexes.
+
+It does not prove replay of a non-empty set. REF-9F remains open until the same
+line reports equal, non-zero monolithicPortal/bucket/captured triangle counts
+with every identity failure counter zero. No implementation change is
+warranted before that focused runtime repeat.

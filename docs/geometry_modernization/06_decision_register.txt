@@ -1143,6 +1143,15 @@ raw class, stage, non-stage, and material-index mismatch counts before applying
 that overlay. This is not a geometry or GPU metadata mutation and does not
 change primary traversal. Missing overlay coverage fails closed.
 
+`bucket21.log` accepts the overlay's coverage and empty-set behavior. After the
+full-resident build settled, route 2 remained exact at 56/56/56. The portal
+selection joined 155/155 surfaces and mapped 4,932/4,932 primitives with zero
+missing, duplicate, or invalid rows. The raw resident material index differed
+on 3,998 rows, but the live overlay resolved every row and the final emissive
+sets were exactly empty on both sides. This is useful negative coverage, not
+the required non-empty emissive replay proof. D58 remains open for one portal
+selection containing at least one live monolithic static emissive triangle.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

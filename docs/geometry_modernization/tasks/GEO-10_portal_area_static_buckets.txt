@@ -1241,3 +1241,31 @@ Runtime acceptance now requires exact overlay coverage, equal
 monolithicPortal/bucket/captured counts, equal identity sets, and zero invalid,
 zero, collision, missing, or extra counters. Raw class/stage/material mismatch
 counts are diagnostic and may be non-zero.
+
+REF-9F EMPTY-SET OVERLAY ACCEPTANCE - BUCKET21 - 2026-07-28
+-----------------------------------------------------------
+The corrected executable survived the full-resident route and emitted one
+settled audit:
+
+  route 2 requested/accepted                         1/1
+  buckets active/resident/ready                      56/56/56
+  portal routes active/resident                      5/56
+  surfaces active/matched/missing/duplicate          155/155/0/0
+  mapping mapped/missing/invalid                     4932/0/0
+  state mapped/invalid                               4932/0
+  raw class/stage/nonStage mismatch                  0/0/0
+  raw material-index mismatch                       3998
+  triangles monolithicPortal/bucket/captured/invalid 0/0/0/0
+  identities missing/extra                          0/0
+  exact                                              1
+
+No device-removal, buffer-binding, or validation error appears in the capture.
+The large raw material-index mismatch is expected evidence that the overlay,
+not resident authored state, supplied the comparison's live binding rows.
+
+This accepts complete overlay coverage and the empty-set case only. REF-9F
+still needs one otherwise identical settled audit with
+`triangles(monolithicPortal/bucket/captured)` all equal and greater than zero.
+Do not change code for that repeat. Use a portal position containing a live
+static emissive surface, keep route 2 settled at 56/56/56, then arm
+`r_pathTracingGeometryStaticBucketAudit 1`.
