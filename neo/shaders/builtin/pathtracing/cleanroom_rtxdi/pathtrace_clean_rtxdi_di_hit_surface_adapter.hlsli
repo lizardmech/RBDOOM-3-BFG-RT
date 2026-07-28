@@ -1501,6 +1501,110 @@ bool PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
     return true;
 }
 
+float4 PathTraceCleanRtxdiDiBucketResolvedTupleDiagnostic(
+    PathTraceCleanRtxdiPayload payload,
+    float3 hitPosition,
+    RAB_Surface resolvedSurface)
+{
+    // Cyan: the accepted hit belongs to a non-bucket route. This is expected
+    // for skinned, rigid, or dynamic geometry and provides a control color.
+    if (!PathTraceIsStaticBucketRouteInstance(
+            payload.hitInstanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        return float4(0.0, 1.0, 1.0, 1.0);
+    }
+
+    PathTraceStaticBucketRouteRecord route;
+    uint packedTriangleIndex;
+    uint3 packedVertexIndexes;
+    if (!PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+            payload.hitInstanceId,
+            payload.hitPrimitiveIndex,
+            route,
+            packedTriangleIndex,
+            packedVertexIndexes))
+    {
+        // Magenta: canonical bucket identity could not be decoded.
+        return float4(1.0, 0.0, 1.0, 1.0);
+    }
+
+    const PathTraceSmokeVertex v0 =
+        SmokeStaticBucketVertices[packedVertexIndexes.x];
+    const PathTraceSmokeVertex v1 =
+        SmokeStaticBucketVertices[packedVertexIndexes.y];
+    const PathTraceSmokeVertex v2 =
+        SmokeStaticBucketVertices[packedVertexIndexes.z];
+    const float3 hardwareBarycentrics = float3(
+        1.0 - payload.hitBarycentrics.x - payload.hitBarycentrics.y,
+        payload.hitBarycentrics.x,
+        payload.hitBarycentrics.y);
+    const float3 replayPosition =
+        v0.position.xyz * hardwareBarycentrics.x +
+        v1.position.xyz * hardwareBarycentrics.y +
+        v2.position.xyz * hardwareBarycentrics.z;
+    const float positionTolerance =
+        max(0.05, max(length(hitPosition), 1.0) * 1.0e-5);
+    if (distance(replayPosition, hitPosition) > positionTolerance)
+    {
+        // Red: InstanceID + PrimitiveIndex addresses a different triangle
+        // than the one the hardware intersection attributes describe.
+        return float4(1.0, 0.0, 0.0, 1.0);
+    }
+
+    float3 reconstructedBarycentrics;
+    if (!PathTraceCleanRtxdiDiComputeTriangleBarycentrics(
+            hitPosition,
+            v0.position.xyz,
+            v1.position.xyz,
+            v2.position.xyz,
+            reconstructedBarycentrics) ||
+        max(
+            abs(reconstructedBarycentrics.y -
+                payload.hitBarycentrics.x),
+            abs(reconstructedBarycentrics.z -
+                payload.hitBarycentrics.y)) > 0.01)
+    {
+        // Orange: the packed triangle is spatially compatible, but the
+        // transported hardware barycentrics do not replay the same point.
+        return float4(1.0, 0.25, 0.0, 1.0);
+    }
+
+    const bool metadataMatches =
+        SmokeStaticBucketTriangleMaterials[packedTriangleIndex] ==
+            payload.hitMaterialId &&
+        SmokeStaticBucketTriangleMaterialIndexes[packedTriangleIndex] ==
+            payload.hitMaterialIndex &&
+        SmokeStaticBucketTriangleClasses[packedTriangleIndex] ==
+            payload.hitTriangleClassAndFlags;
+    if (!metadataMatches)
+    {
+        // Yellow: geometry identity is exact, but material/class metadata is
+        // not the row published by closest hit.
+        return float4(1.0, 1.0, 0.0, 1.0);
+    }
+
+    const bool resolvedTupleMatches =
+        resolvedSurface.instanceId == payload.hitInstanceId &&
+        resolvedSurface.primitiveIndex == payload.hitPrimitiveIndex &&
+        resolvedSurface.materialId == payload.hitMaterialId &&
+        resolvedSurface.materialIndex == payload.hitMaterialIndex &&
+        resolvedSurface.surfaceClass ==
+            (payload.hitTriangleClassAndFlags &
+                RT_SMOKE_TRIANGLE_CLASS_MASK);
+    if (!resolvedTupleMatches)
+    {
+        // Blue: closest hit and packed replay agree, but resolved-surface
+        // construction changed the identity/material tuple.
+        return float4(0.0, 0.0, 1.0, 1.0);
+    }
+
+    // Green: hardware identity, packed triangle, barycentrics, metadata, and
+    // resolved record are exact. A remaining visual defect is then confined
+    // to decoded attributes/material evaluation rather than addressing.
+    return float4(0.0, 1.0, 0.0, 1.0);
+}
+
 #endif
 
 #endif

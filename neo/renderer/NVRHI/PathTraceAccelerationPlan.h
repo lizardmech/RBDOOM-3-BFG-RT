@@ -1361,6 +1361,7 @@ struct RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     int transmissionTraceProbeMode = 0;
     bool transmissionIterativeResolve = false;
     bool transmissionMonolithicControl = false;
+    bool transmissionTupleDiagnostic = false;
     bool materialFeatureCompose = true;
 };
 

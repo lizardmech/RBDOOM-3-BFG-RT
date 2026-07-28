@@ -960,7 +960,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     staticBucketSecondaryProbeStage <= 17) ||
                 staticBucketSecondaryProbeStage == 19 ||
                 staticBucketSecondaryProbeStage == 20 ||
-                staticBucketSecondaryProbeStage == 21)) ||
+                staticBucketSecondaryProbeStage == 21 ||
+                staticBucketSecondaryProbeStage == 22)) ||
             staticBucketSecondaryMonolithicControlRequested);
     const bool staticBucketSecondaryIsolationSupported =
         IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
@@ -3572,11 +3573,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 // Keep the GEO-10 traversal probes exact regardless of the
                 // normal glass defaults. Only the straight-through
                 // transmission lane is admitted. Stages 10-16 isolate the
-                // legacy single-TraceRay path; stages 17-21 select the bounded
+                // legacy single-TraceRay path; stages 17-22 select the bounded
                 // forced-opaque iterative resolver. Stage 18 uses monolithic
                 // traversal; the others use buckets. Stages 19 and 20 stop
                 // after initial and temporal; stage 21 skips temporal and
-                // presents initial through spatial with neighbor reuse off.
+                // presents initial through spatial with neighbor reuse off;
+                // stage 22 writes a producer-local tuple diagnostic.
                 psrConstants.flags &= ~(
                     CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR |
                     CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION |
@@ -3640,6 +3642,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     case 21:
                         staticBucketTransmissionMarker =
                             "GEO10.View16.Stage21 TransmissionIterativeResolveInitialPresented";
+                        break;
+                    case 22:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage22 TransmissionBucketTupleDiagnostic";
                         break;
                     default:
                         staticBucketTransmissionMarker =
@@ -3771,6 +3777,19 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
             // Restore the DI constants the PSR dispatch overwrote.
             commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
+        }
+        if (staticBucketSecondaryIsolationActive &&
+            staticBucketSecondaryIsolation.transmissionTupleDiagnostic)
+        {
+            if (!m_smokeTestDispatched)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO-10 view-16 stage-22 bucket hardware-hit versus packed-replay tuple diagnostic completed (%dx%d); initial, temporal, spatial, post-DI composition, and later consumers skipped\n",
+                    m_frameResources.width,
+                    m_frameResources.height);
+            }
+            m_smokeTestDispatched = true;
+            return;
         }
         if (cleanSplitRaygenView)
         {

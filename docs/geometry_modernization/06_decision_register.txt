@@ -2653,6 +2653,56 @@ Offline implementation proof:
   - the normal CPU harness and 20-iteration stress run pass;
   - the Vulkan release build succeeds with every SPIR-V shader up to date.
 
+D105. STAGE 21 REPRODUCES BEFORE TEMPORAL OR SPATIAL REUSE
+----------------------------------------------------------
+Stage 21 survives, but the user still sees individual static triangle polygons
+instead of the correct continuous surface behind glass. Skinned geometry
+remains correct. Stage 21 runs the bounded bucket transmission resolver and
+initial DI, skips temporal entirely, and uses spatial only as a presenter with
+neighbor reuse disabled. Therefore neither temporal history nor spatial
+neighbor selection can originate the defect.
+
+The failure is now confined to the static bucket tuple produced by closest hit
+and consumed by resolved-surface construction:
+
+  - bucket InstanceID plus bucket-local PrimitiveIndex;
+  - packed triangle/index/vertex address;
+  - hardware barycentrics and reconstructed hit position;
+  - material ID, live material-table index, and triangle class;
+  - the identity/material tuple copied into the resolved primary record.
+
+Do not add another downstream consumer. Do not change the accepted bounded
+resolver, texture table, SBT, descriptor layout, or payload ABI speculatively.
+
+D106. OPEN STAGE 22 AS A PRODUCER-LOCAL BUCKET TUPLE DIAGNOSTIC
+---------------------------------------------------------------
+Stage 22 retains route 2, full-resident bucket publication, and the accepted
+bounded forced-opaque resolver. It compares the accepted hardware hit against
+the packed replay tuple inside the transmission producer, writes one fixed
+diagnostic color at glass pixels, and returns before initial, temporal,
+spatial, post-DI composition, or later consumers.
+
+Color contract:
+
+  white       bounded resolver produced no accepted hit;
+  dark magenta
+              hit existed but resolved-surface construction failed;
+  cyan        accepted hit is non-bucket (skinned/rigid/dynamic control);
+  magenta     bucket InstanceID/PrimitiveIndex could not be decoded;
+  red         decoded packed triangle does not reproduce hit position using
+              the transported hardware barycentrics;
+  orange      position is compatible but reconstructed and transported
+              barycentrics disagree;
+  yellow      packed material ID/index/class differs from closest-hit payload;
+  blue        resolved-surface identity/material tuple differs from payload;
+  green       address, position, barycentrics, metadata, and resolved tuple
+              all agree; remaining corruption is in attribute/material
+              evaluation rather than geometry identity.
+
+The iterative-plus-probe-mode-7 flag combination is reserved for stage 22, so
+the diagnostic adds no shared constant-buffer field. Probe mode 7 without the
+iterative bit remains the existing stage-16 IgnoreHit isolate.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

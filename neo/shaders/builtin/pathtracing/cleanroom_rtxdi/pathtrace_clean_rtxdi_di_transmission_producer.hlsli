@@ -1058,12 +1058,14 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     RAB_Surface behindGlassSurface = RAB_EmptySurface();
     PathTraceCleanRtxdiDiLiquidPoolResolve behindGlassLiquidResolve;
     bool behindGlassValid = false;
-    if (PathTraceCleanRtxdiDiTraceTransmissionHit(
+    const bool transmissionHitValid =
+        PathTraceCleanRtxdiDiTraceTransmissionHit(
         glassSurface,
         transmissionSample,
         hitPayload,
         hitPosition,
-        rayDirection) &&
+        rayDirection);
+    if (transmissionHitValid &&
         PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
             hitPayload,
             hitPosition,
@@ -1093,6 +1095,24 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         {
             behindGlassSurface.flags |= CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_REFRACTED;
         }
+    }
+
+    if (PathTraceCleanRtxdiDiTransmissionTupleDiagnosticEnabled())
+    {
+        // White means the bounded resolver did not produce an accepted hit;
+        // dark magenta means it hit but resolved-surface construction failed.
+        const float4 diagnostic = !transmissionHitValid
+            ? float4(1.0, 1.0, 1.0, 1.0)
+            : (!behindGlassValid
+                ? float4(0.35, 0.0, 0.35, 1.0)
+                : PathTraceCleanRtxdiDiBucketResolvedTupleDiagnostic(
+                    hitPayload,
+                    hitPosition,
+                    behindGlassSurface));
+        SmokeOutput[pixel] = diagnostic;
+        PathTraceRRInputColor[pixel] = diagnostic;
+        PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(pixel);
+        return;
     }
 
     if (reflectionPrimaryPublished)

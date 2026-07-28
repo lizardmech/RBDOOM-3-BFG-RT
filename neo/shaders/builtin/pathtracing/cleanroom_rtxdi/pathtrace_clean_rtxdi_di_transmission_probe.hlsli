@@ -22,4 +22,12 @@ bool PathTraceCleanRtxdiDiTransmissionIterativeResolveEnabled()
         CLEAN_FLAG_TRANSMISSION_ITERATIVE_RESOLVE) != 0u;
 }
 
+bool PathTraceCleanRtxdiDiTransmissionTupleDiagnosticEnabled()
+{
+    // Probe mode 7 alone belongs to the stage-16 IgnoreHit isolate. The
+    // iterative+mode-7 combination is reserved for GEO-10 stage 22.
+    return PathTraceCleanRtxdiDiTransmissionIterativeResolveEnabled() &&
+        PathTraceCleanRtxdiDiTransmissionTraceProbeMode() == 7u;
+}
+
 #endif
