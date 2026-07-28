@@ -8326,6 +8326,110 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 &monolithicStateOverlay.triangleClasses,
                 &monolithicStateOverlay.
                     triangleMaterialIndexes);
+            const RtSmokeStaticBucketCanonicalAddressPlan
+                staticBucketCanonicalAddressPlan =
+                    BuildSmokeStaticBucketCanonicalAddressPlan(
+                        staticBucketGeometryPack);
+            int staticBucketReplayMapped = 0;
+            int staticBucketReplayInvalidInstance = 0;
+            int staticBucketReplayInvalidSurface = 0;
+            int staticBucketReplayInvalidPrimitive = 0;
+            int staticBucketReplayDuplicate = 0;
+            int staticBucketReplayClassMismatch = 0;
+            int staticBucketReplayMaterialMismatch = 0;
+            std::unordered_set<uint32_t>
+                staticBucketReplayPackedTriangles;
+            for (const PathTraceSmokeEmissiveTriangle& record :
+                 staticBucketEmissiveTriangles)
+            {
+                uint32_t surfaceRecordIndex = 0;
+                if (!TryDecodeSmokeStaticBucketSurfaceBaseInstanceId(
+                        record.instanceId,
+                        surfaceRecordIndex))
+                {
+                    ++staticBucketReplayInvalidInstance;
+                    continue;
+                }
+                if (surfaceRecordIndex >=
+                    staticBucketGeometryPack.surfaceRecords.size())
+                {
+                    ++staticBucketReplayInvalidSurface;
+                    continue;
+                }
+                const RtSmokeStaticBucketSurfaceRecord& surfaceRecord =
+                    staticBucketGeometryPack.
+                        surfaceRecords[surfaceRecordIndex];
+                if ((surfaceRecord.flags &
+                        RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK) !=
+                        RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID)
+                {
+                    ++staticBucketReplayInvalidSurface;
+                    continue;
+                }
+                const uint32_t sourceTriangleOffset =
+                    surfaceRecord.flags >>
+                    RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
+                if (record.primitiveIndex < sourceTriangleOffset)
+                {
+                    ++staticBucketReplayInvalidPrimitive;
+                    continue;
+                }
+                const uint32_t localPrimitiveIndex =
+                    record.primitiveIndex - sourceTriangleOffset;
+                if (localPrimitiveIndex >=
+                    surfaceRecord.triangleCount ||
+                    surfaceRecord.triangleOffset >=
+                        staticBucketGeometryPack.triangleClasses.size() ||
+                    localPrimitiveIndex >=
+                        staticBucketGeometryPack.triangleClasses.size() -
+                            surfaceRecord.triangleOffset)
+                {
+                    ++staticBucketReplayInvalidPrimitive;
+                    continue;
+                }
+                const uint32_t packedTriangleIndex =
+                    surfaceRecord.triangleOffset +
+                    localPrimitiveIndex;
+                if (!staticBucketReplayPackedTriangles.
+                    insert(packedTriangleIndex).second)
+                {
+                    ++staticBucketReplayDuplicate;
+                    continue;
+                }
+                if (packedTriangleIndex >=
+                        monolithicStateOverlay.triangleClasses.size() ||
+                    packedTriangleIndex >=
+                        monolithicStateOverlay.
+                            triangleMaterialIndexes.size())
+                {
+                    ++staticBucketReplayInvalidPrimitive;
+                    continue;
+                }
+                if (record.padding0 !=
+                    monolithicStateOverlay.
+                        triangleClasses[packedTriangleIndex])
+                {
+                    ++staticBucketReplayClassMismatch;
+                }
+                if (record.materialIndex !=
+                    monolithicStateOverlay.
+                        triangleMaterialIndexes[packedTriangleIndex])
+                {
+                    ++staticBucketReplayMaterialMismatch;
+                }
+                ++staticBucketReplayMapped;
+            }
+            const bool staticBucketReplayAddressExact =
+                staticBucketCanonicalAddressPlan.exact &&
+                staticBucketReplayMapped ==
+                    static_cast<int>(
+                        staticBucketEmissiveTriangles.size()) &&
+                staticBucketReplayInvalidInstance == 0 &&
+                staticBucketReplayInvalidSurface == 0 &&
+                staticBucketReplayInvalidPrimitive == 0 &&
+                staticBucketReplayDuplicate == 0 &&
+                staticBucketReplayClassMismatch == 0 &&
+                staticBucketReplayMaterialMismatch == 0;
             std::unordered_set<uint64_t>
                 staticBucketEmissiveIdentities;
             std::unordered_set<uint64_t>
@@ -8428,6 +8532,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 staticBucketEmissiveIdentityCollisions == 0 &&
                 staticBucketEmissiveMissingIdentities == 0 &&
                 staticBucketEmissiveExtraIdentities == 0 &&
+                staticBucketReplayAddressExact &&
                 monolithicPrimitiveRemap.exact &&
                 monolithicStateOverlay.exact &&
                 staticBucketEmissiveStats.
@@ -8437,7 +8542,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 monolithicStaticEmissiveIdentities.size() ==
                     staticBucketEmissiveIdentities.size();
             common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket emissive identity exact=%d portalPublicationValid=%d routes(active/resident)=%d/%zu surfaces(active/matched/missing/duplicate)=%zu/%d/%d/%d mapping(mapped/missing/invalid)=%d/%d/%d state(mapped/invalid/class/stage/nonStage/materialIndexMismatch)=%d/%d/%d/%d/%d/%d triangles(monolithicPortal/bucket/captured/invalid)=%d/%d/%d/%d identities(monolithic/bucket/zeroMonolithic/zeroBucket/collisionMonolithic/collisionBucket/missing/extra)=%zu/%zu/%d/%d/%d/%d/%d/%d traversal=portal-mask-canonical-surface-live-state-shadow-only\n",
+                "PathTracePrimaryPass: GEO10 static bucket emissive identity exact=%d portalPublicationValid=%d routes(active/resident)=%d/%zu surfaces(active/matched/missing/duplicate)=%zu/%d/%d/%d mapping(mapped/missing/invalid)=%d/%d/%d state(mapped/invalid/class/stage/nonStage/materialIndexMismatch)=%d/%d/%d/%d/%d/%d replay(records/mapped/invalidInstance/invalidSurface/invalidPrimitive/duplicate/class/material)=%zu/%d/%d/%d/%d/%d/%d/%d triangles(monolithicPortal/bucket/captured/invalid)=%d/%d/%d/%d identities(monolithic/bucket/zeroMonolithic/zeroBucket/collisionMonolithic/collisionBucket/missing/extra)=%zu/%zu/%d/%d/%d/%d/%d/%d traversal=portal-mask-canonical-surface-live-state-shadow-only\n",
                 staticBucketEmissiveIdentityExact ? 1 : 0,
                 staticBucketFramePublication.
                     portalActivePublication.valid
@@ -8474,6 +8579,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     nonStageClassMismatches,
                 monolithicStateOverlay.stats.
                     materialIndexMismatches,
+                staticBucketEmissiveTriangles.size(),
+                staticBucketReplayMapped,
+                staticBucketReplayInvalidInstance,
+                staticBucketReplayInvalidSurface,
+                staticBucketReplayInvalidPrimitive,
+                staticBucketReplayDuplicate,
+                staticBucketReplayClassMismatch,
+                staticBucketReplayMaterialMismatch,
                 portalMonolithicStaticEmissiveTriangles,
                 staticBucketEmissiveStats.staticTriangles,
                 staticBucketEmissiveStats.capturedTriangles,

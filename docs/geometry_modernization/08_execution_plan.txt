@@ -846,6 +846,21 @@ single identical audit in a scene/portal selection whose monolithic side
 reports at least one emissive triangle; no code or shader change is indicated
 by this capture.
 
+REF-10 entry audit found that REF-9F's hash equality was not sufficient for
+production. The bucket emissive builder still wrote one bucket-wide InstanceID
+and a packed-bucket primitive number, while multi-geometry BLAS traversal
+reports a surface-local PrimitiveIndex. The next CPU-only slice replaces those
+record fields with canonical surface-record InstanceID plus source triangle.
+The identity hash remains separately remapped to the live monolithic tuple.
+
+The one-shot audit now reports
+`replay(records/mapped/invalidInstance/invalidSurface/invalidPrimitive/duplicate/class/material)`.
+All replay failures must be zero and records must equal mapped before identity
+`exact=1`. The canonical address planner and deliberate overlapping-surface
+rejection pass the CPU stress harness. The full Vulkan release build passed
+without rebuilding shaders. Production mode 1 and every shader consumer remain
+closed pending the non-empty runtime result.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

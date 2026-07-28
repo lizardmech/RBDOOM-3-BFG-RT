@@ -379,6 +379,36 @@ struct RtSmokeStaticBucketGeometryPack
     bool exact = false;
 };
 
+struct RtSmokeStaticBucketCanonicalTriangleAddress
+{
+    uint32_t instanceId = 0;
+    uint32_t sourceTriangleIndex = 0;
+};
+
+struct RtSmokeStaticBucketCanonicalAddressStats
+{
+    int triangles = 0;
+    int mappedTriangles = 0;
+    int invalidSurfaceRecords = 0;
+    int invalidTriangleRanges = 0;
+    int duplicateTriangleMappings = 0;
+    int instanceIdOverflows = 0;
+    int sourceTriangleOverflows = 0;
+    int missingTriangles = 0;
+};
+
+struct RtSmokeStaticBucketCanonicalAddressPlan
+{
+    std::vector<RtSmokeStaticBucketCanonicalTriangleAddress> addresses;
+    std::vector<uint8_t> mapped;
+    RtSmokeStaticBucketCanonicalAddressStats stats;
+    bool exact = false;
+};
+
+RtSmokeStaticBucketCanonicalAddressPlan
+BuildSmokeStaticBucketCanonicalAddressPlan(
+    const RtSmokeStaticBucketGeometryPack& geometryPack);
+
 struct RtSmokeStaticBucketMonolithicSurfaceBinding
 {
     uint64_t surfaceKey = 0;

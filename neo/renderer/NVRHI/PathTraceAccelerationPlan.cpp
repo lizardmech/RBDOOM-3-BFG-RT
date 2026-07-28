@@ -1169,6 +1169,99 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
     return pack;
 }
 
+RtSmokeStaticBucketCanonicalAddressPlan
+BuildSmokeStaticBucketCanonicalAddressPlan(
+    const RtSmokeStaticBucketGeometryPack& geometryPack)
+{
+    RtSmokeStaticBucketCanonicalAddressPlan plan;
+    plan.stats.triangles =
+        static_cast<int>(geometryPack.triangleClasses.size());
+    plan.addresses.resize(geometryPack.triangleClasses.size());
+    plan.mapped.assign(geometryPack.triangleClasses.size(), 0u);
+    if (!geometryPack.exact ||
+        geometryPack.triangleIdentities.size() !=
+            geometryPack.triangleClasses.size())
+    {
+        plan.stats.missingTriangles = plan.stats.triangles;
+        return plan;
+    }
+
+    for (uint32_t surfaceRecordIndex = 0;
+         surfaceRecordIndex < geometryPack.surfaceRecords.size();
+         ++surfaceRecordIndex)
+    {
+        const RtSmokeStaticBucketSurfaceRecord& surfaceRecord =
+            geometryPack.surfaceRecords[surfaceRecordIndex];
+        uint32_t canonicalInstanceId = 0;
+        if ((surfaceRecord.flags &
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK) !=
+                RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_VALID ||
+            surfaceRecord.triangleCount == 0)
+        {
+            ++plan.stats.invalidSurfaceRecords;
+            continue;
+        }
+        if (!TryEncodeSmokeStaticBucketSurfaceBaseInstanceId(
+                surfaceRecordIndex,
+                canonicalInstanceId))
+        {
+            ++plan.stats.instanceIdOverflows;
+            continue;
+        }
+        const uint64_t packedTriangleEnd =
+            static_cast<uint64_t>(surfaceRecord.triangleOffset) +
+            surfaceRecord.triangleCount;
+        if (packedTriangleEnd > geometryPack.triangleClasses.size())
+        {
+            ++plan.stats.invalidTriangleRanges;
+            continue;
+        }
+
+        const uint32_t sourceTriangleOffset =
+            surfaceRecord.flags >>
+            RT_SMOKE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
+        for (uint32_t localPrimitiveIndex = 0;
+             localPrimitiveIndex < surfaceRecord.triangleCount;
+             ++localPrimitiveIndex)
+        {
+            const uint32_t packedTriangleIndex =
+                surfaceRecord.triangleOffset + localPrimitiveIndex;
+            if (plan.mapped[packedTriangleIndex] != 0u)
+            {
+                ++plan.stats.duplicateTriangleMappings;
+                continue;
+            }
+            if (localPrimitiveIndex >
+                UINT32_MAX - sourceTriangleOffset)
+            {
+                ++plan.stats.sourceTriangleOverflows;
+                continue;
+            }
+
+            RtSmokeStaticBucketCanonicalTriangleAddress& address =
+                plan.addresses[packedTriangleIndex];
+            address.instanceId = canonicalInstanceId;
+            address.sourceTriangleIndex =
+                sourceTriangleOffset + localPrimitiveIndex;
+            plan.mapped[packedTriangleIndex] = 1u;
+            ++plan.stats.mappedTriangles;
+        }
+    }
+
+    plan.stats.missingTriangles =
+        plan.stats.triangles - plan.stats.mappedTriangles;
+    plan.exact =
+        plan.stats.triangles > 0 &&
+        plan.stats.mappedTriangles == plan.stats.triangles &&
+        plan.stats.invalidSurfaceRecords == 0 &&
+        plan.stats.invalidTriangleRanges == 0 &&
+        plan.stats.duplicateTriangleMappings == 0 &&
+        plan.stats.instanceIdOverflows == 0 &&
+        plan.stats.sourceTriangleOverflows == 0 &&
+        plan.stats.missingTriangles == 0;
+    return plan;
+}
+
 RtSmokeStaticBucketMonolithicPrimitiveRemap
 BuildSmokeStaticBucketMonolithicPrimitiveRemap(
     const RtSmokeStaticBucketGeometryPack& geometryPack,

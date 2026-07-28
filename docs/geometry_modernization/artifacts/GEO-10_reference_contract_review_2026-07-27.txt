@@ -1565,3 +1565,41 @@ It does not prove replay of a non-empty set. REF-9F remains open until the same
 line reports equal, non-zero monolithicPortal/bucket/captured triangle counts
 with every identity failure counter zero. No implementation change is
 warranted before that focused runtime repeat.
+
+REF-10 ENTRY AUDIT: EMISSIVE REPLAY ADDRESS - 2026-07-28
+--------------------------------------------------------
+The identity-only audit concealed a separate hardware-address mismatch. The
+bucket emitter wrote the bucket BLAS InstanceID and a primitive ordinal across
+the bucket's packed triangle slice. In a BLAS with one GeometryDesc per
+surface, `PrimitiveIndex()` is surface-local. The emitted pair therefore could
+not replay the triangle even if its separately computed identity hash matched.
+
+The corrected CPU record address is:
+
+  canonicalInstanceId = static namespace | surfaceRecordIndex
+  sourceTriangle      = surface.sourceTriangleOffset + localPrimitive
+
+This pair is stable across portal membership and reverses through one surface
+record to the exact packed triangle. It consumes no new GPU field and preserves
+the route-0 identity hash as an independent temporal/light identity.
+
+The new exact planner rejects invalid surface records, range overlap, duplicate
+packed-triangle ownership, InstanceID overflow, source-triangle overflow, and
+missing coverage. The runtime audit additionally reverses only the emitted
+emissive records and verifies current overlaid class and material rows:
+
+  replay(records/mapped/invalidInstance/invalidSurface/invalidPrimitive/
+         duplicate/class/material)
+
+All replay failures must be zero. This evidence is now part of REF-9F/REF-10
+acceptance; zero versus zero still does not close the non-empty gate.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness --stress 20             passed
+  canonical replay mapping                            5 / 5
+  deliberate overlapping-surface rejection           passed
+  full Vulkan release build                           passed
+  shader rebuilds                                     0
+  executable SHA-256
+    48C8FE4703163E6CD61D9ADCD153BCB597E37F5D30B4066E26334EC12F93F780

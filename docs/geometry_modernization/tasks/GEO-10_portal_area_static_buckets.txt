@@ -1269,3 +1269,50 @@ still needs one otherwise identical settled audit with
 Do not change code for that repeat. Use a portal position containing a live
 static emissive surface, keep route 2 settled at 56/56/56, then arm
 `r_pathTracingGeometryStaticBucketAudit 1`.
+
+REF-9G CANONICAL EMISSIVE REPLAY ADDRESS - 2026-07-28
+-----------------------------------------------------
+The REF-10 entry audit found a hidden false-positive path in REF-9F. Identity
+hashes were reconstructed from monolithic source identity, but each bucket
+emissive record still carried:
+
+  instanceId       bucket BLAS first-surface record
+  primitiveIndex   packed primitive across the entire bucket
+
+That is not a hardware hit address for a multi-geometry BLAS. `GeometryIndex`
+selects a surface and `PrimitiveIndex` restarts at zero for that surface.
+Several emissive consumers use the record fields for geometry replay and
+self-intersection suppression, so hash equality alone could not admit them.
+
+The CPU publication now gives each packed triangle a canonical replay tuple:
+
+  instanceId       namespace | exact surface-record index
+  primitiveIndex   that surface record's source triangle index
+
+The surface record recovers local PrimitiveIndex by subtracting its source
+offset. Identity hashing remains independent and continues to use route-0
+monolithic instance/primitive identity. No GPU buffer layout, descriptor,
+payload, SBT, shader, TLAS, or route predicate changed.
+
+The audit reverses every emitted bucket emissive record to its packed triangle
+and adds:
+
+  replay(records/mapped/invalidInstance/invalidSurface/invalidPrimitive/
+         duplicate/class/material)
+
+Acceptance requires records equal mapped and all six failure categories zero,
+in addition to the existing non-empty exact identity requirements.
+
+Offline proof:
+
+  canonical 5/5 packed-triangle replay plan           passed
+  overlapping surface ownership rejection             passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  full win64-pt-dev-release build                      passed
+  SPIR-V shader rebuilds                               0
+  executable SHA-256
+    48C8FE4703163E6CD61D9ADCD153BCB597E37F5D30B4066E26334EC12F93F780
+
+The updated executable is deployed. Repeat the existing pre-load audit at the
+save's initial position; the required line must now have a non-zero equal
+triangle set and an exact replay tuple.

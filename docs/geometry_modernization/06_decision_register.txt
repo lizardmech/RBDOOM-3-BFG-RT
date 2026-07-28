@@ -1152,6 +1152,17 @@ sets were exactly empty on both sides. This is useful negative coverage, not
 the required non-empty emissive replay proof. D58 remains open for one portal
 selection containing at least one live monolithic static emissive triangle.
 
+The same audit must also prove a replayable hardware address, not only an
+identity hash. A multi-geometry bucket's hardware `PrimitiveIndex` is local to
+the selected surface, so bucket-wide InstanceID plus packed-bucket primitive
+is invalid even when the identity set compares exactly. Static bucket emissive
+records now publish canonical surface-record InstanceID plus that surface's
+source triangle index. The identity hash remains the route-0 monolithic tuple.
+The audit independently reverses every emitted record to one packed triangle
+and rejects invalid instances, surfaces, primitives, duplicate mappings, or
+class/material state mismatches. REF-10 remains closed until both identity and
+replay-address evidence are exact and non-empty.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

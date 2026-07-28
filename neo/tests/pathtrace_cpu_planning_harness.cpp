@@ -2370,6 +2370,46 @@ void TestStaticBucketAssignmentPlan()
             secondSurfaceSourceTriangleOffset +
                 pack.triangleIdentities[3].sourcePrimitiveIndex == 3,
         "static bucket surface record plus local primitive recovers resident-source identity");
+    const RtSmokeStaticBucketCanonicalAddressPlan canonicalAddressPlan =
+        BuildSmokeStaticBucketCanonicalAddressPlan(pack);
+    Check(
+        canonicalAddressPlan.exact &&
+            canonicalAddressPlan.stats.triangles == 5 &&
+            canonicalAddressPlan.stats.mappedTriangles == 5 &&
+            canonicalAddressPlan.stats.missingTriangles == 0 &&
+            canonicalAddressPlan.addresses[0].instanceId ==
+                RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE &&
+            canonicalAddressPlan.addresses[0].
+                sourceTriangleIndex == 0 &&
+            canonicalAddressPlan.addresses[1].instanceId ==
+                RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE &&
+            canonicalAddressPlan.addresses[1].
+                sourceTriangleIndex == 1 &&
+            canonicalAddressPlan.addresses[2].instanceId ==
+                (RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE | 1u) &&
+            canonicalAddressPlan.addresses[2].
+                sourceTriangleIndex == 2 &&
+            canonicalAddressPlan.addresses[3].instanceId ==
+                (RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE | 1u) &&
+            canonicalAddressPlan.addresses[3].
+                sourceTriangleIndex == 3 &&
+            canonicalAddressPlan.addresses[4].instanceId ==
+                (RT_SMOKE_STATIC_BUCKET_INSTANCE_ID_NAMESPACE | 2u) &&
+            canonicalAddressPlan.addresses[4].
+                sourceTriangleIndex == 4,
+        "static bucket canonical replay address identifies one surface record plus source triangle per packed triangle");
+    RtSmokeStaticBucketGeometryPack invalidCanonicalAddressPack = pack;
+    invalidCanonicalAddressPack.surfaceRecords[1].triangleOffset = 0;
+    const RtSmokeStaticBucketCanonicalAddressPlan
+        invalidCanonicalAddressPlan =
+            BuildSmokeStaticBucketCanonicalAddressPlan(
+                invalidCanonicalAddressPack);
+    Check(
+        !invalidCanonicalAddressPlan.exact &&
+            invalidCanonicalAddressPlan.stats.
+                duplicateTriangleMappings == 2 &&
+            invalidCanonicalAddressPlan.stats.missingTriangles == 2,
+        "static bucket canonical replay address rejects overlapping surface triangle ownership");
     const std::vector<uint8_t> activeBucketMask = {
         1u, 1u, 1u
     };
