@@ -408,12 +408,39 @@ struct RtSmokeStaticBucketMonolithicPrimitiveRemap
     bool exact = false;
 };
 
+struct RtSmokeStaticBucketMonolithicStateOverlayStats
+{
+    int mappedTriangles = 0;
+    int invalidMonolithicRanges = 0;
+    int classMismatches = 0;
+    int stageStateMismatches = 0;
+    int nonStageClassMismatches = 0;
+    int materialIndexMismatches = 0;
+};
+
+struct RtSmokeStaticBucketMonolithicStateOverlay
+{
+    std::vector<uint32_t> triangleClasses;
+    std::vector<uint32_t> triangleMaterialIndexes;
+    RtSmokeStaticBucketMonolithicStateOverlayStats stats;
+    bool exact = false;
+};
+
 RtSmokeStaticBucketMonolithicPrimitiveRemap
 BuildSmokeStaticBucketMonolithicPrimitiveRemap(
     const RtSmokeStaticBucketGeometryPack& geometryPack,
     const std::vector<uint8_t>& activeBucketMask,
     const std::vector<RtSmokeStaticBucketMonolithicSurfaceBinding>&
         monolithicSurfaces);
+RtSmokeStaticBucketMonolithicStateOverlay
+BuildSmokeStaticBucketMonolithicStateOverlay(
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    const std::vector<uint32_t>& bucketTriangleMaterialIndexes,
+    const RtSmokeStaticBucketMonolithicPrimitiveRemap& primitiveRemap,
+    const std::vector<uint32_t>& monolithicTriangleClasses,
+    const std::vector<uint32_t>&
+        monolithicTriangleMaterialIndexes,
+    uint32_t emissiveStageOffMask);
 bool IsSmokeStaticBucketAuditReady(
     bool requested,
     bool portalPublicationValid,

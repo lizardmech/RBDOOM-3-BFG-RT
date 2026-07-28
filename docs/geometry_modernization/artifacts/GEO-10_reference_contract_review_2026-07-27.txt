@@ -1508,3 +1508,34 @@ Offline proof:
   shader rebuilds                                     0
   executable SHA-256
     46B74A88A673D9E35E5899ED0259AAF95B69C4BFF9DB3C842165310246904866
+
+BUCKET20 LIVE STATIC-STATE OVERLAY - 2026-07-28
+-----------------------------------------------
+The first settled audit rejected a different contract:
+
+  active/matched surfaces                             116/116
+  mapped/missing/invalid primitives                   3805/0/0
+  monolithic/bucket emissives                         4/48
+  missing/extra identities                            4/48
+
+The canonical join is exact. The resident bucket universe stores authored
+emissive capability, whereas live draw surfaces supply current emissive-stage
+enablement. Independently derived runtime material variants and non-stage class
+flags are also state, not geometry identity.
+
+The CPU bucket replay now builds an aligned live-state overlay by using the
+already checked canonical surface plus local primitive remap to read the
+monolithic class/stage and material-index rows. It logs raw mismatch categories
+before replay. Complete overlay coverage is required, but raw mismatch counts
+do not reject identity equality because the overlay is the explicit current-
+state supplier.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness --stress 20             passed
+  exact reordered overlay                             passed
+  stage/material difference counters                  passed
+  full Vulkan release build                           passed
+  shader rebuilds                                     0
+  executable SHA-256
+    4EEC941B8F3997A65BF774A009FC146BD09FAFCE83AA724555BDA0E831CFAD42

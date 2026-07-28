@@ -8293,6 +8293,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                             portalActivePublication.
                                 activeBucketMask,
                         monolithicStaticSurfaceBindings);
+            const RtSmokeStaticBucketMonolithicStateOverlay
+                monolithicStateOverlay =
+                    BuildSmokeStaticBucketMonolithicStateOverlay(
+                        staticBucketGeometryPack,
+                        *staticBucketFramePublication.
+                            materialIndexes,
+                        monolithicPrimitiveRemap,
+                        staticTriangleClassCache,
+                        materialTable.staticMaterialIndexes,
+                        RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
 
             RtSmokeEmissiveInventoryStats
                 staticBucketEmissiveStats;
@@ -8312,7 +8322,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 maxEmissiveRecords,
                 staticBucketEmissiveTriangles,
                 staticBucketEmissiveStats,
-                &monolithicPrimitiveRemap.primitiveIndexes);
+                &monolithicPrimitiveRemap.primitiveIndexes,
+                &monolithicStateOverlay.triangleClasses,
+                &monolithicStateOverlay.
+                    triangleMaterialIndexes);
             std::unordered_set<uint64_t>
                 staticBucketEmissiveIdentities;
             std::unordered_set<uint64_t>
@@ -8416,6 +8429,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 staticBucketEmissiveMissingIdentities == 0 &&
                 staticBucketEmissiveExtraIdentities == 0 &&
                 monolithicPrimitiveRemap.exact &&
+                monolithicStateOverlay.exact &&
                 staticBucketEmissiveStats.
                     skippedInvalidMaterialTriangles == 0 &&
                 staticBucketEmissiveStats.staticTriangles ==
@@ -8423,7 +8437,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 monolithicStaticEmissiveIdentities.size() ==
                     staticBucketEmissiveIdentities.size();
             common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket emissive identity exact=%d portalPublicationValid=%d routes(active/resident)=%d/%zu surfaces(active/matched/missing/duplicate)=%zu/%d/%d/%d mapping(mapped/missing/invalid)=%d/%d/%d triangles(monolithicPortal/bucket/captured/invalid)=%d/%d/%d/%d identities(monolithic/bucket/zeroMonolithic/zeroBucket/collisionMonolithic/collisionBucket/missing/extra)=%zu/%zu/%d/%d/%d/%d/%d/%d traversal=portal-mask-canonical-surface-shadow-only\n",
+                "PathTracePrimaryPass: GEO10 static bucket emissive identity exact=%d portalPublicationValid=%d routes(active/resident)=%d/%zu surfaces(active/matched/missing/duplicate)=%zu/%d/%d/%d mapping(mapped/missing/invalid)=%d/%d/%d state(mapped/invalid/class/stage/nonStage/materialIndexMismatch)=%d/%d/%d/%d/%d/%d triangles(monolithicPortal/bucket/captured/invalid)=%d/%d/%d/%d identities(monolithic/bucket/zeroMonolithic/zeroBucket/collisionMonolithic/collisionBucket/missing/extra)=%zu/%zu/%d/%d/%d/%d/%d/%d traversal=portal-mask-canonical-surface-live-state-shadow-only\n",
                 staticBucketEmissiveIdentityExact ? 1 : 0,
                 staticBucketFramePublication.
                     portalActivePublication.valid
@@ -8448,6 +8462,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     missingTriangles,
                 monolithicPrimitiveRemap.stats.
                     invalidTriangleIdentities,
+                monolithicStateOverlay.stats.
+                    mappedTriangles,
+                monolithicStateOverlay.stats.
+                    invalidMonolithicRanges,
+                monolithicStateOverlay.stats.
+                    classMismatches,
+                monolithicStateOverlay.stats.
+                    stageStateMismatches,
+                monolithicStateOverlay.stats.
+                    nonStageClassMismatches,
+                monolithicStateOverlay.stats.
+                    materialIndexMismatches,
                 portalMonolithicStaticEmissiveTriangles,
                 staticBucketEmissiveStats.staticTriangles,
                 staticBucketEmissiveStats.capturedTriangles,

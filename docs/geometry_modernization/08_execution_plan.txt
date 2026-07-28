@@ -824,6 +824,18 @@ and, for route 2's full-resident probe, the 56/56 active publication is exact.
 It then runs and resets once. This is CPU control-flow only; no shader or live
 route contract changed.
 
+The first valid settled result, `bucket20.log`, passed the canonical surface
+join and primitive remap (`116/116` surfaces and `3805/0/0` mappings), but
+reported 4 monolithic portal emissives versus 48 bucket emissives. The full
+resident pool stores authored emissive capability; the live monolithic cache
+stores current draw-surface stage state and runtime material binding.
+
+REF-9F therefore overlays matched live triangle class/stage and material-table
+index rows onto the CPU bucket replay after the checked primitive remap. Raw
+resident-versus-live state mismatch counts remain visible in the audit. The
+overlay is complete only when every active primitive resolves; it changes no
+resident geometry, GPU metadata, shader, descriptor, or primary route.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

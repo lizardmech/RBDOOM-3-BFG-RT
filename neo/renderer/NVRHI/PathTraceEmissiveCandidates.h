@@ -303,7 +303,11 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     RtSmokeEmissiveInventoryStats& stats,
     const std::vector<uint32_t>*
-        monolithicPrimitiveIndexes = nullptr);
+        monolithicPrimitiveIndexes = nullptr,
+    const std::vector<uint32_t>*
+        triangleClassOverrides = nullptr,
+    const std::vector<uint32_t>*
+        triangleMaterialIndexOverrides = nullptr);
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,

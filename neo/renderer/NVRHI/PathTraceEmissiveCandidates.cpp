@@ -263,7 +263,11 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     RtSmokeEmissiveInventoryStats& stats,
     const std::vector<uint32_t>*
-        monolithicPrimitiveIndexes)
+        monolithicPrimitiveIndexes,
+    const std::vector<uint32_t>*
+        triangleClassOverrides,
+    const std::vector<uint32_t>*
+        triangleMaterialIndexOverrides)
 {
     OPTICK_EVENT("PT Static Bucket Emissive Inventory");
 
@@ -343,15 +347,37 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
         const std::vector<uint32_t> bucketIndexes(
             geometryPack.indexes.begin() + route.indexOffset,
             geometryPack.indexes.begin() + indexEnd);
+        const bool classOverrideValid =
+            !triangleClassOverrides ||
+            triangleClassOverrides->size() ==
+                geometryPack.triangleClasses.size();
+        const bool materialOverrideValid =
+            !triangleMaterialIndexOverrides ||
+            triangleMaterialIndexOverrides->size() ==
+                triangleMaterialIndexes.size();
+        if (!classOverrideValid || !materialOverrideValid)
+        {
+            stats.skippedInvalidMaterialTriangles +=
+                static_cast<int>(route.triangleCount);
+            continue;
+        }
+        const std::vector<uint32_t>& triangleClassSource =
+            triangleClassOverrides
+                ? *triangleClassOverrides
+                : geometryPack.triangleClasses;
+        const std::vector<uint32_t>& triangleMaterialIndexSource =
+            triangleMaterialIndexOverrides
+                ? *triangleMaterialIndexOverrides
+                : triangleMaterialIndexes;
         const std::vector<uint32_t> bucketTriangleClasses(
-            geometryPack.triangleClasses.begin() +
+            triangleClassSource.begin() +
                 route.triangleOffset,
-            geometryPack.triangleClasses.begin() +
+            triangleClassSource.begin() +
                 triangleEnd);
         const std::vector<uint32_t> bucketMaterialIndexes(
-            triangleMaterialIndexes.begin() +
+            triangleMaterialIndexSource.begin() +
                 route.triangleOffset,
-            triangleMaterialIndexes.begin() +
+            triangleMaterialIndexSource.begin() +
                 triangleEnd);
         std::vector<uint32_t> bucketIdentityInstanceIds(
             route.triangleCount,

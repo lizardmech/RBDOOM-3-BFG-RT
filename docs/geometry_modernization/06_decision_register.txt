@@ -1129,6 +1129,20 @@ comparison, detailed dump, and one-shot reset. This permits the documented
 startup command sequence without consuming the audit while BLASes are still
 building.
 
+`bucket20.log` then produced the first settled comparison. Canonical selection
+and primitive remap were exact, but the independently baked resident pack
+retained authored emissive capability while the live monolithic cache retained
+current draw-surface stage state: 48 bucket candidates versus 4 live
+candidates. Static runtime material indexes and non-stage triangle flags can
+likewise differ between those storage owners.
+
+Until static runtime state has its own canonical owner, CPU bucket emissive
+replay must overlay the matched monolithic triangle's current class/stage and
+material-table index after canonical-key/local-primitive remap. The audit logs
+raw class, stage, non-stage, and material-index mismatch counts before applying
+that overlay. This is not a geometry or GPU metadata mutation and does not
+change primary traversal. Missing overlay coverage fails closed.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

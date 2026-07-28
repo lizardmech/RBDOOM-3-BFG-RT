@@ -1324,6 +1324,109 @@ BuildSmokeStaticBucketMonolithicPrimitiveRemap(
     return remap;
 }
 
+RtSmokeStaticBucketMonolithicStateOverlay
+BuildSmokeStaticBucketMonolithicStateOverlay(
+    const RtSmokeStaticBucketGeometryPack& geometryPack,
+    const std::vector<uint32_t>& bucketTriangleMaterialIndexes,
+    const RtSmokeStaticBucketMonolithicPrimitiveRemap& primitiveRemap,
+    const std::vector<uint32_t>& monolithicTriangleClasses,
+    const std::vector<uint32_t>&
+        monolithicTriangleMaterialIndexes,
+    uint32_t emissiveStageOffMask)
+{
+    RtSmokeStaticBucketMonolithicStateOverlay overlay;
+    overlay.triangleClasses.assign(
+        geometryPack.triangleClasses.size(),
+        UINT32_MAX);
+    overlay.triangleMaterialIndexes.assign(
+        geometryPack.triangleClasses.size(),
+        UINT32_MAX);
+    if (!primitiveRemap.exact ||
+        primitiveRemap.primitiveIndexes.size() !=
+            geometryPack.triangleClasses.size() ||
+        bucketTriangleMaterialIndexes.size() !=
+            geometryPack.triangleClasses.size())
+    {
+        overlay.stats.invalidMonolithicRanges =
+            primitiveRemap.stats.activeTriangles;
+        return overlay;
+    }
+
+    for (size_t packedTriangleIndex = 0;
+         packedTriangleIndex <
+            primitiveRemap.primitiveIndexes.size();
+         ++packedTriangleIndex)
+    {
+        const uint32_t monolithicPrimitiveIndex =
+            primitiveRemap.primitiveIndexes[
+                packedTriangleIndex];
+        if (monolithicPrimitiveIndex == UINT32_MAX)
+        {
+            continue;
+        }
+        if (monolithicPrimitiveIndex >=
+                monolithicTriangleClasses.size() ||
+            monolithicPrimitiveIndex >=
+                monolithicTriangleMaterialIndexes.size())
+        {
+            ++overlay.stats.invalidMonolithicRanges;
+            continue;
+        }
+
+        const uint32_t bucketClass =
+            geometryPack.triangleClasses[
+                packedTriangleIndex];
+        const uint32_t monolithicClass =
+            monolithicTriangleClasses[
+                monolithicPrimitiveIndex];
+        const uint32_t bucketMaterialIndex =
+            bucketTriangleMaterialIndexes[
+                packedTriangleIndex];
+        const uint32_t monolithicMaterialIndex =
+            monolithicTriangleMaterialIndexes[
+                monolithicPrimitiveIndex];
+        overlay.triangleClasses[
+            packedTriangleIndex] =
+                monolithicClass;
+        overlay.triangleMaterialIndexes[
+            packedTriangleIndex] =
+                monolithicMaterialIndex;
+        ++overlay.stats.mappedTriangles;
+        if (bucketClass != monolithicClass)
+        {
+            ++overlay.stats.classMismatches;
+        }
+        const uint32_t bucketStageState =
+            bucketClass &
+            emissiveStageOffMask;
+        const uint32_t monolithicStageState =
+            monolithicClass &
+            emissiveStageOffMask;
+        if (bucketStageState != monolithicStageState)
+        {
+            ++overlay.stats.stageStateMismatches;
+        }
+        if ((bucketClass &
+                ~emissiveStageOffMask) !=
+            (monolithicClass &
+                ~emissiveStageOffMask))
+        {
+            ++overlay.stats.nonStageClassMismatches;
+        }
+        if (bucketMaterialIndex !=
+            monolithicMaterialIndex)
+        {
+            ++overlay.stats.materialIndexMismatches;
+        }
+    }
+
+    overlay.exact =
+        overlay.stats.mappedTriangles ==
+            primitiveRemap.stats.activeTriangles &&
+        overlay.stats.invalidMonolithicRanges == 0;
+    return overlay;
+}
+
 bool IsSmokeStaticBucketAuditReady(
     bool requested,
     bool portalPublicationValid,

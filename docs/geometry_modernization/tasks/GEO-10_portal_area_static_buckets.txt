@@ -1199,3 +1199,45 @@ Offline proof:
 The original startup ordering is now supported: arm the audit and BLAS gates
 before `loadgame`; the audit must wait and emit once after 56/56/56 becomes
 exact.
+
+REF-9F SETTLED STATE MISMATCH - BUCKET20 - 2026-07-28
+-----------------------------------------------------
+The first correctly timed audit isolated the remaining mismatch:
+
+  portal publication                                  valid
+  surfaces active/matched/missing/duplicate           116/116/0/0
+  primitive mapping mapped/missing/invalid            3805/0/0
+  triangles monolithicPortal/bucket/captured/invalid  4/48/48/0
+  identities missing/extra                            4/48
+
+Geometry selection and identity addressing passed. The mismatch is runtime
+triangle state. The resident bucket source labels authored emissive-capable
+surfaces as stage-on, while the draw-surface monolithic cache records current
+stage enablement. Runtime material-table rows and other class flags may also
+differ between these independently maintained stores.
+
+The corrected CPU replay copies the matched monolithic triangle's current
+class/stage and material-table index into an audit-only aligned overlay after
+canonical surface/local-primitive remap. It reports raw mismatch counts:
+
+  state(mapped/invalid/class/stage/nonStage/materialIndexMismatch)
+
+and then evaluates bucket geometry using the exact live state that production
+currently uses. Overlay coverage must equal active primitive coverage with
+zero invalid rows. Resident geometry, GPU class metadata, shaders, descriptors,
+and primary traversal remain unchanged.
+
+Offline proof:
+
+  full win64-pt-dev-release build                     passed
+  PathTraceCpuPlanningHarness --stress 20             passed
+  reordered live-state overlay                        passed
+  stage/material mismatch reporting                   passed
+  shader rebuilds                                     0
+  executable SHA-256
+    4EEC941B8F3997A65BF774A009FC146BD09FAFCE83AA724555BDA0E831CFAD42
+
+Runtime acceptance now requires exact overlay coverage, equal
+monolithicPortal/bucket/captured counts, equal identity sets, and zero invalid,
+zero, collision, missing, or extra counters. Raw class/stage/material mismatch
+counts are diagnostic and may be non-zero.

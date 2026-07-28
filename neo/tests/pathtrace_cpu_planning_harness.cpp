@@ -2400,6 +2400,77 @@ void TestStaticBucketAssignmentPlan()
                 std::vector<uint32_t>(
                     { 100u, 101u, 40u, 41u, 7u }),
         "static bucket canonical surface keys remap local primitives into a differently ordered monolithic cache");
+    std::vector<uint32_t> monolithicClasses(102u, 0u);
+    std::vector<uint32_t> monolithicMaterialIndexes(
+        102u,
+        0u);
+    for (size_t packedTriangleIndex = 0;
+         packedTriangleIndex <
+            monolithicPrimitiveRemap.
+                primitiveIndexes.size();
+         ++packedTriangleIndex)
+    {
+        const uint32_t monolithicPrimitiveIndex =
+            monolithicPrimitiveRemap.
+                primitiveIndexes[packedTriangleIndex];
+        monolithicClasses[monolithicPrimitiveIndex] =
+            pack.triangleClasses[packedTriangleIndex];
+        monolithicMaterialIndexes[
+            monolithicPrimitiveIndex] =
+                pack.triangleMaterials[
+                    packedTriangleIndex];
+    }
+    constexpr uint32_t emissiveStageOffMask =
+        0x00040000u;
+    const RtSmokeStaticBucketMonolithicStateOverlay
+        exactStateOverlay =
+            BuildSmokeStaticBucketMonolithicStateOverlay(
+                pack,
+                pack.triangleMaterials,
+                monolithicPrimitiveRemap,
+                monolithicClasses,
+                monolithicMaterialIndexes,
+                emissiveStageOffMask);
+    Check(
+        exactStateOverlay.exact &&
+            exactStateOverlay.stats.mappedTriangles == 5 &&
+            exactStateOverlay.stats.
+                invalidMonolithicRanges == 0 &&
+            exactStateOverlay.stats.classMismatches == 0 &&
+            exactStateOverlay.stats.stageStateMismatches == 0 &&
+            exactStateOverlay.stats.
+                nonStageClassMismatches == 0 &&
+            exactStateOverlay.stats.
+                materialIndexMismatches == 0 &&
+            exactStateOverlay.triangleClasses ==
+                pack.triangleClasses &&
+            exactStateOverlay.triangleMaterialIndexes ==
+                pack.triangleMaterials,
+        "static bucket live-state overlay recovers exact monolithic class and material rows after storage reordering");
+    monolithicClasses[100] ^= emissiveStageOffMask;
+    monolithicMaterialIndexes[40] ^= 1u;
+    const RtSmokeStaticBucketMonolithicStateOverlay
+        changedStateOverlay =
+            BuildSmokeStaticBucketMonolithicStateOverlay(
+                pack,
+                pack.triangleMaterials,
+                monolithicPrimitiveRemap,
+                monolithicClasses,
+                monolithicMaterialIndexes,
+                emissiveStageOffMask);
+    Check(
+        changedStateOverlay.exact &&
+            changedStateOverlay.stats.classMismatches == 1 &&
+            changedStateOverlay.stats.stageStateMismatches == 1 &&
+            changedStateOverlay.stats.
+                nonStageClassMismatches == 0 &&
+            changedStateOverlay.stats.
+                materialIndexMismatches == 1 &&
+            changedStateOverlay.triangleClasses[0] ==
+                monolithicClasses[100] &&
+            changedStateOverlay.triangleMaterialIndexes[2] ==
+                monolithicMaterialIndexes[40],
+        "static bucket live-state overlay reports and publishes runtime stage and material differences");
     std::vector<
         RtSmokeStaticBucketMonolithicSurfaceBinding>
         missingMonolithicBinding =
