@@ -1065,6 +1065,18 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         hitPayload,
         hitPosition,
         rayDirection);
+    if (PathTraceCleanRtxdiDiTransmissionClosestHitPositionDiagnosticEnabled())
+    {
+        const float4 diagnostic = !transmissionHitValid
+            ? float4(1.0, 1.0, 1.0, 1.0)
+            : PathTraceCleanRtxdiDiBucketClosestHitPositionDiagnostic(
+                hitPayload,
+                hitPosition);
+        SmokeOutput[pixel] = diagnostic;
+        PathTraceRRInputColor[pixel] = diagnostic;
+        PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(pixel);
+        return;
+    }
     if (transmissionHitValid &&
         PathTraceCleanRtxdiDiBuildResolvedSurfaceFromTraceHit(
             hitPayload,

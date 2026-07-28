@@ -2703,6 +2703,47 @@ The iterative-plus-probe-mode-7 flag combination is reserved for stage 22, so
 the diagnostic adds no shared constant-buffer field. Probe mode 7 without the
 iterative bit remains the existing stage-16 IgnoreHit isolate.
 
+D107. STAGE 22 IS UNIFORMLY RED FOR STATIC BUCKET HITS
+-------------------------------------------------------
+Runtime validation reports every visible brush/static bucket hit as red while
+skinned geometry is cyan. Cyan is the expected non-bucket control. Red means
+that replaying the accepted bucket InstanceID, bucket-local PrimitiveIndex, and
+hardware barycentrics did not reproduce the raygen-computed hit position.
+
+This excludes material identity, resolved-record copying, initial DI, temporal
+reuse, spatial reuse, and skinned routing. The CPU pack, one-range BLAS
+descriptor, identity TLAS transform, routed buffers, and count publication are
+internally consistent, so stage 22 alone cannot distinguish:
+
+  A. a real bucket BLAS primitive/address versus shader replay mismatch; from
+  B. an error in reconstructing the final world position after the bounded
+     multi-TraceRay loop advances its ray origin.
+
+D108. OPEN STAGE 23 AT THE CLOSEST-HIT WORLD-POSITION BOUNDARY
+--------------------------------------------------------------
+Stage 23 retains the stage-22 bucket route and bounded forced-opaque resolver.
+For this diagnostic only, closest hit stores
+`WorldRayOrigin() + WorldRayDirection() * RayTCurrent()` in the existing
+three-float passthrough emissive payload field. The accepted final hit owns
+that value, and the producer returns before liquid, surface, DI, temporal,
+spatial, or composition consumers.
+
+Color contract:
+
+  white       bounded resolver produced no accepted hit;
+  cyan        accepted hit is a non-bucket skinned/rigid/dynamic control;
+  violet      closest-hit world position and bounded-loop raygen position
+              disagree;
+  magenta     bucket identity cannot be replayed;
+  red         raygen transport agrees with closest hit, but the bucket
+              identity/buffer row does not reproduce the hardware triangle;
+  orange      positions agree but barycentric transport disagrees;
+  green       closest hit, raygen reconstruction, and bucket replay all agree.
+
+The iterative-plus-probe-mode-6 flag combination is reserved for stage 23.
+Probe mode 6 without the iterative bit remains the rejected stage-15 isolate.
+No payload, descriptor, SBT, or shared constant-buffer ABI is widened.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

@@ -1605,6 +1605,88 @@ float4 PathTraceCleanRtxdiDiBucketResolvedTupleDiagnostic(
     return float4(0.0, 1.0, 0.0, 1.0);
 }
 
+float4 PathTraceCleanRtxdiDiBucketClosestHitPositionDiagnostic(
+    PathTraceCleanRtxdiPayload payload,
+    float3 raygenHitPosition)
+{
+    if (!PathTraceIsStaticBucketRouteInstance(
+            payload.hitInstanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        // Cyan: non-bucket skinned/rigid/dynamic control.
+        return float4(0.0, 1.0, 1.0, 1.0);
+    }
+
+    const float3 closestHitPosition =
+        payload.passthroughEmissiveRadiance;
+    const float positionTolerance =
+        max(0.05, max(length(closestHitPosition), 1.0) * 1.0e-5);
+    if (distance(raygenHitPosition, closestHitPosition) >
+        positionTolerance)
+    {
+        // Violet: closest hit was correct, but the bounded raygen loop
+        // reconstructed a different final world position.
+        return float4(0.55, 0.0, 1.0, 1.0);
+    }
+
+    PathTraceStaticBucketRouteRecord route;
+    uint packedTriangleIndex;
+    uint3 packedVertexIndexes;
+    if (!PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+            payload.hitInstanceId,
+            payload.hitPrimitiveIndex,
+            route,
+            packedTriangleIndex,
+            packedVertexIndexes))
+    {
+        // Magenta: the bucket hardware identity cannot be replayed.
+        return float4(1.0, 0.0, 1.0, 1.0);
+    }
+
+    const PathTraceSmokeVertex v0 =
+        SmokeStaticBucketVertices[packedVertexIndexes.x];
+    const PathTraceSmokeVertex v1 =
+        SmokeStaticBucketVertices[packedVertexIndexes.y];
+    const PathTraceSmokeVertex v2 =
+        SmokeStaticBucketVertices[packedVertexIndexes.z];
+    const float3 hardwareBarycentrics = float3(
+        1.0 - payload.hitBarycentrics.x - payload.hitBarycentrics.y,
+        payload.hitBarycentrics.x,
+        payload.hitBarycentrics.y);
+    const float3 replayPosition =
+        v0.position.xyz * hardwareBarycentrics.x +
+        v1.position.xyz * hardwareBarycentrics.y +
+        v2.position.xyz * hardwareBarycentrics.z;
+    if (distance(replayPosition, closestHitPosition) >
+        positionTolerance)
+    {
+        // Red: raygen transport is exact, but the bucket identity/buffer row
+        // does not reproduce the triangle intersected by hardware.
+        return float4(1.0, 0.0, 0.0, 1.0);
+    }
+
+    float3 reconstructedBarycentrics;
+    if (!PathTraceCleanRtxdiDiComputeTriangleBarycentrics(
+            closestHitPosition,
+            v0.position.xyz,
+            v1.position.xyz,
+            v2.position.xyz,
+            reconstructedBarycentrics) ||
+        max(
+            abs(reconstructedBarycentrics.y -
+                payload.hitBarycentrics.x),
+            abs(reconstructedBarycentrics.z -
+                payload.hitBarycentrics.y)) > 0.01)
+    {
+        // Orange: positions agree, but barycentric transport does not.
+        return float4(1.0, 0.25, 0.0, 1.0);
+    }
+
+    // Green: closest hit, bounded-loop reconstruction, and bucket replay all
+    // resolve the same point.
+    return float4(0.0, 1.0, 0.0, 1.0);
+}
+
 #endif
 
 #endif

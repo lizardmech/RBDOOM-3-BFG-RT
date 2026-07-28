@@ -979,6 +979,14 @@ void ClosestHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInterse
 #endif
     payload.hitT = RayTCurrent();
     payload.hitBarycentrics = attributes.barycentrics;
+    if (PathTraceCleanRtxdiDiTransmissionClosestHitPositionDiagnosticEnabled())
+    {
+        // Stage 23 returns before any liquid/emissive consumer. Reuse the
+        // existing float3 payload field to preserve the exact closest-hit
+        // world position without widening the 176-byte payload ABI.
+        payload.passthroughEmissiveRadiance =
+            WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
+    }
 #endif
 }
 

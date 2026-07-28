@@ -2042,11 +2042,13 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     // initial or temporal respectively. Stage 21 skips temporal and uses the
     // spatial production shader only as a no-neighbor-reuse presenter. Stage
     // 22 presents the bucket hardware-hit versus packed-replay tuple directly
-    // from the transmission producer and stops before initial DI. None
+    // from the transmission producer and stops before initial DI. Stage 23
+    // separates closest-hit world position from the raygen reconstruction
+    // used by stage 22. None
     // restores the rejected legacy any-hit path.
     const bool transmissionContractExact =
         (probeStage <= 8 && !transmissionPsrEnabled) ||
-        (probeStage >= 9 && probeStage <= 22 &&
+        (probeStage >= 9 && probeStage <= 23 &&
             transmissionPsrEnabled);
     const bool traversalContractExact =
         (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
@@ -2054,7 +2056,8 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
                 probeStage == 19 ||
                 probeStage == 20 ||
                 probeStage == 21 ||
-                probeStage == 22)) ||
+                probeStage == 22 ||
+                probeStage == 23)) ||
         (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED &&
             probeStage == 18);
     const bool diagnosticContractExact =
@@ -2088,7 +2091,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         return plan;
     }
 
-    plan.stage = std::max(0, std::min(22, probeStage));
+    plan.stage = std::max(0, std::min(23, probeStage));
     plan.primaryPipelineCreation =
         isolationSupported &&
         routePublicationValid &&
@@ -2156,7 +2159,8 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         plan.stage == 19 ||
         plan.stage == 20 ||
         plan.stage == 21 ||
-        plan.stage == 22;
+        plan.stage == 22 ||
+        plan.stage == 23;
     plan.transmissionMonolithicControl = plan.stage == 18;
     if (plan.stage == 19 || plan.stage == 20)
     {
@@ -2192,6 +2196,20 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         // shared constant-buffer ABI. The host returns immediately after PSR.
         plan.transmissionTraceProbeMode = 7;
         plan.transmissionTupleDiagnostic = true;
+        plan.temporal = false;
+        plan.spatialPipelineCreation = false;
+        plan.spatial = false;
+        plan.materialFeaturePipelineCreation = true;
+        plan.materialFeatureRuntimeBindings = true;
+        plan.transmissionPsr = true;
+    }
+    if (plan.stage == 23)
+    {
+        // Iterative+probe-mode-6 is otherwise unused. Closest hit captures its
+        // exact world-space point in the existing emissive accumulator field;
+        // the host returns immediately after the producer diagnostic.
+        plan.transmissionTraceProbeMode = 6;
+        plan.transmissionClosestHitPositionDiagnostic = true;
         plan.temporal = false;
         plan.spatialPipelineCreation = false;
         plan.spatial = false;

@@ -30,4 +30,12 @@ bool PathTraceCleanRtxdiDiTransmissionTupleDiagnosticEnabled()
         PathTraceCleanRtxdiDiTransmissionTraceProbeMode() == 7u;
 }
 
+bool PathTraceCleanRtxdiDiTransmissionClosestHitPositionDiagnosticEnabled()
+{
+    // Probe mode 6 alone belongs to the rejected stage-15 repeated-any-hit
+    // isolate. The iterative+mode-6 combination is reserved for stage 23.
+    return PathTraceCleanRtxdiDiTransmissionIterativeResolveEnabled() &&
+        PathTraceCleanRtxdiDiTransmissionTraceProbeMode() == 6u;
+}
+
 #endif
