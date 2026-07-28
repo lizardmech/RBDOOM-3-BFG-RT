@@ -2026,8 +2026,9 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    // REF-10U/REF-10V split spatial pipeline construction from execution:
-    // stage 6 creates the repaired pipelines, stage 7 dispatches spatial.
+    // REF-10U through REF-10W split pipeline construction from execution:
+    // stage 6 creates spatial, stage 7 dispatches spatial, and stage 8 creates
+    // the transmission/glass material-feature pipelines without dispatch.
     const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
@@ -2036,7 +2037,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         !transmissionPsrEnabled &&
-        (probeStage >= 1 && probeStage <= 7);
+        (probeStage >= 1 && probeStage <= 8);
     return diagnosticContractExact;
 }
 
@@ -2060,7 +2061,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         return plan;
     }
 
-    plan.stage = std::max(0, std::min(7, probeStage));
+    plan.stage = std::max(0, std::min(8, probeStage));
     plan.primaryPipelineCreation =
         isolationSupported &&
         routePublicationValid &&
@@ -2085,6 +2086,9 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     plan.spatial =
         plan.spatialPipelineCreation &&
         plan.stage >= 7;
+    plan.materialFeaturePipelineCreation =
+        plan.spatial &&
+        plan.stage >= 8;
     plan.materialFeatureCompose = false;
     return plan;
 }

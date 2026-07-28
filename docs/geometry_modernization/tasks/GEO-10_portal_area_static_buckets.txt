@@ -2496,3 +2496,50 @@ Local proof and deployment:
   source/deployed executable SHA-256                  equal
 
   FF5A8BFB8FAE1166BD8C99EB6663C4AB7A4E1DEA32E5D5571DEA1EAE30172D82
+
+REF-10W STAGE-7 ACCEPTANCE AND MATERIAL-PIPELINE RUNG - 2026-07-28
+-----------------------------------------------------------------
+`success8.log` accepts spatial execution:
+
+  publication resident/active/ready                  56/56/56
+  publication TLAS/routes                            56/56
+  missing BLAS/material/range/instance               0/0/0/0
+  spatial debug/production initialization            passed/passed
+  stage-7 initial/temporal/spatial completion         present
+  post-DI consumers                                  skipped
+  device-loss/Vulkan/binding/validation failures     none
+  user visual result                                 no issues
+
+Stage 8 isolates material-feature pipeline creation from execution:
+
+  - expand the exact isolation support range from 1-7 to 1-8;
+  - add `materialFeaturePipelineCreation` independently from
+    `materialFeatureCompose`;
+  - build the transmission and glass pipeline registrations from the forced
+    layout registry, which marks both pipelines for creation without changing
+    the runtime producer/compose cvars;
+  - emit explicit material-feature pipeline creation begin/completed markers;
+  - retain accepted primary, initial, temporal, and spatial dispatches;
+  - return before transmission PSR, transmission/glass composition, and every
+    later consumer.
+
+Required stage-8 evidence:
+
+  GEO-10 material-feature pipeline creation begin
+  clean-room RTXDI DI transmission producer material-feature RT pipeline initialized
+  clean-room RTXDI DI glass material-feature RT pipeline initialized
+  GEO-10 material-feature pipeline creation completed
+  GEO-10 view-16 stage-8 material-feature pipelines plus initial-temporal-spatial dispatch completed
+
+The completion line must state that transmission/glass `DispatchRays` and
+later consumers were skipped.
+
+Local proof and deployment:
+
+  stage-7 dispatch/stage-8 pipeline-only matrix        passed
+  CPU planning stress iterations                      20
+  full release build                                  passed
+  Vulkan shader build status                          all SPIR-V up to date
+  source/deployed executable SHA-256                  equal
+
+  B288C5998741F7665FD80A5A1F7929E936B1A0ACD21AB912C17E97E1D0E4B9DA

@@ -341,6 +341,26 @@ bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
         "clean-room RTXDI DI");
 }
 
+bool EnsurePathTraceCleanRtxdiDiMaterialFeatureLayoutPipelines(
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
+    const RtPathTraceCleanRtxdiDiPipelineContext& context)
+{
+    RtPathTraceMaterialFeaturePassRegistration registrations[
+        RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
+    const size_t registrationCount =
+        BuildPathTraceCleanRtxdiDiMaterialFeatureRegistryLayoutRegistrations(
+            registrations,
+            sizeof(registrations) / sizeof(registrations[0]));
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineEnsureContext
+        ensureContext = { &passes, &context };
+    return EnsurePathTraceMaterialFeatureRegistrationListPipelines(
+        registrations,
+        Min(registrationCount, sizeof(registrations) / sizeof(registrations[0])),
+        BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContextCallback,
+        &ensureContext,
+        "clean-room RTXDI DI layout probe");
+}
+
 void SetPathTraceCleanRtxdiDiMaterialFeatureOutputsUnorderedAccess(
     nvrhi::ICommandList* commandList,
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,

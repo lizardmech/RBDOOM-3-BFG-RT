@@ -445,7 +445,7 @@ idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage(
     "r_pathTracingGeometryStaticBucketSecondaryProbeStage",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Default-off GEO-10 view-16 probe: stage 1 creates primary; 2 dispatches primary; 3 creates core DI pipelines; 4 dispatches initial DI; 5 adds temporal DI; 6 creates repaired spatial pipelines without dispatch; 7 dispatches spatial only; later consumers remain blocked" );
+    "Default-off GEO-10 view-16 probe: stage 1 creates primary; 2 dispatches primary; 3 creates core DI pipelines; 4 dispatches initial DI; 5 adds temporal DI; 6 creates repaired spatial pipelines without dispatch; 7 dispatches spatial; 8 creates transmission/glass pipelines without dispatch; later consumers remain blocked" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

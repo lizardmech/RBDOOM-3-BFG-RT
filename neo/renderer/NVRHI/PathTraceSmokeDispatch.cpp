@@ -1820,6 +1820,44 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 "PathTracePrimaryPass: GEO-10 spatial pipeline creation completed (stage=%d); spatial DispatchRays still blocked\n",
                 staticBucketSecondaryIsolation.stage);
         }
+        const bool staticBucketMaterialFeaturePipelineCreation =
+            staticBucketSecondaryIsolationActive &&
+            staticBucketSecondaryIsolation.materialFeaturePipelineCreation;
+        if (staticBucketMaterialFeaturePipelineCreation)
+        {
+            const RtPathTraceCleanRtxdiDiPipelineContext
+                cleanRtxdiDiPipelineContext =
+                    BuildPathTraceCleanRtxdiDiPipelineContext(
+                        m_smokeTestInitialized,
+                        m_smokeCleanRtxdiDiSentinelBindingLayout,
+                        m_smokeTextureBindlessLayout);
+            if (!m_smokeTestDispatched)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO-10 material-feature pipeline creation begin (stage=%d deferredHost=1)\n",
+                    staticBucketSecondaryIsolation.stage);
+            }
+            if (!EnsurePathTraceCleanRtxdiDiMaterialFeatureLayoutPipelines(
+                cleanRtxdiDiMaterialFeaturePasses,
+                cleanRtxdiDiPipelineContext))
+            {
+                if (cleanRtxdiDiDumpRequested)
+                {
+                    printCleanRtxdiDiDump(
+                        "dispatch-entry",
+                        "clean-material-feature-layout-shader",
+                        0);
+                    r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                }
+                return;
+            }
+            if (!m_smokeTestDispatched)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO-10 material-feature pipeline creation completed (stage=%d); transmission/glass DispatchRays still blocked\n",
+                    staticBucketSecondaryIsolation.stage);
+            }
+        }
         if (!staticBucketSecondaryIsolationActive)
         {
             const RtPathTraceCleanRtxdiDiPipelineContext cleanRtxdiDiPipelineContext =
@@ -3759,10 +3797,21 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             if (!m_smokeTestDispatched)
             {
-                common->Printf(
-                    "PathTracePrimaryPass: GEO-10 view-16 stage-7 initial-plus-temporal-plus-spatial dispatch completed (%dx%d); post-DI consumers skipped\n",
-                    m_frameResources.width,
-                    m_frameResources.height);
+                if (staticBucketSecondaryIsolation.
+                    materialFeaturePipelineCreation)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-8 material-feature pipelines plus initial-temporal-spatial dispatch completed (%dx%d); transmission/glass DispatchRays and later consumers skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
+                else
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-7 initial-plus-temporal-plus-spatial dispatch completed (%dx%d); post-DI consumers skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
             }
             m_smokeTestDispatched = true;
             return;

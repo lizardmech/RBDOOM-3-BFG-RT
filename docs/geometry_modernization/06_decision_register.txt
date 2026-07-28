@@ -1943,6 +1943,28 @@ deployed executable hashes are equal:
 
   FF5A8BFB8FAE1166BD8C99EB6663C4AB7A4E1DEA32E5D5571DEA1EAE30172D82
 
+D88. ACCEPT SPATIAL DISPATCH; OPEN MATERIAL-FEATURE PIPELINE CREATION
+--------------------------------------------------------------------
+Decision: `success8.log` accepts stage 7. Exact 56/56 publication completed
+with zero missing BLAS, material-index, range, or instance failures. Both
+spatial libraries initialized and the stage-7 completion line confirms
+initial, temporal, and spatial dispatch while all post-DI consumers remained
+skipped. The user observed no issue. There is no device-loss, Vulkan, binding,
+or validation failure; the four-second host-pump warning is pipeline warmup.
+
+Open stage 8 as pipeline creation only. Add a distinct
+`materialFeaturePipelineCreation` plan field and construct the transmission
+and glass pipelines from the registry's forced layout registrations, so this
+test does not depend on enabling the transmission runtime cvars. Keep
+transmission PSR and post-DI material-feature dispatch false. Stage 8 must
+return after the already accepted spatial work.
+
+The stage matrix passes the CPU planning harness and 20 stress iterations.
+The full release build passes with all SPIR-V up to date. Source and deployed
+executable hashes are equal:
+
+  B288C5998741F7665FD80A5A1F7929E936B1A0ACD21AB912C17E97E1D0E4B9DA
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
