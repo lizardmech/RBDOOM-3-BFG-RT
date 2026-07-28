@@ -1603,3 +1603,60 @@ Offline proof:
   shader rebuilds                                     0
   executable SHA-256
     48C8FE4703163E6CD61D9ADCD153BCB597E37F5D30B4066E26334EC12F93F780
+
+BUCKET22 NON-EMPTY CANONICAL REPLAY RESULT - 2026-07-28
+-------------------------------------------------------
+The portal-mask shadow publication passed the full non-empty contract:
+
+  active / matched / missing / duplicate surfaces     263 / 263 / 0 / 0
+  mapped / missing / invalid primitives               4777 / 0 / 0
+  live-state mapped / invalid                         4777 / 0
+  raw class / stage / non-stage / material mismatches 0 / 0 / 0 / 0
+  emitted replay records / mapped                     48 / 48
+  invalid instance / surface / primitive              0 / 0 / 0
+  duplicate / class / material replay failures        0 / 0 / 0
+  monolithic / bucket / captured emissives            48 / 48 / 48
+  monolithic / bucket identities                      48 / 48
+  zero / collision / missing / extra identities       0 / 0 / 0 / 0
+  exact                                               1
+
+The route predicate was deliberately fail-closed in this launch because
+diagnostic markers were not enabled: mode 2 was requested but
+`consumerSupported=0` and `primaryOpaqueProbe=0`. This result accepts the
+independent CPU publication only. It does not reopen production traversal.
+
+REF-9F and the REF-9G replay-address prerequisite are accepted. REF-10 proceeds
+with compile-only clean-DI consumers: hardware hits resolve with
+InstanceID + GeometryIndex + PrimitiveIndex, then canonical surface InstanceID
+plus source triangle reuse the existing payload fields. Payload size,
+descriptor layouts, SBT records, and runtime acceptance remain unchanged.
+
+REF-10A CLEAN-DI ADDRESS COMPILATION RESULT - 2026-07-28
+--------------------------------------------------------
+The reference-shaped address now reaches focused clean-DI consumers:
+
+  hardware hit       InstanceID + GeometryIndex + PrimitiveIndex
+  retained tuple     canonical surface InstanceID + source triangle
+  replay             surface record + checked local-primitive subtraction
+
+This preserves the existing payload ABI and lets hardware hits, primary
+records, and static emissive records share one replay tuple. Hit-stage material
+ID, material index, and triangle class come from the one resolved packed
+address. No parallel geometry buffers or per-property decoder calls were added.
+
+The monolithic sentinel cannot carry the route without exceeding DXC's SPIR-V
+ID limit. The route is compiled only into initial, temporal, and spatial entry
+libraries plus the dedicated transmission producer; the standalone sentinel
+preprocesses the route path out and hashes identically to the deployed
+baseline. This keeps the reference pivot's single hit-record and
+no-payload-expansion constraints.
+
+  focused entry variants                              7/7 compiled
+  focused RayGeometryIndexKHR decorations             7/7
+  spirv-val including primary and sentinel             9/9
+  standalone sentinel baseline parity                  exact
+  payload / descriptor / SBT changes                   0 / 0 / 0
+
+The executable and eight changed Vulkan blobs are deployed. The CPU cutover
+still admits only the primary view-2 probe, so this evidence is compile/decode
+only and does not authorize clean-DI or production bucket traversal.

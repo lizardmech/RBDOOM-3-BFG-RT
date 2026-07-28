@@ -344,9 +344,29 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     uint4 CleanRtxdiDiStaticBucketRouteInfo;
 };
 
+#if RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+bool PathTraceCleanRtxdiDiTryResolveStaticBucketHardwareHit(
+    uint instanceId,
+    uint geometryIndex,
+    uint primitiveIndex,
+    out PathTraceStaticGeometryAddress address)
+{
+    return PathTraceTryResolveStaticBucketGeometryAddress(
+        instanceId,
+        geometryIndex,
+        primitiveIndex,
+        CleanRtxdiDiStaticBucketRouteInfo,
+        (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0),
+        (uint)max(CleanRtxdiDiGeometryInfo0.y, 0.0),
+        CleanRtxdiDiStaticTriangleCount,
+        address);
+}
+#endif
+
 // Keep reconstruction entry-specific so the all-views sentinel remains below
-// DXC's SPIR-V ID ceiling. Bucket hits use the same static-buffer arithmetic
-// route as monolithic static hits; no auxiliary hit library is involved.
+// DXC's SPIR-V ID ceiling. Hardware hit stages canonicalize to surface-record
+// InstanceID plus source triangle; raygen and replay consumers reverse that
+// pair through the same static-buffer arithmetic route.
 #if defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) || \
     defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY) || \
     defined(CLEAN_RTXDI_DI_GLASS_ENTRY) || \
@@ -359,6 +379,32 @@ bool PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
     out uint packedTriangleIndex,
     out uint3 packedVertexIndexes)
 {
+#if RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+    route = (PathTraceStaticBucketRouteRecord)0;
+    packedTriangleIndex = 0u;
+    packedVertexIndexes = uint3(0u, 0u, 0u);
+    PathTraceStaticGeometryAddress address;
+    if (!PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
+        instanceId,
+        primitiveIndex,
+        CleanRtxdiDiStaticBucketRouteInfo,
+        (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0),
+        (uint)max(CleanRtxdiDiGeometryInfo0.y, 0.0),
+        CleanRtxdiDiStaticTriangleCount,
+        address))
+    {
+        return false;
+    }
+
+    route.instanceId = instanceId;
+    route.indexOffset = address.indexOffset;
+    route.triangleOffset = address.triangleIndex;
+    route.triangleCount = address.triangleCount;
+    route.surfaceCount = 1u;
+    packedTriangleIndex = address.triangleIndex;
+    packedVertexIndexes = address.vertexIndexes;
+    return true;
+#else
     return PathTraceTryLoadStaticBucketTriangleRoute(
         instanceId,
         primitiveIndex,
@@ -366,6 +412,7 @@ bool PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
         route,
         packedTriangleIndex,
         packedVertexIndexes);
+#endif
 }
 #endif
 

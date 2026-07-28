@@ -1566,13 +1566,6 @@ bool PathTraceStaticBucketDetailDecalFacesPrimaryRay(
     return dot(outwardFaceNormal, WorldRayDirection()) < 0.0;
 }
 
-uint PathTraceStaticBucketCanonicalSurfaceInstanceId(
-    PathTraceStaticGeometryAddress address)
-{
-    return PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE |
-        address.surfaceRecordIndex;
-}
-
 // Liquid candidates outlive any-hit and are reconstructed in raygen. Their
 // existing payload has no GeometryIndex field, so canonicalize a bucket hit to
 // one surface-record InstanceID and retain the original monolithic source
@@ -1583,40 +1576,14 @@ bool PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
     uint sourceTriangleIndex,
     out PathTraceStaticGeometryAddress address)
 {
-    address = (PathTraceStaticGeometryAddress)0;
-    uint surfaceRecordIndex;
-    if (!PathTraceStaticBucketInstanceInPublishedRange(
-            canonicalInstanceId,
-            StaticBucketRouteInfo,
-            surfaceRecordIndex) ||
-        surfaceRecordIndex >= StaticBucketRouteInfo.y ||
-        surfaceRecordIndex >
-            (0xffffffffu - PathTraceStaticTriangleCount()) /
-                PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS)
-    {
-        return false;
-    }
-
-    const uint surfaceRecordWord =
-        PathTraceStaticTriangleCount() +
-        surfaceRecordIndex *
-            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS;
-    const uint sourceTriangleOffset =
-        SmokeStaticBucketTriangleClasses[
-            surfaceRecordWord + 3u] >>
-        PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
-    if (sourceTriangleIndex < sourceTriangleOffset)
-    {
-        return false;
-    }
-
-    return PathTraceTryResolvePrimaryStaticBucketHit(
-            canonicalInstanceId,
-            0u,
-            sourceTriangleIndex - sourceTriangleOffset,
-            address) &&
-        address.surfaceRecordIndex == surfaceRecordIndex &&
-        address.sourceTriangleIndex == sourceTriangleIndex;
+    return PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
+        canonicalInstanceId,
+        sourceTriangleIndex,
+        StaticBucketRouteInfo,
+        PathTraceStaticVertexCount(),
+        PathTraceStaticIndexCount(),
+        PathTraceStaticTriangleCount(),
+        address);
 }
 
 bool PathTraceStaticBucketAlphaRejectsHit(

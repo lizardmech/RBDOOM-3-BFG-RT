@@ -1316,3 +1316,101 @@ Offline proof:
 The updated executable is deployed. Repeat the existing pre-load audit at the
 save's initial position; the required line must now have a non-zero equal
 triangle set and an exact replay tuple.
+
+REF-9F/REF-9G NON-EMPTY ACCEPTANCE - BUCKET22 - 2026-07-28
+-----------------------------------------------------------
+The initial save position supplied the required live static emissive set:
+
+  portal routes active/resident                      3/56
+  surfaces active/matched/missing/duplicate          263/263/0/0
+  mapping mapped/missing/invalid                     4777/0/0
+  state mapped/invalid/class/stage/nonStage/material 4777/0/0/0/0/0
+  replay records/mapped                              48/48
+  replay invalidInstance/invalidSurface              0/0
+  replay invalidPrimitive/duplicate/class/material   0/0/0/0
+  triangles monolithicPortal/bucket/captured/invalid 48/48/48/0
+  identities monolithic/bucket                      48/48
+  identities zero/collision/missing/extra           0/0/0/0
+  exact                                               1
+
+No device-removal, binding, or validation error appears in the capture.
+
+The launch did not set `r_pathTracingNsightGpuMarkers 1`; therefore route 2
+remained monolithic with `consumerSupported=0` and `primaryOpaqueProbe=0`.
+That is expected fail-closed behavior and does not invalidate the independently
+constructed CPU shadow publication. Earlier captures already accepted the
+primary route. REF-9F and REF-9G are accepted for non-empty canonical emissive
+identity and replay addresses.
+
+REF-10 may now begin the clean-DI secondary-address slice under compile-only
+gating. Requirements:
+
+  1. resolve bucket hardware hits from InstanceID, GeometryIndex, and
+     surface-local PrimitiveIndex in the hit stage;
+  2. return canonical surface InstanceID plus source triangle through the
+     existing hitInstanceId/hitPrimitiveIndex payload fields;
+  3. reconstruct post-hit geometry through the canonical surface record;
+  4. canonicalize self-ignore comparisons;
+  5. do not add payload fields, descriptors, SBT records, or hit groups;
+  6. keep clean-DI view 16 and production route mode 1 unsupported until a
+     standalone compile/decode checkpoint passes.
+
+REF-10A CLEAN-DI SECONDARY ADDRESS COMPILE GATE - 2026-07-28
+------------------------------------------------------------
+Implemented the focused compile/decode slice:
+
+  - common route helper resolves hardware
+    InstanceID + GeometryIndex + PrimitiveIndex;
+  - the hit stage canonicalizes to surface-record InstanceID plus source
+    triangle without adding payload fields;
+  - post-hit geometry, primary-record, and emissive replay reverse that same
+    tuple through one checked surface record;
+  - material ID/index/class reads use the already resolved packed address;
+  - visibility and emissive self-ignore compare canonical tuples;
+  - spatial static-emissive geometry replay now consumes the canonical record.
+
+The 176-byte trace-hit payload is unchanged. No new resource, descriptor, SBT
+record, hit group, or CPU cutover condition was introduced.
+
+The first compile attempt enabled the route in the all-views sentinel and hit
+DXC's SPIR-V ID ceiling. That library already sits at the compiler limit. The
+accepted shape compiles the route only into focused initial, temporal, and
+spatial entry libraries plus the dedicated transmission producer; the
+standalone sentinel preprocesses it out. This is not a compact-hit-library
+detour and adds no pipeline-family ABI.
+
+Proof:
+
+  win64-pt-dev-release                                passed
+  initial/debug + production                          2/2
+  temporal/debug + production                         2/2
+  spatial/debug + production                          2/2
+  transmission producer                               passed
+  primary surface producer                            passed
+  spirv-val                                           9/9
+  RayGeometryIndexKHR in focused entry blobs          7/7
+  sentinel hash vs deployed baseline                  exact
+
+Changed Vulkan blob hashes:
+
+  primary
+    B7631134D3EDA196121D081FAC6118AAFA54A8283E8D9F9C3B5A1B96B0D2F737
+  initial
+    715CB03BD6488EFA620F2C7A5C380A7FC4DB7E4F33ECD82DD1CED0B95CDF61D5
+  initial production
+    C0ED432BC97D436CFD83123ADCC5E614F98DF8A1E59BD9B43E34728421DB305F
+  spatial
+    5A593747EE3290E3C240DC8EC75DF681FC06EF8CC041060EE0DDA06F1026AB27
+  spatial production
+    E4F37A6B694624C32C8714306C413F5AC38763D3EA93798EC3BA765495551C05
+  temporal
+    D912C0C83A830F918FC56F4FF1CE127707B4C2A30AE1772B45C1DA717C7254CE
+  temporal production
+    58CCD3E63CDB6F3C9CE0C5A8243D853BD00AEBAD59F11971537D862B3137D58F
+  transmission producer
+    30152E184DCCC0E6109E4CF43555F649B2E3B408F71BA2FB9BD4EEA70B764AF8
+
+The eight changed SPIR-V blobs and executable were deployed with matching
+source/destination hashes. Runtime clean-DI bucket traversal remains
+unsupported by the CPU route predicate; no game test is required for this
+compile-only gate.

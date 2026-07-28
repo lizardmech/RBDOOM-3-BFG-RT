@@ -861,6 +861,51 @@ rejection pass the CPU stress harness. The full Vulkan release build passed
 without rebuilding shaders. Production mode 1 and every shader consumer remain
 closed pending the non-empty runtime result.
 
+`bucket22.log` supplies that non-empty result. It matched 263/263 portal
+surfaces, mapped and overlaid all 4,777 active primitives, and reported equal
+48/48/48 monolithic, bucket, and captured emissive triangles. Replay was
+48/48 with every invalid, duplicate, class, and material counter zero. The two
+48-entry identity sets had no zero, collision, missing, or extra rows.
+
+This launch omitted the diagnostic-marker cvar, so route 2 correctly remained
+shadow-only (`consumerSupported=0`, `primaryOpaqueProbe=0`). REF-9F/REF-9G
+accept the CPU publication evidence, not a new traversal run. The next slice is
+compile-only clean-DI secondary-address plumbing: resolve hardware hits with
+InstanceID + GeometryIndex + PrimitiveIndex, canonicalize into the existing
+payload fields, and replay those fields through the canonical surface record.
+Do not widen the 176-byte payload or enable view-16/production traversal yet.
+
+REF-10A completes that compile-only address slice. The shared route now owns
+both hardware-hit resolution and canonical surface/source replay. Initial,
+temporal, and spatial hit stages consume GeometryIndex, canonicalize into the
+existing fields, load packed metadata from the resolved address, and compare
+self-ignore tuples canonically. Static emissive replay uses the same reverse
+mapping. No payload, descriptor, SBT, hit-group, or CPU cutover change occurred.
+
+The first attempt correctly exposed DXC's SPIR-V ID ceiling in the monolithic
+all-views sentinel. Moving the compile flag to focused initial/temporal entry
+sources and preprocessing the new hit code out of the standalone sentinel
+fixed the build without reintroducing compact hit libraries. The standalone
+sentinel is byte-identical to its deployed baseline. The dedicated
+transmission producer then compiled the canonical fields through its unchanged
+176-byte payload.
+
+Verification:
+
+  full win64-pt-dev-release build                     passed
+  focused initial/temporal/spatial variants           6/6 passed
+  focused transmission producer                       passed
+  primary surface producer                            passed
+  spirv-val                                           9/9 passed
+  focused RayGeometryIndexKHR evidence                7/7 present
+  standalone sentinel baseline hash                   exact
+  payload/descriptor/SBT changes                      0/0/0
+  executable SHA-256
+    48C8FE4703163E6CD61D9ADCD153BCB597E37F5D30B4066E26334EC12F93F780
+
+Eight changed Vulkan blobs and the executable are deployed. Runtime routing is
+still fail-closed, so no game test is required for REF-10A itself.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

@@ -540,15 +540,44 @@ void ShadowMiss(inout PathTraceCleanRtxdiPayload payload)
 [shader("anyhit")]
 void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
+#if RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+    const uint hardwareInstanceId = InstanceID();
+    const uint hardwarePrimitiveIndex = PrimitiveIndex();
+    uint instanceId = hardwareInstanceId;
+    uint primitiveIndex = hardwarePrimitiveIndex;
+    PathTraceStaticGeometryAddress staticBucketAddress =
+        (PathTraceStaticGeometryAddress)0;
+    const bool staticBucketHardwareHit =
+        PathTraceIsStaticBucketRouteInstance(
+            hardwareInstanceId,
+            CleanRtxdiDiStaticBucketRouteInfo);
+    const bool staticBucketAddressValid =
+        staticBucketHardwareHit &&
+        PathTraceCleanRtxdiDiTryResolveStaticBucketHardwareHit(
+            hardwareInstanceId,
+            GeometryIndex(),
+            hardwarePrimitiveIndex,
+            staticBucketAddress);
+    if (staticBucketAddressValid)
+    {
+        instanceId =
+            PathTraceStaticBucketCanonicalSurfaceInstanceId(
+                staticBucketAddress);
+        primitiveIndex = staticBucketAddress.sourceTriangleIndex;
+    }
+
 #if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
     if (payload.rayMode == 3u)
     {
-        const uint instanceId = InstanceID();
-        const uint primitiveIndex = PrimitiveIndex();
         const uint materialIndex =
-            PathTraceCleanRoomLoadTriangleMaterialIndex(
-                instanceId,
-                primitiveIndex);
+            staticBucketHardwareHit
+                ? (staticBucketAddressValid
+                    ? SmokeStaticBucketTriangleMaterialIndexes[
+                        staticBucketAddress.triangleIndex]
+                    : 0xffffffffu)
+                : PathTraceCleanRoomLoadTriangleMaterialIndex(
+                    instanceId,
+                    primitiveIndex);
         if (PathTraceCleanRtxdiDiCollectLiquidPoolCandidate(
             payload,
             instanceId,
@@ -588,35 +617,148 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
 #endif
 
     if (payload.rayMode == 2u &&
+        instanceId == payload.ignoreInstanceId)
+    {
+        if (PathTraceCleanRoomIsCachedRigidRouteHit(instanceId))
+        {
+            IgnoreHit();
+            return;
+        }
+
+        const uint materialIndex =
+            staticBucketHardwareHit
+                ? (staticBucketAddressValid
+                    ? SmokeStaticBucketTriangleMaterialIndexes[
+                        staticBucketAddress.triangleIndex]
+                    : 0xffffffffu)
+                : PathTraceCleanRoomLoadTriangleMaterialIndex(
+                    instanceId,
+                    primitiveIndex);
+        if (primitiveIndex == payload.ignorePrimitiveIndex || materialIndex == payload.ignoreMaterialIndex)
+        {
+            IgnoreHit();
+        }
+    }
+#else
+#if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
+    if (payload.rayMode == 3u)
+    {
+        const uint instanceId = InstanceID();
+        const uint primitiveIndex = PrimitiveIndex();
+        const uint materialIndex =
+            PathTraceCleanRoomLoadTriangleMaterialIndex(
+                instanceId,
+                primitiveIndex);
+        if (PathTraceCleanRtxdiDiCollectLiquidPoolCandidate(
+            payload,
+            instanceId,
+            primitiveIndex,
+            materialIndex,
+            attributes.barycentrics))
+        {
+            IgnoreHit();
+            return;
+        }
+        const bool ignoredSource =
+            instanceId == payload.ignoreInstanceId &&
+            (primitiveIndex == payload.ignorePrimitiveIndex ||
+                materialIndex == payload.ignoreMaterialIndex);
+        const bool blendThrough =
+            PathTraceCleanRoomTriangleDoesNotOccludeTransmission(
+                instanceId,
+                primitiveIndex,
+                materialIndex);
+        if (blendThrough)
+        {
+            PathTraceCleanRoomAccumulateTransmissionEmissiveCard(
+                payload,
+                instanceId,
+                primitiveIndex,
+                materialIndex,
+                attributes.barycentrics);
+        }
+        if (ignoredSource ||
+            blendThrough ||
+            PathTraceCleanRoomTransmissionAlphaRejectsHit(
+                instanceId,
+                primitiveIndex,
+                attributes.barycentrics,
+                materialIndex))
+        {
+            IgnoreHit();
+            return;
+        }
+    }
+#endif
+
+    if (payload.rayMode == 2u &&
         InstanceID() == payload.ignoreInstanceId)
     {
-        if (PathTraceCleanRoomIsCachedRigidRouteHit(payload.ignoreInstanceId))
+        if (PathTraceCleanRoomIsCachedRigidRouteHit(
+                payload.ignoreInstanceId))
         {
             IgnoreHit();
             return;
         }
 
         const uint primitiveIndex = PrimitiveIndex();
-        const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(payload.ignoreInstanceId, primitiveIndex);
-        if (primitiveIndex == payload.ignorePrimitiveIndex || materialIndex == payload.ignoreMaterialIndex)
+        const uint materialIndex =
+            PathTraceCleanRoomLoadTriangleMaterialIndex(
+                payload.ignoreInstanceId,
+                primitiveIndex);
+        if (primitiveIndex == payload.ignorePrimitiveIndex ||
+            materialIndex == payload.ignoreMaterialIndex)
         {
             IgnoreHit();
         }
     }
+#endif
 }
 
 [shader("anyhit")]
 void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    const uint instanceId = InstanceID();
+#if RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+    const uint hardwareInstanceId = InstanceID();
+    const uint hardwarePrimitiveIndex = PrimitiveIndex();
+    uint instanceId = hardwareInstanceId;
+    uint primitiveIndex = hardwarePrimitiveIndex;
+    PathTraceStaticGeometryAddress staticBucketAddress =
+        (PathTraceStaticGeometryAddress)0;
+    const bool staticBucketHardwareHit =
+        PathTraceIsStaticBucketRouteInstance(
+            hardwareInstanceId,
+            CleanRtxdiDiStaticBucketRouteInfo);
+    const bool staticBucketAddressValid =
+        staticBucketHardwareHit &&
+        PathTraceCleanRtxdiDiTryResolveStaticBucketHardwareHit(
+            hardwareInstanceId,
+            GeometryIndex(),
+            hardwarePrimitiveIndex,
+            staticBucketAddress);
+    if (staticBucketAddressValid)
+    {
+        instanceId =
+            PathTraceStaticBucketCanonicalSurfaceInstanceId(
+                staticBucketAddress);
+        primitiveIndex = staticBucketAddress.sourceTriangleIndex;
+    }
+
     if (PathTraceCleanRoomIsCachedRigidRouteHit(instanceId))
     {
         IgnoreHit();
         return;
     }
 
-    const uint primitiveIndex = PrimitiveIndex();
-    const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(instanceId, primitiveIndex);
+    const uint materialIndex =
+        staticBucketHardwareHit
+            ? (staticBucketAddressValid
+                ? SmokeStaticBucketTriangleMaterialIndexes[
+                    staticBucketAddress.triangleIndex]
+                : 0xffffffffu)
+            : PathTraceCleanRoomLoadTriangleMaterialIndex(
+                instanceId,
+                primitiveIndex);
     if (PathTraceCleanRtxdiDiLiquidPoolCollectionEnabled() &&
         PathTraceCleanRtxdiDiMaterialIsSemanticLiquidPool(materialIndex))
     {
@@ -636,6 +778,42 @@ void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInter
             IgnoreHit();
         }
     }
+#else
+    const uint instanceId = InstanceID();
+    if (PathTraceCleanRoomIsCachedRigidRouteHit(instanceId))
+    {
+        IgnoreHit();
+        return;
+    }
+
+    const uint primitiveIndex = PrimitiveIndex();
+    const uint materialIndex =
+        PathTraceCleanRoomLoadTriangleMaterialIndex(
+            instanceId,
+            primitiveIndex);
+    if (PathTraceCleanRtxdiDiLiquidPoolCollectionEnabled() &&
+        PathTraceCleanRtxdiDiMaterialIsSemanticLiquidPool(materialIndex))
+    {
+        IgnoreHit();
+        return;
+    }
+    if (PathTraceCleanRoomMaterialDoesNotOccludeVisibility(
+            instanceId,
+            materialIndex))
+    {
+        IgnoreHit();
+    }
+
+    if (payload.rayMode == 2u &&
+        instanceId == payload.ignoreInstanceId)
+    {
+        if (primitiveIndex == payload.ignorePrimitiveIndex ||
+            materialIndex == payload.ignoreMaterialIndex)
+        {
+            IgnoreHit();
+        }
+    }
+#endif
 }
 
 [shader("closesthit")]
@@ -643,11 +821,69 @@ void ClosestHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInterse
 {
     payload.value = 1u;
 #if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
+#if RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+    const uint hardwareInstanceId = InstanceID();
+    const uint hardwarePrimitiveIndex = PrimitiveIndex();
+    PathTraceStaticGeometryAddress staticBucketAddress =
+        (PathTraceStaticGeometryAddress)0;
+    const bool staticBucketHardwareHit =
+        PathTraceIsStaticBucketRouteInstance(
+            hardwareInstanceId,
+            CleanRtxdiDiStaticBucketRouteInfo);
+    const bool staticBucketAddressValid =
+        staticBucketHardwareHit &&
+        PathTraceCleanRtxdiDiTryResolveStaticBucketHardwareHit(
+            hardwareInstanceId,
+            GeometryIndex(),
+            hardwarePrimitiveIndex,
+            staticBucketAddress);
+    payload.hitInstanceId = staticBucketAddressValid
+        ? PathTraceStaticBucketCanonicalSurfaceInstanceId(
+            staticBucketAddress)
+        : hardwareInstanceId;
+    payload.hitPrimitiveIndex = staticBucketAddressValid
+        ? staticBucketAddress.sourceTriangleIndex
+        : hardwarePrimitiveIndex;
+    payload.hitMaterialId = staticBucketHardwareHit
+        ? (staticBucketAddressValid
+            ? SmokeStaticBucketTriangleMaterials[
+                staticBucketAddress.triangleIndex]
+            : 0xffffffffu)
+        : PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(
+            payload.hitInstanceId,
+            payload.hitPrimitiveIndex);
+    payload.hitMaterialIndex = staticBucketHardwareHit
+        ? (staticBucketAddressValid
+            ? SmokeStaticBucketTriangleMaterialIndexes[
+                staticBucketAddress.triangleIndex]
+            : 0xffffffffu)
+        : PathTraceCleanRoomLoadTriangleMaterialIndex(
+            payload.hitInstanceId,
+            payload.hitPrimitiveIndex);
+    payload.hitTriangleClassAndFlags = staticBucketHardwareHit
+        ? (staticBucketAddressValid
+            ? SmokeStaticBucketTriangleClasses[
+                staticBucketAddress.triangleIndex]
+            : 0u)
+        : PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(
+            payload.hitInstanceId,
+            payload.hitPrimitiveIndex);
+#else
     payload.hitInstanceId = InstanceID();
     payload.hitPrimitiveIndex = PrimitiveIndex();
-    payload.hitMaterialId = PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(payload.hitInstanceId, payload.hitPrimitiveIndex);
-    payload.hitMaterialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
-    payload.hitTriangleClassAndFlags = PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    payload.hitMaterialId =
+        PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(
+            payload.hitInstanceId,
+            payload.hitPrimitiveIndex);
+    payload.hitMaterialIndex =
+        PathTraceCleanRoomLoadTriangleMaterialIndex(
+            payload.hitInstanceId,
+            payload.hitPrimitiveIndex);
+    payload.hitTriangleClassAndFlags =
+        PathTraceCleanRtxdiDiTraceHitLoadTriangleClassAndFlags(
+            payload.hitInstanceId,
+            payload.hitPrimitiveIndex);
+#endif
     payload.hitT = RayTCurrent();
     payload.hitBarycentrics = attributes.barycentrics;
 #endif

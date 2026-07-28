@@ -1,6 +1,9 @@
 #define CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY 1
 #define CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER 1
 #define CLEAN_RTXDI_DI_TRANSMISSION_PSR_TRANSPORT 1
+// GEO-10 REF-10 compile-only validation of the existing 176-byte hit payload.
+// CPU cutover remains closed for clean-DI view 16.
+#define RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS 1
 #include "pathtrace_clean_rtxdi_di_shared.hlsli"
 #include "pathtrace_clean_rtxdi_di_math.hlsli"
 #include "pathtrace_clean_rtxdi_di_material_adapter.hlsli"

@@ -1163,6 +1163,49 @@ and rejects invalid instances, surfaces, primitives, duplicate mappings, or
 class/material state mismatches. REF-10 remains closed until both identity and
 replay-address evidence are exact and non-empty.
 
+`bucket22.log` closes this shadow-publication gate. The portal selection joined
+263/263 surfaces, mapped and overlaid 4,777/4,777 primitives, and produced
+48/48/48 monolithic, bucket, and captured emissive triangles. All 48 emitted
+records reversed to one distinct packed triangle; invalid instance, surface,
+primitive, duplicate, class, and material counters were all zero. Both unique
+identity sets contained 48 entries with no zero, collision, missing, or extra
+identity.
+
+The live cutover itself remained monolithic because that launch omitted
+`r_pathTracingNsightGpuMarkers 1`, so `consumerSupported` and
+`primaryOpaqueProbe` remained zero. That does not weaken this CPU shadow audit:
+earlier captures already accepted the route predicate and multi-geometry
+primary traversal. D58 accepts canonical non-empty emissive identity and replay
+publication only; DI/GI secondary consumption and production route mode 1
+remain fail-closed.
+
+D59. CANONICALIZE CLEAN-DI SECONDARY HITS WITHOUT WIDENING THE PAYLOAD
+----------------------------------------------------------------------
+Decision: a bucket hit is resolved in the hardware hit stage from InstanceID,
+GeometryIndex, and surface-local PrimitiveIndex. The hit stage writes canonical
+surface-record InstanceID plus source triangle into the existing
+hitInstanceId/hitPrimitiveIndex or ignore fields. Raygen, primary-record, and
+emissive replay reverse that tuple through the same checked surface record.
+
+The 176-byte transmission payload is unchanged. No descriptor, SBT record, hit
+group, or pipeline-layout field is added. Material ID, material index, and
+triangle class are read directly from the one hardware-resolved packed address
+instead of rerunning a namespace decoder for each property. Self-ignore
+comparisons use the canonical tuple.
+
+DXC cannot legalize the monolithic all-views sentinel when the route is compiled
+into it; it reaches the SPIR-V ID limit. This is an existing compiler-size
+boundary, not grounds for a second hit library. The route is therefore enabled
+only in the focused initial, temporal, spatial, and transmission-producer entry
+libraries. The standalone sentinel preprocesses the new hit path out and
+remains bit-identical to the deployed baseline.
+
+All seven focused entry variants compile, validate, and contain
+`RayGeometryIndexKHR`; this includes the 176-byte transmission payload path.
+Primary also validates. CPU cutover remains unchanged, so clean-DI traversal
+and production route mode 1 are still fail-closed pending a later explicit
+runtime-admission rung.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

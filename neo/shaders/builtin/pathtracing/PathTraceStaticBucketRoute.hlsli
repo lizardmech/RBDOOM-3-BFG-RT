@@ -195,6 +195,77 @@ bool PathTraceTryResolveStaticBucketGeometryAddress(
 #endif
 }
 
+#if RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+uint PathTraceStaticBucketCanonicalSurfaceInstanceId(
+    PathTraceStaticGeometryAddress address)
+{
+    return PATH_TRACE_STATIC_BUCKET_INSTANCE_ID_BASE |
+        address.surfaceRecordIndex;
+}
+
+// Replays a canonical surface/source tuple after the hit stage has discarded
+// GeometryIndex. The canonical InstanceID names exactly one surface record, so
+// GeometryIndex is zero and the record's authored source offset recovers the
+// surface-local PrimitiveIndex. This is also the address stored by static
+// emissive records.
+bool PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
+    uint canonicalInstanceId,
+    uint sourceTriangleIndex,
+    uint4 routeInfo,
+    uint staticVertexCount,
+    uint staticIndexCount,
+    uint staticTriangleCount,
+    out PathTraceStaticGeometryAddress address)
+{
+    address = (PathTraceStaticGeometryAddress)0;
+    uint surfaceRecordIndex = 0u;
+    if (!PathTraceStaticBucketInstanceInPublishedRange(
+            canonicalInstanceId,
+            routeInfo,
+            surfaceRecordIndex) ||
+        surfaceRecordIndex >= routeInfo.y ||
+        surfaceRecordIndex >
+            (0xffffffffu - staticTriangleCount) /
+                PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS)
+    {
+        return false;
+    }
+
+    const uint surfaceRecordWord =
+        staticTriangleCount +
+        surfaceRecordIndex *
+            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_WORDS;
+    const uint flags =
+        SmokeStaticTriangleClasses[surfaceRecordWord + 3u];
+    if ((flags &
+            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID_MASK) !=
+            PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_VALID)
+    {
+        return false;
+    }
+
+    const uint sourceTriangleOffset =
+        flags >>
+        PATH_TRACE_STATIC_BUCKET_SURFACE_RECORD_SOURCE_TRIANGLE_SHIFT;
+    if (sourceTriangleIndex < sourceTriangleOffset)
+    {
+        return false;
+    }
+
+    return PathTraceTryResolveStaticBucketGeometryAddress(
+            canonicalInstanceId,
+            0u,
+            sourceTriangleIndex - sourceTriangleOffset,
+            routeInfo,
+            staticVertexCount,
+            staticIndexCount,
+            staticTriangleCount,
+            address) &&
+        address.surfaceRecordIndex == surfaceRecordIndex &&
+        address.sourceTriangleIndex == sourceTriangleIndex;
+}
+#endif
+
 // Transitional compatibility wrapper for consumers that have not yet moved
 // GeometryIndex into their hit-entry address. It intentionally fails closed;
 // the old triangle-base interpretation is not valid for multi-geometry BLASes.
