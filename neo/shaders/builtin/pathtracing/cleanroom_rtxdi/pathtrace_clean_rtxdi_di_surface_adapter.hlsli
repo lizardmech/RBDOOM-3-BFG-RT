@@ -57,31 +57,15 @@ bool PathTraceCleanRoomIsCachedRigidRouteHit(uint instanceId)
     return (routeInstance.flags & PT_RIGID_ROUTE_CACHED_SOURCE) != 0u;
 }
 
-uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
-{
-#if defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) || \
-    defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY) || \
-    defined(CLEAN_RTXDI_DI_GLASS_ENTRY) || \
-    defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
-    if (PathTraceIsStaticBucketRouteInstance(
-            instanceId,
-            CleanRtxdiDiStaticBucketRouteInfo))
-    {
-        PathTraceStaticBucketRouteRecord route;
-        uint packedTriangleIndex;
-        uint3 packedVertexIndexes;
-        return PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
-                instanceId,
-                primitiveIndex,
-                route,
-                packedTriangleIndex,
-                packedVertexIndexes)
-            ? SmokeStaticBucketTriangleMaterialIndexes[
-                packedTriangleIndex]
-            : 0xffffffffu;
-    }
+#if !RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+#define PathTraceCleanRoomLoadNonStaticTriangleMaterialIndex \
+    PathTraceCleanRoomLoadTriangleMaterialIndex
 #endif
 
+uint PathTraceCleanRoomLoadNonStaticTriangleMaterialIndex(
+    uint instanceId,
+    uint primitiveIndex)
+{
     if (instanceId == 0u)
     {
         return primitiveIndex < CleanRtxdiDiStaticTriangleCount
@@ -132,6 +116,42 @@ uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitive
 
     return routeInstance.materialIndex;
 }
+
+#if RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
+uint PathTraceCleanRoomLoadTriangleMaterialIndex(
+    uint instanceId,
+    uint primitiveIndex)
+{
+#if defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) || \
+    defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY) || \
+    defined(CLEAN_RTXDI_DI_GLASS_ENTRY) || \
+    defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticBucketRouteRecord route;
+        uint packedTriangleIndex;
+        uint3 packedVertexIndexes;
+        return PathTraceCleanRtxdiDiTryLoadStaticBucketTriangleRoute(
+                instanceId,
+                primitiveIndex,
+                route,
+                packedTriangleIndex,
+                packedVertexIndexes)
+            ? SmokeStaticBucketTriangleMaterialIndexes[
+                packedTriangleIndex]
+            : 0xffffffffu;
+    }
+#endif
+
+    return PathTraceCleanRoomLoadNonStaticTriangleMaterialIndex(
+        instanceId,
+        primitiveIndex);
+}
+#else
+#undef PathTraceCleanRoomLoadNonStaticTriangleMaterialIndex
+#endif
 
 #if defined(CLEAN_RTXDI_DI_TRACE_HIT_SURFACE_ADAPTER)
 uint PathTraceCleanRtxdiDiTraceHitLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)

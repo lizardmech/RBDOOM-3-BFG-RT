@@ -2902,7 +2902,7 @@ void TestStaticBucketAssignmentPlan()
             3),
         "static bucket view-16 isolation admits stage three for core DI pipeline creation only");
     Check(
-        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
             true,
             16,
@@ -2911,9 +2911,9 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             4),
-        "static bucket view-16 isolation rejects stage four after initial DI device loss");
+        "static bucket view-16 isolation re-admits stage four after one-add hit decode repair");
     bool secondaryIsolationStagesRejected = true;
-    for (int stage = 4; stage <= 6; ++stage)
+    for (int stage = 5; stage <= 6; ++stage)
     {
         secondaryIsolationStagesRejected &=
             !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
@@ -2928,7 +2928,7 @@ void TestStaticBucketAssignmentPlan()
     }
     Check(
         secondaryIsolationStagesRejected,
-        "static bucket unified-primary view-16 isolation rejects stages four through six");
+        "static bucket unified-primary view-16 isolation rejects stages five and six");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,

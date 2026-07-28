@@ -2026,8 +2026,8 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    // REF-10P removed the device during the initial DI DispatchRays call.
-    // Preserve stages 1-3, but revoke stage 4 and every later consumer.
+    // REF-10Q removes the full geometry decoder from clean-DI hit-stage
+    // material lookup. Re-admit the corrected initial-DI dispatch only.
     const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
@@ -2036,7 +2036,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         !transmissionPsrEnabled &&
-        (probeStage >= 1 && probeStage <= 3);
+        (probeStage >= 1 && probeStage <= 4);
     return diagnosticContractExact;
 }
 

@@ -575,7 +575,7 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
                     ? SmokeStaticBucketTriangleMaterialIndexes[
                         staticBucketAddress.triangleIndex]
                     : 0xffffffffu)
-                : PathTraceCleanRoomLoadTriangleMaterialIndex(
+                : PathTraceCleanRoomLoadNonStaticTriangleMaterialIndex(
                     instanceId,
                     primitiveIndex);
         if (PathTraceCleanRtxdiDiCollectLiquidPoolCandidate(
@@ -631,7 +631,7 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
                     ? SmokeStaticBucketTriangleMaterialIndexes[
                         staticBucketAddress.triangleIndex]
                     : 0xffffffffu)
-                : PathTraceCleanRoomLoadTriangleMaterialIndex(
+                : PathTraceCleanRoomLoadNonStaticTriangleMaterialIndex(
                     instanceId,
                     primitiveIndex);
         if (primitiveIndex == payload.ignorePrimitiveIndex || materialIndex == payload.ignoreMaterialIndex)
@@ -756,7 +756,7 @@ void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInter
                 ? SmokeStaticBucketTriangleMaterialIndexes[
                     staticBucketAddress.triangleIndex]
                 : 0xffffffffu)
-            : PathTraceCleanRoomLoadTriangleMaterialIndex(
+            : PathTraceCleanRoomLoadNonStaticTriangleMaterialIndex(
                 instanceId,
                 primitiveIndex);
     if (PathTraceCleanRtxdiDiLiquidPoolCollectionEnabled() &&
@@ -857,7 +857,7 @@ void ClosestHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInterse
             ? SmokeStaticBucketTriangleMaterialIndexes[
                 staticBucketAddress.triangleIndex]
             : 0xffffffffu)
-        : PathTraceCleanRoomLoadTriangleMaterialIndex(
+        : PathTraceCleanRoomLoadNonStaticTriangleMaterialIndex(
             payload.hitInstanceId,
             payload.hitPrimitiveIndex);
     payload.hitTriangleClassAndFlags = staticBucketHardwareHit

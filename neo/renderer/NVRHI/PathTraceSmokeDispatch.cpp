@@ -3614,7 +3614,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     PathTraceGpuMarkerScope nsightMarker(
                         commandList,
                         staticBucketSecondaryIsolationActive
-                            ? "GEO10.View16.Stage3 Initial DispatchRays"
+                            ? "GEO10.View16.Stage4 Initial DispatchRays"
                             : "CleanDI.0 Initial DispatchRays",
                         nsightGpuMarkers);
                     commandList->dispatchRays(cleanArgs);

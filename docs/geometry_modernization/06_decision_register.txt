@@ -1788,6 +1788,29 @@ Verification:
   deployed executable SHA-256
     C82977C400540475BEC350CAF732CC2BE218C452E7F112FAEFC9B061303F1F0A
 
+D82. RE-ADMIT INITIAL DI AFTER ONE-ADD HIT REPAIR
+-------------------------------------------------
+Decision: the clean-DI secondary hit path violated the resident-pool contract
+by invoking full index/vertex geometry decode for material-only any-hit work.
+Replace it with bounded `triangleBase + PrimitiveIndex` metadata lookup and a
+guaranteed-non-static fallback.
+
+Nine rebuilt clean-DI Vulkan blobs pass `spirv-val` and are newer than the
+edited includes. Production-initial `AnyHit` and `ShadowAnyHit` no longer
+declare `SmokeStaticIndices`; payload, descriptor, and SBT layouts are
+unchanged. Re-admit stage 4 only, rename its checkpoint to
+`GEO10.View16.Stage4 Initial DispatchRays`, and keep stages 5-6 plus production
+mode rejected.
+
+Verification:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  hash-changed Vulkan blobs deployed                   6
+  source/deployed executable hashes                    equal
+  deployed executable SHA-256
+    6DA37D4F3E334E068350EC074DF75892FDEEC41AC85CB54151B15A7D5B79B211
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

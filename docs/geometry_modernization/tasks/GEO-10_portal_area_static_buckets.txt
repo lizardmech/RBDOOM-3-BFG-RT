@@ -2185,3 +2185,48 @@ Rollback verification:
   source/deployed executable hashes                    equal
   executable SHA-256
     C82977C400540475BEC350CAF732CC2BE218C452E7F112FAEFC9B061303F1F0A
+
+REF-10Q ONE-ADD SECONDARY HIT REPAIR - 2026-07-28
+--------------------------------------------------
+The rejected initial-DI dispatch exposed a concrete violation of the resident
+pool design. Clean-DI `AnyHit` and `ShadowAnyHit` called the full static-bucket
+geometry decoder for per-triangle material lookup. That decoder read and
+validated three indices and three vertex bounds even though hardware traversal
+had already supplied the bucket-local primitive and the hit shaders needed only
+the material row.
+
+The repaired hit path now performs the intended bounded arithmetic:
+
+  triangleBase  = InstanceID & 0x007fffff
+  triangleIndex = triangleBase + PrimitiveIndex
+
+`GeometryIndex` must be zero and both values are checked against the published
+static triangle count before `t11[triangleIndex]` is read. Full index/vertex
+decode remains available only to reconstruction consumers that need geometry.
+The non-static fallback is a separate helper so DXC cannot retain the full
+static decoder through an otherwise-dead fallback branch.
+
+Offline proof:
+
+  direct production-initial candidate compile          passed
+  direct all-views sentinel compile / ID ceiling       passed
+  final clean-DI SPIR-V blobs validated                9/9
+  every rebuilt blob newer than newest edited include  passed
+  initial-production ShadowAnyHit static index SRV     absent
+  initial-production bytes before/after                996396/992684
+  payload shape                                        unchanged, 5 uint
+  descriptor/SBT layout                                unchanged
+
+Re-admit stage 4 only. Stages 5-6 and production mode remain rejected. The GPU
+checkpoint is renamed `GEO10.View16.Stage4 Initial DispatchRays`; the old
+`Stage3` label no longer applies.
+
+Final build/deployment proof:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  final build shader status                            all SPIR-V up to date
+  hash-changed Vulkan blobs deployed                   6
+  source/deployed executable hashes                    equal
+  executable SHA-256
+    6DA37D4F3E334E068350EC074DF75892FDEEC41AC85CB54151B15A7D5B79B211

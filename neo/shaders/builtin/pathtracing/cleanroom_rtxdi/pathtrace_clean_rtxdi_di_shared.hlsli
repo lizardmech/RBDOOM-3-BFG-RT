@@ -351,15 +351,26 @@ bool PathTraceCleanRtxdiDiTryResolveStaticBucketHardwareHit(
     uint primitiveIndex,
     out PathTraceStaticGeometryAddress address)
 {
-    return PathTraceTryResolveStaticBucketGeometryAddress(
-        instanceId,
-        geometryIndex,
-        primitiveIndex,
-        CleanRtxdiDiStaticBucketRouteInfo,
-        (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0),
-        (uint)max(CleanRtxdiDiGeometryInfo0.y, 0.0),
-        CleanRtxdiDiStaticTriangleCount,
-        address);
+    address = (PathTraceStaticGeometryAddress)0;
+    uint triangleBase = 0u;
+    if (!PathTraceStaticBucketInstanceInPublishedRange(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo,
+            triangleBase) ||
+        geometryIndex != 0u ||
+        triangleBase >= CleanRtxdiDiStaticTriangleCount ||
+        primitiveIndex >=
+            CleanRtxdiDiStaticTriangleCount - triangleBase)
+    {
+        return false;
+    }
+
+    address.triangleBase = triangleBase;
+    address.triangleIndex = triangleBase + primitiveIndex;
+    address.sourceTriangleIndex = primitiveIndex;
+    address.triangleCount =
+        CleanRtxdiDiStaticTriangleCount - triangleBase;
+    return true;
 }
 #endif
 
