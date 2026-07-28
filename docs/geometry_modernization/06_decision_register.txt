@@ -2564,6 +2564,49 @@ Offline implementation proof:
   - the Vulkan release build succeeds with every SPIR-V shader reported up to
     date, proving stage 19 changes CPU control only.
 
+D103. STAGE 19 IS VISUALLY INCONCLUSIVE; OPEN STAGE 20 THROUGH TEMPORAL
+-------------------------------------------------------------------------------
+The stage-19 runtime survives but presents a black screen. This is expected
+from the existing split view-16 shader contract, not evidence of invalid
+bucket geometry: the initial entry calls
+`PathTraceCleanRoomStoreInitialReservoir` for a temporal raygen view and does
+not write `SmokeOutput`. The temporal entry is the first split entry that
+writes the view-16 presentation. Stage 19 therefore proves only that the
+bucket bounded resolver plus initial reservoir construction survives; it
+cannot classify the visual artifact.
+
+Open stage 20 as the smallest presentable CPU-only control:
+
+  - retain route 2, full-resident publication, the stage-17 bounded resolver,
+    material-feature runtime bindings, and transmission PSR;
+  - dispatch initial and temporal;
+  - do not create or dispatch spatial for this rung;
+  - keep post-DI composition and every later consumer blocked.
+
+Interpretation:
+
+  - stage 20 visually correct: the bucket replacement tuple survives temporal;
+    localize the stage-17 artifact to spatial consumption;
+  - stage 20 repeats the stage-17 artifact: the defect is present before
+    spatial, so either resolved-surface publication or temporal identity
+    handling remains responsible. The next step must use an explicit tuple
+    diagnostic or a temporal-off presentation path, not another broad
+    consumer rung;
+  - stage 20 device-removes: stop before spatial and treat the stage-17
+    survival as non-repeatable.
+
+Like stages 17-19, stage 20 requires a fresh process with route and stage fixed
+before map load.
+
+Offline implementation proof:
+
+  - route-2 stages 19/20 are admitted while route 0 and stage 21 are rejected;
+  - stage 20 retains transmission PSR, the bounded resolver, initial, and
+    temporal while spatial pipeline creation/dispatch and composition remain
+    false;
+  - the normal CPU harness and 20-iteration stress run pass;
+  - the Vulkan release build succeeds with all SPIR-V shaders up to date.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

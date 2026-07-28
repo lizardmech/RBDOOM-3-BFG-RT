@@ -445,7 +445,7 @@ idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage(
     "r_pathTracingGeometryStaticBucketSecondaryProbeStage",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Default-off GEO-10 view-16 probe: stages 1-9 isolate setup/DI/bindings; 10 raygen without trace; 11 traversal without hit shaders; 12 rejected full any-hit baseline; 13 any-hit entry only; 14 one complete any-hit invocation; 15 rejected bounded repeated any-hit; 16 one decode-free IgnoreHit then accept; 17 bucket-resident bounded iterative resolve; 18 route-0 monolithic bounded iterative control; 19 bucket-resident bounded resolve plus initial DI only; later consumers remain blocked" );
+    "Default-off GEO-10 view-16 probe: stages 1-9 isolate setup/DI/bindings; 10 raygen without trace; 11 traversal without hit shaders; 12 rejected full any-hit baseline; 13 any-hit entry only; 14 one complete any-hit invocation; 15 rejected bounded repeated any-hit; 16 one decode-free IgnoreHit then accept; 17 bucket-resident bounded iterative resolve; 18 route-0 monolithic bounded iterative control; 19 bucket resolve plus initial only; 20 bucket resolve plus initial and temporal; later consumers remain blocked" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
