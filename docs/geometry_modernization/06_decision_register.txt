@@ -1377,6 +1377,28 @@ Static proof:
   blob SHA-256
     EB539EB9FC0C44390F55D33A74C791A5D2A023668E9C08ADF41B09AEC8550987
 
+D66. ADMIT ONLY THE UNIFIED PRIMARY VIEW-16 RUNG
+------------------------------------------------
+Decision: REF-10D route-2/view-2 survived level load and portal movement with
+no visible issue or device removal. This validates live traversal through the
+new one-resolve primary static path, but does not validate production view 16
+or any secondary consumer.
+
+Re-admit route-2/view-16 only when the existing stage cvar is exactly 1 and all
+marker/GI/PDF-NEE/transmission safety predicates hold. Stages 2 through 6 stay
+rejected. The isolation plan continues to suppress the NEE-cache primary
+update, transmission PSR, initial, temporal, spatial, material composition,
+DLSS-RR, and clean GI. One corrected primary-only runtime pass is required.
+
+Gate verification:
+
+  exact stage-1 acceptance / stage-2..6 rejection      passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V                                               unchanged/up to date
+  deployed executable SHA-256
+    8A730C6C5E95C83571E1BC8B721E915A4014E766A439315438C0B5B7B6966589
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

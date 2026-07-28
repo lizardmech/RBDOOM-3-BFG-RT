@@ -1765,3 +1765,14 @@ descriptor, SBT, or payload ABI changed.
 Live view-16 admission remains rejected. The only authorized runtime check is
 the established route-2/view-2 primary probe, followed by immediate rollback
 to route 0.
+
+REF-10D VIEW-2 RUNTIME RESULT - PASSED
+--------------------------------------
+The unified primary blob survived route-2/view-2 level load and movement with
+no visible issue or device removal. The CPU gate now admits exactly view-16
+stage 1 for a corrected primary-only proof. Every secondary stage remains
+rejected.
+
+Stage-1-gated executable SHA-256:
+
+  8A730C6C5E95C83571E1BC8B721E915A4014E766A439315438C0B5B7B6966589

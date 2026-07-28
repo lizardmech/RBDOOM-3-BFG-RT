@@ -2085,17 +2085,19 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    (void)routeMode;
-    (void)cleanDiEnabled;
-    (void)cleanDiView;
-    (void)diagnosticCheckpointsEnabled;
-    (void)cleanGiEnabled;
-    (void)externalPdfNeeEnabled;
-    (void)transmissionPsrEnabled;
-    (void)probeStage;
-    // REF-10C reproduced device removal with the corrected primary-only
-    // stage. Keep every live view-16 bucket admission fail-closed.
-    return false;
+    // REF-10D replaced the rejected bucket-specific primary branch with one
+    // resolved static lookup and survived the established view-2 isolate.
+    // Re-admit only the corrected primary-only rung; secondary stages remain
+    // fail-closed until this exact route passes.
+    return routeMode ==
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
+        cleanDiEnabled &&
+        cleanDiView == 16 &&
+        diagnosticCheckpointsEnabled &&
+        !cleanGiEnabled &&
+        !externalPdfNeeEnabled &&
+        transmissionPsrEnabled &&
+        probeStage == 1;
 }
 
 RtSmokeStaticBucketSecondaryIsolationDispatchPlan

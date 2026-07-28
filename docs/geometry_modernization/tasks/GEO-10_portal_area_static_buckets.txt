@@ -1546,6 +1546,10 @@ packed resident triangle, and reuses the monolithic static any-hit/closest-hit
 logic. View 16 remains prohibited. Validate route 2 in view 2 before any new
 production-view admission.
 
+REF-10D view-2 runtime result: PASSED. Route-2 traversal loaded and moved
+through the test scene without a visible issue. The next authorized test is
+the corrected view-16 stage 1 only. Stages 2 through 6 remain prohibited.
+
 Checkpoint coverage:
 
   static-bucket BLAS build                             area/split/key label

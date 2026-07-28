@@ -445,7 +445,7 @@ idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage(
     "r_pathTracingGeometryStaticBucketSecondaryProbeStage",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Rejected GEO-10 view-16 isolation stage retained for diagnostics; all values are fail-closed after the corrected primary-only stage reproduced device removal" );
+    "Default-off GEO-10 unified-primary view-16 probe: only stage 1 is admitted; 0 and stages 2-6 remain fail-closed" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
