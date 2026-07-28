@@ -2230,3 +2230,44 @@ Final build/deployment proof:
   source/deployed executable hashes                    equal
   executable SHA-256
     6DA37D4F3E334E068350EC074DF75892FDEEC41AC85CB54151B15A7D5B79B211
+
+REF-10Q RUNTIME ACCEPTANCE - SUCCESS5.LOG - 2026-07-28
+-------------------------------------------------------
+The repaired stage-4 initial-DI dispatch passed. Exact 56/56 route
+publication completed before pipeline creation and dispatch. The log then
+reported:
+
+  GEO-10 view-16 stage-4 initial-only dispatch completed
+
+Cutover remained accepted with `secondaryStage=4`,
+`traversal=bucket-resident-pool`, and no missing BLAS, material-index, range,
+or instance failures. There is no device-loss, Vulkan, binding, or validation
+error. The 248-second `idSessionLocal::Pump` warning follows cold pipeline
+creation and is an expected host stall on this machine.
+
+REF-10R TEMPORAL-DI-ONLY RUNG - 2026-07-28
+-------------------------------------------
+Stage 5 retains the accepted primary and initial-DI dispatches and adds only
+the view-16 temporal DI producer. It performs the ordinary reservoir and
+output barriers, then returns before spatial, transmission, material-feature
+composition, NEE-cache update, external-PDF, or GI work.
+
+The compiled temporal-production hit contract already contains the REF-10Q
+repair. `AnyHit` and `ShadowAnyHit` declare
+`SmokeStaticTriangleMaterialIndexes` but neither `SmokeStaticIndices` nor
+`SmokeStaticVertices`; no shader, descriptor, SBT, or payload change is
+required for this rung.
+
+Stage 6 and production route mode 1 remain rejected.
+
+Offline proof:
+
+  production-temporal hit-interface disassembly        passed
+  stage-5 temporal-only/stage-6 rejection matrix       passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  final build shader status                            all SPIR-V up to date
+  SPIR-V deployment                                    none
+  source/deployed executable hashes                    equal
+  executable SHA-256
+    7A97713902CB672CA15BC8A1ACC13BCF13FFE78B77A035380FA85E92156C33C4

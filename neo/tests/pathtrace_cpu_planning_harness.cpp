@@ -2912,23 +2912,28 @@ void TestStaticBucketAssignmentPlan()
             false,
             4),
         "static bucket view-16 isolation re-admits stage four after one-add hit decode repair");
-    bool secondaryIsolationStagesRejected = true;
-    for (int stage = 5; stage <= 6; ++stage)
-    {
-        secondaryIsolationStagesRejected &=
-            !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
-                RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-                true,
-                16,
-                true,
-                false,
-                false,
-                false,
-                stage);
-    }
     Check(
-        secondaryIsolationStagesRejected,
-        "static bucket unified-primary view-16 isolation rejects stages five and six");
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            false,
+            5),
+        "static bucket view-16 isolation admits stage five after corrected initial-DI acceptance");
+    Check(
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            false,
+            6),
+        "static bucket unified-primary view-16 isolation rejects stage six");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3045,6 +3050,14 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 4);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        temporalDiOnlyPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                5);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
@@ -3100,7 +3113,17 @@ void TestStaticBucketAssignmentPlan()
             !initialDiOnlyPlan.temporal &&
             !initialDiOnlyPlan.spatial &&
             !initialDiOnlyPlan.transmissionPsr &&
-            !initialDiOnlyPlan.materialFeatureCompose,
+            !initialDiOnlyPlan.materialFeatureCompose &&
+            temporalDiOnlyPlan.active &&
+            temporalDiOnlyPlan.stage == 5 &&
+            temporalDiOnlyPlan.primaryPipelineCreation &&
+            temporalDiOnlyPlan.primaryDispatch &&
+            temporalDiOnlyPlan.cleanDiPipelineCreation &&
+            temporalDiOnlyPlan.initial &&
+            temporalDiOnlyPlan.temporal &&
+            !temporalDiOnlyPlan.spatial &&
+            !temporalDiOnlyPlan.transmissionPsr &&
+            !temporalDiOnlyPlan.materialFeatureCompose,
         "static bucket primary isolate separates pipeline creation from DispatchRays");
     Check(
         waitingForPublicationPlan.active &&

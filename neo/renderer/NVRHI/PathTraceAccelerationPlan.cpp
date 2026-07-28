@@ -2027,7 +2027,8 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     int probeStage)
 {
     // REF-10Q removes the full geometry decoder from clean-DI hit-stage
-    // material lookup. Re-admit the corrected initial-DI dispatch only.
+    // material lookup. REF-10R admits the temporal dispatch after the
+    // corrected initial-DI path passed the same exact runtime contract.
     const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
@@ -2036,7 +2037,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         !transmissionPsrEnabled &&
-        (probeStage >= 1 && probeStage <= 4);
+        (probeStage >= 1 && probeStage <= 5);
     return diagnosticContractExact;
 }
 
@@ -2076,7 +2077,9 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     plan.initial =
         plan.cleanDiPipelineCreation &&
         plan.stage >= 4;
-    plan.temporal = false;
+    plan.temporal =
+        plan.initial &&
+        plan.stage >= 5;
     plan.spatial = false;
     plan.materialFeatureCompose = false;
     return plan;

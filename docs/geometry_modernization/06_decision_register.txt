@@ -1811,6 +1811,32 @@ Verification:
   deployed executable SHA-256
     6DA37D4F3E334E068350EC074DF75892FDEEC41AC85CB54151B15A7D5B79B211
 
+D83. ACCEPT REPAIRED INITIAL DI; RE-ADMIT TEMPORAL DI ONLY
+----------------------------------------------------------
+Decision: `success5.log` accepts the repaired stage-4 initial-DI dispatch.
+Exact 56/56 publication preceded the dispatch, the new
+`GEO10.View16.Stage4 Initial DispatchRays` checkpoint completed, and the
+process survived traversal without device loss. The 248-second
+`idSessionLocal::Pump` warning is the expected cold creation stall for the
+clean-DI pipeline family, not a Vulkan contract warning.
+
+The compiled production-temporal `AnyHit` and `ShadowAnyHit` interfaces use
+`SmokeStaticTriangleMaterialIndexes` but do not declare `SmokeStaticIndices`
+or `SmokeStaticVertices`. Re-enable stage 5 only as cumulative initial plus
+temporal DI, then return before spatial and every later consumer. Keep stage 6
+and production mode rejected.
+
+Verification:
+
+  production-temporal hit-interface disassembly        passed
+  stage-5 temporal-only/stage-6 rejection matrix       passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  source/deployed executable hashes                    equal
+  deployed executable SHA-256
+    7A97713902CB672CA15BC8A1ACC13BCF13FFE78B77A035380FA85E92156C33C4
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
