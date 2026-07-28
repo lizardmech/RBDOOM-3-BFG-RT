@@ -1837,6 +1837,39 @@ Verification:
   deployed executable SHA-256
     7A97713902CB672CA15BC8A1ACC13BCF13FFE78B77A035380FA85E92156C33C4
 
+D84. ACCEPT TEMPORAL DI; REPAIR AND RE-ADMIT SPATIAL DI ONLY
+------------------------------------------------------------
+Decision: `success6.log` accepts cumulative stage 5. Exact 56/56 publication
+preceded initial plus temporal dispatch, cutover remained exact, and traversal
+survived without device loss. The four-second `Pump was not called` warning is
+a normal warm pipeline stall.
+
+Do not admit the existing spatial library unchanged: disassembly showed its
+`AnyHit` still declared `SmokeStaticIndices` because hit identity called the
+full geometry decoder. Replace that hit-only call with bounded
+`triangleBase + PrimitiveIndex` metadata and split the non-static material
+fallback. Retain the full index/vertex decoder in spatial raygen, which
+actually reconstructs surfaces.
+
+Both spatial Vulkan libraries validate after rebuild. Their `AnyHit` and
+`ShadowAnyHit` interfaces no longer declare `SmokeStaticIndices` or
+`SmokeStaticVertices`. Re-enable stage 6 only through spatial dispatch and
+return before material-feature composition and every later consumer.
+Production mode remains rejected.
+
+Verification:
+
+  rebuilt spatial Vulkan blobs                         2
+  rebuilt blobs newer than edited source               passed
+  spirv-val                                             2/2
+  spatial hit-interface disassembly                    passed
+  stage-6 spatial-only dispatch matrix                 passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  deployed executable and spatial blob hashes          equal
+  deployed executable SHA-256
+    EF43078C96959013B53B4814C430D5918078A71872A5AE702E3995C37DFC2242
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

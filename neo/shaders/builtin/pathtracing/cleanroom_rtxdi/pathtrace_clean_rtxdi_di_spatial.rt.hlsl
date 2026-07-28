@@ -234,15 +234,26 @@ bool CleanTryResolveStaticBucketHardwareHit(
     uint primitiveIndex,
     out PathTraceStaticGeometryAddress address)
 {
-    return PathTraceTryResolveStaticBucketGeometryAddress(
-        instanceId,
-        geometryIndex,
-        primitiveIndex,
-        CleanRtxdiDiStaticBucketRouteInfo,
-        (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0),
-        (uint)max(CleanRtxdiDiGeometryInfo0.y, 0.0),
-        CleanRtxdiDiStaticTriangleCount,
-        address);
+    address = (PathTraceStaticGeometryAddress)0;
+    uint triangleBase = 0u;
+    if (!PathTraceStaticBucketInstanceInPublishedRange(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo,
+            triangleBase) ||
+        geometryIndex != 0u ||
+        triangleBase >= CleanRtxdiDiStaticTriangleCount ||
+        primitiveIndex >=
+            CleanRtxdiDiStaticTriangleCount - triangleBase)
+    {
+        return false;
+    }
+
+    address.triangleBase = triangleBase;
+    address.triangleIndex = triangleBase + primitiveIndex;
+    address.sourceTriangleIndex = primitiveIndex;
+    address.triangleCount =
+        CleanRtxdiDiStaticTriangleCount - triangleBase;
+    return true;
 }
 
 bool CleanTryResolveCanonicalStaticBucketTriangle(
@@ -726,22 +737,10 @@ bool CleanLoadEmissiveTriangleGeometry(PathTraceSmokeEmissiveTriangle tri, out f
     return true;
 }
 
-uint CleanLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
+uint CleanLoadNonStaticTriangleMaterialIndex(
+    uint instanceId,
+    uint primitiveIndex)
 {
-    if (PathTraceIsStaticBucketRouteInstance(
-            instanceId,
-            CleanRtxdiDiStaticBucketRouteInfo))
-    {
-        PathTraceStaticGeometryAddress address;
-        return CleanTryResolveCanonicalStaticBucketTriangle(
-                instanceId,
-                primitiveIndex,
-                address)
-            ? SmokeStaticBucketTriangleMaterialIndexes[
-                address.triangleIndex]
-            : 0xffffffffu;
-    }
-
     if (instanceId == 0u)
     {
         return primitiveIndex < CleanRtxdiDiStaticTriangleCount
@@ -789,6 +788,27 @@ uint CleanLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
     }
 
     return route.materialIndex;
+}
+
+uint CleanLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
+{
+    if (PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            CleanRtxdiDiStaticBucketRouteInfo))
+    {
+        PathTraceStaticGeometryAddress address;
+        return CleanTryResolveCanonicalStaticBucketTriangle(
+                instanceId,
+                primitiveIndex,
+                address)
+            ? SmokeStaticBucketTriangleMaterialIndexes[
+                address.triangleIndex]
+            : 0xffffffffu;
+    }
+
+    return CleanLoadNonStaticTriangleMaterialIndex(
+        instanceId,
+        primitiveIndex);
 }
 
 uint CleanResolveLiveMaterialIndex(PathTracePrimarySurfaceRecord record)
@@ -1805,7 +1825,7 @@ void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInter
                 ? SmokeStaticBucketTriangleMaterialIndexes[
                     staticBucketAddress.triangleIndex]
                 : 0xffffffffu)
-            : CleanLoadTriangleMaterialIndex(
+            : CleanLoadNonStaticTriangleMaterialIndex(
                 instanceId,
                 primitiveIndex);
     if (CleanMaterialDoesNotOccludeVisibility(instanceId, materialIndex))

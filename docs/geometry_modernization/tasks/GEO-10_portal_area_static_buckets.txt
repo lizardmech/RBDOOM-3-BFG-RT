@@ -2271,3 +2271,53 @@ Offline proof:
   source/deployed executable hashes                    equal
   executable SHA-256
     7A97713902CB672CA15BC8A1ACC13BCF13FFE78B77A035380FA85E92156C33C4
+
+REF-10R RUNTIME ACCEPTANCE - SUCCESS6.LOG - 2026-07-28
+-------------------------------------------------------
+The cumulative stage-5 initial plus temporal dispatch passed. Exact 56/56
+publication completed first, then the log reported:
+
+  GEO-10 view-16 stage-5 initial-plus-temporal dispatch completed
+
+Cutover remained accepted with `secondaryStage=5`,
+`traversal=bucket-resident-pool`, and no device-loss, Vulkan, binding, or
+validation error. The four-second `idSessionLocal::Pump` warning is a normal
+pipeline warmup stall.
+
+REF-10S SPATIAL HIT REPAIR AND SPATIAL-ONLY RUNG - 2026-07-28
+-------------------------------------------------------------
+The pre-admission spatial disassembly exposed one remaining full-decode hit
+path. Spatial `AnyHit` resolved bucket identity through all three static
+indices even though hardware traversal already supplied the bucket-local
+primitive. `ShadowAnyHit` also retained that decoder through its general
+material fallback.
+
+The repaired hit stages use bounded:
+
+  triangleBase  = InstanceID & 0x007fffff
+  triangleIndex = triangleBase + PrimitiveIndex
+
+Full static index and vertex decode remains in the spatial raygen interface
+because spatial surface reconstruction needs triangle geometry. It is absent
+from both rebuilt `AnyHit` and `ShadowAnyHit` interfaces.
+
+Stage 6 retains accepted initial and temporal dispatches, adds only spatial
+DI, performs its ordinary barriers, and returns before material-feature
+composition, transmission, NEE-cache update, external-PDF, or GI work.
+Production route mode 1 remains rejected.
+
+Offline proof:
+
+  rebuilt spatial Vulkan blobs                         2
+  spatial debug/production bytes                       353760/326156
+  rebuilt blobs newer than edited source               passed
+  spirv-val                                             2/2
+  AnyHit/ShadowAnyHit static index/vertex SRVs          absent
+  full raygen reconstruction resources                 retained
+  stage-6 spatial-only dispatch matrix                 passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  final build shader status                            all SPIR-V up to date
+  executable plus two spatial blobs deployed           hashes equal
+  executable SHA-256
+    EF43078C96959013B53B4814C430D5918078A71872A5AE702E3995C37DFC2242

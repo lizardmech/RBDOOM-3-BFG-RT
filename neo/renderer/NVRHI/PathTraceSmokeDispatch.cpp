@@ -3711,7 +3711,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 PathTraceGpuMarkerScope nsightMarker(
                     commandList,
                     staticBucketSecondaryIsolationActive
-                        ? "GEO10.View16.Stage5 Spatial DispatchRays"
+                        ? "GEO10.View16.Stage6 Spatial DispatchRays"
                         : "CleanDI.2 Spatial DispatchRays",
                     nsightGpuMarkers);
                 commandList->dispatchRays(cleanArgs);
@@ -3719,6 +3719,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiSpatialReservoirBuffer);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
+        }
+        if (staticBucketSecondaryIsolationActive &&
+            staticBucketSecondaryIsolation.spatial &&
+            !staticBucketSecondaryIsolation.materialFeatureCompose)
+        {
+            if (!m_smokeTestDispatched)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO-10 view-16 stage-6 initial-plus-temporal-plus-spatial dispatch completed (%dx%d); post-DI consumers skipped\n",
+                    m_frameResources.width,
+                    m_frameResources.height);
+            }
+            m_smokeTestDispatched = true;
+            return;
         }
         auto dispatchCleanMaterialFeatureCompose = [&]()
         {
