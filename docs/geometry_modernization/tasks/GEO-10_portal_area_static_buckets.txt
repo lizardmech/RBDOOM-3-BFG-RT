@@ -2009,3 +2009,19 @@ Offline proof:
   source/deployed executable hashes                    equal
   executable SHA-256
     AEB6578E2B5C4B2929F5981FA835BC9FD83B810ACBFEB67DA214559BAAE8B982
+
+REF-10L RUNTIME ACCEPTANCE - SUCCESS.LOG - 2026-07-28
+------------------------------------------------------
+The fail-closed latch passed runtime validation. On frame 1, only 2 of 56
+bucket BLASes were ready, cutover was rejected, and dispatch reported:
+
+  GEO-10 view-16 isolation fail-closed before pipeline creation
+  stage=1 supported=0 publication=0
+
+The bucket build ramp then reached 56/56 ready with exact publication. Because
+runtime support remained revoked, cutover stayed rejected and the same
+pre-pipeline guard remained active. The log contains no device-loss, Vulkan
+error, or diagnostic-checkpoint failure.
+
+This accepts REF-10L only. It does not accept REF-10K stage 1 and does not
+authorize another view-16 rung.

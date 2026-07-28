@@ -1684,6 +1684,17 @@ Verification:
   deployed executable SHA-256
     AEB6578E2B5C4B2929F5981FA835BC9FD83B810ACBFEB67DA214559BAAE8B982
 
+Runtime verification (`success.log`):
+
+  frame-1 ready buckets                                2 / 56
+  settled ready buckets                               56 / 56
+  settled publication exact                            yes
+  pipeline creation while unsupported                  blocked
+  device-loss / Vulkan-error lines                      0
+
+D76 is accepted for the fail-closed latch. D75 remains in force for every
+view-16 runtime stage.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
