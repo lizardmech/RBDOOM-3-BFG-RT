@@ -1664,3 +1664,69 @@ The shader target reran because the shared header's filesystem timestamp
 changed during review and was restored. All 40 regenerated Vulkan blobs were
 byte-identical to the currently deployed copies, so copying them would only
 change timestamps and was intentionally skipped.
+
+REF-10F COLD PIPELINE-CREATION SPLIT - 2026-07-28
+-------------------------------------------------
+The REF-10E run removed the device at 16:02:45 during the first cold level
+load. Console history shows route 2 and view 16 were selected before any
+route-0/view-2 warm-up load. No engine checkpoint line survived, so REF-10E
+does not distinguish primary pipeline creation from primary dispatch.
+
+The replacement is one two-step test in the same process:
+
+  stage 1  create the primary RT pipeline with deferred host operations;
+           return before `DispatchRays`
+  stage 2  reuse that pipeline and dispatch the primary producer only;
+           return before every secondary consumer
+
+Stages 3 through 6 are rejected and no longer represent the old cumulative
+secondary ladder.
+
+Cold stage-1 configuration:
+
+  r_pathTracingNsightGpuMarkers 1
+  r_pathTracingCleanRtxdiDiEnable 1
+  r_pathTracingCleanRestirGiEnable 0
+  r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 0
+  r_pathTracingRestirPdfNeeVerifierEnable 0
+  r_pathTracingCleanRtxdiDiTransmissionProducer 0
+  r_pathTracingCleanRtxdiDiTransmissionCompose 0
+  r_pathTracingCleanRtxdiDiView 16
+  r_pathTracingGeometryStaticBucketBlas 1
+  r_pathTracingGeometryStaticBucketBlasBuild 1
+  r_pathTracingGeometryStaticBucketSecondaryProbeStage 1
+  r_pathTracingGeometryStaticBucketRoute 2
+  loadgame doom3_1
+
+Wait for:
+
+  GEO-10 primary pipeline creation completed; stage 1 returns before DispatchRays
+
+Do not restart or reload. If stage 1 survives, set only:
+
+  r_pathTracingGeometryStaticBucketSecondaryProbeStage 2
+
+Stage 2 should print:
+
+  GEO-10 view-16 stage-2 primary-only dispatch completed
+
+Interpretation:
+
+  stage 1 removes device
+    Primary pipeline creation or the already-proven bucket AS setup is unsafe;
+    no ray dispatch occurred.
+
+  stage 1 survives, stage 2 removes device
+    The bucket primary dispatch is unsafe.
+
+  both survive
+    The prior failure was cold synchronous pipeline pressure or a consumer
+    removed by REF-10E, not the primary bucket traversal itself.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  shaders rebuilt/deployed                             none
+  executable SHA-256
+    651EED97E60460AFEAAB04D68B7A4E03FAEC02545FEDA4C130CF3C36A729F93C

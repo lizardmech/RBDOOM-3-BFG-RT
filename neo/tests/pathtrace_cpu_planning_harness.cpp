@@ -2886,9 +2886,20 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             1),
-        "static bucket view-16 isolation accepts primary-only stage one with transmission disabled");
+        "static bucket view-16 isolation accepts pipeline-only stage one with transmission disabled");
+    Check(
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            false,
+            2),
+        "static bucket view-16 isolation accepts primary-dispatch stage two with transmission disabled");
     bool secondaryIsolationStagesRejected = true;
-    for (int stage = 2; stage <= 6; ++stage)
+    for (int stage = 3; stage <= 6; ++stage)
     {
         secondaryIsolationStagesRejected &=
             !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
@@ -2903,7 +2914,7 @@ void TestStaticBucketAssignmentPlan()
     }
     Check(
         secondaryIsolationStagesRejected,
-        "static bucket unified-primary view-16 isolation rejects every secondary stage");
+        "static bucket unified-primary view-16 isolation rejects every secondary-consumer stage");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -2987,27 +2998,38 @@ void TestStaticBucketAssignmentPlan()
             false,
             7),
         "static bucket clean-DI primary isolation rejects unsafe routes, transmission, and out-of-range stages");
-    bool secondaryIsolationDispatchStagesExact = true;
-    for (int stage = 1; stage <= 6; ++stage)
-    {
-        const RtSmokeStaticBucketSecondaryIsolationDispatchPlan stagePlan =
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        primaryPipelineOnlyPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
                 true,
-                stage);
-        secondaryIsolationDispatchStagesExact &=
-            stagePlan.active &&
-            stagePlan.stage == stage &&
-            !stagePlan.neeCachePrimaryUpdate &&
-            stagePlan.transmissionPsr == (stage >= 2) &&
-            stagePlan.initial == (stage >= 3) &&
-            stagePlan.temporal == (stage >= 4) &&
-            stagePlan.spatial == (stage >= 5) &&
-            stagePlan.materialFeatureCompose == (stage >= 6);
-    }
+                1);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        primaryDispatchOnlyPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                2);
     Check(
-        secondaryIsolationDispatchStagesExact,
-        "static bucket clean-DI secondary dispatch plan admits exact cumulative stage boundaries");
+        primaryPipelineOnlyPlan.active &&
+            primaryPipelineOnlyPlan.stage == 1 &&
+            !primaryPipelineOnlyPlan.primaryDispatch &&
+            !primaryPipelineOnlyPlan.neeCachePrimaryUpdate &&
+            !primaryPipelineOnlyPlan.transmissionPsr &&
+            !primaryPipelineOnlyPlan.initial &&
+            !primaryPipelineOnlyPlan.temporal &&
+            !primaryPipelineOnlyPlan.spatial &&
+            !primaryPipelineOnlyPlan.materialFeatureCompose &&
+            primaryDispatchOnlyPlan.active &&
+            primaryDispatchOnlyPlan.stage == 2 &&
+            primaryDispatchOnlyPlan.primaryDispatch &&
+            !primaryDispatchOnlyPlan.neeCachePrimaryUpdate &&
+            !primaryDispatchOnlyPlan.transmissionPsr &&
+            !primaryDispatchOnlyPlan.initial &&
+            !primaryDispatchOnlyPlan.temporal &&
+            !primaryDispatchOnlyPlan.spatial &&
+            !primaryDispatchOnlyPlan.materialFeatureCompose,
+        "static bucket primary isolate separates deferred pipeline creation from DispatchRays");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         activeStageZeroPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
@@ -3017,13 +3039,14 @@ void TestStaticBucketAssignmentPlan()
     Check(
         activeStageZeroPlan.active &&
             activeStageZeroPlan.stage == 0 &&
+            !activeStageZeroPlan.primaryDispatch &&
             !activeStageZeroPlan.neeCachePrimaryUpdate &&
             !activeStageZeroPlan.transmissionPsr &&
             !activeStageZeroPlan.initial &&
             !activeStageZeroPlan.temporal &&
             !activeStageZeroPlan.spatial &&
             !activeStageZeroPlan.materialFeatureCompose,
-        "static bucket clean-DI active publication with an invalid stage fails closed after primary");
+        "static bucket clean-DI active publication with an invalid stage fails closed before primary");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         monolithicDispatchPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
@@ -3032,6 +3055,7 @@ void TestStaticBucketAssignmentPlan()
                 1);
     Check(
         !monolithicDispatchPlan.active &&
+            monolithicDispatchPlan.primaryDispatch &&
             monolithicDispatchPlan.neeCachePrimaryUpdate &&
             monolithicDispatchPlan.transmissionPsr &&
             monolithicDispatchPlan.initial &&

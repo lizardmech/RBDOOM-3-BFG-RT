@@ -1800,6 +1800,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             if (!m_smokePrimarySurfaceProducerShaderTable)
             {
+                if (staticBucketSecondaryIsolationActive)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 primary pipeline creation begin (stage=%d deferredHost=1)\n",
+                        staticBucketSecondaryIsolation.stage);
+                }
                 InitRayTracingSmokeRestirPipeline(9);
             }
             if (!m_smokePrimarySurfaceProducerShaderTable)
@@ -1809,6 +1815,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     printCleanRtxdiDiDump("dispatch-entry", "primary-surface-shader", 0);
                     r_pathTracingCleanRtxdiDiDump.SetInteger(0);
                 }
+                return;
+            }
+            if (staticBucketSecondaryIsolationActive &&
+                !staticBucketSecondaryIsolation.primaryDispatch)
+            {
+                if (!m_smokeTestDispatched)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 primary pipeline creation completed; stage 1 returns before DispatchRays\n");
+                }
+                m_smokeTestDispatched = true;
                 return;
             }
 
@@ -2077,7 +2094,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 PathTraceGpuMarkerScope nsightMarker(
                     commandList,
                     staticBucketSecondaryIsolationActive
-                        ? "GEO10.View16.Stage1 PrimarySurface DispatchRays"
+                        ? "GEO10.View16.Stage2 PrimarySurface DispatchRays"
                         : "CleanDI.P0 PrimarySurface DispatchRays",
                     nsightGpuMarkers);
                 commandList->dispatchRays(primarySurfaceArgs);
@@ -2221,7 +2238,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             if (!m_smokeTestDispatched)
             {
                 common->Printf(
-                    "PathTracePrimaryPass: GEO-10 view-16 stage-1 primary-only dispatch completed (%dx%d); secondary pipeline creation and dispatch skipped\n",
+                    "PathTracePrimaryPass: GEO-10 view-16 stage-2 primary-only dispatch completed (%dx%d); secondary pipeline creation and dispatch skipped\n",
                     m_frameResources.width,
                     m_frameResources.height);
             }

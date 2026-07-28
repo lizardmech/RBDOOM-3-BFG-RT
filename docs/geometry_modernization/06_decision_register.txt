@@ -1408,6 +1408,9 @@ Gate verification:
 
 D67. MAKE THE VIEW-16 RUNG ACTUALLY PRIMARY-ONLY
 -----------------------------------------------
+Superseded by D68 after the cold run removed the device before producing a
+checkpoint or proving that `DispatchRays` was reached.
+
 Decision: the D66 failure does not isolate the primary RT dispatch. View 2 and
 view 16 stage 1 use the same primary producer and bucket TLAS, and the unified
 view-2 route passed. Inspection then found the material difference: before the
@@ -1454,6 +1457,49 @@ Verification:
   SPIR-V content changes                                none
   deployed executable SHA-256
     2328767BED6F43E49AA85B5A2700507FEC0862783DFD8409E8D238BBF487FE53
+
+D68. SPLIT PRIMARY PIPELINE CREATION FROM PRIMARY DISPATCH
+---------------------------------------------------------
+Decision: the D67 runtime attempt removed the device during the first cold
+level load. Console history proves route 2 and view 16 were enabled before any
+route-0/view-2 warm-up load. Windows recorded display event 4101 and
+LiveKernelEvent 141 at 2026-07-28 16:02:45, followed by the established
+`ucrtbase.dll` fail-fast. No engine logfile or NV checkpoint line survived.
+
+NVRHI creates its Vulkan pipeline cache with no initial data, so it is
+process-local and cold on every launch. D67 still combined two boundaries:
+
+  1. load the primary SPIR-V and call `vkCreateRayTracingPipelinesKHR`;
+  2. submit the primary `DispatchRays`.
+
+Replace that combined rung with two same-process stages:
+
+  stage 1
+    Load and create only the primary-surface producer pipeline, then return
+    before resource validation and `DispatchRays`.
+
+  stage 2
+    Reuse the stage-1 pipeline and submit only the primary-surface
+    `DispatchRays`, then return before all secondary setup and consumers.
+
+Both stages keep NEE-cache, transmission, clean-DI initial/temporal/spatial,
+material features, GI, and RR disabled. Stages 3 through 6 are rejected.
+
+The primary pipeline now requests Vulkan deferred host operations. The local
+NVRHI backend joins one driver work unit at a time and yields for 1 ms between
+idle/done results, matching the already-used clean-GI warm-up pattern. This
+does not make pipeline compilation evidence of GPU execution; it bounds host
+compiler pressure and keeps stage 1 distinct from any ray dispatch.
+
+Verification:
+
+  stage-1 create-only / stage-2 dispatch-only tests      passed
+  stages 3 through 6 rejection tests                    passed
+  PathTraceCpuPlanningHarness --stress 20               passed
+  win64-pt-dev-release                                  passed
+  SPIR-V rebuild/deployment                             none
+  executable SHA-256
+    651EED97E60460AFEAAB04D68B7A4E03FAEC02545FEDA4C130CF3C36A729F93C
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

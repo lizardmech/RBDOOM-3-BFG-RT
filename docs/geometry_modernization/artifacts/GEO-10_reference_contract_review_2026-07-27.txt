@@ -1828,3 +1828,40 @@ Build proof:
   SPIR-V hashes vs deployed set                        40/40 identical
   executable SHA-256
     2328767BED6F43E49AA85B5A2700507FEC0862783DFD8409E8D238BBF487FE53
+
+REF-10F COLD-RUN EVIDENCE AND PIPELINE/DISPATCH SPLIT - 2026-07-28
+-----------------------------------------------------------------
+REF-10E removed the device while entering the level. Durable OS evidence:
+
+  2026-07-28 16:02:45  nvlddmkm/display TDR
+  2026-07-28 16:02:46  display event 4101
+  LiveKernelEvent       141
+  process termination   ucrtbase.dll c0000409
+
+Console history proves the process enabled route 2, view 16, and stage 1 before
+its first `loadgame doom3_1`. It did not perform the requested route-0/view-2
+warm-up load. The Vulkan pipeline cache in NVRHI is created with an empty
+`VkPipelineCacheCreateInfo`; it is not loaded from disk and cannot make a new
+process warm.
+
+REF-10E skipped every secondary pipeline but still created the primary
+producer pipeline immediately before dispatching it. With no checkpoint log,
+the device removal cannot be assigned to either boundary.
+
+REF-10F splits them in one executable and process:
+
+  stage 1  primary shader-library load and RT pipeline creation only
+  stage 2  reuse the stage-1 table and execute primary `DispatchRays` only
+
+The primary pipeline opts into the NVRHI Vulkan deferred-host-operation path.
+That path uses one joiner and yields between driver work units. Secondary
+pipeline creation and all secondary dispatches remain absent in both stages.
+Stages 3 through 6 fail admission.
+
+Build proof:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V changes                                       none
+  executable SHA-256
+    651EED97E60460AFEAAB04D68B7A4E03FAEC02545FEDA4C130CF3C36A729F93C

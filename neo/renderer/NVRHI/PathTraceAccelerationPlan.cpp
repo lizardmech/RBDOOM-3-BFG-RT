@@ -2082,9 +2082,9 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    // View 16 is admitted only as an exact primary-producer isolate. Keep
-    // transmission disabled so the diagnostic does not create or dispatch
-    // any secondary route-aware pipeline before the primary trace.
+    // Stage 1 creates the primary pipeline without dispatching it. Stage 2
+    // dispatches that already-created pipeline. Both keep every secondary
+    // consumer disabled.
     return routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
@@ -2093,7 +2093,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         !transmissionPsrEnabled &&
-        probeStage == 1;
+        (probeStage == 1 || probeStage == 2);
 }
 
 RtSmokeStaticBucketSecondaryIsolationDispatchPlan
@@ -2112,15 +2112,13 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     }
 
     plan.stage = std::max(0, std::min(6, probeStage));
-    // The NEE-cache primary-surface update is an adjacent full-screen
-    // consumer, not part of the clean-DI stage ladder. Keep it out of every
-    // active isolation stage so stage 1 is exactly the primary RT dispatch.
+    plan.primaryDispatch = plan.stage >= 2;
     plan.neeCachePrimaryUpdate = false;
-    plan.transmissionPsr = plan.stage >= 2;
-    plan.initial = plan.stage >= 3;
-    plan.temporal = plan.stage >= 4;
-    plan.spatial = plan.stage >= 5;
-    plan.materialFeatureCompose = plan.stage >= 6;
+    plan.transmissionPsr = false;
+    plan.initial = false;
+    plan.temporal = false;
+    plan.spatial = false;
+    plan.materialFeatureCompose = false;
     return plan;
 }
 
