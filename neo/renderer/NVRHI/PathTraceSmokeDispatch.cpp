@@ -3592,9 +3592,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         staticBucketTransmissionMarker =
                             "GEO10.View16.Stage15 TransmissionAnyHitBounded";
                         break;
+                    case 16:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage16 TransmissionAnyHitIgnoreOnce";
+                        break;
                     default:
                         staticBucketTransmissionMarker =
-                            "GEO10.View16.Stage16 TransmissionFullHitPath";
+                            "GEO10.View16.Stage17 TransmissionFullHitPath";
                         break;
                 }
             }
@@ -3901,10 +3905,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                             m_frameResources.width,
                             m_frameResources.height);
                     }
+                    else if (staticBucketSecondaryIsolation.stage == 16)
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-16 one decode-free transmission IgnoreHit plus initial-temporal-spatial dispatch completed (%dx%d); second intersection accepted, TMax=4096, geometry/material decode, closest-hit, post-DI composition, and later consumers skipped\n",
+                            m_frameResources.width,
+                            m_frameResources.height);
+                    }
                     else
                     {
                         common->Printf(
-                            "PathTracePrimaryPass: GEO-10 view-16 stage-16 full transmission hit path plus initial-temporal-spatial dispatch completed (%dx%d); post-DI transmission/glass composition and later consumers skipped\n",
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-17 full transmission hit path plus initial-temporal-spatial dispatch completed (%dx%d); post-DI transmission/glass composition and later consumers skipped\n",
                             m_frameResources.width,
                             m_frameResources.height);
                     }

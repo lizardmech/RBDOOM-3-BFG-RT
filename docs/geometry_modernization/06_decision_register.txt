@@ -2225,16 +2225,17 @@ steady-state payload-write or uniform per-frame workload explanation. The
 remaining boundary is view-dependent transmission any-hit content or the
 number/range of intersections admitted by normal `IgnoreHit` filtering.
 
-Replace the former stage-13 full-hit rung with three cumulative isolates in
-one shader build. Expand the producer-local probe field from two to three
-bits; bit 31 remains unused. Keep closest-hit, post-DI composition, reflection,
-and refraction suppressed through these isolates:
+Replace the former stage-13 full-hit rung with cumulative isolates. Expand
+the producer-local probe field from two to three bits; bit 31 remains unused.
+Keep closest-hit, post-DI composition, reflection, and refraction suppressed
+through these isolates:
 
   stage 13  invoke any-hit, accept immediately before geometry/material decode
   stage 14  execute one complete any-hit content evaluation, then accept
              regardless of the normal IgnoreHit decision
   stage 15  restore repeated normal any-hit filtering with TMax=4096
-  stage 16  restore the normal TMax=100000 any-hit plus closest-hit path
+  stage 16  issue exactly one decode-free IgnoreHit, then accept the next hit
+  stage 17  restore the normal TMax=100000 any-hit plus closest-hit path
 
 Interpretation:
 
@@ -2243,13 +2244,15 @@ Interpretation:
   14 fails      per-intersection geometry/material/class/texture content
   14 passes,
   15 fails      repeated IgnoreHit traversal or short-range accumulated cost
-  15 passes     long-range traversal/intersection cost; stage 12 remains the
-                accepted failure control
+  15 passes     long-range traversal/intersection cost
+  15 fails,
+  16 fails      IgnoreHit continuation/re-entry itself
+  16 passes     repeated decoded intersections or their accumulated cost
 
-Keep `r_pathTracingLiquidPoolMode 0` throughout stages 13-15 so the previously
-excluded branch cannot widen a rung. Black windows remain expected. Stage 16
-is implemented for completeness but must not run until stages 13-15 identify
-an accepted boundary.
+Keep `r_pathTracingLiquidPoolMode 0` throughout stages 13-16 so the previously
+excluded branch cannot widen a rung. Black windows remain expected. Stage 17
+is implemented for completeness but must not run until the accepted boundary
+has a concrete repair.
 
 Implementation keeps the expanded probe decode in a producer-only include
 rather than the shared clean-DI ABI. The CPU planning harness and 20 stress
@@ -2266,6 +2269,46 @@ Local proof:
     and passes `spirv-val --target-env vulkan1.2`.
   - only the transmission-producer SPIR-V differs from the deployed shader
     set affected by the shared include rebuild; deploy that blob only.
+
+Runtime result:
+
+  - stage 13 survives camera movement with all 56 resident buckets published,
+    `materialIndexMissingActive=0`, and the expected
+    `TransmissionAnyHitEntryOnly` completion marker.
+  - the one-time 39-second session-pump warning follows pipeline creation and
+    is not accompanied by device removal.
+  - therefore transmission hit-group/SBT selection, any-hit entry, and the
+    trace-payload transport are accepted. Advance to stage 14; do not reopen
+    those contracts unless a later result contradicts this proof.
+
+  - stage 14 also survives camera movement with all 56 resident buckets,
+    exact publication, `materialIndexMissingActive=0`, and the expected
+    `TransmissionAnyHitContentOnce` completion marker.
+  - therefore one complete per-intersection geometry/material/class/texture
+    evaluation is accepted. The remaining rejected behavior begins when the
+    normal any-hit decisions can call `IgnoreHit` and repeat over additional
+    intersections. Advance to bounded stage 15.
+
+  - stage 15 device-removes before entering the level. The diagnostic names
+    the transmission producer with `resolved=1`. Do not run the full-hit
+    control.
+  - the material-feature pipeline already declares the full 176-byte payload
+    and installs its own full-payload hit shader under all four SBT group
+    names. The separate five-word compact skinned-hit library is linked into
+    the core-DI pipelines, not this transmission pipeline, so that historical
+    payload mismatch is not the live stage-15 explanation.
+  - add stage 16 using the last producer-local probe encoding: the first
+    any-hit invocation sets a counter and calls `IgnoreHit`; the second
+    accepts and ends traversal. It performs no geometry, material, class,
+    texture, alpha, emissive, or liquid work and retains TMax=4096. This
+    distinguishes IgnoreHit continuation/re-entry itself from repeated
+    decoded content and accumulated cost.
+  - the extended CPU harness passes normally and for 20 stress iterations.
+    The Vulkan-only release build succeeds; all nine regenerated clean-DI
+    blobs pass `spirv-val --target-env vulkan1.2`, and only the transmission
+    producer differs from the deployed set. Its SHA-256 is
+    44BED08B6FF17FE78781D119E70550233B11343E84937565E33F7AE071434EDC,
+    and its mtime is newer than the edited shared export source.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

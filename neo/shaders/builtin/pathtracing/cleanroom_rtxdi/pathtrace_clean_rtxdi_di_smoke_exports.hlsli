@@ -552,6 +552,23 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
         AcceptHitAndEndSearch();
         return;
     }
+    if (payload.rayMode == 3u &&
+        transmissionTraceProbeMode == 7u)
+    {
+        // GEO-10 stage 16: isolate IgnoreHit continuation itself. Reject
+        // exactly the first intersection without decoding it, then terminate
+        // at the second intersection. A miss after the first rejection is
+        // also valid and is handled by the normal miss shader.
+        if (payload.value == 0u)
+        {
+            payload.value = 1u;
+            IgnoreHit();
+            return;
+        }
+        payload.value = 2u;
+        AcceptHitAndEndSearch();
+        return;
+    }
 #endif
 #if RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
     const uint hardwareInstanceId = InstanceID();

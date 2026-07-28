@@ -2032,13 +2032,14 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     // the transmission/glass material-feature pipelines without runtime
     // registrations. Stage 9 admits the live material-feature registrations,
     // bindings, state transitions, and clears without DispatchRays. Stages
-    // 10-16 dispatch the transmission producer with progressively isolated
+    // 10-17 dispatch the transmission producer with progressively isolated
     // trace work: no TraceRay, traversal without hit shaders, the rejected
     // full any-hit baseline, entry-only any-hit, one complete any-hit
-    // invocation, bounded repeated any-hit, then the full hit path.
+    // invocation, bounded repeated any-hit, one decode-free IgnoreHit, then
+    // the full hit path.
     const bool transmissionContractExact =
         (probeStage <= 8 && !transmissionPsrEnabled) ||
-        (probeStage >= 9 && probeStage <= 16 &&
+        (probeStage >= 9 && probeStage <= 17 &&
             transmissionPsrEnabled);
     const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
@@ -2048,7 +2049,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         transmissionContractExact &&
-        (probeStage >= 1 && probeStage <= 16);
+        (probeStage >= 1 && probeStage <= 17);
     return diagnosticContractExact;
 }
 
@@ -2072,7 +2073,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         return plan;
     }
 
-    plan.stage = std::max(0, std::min(16, probeStage));
+    plan.stage = std::max(0, std::min(17, probeStage));
     plan.primaryPipelineCreation =
         isolationSupported &&
         routePublicationValid &&
@@ -2129,6 +2130,10 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     else if (plan.stage == 15)
     {
         plan.transmissionTraceProbeMode = 6;
+    }
+    else if (plan.stage == 16)
+    {
+        plan.transmissionTraceProbeMode = 7;
     }
     plan.materialFeatureCompose = false;
     return plan;

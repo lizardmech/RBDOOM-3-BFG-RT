@@ -126,10 +126,13 @@ bool PathTraceCleanRtxdiDiTraceTransmissionHit(
     ray.Origin = RAB_GetSurfaceWorldPos(surface) + rayDirection * 0.05;
     ray.Direction = rayDirection;
     ray.TMin = 0.01;
-    // GEO-10 mode 6 preserves the full repeated any-hit body while bounding
-    // the ray. It separates long-range traversal/IgnoreHit cost from a
-    // content fault already reproducible at short range.
-    ray.TMax = traceProbeMode == 6u ? 4096.0 : 100000.0;
+    // GEO-10 modes 6 and 7 keep the ray bounded. Mode 6 preserves the full
+    // repeated any-hit body; mode 7 isolates one IgnoreHit continuation with
+    // no geometry/material decode.
+    ray.TMax =
+        (traceProbeMode == 6u || traceProbeMode == 7u)
+            ? 4096.0
+            : 100000.0;
     if (traceProbeMode == 1u)
     {
         // GEO-10 stage 10: execute the complete producer raygen prologue and
@@ -150,8 +153,8 @@ bool PathTraceCleanRtxdiDiTraceTransmissionHit(
     }
     else if (traceProbeMode >= 3u)
     {
-        // GEO-10 stages 12-15 admit progressively isolated transmission
-        // any-hit work while keeping closest-hit suppressed. Stage 16 uses
+        // GEO-10 stages 12-16 admit progressively isolated transmission
+        // any-hit work while keeping closest-hit suppressed. Stage 17 uses
         // mode zero and restores the normal full hit path.
         traceFlags =
             RAY_FLAG_FORCE_NON_OPAQUE |
