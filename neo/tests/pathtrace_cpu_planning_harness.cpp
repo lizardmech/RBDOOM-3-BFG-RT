@@ -2966,7 +2966,18 @@ void TestStaticBucketAssignmentPlan()
             false,
             true,
             9),
-        "static bucket view-16 isolation admits stage nine only with transmission PSR controls enabled");
+        "static bucket view-16 isolation admits stage nine material bindings only with transmission controls enabled");
+    Check(
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            10),
+        "static bucket view-16 isolation admits stage ten transmission PSR only with transmission controls enabled");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3057,8 +3068,17 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             false,
-            10),
-        "static bucket clean-DI primary isolation rejects unsafe routes, transmission, and out-of-range stages");
+            10) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            11),
+        "static bucket clean-DI primary isolation rejects unsafe routes, missing transmission controls, and out-of-range stages");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         primaryPipelineOnlyPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
@@ -3124,13 +3144,21 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 8);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
-        transmissionPsrOnlyPlan =
+        materialFeatureRuntimeBindingsOnlyPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
                 true,
                 true,
                 true,
                 9);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionPsrOnlyPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                10);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
@@ -3242,10 +3270,24 @@ void TestStaticBucketAssignmentPlan()
             materialFeaturePipelineOnlyPlan.spatialPipelineCreation &&
             materialFeaturePipelineOnlyPlan.spatial &&
             materialFeaturePipelineOnlyPlan.materialFeaturePipelineCreation &&
+            !materialFeaturePipelineOnlyPlan.materialFeatureRuntimeBindings &&
             !materialFeaturePipelineOnlyPlan.transmissionPsr &&
             !materialFeaturePipelineOnlyPlan.materialFeatureCompose &&
+            materialFeatureRuntimeBindingsOnlyPlan.active &&
+            materialFeatureRuntimeBindingsOnlyPlan.stage == 9 &&
+            materialFeatureRuntimeBindingsOnlyPlan.primaryPipelineCreation &&
+            materialFeatureRuntimeBindingsOnlyPlan.primaryDispatch &&
+            materialFeatureRuntimeBindingsOnlyPlan.cleanDiPipelineCreation &&
+            materialFeatureRuntimeBindingsOnlyPlan.initial &&
+            materialFeatureRuntimeBindingsOnlyPlan.temporal &&
+            materialFeatureRuntimeBindingsOnlyPlan.spatialPipelineCreation &&
+            materialFeatureRuntimeBindingsOnlyPlan.spatial &&
+            materialFeatureRuntimeBindingsOnlyPlan.materialFeaturePipelineCreation &&
+            materialFeatureRuntimeBindingsOnlyPlan.materialFeatureRuntimeBindings &&
+            !materialFeatureRuntimeBindingsOnlyPlan.transmissionPsr &&
+            !materialFeatureRuntimeBindingsOnlyPlan.materialFeatureCompose &&
             transmissionPsrOnlyPlan.active &&
-            transmissionPsrOnlyPlan.stage == 9 &&
+            transmissionPsrOnlyPlan.stage == 10 &&
             transmissionPsrOnlyPlan.primaryPipelineCreation &&
             transmissionPsrOnlyPlan.primaryDispatch &&
             transmissionPsrOnlyPlan.cleanDiPipelineCreation &&
@@ -3254,9 +3296,10 @@ void TestStaticBucketAssignmentPlan()
             transmissionPsrOnlyPlan.spatialPipelineCreation &&
             transmissionPsrOnlyPlan.spatial &&
             transmissionPsrOnlyPlan.materialFeaturePipelineCreation &&
+            transmissionPsrOnlyPlan.materialFeatureRuntimeBindings &&
             transmissionPsrOnlyPlan.transmissionPsr &&
             !transmissionPsrOnlyPlan.materialFeatureCompose,
-        "static bucket primary isolate separates pipeline creation from DispatchRays");
+        "static bucket primary isolate separates pipeline creation, runtime bindings, and DispatchRays");
     Check(
         waitingForPublicationPlan.active &&
             waitingForPublicationPlan.requested &&
@@ -3304,6 +3347,7 @@ void TestStaticBucketAssignmentPlan()
             !activeStageZeroPlan.spatialPipelineCreation &&
             !activeStageZeroPlan.spatial &&
             !activeStageZeroPlan.materialFeaturePipelineCreation &&
+            !activeStageZeroPlan.materialFeatureRuntimeBindings &&
             !activeStageZeroPlan.materialFeatureCompose,
         "static bucket clean-DI active publication with an invalid stage fails closed before primary");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
@@ -3325,6 +3369,7 @@ void TestStaticBucketAssignmentPlan()
             monolithicDispatchPlan.spatialPipelineCreation &&
             monolithicDispatchPlan.spatial &&
             monolithicDispatchPlan.materialFeaturePipelineCreation &&
+            monolithicDispatchPlan.materialFeatureRuntimeBindings &&
             monolithicDispatchPlan.materialFeatureCompose,
         "static bucket clean-DI secondary dispatch plan leaves monolithic view 16 unchanged");
 

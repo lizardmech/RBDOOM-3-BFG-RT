@@ -2026,13 +2026,17 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    // REF-10U through REF-10X split pipeline construction from execution:
+    // REF-10U through REF-10Y split pipeline construction, live resource
+    // binding, and execution:
     // stage 6 creates spatial, stage 7 dispatches spatial, and stage 8 creates
-    // the transmission/glass material-feature pipelines without dispatch.
-    // Stage 9 requires and dispatches pre-DI transmission PSR only.
+    // the transmission/glass material-feature pipelines without runtime
+    // registrations. Stage 9 admits the live material-feature registrations,
+    // bindings, state transitions, and clears without DispatchRays. Stage 10
+    // dispatches pre-DI transmission PSR only.
     const bool transmissionContractExact =
         (probeStage <= 8 && !transmissionPsrEnabled) ||
-        (probeStage == 9 && transmissionPsrEnabled);
+        (probeStage >= 9 && probeStage <= 10 &&
+            transmissionPsrEnabled);
     const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
@@ -2041,7 +2045,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         transmissionContractExact &&
-        (probeStage >= 1 && probeStage <= 9);
+        (probeStage >= 1 && probeStage <= 10);
     return diagnosticContractExact;
 }
 
@@ -2065,7 +2069,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         return plan;
     }
 
-    plan.stage = std::max(0, std::min(9, probeStage));
+    plan.stage = std::max(0, std::min(10, probeStage));
     plan.primaryPipelineCreation =
         isolationSupported &&
         routePublicationValid &&
@@ -2093,9 +2097,12 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     plan.materialFeaturePipelineCreation =
         plan.spatial &&
         plan.stage >= 8;
-    plan.transmissionPsr =
+    plan.materialFeatureRuntimeBindings =
         plan.materialFeaturePipelineCreation &&
         plan.stage >= 9;
+    plan.transmissionPsr =
+        plan.materialFeatureRuntimeBindings &&
+        plan.stage >= 10;
     plan.materialFeatureCompose = false;
     return plan;
 }

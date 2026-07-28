@@ -1987,6 +1987,45 @@ Source and deployed executable hashes are equal:
 
   D62E38E88C627D290EE54905D4F9A6C534E41A79B679623C504594C9FD85F66B
 
+D90. REJECT COMBINED STAGE 9; SPLIT LIVE BINDINGS FROM TRANSMISSION DISPATCH
+--------------------------------------------------------------------------
+Decision: the first runtime attempt at stage 9 ended in device removal while
+loading the level. No post-crash condump was produced: console history ends at
+`loadgame doom3_1`, so there is no trustworthy completed GPU checkpoint after
+the accepted stage-8 boundary.
+
+The rejected rung changed three contracts together:
+
+  - it replaced the forced layout-only registrations with live transmission
+    and glass material-feature registrations;
+  - those registrations admitted their output resources into the clean-DI
+    binding set, resource transitions, and clears;
+  - it dispatched the transmission producer in the pre-DI PSR phase and then
+    optionally ran the sky-surface repair.
+
+Pipeline construction itself remains accepted by D89. Redefine stage 9 as
+live material-feature registration and resource binding only: both
+transmission controls remain required, but transmission/glass `DispatchRays`
+must stay false. Retain the accepted primary, initial, temporal, and spatial
+sequence and return after a completion line that explicitly says the runtime
+bindings were installed and all material-feature dispatches were skipped.
+
+Reserve stage 10 for the same pre-DI transmission PSR dispatch rejected by the
+combined rung. If stage 9 survives, the fault boundary becomes execution (or
+the immediately following sky-surface repair); if stage 9 fails, the fault is
+in live registration/binding/state/clear setup and no shader dispatch ladder
+is needed.
+
+The accepted state remains stages 1-8. Stage 9 is reopened only under this
+narrower contract; stage 10 is implemented but not admitted until stage 9
+supplies runtime evidence.
+
+The revised stage-9/stage-10 matrix passes the CPU planning harness and 20
+stress iterations. The release build passes with all SPIR-V up to date.
+Source and deployed executable hashes are equal:
+
+  528918C78933942AD82D99C319F09432BD91637A187719401F8D8E51C2952A8F
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

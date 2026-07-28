@@ -1012,7 +1012,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
     const bool staticBucketMaterialFeatureRuntimeRequested =
         staticBucketSecondaryIsolationActive &&
-        (staticBucketSecondaryIsolation.transmissionPsr ||
+        (staticBucketSecondaryIsolation.materialFeatureRuntimeBindings ||
+            staticBucketSecondaryIsolation.transmissionPsr ||
             staticBucketSecondaryIsolation.materialFeatureCompose);
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses cleanRtxdiDiMaterialFeaturePasses = BuildPathTraceCleanRtxdiDiMaterialFeaturePasses(
         cleanRtxdiDiRouteRequested &&
@@ -3547,7 +3548,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 PathTraceGpuMarkerScope nsightMarker(
                     commandList,
                     staticBucketSecondaryIsolationActive
-                        ? "GEO10.View16.Stage9 TransmissionPSR"
+                        ? "GEO10.View16.Stage10 TransmissionPSR"
                         : "CleanDI.TransmissionPSR",
                     nsightGpuMarkers &&
                         staticBucketSecondaryIsolationActive);
@@ -3807,7 +3808,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 if (staticBucketSecondaryIsolation.transmissionPsr)
                 {
                     common->Printf(
-                        "PathTracePrimaryPass: GEO-10 view-16 stage-9 transmission-PSR plus initial-temporal-spatial dispatch completed (%dx%d); post-DI transmission/glass composition and later consumers skipped\n",
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-10 transmission-PSR plus initial-temporal-spatial dispatch completed (%dx%d); post-DI transmission/glass composition and later consumers skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
+                else if (staticBucketSecondaryIsolation.
+                    materialFeatureRuntimeBindings)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-9 material-feature runtime bindings plus initial-temporal-spatial dispatch completed (%dx%d); transmission/glass DispatchRays and later consumers skipped\n",
                         m_frameResources.width,
                         m_frameResources.height);
                 }

@@ -2590,3 +2590,61 @@ Local proof and deployment:
   source/deployed executable SHA-256                  equal
 
   D62E38E88C627D290EE54905D4F9A6C534E41A79B679623C504594C9FD85F66B
+
+REF-10Y STAGE-9 REJECTION AND LIVE-BINDING RUNG - 2026-07-28
+-------------------------------------------------------------
+The combined stage-9 runtime attempt ended in device removal during level
+load. It produced no condump; the console command history ends at
+`loadgame doom3_1`. Therefore the last accepted GPU boundary remains stage 8,
+where both material pipelines were initialized without live registrations or
+material-feature dispatch.
+
+The rejected stage bundled three new operations:
+
+  1. live transmission/glass registry selection;
+  2. material-feature output bindings, UAV state transitions, and clears;
+  3. transmission PSR `DispatchRays`, followed by the optional sky-surface
+     repair.
+
+Replace it with two exact rungs:
+
+Stage 9 - runtime registration and bindings only
+
+  - require producer=1 and compose=1;
+  - build the live runtime feature-pass list;
+  - admit its output resources into availability checks and the clean-DI
+    binding set;
+  - perform the ordinary material-feature UAV states and output clears;
+  - retain accepted primary, initial, temporal, and spatial dispatches;
+  - keep `transmissionPsr=false` and `materialFeatureCompose=false`;
+  - return before every transmission/glass `DispatchRays`.
+
+Required stage-9 completion evidence:
+
+  GEO-10 view-16 stage-9 material-feature runtime bindings plus initial-temporal-spatial dispatch completed
+
+The same line must state that transmission/glass `DispatchRays` and later
+consumers were skipped.
+
+Stage 10 - transmission PSR execution
+
+  - retain the stage-9 runtime registration and binding path;
+  - set `transmissionPsr=true`;
+  - identify its checkpoint as `GEO10.View16.Stage10 TransmissionPSR`;
+  - dispatch only the pre-DI transmission producer;
+  - return before post-DI feature composition and every later consumer.
+
+Stage 10 is code-complete for a no-rebuild follow-up, but it is not admitted
+for testing until stage 9 survives. If stage 10 fails after stage 9 passes,
+split the transmission dispatch from the immediately following sky-surface
+repair before considering any broader shader or ABI changes.
+
+Local proof and deployment:
+
+  stage-9 binding/stage-10 dispatch matrix             passed
+  CPU planning stress iterations                      20
+  full release build                                  passed
+  Vulkan shader build status                          all SPIR-V up to date
+  source/deployed executable SHA-256                  equal
+
+  528918C78933942AD82D99C319F09432BD91637A187719401F8D8E51C2952A8F
