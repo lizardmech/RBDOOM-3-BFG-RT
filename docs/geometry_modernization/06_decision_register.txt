@@ -1321,6 +1321,11 @@ Correction verification:
 
 D64. REJECT THE CORRECTED PRIMARY-ONLY VIEW-16 BUCKET ROUTE
 ----------------------------------------------------------
+Superseded by D67. The runtime rejection remains valid, but the attribution to
+the primary dispatch does not: the stage limiter suppressed secondary
+dispatches while still creating their route-aware production pipelines before
+the primary trace.
+
 Decision: the corrected D63 stage 1 also caused immediate Vulkan device
 removal while loading the level. Because that build suppresses transmission
 PSR, initial, temporal, spatial, material composition, DLSS-RR, clean GI,
@@ -1379,6 +1384,8 @@ Static proof:
 
 D66. ADMIT ONLY THE UNIFIED PRIMARY VIEW-16 RUNG
 ------------------------------------------------
+Superseded by D67 after this rung reproduced device removal.
+
 Decision: REF-10D route-2/view-2 survived level load and portal movement with
 no visible issue or device removal. This validates live traversal through the
 new one-resolve primary static path, but does not validate production view 16
@@ -1398,6 +1405,55 @@ Gate verification:
   SPIR-V                                               unchanged/up to date
   deployed executable SHA-256
     8A730C6C5E95C83571E1BC8B721E915A4014E766A439315438C0B5B7B6966589
+
+D67. MAKE THE VIEW-16 RUNG ACTUALLY PRIMARY-ONLY
+-----------------------------------------------
+Decision: the D66 failure does not isolate the primary RT dispatch. View 2 and
+view 16 stage 1 use the same primary producer and bucket TLAS, and the unified
+view-2 route passed. Inspection then found the material difference: before the
+primary dispatch, view 16 stage 1 still initialized clean-DI sentinel,
+initial-production, temporal-production, spatial-production, and material-
+feature RT pipelines. The dispatch flags did not prevent pipeline creation.
+This is especially material because earlier GEO-10 failures occurred during
+route-aware pipeline creation even when the route code could not execute.
+
+Replace D66 with one exact diagnostic:
+
+  - route 2 and view 16 only;
+  - marker/checkpoint support required;
+  - clean GI and external PDF-NEE off;
+  - transmission producer and compose both off;
+  - stage exactly 1;
+  - skip NEE-cache task clears and every secondary RT pipeline creation;
+  - build only the primary producer pipeline;
+  - return immediately after the primary dispatch.
+
+Also restrict the ordinary primary-probe admission to view 2. The previous
+view-19 admission could resolve to the full production view-16 consumer chain
+without activating the stage limiter.
+
+Two review claims were checked separately:
+
+  - `staticBucketRouteInfo.y` is already acceptance-gated. Scene publication
+    validity is assigned only when `staticBucketRouteAccepted` is true.
+  - `PathTraceStaticBucketInstanceInPublishedRange` does lack an explicit
+    `surfaceRecordBase < routeInfo.y` test. Add that shared-shader hardening
+    before any secondary consumer is re-admitted, but do not mix its broad
+    shader/pipeline-cache rebuild into this C++-only fault-isolation run.
+
+The Vulkan backend already emits NV checkpoints from NVRHI markers and queries
+them on device loss, but the prior runs did not produce a durable checkpoint
+record. A successful primary-only result is evidence only about this narrowed
+execution path; it does not accept stages 2 through 6 or production route 1.
+
+Verification:
+
+  exact view-2/view-16/transmission admission tests      passed
+  PathTraceCpuPlanningHarness --stress 20               passed
+  win64-pt-dev-release                                  passed
+  SPIR-V content changes                                none
+  deployed executable SHA-256
+    2328767BED6F43E49AA85B5A2700507FEC0862783DFD8409E8D238BBF487FE53
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

@@ -293,8 +293,8 @@ material-feature traversal:
   r_pathTracingGeometryStaticBucketRoute 0
   r_pathTracingGeometryStaticBucketRouteView16CoreProbe 0
   r_pathTracingGeometryStaticBucketRouteView16MaterialProbe 1
-  r_pathTracingCleanRtxdiDiTransmissionProducer 1
-  r_pathTracingCleanRtxdiDiTransmissionCompose 1
+  r_pathTracingCleanRtxdiDiTransmissionProducer 0
+  r_pathTracingCleanRtxdiDiTransmissionCompose 0
   r_pathTracingCleanRtxdiDiTransmissionDebugView 0
   r_pathTracingCleanRtxdiDiGlassShader 1
   r_pathTracingCleanRtxdiDiGlassDebugView 0
@@ -1597,3 +1597,70 @@ Offline proof:
   shaders rebuilt/deployed                             none
   deployed executable SHA-256
     571E6ABBEFCF8C47B66A7709C464EC8D456F314737AF90DACD81B5B33FEE9ADE
+
+REF-10E TRUE PRIMARY-ONLY CORRECTION - 2026-07-28
+-------------------------------------------------
+The previous stage-1 wording was stronger than its implementation. It skipped
+secondary dispatches, but view 16 still eagerly created the clean-DI
+initial/temporal/spatial production pipelines and material-feature pipelines
+before the primary producer ran. Therefore its device removal did not prove
+that the primary trace was the fault.
+
+The corrected stage-1 path:
+
+  1. Requires transmission producer and compose to both be 0.
+  2. Skips NEE-cache task clears.
+  3. Skips clean-DI sentinel, initial, temporal, spatial, external PDF, and
+     material-feature pipeline creation.
+  4. Creates the primary producer pipeline if needed.
+  5. Dispatches the primary producer over the accepted bucket TLAS.
+  6. Returns immediately; no clean-DI binding setup, allocation, dispatch,
+     compose, GI, RR, or readback path follows.
+
+The ordinary route-2 primary probe now accepts view 2 only. Views 17, 19, and
+24 are rejected because view 19 could enter the production resolve chain
+without activating the view-16 stage limiter.
+
+Do not change any shader for this diagnostic. The missing
+`surfaceRecordBase < routeInfo.y` shader hardening is real, but the shared
+include fans out across DI, GI, and feature pipelines and would invalidate the
+warm pipeline-cache premise. Apply and rebuild it only after this C++-only
+pipeline-creation test records a result.
+
+Authorized runtime configuration:
+
+  r_pathTracingNsightGpuMarkers 1
+  r_pathTracingCleanRestirGiEnable 0
+  r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 0
+  r_pathTracingRestirPdfNeeVerifierEnable 0
+  r_pathTracingCleanRtxdiDiTransmissionProducer 0
+  r_pathTracingCleanRtxdiDiTransmissionCompose 0
+  r_pathTracingCleanRtxdiDiView 16
+  r_pathTracingGeometryStaticBucketBlas 1
+  r_pathTracingGeometryStaticBucketBlasBuild 1
+  r_pathTracingGeometryStaticBucketRoute 2
+  r_pathTracingGeometryStaticBucketSecondaryProbeStage 1
+
+Stages 2 through 6 remain prohibited. The expected one-time console line is:
+
+  GEO-10 view-16 stage-1 primary-only dispatch completed
+
+If this build survives, the failing surface is secondary pipeline creation or
+later view-16 setup, not bucket traversal in the primary producer. If it still
+removes the device, preserve the Vulkan checkpoint line if one is emitted;
+that is the first result that isolates the primary-only command stream.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  rebuilt SPIR-V blobs                                 40
+  rebuilt SPIR-V content differences vs deployment    0
+  SPIR-V deployed                                     none
+  executable SHA-256
+    2328767BED6F43E49AA85B5A2700507FEC0862783DFD8409E8D238BBF487FE53
+
+The shader target reran because the shared header's filesystem timestamp
+changed during review and was restored. All 40 regenerated Vulkan blobs were
+byte-identical to the currently deployed copies, so copying them would only
+change timestamps and was intentionally skipped.

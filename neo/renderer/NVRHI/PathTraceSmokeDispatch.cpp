@@ -970,6 +970,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         r_cleanSpatial.GetInteger() != 0;
     const bool cleanRtxdiDiSpatialShaderRequested =
         cleanRtxdiDiRouteRequested &&
+        !staticBucketSecondaryIsolationActive &&
         !cleanRtxdiDiMaterialClassifierProofView &&
         (cleanRtxdiDiView == 16 ||
             cleanRtxdiDiRrGuideDebugView ||
@@ -977,7 +978,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (cleanRtxdiDiView == 12 ||
                     (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses cleanRtxdiDiMaterialFeaturePasses = BuildPathTraceCleanRtxdiDiMaterialFeaturePasses(
-        cleanRtxdiDiRouteRequested,
+        cleanRtxdiDiRouteRequested &&
+            !staticBucketSecondaryIsolationActive,
         cleanRtxdiDiMaterialFeatureView,
         m_smokeCleanRtxdiDiMaterialFeatures);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
@@ -1676,98 +1678,101 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     if (cleanRtxdiDiRouteRequested)
     {
         const bool cleanExternalPdfNeeCurrent = cleanExternalPdfNeeRequested || pdfNeeRluCurrentProducerRequested;
-        if ((r_pathTracingCleanRtxdiDiNeeCacheProvider.GetInteger() != 0 ||
-            cleanRestirGiNeeCacheProviderRequested) &&
-            m_smokeNeeCacheState.taskClearPending &&
-            m_smokeNeeCacheState.providerResultBuffer &&
-            m_smokeNeeCacheState.taskBuffer &&
-            m_smokeNeeCacheState.cellBuffer &&
-            m_smokeNeeCacheState.candidateBuffer)
+        if (!staticBucketSecondaryIsolationActive)
         {
-            SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.providerResultBuffer, nvrhi::ResourceStates::UnorderedAccess);
-            SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.taskBuffer, nvrhi::ResourceStates::UnorderedAccess);
-            SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.cellBuffer, nvrhi::ResourceStates::UnorderedAccess);
-            SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.candidateBuffer, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->commitBarriers();
-            commandList->clearBufferUInt(m_smokeNeeCacheState.providerResultBuffer, 0u);
-            commandList->clearBufferUInt(m_smokeNeeCacheState.taskBuffer, 0u);
-            commandList->clearBufferUInt(m_smokeNeeCacheState.cellBuffer, 0u);
-            commandList->clearBufferUInt(m_smokeNeeCacheState.candidateBuffer, 0u);
-            nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.providerResultBuffer);
-            nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.taskBuffer);
-            nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.cellBuffer);
-            nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.candidateBuffer);
-            m_smokeNeeCacheState.pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
-            m_smokeNeeCacheState.taskClearPending = false;
-        }
-        if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
-            !m_smokeCleanRtxdiDiInitialShaderTable ||
-            !m_smokeCleanRtxdiDiTemporalShaderTable ||
-            (cleanRtxdiDiProductionView &&
-                (!m_smokeCleanRtxdiDiInitialProductionShaderTable ||
-                    !m_smokeCleanRtxdiDiTemporalProductionShaderTable)))
-        {
-            InitRayTracingSmokeRestirPipeline(15);
-        }
-        if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
-            !m_smokeCleanRtxdiDiInitialShaderTable ||
-            !m_smokeCleanRtxdiDiTemporalShaderTable ||
-            (cleanRtxdiDiProductionView &&
-                (!m_smokeCleanRtxdiDiInitialProductionShaderTable ||
-                    !m_smokeCleanRtxdiDiTemporalProductionShaderTable)))
-        {
-            if (cleanRtxdiDiDumpRequested)
+            if ((r_pathTracingCleanRtxdiDiNeeCacheProvider.GetInteger() != 0 ||
+                cleanRestirGiNeeCacheProviderRequested) &&
+                m_smokeNeeCacheState.taskClearPending &&
+                m_smokeNeeCacheState.providerResultBuffer &&
+                m_smokeNeeCacheState.taskBuffer &&
+                m_smokeNeeCacheState.cellBuffer &&
+                m_smokeNeeCacheState.candidateBuffer)
             {
-                printCleanRtxdiDiDump("dispatch-entry", "clean-shader", 0);
-                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.providerResultBuffer, nvrhi::ResourceStates::UnorderedAccess);
+                SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.taskBuffer, nvrhi::ResourceStates::UnorderedAccess);
+                SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.cellBuffer, nvrhi::ResourceStates::UnorderedAccess);
+                SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.candidateBuffer, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->commitBarriers();
+                commandList->clearBufferUInt(m_smokeNeeCacheState.providerResultBuffer, 0u);
+                commandList->clearBufferUInt(m_smokeNeeCacheState.taskBuffer, 0u);
+                commandList->clearBufferUInt(m_smokeNeeCacheState.cellBuffer, 0u);
+                commandList->clearBufferUInt(m_smokeNeeCacheState.candidateBuffer, 0u);
+                nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.providerResultBuffer);
+                nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.taskBuffer);
+                nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.cellBuffer);
+                nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.candidateBuffer);
+                m_smokeNeeCacheState.pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+                m_smokeNeeCacheState.taskClearPending = false;
             }
-            return;
-        }
-        if (cleanRtxdiDiSpatialShaderRequested &&
-            (!m_smokeCleanRtxdiDiSpatialShaderTable ||
-                (cleanRtxdiDiProductionView && !m_smokeCleanRtxdiDiSpatialProductionShaderTable)))
-        {
-            InitRayTracingSmokeRestirPipeline(20);
-        }
-        if (cleanRtxdiDiSpatialShaderRequested &&
-            (!m_smokeCleanRtxdiDiSpatialShaderTable ||
-                (cleanRtxdiDiProductionView && !m_smokeCleanRtxdiDiSpatialProductionShaderTable)))
-        {
-            if (cleanRtxdiDiDumpRequested)
+            if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
+                !m_smokeCleanRtxdiDiInitialShaderTable ||
+                !m_smokeCleanRtxdiDiTemporalShaderTable ||
+                (cleanRtxdiDiProductionView &&
+                    (!m_smokeCleanRtxdiDiInitialProductionShaderTable ||
+                        !m_smokeCleanRtxdiDiTemporalProductionShaderTable)))
             {
-                printCleanRtxdiDiDump("dispatch-entry", "clean-spatial-shader", 0);
-                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                InitRayTracingSmokeRestirPipeline(15);
             }
-            return;
-        }
-        const RtPathTraceCleanRtxdiDiPipelineContext cleanRtxdiDiPipelineContext =
-            BuildPathTraceCleanRtxdiDiPipelineContext(
-                m_smokeTestInitialized,
-                m_smokeCleanRtxdiDiSentinelBindingLayout,
-                m_smokeTextureBindlessLayout);
-        if (!EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
-            cleanRtxdiDiMaterialFeaturePasses,
-            cleanRtxdiDiPipelineContext))
-        {
-            if (cleanRtxdiDiDumpRequested)
+            if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
+                !m_smokeCleanRtxdiDiInitialShaderTable ||
+                !m_smokeCleanRtxdiDiTemporalShaderTable ||
+                (cleanRtxdiDiProductionView &&
+                    (!m_smokeCleanRtxdiDiInitialProductionShaderTable ||
+                        !m_smokeCleanRtxdiDiTemporalProductionShaderTable)))
             {
-                printCleanRtxdiDiDump("dispatch-entry", "clean-transmission-shader", 0);
-                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                if (cleanRtxdiDiDumpRequested)
+                {
+                    printCleanRtxdiDiDump("dispatch-entry", "clean-shader", 0);
+                    r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                }
+                return;
             }
-            return;
-        }
-        if (cleanExternalPdfNeeCurrent && !m_smokeRestirPdfNeeRluCurrentShaderTable)
-        {
-            InitRayTracingSmokeRestirPipeline(18);
-        }
-        if (cleanExternalPdfNeeCurrent && !m_smokeRestirPdfNeeRluCurrentShaderTable)
-        {
-            if (cleanRtxdiDiDumpRequested)
+            if (cleanRtxdiDiSpatialShaderRequested &&
+                (!m_smokeCleanRtxdiDiSpatialShaderTable ||
+                    (cleanRtxdiDiProductionView && !m_smokeCleanRtxdiDiSpatialProductionShaderTable)))
             {
-                printCleanRtxdiDiDump("dispatch-entry", "pdfnee-rlu-current-producer-shader", 0);
-                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                InitRayTracingSmokeRestirPipeline(20);
             }
-            return;
+            if (cleanRtxdiDiSpatialShaderRequested &&
+                (!m_smokeCleanRtxdiDiSpatialShaderTable ||
+                    (cleanRtxdiDiProductionView && !m_smokeCleanRtxdiDiSpatialProductionShaderTable)))
+            {
+                if (cleanRtxdiDiDumpRequested)
+                {
+                    printCleanRtxdiDiDump("dispatch-entry", "clean-spatial-shader", 0);
+                    r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                }
+                return;
+            }
+            const RtPathTraceCleanRtxdiDiPipelineContext cleanRtxdiDiPipelineContext =
+                BuildPathTraceCleanRtxdiDiPipelineContext(
+                    m_smokeTestInitialized,
+                    m_smokeCleanRtxdiDiSentinelBindingLayout,
+                    m_smokeTextureBindlessLayout);
+            if (!EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
+                cleanRtxdiDiMaterialFeaturePasses,
+                cleanRtxdiDiPipelineContext))
+            {
+                if (cleanRtxdiDiDumpRequested)
+                {
+                    printCleanRtxdiDiDump("dispatch-entry", "clean-transmission-shader", 0);
+                    r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                }
+                return;
+            }
+            if (cleanExternalPdfNeeCurrent && !m_smokeRestirPdfNeeRluCurrentShaderTable)
+            {
+                InitRayTracingSmokeRestirPipeline(18);
+            }
+            if (cleanExternalPdfNeeCurrent && !m_smokeRestirPdfNeeRluCurrentShaderTable)
+            {
+                if (cleanRtxdiDiDumpRequested)
+                {
+                    printCleanRtxdiDiDump("dispatch-entry", "pdfnee-rlu-current-producer-shader", 0);
+                    r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                }
+                return;
+            }
         }
         nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
         if (!device)
@@ -2209,6 +2214,19 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     }
                 }
             }
+        }
+
+        if (staticBucketSecondaryIsolationActive)
+        {
+            if (!m_smokeTestDispatched)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO-10 view-16 stage-1 primary-only dispatch completed (%dx%d); secondary pipeline creation and dispatch skipped\n",
+                    m_frameResources.width,
+                    m_frameResources.height);
+            }
+            m_smokeTestDispatched = true;
+            return;
         }
 
         const bool cleanRtxdiDiNeedsPrimarySurface = cleanRtxdiDiView >= 2;

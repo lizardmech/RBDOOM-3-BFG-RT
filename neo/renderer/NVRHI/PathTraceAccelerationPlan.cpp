@@ -2067,10 +2067,7 @@ bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
     return routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
-        (cleanDiView == 2 ||
-            cleanDiView == 17 ||
-            cleanDiView == 19 ||
-            cleanDiView == 24) &&
+        cleanDiView == 2 &&
         diagnosticCheckpointsEnabled &&
         !cleanGiEnabled;
 }
@@ -2085,10 +2082,9 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    // REF-10D replaced the rejected bucket-specific primary branch with one
-    // resolved static lookup and survived the established view-2 isolate.
-    // Re-admit only the corrected primary-only rung; secondary stages remain
-    // fail-closed until this exact route passes.
+    // View 16 is admitted only as an exact primary-producer isolate. Keep
+    // transmission disabled so the diagnostic does not create or dispatch
+    // any secondary route-aware pipeline before the primary trace.
     return routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
@@ -2096,7 +2092,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         diagnosticCheckpointsEnabled &&
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
-        transmissionPsrEnabled &&
+        !transmissionPsrEnabled &&
         probeStage == 1;
 }
 

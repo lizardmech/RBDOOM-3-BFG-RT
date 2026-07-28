@@ -1776,3 +1776,55 @@ rejected.
 Stage-1-gated executable SHA-256:
 
   8A730C6C5E95C83571E1BC8B721E915A4014E766A439315438C0B5B7B6966589
+
+REF-10E REVIEW RECONCILIATION - 2026-07-28
+------------------------------------------
+The re-admitted view-16 stage 1 also removed the device. A follow-up review
+correctly challenged the conclusion that this isolated the primary producer:
+view 2 had already survived the same primary shader and bucket TLAS, while the
+view-16 dispatch limiter did not suppress pipeline creation.
+
+Live-code inspection found that stage 1 still initialized:
+
+  - clean-DI sentinel, initial, temporal, and their production tables;
+  - clean-DI spatial and its production table;
+  - transmission/glass material-feature pipelines.
+
+Those initializations occurred before the primary producer dispatch. The new
+isolate bypasses all of them, bypasses the NEE-cache task clear, executes the
+primary producer, and returns immediately. Admission now requires both
+transmission controls off. This is a C++-only change so the established
+primary SPIR-V and warm pipeline cache remain unchanged.
+
+The review also found an independent admission hole: view 19 was accepted by
+the primary-probe predicate but did not activate the view-16 limiter, allowing
+the production clean-DI chain to remain reachable. The primary probe is now
+view-2-only.
+
+Contract findings:
+
+  routeInfo.y acceptance gate
+    Review concern not reproduced. `staticBucketRoutePublicationValid` is
+    assigned from `staticBucketRouteAccepted && ...`, and only a valid
+    publication writes the resident count into the dispatch route tuple.
+
+  surface-record base bound
+    Confirmed. `PathTraceStaticBucketInstanceInPublishedRange` should reject
+    `surfaceRecordBase >= routeInfo.y`. This is required before secondary
+    consumers are re-admitted, but is deliberately deferred from REF-10E:
+    changing the shared include rebuilds and invalidates many DI/GI/feature
+    pipelines, destroying the warm-cache comparison this isolate needs.
+
+  durable checkpoint proof
+    Still absent. The backend marker-to-NV-checkpoint and device-loss query
+    path exists, but prior runs produced no preserved checkpoint line. REF-10E
+    retains markers and a distinct primary-dispatch label; any emitted
+    device-loss checkpoint must be preserved with the runtime result.
+
+Build proof:
+
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V hashes vs deployed set                        40/40 identical
+  executable SHA-256
+    2328767BED6F43E49AA85B5A2700507FEC0862783DFD8409E8D238BBF487FE53

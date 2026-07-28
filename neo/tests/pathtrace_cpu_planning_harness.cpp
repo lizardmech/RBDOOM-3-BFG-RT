@@ -2824,31 +2824,31 @@ void TestStaticBucketAssignmentPlan()
             true,
             2,
             true,
-            false) &&
-        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-            true,
-            17,
-            true,
-            false) &&
-        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-            true,
-            19,
-            true,
-            false) &&
-        IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-            true,
-            24,
-            true,
             false),
-        "static bucket primary probe accepts instrumented status, motion, post-composite albedo, and material-classifier isolates");
+        "static bucket primary probe accepts only the instrumented status isolate");
     Check(
         !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
             true,
             2,
+            true,
+            false) &&
+        !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            17,
+            true,
+            false) &&
+        !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            19,
+            true,
+            false) &&
+        !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            24,
             true,
             false) &&
         !IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
@@ -2884,9 +2884,9 @@ void TestStaticBucketAssignmentPlan()
             true,
             false,
             false,
-            true,
+            false,
             1),
-        "static bucket unified-primary view-16 isolation accepts only stage one");
+        "static bucket view-16 isolation accepts primary-only stage one with transmission disabled");
     bool secondaryIsolationStagesRejected = true;
     for (int stage = 2; stage <= 6; ++stage)
     {
@@ -2898,7 +2898,7 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 false,
                 false,
-                true,
+                false,
                 stage);
     }
     Check(
@@ -2912,7 +2912,7 @@ void TestStaticBucketAssignmentPlan()
             true,
             false,
             false,
-            true,
+            false,
             1) &&
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
@@ -2921,7 +2921,7 @@ void TestStaticBucketAssignmentPlan()
             true,
             false,
             false,
-            true,
+            false,
             1) &&
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
@@ -2930,7 +2930,7 @@ void TestStaticBucketAssignmentPlan()
             true,
             false,
             false,
-            true,
+            false,
             1) &&
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
@@ -2939,7 +2939,7 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             false,
-            true,
+            false,
             1) &&
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
@@ -2948,7 +2948,7 @@ void TestStaticBucketAssignmentPlan()
             true,
             true,
             false,
-            true,
+            false,
             1) &&
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
@@ -2957,15 +2957,6 @@ void TestStaticBucketAssignmentPlan()
             true,
             false,
             true,
-            true,
-            1) &&
-        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
-            true,
-            16,
-            true,
-            false,
-            false,
             false,
             1) &&
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
@@ -2976,6 +2967,15 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             true,
+            1) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            false,
             0) &&
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
@@ -2984,9 +2984,9 @@ void TestStaticBucketAssignmentPlan()
             true,
             false,
             false,
-            true,
+            false,
             7),
-        "static bucket clean-DI secondary isolation rejects unsafe routes and out-of-range stages");
+        "static bucket clean-DI primary isolation rejects unsafe routes, transmission, and out-of-range stages");
     bool secondaryIsolationDispatchStagesExact = true;
     for (int stage = 1; stage <= 6; ++stage)
     {
