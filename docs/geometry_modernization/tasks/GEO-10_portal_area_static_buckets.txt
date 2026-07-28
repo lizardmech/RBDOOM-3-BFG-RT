@@ -2694,3 +2694,44 @@ The completion line must still state that post-DI transmission/glass
 composition and later consumers were skipped. If stage 10 device-removes,
 split transmission `DispatchRays` from the optional sky-surface repair before
 changing shader ABI, descriptors, or bucket decoding again.
+
+REF-10AA STAGE-10 REJECTION AND NO-REBUILD TRACE-LANE SPLIT - 2026-07-28
+-------------------------------------------------------------------------
+The full stage-10 producer device-removed. The reported diagnostic identifies
+the transmission producer. Its marker scope contains the material-feature
+`DispatchRays` and output barrier; the optional sky-surface repair runs only
+after that scope ends. Combined with accepted stage 9, this rejects live
+producer execution while keeping the following contracts accepted:
+
+  - transmission/glass pipeline and shader-table creation;
+  - live registry selection;
+  - feature output bindings, states, and clears;
+  - primary, initial, temporal, and spatial bucket traversal.
+
+The producer is not one indivisible trace. Default controls admit:
+
+  - opaque exact-mirror tracing;
+  - glass mirror tracing;
+  - reflection-hit analytic shading and optional shadow tracing;
+  - refracted behind-glass continuation tracing.
+
+Use the existing runtime controls before compiling a new probe shader. Keep
+the accepted stage-10 list, then override:
+
+  r_pathTracingCleanRtxdiDiGlassReflectionPsr 0
+  r_pathTracingReflectionOpaqueMirror 0
+  r_pathTracingCleanRtxdiDiGlassRefractedPsr 0
+
+This reduced stage 10 must retain:
+
+  - producer raygen execution;
+  - primary glass surface and material decode;
+  - straight-through behind-glass `TraceRay`;
+  - transmission any-hit and closest-hit groups.
+
+It must remove mirror tracing, reflection secondary shade/shadow work, opaque
+mirror tracing, and refracted direction calculation. A surviving run assigns
+the crash to one of those removed reflection paths. A device removal assigns
+it to the remaining core transmission trace/hit-group path and authorizes one
+compiled split: raygen prologue without `TraceRay`, followed by exactly one
+straight-through trace.

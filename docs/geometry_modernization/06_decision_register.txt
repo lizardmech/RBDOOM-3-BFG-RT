@@ -2054,6 +2054,35 @@ Stage 10 dispatches the transmission producer under checkpoint
 `GEO10.View16.Stage10 TransmissionPSR`, then retains the accepted DI sequence
 and returns before post-DI material-feature composition.
 
+D92. REJECT FULL TRANSMISSION PRODUCER; ISOLATE EXISTING TRACE LANES FIRST
+------------------------------------------------------------------------
+Decision: the first stage-10 run device-removed and the reported diagnostic
+checkpoint identifies the transmission producer. This is downstream of the
+stage-9-accepted live descriptors and output clears. The optional
+sky-surface repair is outside the producer marker scope, so it is not the
+current fault boundary.
+
+Do not rebuild a shader ladder yet. The existing producer already exposes
+enough controls to remove its reflection work while retaining the core
+transmission trace:
+
+  r_pathTracingCleanRtxdiDiGlassReflectionPsr 0
+  r_pathTracingReflectionOpaqueMirror 0
+  r_pathTracingCleanRtxdiDiGlassRefractedPsr 0
+
+Repeat stage 10 with all other accepted controls unchanged. This disables the
+glass mirror trace, reflection secondary shading and shadow trace, the opaque
+mirror trace, and refracted ray direction. It retains the raygen prologue,
+glass-surface/material decode, and one straight-through transmission
+`TraceRay` using the transmission hit groups.
+
+If this reduced producer survives, reopen reflection in controlled steps
+without a rebuild. If it device-removes, the fault is narrowed to the core
+transmission `TraceRay`/hit-group path, and the next code change must split
+raygen-without-trace from that one trace. Do not return to descriptor, pipeline
+creation, or general static-bucket decode hypotheses already cleared by
+stages 8 and 9.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
