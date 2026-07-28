@@ -956,8 +956,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanRtxdiDiProductionView &&
         ((staticBucketRouteMode ==
                 RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
-            staticBucketSecondaryProbeStage >= 1 &&
-            staticBucketSecondaryProbeStage <= 17) ||
+            ((staticBucketSecondaryProbeStage >= 1 &&
+                    staticBucketSecondaryProbeStage <= 17) ||
+                staticBucketSecondaryProbeStage == 19)) ||
             staticBucketSecondaryMonolithicControlRequested);
     const bool staticBucketSecondaryIsolationSupported =
         IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
@@ -3564,9 +3565,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 // Keep the GEO-10 traversal probes exact regardless of the
                 // normal glass defaults. Only the straight-through
                 // transmission lane is admitted. Stages 10-16 isolate the
-                // legacy single-TraceRay path; stages 17 and 18 select the
-                // bounded forced-opaque iterative resolver against bucket and
-                // monolithic static traversal respectively.
+                // legacy single-TraceRay path; stages 17-19 select the bounded
+                // forced-opaque iterative resolver. Stage 18 uses monolithic
+                // traversal; 17 and 19 use buckets, with stage 19 stopping
+                // after initial DI.
                 psrConstants.flags &= ~(
                     CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR |
                     CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION |
@@ -3618,6 +3620,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     case 18:
                         staticBucketTransmissionMarker =
                             "GEO10.View16.Stage18 TransmissionIterativeResolveMonolithic";
+                        break;
+                    case 19:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage19 TransmissionIterativeResolveInitialOnly";
                         break;
                     default:
                         staticBucketTransmissionMarker =
@@ -3808,10 +3814,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             if (!m_smokeTestDispatched)
             {
-                common->Printf(
-                    "PathTracePrimaryPass: GEO-10 view-16 stage-4 initial-only dispatch completed (%dx%d); temporal and later consumers skipped\n",
-                    m_frameResources.width,
-                    m_frameResources.height);
+                if (staticBucketSecondaryIsolation.stage == 19)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-19 bucket bounded forced-opaque iterative transmission resolve plus initial-only DI completed (%dx%d); maxInteractions=8, legacy any-hit, temporal, spatial, post-DI composition, and later consumers skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
+                else
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-4 initial-only dispatch completed (%dx%d); temporal and later consumers skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
             }
             m_smokeTestDispatched = true;
             return;

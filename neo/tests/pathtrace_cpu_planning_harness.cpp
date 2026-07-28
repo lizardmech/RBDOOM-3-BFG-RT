@@ -3073,6 +3073,26 @@ void TestStaticBucketAssignmentPlan()
             18),
         "static bucket view-16 isolation admits stage 18 only as the route-zero monolithic bounded-resolver control");
     Check(
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            19) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            19),
+        "static bucket view-16 isolation admits stage 19 only on the bucket route");
+    Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
             true,
@@ -3171,7 +3191,16 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             true,
-            18),
+            18) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            20),
         "static bucket clean-DI primary isolation rejects unsafe routes, missing transmission controls, and out-of-range stages");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         primaryPipelineOnlyPlan =
@@ -3317,6 +3346,14 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 true,
                 18);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionInitialOnlyControlPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                19);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
@@ -3496,8 +3533,24 @@ void TestStaticBucketAssignmentPlan()
             transmissionMonolithicControlPlan.transmissionPsr &&
             transmissionMonolithicControlPlan.transmissionTraceProbeMode == 0 &&
             transmissionMonolithicControlPlan.transmissionIterativeResolve &&
-            transmissionMonolithicControlPlan.transmissionMonolithicControl,
-        "static bucket transmission probe separates legacy any-hit boundaries, bounded bucket resolve, and the monolithic bounded-resolver control");
+            transmissionMonolithicControlPlan.transmissionMonolithicControl &&
+            transmissionInitialOnlyControlPlan.active &&
+            transmissionInitialOnlyControlPlan.stage == 19 &&
+            transmissionInitialOnlyControlPlan.primaryPipelineCreation &&
+            transmissionInitialOnlyControlPlan.primaryDispatch &&
+            transmissionInitialOnlyControlPlan.cleanDiPipelineCreation &&
+            transmissionInitialOnlyControlPlan.materialFeaturePipelineCreation &&
+            transmissionInitialOnlyControlPlan.materialFeatureRuntimeBindings &&
+            transmissionInitialOnlyControlPlan.transmissionPsr &&
+            transmissionInitialOnlyControlPlan.transmissionTraceProbeMode == 0 &&
+            transmissionInitialOnlyControlPlan.transmissionIterativeResolve &&
+            !transmissionInitialOnlyControlPlan.transmissionMonolithicControl &&
+            transmissionInitialOnlyControlPlan.initial &&
+            !transmissionInitialOnlyControlPlan.temporal &&
+            !transmissionInitialOnlyControlPlan.spatialPipelineCreation &&
+            !transmissionInitialOnlyControlPlan.spatial &&
+            !transmissionInitialOnlyControlPlan.materialFeatureCompose,
+        "static bucket transmission probe separates legacy any-hit boundaries, bounded bucket resolve, the monolithic control, and initial-only bucket consumption");
     Check(
         waitingForPublicationPlan.active &&
             waitingForPublicationPlan.requested &&

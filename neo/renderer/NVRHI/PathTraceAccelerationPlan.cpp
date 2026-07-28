@@ -2038,14 +2038,18 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     // invocation, bounded repeated any-hit, one decode-free IgnoreHit, then
     // the bucket-resident bounded resolver. Stage 18 admits that same bounded
     // resolver against route-0 monolithic static traversal as a visual/replay
-    // control; it never restores the rejected legacy any-hit path.
+    // control. Stage 19 returns to the bucket resolver but dispatches only
+    // initial DI after surface replacement, isolating temporal/spatial
+    // interpretation of bucket identity. Neither stage restores the rejected
+    // legacy any-hit path.
     const bool transmissionContractExact =
         (probeStage <= 8 && !transmissionPsrEnabled) ||
-        (probeStage >= 9 && probeStage <= 18 &&
+        (probeStage >= 9 && probeStage <= 19 &&
             transmissionPsrEnabled);
     const bool traversalContractExact =
         (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
-            probeStage >= 1 && probeStage <= 17) ||
+            ((probeStage >= 1 && probeStage <= 17) ||
+                probeStage == 19)) ||
         (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED &&
             probeStage == 18);
     const bool diagnosticContractExact =
@@ -2079,7 +2083,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         return plan;
     }
 
-    plan.stage = std::max(0, std::min(18, probeStage));
+    plan.stage = std::max(0, std::min(19, probeStage));
     plan.primaryPipelineCreation =
         isolationSupported &&
         routePublicationValid &&
@@ -2143,8 +2147,24 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     }
     plan.transmissionIterativeResolve =
         plan.stage == 17 ||
-        plan.stage == 18;
+        plan.stage == 18 ||
+        plan.stage == 19;
     plan.transmissionMonolithicControl = plan.stage == 18;
+    if (plan.stage == 19)
+    {
+        // Transmission PSR executes before DI. Keep its complete pipeline and
+        // runtime binding contract, then stop after initial DI so temporal and
+        // spatial cannot reinterpret the bucket replacement identity.
+        plan.temporal = false;
+        plan.spatialPipelineCreation = false;
+        plan.spatial = false;
+        plan.materialFeaturePipelineCreation =
+            plan.cleanDiPipelineCreation;
+        plan.materialFeatureRuntimeBindings =
+            plan.materialFeaturePipelineCreation;
+        plan.transmissionPsr =
+            plan.materialFeatureRuntimeBindings;
+    }
     plan.materialFeatureCompose = false;
     return plan;
 }

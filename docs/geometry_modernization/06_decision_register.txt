@@ -2488,6 +2488,82 @@ bucket-hit replay. If it still swaps materials, capture a log and treat the
 route-0 hit replay as a concrete decoder/input mismatch. If it is stable and
 visually correct, stage 17 remains localized to bucket replay.
 
+D101. ACCEPT THE BOUNDED RESOLVER VISUALLY; LOCALIZE THE DEFECT TO THE BUCKET
+      RESOLVED-SURFACE PATH
+-------------------------------------------------------------------------------
+`success18.log` is the valid fresh-process stage-18 control required by D100.
+The command stream sets bucket BLAS allocation/build to 0, route 0, and stage
+18 before `loadgame doom3_1`. The runtime reaches the explicit
+`GEO10.View16.Stage18 TransmissionIterativeResolveMonolithic` marker and
+reports the 2560x1440 bounded forced-opaque iterative resolve completed with
+eight interactions, legacy any-hit skipped, and post-DI composition/later
+consumers blocked. No device-loss, Vulkan validation, or pipeline error is
+present. The user reports that the glass visual defect is gone.
+
+This accepts the bounded interaction loop for both GPU safety and visual
+semantics. Do not reopen the repeated-heavy any-hit path and do not modify the
+resolver's interaction count, ray advance, or material continuation policy in
+response to the stage-17 artifact.
+
+The difference between the accepted stage 18 and visually defective stage 17
+is now the bucket route itself:
+
+  - stage 17 traverses the bucket BLASes, publishes bucket instance/primitive
+    identity, reconstructs the resolved surface from the bucket resident pool,
+    and feeds that replacement record through initial, temporal, and spatial;
+  - stage 18 traverses the monolithic static BLAS, publishes instance 0 plus
+    monolithic primitive identity, reconstructs from the monolithic static
+    pool, and feeds the same downstream passes;
+  - both use the same transmission producer shader, bounded loop, material
+    continuation policy, and downstream pass sequence.
+
+`success17.log` also proves 56/56 buckets active/resident/ready with exact
+publication and no missing active material indexes. Therefore portal pruning
+is not an explanation for that run. The remaining candidates are:
+
+  A. bucket closest-hit identity or resident-pool surface reconstruction is
+     already wrong when the replacement record is published;
+  B. the replacement record is correct, but temporal/spatial reuse interprets
+     bucket instance/primitive identity differently from the monolithic tuple.
+
+Do not add another descriptor, SBT record, payload field, or hit-stage decoder
+to distinguish A from B.
+
+D102. OPEN STAGE 19 AS A CPU-ONLY INITIAL-DI CONTROL
+-------------------------------------------------------------------------------
+Stage 19 must retain route 2, the fully resident bucket publication, and the
+stage-17 bounded transmission producer, but dispatch only initial DI after the
+transmission replacement. Temporal and spatial pipeline execution must remain
+blocked. Material-feature pipeline creation and runtime bindings are still
+required because the transmission PSR producer executes before initial DI.
+Post-DI composition and every later consumer remain blocked.
+
+Interpretation:
+
+  - stage 19 visually correct: bucket traversal and resolved-surface
+    reconstruction are sound; the defect begins when temporal or spatial
+    consumes the bucket replacement identity. The next rung may add temporal
+    alone, then spatial, without any shader edit;
+  - stage 19 repeats the stage-17 artifact: the defect is present in the
+    bucket hit/reconstruction tuple before temporal reuse. Stop and add a
+    narrow tuple diagnostic comparing the closest-hit material/class address
+    with the replayed triangle and attributes;
+  - stage 19 device-removes: stop. The stage-17 survival was not stable and no
+    further consumer admission is authorized.
+
+Stage 19 is a fresh-process test. Set route 2 and stage 19 before map load and
+do not change either cvar live.
+
+Offline implementation proof:
+
+  - route-2/stage-19 admission and route-0/stage-19 rejection pass;
+  - the dispatch plan retains primary, core-DI, material-feature runtime
+    bindings, transmission PSR, the bounded resolver, and initial DI while
+    explicitly clearing temporal and spatial execution;
+  - the normal CPU harness and 20-iteration stress run pass;
+  - the Vulkan release build succeeds with every SPIR-V shader reported up to
+    date, proving stage 19 changes CPU control only.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
