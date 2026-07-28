@@ -2123,6 +2123,38 @@ Local proof:
   deployed transmission blob SHA-256
     70D604E04CEFB43EBAD9B04BC93E1D259D6412114A735B791DBCDBF867EB2455
 
+D94. ACCEPT PRE-TRAVERSAL TRANSMISSION RAYGEN; OPEN HARDWARE-ONLY TRACE
+---------------------------------------------------------------------
+Decision: `success10.log` accepts the redefined stage 10. Exact full-resident
+bucket publication reaches 56/56 resident, active, ready, TLAS instances, and
+route records with zero missing BLAS, material indexes, invalid ranges, or
+instance overflows. The explicit completion line confirms the transmission
+producer executed its raygen prologue and glass decode, returned before
+`TraceRay`, then completed the accepted initial, temporal, and spatial
+sequence. No device removal occurred while the window geometry was visible.
+
+Black windows are expected at this rung. Stage 10 deliberately leaves the
+continuation payload unresolved and skips post-DI composition; it is a
+stability boundary, not a glass-appearance test. The 35-second host-pump
+warning occurred during deferred pipeline creation and is not a Vulkan
+device-loss or bucket-publication failure.
+
+This excludes the producer raygen prologue, glass-surface/material decode,
+output clears, and pre-traversal RayDesc construction as independent crash
+sites. It does not validate the RayDesc as a hardware traversal input.
+
+Open stage 11 without rebuilding. Retain every stage-10 control and change
+only:
+
+  r_pathTracingGeometryStaticBucketSecondaryProbeStage 11
+
+Stage 11 submits the same RayDesc with `RAY_FLAG_FORCE_OPAQUE |
+RAY_FLAG_SKIP_CLOSEST_HIT_SHADER`, excluding both any-hit and closest-hit
+execution. If it fails when a window enters view, the remaining boundary is
+RayDesc validity, TLAS/BLAS traversal, or acceleration-structure state. If it
+survives, those are accepted and stage 12 becomes the transmission-any-hit
+content/cost test.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
