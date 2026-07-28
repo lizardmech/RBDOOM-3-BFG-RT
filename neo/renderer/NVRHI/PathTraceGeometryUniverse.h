@@ -1266,7 +1266,6 @@ private:
     nvrhi::BufferHandle m_staticBucketTriangleClassBuffer;
     nvrhi::BufferHandle m_staticBucketTriangleMaterialBuffer;
     nvrhi::BufferHandle m_staticBucketTriangleMaterialIndexBuffer;
-    nvrhi::BufferHandle m_staticBucketTriangleIdentityBuffer;
     std::vector<StaticBucketBlasRecord> m_staticBucketBlasRecords;
     uint64 m_staticBucketUploadSignature = 0;
     uint64 m_staticBucketMaterialIndexUploadSignature = 0;

@@ -1867,3 +1867,26 @@ Every rebuilt blob has an mtime newer than
 Vulkan outputs; 41 were byte-identical to the deployed copies and were not
 copied. The CPU publication field is also renamed from the obsolete
 `staticBucketSurfaceRecordCount` to `staticBucketTriangleCount`.
+
+REF-10I DEAD ABI/UPLOAD RETIREMENT - 2026-07-28
+-----------------------------------------------
+The contribution-4/5 static-bucket SBT constants and their six-record assert
+have no remaining producer or consumer: bucket TLAS instances use contribution
+0 and the ordinary primary/shadow pair. They are deleted.
+
+The packed triangle-identity array remains useful to CPU emissive parity, but
+its GPU buffer had no binding or shader reader. Creating, uploading, tracking,
+and retaining that buffer is deleted. A bucket resident-pack upload now
+contains four buffers: vertices, indexes, triangle classes, and material IDs.
+Material indexes remain a separately generation-cached upload.
+
+Offline proof:
+
+  obsolete static SBT references                        0
+  unused identity GPU buffer references                 0
+  resident-pack buffer uploads                          5 -> 4
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  deployed executable SHA-256
+    F99804E347DBAD2CD66FAA91961050E65CDA81DDA24C04AC050140D785FABBF6

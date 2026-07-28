@@ -3684,9 +3684,7 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         geometryPack.triangleClasses.size() *
             sizeof(uint32_t) +
         geometryPack.triangleMaterials.size() *
-            sizeof(uint32_t) +
-        geometryPack.triangleIdentities.size() *
-            sizeof(RtSmokeStaticBucketTriangleIdentity);
+            sizeof(uint32_t);
     for (const RtSmokeStaticBucketPackedRecord& bucket :
         geometryPack.buckets)
     {
@@ -3732,9 +3730,6 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         sizeof(uint32_t);
     const size_t materialBytes =
         geometryPack.triangleMaterials.size() * sizeof(uint32_t);
-    const size_t identityBytes =
-        geometryPack.triangleIdentities.size() *
-        sizeof(RtSmokeStaticBucketTriangleIdentity);
     bool buffersCreated = false;
     auto ensureBuffer =
         [&](nvrhi::BufferHandle& buffer,
@@ -3800,14 +3795,6 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             sizeof(uint32_t),
             false,
             false,
-            false) &&
-        ensureBuffer(
-            m_staticBucketTriangleIdentityBuffer,
-            "PathTraceStaticBucketTriangleIdentities",
-            identityBytes,
-            sizeof(RtSmokeStaticBucketTriangleIdentity),
-            false,
-            false,
             false);
     if (!buffersValid)
     {
@@ -3833,9 +3820,6 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         commandList->beginTrackingBufferState(
             m_staticBucketTriangleMaterialBuffer,
             nvrhi::ResourceStates::Common);
-        commandList->beginTrackingBufferState(
-            m_staticBucketTriangleIdentityBuffer,
-            nvrhi::ResourceStates::Common);
         commandList->writeBuffer(
             m_staticBucketVertexBuffer,
             geometryPack.vertexBytes.data(),
@@ -3852,10 +3836,6 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             m_staticBucketTriangleMaterialBuffer,
             geometryPack.triangleMaterials.data(),
             materialBytes);
-        commandList->writeBuffer(
-            m_staticBucketTriangleIdentityBuffer,
-            geometryPack.triangleIdentities.data(),
-            identityBytes);
         commandList->setBufferState(
             m_staticBucketVertexBuffer,
             nvrhi::ResourceStates::AccelStructBuildInput);
@@ -3868,17 +3848,13 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         commandList->setBufferState(
             m_staticBucketTriangleMaterialBuffer,
             nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(
-            m_staticBucketTriangleIdentityBuffer,
-            nvrhi::ResourceStates::ShaderResource);
         commandList->commitBarriers();
-        stats.bufferUploads = 5;
+        stats.bufferUploads = 4;
         stats.uploadBytes =
             vertexBytes +
             indexBytes +
             classBytes +
-            materialBytes +
-            identityBytes;
+            materialBytes;
         m_staticBucketUploadSignature =
             geometryPack.contentSignature;
     }
@@ -4300,7 +4276,6 @@ void RtSmokeGeometryUniverse::ReleaseStaticBucketBlasGpuScaffold()
     m_staticBucketTriangleClassBuffer = nullptr;
     m_staticBucketTriangleMaterialBuffer = nullptr;
     m_staticBucketTriangleMaterialIndexBuffer = nullptr;
-    m_staticBucketTriangleIdentityBuffer = nullptr;
     m_staticBucketBlasRecords.clear();
     m_staticBucketUploadSignature = 0;
     m_staticBucketMaterialIndexUploadSignature = 0;

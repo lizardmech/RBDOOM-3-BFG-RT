@@ -1590,6 +1590,24 @@ Verification:
   executable SHA-256
     5EE62D5E7B7B53695583E96F5A5B1D1FF8E1D87782C97BF36CA6163087DDBA12
 
+D72. RETIRE STATIC-BUCKET SBT CONSTANTS AND THE UNUSED IDENTITY UPLOAD
+----------------------------------------------------------------------
+Decision: delete the obsolete static-bucket contribution-4/5 constants and
+six-record SBT assertion. Bucket instances use contribution 0.
+
+Keep packed triangle identities on the CPU for emissive parity, but do not
+allocate or upload a GPU identity buffer: no descriptor or shader consumes it.
+The resident bucket upload is vertices, indexes, classes, and material IDs,
+with material indexes handled by their existing generation cache.
+
+Verification:
+
+  obsolete static SBT / GPU identity-buffer refs         0 / 0
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  executable SHA-256
+    F99804E347DBAD2CD66FAA91961050E65CDA81DDA24C04AC050140D785FABBF6
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

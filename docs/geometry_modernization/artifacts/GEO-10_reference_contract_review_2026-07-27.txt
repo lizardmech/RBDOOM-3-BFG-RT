@@ -1963,3 +1963,14 @@ Compiler evidence:
 The size reductions confirm that deleting the surface-record decoder removes
 real compiled shader work rather than merely moving it behind another entry.
 Only the 9 content-changing Vulkan blobs were deployed.
+
+REF-10I ABI SURFACE CHECK
+-------------------------
+No static-bucket descriptor bindings or compact static hit libraries remain.
+The only surviving contribution-4/5 evidence was two unused C++ constants and
+one assert; those are removed. The bucket TLAS publisher already emits
+contribution 0.
+
+The only unused GPU-side storage found was the packed triangle-identity
+buffer. CPU audits use its source vector, but no binding or shader reads the
+GPU copy, so the allocation and upload are removed.

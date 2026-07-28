@@ -74,12 +74,6 @@ const char* RT_SMOKE_SKY_ENVIRONMENT_FALLBACK_NAME = "<white-terminal-fallback>"
 static_assert(
     sizeof(idJointMat) == PT_JOINT_CACHE_MATRIX_BYTES,
     "GEO-07 compact joint planner must match the renderer joint ABI");
-static_assert(
-    PT_PATH_TRACE_SBT_STATIC_BUCKET_INSTANCE_CONTRIBUTION +
-            PT_PATH_TRACE_SBT_SHADOW_RAY_CONTRIBUTION <
-        PT_PATH_TRACE_SBT_STATIC_BUCKET_RECORD_COUNT,
-    "GEO-10 static bucket TLAS contribution must select the compact primary/shadow hit pair");
-
 int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
