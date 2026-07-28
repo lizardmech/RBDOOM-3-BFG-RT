@@ -2026,6 +2026,34 @@ Source and deployed executable hashes are equal:
 
   528918C78933942AD82D99C319F09432BD91637A187719401F8D8E51C2952A8F
 
+D91. ACCEPT LIVE MATERIAL BINDINGS; OPEN TRANSMISSION PSR EXECUTION
+-----------------------------------------------------------------
+Decision: `success9.log` accepts the narrowed stage 9. Exact bucket
+publication reaches 56/56 resident, active, ready, TLAS, and route records.
+Both live material-feature registrations initialize, the primary producer
+binds the feature-parameter table, and the required stage-9 completion line
+confirms initial, temporal, and spatial dispatch while transmission/glass
+`DispatchRays` and later consumers remain skipped. No device-loss, Vulkan,
+binding, or validation error appears. The five-second host-pump warning is
+deferred pipeline creation.
+
+The user observed black windows. This is expected diagnostic output for the
+binding-only rung, not evidence of missing bucket geometry: the live
+material-feature output set is cleared to `(0,0,0,1)`, while stage 9
+intentionally withholds the transmission producer that would populate glass
+pixels. Do not evaluate final glass appearance at this boundary.
+
+Stage 9 proves that live registry selection, output availability, binding-set
+construction, UAV transitions, and output clears do not cause the previous
+device removal. The rejected combined rung is now narrowed to transmission
+PSR execution or the immediately following sky-surface repair.
+
+Open stage 10 without a rebuild. Retain the exact stage-9 controls and change
+only `r_pathTracingGeometryStaticBucketSecondaryProbeStage` from 9 to 10.
+Stage 10 dispatches the transmission producer under checkpoint
+`GEO10.View16.Stage10 TransmissionPSR`, then retains the accepted DI sequence
+and returns before post-DI material-feature composition.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

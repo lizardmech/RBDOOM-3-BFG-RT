@@ -2648,3 +2648,49 @@ Local proof and deployment:
   source/deployed executable SHA-256                  equal
 
   528918C78933942AD82D99C319F09432BD91637A187719401F8D8E51C2952A8F
+
+REF-10Z STAGE-9 ACCEPTANCE AND TRANSMISSION-EXECUTION RUNG - 2026-07-28
+----------------------------------------------------------------------
+`success9.log` supplies the complete binding-only boundary:
+
+  publication resident/active/ready                  56/56/56
+  publication TLAS/routes                            56/56
+  missing active material indexes                    0
+  transmission/glass runtime registrations           initialized
+  primary feature-parameter table                    bound
+  initial/temporal/spatial dispatch                   completed
+  transmission/glass DispatchRays                    skipped
+  device-loss/Vulkan/binding/validation failures     none
+  user result                                         no crash; windows black
+
+The black windows are expected for this deliberately incomplete rung.
+`ClearPathTraceCleanRtxdiDiMaterialFeatureOutputs` clears registered primary
+outputs to `(0,0,0,1)`, while stage 9 explicitly prevents the transmission
+producer from filling the cleared glass pixels. It does not invalidate the
+geometry or binding acceptance.
+
+Stage 9 therefore accepts:
+
+  - live registry selection;
+  - feature-output availability checks;
+  - clean-DI binding-set construction;
+  - UAV state transitions and output clears;
+  - the feature-parameter table consumed by the primary producer.
+
+Stage 10 is admitted as the next single-variable rung. Keep every stage-9
+control unchanged and set only:
+
+  r_pathTracingGeometryStaticBucketSecondaryProbeStage 10
+
+The expected checkpoint is:
+
+  GEO10.View16.Stage10 TransmissionPSR
+
+Required completion evidence:
+
+  GEO-10 view-16 stage-10 transmission-PSR plus initial-temporal-spatial dispatch completed
+
+The completion line must still state that post-DI transmission/glass
+composition and later consumers were skipped. If stage 10 device-removes,
+split transmission `DispatchRays` from the optional sky-surface repair before
+changing shader ABI, descriptors, or bucket decoding again.
