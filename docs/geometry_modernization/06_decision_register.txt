@@ -2310,6 +2310,80 @@ Runtime result:
     44BED08B6FF17FE78781D119E70550233B11343E84937565E33F7AE071434EDC,
     and its mtime is newer than the edited shared export source.
 
+D98. IGNOREHIT IS SOUND; REPLACE REPEATED HEAVY ANY-HIT WITH BOUNDED RESOLVE
+----------------------------------------------------------------------------
+Runtime result: stage 16 survives camera movement with all 56 resident
+buckets, exact publication, `materialIndexMissingActive=0`, and the expected
+`TransmissionAnyHitIgnoreOnce` completion marker. Therefore `IgnoreHit`,
+continuation/re-entry, the large transmission payload, and traversal into a
+second SBT hit are accepted. Combined with stages 14 and 15, the rejected
+boundary is repeated execution of the heavy per-hit content or its unbounded
+accumulated work. Do not run the former full-hit stage.
+
+The requested RTXDI and Remix reference audit resolves the design choice:
+
+  - RTXDI `SceneGeometry.hlsli` resolves one hit as
+    `instance.firstGeometryIndex + GeometryIndex`, loads one geometry and one
+    material record, then fetches attributes through bindless buffers.
+  - RTXDI `BrdfRayTracing.hlsl`, `RAB_PathTracer.hlsli`, and
+    `RaytracedGBuffer.hlsl` put non-opaque candidate handling in an inline
+    `RayQuery` loop. One `considerTransparentMaterial`/`anyHitLogic` call
+    resolves each candidate once; the committed hit retains only instance,
+    geometry, primitive, barycentrics, distance, and small path state.
+  - RTXDI retains an optional TraceRay any-hit implementation, but it calls
+    the same single candidate evaluator and uses the compact payload. It does
+    not distribute multiple independent geometry decoders through hit logic.
+  - Remix `ray_helper.slangh` derives `surfaceIndex` from masked custom index
+    plus `GeometryIndex`. Its `Surface` record owns buffer indices/offsets and
+    an `isStatic` flag; bindless buffers make pool choice data rather than a
+    descriptor-layout or shader-route change.
+  - Remix has no any-hit exports in the active shader tree. Ordered geometry
+    and PSR resolution use forced-opaque closest-hit traces in an explicit
+    outer loop. The interaction count is bounded: primary and PSR default to
+    32, secondary to 8. Unordered particles use bounded RayQuery loops.
+
+Decision: stage 17 is no longer the unsafe full-hit control. Implement the
+smallest Remix-shaped ordered resolver compatible with the current local
+pipeline:
+
+  1. Trace `RAY_FLAG_FORCE_OPAQUE` so the existing closest-hit export returns
+     one exact identity record without running transmission any-hit.
+  2. Resolve material, feature, class, and UV once in raygen. Share that record
+     across liquid, emissive-card, translucency, and alpha decisions.
+  3. If the hit passes through, advance the origin and remaining distance,
+     then retrace. Stop after eight interactions; fail closed on exhaustion.
+  4. Preserve the existing 176-byte output payload and liquid/emissive
+     accumulators for this first cut. Add no descriptors, SBT records, shader
+     libraries, or shared ABI.
+  5. Gate this route to stage 17 with producer-local bit 31. Keep the rejected
+     legacy stages as controls and keep post-DI composition blocked.
+
+This is preferred over immediately adding a second inline-query
+implementation because the local closest-hit path already publishes the
+required canonical identity. It matches Remix's ordered RT_TRACE_RAY shape,
+removes repeated any-hit execution, and gives one bounded runtime decision
+before considering a later compact RayQuery migration.
+
+Local implementation proof:
+
+  - the normal CPU planning harness and 20-iteration stress run pass,
+    including the stage-17 bounded-iterative-route contract;
+  - after deleting all nine exact affected Vulkan blobs, the release build
+    recompiles all nine clean-DI libraries and succeeds;
+  - all nine rebuilt blobs pass
+    `spirv-val --target-env vulkan1.2`, and every blob mtime is newer than the
+    edited transmission transport include;
+  - the eight non-transmission blobs are byte-identical to the deployed set,
+    proving the new resolver remains producer-local;
+  - only `pathtrace_clean_rtxdi_di_transmission_producer.rt.bin` changes. Its
+    SHA-256 is
+    7DE4890C30DB30E56AAC968C7C4F8ED28CC3E69B73ACB42539D5EE46F9BE2D58.
+
+Runtime acceptance remains pending. Stage 17 must survive level entry and
+camera movement around windows with the bucket route active. Black windows
+remain expected because this isolation stage still blocks post-DI
+transmission/glass composition.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

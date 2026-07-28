@@ -2135,6 +2135,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     {
         plan.transmissionTraceProbeMode = 7;
     }
+    plan.transmissionIterativeResolve = plan.stage == 17;
     plan.materialFeatureCompose = false;
     return plan;
 }

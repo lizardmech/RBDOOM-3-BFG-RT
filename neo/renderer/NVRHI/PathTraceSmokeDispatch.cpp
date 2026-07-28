@@ -63,6 +63,7 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION = 1u << 27u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT = 28u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK =
     7u << CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
+const uint32_t CLEAN_RTXDI_DI_FLAG_TRANSMISSION_ITERATIVE_RESOLVE = 1u << 31u;
 const uint32_t LIQUID_POOL_CONTROL_TELEMETRY_READY = 1u << 0u;
 const uint32_t LIQUID_POOL_CONTROL_REQUESTED = 1u << 1u;
 const uint32_t LIQUID_POOL_CONTROL_ROUTE_DISABLED = 1u << 2u;
@@ -3553,19 +3554,27 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 // Keep the GEO-10 traversal probes exact regardless of the
                 // normal glass defaults. Only the straight-through
-                // transmission lane is admitted, and stages 10-16 control
-                // how far its single TraceRay may execute.
+                // transmission lane is admitted. Stages 10-16 isolate the
+                // legacy single-TraceRay path; stage 17 selects the bounded
+                // forced-opaque iterative resolver.
                 psrConstants.flags &= ~(
                     CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR |
                     CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION |
                     CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR |
-                    CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK);
+                    CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK |
+                    CLEAN_RTXDI_DI_FLAG_TRANSMISSION_ITERATIVE_RESOLVE);
                 psrConstants.flags |=
                     (static_cast<uint32_t>(
                         staticBucketSecondaryIsolation.
                             transmissionTraceProbeMode) <<
                         CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT) &
                     CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK;
+                if (staticBucketSecondaryIsolation.
+                        transmissionIterativeResolve)
+                {
+                    psrConstants.flags |=
+                        CLEAN_RTXDI_DI_FLAG_TRANSMISSION_ITERATIVE_RESOLVE;
+                }
                 switch (staticBucketSecondaryIsolation.stage)
                 {
                     case 10:
@@ -3598,7 +3607,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         break;
                     default:
                         staticBucketTransmissionMarker =
-                            "GEO10.View16.Stage17 TransmissionFullHitPath";
+                            "GEO10.View16.Stage17 TransmissionIterativeResolve";
                         break;
                 }
             }
@@ -3915,7 +3924,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     else
                     {
                         common->Printf(
-                            "PathTracePrimaryPass: GEO-10 view-16 stage-17 full transmission hit path plus initial-temporal-spatial dispatch completed (%dx%d); post-DI transmission/glass composition and later consumers skipped\n",
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-17 bounded forced-opaque iterative transmission resolve plus initial-temporal-spatial dispatch completed (%dx%d); maxInteractions=8, legacy any-hit, post-DI transmission/glass composition, and later consumers skipped\n",
                             m_frameResources.width,
                             m_frameResources.height);
                     }

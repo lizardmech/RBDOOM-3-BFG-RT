@@ -105,6 +105,301 @@ PathTraceCleanRtxdiPayload PathTraceCleanRtxdiDiEmptyTransmissionTracePayload(RA
     return payload;
 }
 
+struct PathTraceCleanRtxdiDiTransmissionResolvedHit
+{
+    uint instanceId;
+    uint primitiveIndex;
+    uint materialIndex;
+    uint triangleClassAndFlags;
+    uint materialValid;
+    uint semanticLiquidPool;
+    uint alwaysTransmits;
+    PathTraceSmokeMaterial material;
+    float2 texCoord;
+};
+
+PathTraceCleanRtxdiDiTransmissionResolvedHit
+PathTraceCleanRtxdiDiResolveTransmissionHitOnce(
+    PathTraceCleanRtxdiPayload payload)
+{
+    PathTraceCleanRtxdiDiTransmissionResolvedHit resolved =
+        (PathTraceCleanRtxdiDiTransmissionResolvedHit)0;
+    resolved.instanceId = payload.hitInstanceId;
+    resolved.primitiveIndex = payload.hitPrimitiveIndex;
+    resolved.materialIndex = payload.hitMaterialIndex;
+    resolved.triangleClassAndFlags = payload.hitTriangleClassAndFlags;
+    resolved.materialValid =
+        resolved.materialIndex < (uint)TextureInfo.z ? 1u : 0u;
+    if (resolved.materialValid == 0u)
+    {
+        return resolved;
+    }
+
+    resolved.material =
+        PathTraceCleanRoomLoadSmokeMaterial(resolved.materialIndex);
+    PathTraceMaterialFeature feature;
+    const bool featureValid =
+        PathTraceCleanRtxdiDiLoadMaterialFeature(
+            resolved.materialIndex,
+            feature);
+    resolved.semanticLiquidPool =
+        featureValid &&
+        feature.materialKind ==
+            RT_PATH_TRACE_MATERIAL_KIND_LIQUID_POOL_MODIFIER &&
+        feature.modifierKind ==
+            RT_PATH_TRACE_MATERIAL_MODIFIER_LIQUID_POOL_UNION &&
+        (feature.materialCaps &
+            (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+                RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND)) ==
+            (RT_PATH_TRACE_MATERIAL_CAP_RECEIVER_MODIFIER |
+                RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND)
+            ? 1u
+            : 0u;
+
+    const uint alwaysTransparentFlags =
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+        RT_SMOKE_MATERIAL_FILTER_DECAL |
+        RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK |
+        RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK |
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY;
+    resolved.alwaysTransmits =
+        (featureValid &&
+            feature.materialKind ==
+                RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS &&
+            (feature.materialCaps &
+                RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION) != 0u) ||
+        (resolved.material.flags & alwaysTransparentFlags) != 0u
+            ? 1u
+            : 0u;
+
+    // RTXDI resolves GeomAttr_TexCoord once per non-opaque candidate. Keep
+    // the same invariant here: one canonical triangle/UV decode is shared by
+    // liquid, emissive-card, and alpha decisions for this interaction.
+    resolved.texCoord =
+        PathTraceCleanRoomTransmissionInterpolateTexCoord(
+            resolved.instanceId,
+            resolved.primitiveIndex,
+            payload.hitBarycentrics);
+    return resolved;
+}
+
+bool PathTraceCleanRtxdiDiCollectResolvedLiquidPoolCandidate(
+    inout PathTraceCleanRtxdiPayload payload,
+    PathTraceCleanRtxdiDiTransmissionResolvedHit resolved,
+    float totalHitT)
+{
+    if (!PathTraceCleanRtxdiDiLiquidPoolCollectionEnabled() ||
+        resolved.semanticLiquidPool == 0u)
+    {
+        return false;
+    }
+
+    payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
+    float4 stageColor;
+    if (PathTraceCleanRtxdiDiTryGetLiquidPoolStageColor(
+            resolved.materialIndex,
+            stageColor))
+    {
+        const float coverage =
+            saturate(PathTraceCleanRtxdiDiLiquidPoolAlphaCoverage(
+                resolved.material,
+                resolved.texCoord)) *
+            saturate(stageColor.a);
+        if (coverage > 0.0)
+        {
+            PathTraceCleanRtxdiDiStoreLiquidPoolCandidateAtHitT(
+                payload,
+                resolved.instanceId,
+                resolved.materialIndex,
+                resolved.primitiveIndex,
+                payload.hitBarycentrics,
+                totalHitT);
+        }
+    }
+    else
+    {
+        payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED;
+        payload.liquidRejectionCount =
+            payload.liquidRejectionCount == 0xffffffffu
+                ? 0xffffffffu
+                : payload.liquidRejectionCount + 1u;
+    }
+    return true;
+}
+
+bool PathTraceCleanRtxdiDiResolvedHitBlendsThrough(
+    PathTraceCleanRtxdiDiTransmissionResolvedHit resolved)
+{
+    if (resolved.alwaysTransmits != 0u)
+    {
+        return true;
+    }
+    const uint surfaceClass =
+        resolved.triangleClassAndFlags &
+        RT_SMOKE_TRIANGLE_CLASS_MASK;
+    const uint translucentSubtype =
+        (resolved.triangleClassAndFlags &
+            RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >>
+        RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+    return surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        (translucentSubtype ==
+                RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS ||
+            translucentSubtype ==
+                RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW);
+}
+
+void PathTraceCleanRtxdiDiAccumulateResolvedEmissiveCard(
+    inout PathTraceCleanRtxdiPayload payload,
+    PathTraceCleanRtxdiDiTransmissionResolvedHit resolved)
+{
+    if (resolved.materialValid == 0u ||
+        (resolved.material.flags &
+            (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+                RT_SMOKE_MATERIAL_EMISSIVE)) !=
+            (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+                RT_SMOKE_MATERIAL_EMISSIVE) ||
+        (resolved.triangleClassAndFlags &
+            RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) != 0u ||
+        ((((uint)TextureInfo.w) &
+            RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS) == 0u))
+    {
+        return;
+    }
+
+    float3 radiance = max(
+        resolved.material.emissiveColor.rgb,
+        float3(0.0, 0.0, 0.0));
+    if (resolved.material.emissiveTextureIndex != 0xffffffffu)
+    {
+        radiance *= saturate(PathTraceCleanRoomSampleTexture(
+            resolved.material.emissiveTextureIndex,
+            resolved.material.emissiveTextureWidth,
+            resolved.material.emissiveTextureHeight,
+            resolved.texCoord,
+            float4(1.0, 1.0, 1.0, 1.0)).rgb);
+    }
+    payload.passthroughEmissiveRadiance +=
+        radiance * 1.75 * max(CleanRtxdiDiToyPathInfo.z, 0.0);
+}
+
+bool PathTraceCleanRtxdiDiResolvedHitAlphaRejects(
+    PathTraceCleanRtxdiDiTransmissionResolvedHit resolved)
+{
+    return resolved.materialValid != 0u &&
+        (resolved.material.flags &
+            RT_SMOKE_MATERIAL_ALPHA_TEST_TRANSMISSION) != 0u &&
+        PathTraceCleanRoomTransmissionAlphaCoverage(
+            resolved.material,
+            resolved.texCoord) <
+            resolved.material.alphaCutoff;
+}
+
+bool PathTraceCleanRtxdiDiIterativeHitContinues(
+    inout PathTraceCleanRtxdiPayload payload,
+    float totalHitT)
+{
+    const PathTraceCleanRtxdiDiTransmissionResolvedHit resolved =
+        PathTraceCleanRtxdiDiResolveTransmissionHitOnce(payload);
+    if (PathTraceCleanRtxdiDiCollectResolvedLiquidPoolCandidate(
+            payload,
+            resolved,
+            totalHitT))
+    {
+        return true;
+    }
+
+    const bool ignoredSource =
+        resolved.instanceId == payload.ignoreInstanceId &&
+        (resolved.primitiveIndex == payload.ignorePrimitiveIndex ||
+            resolved.materialIndex == payload.ignoreMaterialIndex);
+    const bool blendThrough =
+        PathTraceCleanRtxdiDiResolvedHitBlendsThrough(resolved);
+    if (blendThrough)
+    {
+        PathTraceCleanRtxdiDiAccumulateResolvedEmissiveCard(
+            payload,
+            resolved);
+    }
+    return ignoredSource ||
+        blendThrough ||
+        PathTraceCleanRtxdiDiResolvedHitAlphaRejects(resolved);
+}
+
+bool PathTraceCleanRtxdiDiTraceTransmissionHitIterative(
+    RayDesc initialRay,
+    inout PathTraceCleanRtxdiPayload hitPayload,
+    out float3 hitPosition)
+{
+    // Remix resolves ordered PSR surfaces outside any-hit with forced-opaque
+    // closest-hit traces and a bounded interaction loop. Eight interactions
+    // cover the local source-pane/card/receiver contract while placing a hard
+    // ceiling on pathological stacked geometry.
+    static const uint MAX_TRANSMISSION_INTERACTIONS = 8u;
+    static const float INTERACTION_ADVANCE = 0.05;
+    const float3 initialOrigin = initialRay.Origin;
+    const float maxDistance = initialRay.TMax;
+    float originDistance = 0.0;
+
+    [loop]
+    for (uint interaction = 0u;
+        interaction < MAX_TRANSMISSION_INTERACTIONS;
+        ++interaction)
+    {
+        RayDesc ray = initialRay;
+        ray.Origin =
+            initialOrigin + initialRay.Direction * originDistance;
+        ray.TMax = maxDistance - originDistance;
+        if (ray.TMax <= ray.TMin)
+        {
+            break;
+        }
+
+        hitPayload.value = 0u;
+        hitPayload.hitInstanceId = 0xffffffffu;
+        hitPayload.hitPrimitiveIndex = 0xffffffffu;
+        hitPayload.hitMaterialId = 0xffffffffu;
+        hitPayload.hitMaterialIndex = 0xffffffffu;
+        hitPayload.hitTriangleClassAndFlags = 0u;
+        hitPayload.hitT = 0.0;
+        hitPayload.hitBarycentrics = float2(0.0, 0.0);
+        TraceRay(
+            SmokeScene,
+            RAY_FLAG_FORCE_OPAQUE,
+            0xff,
+            0,
+            0,
+            0,
+            ray,
+            hitPayload);
+        if (hitPayload.value == 0u ||
+            hitPayload.hitT < ray.TMin ||
+            hitPayload.hitT > ray.TMax)
+        {
+            hitPayload.value = 0u;
+            return false;
+        }
+
+        const float totalHitT =
+            originDistance + hitPayload.hitT;
+        hitPayload.hitT = totalHitT;
+        if (!PathTraceCleanRtxdiDiIterativeHitContinues(
+                hitPayload,
+                totalHitT))
+        {
+            hitPosition =
+                initialOrigin + initialRay.Direction * totalHitT;
+            return hitPayload.hitMaterialIndex <
+                (uint)TextureInfo.z;
+        }
+
+        originDistance =
+            min(totalHitT + INTERACTION_ADVANCE, maxDistance);
+    }
+
+    hitPayload.value = 0u;
+    return false;
+}
+
 bool PathTraceCleanRtxdiDiTraceTransmissionHit(
     RAB_Surface surface,
     PathTraceCleanRtxdiDiTransmissionPsrSample sample,
@@ -139,6 +434,13 @@ bool PathTraceCleanRtxdiDiTraceTransmissionHit(
         // glass decode, but stop before the first hardware traversal.
         return false;
     }
+    if (PathTraceCleanRtxdiDiTransmissionIterativeResolveEnabled())
+    {
+        return PathTraceCleanRtxdiDiTraceTransmissionHitIterative(
+            ray,
+            hitPayload,
+            hitPosition);
+    }
 
     // Force non-opaque so the rayMode 3 anyhit filter always runs; it skips the
     // source pane and transparent-carded glass so the ray reaches the backdrop.
@@ -155,7 +457,7 @@ bool PathTraceCleanRtxdiDiTraceTransmissionHit(
     {
         // GEO-10 stages 12-16 admit progressively isolated transmission
         // any-hit work while keeping closest-hit suppressed. Stage 17 uses
-        // mode zero and restores the normal full hit path.
+        // the bounded iterative path above instead of this legacy route.
         traceFlags =
             RAY_FLAG_FORCE_NON_OPAQUE |
             RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;

@@ -7,12 +7,19 @@
 static const uint CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT = 28u;
 static const uint CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_MASK =
     7u << CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
+static const uint CLEAN_FLAG_TRANSMISSION_ITERATIVE_RESOLVE = 1u << 31u;
 
 uint PathTraceCleanRtxdiDiTransmissionTraceProbeMode()
 {
     return (CleanRtxdiDiFlags &
         CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_MASK) >>
         CLEAN_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
+}
+
+bool PathTraceCleanRtxdiDiTransmissionIterativeResolveEnabled()
+{
+    return (CleanRtxdiDiFlags &
+        CLEAN_FLAG_TRANSMISSION_ITERATIVE_RESOLVE) != 0u;
 }
 
 #endif

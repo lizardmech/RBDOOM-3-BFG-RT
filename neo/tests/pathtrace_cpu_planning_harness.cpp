@@ -3273,7 +3273,7 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 16);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
-        transmissionFullHitPathPlan =
+        transmissionIterativeResolvePlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
                 true,
@@ -3447,11 +3447,13 @@ void TestStaticBucketAssignmentPlan()
             transmissionAnyHitIgnoreOncePlan.stage == 16 &&
             transmissionAnyHitIgnoreOncePlan.transmissionPsr &&
             transmissionAnyHitIgnoreOncePlan.transmissionTraceProbeMode == 7 &&
-            transmissionFullHitPathPlan.active &&
-            transmissionFullHitPathPlan.stage == 17 &&
-            transmissionFullHitPathPlan.transmissionPsr &&
-            transmissionFullHitPathPlan.transmissionTraceProbeMode == 0,
-        "static bucket transmission probe separates no-trace, traversal-only, any-hit content/cost, IgnoreHit continuation, and full-hit execution");
+            !transmissionAnyHitIgnoreOncePlan.transmissionIterativeResolve &&
+            transmissionIterativeResolvePlan.active &&
+            transmissionIterativeResolvePlan.stage == 17 &&
+            transmissionIterativeResolvePlan.transmissionPsr &&
+            transmissionIterativeResolvePlan.transmissionTraceProbeMode == 0 &&
+            transmissionIterativeResolvePlan.transmissionIterativeResolve,
+        "static bucket transmission probe separates legacy any-hit boundaries from bounded iterative resolve");
     Check(
         waitingForPublicationPlan.active &&
             waitingForPublicationPlan.requested &&

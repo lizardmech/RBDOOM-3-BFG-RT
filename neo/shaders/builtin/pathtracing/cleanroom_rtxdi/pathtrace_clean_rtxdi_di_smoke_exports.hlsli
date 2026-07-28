@@ -356,12 +356,13 @@ bool PathTraceCleanRtxdiDiTryGetLiquidPoolStageColor(uint materialIndex, out flo
     return stageColor.a > 0.0;
 }
 
-void PathTraceCleanRtxdiDiStoreLiquidPoolCandidate(
+void PathTraceCleanRtxdiDiStoreLiquidPoolCandidateAtHitT(
     inout PathTraceCleanRtxdiPayload payload,
     uint instanceId,
     uint materialIndex,
     uint primitiveIndex,
-    float2 barycentrics)
+    float2 barycentrics,
+    float hitT)
 {
     const LiquidPoolContributorKey key =
         LiquidPoolMakeContributorKey(instanceId, primitiveIndex, materialIndex, barycentrics);
@@ -398,7 +399,23 @@ void PathTraceCleanRtxdiDiStoreLiquidPoolCandidate(
     payload.liquidPrimitiveIndex[slot] = key.primitiveIndex;
     payload.liquidBarycentricXBits[slot] = key.barycentricXBits;
     payload.liquidBarycentricYBits[slot] = key.barycentricYBits;
-    payload.liquidHitT[slot] = RayTCurrent();
+    payload.liquidHitT[slot] = hitT;
+}
+
+void PathTraceCleanRtxdiDiStoreLiquidPoolCandidate(
+    inout PathTraceCleanRtxdiPayload payload,
+    uint instanceId,
+    uint materialIndex,
+    uint primitiveIndex,
+    float2 barycentrics)
+{
+    PathTraceCleanRtxdiDiStoreLiquidPoolCandidateAtHitT(
+        payload,
+        instanceId,
+        materialIndex,
+        primitiveIndex,
+        barycentrics,
+        RayTCurrent());
 }
 
 bool PathTraceCleanRtxdiDiCollectLiquidPoolCandidate(
