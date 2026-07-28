@@ -3042,7 +3042,36 @@ void TestStaticBucketAssignmentPlan()
             false,
             true,
             17),
-        "static bucket view-16 isolation admits traversal, any-hit content/cost, and full-hit transmission rungs");
+        "static bucket view-16 isolation admits traversal, any-hit content/cost, and bounded bucket transmission rungs");
+    Check(
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            18) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            17) &&
+        !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            true,
+            18),
+        "static bucket view-16 isolation admits stage 18 only as the route-zero monolithic bounded-resolver control");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3281,6 +3310,14 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 17);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        transmissionMonolithicControlPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                18);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
@@ -3452,8 +3489,15 @@ void TestStaticBucketAssignmentPlan()
             transmissionIterativeResolvePlan.stage == 17 &&
             transmissionIterativeResolvePlan.transmissionPsr &&
             transmissionIterativeResolvePlan.transmissionTraceProbeMode == 0 &&
-            transmissionIterativeResolvePlan.transmissionIterativeResolve,
-        "static bucket transmission probe separates legacy any-hit boundaries from bounded iterative resolve");
+            transmissionIterativeResolvePlan.transmissionIterativeResolve &&
+            !transmissionIterativeResolvePlan.transmissionMonolithicControl &&
+            transmissionMonolithicControlPlan.active &&
+            transmissionMonolithicControlPlan.stage == 18 &&
+            transmissionMonolithicControlPlan.transmissionPsr &&
+            transmissionMonolithicControlPlan.transmissionTraceProbeMode == 0 &&
+            transmissionMonolithicControlPlan.transmissionIterativeResolve &&
+            transmissionMonolithicControlPlan.transmissionMonolithicControl,
+        "static bucket transmission probe separates legacy any-hit boundaries, bounded bucket resolve, and the monolithic bounded-resolver control");
     Check(
         waitingForPublicationPlan.active &&
             waitingForPublicationPlan.requested &&

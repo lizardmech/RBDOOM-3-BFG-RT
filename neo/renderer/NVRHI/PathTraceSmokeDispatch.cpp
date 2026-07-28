@@ -946,14 +946,22 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiProductionView = cleanRtxdiDiView == 16;
     const int staticBucketSecondaryProbeStage =
         r_pathTracingGeometryStaticBucketSecondaryProbeStage.GetInteger();
+    const int staticBucketRouteMode =
+        r_pathTracingGeometryStaticBucketRoute.GetInteger();
+    const bool staticBucketSecondaryMonolithicControlRequested =
+        cleanRtxdiDiProductionView &&
+        staticBucketRouteMode == RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED &&
+        staticBucketSecondaryProbeStage == 18;
     const bool staticBucketSecondaryIsolationRequested =
         cleanRtxdiDiProductionView &&
-        r_pathTracingGeometryStaticBucketRoute.GetInteger() ==
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
-        staticBucketSecondaryProbeStage != 0;
+        ((staticBucketRouteMode ==
+                RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
+            staticBucketSecondaryProbeStage >= 1 &&
+            staticBucketSecondaryProbeStage <= 17) ||
+            staticBucketSecondaryMonolithicControlRequested);
     const bool staticBucketSecondaryIsolationSupported =
         IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
-            r_pathTracingGeometryStaticBucketRoute.GetInteger(),
+            staticBucketRouteMode,
             cleanRtxdiDiEnabled,
             cleanRtxdiDiView,
             r_pathTracingNsightGpuMarkers.GetInteger() != 0,
@@ -969,8 +977,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 cleanRtxdiDiProductionView,
                 staticBucketSecondaryIsolationRequested,
                 staticBucketSecondaryIsolationSupported,
-                m_sceneInputs.geometry.
-                    staticBucketRoutePublicationValid,
+                staticBucketSecondaryMonolithicControlRequested ||
+                    m_sceneInputs.geometry.
+                        staticBucketRoutePublicationValid,
                 staticBucketSecondaryProbeStage);
     const bool staticBucketSecondaryIsolationActive =
         staticBucketSecondaryIsolation.active;
@@ -3555,8 +3564,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 // Keep the GEO-10 traversal probes exact regardless of the
                 // normal glass defaults. Only the straight-through
                 // transmission lane is admitted. Stages 10-16 isolate the
-                // legacy single-TraceRay path; stage 17 selects the bounded
-                // forced-opaque iterative resolver.
+                // legacy single-TraceRay path; stages 17 and 18 select the
+                // bounded forced-opaque iterative resolver against bucket and
+                // monolithic static traversal respectively.
                 psrConstants.flags &= ~(
                     CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR |
                     CLEAN_RTXDI_DI_FLAG_OPAQUE_MIRROR_REFLECTION |
@@ -3604,6 +3614,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     case 16:
                         staticBucketTransmissionMarker =
                             "GEO10.View16.Stage16 TransmissionAnyHitIgnoreOnce";
+                        break;
+                    case 18:
+                        staticBucketTransmissionMarker =
+                            "GEO10.View16.Stage18 TransmissionIterativeResolveMonolithic";
                         break;
                     default:
                         staticBucketTransmissionMarker =
@@ -3921,10 +3935,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                             m_frameResources.width,
                             m_frameResources.height);
                     }
+                    else if (staticBucketSecondaryIsolation.stage == 18)
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-18 bounded forced-opaque iterative transmission resolve against monolithic static traversal plus initial-temporal-spatial dispatch completed (%dx%d); maxInteractions=8, legacy any-hit skipped, post-DI transmission/glass composition and later consumers skipped\n",
+                            m_frameResources.width,
+                            m_frameResources.height);
+                    }
                     else
                     {
                         common->Printf(
-                            "PathTracePrimaryPass: GEO-10 view-16 stage-17 bounded forced-opaque iterative transmission resolve plus initial-temporal-spatial dispatch completed (%dx%d); maxInteractions=8, legacy any-hit, post-DI transmission/glass composition, and later consumers skipped\n",
+                            "PathTracePrimaryPass: GEO-10 view-16 stage-17 bounded forced-opaque iterative transmission resolve plus initial-temporal-spatial dispatch completed (%dx%d); maxInteractions=8, legacy any-hit skipped, post-DI transmission/glass composition and later consumers skipped\n",
                             m_frameResources.width,
                             m_frameResources.height);
                     }

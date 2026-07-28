@@ -2036,20 +2036,26 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     // trace work: no TraceRay, traversal without hit shaders, the rejected
     // full any-hit baseline, entry-only any-hit, one complete any-hit
     // invocation, bounded repeated any-hit, one decode-free IgnoreHit, then
-    // the full hit path.
+    // the bucket-resident bounded resolver. Stage 18 admits that same bounded
+    // resolver against route-0 monolithic static traversal as a visual/replay
+    // control; it never restores the rejected legacy any-hit path.
     const bool transmissionContractExact =
         (probeStage <= 8 && !transmissionPsrEnabled) ||
-        (probeStage >= 9 && probeStage <= 17 &&
+        (probeStage >= 9 && probeStage <= 18 &&
             transmissionPsrEnabled);
-    const bool diagnosticContractExact = routeMode ==
-            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
+    const bool traversalContractExact =
+        (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
+            probeStage >= 1 && probeStage <= 17) ||
+        (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED &&
+            probeStage == 18);
+    const bool diagnosticContractExact =
+        traversalContractExact &&
         cleanDiEnabled &&
         cleanDiView == 16 &&
         diagnosticCheckpointsEnabled &&
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
-        transmissionContractExact &&
-        (probeStage >= 1 && probeStage <= 17);
+        transmissionContractExact;
     return diagnosticContractExact;
 }
 
@@ -2073,7 +2079,7 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         return plan;
     }
 
-    plan.stage = std::max(0, std::min(17, probeStage));
+    plan.stage = std::max(0, std::min(18, probeStage));
     plan.primaryPipelineCreation =
         isolationSupported &&
         routePublicationValid &&
@@ -2135,7 +2141,10 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     {
         plan.transmissionTraceProbeMode = 7;
     }
-    plan.transmissionIterativeResolve = plan.stage == 17;
+    plan.transmissionIterativeResolve =
+        plan.stage == 17 ||
+        plan.stage == 18;
+    plan.transmissionMonolithicControl = plan.stage == 18;
     plan.materialFeatureCompose = false;
     return plan;
 }

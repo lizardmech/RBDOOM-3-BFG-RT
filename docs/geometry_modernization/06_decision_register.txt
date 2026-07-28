@@ -2384,6 +2384,79 @@ camera movement around windows with the bucket route active. Black windows
 remain expected because this isolation stage still blocks post-DI
 transmission/glass composition.
 
+D99. ACCEPT THE BOUNDED RESOLVER FOR GPU SAFETY; VISUAL ACCEPTANCE REMAINS OPEN
+-------------------------------------------------------------------------------
+`success17.log` accepts the stage-17 crash boundary. Exact publication reaches
+56/56 resident, active, ready, TLAS, and route records with
+`materialIndexMissingActive=0`. The bounded forced-opaque iterative
+transmission producer completes at 2560x1440, the bucket-resident route remains
+active during subsequent movement, and no device-loss, Vulkan validation, or
+pipeline error is recorded. The one 42-second host-pump warning is the existing
+cold pipeline-creation stall, not a GPU failure.
+
+The user reports that glass now partially works but geometry behind it is
+glitchy. Do not attribute this to missing bucket publication: the log proves
+the full-resident route stayed exact. Do not enable post-DI glass composition
+yet either; that would add a consumer without isolating the replacement
+surface defect.
+
+Perform one no-build A/B at the same glass and camera position:
+
+  A. retain view 16 and the existing controls, set
+     `r_pathTracingGeometryStaticBucketRoute 0`, and observe the monolithic
+     transmission baseline;
+  B. restore `r_pathTracingGeometryStaticBucketRoute 2`, retain stage 17, wait
+     for exact publication, and observe the same geometry.
+
+If A is also glitchy, the defect predates GEO-10 and belongs to the shared
+transmission/PSR surface contract. If A is stable and B glitches, the remaining
+boundary is either the new bounded interaction loop or bucket-hit replay into
+the replacement surface. The next code rung must then run the same bounded
+resolver against monolithic static traversal, so loop semantics and bucket
+decode can be separated without restoring repeated heavy any-hit.
+
+The route-0 observation is visually decisive but not a safe baseline: the
+geometry behind the glass rendered correctly, then the device was removed
+after approximately one second. Route 0 uses the legacy repeated-heavy
+transmission any-hit path because the stage-17 bit is deliberately scoped to
+the bucket isolate. This both supplies the expected visual reference and
+confirms that the rejected any-hit path is unsafe independently of bucket
+storage. Do not repeat route 0 under normal view-16 execution.
+
+Open stage 18 as the exact safe control:
+
+  - require route 0, view 16, GPU markers on, clean GI and external PDF-NEE
+    off, and both transmission controls on;
+  - run the same stage-17 bounded forced-opaque iterative resolver against the
+    normal monolithic static TLAS;
+  - retain the same primary, initial, temporal, and spatial dispatches while
+    keeping post-DI material-feature composition and all later consumers
+    blocked;
+  - add no shader source, descriptor, SBT, payload, or resolver change. Stage
+    18 is a CPU admission/dispatch control over the already validated producer.
+
+Interpretation:
+
+  - stage 18 visually correct: the bounded loop is sound and stage 17's
+    remaining defect is bucket-hit replay/reconstruction;
+  - stage 18 repeats the stage-17 glitch: the bounded loop differs
+    semantically from the legacy visual baseline and must be repaired before
+    further bucket consumer admission;
+  - stage 18 device-removes: the stage-17 survival depended on bucket
+    traversal, contradicting the current workload diagnosis; stop before any
+    further consumer.
+
+Offline proof:
+
+  - route-0/stage-18 admission and route-2/stage-18 rejection pass the CPU
+    harness;
+  - stage 18 produces the same iterative-resolver plan as stage 17 while
+    carrying an explicit monolithic-control marker;
+  - the normal harness and 20-iteration stress run pass;
+  - the Vulkan-only release build succeeds with every SPIR-V shader reported
+    up to date. The transmission producer remains byte-identical to the
+    deployed stage-17 blob, proving this rung changes CPU control only.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
