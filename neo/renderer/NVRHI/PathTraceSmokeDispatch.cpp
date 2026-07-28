@@ -1737,6 +1737,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_smokeNeeCacheState.pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
                 m_smokeNeeCacheState.taskClearPending = false;
             }
+        }
+        if (!staticBucketSecondaryIsolationActive ||
+            staticBucketSecondaryIsolation.cleanDiPipelineCreation)
+        {
             if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
                 !m_smokeCleanRtxdiDiInitialShaderTable ||
                 !m_smokeCleanRtxdiDiTemporalShaderTable ||
@@ -1744,6 +1748,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     (!m_smokeCleanRtxdiDiInitialProductionShaderTable ||
                         !m_smokeCleanRtxdiDiTemporalProductionShaderTable)))
             {
+                if (staticBucketSecondaryIsolationActive)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 core DI pipeline creation begin (stage=%d deferredHost=1)\n",
+                        staticBucketSecondaryIsolation.stage);
+                }
                 InitRayTracingSmokeRestirPipeline(15);
             }
             if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
@@ -1760,6 +1770,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 }
                 return;
             }
+            if (staticBucketSecondaryIsolationActive)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO-10 core DI pipeline creation completed (stage=%d); secondary DispatchRays still blocked\n",
+                    staticBucketSecondaryIsolation.stage);
+            }
+        }
+        if (!staticBucketSecondaryIsolationActive)
+        {
             if (cleanRtxdiDiSpatialShaderRequested &&
                 (!m_smokeCleanRtxdiDiSpatialShaderTable ||
                     (cleanRtxdiDiProductionView && !m_smokeCleanRtxdiDiSpatialProductionShaderTable)))
@@ -2270,10 +2289,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             if (!m_smokeTestDispatched)
             {
-                common->Printf(
-                    "PathTracePrimaryPass: GEO-10 view-16 stage-2 primary-only dispatch completed (%dx%d); secondary pipeline creation and dispatch skipped\n",
-                    m_frameResources.width,
-                    m_frameResources.height);
+                if (staticBucketSecondaryIsolation.cleanDiPipelineCreation)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-3 core DI pipelines and primary dispatch completed (%dx%d); secondary DispatchRays skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
+                else
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: GEO-10 view-16 stage-2 primary-only dispatch completed (%dx%d); secondary pipeline creation and dispatch skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
             }
             m_smokeTestDispatched = true;
             return;

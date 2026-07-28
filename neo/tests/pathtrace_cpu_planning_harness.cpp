@@ -2890,8 +2890,19 @@ void TestStaticBucketAssignmentPlan()
             false,
             2),
         "static bucket view-16 isolation admits stage two after latched stage-one acceptance");
+    Check(
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            false,
+            3),
+        "static bucket view-16 isolation admits stage three for core DI pipeline creation only");
     bool secondaryIsolationStagesRejected = true;
-    for (int stage = 3; stage <= 6; ++stage)
+    for (int stage = 4; stage <= 6; ++stage)
     {
         secondaryIsolationStagesRejected &=
             !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
@@ -2906,7 +2917,7 @@ void TestStaticBucketAssignmentPlan()
     }
     Check(
         secondaryIsolationStagesRejected,
-        "static bucket unified-primary view-16 isolation rejects every secondary-consumer stage");
+        "static bucket unified-primary view-16 isolation rejects stages four through six");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3007,6 +3018,14 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 2);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        cleanDiPipelineOnlyPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                3);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
@@ -3042,7 +3061,17 @@ void TestStaticBucketAssignmentPlan()
             !primaryDispatchOnlyPlan.initial &&
             !primaryDispatchOnlyPlan.temporal &&
             !primaryDispatchOnlyPlan.spatial &&
-            !primaryDispatchOnlyPlan.materialFeatureCompose,
+            !primaryDispatchOnlyPlan.materialFeatureCompose &&
+            cleanDiPipelineOnlyPlan.active &&
+            cleanDiPipelineOnlyPlan.stage == 3 &&
+            cleanDiPipelineOnlyPlan.primaryPipelineCreation &&
+            cleanDiPipelineOnlyPlan.primaryDispatch &&
+            cleanDiPipelineOnlyPlan.cleanDiPipelineCreation &&
+            !cleanDiPipelineOnlyPlan.transmissionPsr &&
+            !cleanDiPipelineOnlyPlan.initial &&
+            !cleanDiPipelineOnlyPlan.temporal &&
+            !cleanDiPipelineOnlyPlan.spatial &&
+            !cleanDiPipelineOnlyPlan.materialFeatureCompose,
         "static bucket primary isolate separates pipeline creation from DispatchRays");
     Check(
         waitingForPublicationPlan.active &&
@@ -3051,6 +3080,7 @@ void TestStaticBucketAssignmentPlan()
             !waitingForPublicationPlan.routePublicationValid &&
             !waitingForPublicationPlan.primaryPipelineCreation &&
             !waitingForPublicationPlan.primaryDispatch &&
+            !waitingForPublicationPlan.cleanDiPipelineCreation &&
             !waitingForPublicationPlan.initial &&
             !waitingForPublicationPlan.temporal &&
             !waitingForPublicationPlan.spatial &&
@@ -3060,6 +3090,7 @@ void TestStaticBucketAssignmentPlan()
             unsupportedIsolationPlan.routePublicationValid &&
             !unsupportedIsolationPlan.primaryPipelineCreation &&
             !unsupportedIsolationPlan.primaryDispatch &&
+            !unsupportedIsolationPlan.cleanDiPipelineCreation &&
             !unsupportedIsolationPlan.initial &&
             !unsupportedIsolationPlan.temporal &&
             !unsupportedIsolationPlan.spatial,
@@ -3077,6 +3108,7 @@ void TestStaticBucketAssignmentPlan()
             activeStageZeroPlan.stage == 0 &&
             !activeStageZeroPlan.primaryPipelineCreation &&
             !activeStageZeroPlan.primaryDispatch &&
+            !activeStageZeroPlan.cleanDiPipelineCreation &&
             !activeStageZeroPlan.neeCachePrimaryUpdate &&
             !activeStageZeroPlan.transmissionPsr &&
             !activeStageZeroPlan.initial &&

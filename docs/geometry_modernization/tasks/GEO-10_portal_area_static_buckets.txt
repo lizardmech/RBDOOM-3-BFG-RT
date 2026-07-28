@@ -2086,3 +2086,37 @@ Offline proof:
   source/deployed executable hashes                    equal
   executable SHA-256
     3751C1AE118CE0938572ED5842FAEEA3459B8C242C50C2ABB5E33ABD872EDC03
+
+REF-10N RUNTIME ACCEPTANCE - SUCCESS3.LOG - 2026-07-28
+-------------------------------------------------------
+The latched stage-2 primary dispatch passed. After exact 56/56 publication,
+the primary producer dispatched at 2560x1440 and logged that secondary pipeline
+creation and dispatch were skipped. Cutover reported
+`consumerSupported=1`, `secondaryIsolation=1`, `secondaryStage=2`, and
+`traversal=bucket-resident-pool`. The log contains zero device-loss, Vulkan,
+binding, or validation errors. REF-10N is accepted.
+
+REF-10O CORE-DI PIPELINE-CREATION RUNG - 2026-07-28
+----------------------------------------------------
+The next bounded rung is deliberately not an initial-lighting dispatch.
+Stage 3 retains the accepted primary dispatch, additionally creates the
+clean-DI sentinel, initial, temporal, and view-16 production shader tables,
+then returns before every secondary DispatchRays call.
+
+This separates driver pipeline creation from secondary shader execution.
+Transmission PSR, initial, temporal, spatial, material-feature compose,
+external-PDF, NEE-cache update, and GI remain suppressed. Stages 4-6 and
+production route mode 1 remain rejected.
+
+Offline proof:
+
+  stage-3 support and stage-4..6 rejection              passed
+  stage-3 core-pipeline/no-secondary-dispatch plan      passed
+  publication-pending/unsupported pre-pipeline block   passed
+  monolithic pipeline behavior unchanged                passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  source/deployed executable hashes                    equal
+  executable SHA-256
+    05B44F1CCAC165F5C3CB1099C1C7B0DA00CDF8347CC1D34EEB62759A8291C90E

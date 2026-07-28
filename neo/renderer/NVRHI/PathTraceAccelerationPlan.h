@@ -1348,6 +1348,7 @@ struct RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     int stage = 0;
     bool primaryPipelineCreation = true;
     bool primaryDispatch = true;
+    bool cleanDiPipelineCreation = true;
     bool neeCachePrimaryUpdate = true;
     bool transmissionPsr = true;
     bool initial = true;

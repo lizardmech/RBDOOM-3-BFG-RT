@@ -1730,6 +1730,25 @@ Verification:
   deployed executable SHA-256
     3751C1AE118CE0938572ED5842FAEEA3459B8C242C50C2ABB5E33ABD872EDC03
 
+D79. ACCEPT PRIMARY DISPATCH; ISOLATE CORE-DI PIPELINE CREATION
+---------------------------------------------------------------
+Decision: `success3.log` accepts latched stage 2. Re-enable stage 3 only as a
+pipeline-creation rung: create the clean-DI sentinel/initial/temporal
+production family alongside the accepted primary dispatch, then return before
+every secondary DispatchRays call.
+
+Keep transmission and all secondary execution disabled. Stages 4-6 and
+production mode remain rejected.
+
+Verification:
+
+  stage-3 pipeline/no-secondary-dispatch matrix         passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  deployed executable SHA-256
+    05B44F1CCAC165F5C3CB1099C1C7B0DA00CDF8347CC1D34EEB62759A8291C90E
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
