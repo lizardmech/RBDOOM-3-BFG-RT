@@ -1724,3 +1724,20 @@ stage values above 6, missing markers, GI, external PDF-NEE, disabled DI,
 non-view-16 selection, disabled transmission PSR, and production route mode 1.
 The first runtime rung is therefore bucket AS plus primary only, not the
 previous all-consumer route.
+
+REF-10C RUNTIME VERDICT - REJECTED 2026-07-28
+---------------------------------------------
+The initial stage-1 attempt was ambiguous because the full-screen NEE-cache
+primary update remained active. After suppressing that adjacent compute pass,
+the corrected primary-only stage reproduced immediate device removal.
+
+This isolates the unsafe live consumer to the view-16 primary-surface RT
+dispatch over the bucket TLAS. The view-16 admission predicate now rejects all
+stages. Further pass-level rungs are prohibited. The next code slice must
+collapse the bucket-specific primary hit path into one canonical static
+triangle address followed by the existing static material/class/alpha/glass
+logic.
+
+Fail-closed executable SHA-256:
+
+  CC2312C5DD18D4726F9A7A7179B5AE66E3A9F98C9F1E6D49CCD4629F005759EB

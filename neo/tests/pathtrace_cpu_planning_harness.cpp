@@ -2876,11 +2876,11 @@ void TestStaticBucketAssignmentPlan()
             true,
             true),
         "static bucket primary probe rejects production, unsupported views, uninstrumented, and GI-enabled routes");
-    bool secondaryIsolationStagesAccepted = true;
+    bool secondaryIsolationStagesRejected = true;
     for (int stage = 1; stage <= 6; ++stage)
     {
-        secondaryIsolationStagesAccepted &=
-            IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+        secondaryIsolationStagesRejected &=
+            !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
                 RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
                 true,
                 16,
@@ -2891,8 +2891,8 @@ void TestStaticBucketAssignmentPlan()
                 stage);
     }
     Check(
-        secondaryIsolationStagesAccepted,
-        "static bucket clean-DI secondary isolation accepts stages one through six");
+        secondaryIsolationStagesRejected,
+        "static bucket clean-DI secondary isolation rejects every stage after primary-only device removal");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,

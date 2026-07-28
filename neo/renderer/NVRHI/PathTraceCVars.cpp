@@ -445,7 +445,7 @@ idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage(
     "r_pathTracingGeometryStaticBucketSecondaryProbeStage",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Default-off GEO-10 view-16 isolation stage under route mode 2 and GPU markers: 0 closed, 1 primary, 2 + transmission PSR, 3 + initial, 4 + temporal, 5 + spatial, 6 + material-feature compose" );
+    "Rejected GEO-10 view-16 isolation stage retained for diagnostics; all values are fail-closed after the corrected primary-only stage reproduced device removal" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

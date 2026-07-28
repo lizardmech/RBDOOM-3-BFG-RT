@@ -1319,6 +1319,33 @@ Correction verification:
   deployed executable SHA-256
     7BA7622537920FE2002E82B204587850010C1CABD62BD4DF6E0D4A47FB7E710F
 
+D64. REJECT THE CORRECTED PRIMARY-ONLY VIEW-16 BUCKET ROUTE
+----------------------------------------------------------
+Decision: the corrected D63 stage 1 also caused immediate Vulkan device
+removal while loading the level. Because that build suppresses transmission
+PSR, initial, temporal, spatial, material composition, DLSS-RR, clean GI,
+external PDF-NEE, and the NEE-cache primary update, the remaining failing GPU
+consumer is the view-16 primary-surface RT dispatch over the bucket TLAS.
+
+The staged view-16 admission predicate now rejects every value. The cvar and
+pure dispatch plan remain temporarily as historical diagnostic scaffolding,
+but cannot publish a live view-16 bucket route. Default route 0 and the
+established route-2 primary debug views remain unchanged.
+
+Do not add another view-16 decoder rung. Resume the accepted architecture
+pivot at the primary static-address boundary: one resolved static triangle
+address must feed the existing material/class/alpha/glass path instead of the
+large bucket-specific primary branch.
+
+Safety rollback verification:
+
+  all view-16 stage admission tests rejected           passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none; sources unchanged
+  deployed executable SHA-256
+    CC2312C5DD18D4726F9A7A7179B5AE66E3A9F98C9F1E6D49CCD4629F005759EB
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

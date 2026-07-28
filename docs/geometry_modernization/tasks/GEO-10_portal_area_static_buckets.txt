@@ -1535,6 +1535,11 @@ The corrected stage-1 executable SHA-256 is:
 
   7BA7622537920FE2002E82B204587850010C1CABD62BD4DF6E0D4A47FB7E710F
 
+Corrected stage-1 runtime verdict: REJECTED. It reproduced device removal.
+Every view-16 stage value is now fail-closed. Do not repeat this test or
+advance the ladder; the next implementation slice must remove the
+bucket-specific primary hit branch in favor of the existing static decode.
+
 Checkpoint coverage:
 
   static-bucket BLAS build                             area/split/key label
