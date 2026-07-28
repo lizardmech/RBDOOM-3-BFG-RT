@@ -1540,6 +1540,12 @@ Every view-16 stage value is now fail-closed. Do not repeat this test or
 advance the ladder; the next implementation slice must remove the
 bucket-specific primary hit branch in favor of the existing static decode.
 
+REF-10D implements that primary collapse. The primary shader resolves the
+bucket hardware tuple once, normalizes resource lookup to instance 0 plus the
+packed resident triangle, and reuses the monolithic static any-hit/closest-hit
+logic. View 16 remains prohibited. Validate route 2 in view 2 before any new
+production-view admission.
+
 Checkpoint coverage:
 
   static-bucket BLAS build                             area/split/key label

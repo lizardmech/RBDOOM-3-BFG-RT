@@ -1741,3 +1741,27 @@ logic.
 Fail-closed executable SHA-256:
 
   CC2312C5DD18D4726F9A7A7179B5AE66E3A9F98C9F1E6D49CCD4629F005759EB
+
+REF-10D UNIFIED PRIMARY STATIC DECODE - 2026-07-28
+--------------------------------------------------
+The primary producer no longer owns a parallel bucket material/class/glass/
+alpha path. `PathTraceResolvePrimaryHit` performs the only hardware bucket
+decode and returns a packed-static lookup tuple plus a canonical identity
+tuple. Primary any-hit, shadow any-hit, and closest-hit reuse the existing
+instance-0 static loaders after that boundary.
+
+The hardware tuple remains in the primary payload for motion/history. Liquid
+and detail-decal retained records use the canonical source identity. No
+descriptor, SBT, or payload ABI changed.
+
+  SPIR-V compile / spirv-val                           passed / passed
+  mtime newer than source                             yes
+  GeometryIndex decoration                            present
+  bindings 100-105                                    zero
+  old/new blob bytes                                  1181888 / 1050900
+  blob SHA-256
+    EB539EB9FC0C44390F55D33A74C791A5D2A023668E9C08ADF41B09AEC8550987
+
+Live view-16 admission remains rejected. The only authorized runtime check is
+the established route-2/view-2 primary probe, followed by immediate rollback
+to route 0.

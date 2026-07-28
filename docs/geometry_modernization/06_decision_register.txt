@@ -1346,6 +1346,37 @@ Safety rollback verification:
   deployed executable SHA-256
     CC2312C5DD18D4726F9A7A7179B5AE66E3A9F98C9F1E6D49CCD4629F005759EB
 
+D65. COLLAPSE PRIMARY BUCKET HITS INTO THE EXISTING STATIC DECODE
+----------------------------------------------------------------
+Decision: replace the rejected bucket-specific primary any-hit and closest-hit
+branch with one hardware-tuple resolution. A bucket hit resolves
+`InstanceID + GeometryIndex + PrimitiveIndex` once to:
+
+  lookup tuple       instance 0 + packed resident triangle
+  identity tuple     canonical surface instance + source triangle
+
+Material ID, material index, class, UV, vertex color, alpha, glass, decals,
+shadow any-hit, and closest-hit geometry then use the established static
+t3/t4/t5/t9/t11 path. The payload retains the hardware instance, geometry, and
+primitive tuple for motion/history. Liquid/decal retained identities remain
+canonical.
+
+This deletes the parallel primary material/class/candidate/glass/alpha branch
+instead of adding another crash-localization rung. Runtime admission remains
+fail-closed; first validate the rewritten blob through the established
+route-2/view-2 primary probe.
+
+Static proof:
+
+  primary SPIR-V compile                              passed
+  spirv-val --target-env vulkan1.2                    passed
+  blob mtime newer than HLSL                          yes
+  RayGeometryIndexKHR                                 present
+  descriptor bindings 100 through 105                 absent
+  blob bytes before/after                             1181888 / 1050900
+  blob SHA-256
+    EB539EB9FC0C44390F55D33A74C791A5D2A023668E9C08ADF41B09AEC8550987
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

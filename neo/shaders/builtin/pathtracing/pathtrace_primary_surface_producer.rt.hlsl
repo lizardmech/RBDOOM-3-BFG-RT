@@ -1451,89 +1451,57 @@ bool PathTraceTryResolvePrimaryStaticBucketHit(
         address);
 }
 
-bool PathTraceStaticBucketTryLoadPrimaryMetadata(
-    PathTraceStaticGeometryAddress address,
-    out uint triangleClassAndFlags,
-    out uint materialId,
-    out uint materialIndex,
-    out uint materialFlags)
+struct PathTracePrimaryResolvedHit
 {
-    triangleClassAndFlags =
-        SmokeStaticBucketTriangleClasses[address.triangleIndex];
-    materialId =
-        SmokeStaticBucketTriangleMaterials[address.triangleIndex];
-    materialIndex =
-        SmokeStaticBucketTriangleMaterialIndexes[
-            address.triangleIndex];
+    bool staticBucket;
+    uint lookupInstanceId;
+    uint lookupPrimitiveIndex;
+    uint identityInstanceId;
+    uint identityPrimitiveIndex;
+    PathTraceStaticGeometryAddress staticAddress;
+};
 
-    const uint materialCount = (uint)max(TextureInfo.z, 0.0);
-    materialFlags = 0u;
-    if (materialIndex >= materialCount)
+bool PathTraceResolvePrimaryHit(
+    uint instanceId,
+    uint geometryIndex,
+    uint primitiveIndex,
+    out PathTracePrimaryResolvedHit resolved)
+{
+    resolved = (PathTracePrimaryResolvedHit)0;
+    resolved.lookupInstanceId = instanceId;
+    resolved.lookupPrimitiveIndex = primitiveIndex;
+    resolved.identityInstanceId = instanceId;
+    resolved.identityPrimitiveIndex = primitiveIndex;
+
+    if (!PathTraceIsStaticBucketRouteInstance(
+            instanceId,
+            StaticBucketRouteInfo))
+    {
+        return true;
+    }
+
+    resolved.staticBucket = true;
+    if (!PathTraceTryResolvePrimaryStaticBucketHit(
+            instanceId,
+            geometryIndex,
+            primitiveIndex,
+            resolved.staticAddress))
     {
         return false;
     }
 
-    materialFlags = LoadSmokeMaterial(materialIndex).flags;
+    // The selected t3/t4/t5/t9/t11 tuple is the resident static pool. Resolve
+    // the hardware bucket tuple once, then use the established instance-0
+    // static decode for every material/class/alpha/closest-hit consumer.
+    resolved.lookupInstanceId = 0u;
+    resolved.lookupPrimitiveIndex =
+        resolved.staticAddress.triangleIndex;
+    resolved.identityInstanceId =
+        PathTraceStaticBucketCanonicalSurfaceInstanceId(
+            resolved.staticAddress);
+    resolved.identityPrimitiveIndex =
+        resolved.staticAddress.sourceTriangleIndex;
     return true;
-}
-
-bool PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
-    uint triangleClassAndFlags,
-    uint materialFlags)
-{
-    const uint deferredPrimaryFlags =
-        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
-        RT_SMOKE_MATERIAL_FILTER_DECAL |
-        RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK |
-        RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK |
-        RT_SMOKE_MATERIAL_DETAIL_DECAL |
-        RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC |
-        RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT |
-        RT_SMOKE_MATERIAL_DETAIL_DECAL_LIQUID_POOL;
-    return
-        (triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK) !=
-            RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
-        (materialFlags & deferredPrimaryFlags) == 0u;
-}
-
-bool PathTraceStaticBucketIsPrimaryGlassCandidate(
-    uint triangleClassAndFlags,
-    uint materialFlags)
-{
-    const uint surfaceClass =
-        triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
-    const uint translucentSubtype =
-        (triangleClassAndFlags &
-            RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >>
-        RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
-    const bool portalWindow =
-        translucentSubtype ==
-            RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW;
-    const bool objectGlass =
-        translucentSubtype ==
-            RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS &&
-        (materialFlags &
-            RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK) != 0u;
-    return
-        surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
-        (portalWindow || objectGlass);
-}
-
-float2 PathTraceStaticBucketInterpolateTexCoord(
-    PathTraceStaticGeometryAddress address,
-    float2 hitBarycentrics)
-{
-    const float3 weights = float3(
-        1.0 - hitBarycentrics.x - hitBarycentrics.y,
-        hitBarycentrics.x,
-        hitBarycentrics.y);
-    return
-        SmokeStaticBucketVertices[
-            address.vertexIndexes.x].texCoord.xy * weights.x +
-        SmokeStaticBucketVertices[
-            address.vertexIndexes.y].texCoord.xy * weights.y +
-        SmokeStaticBucketVertices[
-            address.vertexIndexes.z].texCoord.xy * weights.z;
 }
 
 // Static detail-decal cards are lifted along the face normal oriented by the
@@ -1584,32 +1552,6 @@ bool PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
         PathTraceStaticIndexCount(),
         PathTraceStaticTriangleCount(),
         address);
-}
-
-bool PathTraceStaticBucketAlphaRejectsHit(
-    PathTraceStaticGeometryAddress address,
-    uint materialIndex,
-    float2 hitBarycentrics)
-{
-    if (PathTraceSafetyDisabled(
-            RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA))
-    {
-        return false;
-    }
-
-    const PathTraceSmokeMaterial material =
-        LoadSmokeMaterial(materialIndex);
-    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) == 0u)
-    {
-        return false;
-    }
-
-    const float2 texCoord =
-        PathTraceStaticBucketInterpolateTexCoord(
-            address,
-            hitBarycentrics);
-    return SmokeAlphaCoverage(material, texCoord) <
-        material.alphaCutoff;
 }
 
 bool SmokeTriangleIndexRangeValid(uint instanceId, uint primitiveIndex)
@@ -2194,30 +2136,6 @@ bool SmokeGlassFallbackRejectsHit(PathTraceSmokeMaterial material, float2 texCoo
         baryCell.x * 277803737u ^
         baryCell.y * 3266489917u;
     return opacity < SmokeHashToUnitFloat(SmokeAlphaStochasticHash(hash, 37u));
-}
-
-bool PathTraceStaticBucketGlassRejectsPrimaryHit(
-    PathTraceStaticGeometryAddress address,
-    uint triangleClassAndFlags,
-    uint materialIndex,
-    float2 hitBarycentrics)
-{
-    const PathTraceSmokeMaterial material =
-        LoadSmokeMaterial(materialIndex);
-    const float2 texCoord =
-        PathTraceStaticBucketInterpolateTexCoord(
-            address,
-            hitBarycentrics);
-    // Preserve the monolithic static identity in stochastic glass coverage so
-    // route 0 and route 2 select the same samples after bucket repacking.
-    return SmokeGlassFallbackRejectsHit(
-        material,
-        texCoord,
-        hitBarycentrics,
-        0u,
-        address.sourceTriangleIndex,
-        triangleClassAndFlags,
-        false);
 }
 
 bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBarycentrics, uint rayMode)
@@ -3347,175 +3265,45 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
     const uint instanceId = InstanceID();
     const uint geometryIndex = GeometryIndex();
     const uint primitiveIndex = PrimitiveIndex();
-    if (PathTraceIsStaticBucketRouteInstance(
+    PathTracePrimaryResolvedHit resolved;
+    if (!PathTraceResolvePrimaryHit(
             instanceId,
-            StaticBucketRouteInfo))
+            geometryIndex,
+            primitiveIndex,
+            resolved))
     {
-        PathTraceStaticGeometryAddress address;
-        if (!PathTraceTryResolvePrimaryStaticBucketHit(
-                instanceId,
-                geometryIndex,
-                primitiveIndex,
-                address))
-        {
-            IgnoreHit();
-            return;
-        }
-
-        uint triangleClassAndFlags;
-        uint materialId;
-        uint materialIndex;
-        uint materialFlags;
-        if (!PathTraceStaticBucketTryLoadPrimaryMetadata(
-                address,
-                triangleClassAndFlags,
-                materialId,
-                materialIndex,
-                materialFlags))
-        {
-            IgnoreHit();
-            return;
-        }
-        if (PathTraceLiquidPoolCollectionEnabled() &&
-            PathTraceMaterialIsSemanticLiquidPool(
-                materialIndex))
-        {
-            if (PathTraceStaticBucketDetailDecalFacesPrimaryRay(
-                    address))
-            {
-                payload.liquidStatusMask |=
-                    RT_LIQUID_POOL_STATUS_CANDIDATE;
-                const PathTraceSmokeMaterial material =
-                    LoadSmokeMaterial(materialIndex);
-                const float2 texCoord =
-                    PathTraceStaticBucketInterpolateTexCoord(
-                        address,
-                        attributes.barycentrics);
-                float4 stageColor;
-                if (TryGetLiquidPoolStageColor(
-                        materialIndex,
-                        stageColor))
-                {
-                    const float coverage =
-                        saturate(SmokeAlphaCoverage(
-                            material,
-                            texCoord)) *
-                        saturate(stageColor.a);
-                    if (coverage > 0.0)
-                    {
-                        ConditionallyStoreLiquidPoolCandidate(
-                            payload,
-                            PathTraceStaticBucketCanonicalSurfaceInstanceId(
-                                address),
-                            materialIndex,
-                            address.sourceTriangleIndex,
-                            attributes.barycentrics);
-                    }
-                }
-                else
-                {
-                    payload.liquidStatusMask |=
-                        RT_LIQUID_POOL_STATUS_FAIL_CLOSED;
-                    payload.liquidRejectionCount =
-                        payload.liquidRejectionCount ==
-                                0xffffffffu
-                            ? 0xffffffffu
-                            : payload.liquidRejectionCount +
-                                1u;
-                }
-            }
-            IgnoreHit();
-            return;
-        }
-        if ((materialFlags &
-                RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u)
-        {
-            if (payload.value == 0u &&
-                PathTraceDecalCollectEnabled(
-                    PathTraceDecalCompositeStage()) &&
-                !PathTraceSafetyDisabled(
-                    RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA) &&
-                PathTraceStaticBucketDetailDecalFacesPrimaryRay(
-                    address))
-            {
-                ConditionallyStoreDetailDecalResolved(
-                    payload,
-                    materialIndex,
-                    address.sourceTriangleIndex &
-                        0x3fffffffu,
-                    PathTraceStaticBucketInterpolateTexCoord(
-                        address,
-                        attributes.barycentrics));
-            }
-            IgnoreHit();
-            return;
-        }
-        const bool primaryGlassCandidate =
-            PathTraceStaticBucketIsPrimaryGlassCandidate(
-                triangleClassAndFlags,
-                materialFlags);
-        if (!primaryGlassCandidate &&
-            !PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
-                triangleClassAndFlags,
-                materialFlags))
-        {
-            // REF-9B/9C admit receiver-owned detail decals and semantic liquid
-            // cards. Particles and the remaining decal routes stay fail-closed
-            // until their address-aware consumers are migrated.
-            IgnoreHit();
-            return;
-        }
-        if (primaryGlassCandidate)
-        {
-            if (PathTraceStaticBucketGlassRejectsPrimaryHit(
-                    address,
-                    triangleClassAndFlags,
-                    materialIndex,
-                    attributes.barycentrics))
-            {
-                IgnoreHit();
-            }
-            return;
-        }
-        if (PathTraceStaticBucketAlphaRejectsHit(
-                address,
-                materialIndex,
-                attributes.barycentrics))
-        {
-            IgnoreHit();
-            return;
-        }
-        if (payload.value == 2u &&
-            instanceId == payload.shadowIgnoreInstanceId &&
-            (primitiveIndex == payload.shadowIgnorePrimitiveIndex ||
-                materialId == payload.shadowIgnoreMaterialId))
-        {
-            IgnoreHit();
-        }
+        IgnoreHit();
         return;
     }
+    const uint lookupInstanceId = resolved.lookupInstanceId;
+    const uint lookupPrimitiveIndex =
+        resolved.lookupPrimitiveIndex;
     if (payload.value == 2u &&
         instanceId == payload.shadowIgnoreInstanceId)
     {
-        const uint materialId = LoadSmokeTriangleMaterialId(instanceId, primitiveIndex);
+        const uint materialId = LoadSmokeTriangleMaterialId(
+            lookupInstanceId,
+            lookupPrimitiveIndex);
         if (primitiveIndex == payload.shadowIgnorePrimitiveIndex || materialId == payload.shadowIgnoreMaterialId)
         {
             IgnoreHit();
             return;
         }
     }
-    if (PathTraceLiquidPoolCollectionEnabled() && SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+    if (PathTraceLiquidPoolCollectionEnabled() &&
+        SmokeTriangleIndexRangeValid(
+            lookupInstanceId,
+            lookupPrimitiveIndex))
     {
-        const uint materialIndex = LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
+        const uint materialIndex = LoadSmokeTriangleMaterialIndex(
+            lookupInstanceId,
+            lookupPrimitiveIndex);
         if (PathTraceMaterialIsSemanticLiquidPool(materialIndex))
         {
             // Semantic pool cards are receiver modifiers in every supported
             // geometry domain. Routed-rigid cards retain their own local
             // geometry and owner identity for resolve-time validation.
-            if (instanceId < 2u ||
-                PathTraceIsStaticBucketRouteInstance(
-                    instanceId,
-                    StaticBucketRouteInfo) ||
+            if (lookupInstanceId < 2u ||
                 PathTraceIsRigidHitRouteInstance(instanceId) ||
                 PathTraceIsSkinnedHitRouteInstance(instanceId))
             {
@@ -3525,14 +3313,22 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                 // coverage-only so zero-alpha cards stay reducer identities.
                 payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
                 const PathTraceSmokeMaterial material = LoadSmokeMaterial(materialIndex);
-                const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, attributes.barycentrics);
+                const float2 texCoord = InterpolateSmokeTexCoord(
+                    lookupInstanceId,
+                    lookupPrimitiveIndex,
+                    attributes.barycentrics);
                 float4 stageColor;
                 if (TryGetLiquidPoolStageColor(materialIndex, stageColor))
                 {
                     const float coverage = saturate(SmokeAlphaCoverage(material, texCoord)) * saturate(stageColor.a);
                     if (coverage > 0.0)
                     {
-                        ConditionallyStoreLiquidPoolCandidate(payload, instanceId, materialIndex, primitiveIndex, attributes.barycentrics);
+                        ConditionallyStoreLiquidPoolCandidate(
+                            payload,
+                            resolved.identityInstanceId,
+                            materialIndex,
+                            resolved.identityPrimitiveIndex,
+                            attributes.barycentrics);
                     }
                 }
                 else
@@ -3552,17 +3348,49 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
     if (payload.value == 0u &&
         PathTraceDecalCollectEnabled(PathTraceDecalCompositeStage()) &&
         !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA) &&
-        SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+        SmokeTriangleIndexRangeValid(
+            lookupInstanceId,
+            lookupPrimitiveIndex))
     {
-        const uint materialIndex = LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
+        const uint materialIndex = LoadSmokeTriangleMaterialIndex(
+            lookupInstanceId,
+            lookupPrimitiveIndex);
         if ((LoadSmokeMaterial(materialIndex).flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u)
         {
-            ConditionallyStoreDetailDecal(payload, materialIndex, instanceId, primitiveIndex, attributes.barycentrics);
+            if (resolved.staticBucket)
+            {
+                if (PathTraceStaticBucketDetailDecalFacesPrimaryRay(
+                        resolved.staticAddress))
+                {
+                    ConditionallyStoreDetailDecalResolved(
+                        payload,
+                        materialIndex,
+                        resolved.identityPrimitiveIndex &
+                            0x3fffffffu,
+                        InterpolateSmokeTexCoord(
+                            lookupInstanceId,
+                            lookupPrimitiveIndex,
+                            attributes.barycentrics));
+                }
+            }
+            else
+            {
+                ConditionallyStoreDetailDecal(
+                    payload,
+                    materialIndex,
+                    instanceId,
+                    primitiveIndex,
+                    attributes.barycentrics);
+            }
             IgnoreHit();
             return;
         }
     }
-    if (SmokeAlphaRejectsHit(instanceId, primitiveIndex, attributes.barycentrics, payload.value))
+    if (SmokeAlphaRejectsHit(
+            lookupInstanceId,
+            lookupPrimitiveIndex,
+            attributes.barycentrics,
+            payload.value))
     {
         IgnoreHit();
     }
@@ -3574,56 +3402,39 @@ void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleInte
     const uint instanceId = InstanceID();
     const uint geometryIndex = GeometryIndex();
     const uint primitiveIndex = PrimitiveIndex();
-    if (PathTraceIsStaticBucketRouteInstance(
+    PathTracePrimaryResolvedHit resolved;
+    if (!PathTraceResolvePrimaryHit(
             instanceId,
-            StaticBucketRouteInfo))
+            geometryIndex,
+            primitiveIndex,
+            resolved))
     {
-        PathTraceStaticGeometryAddress address;
-        uint triangleClassAndFlags;
-        uint materialId;
-        uint materialIndex;
-        uint materialFlags;
-        if (!PathTraceTryResolvePrimaryStaticBucketHit(
-                instanceId,
-                geometryIndex,
-                primitiveIndex,
-                address) ||
-            !PathTraceStaticBucketTryLoadPrimaryMetadata(
-                address,
-                triangleClassAndFlags,
-                materialId,
-                materialIndex,
-                materialFlags) ||
-            !PathTraceStaticBucketIsOpaqueOrAlphaPrimaryCandidate(
-                triangleClassAndFlags,
-                materialFlags))
-        {
-            payload.hit = 0u;
-            IgnoreHit();
-            return;
-        }
-        if (PathTraceStaticBucketAlphaRejectsHit(
-                address,
-                materialIndex,
-                attributes.barycentrics))
-        {
-            payload.hit = 0u;
-            IgnoreHit();
-            return;
-        }
-        payload.hit = 1u;
+        payload.hit = 0u;
+        IgnoreHit();
         return;
     }
+    const uint lookupInstanceId = resolved.lookupInstanceId;
+    const uint lookupPrimitiveIndex =
+        resolved.lookupPrimitiveIndex;
     if (PathTraceLiquidPoolCollectionEnabled() &&
-        SmokeTriangleIndexRangeValid(instanceId, primitiveIndex) &&
-        PathTraceMaterialIsSemanticLiquidPool(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex)))
+        SmokeTriangleIndexRangeValid(
+            lookupInstanceId,
+            lookupPrimitiveIndex) &&
+        PathTraceMaterialIsSemanticLiquidPool(
+            LoadSmokeTriangleMaterialIndex(
+                lookupInstanceId,
+                lookupPrimitiveIndex)))
     {
         payload.hit = 0u;
         IgnoreHit();
         return;
     }
     payload.hit = 1u;
-    if (SmokeAlphaRejectsHit(instanceId, primitiveIndex, attributes.barycentrics, payload.rayMode))
+    if (SmokeAlphaRejectsHit(
+            lookupInstanceId,
+            lookupPrimitiveIndex,
+            attributes.barycentrics,
+            payload.rayMode))
     {
         payload.hit = 0u;
         IgnoreHit();
@@ -3845,68 +3656,57 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         return;
     }
 
+    PathTracePrimaryResolvedHit resolved;
+    if (!PathTraceResolvePrimaryHit(
+            instanceId,
+            geometryIndex,
+            primitiveIndex,
+            resolved))
+    {
+        return;
+    }
+    const uint lookupInstanceId = resolved.lookupInstanceId;
+    const uint lookupPrimitiveIndex =
+        resolved.lookupPrimitiveIndex;
+
     PathTraceSmokeVertex v0;
     PathTraceSmokeVertex v1;
     PathTraceSmokeVertex v2;
-    PathTraceStaticGeometryAddress staticBucketAddress =
-        (PathTraceStaticGeometryAddress)0;
-    const bool staticBucketHit =
-        PathTraceIsStaticBucketRouteInstance(
-            instanceId,
-            StaticBucketRouteInfo);
-    if (staticBucketHit)
+    if (lookupInstanceId >= 2u ||
+        !SmokeTriangleIndexRangeValid(
+            lookupInstanceId,
+            lookupPrimitiveIndex))
     {
-        if (!PathTraceTryResolvePrimaryStaticBucketHit(
-                instanceId,
-                geometryIndex,
-                primitiveIndex,
-                staticBucketAddress))
-        {
-            return;
-        }
-        v0 = SmokeStaticBucketVertices[
-            staticBucketAddress.vertexIndexes.x];
-        v1 = SmokeStaticBucketVertices[
-            staticBucketAddress.vertexIndexes.y];
-        v2 = SmokeStaticBucketVertices[
-            staticBucketAddress.vertexIndexes.z];
+        return;
+    }
+    const uint indexOffset = lookupPrimitiveIndex * 3u;
+    const uint i0 = lookupInstanceId == 0u
+        ? SmokeStaticIndices[indexOffset + 0u]
+        : SmokeDynamicIndices[indexOffset + 0u];
+    const uint i1 = lookupInstanceId == 0u
+        ? SmokeStaticIndices[indexOffset + 1u]
+        : SmokeDynamicIndices[indexOffset + 1u];
+    const uint i2 = lookupInstanceId == 0u
+        ? SmokeStaticIndices[indexOffset + 2u]
+        : SmokeDynamicIndices[indexOffset + 2u];
+    const uint vertexCount = lookupInstanceId == 0u
+        ? PathTraceStaticVertexCount()
+        : PathTraceDynamicVertexCount();
+    if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+    {
+        return;
+    }
+    if (lookupInstanceId == 0u)
+    {
+        v0 = SmokeStaticVertices[i0];
+        v1 = SmokeStaticVertices[i1];
+        v2 = SmokeStaticVertices[i2];
     }
     else
     {
-        if (instanceId >= 2u ||
-            !SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
-        {
-            return;
-        }
-        const uint indexOffset = primitiveIndex * 3u;
-        const uint i0 = instanceId == 0u
-            ? SmokeStaticIndices[indexOffset + 0u]
-            : SmokeDynamicIndices[indexOffset + 0u];
-        const uint i1 = instanceId == 0u
-            ? SmokeStaticIndices[indexOffset + 1u]
-            : SmokeDynamicIndices[indexOffset + 1u];
-        const uint i2 = instanceId == 0u
-            ? SmokeStaticIndices[indexOffset + 2u]
-            : SmokeDynamicIndices[indexOffset + 2u];
-        const uint vertexCount = instanceId == 0u
-            ? PathTraceStaticVertexCount()
-            : PathTraceDynamicVertexCount();
-        if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
-        {
-            return;
-        }
-        if (instanceId == 0u)
-        {
-            v0 = SmokeStaticVertices[i0];
-            v1 = SmokeStaticVertices[i1];
-            v2 = SmokeStaticVertices[i2];
-        }
-        else
-        {
-            v0 = SmokeDynamicVertices[i0];
-            v1 = SmokeDynamicVertices[i1];
-            v2 = SmokeDynamicVertices[i2];
-        }
+        v0 = SmokeDynamicVertices[i0];
+        v1 = SmokeDynamicVertices[i1];
+        v2 = SmokeDynamicVertices[i2];
     }
 
     const float3 p0 = v0.position.xyz;
@@ -3934,10 +3734,10 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     const float4 c21 = v1.color2;
     const float4 c22 = v2.color2;
     const float3 barycentrics = float3(1.0 - attributes.barycentrics.x - attributes.barycentrics.y, attributes.barycentrics.x, attributes.barycentrics.y);
-    const uint triangleClassAndFlags = staticBucketHit
-        ? SmokeStaticBucketTriangleClasses[
-            staticBucketAddress.triangleIndex]
-        : LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
+    const uint triangleClassAndFlags =
+        LoadSmokeTriangleClassAndFlags(
+            lookupInstanceId,
+            lookupPrimitiveIndex);
     const bool forceGeometricNormal = (triangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
 
     payload.value = 1u;
@@ -3988,12 +3788,10 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
     payload.translucentSubtype = (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
     payload.triangleClassAndFlags = triangleClassAndFlags;
-    payload.materialId = staticBucketHit
-        ? SmokeStaticBucketTriangleMaterials[
-            staticBucketAddress.triangleIndex]
-        : LoadSmokeTriangleMaterialId(instanceId, primitiveIndex);
-    payload.materialIndex = staticBucketHit
-        ? SmokeStaticBucketTriangleMaterialIndexes[
-            staticBucketAddress.triangleIndex]
-        : LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
+    payload.materialId = LoadSmokeTriangleMaterialId(
+        lookupInstanceId,
+        lookupPrimitiveIndex);
+    payload.materialIndex = LoadSmokeTriangleMaterialIndex(
+        lookupInstanceId,
+        lookupPrimitiveIndex);
 }
