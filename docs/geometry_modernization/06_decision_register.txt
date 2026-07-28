@@ -2744,6 +2744,54 @@ The iterative-plus-probe-mode-6 flag combination is reserved for stage 23.
 Probe mode 6 without the iterative bit remains the rejected stage-15 isolate.
 No payload, descriptor, SBT, or shared constant-buffer ABI is widened.
 
+D109. STAGE 23 PROVES A DISPATCH BINDING-UNIVERSE MISMATCH
+-----------------------------------------------------------
+Runtime validation remains predominantly red for static bucket hits, with a
+small unchanged set of rigid controls rendering normally. Under the stage-23
+contract, red means the bounded-loop raygen hit position agrees with the
+position recorded by closest hit, but shader replay reads a different
+triangle from the one intersected by the hardware BLAS.
+
+The corresponding CPU contract mismatch is concrete:
+
+  - scene build routes the primary binding set and
+    `m_sceneInputs.geometry.static*Buffer` handles to the bucket-resident
+    vertex/index/class/material/material-index pools;
+  - resource ownership deliberately retains the monolithic pools in
+    `m_smokeStatic*Buffer`;
+  - dispatch-local clean DI, PDF-NEE, GI, NEE-cache, and ReGIR binding sets
+    rebuilt t3/t4/t5/t9/t11 from the retained monolithic members instead of
+    the published scene handles;
+  - their resource barriers made the same monolithic assumption;
+  - the TLAS therefore intersected bucket-resident bytes while those shaders
+    decoded the resulting InstanceID plus PrimitiveIndex against monolithic
+    bytes.
+
+This explains the uniform red diagnostic, triangle-shaped glass corruption,
+and random material replay without requiring a BLAS descriptor, SBT, payload,
+or barycentric defect. Rigid and skinned controls use separate pools and are
+not expected to change.
+
+D110. DISPATCH CONSUMERS FOLLOW ONE PUBLISHED STATIC BUFFER TUPLE
+----------------------------------------------------------------
+`ExecuteRayTracingSmokeTest` now resolves one current and one previous static
+buffer tuple from `m_sceneInputs.geometry`, with the owned monolithic members
+used only as a fail-safe fallback when no published handle exists.
+
+The tuple is shared by:
+
+  - clean DI and its external PDF-NEE prepass;
+  - clean GI dispatch inputs;
+  - standalone PDF-NEE, NEE-cache, and ReGIR debug bindings;
+  - all dispatch-local resource validation and state transitions.
+
+This is a CPU-only binding correction. It changes no descriptor layout, shader
+source, SBT record, payload ABI, or SPIR-V. Stage 23 is the immediate runtime
+acceptance test: bucket brushes must change from red to green while separate
+rigid/skinned controls retain their diagnostic colors. Once stage 23 passes,
+repeat route-2 view 16 with the stage disabled and inspect real glass before
+changing the resolver or any later DI/GI consumer.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
