@@ -1414,3 +1414,62 @@ The eight changed SPIR-V blobs and executable were deployed with matching
 source/destination hashes. Runtime clean-DI bucket traversal remains
 unsupported by the CPU route predicate; no game test is required for this
 compile-only gate.
+
+REF-10B MARKER-GATED VIEW-16 SECONDARY PROBE - 2026-07-28
+---------------------------------------------------------
+The exact view-16 runtime consumer set is:
+
+  - primary surface producer;
+  - production initial, temporal, and spatial clean-DI libraries;
+  - transmission/reflection producer with the existing 176-byte payload;
+  - glass material-feature pass;
+  - canonical static emissive geometry and self-ignore records.
+
+The glass pass now compiles the canonical surface/source replay. The CPU route
+has a separate clean-DI secondary predicate. It accepts only:
+
+  route mode                                           2
+  clean DI                                             enabled
+  clean-DI view                                        16
+  diagnostic GPU markers                              enabled
+  clean GI                                             disabled
+
+Route mode 1, other views, disabled DI, missing markers, and enabled GI all
+remain fail-closed. Existing primary-only isolate probes are unchanged.
+
+When the secondary predicate is accepted, live static emissives come from the
+canonical bucket publication accepted by REF-9F/REF-9G. Primary-only probes
+continue using monolithic emissives. This prevents a view-16 visibility ray
+from comparing a canonical bucket hit with a monolithic emissive instance ID.
+
+Offline proof:
+
+  secondary predicate positive case                    passed
+  secondary predicate rejection cases                  passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  glass spirv-val                                      passed
+  glass RayGeometryIndexKHR                            present
+  glass blob newer than source                         passed
+  glass deployed hash
+    631033E8241608FEA0D83E9D77D5C1F8BD86FB45541520D813110862AE5BD9D9
+  executable deployed hash
+    025A95995DCED7E7C7EC0D3AA5D2270C8944BA5DE7228123BAD2A3C1DEC33183
+
+Focused runtime sequence, set before loading the save:
+
+  r_pathTracingNsightGpuMarkers 1
+  r_pathTracingCleanRestirGiEnable 0
+  r_pathTracingCleanRtxdiDiView 16
+  r_pathTracingGeometryStaticBucketBlas 1
+  r_pathTracingGeometryStaticBucketBlasBuild 1
+  r_pathTracingGeometryStaticBucketRoute 2
+  loadgame doom3_1
+
+Let the full-resident build settle, traverse several portals, inspect glass and
+static emissive surfaces, then `condump bucket23.log`. Do not enable smoke log
+and do not use route mode 1. Acceptance requires the cutover line to report
+`requested/accepted=1/1`, `cleanDiSecondaryProbe=1`, exact resident readiness,
+and `traversal=bucket-resident-pool`, with no device removal, validation error,
+missing geometry/material, portal flicker, glass failure, or emissive
+self-shadow regression.

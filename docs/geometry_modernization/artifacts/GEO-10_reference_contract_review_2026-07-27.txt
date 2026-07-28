@@ -1660,3 +1660,28 @@ no-payload-expansion constraints.
 The executable and eight changed Vulkan blobs are deployed. The CPU cutover
 still admits only the primary view-2 probe, so this evidence is compile/decode
 only and does not authorize clean-DI or production bucket traversal.
+
+REF-10B VIEW-16 CONSUMER AND ADMISSION AUDIT - 2026-07-28
+---------------------------------------------------------
+View 16 requires five route-aware pieces: primary production, clean-DI
+initial/temporal/spatial, the transmission/reflection trace-hit producer, the
+glass post-hit material consumer, and canonical static emissive records.
+REF-10A compiled the first three shader families and the payload path. The
+glass pass now also compiles the canonical record replay and validates with a
+`RayGeometryIndexKHR` decoration.
+
+CPU admission is a new route-2-only diagnostic predicate. It requires
+diagnostic markers and clean GI off. Production mode 1 and every non-view-16
+secondary route remain closed. When admitted, emissive publication uses the
+accepted bucket record address rather than monolithic instance 0, preserving
+visibility self-ignore and geometry replay.
+
+  predicate positive and rejection tests              passed
+  CPU planning harness stress 20                       passed
+  full Vulkan release build                            passed
+  glass SPIR-V validation                              passed
+  glass GeometryIndex evidence                         present
+  descriptor / SBT / payload expansion                 none
+
+The probe is deployed but not runtime-accepted. One instrumented route-2
+view-16 traversal must pass before production cutover can be considered.

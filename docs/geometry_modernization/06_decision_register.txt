@@ -1206,6 +1206,24 @@ Primary also validates. CPU cutover remains unchanged, so clean-DI traversal
 and production route mode 1 are still fail-closed pending a later explicit
 runtime-admission rung.
 
+D60. ADMIT VIEW 16 ONLY AS AN INSTRUMENTED SECONDARY-RAY PROBE
+--------------------------------------------------------------
+Decision: route mode 2 may admit clean-DI view 16 only when diagnostic GPU
+markers are enabled and clean GI is disabled. This is a separate predicate
+from the existing primary-only isolate views. Route mode 1 remains rejected,
+other clean-DI views remain rejected, and removing markers or enabling GI
+immediately returns traversal to monolithic static geometry.
+
+The view-16 consumer set is production initial, temporal, and spatial; the
+transmission/reflection producer; and the glass material pass. All now compile
+the canonical bucket route. The secondary probe uses canonical bucket emissive
+records as the live emissive source so visibility self-ignore never compares a
+bucket hit against monolithic instance 0.
+
+The probe predicate and all rejection cases pass the CPU harness. The glass
+consumer compiles, passes `spirv-val`, contains `RayGeometryIndexKHR`, and is
+deployed with the marker-gated executable. Runtime acceptance is still open.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

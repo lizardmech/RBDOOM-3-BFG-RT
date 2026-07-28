@@ -906,6 +906,33 @@ Verification:
 Eight changed Vulkan blobs and the executable are deployed. Runtime routing is
 still fail-closed, so no game test is required for REF-10A itself.
 
+REF-10B audits and admits the complete clean-DI view-16 consumer set under
+route mode 2 only. The production initial/temporal/spatial libraries and the
+transmission producer were already accepted by REF-10A. The glass material
+pass now compiles the same canonical replay path. A separate CPU predicate
+requires view 16, diagnostic GPU markers, clean DI enabled, clean GI disabled,
+and route mode 2. Production route mode 1 is unchanged and remains rejected.
+
+For this secondary probe, live static emissive publication switches to the
+accepted canonical bucket records. Existing primary-only isolate probes retain
+monolithic emissive publication. This distinction is required for exact
+emissive self-ignore and replay.
+
+Offline proof:
+
+  view-16 secondary predicate acceptance/rejections    passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  full win64-pt-dev-release build                      passed
+  glass spirv-val                                      passed
+  glass RayGeometryIndexKHR                            present
+  glass SPIR-V SHA-256
+    631033E8241608FEA0D83E9D77D5C1F8BD86FB45541520D813110862AE5BD9D9
+  executable SHA-256
+    025A95995DCED7E7C7EC0D3AA5D2270C8944BA5DE7228123BAD2A3C1DEC33183
+
+The executable and glass Vulkan blob are deployed. REF-10B now needs one
+focused view-16 route-2 runtime traversal before any production admission.
+
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
 GEO-10 architecture override (2026-07-27):

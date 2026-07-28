@@ -1329,6 +1329,12 @@ bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
     int cleanDiView,
     bool diagnosticCheckpointsEnabled,
     bool cleanGiEnabled);
+bool IsSmokeStaticBucketCleanDiSecondaryProbeSupported(
+    int routeMode,
+    bool cleanDiEnabled,
+    int cleanDiView,
+    bool diagnosticCheckpointsEnabled,
+    bool cleanGiEnabled);
 
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc);
