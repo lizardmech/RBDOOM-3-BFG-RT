@@ -445,7 +445,7 @@ idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage(
     "r_pathTracingGeometryStaticBucketSecondaryProbeStage",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Default-off GEO-10 view-16 probe: stage 1 waits for exact bucket publication, creates only the primary pipeline, and returns before DispatchRays; every other stage fails closed" );
+    "Default-off GEO-10 view-16 probe: stage 1 creates only the primary pipeline; stage 2 dispatches it; both wait for exact bucket publication and skip every secondary pipeline" );
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",

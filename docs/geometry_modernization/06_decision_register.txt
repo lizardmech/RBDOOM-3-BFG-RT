@@ -1712,6 +1712,24 @@ Verification:
   deployed executable SHA-256
     C14FB0D41B6E437E75C7D236EB3E384729C99FCCB6BF6634184967ECACD70723
 
+D78. ACCEPT LATCHED STAGE 1 AND RE-ADMIT STAGE 2
+-------------------------------------------------
+Decision: `success2.log` proves stage 1 waits for exact 56/56 publication,
+creates the ordinary primary pipeline, and returns before DispatchRays without
+device loss or validation errors.
+
+Re-enable only stage 2, which dispatches that primary producer and returns
+before every secondary consumer. Keep stages 3-6 and production mode rejected.
+
+Verification:
+
+  stage-2 support/rejection matrix                     passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  deployed executable SHA-256
+    3751C1AE118CE0938572ED5842FAEEA3459B8C242C50C2ABB5E33ABD872EDC03
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

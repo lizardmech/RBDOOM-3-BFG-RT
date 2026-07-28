@@ -2026,9 +2026,9 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    // REF-10L fixed and validated the pre-publication fallthrough. Re-admit
-    // only stage 1: the dispatch latch now waits for exact route publication,
-    // creates the ordinary primary pipeline, and returns before DispatchRays.
+    // REF-10M accepted pipeline creation after exact publication. Stage 2 may
+    // dispatch that ordinary primary pipeline, then returns before every
+    // secondary pipeline family.
     const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
@@ -2037,7 +2037,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         !transmissionPsrEnabled &&
-        probeStage == 1;
+        (probeStage == 1 || probeStage == 2);
     return diagnosticContractExact;
 }
 

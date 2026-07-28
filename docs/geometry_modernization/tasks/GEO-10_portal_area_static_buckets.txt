@@ -2051,3 +2051,38 @@ Offline proof:
   source/deployed executable hashes                    equal
   executable SHA-256
     C14FB0D41B6E437E75C7D236EB3E384729C99FCCB6BF6634184967ECACD70723
+
+REF-10M RUNTIME ACCEPTANCE - SUCCESS2.LOG - 2026-07-28
+-------------------------------------------------------
+The corrected stage-1 sequence passed. The build ramp remained pre-pipeline
+until exact 56/56 publication, then logged:
+
+  GEO-10 primary pipeline creation begin (stage=1 deferredHost=1)
+  primary-surface producer RT smoke pipeline initialized
+  GEO-10 primary pipeline creation completed; stage 1 returns before DispatchRays
+
+Cutover was accepted with `consumerSupported=1`, `secondaryIsolation=1`,
+`secondaryStage=1`, and `traversal=bucket-resident-pool`. The log contains no
+device-loss, Vulkan, binding, or validation error. REF-10M is accepted.
+
+REF-10N PRIMARY-DISPATCH-ONLY READMISSION - 2026-07-28
+------------------------------------------------------
+Re-admit stage 2 under the same latched exact contract. It waits for exact
+publication, creates/reuses the accepted ordinary primary pipeline, dispatches
+the primary surface producer once, and returns before NEE-cache update,
+transmission, initial, temporal, spatial, or material-feature work.
+
+Stages 3-6 and production route mode 1 remain rejected. No shader, descriptor,
+SBT, or payload change is required.
+
+Offline proof:
+
+  stage-1/stage-2 support matrix                       passed
+  pre-publication stage-2 pipeline/dispatch block      passed
+  stages 3-6 and malformed contracts rejected          passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  source/deployed executable hashes                    equal
+  executable SHA-256
+    3751C1AE118CE0938572ED5842FAEEA3459B8C242C50C2ABB5E33ABD872EDC03
