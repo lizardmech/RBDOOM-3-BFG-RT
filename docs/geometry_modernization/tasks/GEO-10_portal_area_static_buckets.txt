@@ -2120,3 +2120,41 @@ Offline proof:
   source/deployed executable hashes                    equal
   executable SHA-256
     05B44F1CCAC165F5C3CB1099C1C7B0DA00CDF8347CC1D34EEB62759A8291C90E
+
+REF-10O RUNTIME ACCEPTANCE - SUCCESS4.LOG - 2026-07-28
+-------------------------------------------------------
+Stage 3 loaded and initialized the sentinel, initial, temporal, initial-
+production, and temporal-production pipelines, completed the accepted primary
+dispatch, and skipped every secondary DispatchRays call. There are no
+device-loss, Vulkan, binding, or validation errors.
+
+The sole new warning was:
+
+  WARNING: idSessionLocal::Pump was not called for 3 seconds
+
+It appears immediately after the five cold driver pipeline initializations and
+is the expected one-time main-thread stall, not a GPU contract failure. The
+stage-3 completion message was unintentionally emitted every frame; that
+diagnostic spam is corrected before the next rung. REF-10O is accepted.
+
+REF-10P INITIAL-DI-ONLY RUNG - 2026-07-28
+------------------------------------------
+Stage 4 retains the accepted primary and core-pipeline work, dispatches only
+the view-16 initial DI producer, performs its required UAV barriers, and
+returns before temporal, spatial, transmission, material-feature composition,
+NEE-cache update, external-PDF, or GI work.
+
+Stages 5-6 and production mode remain rejected. No shader, descriptor, SBT, or
+payload change is required.
+
+Offline proof:
+
+  stage-4 support and stage-5..6 rejection              passed
+  initial-only/no-temporal dispatch plan                passed
+  stage-3 completion logging bounded to creation        passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  source/deployed executable hashes                    equal
+  executable SHA-256
+    A6A7959ECC06CEFDC6EA6F78DD1D0063C9DD5E414AA4DCE577D677014E1287AD

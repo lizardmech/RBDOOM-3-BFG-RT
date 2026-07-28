@@ -2901,8 +2901,19 @@ void TestStaticBucketAssignmentPlan()
             false,
             3),
         "static bucket view-16 isolation admits stage three for core DI pipeline creation only");
+    Check(
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+            true,
+            16,
+            true,
+            false,
+            false,
+            false,
+            4),
+        "static bucket view-16 isolation admits stage four for initial DI dispatch only");
     bool secondaryIsolationStagesRejected = true;
-    for (int stage = 4; stage <= 6; ++stage)
+    for (int stage = 5; stage <= 6; ++stage)
     {
         secondaryIsolationStagesRejected &=
             !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
@@ -2917,7 +2928,7 @@ void TestStaticBucketAssignmentPlan()
     }
     Check(
         secondaryIsolationStagesRejected,
-        "static bucket unified-primary view-16 isolation rejects stages four through six");
+        "static bucket unified-primary view-16 isolation rejects stages five and six");
     Check(
         !IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
@@ -3026,6 +3037,14 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 3);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        initialDiOnlyPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                true,
+                4);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         waitingForPublicationPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
@@ -3071,7 +3090,17 @@ void TestStaticBucketAssignmentPlan()
             !cleanDiPipelineOnlyPlan.initial &&
             !cleanDiPipelineOnlyPlan.temporal &&
             !cleanDiPipelineOnlyPlan.spatial &&
-            !cleanDiPipelineOnlyPlan.materialFeatureCompose,
+            !cleanDiPipelineOnlyPlan.materialFeatureCompose &&
+            initialDiOnlyPlan.active &&
+            initialDiOnlyPlan.stage == 4 &&
+            initialDiOnlyPlan.primaryPipelineCreation &&
+            initialDiOnlyPlan.primaryDispatch &&
+            initialDiOnlyPlan.cleanDiPipelineCreation &&
+            initialDiOnlyPlan.initial &&
+            !initialDiOnlyPlan.temporal &&
+            !initialDiOnlyPlan.spatial &&
+            !initialDiOnlyPlan.transmissionPsr &&
+            !initialDiOnlyPlan.materialFeatureCompose,
         "static bucket primary isolate separates pipeline creation from DispatchRays");
     Check(
         waitingForPublicationPlan.active &&

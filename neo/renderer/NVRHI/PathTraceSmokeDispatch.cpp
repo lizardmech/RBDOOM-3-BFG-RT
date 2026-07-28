@@ -1741,12 +1741,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         if (!staticBucketSecondaryIsolationActive ||
             staticBucketSecondaryIsolation.cleanDiPipelineCreation)
         {
-            if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
+            const bool cleanDiCorePipelinesMissing =
+                !m_smokeCleanRtxdiDiSentinelShaderTable ||
                 !m_smokeCleanRtxdiDiInitialShaderTable ||
                 !m_smokeCleanRtxdiDiTemporalShaderTable ||
                 (cleanRtxdiDiProductionView &&
                     (!m_smokeCleanRtxdiDiInitialProductionShaderTable ||
-                        !m_smokeCleanRtxdiDiTemporalProductionShaderTable)))
+                        !m_smokeCleanRtxdiDiTemporalProductionShaderTable));
+            if (cleanDiCorePipelinesMissing)
             {
                 if (staticBucketSecondaryIsolationActive)
                 {
@@ -1770,7 +1772,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 }
                 return;
             }
-            if (staticBucketSecondaryIsolationActive)
+            if (staticBucketSecondaryIsolationActive &&
+                cleanDiCorePipelinesMissing)
             {
                 common->Printf(
                     "PathTracePrimaryPass: GEO-10 core DI pipeline creation completed (stage=%d); secondary DispatchRays still blocked\n",
@@ -2285,7 +2288,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
         }
 
-        if (staticBucketSecondaryIsolationActive)
+        if (staticBucketSecondaryIsolationActive &&
+            !staticBucketSecondaryIsolation.initial)
         {
             if (!m_smokeTestDispatched)
             {
@@ -3650,6 +3654,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+        if (staticBucketSecondaryIsolationActive &&
+            staticBucketSecondaryIsolation.initial &&
+            !staticBucketSecondaryIsolation.temporal)
+        {
+            if (!m_smokeTestDispatched)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO-10 view-16 stage-4 initial-only dispatch completed (%dx%d); temporal and later consumers skipped\n",
+                    m_frameResources.width,
+                    m_frameResources.height);
+            }
+            m_smokeTestDispatched = true;
+            return;
+        }
         if (cleanSpatialRoute &&
             staticBucketSecondaryIsolation.spatial)
         {

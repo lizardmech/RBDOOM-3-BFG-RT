@@ -2026,9 +2026,9 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     bool transmissionPsrEnabled,
     int probeStage)
 {
-    // REF-10N accepted primary dispatch. Stage 3 may additionally create the
-    // clean-DI sentinel/initial/temporal pipeline family, but still returns
-    // before every secondary DispatchRays call.
+    // REF-10O accepted core DI pipeline creation. Stage 4 may dispatch only
+    // the initial DI pass and returns before temporal, spatial, transmission,
+    // or material-feature work.
     const bool diagnosticContractExact = routeMode ==
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
         cleanDiEnabled &&
@@ -2037,7 +2037,7 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
         !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         !transmissionPsrEnabled &&
-        (probeStage >= 1 && probeStage <= 3);
+        (probeStage >= 1 && probeStage <= 4);
     return diagnosticContractExact;
 }
 
@@ -2074,7 +2074,9 @@ RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         plan.stage >= 3;
     plan.neeCachePrimaryUpdate = false;
     plan.transmissionPsr = false;
-    plan.initial = false;
+    plan.initial =
+        plan.cleanDiPipelineCreation &&
+        plan.stage >= 4;
     plan.temporal = false;
     plan.spatial = false;
     plan.materialFeatureCompose = false;

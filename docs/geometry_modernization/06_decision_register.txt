@@ -1749,6 +1749,26 @@ Verification:
   deployed executable SHA-256
     05B44F1CCAC165F5C3CB1099C1C7B0DA00CDF8347CC1D34EEB62759A8291C90E
 
+D80. ACCEPT CORE PIPELINES; RE-ADMIT INITIAL DI ONLY
+-----------------------------------------------------
+Decision: `success4.log` accepts stage 3. The one `Pump was not called for 3
+seconds` warning corresponds to cold initialization of five RT pipelines and
+is not a device or validation failure. Bound the stage-3 completion message
+to the actual creation event.
+
+Re-enable stage 4 only for the initial DI dispatch plus required barriers,
+returning before temporal and every later consumer. Keep stages 5-6 and
+production mode rejected.
+
+Verification:
+
+  stage-4 initial-only/rejection matrix                 passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  deployed executable SHA-256
+    A6A7959ECC06CEFDC6EA6F78DD1D0063C9DD5E414AA4DCE577D677014E1287AD
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
