@@ -1341,8 +1341,12 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
 
 struct RtSmokeStaticBucketSecondaryIsolationDispatchPlan
 {
+    bool requested = false;
+    bool supported = false;
+    bool routePublicationValid = false;
     bool active = false;
     int stage = 0;
+    bool primaryPipelineCreation = true;
     bool primaryDispatch = true;
     bool neeCachePrimaryUpdate = true;
     bool transmissionPsr = true;
@@ -1355,6 +1359,8 @@ struct RtSmokeStaticBucketSecondaryIsolationDispatchPlan
 RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
         bool productionView,
+        bool isolationRequested,
+        bool isolationSupported,
         bool routePublicationValid,
         int probeStage);
 

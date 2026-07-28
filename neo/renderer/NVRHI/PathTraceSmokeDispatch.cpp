@@ -940,16 +940,49 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
     const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
     const bool cleanRtxdiDiProductionView = cleanRtxdiDiView == 16;
+    const int staticBucketSecondaryProbeStage =
+        r_pathTracingGeometryStaticBucketSecondaryProbeStage.GetInteger();
+    const bool staticBucketSecondaryIsolationRequested =
+        cleanRtxdiDiProductionView &&
+        r_pathTracingGeometryStaticBucketRoute.GetInteger() ==
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
+        staticBucketSecondaryProbeStage != 0;
+    const bool staticBucketSecondaryIsolationSupported =
+        IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
+            r_pathTracingGeometryStaticBucketRoute.GetInteger(),
+            cleanRtxdiDiEnabled,
+            cleanRtxdiDiView,
+            r_pathTracingNsightGpuMarkers.GetInteger() != 0,
+            r_pathTracingCleanRestirGiEnable.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0 ||
+                r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
+                r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0,
+            staticBucketSecondaryProbeStage);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         staticBucketSecondaryIsolation =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 cleanRtxdiDiProductionView,
+                staticBucketSecondaryIsolationRequested,
+                staticBucketSecondaryIsolationSupported,
                 m_sceneInputs.geometry.
                     staticBucketRoutePublicationValid,
-                r_pathTracingGeometryStaticBucketSecondaryProbeStage.
-                    GetInteger());
+                staticBucketSecondaryProbeStage);
     const bool staticBucketSecondaryIsolationActive =
         staticBucketSecondaryIsolation.active;
+    if (staticBucketSecondaryIsolationActive &&
+        !staticBucketSecondaryIsolation.primaryPipelineCreation)
+    {
+        if ((m_smokeGeometryFrameIndex % 120ull) == 1ull)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: GEO-10 view-16 isolation fail-closed before pipeline creation stage=%d supported=%d publication=%d\n",
+                staticBucketSecondaryIsolation.stage,
+                staticBucketSecondaryIsolation.supported ? 1 : 0,
+                staticBucketSecondaryIsolation.routePublicationValid ? 1 : 0);
+        }
+        return;
+    }
     const bool cleanRtxdiDiMaterialClassifierProofView = cleanRtxdiDiView == 12 || cleanRtxdiDiView == 24;
     const bool cleanRtxdiDiTemporalEnabled =
         r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0 &&

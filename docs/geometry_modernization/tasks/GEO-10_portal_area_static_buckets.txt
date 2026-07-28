@@ -1971,3 +1971,41 @@ Rollback proof:
   source/deployed executable hashes                    equal
   fail-closed executable SHA-256
     768E6BB390AFA9AD87ECC63058E6FD4C521D770947EF7A4F6A3B9AE1561F3830
+
+REF-10L PRE-PUBLICATION ISOLATION LATCH - 2026-07-28
+-----------------------------------------------------
+Post-crash audit found the stage ladder's `active` bit was derived from
+`staticBucketRoutePublicationValid`. While bucket BLAS publication was still
+ramping, requested stage 1 therefore looked inactive and inherited the normal
+view-16 defaults: primary dispatch, NEE-cache update, transmission, initial,
+temporal, spatial, and material-feature compose were all enabled.
+
+The dispatch plan now separates four facts:
+
+  requested
+  supported
+  routePublicationValid
+  active
+
+A nonzero mode-2/view-16 diagnostic request latches `active` immediately.
+Every secondary flag becomes false at that point. Primary pipeline creation
+requires both `supported` and `routePublicationValid`; primary dispatch also
+requires stage 2 or later. Unsupported or not-yet-published requests return
+before pipeline creation, so they cannot fall through to production work.
+
+The support predicate remains revoked. This is an offline fail-closed
+correction, not authorization to repeat REF-10K.
+
+Offline proof:
+
+  requested + unsupported pre-pipeline rejection       passed
+  requested + publication-pending rejection            passed
+  supported stage-1 create/no-dispatch plan             passed
+  supported stage-2 create/dispatch plan                passed
+  monolithic non-request defaults unchanged             passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  source/deployed executable hashes                    equal
+  executable SHA-256
+    AEB6578E2B5C4B2929F5981FA835BC9FD83B810ACBFEB67DA214559BAAE8B982

@@ -2995,17 +2995,38 @@ void TestStaticBucketAssignmentPlan()
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
                 true,
+                true,
+                true,
                 1);
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         primaryDispatchOnlyPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
                 true,
+                true,
+                true,
                 2);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        waitingForPublicationPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                true,
+                false,
+                1);
+    const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
+        unsupportedIsolationPlan =
+            BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
+                false,
+                true,
+                1);
     Check(
         primaryPipelineOnlyPlan.active &&
             primaryPipelineOnlyPlan.stage == 1 &&
             !primaryPipelineOnlyPlan.primaryDispatch &&
+            primaryPipelineOnlyPlan.primaryPipelineCreation &&
             !primaryPipelineOnlyPlan.neeCachePrimaryUpdate &&
             !primaryPipelineOnlyPlan.transmissionPsr &&
             !primaryPipelineOnlyPlan.initial &&
@@ -3014,6 +3035,7 @@ void TestStaticBucketAssignmentPlan()
             !primaryPipelineOnlyPlan.materialFeatureCompose &&
             primaryDispatchOnlyPlan.active &&
             primaryDispatchOnlyPlan.stage == 2 &&
+            primaryDispatchOnlyPlan.primaryPipelineCreation &&
             primaryDispatchOnlyPlan.primaryDispatch &&
             !primaryDispatchOnlyPlan.neeCachePrimaryUpdate &&
             !primaryDispatchOnlyPlan.transmissionPsr &&
@@ -3022,15 +3044,38 @@ void TestStaticBucketAssignmentPlan()
             !primaryDispatchOnlyPlan.spatial &&
             !primaryDispatchOnlyPlan.materialFeatureCompose,
         "static bucket primary isolate separates pipeline creation from DispatchRays");
+    Check(
+        waitingForPublicationPlan.active &&
+            waitingForPublicationPlan.requested &&
+            waitingForPublicationPlan.supported &&
+            !waitingForPublicationPlan.routePublicationValid &&
+            !waitingForPublicationPlan.primaryPipelineCreation &&
+            !waitingForPublicationPlan.primaryDispatch &&
+            !waitingForPublicationPlan.initial &&
+            !waitingForPublicationPlan.temporal &&
+            !waitingForPublicationPlan.spatial &&
+            unsupportedIsolationPlan.active &&
+            unsupportedIsolationPlan.requested &&
+            !unsupportedIsolationPlan.supported &&
+            unsupportedIsolationPlan.routePublicationValid &&
+            !unsupportedIsolationPlan.primaryPipelineCreation &&
+            !unsupportedIsolationPlan.primaryDispatch &&
+            !unsupportedIsolationPlan.initial &&
+            !unsupportedIsolationPlan.temporal &&
+            !unsupportedIsolationPlan.spatial,
+        "static bucket requested isolation fails closed before every pipeline until support and publication are valid");
     const RtSmokeStaticBucketSecondaryIsolationDispatchPlan
         activeStageZeroPlan =
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
+                true,
+                true,
                 true,
                 true,
                 0);
     Check(
         activeStageZeroPlan.active &&
             activeStageZeroPlan.stage == 0 &&
+            !activeStageZeroPlan.primaryPipelineCreation &&
             !activeStageZeroPlan.primaryDispatch &&
             !activeStageZeroPlan.neeCachePrimaryUpdate &&
             !activeStageZeroPlan.transmissionPsr &&
@@ -3044,9 +3089,12 @@ void TestStaticBucketAssignmentPlan()
             BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
                 true,
                 false,
+                false,
+                false,
                 1);
     Check(
         !monolithicDispatchPlan.active &&
+            monolithicDispatchPlan.primaryPipelineCreation &&
             monolithicDispatchPlan.primaryDispatch &&
             monolithicDispatchPlan.neeCachePrimaryUpdate &&
             monolithicDispatchPlan.transmissionPsr &&

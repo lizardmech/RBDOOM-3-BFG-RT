@@ -1663,6 +1663,27 @@ Rollback verification:
   deployed executable SHA-256
     768E6BB390AFA9AD87ECC63058E6FD4C521D770947EF7A4F6A3B9AE1561F3830
 
+D76. LATCH DIAGNOSTIC ISOLATION BEFORE ROUTE PUBLICATION
+---------------------------------------------------------
+Decision: a nonzero mode-2/view-16 diagnostic request must suppress production
+dispatch immediately, independently of bucket route publication readiness.
+
+Primary pipeline creation requires explicit support plus valid publication.
+Primary dispatch additionally requires its admitted stage. Unsupported and
+publication-pending requests return before pipeline creation. Keep runtime
+support revoked after D75; this correction does not authorize another test.
+
+Verification:
+
+  pre-publication and unsupported fail-closed cases     passed
+  admitted stage-1/stage-2 plan cases                   passed
+  monolithic defaults                                   passed
+  PathTraceCpuPlanningHarness --stress 20              passed
+  win64-pt-dev-release                                 passed
+  SPIR-V rebuild/deployment                            none
+  deployed executable SHA-256
+    AEB6578E2B5C4B2929F5981FA835BC9FD83B810ACBFEB67DA214559BAAE8B982
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

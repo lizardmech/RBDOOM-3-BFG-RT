@@ -2045,20 +2045,31 @@ bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
 RtSmokeStaticBucketSecondaryIsolationDispatchPlan
     BuildSmokeStaticBucketSecondaryIsolationDispatchPlan(
         bool productionView,
+        bool isolationRequested,
+        bool isolationSupported,
         bool routePublicationValid,
         int probeStage)
 {
     RtSmokeStaticBucketSecondaryIsolationDispatchPlan plan;
+    plan.requested = isolationRequested;
+    plan.supported = isolationSupported;
+    plan.routePublicationValid = routePublicationValid;
     plan.active =
         productionView &&
-        routePublicationValid;
+        isolationRequested;
     if (!plan.active)
     {
         return plan;
     }
 
     plan.stage = std::max(0, std::min(6, probeStage));
-    plan.primaryDispatch = plan.stage >= 2;
+    plan.primaryPipelineCreation =
+        isolationSupported &&
+        routePublicationValid &&
+        plan.stage >= 1;
+    plan.primaryDispatch =
+        plan.primaryPipelineCreation &&
+        plan.stage >= 2;
     plan.neeCachePrimaryUpdate = false;
     plan.transmissionPsr = false;
     plan.initial = false;
