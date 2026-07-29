@@ -3663,6 +3663,24 @@ remaining cause and the iterative resolver is eligible for production
 promotion. If stage 6 fails, the failure is shared by the full post-trace tail
 and further value-level isolation remains necessary.
 
+D145. ITERATIVE TRANSMISSION TRAVERSAL IS THE PRODUCTION DEFAULT
+---------------------------------------------------------------
+Stage 6 survived the reliable glass/camera trigger with the complete producer
+active. This accepts the resolved-history record, motion/RR guide export, exact
+resolved-sidecar payload, and downstream DI sequence when paired with bounded
+iterative closest-hit traversal. Against repeated stage-0 device removals, the
+only remaining difference is the legacy force-non-opaque any-hit traversal.
+
+Production isolation stage 0 now selects the accepted iterative resolver.
+Stage 7 preserves the unstable legacy any-hit route solely as an explicit
+diagnostic. It is not a fallback and should not be used for normal play.
+Stages 1 through 6 retain their established diagnostic meaning.
+
+This promotion changes neither shader ABI nor the shader binaries. It removes
+the faulting traversal choice from default admission while preserving the same
+source-glass decode, hit-to-surface construction, history/guide publication,
+and resolved transmission-sidecar output proven by stage 6.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

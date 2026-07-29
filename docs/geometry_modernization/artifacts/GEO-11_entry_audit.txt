@@ -614,4 +614,15 @@ decisive comparison:
 The CPU-only Vulkan release rebuild passed with every SPIR-V shader up to date.
 The deployed 15,997,952-byte executable is byte-identical, SHA-256
 8C529C0B610065355774310DB76DEB745545B18BD5B09E8848721187A7D6433D.
-Runtime disposition is pending.
+
+Stage 6 survived the reliable glass/camera trigger with no crash. Because it
+executes the complete publication path, the resolved sidecar store and all
+post-trace resource writes are accepted. The legacy force-non-opaque any-hit
+traversal is the isolated device-loss cause.
+
+Production stage 0 is promoted to the iterative closest-hit resolver. The
+legacy any-hit path remains available only as explicit diagnostic stage 7.
+The Vulkan release rebuild passed with every SPIR-V shader up to date. The
+deployed 15,997,952-byte executable is byte-identical, SHA-256
+5498EE944DA6B1BDD3EABE835D6B91016F56C6FD50B802A5FA1CE8646E1A85EF.
+Runtime acceptance of the promoted default remains pending.

@@ -3744,9 +3744,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 const int transmissionIsolationStage = idMath::ClampInt(
                     0,
-                    6,
+                    7,
                     r_pathTracingCleanRtxdiDiTransmissionIsolationStage.GetInteger());
-                if (transmissionIsolationStage == 1)
+                if (transmissionIsolationStage == 0)
+                {
+                    psrConstants.flags &=
+                        ~CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK;
+                    psrConstants.flags |=
+                        CLEAN_RTXDI_DI_FLAG_TRANSMISSION_ITERATIVE_RESOLVE;
+                    staticBucketTransmissionMarker =
+                        "CleanDI.TransmissionPSR.IterativeProduction";
+                }
+                else if (transmissionIsolationStage == 1)
                 {
                     psrConstants.flags &=
                         ~CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK;
@@ -3803,6 +3812,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         CLEAN_RTXDI_DI_FLAG_TRANSMISSION_ITERATIVE_RESOLVE;
                     staticBucketTransmissionMarker =
                         "CleanDI.TransmissionPSR.IterativeFullProducer";
+                }
+                else if (transmissionIsolationStage == 7)
+                {
+                    psrConstants.flags &=
+                        ~(CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK |
+                            CLEAN_RTXDI_DI_FLAG_TRANSMISSION_ITERATIVE_RESOLVE);
+                    staticBucketTransmissionMarker =
+                        "CleanDI.TransmissionPSR.LegacyAnyHitDiagnostic";
                 }
             }
             {

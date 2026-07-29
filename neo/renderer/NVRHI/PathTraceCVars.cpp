@@ -1327,7 +1327,7 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionIsolationStage(
     "r_pathTracingCleanRtxdiDiTransmissionIsolationStage",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 transmission isolation: 0 any-hit full producer, 1 source decode/no trace, 2 iterative trace/no resolve, 3 iterative resolved tuple/no publish, 4 iterative history record only, 5 iterative record plus guides/no sidecar, 6 iterative full producer" );
+    "Clean RTXDI DI view 16 transmission isolation: 0 iterative production, 1 source decode/no trace, 2 iterative trace/no resolve, 3 iterative resolved tuple/no publish, 4 iterative history record only, 5 iterative record plus guides/no sidecar, 6 iterative full control, 7 unstable legacy any-hit diagnostic" );
 
 idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
     "r_pathTracingCleanRtxdiDiTransmissionDebugView",

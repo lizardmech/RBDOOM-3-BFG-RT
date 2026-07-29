@@ -290,3 +290,16 @@ Stage-6 build/deployment:
   executable    15,997,952 bytes
   sha256        8C529C0B610065355774310DB76DEB745545B18BD5B09E8848721187A7D6433D
   deployment    source and prebuilt executable byte-identical
+
+Stage 6 survived the reliable camera/glass trigger with no crash. The complete
+post-trace publication tail is accepted. The legacy force-non-opaque any-hit
+traversal is the isolated device-loss cause.
+
+Stage 0 now selects the bounded iterative closest-hit resolver as production
+behavior. The old any-hit route is retained only at isolation stage 7 for
+diagnostic reproduction; it is unstable and is not a production fallback.
+No shader ABI, descriptor, payload, SBT, or shader binary changes are required.
+
+The Vulkan release rebuild passed with every SPIR-V shader up to date. The
+deployed 15,997,952-byte executable is byte-identical, SHA-256
+5498EE944DA6B1BDD3EABE835D6B91016F56C6FD50B802A5FA1CE8646E1A85EF.
