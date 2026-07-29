@@ -2147,16 +2147,18 @@ bool IsSmokeStaticBucketProductionRouteSupported(
 {
     // Carry the accepted stage-24 geometry and bounded transport contract into
     // the normal view-16 continuation. Glass and opaque-mirror reflections
-    // share the same bounded mirror resolver and may join only while their
-    // still-unvalidated secondary shadow TraceRay is disabled. Refracted PSR
+    // share the same bounded mirror resolver. Their optional visibility ray
+    // uses the same bounded forced-opaque loop while route 1 is active, so it
+    // no longer enters the legacy shadow any-hit decoder. Refracted PSR
     // changes only the direction passed to the accepted bounded transmission
     // resolver. Keep GI/PDF consumers fail-closed.
     const bool reflectionFamilyActive =
         reflectionPsrEnabled ||
         opaqueMirrorEnabled;
-    const bool reflectionFamilySupported =
+    const bool reflectionVisibilitySupported =
         !reflectionFamilyActive ||
-        !reflectionSecondaryShadowsEnabled;
+        !reflectionSecondaryShadowsEnabled ||
+        transmissionPsrEnabled;
     const bool refractedContinuationSupported =
         !refractedPsrEnabled ||
         transmissionPsrEnabled;
@@ -2168,7 +2170,7 @@ bool IsSmokeStaticBucketProductionRouteSupported(
         !externalPdfNeeEnabled &&
         !dlssRrEnabled &&
         transmissionPsrEnabled &&
-        reflectionFamilySupported &&
+        reflectionVisibilitySupported &&
         refractedContinuationSupported &&
         probeStage == 0;
 }

@@ -3076,3 +3076,46 @@ Only the executable is deployed. For the runtime gate, keep the accepted
 REF-10AH configuration and change only the refracted-PSR CVar from zero to
 one. Reject incorrect geometry behind glass, a reintroduced portal cutoff,
 camera-motion failure, device removal, or route-1 cutover loss.
+
+REF-10AJ REFRACTION ACCEPTANCE AND BOUNDED REFLECTION VISIBILITY - 2026-07-29
+-----------------------------------------------------------------------------
+The user reports no issue with the refracted-PSR gate and confirms that
+refraction works. REF-10AI is accepted.
+
+Secondary reflection shadows were the last optical feature still coupled to
+the legacy forced-non-opaque shadow any-hit path. Route 1 now resolves that
+visibility segment with the accepted bounded forced-opaque closest-hit loop:
+transparent panes, alpha-rejected cards, and the originating surface continue
+in raygen, while the first accepted material hit returns zero visibility.
+Route 0 retains the legacy implementation.
+
+The production support predicate admits the secondary-shadow control only
+when transmission PSR, and therefore the bounded resolver, is active. It
+continues to reject a transmission-disabled reflection family, GI, RR,
+external PDF-NEE, and nonzero probe stages.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness                        passed
+  PathTraceCpuPlanningHarness --stress 20            passed
+  full win64-pt-dev-release build                    passed
+  transmission producer spirv-val                    passed
+  glass shader library spirv-val                     passed
+  rebuilt transmission newer than edited source      yes
+
+  transmission producer SHA-256
+    DE4E2F2041269DAA29D08B478579CE8945598DFF628BAFCAE0BB9A73C273C4BA
+
+  glass shader SHA-256 (unchanged; do not redeploy)
+    0ACA49F8D426DA01FBDF1FF2CECDCE87399096E84777C61D2A57B1ED54D91970
+
+  executable SHA-256
+    B350BDB88CB184F708435A34034ED2A02A90872A2D57F1D8CCF763F73E13F006
+
+Deploy only the changed transmission producer SPIR-V and executable. For the
+runtime gate, keep the accepted full optical route-1 configuration and change
+only `r_pathTracingReflectionSecondaryShadows` from zero to one. Exercise
+windows, reflected lighting and shadowing, camera motion, portal crossings,
+and the tinted emissive door-panel view. Reject device removal, black windows,
+swapped materials, geometry corruption, a reintroduced portal cutoff, or loss
+of the route-1 cutover.

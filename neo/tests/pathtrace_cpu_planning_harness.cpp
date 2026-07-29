@@ -3932,7 +3932,7 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 true,
                 0) &&
-            !IsSmokeStaticBucketProductionRouteSupported(
+            IsSmokeStaticBucketProductionRouteSupported(
                 RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
                 true,
                 16,
@@ -3954,13 +3954,27 @@ void TestStaticBucketAssignmentPlan()
                 false,
                 false,
                 false,
+                false,
+                true,
+                true,
+                true,
+                true,
+                0) &&
+            !IsSmokeStaticBucketProductionRouteSupported(
+                RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
+                true,
+                16,
+                true,
+                false,
+                false,
+                false,
                 true,
                 false,
                 true,
                 false,
                 false,
                 24),
-        "static bucket route-1 production checkpoint admits bounded glass, opaque-mirror, and refracted continuation while secondary shadows stay off and later consumers remain closed");
+        "static bucket route-1 production checkpoint admits bounded glass, opaque-mirror, refraction, and reflection visibility while transmission-disabled and later consumers remain closed");
     Check(
         IsSmokeStaticBucketBoundedTransmissionResolverRequired(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,

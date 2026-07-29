@@ -3264,6 +3264,29 @@ its direction may leave the clipped primary-visible portal set. The existing
 reflection-named CVar is retained for compatibility, but its description and
 policy now cover glass reflection, opaque mirrors, and refracted PSR.
 
+D129. REFRACTION ACCEPTED; REFLECTION VISIBILITY MUST USE THE BOUNDED RESOLVER
+-------------------------------------------------------------------------------
+The user reports no issue with the isolated refracted-PSR gate and confirms
+that refraction works. D128 is accepted.
+
+The remaining reflection-family feature is secondary light visibility. Its
+legacy implementation traces a forced-non-opaque shadow ray through the
+shadow any-hit path. Route 1 must not reopen that decoder after bounded
+transmission, glass reflection, opaque mirrors, and refraction have all been
+accepted without it.
+
+When the route-1 bounded iterative resolver is active, secondary reflection
+visibility now uses the same forced-opaque closest-hit loop. Transparent
+panes, alpha-rejected cards, and the source surface continue in raygen; the
+first accepted material hit is an occluder. Route 0 retains the legacy path.
+This adds no descriptor, payload field, SBT record, hit group, or decode
+namespace.
+
+The production predicate may admit
+`r_pathTracingReflectionSecondaryShadows=1` only when the bounded transmission
+resolver is enabled. Transmission-disabled reflection visibility, GI, RR,
+external PDF-NEE, and later probe stages remain closed.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

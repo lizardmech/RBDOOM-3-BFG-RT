@@ -224,6 +224,24 @@ float PathTraceReflectionSecondaryTraceVisibility(RAB_Surface surface, float3 sa
     shadowRay.TMin = 0.01;
     shadowRay.TMax = max(distance - 0.5, 0.01);
 
+    if (PathTraceCleanRtxdiDiTransmissionIterativeResolveEnabled())
+    {
+        // Route-1 reflection visibility must not re-enter the legacy
+        // non-opaque shadow any-hit decoder. Resolve alpha cards, transparent
+        // panes, and the first true blocker with the same bounded
+        // forced-opaque closest-hit loop used by transmission and mirror
+        // transport.
+        PathTraceCleanRtxdiPayload resolvedShadowPayload =
+            PathTraceCleanRtxdiDiEmptyTransmissionTracePayload(surface);
+        float3 resolvedShadowHitPosition;
+        const bool occluded =
+            PathTraceCleanRtxdiDiTraceTransmissionHitIterative(
+                shadowRay,
+                resolvedShadowPayload,
+                resolvedShadowHitPosition);
+        return occluded ? 0.0 : 1.0;
+    }
+
     PathTraceCleanRtxdiPayload shadowPayload = (PathTraceCleanRtxdiPayload)0;
     shadowPayload.value = 0u;
     shadowPayload.rayMode = 1u;
