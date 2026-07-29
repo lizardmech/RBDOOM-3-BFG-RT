@@ -3174,6 +3174,28 @@ The production membership decision is therefore settled: use the immutable
 frontend clipped portal-flood snapshot plus the conservative one-neighbor
 expansion. Do not return to a fixed camera-area breadth-first radius.
 
+D124. RESTORE SECONDARY FEATURES ONE TRACE FAMILY AT A TIME
+-----------------------------------------------------------
+Route 1 is visually and structurally accepted with straight transmission, but
+that checkpoint deliberately disabled glass reflection, opaque mirrors,
+refracted PSR, reflection shadow rays, GI, RR, and external PDF-NEE. Do not
+restore these as one aggregate production switch.
+
+The first widening is glass reflection with secondary reflection shadows off.
+Its dense mirror hit previously re-entered the rejected legacy
+`RAY_FLAG_FORCE_NON_OPAQUE` transmission any-hit path. Under the route-1
+iterative-resolve flag, the mirror ray now uses the same bounded forced-opaque
+closest-hit loop as straight transmission. Pane/card continuation and material
+classification therefore remain in raygen, and the route cannot execute the
+legacy material decoder through that reflection lane.
+
+Production admission permits glass reflection only when
+`r_pathTracingReflectionSecondaryShadows=0`. Opaque mirror reflection and
+refracted PSR remain rejected. The next runtime gate must test window entry,
+camera movement, portal traversal, and the tinted emissive door-panel view.
+Any device removal rolls back this widening without changing the accepted
+portal-membership or straight-transmission route.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

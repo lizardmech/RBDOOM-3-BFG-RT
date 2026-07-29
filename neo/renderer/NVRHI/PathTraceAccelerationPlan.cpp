@@ -2124,14 +2124,19 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     bool dlssRrEnabled,
     bool transmissionPsrEnabled,
     bool reflectionPsrEnabled,
+    bool reflectionSecondaryShadowsEnabled,
     bool opaqueMirrorEnabled,
     bool refractedPsrEnabled,
     int probeStage)
 {
-    // First production checkpoint: carry the accepted stage-24 geometry and
-    // bounded transmission contract into the normal view-16 continuation.
-    // Keep unvalidated secondary reflection/refraction and GI/PDF consumers
-    // fail-closed while this explicit route-1 request is evaluated.
+    // Carry the accepted stage-24 geometry and bounded transport contract into
+    // the normal view-16 continuation. Glass reflection may join only when
+    // its mirror hit uses that bounded resolver and its still-unvalidated
+    // secondary shadow TraceRay is disabled. Keep opaque mirrors, refracted
+    // PSR, and GI/PDF consumers fail-closed.
+    const bool glassReflectionSupported =
+        !reflectionPsrEnabled ||
+        !reflectionSecondaryShadowsEnabled;
     return routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION &&
         cleanDiEnabled &&
         cleanDiView == 16 &&
@@ -2140,7 +2145,7 @@ bool IsSmokeStaticBucketProductionRouteSupported(
         !externalPdfNeeEnabled &&
         !dlssRrEnabled &&
         transmissionPsrEnabled &&
-        !reflectionPsrEnabled &&
+        glassReflectionSupported &&
         !opaqueMirrorEnabled &&
         !refractedPsrEnabled &&
         probeStage == 0;

@@ -1364,6 +1364,7 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     bool dlssRrEnabled,
     bool transmissionPsrEnabled,
     bool reflectionPsrEnabled,
+    bool reflectionSecondaryShadowsEnabled,
     bool opaqueMirrorEnabled,
     bool refractedPsrEnabled,
     int probeStage);

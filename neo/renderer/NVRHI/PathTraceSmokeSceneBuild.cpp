@@ -7384,6 +7384,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
                 r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0,
             r_pathTracingCleanRtxdiDiGlassReflectionPsr.GetInteger() != 0,
+            r_pathTracingReflectionSecondaryShadows.GetInteger() != 0,
             r_pathTracingReflectionOpaqueMirror.GetInteger() != 0,
             r_pathTracingCleanRtxdiDiGlassRefractedPsr.GetInteger() != 0,
             staticBucketSecondaryProbeStage);

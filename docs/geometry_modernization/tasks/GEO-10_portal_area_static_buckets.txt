@@ -2900,3 +2900,53 @@ and correctly fell back to monolithic traversal. No visual issue or device
 loss accompanied those transitions. Their exact view/area cause is not proven
 by this log; keep the fail-closed path and reopen only if the route drops
 during ordinary in-area traversal.
+
+REF-10AF BOUNDED GLASS-REFLECTION GATE - 2026-07-29
+---------------------------------------------------
+The accepted route-1 baseline disabled all reflection and refraction systems.
+The next smallest feature-completeness slice restores only glass reflection:
+
+  - the glass mirror ray uses the route-1 bounded forced-opaque iterative
+    resolver instead of the rejected legacy transmission any-hit decoder;
+  - each hardware hit is canonicalized by closest-hit;
+  - pane/card continuation and material classification occur once in raygen;
+  - secondary reflection visibility rays remain disabled;
+  - opaque mirrors and refracted PSR remain unsupported;
+  - GI, RR, and external PDF-NEE remain unsupported.
+
+The production support predicate accepts reflection PSR only while
+`r_pathTracingReflectionSecondaryShadows=0`. It still accepts the prior
+reflection-off baseline regardless of the unused shadow control. CPU contract
+tests cover both accepted states and reject reflection plus secondary shadows.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness                        passed
+  PathTraceCpuPlanningHarness --stress 20            passed
+  full win64-pt-dev-release build                    passed
+  transmission producer spirv-val                    passed
+  source mtime                                       2026-07-29 14:15:30
+  transmission blob mtime                            2026-07-29 14:17:14
+  blob newer than source                             yes
+
+  executable SHA-256
+    014373127864BF845D27849E734BB1F1A195318E6F7788972D682812967DD832
+
+  transmission producer SHA-256
+    6D2E29B4434EF1AAEF5C82FBA3C72622AF1B11071CBBA8608924C67208B70FA3
+
+The glass material-feature library was rebuilt because the dependency changed,
+but its hash remained equal to the deployed artifact and must not be copied.
+Only the changed transmission producer SPIR-V and executable are deployed.
+
+Runtime gate:
+
+  1. Keep the accepted route-1/view-16 configuration.
+  2. Set glass reflection PSR to 1 and reflection secondary shadows to 0.
+  3. Keep opaque mirror reflection and glass refracted PSR at 0.
+  4. Load the positioned save, look at and move around the windows, cross
+     portals, and include the tinted emissive door panel in frame.
+  5. Reject device removal, camera-movement-only failure, swapped materials,
+     broken brush geometry behind glass, or a route-1 cutover failure.
+  6. Record whether glass reflection is visibly present; black/unreflected
+     windows are a visual rejection even if the run is crash-stable.

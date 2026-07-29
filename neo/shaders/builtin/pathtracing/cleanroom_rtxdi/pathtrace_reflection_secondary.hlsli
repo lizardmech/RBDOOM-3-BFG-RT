@@ -95,6 +95,27 @@ bool PathTraceReflectionSecondaryTrace(
     ray.Direction = hit.rayDirection;
     ray.TMin = 0.01;
     ray.TMax = 100000.0;
+    if (PathTraceCleanRtxdiDiTransmissionIterativeResolveEnabled())
+    {
+        // GEO-10 route 1 cannot re-enter the legacy transmission any-hit
+        // decoder through the reflection lane. Resolve the reflected ray with
+        // the same bounded forced-opaque loop used by straight transmission:
+        // each hardware hit is canonicalized by closest-hit, then pane/card
+        // continuation is decided once in raygen.
+        const bool resolved =
+            PathTraceCleanRtxdiDiTraceTransmissionHitIterative(
+                ray,
+                hitPayload,
+                hit.hitPosition);
+        hit.payload = hitPayload;
+        hit.hitT = max(hitPayload.hitT, 0.0);
+        hit.valid =
+            resolved &&
+            hitPayload.value != 0u &&
+            hitPayload.hitMaterialIndex < (uint)TextureInfo.z;
+        return hit.valid;
+    }
+
     // TraceRay payload must be a local; nested struct members can ICE DXC.
     TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 0, 0, ray, hitPayload);
     hit.payload = hitPayload;
