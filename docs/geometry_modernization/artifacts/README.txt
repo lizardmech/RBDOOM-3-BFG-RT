@@ -104,6 +104,13 @@ GEO-11 FILES
     capability, current Vulkan compaction rejection, and ordered bounded
     implementation slices.
 
+GEO-12 FILES
+------------
+  GEO-12_entry_audit.txt
+    Live attribute producer/consumer and ABI audit, canonical-registry coverage
+    limit, first observation-only paged survey contract, rejected assumptions,
+    and ordered completion/encoding slices.
+
 NAMING
 ------
 Use:

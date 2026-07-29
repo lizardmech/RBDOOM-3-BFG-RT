@@ -3977,6 +3977,48 @@ application-visible exact scratch requirements are unavailable and safely
 owned by NVRHI command-buffer versions; AS compaction is unsupported while
 `NVRHI_WITH_RTXMU=OFF` and remains disabled rather than emulated.
 
+D162. GEO-12 STARTS AT THE CANONICAL SOURCE, NOT THE RENDERED VERTEX ABI
+-----------------------------------------------------------------------
+The live 112-byte `PathTraceSmokeVertex` is simultaneously the BLAS vertex
+stride, the structure decoded by every ray-hit family, the skinned output, an
+emissive-reconstruction input, and a readback/parity unit. Changing it first
+would be a renderer-wide ABI migration and cannot serve as the initial
+single-encoding experiment.
+
+The canonical source already separates 12-byte float3 positions from 80-byte
+full-fidelity immutable attributes. GEO-12 Slice 1 therefore adds an
+observation-only paged survey at that owner. It reports position/UV ranges,
+non-finite and degenerate values, half-UV errors, oct16 angular errors,
+stored-versus-derived bitangent error, UNORM8 color exactness, and skinned
+joint/weight evidence. It mutates and uploads nothing. Candidate savings are
+reported independently and do not authorize a combined layout.
+
+The registry admits only registered rigid models and skinned bind sources.
+Static world, generated geometry, particles, decals, emissives, and dynamic
+fallback classes still require a second full-fidelity source/capture survey.
+Consequently Q1 and Q2 remain open, no eligibility threshold exists yet, and
+no encoding or default is selected.
+
+D163. FIRST GEO-12 LIVE SURVEY IS DOMAIN-LIMITED EVIDENCE
+---------------------------------------------------------
+The corrected autonomous survey covers 988 canonical records, 64,986 vertices,
+946 rigid records, and 42 skinned-bind records. No position, UV, basis, or color
+component is non-finite. Stored source UVs span (-64.5,-28.5)..(64.5,38.75)
+and round-trip through half exactly in this capture. Oct16 maximum angular
+error is 0.039565 degrees for normals and 0.034264 degrees for tangents.
+
+Two vertices have invalid/degenerate stored bitangents, so derive-bitangent is
+not universally eligible without an explicit fallback. All 259,944 components
+in each color stream round-trip through UNORM8 within 5.96046448e-08. The
+19,581 skinned vertices have exact byte-range joint recovery and finite
+normalized weights. Paged records include both `zfat.md5mesh` surfaces.
+
+This evidence makes UNORM8 color/color2 a strong later single-candidate option
+for canonical sources, but it does not authorize it. Transformed material UVs,
+the monolithic static world, generated geometry, particles, decals, emissives,
+and dynamic fallback capture remain outside this measurement. The next slice
+must close those domains before an eligibility predicate is chosen.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

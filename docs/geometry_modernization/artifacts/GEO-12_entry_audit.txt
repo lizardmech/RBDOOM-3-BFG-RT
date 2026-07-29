@@ -1,0 +1,234 @@
+GEO-12 ENTRY AUDIT: ATTRIBUTE OWNERSHIP AND MEASUREMENT SEAMS
+=============================================================
+
+DATE
+----
+2026-07-29
+
+STATUS
+------
+Entry audit complete. The proposal is viable only with a split measurement
+phase. No encoding, eligibility predicate, GPU layout, shader decode, or
+default has been authorized.
+
+The first implemented slice is observation-only and covers the value-owned
+canonical rigid and skinned-bind sources. Static world brushes, generated
+geometry, particles, decals, and other dynamic fallbacks are not in that
+registry and remain a required second survey domain.
+
+LIVE ATTRIBUTE CONTRACT
+-----------------------
+Contract / owner                         Layout             Live consumers
+--------------------------------------   -----------------  ------------------
+Canonical position source               float3, 12 bytes   registry, transport,
+                                                            pooled source upload
+Canonical immutable attribute source    20 floats, 80 B    registry, transport,
+                                                            pooled source upload,
+                                                            skinned-source pack
+Rendered current vertex                  7 float4, 112 B    BLAS vertex stride,
+                                                            all RT hit families,
+                                                            emissive replay,
+                                                            readback/parity
+Skinned bind/input vertex                7 float4, 112 B    skinning compute
+Skinned previous position                float4, 16 bytes   motion reconstruction
+Primary surface record                   176 bytes          projected hit result;
+                                                            no raw UV/tangent
+
+The rendered `PathTraceSmokeVertex` is not a safe first compression seam. Its
+stride is named by acceleration-structure builds and resource creation, and
+the same full structure is independently declared in primary, DI, GI, debug,
+smoke, and emissive shader families. Position, normal, both UV pairs, color,
+color2, tangent, and bitangent are read in hit reconstruction. Changing it
+would be a renderer-wide ABI migration rather than an attribute experiment.
+
+The canonical source already has the desired first structural property:
+positions are a separate float3 stream. `PtGeometrySourceAttribute` contains:
+
+  normal float3
+  diffuse texcoord float2
+  color float4
+  color2 float4
+  tangent float3
+  bitangent float3
+  bitangent sign float
+
+For skinned-bind records, color is also the byte-derived joint-index carrier
+and color2 is the joint-weight carrier. Any later storage change must preserve
+those semantics exactly; treating them only as display color would corrupt
+skinning.
+
+PREVIOUS POSITION AND PRIMARY-SURFACE RESULT
+--------------------------------------------
+GPU skinning writes current position/normal/tangent/bitangent into the rendered
+vertex and writes previous position into a separate 16-byte stream. The primary
+surface producer consumes the hit attributes, material result, and previous
+position, then projects them into a record containing world position, geometric
+and shading normals, material terms, and previous position. It does not retain
+raw tangent or UV after material evaluation.
+
+This validates the proposal's direction to keep mutable positions separate.
+It does not yet answer whether skinning should write or derive normal/tangent;
+that decision still requires a timed compute variant and identical decoded
+surface comparisons.
+
+SURVEY COVERAGE GAP
+-------------------
+`PtGeometrySourceRegistry::Observe` admits:
+
+  RegisteredRenderModel + Rigid
+  SkinnedBindSource + Skinned
+
+It rejects or does not own:
+
+  StaticWorldMap
+  GeneratedPersistent
+  UnsupportedTransient
+  particles and other explicitly dynamic fallback capture
+
+Therefore one canonical-registry capture cannot close GEO-12 and cannot supply
+a universal UV predicate. Ordinary/large brush geometry, wide/repeating world
+materials, live decals, emissives, particles, and small-dynamic fallbacks must
+be measured at their full-fidelity capture or resident-source owner. A result
+from only monsters and rigid models must not be generalized to world brushes.
+
+FIRST BEHAVIOR-NEUTRAL SLICE
+----------------------------
+`PathTraceGeometryAttributeSurvey` walks the value-owned registry without
+mutating, republishing, or uploading any record. It produces per-record and
+aggregate measurements for:
+
+  - position and UV min/max;
+  - non-finite position, UV, basis, and color components;
+  - half-UV overflow, underflow-to-zero, maximum absolute error, and maximum
+    relative error;
+  - degenerate normal, tangent, and bitangent counts;
+  - oct16 normal and tangent maximum angular error;
+  - stored-versus-derived bitangent maximum angular error and invalid count;
+  - color/color2 UNORM8 exact, out-of-range, and maximum-error counts;
+  - skinned joint byte integrality/range and weight component/sum ranges;
+  - current source bytes and savings projected separately for each candidate.
+
+Projected savings are deliberately independent. They are not an accepted
+combined layout and they do not imply candidate eligibility.
+
+The one-shot CVar is paged and bounded:
+
+  r_pathTracingGeometryAttributeSurveyDump 1
+
+Each value requests one 1-based page of at most 32 mesh records, emits the full
+aggregate each time, and resets to zero. Page 2 is requested by setting the
+CVar to 2, and so on. The summary reports the clamped page and page count.
+
+The survey never clamps candidate input. Wide half values, non-finite values,
+out-of-UNORM values, nonintegral joints, degenerate bases, and reconstruction
+failures remain explicit counters.
+
+WHAT THIS SLICE DOES NOT PROVE
+------------------------------
+- Half UV is not eligible merely because values are finite or representable.
+- A maximum aggregate error is not a material-sensitive acceptance threshold.
+- Oct16 normal/tangent storage is not selected.
+- Stored bitangent removal is not selected.
+- Exact byte-derived color in this domain does not prove all rendered dynamic
+  color semantics are byte-derived.
+- No source, rendered, BLAS, SBT, descriptor, or shader ABI changed.
+
+ORDERED NEXT SLICES
+-------------------
+Slice 2 - complete measurement coverage
+
+  - Add a read-only full-fidelity survey at the static-world and dynamic
+    capture/resident-source owners.
+  - Preserve per-surface identity/material/class in the samples.
+  - Cover ordinary world, large-coordinate brushes, wide/repeating UVs,
+    decals, emissives, particles, and explicit fallback classes.
+  - Reconcile capture-time invalid-attribute sanitization with the unsanitized
+    source values; never mistake a zeroed fallback for an eligible input.
+
+Slice 3 - choose exactly one candidate
+
+  - Define a numeric threshold from the combined asset/material evidence.
+  - Define explicit fallback reasons and byte savings.
+  - Prefer a lossless candidate if the combined survey proves one.
+  - Keep the gate default off.
+
+Slice 4 - ABI and numeric A/B
+
+  - Add one encode/decode contract with CPU asserts and preprocessed HLSL
+    review.
+  - Compare decoded attributes, primary hit, UV/material result, normal-map
+    basis, motion, and emissive reconstruction on identical frames.
+
+Slice 5 - bandwidth and timing
+
+  - Compare source and mutable bytes, uploads, skinning dispatch, BLAS work,
+    and frame time on identical geometry.
+  - Measure write-versus-derive normal/tangent as a separate experiment.
+
+ENTRY VERIFICATION
+------------------
+  PathTraceGeometryAttributeSurveyHarness         PASS
+  cmake --build --preset win64-pt-dev-release     PASS
+  SPIR-V                                           all up to date
+  live geometry/shader ABI                         unchanged
+  executable bytes                                 16,049,152
+  executable SHA-256
+    C29B97549F1F87FCE43B59182AB341DC553C4C40DD2B7ADCEEED2573B803816B
+  deployment                                       byte-identical
+
+INITIAL LIVE MEASUREMENT
+------------------------
+The automated `doom3_1` capture completed normally and shut down without a
+device-loss marker. Final-build `geometry_geo12d.log` reports:
+
+  records total / rigid / skinned                 988 / 946 / 42
+  vertices                                          64,986
+  current position / attribute bytes              779,832 / 5,198,880
+  position range X                       -7,159.48779 .. 7,052.84424
+  position range Y                       -4,229.12061 .. 1,447.14038
+  position range Z                       -1,941.37354 .. 1,744.08386
+  UV range X                                      -64.5 .. 64.5
+  UV range Y                                      -28.5 .. 38.75
+  non-finite position / UV / basis / color         0 / 0 / 0 / 0
+  half-UV overflow / underflow / max error          0 / 0 / 0
+  oct16 max normal / tangent angular error          0.039565 / 0.034264 deg
+  degenerate normal / tangent / bitangent           0 / 0 / 2
+  derived-bitangent invalid / max valid error       2 / 0.034264 deg
+  color UNORM8 exact / total                    259,944 / 259,944
+  color2 UNORM8 exact / total                   259,944 / 259,944
+  maximum color/color2 float round-trip error       5.96046448e-08
+  skinned vertices                                  19,581
+  joint nonintegral / out-of-byte / range            0 / 0 / 0..79
+  weight non-finite / range / sum range               0 / 0..1 / 1..1.00000012
+
+The first run deliberately caught and rejected a diagnostic calibration error:
+the byte-derived joint value was multiplied by 255 but compared with the
+pre-scale UNORM epsilon, producing false nonintegral counts. The corrected
+criterion scales the epsilon by 255. The harness and `geometry_geo12b.log`
+first proved zero nonintegral and zero out-of-byte components;
+`geometry_geo12d.log` repeats that result on the final deployed executable.
+
+`geometry_geo12c.log` captures pages 30 and 31. Every one of the 42 skinned
+records emits its per-mesh joint/weight row with zero joint failure. The rows
+include NPC heads and bodies, labcoat/suit/jumpsuit characters, and both
+3,050-vertex surfaces of `models/md5/monsters/zfat/zfat.md5mesh`. This proves
+the prepared crowded scene includes the intended Fatzombie source.
+
+The page-30/31 capture preceded only a reporting hardening for wholly absent
+finite joint/weight ranges. Every captured skinned row has finite ranges, so
+that hardening cannot change its values. The final-build page-1 aggregate in
+`geometry_geo12d.log` is otherwise identical.
+
+The zero half-UV error is evidence about the stored canonical source values in
+this capture, not proof that transformed diffuse/normal-map UVs or missing
+static-world/dynamic-fallback domains are safe. No candidate is promoted.
+
+Raw logs:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo12d.log
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo12c.log
+
+ROLLBACK
+--------
+Remove the survey module and harness/target, the one-shot CVar, and the
+`DumpAttributeSurvey` call. No geometry data or route migration is involved.

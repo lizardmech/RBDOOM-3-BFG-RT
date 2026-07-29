@@ -533,6 +533,7 @@ set(PATH_TRACE_CPU_WORKER_NO_PCH_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCpuWork.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryGpuPools.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryAttributeSurvey.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryIdentityTransport.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryOffsetBlasProbe.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryPoolPlan.cpp
@@ -1549,6 +1550,17 @@ add_executable(PathTraceGeometrySourceRegistryHarness
 target_include_directories(PathTraceGeometrySourceRegistryHarness PRIVATE renderer/NVRHI)
 if(BUILD_TESTING)
 	add_test(NAME PathTraceGeometrySourceRegistryHarness COMMAND $<TARGET_FILE:PathTraceGeometrySourceRegistryHarness>)
+endif()
+
+add_executable(PathTraceGeometryAttributeSurveyHarness
+	tests/pathtrace_geometry_attribute_survey_harness.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	renderer/NVRHI/PathTraceGeometrySourceRegistry.cpp
+	renderer/NVRHI/PathTraceGeometryAttributeSurvey.cpp
+	)
+target_include_directories(PathTraceGeometryAttributeSurveyHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceGeometryAttributeSurveyHarness COMMAND $<TARGET_FILE:PathTraceGeometryAttributeSurveyHarness>)
 endif()
 
 add_executable(PathTraceGeometrySourceTransportHarness

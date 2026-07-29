@@ -4,6 +4,7 @@
 #include "PathTraceGeometryLifecycle.h"
 #include "PathTraceCVars.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceGeometryAttributeSurvey.h"
 #include "PathTraceGeometryIdentityTransport.h"
 #include "PathTraceGeometrySourceRegistry.h"
 #include "PathTraceGeometrySourceTransport.h"
@@ -26,6 +27,7 @@ namespace {
 const int PT_GEOMETRY_LIFECYCLE_MAX_EVENT_SAMPLES = 16;
 const int PT_GEOMETRY_SHADOW_MAX_DUMP_SAMPLES = 16;
 const int PT_GEOMETRY_SOURCE_MAX_DUMP_SAMPLES = 8;
+const int PT_GEOMETRY_ATTRIBUTE_SURVEY_MAX_DUMP_SAMPLES = 32;
 const std::uint32_t PT_GEOMETRY_SHADOW_VERTEX_FORMAT_ID_DRAW_VERT = 1;
 
 std::atomic<std::uint64_t> g_nextWorldGeneration(1);
@@ -956,6 +958,211 @@ public:
             removedAny = true;
         }
         (void)removedAny;
+    }
+
+    void DumpAttributeSurvey(std::uint64_t frameIndex, int requestedPage)
+    {
+        PtGeometryAttributeSurvey survey;
+        PtSurveyGeometrySourceRegistry(sourceRegistry, survey);
+        const PtGeometryAttributeSurveyStats& totals = survey.totals;
+        const std::uint64_t vertexCount = totals.vertexCount;
+        const std::uint64_t halfUvSavings = vertexCount * 4ull;
+        const std::uint64_t octNormalSavings = vertexCount * 8ull;
+        const std::uint64_t octTangentSavings = vertexCount * 8ull;
+        const std::uint64_t deriveBitangentSavings = vertexCount * 12ull;
+        const std::uint64_t unormColorSavings = vertexCount * 12ull;
+        const std::uint64_t unormColor2Savings = vertexCount * 12ull;
+        const std::size_t pageSize = static_cast<std::size_t>(
+            PT_GEOMETRY_ATTRIBUTE_SURVEY_MAX_DUMP_SAMPLES);
+        const std::size_t pageCount = survey.records.empty()
+            ? 1
+            : (survey.records.size() + pageSize - 1) / pageSize;
+        const std::size_t page = static_cast<std::size_t>(
+            idMath::ClampInt(
+                1,
+                static_cast<int>(pageCount),
+                requestedPage > 0 ? requestedPage : 1) -
+            1);
+        const std::size_t firstRecord = page * pageSize;
+        const std::size_t endRecord = Min(
+            survey.records.size(),
+            firstRecord + pageSize);
+
+        common->Printf(
+            "PathTracePrimaryPass: GEO12 attribute survey frame=%llu route=measurement-only page=%llu/%llu emitted=%llu records(total/rigid/skinned)=%llu/%llu/%llu vertices=%llu currentBytes(position/attribute)=%llu/%llu candidateSavingsSeparate(halfUV/octNormal/octTangent/deriveBitangent/unormColor/unormColor2)=%llu/%llu/%llu/%llu/%llu/%llu\n",
+            static_cast<unsigned long long>(frameIndex),
+            static_cast<unsigned long long>(page + 1),
+            static_cast<unsigned long long>(pageCount),
+            static_cast<unsigned long long>(endRecord - firstRecord),
+            static_cast<unsigned long long>(totals.recordCount),
+            static_cast<unsigned long long>(totals.rigidRecordCount),
+            static_cast<unsigned long long>(totals.skinnedRecordCount),
+            static_cast<unsigned long long>(totals.vertexCount),
+            static_cast<unsigned long long>(totals.currentPositionBytes),
+            static_cast<unsigned long long>(totals.currentAttributeBytes),
+            static_cast<unsigned long long>(halfUvSavings),
+            static_cast<unsigned long long>(octNormalSavings),
+            static_cast<unsigned long long>(octTangentSavings),
+            static_cast<unsigned long long>(deriveBitangentSavings),
+            static_cast<unsigned long long>(unormColorSavings),
+            static_cast<unsigned long long>(unormColor2Savings));
+        common->Printf(
+            "PathTracePrimaryPass: GEO12 attribute ranges positionMin=(%.9g,%.9g,%.9g) positionMax=(%.9g,%.9g,%.9g) uvMin=(%.9g,%.9g) uvMax=(%.9g,%.9g) nonFinite(position/uv/basis/color)=%llu/%llu/%llu/%llu\n",
+            totals.positionMin[0],
+            totals.positionMin[1],
+            totals.positionMin[2],
+            totals.positionMax[0],
+            totals.positionMax[1],
+            totals.positionMax[2],
+            totals.texCoordMin[0],
+            totals.texCoordMin[1],
+            totals.texCoordMax[0],
+            totals.texCoordMax[1],
+            static_cast<unsigned long long>(
+                totals.nonFinitePositionComponents),
+            static_cast<unsigned long long>(
+                totals.nonFiniteTexCoordComponents),
+            static_cast<unsigned long long>(
+                totals.nonFiniteBasisComponents),
+            static_cast<unsigned long long>(
+                totals.nonFiniteColorComponents));
+        common->Printf(
+            "PathTracePrimaryPass: GEO12 candidate measurements halfUV(samples/overflow/underflow/maxAbs/maxRelative)=%llu/%llu/%llu/%.9g/%.9g oct16(normalSamples/maxDegrees/tangentSamples/maxDegrees)=%llu/%.9g/%llu/%.9g basis(degenerateN/T/B/reconstructSamples/reconstructInvalid/maxDegrees)=%llu/%llu/%llu/%llu/%llu/%.9g unorm8(colorExact/total/outOfRange/maxAbs/color2Exact/total/outOfRange/maxAbs)=%llu/%llu/%llu/%.9g/%llu/%llu/%llu/%.9g\n",
+            static_cast<unsigned long long>(totals.halfTexCoordComponents),
+            static_cast<unsigned long long>(
+                totals.halfTexCoordOverflowComponents),
+            static_cast<unsigned long long>(
+                totals.halfTexCoordUnderflowToZeroComponents),
+            totals.halfTexCoordMaxAbsError,
+            totals.halfTexCoordMaxRelativeError,
+            static_cast<unsigned long long>(totals.normalOct16Samples),
+            totals.normalOct16MaxAngularErrorDegrees,
+            static_cast<unsigned long long>(totals.tangentOct16Samples),
+            totals.tangentOct16MaxAngularErrorDegrees,
+            static_cast<unsigned long long>(totals.normalDegenerateVertices),
+            static_cast<unsigned long long>(totals.tangentDegenerateVertices),
+            static_cast<unsigned long long>(
+                totals.bitangentDegenerateVertices),
+            static_cast<unsigned long long>(
+                totals.bitangentReconstructionSamples),
+            static_cast<unsigned long long>(
+                totals.bitangentReconstructionInvalid),
+            totals.bitangentReconstructionMaxAngularErrorDegrees,
+            static_cast<unsigned long long>(
+                totals.colorUnorm8ExactComponents),
+            static_cast<unsigned long long>(totals.colorComponents),
+            static_cast<unsigned long long>(
+                totals.colorOutOfUnormRangeComponents),
+            totals.colorUnorm8MaxAbsError,
+            static_cast<unsigned long long>(
+                totals.color2Unorm8ExactComponents),
+            static_cast<unsigned long long>(totals.color2Components),
+            static_cast<unsigned long long>(
+                totals.color2OutOfUnormRangeComponents),
+            totals.color2Unorm8MaxAbsError);
+        common->Printf(
+            "PathTracePrimaryPass: GEO12 skinned measurements vertices=%llu joints(components/nonIntegral/outOfByte/min/max)=%llu/%llu/%llu/%u/%u weights(nonFinite/min/max/sumMin/sumMax)= %llu/%.9g/%.9g/%.9g/%.9g\n",
+            static_cast<unsigned long long>(totals.skinnedVertexCount),
+            static_cast<unsigned long long>(totals.skinnedJointComponents),
+            static_cast<unsigned long long>(
+                totals.skinnedJointNonIntegralComponents),
+            static_cast<unsigned long long>(
+                totals.skinnedJointOutOfByteRangeComponents),
+            totals.skinnedJointIndexMin,
+            totals.skinnedJointIndexMax,
+            static_cast<unsigned long long>(
+                totals.skinnedWeightNonFiniteComponents),
+            totals.skinnedWeightMin,
+            totals.skinnedWeightMax,
+            totals.skinnedWeightSumMin,
+            totals.skinnedWeightSumMax);
+
+        for (std::size_t recordIndex = firstRecord;
+            recordIndex < endRecord;
+            ++recordIndex)
+        {
+            const PtGeometryAttributeSurveyRecord& record =
+                survey.records[recordIndex];
+            const PtGeometryAttributeSurveyStats& stats = record.stats;
+            const char* modelName = "<unresolved>";
+            for (const PtGeometryShadowMeshRecord& mesh : meshes)
+            {
+                if (mesh.valid && mesh.hash == record.meshHash)
+                {
+                    modelName = mesh.modelName.c_str();
+                    break;
+                }
+            }
+            common->Printf(
+                "PathTracePrimaryPass: GEO12 attribute record index=%llu mesh=%llu domain=%u deformation=%u surface=%u model='%s' vertices=%llu bytes(position/attribute)=%llu/%llu positionMin=(%.9g,%.9g,%.9g) positionMax=(%.9g,%.9g,%.9g) uvMin=(%.9g,%.9g) uvMax=(%.9g,%.9g) halfUV(overflow/underflow/maxAbs/maxRelative)=%llu/%llu/%.9g/%.9g oct16(maxNormalDegrees/maxTangentDegrees)=%.9g/%.9g basis(degenerateN/T/B/reconstructInvalid/maxDegrees)=%llu/%llu/%llu/%llu/%.9g unorm8(colorExact/total/outOfRange/color2Exact/total/outOfRange)=%llu/%llu/%llu/%llu/%llu/%llu\n",
+                static_cast<unsigned long long>(recordIndex),
+                static_cast<unsigned long long>(record.meshHash),
+                static_cast<unsigned int>(record.sourceDomain),
+                static_cast<unsigned int>(record.deformationClass),
+                record.modelSurfaceIndex,
+                modelName,
+                static_cast<unsigned long long>(stats.vertexCount),
+                static_cast<unsigned long long>(stats.currentPositionBytes),
+                static_cast<unsigned long long>(stats.currentAttributeBytes),
+                stats.positionMin[0],
+                stats.positionMin[1],
+                stats.positionMin[2],
+                stats.positionMax[0],
+                stats.positionMax[1],
+                stats.positionMax[2],
+                stats.texCoordMin[0],
+                stats.texCoordMin[1],
+                stats.texCoordMax[0],
+                stats.texCoordMax[1],
+                static_cast<unsigned long long>(
+                    stats.halfTexCoordOverflowComponents),
+                static_cast<unsigned long long>(
+                    stats.halfTexCoordUnderflowToZeroComponents),
+                stats.halfTexCoordMaxAbsError,
+                stats.halfTexCoordMaxRelativeError,
+                stats.normalOct16MaxAngularErrorDegrees,
+                stats.tangentOct16MaxAngularErrorDegrees,
+                static_cast<unsigned long long>(
+                    stats.normalDegenerateVertices),
+                static_cast<unsigned long long>(
+                    stats.tangentDegenerateVertices),
+                static_cast<unsigned long long>(
+                    stats.bitangentDegenerateVertices),
+                static_cast<unsigned long long>(
+                    stats.bitangentReconstructionInvalid),
+                stats.bitangentReconstructionMaxAngularErrorDegrees,
+                static_cast<unsigned long long>(
+                    stats.colorUnorm8ExactComponents),
+                static_cast<unsigned long long>(stats.colorComponents),
+                static_cast<unsigned long long>(
+                    stats.colorOutOfUnormRangeComponents),
+                static_cast<unsigned long long>(
+                    stats.color2Unorm8ExactComponents),
+                static_cast<unsigned long long>(stats.color2Components),
+                static_cast<unsigned long long>(
+                    stats.color2OutOfUnormRangeComponents));
+            if (stats.skinnedVertexCount != 0)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: GEO12 skinned record index=%llu mesh=%llu joints(components/nonIntegral/outOfByte/min/max)=%llu/%llu/%llu/%u/%u weights(nonFinite/min/max/sumMin/sumMax)=%llu/%.9g/%.9g/%.9g/%.9g\n",
+                    static_cast<unsigned long long>(recordIndex),
+                    static_cast<unsigned long long>(record.meshHash),
+                    static_cast<unsigned long long>(
+                        stats.skinnedJointComponents),
+                    static_cast<unsigned long long>(
+                        stats.skinnedJointNonIntegralComponents),
+                    static_cast<unsigned long long>(
+                        stats.skinnedJointOutOfByteRangeComponents),
+                    stats.skinnedJointIndexMin,
+                    stats.skinnedJointIndexMax,
+                    static_cast<unsigned long long>(
+                        stats.skinnedWeightNonFiniteComponents),
+                    stats.skinnedWeightMin,
+                    stats.skinnedWeightMax,
+                    stats.skinnedWeightSumMin,
+                    stats.skinnedWeightSumMax);
+            }
+        }
     }
 
     void Dump(std::uint64_t frameIndex)
@@ -2208,6 +2415,23 @@ void MaybeDumpLifecycleStats(std::uint64_t frameIndex, const idRenderWorldLocal*
                 r_pathTracingGeometryShadowRegistry.GetInteger());
         }
         r_pathTracingGeometryShadowRegistryDump.SetInteger(0);
+    }
+
+    if (r_pathTracingGeometryAttributeSurveyDump.GetInteger() != 0)
+    {
+        const int requestedPage =
+            r_pathTracingGeometryAttributeSurveyDump.GetInteger();
+        if (registry)
+        {
+            registry->DumpAttributeSurvey(frameIndex, requestedPage);
+        }
+        else
+        {
+            common->Printf(
+                "PathTracePrimaryPass: GEO12 attribute survey frame=%llu route=measurement-only missingWorld=1 records=0\n",
+                static_cast<unsigned long long>(frameIndex));
+        }
+        r_pathTracingGeometryAttributeSurveyDump.SetInteger(0);
     }
 
     if (r_pathTracingGeometryLifecycleDump.GetInteger() == 0)

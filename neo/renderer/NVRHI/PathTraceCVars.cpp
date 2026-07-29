@@ -315,6 +315,12 @@ idCVar r_pathTracingGeometrySourceDeltaBudgetMB(
     CVAR_RENDERER | CVAR_INTEGER,
     "GEO-06 primary-view immutable source delta budget in MiB per frame" );
 
+idCVar r_pathTracingGeometryAttributeSurveyDump(
+    "r_pathTracingGeometryAttributeSurveyDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to a 1-based page for one bounded GEO-12 full-fidelity canonical-source attribute survey; measurement only" );
+
 idCVar r_pathTracingGeometryCanonicalRigidBlas(
     "r_pathTracingGeometryCanonicalRigidBlas",
     "0",

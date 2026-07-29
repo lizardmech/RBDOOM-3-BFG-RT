@@ -61,3 +61,56 @@ compressions remain rejected evidence, not hidden assumptions.
 CHECKPOINT
 ----------
   pt geometry GEO-12: validate <attribute> storage encoding
+
+ENTRY AUDIT AND MEASUREMENT SLICE 1
+-----------------------------------
+The current renderer does not have one universal vertex-storage seam.
+`PathTraceSmokeVertex` is a 112-byte rendered ABI shared by BLAS builds, every
+RT hit family, emissive reconstruction, and readback. It is explicitly not the
+first compression target.
+
+The full-fidelity canonical source already separates float3 position (12 bytes)
+from immutable attributes (80 bytes). The first slice adds a pure CPU,
+observation-only survey over those value-owned records. It measures numeric
+ranges and independent half-UV, oct16 basis, derived-bitangent, UNORM8 color,
+joint, and weight evidence without changing a source record or GPU ABI. The
+paged one-shot command is:
+
+  r_pathTracingGeometryAttributeSurveyDump 1
+
+Each page contains at most 32 per-mesh rows and repeats the aggregate. Candidate
+savings are reported separately and are not an accepted combined layout.
+
+This source registry currently covers rigid registered models and skinned bind
+sources only. Static world, generated geometry, particles, decals, and other
+dynamic fallbacks require a second read-only survey at their capture/resident
+source owners before Q1 or any encoding can be resolved. No eligibility
+threshold or encoding is selected by Slice 1.
+
+Detailed evidence and the ordered continuation are in:
+
+  ../artifacts/GEO-12_entry_audit.txt
+
+Verification:
+
+  PathTraceGeometryAttributeSurveyHarness         PASS
+  cmake --build --preset win64-pt-dev-release     PASS
+  SPIR-V                                           all up to date
+  executable bytes                                 16,049,152
+  executable SHA-256
+    C29B97549F1F87FCE43B59182AB341DC553C4C40DD2B7ADCEEED2573B803816B
+  deployment                                       byte-identical
+
+Final-build `geometry_geo12d.log` captures 988 records and 64,986 vertices. It
+reports no
+non-finite components, UV range (-64.5,-28.5)..(64.5,38.75), exact half
+round-trip for the stored source UVs, oct16 maximum normal/tangent error
+0.039565/0.034264 degrees, and two explicit invalid derived-bitangent vertices.
+Both color streams are UNORM8-exact for all 259,944 components apiece. The
+19,581 skinned vertices have zero nonintegral/out-of-byte joints, joint range
+0..79, finite weights in 0..1, and sums in 1..1.00000012.
+
+`geometry_geo12c.log` proves pages 30/31 emit all 42 skinned per-mesh rows,
+including both 3,050-vertex `zfat.md5mesh` surfaces. Both automated runs shut
+down normally without device loss. These results remain domain-limited
+measurement, not encoding acceptance.
