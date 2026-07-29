@@ -467,3 +467,72 @@ Counter-lifetime rebuild and deployment:
   executable    16,014,848 bytes
   sha256        5D1B87474B271BD0426CAB7B2145DA9CBDD110DB5C2DD588B7B642A4D148B9E4
   deployment    source and prebuilt executable byte-identical
+
+CANONICAL-RIGID ADMISSION ACCEPTED
+----------------------------------
+`geometry_geo_step13.log` closes the direct numeric gate:
+
+  result requirement queries                 8503
+  result requirement failures                0
+  allocation failures                        0
+  operation deferrals                        175
+  result-byte deferrals                       8221
+  unknown-size deferrals                      0
+  admitted result bytes                       1483520
+  oversized admissions / bytes               44 / 684544
+  maximum deferred age                        75
+  final ready / deferred                      109 / 0
+  final identity exact / route                123 / 123
+  final TLAS descriptors legacy/canonical     123 / 123
+  final exact mappings / failures             123 / 0
+
+Every replacement retirement package shown in the capture reaches pending
+zero through graphics-event-query authority with zero result-query failure.
+The 8 KiB budget therefore exercised ordinary byte deferral and the
+indivisible-BLAS convergence exception without starving the active route.
+Canonical-rigid Slice-4 admission is accepted.
+
+The next provider is static buckets. Before it can consume the planner, its
+replacement path must retain the prior complete BLAS until a replacement is
+admitted and built.
+
+STATIC-BUCKET FAIL-RETAINED REPLACEMENT
+---------------------------------------
+The prerequisite audit found two coupled defects:
+
+  - a changed bucket retired its prior BLAS before the build-count gate and
+    replacement allocation;
+  - compatibility required `geometryDescCount == 1`, although the accepted
+    GEO-10 layout intentionally emits one geometry per bucket surface.
+
+The latter made every multi-geometry bucket appear incompatible on every
+frame, causing needless rebuild/retirement churn and explaining the observed
+high bucket-BLAS overhead.
+
+Static bucket replacement now always creates and records a distinct candidate,
+submits its build, and only then retires and replaces the prior published
+handle. Build-count deferral or allocation failure leaves the prior complete
+record untouched. Force rebuild also uses build-then-swap rather than mutating
+an in-flight published BLAS.
+
+Ready/TLAS/publication checks now require the BLAS input signature to match the
+current pack, bucket range, and current vertex/index buffer identities. A
+retained old BLAS is therefore lifetime-safe but cannot be published against
+new decode buffers; the bucket route fails closed to the monolithic fallback
+until every active replacement is exact.
+
+Compatibility now compares the recorded geometry count with the exact current
+geometry-plan count. Diagnostics add `retainedReplacement` to distinguish safe
+old handles from ready current handles and correct the stale geometry-layout
+label.
+
+Build and deployment:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; all SPIR-V shaders up to date
+  executable    16,015,872 bytes
+  sha256        BA5D97D617A016626E80D2DA0474FA2E7EE9E2D1D82E470E9EF751242CFCD607
+  deployment    source and prebuilt executable byte-identical
+
+Runtime validation is required before connecting static buckets to the byte
+admission planner.

@@ -839,6 +839,40 @@ uint64 BuildCanonicalRigidBlasInputSignature(
     return hash != 0 ? hash : 1;
 }
 
+uint64 BuildStaticBucketBlasInputSignature(
+    uint64 contentSignature,
+    const RtSmokeStaticBucketPackedRecord& bucket,
+    const nvrhi::BufferHandle& vertexBuffer,
+    const nvrhi::BufferHandle& indexBuffer)
+{
+    uint64 hash = 14695981039346656037ull;
+    hash = HashSmokeBytes(
+        hash,
+        &contentSignature,
+        sizeof(contentSignature));
+    hash = HashSmokeBytes(
+        hash,
+        &bucket.bucketKey,
+        sizeof(bucket.bucketKey));
+    hash = HashSmokeBytes(
+        hash,
+        &bucket.range,
+        sizeof(bucket.range));
+    const uintptr_t vertexBufferIdentity =
+        reinterpret_cast<uintptr_t>(vertexBuffer.Get());
+    const uintptr_t indexBufferIdentity =
+        reinterpret_cast<uintptr_t>(indexBuffer.Get());
+    hash = HashSmokeBytes(
+        hash,
+        &vertexBufferIdentity,
+        sizeof(vertexBufferIdentity));
+    hash = HashSmokeBytes(
+        hash,
+        &indexBufferIdentity,
+        sizeof(indexBufferIdentity));
+    return hash != 0 ? hash : 1;
+}
+
 uint32_t ValidateRigidBlasInputRecord(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
 {
     const uint32_t expectedVertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
@@ -4287,33 +4321,12 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         }
         record->seenThisUpdate = true;
 
-        uint64 inputSignature = 14695981039346656037ull;
-        inputSignature = HashSmokeBytes(
-            inputSignature,
-            &geometryPack.contentSignature,
-            sizeof(geometryPack.contentSignature));
-        inputSignature = HashSmokeBytes(
-            inputSignature,
-            &bucket.bucketKey,
-            sizeof(bucket.bucketKey));
-        inputSignature = HashSmokeBytes(
-            inputSignature,
-            &bucket.range,
-            sizeof(bucket.range));
-        const uintptr_t vertexBufferIdentity =
-            reinterpret_cast<uintptr_t>(
-                m_staticBucketVertexBuffer.Get());
-        const uintptr_t indexBufferIdentity =
-            reinterpret_cast<uintptr_t>(
-                m_staticBucketIndexBuffer.Get());
-        inputSignature = HashSmokeBytes(
-            inputSignature,
-            &vertexBufferIdentity,
-            sizeof(vertexBufferIdentity));
-        inputSignature = HashSmokeBytes(
-            inputSignature,
-            &indexBufferIdentity,
-            sizeof(indexBufferIdentity));
+        const uint64 inputSignature =
+            BuildStaticBucketBlasInputSignature(
+                geometryPack.contentSignature,
+                bucket,
+                m_staticBucketVertexBuffer,
+                m_staticBucketIndexBuffer);
 
         const bool rangeCompatible =
             record->range.vertexOffset ==
@@ -4329,18 +4342,11 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             record->range.triangleCount ==
                 bucket.range.triangleCount &&
             record->geometryDescCount ==
-                1u;
+                static_cast<uint32_t>(
+                    geometryPlan.geometries.size());
         const bool inputChanged =
             record->inputSignature != 0 &&
             record->inputSignature != inputSignature;
-        if (record->blas &&
-            (inputChanged ||
-                !rangeCompatible ||
-                buffersCreated))
-        {
-            RetireStaticBucketBlas(*record);
-            ++stats.blasRetired;
-        }
 
         const bool needsBuild =
             submitBuilds &&
@@ -4348,57 +4354,53 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
                 uploadRequired ||
                 !record->blas ||
                 !record->buildSubmitted ||
-                inputChanged);
+                inputChanged ||
+                !rangeCompatible ||
+                buffersCreated);
         if (needsBuild && buildsRemaining > 0)
         {
-            if (!record->blas)
+            nvrhi::rt::AccelStructDesc replacementBlasDesc =
+                nvrhi::rt::AccelStructDesc()
+                    .setBuildFlags(
+                        nvrhi::rt::
+                            AccelStructBuildFlags::
+                                PreferFastTrace)
+                    .setDebugName(
+                        "PathTraceStaticBucketBLAS");
+            for (const
+                RtSmokeStaticBucketBlasGeometryRange&
+                    geometryRange :
+                geometryPlan.geometries)
             {
-                record->blasDesc =
-                    nvrhi::rt::AccelStructDesc()
-                        .setBuildFlags(
-                            nvrhi::rt::
-                                AccelStructBuildFlags::
-                                    PreferFastTrace)
-                        .setDebugName(
-                            "PathTraceStaticBucketBLAS");
-                for (const
-                    RtSmokeStaticBucketBlasGeometryRange&
-                        geometryRange :
-                    geometryPlan.geometries)
-                {
-                    nvrhi::rt::GeometryTriangles triangles;
-                    triangles.vertexBuffer =
-                        m_staticBucketVertexBuffer;
-                    triangles.indexBuffer =
-                        m_staticBucketIndexBuffer;
-                    triangles.vertexFormat =
-                        nvrhi::Format::RGB32_FLOAT;
-                    triangles.indexFormat =
-                        nvrhi::Format::R32_UINT;
-                    triangles.vertexOffset = 0;
-                    triangles.indexOffset =
-                        geometryRange.indexByteOffset;
-                    triangles.vertexCount =
-                        geometryPack.stats.packedVertices;
-                    triangles.indexCount =
-                        geometryRange.indexCount;
-                    triangles.vertexStride =
-                        sizeof(PathTraceSmokeVertex);
-                    nvrhi::rt::GeometryDesc geometry;
-                    geometry.setTriangles(triangles);
-                    record->blasDesc.
-                        addBottomLevelGeometry(geometry);
-                }
-                record->blas =
-                    device->createAccelStruct(
-                        record->blasDesc);
-                if (record->blas)
-                {
-                    ++stats.blasCreated;
-                }
+                nvrhi::rt::GeometryTriangles triangles;
+                triangles.vertexBuffer =
+                    m_staticBucketVertexBuffer;
+                triangles.indexBuffer =
+                    m_staticBucketIndexBuffer;
+                triangles.vertexFormat =
+                    nvrhi::Format::RGB32_FLOAT;
+                triangles.indexFormat =
+                    nvrhi::Format::R32_UINT;
+                triangles.vertexOffset = 0;
+                triangles.indexOffset =
+                    geometryRange.indexByteOffset;
+                triangles.vertexCount =
+                    geometryPack.stats.packedVertices;
+                triangles.indexCount =
+                    geometryRange.indexCount;
+                triangles.vertexStride =
+                    sizeof(PathTraceSmokeVertex);
+                nvrhi::rt::GeometryDesc geometry;
+                geometry.setTriangles(triangles);
+                replacementBlasDesc.
+                    addBottomLevelGeometry(geometry);
             }
-            if (record->blas)
+            nvrhi::rt::AccelStructHandle replacementBlas =
+                device->createAccelStruct(
+                    replacementBlasDesc);
+            if (replacementBlas)
             {
+                ++stats.blasCreated;
                 const auto buildStart =
                     std::chrono::steady_clock::now();
                 const bool diagnosticMarkers =
@@ -4417,8 +4419,8 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
                 }
                 nvrhi::utils::BuildBottomLevelAccelStruct(
                     commandList,
-                    record->blas,
-                    record->blasDesc);
+                    replacementBlas,
+                    replacementBlasDesc);
                 if (diagnosticMarkers)
                 {
                     commandList->endMarker();
@@ -4430,27 +4432,35 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
                         std::chrono::duration_cast<
                             std::chrono::microseconds>(
                             buildEnd - buildStart).count());
+                if (record->blas)
+                {
+                    RetireStaticBucketBlas(*record);
+                    ++stats.blasRetired;
+                }
+                record->blasDesc = replacementBlasDesc;
+                record->blas = replacementBlas;
                 record->buildSubmitted = true;
+                record->inputSignature = inputSignature;
+                record->range = bucket.range;
+                record->firstSurfaceRecord =
+                    bucket.firstSurfaceRecord;
+                record->surfaceRecordCount =
+                    bucket.surfaceRecordCount;
+                record->geometryDescCount =
+                    static_cast<uint32_t>(
+                        geometryPlan.geometries.size());
                 ++stats.blasBuilt;
                 --buildsRemaining;
             }
         }
         else if (record->blas &&
             record->buildSubmitted &&
-            !needsBuild)
+            !needsBuild &&
+            record->inputSignature == inputSignature &&
+            rangeCompatible)
         {
             ++stats.blasReused;
         }
-
-        record->inputSignature = inputSignature;
-        record->range = bucket.range;
-        record->firstSurfaceRecord =
-            bucket.firstSurfaceRecord;
-        record->surfaceRecordCount =
-            bucket.surfaceRecordCount;
-        record->geometryDescCount =
-            static_cast<uint32_t>(
-                geometryPlan.geometries.size());
     }
 
     for (size_t recordIndex = 0;
@@ -4475,7 +4485,28 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
     for (const StaticBucketBlasRecord& record :
         m_staticBucketBlasRecords)
     {
-        if (record.blas && record.buildSubmitted)
+        const RtSmokeStaticBucketPackedRecord* packedBucket =
+            nullptr;
+        for (const RtSmokeStaticBucketPackedRecord& bucket :
+            geometryPack.buckets)
+        {
+            if (bucket.bucketKey == record.bucketKey)
+            {
+                packedBucket = &bucket;
+                break;
+            }
+        }
+        const bool readyForCurrentInput =
+            packedBucket != nullptr &&
+            record.blas &&
+            record.buildSubmitted &&
+            record.inputSignature ==
+                BuildStaticBucketBlasInputSignature(
+                    geometryPack.contentSignature,
+                    *packedBucket,
+                    m_staticBucketVertexBuffer,
+                    m_staticBucketIndexBuffer);
+        if (readyForCurrentInput)
         {
             ++stats.readyBuckets;
             if (collectResultMemory)
@@ -4510,6 +4541,10 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         else
         {
             ++stats.deferredBuckets;
+            if (record.blas && record.buildSubmitted)
+            {
+                ++stats.retainedReplacementBuckets;
+            }
         }
     }
     stats.uploadSignature = m_staticBucketUploadSignature;
@@ -4550,7 +4585,13 @@ void RtSmokeGeometryUniverse::BuildStaticBucketTlasObservations(
         observation.hasBlas =
             blasRecord &&
             blasRecord->blas &&
-            blasRecord->buildSubmitted;
+            blasRecord->buildSubmitted &&
+            blasRecord->inputSignature ==
+                BuildStaticBucketBlasInputSignature(
+                    geometryPack.contentSignature,
+                    packed,
+                    m_staticBucketVertexBuffer,
+                    m_staticBucketIndexBuffer);
         observation.routeRecordIndex =
             static_cast<uint32_t>(bucketIndex);
         observation.residentVertexOffset =
@@ -4735,7 +4776,7 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
     const RtPathTraceStaticBucketBlasGpuStats& stats) const
 {
     common->Printf(
-        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d geometry(v/i/t/cpuSurfaceRecords/descs/invalidRanges)=%d/%d/%d/%d/%d/%d metadata(cpuClassWords/gpuClassWords/legacySurfaceOffset/cpuSurfaceBytes)=%d/%d/%d/%llu bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu result(queries/failures/bytes/max/alignment/compacted)=%d/%d/%llu/%llu/%llu/%d skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident blasGeometry=one-range-per-bucket traversal=monolithic route=offline-only\n",
+        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/retainedReplacement/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d/%d geometry(v/i/t/cpuSurfaceRecords/descs/invalidRanges)=%d/%d/%d/%d/%d/%d metadata(cpuClassWords/gpuClassWords/legacySurfaceOffset/cpuSurfaceBytes)=%d/%d/%d/%llu bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu result(queries/failures/bytes/max/alignment/compacted)=%d/%d/%llu/%llu/%llu/%d skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident blasGeometry=surface-geometries-per-bucket traversal=monolithic route=offline-only\n",
         static_cast<unsigned long long>(stats.frameIndex),
         stats.enabled,
         stats.submitBuilds,
@@ -4747,6 +4788,7 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
         stats.activeBuckets,
         stats.readyBuckets,
         stats.deferredBuckets,
+        stats.retainedReplacementBuckets,
         stats.invalidBuckets,
         stats.multiGeometryBuckets,
         stats.vertexCount,
@@ -4884,7 +4926,13 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
         }
         if (!blasRecord ||
             !blasRecord->blas ||
-            !blasRecord->buildSubmitted)
+            !blasRecord->buildSubmitted ||
+            blasRecord->inputSignature !=
+                BuildStaticBucketBlasInputSignature(
+                    geometryPack.contentSignature,
+                    bucket,
+                    m_staticBucketVertexBuffer,
+                    m_staticBucketIndexBuffer))
         {
             ++publication.missingBlas;
             continue;
@@ -4979,7 +5027,13 @@ RtSmokeGeometryUniverse::BuildStaticBucketActivePublication(
             }
             if (!blasRecord ||
                 !blasRecord->blas ||
-                !blasRecord->buildSubmitted)
+                !blasRecord->buildSubmitted ||
+                blasRecord->inputSignature !=
+                    BuildStaticBucketBlasInputSignature(
+                        geometryPack.contentSignature,
+                        bucket,
+                        m_staticBucketVertexBuffer,
+                        m_staticBucketIndexBuffer))
             {
                 publication.tlasInstances.clear();
                 publication.routeRecords.clear();

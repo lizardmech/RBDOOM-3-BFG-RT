@@ -3763,6 +3763,41 @@ fields now accumulate until `DumpCanonicalRigidBlasStats` and reset after that
 dump. This permits one bounded final capture instead of continuous geometry
 logging. One short repeat remains for direct numeric budget proof.
 
+D150. CANONICAL-RIGID ADMISSION IS ACCEPTED
+-------------------------------------------
+`geometry_geo_step13.log` preserves the complete forced-low interval. The
+8 KiB result cap produces 8,503 authoritative requirement queries, zero query
+or allocation failures, 8,221 result-byte deferrals, 175 operation deferrals,
+44 oversized convergence admissions totaling 684,544 bytes, 1,483,520 total
+admitted result bytes, and maximum deferred age 75.
+
+The queue drains to ready/deferred 109/0. Canonical identity is exact 123/123;
+legacy/canonical TLAS descriptors are 123/123 with 123 exact mappings and zero
+failures. Retirement releases retain graphics-event-query authority and reach
+pending zero. This accepts canonical-rigid operation/result admission,
+oldest-first retry, oversized convergence, fail-retained publication, and
+bounded interval diagnostics.
+
+D151. STATIC BUCKET REPLACEMENT IS BUILD-THEN-SWAP
+--------------------------------------------------
+Static buckets may not consume the common admission planner while replacement
+retires the prior BLAS before the build gate. The provider now constructs and
+builds a separate candidate, then swaps the complete record and retires the
+old handle. Count deferral, allocation failure, and force rebuild all retain
+the prior published handle until a successful replacement build exists.
+
+Retained lifetime does not imply current-route eligibility. Ready counts, TLAS
+observations, and active publication require the record input signature to
+match current pack content, bucket range, and vertex/index buffer identities.
+A mismatch fails closed to the monolithic route until current replacements are
+complete.
+
+The audit also rejects the stale `geometryDescCount == 1` compatibility test.
+GEO-10 uses one geometry per bucket surface; compatibility now requires the
+recorded count to equal the exact current geometry-plan count. This removes
+unconditional multi-geometry rebuild churn and is expected to address the
+reported high bucket-BLAS steady overhead.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

@@ -791,3 +791,62 @@ Counter-lifetime rebuild and deployment:
   executable    16,014,848 bytes
   sha256        5D1B87474B271BD0426CAB7B2145DA9CBDD110DB5C2DD588B7B642A4D148B9E4
   deployment    source and prebuilt executable byte-identical
+
+STEP-13 DIRECT ADMISSION PROOF
+------------------------------
+The interval tuple in `geometry_geo_step13.log` is authoritative:
+
+  defer operation / result bytes              175 / 8221
+  defer unknown / allocation                  0 / 0
+  result queries / failures                   8503 / 0
+  admitted bytes                              1483520
+  oversized admissions / bytes               44 / 684544
+  maximum deferred age                        75
+  final ready / deferred                      109 / 0
+  final active resident catalog               142
+  identity exact / route                      123 / 123
+  TLAS descriptors legacy / canonical         123 / 123
+  exact mappings / failures                   123 / 0
+
+The high result-deferral count is expected: every still-pending active
+candidate is reconsidered each frame under an intentionally tiny 8 KiB cap.
+Forty-four candidates were individually larger than the cap and used the
+one-per-empty-frame convergence exception. Despite that pressure, maximum age
+remained finite, the queue drained, and the current route recovered exact
+parity. All visible retirement releases report graphics-event-query authority,
+zero failures, and pending zero.
+
+Canonical-rigid admission is accepted. Static-bucket admission remains blocked
+only on fail-retained replacement ordering.
+
+STATIC-BUCKET REPLACEMENT PREREQUISITE IMPLEMENTED
+--------------------------------------------------
+The bucket provider retired an incompatible BLAS before knowing whether its
+replacement passed the frame build limit or allocation. It also treated only
+one-geometry records as compatible, contradicting the accepted
+surface-geometries-per-bucket layout. Multi-geometry buckets could therefore
+rebuild continuously.
+
+Replacement is now build-then-swap. The prior handle and all its published
+metadata remain unchanged through count deferral and allocation failure.
+After the replacement build is recorded, the old handle enters the exact
+event-query retirement package and the complete new record is published.
+Forced rebuild follows the same rule.
+
+The old record is not a stale route fallback. Ready counts, TLAS observations,
+and both active-publication validation passes recompute the desired input
+signature from current content, range, and GPU buffer identities. A retained
+replacement mismatch is excluded, keeping the monolithic static route until
+the current bucket set is complete.
+
+The GPU census now reports
+`buckets(.../deferred/retainedReplacement/invalid/...)`. A changed pack under
+a low build limit should show retained replacements while publication remains
+fail-closed, then converge to ready=resident, deferred=0,
+retainedReplacement=0, with steady build=0 and reuse=resident.
+
+Build/deployment SHA-256:
+
+  BA5D97D617A016626E80D2DA0474FA2E7EE9E2D1D82E470E9EF751242CFCD607
+
+All Vulkan SPIR-V shaders remained up to date.

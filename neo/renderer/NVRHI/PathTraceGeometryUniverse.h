@@ -805,6 +805,7 @@ struct RtPathTraceStaticBucketBlasGpuStats
     int blasBuilt = 0;
     int blasReused = 0;
     int blasRetired = 0;
+    int retainedReplacementBuckets = 0;
     int blasResultQueries = 0;
     int blasResultQueryFailures = 0;
     int compactedBlases = 0;
