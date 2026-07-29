@@ -3071,6 +3071,43 @@ re-enter the failing legacy producer. A valid route-1 publication uses the
 portal-active mask. Diagnostic route 2 alone retains the full-resident
 active-mask override.
 
+D121. SUCCESS21 ACCEPTS ROUTE 1; TINTED EMISSIVE IS A TRIGGER, NOT OWNER
+----------------------------------------------------------------------------
+`success21.log` validates the first route-1 production checkpoint:
+
+  - route admission reports `consumerSupported=1` and `productionRoute=1`;
+  - the startup fallback remains monolithic while resident BLAS readiness
+    advances, then cuts over at an exact publication;
+  - accepted traversal is `bucket-resident-pool`;
+  - portal movement changes the active TLAS subset between two, three, and
+    five buckets while the resident route table remains complete at 56;
+  - each accepted TLAS output count exactly matches the active bucket count;
+  - `materialIndexMissingActive` remains zero;
+  - no Vulkan device-loss checkpoint is emitted;
+  - the run ends through normal map and render-system shutdown.
+
+The user's likely trigger for the rejected `success20` run was an emissive
+door panel with runtime RGB tint. This is consistent with the source contract
+but does not assign ownership to emissive-light publication:
+
+  - the relevant door materials use conditional additive stages (`parm7`) or
+    runtime `colored` RGB registers;
+  - these stages receive per-entity runtime material variants and ordered
+    stage records;
+  - immediately before the old device loss, the visible material universe
+    changed while the emissive light-candidate count remained 47/47;
+  - the final old checkpoint remained
+    `clean-rtxdi-di-transmission-producer`.
+
+The panel is therefore a credible first surface that exercised the unstable
+legacy transmission any-hit material decoder. It is not evidence that RGB
+emissive publication or sampling itself failed. Route 1 keeps the bounded
+forced-opaque closest-hit loop: material classification, alpha rejection, and
+emissive-card accumulation occur in raygen after each returned hit rather
+than inside the any-hit shader. That path survives the same scene traversal.
+Do not remove tinted emissives or reopen the legacy any-hit producer as a
+GEO-10 fix.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

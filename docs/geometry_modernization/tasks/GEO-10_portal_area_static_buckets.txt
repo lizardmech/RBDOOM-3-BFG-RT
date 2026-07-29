@@ -2803,3 +2803,42 @@ The build also recompiled sentinel, spatial debug/production, and temporal
 debug/production because the shared include timestamp was touched during the
 edit. All five hashes remained identical to the deployed versions, so they
 were not copied. Only the changed transmission producer blob was deployed.
+
+REF-10AC ROUTE-1 PRODUCTION ACCEPTANCE - 2026-07-29
+----------------------------------------------------
+`success20.log` proved the requested route-2/stage-0 run was still
+fail-closed: it remained monolithic and device-removed at
+`clean-rtxdi-di-transmission-producer`. It was not a bucket-resident crash.
+
+The first route-1 production admission is deliberately limited to clean-DI
+view 16, stage 0, diagnostic checkpoints enabled, GI/RR/external PDF-NEE
+disabled, transmission producer and composition enabled, and reflection,
+opaque mirror, and refracted PSR disabled. Route 1 selects the bounded
+forced-opaque transmission resolver during the monolithic startup wait and
+after bucket cutover. Only route 2 retains the diagnostic full-resident active
+mask; route 1 uses the portal-active mask.
+
+`success21.log` accepts that checkpoint:
+
+  production route supported                         yes
+  startup traversal                                  bounded monolithic wait
+  resident BLAS readiness                            advances to 56/56
+  accepted traversal                                 bucket-resident-pool
+  active TLAS buckets during traversal               2, 3, and 5 observed
+  resident route records                             56
+  active TLAS outputs                                exact active count
+  missing active material indexes                    0
+  device-loss checkpoints                            none
+  shutdown                                           normal
+
+The likely old trigger was a runtime-tinted emissive door panel. Door-light
+materials contain conditional additive stages and `colored` RGB registers,
+which are represented by runtime material variants and ordered stage records.
+The old light-candidate count did not change before failure, so the trigger
+does not implicate emissive-light publication. It implicates the rejected
+legacy transmission any-hit decode when that material first became a ray-hit
+candidate. The accepted bounded resolver performs the same material and
+emissive-card decisions outside any-hit after a forced-opaque closest hit.
+
+Do not disable colored emissives. Do not restore the legacy transmission
+any-hit producer for route 1.
