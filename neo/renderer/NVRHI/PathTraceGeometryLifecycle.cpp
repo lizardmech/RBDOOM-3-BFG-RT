@@ -843,11 +843,9 @@ public:
                 source->payload.positions.data(),
                 source->payload.positions.size() *
                     sizeof(PtGeometrySourcePosition));
-            std::memcpy(
+            source->payload.CopyDecodedAttributes(
                 attributes + transport.attributeOffset,
-                source->payload.attributes.data(),
-                source->payload.attributes.size() *
-                    sizeof(PtGeometrySourceAttribute));
+                source->payload.AttributeCount());
             std::memcpy(
                 indexes + transport.indexOffset,
                 source->payload.indexes.data(),
@@ -966,6 +964,48 @@ public:
         PtSurveyGeometrySourceRegistry(sourceRegistry, survey);
         const PtGeometryAttributeSurveyStats& totals = survey.totals;
         const std::uint64_t vertexCount = totals.vertexCount;
+        std::uint64_t packedColorRecords = 0;
+        std::uint64_t fullColorRecords = 0;
+        std::uint64_t storedAttributeBytes = 0;
+        std::uint64_t fallbackNonFinite = 0;
+        std::uint64_t fallbackOutOfRange = 0;
+        std::uint64_t fallbackNonExact = 0;
+        for (std::size_t recordIndex = 0;
+            recordIndex < sourceRegistry.RecordCount();
+            ++recordIndex)
+        {
+            const PtGeometrySourceRecord* source =
+                sourceRegistry.RecordAt(recordIndex);
+            if (source == nullptr)
+            {
+                continue;
+            }
+            storedAttributeBytes +=
+                source->payload.StoredAttributeBytes();
+            if (source->payload.attributeEncoding ==
+                PtGeometrySourceAttributeEncoding::ColorUnorm8)
+            {
+                ++packedColorRecords;
+            }
+            else
+            {
+                ++fullColorRecords;
+            }
+            switch (source->colorUnorm8FallbackReason)
+            {
+                case PtGeometrySourceColorUnorm8FallbackReason::NonFinite:
+                    ++fallbackNonFinite;
+                    break;
+                case PtGeometrySourceColorUnorm8FallbackReason::OutOfRange:
+                    ++fallbackOutOfRange;
+                    break;
+                case PtGeometrySourceColorUnorm8FallbackReason::NonExact:
+                    ++fallbackNonExact;
+                    break;
+                default:
+                    break;
+            }
+        }
         const std::uint64_t halfUvSavings = vertexCount * 4ull;
         const std::uint64_t octNormalSavings = vertexCount * 8ull;
         const std::uint64_t octTangentSavings = vertexCount * 8ull;
@@ -1006,6 +1046,20 @@ public:
             static_cast<unsigned long long>(deriveBitangentSavings),
             static_cast<unsigned long long>(unormColorSavings),
             static_cast<unsigned long long>(unormColor2Savings));
+        common->Printf(
+            "PathTracePrimaryPass: GEO12 color storage gate=%d records(packed/full)=%llu/%llu bytes(logical/stored/saved)=%llu/%llu/%llu fallback(nonFinite/outOfRange/nonExact)=%llu/%llu/%llu transport=decoded-full gpuAttributeAbi=full-float\n",
+            r_pathTracingGeometrySourceColorUnorm8.GetInteger(),
+            static_cast<unsigned long long>(packedColorRecords),
+            static_cast<unsigned long long>(fullColorRecords),
+            static_cast<unsigned long long>(totals.currentAttributeBytes),
+            static_cast<unsigned long long>(storedAttributeBytes),
+            static_cast<unsigned long long>(
+                totals.currentAttributeBytes >= storedAttributeBytes
+                    ? totals.currentAttributeBytes - storedAttributeBytes
+                    : 0),
+            static_cast<unsigned long long>(fallbackNonFinite),
+            static_cast<unsigned long long>(fallbackOutOfRange),
+            static_cast<unsigned long long>(fallbackNonExact));
         common->Printf(
             "PathTracePrimaryPass: GEO12 attribute ranges positionMin=(%.9g,%.9g,%.9g) positionMax=(%.9g,%.9g,%.9g) uvMin=(%.9g,%.9g) uvMax=(%.9g,%.9g) nonFinite(position/uv/basis/color)=%llu/%llu/%llu/%llu\n",
             totals.positionMin[0],
@@ -1534,7 +1588,8 @@ private:
             result = sourceRegistry.Observe(
                 meshKey,
                 sourceContentRevision,
-                &payload);
+                &payload,
+                r_pathTracingGeometrySourceColorUnorm8.GetBool());
         }
 
         switch (result)

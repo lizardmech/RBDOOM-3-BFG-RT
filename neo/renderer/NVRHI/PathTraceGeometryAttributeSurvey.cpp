@@ -745,12 +745,17 @@ void PtSurveyGeometrySourceRegistry(
 
         const std::size_t vertexCount = std::min(
             source->payload.positions.size(),
-            source->payload.attributes.size());
+            source->payload.AttributeCount());
         for (std::size_t vertex = 0; vertex < vertexCount; ++vertex)
         {
+            PtGeometrySourceAttribute attribute;
+            if (!source->payload.DecodeAttribute(vertex, attribute))
+            {
+                continue;
+            }
             ObserveVertex(
                 source->payload.positions[vertex],
-                source->payload.attributes[vertex],
+                attribute,
                 skinned,
                 record.stats);
         }

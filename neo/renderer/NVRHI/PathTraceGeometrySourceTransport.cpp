@@ -121,7 +121,7 @@ PtGeometrySourceTransportResult PtPlanGeometrySourceTransport(
             source->sourceContentRevision == 0 ||
             source->sourceChecksum == 0 ||
             source->payload.positions.size() != source->key.vertexCount ||
-            source->payload.attributes.size() != source->key.vertexCount ||
+            source->payload.AttributeCount() != source->key.vertexCount ||
             source->payload.indexes.size() != source->key.indexCount ||
             source->payload.triangles.size() != source->key.indexCount / 3u)
         {
@@ -139,7 +139,7 @@ PtGeometrySourceTransportResult PtPlanGeometrySourceTransport(
                 nextPositionCount) ||
             !CheckedAddCount(
                 plan.attributeCount,
-                source->payload.attributes.size(),
+                source->payload.AttributeCount(),
                 nextAttributeCount) ||
             !CheckedAddCount(
                 plan.indexCount,
@@ -265,7 +265,22 @@ PtGeometrySourceTransportResult PtValidateGeometrySourceTransportRecord(
     }
     if (retainedBytes != record.retainedBytes)
     {
-        return PtGeometrySourceTransportResult::RetainedBytesMismatch;
+        if (PtEvaluateGeometrySourceColorUnorm8(
+                payload.attributes,
+                payload.attributeCount) !=
+            PtGeometrySourceColorUnorm8FallbackReason::None)
+        {
+            return PtGeometrySourceTransportResult::InvalidSourceRecord;
+        }
+        const std::uint64_t savedBytes =
+            payload.attributeCount *
+            (sizeof(PtGeometrySourceAttribute) -
+                sizeof(PtGeometrySourceAttributeColorUnorm8));
+        if (retainedBytes < savedBytes ||
+            retainedBytes - savedBytes != record.retainedBytes)
+        {
+            return PtGeometrySourceTransportResult::RetainedBytesMismatch;
+        }
     }
     if (PtChecksumGeometrySourcePayload(payload) != record.sourceChecksum)
     {

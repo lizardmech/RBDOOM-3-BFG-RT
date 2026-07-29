@@ -327,6 +327,12 @@ idCVar r_pathTracingGeometryRenderedAttributeSurveyDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to a 1-based page for one bounded GEO-12 final rendered static/dynamic attribute survey; measurement only" );
 
+idCVar r_pathTracingGeometrySourceColorUnorm8(
+    "r_pathTracingGeometrySourceColorUnorm8",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "GEO-12 default-off lossless UNORM8 color storage for newly captured canonical CPU source records; reload the map for a complete A/B" );
+
 idCVar r_pathTracingGeometryCanonicalRigidBlas(
     "r_pathTracingGeometryCanonicalRigidBlas",
     "0",

@@ -1,11 +1,15 @@
 #include "PathTraceGeometrySourceRegistry.h"
 
+#include <cmath>
+#include <cstring>
 #include <utility>
 
 namespace {
 
 constexpr std::uint64_t kFnvOffsetBasis = 1469598103934665603ull;
 constexpr std::uint64_t kFnvPrime = 1099511628211ull;
+constexpr float kColorUnorm8ExactEpsilon = 1.0e-7f;
+constexpr float kUnorm8DecodeScale = 1.0f / 255.0f;
 
 void HashBytes(std::uint64_t& hash, const void* data, std::size_t size)
 {
@@ -44,6 +48,188 @@ void CountRejected(PtGeometrySourceRegistryStats& stats)
     ++stats.rejected;
 }
 
+std::uint8_t EncodeUnorm8(float value)
+{
+    return static_cast<std::uint8_t>(
+        std::floor(value * 255.0f + 0.5f));
+}
+
+void EncodeAttributeColorUnorm8(
+    const PtGeometrySourceAttribute& source,
+    PtGeometrySourceAttributeColorUnorm8& destination)
+{
+    std::memcpy(destination.normal, source.normal, sizeof(source.normal));
+    std::memcpy(
+        destination.texCoord,
+        source.texCoord,
+        sizeof(source.texCoord));
+    for (int component = 0; component < 4; ++component)
+    {
+        destination.color[component] =
+            EncodeUnorm8(source.color[component]);
+    }
+    std::memcpy(destination.color2, source.color2, sizeof(source.color2));
+    std::memcpy(destination.tangent, source.tangent, sizeof(source.tangent));
+    std::memcpy(
+        destination.bitangent,
+        source.bitangent,
+        sizeof(source.bitangent));
+    destination.bitangentSign = source.bitangentSign;
+}
+
+void DecodeAttributeColorUnorm8(
+    const PtGeometrySourceAttributeColorUnorm8& source,
+    PtGeometrySourceAttribute& destination)
+{
+    std::memcpy(destination.normal, source.normal, sizeof(source.normal));
+    std::memcpy(
+        destination.texCoord,
+        source.texCoord,
+        sizeof(source.texCoord));
+    for (int component = 0; component < 4; ++component)
+    {
+        destination.color[component] =
+            static_cast<float>(source.color[component]) *
+                kUnorm8DecodeScale;
+    }
+    std::memcpy(destination.color2, source.color2, sizeof(source.color2));
+    std::memcpy(destination.tangent, source.tangent, sizeof(source.tangent));
+    std::memcpy(
+        destination.bitangent,
+        source.bitangent,
+        sizeof(source.bitangent));
+    destination.bitangentSign = source.bitangentSign;
+}
+
+void CountColorUnorm8Fallback(
+    PtGeometrySourceRegistryStats& stats,
+    PtGeometrySourceColorUnorm8FallbackReason reason)
+{
+    switch (reason)
+    {
+        case PtGeometrySourceColorUnorm8FallbackReason::NonFinite:
+            ++stats.colorUnorm8FallbackNonFinite;
+            break;
+        case PtGeometrySourceColorUnorm8FallbackReason::OutOfRange:
+            ++stats.colorUnorm8FallbackOutOfRange;
+            break;
+        case PtGeometrySourceColorUnorm8FallbackReason::NonExact:
+            ++stats.colorUnorm8FallbackNonExact;
+            break;
+        default:
+            break;
+    }
+}
+
+}
+
+std::size_t PtGeometrySourcePayload::AttributeCount() const
+{
+    return attributeEncoding ==
+        PtGeometrySourceAttributeEncoding::ColorUnorm8
+        ? colorUnorm8Attributes.size()
+        : attributes.size();
+}
+
+std::uint64_t PtGeometrySourcePayload::StoredAttributeBytes() const
+{
+    const std::uint64_t count =
+        static_cast<std::uint64_t>(AttributeCount());
+    const std::uint64_t stride = attributeEncoding ==
+        PtGeometrySourceAttributeEncoding::ColorUnorm8
+        ? sizeof(PtGeometrySourceAttributeColorUnorm8)
+        : sizeof(PtGeometrySourceAttribute);
+    std::uint64_t bytes = 0;
+    return PtCheckedMulU64(count, stride, bytes) ? bytes : 0;
+}
+
+bool PtGeometrySourcePayload::DecodeAttribute(
+    std::size_t index,
+    PtGeometrySourceAttribute& decoded) const
+{
+    if (attributeEncoding ==
+        PtGeometrySourceAttributeEncoding::ColorUnorm8)
+    {
+        if (index >= colorUnorm8Attributes.size())
+        {
+            return false;
+        }
+        DecodeAttributeColorUnorm8(
+            colorUnorm8Attributes[index],
+            decoded);
+        return true;
+    }
+    if (index >= attributes.size())
+    {
+        return false;
+    }
+    decoded = attributes[index];
+    return true;
+}
+
+bool PtGeometrySourcePayload::CopyDecodedAttributes(
+    PtGeometrySourceAttribute* destination,
+    std::size_t destinationCount) const
+{
+    if (destinationCount != AttributeCount() ||
+        (destinationCount != 0 && destination == nullptr))
+    {
+        return false;
+    }
+    if (attributeEncoding ==
+        PtGeometrySourceAttributeEncoding::FullFloat)
+    {
+        if (destinationCount != 0)
+        {
+            std::memcpy(
+                destination,
+                attributes.data(),
+                destinationCount * sizeof(PtGeometrySourceAttribute));
+        }
+        return true;
+    }
+    for (std::size_t index = 0; index < destinationCount; ++index)
+    {
+        DecodeAttributeColorUnorm8(
+            colorUnorm8Attributes[index],
+            destination[index]);
+    }
+    return true;
+}
+
+PtGeometrySourceColorUnorm8FallbackReason
+PtEvaluateGeometrySourceColorUnorm8(
+    const PtGeometrySourceAttribute* attributes,
+    std::uint64_t attributeCount)
+{
+    if (attributeCount != 0 && attributes == nullptr)
+    {
+        return PtGeometrySourceColorUnorm8FallbackReason::NonFinite;
+    }
+    for (std::uint64_t vertex = 0; vertex < attributeCount; ++vertex)
+    {
+        for (int component = 0; component < 4; ++component)
+        {
+            const float value = attributes[vertex].color[component];
+            if (!std::isfinite(value))
+            {
+                return PtGeometrySourceColorUnorm8FallbackReason::NonFinite;
+            }
+            if (value < 0.0f || value > 1.0f)
+            {
+                return PtGeometrySourceColorUnorm8FallbackReason::OutOfRange;
+            }
+            const float decoded =
+                static_cast<float>(EncodeUnorm8(value)) *
+                    kUnorm8DecodeScale;
+            if (std::fabs(decoded - value) >
+                kColorUnorm8ExactEpsilon)
+            {
+                return PtGeometrySourceColorUnorm8FallbackReason::NonExact;
+            }
+        }
+    }
+    return PtGeometrySourceColorUnorm8FallbackReason::None;
 }
 
 PtGeometrySourceObserveResult PtValidateGeometrySourcePayload(
@@ -175,7 +361,8 @@ PtGeometrySourceRecord* PtGeometrySourceRegistry::FindMutable(
 PtGeometrySourceObserveResult PtGeometrySourceRegistry::Observe(
     const PtCanonicalMeshKey& key,
     std::uint64_t sourceContentRevision,
-    const PtGeometrySourcePayloadView* payload)
+    const PtGeometrySourcePayloadView* payload,
+    bool enableColorUnorm8)
 {
     if (!PtCanonicalMeshKeyIsValid(key))
     {
@@ -252,13 +439,56 @@ PtGeometrySourceObserveResult PtGeometrySourceRegistry::Observe(
     replacement.meshHash = meshHash;
     replacement.sourceContentRevision = sourceContentRevision;
     replacement.sourceChecksum = PtChecksumGeometrySourcePayload(*payload);
-    replacement.retainedBytes = retainedBytes;
     replacement.payload.positions.assign(
         payload->positions,
         payload->positions + payload->positionCount);
-    replacement.payload.attributes.assign(
-        payload->attributes,
-        payload->attributes + payload->attributeCount);
+    if (enableColorUnorm8)
+    {
+        ++stats_.colorUnorm8RequestedRecords;
+        replacement.colorUnorm8FallbackReason =
+            PtEvaluateGeometrySourceColorUnorm8(
+                payload->attributes,
+                payload->attributeCount);
+    }
+    else
+    {
+        replacement.colorUnorm8FallbackReason =
+            PtGeometrySourceColorUnorm8FallbackReason::Disabled;
+    }
+    if (replacement.colorUnorm8FallbackReason ==
+        PtGeometrySourceColorUnorm8FallbackReason::None)
+    {
+        replacement.payload.attributeEncoding =
+            PtGeometrySourceAttributeEncoding::ColorUnorm8;
+        replacement.payload.colorUnorm8Attributes.resize(
+            static_cast<std::size_t>(payload->attributeCount));
+        for (std::uint64_t vertex = 0;
+            vertex < payload->attributeCount;
+            ++vertex)
+        {
+            EncodeAttributeColorUnorm8(
+                payload->attributes[vertex],
+                replacement.payload.colorUnorm8Attributes[
+                    static_cast<std::size_t>(vertex)]);
+        }
+        const std::uint64_t savedBytes =
+            payload->attributeCount *
+            (sizeof(PtGeometrySourceAttribute) -
+                sizeof(PtGeometrySourceAttributeColorUnorm8));
+        retainedBytes -= savedBytes;
+        ++stats_.colorUnorm8EncodedRecords;
+        stats_.colorUnorm8SavedBytes += savedBytes;
+    }
+    else
+    {
+        replacement.payload.attributes.assign(
+            payload->attributes,
+            payload->attributes + payload->attributeCount);
+        CountColorUnorm8Fallback(
+            stats_,
+            replacement.colorUnorm8FallbackReason);
+    }
+    replacement.retainedBytes = retainedBytes;
     replacement.payload.indexes.assign(
         payload->indexes,
         payload->indexes + payload->indexCount);
@@ -346,6 +576,38 @@ const char* PtGeometrySourceObserveResultName(
         case PtGeometrySourceObserveResult::NonTriangleTopology: return "non_triangle_topology";
         case PtGeometrySourceObserveResult::IndexOutOfRange: return "index_out_of_range";
         case PtGeometrySourceObserveResult::ArithmeticOverflow: return "arithmetic_overflow";
+    }
+    return "unknown";
+}
+
+const char* PtGeometrySourceAttributeEncodingName(
+    PtGeometrySourceAttributeEncoding encoding)
+{
+    switch (encoding)
+    {
+        case PtGeometrySourceAttributeEncoding::FullFloat:
+            return "full_float";
+        case PtGeometrySourceAttributeEncoding::ColorUnorm8:
+            return "color_unorm8";
+    }
+    return "unknown";
+}
+
+const char* PtGeometrySourceColorUnorm8FallbackReasonName(
+    PtGeometrySourceColorUnorm8FallbackReason reason)
+{
+    switch (reason)
+    {
+        case PtGeometrySourceColorUnorm8FallbackReason::None:
+            return "none";
+        case PtGeometrySourceColorUnorm8FallbackReason::Disabled:
+            return "disabled";
+        case PtGeometrySourceColorUnorm8FallbackReason::NonFinite:
+            return "non_finite";
+        case PtGeometrySourceColorUnorm8FallbackReason::OutOfRange:
+            return "out_of_range";
+        case PtGeometrySourceColorUnorm8FallbackReason::NonExact:
+            return "non_exact";
     }
     return "unknown";
 }

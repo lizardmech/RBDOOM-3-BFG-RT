@@ -300,6 +300,89 @@ void TestChecksumCoversFullFidelityStreams()
         "checksum should cover topology indexes");
 }
 
+void TestColorUnorm8StorageAndFallback()
+{
+    PtGeometrySourceRegistry packedRegistry;
+    const PtCanonicalMeshKey key = MakeRigidKey();
+    TestPayload exact;
+    for (PtGeometrySourceAttribute& attribute : exact.attributes)
+    {
+        attribute.color[0] = 128.0f * (1.0f / 255.0f);
+        attribute.color[1] = 17.0f * (1.0f / 255.0f);
+        attribute.color[2] = 1.0f;
+        attribute.color[3] = 0.0f;
+    }
+    const PtGeometrySourcePayloadView exactView = exact.View();
+    const std::uint64_t logicalChecksum =
+        PtChecksumGeometrySourcePayload(exactView);
+    Expect(
+        packedRegistry.Observe(key, 1, &exactView, true) ==
+            PtGeometrySourceObserveResult::Added,
+        "exact color record should be admitted under the default-off gate");
+    const PtGeometrySourceRecord* packed = packedRegistry.Find(key);
+    Expect(
+        packed != nullptr &&
+            packed->payload.attributeEncoding ==
+                PtGeometrySourceAttributeEncoding::ColorUnorm8 &&
+            packed->payload.attributes.empty() &&
+            packed->payload.colorUnorm8Attributes.size() == 4 &&
+            packed->payload.AttributeCount() == 4,
+        "eligible record should retain only the 68-byte color encoding");
+    Expect(
+        packed != nullptr &&
+            packed->sourceChecksum == logicalChecksum &&
+            packed->colorUnorm8FallbackReason ==
+                PtGeometrySourceColorUnorm8FallbackReason::None,
+        "storage encoding must not change logical source identity");
+    const std::uint64_t fullBytes =
+        4ull * sizeof(PtGeometrySourcePosition) +
+        4ull * sizeof(PtGeometrySourceAttribute) +
+        6ull * sizeof(std::uint32_t) +
+        2ull * sizeof(PtGeometrySourceTriangle);
+    Expect(
+        packed != nullptr &&
+            packed->retainedBytes == fullBytes - 4ull * 12ull &&
+            packedRegistry.Stats().colorUnorm8EncodedRecords == 1 &&
+            packedRegistry.Stats().colorUnorm8SavedBytes == 48,
+        "color-only encoding should save exactly 12 bytes per vertex");
+
+    PtGeometrySourceAttribute decoded[4];
+    Expect(
+        packed != nullptr &&
+            packed->payload.CopyDecodedAttributes(decoded, 4),
+        "packed attributes should decode into the unchanged full-fidelity ABI");
+    bool decodedMatches = true;
+    for (int vertex = 0; vertex < 4; ++vertex)
+    {
+        decodedMatches = decodedMatches &&
+            std::memcmp(
+                &decoded[vertex],
+                &exact.attributes[vertex],
+                sizeof(decoded[vertex])) == 0;
+    }
+    Expect(decodedMatches,
+        "lossless eligibility should make every decoded byte exact");
+
+    PtGeometrySourceRegistry fallbackRegistry;
+    TestPayload nonExact;
+    nonExact.attributes[0].color[2] = 0.1f;
+    const PtGeometrySourcePayloadView nonExactView = nonExact.View();
+    Expect(
+        fallbackRegistry.Observe(key, 1, &nonExactView, true) ==
+            PtGeometrySourceObserveResult::Added,
+        "ineligible color should fall back instead of rejecting geometry");
+    const PtGeometrySourceRecord* fallback = fallbackRegistry.Find(key);
+    Expect(
+        fallback != nullptr &&
+            fallback->payload.attributeEncoding ==
+                PtGeometrySourceAttributeEncoding::FullFloat &&
+            fallback->payload.attributes.size() == 4 &&
+            fallback->colorUnorm8FallbackReason ==
+                PtGeometrySourceColorUnorm8FallbackReason::NonExact &&
+            fallbackRegistry.Stats().colorUnorm8FallbackNonExact == 1,
+        "non-exact values must retain full fidelity with a named reason");
+}
+
 }
 
 int main()
@@ -310,6 +393,7 @@ int main()
     TestEligibilityAndValidation();
     TestSkinnedBindSourceAdmission();
     TestChecksumCoversFullFidelityStreams();
+    TestColorUnorm8StorageAndFallback();
     if (g_failures != 0)
     {
         std::printf(

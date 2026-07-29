@@ -5090,7 +5090,7 @@ bool SmokeSkinnedCanonicalSourceLayoutAndWeightsValid(
         jointCount <= 0 ||
         source->payload.positions.size() !=
             static_cast<size_t>(vertexCount) ||
-        source->payload.attributes.size() !=
+        source->payload.AttributeCount() !=
             static_cast<size_t>(vertexCount))
     {
         return false;
@@ -5102,9 +5102,13 @@ bool SmokeSkinnedCanonicalSourceLayoutAndWeightsValid(
         const PtGeometrySourcePosition& position =
             source->payload.positions[
                 static_cast<size_t>(vertexIndex)];
-        const PtGeometrySourceAttribute& attribute =
-            source->payload.attributes[
-                static_cast<size_t>(vertexIndex)];
+        PtGeometrySourceAttribute attribute;
+        if (!source->payload.DecodeAttribute(
+                static_cast<size_t>(vertexIndex),
+                attribute))
+        {
+            return false;
+        }
         if (!std::isfinite(position.xyz[0]) ||
             !std::isfinite(position.xyz[1]) ||
             !std::isfinite(position.xyz[2]))
@@ -5451,16 +5455,17 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
                         vertexIndex < record.vertexCount;
                         ++vertexIndex)
                     {
+                        PtGeometrySourceAttribute attribute;
+                        canonicalSource->payload.DecodeAttribute(
+                            static_cast<size_t>(vertexIndex),
+                            attribute);
                         build.sourceVertices.push_back(
                             BuildSmokeSkinnedSourceVertex(
                                 canonicalSource->
                                     payload.positions[
                                         static_cast<size_t>(
                                             vertexIndex)],
-                                canonicalSource->
-                                    payload.attributes[
-                                        static_cast<size_t>(
-                                            vertexIndex)]));
+                                attribute));
                     }
                     build.canonicalSourceVertices +=
                         static_cast<uint64>(
@@ -9185,7 +9190,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             if (!source ||
                 source->payload.positions.size() !=
                     route.vertexCount ||
-                source->payload.attributes.size() !=
+                source->payload.AttributeCount() !=
                     route.vertexCount ||
                 route.outputVertexOffset >
                     skinnedEmissivePlaceholderVertices.size() ||
@@ -9200,10 +9205,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                  vertexIndex < route.vertexCount;
                  ++vertexIndex)
             {
+                PtGeometrySourceAttribute attribute;
+                if (!source->payload.DecodeAttribute(
+                        vertexIndex,
+                        attribute))
+                {
+                    continue;
+                }
                 const PathTraceSkinnedSourceVertex sourceVertex =
                     BuildSmokeSkinnedSourceVertex(
                         source->payload.positions[vertexIndex],
-                        source->payload.attributes[vertexIndex]);
+                        attribute);
                 PathTraceSmokeVertex placeholder = {};
                 for (int component = 0;
                      component < 4;

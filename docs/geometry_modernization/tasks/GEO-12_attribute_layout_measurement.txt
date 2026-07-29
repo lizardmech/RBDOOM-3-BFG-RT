@@ -144,6 +144,38 @@ Detailed contract, logs, interpretation, and ordered coverage continuation:
 
   ../artifacts/GEO-12_rendered_capture_survey.txt
 
-No encoding is selected. Busy static props, zombies/Fatzombie,
-large-coordinate traversal, and intentionally wide/repeating transformed UVs
-remain required before Step 5.
+Representative coverage is now complete in `geometry_geo12_coverage.log`:
+589 static-world, 21 skinned, and five particle records, including zfat and
+normal-map UV down to -96, with zero invalid ranges. Half UV has nonzero error;
+four bitangents are not derivable and valid reconstruction reaches 10.6426821
+degrees. Both color streams remain UNORM8-exact over all 160,240 components.
+
+ENCODING SLICE 3
+----------------
+`color` alone is selected for the first default-off canonical storage A/B.
+Eligible records replace the 80-byte immutable attribute with an exactly
+68-byte form, saving 12 retained CPU bytes per vertex. The predicate is
+record-atomic: all components must be finite, in [0,1], and round-trip through
+UNORM8 within 1e-7. Non-finite, out-of-range, and non-exact records keep full
+fidelity with named counters.
+
+The source checksum remains over logical full-fidelity input. Transport and
+the canonical GPU pool stay decoded at the existing 80-byte ABI, so this slice
+adds no shader, descriptor, SBT, BLAS-stride, or packet-record change. The
+default-off capture-time gate is:
+
+  r_pathTracingGeometrySourceColorUnorm8 0
+
+Reload the map after changing it for a complete A/B. Detailed decision,
+contracts, exclusions, and runtime acceptance:
+
+  ../artifacts/GEO-12_first_encoding_selection.txt
+
+Pure registry/transport/survey harnesses and the full Vulkan release build
+pass. No shader was edited and all SPIR-V remained up to date. The deployed
+16,070,656-byte executable is byte-identical to the build with SHA-256:
+
+  9F72A28F1C012351194FF2A1279A86B2742A2281CA3255D9BAEA5F450E09182B
+
+Runtime off/on evidence remains the acceptance gate; this checkpoint does not
+promote the CVar.

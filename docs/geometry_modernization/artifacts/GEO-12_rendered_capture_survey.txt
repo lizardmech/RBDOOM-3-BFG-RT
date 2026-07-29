@@ -142,22 +142,52 @@ INTERPRETATION
    contain the second pair; this frame proves its range differs materially.
 4. Derived bitangent is not exact in rendered space even in this clean frame.
    A later candidate needs a declared angular threshold and surface fallback.
-5. UNORM8 color/color2 remains a strong candidate, but static/dynamic exactness
-   in one frame is still not the multi-scene numeric/full-image acceptance
-   required by GEO-12.
-6. This save does not cover zombies, Fatzombie, a large-coordinate traversal,
-   or a deliberately selected wide/repeating transformed-UV material. No
-   encoding is authorized until those coverage rows are captured.
+5. UNORM8 color/color2 remains a strong candidate, but this prepared-save
+   capture alone does not select either stream.
+
+REPRESENTATIVE COVERAGE COMPLETION
+----------------------------------
+The user-directed crowded traversal is captured in:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo12_coverage.log
+  bytes: 24709
+  modified: 2026-07-29 23:32:34 Australia/Sydney
+  labels: GEO12_STATIC_OR_WIDE_UV, GEO12_SKINNED_LAST_PAGE
+
+It contains 615 valid records and 40,060 vertices: 589 static-world records,
+21 dynamic skinned records, five particle-class records, and zero invalid
+ranges. Position reaches (-2064,-3008,-64)..(2752,-448,11392). Transformed
+diffuse UV reaches (-11.4921875,-41)..(10.5,40); normal-map UV reaches
+(-14.21875,-96)..(14.21875,56). Both pairs remain finite and representable as
+half, but their nonzero maximum absolute/relative round-trip errors are
+0.00024408102/0.000274281425. Half UV is therefore not lossless and remains
+deferred until a material-output threshold exists.
+
+Oct16 normal/tangent maximum error is 0.0342640206 degrees. Four stored
+bitangents cannot be validly reconstructed, and valid rendered reconstruction
+reaches 10.6426821 degrees. Universal bitangent derivation is rejected.
+
+All 160,240 components of both color streams remain UNORM8-exact. The last
+page identifies the 3,050-vertex
+`models/md5/monsters/zfat/zfat.md5mesh` surface, an NPC head, the CD effect,
+and four glass fallback records. Earlier canonical pages in
+`geometry_geo12c.log` contain the broader NPC inventory and both zfat source
+surfaces. Together these close the requested representative identity and
+numeric coverage without another game run. The log shuts down normally and
+contains no device-loss marker.
 
 ORDERED CONTINUATION
 --------------------
-1. Capture this survey in the busy static-prop scene and in the zombie /
-   Fatzombie scene. Select the pages containing the named skinned records.
-2. Capture after traversing to the large-coordinate and wide/repeating-UV test
-   locations. Record both UV pairs and any half failure.
-3. Decide the first single candidate only after combining Slice 1 and Slice 2
-   evidence. Do not combine encodings.
-4. Define numeric thresholds, explicit ineligible-reason counters, and
-   full-fidelity fallback before changing storage.
-5. Then implement one default-off encoding and perform the declared decoded
-   attribute plus primary/material/motion/emissive comparisons.
+1. Select canonical `color` alone as the first lossless candidate. Do not also
+   encode `color2`.
+2. Keep the rendered 112-byte vertex, transport packet, GPU pool, BLAS, and
+   shader ABI full fidelity.
+3. Store a 68-byte canonical attribute only when every `color` component is
+   finite, in [0,1], and round-trips through UNORM8 within 1e-7. Otherwise
+   retain the 80-byte record with a named fallback reason.
+4. Prove representation-independent checksum, exact decoded bytes, unchanged
+   transport budget, and 12 saved retained bytes per eligible vertex in pure
+   harnesses.
+5. Run default-off/default-on map-reload A/B using the canonical survey dump.
+   Only after numeric/runtime acceptance consider extending packed storage
+   across transport or into the GPU ABI.

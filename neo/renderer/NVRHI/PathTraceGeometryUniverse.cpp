@@ -1692,11 +1692,25 @@ void RtSmokeGeometryUniverse::ImportCanonicalSourceSnapshot(
         payload.triangles =
             snapshot->streams.triangles + transport.triangleOffset;
         payload.triangleCount = transport.key.indexCount / 3u;
+        std::uint64_t fullRetainedBytes = 0;
+        const PtGeometrySourceObserveResult payloadValidation =
+            PtValidateGeometrySourcePayload(
+                transport.key,
+                payload,
+                fullRetainedBytes);
+        if (payloadValidation != PtGeometrySourceObserveResult::Added)
+        {
+            ++m_canonicalSourceRejected;
+            return;
+        }
+        const bool importColorUnorm8 =
+            fullRetainedBytes != transport.retainedBytes;
         const PtGeometrySourceObserveResult observe =
             m_canonicalSourceRegistry.Observe(
                 transport.key,
                 transport.sourceContentRevision,
-                &payload);
+                &payload,
+                importColorUnorm8);
         switch (observe)
         {
             case PtGeometrySourceObserveResult::Added:
@@ -1715,7 +1729,12 @@ void RtSmokeGeometryUniverse::ImportCanonicalSourceSnapshot(
         const PtGeometrySourceRecord* imported =
             m_canonicalSourceRegistry.Find(transport.key);
         if (imported == nullptr ||
-            imported->sourceChecksum != transport.sourceChecksum)
+            imported->sourceChecksum != transport.sourceChecksum ||
+            imported->retainedBytes != transport.retainedBytes ||
+            imported->payload.attributeEncoding !=
+                (importColorUnorm8
+                    ? PtGeometrySourceAttributeEncoding::ColorUnorm8
+                    : PtGeometrySourceAttributeEncoding::FullFloat))
         {
             ++m_canonicalSourceRejected;
             return;

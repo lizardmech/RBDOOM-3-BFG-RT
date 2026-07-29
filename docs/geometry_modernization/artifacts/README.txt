@@ -113,8 +113,13 @@ GEO-12 FILES
 
   GEO-12_rendered_capture_survey.txt
     Final rendered static/dynamic ownership and identity contract, both-UV-pair
-    paged survey, prepared-save evidence, class census, and the remaining
-    representative-scene gate before any encoding is admitted.
+    paged survey, prepared-save and representative coverage evidence, class
+    census, and the measurements that close candidate selection.
+
+  GEO-12_first_encoding_selection.txt
+    First single-candidate decision, exact color-UNORM8 eligibility/fallback
+    contract, CPU-only storage boundary, unchanged transport/GPU ABI, pure
+    acceptance, and ordered runtime A/B.
 
 NAMING
 ------

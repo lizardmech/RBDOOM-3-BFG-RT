@@ -4047,9 +4047,41 @@ large-coordinate traversal, and deliberately wide/repeating transformed UVs
 must be captured before selecting the first default-off encoding. Q1 and Q2
 therefore remain open.
 
+D165. REPRESENTATIVE COVERAGE SELECTS COLOR-ONLY UNORM8 AS GEO-12'S FIRST A/B
+-------------------------------------------------------------------------------
+`geometry_geo12_coverage.log` closes the remaining selection gate with 615
+valid rendered records and 40,060 vertices: 589 static-world, 21 skinned, and
+five particle records. The last page identifies zfat, an NPC head, particle
+effects, and glass fallbacks; `geometry_geo12c.log` supplies both zfat
+canonical surfaces and the broader NPC inventory.
+
+Transformed normal-map UV reaches -96 and both UV pairs have nonzero half
+round-trip error 0.00024408102 absolute / 0.000274281425 relative. Half UV is
+not lossless and remains deferred. Four rendered bitangents cannot be derived,
+and valid reconstruction reaches 10.6426821 degrees, so universal bitangent
+derivation is rejected. Oct16 basis remains a later lossy candidate.
+
+All 160,240 rendered components in each color stream remain UNORM8-exact,
+matching the canonical survey. GEO-12 therefore selects canonical `color`
+alone for the first encoding. `color2` remains float4 so the experiment does
+not combine encodings.
+
+The default-off gate stores an eligible canonical attribute in 68 instead of
+80 bytes. Eligibility is record-atomic: every color component must be finite,
+in [0,1], and round-trip through the producer-matched `byte * (1/255)` decode
+within 1e-7. Non-finite, out-of-range, and non-exact records retain the full
+format with named reasons; clamping is forbidden.
+
+This is deliberately below renderer ABI boundaries. Logical source checksum,
+frame transport record, decoded 80-byte packet, canonical GPU attribute pool,
+BLAS inputs, descriptors, SBT, and shaders remain unchanged. The first cut
+therefore measures real canonical CPU retention only, with exactly 12 bytes
+saved per eligible vertex. Transport and GPU compression require later,
+separate evidence.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
-  Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
+  Q1  PARTIALLY RESOLVED by D165: UV measured; color storage A/B remains.
   Q2  OPEN, owned by GEO-07/GEO-12: measure write-vs-derive attributes.
   Q3  OPEN, owned by GEO-06: offset BLAS-build microbenchmark.
   Q4  OPEN, owned by GEO-04/GEO-06: enumerate sceneOrigin consumers first.

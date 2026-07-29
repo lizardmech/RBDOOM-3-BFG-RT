@@ -23,7 +23,7 @@ std::uint64_t StreamCount(
     switch (poolIndex)
     {
         case PositionPool: return source.payload.positions.size();
-        case AttributePool: return source.payload.attributes.size();
+        case AttributePool: return source.payload.AttributeCount();
         case IndexPool: return source.payload.indexes.size();
         case TrianglePool: return source.payload.triangles.size();
         default: return 0;
@@ -49,7 +49,11 @@ const void* StreamData(
     switch (poolIndex)
     {
         case PositionPool: return source.payload.positions.data();
-        case AttributePool: return source.payload.attributes.data();
+        case AttributePool:
+            return source.payload.attributeEncoding ==
+                PtGeometrySourceAttributeEncoding::FullFloat
+                ? source.payload.attributes.data()
+                : nullptr;
         case IndexPool: return source.payload.indexes.data();
         case TrianglePool: return source.payload.triangles.data();
         default: return nullptr;
@@ -261,6 +265,7 @@ PtGeometryGpuPoolStats PtGeometryGpuPoolSet::Update(
         record.sourceContentRevision = source->sourceContentRevision;
         record.sourceChecksum = source->sourceChecksum;
         bool valid = true;
+        std::vector<PtGeometrySourceAttribute> decodedAttributes;
         for (int poolIndex = 0; poolIndex < PoolCount; ++poolIndex)
         {
             std::uint64_t bytes = 0;
@@ -278,9 +283,30 @@ PtGeometryGpuPoolStats PtGeometryGpuPoolSet::Update(
                 valid = false;
                 break;
             }
+            const void* streamData = StreamData(*source, poolIndex);
+            if (poolIndex == AttributePool &&
+                source->payload.attributeEncoding ==
+                    PtGeometrySourceAttributeEncoding::ColorUnorm8)
+            {
+                decodedAttributes.resize(
+                    source->payload.AttributeCount());
+                if (!source->payload.CopyDecodedAttributes(
+                        decodedAttributes.data(),
+                        decodedAttributes.size()))
+                {
+                    valid = false;
+                    break;
+                }
+                streamData = decodedAttributes.data();
+            }
+            if (bytes != 0 && streamData == nullptr)
+            {
+                valid = false;
+                break;
+            }
             commandList->writeBuffer(
                 pools_[poolIndex].buffer,
-                StreamData(*source, poolIndex),
+                streamData,
                 static_cast<size_t>(bytes),
                 range.offsetBytes);
             stats.uploadBytes += bytes;

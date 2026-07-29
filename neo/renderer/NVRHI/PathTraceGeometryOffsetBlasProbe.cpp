@@ -113,7 +113,7 @@ bool FindCandidate(
                 sizeof(PtGeometrySourcePosition)) ||
             !RangeMatches(
                 gpu->attributes,
-                source->payload.attributes.size(),
+                source->payload.AttributeCount(),
                 sizeof(PtGeometrySourceAttribute)) ||
             !RangeMatches(
                 gpu->indexes,
@@ -135,7 +135,7 @@ bool FindCandidate(
                 : source->payload.indexes.size() - 6 +
                     static_cast<std::size_t>(endpoint);
             if (source->payload.indexes[indexOffset] >=
-                source->payload.attributes.size())
+                source->payload.AttributeCount())
             {
                 indexesValid = false;
                 break;
@@ -355,12 +355,12 @@ void PtGeometryOffsetBlasProbe::Update(
         sizeof(expectedReadback_.lastIndexes));
     for (int endpoint = 0; endpoint < 3; ++endpoint)
     {
-        expectedReadback_.firstAttributes[endpoint] =
-            candidate.source->payload.attributes[
-                expectedReadback_.firstIndexes[endpoint]];
-        expectedReadback_.lastAttributes[endpoint] =
-            candidate.source->payload.attributes[
-                expectedReadback_.lastIndexes[endpoint]];
+        candidate.source->payload.DecodeAttribute(
+            expectedReadback_.firstIndexes[endpoint],
+            expectedReadback_.firstAttributes[endpoint]);
+        candidate.source->payload.DecodeAttribute(
+            expectedReadback_.lastIndexes[endpoint],
+            expectedReadback_.lastAttributes[endpoint]);
     }
     expectedReadback_.firstTriangle =
         candidate.source->payload.triangles.front();

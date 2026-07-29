@@ -1,0 +1,144 @@
+GEO-12 first encoding selection: canonical color UNORM8
+=======================================================
+
+DECISION
+--------
+The first and only encoding in this experiment is canonical source `color`
+float4 -> UNORM8x4. `color2`, UV, normal, tangent, bitangent, position, index,
+and triangle storage remain unchanged.
+
+This is a CPU canonical-record storage experiment. It does not change
+`PathTraceSmokeVertex`, frame transport layout, GPU attribute stride, BLAS
+input, descriptors, SBT records, or any shader. Packed records decode back to
+the existing 80-byte `PtGeometrySourceAttribute` at those boundaries.
+
+EVIDENCE
+--------
+Canonical survey:
+
+  988 records, 64,986 vertices
+  color exact components        259944/259944
+  color2 exact components       259944/259944
+  maximum round-trip error      5.96046448e-08
+
+Rendered representative survey:
+
+  615 records, 40,060 vertices
+  static/skinned/particle       589/21/5
+  color exact components        160240/160240
+  color2 exact components       160240/160240
+
+Although both streams pass, combining them would violate GEO-12's
+one-encoding-at-a-time guardrail. `color` is first because it carries exact
+byte-derived joint indices on skinned sources and ordinary vertex color on
+rigid sources; `color2` weights remain full float until separately tested.
+
+REJECTED OR DEFERRED CANDIDATES
+-------------------------------
+- Derived bitangent: rejected as universal storage. Representative rendered
+  coverage has four invalid reconstructions and up to 10.6426821 degrees of
+  valid angular error.
+- Half UV: deferred. Both UV pairs have nonzero maximum absolute error
+  0.00024408102 and must be judged through decoded material results.
+- Oct16 normal/tangent: promising but lossy, therefore lower priority than a
+  demonstrated lossless candidate.
+
+ELIGIBILITY AND FALLBACK
+------------------------
+Packing is record-atomic. Every one of the four `color` components on every
+vertex must:
+
+  be finite;
+  be in the inclusive range [0,1];
+  satisfy abs(round(value * 255) * (1/255) - value) <= 1e-7.
+
+The first failed category selects one explicit fallback reason:
+
+  non_finite
+  out_of_range
+  non_exact
+
+An ineligible record remains full fidelity. Values are never clamped to make a
+record eligible. The gate defaults off:
+
+  r_pathTracingGeometrySourceColorUnorm8 0
+
+The gate is sampled when a canonical record is first captured. Reload the map
+after changing it for a complete A/B.
+
+STORAGE AND IDENTITY CONTRACT
+-----------------------------
+`PtGeometrySourceAttributeColorUnorm8` is exactly 68 bytes versus the current
+80-byte attribute. An eligible record therefore saves exactly 12 retained CPU
+bytes per vertex.
+
+The source checksum is calculated from the incoming full-fidelity logical
+payload before storage selection. Full and packed storage of the same values
+must retain the same mesh key, source revision, and source checksum.
+Decode uses the same `byte * (1/255)` operation as the canonical producer so
+eligible byte-derived source colors recover bit-identically.
+
+The frontend/backend frame packet stays decoded full fidelity. Its fixed
+record structure and paging budget do not change. `retainedBytes` carries the
+actual canonical storage size and lets the validated backend reconstruct the
+same storage choice without new packet metadata.
+
+The canonical GPU pool also remains the established 80-byte attribute ABI.
+Packed CPU records use a temporary decoded array only while that pool is
+uploaded. No shader-side decode exists in this slice.
+
+PURE ACCEPTANCE
+---------------
+Required harness proof:
+
+  PtGeometrySourceAttributeColorUnorm8 size is 68
+  exact records retain no duplicate full attribute vector
+  decoded 80-byte attributes match the input byte-for-byte
+  source checksum is representation independent
+  retained and saved bytes are exact
+  non-exact input stays full fidelity with a named reason
+  decoded transport validates the packed retained-byte claim
+  a false packed claim fails closed
+  transport pagination remains unchanged
+
+Implementation verification:
+
+  PathTraceGeometrySourceRegistryHarness       PASS
+  PathTraceGeometrySourceTransportHarness      PASS
+  PathTraceGeometryAttributeSurveyHarness      PASS
+  cmake --build --preset win64-pt-dev-release  PASS
+  SPIR-V                                        all up to date
+  executable bytes                              16070656
+  executable SHA-256
+    9F72A28F1C012351194FF2A1279A86B2742A2281CA3255D9BAEA5F450E09182B
+  deployment                                    byte-identical
+  default gate                                  0
+
+RUNTIME ACCEPTANCE
+------------------
+Launch once with the gate off and once with it on, reloading the same map each
+time. Request:
+
+  r_pathTracingGeometryAttributeSurveyDump 1
+
+The new storage line must show:
+
+  off: packed=0, stored=logical
+  on: eligible records packed, saved=12 * eligible vertices
+  fallback counters explicit
+  transport=decoded-full
+  gpuAttributeAbi=full-float
+
+The existing survey aggregates must remain numerically identical. Then verify
+ordinary rigid models, animated characters/Fatzombie, portal traversal,
+material UVs, emissive surfaces, and clean shutdown. Any checksum rejection,
+missing geometry, changed material, animation defect, crash, or device removal
+rejects the candidate.
+
+NON-GOALS
+---------
+- No `color2` packing in this experiment.
+- No rendered-vertex or shader ABI compression.
+- No transport bandwidth claim; the packet intentionally remains decoded.
+- No GPU memory saving claim; the canonical GPU attribute pool remains full.
+- No promotion to default on before runtime A/B evidence.

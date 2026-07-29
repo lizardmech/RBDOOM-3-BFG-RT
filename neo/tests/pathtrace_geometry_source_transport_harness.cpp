@@ -108,7 +108,7 @@ void TestCompleteAndPaginatedPlans()
         PtPlanGeometrySourceTransport(
             registry,
             0,
-            full.packedBytes / 3 + 64,
+            full.packedBytes - 1,
             firstOnly) == PtGeometrySourceTransportResult::Success,
         "bounded budget should produce a partial page");
     Expect(
@@ -222,6 +222,59 @@ void TestImportValidation()
         "missing packet stream should fail closed");
 }
 
+void TestCompressedRecordUsesDecodedTransport()
+{
+    PtGeometrySourceRegistry registry;
+    Payload payload(30.0f);
+    for (PtGeometrySourceAttribute& attribute : payload.attributes)
+    {
+        attribute.color[0] = 128.0f * (1.0f / 255.0f);
+        attribute.color[1] = 1.0f;
+    }
+    const PtGeometrySourcePayloadView view = payload.View();
+    const PtCanonicalMeshKey key = MakeKey(9);
+    Expect(
+        registry.Observe(key, 1, &view, true) ==
+            PtGeometrySourceObserveResult::Added,
+        "compressed transport setup should add");
+    const PtGeometrySourceRecord* source = registry.Find(key);
+    Expect(
+        source != nullptr &&
+            source->payload.attributeEncoding ==
+                PtGeometrySourceAttributeEncoding::ColorUnorm8,
+        "compressed transport setup should select color UNORM8");
+    if (source == nullptr)
+    {
+        return;
+    }
+
+    PtGeometrySourceTransportRecord record;
+    record.key = source->key;
+    record.sourceContentRevision = source->sourceContentRevision;
+    record.sourceChecksum = source->sourceChecksum;
+    record.retainedBytes = source->retainedBytes;
+
+    PtGeometrySourceTransportStreams streams;
+    streams.positions = payload.positions;
+    streams.positionCount = 4;
+    streams.attributes = payload.attributes;
+    streams.attributeCount = 4;
+    streams.indexes = payload.indexes;
+    streams.indexCount = 6;
+    streams.triangles = payload.triangles;
+    streams.triangleCount = 2;
+    Expect(
+        PtValidateGeometrySourceTransportRecord(record, streams) ==
+            PtGeometrySourceTransportResult::Success,
+        "decoded full-fidelity transport should validate compressed retention");
+
+    payload.attributes[0].color[0] = 0.1f;
+    Expect(
+        PtValidateGeometrySourceTransportRecord(record, streams) ==
+            PtGeometrySourceTransportResult::InvalidSourceRecord,
+        "transport must reject a compressed claim for non-exact color");
+}
+
 }
 
 int main()
@@ -229,6 +282,7 @@ int main()
     TestCompleteAndPaginatedPlans();
     TestBudgetAndCursorFailures();
     TestImportValidation();
+    TestCompressedRecordUsesDecodedTransport();
     if (g_failures != 0)
     {
         std::printf(
