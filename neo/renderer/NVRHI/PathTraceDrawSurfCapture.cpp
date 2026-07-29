@@ -45,6 +45,20 @@ void AddSmokeSurfaceSkipStats(RtSmokeSurfaceSkipStats& dst, const RtSmokeSurface
     dst.geometryAdmittedBytes += src.geometryAdmittedBytes;
     dst.geometryRejectedBytes += src.geometryRejectedBytes;
     dst.geometryAdmittedSurfaces += src.geometryAdmittedSurfaces;
+    dst.geometryStaticSurfaceBudgetExceeded +=
+        src.geometryStaticSurfaceBudgetExceeded;
+    dst.geometryStaticByteBudgetExceeded +=
+        src.geometryStaticByteBudgetExceeded;
+    dst.geometryStaticAdmissionInvalid +=
+        src.geometryStaticAdmissionInvalid;
+    dst.geometryStaticAdmissionOverflow +=
+        src.geometryStaticAdmissionOverflow;
+    dst.geometryStaticAdmittedBytes +=
+        src.geometryStaticAdmittedBytes;
+    dst.geometryStaticRejectedBytes +=
+        src.geometryStaticRejectedBytes;
+    dst.geometryStaticAdmittedSurfaces +=
+        src.geometryStaticAdmittedSurfaces;
     dst.zeroAreaOnly += src.zeroAreaOnly;
     dst.emptyClassBuffer += src.emptyClassBuffer;
     dst.guiSurface += src.guiSurface;
@@ -935,10 +949,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         {
             triangleIdentityData->clear();
         }
-        vertexData.reserve(RT_SMOKE_MAX_VERTS);
-        indexData.reserve(RT_SMOKE_MAX_INDEXES);
-        triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
-        triangleMaterialData.reserve(RT_SMOKE_MAX_INDEXES / 3);
+        vertexData.reserve(RT_SMOKE_INITIAL_RESERVE_VERTS);
+        indexData.reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES);
+        triangleClassData.reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / 3);
+        triangleMaterialData.reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / 3);
     }
 
     if (!viewDef || !viewDef->drawSurfs)
@@ -977,12 +991,12 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         OPTICK_EVENT("PT Capture Dynamic Bucket Reserve");
         for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
         {
-            bucketVertexData[bucketIndex].reserve(RT_SMOKE_MAX_VERTS / RT_SMOKE_CLASS_COUNT);
-            bucketIndexData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / RT_SMOKE_CLASS_COUNT);
-            bucketTriangleClassData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
-            bucketTriangleMaterialData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
-            bucketTriangleInstanceData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
-            bucketTriangleIdentityData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+            bucketVertexData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_VERTS / RT_SMOKE_CLASS_COUNT);
+            bucketIndexData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / RT_SMOKE_CLASS_COUNT);
+            bucketTriangleClassData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+            bucketTriangleMaterialData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+            bucketTriangleInstanceData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+            bucketTriangleIdentityData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
         }
     }
 

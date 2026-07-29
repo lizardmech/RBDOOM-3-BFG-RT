@@ -3475,12 +3475,6 @@ RtSmokePersistentStaticSurfaceRecord* RtSmokeGeometryUniverse::TouchStaticSurfac
     return record;
 }
 
-bool RtSmokeGeometryUniverse::CanAppendStaticSurface(int vertexCount, int indexCount, int maxVertexCount, int maxIndexCount) const
-{
-    return static_cast<int>(m_staticVertexCache.size()) + vertexCount <= maxVertexCount &&
-        static_cast<int>(m_staticIndexCache.size()) + indexCount <= maxIndexCount;
-}
-
 RtSmokeStaticSurfaceAppend RtSmokeGeometryUniverse::BeginStaticSurfaceAppend(
     uint64 key,
     uint32_t surfaceClassId,

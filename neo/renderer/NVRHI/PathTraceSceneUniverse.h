@@ -145,7 +145,7 @@ public:
 
 private:
     bool Build(const viewDef_t* viewDef);
-    RtPathTraceSceneUniverseBuildStats BuildFullStaticGeometryInternal(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, bool bypassLegacyCaps, bool staticWorldOnly);
+    RtPathTraceSceneUniverseBuildStats BuildFullStaticGeometryInternal(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, bool staticWorldOnly);
     RtPathTraceSceneUniverseSelectionStats BuildSelectionStats(const viewDef_t* viewDef, int portalSteps, bool countSelectedSurfaces) const;
 
     const idRenderWorldLocal* m_renderWorld = nullptr;

@@ -23,8 +23,6 @@ namespace {
 
 const int PT_SCENE_UNIVERSE_MAX_AREA_REFS = 8;
 const int PT_SCENE_UNIVERSE_MAX_SELECTION_AREAS = 16;
-const int PT_SCENE_UNIVERSE_STATIC_MAX_VERTS = 262144;
-const int PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES = 786432;
 
 int SceneUniverseStaticWorldPortalArea(
     const idRenderModel* model,
@@ -1224,7 +1222,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
     RtSmokeMaterialStats& materialStats,
     RtSmokeBucketRanges& bucketRanges)
 {
-    return BuildFullStaticGeometryInternal(
+    RtPathTraceSceneUniverseBuildStats stats =
+        BuildFullStaticGeometryInternal(
         viewDef,
         geometryUniverse,
         classStats,
@@ -1232,8 +1231,10 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
         attributeStats,
         materialStats,
         bucketRanges,
-        false,
         false);
+    UpdateSmokeStaticGeometryAdmissionTotals(
+        skipStats, geometryUniverse);
+    return stats;
 }
 
 RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticBucketGeometry(
@@ -1245,7 +1246,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticBuck
     RtSmokeMaterialStats& materialStats,
     RtSmokeBucketRanges& bucketRanges)
 {
-    return BuildFullStaticGeometryInternal(
+    RtPathTraceSceneUniverseBuildStats stats =
+        BuildFullStaticGeometryInternal(
         viewDef,
         geometryUniverse,
         classStats,
@@ -1253,8 +1255,10 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticBuck
         attributeStats,
         materialStats,
         bucketRanges,
-        true,
         true);
+    UpdateSmokeStaticGeometryAdmissionTotals(
+        skipStats, geometryUniverse);
+    return stats;
 }
 
 RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeometryInternal(
@@ -1265,7 +1269,6 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
     RtSmokeAttributeStats& attributeStats,
     RtSmokeMaterialStats& materialStats,
     RtSmokeBucketRanges& bucketRanges,
-    bool bypassLegacyCaps,
     bool staticWorldOnly)
 {
     RtPathTraceSceneUniverseBuildStats buildStats;
@@ -1279,6 +1282,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
     std::vector<uint32_t>& staticIndexes = geometryUniverse.StaticIndexes();
     std::vector<uint32_t>& staticTriangleClasses = geometryUniverse.StaticTriangleClasses();
     std::vector<uint32_t>& staticTriangleMaterials = geometryUniverse.StaticTriangleMaterials();
+    const RtSmokeGeometryAdmissionBudget staticAdmissionBudget =
+        BuildSmokeStaticGeometryAdmissionBudget();
     const int rigidEntityMode =
         staticWorldOnly
             ? 0
@@ -1457,10 +1462,16 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                 continue;
             }
 
-            if (!bypassLegacyCaps &&
-                !geometryUniverse.CanAppendStaticSurface(tri->numVerts, tri->numIndexes, PT_SCENE_UNIVERSE_STATIC_MAX_VERTS, PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES))
+            const RtSmokeGeometryAdmissionPlan admissionPlan =
+                PlanSmokeStaticGeometryAdmission(
+                    staticAdmissionBudget,
+                    geometryUniverse,
+                    tri->numVerts,
+                    tri->numIndexes);
+            if (!admissionPlan.Admitted())
             {
-                ++skipStats.limitExceeded;
+                RecordSmokeStaticGeometryAdmissionRejection(
+                    skipStats, admissionPlan);
                 ++buildStats.skippedLimits;
                 continue;
             }
@@ -1663,6 +1674,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     int portalSteps)
 {
     RtPathTraceSceneUniverseBuildStats buildStats;
+    const RtSmokeGeometryAdmissionBudget staticAdmissionBudget =
+        BuildSmokeStaticGeometryAdmissionBudget();
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
     if (!renderWorld || !EnsureBuilt(viewDef))
     {
@@ -1888,9 +1901,16 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         ++buildStats.residencyDerived;
         ++buildStats.residencyCacheMisses;
 
-        if (!geometryUniverse.CanAppendStaticSurface(numVerts, numIndexes, PT_SCENE_UNIVERSE_STATIC_MAX_VERTS, PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES))
+        const RtSmokeGeometryAdmissionPlan admissionPlan =
+            PlanSmokeStaticGeometryAdmission(
+                staticAdmissionBudget,
+                geometryUniverse,
+                numVerts,
+                numIndexes);
+        if (!admissionPlan.Admitted())
         {
-            ++skipStats.limitExceeded;
+            RecordSmokeStaticGeometryAdmissionRejection(
+                skipStats, admissionPlan);
             ++buildStats.skippedLimits;
             return;
         }
@@ -2008,6 +2028,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
 
     DumpSceneUniverseResidencyStatsIfNeeded(buildStats);
 
+    UpdateSmokeStaticGeometryAdmissionTotals(
+        skipStats, geometryUniverse);
     return buildStats;
 }
 

@@ -42,6 +42,20 @@ RtSmokeGeometryAdmissionBudget BuildSmokeDynamicGeometryAdmissionBudget()
     return budget;
 }
 
+RtSmokeGeometryAdmissionBudget BuildSmokeStaticGeometryAdmissionBudget()
+{
+    RtSmokeGeometryAdmissionBudget budget;
+    const int budgetMB =
+        Max(0, r_pathTracingGeometryStaticResidentBudgetMB.GetInteger());
+    const int surfaceBudget =
+        Max(0,
+            r_pathTracingGeometryStaticResidentSurfaceBudget.GetInteger());
+    budget.maxBytes =
+        static_cast<uint64_t>(budgetMB) * 1024ull * 1024ull;
+    budget.maxSurfaces = static_cast<uint64_t>(surfaceBudget);
+    return budget;
+}
+
 RtSmokeGeometryAdmissionPlan PlanSmokeDynamicGeometryAdmission(
     const RtSmokeGeometryAdmissionBudget& budget,
     uint64 currentBytes,
@@ -58,6 +72,73 @@ RtSmokeGeometryAdmissionPlan PlanSmokeDynamicGeometryAdmission(
     input.indexStride = sizeof(uint32_t);
     input.triangleMetadataStride = sizeof(uint32_t) * 4ull;
     return BuildSmokeGeometryAdmissionPlan(budget, input);
+}
+
+RtSmokeGeometryAdmissionPlan PlanSmokeStaticGeometryAdmission(
+    const RtSmokeGeometryAdmissionBudget& budget,
+    const RtSmokeGeometryUniverse& geometryUniverse,
+    int vertexCount,
+    int indexCount,
+    uint64 candidateSurfaceCount)
+{
+    RtSmokeGeometryAdmissionPlan failure;
+    const size_t currentVertexCount =
+        geometryUniverse.StaticVertices().size();
+    const size_t currentIndexCount =
+        geometryUniverse.StaticIndexes().size();
+    const size_t currentTriangleCount = currentIndexCount / 3;
+    if (currentVertexCount >
+            static_cast<size_t>(
+                std::numeric_limits<int64_t>::max()) ||
+        currentIndexCount >
+            static_cast<size_t>(
+                std::numeric_limits<int64_t>::max()))
+    {
+        failure.result =
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_ARITHMETIC_OVERFLOW;
+        return failure;
+    }
+    if ((currentIndexCount % 3) != 0 ||
+        geometryUniverse.StaticTriangleClasses().size() !=
+            currentTriangleCount ||
+        geometryUniverse.StaticTriangleMaterials().size() !=
+            currentTriangleCount)
+    {
+        failure.result =
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_INVALID_COUNT;
+        return failure;
+    }
+
+    RtSmokeGeometryAdmissionInput currentInput;
+    currentInput.currentSurfaces =
+        static_cast<uint64_t>(
+            geometryUniverse.StaticSurfaceRecords().size());
+    currentInput.candidateVertexCount =
+        static_cast<int64_t>(currentVertexCount);
+    currentInput.candidateIndexCount =
+        static_cast<int64_t>(currentIndexCount);
+    currentInput.candidateSurfaceCount = 0;
+    currentInput.vertexStride = sizeof(PathTraceSmokeVertex);
+    currentInput.indexStride = sizeof(uint32_t);
+    currentInput.triangleMetadataStride = sizeof(uint32_t) * 2ull;
+    const RtSmokeGeometryAdmissionPlan currentPlan =
+        BuildSmokeGeometryAdmissionPlan(
+            RtSmokeGeometryAdmissionBudget(), currentInput);
+    if (!currentPlan.Admitted())
+    {
+        return currentPlan;
+    }
+
+    RtSmokeGeometryAdmissionInput candidateInput;
+    candidateInput.currentBytes = currentPlan.totalBytes;
+    candidateInput.currentSurfaces = currentPlan.totalSurfaces;
+    candidateInput.candidateVertexCount = vertexCount;
+    candidateInput.candidateIndexCount = indexCount;
+    candidateInput.candidateSurfaceCount = candidateSurfaceCount;
+    candidateInput.vertexStride = sizeof(PathTraceSmokeVertex);
+    candidateInput.indexStride = sizeof(uint32_t);
+    candidateInput.triangleMetadataStride = sizeof(uint32_t) * 2ull;
+    return BuildSmokeGeometryAdmissionPlan(budget, candidateInput);
 }
 
 void RecordSmokeGeometryAdmissionRejection(
@@ -93,6 +174,67 @@ void RecordSmokeGeometryAdmissionRejection(
     else
     {
         skipStats.geometryRejectedBytes += plan.candidateBytes;
+    }
+}
+
+void RecordSmokeStaticGeometryAdmissionRejection(
+    RtSmokeSurfaceSkipStats& skipStats,
+    const RtSmokeGeometryAdmissionPlan& plan)
+{
+    ++skipStats.limitExceeded;
+    switch (plan.result)
+    {
+        case RT_SMOKE_GEOMETRY_ADMISSION_REJECT_SURFACE_BUDGET:
+            ++skipStats.geometryStaticSurfaceBudgetExceeded;
+            break;
+        case RT_SMOKE_GEOMETRY_ADMISSION_REJECT_BYTE_BUDGET:
+            ++skipStats.geometryStaticByteBudgetExceeded;
+            break;
+        case RT_SMOKE_GEOMETRY_ADMISSION_REJECT_INVALID_COUNT:
+            ++skipStats.geometryStaticAdmissionInvalid;
+            break;
+        case RT_SMOKE_GEOMETRY_ADMISSION_REJECT_ARITHMETIC_OVERFLOW:
+            ++skipStats.geometryStaticAdmissionOverflow;
+            break;
+        default:
+            return;
+    }
+
+    if (plan.candidateBytes >
+        std::numeric_limits<uint64>::max() -
+            skipStats.geometryStaticRejectedBytes)
+    {
+        skipStats.geometryStaticRejectedBytes =
+            std::numeric_limits<uint64>::max();
+    }
+    else
+    {
+        skipStats.geometryStaticRejectedBytes +=
+            plan.candidateBytes;
+    }
+}
+
+void UpdateSmokeStaticGeometryAdmissionTotals(
+    RtSmokeSurfaceSkipStats& skipStats,
+    const RtSmokeGeometryUniverse& geometryUniverse)
+{
+    const RtSmokeGeometryAdmissionPlan totals =
+        PlanSmokeStaticGeometryAdmission(
+            RtSmokeGeometryAdmissionBudget(),
+            geometryUniverse,
+            0,
+            0,
+            0);
+    if (totals.Admitted())
+    {
+        skipStats.geometryStaticAdmittedBytes = totals.totalBytes;
+        skipStats.geometryStaticAdmittedSurfaces =
+            totals.totalSurfaces;
+    }
+    else
+    {
+        RecordSmokeStaticGeometryAdmissionRejection(
+            skipStats, totals);
     }
 }
 
@@ -2318,10 +2460,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         {
             triangleIdentityData->clear();
         }
-        vertexData.reserve(RT_SMOKE_MAX_VERTS);
-        indexData.reserve(RT_SMOKE_MAX_INDEXES);
-        triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
-        triangleMaterialData.reserve(RT_SMOKE_MAX_INDEXES / 3);
+        vertexData.reserve(RT_SMOKE_INITIAL_RESERVE_VERTS);
+        indexData.reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES);
+        triangleClassData.reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / 3);
+        triangleMaterialData.reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / 3);
     }
     std::vector<PathTraceSmokeVertex>& staticVertexCache = geometryUniverse.StaticVertices();
     std::vector<uint32_t>& staticIndexCache = geometryUniverse.StaticIndexes();
@@ -2337,18 +2479,20 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
     std::vector<uint32_t> bucketTriangleIdentityData[RT_SMOKE_CLASS_COUNT];
     for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
     {
-        bucketVertexData[bucketIndex].reserve(RT_SMOKE_MAX_VERTS / RT_SMOKE_CLASS_COUNT);
-        bucketIndexData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / RT_SMOKE_CLASS_COUNT);
-        bucketTriangleClassData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
-        bucketTriangleMaterialData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
-        bucketTriangleInstanceData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
-        bucketTriangleIdentityData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+        bucketVertexData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_VERTS / RT_SMOKE_CLASS_COUNT);
+        bucketIndexData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / RT_SMOKE_CLASS_COUNT);
+        bucketTriangleClassData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+        bucketTriangleMaterialData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+        bucketTriangleInstanceData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+        bucketTriangleIdentityData[bucketIndex].reserve(RT_SMOKE_INITIAL_RESERVE_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
     }
 
     uint64 dynamicAdmissionBytes = 0;
     uint64 dynamicAdmissionSurfaces = 0;
     const RtSmokeGeometryAdmissionBudget dynamicAdmissionBudget =
         BuildSmokeDynamicGeometryAdmissionBudget();
+    const RtSmokeGeometryAdmissionBudget staticAdmissionBudget =
+        BuildSmokeStaticGeometryAdmissionBudget();
     std::vector<RtSmokeCapturedDynamicSurfaceKey> capturedDynamicSurfaces;
     capturedDynamicSurfaces.reserve(static_cast<size_t>(viewDef->numDrawSurfs));
 
@@ -2405,9 +2549,16 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 continue;
             }
 
-            if (!geometryUniverse.CanAppendStaticSurface(tri->numVerts, tri->numIndexes, RT_SMOKE_MAX_VERTS, RT_SMOKE_MAX_INDEXES))
+            const RtSmokeGeometryAdmissionPlan staticAdmissionPlan =
+                PlanSmokeStaticGeometryAdmission(
+                    staticAdmissionBudget,
+                    geometryUniverse,
+                    tri->numVerts,
+                    tri->numIndexes);
+            if (!staticAdmissionPlan.Admitted())
             {
-                ++skipStats.limitExceeded;
+                RecordSmokeStaticGeometryAdmissionRejection(
+                    skipStats, staticAdmissionPlan);
                 continue;
             }
 
@@ -2833,6 +2984,8 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
 
     skipStats.geometryAdmittedBytes = dynamicAdmissionBytes;
     skipStats.geometryAdmittedSurfaces = dynamicAdmissionSurfaces;
+    UpdateSmokeStaticGeometryAdmissionTotals(
+        skipStats, geometryUniverse);
 
     const int bucketMergeStartMs = Sys_Milliseconds();
     {

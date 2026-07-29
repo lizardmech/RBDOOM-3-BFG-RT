@@ -7196,6 +7196,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skipStats.invalidIndexCount += sceneUniverseSkipStats.invalidIndexCount;
             skipStats.limitExceeded += sceneUniverseSkipStats.limitExceeded;
             skipStats.zeroAreaOnly += sceneUniverseSkipStats.zeroAreaOnly;
+            skipStats.geometryStaticSurfaceBudgetExceeded +=
+                sceneUniverseSkipStats.
+                    geometryStaticSurfaceBudgetExceeded;
+            skipStats.geometryStaticByteBudgetExceeded +=
+                sceneUniverseSkipStats.
+                    geometryStaticByteBudgetExceeded;
+            skipStats.geometryStaticAdmissionInvalid +=
+                sceneUniverseSkipStats.geometryStaticAdmissionInvalid;
+            skipStats.geometryStaticAdmissionOverflow +=
+                sceneUniverseSkipStats.
+                    geometryStaticAdmissionOverflow;
+            skipStats.geometryStaticAdmittedBytes =
+                sceneUniverseSkipStats.geometryStaticAdmittedBytes;
+            skipStats.geometryStaticRejectedBytes +=
+                sceneUniverseSkipStats.geometryStaticRejectedBytes;
+            skipStats.geometryStaticAdmittedSurfaces =
+                sceneUniverseSkipStats.
+                    geometryStaticAdmittedSurfaces;
         }
         if (useDrawSurfMirrorDynamicFrame)
         {
@@ -7234,6 +7252,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 }
             }
             const RtSmokeSurfaceClassStats staticClassStats = classStats;
+            const RtSmokeSurfaceSkipStats staticSkipStats = skipStats;
             const RtSmokeBucketRange staticBucketRange = bucketRanges.buckets[0];
             const int staticSourceSurfaces = classStats.staticWorldSurfaces;
             const int staticSourceVerts = classStats.staticWorldVerts;
@@ -7285,6 +7304,23 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 classStats.unknownIndexes = mirrorClassStats.unknownIndexes;
                 classStats.unknownTriangles = mirrorClassStats.unknownTriangles;
                 skipStats = mirrorSkipStats;
+                skipStats.limitExceeded +=
+                    staticSkipStats.limitExceeded;
+                skipStats.geometryStaticSurfaceBudgetExceeded +=
+                    staticSkipStats.
+                        geometryStaticSurfaceBudgetExceeded;
+                skipStats.geometryStaticByteBudgetExceeded +=
+                    staticSkipStats.geometryStaticByteBudgetExceeded;
+                skipStats.geometryStaticAdmissionInvalid +=
+                    staticSkipStats.geometryStaticAdmissionInvalid;
+                skipStats.geometryStaticAdmissionOverflow +=
+                    staticSkipStats.geometryStaticAdmissionOverflow;
+                skipStats.geometryStaticAdmittedBytes =
+                    staticSkipStats.geometryStaticAdmittedBytes;
+                skipStats.geometryStaticRejectedBytes +=
+                    staticSkipStats.geometryStaticRejectedBytes;
+                skipStats.geometryStaticAdmittedSurfaces =
+                    staticSkipStats.geometryStaticAdmittedSurfaces;
                 dynamicStats = mirrorDynamicStats;
                 attributeStats = mirrorAttributeStats;
                 materialStats = mirrorMaterialStats;
@@ -7391,14 +7427,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     if (r_pathTracingGeometryAdmissionDump.GetInteger() != 0)
     {
-        const RtSmokeGeometryAdmissionBudget admissionBudget =
+        const RtSmokeGeometryAdmissionBudget dynamicAdmissionBudget =
             BuildSmokeDynamicGeometryAdmissionBudget();
+        const RtSmokeGeometryAdmissionBudget staticAdmissionBudget =
+            BuildSmokeStaticGeometryAdmissionBudget();
         common->Printf(
-            "PathTracePrimaryPass: GEO13 dynamic admission budget(bytes/surfaces)=%llu/%llu admitted(bytes/surfaces)=%llu/%llu rejected(surface/bytes/invalid/overflow/bytes)=%d/%d/%d/%d/%llu legacyLimitTotal=%d\n",
+            "PathTracePrimaryPass: GEO13 dynamic admission budget(bytes/surfaces)=%llu/%llu admitted(bytes/surfaces)=%llu/%llu rejected(surface/bytes/invalid/overflow/bytes)=%d/%d/%d/%d/%llu static admission budget(bytes/surfaces)=%llu/%llu admitted(bytes/surfaces)=%llu/%llu rejected(surface/bytes/invalid/overflow/bytes)=%d/%d/%d/%d/%llu limitTotal=%d\n",
             static_cast<unsigned long long>(
-                admissionBudget.maxBytes),
+                dynamicAdmissionBudget.maxBytes),
             static_cast<unsigned long long>(
-                admissionBudget.maxSurfaces),
+                dynamicAdmissionBudget.maxSurfaces),
             static_cast<unsigned long long>(
                 skipStats.geometryAdmittedBytes),
             static_cast<unsigned long long>(
@@ -7409,6 +7447,20 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             skipStats.geometryAdmissionOverflow,
             static_cast<unsigned long long>(
                 skipStats.geometryRejectedBytes),
+            static_cast<unsigned long long>(
+                staticAdmissionBudget.maxBytes),
+            static_cast<unsigned long long>(
+                staticAdmissionBudget.maxSurfaces),
+            static_cast<unsigned long long>(
+                skipStats.geometryStaticAdmittedBytes),
+            static_cast<unsigned long long>(
+                skipStats.geometryStaticAdmittedSurfaces),
+            skipStats.geometryStaticSurfaceBudgetExceeded,
+            skipStats.geometryStaticByteBudgetExceeded,
+            skipStats.geometryStaticAdmissionInvalid,
+            skipStats.geometryStaticAdmissionOverflow,
+            static_cast<unsigned long long>(
+                skipStats.geometryStaticRejectedBytes),
             skipStats.limitExceeded);
         r_pathTracingGeometryAdmissionDump.SetInteger(0);
     }

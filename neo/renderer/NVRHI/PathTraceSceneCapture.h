@@ -24,9 +24,8 @@ class idJointMat;
 class idImage;
 class idMaterial;
 
-const int RT_SMOKE_MAX_SURFACES = 128;
-const int RT_SMOKE_MAX_VERTS = 65536;
-const int RT_SMOKE_MAX_INDEXES = 196608;
+const int RT_SMOKE_INITIAL_RESERVE_VERTS = 65536;
+const int RT_SMOKE_INITIAL_RESERVE_INDEXES = 196608;
 const int RT_SMOKE_MATERIAL_REASON_SAMPLES = 12;
 const int RT_SMOKE_TRANSLUCENT_REASON_SAMPLES = 24;
 const int RT_SMOKE_DYNAMIC_MATERIAL_REASON_SAMPLES = 12;
@@ -333,6 +332,13 @@ struct RtSmokeSurfaceSkipStats
     uint64 geometryAdmittedBytes = 0;
     uint64 geometryRejectedBytes = 0;
     uint64 geometryAdmittedSurfaces = 0;
+    int geometryStaticSurfaceBudgetExceeded = 0;
+    int geometryStaticByteBudgetExceeded = 0;
+    int geometryStaticAdmissionInvalid = 0;
+    int geometryStaticAdmissionOverflow = 0;
+    uint64 geometryStaticAdmittedBytes = 0;
+    uint64 geometryStaticRejectedBytes = 0;
+    uint64 geometryStaticAdmittedSurfaces = 0;
     int zeroAreaOnly = 0;
     int emptyClassBuffer = 0;
     int guiSurface = 0;
@@ -340,15 +346,28 @@ struct RtSmokeSurfaceSkipStats
 };
 
 RtSmokeGeometryAdmissionBudget BuildSmokeDynamicGeometryAdmissionBudget();
+RtSmokeGeometryAdmissionBudget BuildSmokeStaticGeometryAdmissionBudget();
 RtSmokeGeometryAdmissionPlan PlanSmokeDynamicGeometryAdmission(
     const RtSmokeGeometryAdmissionBudget& budget,
     uint64 currentBytes,
     uint64 currentSurfaces,
     int vertexCount,
     int indexCount);
+RtSmokeGeometryAdmissionPlan PlanSmokeStaticGeometryAdmission(
+    const RtSmokeGeometryAdmissionBudget& budget,
+    const RtSmokeGeometryUniverse& geometryUniverse,
+    int vertexCount,
+    int indexCount,
+    uint64 candidateSurfaceCount = 1);
 void RecordSmokeGeometryAdmissionRejection(
     RtSmokeSurfaceSkipStats& skipStats,
     const RtSmokeGeometryAdmissionPlan& plan);
+void RecordSmokeStaticGeometryAdmissionRejection(
+    RtSmokeSurfaceSkipStats& skipStats,
+    const RtSmokeGeometryAdmissionPlan& plan);
+void UpdateSmokeStaticGeometryAdmissionTotals(
+    RtSmokeSurfaceSkipStats& skipStats,
+    const RtSmokeGeometryUniverse& geometryUniverse);
 
 struct RtSmokeAttributeClassStats
 {

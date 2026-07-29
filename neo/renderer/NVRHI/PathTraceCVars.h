@@ -61,6 +61,8 @@ extern idCVar r_pathTracingGeometryShadowRegistryDump;
 extern idCVar r_pathTracingGeometrySourceDeltaBudgetMB;
 extern idCVar r_pathTracingGeometryDynamicFallbackBudgetMB;
 extern idCVar r_pathTracingGeometryDynamicFallbackSurfaceBudget;
+extern idCVar r_pathTracingGeometryStaticResidentBudgetMB;
+extern idCVar r_pathTracingGeometryStaticResidentSurfaceBudget;
 extern idCVar r_pathTracingGeometryAdmissionDump;
 extern idCVar r_pathTracingGeometryAttributeSurveyDump;
 extern idCVar r_pathTracingGeometryRenderedAttributeSurveyDump;

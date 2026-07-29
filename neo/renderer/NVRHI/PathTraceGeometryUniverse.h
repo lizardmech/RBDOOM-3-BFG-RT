@@ -973,7 +973,6 @@ public:
     bool RefreshStaticSurfaceBucketKey(
         uint64 key,
         uint64 bucketSurfaceKey);
-    bool CanAppendStaticSurface(int vertexCount, int indexCount, int maxVertexCount, int maxIndexCount) const;
     RtSmokeStaticSurfaceAppend BeginStaticSurfaceAppend(
         uint64 key,
         uint32_t surfaceClassId,

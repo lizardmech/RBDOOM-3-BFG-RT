@@ -327,6 +327,18 @@ idCVar r_pathTracingGeometryDynamicFallbackSurfaceBudget(
     CVAR_RENDERER | CVAR_INTEGER,
     "GEO-13 per-frame merged dynamic capture surface budget; 0 is unlimited" );
 
+idCVar r_pathTracingGeometryStaticResidentBudgetMB(
+    "r_pathTracingGeometryStaticResidentBudgetMB",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-13 persistent monolithic/static-source capture byte budget in MiB; 0 is unlimited" );
+
+idCVar r_pathTracingGeometryStaticResidentSurfaceBudget(
+    "r_pathTracingGeometryStaticResidentSurfaceBudget",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-13 persistent monolithic/static-source capture surface budget; 0 is unlimited" );
+
 idCVar r_pathTracingGeometryAdmissionDump(
     "r_pathTracingGeometryAdmissionDump",
     "0",

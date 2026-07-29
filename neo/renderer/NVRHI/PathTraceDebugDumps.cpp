@@ -628,7 +628,7 @@ void LogSmokeSceneRebuildSummary(const RtSmokeSceneBuildSummaryLogDesc& desc)
 
 void LogSmokeSceneCaptureSummary(const RtSmokeSceneBuildSummaryLogDesc& desc)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke scene capture %d surfaces, %d verts, %d indexes, anchor triangle %d; skipped null=%d geo=%d material=%d gui=%d allowGuiSurfaces=%d space=%d model=%d callback=%d skipCallbacks=%d indexes=%d conditionedOff=%d cache=%d limits=%d admission(surface/bytes/invalid/overflow)=%d/%d/%d/%d admitted(bytes/surfaces)=%llu/%llu rejectedBytes=%llu zeroArea=%d emptyClass=%d; buckets static-world=%d(%dv/%di/%dt) rigid-entity=%d(%dv/%di/%dt) skinned=%d(%dv/%di/%dt) particle/alpha=%d(%dv/%di/%dt) unknown=%d(%dv/%di/%dt)\n",
+    common->Printf("PathTracePrimaryPass: RT smoke scene capture %d surfaces, %d verts, %d indexes, anchor triangle %d; skipped null=%d geo=%d material=%d gui=%d allowGuiSurfaces=%d space=%d model=%d callback=%d skipCallbacks=%d indexes=%d conditionedOff=%d cache=%d limits=%d dynamicAdmission(surface/bytes/invalid/overflow)=%d/%d/%d/%d admitted(bytes/surfaces)=%llu/%llu rejectedBytes=%llu staticAdmission(surface/bytes/invalid/overflow)=%d/%d/%d/%d admitted(bytes/surfaces)=%llu/%llu rejectedBytes=%llu zeroArea=%d emptyClass=%d; buckets static-world=%d(%dv/%di/%dt) rigid-entity=%d(%dv/%di/%dt) skinned=%d(%dv/%di/%dt) particle/alpha=%d(%dv/%di/%dt) unknown=%d(%dv/%di/%dt)\n",
         desc.sourceSurfaces,
         desc.sourceVerts,
         desc.sourceIndexes,
@@ -656,6 +656,16 @@ void LogSmokeSceneCaptureSummary(const RtSmokeSceneBuildSummaryLogDesc& desc)
             desc.skipStats.geometryAdmittedSurfaces),
         static_cast<unsigned long long>(
             desc.skipStats.geometryRejectedBytes),
+        desc.skipStats.geometryStaticSurfaceBudgetExceeded,
+        desc.skipStats.geometryStaticByteBudgetExceeded,
+        desc.skipStats.geometryStaticAdmissionInvalid,
+        desc.skipStats.geometryStaticAdmissionOverflow,
+        static_cast<unsigned long long>(
+            desc.skipStats.geometryStaticAdmittedBytes),
+        static_cast<unsigned long long>(
+            desc.skipStats.geometryStaticAdmittedSurfaces),
+        static_cast<unsigned long long>(
+            desc.skipStats.geometryStaticRejectedBytes),
         desc.skipStats.zeroAreaOnly,
         desc.skipStats.emptyClassBuffer,
         desc.classStats.staticWorldSurfaces, desc.classStats.staticWorldVerts, desc.classStats.staticWorldIndexes, desc.classStats.staticWorldTriangles,

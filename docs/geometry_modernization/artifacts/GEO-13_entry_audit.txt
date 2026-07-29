@@ -290,6 +290,47 @@ Slice 2 is accepted. Dynamic capture no longer has a mandatory dependency on
 `RT_SMOKE_MAX_INDEXES`. Their remaining dynamic uses are reserve hints only.
 Static admission still uses the old constants and is the next isolated slice.
 
+SLICE-3 IMPLEMENTATION CHECKPOINT
+---------------------------------
+Legacy visible-static capture, full monolithic scene-universe construction,
+selected-area preload, and full-map bucket-source construction now use checked
+resident byte/surface admission. The budget counts the persistent rendered
+vertex and index arrays plus static class/material words. Current cache sizes
+are validated before candidate admission; inconsistent triangle metadata is an
+invalid-count result rather than an unchecked append.
+
+New runtime controls are:
+
+  r_pathTracingGeometryStaticResidentBudgetMB       0
+  r_pathTracingGeometryStaticResidentSurfaceBudget  0
+
+Zero is unlimited. Dynamic and static totals/reasons are separate in the
+one-shot `r_pathTracingGeometryAdmissionDump`.
+
+The old symbols have no remaining code consumers:
+
+  RT_SMOKE_MAX_SURFACES
+  RT_SMOKE_MAX_VERTS
+  RT_SMOKE_MAX_INDEXES
+  PT_SCENE_UNIVERSE_STATIC_MAX_VERTS
+  PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES
+  RtSmokeGeometryUniverse::CanAppendStaticSurface
+
+The dynamic reserve values are retained under explicit
+`RT_SMOKE_INITIAL_RESERVE_*` names and do not control admission.
+
+  PathTraceCpuPlanningHarness --stress 20       PASS
+  cmake --build --preset win64-pt-dev-release  PASS
+  SPIR-V                                        all up to date
+  executable bytes                              16,079,872
+  executable SHA-256
+    D83FC586F00283FB619563925D669526C08448DB8BBA483AE00E05E26B38BA2A
+
+Runtime acceptance requires map reconstruction under each policy, because a
+lower resident budget intentionally does not evict an already-published static
+cache in place. The required A/B is unlimited, forced-low byte, forced-low
+surface, then restored unlimited, with a map reload after each policy change.
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.
