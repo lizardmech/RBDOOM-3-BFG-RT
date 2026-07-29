@@ -3951,6 +3951,32 @@ lifecycle stress evidence. Static acceptance remains pending one short
 step-18B capture with an explicit enabled BLAS/build gate; the full timing run
 must not be repeated.
 
+D161. STEP-18B CLOSES STATIC AUDIT AND GEO-11
+---------------------------------------------
+`geometry_geo_step18b.log` autonomously loads the prepared save, executes the
+disabled and enabled static audit sequence, and quits normally. The disabled
+request produces one `reason=blas-disabled consumed=1 gpuMutation=0` result
+and zero retirement packages. The former per-frame material-index churn is
+eliminated.
+
+The enabled path converges all 56 resident BLASes under the two-operation cap.
+The final audit reuses 56/56 with zero build or retirement, reports 56
+authoritative result queries with zero failures and 3,635,712 result bytes,
+and drains to deferred zero at maximum age 26. Active publication is exact
+4/4, emits four TLAS instances and all 56 resident routes, and has zero
+missing-BLAS, material-index, range, or InstanceID failures.
+
+Assignment and pack coverage are exact for 1,789 surfaces and 50,108
+primitives, every geometry-pack failure bucket is zero, all five warm caches
+hit, warm upload bytes are zero, and canonical emissive replay passes 48/48
+with every failure counter zero. There is no device-loss marker and shutdown
+is normal.
+
+GEO-11 is complete. D134's current-backend decision remains final:
+application-visible exact scratch requirements are unavailable and safely
+owned by NVRHI command-buffer versions; AS compaction is unsupported while
+`NVRHI_WITH_RTXMU=OFF` and remains disabled rather than emulated.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
@@ -3963,7 +3989,8 @@ DISPOSITION OF 04_open_questions.txt
   Q8  RESOLVED FOR FIRST CUT: fixed rebuild cadence, tune in GEO-08.
   Q9  RESOLVED by D04: per-instance, no pose-sharing optimization initially.
   Q10 RESOLVED FOR FIRST CUT by D12; budget values remain measured in GEO-11.
-  Q11 OPEN, owned by GEO-11: NVRHI compaction query/copy capability.
+  Q11 RESOLVED by D134/D161: current Vulkan build has RTXMU off; compaction
+      is an explicit unsupported no-op and remains disabled.
   Q12 RESOLVED structurally by D07; memory-pressure policy remains GEO-11.
   Q13 RESOLVED by D11; exact budgets measured in GEO-12/GEO-13.
   Q14 RESOLVED: retain funnel totals and bounded samples; delete duplicate

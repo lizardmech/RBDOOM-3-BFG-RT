@@ -855,3 +855,39 @@ one blocked line without repeated 200,432-byte retirement, then enable static
 BLAS/build, wait for 56/56 resident readiness, and capture one exact enabled
 audit. The 240-frame timing capture and rigid/lifecycle dumps do not need to
 be repeated.
+
+SLICE-6 STEP-18B ACCEPTED - GEO-11 COMPLETE
+-------------------------------------------
+`geometry_geo_step18b.log` is the autonomous closure run. The prepared
+`doom3_1` save loaded through `com_autoLoadSave`; a bounded
+`com_autoLoadPostCommand` executed both audits and quit normally.
+
+The disabled case emitted exactly one:
+
+  reason=blas-disabled consumed=1 gpuMutation=0
+
+There were zero static-bucket retirement packages, proving the prior
+200,432-byte per-frame churn is gone. The enabled resource/build gates then
+converged from 0 to 56 ready BLASes under the two-operation cap. The final
+frame reports:
+
+  resident / active / ready / deferred / invalid   56 / 4 / 56 / 0 / 0
+  build / reuse / retire                            0 / 56 / 0
+  result queries / failures / bytes                 56 / 0 / 3635712
+  operation deferrals / maximum age                 756 / 26
+  publication valid / exact / mixed rejected        1 / 1 / 0
+  active TLAS / resident routes                     4 / 56
+  missing BLAS/material/range/instance failures     0 / 0 / 0 / 0
+
+Assignment covers 1,789/1,789 surfaces and 50,108/50,108 primitives exactly.
+The 56/56 geometry pack has all ten failure counters zero. Source,
+assignment, resident-pack, material-index, and source-fast-path caches all
+hit; warm upload bytes are zero. Canonical emissive replay maps 48/48 records
+with every replay and identity failure counter zero. No device-loss marker
+appears and the process exits normally.
+
+Together with step 18's 240-frame timing distribution and rigid/lifecycle
+stress, this satisfies the final GEO-11 gate. Result-memory admission and
+event-query lifetime are accepted for all auxiliary providers. Exact scratch
+remains backend-owned and unavailable for application admission; compaction
+remains explicitly rejected while `NVRHI_WITH_RTXMU=OFF`. GEO-11 is complete.
