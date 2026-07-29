@@ -26,7 +26,75 @@
 #include "../RenderCommon.h"
 
 #include <algorithm>
+#include <limits>
 
+RtSmokeGeometryAdmissionBudget BuildSmokeDynamicGeometryAdmissionBudget()
+{
+    RtSmokeGeometryAdmissionBudget budget;
+    const int budgetMB =
+        Max(0, r_pathTracingGeometryDynamicFallbackBudgetMB.GetInteger());
+    const int surfaceBudget =
+        Max(0,
+            r_pathTracingGeometryDynamicFallbackSurfaceBudget.GetInteger());
+    budget.maxBytes =
+        static_cast<uint64_t>(budgetMB) * 1024ull * 1024ull;
+    budget.maxSurfaces = static_cast<uint64_t>(surfaceBudget);
+    return budget;
+}
+
+RtSmokeGeometryAdmissionPlan PlanSmokeDynamicGeometryAdmission(
+    const RtSmokeGeometryAdmissionBudget& budget,
+    uint64 currentBytes,
+    uint64 currentSurfaces,
+    int vertexCount,
+    int indexCount)
+{
+    RtSmokeGeometryAdmissionInput input;
+    input.currentBytes = currentBytes;
+    input.currentSurfaces = currentSurfaces;
+    input.candidateVertexCount = vertexCount;
+    input.candidateIndexCount = indexCount;
+    input.vertexStride = sizeof(PathTraceSmokeVertex);
+    input.indexStride = sizeof(uint32_t);
+    input.triangleMetadataStride = sizeof(uint32_t) * 4ull;
+    return BuildSmokeGeometryAdmissionPlan(budget, input);
+}
+
+void RecordSmokeGeometryAdmissionRejection(
+    RtSmokeSurfaceSkipStats& skipStats,
+    const RtSmokeGeometryAdmissionPlan& plan)
+{
+    ++skipStats.limitExceeded;
+    switch (plan.result)
+    {
+        case RT_SMOKE_GEOMETRY_ADMISSION_REJECT_SURFACE_BUDGET:
+            ++skipStats.geometrySurfaceBudgetExceeded;
+            break;
+        case RT_SMOKE_GEOMETRY_ADMISSION_REJECT_BYTE_BUDGET:
+            ++skipStats.geometryByteBudgetExceeded;
+            break;
+        case RT_SMOKE_GEOMETRY_ADMISSION_REJECT_INVALID_COUNT:
+            ++skipStats.geometryAdmissionInvalid;
+            break;
+        case RT_SMOKE_GEOMETRY_ADMISSION_REJECT_ARITHMETIC_OVERFLOW:
+            ++skipStats.geometryAdmissionOverflow;
+            break;
+        default:
+            return;
+    }
+
+    if (plan.candidateBytes >
+        std::numeric_limits<uint64>::max() -
+            skipStats.geometryRejectedBytes)
+    {
+        skipStats.geometryRejectedBytes =
+            std::numeric_limits<uint64>::max();
+    }
+    else
+    {
+        skipStats.geometryRejectedBytes += plan.candidateBytes;
+    }
+}
 
 void TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& localPoint, idVec3& worldPoint)
 {
@@ -2277,9 +2345,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         bucketTriangleIdentityData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
     }
 
-    int dynamicVerts = 0;
-    int dynamicIndexes = 0;
-    int dynamicSurfaces = 0;
+    uint64 dynamicAdmissionBytes = 0;
+    uint64 dynamicAdmissionSurfaces = 0;
+    const RtSmokeGeometryAdmissionBudget dynamicAdmissionBudget =
+        BuildSmokeDynamicGeometryAdmissionBudget();
     std::vector<RtSmokeCapturedDynamicSurfaceKey> capturedDynamicSurfaces;
     capturedDynamicSurfaces.reserve(static_cast<size_t>(viewDef->numDrawSurfs));
 
@@ -2405,12 +2474,6 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 continue;
             }
 
-            if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES)
-            {
-                ++skipStats.limitExceeded;
-                break;
-            }
-
             const int classifyStartMs = Sys_Milliseconds();
             const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
             captureTiming.dynamicPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
@@ -2430,10 +2493,17 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 continue;
             }
 
-            if (dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
-                dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+            const RtSmokeGeometryAdmissionPlan admissionPlan =
+                PlanSmokeDynamicGeometryAdmission(
+                    dynamicAdmissionBudget,
+                    dynamicAdmissionBytes,
+                    dynamicAdmissionSurfaces,
+                    tri->numVerts,
+                    tri->numIndexes);
+            if (!admissionPlan.Admitted())
             {
-                ++skipStats.limitExceeded;
+                RecordSmokeGeometryAdmissionRejection(
+                    skipStats, admissionPlan);
                 continue;
             }
 
@@ -2480,6 +2550,29 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             {
                 continue;
             }
+            const int emittedVertices =
+                static_cast<int>(bucketVertices.size()) -
+                    bucketVertexStart;
+            const RtSmokeGeometryAdmissionPlan actualAdmissionPlan =
+                PlanSmokeDynamicGeometryAdmission(
+                    dynamicAdmissionBudget,
+                    dynamicAdmissionBytes,
+                    dynamicAdmissionSurfaces,
+                    emittedVertices,
+                    emittedIndexes);
+            if (!actualAdmissionPlan.Admitted())
+            {
+                RecordSmokeGeometryAdmissionRejection(
+                    skipStats, actualAdmissionPlan);
+                bucketVertices.resize(bucketVertexStart);
+                bucketIndexes.resize(bucketIndexStart);
+                bucketClasses.resize(bucketTriangleStart);
+                bucketMaterials.resize(bucketTriangleStart);
+                continue;
+            }
+            dynamicAdmissionBytes = actualAdmissionPlan.totalBytes;
+            dynamicAdmissionSurfaces =
+                actualAdmissionPlan.totalSurfaces;
             // DECAL-DYN-1 (docs/decal_cards/07): trigger-spawned / translucent-class
             // detail decals are captured here per frame; without the lift they
             // coplanar-z-fight exactly like an un-offset static card. The key is
@@ -2526,7 +2619,6 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 AddSmokeTranslucentDebugSample(materialStats, drawSurf, tri, surfaceIndex, translucentSubtype);
             }
             ++sourceSurfaces;
-            ++dynamicSurfaces;
             sourceVerts += tri->numVerts;
             sourceIndexes += emittedIndexes;
             AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
@@ -2540,8 +2632,6 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 capturedKey.materialId = baseMaterialId;
                 capturedDynamicSurfaces.push_back(capturedKey);
             }
-            dynamicVerts += tri->numVerts;
-            dynamicIndexes += emittedIndexes;
         }
     }
 
@@ -2549,7 +2639,8 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
     {
         OPTICK_EVENT("PT Capture Nearby Dynamic Occluders");
         const int retentionRadius = idMath::ClampInt(0, 8192, r_pathTracingDynamicOccluderRadius.GetInteger());
-        const int retainedSurfaceLimit = idMath::ClampInt(0, RT_SMOKE_MAX_SURFACES, r_pathTracingDynamicOccluderMaxSurfaces.GetInteger());
+        const int retainedSurfaceLimit =
+            Max(0, r_pathTracingDynamicOccluderMaxSurfaces.GetInteger());
         int retainedSurfaces = 0;
         if (retentionRadius > 0 && retainedSurfaceLimit > 0 && viewDef->renderWorld)
         {
@@ -2592,7 +2683,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
 
                 for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
                 {
-                    if (retainedSurfaces >= retainedSurfaceLimit || dynamicSurfaces >= RT_SMOKE_MAX_SURFACES)
+                    if (retainedSurfaces >= retainedSurfaceLimit)
                     {
                         break;
                     }
@@ -2637,11 +2728,18 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(&retainedDrawSurf, baseMaterialId);
                     const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
 
-                    if (dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
-                        dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+                    const RtSmokeGeometryAdmissionPlan admissionPlan =
+                        PlanSmokeDynamicGeometryAdmission(
+                            dynamicAdmissionBudget,
+                            dynamicAdmissionBytes,
+                            dynamicAdmissionSurfaces,
+                            tri->numVerts,
+                            tri->numIndexes);
+                    if (!admissionPlan.Admitted())
                     {
-                        ++skipStats.limitExceeded;
-                        break;
+                        RecordSmokeGeometryAdmissionRejection(
+                            skipStats, admissionPlan);
+                        continue;
                     }
 
                     std::vector<PathTraceSmokeVertex>& bucketVertices = bucketVertexData[bucketIndex];
@@ -2650,6 +2748,12 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
                     std::vector<uint32_t>& bucketInstances = bucketTriangleInstanceData[bucketIndex];
                     std::vector<uint32_t>& bucketIdentities = bucketTriangleIdentityData[bucketIndex];
+                    const int bucketVertexStart =
+                        static_cast<int>(bucketVertices.size());
+                    const int bucketIndexStart =
+                        static_cast<int>(bucketIndexes.size());
+                    const int bucketTriangleStart =
+                        static_cast<int>(bucketClasses.size());
                     const int appendStartMs = Sys_Milliseconds();
                     const int emittedIndexes = AppendSmokeSurfaceGeometry(
                         &retainedDrawSurf,
@@ -2673,6 +2777,31 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     {
                         continue;
                     }
+                    const int emittedVertices =
+                        static_cast<int>(bucketVertices.size()) -
+                            bucketVertexStart;
+                    const RtSmokeGeometryAdmissionPlan
+                        actualAdmissionPlan =
+                            PlanSmokeDynamicGeometryAdmission(
+                                dynamicAdmissionBudget,
+                                dynamicAdmissionBytes,
+                                dynamicAdmissionSurfaces,
+                                emittedVertices,
+                                emittedIndexes);
+                    if (!actualAdmissionPlan.Admitted())
+                    {
+                        RecordSmokeGeometryAdmissionRejection(
+                            skipStats, actualAdmissionPlan);
+                        bucketVertices.resize(bucketVertexStart);
+                        bucketIndexes.resize(bucketIndexStart);
+                        bucketClasses.resize(bucketTriangleStart);
+                        bucketMaterials.resize(bucketTriangleStart);
+                        continue;
+                    }
+                    dynamicAdmissionBytes =
+                        actualAdmissionPlan.totalBytes;
+                    dynamicAdmissionSurfaces =
+                        actualAdmissionPlan.totalSurfaces;
                     const uint32_t dynamicInstanceId = static_cast<uint32_t>(Max(1, entityIndex + 1));
                     const int emittedTriangles = emittedIndexes / 3;
                     bucketInstances.insert(bucketInstances.end(), emittedTriangles, dynamicInstanceId);
@@ -2684,7 +2813,6 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     AddSmokeMaterialStats(materialStats, shader, emittedIndexes, surfaceClass, translucentSubtype);
                     AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, &retainedDrawSurf, emittedIndexes, materialId);
                     ++sourceSurfaces;
-                    ++dynamicSurfaces;
                     ++retainedSurfaces;
                     ++dynamicStats.retainedOccluderSurfaces;
                     dynamicStats.retainedOccluderIndexes += emittedIndexes;
@@ -2693,9 +2821,6 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
                     AddSmokeDynamicGeometryStats(dynamicStats, surfaceClass, &retainedDrawSurf, tri, emittedIndexes);
                     ++bucketRanges.buckets[bucketIndex].surfaceCount;
-                    dynamicVerts += tri->numVerts;
-                    dynamicIndexes += emittedIndexes;
-
                     RtSmokeCapturedDynamicSurfaceKey capturedKey;
                     capturedKey.entityIndex = entityIndex;
                     capturedKey.tri = tri;
@@ -2705,6 +2830,9 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             }
         }
     }
+
+    skipStats.geometryAdmittedBytes = dynamicAdmissionBytes;
+    skipStats.geometryAdmittedSurfaces = dynamicAdmissionSurfaces;
 
     const int bucketMergeStartMs = Sys_Milliseconds();
     {

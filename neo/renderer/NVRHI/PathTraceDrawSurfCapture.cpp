@@ -36,6 +36,15 @@ void AddSmokeSurfaceSkipStats(RtSmokeSurfaceSkipStats& dst, const RtSmokeSurface
     dst.conditionedOff += src.conditionedOff;
     dst.nonCurrentCache += src.nonCurrentCache;
     dst.limitExceeded += src.limitExceeded;
+    dst.geometrySurfaceBudgetExceeded +=
+        src.geometrySurfaceBudgetExceeded;
+    dst.geometryByteBudgetExceeded +=
+        src.geometryByteBudgetExceeded;
+    dst.geometryAdmissionInvalid += src.geometryAdmissionInvalid;
+    dst.geometryAdmissionOverflow += src.geometryAdmissionOverflow;
+    dst.geometryAdmittedBytes += src.geometryAdmittedBytes;
+    dst.geometryRejectedBytes += src.geometryRejectedBytes;
+    dst.geometryAdmittedSurfaces += src.geometryAdmittedSurfaces;
     dst.zeroAreaOnly += src.zeroAreaOnly;
     dst.emptyClassBuffer += src.emptyClassBuffer;
     dst.guiSurface += src.guiSurface;
@@ -977,9 +986,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         }
     }
 
-    int dynamicVerts = 0;
-    int dynamicIndexes = 0;
-    int dynamicSurfaces = 0;
+    uint64 dynamicAdmissionBytes = 0;
+    uint64 dynamicAdmissionSurfaces = 0;
+    const RtSmokeGeometryAdmissionBudget dynamicAdmissionBudget =
+        BuildSmokeDynamicGeometryAdmissionBudget();
     int skippedRoutedRigidDynamicSurfaces = 0;
     int skippedRoutedRigidDynamicIndexes = 0;
     int skippedRoutedRigidDynamicByInstance = 0;
@@ -1325,7 +1335,6 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                             drawSurf,
                             tri,
                             sourceIndexCount);
-                        ++dynamicSurfaces;
                         ++captureTiming.
                             skinnedCaptureOmittedSurfaces;
                         captureTiming.
@@ -1364,11 +1373,17 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 }
             }
 
-            if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES ||
-                dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
-                dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+            const RtSmokeGeometryAdmissionPlan admissionPlan =
+                PlanSmokeDynamicGeometryAdmission(
+                    dynamicAdmissionBudget,
+                    dynamicAdmissionBytes,
+                    dynamicAdmissionSurfaces,
+                    tri->numVerts,
+                    tri->numIndexes);
+            if (!admissionPlan.Admitted())
             {
-                ++skipStats.limitExceeded;
+                RecordSmokeGeometryAdmissionRejection(
+                    skipStats, admissionPlan);
                 continue;
             }
 
@@ -1415,6 +1430,29 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             {
                 continue;
             }
+            const int emittedVertices =
+                static_cast<int>(bucketVertices.size()) -
+                    bucketVertexStart;
+            const RtSmokeGeometryAdmissionPlan actualAdmissionPlan =
+                PlanSmokeDynamicGeometryAdmission(
+                    dynamicAdmissionBudget,
+                    dynamicAdmissionBytes,
+                    dynamicAdmissionSurfaces,
+                    emittedVertices,
+                    emittedIndexes);
+            if (!actualAdmissionPlan.Admitted())
+            {
+                RecordSmokeGeometryAdmissionRejection(
+                    skipStats, actualAdmissionPlan);
+                bucketVertices.resize(bucketVertexStart);
+                bucketIndexes.resize(bucketIndexStart);
+                bucketClasses.resize(bucketTriangleStart);
+                bucketMaterials.resize(bucketTriangleStart);
+                continue;
+            }
+            dynamicAdmissionBytes = actualAdmissionPlan.totalBytes;
+            dynamicAdmissionSurfaces =
+                actualAdmissionPlan.totalSurfaces;
             const int entityIndex = (drawSurf->space && drawSurf->space->entityDef) ? drawSurf->space->entityDef->index : -1;
             const uint32_t dynamicInstanceId = static_cast<uint32_t>(Max(1, entityIndex + 1));
             const int emittedTriangles = emittedIndexes / 3;
@@ -1458,14 +1496,11 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             AddMirrorMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
             AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, drawSurf, emittedIndexes, materialId);
             ++sourceSurfaces;
-            ++dynamicSurfaces;
             sourceVerts += tri->numVerts;
             sourceIndexes += emittedIndexes;
             AddMirrorSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
             AddMirrorDynamicGeometryStats(dynamicStats, surfaceClass, drawSurf, tri, emittedIndexes);
             ++bucketRanges.buckets[bucketIndex].surfaceCount;
-            dynamicVerts += tri->numVerts;
-            dynamicIndexes += emittedIndexes;
         }
     }
 
@@ -1508,6 +1543,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         }
     }
     captureTiming.bucketMergeMs = Sys_Milliseconds() - bucketMergeStartMs;
+    skipStats.geometryAdmittedBytes = dynamicAdmissionBytes;
+    skipStats.geometryAdmittedSurfaces = dynamicAdmissionSurfaces;
 
     if (triangleClassData.empty() || triangleMaterialData.empty())
     {

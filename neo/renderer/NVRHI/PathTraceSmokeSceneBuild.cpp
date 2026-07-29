@@ -7389,6 +7389,29 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticCacheChanged = m_smokeGeometryUniverse.PruneMissingStaticSurfaces() || staticCacheChanged;
         }
     }
+    if (r_pathTracingGeometryAdmissionDump.GetInteger() != 0)
+    {
+        const RtSmokeGeometryAdmissionBudget admissionBudget =
+            BuildSmokeDynamicGeometryAdmissionBudget();
+        common->Printf(
+            "PathTracePrimaryPass: GEO13 dynamic admission budget(bytes/surfaces)=%llu/%llu admitted(bytes/surfaces)=%llu/%llu rejected(surface/bytes/invalid/overflow/bytes)=%d/%d/%d/%d/%llu legacyLimitTotal=%d\n",
+            static_cast<unsigned long long>(
+                admissionBudget.maxBytes),
+            static_cast<unsigned long long>(
+                admissionBudget.maxSurfaces),
+            static_cast<unsigned long long>(
+                skipStats.geometryAdmittedBytes),
+            static_cast<unsigned long long>(
+                skipStats.geometryAdmittedSurfaces),
+            skipStats.geometrySurfaceBudgetExceeded,
+            skipStats.geometryByteBudgetExceeded,
+            skipStats.geometryAdmissionInvalid,
+            skipStats.geometryAdmissionOverflow,
+            static_cast<unsigned long long>(
+                skipStats.geometryRejectedBytes),
+            skipStats.limitExceeded);
+        r_pathTracingGeometryAdmissionDump.SetInteger(0);
+    }
     skinnedOutputAudit =
         UpdateSmokeSkinnedOutputAllocator(
             viewDef,

@@ -8,6 +8,7 @@
 
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceGeometry.h"
+#include "PathTraceGeometryAdmissionPlan.h"
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceSkinnedHistoryPolicy.h"
 #include "PathTraceSurfaceClassification.h"
@@ -325,11 +326,29 @@ struct RtSmokeSurfaceSkipStats
     int conditionedOff = 0;
     int nonCurrentCache = 0;
     int limitExceeded = 0;
+    int geometrySurfaceBudgetExceeded = 0;
+    int geometryByteBudgetExceeded = 0;
+    int geometryAdmissionInvalid = 0;
+    int geometryAdmissionOverflow = 0;
+    uint64 geometryAdmittedBytes = 0;
+    uint64 geometryRejectedBytes = 0;
+    uint64 geometryAdmittedSurfaces = 0;
     int zeroAreaOnly = 0;
     int emptyClassBuffer = 0;
     int guiSurface = 0;
     int callbackEntity = 0;
 };
+
+RtSmokeGeometryAdmissionBudget BuildSmokeDynamicGeometryAdmissionBudget();
+RtSmokeGeometryAdmissionPlan PlanSmokeDynamicGeometryAdmission(
+    const RtSmokeGeometryAdmissionBudget& budget,
+    uint64 currentBytes,
+    uint64 currentSurfaces,
+    int vertexCount,
+    int indexCount);
+void RecordSmokeGeometryAdmissionRejection(
+    RtSmokeSurfaceSkipStats& skipStats,
+    const RtSmokeGeometryAdmissionPlan& plan);
 
 struct RtSmokeAttributeClassStats
 {

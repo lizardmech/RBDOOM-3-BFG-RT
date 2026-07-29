@@ -221,6 +221,48 @@ captured, and expose separate budget/invalid/overflow counters. It must not
 map any planner rejection back into the old undifferentiated `limitExceeded`
 counter alone.
 
+SLICE-2 IMPLEMENTATION CHECKPOINT
+---------------------------------
+Both dynamic capture implementations and the nearby retained-occluder pass now
+use the checked planner. The old surface/vertex/index constants remain only as
+non-authoritative vector reserve hints in these paths. The retained-occluder
+feature keeps its own user-configured surface limit but is no longer clamped by
+`RT_SMOKE_MAX_SURFACES`.
+
+New runtime controls are:
+
+  r_pathTracingGeometryDynamicFallbackBudgetMB       0
+  r_pathTracingGeometryDynamicFallbackSurfaceBudget  0
+  r_pathTracingGeometryAdmissionDump                 0
+
+Zero budgets are unlimited. A finite test rejects before mutation with a named
+surface/byte reason. After geometry filtering, the exact emitted vertex/index
+counts are planned again before metadata publication, so recorded admitted
+bytes describe the actual captured vertex, index, class, material, instance,
+and identity streams. An unexpected second-plan rejection rolls all four
+partially appended streams back to their starting offsets.
+
+The one-shot dump reports configured byte/surface budgets, admitted
+bytes/surfaces, rejection counts for surface/byte/invalid/overflow, rejected
+candidate bytes, and the aggregate compatibility limit counter. Initial
+reserve sizes, static admission, route defaults, shaders, and GPU ABI are
+unchanged.
+
+  PathTraceCpuPlanningHarness --stress 20       PASS
+  cmake --build --preset win64-pt-dev-release  PASS
+  SPIR-V                                        all up to date
+  executable bytes                              16,075,776
+  executable SHA-256
+    7FBF7705031D9A99485A03CD1A222B7196A49E169C5EA9B9D399F828FB72E7C2
+
+Runtime acceptance remains open. Required first capture:
+
+  1. unlimited budgets in the crowded skinned scene;
+  2. one-shot admission dump after the complete crowd is visible;
+  3. forced-low byte and surface budgets with named rejection totals;
+  4. restore both budgets to zero and prove the full geometry returns;
+  5. no device loss, buffer/BLAS creation failure, or abnormal shutdown.
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.

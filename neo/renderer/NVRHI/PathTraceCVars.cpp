@@ -315,6 +315,24 @@ idCVar r_pathTracingGeometrySourceDeltaBudgetMB(
     CVAR_RENDERER | CVAR_INTEGER,
     "GEO-06 primary-view immutable source delta budget in MiB per frame" );
 
+idCVar r_pathTracingGeometryDynamicFallbackBudgetMB(
+    "r_pathTracingGeometryDynamicFallbackBudgetMB",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-13 per-frame merged dynamic capture byte budget in MiB; 0 is unlimited" );
+
+idCVar r_pathTracingGeometryDynamicFallbackSurfaceBudget(
+    "r_pathTracingGeometryDynamicFallbackSurfaceBudget",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "GEO-13 per-frame merged dynamic capture surface budget; 0 is unlimited" );
+
+idCVar r_pathTracingGeometryAdmissionDump(
+    "r_pathTracingGeometryAdmissionDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 for one bounded GEO-13 dynamic admission budget/result summary" );
+
 idCVar r_pathTracingGeometryAttributeSurveyDump(
     "r_pathTracingGeometryAttributeSurveyDump",
     "0",
