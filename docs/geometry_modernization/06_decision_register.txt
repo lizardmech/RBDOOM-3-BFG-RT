@@ -3196,6 +3196,33 @@ camera movement, portal traversal, and the tinted emissive door-panel view.
 Any device removal rolls back this widening without changing the accepted
 portal-membership or straight-transmission route.
 
+D125. BOUNDED GLASS REFLECTION IS ACCEPTED
+------------------------------------------
+The user reports that glass reflections are present and working with route 1,
+the bounded mirror resolver, and secondary reflection shadows disabled. Minor
+artifacts remain on tinted door panels and some image-based emissives, but the
+user confirmed that those artifacts existed before reflection was enabled.
+They are not a regression owned by this gate and must remain in the separate
+emissive/material lane.
+
+Do not modify reflection transport to compensate for a pre-existing emissive
+defect. In particular, an unvalidated pass-through emissive change was removed
+before build, deployment, or commit once the chronology was clarified.
+
+D126. OPAQUE MIRRORS MAY REUSE THE ACCEPTED BOUNDED REFLECTION RESOLVER
+----------------------------------------------------------------------
+Opaque exact mirrors call the same `PathTraceReflectionSecondaryTrace` service
+as accepted glass reflection. Route 1 already selects its bounded
+forced-opaque iterative hit resolver. The next gate therefore admits opaque
+mirrors without adding a shader path, descriptor, payload, SBT record, or
+secondary visibility ray.
+
+The reflection family is supported only while
+`r_pathTracingReflectionSecondaryShadows=0`. Refracted PSR, GI, RR, and
+external PDF-NEE remain closed. Because the shader source is unchanged from
+the accepted glass-reflection checkpoint, the rebuilt Vulkan glass and
+transmission blobs are hash-identical and are not redeployed.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

@@ -2950,3 +2950,47 @@ Runtime gate:
      broken brush geometry behind glass, or a route-1 cutover failure.
   6. Record whether glass reflection is visibly present; black/unreflected
      windows are a visual rejection even if the run is crash-stable.
+
+REF-10AG GLASS ACCEPTANCE AND OPAQUE-MIRROR GATE - 2026-07-29
+--------------------------------------------------------------
+The user reports that glass reflections work. Minor tinted-door-panel and
+image-emissive artifacts were confirmed to predate reflection enablement, so
+they do not reject REF-10AF and remain outside GEO-10's reflection gate.
+
+The next isolated widening enables opaque exact mirrors. This is a caller-only
+admission: opaque mirrors use the same bounded mirror trace service accepted
+for glass. Secondary reflection shadows stay off, so no new visibility
+`TraceRay` enters the route. Refracted PSR and later consumers stay disabled.
+
+CPU support-predicate tests accept:
+
+  - straight transmission with reflection disabled;
+  - glass reflection with secondary shadows disabled;
+  - glass plus opaque-mirror reflection with secondary shadows disabled.
+
+They reject the reflection family when secondary shadows are enabled and keep
+the stage, GI, RR, PDF-NEE, and refraction gates unchanged.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness                        passed
+  PathTraceCpuPlanningHarness --stress 20            passed
+  full win64-pt-dev-release build                    passed
+  Vulkan shader content change                       none
+  rebuilt glass/transmission hashes vs deployed      equal/equal
+
+  executable SHA-256
+    4705A83FD23AC8A09DB831F24EA506FD0104D64E29AC487991616F3BAA69D82B
+
+Only the executable is deployed for this gate.
+
+Runtime gate:
+
+  1. Keep the accepted REF-10AF configuration.
+  2. Change only `r_pathTracingReflectionOpaqueMirror` from 0 to 1.
+  3. Keep `r_pathTracingReflectionSecondaryShadows=0` and
+     `r_pathTracingCleanRtxdiDiGlassRefractedPsr=0`.
+  4. Exercise windows, reflective opaque surfaces, camera motion, portals, and
+     the tinted door-panel view.
+  5. Reject device removal, swapped materials, incorrect reflected geometry,
+     broken geometry behind glass, or loss of the route-1 cutover.
