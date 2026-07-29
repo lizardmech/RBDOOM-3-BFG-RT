@@ -3533,6 +3533,21 @@ transmission PSR, material-feature composition, GI, RR, and later consumers.
 The corrected gates are diagnostic stage boundaries, not a workaround or
 default feature reduction.
 
+D139. VIEW-16 SPATIAL HAS AN EXACT DEFAULT-OFF STOP BOUNDARY
+------------------------------------------------------------
+The corrected initial-only and initial-plus-temporal configurations both
+survived the reliable camera-direction trigger. Their black and red outputs
+are incomplete-stage diagnostic presentation. Production initial and temporal
+are therefore not the first faulting stage.
+
+The existing temporal/spatial Boolean pair cannot distinguish spatial from
+the production consumers that follow it. A default-off
+`r_pathTracingCleanRtxdiDiStopAfterSpatial` diagnostic now suppresses
+transmission PSR, admits initial plus temporal plus spatial, and returns before
+material-feature composition, GI, RR, and later consumers. Default 0 preserves
+the complete production route. This is a CPU dispatch boundary and requires no
+shader variant or descriptor/payload change.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

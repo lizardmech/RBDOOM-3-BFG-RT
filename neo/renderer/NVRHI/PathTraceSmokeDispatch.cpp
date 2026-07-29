@@ -3236,9 +3236,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanRtxdiDiProductionView &&
             cleanRtxdiDiTemporalEnabled &&
             !cleanRtxdiDiSpatialEnabled;
+        const bool cleanProductionSpatialOnly =
+            cleanRtxdiDiProductionView &&
+            cleanRtxdiDiTemporalEnabled &&
+            cleanRtxdiDiSpatialEnabled &&
+            r_pathTracingCleanRtxdiDiStopAfterSpatial.GetInteger() != 0;
         const bool cleanProductionStageIsolation =
             cleanProductionInitialOnly ||
-            cleanProductionTemporalOnly;
+            cleanProductionTemporalOnly ||
+            cleanProductionSpatialOnly;
         const int cleanRequestedLiquidPoolMode = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger());
         const bool cleanLiquidPoolTelemetryReady = m_liquidPoolStatusBuffer && m_liquidPoolStatusReadbackBuffer;
         const bool cleanLiquidPoolParametersReady =
@@ -4047,6 +4053,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiSpatialReservoirBuffer);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
+        }
+        if (cleanProductionSpatialOnly)
+        {
+            if (!m_smokeTestDispatched)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: clean DI view-16 initial-plus-temporal-plus-spatial dispatch completed (%dx%d); transmission PSR, material-feature composition, GI, RR, and later consumers skipped\n",
+                    m_frameResources.width,
+                    m_frameResources.height);
+            }
+            m_smokeTestDispatched = true;
+            return;
         }
         if (staticBucketSecondaryIsolationActive &&
             staticBucketSecondaryIsolation.spatial &&

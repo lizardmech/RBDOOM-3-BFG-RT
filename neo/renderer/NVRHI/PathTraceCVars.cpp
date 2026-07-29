@@ -1299,6 +1299,12 @@ idCVar r_pathTracingCleanRtxdiDiSpatial(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI path: default-on basic spatial reservoir reuse after the temporal producer pass; set 0 for temporal-only diagnostics" );
 
+idCVar r_pathTracingCleanRtxdiDiStopAfterSpatial(
+    "r_pathTracingCleanRtxdiDiStopAfterSpatial",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI view 16 diagnostic: stop after initial, temporal, and spatial DispatchRays, before transmission PSR, material-feature composition, GI, RR, and later consumers" );
+
 idCVar r_pathTracingCleanRtxdiDiBlueNoise(
     "r_pathTracingCleanRtxdiDiBlueNoise",
     "0",

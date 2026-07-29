@@ -135,3 +135,21 @@ stage is identified. Run the three configurations above in order against the
 same right-turn trigger. Initial-only and temporal-only now return before
 transmission PSR, material-feature composition, GI, RR, and every later
 consumer; merely skipping the named DI dispatches is not an accepted boundary.
+
+Runtime results accepted on 2026-07-29:
+
+  initial only             survived; black diagnostic output
+  initial plus temporal    survived; red diagnostic output
+
+The colors are expected incomplete-stage presentation, not geometry failures.
+Production initial and temporal are therefore excluded as the first faulting
+stage. `r_pathTracingCleanRtxdiDiStopAfterSpatial` now supplies the missing
+third boundary. With its default 0, production behavior is unchanged. With
+view 16, temporal=1, spatial=1, and stop-after-spatial=1, transmission PSR is
+suppressed and the host returns immediately after spatial DispatchRays, before
+material-feature composition, GI, RR, and every later consumer.
+
+The CPU-only boundary built successfully; all SPIR-V shaders were already up
+to date. The deployed 15,996,928-byte executable is byte-identical to the
+build output, SHA-256
+7A2BF5BCBEF3016ECE99DD0D2A544F6209A6DE241B436ABF39DEEF1BB53A4C7A.
