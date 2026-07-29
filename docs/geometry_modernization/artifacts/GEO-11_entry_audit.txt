@@ -487,6 +487,8 @@ real boundaries without shader edits:
   temporal=1 spatial=0    initial plus temporal
   temporal=1 spatial=1    full production stage chain
 
-The correction built successfully with all SPIR-V up to date. The deployed
-15,995,904-byte executable is byte-identical to the build output, SHA-256
-B19E2ED9EDBAAEC853761A195386B465EA1A88C1794A6B30B8634CD06842A1B7.
+Initial-only and temporal-only return before transmission PSR,
+material-feature composition, GI, RR, and all later consumers. The correction
+built successfully with all SPIR-V up to date. The deployed 15,996,416-byte
+executable is byte-identical to the build output, SHA-256
+D0BAD4076A6D4E96368742C0A23D9060442826C5EB24D68066883E53901A4AA1.

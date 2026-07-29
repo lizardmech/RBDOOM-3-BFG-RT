@@ -3528,8 +3528,10 @@ View 16 now selects the production initial shader when temporal is disabled,
 selects the production temporal shader only when temporal is enabled, and
 selects the production spatial pass only when both temporal and spatial are
 enabled. Defaults remain temporal=1 and spatial=1, so accepted production
-behavior is unchanged. The corrected gates are diagnostic stage boundaries,
-not a workaround or default feature reduction.
+behavior is unchanged. Initial-only and temporal-only return before
+transmission PSR, material-feature composition, GI, RR, and later consumers.
+The corrected gates are diagnostic stage boundaries, not a workaround or
+default feature reduction.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

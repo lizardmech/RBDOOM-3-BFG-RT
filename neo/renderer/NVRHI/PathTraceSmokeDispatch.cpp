@@ -3229,6 +3229,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16)))) &&
             cleanPromoteSubviewReservoir &&
             m_smokeCleanRtxdiDiSpatialShaderTable != nullptr;
+        const bool cleanProductionInitialOnly =
+            cleanRtxdiDiProductionView &&
+            !cleanRtxdiDiTemporalEnabled;
+        const bool cleanProductionTemporalOnly =
+            cleanRtxdiDiProductionView &&
+            cleanRtxdiDiTemporalEnabled &&
+            !cleanRtxdiDiSpatialEnabled;
+        const bool cleanProductionStageIsolation =
+            cleanProductionInitialOnly ||
+            cleanProductionTemporalOnly;
         const int cleanRequestedLiquidPoolMode = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger());
         const bool cleanLiquidPoolTelemetryReady = m_liquidPoolStatusBuffer && m_liquidPoolStatusReadbackBuffer;
         const bool cleanLiquidPoolParametersReady =
@@ -3307,6 +3317,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS;
         }
         const bool glassReflectionProducerActive =
+            !cleanProductionStageIsolation &&
             r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
             r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0;
         if (r_pathTracingCleanRtxdiDiGlassDistortion.GetInteger() != 0)
@@ -3927,14 +3938,22 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
-        if (staticBucketSecondaryIsolationActive &&
-            staticBucketSecondaryIsolation.initial &&
-            !staticBucketSecondaryIsolation.temporal &&
-            !staticBucketSecondaryIsolation.spatial)
+        if (cleanProductionInitialOnly ||
+            (staticBucketSecondaryIsolationActive &&
+                staticBucketSecondaryIsolation.initial &&
+                !staticBucketSecondaryIsolation.temporal &&
+                !staticBucketSecondaryIsolation.spatial))
         {
             if (!m_smokeTestDispatched)
             {
-                if (staticBucketSecondaryIsolation.stage == 19)
+                if (cleanProductionInitialOnly)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: clean DI view-16 initial-only dispatch completed (%dx%d); transmission PSR, temporal, spatial, material-feature composition, GI, RR, and later consumers skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
+                else if (staticBucketSecondaryIsolation.stage == 19)
                 {
                     common->Printf(
                         "PathTracePrimaryPass: GEO-10 view-16 stage-19 bucket bounded forced-opaque iterative transmission resolve plus initial-only DI completed (%dx%d); maxInteractions=8, legacy any-hit, temporal, spatial, post-DI composition, and later consumers skipped\n",
@@ -3952,13 +3971,21 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeTestDispatched = true;
             return;
         }
-        if (staticBucketSecondaryIsolationActive &&
-            staticBucketSecondaryIsolation.temporal &&
-            !staticBucketSecondaryIsolation.spatial)
+        if (cleanProductionTemporalOnly ||
+            (staticBucketSecondaryIsolationActive &&
+                staticBucketSecondaryIsolation.temporal &&
+                !staticBucketSecondaryIsolation.spatial))
         {
             if (!m_smokeTestDispatched)
             {
-                if (staticBucketSecondaryIsolation.stage == 20)
+                if (cleanProductionTemporalOnly)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: clean DI view-16 initial-plus-temporal dispatch completed (%dx%d); transmission PSR, spatial, material-feature composition, GI, RR, and later consumers skipped\n",
+                        m_frameResources.width,
+                        m_frameResources.height);
+                }
+                else if (staticBucketSecondaryIsolation.stage == 20)
                 {
                     common->Printf(
                         "PathTracePrimaryPass: GEO-10 view-16 stage-20 bucket bounded forced-opaque iterative transmission resolve plus initial-and-temporal dispatch completed (%dx%d); maxInteractions=8, legacy any-hit, spatial, post-DI composition, and later consumers skipped\n",

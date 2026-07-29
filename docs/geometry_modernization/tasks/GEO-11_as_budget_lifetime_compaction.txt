@@ -126,10 +126,12 @@ Build and deployment after the gate correction:
 
   command       cmake --build --preset win64-pt-dev-release
   result        success; all SPIR-V shaders up to date
-  executable    15,995,904 bytes
-  sha256        B19E2ED9EDBAAEC853761A195386B465EA1A88C1794A6B30B8634CD06842A1B7
+  executable    15,996,416 bytes
+  sha256        D0BAD4076A6D4E96368742C0A23D9060442826C5EB24D68066883E53901A4AA1
   deployment    source and prebuilt executable byte-identical
 
 Do not resume the rigid retirement toggle until the first failing view-16
 stage is identified. Run the three configurations above in order against the
-same right-turn trigger.
+same right-turn trigger. Initial-only and temporal-only now return before
+transmission PSR, material-feature composition, GI, RR, and every later
+consumer; merely skipping the named DI dispatches is not an accepted boundary.
