@@ -3889,6 +3889,41 @@ rigid GPU dump. The CPU harness and full Vulkan release build pass. Runtime
 acceptance still requires unlimited parity and one forced-low bounded
 replacement capture.
 
+D158. LEGACY-RIGID ADMISSION IS ACCEPTED; OPTIONAL SCRATCH EXTENSION IS DEFERRED
+-------------------------------------------------------------------------------
+`geometry_geo_step17.log` proves default-unlimited parity and both bounded
+admission reasons. Unlimited mode performs zero result queries and reuses all
+114 unique BLAS packages for 123 exact instances.
+
+The forced interval records 69,840 operation deferrals, 5,891 result-byte
+deferrals, 6,127 authoritative queries with zero failures, 1,088,512 admitted
+result bytes, 32 oversized admissions totaling 406,016 bytes, maximum age
+113, and zero unknown-size or allocation failures. Final TLAS and route
+publication remain exact 123/123 with no missing package component or material
+index. Retirement tokens through 679 complete by graphics event query with
+zero failures and pending zero.
+
+All three auxiliary providers now consume D147 safely. Because measured
+operation/result admission converges without unexplained pressure or failure,
+Slice 5 does not justify widening NVRHI for scratch telemetry. Exact scratch
+lifetime remains covered by backend command-buffer versioning; scratch-byte
+admission remains unsupported rather than estimated. GEO-11 proceeds to its
+final stress and timing capture.
+
+D159. SLICE-6 REUSES THE BOUNDED GEOMETRY TIMER FOR CPU SUBMISSION DISTRIBUTIONS
+-------------------------------------------------------------------------------
+`r_pathTracingGeometrySkinnedTiming` now appends microsecond BLAS, TLAS, and
+total acceleration CPU submission durations to each completion-safe geometry
+GPU timer result. Main submission values belong to merged-dynamic rows;
+per-instance-skinned rows explicitly remain zero because they do not build the
+main TLAS. This is timing-only instrumentation: it does not change AS
+admission, command ordering, geometry identity, or traversal.
+
+The bounded 240-frame stream supplies unbiased samples for offline median,
+p90, and maximum calculation while retaining the existing GPU build/update/
+rebuild/reuse census. The CPU planning harness, 20-iteration stress run, and
+full Vulkan release build pass; no shader was rebuilt.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

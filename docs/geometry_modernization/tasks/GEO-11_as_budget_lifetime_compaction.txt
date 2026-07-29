@@ -727,3 +727,72 @@ Build and deployment:
 
 Runtime validation remains required for default-unlimited parity and a short,
 bounded force-rebuild interval under both operation and result-byte limits.
+
+LEGACY-RIGID ADMISSION ACCEPTED
+-------------------------------
+`geometry_geo_step17.log` accepts the final auxiliary-provider integration.
+The unlimited baseline is exact:
+
+  unique records / instances                    114 / 123
+  BLAS create / build / reuse                    0 / 0 / 114
+  result queries / admitted bytes                0 / 0
+  admission deferrals / failures                 0 / 0
+  TLAS planned / GPU buffers / BLASes             123 / 123 / 123
+  missing mesh / stale / buffers / BLAS           0 / 0 / 0 / 0
+  route instances / unique / missing              123 / 114 / 0
+
+The combined one-operation and 8 KiB forced interval reports:
+
+  operation / result-byte deferrals              69840 / 5891
+  requirement queries / failures                  6127 / 0
+  unknown-size / allocation failures                 0 / 0
+  admitted result bytes                           1088512
+  oversized admissions / bytes                    32 / 406016
+  maximum deferred age                            113
+
+After force rebuild stopped, the provider returned to 114/114 steady reuse.
+The TLAS remained exact 123/123 and the route retained all 123 instances with
+zero missing records, buffers, BLASes, or material indexes. Retirement tokens
+9 through 679 completed through graphics-event-query authority with zero
+result-query failures and pending zero. Slice-4 admission is accepted.
+
+The measured operation/result policy converged without unknown sizes,
+allocation failures, route omissions, or an unbounded age. Slice 5's optional
+NVRHI scratch-telemetry extension is therefore not triggered. Scratch
+lifetime remains backend-owned and completion-safe, while exact scratch-byte
+admission remains explicitly unavailable in this build.
+
+GEO-11 now enters Slice 6 stress and acceptance. The remaining instrumentation
+need is an unbiased per-frame CPU submission-time stream for the already
+existing skinned/dynamic GPU timing window; no geometry or AS policy change is
+required.
+
+SLICE-6 TIMING STREAM
+---------------------
+The existing bounded `r_pathTracingGeometrySkinnedTiming` capture now records
+microsecond CPU submission durations beside each completed GPU timer. The
+merged-dynamic rows carry the main acceleration submission values; the
+per-instance-skinned rows report zero because that separate submission does
+not construct the main TLAS:
+
+  cpuSubmitUs(blas/tlas/accel)
+
+BLAS time covers static/dynamic BLAS command recording. TLAS time covers TLAS
+construction plus the exact nested-BLAS read-state marking used by traversal.
+Total acceleration time also includes instance-descriptor construction. The
+existing per-instance-skinned and merged-dynamic GPU samples, build/update/
+rebuild/reuse counts, geometry counts, and CPU skin time are unchanged.
+
+The timer remains explicitly bounded to at most 240 requested frames and uses
+the existing 32 completion-safe query slots. The final log can therefore be
+parsed offline for median, p90, and maximum CPU and GPU values without enabling
+unbounded general scene logging.
+
+Build and deployment:
+
+  focused target  PathTraceCpuPlanningHarness --stress 20
+  focused result  PASS
+  full command    cmake --build --preset win64-pt-dev-release
+  full result     success; all SPIR-V shaders up to date
+  executable      16,034,304 bytes
+  sha256          CCA91CAC19ACBDAF199BDE5B33622568F88F5DC3E76C316BFB4C02C5B7C04C0B

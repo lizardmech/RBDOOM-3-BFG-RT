@@ -6519,7 +6519,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const float gpuSeconds =
             device->getTimerQueryTime(timer.query);
         common->Printf(
-            "PathTracePrimaryPass: GEO08 timing frame=%llu kind=%s submitted=%d gpuUs=%.1f counts(build/update/rebuild/reuse)=%u/%u/%u/%u skinned(surfaces/sourceIndexes/cpuCapturedIndexes/cpuSkinUs)=%u/%u/%u/%llu dynamicBlasIndexes=%u\n",
+            "PathTracePrimaryPass: GEO08 timing frame=%llu kind=%s submitted=%d gpuUs=%.1f counts(build/update/rebuild/reuse)=%u/%u/%u/%u skinned(surfaces/sourceIndexes/cpuCapturedIndexes/cpuSkinUs)=%u/%u/%u/%llu dynamicBlasIndexes=%u cpuSubmitUs(blas/tlas/accel)=%llu/%llu/%llu\n",
             static_cast<unsigned long long>(
                 timer.geometryFrame),
             timer.skinnedBlas
@@ -6536,7 +6536,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             timer.cpuCapturedSkinnedIndexes,
             static_cast<unsigned long long>(
                 timer.cpuSkinUs),
-            timer.dynamicBlasIndexes);
+            timer.dynamicBlasIndexes,
+            static_cast<unsigned long long>(
+                timer.cpuBlasSubmitUs),
+            static_cast<unsigned long long>(
+                timer.cpuTlasSubmitUs),
+            static_cast<unsigned long long>(
+                timer.cpuAccelSubmitUs));
         timer.pending = false;
     }
     const bool optickGpuMarkers = r_pathTracingOptickGpuMarkers.GetInteger() != 0;
@@ -11237,6 +11243,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     candidate.cpuSkinUs =
                         captureTiming.
                             rtCpuSkinningAppendUs;
+                    candidate.cpuBlasSubmitUs = 0;
+                    candidate.cpuTlasSubmitUs = 0;
+                    candidate.cpuAccelSubmitUs = 0;
                     return &candidate;
                 }
                 return nullptr;
@@ -12703,6 +12712,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int blasSubmitMs = accelSubmitTiming.blasSubmitMs;
     const int tlasSubmitMs = accelSubmitTiming.tlasSubmitMs;
     const int accelSubmitMs = accelSubmitTiming.accelSubmitMs;
+    if (dynamicBlasGpuTimer)
+    {
+        dynamicBlasGpuTimer->cpuBlasSubmitUs =
+            accelSubmitTiming.blasSubmitMicroseconds;
+        dynamicBlasGpuTimer->cpuTlasSubmitUs =
+            accelSubmitTiming.tlasSubmitMicroseconds;
+        dynamicBlasGpuTimer->cpuAccelSubmitUs =
+            accelSubmitTiming.accelSubmitMicroseconds;
+    }
     RtPathTraceCpuWorkRecordRenderSubmit(m_smokeCpuWorkState, accelerationPlanGeneration, static_cast<double>(accelSubmitMs));
     const int instanceCount = accelSubmitTiming.instanceCount;
     if (dynamicBlasGpuTimer)

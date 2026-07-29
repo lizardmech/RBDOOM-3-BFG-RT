@@ -5,6 +5,7 @@
 #include "PathTraceAccelerationPlan.h"
 
 #include <algorithm>
+#include <chrono>
 #include <nvrhi/utils.h>
 
 namespace
@@ -162,6 +163,9 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
 
     const int accelSubmitStartMs = Sys_Milliseconds();
     const int blasSubmitStartMs = Sys_Milliseconds();
+    const auto accelSubmitStart =
+        std::chrono::steady_clock::now();
+    const auto blasSubmitStart = accelSubmitStart;
     timing.staticBlasBuildSkipped = submitPlanInput.hasStaticBlas && !submitPlan.buildStaticBlas;
     timing.dynamicBlasBuildSkipped = submitPlanInput.hasDynamicBlas && !submitPlan.buildDynamicBlas;
     if (submitPlan.buildStaticBlas)
@@ -207,6 +211,13 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
         timing.dynamicBlasBuildSkipped = false;
     }
     timing.blasSubmitMs = Sys_Milliseconds() - blasSubmitStartMs;
+    const auto blasSubmitEnd =
+        std::chrono::steady_clock::now();
+    timing.blasSubmitMicroseconds =
+        static_cast<uint64_t>(
+            std::chrono::duration_cast<
+                std::chrono::microseconds>(
+                blasSubmitEnd - blasSubmitStart).count());
 
     std::vector<nvrhi::rt::InstanceDesc> instanceDescs;
     instanceDescs.reserve(2 + (desc.extraTlasInstances ? desc.extraTlasInstances->size() : 0));
@@ -234,6 +245,8 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     }
 
     const int tlasSubmitStartMs = Sys_Milliseconds();
+    const auto tlasSubmitStart =
+        std::chrono::steady_clock::now();
     {
         OPTICK_GPU_EVENT("PT GPU Build TLAS");
         if (desc.diagnosticMarkers)
@@ -255,6 +268,18 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     }
     timing.tlasSubmitMs = Sys_Milliseconds() - tlasSubmitStartMs;
     timing.accelSubmitMs = Sys_Milliseconds() - accelSubmitStartMs;
+    const auto accelSubmitEnd =
+        std::chrono::steady_clock::now();
+    timing.tlasSubmitMicroseconds =
+        static_cast<uint64_t>(
+            std::chrono::duration_cast<
+                std::chrono::microseconds>(
+                accelSubmitEnd - tlasSubmitStart).count());
+    timing.accelSubmitMicroseconds =
+        static_cast<uint64_t>(
+            std::chrono::duration_cast<
+                std::chrono::microseconds>(
+                accelSubmitEnd - accelSubmitStart).count());
     timing.instanceCount = static_cast<int>(instanceDescs.size());
     return true;
 }

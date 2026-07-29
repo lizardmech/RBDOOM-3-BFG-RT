@@ -53,6 +53,9 @@ struct RtSmokeAccelSubmitTiming
     int blasSubmitMs = 0;
     int tlasSubmitMs = 0;
     int accelSubmitMs = 0;
+    uint64_t blasSubmitMicroseconds = 0;
+    uint64_t tlasSubmitMicroseconds = 0;
+    uint64_t accelSubmitMicroseconds = 0;
     int instanceCount = 0;
     bool staticBlasBuildSubmitted = false;
     bool staticBlasBuildSkipped = false;

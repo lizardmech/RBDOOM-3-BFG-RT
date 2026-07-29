@@ -543,6 +543,9 @@ private:
         uint32 cpuCapturedSkinnedIndexes = 0;
         uint32 dynamicBlasIndexes = 0;
         uint64 cpuSkinUs = 0;
+        uint64 cpuBlasSubmitUs = 0;
+        uint64 cpuTlasSubmitUs = 0;
+        uint64 cpuAccelSubmitUs = 0;
     };
     GeometrySkinnedGpuTimerSlot
         m_geometrySkinnedGpuTimers[
