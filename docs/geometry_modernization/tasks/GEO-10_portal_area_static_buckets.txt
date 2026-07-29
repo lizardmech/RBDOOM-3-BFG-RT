@@ -2872,3 +2872,31 @@ Required runtime evidence:
   - active TLAS outputs still exactly match active buckets;
   - `materialIndexMissingActive=0`;
   - portal traversal and the tinted door-panel view remain device-loss free.
+
+REF-10AE FRONTEND-VISIBLE MASK ACCEPTED - 2026-07-29
+----------------------------------------------------
+The post-fix run accepts REF-10AD's required evidence. The user reports that
+the scene now looks correct in game, including the brush geometry that had
+previously disappeared beyond the first one or two portal areas.
+
+The log records:
+
+  frontend-visible/selected areas at startup          2/4
+  resident/ready bucket BLASes at cutover             56/56
+  accepted active bucket counts while moving          4, 8, 5, 7, 3, 6
+  active TLAS outputs                                 exact active count
+  resident route records                              56
+  missing active material indexes                     0
+  device-loss checkpoints                             none
+  shutdown                                            normal
+
+This is direct proof that route 1 followed the frontend clipped portal flood
+and changed its active set while retaining visually required brush geometry.
+The frontend snapshot plus default-one neighbor expansion is now the accepted
+production static-area policy.
+
+Two later diagnostics after `noclip OFF` reported an empty bucket publication
+and correctly fell back to monolithic traversal. No visual issue or device
+loss accompanied those transitions. Their exact view/area cause is not proven
+by this log; keep the fail-closed path and reopen only if the route drops
+during ordinary in-area traversal.

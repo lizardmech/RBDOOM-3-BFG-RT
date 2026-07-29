@@ -3145,6 +3145,35 @@ reused by later subviews before backend consumption. CPU tests cover exact
 visible-set preservation, one-step boundary expansion, invalid portal edges,
 the no-snapshot fail-closed case, and the explicit full-map diagnostic.
 
+D123. FRONTEND PORTAL-FLOOD MEMBERSHIP IS ACCEPTED FOR ROUTE 1
+--------------------------------------------------------------
+The rebuilt frontend-snapshot route was tested in the same Doom 3 scene and
+reported visually correct. Brush geometry remained present through portal
+traversal; the prior one-or-two-area disappearance was not reproduced.
+
+The captured log proves that route 1 used the new membership source rather
+than succeeding through the monolithic fallback:
+
+  - the initial frontend-visible/selected area count was 2/4;
+  - all 56 resident bucket BLASes reached ready state;
+  - accepted bucket-resident traversal followed camera movement with active
+    counts of 4, 8, 5, 7, 3, and 6;
+  - each accepted publication emitted exactly the active TLAS count;
+  - all 56 route records remained published;
+  - missing active material indexes remained zero;
+  - no device loss occurred and renderer shutdown completed normally.
+
+After `noclip OFF`, the diagnostic route twice failed closed with an empty
+bucket publication and used monolithic traversal. The user observed no visual
+loss. The log does not identify whether this was an invalid-area camera
+transition or a non-primary view, so it is not evidence for accepting empty
+bucket membership. Retain the existing fail-closed behavior and revisit only
+if normal, in-area traversal reproduces repeated route loss.
+
+The production membership decision is therefore settled: use the immutable
+frontend clipped portal-flood snapshot plus the conservative one-neighbor
+expansion. Do not return to a fixed camera-area breadth-first radius.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
