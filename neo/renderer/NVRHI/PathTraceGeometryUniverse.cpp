@@ -2420,6 +2420,26 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
     const uint64 intervalRetired = m_canonicalRigidBlasStats.blasRetired;
     const uint64 intervalBuildMicros =
         m_canonicalRigidBlasStats.buildSubmitMicroseconds;
+    const int intervalDeferredOperationBudget =
+        m_canonicalRigidBlasStats.deferredOperationBudget;
+    const int intervalDeferredResultByteBudget =
+        m_canonicalRigidBlasStats.deferredResultByteBudget;
+    const int intervalDeferredUnknownResultBytes =
+        m_canonicalRigidBlasStats.deferredUnknownResultBytes;
+    const int intervalDeferredAllocationFailure =
+        m_canonicalRigidBlasStats.deferredAllocationFailure;
+    const int intervalResultRequirementQueries =
+        m_canonicalRigidBlasStats.resultRequirementQueries;
+    const int intervalResultRequirementFailures =
+        m_canonicalRigidBlasStats.resultRequirementFailures;
+    const int intervalOversizedResultAdmissions =
+        m_canonicalRigidBlasStats.oversizedResultAdmissions;
+    const uint64 intervalAdmittedResultBytes =
+        m_canonicalRigidBlasStats.admittedResultBytes;
+    const uint64 intervalOversizedResultBytes =
+        m_canonicalRigidBlasStats.oversizedResultBytes;
+    const uint64 intervalMaxDeferredAge =
+        m_canonicalRigidBlasStats.maxDeferredAge;
     m_canonicalRigidBlasStats = RtPathTraceCanonicalRigidBlasStats();
     m_canonicalRigidBlasStats.frameIndex = m_currentFrameIndex;
     m_canonicalRigidBlasStats.enabled = enabled ? 1 : 0;
@@ -2429,6 +2449,26 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
     m_canonicalRigidBlasStats.blasRetired = intervalRetired;
     m_canonicalRigidBlasStats.buildSubmitMicroseconds =
         intervalBuildMicros;
+    m_canonicalRigidBlasStats.deferredOperationBudget =
+        intervalDeferredOperationBudget;
+    m_canonicalRigidBlasStats.deferredResultByteBudget =
+        intervalDeferredResultByteBudget;
+    m_canonicalRigidBlasStats.deferredUnknownResultBytes =
+        intervalDeferredUnknownResultBytes;
+    m_canonicalRigidBlasStats.deferredAllocationFailure =
+        intervalDeferredAllocationFailure;
+    m_canonicalRigidBlasStats.resultRequirementQueries =
+        intervalResultRequirementQueries;
+    m_canonicalRigidBlasStats.resultRequirementFailures =
+        intervalResultRequirementFailures;
+    m_canonicalRigidBlasStats.oversizedResultAdmissions =
+        intervalOversizedResultAdmissions;
+    m_canonicalRigidBlasStats.admittedResultBytes =
+        intervalAdmittedResultBytes;
+    m_canonicalRigidBlasStats.oversizedResultBytes =
+        intervalOversizedResultBytes;
+    m_canonicalRigidBlasStats.maxDeferredAge =
+        intervalMaxDeferredAge;
 
     if (!enabled || device == nullptr || commandList == nullptr)
     {
@@ -2861,6 +2901,16 @@ void RtSmokeGeometryUniverse::DumpCanonicalRigidBlasStats()
     m_canonicalRigidBlasStats.blasReused = 0;
     m_canonicalRigidBlasStats.blasRetired = 0;
     m_canonicalRigidBlasStats.buildSubmitMicroseconds = 0;
+    m_canonicalRigidBlasStats.deferredOperationBudget = 0;
+    m_canonicalRigidBlasStats.deferredResultByteBudget = 0;
+    m_canonicalRigidBlasStats.deferredUnknownResultBytes = 0;
+    m_canonicalRigidBlasStats.deferredAllocationFailure = 0;
+    m_canonicalRigidBlasStats.resultRequirementQueries = 0;
+    m_canonicalRigidBlasStats.resultRequirementFailures = 0;
+    m_canonicalRigidBlasStats.oversizedResultAdmissions = 0;
+    m_canonicalRigidBlasStats.admittedResultBytes = 0;
+    m_canonicalRigidBlasStats.oversizedResultBytes = 0;
+    m_canonicalRigidBlasStats.maxDeferredAge = 0;
 }
 
 void RtSmokeGeometryUniverse::RetireRigidBlas(RigidMeshCandidateRecord& record)

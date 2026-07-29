@@ -748,3 +748,46 @@ Build and deployment:
   executable      16,014,848 bytes
   sha256          B5F38CF9EFDFA8D7A41006A948EF745DC358A0D3F9E5D21307DAA8DDAAB97A9B
   deployment      source and prebuilt executable byte-identical
+
+STEP-12 FORCED-LOW RUNTIME CAPTURE
+----------------------------------
+`geometry_geo_step12.log` applies an 8 KiB result budget with a 16-operation
+cap, disables canonical rigid publication, and then re-enables it during
+ordinary traversal. The disable package retires 300 canonical BLASes,
+1,831,680 result bytes, and reaches graphics-event-query pending zero with no
+query failure.
+
+At the final frame 3652:
+
+  canonical resident BLASes                  299
+  requested instances / unique              123 / 109
+  ready / deferred                           109 / 0
+  identity exact / route                     123 / 123
+  TLAS descriptors legacy / canonical        123 / 123
+  exact TLAS mappings / failures             123 / 0
+  interval create / build                    299 / 299
+  missing identity / source / pool           0 / 0 / 0
+
+No device loss or fatal error is present. The forced-low route converged and
+the current TLAS recovered exact parity. The resident 299 versus retired 300
+catalog difference is expected across portal traversal; only the current
+123-instance publication is live.
+
+The final admission tuple was zero because those fields were frame-local,
+unlike the existing interval create/build counters. The brief enabled dump
+captured the disabled frame but not the subsequent rebuild frames. This is an
+observability failure, not an admission or geometry failure.
+
+Admission deferral reasons, result queries/failures, admitted bytes, oversized
+count/bytes, and maximum deferred age now persist until the canonical BLAS dump
+and reset after it. The direct byte/reason proof requires one short repeat with
+only a final dump; safety, retirement, convergence, and route parity are
+accepted.
+
+Counter-lifetime rebuild and deployment:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; all SPIR-V shaders up to date
+  executable    16,014,848 bytes
+  sha256        5D1B87474B271BD0426CAB7B2145DA9CBDD110DB5C2DD588B7B642A4D148B9E4
+  deployment    source and prebuilt executable byte-identical

@@ -3743,6 +3743,26 @@ indivisible BLAS would otherwise starve a live mesh permanently. Static
 buckets, legacy rigid, and main dynamic work remain outside this first
 runtime integration.
 
+D149. FORCED-LOW CANONICAL ADMISSION CONVERGES; COUNTERS BECOME INTERVAL DATA
+----------------------------------------------------------------------------
+`geometry_geo_step12.log` applies an 8 KiB result cap and 16-operation cap.
+Disabling the provider retires 300 canonical BLASes and 1,831,680 result bytes
+through exact graphics-event-query completion. Re-enable rebuilds a
+299-record resident catalog. The final current route is exact: 123/123
+identity coverage, 123/123 legacy/canonical TLAS descriptors, 123 exact
+mappings, zero failures, and 109/109 requested unique meshes ready with zero
+deferred. No device loss or fatal error occurs.
+
+The run accepts safety and convergence but reveals that admission fields were
+frame-local while build/create fields were interval counters. Because the
+low-budget work completed before the final dump, its direct byte and oversized
+totals were no longer observable.
+
+Admission reason, query/failure, admitted-byte, oversized, and maximum-age
+fields now accumulate until `DumpCanonicalRigidBlasStats` and reset after that
+dump. This permits one bounded final capture instead of continuous geometry
+logging. One short repeat remains for direct numeric budget proof.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
