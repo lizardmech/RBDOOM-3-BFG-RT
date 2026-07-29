@@ -40,7 +40,8 @@ const uint32_t LIQUID_POOL_CONTROL_PARAMETERS_READY = 1u << 3u;
 
 // Must match the DI sentinel constants blob size mirrored at the head of the
 // GI cbuffer (PathTraceCleanRtxdiDiSentinelConstants).
-const uint32_t CLEAN_RESTIR_GI_DI_BLOB_SIZE = 512u;
+const uint32_t CLEAN_RESTIR_GI_DI_BLOB_SIZE =
+    PATH_TRACE_CLEAN_RTXDI_DI_CONSTANTS_SIZE;
 const uint32_t CLEAN_RESTIR_GI_DI_ANALYTIC_LIGHT_COUNT_OFFSET = 4u * sizeof(uint32_t);
 
 // GI-owned cbuffer tail; layout must match the trailing fields of

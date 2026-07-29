@@ -13,6 +13,11 @@
 
 #include <cstdint>
 
+// Exact byte size of the live DI constants prefix mirrored at the head of the
+// clean GI cbuffer. The GI-owned tail begins immediately after this prefix in
+// HLSL; PathTraceSmokeDispatch.cpp asserts its host struct matches this value.
+constexpr uint32_t PATH_TRACE_CLEAN_RTXDI_DI_CONSTANTS_SIZE = 496u;
+
 struct PathTraceCleanRestirGiRayTracingPipelineState
 {
     nvrhi::BindingLayoutHandle bindingLayout;

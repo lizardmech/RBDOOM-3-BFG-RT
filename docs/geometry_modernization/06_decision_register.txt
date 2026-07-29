@@ -4214,6 +4214,27 @@ transmission, external PDF-NEE off, RR off, and stage zero. No shader, ABI, or
 default changes. Runtime acceptance is required before widening another
 consumer or marker/view policy.
 
+D172. BUCKET ROUTING WITH GI REQUESTED PASSES; CLEAN GI PREFIX ABI WAS STALE
+-----------------------------------------------------------------------------
+`geometry_geo_step18.log` proves route 1 remains exact with clean GI requested.
+The bucket provider converges from 2/56 to 56/56 ready BLASes, then publishes
+exact active TLAS counts across portal sets from 9 to 17 buckets, all 56 route
+records, and zero active material-index misses. Route-zero rollback and
+route-one restoration both work, the warm path reuses all 56 BLASes with zero
+upload/build/query failure, and shutdown is normal.
+
+The run does not accept GI consumption. Clean GI reports input-gate
+`core=00000100` before returning every frame. Bit 8 means the passed DI
+constants blob is not the module's expected size.
+
+The live host DI constants struct and the mirrored HLSL prefix are exactly 496
+bytes. The GI module's stale 512-byte constant both rejected that valid input
+and placed the GI-owned tail 16 bytes after its HLSL offset. One shared
+496-byte constant now owns the contract and an exact host static assertion
+prevents drift. This is a host-only correction; shaders and GPU ABI are
+unchanged. A repeated runtime test must prove the gate is gone and GI actually
+dispatches before clean GI is accepted as a bucket consumer.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.

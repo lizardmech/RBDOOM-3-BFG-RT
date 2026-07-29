@@ -9,6 +9,7 @@
 // outside this module.
 
 #include "PathTraceCVars.h"
+#include "PathTraceCleanRestirGi.h"
 #include "PathTraceCleanRtxdiDiGui.h"
 #include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceSmokeDispatch.h"
@@ -401,7 +402,10 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     uint32_t staticBucketRouteInfo[4] = {};
 };
 
-static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 512, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
+static_assert(
+    sizeof(PathTraceCleanRtxdiDiSentinelConstants) ==
+        PATH_TRACE_CLEAN_RTXDI_DI_CONSTANTS_SIZE,
+    "PathTraceCleanRtxdiDiSentinelConstants no longer matches the clean GI cbuffer prefix");
 
 nvrhi::ObjectType GetPathTraceCommandObjectType()
 {

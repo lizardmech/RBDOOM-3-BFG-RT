@@ -485,6 +485,56 @@ RR off, and stage zero. It must prove exact bucket cutover after BLAS
 convergence, GI dispatch without device loss, portal traversal, optical
 coverage, and explicit route-zero rollback.
 
+SLICE-5B FIRST RUNTIME RESULT AND GI ABI REPAIR
+-----------------------------------------------
+`geometry_geo_step18.log` accepts the bucket-route portion but not yet clean
+GI consumption.
+
+The bucket provider converges deterministically from 2/56 ready BLASes at frame
+1 to 56/56 at frame 28. The route then remains accepted across active portal
+sets ranging from 9 to 17 buckets:
+
+  consumer supported / production route              1 / 1
+  resident / ready buckets                           56 / 56
+  TLAS output / active bucket count                   exact
+  resident route records                                  56
+  active material-index misses                             0
+  traversal                              bucket-resident-pool
+
+Explicit route zero restores monolithic traversal without retiring resident
+bucket resources. Restoring route one immediately republishes an exact
+14/56/56 active/resident/ready tuple. The warm audit reports zero upload bytes,
+zero BLAS builds, 56 BLAS reuses, zero result-query failures, and every
+assignment/geometry/publication failure counter zero. The run reaches normal
+renderer shutdown with no device loss or resource failure.
+
+Clean GI was requested but did not execute. Its one-shot input-gate line is:
+
+  core=00000100 geometry=00000000 route=00000000
+  lighting=00000000 temporal=00000000
+
+Core bit 8 is an exact DI constants-blob size mismatch. The live host
+`PathTraceCleanRtxdiDiSentinelConstants` is 496 bytes, matching the HLSL field
+layout and the byte at which the GI-owned cbuffer tail begins. The GI host
+module retained a stale 512-byte prefix constant, rejected every 496-byte
+input, and would otherwise have copied the GI tail 16 bytes after its shader
+offset.
+
+The correction defines one shared 496-byte prefix constant, asserts the live
+DI host struct is exactly that size, accepts the exact input, and writes the GI
+tail at byte 496. No shader source, descriptor, SBT, payload, or CVar changes.
+
+  PathTraceCpuPlanningHarness --stress 20       PASS
+  cmake --build --preset win64-pt-dev-release  PASS
+  SPIR-V                                        all up to date
+  executable bytes                              16,079,872
+  executable SHA-256
+    06A2419251055645E2085C62A28C7CA5B46D6B100FD0DF2D2B155773FDC7C308
+
+The corrected candidate must repeat the same route-1 clean-GI test. Acceptance
+requires absence of the input-gate line, successful GI pipeline/dispatch
+progress, exact bucket cutover, normal traversal/optics, and no device loss.
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.
