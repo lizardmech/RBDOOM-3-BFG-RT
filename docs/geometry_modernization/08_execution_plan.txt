@@ -1062,6 +1062,36 @@ deployed candidate is SHA-256
 `06A2419251055645E2085C62A28C7CA5B46D6B100FD0DF2D2B155773FDC7C308`.
 Clean-GI route acceptance requires one repeated runtime.
 
+The corrected repeat clears the input gate and again proves exact static
+bucket routing, but its clean-GI warmup entry is `limit=0`. That value
+deliberately builds none of the sixteen split pipelines, so the run cannot
+produce a GI dispatch and is not acceptance evidence for the consumer.
+Repeat with `r_pathTracingCleanRestirGiPipelineWarmupLimit 16` set before map
+load; wait for 16/16 initialization and a `dispatched GI lane` record before
+performing portal, optics, rollback, and restoration checks.
+
+The final repeat completes that proof. All 16 production split pipelines
+initialize, clean GI dispatches at 640x360, route 1 remains exact across 9-22
+active portal buckets with 56/56 resident BLASes and zero active material-index
+misses, rollback/restoration succeed, and shutdown is normal. Clean GI is
+accepted as a static-bucket consumer. The ignored skybox is the pre-existing
+RGI-02 true-miss limitation: only valid sky-material surface hits reach the
+compute sky resolve. Treat environment radiance for hardware misses as
+clean-GI follow-up work, not as a bucket-route rejection.
+
+The next bounded static-default slice removes the diagnostic-marker dependency
+from the production predicate. Markers remain available for diagnostics but
+must not be required for correct address decoding or traversal. View 16 and
+all external PDF-NEE, RR, bounded-optics, and stage-zero gates remain unchanged
+for that test.
+
+The marker-independent candidate is built and deployed. Only the production
+predicate ignores the marker boolean; diagnostic probe/isolation routes remain
+instrumented. CPU harness stress and the Vulkan release build pass, SPIR-V is
+unchanged, and the executable SHA-256 is
+`DCDB8C9CBF03BF513D3954D0A71645CA8F187DB4BDFA80896F1CC513337715DD`.
+One marker-off view-16 runtime remains before widening the view policy.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

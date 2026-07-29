@@ -2134,7 +2134,7 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     int routeMode,
     bool cleanDiEnabled,
     int cleanDiView,
-    bool diagnosticCheckpointsEnabled,
+    bool /*diagnosticCheckpointsEnabled*/,
     bool /*cleanGiEnabled*/,
     bool externalPdfNeeEnabled,
     bool dlssRrEnabled,
@@ -2154,7 +2154,9 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     // resolver. The clean GI libraries consume the same routed buffers,
     // publication tuple, and canonical static address, so GI does not require
     // a separate static namespace. Keep external PDF-NEE and RR consumers
-    // fail-closed until their own route acceptance.
+    // fail-closed until their own route acceptance. GPU markers instrument
+    // these same dispatches; they do not select a shader consumer or alter the
+    // routed geometry contract and are not a production-admission requirement.
     const bool reflectionFamilyActive =
         reflectionPsrEnabled ||
         opaqueMirrorEnabled;
@@ -2168,7 +2170,6 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     return routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION &&
         cleanDiEnabled &&
         cleanDiView == 16 &&
-        diagnosticCheckpointsEnabled &&
         !externalPdfNeeEnabled &&
         !dlssRrEnabled &&
         transmissionPsrEnabled &&

@@ -4235,6 +4235,80 @@ prevents drift. This is a host-only correction; shaders and GPU ABI are
 unchanged. A repeated runtime test must prove the gate is gone and GI actually
 dispatches before clean GI is accepted as a bucket consumer.
 
+D173. REPEATED ROUTE PROOF CLEARS THE ABI GATE BUT DID NOT ENABLE GI WARMUP
+---------------------------------------------------------------------------
+The corrected `geometry_geo_step18.log` no longer contains the clean-GI input
+gate. Static bucket routing again converges to 56/56 ready BLASes, maintains
+exact active TLAS output and zero active material-index misses through portal
+traversal, survives route-zero rollback and route-one restoration, and shuts
+down normally.
+
+This run still does not accept GI consumption. Its warmup entry reports
+`limit=0`, which intentionally permits zero of the sixteen Vulkan split
+pipelines to build. Accordingly there is no pipeline-progress, initialized, or
+GI-dispatch line. This is a test-configuration omission, not evidence of a new
+runtime or geometry failure.
+
+The next run must set
+`r_pathTracingCleanRestirGiPipelineWarmupLimit 16` before loading the save and
+remain open until `GI production split pipeline warmup 16/16`, `GI production
+split pipelines initialized`, and `dispatched GI lane` appear. Partial limits
+1 through 15 are diagnostic only and cannot dispatch GI.
+
+D174. CLEAN GI IS ACCEPTED AS A STATIC-BUCKET CONSUMER
+------------------------------------------------------
+The final `geometry_geo_step18.log` builds all sixteen production split
+pipelines, initializes the sky-resolve, temporal, and boiling-filter compute
+pipelines, and dispatches clean GI at 640x360. The 496-byte input gate remains
+clear.
+
+Static bucket routing converges to 56/56 ready BLASes and remains exact during
+the full GI run. Portal traversal exercises active sets from 9 through 22
+buckets with TLAS output equal to the active count and zero active
+material-index misses. The settled audit reuses 56/56 BLASes, performs zero
+builds/uploads/retirements, reports 56 successful result queries and zero
+query failure, and preserves exact assignment, geometry, publication, and
+address counters. Explicit route-zero rollback and route-one restoration
+succeed. The run reaches normal renderer shutdown without device loss or
+Vulkan/resource failure.
+
+The user reports that the skybox is ignored by GI. This matches the existing
+RGI-02 miss contract: rays which miss RT geometry publish zero radiance and an
+invalid candidate. The later sky-resolve pass only colors a valid candidate
+whose hit material carries `RT_SMOKE_MATERIAL_SKY_ENVIRONMENT`; it does not
+turn a hardware miss into environment radiance. This is a named clean-GI
+environment-coverage limitation, not a static-bucket address/publication
+failure, and does not revoke the consumer acceptance.
+
+Clean GI is therefore accepted as the first additional route-1 consumer.
+Static default promotion still requires removal or acceptance of the remaining
+diagnostic-marker and view-16-only policy gates.
+
+D175. PRODUCTION ROUTING DOES NOT REQUIRE DIAGNOSTIC MARKERS
+-----------------------------------------------------------
+Nsight/NVRHI markers wrap the same dispatches selected with markers disabled.
+They do not select a pipeline, binding set, SBT record, payload, geometry
+namespace, or material consumer. Requiring them in the route-1 CPU predicate
+was retained crash-investigation policy, not a production geometry contract.
+
+The next bounded candidate ignores the marker boolean only in
+`IsSmokeStaticBucketProductionRouteSupported`. Primary-probe and staged
+secondary-isolation predicates retain their marker requirements. Production
+still requires route 1, clean DI view 16, bounded transmission/optics, external
+PDF-NEE off, RR off, and stage zero.
+
+The CPU harness and 20-iteration stress pass with explicit marker-on and
+marker-off positive cases. The full Vulkan release build passes with all
+SPIR-V up to date. No shader changed. The deployed 16,079,872-byte executable
+has SHA-256:
+
+  DCDB8C9CBF03BF513D3954D0A71645CA8F187DB4BDFA80896F1CC513337715DD
+
+Runtime acceptance must repeat the short route-1 view-16 traversal and optics
+check with `r_pathTracingNsightGpuMarkers 0`, prove `consumerSupported=1` and
+exact cutover, and report no device loss. GI need not repeat its full 16/16
+consumer proof; leaving its warmup limit at zero isolates this policy change.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
