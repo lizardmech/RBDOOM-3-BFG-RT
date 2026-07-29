@@ -3313,3 +3313,49 @@ audit. Acceptance requires:
 Full validation time may remain substantial on the audit frame; it is no
 longer recurring production work. Geometry, glass, reflections, refraction,
 portal traversal, and camera movement must remain unchanged.
+
+REF-10AN STEP-9C ACCEPTANCE AND GEO-10 CLOSURE - 2026-07-29
+-----------------------------------------------------------
+`geometry_geo_step9c.log` accepts REF-10AM:
+
+  cache(source/assignment/pack/material/sourceFastPath)    1/1/1/1/1
+  timings microseconds
+    total                                                        1,367
+    without audit validation                                       297
+    source                                                         148
+    portal                                                          28
+    light universe statistics                                        5
+    full audit validation                                         1,070
+    assignment                                                       10
+    resident pack                                                     1
+    material index                                                   61
+    BLAS scaffold                                                    11
+    publication                                                      25
+    material upload                                                   0
+  retained KB(source/previous/pack/GPU inputs)       8094/0/9087/8053
+  warm upload bytes                                                   0
+  BLAS build/reuse/retire                                        0/56/0
+
+Assignment fell from 574 to 10 microseconds, a 98.3 percent reduction. The
+complete recurring bucket-publication work measured 297 microseconds; the
+remaining audit-frame cost is the deliberately retained full validation.
+
+Startup correctly remained monolithic while only 2/56 resident BLASes were
+ready. Every settled observation admitted exact bucket traversal with:
+
+  requested/accepted                                                1/1
+  materialIndexMissingActive                                          0
+  resident/ready buckets                                           56/56
+  active counts                                      14, 13, 12, 11, 16
+  device-loss, binding, and validation failures                       0
+
+GEO-10 is complete. Every static primitive has one deterministic resident
+bucket and exact hardware hit identity; only portal-selected buckets enter the
+TLAS; active and resident generations remain atomic; the monolithic path
+remains the one-CVar rollback; and steady-state resident storage, upload, BLAS,
+assignment, and source work are measured and cached.
+
+Proceed to GEO-11 for AS work admission, scratch/result budgets, frame-overlap
+lifetime, deferred retirement, and the explicit Vulkan/NVRHI compaction
+capability audit. GEO-11 must not alter the accepted GEO-10 geometry identity,
+material, shading, portal-selection, or rollback contracts.

@@ -3384,6 +3384,36 @@ requirement. Collect light statistics every frame, run full validation only
 for the one-shot audit, and report validation time separately plus total time
 with validation removed. Do not weaken the one-shot correctness proof.
 
+D133. GEO-10 STEP 9 AND TICKET ACCEPTED
+----------------------------------------
+`geometry_geo_step9c.log` accepts D132 and closes GEO-10:
+
+  cache(source/assignment/pack/material/sourceFastPath)    1/1/1/1/1
+  total/without-validation microseconds                         1367/297
+  source/portal/light-stats microseconds                         148/28/5
+  audit-only full validation microseconds                            1070
+  assignment microseconds before/after                            574/10
+  warm upload bytes                                                    0
+  BLAS build/reuse/retire                                         0/56/0
+  retained previous-static snapshot                                   0 KB
+
+The 10-microsecond warm assignment is a 98.3 percent reduction. The complete
+recurring bucket-publication path is now 297 microseconds for the measured
+50,108-triangle, 1,789-surface, 56-bucket scene. Full quadratic validation is
+retained on the requested audit frame and excluded from ordinary frames.
+
+After the expected startup wait while only 2/56 BLASes were ready, every
+captured portal transition admitted exact bucket traversal with zero active
+material-index misses. Active counts changed across 14, 13, 12, 11, and 16
+buckets without changing the 56-bucket resident set. No device-loss,
+binding-failure, or validation-failure marker was recorded.
+
+GEO-10 therefore satisfies exact static primitive ownership, stable shader
+identity, portal-selected TLAS membership, rollback retention, cached resident
+storage, and measured steady-state work. Further AS admission, frame-overlap
+lifetime, scratch/result budget, retirement, and compaction work belongs to
+GEO-11 and must not reopen geometry identity or shading semantics.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
