@@ -3439,6 +3439,24 @@ configuration. Compaction is rejected for current GEO-11 work. Enabling RTXMU
 is a separate backend decision; `AllowCompaction` alone is not an
 implementation.
 
+D135. IMMUTABLE STATIC SOURCE IGNORES RUNTIME ENTITY-COUNT CHURN
+----------------------------------------------------------------
+`success21.log` showed exact 56/56 bucket publication becoming permanently
+empty after traversal. The scene source epoch changed from 3 to 4 and the
+bucket storage generation advanced from 1790 to 3579 even though no map
+replacement occurred. The requested GEO-11 retirement toggle had not run.
+
+The authored static-world census must not use total runtime entity-def count as
+an invalidation token. Spawn/despawn activity does not revise world-brush
+geometry. Static source invalidation is therefore limited to render-world
+identity, map name/timestamp, and portal-area topology. If a genuine source
+replacement does occur, the complete resident enumeration prunes unseen old
+records before exact assignment/publication. Appending a replacement universe
+beside the old one is prohibited.
+
+This repair is a prerequisite for further GEO-11 retirement testing. It does
+not change shader identity, portal policy, or the accepted route-1 decode.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

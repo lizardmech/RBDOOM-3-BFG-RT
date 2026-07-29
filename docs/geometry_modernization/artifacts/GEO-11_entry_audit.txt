@@ -271,3 +271,57 @@ The census checkpoint is accepted when a warm route-1 capture shows:
   result census failures                  0
   geometry/material/cutover failures      0
   route or shading changes                none
+
+POST-SLICE-2 TRAVERSAL REGRESSION AND REPAIR
+--------------------------------------------
+`success21.log` exposed a pre-existing resident-source invalidation defect
+before the requested BLAS off/on retirement test ran. The accepted route first
+reached 56/56 resident/ready buckets. During ordinary traversal, the scene
+source epoch then changed from 3 to 4 and bucket storage changed from 1790 to
+3579. Publication remained empty afterward. No `GEO11 static bucket
+retirement armed` line appeared, so this was not a premature event-query
+release.
+
+The exact cause was the scene-universe cache key:
+
+  - `RtPathTraceSceneUniverse::EnsureBuilt` treated any change to the broad
+    `renderWorld->entityDefs.Num()` as a static-world shape change;
+  - spawned or removed runtime entities therefore invalidated the immutable
+    authored world-brush census;
+  - the full static bucket builder appended all 1,789 surfaces to the existing
+    resident arrays instead of replacing or pruning the old records;
+  - duplicate stable bucket-surface keys made the assignment/resident pack
+    inexact, so material-index publication failed closed and route 1 stayed on
+    the empty fallback.
+
+The repair narrows immutable-source invalidation to render-world identity, map
+name/timestamp, and portal-area topology. Runtime entity-count churn no longer
+rebuilds authored brush storage. A genuine source replacement still receives a
+defensive complete-enumeration prune before assignment, so stale records cannot
+survive into the exact publication path.
+
+Build and offline validation:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; all SPIR-V shaders up to date
+  harness       PathTraceCpuPlanningHarness PASS
+  executable    15,991,296 bytes
+  sha256        C9C209AC0A5E72A5A03D4AFD24C962C4F3FEFC62D06209AB2671CD955BA852DF
+  deployment    source and prebuilt executable byte-identical
+
+Runtime acceptance is deliberately narrower than the pending retirement test:
+
+  1. Use the accepted route-1 configuration.
+  2. Wait for exact 56/56 resident/ready publication.
+  3. Traverse far enough to spawn/despawn runtime entities and cross the
+     previously failing portal sequence.
+  4. Run `r_pathTracingGeometryStaticBucketAudit 1` after traversal.
+
+Accept only if source/storage generations remain stable during ordinary entity
+churn, resident-pack and material-index caches remain exact, route 1 remains
+accepted, and no texture or brush corruption appears. A real map reload may
+print one bounded `source replacement pruned stale resident records` line and
+temporarily rebuild bucket BLASes; it must recover to exact publication.
+
+Do not resume the BLAS off/on retirement test until this traversal repair is
+accepted.

@@ -6090,6 +6090,21 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
         materialStats,
         ranges);
     staticBucketGeometryUniverse.EndFrame();
+    if (frame.sourceBuildStats.built &&
+        !frame.sourceBuildStats.cacheHit &&
+        staticBucketGeometryUniverse.PruneMissingStaticSurfaces())
+    {
+        // A genuine source replacement (map/world topology change) is built
+        // into the persistent universe before its old records can be retired.
+        // Compact immediately after the complete enumeration so duplicate or
+        // stale records cannot poison the exact assignment/publication path.
+        common->Printf(
+            "PathTracePrimaryPass: GEO10 static bucket source replacement "
+            "pruned stale resident records frame=%llu sourceGeneration=%llu\n",
+            static_cast<unsigned long long>(frameIndex),
+            static_cast<unsigned long long>(
+                sceneUniverse.GetStats().generation));
+    }
     frame.sourceBuildMicroseconds = elapsedMicroseconds(
         sourceBuildStart,
         StaticBucketClock::now());

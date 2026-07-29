@@ -1007,10 +1007,16 @@ bool RtPathTraceSceneUniverse::EnsureBuilt(const viewDef_t* viewDef)
 
     const bool renderWorldChanged = m_renderWorld != renderWorld;
     const bool mapChanged = m_renderWorldMapName.Icmp(renderWorld->mapName) != 0 || m_renderWorldMapTimeStamp != renderWorld->mapTimeStamp;
+    // This universe contains authored static-world surfaces only. Runtime
+    // entity spawns and removals change entityDefs.Num(), but they do not
+    // change that source geometry. Treating the broad entity count as a world
+    // shape token forced a full resident bucket rebuild during ordinary map
+    // traversal. Map identity/timestamp and the portal-area topology remain
+    // the actual invalidation contract for this immutable source.
     const bool worldShapeChanged =
         m_stats.valid &&
-        (m_stats.entityDefs != renderWorld->entityDefs.Num() ||
-            m_areaSurfaceIndices.size() != static_cast<size_t>(renderWorld->NumAreas()));
+        m_areaSurfaceIndices.size() !=
+            static_cast<size_t>(renderWorld->NumAreas());
     if (renderWorldChanged || mapChanged || worldShapeChanged)
     {
         Clear();
