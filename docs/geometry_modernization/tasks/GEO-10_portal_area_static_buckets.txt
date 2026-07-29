@@ -3119,3 +3119,54 @@ windows, reflected lighting and shadowing, camera motion, portal crossings,
 and the tinted emissive door-panel view. Reject device removal, black windows,
 swapped materials, geometry corruption, a reintroduced portal cutoff, or loss
 of the route-1 cutover.
+
+REF-10AK OPTICAL ACCEPTANCE AND STEP-9 SNAPSHOT CHECKPOINT - 2026-07-29
+-----------------------------------------------------------------------
+The user reports no issue with secondary reflection shadows and confirms that
+they work. REF-10AJ is accepted. The complete bounded optical route-1 set is
+now runtime-accepted.
+
+The next audit corrects a stale performance premise. Resident-pack caching,
+material-index caching, zero-byte warm GPU uploads, and BLAS reuse are already
+implemented and were observed in the prior runtime logs. The dedicated bucket
+universe nevertheless used the generic previous-static snapshot lifecycle.
+For the captured 50,108-triangle scene, that copied and retained:
+
+  vertices                                            7,042,784 bytes
+  indexes                                               601,296 bytes
+  triangle classes                                      200,432 bytes
+  triangle materials                                    200,432 bytes
+  total previous-static snapshot                      8,044,944 bytes
+
+No bucket traversal, shading, publication, emissive, or rollback consumer
+reads this previous snapshot. `RtSmokeGeometryUniverse::BeginFrame` now has a
+default-on `capturePreviousStaticSnapshot` policy. Only
+`m_staticBucketGeometryUniverse` passes false; the ordinary geometry universe
+retains its unchanged current/previous history behavior.
+
+The one-shot audit now emits:
+
+  GEO10 step9 cache(source/residentPack/materialIndex)=...
+    timingsUs(total/source/portal/assignment/residentPack/materialIndex/
+      blasScaffold/publication/materialUpload)=...
+    retainedKB(source/previous/residentPack/gpuInputs)=...
+    warmUploadBytes=...
+    blas(build/reuse/retire)=...
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness                        passed
+  PathTraceCpuPlanningHarness --stress 20            passed
+  full win64-pt-dev-release build                    passed
+  shader rebuilds                                    0
+
+  executable SHA-256
+    70C1E9AB428AB8F6EC76736CA6C3F446174E5755EB6DEEAAD8391CD3CB52887F
+
+Deploy only the executable. Runtime acceptance keeps the fully accepted
+route-1 optical configuration, allows the resident BLAS build to settle, then
+sets `r_pathTracingGeometryStaticBucketAudit 1` once. Acceptance requires
+unchanged visuals and traversal, `previous=0` in the new retained-memory
+tuple, warm cache values of `1/1/1`, zero warm upload bytes, BLAS reuse with
+zero retirement, and a captured `GEO10 step9` line. The largest measured warm
+CPU stage determines the next optimization.

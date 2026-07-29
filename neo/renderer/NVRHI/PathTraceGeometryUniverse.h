@@ -853,7 +853,10 @@ class RtSmokeGeometryUniverse
 {
 public:
     void Clear();
-    void BeginFrame(uint64 frameIndex, const idRenderWorldLocal* renderWorld = nullptr);
+    void BeginFrame(
+        uint64 frameIndex,
+        const idRenderWorldLocal* renderWorld = nullptr,
+        bool capturePreviousStaticSnapshot = true);
     void EndFrame();
     void ImportCanonicalSourceSnapshot(const PtGeometrySourceTransportSnapshot* snapshot);
     void ImportCanonicalIdentitySnapshot(

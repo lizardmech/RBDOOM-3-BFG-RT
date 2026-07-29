@@ -6001,6 +6001,15 @@ struct RtSmokeStaticBucketFramePublication
     int missingActiveMaterialIndexes = 0;
     uint64 sourceGeneration = 0;
     uint64 materialBindingSignature = 0;
+    uint64 totalCpuMicroseconds = 0;
+    uint64 sourceBuildMicroseconds = 0;
+    uint64 portalMaskMicroseconds = 0;
+    uint64 assignmentMicroseconds = 0;
+    uint64 residentPackMicroseconds = 0;
+    uint64 materialIndexMicroseconds = 0;
+    uint64 blasScaffoldMicroseconds = 0;
+    uint64 publicationMicroseconds = 0;
+    uint64 materialUploadMicroseconds = 0;
     bool residentPackCacheHit = false;
     bool materialIndexCacheHit = false;
     RtPathTraceSceneUniverseBuildStats sourceBuildStats;
@@ -6030,6 +6039,17 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
 {
     OPTICK_EVENT("PT Static Bucket Frame Publication");
 
+    using StaticBucketClock = std::chrono::steady_clock;
+    const auto totalStart = StaticBucketClock::now();
+    const auto elapsedMicroseconds =
+        [](const StaticBucketClock::time_point& start,
+            const StaticBucketClock::time_point& end) -> uint64
+    {
+        return static_cast<uint64>(
+            std::chrono::duration_cast<
+                std::chrono::microseconds>(end - start).count());
+    };
+
     RtSmokeStaticBucketFramePublication frame;
     frame.auditRequested =
         r_pathTracingGeometryStaticBucketAudit.GetInteger() != 0;
@@ -6052,7 +6072,11 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     RtSmokeAttributeStats attributeStats;
     RtSmokeMaterialStats materialStats;
     RtSmokeBucketRanges ranges;
-    staticBucketGeometryUniverse.BeginFrame(frameIndex, viewDef ? viewDef->renderWorld : nullptr);
+    const auto sourceBuildStart = StaticBucketClock::now();
+    staticBucketGeometryUniverse.BeginFrame(
+        frameIndex,
+        viewDef ? viewDef->renderWorld : nullptr,
+        false);
     frame.sourceBuildStats = sceneUniverse.BuildFullStaticBucketGeometry(
         viewDef,
         staticBucketGeometryUniverse,
@@ -6062,7 +6086,11 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
         materialStats,
         ranges);
     staticBucketGeometryUniverse.EndFrame();
+    frame.sourceBuildMicroseconds = elapsedMicroseconds(
+        sourceBuildStart,
+        StaticBucketClock::now());
 
+    const auto portalMaskStart = StaticBucketClock::now();
     frame.portalAreaCount =
         viewDef && viewDef->renderWorld
             ? viewDef->renderWorld->NumAreas()
@@ -6085,6 +6113,9 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
         frame.activeMaskValid = true;
         frame.activeMaskForcedFullResident = true;
     }
+    frame.portalMaskMicroseconds = elapsedMicroseconds(
+        portalMaskStart,
+        StaticBucketClock::now());
     frame.maxVerticesPerBucket = Max(
         1,
         r_pathTracingGeometryStaticBucketMaxVertices.GetInteger());
@@ -6097,6 +6128,7 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     frame.sourceGeneration = sceneUniverse.GetStats().generation;
     frame.universeStats =
         staticBucketGeometryUniverse.GetStats(true);
+    const auto assignmentStart = StaticBucketClock::now();
     frame.assignmentPlan =
         staticBucketGeometryUniverse.BuildStaticBucketAssignmentPlan(
             static_cast<uint64>(mapTimeStamp),
@@ -6106,15 +6138,23 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
             frame.maxIndexesPerBucket,
             frame.maxTrianglesPerBucket,
             frame.activeMaskValid ? &activeAreas : nullptr);
+    frame.assignmentMicroseconds = elapsedMicroseconds(
+        assignmentStart,
+        StaticBucketClock::now());
+    const auto residentPackStart = StaticBucketClock::now();
     frame.geometryPack =
         &staticBucketGeometryUniverse.
             GetOrBuildStaticBucketResidentGeometryPack(
                 frame.assignmentPlan,
                 frame.residentPackCacheHit);
+    frame.residentPackMicroseconds = elapsedMicroseconds(
+        residentPackStart,
+        StaticBucketClock::now());
     const RtSmokeStaticBucketGeometryPack& geometryPack =
         *frame.geometryPack;
     const std::vector<int>*
         missingMaterialIndexesByBucket = nullptr;
+    const auto materialIndexStart = StaticBucketClock::now();
     if (!staticBucketGeometryUniverse.
             GetOrBuildStaticBucketMaterialIndexes(
                 geometryPack,
@@ -6130,6 +6170,9 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     {
         return frame;
     }
+    frame.materialIndexMicroseconds = elapsedMicroseconds(
+        materialIndexStart,
+        StaticBucketClock::now());
 
     for (size_t bucketIndex = 0;
          bucketIndex < geometryPack.buckets.size();
@@ -6150,6 +6193,7 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     const bool submitBuilds =
         frame.blasEnabled &&
         r_pathTracingGeometryStaticBucketBlasBuild.GetInteger() != 0;
+    const auto blasScaffoldStart = StaticBucketClock::now();
     frame.gpuStats =
         staticBucketGeometryUniverse.UpdateStaticBucketBlasGpuScaffold(
             device,
@@ -6162,7 +6206,11 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
                 1024,
                 r_pathTracingGeometryStaticBucketBlasBuildLimit.GetInteger()),
             r_pathTracingGeometryStaticBucketBlasForceRebuild.GetInteger() != 0);
+    frame.blasScaffoldMicroseconds = elapsedMicroseconds(
+        blasScaffoldStart,
+        StaticBucketClock::now());
 
+    const auto publicationStart = StaticBucketClock::now();
     std::vector<RtSmokeStaticTlasBucketObservation> tlasObservations;
     staticBucketGeometryUniverse.BuildStaticBucketTlasObservations(
         geometryPack,
@@ -6235,6 +6283,10 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
                     0x01u,
                     &frame.portalActiveAreas);
     }
+    frame.publicationMicroseconds = elapsedMicroseconds(
+        publicationStart,
+        StaticBucketClock::now());
+    const auto materialUploadStart = StaticBucketClock::now();
     frame.materialIndexUploaded =
         staticBucketGeometryUniverse.UpdateStaticBucketMaterialIndexGpuScaffold(
             device,
@@ -6242,12 +6294,18 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
             geometryPack,
             *frame.materialIndexes,
             frame.materialBindingSignature);
+    frame.materialUploadMicroseconds = elapsedMicroseconds(
+        materialUploadStart,
+        StaticBucketClock::now());
     frame.auditReady =
         IsSmokeStaticBucketAuditReady(
             frame.auditRequested,
             frame.portalActivePublication.valid,
             frame.activeMaskForcedFullResident,
             frame.activePublication.valid);
+    frame.totalCpuMicroseconds = elapsedMicroseconds(
+        totalStart,
+        StaticBucketClock::now());
     return frame;
 }
 
@@ -13530,6 +13588,68 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             packStats.surfaceAddressContractErrors,
             packStats.classMetadataLayoutErrors,
             packStats.countMismatches);
+        const uint64 residentPackBytes =
+            geometryPack.vertexBytes.size() +
+            geometryPack.indexes.size() *
+                sizeof(geometryPack.indexes[0]) +
+            geometryPack.triangleClasses.size() *
+                sizeof(geometryPack.triangleClasses[0]) +
+            geometryPack.staticClassMetadataWords.size() *
+                sizeof(geometryPack.staticClassMetadataWords[0]) +
+            geometryPack.triangleMaterials.size() *
+                sizeof(geometryPack.triangleMaterials[0]) +
+            geometryPack.triangleIdentities.size() *
+                sizeof(geometryPack.triangleIdentities[0]) +
+            geometryPack.surfaceRecords.size() *
+                sizeof(geometryPack.surfaceRecords[0]) +
+            (staticBucketFramePublication.materialIndexes
+                ? staticBucketFramePublication.materialIndexes->size() *
+                    sizeof(
+                        (*staticBucketFramePublication.materialIndexes)[0])
+                : 0);
+        const uint64 gpuInputBytes =
+            staticBucketGpuStats.vertexBytes +
+            staticBucketGpuStats.indexBytes +
+            staticBucketGpuStats.metadataBytes +
+            (staticBucketFramePublication.materialIndexes
+                ? staticBucketFramePublication.materialIndexes->size() *
+                    sizeof(
+                        (*staticBucketFramePublication.materialIndexes)[0])
+                : 0);
+        common->Printf(
+            "PathTracePrimaryPass: GEO10 step9 cache(source/residentPack/materialIndex)=%d/%d/%d timingsUs(total/source/portal/assignment/residentPack/materialIndex/blasScaffold/publication/materialUpload)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu retainedKB(source/previous/residentPack/gpuInputs)=%d/%d/%llu/%llu warmUploadBytes=%llu blas(build/reuse/retire)=%d/%d/%d\n",
+            staticBucketSourceBuildStats.cacheHit ? 1 : 0,
+            staticBucketFramePublication.residentPackCacheHit ? 1 : 0,
+            staticBucketFramePublication.materialIndexCacheHit ? 1 : 0,
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.totalCpuMicroseconds),
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.sourceBuildMicroseconds),
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.portalMaskMicroseconds),
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.assignmentMicroseconds),
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.residentPackMicroseconds),
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.materialIndexMicroseconds),
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.blasScaffoldMicroseconds),
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.publicationMicroseconds),
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.materialUploadMicroseconds),
+            staticBucketUniverseStats.staticBytesKB,
+            staticBucketUniverseStats.previousStaticBytesKB,
+            static_cast<unsigned long long>(
+                (residentPackBytes + 1023ull) / 1024ull),
+            static_cast<unsigned long long>(
+                (gpuInputBytes + 1023ull) / 1024ull),
+            static_cast<unsigned long long>(
+                staticBucketGpuStats.uploadBytes),
+            staticBucketGpuStats.blasBuilt,
+            staticBucketGpuStats.blasReused,
+            staticBucketGpuStats.blasRetired);
         const size_t bucketSampleCount =
             std::min(
                 assignmentPlan.buckets.size(),

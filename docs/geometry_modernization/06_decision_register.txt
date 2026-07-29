@@ -3287,6 +3287,40 @@ The production predicate may admit
 resolver is enabled. Transmission-disabled reflection visibility, GI, RR,
 external PDF-NEE, and later probe stages remain closed.
 
+D130. BOUNDED OPTICAL SET ACCEPTED; REMOVE UNUSED BUCKET HISTORY COPY
+---------------------------------------------------------------------
+The user reports no issue after enabling secondary reflection shadows and
+confirms that the feature works. D129 is accepted. Straight transmission,
+glass reflection, opaque mirrors, refraction, the secondary optical portal
+halo, and secondary reflection visibility are now one accepted bounded
+route-1 set.
+
+The next GEO-10 work returns to step 9. The older claim that the full resident
+pack is repacked every frame is no longer current: the resident pack,
+material-index mapping, GPU input upload, and bucket BLASes all have warm
+reuse paths. Earlier runtime evidence shows resident-pack and material-index
+cache hits, zero warm upload bytes, and increasing BLAS reuse without
+retirement.
+
+One full-map cost remains structurally unnecessary. The dedicated static
+bucket universe calls the generic geometry `BeginFrame`, which copies current
+static vertices, indexes, classes, and materials into previous-frame CPU
+vectors. Bucket geometry is immutable and never consumes that monolithic
+history contract. In the captured scene this duplicates 8,044,944 bytes every
+frame and retains the same amount of otherwise unused CPU memory.
+
+Add an explicit `capturePreviousStaticSnapshot` policy to the geometry
+universe. Keep it default-on for all existing callers and pass false only for
+the dedicated bucket universe. All source touching, material refresh,
+assignment, active-set, upload, BLAS, publication, and rollback behavior
+remains unchanged.
+
+The one-shot GEO-10 audit must also report per-stage CPU microseconds, source
+and cache state, retained source/previous/pack/GPU-input kilobytes, warm
+upload bytes, and BLAS build/reuse/retire counts. This is the first measured
+step-9 checkpoint; further optimization must follow the reported dominant
+stage rather than assuming the resident pack still rebuilds.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

@@ -2753,7 +2753,10 @@ void RtSmokeGeometryUniverse::ReserveStaticSurfaceRecords(size_t surfaceCount)
     m_staticSurfaceKeys.reserve(surfaceCount);
 }
 
-void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex, const idRenderWorldLocal* renderWorld)
+void RtSmokeGeometryUniverse::BeginFrame(
+    uint64 frameIndex,
+    const idRenderWorldLocal* renderWorld,
+    bool capturePreviousStaticSnapshot)
 {
     PtGeometryLifecycle::MaybeDumpLifecycleStats(frameIndex, renderWorld);
     if (r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
@@ -2774,12 +2777,34 @@ void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex, const idRenderWorldL
     {
         m_rigidResidencyWorld = renderWorld;
     }
-    m_previousStaticVertexCache = m_staticVertexCache;
-    m_previousStaticIndexCache = m_staticIndexCache;
-    m_previousStaticTriangleClassCache = m_staticTriangleClassCache;
-    m_previousStaticTriangleMaterialCache = m_staticTriangleMaterialCache;
-    m_previousStaticSnapshotGeneration = m_staticGeometryGeneration;
-    m_previousStaticSnapshotMaterialGeneration = m_staticMaterialGeneration;
+    if (capturePreviousStaticSnapshot)
+    {
+        m_previousStaticVertexCache = m_staticVertexCache;
+        m_previousStaticIndexCache = m_staticIndexCache;
+        m_previousStaticTriangleClassCache =
+            m_staticTriangleClassCache;
+        m_previousStaticTriangleMaterialCache =
+            m_staticTriangleMaterialCache;
+        m_previousStaticSnapshotGeneration =
+            m_staticGeometryGeneration;
+        m_previousStaticSnapshotMaterialGeneration =
+            m_staticMaterialGeneration;
+    }
+    else
+    {
+        // The portal-bucket universe is immutable resident source storage.
+        // It never feeds the monolithic previous-static history contract, so
+        // retaining and copying a second full-map CPU snapshot every frame is
+        // pure bandwidth and memory overhead.
+        m_previousStaticVertexCache.clear();
+        m_previousStaticIndexCache.clear();
+        m_previousStaticTriangleClassCache.clear();
+        m_previousStaticTriangleMaterialCache.clear();
+        m_previousStaticSnapshotGeneration =
+            m_staticGeometryGeneration;
+        m_previousStaticSnapshotMaterialGeneration =
+            m_staticMaterialGeneration;
+    }
     m_currentFrameIndex = frameIndex;
     m_staticMaterialDirtyTriangleOffset = -1;
     m_staticMaterialDirtyTriangleCount = 0;
