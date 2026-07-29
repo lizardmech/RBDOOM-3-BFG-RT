@@ -796,3 +796,62 @@ Build and deployment:
   full result     success; all SPIR-V shaders up to date
   executable      16,034,304 bytes
   sha256          CCA91CAC19ACBDAF199BDE5B33622568F88F5DC3E76C316BFB4C02C5B7C04C0B
+
+SLICE-6 STEP-18 PARTIAL ACCEPTANCE
+----------------------------------
+`geometry_geo_step18.log` completes the bounded timing stream with exactly 240
+merged-dynamic samples and 240 comparison rows. Nearest-rank distribution
+statistics for the live merged path are:
+
+  measurement                         median       p90       maximum
+  merged dynamic BLAS GPU             829.0 us   1114.7 us   1868.4 us
+  main BLAS CPU submit                 59 us        68 us      393 us
+  main TLAS CPU submit                 82 us        93 us      194 us
+  total acceleration CPU submit       144 us      161 us      590 us
+  CPU skinning                         4443 us    5641 us    10199 us
+
+The merged route submitted one build in every sample. Its workload ranged to
+65,850 dynamic indexes and 23 skinned surfaces. The per-instance-skinned
+comparison route was not enabled, so its 240 rows correctly report
+`submitted=0`; this capture makes no new performance claim for that inactive
+route.
+
+The final frame still proves substantial lifecycle stress:
+
+  entity add/update/unchanged/free       1109 / 150231 / 5282 / 42
+  light add/update/free                   507 / 504 / 29
+  rigid-moving/deforming observations   14670 / 63743
+
+Legacy rigid remains exact with 89 valid unique records and 111 instances,
+89 reused BLASes, no build/upload/admission failure, exact 111/111 TLAS
+buffer/BLAS readiness, and an 111-instance route with no missing mesh, BLAS,
+or material-index record. Canonical rigid is also ready 83/83 with no missing
+identity/source/pool record. No device-loss marker appears in the log.
+
+The static final audit is not accepted from this run. The launch retained
+`r_pathTracingGeometryStaticBucketBlas 0`. Arming the audit in that state
+exposed a diagnostic-state defect: the audit enabled CPU/material publication,
+the disabled BLAS update retired the 200,432-byte material-index buffer, the
+later upload recreated it, and absent BLASes prevented readiness from ever
+consuming the one-shot request. The log records 388 repeated retirement
+packages.
+
+The disabled audit now consumes itself before source/material publication,
+prints one explicit `reason=blas-disabled` result, performs no GPU mutation,
+and retires any already-existing scaffold once. This does not change the
+enabled production or diagnostic route. Verification:
+
+  focused PathTraceCpuPlanningHarness             passed
+  PathTraceCpuPlanningHarness --stress 20         passed
+  full win64-pt-dev-release build                 passed
+  SPIR-V work                                     all up to date
+  executable bytes                                16,034,816
+  executable SHA-256
+    E7C36DB700B0B5E29E1A378E336F7C14E1E4BAEE5E92E24B85C6DC50E963CD9F
+  deployment                                      byte-identical
+
+One short step-18B run remains. It must first prove the disabled audit emits
+one blocked line without repeated 200,432-byte retirement, then enable static
+BLAS/build, wait for 56/56 resident readiness, and capture one exact enabled
+audit. The 240-frame timing capture and rigid/lifecycle dumps do not need to
+be repeated.

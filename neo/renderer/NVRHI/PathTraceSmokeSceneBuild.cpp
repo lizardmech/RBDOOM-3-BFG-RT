@@ -6059,6 +6059,32 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
         r_pathTracingGeometryStaticBucketAudit.GetInteger() != 0;
     frame.blasEnabled =
         r_pathTracingGeometryStaticBucketBlas.GetInteger() != 0;
+    if (frame.auditRequested && !frame.blasEnabled)
+    {
+        // The audit validates a ready BLAS-backed publication. Running its
+        // source/material publication while BLAS ownership is disabled can
+        // never satisfy that contract. More importantly, the disabled BLAS
+        // update retires the material-index buffer before the later audit
+        // upload recreates it, producing an unbounded create/retire loop.
+        // Consume the one-shot request without performing any GPU mutation.
+        if (!staticBucketGeometryUniverse.
+                StaticSurfaceRecords().empty())
+        {
+            staticBucketGeometryUniverse.Clear();
+        }
+        else
+        {
+            staticBucketGeometryUniverse.
+                ReleaseStaticBucketBlasGpuScaffold();
+        }
+        common->Printf(
+            "PathTracePrimaryPass: GEO10 static bucket audit blocked "
+            "reason=blas-disabled consumed=1 gpuMutation=0; set "
+            "r_pathTracingGeometryStaticBucketBlas 1 before retrying\n");
+        r_pathTracingGeometryStaticBucketAudit.SetInteger(0);
+        frame.auditRequested = false;
+        return frame;
+    }
     frame.portalSteps = idMath::ClampInt(0, 8, portalSteps);
     frame.reflectionPortalHalo = reflectionPortalHalo;
     frame.enabled = frame.auditRequested || frame.blasEnabled;

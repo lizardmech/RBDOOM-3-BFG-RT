@@ -3924,6 +3924,33 @@ p90, and maximum calculation while retaining the existing GPU build/update/
 rebuild/reuse census. The CPU planning harness, 20-iteration stress run, and
 full Vulkan release build pass; no shader was rebuilt.
 
+D160. DISABLED STATIC AUDITS ARE CONSUMED WITHOUT PUBLICATION
+-------------------------------------------------------------
+`geometry_geo_step18.log` completed the Slice-6 timing stream but launched with
+static bucket BLAS disabled. The one-shot static audit nevertheless entered
+the publication path. Each frame the disabled BLAS update retired the
+200,432-byte triangle-material-index buffer, the later material upload
+recreated it, and publication could never become ready because active buckets
+had no BLAS. The armed request therefore generated 388 event-query retirement
+packages instead of terminating.
+
+An audit of BLAS-backed publication has no valid result while the resource gate
+is disabled. That request is now rejected before source, material-index, BLAS,
+publication, or upload work. It prints one explicit blocked result, consumes
+the CVar, performs no new GPU mutation, and sends any pre-existing scaffold
+through the accepted retirement path once. Enabled BLAS/build behavior is
+unchanged.
+
+The normal and 20-iteration CPU planning harnesses pass, the full Vulkan
+release build passes with all shaders up to date, and the deployed executable
+is byte-identical at SHA-256
+E7C36DB700B0B5E29E1A378E336F7C14E1E4BAEE5E92E24B85C6DC50E963CD9F.
+
+Step 18 accepts the 240-sample merged timing distribution plus rigid and
+lifecycle stress evidence. Static acceptance remains pending one short
+step-18B capture with an explicit enabled BLAS/build gate; the full timing run
+must not be repeated.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
