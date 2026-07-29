@@ -8253,6 +8253,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 staticBucketPortalSteps,
                 staticBucketSecondaryOpticalPortalHalo,
                 staticBucketConsumerProbe);
+    ReleaseCompletedRetiredStaticBucketGpuResources(
+        m_smokeGeometryFrameIndex);
+    RtSmokeRetiredStaticBucketGpuResources
+        retiredStaticBucketGpuResources;
+    if (m_staticBucketGeometryUniverse.
+            TakeRetiredStaticBucketGpuResources(
+                retiredStaticBucketGpuResources))
+    {
+        PushRetiredStaticBucketGpuResources(
+            retiredStaticBucketGpuResources,
+            m_smokeGeometryFrameIndex);
+    }
     // Diagnostic routes force the resident mask only to remove portal-policy
     // ambiguity. The explicit route-1 production checkpoint retains the
     // portal-active mask.

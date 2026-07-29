@@ -807,6 +807,17 @@ struct RtPathTraceStaticBucketBlasGpuStats
     uint64 buildSubmitMicroseconds = 0;
 };
 
+struct RtSmokeRetiredStaticBucketGpuResources
+{
+    std::vector<nvrhi::BufferHandle> buffers;
+    std::vector<nvrhi::rt::AccelStructHandle> blases;
+
+    bool Empty() const
+    {
+        return buffers.empty() && blases.empty();
+    }
+};
+
 struct RtPathTraceStaticBucketRouteRecord
 {
     uint32_t instanceId = 0;
@@ -968,6 +979,9 @@ public:
         const RtSmokeStaticBucketGeometryPack& geometryPack,
         std::vector<RtSmokeStaticTlasBucketObservation>& buckets) const;
     void ReleaseStaticBucketBlasGpuScaffold();
+    bool HasStaticBucketGpuResources() const;
+    bool TakeRetiredStaticBucketGpuResources(
+        RtSmokeRetiredStaticBucketGpuResources& resources);
     void DumpStaticBucketBlasGpuStats(
         const RtPathTraceStaticBucketBlasGpuStats& stats) const;
     RtPathTraceStaticBucketActivePublication
@@ -1203,6 +1217,10 @@ private:
         CanonicalRigidBlasRecord& record);
     void ReleaseExpiredCanonicalRigidBlas();
     void ReleaseCanonicalRigidBlasScaffold();
+    void RetireStaticBucketBuffer(
+        nvrhi::BufferHandle& buffer);
+    void RetireStaticBucketBlas(
+        StaticBucketBlasRecord& record);
     void AddRigidMeshCandidateSample(const RtPathTraceRigidMeshCandidateObservation& observation, bool eligible, uint32_t rejectFlags, int seenCount);
     void BuildRigidRouteInstanceList(const RtPathTraceInstanceUniverse& instanceUniverse, std::vector<RtPathTraceRigidRouteInstanceObservation>& instances) const;
     void AddRigidResidencySample(const RigidResidentInstanceRecord& record, bool selectedArea, bool routeReady);
@@ -1278,6 +1296,8 @@ private:
     nvrhi::BufferHandle m_staticBucketTriangleMaterialBuffer;
     nvrhi::BufferHandle m_staticBucketTriangleMaterialIndexBuffer;
     std::vector<StaticBucketBlasRecord> m_staticBucketBlasRecords;
+    RtSmokeRetiredStaticBucketGpuResources
+        m_retiredStaticBucketGpuResources;
     uint64 m_staticBucketUploadSignature = 0;
     uint64 m_staticBucketMaterialIndexUploadSignature = 0;
     RtSmokeStaticBucketGeometryPack

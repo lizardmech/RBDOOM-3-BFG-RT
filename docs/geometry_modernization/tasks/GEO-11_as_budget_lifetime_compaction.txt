@@ -76,3 +76,15 @@ Compaction is explicitly unsupported in the active build:
 The Vulkan `compactBottomLevelAccelStructs` implementation is a no-op in that
 configuration. Do not set `AllowCompaction` or emulate a handle swap. Enabling
 RTXMU requires a separate backend/build audit.
+
+IMPLEMENTATION STATUS
+---------------------
+Slices 1 and 2 are implemented behind the existing accepted bucket route:
+
+  - one-shot NVRHI BLAS result-memory census;
+  - event-query retirement for replaced/removed bucket BLASes;
+  - event-query retirement for replaced/removed bucket GPU buffers;
+  - fail-retained behavior when a completion query cannot be created.
+
+Runtime acceptance of the warm census and live bucket gate off/on sequence is
+still required before extending exact retirement to rigid BLAS owners.

@@ -2099,6 +2099,124 @@ int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint
     return releasedCount;
 }
 
+void PathTracePrimaryPass::PushRetiredStaticBucketGpuResources(
+    RtSmokeRetiredStaticBucketGpuResources& resources,
+    uint64 currentFrame)
+{
+    if (resources.Empty())
+    {
+        return;
+    }
+
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    RtRetiredSmokeStaticBucketGpuPackage package;
+    package.retireFrame = currentFrame;
+    package.completionQuery =
+        device ? device->createEventQuery() : nullptr;
+    if (!package.completionQuery &&
+        !m_smokeStaticBucketCompletionQueryFailureLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO11 retired static bucket resources have no GPU completion query; retaining until idle teardown\n");
+        m_smokeStaticBucketCompletionQueryFailureLogged = true;
+    }
+
+    for (const nvrhi::BufferHandle& buffer :
+        resources.buffers)
+    {
+        if (buffer)
+        {
+            package.bufferBytes +=
+                buffer->getDesc().byteSize;
+        }
+    }
+    if (device)
+    {
+        for (const nvrhi::rt::AccelStructHandle& blas :
+            resources.blases)
+        {
+            if (!blas)
+            {
+                continue;
+            }
+            const nvrhi::MemoryRequirements requirements =
+                device->getAccelStructMemoryRequirements(blas);
+            if (requirements.size == 0)
+            {
+                ++package.blasResultQueryFailures;
+            }
+            else
+            {
+                package.blasResultBytes += requirements.size;
+            }
+        }
+    }
+    package.resources.buffers.swap(resources.buffers);
+    package.resources.blases.swap(resources.blases);
+    m_retiredSmokeStaticBucketGpuPackages.push_back(
+        std::move(package));
+}
+
+int PathTracePrimaryPass::ReleaseCompletedRetiredStaticBucketGpuResources(
+    uint64 currentFrame)
+{
+    int releasedPackages = 0;
+    int releasedBuffers = 0;
+    int releasedBlases = 0;
+    int releasedBlasResultQueryFailures = 0;
+    uint64 releasedBufferBytes = 0;
+    uint64 releasedBlasResultBytes = 0;
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    while (!m_retiredSmokeStaticBucketGpuPackages.empty())
+    {
+        RtRetiredSmokeStaticBucketGpuPackage& package =
+            m_retiredSmokeStaticBucketGpuPackages.front();
+        if (package.retireFrame > currentFrame ||
+            !package.completionArmed ||
+            !package.completionQuery ||
+            !device ||
+            !device->pollEventQuery(package.completionQuery))
+        {
+            break;
+        }
+        m_smokeLastCompletedStaticBucketToken =
+            Max(
+                m_smokeLastCompletedStaticBucketToken,
+                package.completionToken);
+        releasedBuffers += static_cast<int>(
+            package.resources.buffers.size());
+        releasedBlases += static_cast<int>(
+            package.resources.blases.size());
+        releasedBlasResultQueryFailures +=
+            package.blasResultQueryFailures;
+        releasedBufferBytes += package.bufferBytes;
+        releasedBlasResultBytes += package.blasResultBytes;
+        m_retiredSmokeStaticBucketGpuPackages.pop_front();
+        ++releasedPackages;
+    }
+    if (releasedPackages > 0 &&
+        !m_smokeStaticBucketCompletionReleasedLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO11 static bucket retirement released packages=%d buffers=%d blases=%d resultQueryFailures=%d bytes(buffer/result)=%llu/%llu completedToken=%llu pending=%zu authority=gpu-event-query\n",
+            releasedPackages,
+            releasedBuffers,
+            releasedBlases,
+            releasedBlasResultQueryFailures,
+            static_cast<unsigned long long>(
+                releasedBufferBytes),
+            static_cast<unsigned long long>(
+                releasedBlasResultBytes),
+            static_cast<unsigned long long>(
+                m_smokeLastCompletedStaticBucketToken),
+            m_retiredSmokeStaticBucketGpuPackages.size());
+        m_smokeStaticBucketCompletionReleasedLogged = true;
+    }
+    return releasedPackages;
+}
+
 int PathTracePrimaryPass::ReleaseCompletedRetiredSmokeSkinnedComparisonBlases(
     uint64 currentFrame)
 {
@@ -2195,6 +2313,44 @@ void PathTracePrimaryPass::OnGraphicsCommandListSubmitted()
         m_smokeSceneCompletionArmedLogged = true;
     }
 
+    int staticBucketArmedCount = 0;
+    uint64 staticBucketFirstToken = 0;
+    uint64 staticBucketLastToken = 0;
+    for (RtRetiredSmokeStaticBucketGpuPackage& package :
+        m_retiredSmokeStaticBucketGpuPackages)
+    {
+        if (package.completionArmed ||
+            !package.completionQuery)
+        {
+            continue;
+        }
+        device->setEventQuery(
+            package.completionQuery,
+            nvrhi::CommandQueue::Graphics);
+        package.completionToken =
+            m_smokeNextStaticBucketCompletionToken++;
+        package.completionArmed = true;
+        staticBucketFirstToken =
+            staticBucketFirstToken == 0
+                ? package.completionToken
+                : staticBucketFirstToken;
+        staticBucketLastToken = package.completionToken;
+        ++staticBucketArmedCount;
+    }
+    if (staticBucketArmedCount > 0 &&
+        !m_smokeStaticBucketCompletionArmedLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO11 static bucket retirement armed packages=%d tokens=%llu..%llu pending=%zu authority=gpu-event-query\n",
+            staticBucketArmedCount,
+            static_cast<unsigned long long>(
+                staticBucketFirstToken),
+            static_cast<unsigned long long>(
+                staticBucketLastToken),
+            m_retiredSmokeStaticBucketGpuPackages.size());
+        m_smokeStaticBucketCompletionArmedLogged = true;
+    }
+
     int skinnedArmedCount = 0;
     uint64 skinnedFirstToken = 0;
     uint64 skinnedLastToken = 0;
@@ -2288,6 +2444,9 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     if (r_pathTracingWaitForIdleOnPortalChange.GetInteger() != 0 &&
         (HasRetainableRayTracingSmokeScenePackage() ||
             !m_retiredSmokeScenePackages.empty() ||
+            m_staticBucketGeometryUniverse.
+                HasStaticBucketGpuResources() ||
+            !m_retiredSmokeStaticBucketGpuPackages.empty() ||
             !m_smokeSkinnedComparisonBlases.empty() ||
             !m_retiredSmokeSkinnedComparisonBlases.empty()))
     {
@@ -2346,6 +2505,20 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSceneRebuildLogged = false;
     m_smokeGeometryUniverse.Clear();
     m_staticBucketGeometryUniverse.Clear();
+    const uint64 staticBucketRetireFrame =
+        static_cast<uint64>(Max(idLib::frameNumber, 0));
+    ReleaseCompletedRetiredStaticBucketGpuResources(
+        staticBucketRetireFrame);
+    RtSmokeRetiredStaticBucketGpuResources
+        retiredStaticBucketGpuResources;
+    if (m_staticBucketGeometryUniverse.
+            TakeRetiredStaticBucketGpuResources(
+                retiredStaticBucketGpuResources))
+    {
+        PushRetiredStaticBucketGpuResources(
+            retiredStaticBucketGpuResources,
+            staticBucketRetireFrame);
+    }
     m_particleDiagnosticFramesRemaining = 0;
     m_smokeSkinnedSurfaceRecords.clear();
     m_smokeSkinnedCaptureRouteSets.clear();

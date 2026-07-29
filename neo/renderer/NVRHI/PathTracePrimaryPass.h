@@ -71,6 +71,18 @@ struct RtRetiredSmokeScenePackage
     nvrhi::BindingSetHandle skyCubeProbeBindingSet;
 };
 
+struct RtRetiredSmokeStaticBucketGpuPackage
+{
+    uint64 retireFrame = 0;
+    uint64 completionToken = 0;
+    uint64 bufferBytes = 0;
+    uint64 blasResultBytes = 0;
+    int blasResultQueryFailures = 0;
+    bool completionArmed = false;
+    nvrhi::EventQueryHandle completionQuery;
+    RtSmokeRetiredStaticBucketGpuResources resources;
+};
+
 struct RtSmokeSkinnedComparisonBlasResource
 {
     PtCanonicalInstanceKey instanceKey;
@@ -276,6 +288,11 @@ private:
     RtRetiredSmokeScenePackage CaptureRetiredRayTracingSmokeScenePackage() const;
     void PushRetiredRayTracingSmokeScenePackage(RtRetiredSmokeScenePackage& package, uint64 currentFrame, int retireFrames);
     int ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint64 currentFrame);
+    void PushRetiredStaticBucketGpuResources(
+        RtSmokeRetiredStaticBucketGpuResources& resources,
+        uint64 currentFrame);
+    int ReleaseCompletedRetiredStaticBucketGpuResources(
+        uint64 currentFrame);
     int ReleaseCompletedRetiredSmokeSkinnedComparisonBlases(uint64 currentFrame);
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
     void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
@@ -616,6 +633,11 @@ private:
     bool m_smokeSceneCompletionQueryFailureLogged = false;
     bool m_smokeSceneCompletionArmedLogged = false;
     bool m_smokeSceneCompletionReleasedLogged = false;
+    uint64 m_smokeNextStaticBucketCompletionToken = 1;
+    uint64 m_smokeLastCompletedStaticBucketToken = 0;
+    bool m_smokeStaticBucketCompletionQueryFailureLogged = false;
+    bool m_smokeStaticBucketCompletionArmedLogged = false;
+    bool m_smokeStaticBucketCompletionReleasedLogged = false;
     nvrhi::BufferHandle m_smokeSkinnedPreviousPositionBuffer;
     nvrhi::BufferHandle m_smokeSkinnedSurfaceDispatchBuffer;
     nvrhi::BufferHandle m_smokeSkinnedTriangleDispatchIndexBuffer;
@@ -778,6 +800,8 @@ private:
     nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
     std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
+    std::deque<RtRetiredSmokeStaticBucketGpuPackage>
+        m_retiredSmokeStaticBucketGpuPackages;
     std::vector<uint32_t> m_smokePreviousStaticTriangleMaterialIndexes;
     std::vector<PathTraceSmokeMaterial> m_smokeMaterialTableMaterials;
     std::vector<PathTraceDynamicMaterialRecord> m_smokeDynamicMaterialRecords;

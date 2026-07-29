@@ -3888,6 +3888,7 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         {
             return true;
         }
+        RetireStaticBucketBuffer(buffer);
         buffer = CreateRigidSmokeBuffer(
             device,
             debugName,
@@ -4116,8 +4117,7 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
                 !rangeCompatible ||
                 buffersCreated))
         {
-            record->blas = nullptr;
-            record->buildSubmitted = false;
+            RetireStaticBucketBlas(*record);
             ++stats.blasRetired;
         }
 
@@ -4243,6 +4243,8 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         }
         if (m_staticBucketBlasRecords[recordIndex].blas)
         {
+            RetireStaticBucketBlas(
+                m_staticBucketBlasRecords[recordIndex]);
             ++stats.blasRetired;
         }
         m_staticBucketBlasRecords.erase(
@@ -4383,6 +4385,8 @@ bool RtSmokeGeometryUniverse::UpdateStaticBucketMaterialIndexGpuScaffold(
             materialIndexBytes,
             sizeof(uint32_t)))
     {
+        RetireStaticBucketBuffer(
+            m_staticBucketTriangleMaterialIndexBuffer);
         m_staticBucketTriangleMaterialIndexBuffer =
             CreateRigidSmokeBuffer(
                 device,
@@ -4440,14 +4444,70 @@ bool RtSmokeGeometryUniverse::UpdateStaticBucketMaterialIndexGpuScaffold(
 
 void RtSmokeGeometryUniverse::ReleaseStaticBucketBlasGpuScaffold()
 {
-    m_staticBucketVertexBuffer = nullptr;
-    m_staticBucketIndexBuffer = nullptr;
-    m_staticBucketTriangleClassBuffer = nullptr;
-    m_staticBucketTriangleMaterialBuffer = nullptr;
-    m_staticBucketTriangleMaterialIndexBuffer = nullptr;
+    RetireStaticBucketBuffer(m_staticBucketVertexBuffer);
+    RetireStaticBucketBuffer(m_staticBucketIndexBuffer);
+    RetireStaticBucketBuffer(m_staticBucketTriangleClassBuffer);
+    RetireStaticBucketBuffer(m_staticBucketTriangleMaterialBuffer);
+    RetireStaticBucketBuffer(
+        m_staticBucketTriangleMaterialIndexBuffer);
+    for (StaticBucketBlasRecord& record :
+        m_staticBucketBlasRecords)
+    {
+        RetireStaticBucketBlas(record);
+    }
     m_staticBucketBlasRecords.clear();
     m_staticBucketUploadSignature = 0;
     m_staticBucketMaterialIndexUploadSignature = 0;
+}
+
+void RtSmokeGeometryUniverse::RetireStaticBucketBuffer(
+    nvrhi::BufferHandle& buffer)
+{
+    if (buffer)
+    {
+        m_retiredStaticBucketGpuResources.buffers.push_back(
+            buffer);
+        buffer = nullptr;
+    }
+}
+
+void RtSmokeGeometryUniverse::RetireStaticBucketBlas(
+    StaticBucketBlasRecord& record)
+{
+    if (record.blas)
+    {
+        m_retiredStaticBucketGpuResources.blases.push_back(
+            record.blas);
+        record.blas = nullptr;
+    }
+    record.blasDesc = nvrhi::rt::AccelStructDesc();
+    record.buildSubmitted = false;
+}
+
+bool RtSmokeGeometryUniverse::TakeRetiredStaticBucketGpuResources(
+    RtSmokeRetiredStaticBucketGpuResources& resources)
+{
+    resources = RtSmokeRetiredStaticBucketGpuResources();
+    if (m_retiredStaticBucketGpuResources.Empty())
+    {
+        return false;
+    }
+    resources.buffers.swap(
+        m_retiredStaticBucketGpuResources.buffers);
+    resources.blases.swap(
+        m_retiredStaticBucketGpuResources.blases);
+    return true;
+}
+
+bool RtSmokeGeometryUniverse::HasStaticBucketGpuResources() const
+{
+    return m_staticBucketVertexBuffer ||
+        m_staticBucketIndexBuffer ||
+        m_staticBucketTriangleClassBuffer ||
+        m_staticBucketTriangleMaterialBuffer ||
+        m_staticBucketTriangleMaterialIndexBuffer ||
+        !m_staticBucketBlasRecords.empty() ||
+        !m_retiredStaticBucketGpuResources.Empty();
 }
 
 void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(

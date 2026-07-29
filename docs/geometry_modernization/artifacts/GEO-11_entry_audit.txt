@@ -165,6 +165,42 @@ Slice 2 - exact bucket retirement
   - Add counters for pending, armed, released, and no-query packages.
   - Test live gate off/on, forced rebuild, map restart, and portal traversal.
 
+Implemented checkpoint:
+
+  - Buffer growth/replacement retains the old buffer handle.
+  - Material-index buffer growth retains the old buffer handle.
+  - Changed and unseen bucket records retain the old BLAS handle.
+  - Live scaffold disable retains all five bucket buffers and every BLAS.
+  - The geometry universe transfers retained handles to
+    `PathTracePrimaryPass`.
+  - The primary pass creates a graphics event query, arms it after the next
+    graphics submission, and releases only after the query polls complete.
+  - A missing query retains the package rather than guessing completion.
+  - Package diagnostics report retained/released buffer bytes and BLAS result
+    bytes.
+
+The bounded live test is:
+
+  1. Start from the accepted route-1 configuration and wait for 56/56 ready.
+  2. `r_pathTracingGeometryStaticBucketAudit 1`
+  3. `r_pathTracingGeometryStaticBucketBlas 0`
+  4. Wait for the GEO11 armed and released lines while moving across portals.
+  5. `r_pathTracingGeometryStaticBucketBlas 1; r_pathTracingGeometryStaticBucketBlasBuild 1`
+  6. Wait for 56/56 ready, move across portals, then run
+     `r_pathTracingGeometryStaticBucketAudit 1`.
+
+Temporary monolithic fallback while bucket resources rebuild is expected.
+Missing geometry, device removal, a retirement package released without an
+armed/completed query, or failure to return to an exact route-1 cutover is not.
+
+Slice-2 build and deployment:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; all SPIR-V shaders up to date
+  executable    15,990,784 bytes
+  sha256        4534B58ED185723298C78E8E0EE8CA585984CABE3D8074B53D16E0633116168A
+  deployment    source and prebuilt executable byte-identical
+
 Slice 3 - exact rigid retirement
 
   - Replace canonical and older rigid three-frame guesses with the same
