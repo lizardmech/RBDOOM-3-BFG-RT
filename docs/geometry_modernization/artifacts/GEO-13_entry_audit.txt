@@ -331,6 +331,38 @@ lower resident budget intentionally does not evict an already-published static
 cache in place. The required A/B is unlimited, forced-low byte, forced-low
 surface, then restored unlimited, with a map reload after each policy change.
 
+SLICE-3 RUNTIME ACCEPTANCE
+--------------------------
+`geometry_geo13_static.log` accepts checked static resident admission:
+
+  unlimited baseline:
+    admitted bytes / surfaces               3,466,872 / 589
+    all rejection counters                                  0
+
+  1 MiB byte budget:
+    admitted bytes / surfaces               1,048,340 / 121
+    byte rejections / rejected bytes              468 / 2,421,412
+    surface / invalid / overflow rejections          0 / 0 / 0
+
+  sixteen-surface budget:
+    admitted bytes / surfaces                 381,856 / 16
+    surface rejections / rejected bytes             573 / 3,088,556
+    byte / invalid / overflow rejections              0 / 0 / 0
+
+  restored unlimited:
+    admitted bytes / surfaces               3,466,872 / 589
+    all rejection counters                                  0
+
+The baseline and restored resident totals are exact. Each forced-low policy
+rejects only for its selected reason; invalid-count and arithmetic-overflow
+counters remain zero. The log contains no allocation, buffer, BLAS, TLAS,
+Vulkan, or device-loss failure and reaches normal renderer shutdown.
+
+Slice 3 is accepted. No mandatory static admission route depends on the old
+compile-time vertex/index/surface caps. Slice 4 beyond-old-cap proof is covered
+for both dynamic and static admission by the forced-low/recovery captures;
+route promotion remains a separate one-lane-at-a-time change.
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.

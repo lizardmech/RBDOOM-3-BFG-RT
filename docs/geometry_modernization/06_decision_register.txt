@@ -4147,6 +4147,26 @@ Dynamic admission is accepted. The old constants remain only reserve hints in
 that path. Static resident admission remains capped and is the next separate
 GEO-13 slice.
 
+D169. CHECKED STATIC CAP REMOVAL IS RUNTIME-ACCEPTED
+----------------------------------------------------
+`geometry_geo13_static.log` proves that legacy visible-static capture,
+monolithic scene-universe construction, selected-area preload, and full-map
+bucket-source construction use checked resident budgets rather than the old
+compile-time vertex/index/surface caps.
+
+Unlimited policy admits 3,466,872 bytes across 589 surfaces. A 1 MiB policy
+admits 1,048,340 bytes / 121 surfaces and rejects 468 candidates totaling
+2,421,412 bytes solely by byte reason. A sixteen-surface policy admits exactly
+16 surfaces / 381,856 bytes and rejects 573 candidates totaling 3,088,556
+bytes solely by surface reason. Restoring unlimited policy reproduces the
+exact 3,466,872-byte / 589-surface baseline with zero rejection.
+
+Invalid-count and arithmetic-overflow counters remain zero. The capture has no
+allocation, buffer, BLAS, TLAS, Vulkan, or device-loss failure and reaches
+normal renderer shutdown. Static admission is accepted. GEO-13 may proceed to
+one-route-at-a-time default promotion; canonical rigid is first, while
+monolithic static and merged dynamic remain required rollback/fallback routes.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.

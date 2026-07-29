@@ -991,6 +991,17 @@ remain zero, shutdown is normal, and there is no device/resource failure.
 Dynamic mandatory cap removal is complete; static resident admission remains
 the next isolated slice.
 
+GEO-13 static runtime result:
+
+`geometry_geo13_static.log` accepts checked resident admission. Unlimited and
+restored policy match exactly at 3,466,872 bytes / 589 surfaces. A 1 MiB byte
+budget rejects 468 candidates / 2,421,412 bytes only by byte reason; a
+sixteen-surface budget rejects 573 candidates / 3,088,556 bytes only by
+surface reason. Invalid and overflow remain zero, shutdown is normal, and
+there is no allocation, buffer, acceleration-structure, Vulkan, or device-loss
+failure. Static mandatory cap removal is complete. Default promotion now
+proceeds separately, beginning with canonical rigid provider and traversal.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material
