@@ -325,3 +325,26 @@ temporarily rebuild bucket BLASes; it must recover to exact publication.
 
 Do not resume the BLAS off/on retirement test until this traversal repair is
 accepted.
+
+TRAVERSAL REPAIR ACCEPTED
+-------------------------
+`geometry_geo_step9d.txt` accepts the repair. After 1,405 frames of traversal,
+the user reported no visual corruption and the one-shot audit showed:
+
+  source / storage / material epochs          3 / 1790 / 1
+  source / assignment / pack / material /
+    source-fast-path cache hits               1 / 1 / 1 / 1 / 1
+  assignment surfaces input / assigned        1789 / 1789
+  assignment duplicate / invalid / missing    0 / 0 / 0
+  resident triangles assigned / retained      50108 / 50108
+  resident / active / ready buckets            56 / 17 / 56
+  active TLAS / resident routes                17 / 56
+  publication valid / exact / mixed rejected   1 / 1 / 0
+  missing BLAS / material / range / ID          0 / 0 / 0 / 0
+  route requested / accepted                    1 / 1
+  BLAS build / reuse / retire                    0 / 56 / 0
+  warm upload bytes                                      0
+
+No source-replacement prune, GEO-11 retirement, device-loss, or fatal-error
+line occurred. The broad entity-count invalidation defect is closed. The
+focused BLAS off/on retirement test from Slice 2 is authorized again.

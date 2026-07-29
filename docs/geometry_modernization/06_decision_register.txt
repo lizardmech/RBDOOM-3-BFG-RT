@@ -3457,6 +3457,13 @@ beside the old one is prohibited.
 This repair is a prerequisite for further GEO-11 retirement testing. It does
 not change shader identity, portal policy, or the accepted route-1 decode.
 
+`geometry_geo_step9d.txt` accepts D135 after 1,405 traversal frames. The
+source/storage/material tuple remained 3/1790/1, all 1,789 surfaces and 50,108
+triangles remained exact, all five steady source/assignment/pack/material
+caches hit, route 1 remained accepted at 17/56/56 active/resident/ready, and
+every missing/invalid/mixed-epoch counter was zero. The user observed no visual
+corruption. GEO-11 retirement testing may resume.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
