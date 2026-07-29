@@ -2994,3 +2994,49 @@ Runtime gate:
      the tinted door-panel view.
   5. Reject device removal, swapped materials, incorrect reflected geometry,
      broken geometry behind glass, or loss of the route-1 cutover.
+
+REF-10AH REFLECTION PORTAL HALO - 2026-07-29
+---------------------------------------------
+The opaque-mirror run exposed one geometry-coverage defect: reflected rays
+lost brush geometry after approximately one or two portal crossings. The
+existing `r_pathTracingGeometryStaticBucketPortalSteps 1` membership was
+correct for the frontend primary view but insufficient for off-primary
+reflection rays.
+
+The live A/B is accepted:
+
+  primary/frontend expansion                         1
+  manual test expansion                              4
+  reflected brush cutoff at 1                        present
+  reflected brush cutoff at 4                        not observed
+
+A dedicated reflection-only control now defaults to four:
+
+  r_pathTracingGeometryStaticBucketReflectionPortalSteps 4
+
+Effective portal steps are `max(primary, reflection)` only while the accepted
+route-1 glass or opaque-mirror reflection family is active. Primary-only route
+1 remains at one. The full-resident route-2 diagnostic is unchanged. Both
+values clamp to 0..8, and diagnostics report:
+
+  portalSteps=<effective value> reflectionHalo=<0 or 1>
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness                        passed
+  PathTraceCpuPlanningHarness --stress 20            passed
+  primary 1, reflection inactive                     resolves to 1
+  primary 1, reflection 4 active                     resolves to 4
+  primary 6, reflection 4 active                     resolves to 6
+  invalid/out-of-range controls                      clamp to 0..8
+  full win64-pt-dev-release build                    passed
+  SPIR-V rebuilds                                    0
+
+  executable SHA-256
+    DDB6BE1922637E109D6023B65773CEDAEDAB9C1D22DF2E64EB3FB363B58B8513
+
+Only the executable is deployed. Runtime acceptance requires the normal
+reflection-enabled route-1 configuration with the primary control returned to
+one. The active-set diagnostic must show `portalSteps=4 reflectionHalo=1`,
+reflected brush geometry must remain present, and portal movement must remain
+device-loss free.

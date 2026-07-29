@@ -3223,6 +3223,30 @@ external PDF-NEE remain closed. Because the shader source is unchanged from
 the accepted glass-reflection checkpoint, the rebuilt Vulkan glass and
 transmission blobs are hash-identical and are not redeployed.
 
+D127. REFLECTIONS REQUIRE A SEPARATE PORTAL HALO
+-------------------------------------------------
+With opaque mirrors admitted, the user observed that reflected brush geometry
+was cut off after roughly one or two portals. Changing the existing portal
+expansion from one to four fixed the reflected view. This is not a regression
+in the frontend-visible primary mask: reflection rays can leave the clipped
+primary-visible area set and therefore require a larger conservative TLAS
+membership halo.
+
+Do not raise the primary-only default. Add a separate reflection control:
+
+  r_pathTracingGeometryStaticBucketReflectionPortalSteps = 4
+
+When the accepted route-1 bounded glass or opaque-mirror reflection family is
+active, effective expansion is:
+
+  max(primaryPortalSteps, reflectionPortalSteps)
+
+Otherwise it remains the primary value. Both inputs clamp to 0..8, and a user
+primary value above the reflection default is never reduced. Diagnostics must
+report both the effective `portalSteps` and `reflectionHalo` state. This keeps
+the accepted primary policy at one while making the validated four-step
+secondary reach automatic.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

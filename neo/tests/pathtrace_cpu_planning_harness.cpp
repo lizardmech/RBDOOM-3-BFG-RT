@@ -2191,6 +2191,14 @@ void TestAsyncStaticBucketWorkPlanning()
 
 void TestStaticBucketAssignmentPlan()
 {
+    Check(
+        ResolveSmokeStaticBucketPortalSteps(1, false, 4) == 1 &&
+            ResolveSmokeStaticBucketPortalSteps(1, true, 4) == 4 &&
+            ResolveSmokeStaticBucketPortalSteps(6, true, 4) == 6 &&
+            ResolveSmokeStaticBucketPortalSteps(-2, true, 12) == 8 &&
+            ResolveSmokeStaticBucketPortalSteps(-2, false, 12) == 0,
+        "static bucket reflection portal halo widens only active secondary reflection and never narrows the primary policy");
+
     const std::vector<RtSmokePortalAreaEdge> portalEdges = {
         { 0, 1 },
         { 1, 2 },

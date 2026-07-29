@@ -231,6 +231,10 @@ RtSmokePortalVisibilityMaskPlan BuildSmokePortalVisibilityMaskPlan(
     const std::vector<RtSmokePortalAreaEdge>& portalEdges,
     int expansionSteps,
     bool forceFullMap);
+int ResolveSmokeStaticBucketPortalSteps(
+    int primaryPortalSteps,
+    bool secondaryReflectionActive,
+    int reflectionPortalSteps);
 
 struct RtSmokeStaticBucketAssignmentSurface
 {

@@ -5989,10 +5989,12 @@ struct RtSmokeStaticBucketFramePublication
     bool portalMaskValid = false;
     bool activeMaskValid = false;
     bool activeMaskForcedFullResident = false;
+    bool reflectionPortalHalo = false;
     bool materialIndexUploaded = false;
     int portalAreaCount = 0;
     int frontendVisibleAreaCount = 0;
     int selectedPortalAreaCount = 0;
+    int portalSteps = 0;
     int maxVerticesPerBucket = 0;
     int maxIndexesPerBucket = 0;
     int maxTrianglesPerBucket = 0;
@@ -6022,6 +6024,8 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     nvrhi::ICommandList* commandList,
     uint64 frameIndex,
     ID_TIME_T mapTimeStamp,
+    int portalSteps,
+    bool reflectionPortalHalo,
     bool forceFullResidentActiveSet)
 {
     OPTICK_EVENT("PT Static Bucket Frame Publication");
@@ -6031,6 +6035,8 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
         r_pathTracingGeometryStaticBucketAudit.GetInteger() != 0;
     frame.blasEnabled =
         r_pathTracingGeometryStaticBucketBlas.GetInteger() != 0;
+    frame.portalSteps = idMath::ClampInt(0, 8, portalSteps);
+    frame.reflectionPortalHalo = reflectionPortalHalo;
     frame.enabled = frame.auditRequested || frame.blasEnabled;
     if (!frame.enabled)
     {
@@ -6063,10 +6069,7 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
             : 0;
     frame.portalMaskValid = sceneUniverse.BuildPortalAreaActiveMask(
         viewDef,
-        idMath::ClampInt(
-            0,
-            8,
-            r_pathTracingGeometryStaticBucketPortalSteps.GetInteger()),
+        frame.portalSteps,
         frame.portalActiveAreas,
         &frame.frontendVisibleAreaCount,
         &frame.selectedPortalAreaCount);
@@ -7388,6 +7391,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingReflectionOpaqueMirror.GetInteger() != 0,
             r_pathTracingCleanRtxdiDiGlassRefractedPsr.GetInteger() != 0,
             staticBucketSecondaryProbeStage);
+    const bool staticBucketReflectionPortalHalo =
+        staticBucketProductionRoute &&
+        (r_pathTracingCleanRtxdiDiGlassReflectionPsr.GetInteger() != 0 ||
+            r_pathTracingReflectionOpaqueMirror.GetInteger() != 0);
+    const int staticBucketPortalSteps =
+        ResolveSmokeStaticBucketPortalSteps(
+            r_pathTracingGeometryStaticBucketPortalSteps.GetInteger(),
+            staticBucketReflectionPortalHalo,
+            r_pathTracingGeometryStaticBucketReflectionPortalSteps.GetInteger());
     const bool staticBucketCleanDiSecondaryIsolation =
         IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             staticBucketRouteMode,
@@ -8149,6 +8161,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 commandList,
                 m_smokeGeometryFrameIndex,
                 m_smokeSceneMapTimeStamp,
+                staticBucketPortalSteps,
+                staticBucketReflectionPortalHalo,
                 staticBucketConsumerProbe);
     // Diagnostic routes force the resident mask only to remove portal-policy
     // ambiguity. The explicit route-1 production checkpoint retains the
@@ -13365,7 +13379,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 DumpStaticBucketActivePublication(
                     staticBucketActivePublication);
             common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d residentPack/materialIndexCacheHit=%d/%d maskValid=%d portalMaskValid=%d fullResidentProbe=%d portalSteps=%d areas(frontendVisible/selected)=%d/%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/materialBinding/tlas)=%llu/%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
+                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d residentPack/materialIndexCacheHit=%d/%d maskValid=%d portalMaskValid=%d fullResidentProbe=%d portalSteps=%d reflectionHalo=%d areas(frontendVisible/selected)=%d/%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/materialBinding/tlas)=%llu/%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
                 staticBucketSourceBuildStats.built ? 1 : 0,
                 staticBucketSourceBuildStats.cacheHit ? 1 : 0,
                 staticBucketFramePublication.
@@ -13382,11 +13396,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     activeMaskForcedFullResident
                         ? 1
                         : 0,
-                idMath::ClampInt(
-                    0,
-                    8,
-                    r_pathTracingGeometryStaticBucketPortalSteps.
-                        GetInteger()),
+                staticBucketFramePublication.portalSteps,
+                staticBucketFramePublication.
+                    reflectionPortalHalo
+                        ? 1
+                        : 0,
                 staticBucketFramePublication.
                     frontendVisibleAreaCount,
                 staticBucketFramePublication.

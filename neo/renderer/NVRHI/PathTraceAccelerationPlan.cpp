@@ -483,6 +483,22 @@ RtSmokePortalVisibilityMaskPlan BuildSmokePortalVisibilityMaskPlan(
     return plan;
 }
 
+int ResolveSmokeStaticBucketPortalSteps(
+    int primaryPortalSteps,
+    bool secondaryReflectionActive,
+    int reflectionPortalSteps)
+{
+    const int boundedPrimary =
+        std::max(0, std::min(8, primaryPortalSteps));
+    if (!secondaryReflectionActive)
+    {
+        return boundedPrimary;
+    }
+    const int boundedReflection =
+        std::max(0, std::min(8, reflectionPortalSteps));
+    return std::max(boundedPrimary, boundedReflection);
+}
+
 RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
     const RtSmokeStaticBucketAssignmentPlanDesc& desc)
 {
