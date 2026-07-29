@@ -379,3 +379,33 @@ Diagnostic rebuild and deployment:
   executable    15,991,296 bytes
   sha256        FDF659A90640687235F6373837F6E54D5995BD52D9B5AA76146E1B40A888C75A
   deployment    source and prebuilt executable byte-identical
+
+SLICE-2 WARM RETIREMENT ACCEPTED
+--------------------------------
+The updated `success21.log` starts with bucket BLAS enabled, reaches exact
+56/56 readiness, disables the live scaffold once, and records the complete
+retirement package:
+
+  armed packages / tokens / pending          1 / 1..1 / 1
+  released packages / pending                1 / 0
+  released buffers / BLASes                  5 / 56
+  released buffer bytes                      8245376
+  released BLAS result bytes                 3635712
+  result-query failures                      0
+  authority                                  gpu-event-query
+
+The off interval used monolithic fallback. Re-enable recreated four backing
+buffers, rebuilt two BLASes per frame from 2/56 through 56/56, and returned to
+exact route-1 publication:
+
+  source / storage / material epochs          3 / 1790 / 1
+  resident / active / ready buckets            56 / 14 / 56
+  active TLAS / resident routes                14 / 56
+  publication valid / exact / mixed rejected   1 / 1 / 0
+  missing BLAS / material / range / ID          0 / 0 / 0 / 0
+  steady BLAS build / reuse / retire             0 / 56 / 0
+  warm upload bytes                                      0
+
+No device loss or fatal error occurred. Slice 2 is accepted. Slice 3 may replace
+canonical and older rigid frame-count retirement guesses with the same exact
+graphics completion authority.

@@ -3477,6 +3477,13 @@ one-shot. Warm retirement is accepted only when a 56/56-ready disable reports
 matching nonzero-BLAS armed/released packages with zero result-query failures,
 then rebuilds to an exact route.
 
+`success21.log` accepts D136 and GEO-11 Slice 2. One warm package retained five
+buffers, 56 BLASes, 8,245,376 buffer bytes, and 3,635,712 BLAS-result bytes.
+Token 1 was armed and the package released with pending zero only after the
+graphics event query completed; result-query failures were zero. Re-enable
+rebuilt two BLASes per frame and recovered exact route 1 at 14/56/56 with every
+publication failure counter zero.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
