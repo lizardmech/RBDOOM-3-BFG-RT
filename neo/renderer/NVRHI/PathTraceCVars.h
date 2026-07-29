@@ -60,6 +60,7 @@ extern idCVar r_pathTracingGeometryShadowRegistry;
 extern idCVar r_pathTracingGeometryShadowRegistryDump;
 extern idCVar r_pathTracingGeometrySourceDeltaBudgetMB;
 extern idCVar r_pathTracingGeometryAttributeSurveyDump;
+extern idCVar r_pathTracingGeometryRenderedAttributeSurveyDump;
 extern idCVar r_pathTracingGeometryCanonicalRigidBlas;
 extern idCVar r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame;
 extern idCVar r_pathTracingGeometryCanonicalRigidBlasResultBudgetKB;

@@ -14,6 +14,7 @@ class RtSmokeGeometryUniverse;
 class RtPathTraceSceneUniverse;
 struct PathTraceSmokeVertex;
 struct RtSmokeSkinnedSurfaceRecord;
+struct RtSmokeCapturedSurfaceRecord;
 struct PtSkinnedHitRouteRecord;
 struct viewDef_t;
 
@@ -77,6 +78,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     RtSmokeBucketRanges& bucketRanges,
     RtSmokeSceneCaptureTiming& captureTiming,
     std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords = nullptr,
+    std::vector<RtSmokeCapturedSurfaceRecord>* capturedSurfaceRecords = nullptr,
     std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache = nullptr,
     RtPathTraceInstanceUniverse* instanceUniverse = nullptr,
     std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines = nullptr,

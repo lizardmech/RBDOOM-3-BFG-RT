@@ -321,6 +321,12 @@ idCVar r_pathTracingGeometryAttributeSurveyDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to a 1-based page for one bounded GEO-12 full-fidelity canonical-source attribute survey; measurement only" );
 
+idCVar r_pathTracingGeometryRenderedAttributeSurveyDump(
+    "r_pathTracingGeometryRenderedAttributeSurveyDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to a 1-based page for one bounded GEO-12 final rendered static/dynamic attribute survey; measurement only" );
+
 idCVar r_pathTracingGeometryCanonicalRigidBlas(
     "r_pathTracingGeometryCanonicalRigidBlas",
     "0",

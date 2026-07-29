@@ -19,6 +19,7 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceEntityFeed.h"
+#include "PathTraceGeometryAttributeSurvey.h"
 #include "PathTraceJointCacheCopyPlan.h"
 #include "PathTraceMaterialClassifier.h"
 #include "PathTraceMaterialUniverse.h"
@@ -77,6 +78,287 @@ static_assert(
 int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
+
+void AppendRenderedAttributeSurveyRange(
+    const std::vector<PathTraceSmokeVertex>& vertices,
+    int vertexOffset,
+    int vertexCount,
+    const PtRenderedGeometrySurveyRecord& metadata,
+    PtRenderedGeometrySurvey& survey)
+{
+    if (vertexOffset < 0 ||
+        vertexCount <= 0 ||
+        static_cast<size_t>(vertexOffset) > vertices.size() ||
+        static_cast<size_t>(vertexCount) >
+            vertices.size() - static_cast<size_t>(vertexOffset))
+    {
+        PtRecordRenderedGeometrySurveyInvalidRange(survey);
+        return;
+    }
+
+    std::vector<PtRenderedGeometrySurveyVertex> values;
+    values.resize(static_cast<size_t>(vertexCount));
+    for (int vertexIndex = 0;
+        vertexIndex < vertexCount;
+        ++vertexIndex)
+    {
+        const PathTraceSmokeVertex& source =
+            vertices[static_cast<size_t>(vertexOffset + vertexIndex)];
+        PtRenderedGeometrySurveyVertex& destination =
+            values[static_cast<size_t>(vertexIndex)];
+        memcpy(destination.position, source.position, sizeof(destination.position));
+        memcpy(destination.normal, source.normal, sizeof(destination.normal));
+        memcpy(destination.texCoord, source.texCoord, sizeof(destination.texCoord));
+        memcpy(destination.color, source.color, sizeof(destination.color));
+        memcpy(destination.color2, source.color2, sizeof(destination.color2));
+        memcpy(destination.tangent, source.tangent, sizeof(destination.tangent));
+        memcpy(destination.bitangent, source.bitangent, sizeof(destination.bitangent));
+    }
+    PtAppendRenderedGeometrySurveyRecord(
+        metadata,
+        values.data(),
+        values.size(),
+        survey);
+}
+
+const RtPathTraceSceneUniverseSurface* FindSceneUniverseSurfaceForStaticRecord(
+    const RtSmokePersistentStaticSurfaceRecord& record,
+    const std::vector<RtPathTraceSceneUniverseSurface>& surfaces)
+{
+    for (const RtPathTraceSceneUniverseSurface& surface : surfaces)
+    {
+        if ((record.bucketSurfaceKey != 0 &&
+                surface.key == record.bucketSurfaceKey) ||
+            (record.key != 0 &&
+                surface.legacyDrawSurfKey == record.key))
+        {
+            return &surface;
+        }
+    }
+    return nullptr;
+}
+
+void DumpRenderedAttributeSurvey(
+    int requestedPage,
+    int sceneSource,
+    const std::vector<PathTraceSmokeVertex>& staticVertices,
+    const std::vector<RtSmokePersistentStaticSurfaceRecord>& staticRecords,
+    const std::vector<RtPathTraceSceneUniverseSurface>& sceneSurfaces,
+    const std::vector<PathTraceSmokeVertex>& dynamicVertices,
+    const std::vector<RtSmokeCapturedSurfaceRecord>& dynamicRecords)
+{
+    PtRenderedGeometrySurvey survey;
+    PtBeginRenderedGeometrySurvey(survey);
+
+    for (const RtSmokePersistentStaticSurfaceRecord& source : staticRecords)
+    {
+        if (!source.valid)
+        {
+            continue;
+        }
+        const RtPathTraceSceneUniverseSurface* identity =
+            FindSceneUniverseSurfaceForStaticRecord(source, sceneSurfaces);
+        PtRenderedGeometrySurveyRecord metadata;
+        metadata.domain =
+            PtRenderedGeometrySurveyDomain::StaticResident;
+        metadata.identity =
+            source.bucketSurfaceKey != 0
+                ? source.bucketSurfaceKey
+                : source.key;
+        metadata.surfaceClassId = source.surfaceClassId;
+        metadata.materialId = source.materialId;
+        metadata.portalArea = source.portalArea;
+        if (identity)
+        {
+            metadata.entityIndex = identity->entityIndex;
+            metadata.modelSurfaceIndex = identity->surfaceIndex;
+            metadata.modelName = identity->modelName.c_str();
+            metadata.materialName = identity->materialName.c_str();
+        }
+        else
+        {
+            metadata.modelName = "<unjoined-static>";
+            metadata.materialName = "<unjoined-static>";
+        }
+        AppendRenderedAttributeSurveyRange(
+            staticVertices,
+            source.currentRange.vertices.offset,
+            source.currentRange.vertices.count,
+            metadata,
+            survey);
+    }
+
+    for (const RtSmokeCapturedSurfaceRecord& source : dynamicRecords)
+    {
+        PtRenderedGeometrySurveyRecord metadata;
+        metadata.domain =
+            PtRenderedGeometrySurveyDomain::DynamicFallback;
+        metadata.identity =
+            (static_cast<uint64>(static_cast<uint32>(source.entityIndex + 1))
+                << 32) ^
+            static_cast<uint32>(source.drawSurfIndex + 1);
+        metadata.surfaceClassId =
+            source.triangleClassAndFlags &
+            RT_SMOKE_TRIANGLE_CLASS_MASK;
+        metadata.materialId = source.materialId;
+        metadata.entityIndex = source.entityIndex;
+        metadata.modelSurfaceIndex = source.modelSurfaceIndex;
+        metadata.modelName = source.modelName.c_str();
+        metadata.materialName = source.materialName.c_str();
+        AppendRenderedAttributeSurveyRange(
+            dynamicVertices,
+            source.currentVertexOffset,
+            source.vertexCount,
+            metadata,
+            survey);
+    }
+
+    const PtRenderedGeometrySurveyStats& totals = survey.totals;
+    const PtGeometryAttributeSurveyStats& values = totals.values;
+    const int rowsPerPage = 32;
+    const int pageCount = Max(
+        1,
+        (static_cast<int>(survey.records.size()) +
+            rowsPerPage - 1) /
+            rowsPerPage);
+    const int page = idMath::ClampInt(1, pageCount, requestedPage);
+    const int rowBegin = (page - 1) * rowsPerPage;
+    const int rowEnd = Min(
+        static_cast<int>(survey.records.size()),
+        rowBegin + rowsPerPage);
+    const uint64 currentBytes =
+        values.currentPositionBytes +
+        values.currentAttributeBytes;
+    uint64 staticClassRecords[RT_SMOKE_CLASS_COUNT] = {};
+    uint64 dynamicClassRecords[RT_SMOKE_CLASS_COUNT] = {};
+    for (const PtRenderedGeometrySurveyRecord& record :
+        survey.records)
+    {
+        const int classIndex = idMath::ClampInt(
+            0,
+            RT_SMOKE_CLASS_COUNT - 1,
+            static_cast<int>(
+                record.surfaceClassId &
+                RT_SMOKE_TRIANGLE_CLASS_MASK));
+        uint64* classRecords =
+            record.domain ==
+                    PtRenderedGeometrySurveyDomain::StaticResident
+                ? staticClassRecords
+                : dynamicClassRecords;
+        ++classRecords[classIndex];
+    }
+
+    common->Printf(
+        "PathTracePrimaryPass: GEO12 rendered attribute survey page=%d/%d rows=%d..%d records(total/static/dynamic/invalidRange)=%d/%llu/%llu/%llu sceneSource=%d vertices=%llu currentBytes=%llu\n",
+        page,
+        pageCount,
+        rowBegin + (rowBegin < rowEnd ? 1 : 0),
+        rowEnd,
+        static_cast<int>(survey.records.size()),
+        static_cast<unsigned long long>(survey.staticRecordCount),
+        static_cast<unsigned long long>(survey.dynamicRecordCount),
+        static_cast<unsigned long long>(survey.invalidRangeRecordCount),
+        sceneSource,
+        static_cast<unsigned long long>(values.vertexCount),
+        static_cast<unsigned long long>(currentBytes));
+    common->Printf(
+        "PathTracePrimaryPass: GEO12 rendered class census static(world/rigid/skinned/particle/unknown)=%llu/%llu/%llu/%llu/%llu dynamic=%llu/%llu/%llu/%llu/%llu\n",
+        static_cast<unsigned long long>(staticClassRecords[0]),
+        static_cast<unsigned long long>(staticClassRecords[1]),
+        static_cast<unsigned long long>(staticClassRecords[2]),
+        static_cast<unsigned long long>(staticClassRecords[3]),
+        static_cast<unsigned long long>(staticClassRecords[4]),
+        static_cast<unsigned long long>(dynamicClassRecords[0]),
+        static_cast<unsigned long long>(dynamicClassRecords[1]),
+        static_cast<unsigned long long>(dynamicClassRecords[2]),
+        static_cast<unsigned long long>(dynamicClassRecords[3]),
+        static_cast<unsigned long long>(dynamicClassRecords[4]));
+    common->Printf(
+        "PathTracePrimaryPass: GEO12 rendered ranges position=(%.9g %.9g %.9g)..(%.9g %.9g %.9g) diffuseUV=(%.9g %.9g)..(%.9g %.9g) normalUV=(%.9g %.9g)..(%.9g %.9g) nonfinite(pos/diffuseUV/normalUV/basis/color)=%llu/%llu/%llu/%llu/%llu\n",
+        values.positionMin[0], values.positionMin[1], values.positionMin[2],
+        values.positionMax[0], values.positionMax[1], values.positionMax[2],
+        values.texCoordMin[0], values.texCoordMin[1],
+        values.texCoordMax[0], values.texCoordMax[1],
+        totals.normalMapTexCoordMin[0], totals.normalMapTexCoordMin[1],
+        totals.normalMapTexCoordMax[0], totals.normalMapTexCoordMax[1],
+        static_cast<unsigned long long>(values.nonFinitePositionComponents),
+        static_cast<unsigned long long>(values.nonFiniteTexCoordComponents),
+        static_cast<unsigned long long>(totals.nonFiniteNormalMapTexCoordComponents),
+        static_cast<unsigned long long>(values.nonFiniteBasisComponents),
+        static_cast<unsigned long long>(values.nonFiniteColorComponents));
+    common->Printf(
+        "PathTracePrimaryPass: GEO12 rendered half diffuse(samples/overflow/underflow/maxAbs/maxRel)=%llu/%llu/%llu/%.9g/%.9g normal(samples/overflow/underflow/maxAbs/maxRel)=%llu/%llu/%llu/%.9g/%.9g\n",
+        static_cast<unsigned long long>(values.halfTexCoordComponents),
+        static_cast<unsigned long long>(values.halfTexCoordOverflowComponents),
+        static_cast<unsigned long long>(values.halfTexCoordUnderflowToZeroComponents),
+        values.halfTexCoordMaxAbsError,
+        values.halfTexCoordMaxRelativeError,
+        static_cast<unsigned long long>(totals.halfNormalMapTexCoordComponents),
+        static_cast<unsigned long long>(totals.halfNormalMapTexCoordOverflowComponents),
+        static_cast<unsigned long long>(totals.halfNormalMapTexCoordUnderflowToZeroComponents),
+        totals.halfNormalMapTexCoordMaxAbsError,
+        totals.halfNormalMapTexCoordMaxRelativeError);
+    common->Printf(
+        "PathTracePrimaryPass: GEO12 rendered basis octMaxDegrees(normal/tangent)=%.9g/%.9g degenerate(N/T/B)=%llu/%llu/%llu deriveBitangent(samples/invalid/maxDegrees)=%llu/%llu/%.9g colorExact=%llu/%llu color2Exact=%llu/%llu\n",
+        values.normalOct16MaxAngularErrorDegrees,
+        values.tangentOct16MaxAngularErrorDegrees,
+        static_cast<unsigned long long>(values.normalDegenerateVertices),
+        static_cast<unsigned long long>(values.tangentDegenerateVertices),
+        static_cast<unsigned long long>(values.bitangentDegenerateVertices),
+        static_cast<unsigned long long>(values.bitangentReconstructionSamples),
+        static_cast<unsigned long long>(values.bitangentReconstructionInvalid),
+        values.bitangentReconstructionMaxAngularErrorDegrees,
+        static_cast<unsigned long long>(values.colorUnorm8ExactComponents),
+        static_cast<unsigned long long>(values.colorComponents),
+        static_cast<unsigned long long>(values.color2Unorm8ExactComponents),
+        static_cast<unsigned long long>(values.color2Components));
+    common->Printf(
+        "PathTracePrimaryPass: GEO12 rendered independentCandidateSavingsBytes halfDiffuse=%llu halfNormalMap=%llu octNormal=%llu octTangent=%llu deriveBitangent=%llu unormColor=%llu unormColor2=%llu combined=not-admitted\n",
+        static_cast<unsigned long long>(values.vertexCount * 4ull),
+        static_cast<unsigned long long>(values.vertexCount * 4ull),
+        static_cast<unsigned long long>(values.vertexCount * 12ull),
+        static_cast<unsigned long long>(values.vertexCount * 12ull),
+        static_cast<unsigned long long>(values.vertexCount * 16ull),
+        static_cast<unsigned long long>(values.vertexCount * 12ull),
+        static_cast<unsigned long long>(values.vertexCount * 12ull));
+
+    for (int row = rowBegin; row < rowEnd; ++row)
+    {
+        const PtRenderedGeometrySurveyRecord& record =
+            survey.records[static_cast<size_t>(row)];
+        const PtGeometryAttributeSurveyStats& stats =
+            record.stats.values;
+        common->Printf(
+            "PathTracePrimaryPass: GEO12 rendered row=%d domain=%s identity=%llu class=%u material=%u entity/surface/area=%d/%d/%d verts=%llu diffuseUV=(%.7g %.7g)..(%.7g %.7g) normalUV=(%.7g %.7g)..(%.7g %.7g) halfOverflow(diffuse/normal)=%llu/%llu octMax(N/T)=%.6g/%.6g model='%s' materialName='%s'\n",
+            row + 1,
+            record.domain ==
+                    PtRenderedGeometrySurveyDomain::StaticResident
+                ? "static"
+                : "dynamic",
+            static_cast<unsigned long long>(record.identity),
+            record.surfaceClassId,
+            record.materialId,
+            record.entityIndex,
+            record.modelSurfaceIndex,
+            record.portalArea,
+            static_cast<unsigned long long>(stats.vertexCount),
+            stats.texCoordMin[0], stats.texCoordMin[1],
+            stats.texCoordMax[0], stats.texCoordMax[1],
+            record.stats.normalMapTexCoordMin[0],
+            record.stats.normalMapTexCoordMin[1],
+            record.stats.normalMapTexCoordMax[0],
+            record.stats.normalMapTexCoordMax[1],
+            static_cast<unsigned long long>(
+                stats.halfTexCoordOverflowComponents),
+            static_cast<unsigned long long>(
+                record.stats.
+                    halfNormalMapTexCoordOverflowComponents),
+            stats.normalOct16MaxAngularErrorDegrees,
+            stats.tangentOct16MaxAngularErrorDegrees,
+            record.modelName.c_str(),
+            record.materialName.c_str());
+    }
+}
 
 nvrhi::TextureHandle CreateSmokeSkyEnvironmentCube(
     nvrhi::ICommandList* commandList,
@@ -6584,6 +6866,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<uint32_t> dynamicTriangleInstanceData;
     std::vector<uint32_t> dynamicTriangleIdentityData;
     std::vector<RtSmokeSkinnedSurfaceRecord> currentSkinnedSurfaceRecords;
+    std::vector<RtSmokeCapturedSurfaceRecord>
+        currentCapturedSurfaceRecords;
     uint64 skinnedCaptureViewSignature = 0;
     PtSkinnedHitRouteBuild skinnedHitRouteUploadBuild;
     uint64 skinnedHitRouteUploadBuildSignature = 0;
@@ -6970,7 +7254,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 r_pathTracingSmokeLog.GetInteger() != 0 ||
                 r_pathTracingSceneBoundsOverlay.GetInteger() != 0 ||
                 rigidResidencyBoundsDebug;
-            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, &currentSkinnedSurfaceRecords, nullptr, &m_instanceUniverse, &m_smokeBoundsOverlayLines, drawSurfMirrorFullDiagnostics, skinnedCaptureAdmissionRoutes);
+            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, &currentSkinnedSurfaceRecords, r_pathTracingGeometryRenderedAttributeSurveyDump.GetInteger() != 0 ? &currentCapturedSurfaceRecords : nullptr, nullptr, &m_instanceUniverse, &m_smokeBoundsOverlayLines, drawSurfMirrorFullDiagnostics, skinnedCaptureAdmissionRoutes);
 
             {
                 OPTICK_EVENT("PT Merge Mirror Capture Stats");
@@ -8311,6 +8595,23 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             dynamicTexMatrixVertices,
             rigidRouteTexMatrixVertices,
             static_cast<int>(dynamicMaterialRecords.size()));
+    }
+    if (r_pathTracingGeometryRenderedAttributeSurveyDump.
+            GetInteger() != 0)
+    {
+        const int requestedPage =
+            r_pathTracingGeometryRenderedAttributeSurveyDump.
+                GetInteger();
+        DumpRenderedAttributeSurvey(
+            requestedPage,
+            sceneSource,
+            staticVertexFrameData,
+            m_smokeGeometryUniverse.StaticSurfaceRecords(),
+            m_sceneUniverse.Surfaces(),
+            dynamicVertexData,
+            currentCapturedSurfaceRecords);
+        r_pathTracingGeometryRenderedAttributeSurveyDump.
+            SetInteger(0);
     }
     {
         OPTICK_EVENT("PT Material Diagnostic Triggers");

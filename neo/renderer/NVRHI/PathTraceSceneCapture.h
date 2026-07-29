@@ -265,6 +265,27 @@ struct RtSmokeSkinnedSurfaceRecord
     float objectToWorld[12] = {};
 };
 
+// Observation-only ledger for the final per-frame rendered vertex ranges.
+// GEO-12 uses this after dynamic bucket merge and texture-matrix application;
+// it is not uploaded and does not participate in route identity.
+struct RtSmokeCapturedSurfaceRecord
+{
+    int currentVertexOffset = -1;
+    int currentIndexOffset = -1;
+    int currentTriangleOffset = -1;
+    int vertexCount = 0;
+    int indexCount = 0;
+    int triangleCount = 0;
+    int bucketIndex = -1;
+    int entityIndex = -1;
+    int drawSurfIndex = -1;
+    int modelSurfaceIndex = -1;
+    uint32_t materialId = 0;
+    uint32_t triangleClassAndFlags = 0;
+    idStr modelName;
+    idStr materialName;
+};
+
 struct RtSmokeSceneCaptureTiming
 {
     int anchorMs = 0;
@@ -381,6 +402,23 @@ void AddSmokeSkinnedSurfaceRecord(
     int triangleCount);
 void FinalizeSmokeSkinnedSurfaceRecordOffsets(
     std::vector<RtSmokeSkinnedSurfaceRecord>* records,
+    int bucketIndex,
+    const RtSmokeBucketRange& range);
+void AddSmokeCapturedSurfaceRecord(
+    std::vector<RtSmokeCapturedSurfaceRecord>* records,
+    const drawSurf_t* drawSurf,
+    uint32_t surfaceClassId,
+    uint32_t materialId,
+    int drawSurfIndex,
+    int bucketIndex,
+    int currentVertexOffset,
+    int currentIndexOffset,
+    int currentTriangleOffset,
+    int vertexCount,
+    int indexCount,
+    int triangleCount);
+void FinalizeSmokeCapturedSurfaceRecordOffsets(
+    std::vector<RtSmokeCapturedSurfaceRecord>* records,
     int bucketIndex,
     const RtSmokeBucketRange& range);
 

@@ -114,3 +114,36 @@ Both color streams are UNORM8-exact for all 259,944 components apiece. The
 including both 3,050-vertex `zfat.md5mesh` surfaces. Both automated runs shut
 down normally without device loss. These results remain domain-limited
 measurement, not encoding acceptance.
+
+RENDERED STATIC/DYNAMIC SURVEY SLICE 2
+--------------------------------------
+The second observation-only survey closes the live rendered-capture ownership
+gap for scene source 3. Static resident ranges join the persistent geometry
+record to scene-universe identity. A new frame-local diagnostic ledger records
+each emitted dynamic fallback's local range and receives its final base during
+the existing bucket merge only when the survey is requested. It is never
+uploaded or used for routing.
+
+The paged command is:
+
+  r_pathTracingGeometryRenderedAttributeSurveyDump <1-based-page>
+
+It runs after material texture matrices are applied and measures the full
+112-byte rendered vertex, including diffuse `texCoord.xy` and normal-map
+`texCoord.zw` separately.
+
+Prepared-save evidence covers 533 records: 474 static-world and 59 dynamic
+fallbacks (56 rigid, two skinned, one particle), 26,296 vertices, and zero
+invalid ranges. Both UV pairs have zero half failures in this frame, but their
+ranges differ: diffuse reaches (-35.46875,-20)..(35,20.5), while normal-map UV
+reaches (-35.46875,-72)..(35,72). This makes a both-pairs predicate mandatory
+and does not admit half storage. Rendered derived-bitangent error reaches
+0.306467 degrees even without an invalid record.
+
+Detailed contract, logs, interpretation, and ordered coverage continuation:
+
+  ../artifacts/GEO-12_rendered_capture_survey.txt
+
+No encoding is selected. Busy static props, zombies/Fatzombie,
+large-coordinate traversal, and intentionally wide/repeating transformed UVs
+remain required before Step 5.

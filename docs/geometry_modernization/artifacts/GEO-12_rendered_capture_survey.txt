@@ -1,0 +1,163 @@
+GEO-12 rendered static/dynamic attribute survey
+================================================
+
+PURPOSE
+-------
+Close the first survey's ownership gap without changing a geometry format.
+This slice measures the final full-fidelity `PathTraceSmokeVertex` values after
+dynamic/static material texture-matrix application. It covers the resident
+static cache and the explicit drawSurf-mirror dynamic fallback at the point
+actually consumed by BLAS construction and hit shaders.
+
+This is measurement only. No encoding, eligibility predicate, fallback route,
+descriptor, shader ABI, BLAS stride, or default production behavior changes.
+
+VALIDATED OWNER AND IDENTITY CONTRACT
+-------------------------------------
+Static:
+
+- `RtSmokePersistentStaticSurfaceRecord::currentRange` is the exact resident
+  vertex/index/triangle range.
+- `bucketSurfaceKey` joins to `RtPathTraceSceneUniverseSurface::key`.
+- `key` joins to `legacyDrawSurfKey` as a compatibility fallback.
+- The join preserves model/material name, class/material IDs, surface index,
+  entity, and portal area.
+
+Dynamic:
+
+- The drawSurf mirror builds one per-class bucket then concatenates buckets.
+- Triangle instance data is entity-level and cannot recover unique surface
+  ranges after merge.
+- GEO-12 therefore adds `RtSmokeCapturedSurfaceRecord`, an observation-only CPU
+  ledger created beside `RtSmokeSkinnedSurfaceRecord` only while the one-shot
+  survey CVar is nonzero.
+- It records the local per-surface range and immutable string/ID diagnostics;
+  the existing bucket merge adds the final base offsets.
+- The ledger is not retained, uploaded, or used by routing.
+
+The live scene-source-3 path has one mirror capture call site. Legacy
+`CaptureDoomSurfacesForSmokeTest` is deliberately not assigned invented
+per-surface ranges. A survey run on that producer reports zero dynamic ledger
+records rather than implying coverage it does not own.
+
+MEASUREMENT CONTRACT
+--------------------
+The new one-shot CVar is:
+
+  r_pathTracingGeometryRenderedAttributeSurveyDump <1-based-page>
+
+Each page emits at most 32 rows. The aggregate is repeated and includes:
+
+- record totals, static/dynamic split, invalid-range count, and class census;
+- full rendered position range;
+- diffuse UV (`texCoord.xy`) and normal-map UV (`texCoord.zw`) ranges;
+- separate half conversion overflow, underflow, max absolute error, and max
+  relative error for both UV pairs;
+- non-finite position, both UV pairs, basis, and color counts;
+- oct16 normal/tangent maximum angular error;
+- stored-versus-derived bitangent error and invalid count;
+- UNORM8 exactness for both color streams;
+- independent candidate savings against the current 112-byte ABI.
+
+Rows preserve domain, identity, class/material IDs, entity/model-surface/area,
+vertex count, both UV ranges, half failures, basis errors, and model/material
+names.
+
+PURE TEST COVERAGE
+------------------
+`PathTraceGeometryAttributeSurveyHarness` now also proves:
+
+- rendered accounting is exactly 112 bytes per vertex;
+- diffuse and normal-map UV eligibility are independent;
+- a normal-map-only half overflow remains visible;
+- dynamic domain identity and invalid-range counters are retained;
+- color evidence remains independent.
+
+The harness passes.
+
+LIVE EVIDENCE
+-------------
+Primary aggregate:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo12h.log
+  bytes: 109644
+  modified: 2026-07-29 23:17:42 Australia/Sydney
+  page: 1/17
+
+Dynamic tail and class census:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo12i.log
+  bytes: 107698
+  modified: 2026-07-29 23:20:12 Australia/Sydney
+  page: 17/17
+
+Both use Vulkan, scene source 3, the prepared `doom3_1` save, 640x360 PT
+resolution, static bucket route disabled, clean DI view 16 requested, clean GI
+disabled, and no transmission producer. Both shut down normally. No
+device-removed marker occurs.
+
+Final verification:
+
+  PathTraceGeometryAttributeSurveyHarness         PASS
+  cmake --build --preset win64-pt-dev-release     PASS
+  SPIR-V                                           all up to date
+  executable bytes                                 16063488
+  executable SHA-256
+    A1D19D95FB9077A043946C34820DEF6D64B9AB7C3FF71A1C79B2EE8100E0F3DB
+  deployment                                       byte-identical
+  final survey default                             0
+
+The same frame contains:
+
+  records total/static/dynamic/invalid-range   533/474/59/0
+  class static world/rigid/skinned/particle   474/0/0/0
+  class dynamic world/rigid/skinned/particle  0/56/2/1
+  vertices                                    26296
+  rendered bytes                              2945152
+  position                                    (-3920,-736.03125,-1088)
+                                              ..(-832,3776,1504)
+  diffuse UV                                  (-35.46875,-20)..(35,20.5)
+  normal-map UV                               (-35.46875,-72)..(35,72)
+  non-finite pos/diffuse/normal/basis/color   0/0/0/0/0
+  half overflow/underflow, both UV pairs      0/0
+  half max error, both UV pairs               0 in this frame
+  oct16 max normal/tangent degrees             0.027977/0.034264
+  derived bitangent invalid                    0
+  derived bitangent max degrees                0.240663..0.306467
+  color exact                                  105184/105184
+  color2 exact                                 105184/105184
+
+The tail page proves concrete small-dynamic records rather than an aggregate
+only: rigid doors, braces, a door light card, armor shards, medkit, rover,
+skinned view weapon/arms, and the particle-class rover number card. Every row
+has a valid final range and separate diffuse/normal UV evidence.
+
+INTERPRETATION
+--------------
+1. The final rendered seam is now measurable without a route or ABI change.
+2. Half UV is not admitted. The zero error is expected for many values already
+   sourced through half-precision draw vertices, and this one portal-resident
+   frame does not prove all texture-matrix scales or wide/repeating materials.
+3. Any UV eligibility predicate must test both `xy` and `zw`. Slice 1 did not
+   contain the second pair; this frame proves its range differs materially.
+4. Derived bitangent is not exact in rendered space even in this clean frame.
+   A later candidate needs a declared angular threshold and surface fallback.
+5. UNORM8 color/color2 remains a strong candidate, but static/dynamic exactness
+   in one frame is still not the multi-scene numeric/full-image acceptance
+   required by GEO-12.
+6. This save does not cover zombies, Fatzombie, a large-coordinate traversal,
+   or a deliberately selected wide/repeating transformed-UV material. No
+   encoding is authorized until those coverage rows are captured.
+
+ORDERED CONTINUATION
+--------------------
+1. Capture this survey in the busy static-prop scene and in the zombie /
+   Fatzombie scene. Select the pages containing the named skinned records.
+2. Capture after traversing to the large-coordinate and wide/repeating-UV test
+   locations. Record both UV pairs and any half failure.
+3. Decide the first single candidate only after combining Slice 1 and Slice 2
+   evidence. Do not combine encodings.
+4. Define numeric thresholds, explicit ineligible-reason counters, and
+   full-fidelity fallback before changing storage.
+5. Then implement one default-off encoding and perform the declared decoded
+   attribute plus primary/material/motion/emissive comparisons.

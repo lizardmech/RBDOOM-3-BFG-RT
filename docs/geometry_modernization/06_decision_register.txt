@@ -4019,6 +4019,34 @@ the monolithic static world, generated geometry, particles, decals, emissives,
 and dynamic fallback capture remain outside this measurement. The next slice
 must close those domains before an eligibility predicate is chosen.
 
+D164. GEO-12 RENDERED SURVEY CLOSES OWNERSHIP, NOT COVERAGE
+-----------------------------------------------------------
+The final 112-byte rendered vertex can be measured per surface without changing
+its ABI. Persistent static records supply exact resident ranges and join to
+scene-universe identity. Dynamic mirror capture now emits a frame-local,
+observation-only range ledger finalized by the existing bucket merge. The
+ledger is constructed only while the survey CVar is nonzero, is neither
+retained nor uploaded, and does not affect routing.
+
+The prepared-save survey contains 474 static-world and 59 dynamic records with
+zero invalid ranges. The dynamic class census is 56 rigid, two skinned, and one
+particle. Both final UV pairs must be measured: diffuse UV spans
+(-35.46875,-20)..(35,20.5), while normal-map UV spans
+(-35.46875,-72)..(35,72). Both round-trip through half exactly in this frame,
+but values already sourced from half draw vertices and limited portal residency
+make that evidence insufficient for eligibility.
+
+Rendered oct16 maximum error is 0.027977/0.034264 degrees for normal/tangent.
+Derived-bitangent maximum error is 0.306467 degrees despite zero invalid
+vertices. Both color streams remain UNORM8-exact. These are candidate
+measurements only.
+
+Ownership is now closed for the normal scene-source-3 static and dynamic
+producers. Coverage is not: busy static props, zombies/Fatzombie,
+large-coordinate traversal, and deliberately wide/repeating transformed UVs
+must be captured before selecting the first default-off encoding. Q1 and Q2
+therefore remain open.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

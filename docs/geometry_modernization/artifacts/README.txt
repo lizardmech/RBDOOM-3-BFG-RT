@@ -111,6 +111,11 @@ GEO-12 FILES
     limit, first observation-only paged survey contract, rejected assumptions,
     and ordered completion/encoding slices.
 
+  GEO-12_rendered_capture_survey.txt
+    Final rendered static/dynamic ownership and identity contract, both-UV-pair
+    paged survey, prepared-save evidence, class census, and the remaining
+    representative-scene gate before any encoding is admitted.
+
 NAMING
 ------
 Use:

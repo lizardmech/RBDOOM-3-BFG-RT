@@ -193,12 +193,85 @@ void TestFailuresRemainVisible()
         "candidate failures should remain explicit instead of clamping");
 }
 
+void TestRenderedSurveyCoversBothUvPairs()
+{
+    PtRenderedGeometrySurvey survey;
+    PtBeginRenderedGeometrySurvey(survey);
+
+    PtRenderedGeometrySurveyVertex vertices[2];
+    for (int vertex = 0; vertex < 2; ++vertex)
+    {
+        vertices[vertex].position[0] =
+            vertex == 0 ? -100000.0f : 100000.0f;
+        vertices[vertex].normal[2] = 1.0f;
+        vertices[vertex].tangent[0] = 1.0f;
+        vertices[vertex].bitangent[1] = 1.0f;
+        vertices[vertex].texCoord[0] =
+            vertex == 0 ? -64.5f : 64.5f;
+        vertices[vertex].texCoord[1] = 0.25f;
+        vertices[vertex].texCoord[2] =
+            vertex == 0 ? -70000.0f : 70000.0f;
+        vertices[vertex].texCoord[3] = 0.5f;
+        vertices[vertex].color[0] = 128.0f / 255.0f;
+        vertices[vertex].color2[0] = 64.0f / 255.0f;
+    }
+
+    PtRenderedGeometrySurveyRecord metadata;
+    metadata.domain =
+        PtRenderedGeometrySurveyDomain::DynamicFallback;
+    metadata.identity = 77;
+    metadata.surfaceClassId = 3;
+    metadata.materialId = 99;
+    metadata.modelName = "generated-particle";
+    metadata.materialName = "wide-normal-uv";
+    PtAppendRenderedGeometrySurveyRecord(
+        metadata,
+        vertices,
+        2,
+        survey);
+
+    Expect(
+        survey.records.size() == 1 &&
+            survey.dynamicRecordCount == 1 &&
+            survey.staticRecordCount == 0 &&
+            survey.invalidRangeRecordCount == 0,
+        "rendered survey should retain final dynamic surface identity");
+    Expect(
+        survey.totals.values.vertexCount == 2 &&
+            survey.totals.values.currentPositionBytes +
+                survey.totals.values.currentAttributeBytes ==
+                2 * 112,
+        "rendered survey should account for the exact 112-byte ABI");
+    Expect(
+        survey.totals.values.texCoordMin[0] == -64.5f &&
+            survey.totals.values.texCoordMax[0] == 64.5f &&
+            survey.totals.normalMapTexCoordMin[0] == -70000.0f &&
+            survey.totals.normalMapTexCoordMax[0] == 70000.0f,
+        "rendered survey should retain transformed diffuse and normal UV ranges");
+    Expect(
+        survey.totals.values.halfTexCoordOverflowComponents == 0 &&
+            survey.totals.halfNormalMapTexCoordOverflowComponents == 2,
+        "normal-map UV eligibility must be independent from diffuse UV eligibility");
+    Expect(
+        survey.totals.values.colorUnorm8ExactComponents ==
+                survey.totals.values.colorComponents &&
+            survey.totals.values.color2Unorm8ExactComponents ==
+                survey.totals.values.color2Components,
+        "rendered color streams should retain exact UNORM evidence");
+
+    PtRecordRenderedGeometrySurveyInvalidRange(survey);
+    Expect(
+        survey.invalidRangeRecordCount == 1,
+        "rendered survey should make invalid ranges explicit");
+}
+
 }
 
 int main()
 {
     TestFullFidelitySurveyIsObservational();
     TestFailuresRemainVisible();
+    TestRenderedSurveyCoversBothUvPairs();
     if (g_failures != 0)
     {
         std::printf(

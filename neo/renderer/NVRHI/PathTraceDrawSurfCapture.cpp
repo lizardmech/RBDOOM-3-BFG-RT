@@ -883,6 +883,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     RtSmokeBucketRanges& bucketRanges,
     RtSmokeSceneCaptureTiming& captureTiming,
     std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords,
+    std::vector<RtSmokeCapturedSurfaceRecord>* capturedSurfaceRecords,
     std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache,
     RtPathTraceInstanceUniverse* instanceUniverse,
     std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines,
@@ -905,6 +906,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     if (surfaceCache)
     {
         surfaceCache->clear();
+    }
+    if (capturedSurfaceRecords)
+    {
+        capturedSurfaceRecords->clear();
     }
 
     {
@@ -1435,6 +1440,20 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                     emittedIndexes,
                     emittedIndexes / 3);
             }
+            AddSmokeCapturedSurfaceRecord(
+                capturedSurfaceRecords,
+                drawSurf,
+                surfaceClassId,
+                materialId,
+                surfaceIndex,
+                bucketIndex,
+                bucketVertexStart,
+                bucketIndexStart,
+                bucketTriangleStart,
+                static_cast<int>(bucketVertices.size()) -
+                    bucketVertexStart,
+                emittedIndexes,
+                emittedIndexes / 3);
 
             AddMirrorMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
             AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, drawSurf, emittedIndexes, materialId);
@@ -1468,6 +1487,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             range.indexCount = static_cast<int>(bucketIndexData[bucketIndex].size());
             range.triangleCount = static_cast<int>(bucketTriangleClassData[bucketIndex].size());
             FinalizeSmokeSkinnedSurfaceRecordOffsets(skinnedSurfaceRecords, bucketIndex, range);
+            FinalizeSmokeCapturedSurfaceRecordOffsets(capturedSurfaceRecords, bucketIndex, range);
 
             const uint32_t vertexOffset = static_cast<uint32_t>(range.vertexOffset);
             vertexData.insert(vertexData.end(), bucketVertexData[bucketIndex].begin(), bucketVertexData[bucketIndex].end());

@@ -8,6 +8,7 @@
 #include "PathTraceGeometrySourceRegistry.h"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 struct PtGeometryAttributeSurveyStats
@@ -85,6 +86,73 @@ struct PtGeometryAttributeSurvey
     std::vector<PtGeometryAttributeSurveyRecord> records;
 };
 
+enum class PtRenderedGeometrySurveyDomain : std::uint32_t
+{
+    Invalid = 0,
+    StaticResident = 1,
+    DynamicFallback = 2
+};
+
+// POD copy of the values visible to the rendered PathTraceSmokeVertex ABI.
+// Keeping this type renderer-independent lets the measurement remain unit
+// testable without pulling engine/PCH types into the pure survey module.
+struct PtRenderedGeometrySurveyVertex
+{
+    float position[3] = {};
+    float normal[3] = {};
+    float texCoord[4] = {};
+    float color[4] = {};
+    float color2[4] = {};
+    float tangent[3] = {};
+    float bitangent[3] = {};
+};
+
+struct PtRenderedGeometrySurveyStats
+{
+    PtGeometryAttributeSurveyStats values;
+    float normalMapTexCoordMin[2] = {};
+    float normalMapTexCoordMax[2] = {};
+    std::uint64_t nonFiniteNormalMapTexCoordComponents = 0;
+    std::uint64_t halfNormalMapTexCoordComponents = 0;
+    std::uint64_t halfNormalMapTexCoordOverflowComponents = 0;
+    std::uint64_t halfNormalMapTexCoordUnderflowToZeroComponents = 0;
+    float halfNormalMapTexCoordMaxAbsError = 0.0f;
+    float halfNormalMapTexCoordMaxRelativeError = 0.0f;
+};
+
+struct PtRenderedGeometrySurveyRecord
+{
+    PtRenderedGeometrySurveyDomain domain =
+        PtRenderedGeometrySurveyDomain::Invalid;
+    std::uint64_t identity = 0;
+    std::uint32_t surfaceClassId = 0;
+    std::uint32_t materialId = 0;
+    int entityIndex = -1;
+    int modelSurfaceIndex = -1;
+    int portalArea = -1;
+    std::string modelName;
+    std::string materialName;
+    PtRenderedGeometrySurveyStats stats;
+};
+
+struct PtRenderedGeometrySurvey
+{
+    PtRenderedGeometrySurveyStats totals;
+    std::uint64_t staticRecordCount = 0;
+    std::uint64_t dynamicRecordCount = 0;
+    std::uint64_t invalidRangeRecordCount = 0;
+    std::vector<PtRenderedGeometrySurveyRecord> records;
+};
+
 void PtSurveyGeometrySourceRegistry(
     const PtGeometrySourceRegistry& registry,
     PtGeometryAttributeSurvey& survey);
+
+void PtBeginRenderedGeometrySurvey(PtRenderedGeometrySurvey& survey);
+void PtAppendRenderedGeometrySurveyRecord(
+    const PtRenderedGeometrySurveyRecord& metadata,
+    const PtRenderedGeometrySurveyVertex* vertices,
+    std::size_t vertexCount,
+    PtRenderedGeometrySurvey& survey);
+void PtRecordRenderedGeometrySurveyInvalidRange(
+    PtRenderedGeometrySurvey& survey);

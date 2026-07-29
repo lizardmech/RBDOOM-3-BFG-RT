@@ -1277,6 +1277,80 @@ void FinalizeSmokeSkinnedSurfaceRecordOffsets(
     }
 }
 
+void AddSmokeCapturedSurfaceRecord(
+    std::vector<RtSmokeCapturedSurfaceRecord>* records,
+    const drawSurf_t* drawSurf,
+    uint32_t surfaceClassId,
+    uint32_t materialId,
+    int drawSurfIndex,
+    int bucketIndex,
+    int currentVertexOffset,
+    int currentIndexOffset,
+    int currentTriangleOffset,
+    int vertexCount,
+    int indexCount,
+    int triangleCount)
+{
+    if (!records || !drawSurf)
+    {
+        return;
+    }
+
+    const viewEntity_t* space = drawSurf->space;
+    const idRenderEntityLocal* entityDef =
+        space ? space->entityDef : nullptr;
+    const renderEntity_t* renderEntity =
+        entityDef ? &entityDef->parms : nullptr;
+
+    RtSmokeCapturedSurfaceRecord record;
+    record.currentVertexOffset = currentVertexOffset;
+    record.currentIndexOffset = currentIndexOffset;
+    record.currentTriangleOffset = currentTriangleOffset;
+    record.vertexCount = vertexCount;
+    record.indexCount = indexCount;
+    record.triangleCount = triangleCount;
+    record.bucketIndex = bucketIndex;
+    record.entityIndex = entityDef ? entityDef->index : -1;
+    record.drawSurfIndex = drawSurfIndex;
+    record.modelSurfaceIndex = drawSurf->modelSurfaceIndex;
+    record.materialId = materialId;
+    record.triangleClassAndFlags =
+        surfaceClassId |
+        (SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf)
+            ? 0u
+            : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
+    record.modelName =
+        renderEntity && renderEntity->hModel
+            ? renderEntity->hModel->Name()
+            : "<none>";
+    record.materialName =
+        drawSurf->material
+            ? drawSurf->material->GetName()
+            : "<none>";
+    records->push_back(record);
+}
+
+void FinalizeSmokeCapturedSurfaceRecordOffsets(
+    std::vector<RtSmokeCapturedSurfaceRecord>* records,
+    int bucketIndex,
+    const RtSmokeBucketRange& range)
+{
+    if (!records)
+    {
+        return;
+    }
+    for (RtSmokeCapturedSurfaceRecord& record : *records)
+    {
+        if (record.bucketIndex != bucketIndex)
+        {
+            continue;
+        }
+        record.currentVertexOffset += range.vertexOffset;
+        record.currentIndexOffset += range.indexOffset;
+        record.currentTriangleOffset += range.triangleOffset;
+    }
+}
+
 namespace {
 
 void AddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* material, int indexes, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype translucentSubtype)

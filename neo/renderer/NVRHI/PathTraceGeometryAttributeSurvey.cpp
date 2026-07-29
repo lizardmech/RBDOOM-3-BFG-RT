@@ -72,6 +72,30 @@ void FinalizeRanges(PtGeometryAttributeSurveyStats& stats)
     }
 }
 
+void InitializeRenderedRanges(PtRenderedGeometrySurveyStats& stats)
+{
+    InitializeRanges(stats.values);
+    const float infinity = std::numeric_limits<float>::infinity();
+    for (int component = 0; component < 2; ++component)
+    {
+        stats.normalMapTexCoordMin[component] = infinity;
+        stats.normalMapTexCoordMax[component] = -infinity;
+    }
+}
+
+void FinalizeRenderedRanges(PtRenderedGeometrySurveyStats& stats)
+{
+    FinalizeRanges(stats.values);
+    for (int component = 0; component < 2; ++component)
+    {
+        if (!std::isfinite(stats.normalMapTexCoordMin[component]))
+        {
+            stats.normalMapTexCoordMin[component] = 0.0f;
+            stats.normalMapTexCoordMax[component] = 0.0f;
+        }
+    }
+}
+
 std::uint16_t FloatToHalf(float value)
 {
     std::uint32_t bits = 0;
@@ -525,6 +549,35 @@ void ObserveVertex(
     }
 }
 
+void ObserveHalfComponent(
+    float value,
+    std::uint64_t& components,
+    std::uint64_t& overflowComponents,
+    std::uint64_t& underflowComponents,
+    float& maxAbsError,
+    float& maxRelativeError)
+{
+    ++components;
+    if (std::fabs(value) > kHalfMax)
+    {
+        ++overflowComponents;
+        return;
+    }
+    const float decoded = HalfToFloat(FloatToHalf(value));
+    if (value != 0.0f && decoded == 0.0f)
+    {
+        ++underflowComponents;
+    }
+    const float absError = std::fabs(decoded - value);
+    maxAbsError = std::max(maxAbsError, absError);
+    if (value != 0.0f)
+    {
+        maxRelativeError = std::max(
+            maxRelativeError,
+            absError / std::fabs(value));
+    }
+}
+
 void MergeStats(
     const PtGeometryAttributeSurveyStats& source,
     PtGeometryAttributeSurveyStats& destination)
@@ -624,6 +677,36 @@ void MergeStats(
     }
 }
 
+void MergeRenderedStats(
+    const PtRenderedGeometrySurveyStats& source,
+    PtRenderedGeometrySurveyStats& destination)
+{
+    MergeStats(source.values, destination.values);
+    for (int component = 0; component < 2; ++component)
+    {
+        destination.normalMapTexCoordMin[component] = std::min(
+            destination.normalMapTexCoordMin[component],
+            source.normalMapTexCoordMin[component]);
+        destination.normalMapTexCoordMax[component] = std::max(
+            destination.normalMapTexCoordMax[component],
+            source.normalMapTexCoordMax[component]);
+    }
+    destination.nonFiniteNormalMapTexCoordComponents +=
+        source.nonFiniteNormalMapTexCoordComponents;
+    destination.halfNormalMapTexCoordComponents +=
+        source.halfNormalMapTexCoordComponents;
+    destination.halfNormalMapTexCoordOverflowComponents +=
+        source.halfNormalMapTexCoordOverflowComponents;
+    destination.halfNormalMapTexCoordUnderflowToZeroComponents +=
+        source.halfNormalMapTexCoordUnderflowToZeroComponents;
+    destination.halfNormalMapTexCoordMaxAbsError = std::max(
+        destination.halfNormalMapTexCoordMaxAbsError,
+        source.halfNormalMapTexCoordMaxAbsError);
+    destination.halfNormalMapTexCoordMaxRelativeError = std::max(
+        destination.halfNormalMapTexCoordMaxRelativeError,
+        source.halfNormalMapTexCoordMaxRelativeError);
+}
+
 }
 
 void PtSurveyGeometrySourceRegistry(
@@ -676,4 +759,130 @@ void PtSurveyGeometrySourceRegistry(
         survey.records.push_back(record);
     }
     FinalizeRanges(survey.totals);
+}
+
+void PtBeginRenderedGeometrySurvey(PtRenderedGeometrySurvey& survey)
+{
+    survey = PtRenderedGeometrySurvey();
+    InitializeRenderedRanges(survey.totals);
+}
+
+void PtAppendRenderedGeometrySurveyRecord(
+    const PtRenderedGeometrySurveyRecord& metadata,
+    const PtRenderedGeometrySurveyVertex* vertices,
+    std::size_t vertexCount,
+    PtRenderedGeometrySurvey& survey)
+{
+    if (vertices == nullptr || vertexCount == 0)
+    {
+        ++survey.invalidRangeRecordCount;
+        return;
+    }
+
+    PtRenderedGeometrySurveyRecord record = metadata;
+    record.stats = PtRenderedGeometrySurveyStats();
+    InitializeRenderedRanges(record.stats);
+    record.stats.values.recordCount = 1;
+    const bool skinned =
+        record.surfaceClassId == 2u;
+    record.stats.values.skinnedRecordCount = skinned ? 1 : 0;
+    record.stats.values.rigidRecordCount = skinned ? 0 : 1;
+
+    for (std::size_t vertexIndex = 0;
+        vertexIndex < vertexCount;
+        ++vertexIndex)
+    {
+        const PtRenderedGeometrySurveyVertex& vertex =
+            vertices[vertexIndex];
+        PtGeometrySourcePosition position;
+        PtGeometrySourceAttribute attribute;
+        std::memcpy(position.xyz, vertex.position, sizeof(position.xyz));
+        std::memcpy(attribute.normal, vertex.normal, sizeof(attribute.normal));
+        std::memcpy(
+            attribute.texCoord,
+            vertex.texCoord,
+            sizeof(attribute.texCoord));
+        std::memcpy(attribute.color, vertex.color, sizeof(attribute.color));
+        std::memcpy(attribute.color2, vertex.color2, sizeof(attribute.color2));
+        std::memcpy(
+            attribute.tangent,
+            vertex.tangent,
+            sizeof(attribute.tangent));
+        std::memcpy(
+            attribute.bitangent,
+            vertex.bitangent,
+            sizeof(attribute.bitangent));
+        float normal[3];
+        float tangent[3];
+        attribute.bitangentSign =
+            Normalize3(attribute.normal, normal) &&
+                Normalize3(attribute.tangent, tangent)
+                ? SignNotZero(
+                    (normal[1] * tangent[2] -
+                        normal[2] * tangent[1]) *
+                            attribute.bitangent[0] +
+                    (normal[2] * tangent[0] -
+                        normal[0] * tangent[2]) *
+                            attribute.bitangent[1] +
+                    (normal[0] * tangent[1] -
+                        normal[1] * tangent[0]) *
+                            attribute.bitangent[2])
+                : 0.0f;
+        ObserveVertex(
+            position,
+            attribute,
+            skinned,
+            record.stats.values);
+        // The rendered ABI is 112 bytes. ObserveVertex accounts for the
+        // canonical 12+80 layout, so retain the exact 20-byte delta here.
+        record.stats.values.currentAttributeBytes += 20;
+
+        for (int component = 0; component < 2; ++component)
+        {
+            const float value = vertex.texCoord[component + 2];
+            if (!std::isfinite(value))
+            {
+                ++record.stats.
+                    nonFiniteNormalMapTexCoordComponents;
+                continue;
+            }
+            record.stats.normalMapTexCoordMin[component] =
+                std::min(
+                    record.stats.normalMapTexCoordMin[component],
+                    value);
+            record.stats.normalMapTexCoordMax[component] =
+                std::max(
+                    record.stats.normalMapTexCoordMax[component],
+                    value);
+            ObserveHalfComponent(
+                value,
+                record.stats.halfNormalMapTexCoordComponents,
+                record.stats.
+                    halfNormalMapTexCoordOverflowComponents,
+                record.stats.
+                    halfNormalMapTexCoordUnderflowToZeroComponents,
+                record.stats.halfNormalMapTexCoordMaxAbsError,
+                record.stats.halfNormalMapTexCoordMaxRelativeError);
+        }
+    }
+
+    FinalizeRenderedRanges(record.stats);
+    MergeRenderedStats(record.stats, survey.totals);
+    if (record.domain ==
+        PtRenderedGeometrySurveyDomain::StaticResident)
+    {
+        ++survey.staticRecordCount;
+    }
+    else if (record.domain ==
+        PtRenderedGeometrySurveyDomain::DynamicFallback)
+    {
+        ++survey.dynamicRecordCount;
+    }
+    survey.records.push_back(record);
+}
+
+void PtRecordRenderedGeometrySurveyInvalidRange(
+    PtRenderedGeometrySurvey& survey)
+{
+    ++survey.invalidRangeRecordCount;
 }
