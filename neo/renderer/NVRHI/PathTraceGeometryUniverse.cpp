@@ -6488,7 +6488,13 @@ void RtSmokeGeometryUniverse::DumpRigidBlasInputStats(const RtPathTraceRigidBlas
     }
 }
 
-RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, bool submitBuilds)
+RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold(
+    nvrhi::IDevice* device,
+    nvrhi::ICommandList* commandList,
+    bool submitBuilds,
+    int maxBuildsPerFrame,
+    uint64 maxResultBytesPerFrame,
+    bool collectAdmissionInterval)
 {
     RtPathTraceRigidBlasGpuStats stats;
     stats.frameIndex = m_currentFrameIndex;
@@ -6527,8 +6533,97 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         }
     }
 
-    for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
+    RtSmokeAsAdmissionBudget admissionBudget;
+    admissionBudget.maxOperations = Max(0, maxBuildsPerFrame);
+    admissionBudget.maxResultBytes = maxResultBytesPerFrame;
+    admissionBudget.allowOneOversizedResult = true;
+    std::vector<RtSmokeAsAdmissionRequest> admissionRequests;
+    admissionRequests.reserve(m_rigidMeshCandidateRecords.size());
+
+    std::vector<size_t> orderedRecordIndexes(
+        m_rigidMeshCandidateRecords.size());
+    for (size_t recordIndex = 0;
+        recordIndex < orderedRecordIndexes.size();
+        ++recordIndex)
     {
+        orderedRecordIndexes[recordIndex] = recordIndex;
+    }
+    std::stable_sort(
+        orderedRecordIndexes.begin(),
+        orderedRecordIndexes.end(),
+        [this](size_t lhs, size_t rhs)
+        {
+            const RigidMeshCandidateRecord& lhsRecord =
+                m_rigidMeshCandidateRecords[lhs];
+            const RigidMeshCandidateRecord& rhsRecord =
+                m_rigidMeshCandidateRecords[rhs];
+            if (lhsRecord.seenThisFrame !=
+                rhsRecord.seenThisFrame)
+            {
+                return lhsRecord.seenThisFrame;
+            }
+            const uint64 lhsAge =
+                lhsRecord.deferredSinceFrame != 0 &&
+                m_currentFrameIndex >=
+                    lhsRecord.deferredSinceFrame
+                    ? m_currentFrameIndex -
+                        lhsRecord.deferredSinceFrame
+                    : 0;
+            const uint64 rhsAge =
+                rhsRecord.deferredSinceFrame != 0 &&
+                m_currentFrameIndex >=
+                    rhsRecord.deferredSinceFrame
+                    ? m_currentFrameIndex -
+                        rhsRecord.deferredSinceFrame
+                    : 0;
+            if (lhsAge != rhsAge)
+            {
+                return lhsAge > rhsAge;
+            }
+            return lhsRecord.meshHash < rhsRecord.meshHash;
+        });
+
+    auto recordAdmissionDeferral =
+        [this](
+            RigidMeshCandidateRecord& record,
+            RtSmokeAsDeferralReason reason,
+            uint64 deferredAge)
+        {
+            if (record.deferredSinceFrame == 0)
+            {
+                record.deferredSinceFrame =
+                    m_currentFrameIndex > 0
+                        ? m_currentFrameIndex
+                        : 1;
+            }
+            m_legacyRigidAdmissionIntervalStats.maxDeferredAge =
+                Max(
+                    m_legacyRigidAdmissionIntervalStats.
+                        maxDeferredAge,
+                    deferredAge);
+            switch (reason)
+            {
+                case RT_SMOKE_AS_DEFER_OPERATION_BUDGET:
+                    ++m_legacyRigidAdmissionIntervalStats.
+                        deferredOperationBudget;
+                    break;
+                case RT_SMOKE_AS_DEFER_RESULT_BYTE_BUDGET:
+                    ++m_legacyRigidAdmissionIntervalStats.
+                        deferredResultByteBudget;
+                    break;
+                case RT_SMOKE_AS_DEFER_RESULT_BYTES_UNKNOWN:
+                    ++m_legacyRigidAdmissionIntervalStats.
+                        deferredUnknownResultBytes;
+                    break;
+                default:
+                    break;
+            }
+        };
+
+    for (size_t recordIndex : orderedRecordIndexes)
+    {
+        RigidMeshCandidateRecord& record =
+            m_rigidMeshCandidateRecords[recordIndex];
         const bool cachedRouteWithinKeepWindow =
             prepareCachedRouteRecords &&
             record.lastSeenFrame + cachedRouteFramesToKeep >= m_currentFrameIndex;
@@ -6600,6 +6695,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         const bool replaceBuffers = !currentBuffersExact;
         if (!replacementRequired)
         {
+            record.deferredSinceFrame = 0;
             ++stats.vertexBuffersReused;
             ++stats.indexBuffersReused;
             ++stats.blasHandlesReused;
@@ -6613,6 +6709,49 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         }
         else
         {
+            const uint64 deferredAge =
+                record.deferredSinceFrame != 0 &&
+                m_currentFrameIndex >=
+                    record.deferredSinceFrame
+                    ? m_currentFrameIndex -
+                        record.deferredSinceFrame
+                    : 0;
+            RtSmokeAsAdmissionRequest admissionRequest;
+            admissionRequest.kind =
+                record.rigidBlas
+                    ? (forceRebuild
+                        ? RT_SMOKE_AS_WORK_PERIODIC_REBUILD
+                        : RT_SMOKE_AS_WORK_UPDATE)
+                    : RT_SMOKE_AS_WORK_NEW_BUILD;
+            admissionRequest.priority =
+                record.seenThisFrame
+                    ? RT_SMOKE_AS_PRIORITY_ACTIVE
+                    : RT_SMOKE_AS_PRIORITY_BACKGROUND;
+            admissionRequest.deferredAge = deferredAge;
+            admissionRequests.push_back(admissionRequest);
+            const RtSmokeAsAdmissionPlan operationPlan =
+                BuildSmokeAsAdmissionPlan(
+                    admissionBudget,
+                    admissionRequests);
+            const RtSmokeAsAdmissionDecision& operationDecision =
+                operationPlan.decisions.back();
+            if (operationDecision.deferralReason ==
+                RT_SMOKE_AS_DEFER_OPERATION_BUDGET)
+            {
+                recordAdmissionDeferral(
+                    record,
+                    operationDecision.deferralReason,
+                    deferredAge);
+                ++stats.blasBuildsSkipped;
+                if (currentBlasExact)
+                {
+                    ++stats.vertexBuffersReused;
+                    ++stats.indexBuffersReused;
+                    ++stats.blasHandlesReused;
+                }
+                continue;
+            }
+
             nvrhi::BufferHandle replacementVertexBuffer =
                 replaceBuffers
                     ? CreateRigidSmokeBuffer(
@@ -6637,7 +6776,27 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                 !replacementIndexBuffer)
             {
                 ++stats.blasBuildsSkipped;
-                ++stats.skippedInvalid;
+                ++m_legacyRigidAdmissionIntervalStats.
+                    deferredAllocationFailure;
+                m_legacyRigidAdmissionIntervalStats.maxDeferredAge =
+                    Max(
+                        m_legacyRigidAdmissionIntervalStats.
+                            maxDeferredAge,
+                        deferredAge);
+                if (record.deferredSinceFrame == 0)
+                {
+                    record.deferredSinceFrame =
+                        m_currentFrameIndex > 0
+                            ? m_currentFrameIndex
+                            : 1;
+                }
+                admissionRequests.pop_back();
+                if (currentBlasExact)
+                {
+                    ++stats.vertexBuffersReused;
+                    ++stats.indexBuffersReused;
+                    ++stats.blasHandlesReused;
+                }
                 continue;
             }
 
@@ -6652,7 +6811,82 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
             if (!blasCreateResult.Succeeded())
             {
                 ++stats.blasBuildsSkipped;
+                ++m_legacyRigidAdmissionIntervalStats.
+                    deferredAllocationFailure;
+                m_legacyRigidAdmissionIntervalStats.maxDeferredAge =
+                    Max(
+                        m_legacyRigidAdmissionIntervalStats.
+                            maxDeferredAge,
+                        deferredAge);
+                if (record.deferredSinceFrame == 0)
+                {
+                    record.deferredSinceFrame =
+                        m_currentFrameIndex > 0
+                            ? m_currentFrameIndex
+                            : 1;
+                }
+                admissionRequests.pop_back();
+                if (currentBlasExact)
+                {
+                    ++stats.vertexBuffersReused;
+                    ++stats.indexBuffersReused;
+                    ++stats.blasHandlesReused;
+                }
                 continue;
+            }
+
+            if (admissionBudget.maxResultBytes > 0)
+            {
+                const nvrhi::MemoryRequirements requirements =
+                    device->getAccelStructMemoryRequirements(
+                        blasCreateResult.accelStruct);
+                ++m_legacyRigidAdmissionIntervalStats.
+                    resultRequirementQueries;
+                admissionRequests.back().resultBytes =
+                    requirements.size;
+                admissionRequests.back().resultBytesKnown =
+                    requirements.size > 0;
+                if (requirements.size == 0)
+                {
+                    ++m_legacyRigidAdmissionIntervalStats.
+                        resultRequirementFailures;
+                }
+            }
+            const RtSmokeAsAdmissionPlan admissionPlan =
+                BuildSmokeAsAdmissionPlan(
+                    admissionBudget,
+                    admissionRequests);
+            const RtSmokeAsAdmissionDecision& admissionDecision =
+                admissionPlan.decisions.back();
+            if (!admissionDecision.admitted)
+            {
+                recordAdmissionDeferral(
+                    record,
+                    admissionDecision.deferralReason,
+                    deferredAge);
+                ++stats.blasBuildsSkipped;
+                if (currentBlasExact)
+                {
+                    ++stats.vertexBuffersReused;
+                    ++stats.indexBuffersReused;
+                    ++stats.blasHandlesReused;
+                }
+                continue;
+            }
+
+            if (admissionRequests.back().resultBytesKnown)
+            {
+                m_legacyRigidAdmissionIntervalStats.
+                    admittedResultBytes +=
+                        admissionRequests.back().resultBytes;
+            }
+            if (admissionDecision.oversizedResultAdmission)
+            {
+                ++m_legacyRigidAdmissionIntervalStats.
+                    oversizedResultAdmissions;
+                m_legacyRigidAdmissionIntervalStats.
+                    oversizedResultBytes +=
+                        admissionRequests.back().resultBytes;
             }
 
             if (replaceBuffers)
@@ -6719,6 +6953,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                 static_cast<int>(localVertices.size());
             record.gpuBlasIndexCount =
                 static_cast<int>(localIndexes.size());
+            record.deferredSinceFrame = 0;
             ++stats.blasHandlesCreated;
             ++stats.blasBuildsSubmitted;
             builtThisFrame = true;
@@ -6752,6 +6987,41 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         }
     }
 
+    stats.deferredOperationBudget =
+        m_legacyRigidAdmissionIntervalStats.
+            deferredOperationBudget;
+    stats.deferredResultByteBudget =
+        m_legacyRigidAdmissionIntervalStats.
+            deferredResultByteBudget;
+    stats.deferredUnknownResultBytes =
+        m_legacyRigidAdmissionIntervalStats.
+            deferredUnknownResultBytes;
+    stats.deferredAllocationFailure =
+        m_legacyRigidAdmissionIntervalStats.
+            deferredAllocationFailure;
+    stats.resultRequirementQueries =
+        m_legacyRigidAdmissionIntervalStats.
+            resultRequirementQueries;
+    stats.resultRequirementFailures =
+        m_legacyRigidAdmissionIntervalStats.
+            resultRequirementFailures;
+    stats.oversizedResultAdmissions =
+        m_legacyRigidAdmissionIntervalStats.
+            oversizedResultAdmissions;
+    stats.admittedResultBytes =
+        m_legacyRigidAdmissionIntervalStats.
+            admittedResultBytes;
+    stats.oversizedResultBytes =
+        m_legacyRigidAdmissionIntervalStats.
+            oversizedResultBytes;
+    stats.maxDeferredAge =
+        m_legacyRigidAdmissionIntervalStats.maxDeferredAge;
+    if (collectAdmissionInterval)
+    {
+        m_legacyRigidAdmissionIntervalStats =
+            LegacyRigidAdmissionIntervalStats();
+    }
+
     return stats;
 }
 
@@ -6761,6 +7031,8 @@ void RtSmokeGeometryUniverse::ReleaseRigidBlasGpuScaffold()
     {
         RetireRigidMeshGpuResources(record);
     }
+    m_legacyRigidAdmissionIntervalStats =
+        LegacyRigidAdmissionIntervalStats();
 }
 
 void RtSmokeGeometryUniverse::ClearRetiredRigidBlas()
@@ -6819,7 +7091,7 @@ bool RtSmokeGeometryUniverse::TakeRetiredRigidGpuResources(
 
 void RtSmokeGeometryUniverse::DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGpuStats& stats, int sceneSource, bool scaffoldEnabled, bool submitBuilds) const
 {
-    common->Printf("PathTracePrimaryPass: PT rigid BLAS GPU scaffold source=%d frame=%llu generation=%llu scaffold=%d build=%d forceRebuild=%d meshRecords=%d retiredPending=%d valid=%d invalid=%d instances=%d verts/indexes/tris=%d/%d/%d bytes(v/i/upload)=%d/%d/%d buffers(v create/reuse uploads i create/reuse uploads)=%d/%d/%d %d/%d/%d blas(handles create/reuse builds/skips unchanged/recreated)=%d/%d/%d/%d/%d/%d skips noDevice/noCmd/invalid=%d/%d/%d renderPath=dynamicFallback tlasRoute=rigidResidencyRoute\n",
+    common->Printf("PathTracePrimaryPass: PT rigid BLAS GPU scaffold source=%d frame=%llu generation=%llu scaffold=%d build=%d forceRebuild=%d meshRecords=%d retiredPending=%d valid=%d invalid=%d instances=%d verts/indexes/tris=%d/%d/%d bytes(v/i/upload)=%d/%d/%d buffers(v create/reuse uploads i create/reuse uploads)=%d/%d/%d %d/%d/%d blas(handles create/reuse builds/skips unchanged/recreated)=%d/%d/%d/%d/%d/%d admission(deferOp/deferBytes/deferUnknown/deferAlloc/query/fail/bytes/oversized/oversizedBytes/maxAge)=%d/%d/%d/%d/%d/%d/%llu/%d/%llu/%llu skips noDevice/noCmd/invalid=%d/%d/%d renderPath=dynamicFallback tlasRoute=rigidResidencyRoute\n",
         sceneSource,
         static_cast<unsigned long long>(stats.frameIndex),
         static_cast<unsigned long long>(stats.generation),
@@ -6849,6 +7121,19 @@ void RtSmokeGeometryUniverse::DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGp
         stats.blasBuildsSkipped,
         stats.blasBuildsSkippedUnchanged,
         stats.blasRecreatedForInputChange,
+        stats.deferredOperationBudget,
+        stats.deferredResultByteBudget,
+        stats.deferredUnknownResultBytes,
+        stats.deferredAllocationFailure,
+        stats.resultRequirementQueries,
+        stats.resultRequirementFailures,
+        static_cast<unsigned long long>(
+            stats.admittedResultBytes),
+        stats.oversizedResultAdmissions,
+        static_cast<unsigned long long>(
+            stats.oversizedResultBytes),
+        static_cast<unsigned long long>(
+            stats.maxDeferredAge),
         stats.skippedNoDevice,
         stats.skippedNoCommandList,
         stats.skippedInvalid);

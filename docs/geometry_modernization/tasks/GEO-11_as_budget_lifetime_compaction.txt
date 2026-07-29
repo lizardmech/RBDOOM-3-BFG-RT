@@ -662,5 +662,68 @@ Build and deployment:
   executable    16,024,576 bytes
   sha256        3AB9C1802E6BE3D974956BEF83CAD07B8C48948AF3910F44ECE853A8556133F8
 
-Runtime validation is required before the legacy provider consumes the common
-operation/result-byte admission planner.
+LEGACY-RIGID COMPLETE-PACKAGE ACCEPTED
+--------------------------------------
+`geometry_geo_step16.log` accepts the atomic replacement prerequisite. The
+steady capture has 114 valid unique mesh records, 123 instances, exact
+vertex/index/BLAS readiness, zero uploads or builds, and 114 reused BLASes.
+The corresponding TLAS is exact 123/123 with zero missing mesh, stale,
+buffer, or BLAS records.
+
+Real replacement packages retired through event-query authority:
+
+  token 11   buffers / BLASes   2 / 1
+  token 12   buffers / BLASes   6 / 3
+  token 13   buffers / BLASes   6 / 3
+  token 14   buffers / BLASes   122 / 61
+
+Every retirement query completed with zero result-query failures and pending
+returned to zero. With build submission deliberately disabled, 68 already
+built packages remained valid while 43 newly encountered meshes failed
+closed. Re-enabling submission recovered exact 111/111 TLAS publication and
+89/89 unique route readiness. The prerequisite is accepted.
+
+LEGACY-RIGID RESULT-BYTE ADMISSION
+----------------------------------
+The legacy rigid atomic-package provider now consumes the common deterministic
+admission planner. Its independent limits are:
+
+  r_pathTracingRigidBlasGpuBuildLimit
+  r_pathTracingRigidBlasGpuResultBudgetKB
+
+Both default to 0, meaning unlimited. The unlimited result-byte default avoids
+admission-time result requirement queries and preserves existing behavior.
+With a nonzero result budget, the candidate BLAS handle is queried before any
+candidate buffer upload or BLAS build submission. Unknown result size defers
+explicitly.
+
+Visible records are ordered before cached background records. Within each
+priority, oldest deferred work wins and mesh hash is the deterministic final
+tie-break. One oversized result may enter an otherwise empty frame so a
+sub-BLAS cap cannot starve a record.
+
+Operation, result-byte, unknown-size, buffer-allocation, and BLAS-allocation
+deferrals leave the prior complete package untouched. An exact retained
+package remains route-ready during a diagnostic force rebuild; a stale
+retained package still fails closed through the accepted content-signature
+contract. Candidate buffers are not written until the complete package has
+been admitted.
+
+The one-shot rigid GPU dump adds:
+
+  admission(deferOp/deferBytes/deferUnknown/deferAlloc/query/fail/
+            bytes/oversized/oversizedBytes/maxAge)
+
+These fields accumulate until the dump consumes the interval.
+
+Build and deployment:
+
+  focused target  PathTraceCpuPlanningHarness
+  focused result  PASS, including all admission cases
+  full command    cmake --build --preset win64-pt-dev-release
+  full result     success; all SPIR-V shaders up to date
+  executable      16,033,792 bytes
+  sha256          D1EC343ADD133119723724DC74BD9F4A40EA1651C7EA487A4E86E26AFD742928
+
+Runtime validation remains required for default-unlimited parity and a short,
+bounded force-rebuild interval under both operation and result-byte limits.

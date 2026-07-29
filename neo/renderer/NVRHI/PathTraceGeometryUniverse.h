@@ -490,6 +490,16 @@ struct RtPathTraceRigidBlasGpuStats
     int skippedNoCommandList = 0;
     int skippedInvalid = 0;
     int buildGateOff = 0;
+    int deferredOperationBudget = 0;
+    int deferredResultByteBudget = 0;
+    int deferredUnknownResultBytes = 0;
+    int deferredAllocationFailure = 0;
+    int resultRequirementQueries = 0;
+    int resultRequirementFailures = 0;
+    int oversizedResultAdmissions = 0;
+    uint64 admittedResultBytes = 0;
+    uint64 oversizedResultBytes = 0;
+    uint64 maxDeferredAge = 0;
     uint64 frameIndex = 0;
     uint64 generation = 1;
     RtPathTraceRigidBlasGpuSample samples[RT_PT_RIGID_BLAS_GPU_SAMPLES];
@@ -1099,7 +1109,13 @@ public:
     void DumpRigidBlasPlanStats(const RtPathTraceRigidBlasPlanStats& stats, int sceneSource) const;
     RtPathTraceRigidBlasInputStats BuildRigidBlasInputStats() const;
     void DumpRigidBlasInputStats(const RtPathTraceRigidBlasInputStats& stats, int sceneSource) const;
-    RtPathTraceRigidBlasGpuStats UpdateRigidBlasGpuScaffold(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, bool submitBuilds);
+    RtPathTraceRigidBlasGpuStats UpdateRigidBlasGpuScaffold(
+        nvrhi::IDevice* device,
+        nvrhi::ICommandList* commandList,
+        bool submitBuilds,
+        int maxBuildsPerFrame,
+        uint64 maxResultBytesPerFrame,
+        bool collectAdmissionInterval);
     void ReleaseRigidBlasGpuScaffold();
     void ClearRetiredRigidBlas();
     bool HasRetiredRigidGpuResources() const;
@@ -1193,6 +1209,7 @@ public:
         bool gpuBuffersUploaded = false;
         bool gpuBlasCreated = false;
         bool gpuBlasBuildSubmitted = false;
+        uint64 deferredSinceFrame = 0;
         idStr materialName;
         idStr modelName;
     };
@@ -1233,6 +1250,20 @@ private:
     };
 
     struct StaticBucketAdmissionIntervalStats
+    {
+        int deferredOperationBudget = 0;
+        int deferredResultByteBudget = 0;
+        int deferredUnknownResultBytes = 0;
+        int deferredAllocationFailure = 0;
+        int resultRequirementQueries = 0;
+        int resultRequirementFailures = 0;
+        int oversizedResultAdmissions = 0;
+        uint64 admittedResultBytes = 0;
+        uint64 oversizedResultBytes = 0;
+        uint64 maxDeferredAge = 0;
+    };
+
+    struct LegacyRigidAdmissionIntervalStats
     {
         int deferredOperationBudget = 0;
         int deferredResultByteBudget = 0;
@@ -1298,6 +1329,8 @@ private:
     std::vector<uint32_t> m_previousStaticTriangleClassCache;
     std::vector<uint32_t> m_previousStaticTriangleMaterialCache;
     std::vector<RigidMeshCandidateRecord> m_rigidMeshCandidateRecords;
+    LegacyRigidAdmissionIntervalStats
+        m_legacyRigidAdmissionIntervalStats;
     RtSmokeRetiredRigidGpuResources m_retiredRigidGpuResources;
     std::unordered_map<uint64, size_t> m_rigidMeshCandidateLookup;
     std::unordered_set<uint64> m_frameRigidMeshCandidateHashes;

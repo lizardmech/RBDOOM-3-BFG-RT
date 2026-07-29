@@ -3857,6 +3857,38 @@ plus exact BLAS counts and submitted state. A stale retained package therefore
 fails closed to dynamic fallback rather than mixing source epochs. Runtime
 validation remains required before adding legacy operation/result budgets.
 
+D156. LEGACY RIGID COMPLETE-PACKAGE REPLACEMENT IS ACCEPTED
+-----------------------------------------------------------
+`geometry_geo_step16.log` proves steady exact reuse for 114 unique records and
+123 instances, with exact 123/123 TLAS publication and no missing package
+components. Real atomic replacements retire 2/1, 6/3, 6/3, and 122/61
+buffer/BLAS packages through event-query authority with zero query failures.
+
+Turning build submission off preserves 68 already-built packages while 43
+newly encountered records fail closed. Restoring submission recovers exact
+111/111 TLAS and 89/89 unique route publication. This accepts D155 and
+unblocks legacy-rigid admission.
+
+D157. LEGACY RIGID CONSUMES D147 ADMISSION
+------------------------------------------
+`r_pathTracingRigidBlasGpuBuildLimit` caps complete package operations per
+frame. `r_pathTracingRigidBlasGpuResultBudgetKB` independently caps
+authoritative allocated BLAS-result bytes. Both default to zero/unlimited;
+the unlimited byte mode performs no admission-time requirement query.
+
+Active records precede cached background records, oldest deferred work wins
+within each priority, and mesh hash is the final deterministic tie-break. A
+nonzero byte cap requires a known result size and permits one oversized result
+in an otherwise empty frame to guarantee convergence.
+
+Admission precedes candidate-buffer upload and BLAS build. Operation, byte,
+unknown-size, buffer-allocation, and BLAS-allocation deferrals retain the
+prior complete package without mutation. Interval reason, query/failure,
+admitted-byte, oversized, and maximum-age counters persist until the one-shot
+rigid GPU dump. The CPU harness and full Vulkan release build pass. Runtime
+acceptance still requires unlimited parity and one forced-low bounded
+replacement capture.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

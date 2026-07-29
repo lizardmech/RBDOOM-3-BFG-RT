@@ -189,6 +189,18 @@ idCVar r_pathTracingRigidBlasGpuBuild(
     CVAR_RENDERER | CVAR_INTEGER,
     "Source3 rigid BLAS build-submit gate; requires r_pathTracingRigidBlasGpuScaffold 1" );
 
+idCVar r_pathTracingRigidBlasGpuBuildLimit(
+    "r_pathTracingRigidBlasGpuBuildLimit",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum source3 rigid BLAS package builds per frame; 0 is unlimited" );
+
+idCVar r_pathTracingRigidBlasGpuResultBudgetKB(
+    "r_pathTracingRigidBlasGpuResultBudgetKB",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum admitted source3 rigid BLAS result bytes per frame in KiB; 0 is unlimited" );
+
 idCVar r_pathTracingRigidBlasGpuForceRebuild(
     "r_pathTracingRigidBlasGpuForceRebuild",
     "0",

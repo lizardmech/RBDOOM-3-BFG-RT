@@ -38,6 +38,8 @@ extern idCVar r_pathTracingRigidBlasPlanDump;
 extern idCVar r_pathTracingRigidBlasInputDump;
 extern idCVar r_pathTracingRigidBlasGpuScaffold;
 extern idCVar r_pathTracingRigidBlasGpuBuild;
+extern idCVar r_pathTracingRigidBlasGpuBuildLimit;
+extern idCVar r_pathTracingRigidBlasGpuResultBudgetKB;
 extern idCVar r_pathTracingRigidBlasGpuForceRebuild;
 extern idCVar r_pathTracingRigidBlasGpuDump;
 extern idCVar r_pathTracingRigidTlasPlanDump;

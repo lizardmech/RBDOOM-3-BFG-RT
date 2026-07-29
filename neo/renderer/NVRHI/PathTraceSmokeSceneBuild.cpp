@@ -7346,7 +7346,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             const RtPathTraceRigidBlasGpuStats rigidBlasGpuStats = [&]() {
                 OPTICK_EVENT("PT Rigid BLAS GPU Scaffold");
-                return m_smokeGeometryUniverse.UpdateRigidBlasGpuScaffold(device, commandList, rigidBlasGpuBuild);
+                return m_smokeGeometryUniverse.UpdateRigidBlasGpuScaffold(
+                    device,
+                    commandList,
+                    rigidBlasGpuBuild,
+                    idMath::ClampInt(
+                        0,
+                        1024,
+                        r_pathTracingRigidBlasGpuBuildLimit.GetInteger()),
+                    static_cast<uint64>(
+                        idMath::ClampInt(
+                            0,
+                            1048576,
+                            r_pathTracingRigidBlasGpuResultBudgetKB.
+                                GetInteger())) *
+                        1024ull,
+                    dumpRigidBlasGpu);
             }();
             if (dumpRigidBlasGpu)
             {
