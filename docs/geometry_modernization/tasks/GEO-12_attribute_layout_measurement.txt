@@ -179,3 +179,22 @@ pass. No shader was edited and all SPIR-V remained up to date. The deployed
 
 Runtime off/on evidence remains the acceptance gate; this checkpoint does not
 promote the CVar.
+
+RUNTIME A/B ACCEPTANCE
+----------------------
+`geometry_geo12_color_off.log` proves gate-off storage is 0/982 packed/full
+with zero saved bytes. Its dump occurred before six late skinned records were
+observed. `geometry_geo12_color_on.log` reaches the complete 988-record,
+64,986-vertex inventory: all 988 records pack, all three fallback counters are
+zero, and canonical attribute retention falls from 5,198,880 to 4,419,048
+bytes. The exact saving is 779,832 bytes, or 15 percent of this attribute
+stream.
+
+The complete enabled decoded aggregate matches the complete earlier
+full-fidelity `geometry_geo12d.log` aggregate in every reported numeric field.
+There are no source import/checksum/retained/range/GPU-pool rejections, device
+losses, or abnormal shutdowns in either new log.
+
+The color-only encoding is accepted. The CVar remains default off so that
+promotion stays an explicit later change rather than being hidden in the
+measurement checkpoint.

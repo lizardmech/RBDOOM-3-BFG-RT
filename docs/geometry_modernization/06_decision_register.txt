@@ -4079,9 +4079,30 @@ therefore measures real canonical CPU retention only, with exactly 12 bytes
 saved per eligible vertex. Transport and GPU compression require later,
 separate evidence.
 
+D166. COLOR-ONLY CANONICAL STORAGE PASSES THE DEFAULT-OFF RUNTIME A/B
+--------------------------------------------------------------------
+`geometry_geo12_color_off.log` captures 982 records before six late skinned
+sources arrive. It reports 0/982 packed/full records, identical logical and
+stored attribute bytes 5,075,840, zero saved bytes, and normal shutdown.
+
+`geometry_geo12_color_on.log` reaches the complete 988-record, 64,986-vertex
+inventory. All 988 records use the 68-byte color encoding, every finite/range/
+exact fallback counter is zero, and attribute retention falls from 5,198,880
+to 4,419,048 bytes. The measured saving is exactly 779,832 bytes, equal to
+12 bytes per vertex and 15 percent of the canonical attribute stream.
+
+The enabled decoded survey matches the complete full-fidelity
+`geometry_geo12d.log` baseline in every aggregate field, including record and
+class counts, position/UV ranges, basis measurements, both color streams, and
+joint/weight evidence. Neither new log contains a source import, checksum,
+retained-byte, range, GPU-pool, device-loss, or shutdown failure.
+
+The candidate is accepted. Its gate remains default off. Default promotion is
+a separate policy change and must not be hidden inside measurement acceptance.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
-  Q1  PARTIALLY RESOLVED by D165: UV measured; color storage A/B remains.
+  Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
   Q2  OPEN, owned by GEO-07/GEO-12: measure write-vs-derive attributes.
   Q3  OPEN, owned by GEO-06: offset BLAS-build microbenchmark.
   Q4  OPEN, owned by GEO-04/GEO-06: enumerate sceneOrigin consumers first.

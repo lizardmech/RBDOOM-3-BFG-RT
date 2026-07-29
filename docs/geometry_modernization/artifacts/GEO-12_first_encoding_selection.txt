@@ -135,6 +135,47 @@ material UVs, emissive surfaces, and clean shutdown. Any checksum rejection,
 missing geometry, changed material, animation defect, crash, or device removal
 rejects the candidate.
 
+RUNTIME RESULT
+--------------
+Accepted for the default-off experiment.
+
+Raw logs:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo12_color_off.log
+  bytes: 36750
+  modified: 2026-07-29 23:56:17 Australia/Sydney
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_geo12_color_on.log
+  bytes: 52260
+  modified: 2026-07-29 23:58:36 Australia/Sydney
+
+The off request occurred before six late skinned source records were observed:
+982 records, 63,448 vertices, and 0/982 packed/full records. Stored and logical
+attribute bytes are both 5,075,840 and saved bytes are zero.
+
+The on request reached the complete inventory:
+
+  records total/rigid/skinned       988/946/42
+  vertices                          64986
+  records packed/full               988/0
+  fallback finite/range/exact       0/0/0
+  logical attribute bytes           5198880
+  stored attribute bytes            4419048
+  saved attribute bytes             779832
+  saved fraction of attribute pool  15 percent
+
+The enabled decoded aggregate exactly matches the complete full-fidelity
+`geometry_geo12d.log` baseline: record/class/vertex counts, position and UV
+ranges, every non-finite counter, half measurements, oct16 maxima, degenerate
+and derived-bitangent results, both color streams, joint range, weight range,
+and weight-sum range. This is stronger than comparing the earlier 982-record
+off request to a differently populated frame.
+
+Neither capture contains a source import, checksum, retained-byte, range, or
+GPU-pool rejection. Both shut down normally with no device-loss marker. The
+gate remains default off; default promotion is intentionally deferred to a
+separate checkpoint rather than folded into measurement acceptance.
+
 NON-GOALS
 ---------
 - No `color2` packing in this experiment.
