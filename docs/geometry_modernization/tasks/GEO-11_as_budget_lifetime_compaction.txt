@@ -386,3 +386,45 @@ Planner checkpoint build and deployment:
   executable      15,997,952 bytes
   sha256          8AD6FC808FAE4A293055F18FFA6F83BE1F7049F4EF5F6A1DAD84B4E90A4D8DF9
   deployment      source and prebuilt executable byte-identical
+
+SLICE-4 CANONICAL-RIGID INTEGRATION
+-----------------------------------
+Canonical rigid is the first runtime consumer of the common planner. Its
+existing operation CVar remains authoritative:
+
+  r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame
+
+The result-byte cap is independently controlled in KiB:
+
+  r_pathTracingGeometryCanonicalRigidBlasResultBudgetKB
+
+The default is 0, meaning unlimited, so production behavior does not acquire
+result-requirement queries or a new byte cap by default. With a nonzero cap,
+each candidate BLAS is queried through
+`getAccelStructMemoryRequirements` before build submission. A zero result is
+unknown and defers explicitly. A byte- or operation-deferred replacement
+keeps the prior complete BLAS published; a new mesh remains on the existing
+legacy route until its canonical BLAS is ready.
+
+All requested canonical meshes are active work. Previously deferred records
+are ordered oldest-first. A cap smaller than one BLAS cannot starve that mesh:
+when the frame has admitted no result bytes, one oversized active result may
+be admitted and is reported by both count and bytes. Remaining work stays
+deferred. This makes forced-low-budget runs converge.
+
+The expanded canonical BLAS line reports:
+
+  admission(deferOp/deferBytes/deferUnknown/deferAlloc/query/fail/
+            bytes/oversized/oversizedBytes/maxAge)
+
+Build and deployment:
+
+  focused target  PathTraceCpuPlanningHarness
+  focused result  PASS, including oversized-result convergence
+  full command    cmake --build --preset win64-pt-dev-release
+  full result     success; all SPIR-V shaders up to date
+  executable      16,014,848 bytes
+  sha256          B5F38CF9EFDFA8D7A41006A948EF745DC358A0D3F9E5D21307DAA8DDAAB97A9B
+  deployment      source and prebuilt executable byte-identical
+
+Runtime acceptance is pending.

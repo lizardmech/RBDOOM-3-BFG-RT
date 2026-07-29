@@ -310,9 +310,19 @@ struct RtPathTraceCanonicalRigidBlasStats
     int readyRequestedMeshes = 0;
     int activeBlas = 0;
     int deferredBuilds = 0;
+    int deferredOperationBudget = 0;
+    int deferredResultByteBudget = 0;
+    int deferredUnknownResultBytes = 0;
+    int deferredAllocationFailure = 0;
+    int resultRequirementQueries = 0;
+    int resultRequirementFailures = 0;
+    int oversizedResultAdmissions = 0;
     int missingIdentity = 0;
     int missingSource = 0;
     int missingPoolRecord = 0;
+    uint64 admittedResultBytes = 0;
+    uint64 oversizedResultBytes = 0;
+    uint64 maxDeferredAge = 0;
     uint64 blasCreated = 0;
     uint64 blasBuilt = 0;
     uint64 blasReused = 0;
@@ -1191,6 +1201,7 @@ private:
         nvrhi::rt::AccelStructDesc blasDesc;
         nvrhi::rt::AccelStructHandle blas;
         bool buildSubmitted = false;
+        uint64 deferredSinceFrame = 0;
     };
 
     struct StaticBucketBlasRecord

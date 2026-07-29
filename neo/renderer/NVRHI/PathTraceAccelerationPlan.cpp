@@ -4296,7 +4296,16 @@ RtSmokeAsAdmissionPlan BuildSmokeAsAdmissionPlan(
                         budget.maxResultBytes,
                         plan.stats.admittedResultBytes))
         {
-            reason = RT_SMOKE_AS_DEFER_RESULT_BYTE_BUDGET;
+            if (budget.allowOneOversizedResult &&
+                plan.stats.admittedOperations == 0 &&
+                plan.stats.admittedResultBytes == 0)
+            {
+                decision.oversizedResultAdmission = true;
+            }
+            else
+            {
+                reason = RT_SMOKE_AS_DEFER_RESULT_BYTE_BUDGET;
+            }
         }
 
         const uint32_t kind =
@@ -4307,10 +4316,27 @@ RtSmokeAsAdmissionPlan BuildSmokeAsAdmissionPlan(
             decision.admittedOrder =
                 plan.stats.admittedOperations;
             ++plan.stats.admittedOperations;
-            plan.stats.admittedResultBytes +=
+            const uint64_t admittedBytes =
                 request.resultBytesKnown
                     ? request.resultBytes
                     : 0;
+            if (admittedBytes >
+                std::numeric_limits<uint64_t>::max() -
+                    plan.stats.admittedResultBytes)
+            {
+                plan.stats.admittedResultBytes =
+                    std::numeric_limits<uint64_t>::max();
+            }
+            else
+            {
+                plan.stats.admittedResultBytes +=
+                    admittedBytes;
+            }
+            if (decision.oversizedResultAdmission)
+            {
+                ++plan.stats.oversizedResultAdmissions;
+                plan.stats.oversizedResultBytes += admittedBytes;
+            }
             if (kind < RT_SMOKE_AS_WORK_KIND_COUNT)
             {
                 ++plan.stats.admittedByKind[kind];

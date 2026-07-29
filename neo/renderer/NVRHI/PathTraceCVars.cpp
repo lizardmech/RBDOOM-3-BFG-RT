@@ -315,6 +315,12 @@ idCVar r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame(
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum canonical pooled rigid BLAS builds submitted per frame" );
 
+idCVar r_pathTracingGeometryCanonicalRigidBlasResultBudgetKB(
+    "r_pathTracingGeometryCanonicalRigidBlasResultBudgetKB",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum canonical pooled rigid BLAS result bytes admitted per frame in KiB; 0 is unlimited" );
+
 idCVar r_pathTracingGeometryCanonicalRigidTraversal(
     "r_pathTracingGeometryCanonicalRigidTraversal",
     "0",

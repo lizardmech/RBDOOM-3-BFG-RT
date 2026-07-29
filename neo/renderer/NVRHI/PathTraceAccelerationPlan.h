@@ -153,6 +153,7 @@ struct RtSmokeAsAdmissionBudget
     // interface does not expose an authoritative per-build scratch size.
     int maxOperations = 0;
     uint64_t maxResultBytes = 0;
+    bool allowOneOversizedResult = false;
 };
 
 struct RtSmokeAsAdmissionRequest
@@ -167,6 +168,7 @@ struct RtSmokeAsAdmissionRequest
 struct RtSmokeAsAdmissionDecision
 {
     bool admitted = false;
+    bool oversizedResultAdmission = false;
     RtSmokeAsDeferralReason deferralReason = RT_SMOKE_AS_DEFER_NONE;
     int admittedOrder = -1;
 };
@@ -177,7 +179,9 @@ struct RtSmokeAsAdmissionStats
     int admittedOperations = 0;
     int deferredOperations = 0;
     uint64_t admittedResultBytes = 0;
+    uint64_t oversizedResultBytes = 0;
     uint64_t maxDeferredAge = 0;
+    int oversizedResultAdmissions = 0;
     int requestedByKind[RT_SMOKE_AS_WORK_KIND_COUNT] = {};
     int admittedByKind[RT_SMOKE_AS_WORK_KIND_COUNT] = {};
     int deferredByKind[RT_SMOKE_AS_WORK_KIND_COUNT] = {};

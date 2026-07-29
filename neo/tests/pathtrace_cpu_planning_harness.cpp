@@ -5847,6 +5847,32 @@ void TestAsAdmissionPlan()
         unlimitedPlan.stats.admittedOperations == 1 &&
         unlimitedPlan.stats.admittedResultBytes == 0,
         "AS admission accepts unknown result size when byte budget is unlimited");
+
+    RtSmokeAsAdmissionBudget convergenceBudget;
+    convergenceBudget.maxOperations = 4;
+    convergenceBudget.maxResultBytes = 100;
+    convergenceBudget.allowOneOversizedResult = true;
+    std::vector<RtSmokeAsAdmissionRequest> convergenceRequests(2);
+    convergenceRequests[0].priority = RT_SMOKE_AS_PRIORITY_ACTIVE;
+    convergenceRequests[0].resultBytes = 150;
+    convergenceRequests[0].resultBytesKnown = true;
+    convergenceRequests[0].deferredAge = 10;
+    convergenceRequests[1].priority = RT_SMOKE_AS_PRIORITY_ACTIVE;
+    convergenceRequests[1].resultBytes = 10;
+    convergenceRequests[1].resultBytesKnown = true;
+    const RtSmokeAsAdmissionPlan convergencePlan =
+        BuildSmokeAsAdmissionPlan(
+            convergenceBudget,
+            convergenceRequests);
+    Check(
+        convergencePlan.decisions[0].admitted &&
+        convergencePlan.decisions[0].oversizedResultAdmission &&
+        !convergencePlan.decisions[1].admitted &&
+        convergencePlan.decisions[1].deferralReason ==
+            RT_SMOKE_AS_DEFER_RESULT_BYTE_BUDGET &&
+        convergencePlan.stats.oversizedResultAdmissions == 1 &&
+        convergencePlan.stats.oversizedResultBytes == 150,
+        "AS admission permits one counted oversized result to guarantee convergence");
 }
 
 void RunStressMode(int iterations)

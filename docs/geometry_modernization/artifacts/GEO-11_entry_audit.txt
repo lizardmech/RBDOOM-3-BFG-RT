@@ -712,3 +712,39 @@ Build and deployment evidence:
   executable      15,997,952 bytes
   sha256          8AD6FC808FAE4A293055F18FFA6F83BE1F7049F4EF5F6A1DAD84B4E90A4D8DF9
   deployment      source and prebuilt executable byte-identical
+
+CANONICAL-RIGID ADMISSION INTEGRATION
+-------------------------------------
+Canonical rigid is the first runtime provider connected to the planner
+because its replacement path already retains the prior complete built BLAS.
+The existing per-frame build-count CVar remains the operation cap. A new
+default-unlimited CVar provides fine-grained result admission:
+
+  r_pathTracingGeometryCanonicalRigidBlasResultBudgetKB
+
+When nonzero, the provider creates a candidate handle, queries its
+authoritative NVRHI allocation size, then admits or releases that candidate
+before recording any build. A rejected replacement does not retire or mutate
+the published record. The current complete BLAS is counted ready/reused. A
+new canonical record without a BLAS continues to fail closed to the legacy
+rigid route.
+
+Deferred records retain their first deferred frame and are sorted oldest-first
+on subsequent frames. One active BLAS larger than the entire byte cap is
+allowed as an explicitly counted oversized admission only when no result bytes
+have yet been admitted that frame. Without that convergence escape, a valid
+forced-low budget could starve one live mesh forever.
+
+Diagnostics separate operation budget, result-byte budget, unknown result
+size, allocation failure, requirement query/failure, admitted bytes, oversized
+count/bytes, and maximum deferred age. Runtime acceptance remains pending.
+
+Build and deployment:
+
+  focused target  PathTraceCpuPlanningHarness
+  focused result  PASS, including oversized-result convergence
+  full command    cmake --build --preset win64-pt-dev-release
+  full result     success; all SPIR-V shaders up to date
+  executable      16,014,848 bytes
+  sha256          B5F38CF9EFDFA8D7A41006A948EF745DC358A0D3F9E5D21307DAA8DDAAB97A9B
+  deployment      source and prebuilt executable byte-identical

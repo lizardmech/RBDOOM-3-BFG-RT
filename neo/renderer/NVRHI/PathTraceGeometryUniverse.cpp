@@ -2492,10 +2492,90 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
     m_canonicalRigidBlasStats.requestedUniqueMeshes =
         static_cast<int>(requestedMeshes.size());
 
-    int buildsRemaining = idMath::ClampInt(
+    std::stable_sort(
+        requestedMeshes.begin(),
+        requestedMeshes.end(),
+        [this](
+            const PtCanonicalMeshKey& lhs,
+            const PtCanonicalMeshKey& rhs)
+        {
+            const CanonicalRigidBlasRecord* lhsRecord =
+                FindCanonicalRigidBlasRecord(
+                    lhs,
+                    PtHashCanonicalMeshKey(lhs));
+            const CanonicalRigidBlasRecord* rhsRecord =
+                FindCanonicalRigidBlasRecord(
+                    rhs,
+                    PtHashCanonicalMeshKey(rhs));
+            const uint64 lhsAge =
+                lhsRecord != nullptr &&
+                lhsRecord->deferredSinceFrame != 0 &&
+                m_currentFrameIndex >=
+                    lhsRecord->deferredSinceFrame
+                    ? m_currentFrameIndex -
+                        lhsRecord->deferredSinceFrame
+                    : 0;
+            const uint64 rhsAge =
+                rhsRecord != nullptr &&
+                rhsRecord->deferredSinceFrame != 0 &&
+                m_currentFrameIndex >=
+                    rhsRecord->deferredSinceFrame
+                    ? m_currentFrameIndex -
+                        rhsRecord->deferredSinceFrame
+                    : 0;
+            return lhsAge > rhsAge;
+        });
+
+    RtSmokeAsAdmissionBudget admissionBudget;
+    admissionBudget.maxOperations = idMath::ClampInt(
         1,
         256,
         r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame.GetInteger());
+    const int resultBudgetKiB = idMath::ClampInt(
+        0,
+        1048576,
+        r_pathTracingGeometryCanonicalRigidBlasResultBudgetKB.GetInteger());
+    admissionBudget.maxResultBytes =
+        static_cast<uint64>(resultBudgetKiB) * 1024ull;
+    admissionBudget.allowOneOversizedResult = true;
+    std::vector<RtSmokeAsAdmissionRequest> admissionRequests;
+    admissionRequests.reserve(requestedMeshes.size());
+    auto recordAdmissionDeferral =
+        [this](
+            CanonicalRigidBlasRecord& record,
+            RtSmokeAsDeferralReason reason,
+            uint64 deferredAge)
+        {
+            ++m_canonicalRigidBlasStats.deferredBuilds;
+            if (record.deferredSinceFrame == 0)
+            {
+                record.deferredSinceFrame =
+                    m_currentFrameIndex > 0
+                        ? m_currentFrameIndex
+                        : 1;
+            }
+            m_canonicalRigidBlasStats.maxDeferredAge =
+                Max(
+                    m_canonicalRigidBlasStats.maxDeferredAge,
+                    deferredAge);
+            switch (reason)
+            {
+                case RT_SMOKE_AS_DEFER_OPERATION_BUDGET:
+                    ++m_canonicalRigidBlasStats.
+                        deferredOperationBudget;
+                    break;
+                case RT_SMOKE_AS_DEFER_RESULT_BYTE_BUDGET:
+                    ++m_canonicalRigidBlasStats.
+                        deferredResultByteBudget;
+                    break;
+                case RT_SMOKE_AS_DEFER_RESULT_BYTES_UNKNOWN:
+                    ++m_canonicalRigidBlasStats.
+                        deferredUnknownResultBytes;
+                    break;
+                default:
+                    break;
+            }
+        };
     for (const PtCanonicalMeshKey& meshKey : requestedMeshes)
     {
         const PtGeometrySourceRecord* source =
@@ -2558,13 +2638,40 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
         if (record->blas && record->buildSubmitted &&
             !replacementRequired)
         {
+            record->deferredSinceFrame = 0;
             ++m_canonicalRigidBlasStats.readyRequestedMeshes;
             ++m_canonicalRigidBlasStats.blasReused;
             continue;
         }
-        if (buildsRemaining <= 0)
+
+        const uint64 deferredAge =
+            record->deferredSinceFrame != 0 &&
+            m_currentFrameIndex >= record->deferredSinceFrame
+                ? m_currentFrameIndex -
+                    record->deferredSinceFrame
+                : 0;
+        RtSmokeAsAdmissionRequest admissionRequest;
+        admissionRequest.kind =
+            replacementRequired
+                ? RT_SMOKE_AS_WORK_UPDATE
+                : RT_SMOKE_AS_WORK_NEW_BUILD;
+        admissionRequest.priority =
+            RT_SMOKE_AS_PRIORITY_ACTIVE;
+        admissionRequest.deferredAge = deferredAge;
+        admissionRequests.push_back(admissionRequest);
+        const RtSmokeAsAdmissionPlan operationPlan =
+            BuildSmokeAsAdmissionPlan(
+                admissionBudget,
+                admissionRequests);
+        const RtSmokeAsAdmissionDecision& operationDecision =
+            operationPlan.decisions.back();
+        if (operationDecision.deferralReason ==
+            RT_SMOKE_AS_DEFER_OPERATION_BUDGET)
         {
-            ++m_canonicalRigidBlasStats.deferredBuilds;
+            recordAdmissionDeferral(
+                *record,
+                operationDecision.deferralReason,
+                deferredAge);
             if (record->blas && record->buildSubmitted)
             {
                 ++m_canonicalRigidBlasStats.readyRequestedMeshes;
@@ -2598,6 +2705,19 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
         if (!replacementBlas)
         {
             ++m_canonicalRigidBlasStats.deferredBuilds;
+            ++m_canonicalRigidBlasStats.deferredAllocationFailure;
+            m_canonicalRigidBlasStats.maxDeferredAge =
+                Max(
+                    m_canonicalRigidBlasStats.maxDeferredAge,
+                    deferredAge);
+            if (record->deferredSinceFrame == 0)
+            {
+                record->deferredSinceFrame =
+                    m_currentFrameIndex > 0
+                        ? m_currentFrameIndex
+                        : 1;
+            }
+            admissionRequests.pop_back();
             if (record->blas && record->buildSubmitted)
             {
                 ++m_canonicalRigidBlasStats.readyRequestedMeshes;
@@ -2605,7 +2725,56 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
             }
             continue;
         }
+
+        if (admissionBudget.maxResultBytes > 0)
+        {
+            const nvrhi::MemoryRequirements requirements =
+                device->getAccelStructMemoryRequirements(
+                    replacementBlas);
+            ++m_canonicalRigidBlasStats.resultRequirementQueries;
+            admissionRequests.back().resultBytes =
+                requirements.size;
+            admissionRequests.back().resultBytesKnown =
+                requirements.size > 0;
+            if (requirements.size == 0)
+            {
+                ++m_canonicalRigidBlasStats.
+                    resultRequirementFailures;
+            }
+        }
+        const RtSmokeAsAdmissionPlan admissionPlan =
+            BuildSmokeAsAdmissionPlan(
+                admissionBudget,
+                admissionRequests);
+        const RtSmokeAsAdmissionDecision& admissionDecision =
+            admissionPlan.decisions.back();
+        if (!admissionDecision.admitted)
+        {
+            recordAdmissionDeferral(
+                *record,
+                admissionDecision.deferralReason,
+                deferredAge);
+            if (record->blas && record->buildSubmitted)
+            {
+                ++m_canonicalRigidBlasStats.readyRequestedMeshes;
+                ++m_canonicalRigidBlasStats.blasReused;
+            }
+            continue;
+        }
+
         ++m_canonicalRigidBlasStats.blasCreated;
+        if (admissionRequests.back().resultBytesKnown)
+        {
+            m_canonicalRigidBlasStats.admittedResultBytes +=
+                admissionRequests.back().resultBytes;
+        }
+        if (admissionDecision.oversizedResultAdmission)
+        {
+            ++m_canonicalRigidBlasStats.
+                oversizedResultAdmissions;
+            m_canonicalRigidBlasStats.oversizedResultBytes +=
+                admissionRequests.back().resultBytes;
+        }
         commandList->setBufferState(
             m_canonicalSourceGpuPools.PositionBuffer(),
             nvrhi::ResourceStates::AccelStructBuildInput);
@@ -2631,9 +2800,9 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
         record->blas = replacementBlas;
         record->inputSignature = inputSignature;
         record->buildSubmitted = true;
+        record->deferredSinceFrame = 0;
         ++m_canonicalRigidBlasStats.blasBuilt;
         ++m_canonicalRigidBlasStats.readyRequestedMeshes;
-        --buildsRemaining;
     }
 
     for (const CanonicalRigidBlasRecord& record :
@@ -2649,7 +2818,7 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
 void RtSmokeGeometryUniverse::DumpCanonicalRigidBlasStats()
 {
     common->Printf(
-        "PathTracePrimaryPass: GEO06 canonical rigid BLAS frame=%llu enabled=%d requested(instances/unique)=%d/%d resolved(identity/source/pool)=%d/%d/%d ready/active/deferred=%d/%d/%d missing(identity/source/pool)=%d/%d/%d interval(create/build/reuse/retire/buildUs)=%llu/%llu/%llu/%llu/%llu traversal=legacy route=shadow-only\n",
+        "PathTracePrimaryPass: GEO06 canonical rigid BLAS frame=%llu enabled=%d requested(instances/unique)=%d/%d resolved(identity/source/pool)=%d/%d/%d ready/active/deferred=%d/%d/%d admission(deferOp/deferBytes/deferUnknown/deferAlloc/query/fail/bytes/oversized/oversizedBytes/maxAge)=%d/%d/%d/%d/%d/%d/%llu/%d/%llu/%llu missing(identity/source/pool)=%d/%d/%d interval(create/build/reuse/retire/buildUs)=%llu/%llu/%llu/%llu/%llu traversal=legacy route=shadow-only\n",
         static_cast<unsigned long long>(
             m_canonicalRigidBlasStats.frameIndex),
         m_canonicalRigidBlasStats.enabled,
@@ -2661,6 +2830,19 @@ void RtSmokeGeometryUniverse::DumpCanonicalRigidBlasStats()
         m_canonicalRigidBlasStats.readyRequestedMeshes,
         m_canonicalRigidBlasStats.activeBlas,
         m_canonicalRigidBlasStats.deferredBuilds,
+        m_canonicalRigidBlasStats.deferredOperationBudget,
+        m_canonicalRigidBlasStats.deferredResultByteBudget,
+        m_canonicalRigidBlasStats.deferredUnknownResultBytes,
+        m_canonicalRigidBlasStats.deferredAllocationFailure,
+        m_canonicalRigidBlasStats.resultRequirementQueries,
+        m_canonicalRigidBlasStats.resultRequirementFailures,
+        static_cast<unsigned long long>(
+            m_canonicalRigidBlasStats.admittedResultBytes),
+        m_canonicalRigidBlasStats.oversizedResultAdmissions,
+        static_cast<unsigned long long>(
+            m_canonicalRigidBlasStats.oversizedResultBytes),
+        static_cast<unsigned long long>(
+            m_canonicalRigidBlasStats.maxDeferredAge),
         m_canonicalRigidBlasStats.missingIdentity,
         m_canonicalRigidBlasStats.missingSource,
         m_canonicalRigidBlasStats.missingPoolRecord,

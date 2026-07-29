@@ -3723,6 +3723,26 @@ and legacy rigid must defer complete buffer-plus-BLAS replacement rather than
 pairing old BLASes with replaced buffers. Main dynamic work remains outside
 the auxiliary budget until an omission-safe fallback exists.
 
+D148. CANONICAL RIGID IS THE FIRST ADMISSION CONSUMER
+-----------------------------------------------------
+Canonical rigid now applies the common operation/result planner before BLAS
+build submission. Its existing builds-per-frame CVar remains the operation
+cap. `r_pathTracingGeometryCanonicalRigidBlasResultBudgetKB` adds a
+default-unlimited result-byte cap fine enough for forced-low tests.
+
+When enabled, authoritative result allocation size is queried from the
+candidate NVRHI handle. An admitted replacement is built and then published;
+any operation, byte, unknown-size, or allocation deferral retains the prior
+complete BLAS. Newly requested canonical meshes continue using the legacy
+route until ready. Deferred active meshes are oldest-first.
+
+One result larger than the whole cap may be admitted only when the frame has
+admitted no prior result bytes, and that exception is counted with exact
+bytes. This is required for convergence: a strict cap below the largest
+indivisible BLAS would otherwise starve a live mesh permanently. Static
+buckets, legacy rigid, and main dynamic work remain outside this first
+runtime integration.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
