@@ -6002,8 +6002,11 @@ struct RtSmokeStaticBucketFramePublication
     uint64 sourceGeneration = 0;
     uint64 materialBindingSignature = 0;
     uint64 totalCpuMicroseconds = 0;
+    uint64 cpuMicrosecondsWithoutValidation = 0;
     uint64 sourceBuildMicroseconds = 0;
     uint64 portalMaskMicroseconds = 0;
+    uint64 universeStatsMicroseconds = 0;
+    uint64 validationMicroseconds = 0;
     uint64 assignmentMicroseconds = 0;
     uint64 residentPackMicroseconds = 0;
     uint64 materialIndexMicroseconds = 0;
@@ -6012,6 +6015,7 @@ struct RtSmokeStaticBucketFramePublication
     uint64 materialUploadMicroseconds = 0;
     bool residentPackCacheHit = false;
     bool materialIndexCacheHit = false;
+    bool assignmentPlanCacheHit = false;
     RtPathTraceSceneUniverseBuildStats sourceBuildStats;
     RtSmokeGeometryUniverseStats universeStats;
     RtSmokeStaticBucketAssignmentPlan assignmentPlan;
@@ -6126,8 +6130,23 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
         1,
         r_pathTracingGeometryStaticBucketMaxTriangles.GetInteger());
     frame.sourceGeneration = sceneUniverse.GetStats().generation;
+    const auto universeStatsStart =
+        StaticBucketClock::now();
     frame.universeStats =
-        staticBucketGeometryUniverse.GetStats(true);
+        staticBucketGeometryUniverse.GetStats(false);
+    frame.universeStatsMicroseconds = elapsedMicroseconds(
+        universeStatsStart,
+        StaticBucketClock::now());
+    if (frame.auditRequested)
+    {
+        const auto validationStart =
+            StaticBucketClock::now();
+        frame.universeStats =
+            staticBucketGeometryUniverse.GetStats(true);
+        frame.validationMicroseconds = elapsedMicroseconds(
+            validationStart,
+            StaticBucketClock::now());
+    }
     const auto assignmentStart = StaticBucketClock::now();
     frame.assignmentPlan =
         staticBucketGeometryUniverse.BuildStaticBucketAssignmentPlan(
@@ -6137,7 +6156,8 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
             frame.maxVerticesPerBucket,
             frame.maxIndexesPerBucket,
             frame.maxTrianglesPerBucket,
-            frame.activeMaskValid ? &activeAreas : nullptr);
+            frame.activeMaskValid ? &activeAreas : nullptr,
+            &frame.assignmentPlanCacheHit);
     frame.assignmentMicroseconds = elapsedMicroseconds(
         assignmentStart,
         StaticBucketClock::now());
@@ -6306,6 +6326,12 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     frame.totalCpuMicroseconds = elapsedMicroseconds(
         totalStart,
         StaticBucketClock::now());
+    frame.cpuMicrosecondsWithoutValidation =
+        frame.totalCpuMicroseconds >=
+                frame.validationMicroseconds
+            ? frame.totalCpuMicroseconds -
+                frame.validationMicroseconds
+            : frame.totalCpuMicroseconds;
     return frame;
 }
 
@@ -13620,17 +13646,27 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                         (*staticBucketFramePublication.materialIndexes)[0])
                 : 0);
         common->Printf(
-            "PathTracePrimaryPass: GEO10 step9 cache(source/residentPack/materialIndex/sourceFastPath)=%d/%d/%d/%d timingsUs(total/source/portal/assignment/residentPack/materialIndex/blasScaffold/publication/materialUpload)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu retainedKB(source/previous/residentPack/gpuInputs)=%d/%d/%llu/%llu warmUploadBytes=%llu blas(build/reuse/retire)=%d/%d/%d\n",
+            "PathTracePrimaryPass: GEO10 step9 cache(source/assignment/residentPack/materialIndex/sourceFastPath)=%d/%d/%d/%d/%d timingsUs(total/withoutValidation/source/portal/universeStats/validation/assignment/residentPack/materialIndex/blasScaffold/publication/materialUpload)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu retainedKB(source/previous/residentPack/gpuInputs)=%d/%d/%llu/%llu warmUploadBytes=%llu blas(build/reuse/retire)=%d/%d/%d\n",
             staticBucketSourceBuildStats.cacheHit ? 1 : 0,
+            staticBucketFramePublication.assignmentPlanCacheHit ? 1 : 0,
             staticBucketFramePublication.residentPackCacheHit ? 1 : 0,
             staticBucketFramePublication.materialIndexCacheHit ? 1 : 0,
             staticBucketSourceBuildStats.frameFastPath ? 1 : 0,
             static_cast<unsigned long long>(
                 staticBucketFramePublication.totalCpuMicroseconds),
             static_cast<unsigned long long>(
+                staticBucketFramePublication.
+                    cpuMicrosecondsWithoutValidation),
+            static_cast<unsigned long long>(
                 staticBucketFramePublication.sourceBuildMicroseconds),
             static_cast<unsigned long long>(
                 staticBucketFramePublication.portalMaskMicroseconds),
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.
+                    universeStatsMicroseconds),
+            static_cast<unsigned long long>(
+                staticBucketFramePublication.
+                    validationMicroseconds),
             static_cast<unsigned long long>(
                 staticBucketFramePublication.assignmentMicroseconds),
             static_cast<unsigned long long>(

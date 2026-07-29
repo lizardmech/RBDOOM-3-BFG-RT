@@ -3357,6 +3357,33 @@ the existing probe policy to `productionRoute || consumerProbe`; do not wait
 for a bucket to become active before its material table entry exists. This is
 a correctness prerequisite for accepting the source fast path.
 
+D132. CACHE BUCKET TOPOLOGY; KEEP QUADRATIC VALIDATION OUT OF STEADY STATE
+-----------------------------------------------------------------------------
+`geometry_geo_step9b.log` accepts D131. The warm source fast path reduced source
+time from 19,530 to 157 microseconds and total bucket-publication time from
+21,375 to 2,160 microseconds. This is a 99.2 percent source reduction and an
+89.9 percent total reduction. After the expected startup wait at 2/56 ready
+BLASes, every captured portal transition was accepted with zero active
+material-index misses.
+
+The next measured recurring stage was assignment at 574 microseconds.
+Inspection showed that it reconstructed, sorted, deduplicated, and rehashed all
+1,789 surface assignments even though scene/storage generation and bucket
+limits were unchanged. Only the active state of the 56 completed buckets can
+change during a warm portal transition.
+
+Cache exact assignment topology by world, source, storage, area-count, and
+bucket-limit tuple. On a cache hit, copy the stable plan and recompute only each
+bucket's active bit and active-bucket count. Generation, storage, area, or
+limit changes retain the full deterministic planner.
+
+The uninstrumented remainder was dominated by `GetStats(true)`, whose
+duplicate-key proof performs the expected all-record validation including a
+quadratic duplicate scan. That proof is diagnostic, not a production-frame
+requirement. Collect light statistics every frame, run full validation only
+for the one-shot audit, and report validation time separately plus total time
+with validation removed. Do not weaken the one-shot correctness proof.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

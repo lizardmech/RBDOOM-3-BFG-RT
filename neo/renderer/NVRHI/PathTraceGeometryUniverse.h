@@ -933,7 +933,8 @@ public:
         int maxVerticesPerBucket,
         int maxIndexesPerBucket,
         int maxTrianglesPerBucket,
-        const std::vector<bool>* activePortalAreas = nullptr) const;
+        const std::vector<bool>* activePortalAreas = nullptr,
+        bool* cacheHit = nullptr);
     RtSmokeStaticBucketGeometryPack BuildStaticBucketGeometryPack(
         const RtSmokeStaticBucketAssignmentPlan& assignmentPlan) const;
     const RtSmokeStaticBucketGeometryPack&
@@ -1274,6 +1275,16 @@ private:
     uint64 m_staticBucketMaterialIndexUploadSignature = 0;
     RtSmokeStaticBucketGeometryPack
         m_staticBucketResidentGeometryPack;
+    RtSmokeStaticBucketAssignmentPlan
+        m_staticBucketAssignmentPlanCache;
+    uint64 m_staticBucketAssignmentWorldGeneration = 0;
+    uint64 m_staticBucketAssignmentSourceGeneration = 0;
+    uint64 m_staticBucketAssignmentStorageGeneration = 0;
+    int m_staticBucketAssignmentPortalAreaCount = 0;
+    int m_staticBucketAssignmentMaxVertices = 0;
+    int m_staticBucketAssignmentMaxIndexes = 0;
+    int m_staticBucketAssignmentMaxTriangles = 0;
+    bool m_staticBucketAssignmentPlanCacheValid = false;
     uint64 m_staticBucketResidentAssignmentPlanSignature = 0;
     uint64 m_staticBucketResidentGeometryGeneration = 0;
     uint64 m_staticBucketResidentMaterialGeneration = 0;

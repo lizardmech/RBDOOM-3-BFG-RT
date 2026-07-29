@@ -3239,3 +3239,77 @@ then set `r_pathTracingGeometryStaticBucketAudit 1`. The new audit must show:
 Geometry, glass, reflection, refraction, and camera movement must remain
 unchanged. The new warm source and total microsecond values determine whether
 another step-9 CPU optimization is warranted.
+
+REF-10AM SOURCE ACCEPTANCE AND ASSIGNMENT-TOPOLOGY CACHE - 2026-07-29
+---------------------------------------------------------------------
+`geometry_geo_step9b.log` accepts REF-10AL:
+
+  source microseconds before/after                   19,530/157
+  source reduction                                      99.2 percent
+  total microseconds before/after                    21,375/2,160
+  total reduction                                       89.9 percent
+  warm cache(source/pack/material/sourceFastPath)       1/1/1/1
+  retained previous-static snapshot                         0 KB
+  warm GPU upload                                           0 bytes
+  BLAS build/reuse/retire                               0/56/0
+
+At startup, route 1 correctly remained monolithic while only 2/56 resident
+BLASes were ready. Once all 56 were ready, every captured portal transition
+was accepted:
+
+  active bucket counts                         14, 14, 13, 18, 15, 12, 16
+  active material-index misses                                  always 0
+  requested/accepted after settle                               always 1/1
+  traversal after settle                         bucket-resident-pool
+  device removal                                                   none
+
+The next measured recurring stage was the 574-microsecond assignment planner.
+It rebuilt and sorted all 1,789 immutable surface assignments each frame even
+though a portal transition changes only activity among 56 buckets.
+
+`RtSmokeGeometryUniverse` now caches an exact assignment topology by:
+
+  world generation
+  source generation
+  static storage generation
+  portal-area count
+  vertex/index/triangle bucket limits
+
+On an exact cache hit it preserves bucket keys, surface order, local primitive
+offsets, ranges, and the plan signature, updating only bucket activity and the
+active count. Any changed cache-key field retains the full deterministic
+planner.
+
+The prior tuple's approximately 1.3-millisecond unnamed remainder was traced
+to full `GetStats(true)` validation. That diagnostic includes the quadratic
+duplicate-key proof over 1,789 records. Light statistics remain per-frame;
+full validation now runs only when the one-shot audit requests it. The audit
+reports both validation time and total time with validation removed.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness                        passed
+  PathTraceCpuPlanningHarness --stress 20            passed
+  full win64-pt-dev-release build                    passed
+  shader rebuilds                                    0
+
+  executable SHA-256
+    8B974CA6797030863C99954B67AC0A0FFF8A3D6C6B75A5EE20A177291A0E8441
+
+Deploy only the executable. Keep the accepted full route-1 optical
+configuration, settle all 56 BLASes, cross several portals, and request one
+audit. Acceptance requires:
+
+  cache(source/assignment/residentPack/materialIndex/sourceFastPath)
+                                                        1/1/1/1/1
+  assignment time                                      materially below 574 us
+  total without validation                           reported separately
+  retained previous KB                                              0
+  warm upload bytes                                                  0
+  BLAS build/reuse/retire                                       0/56/0
+  materialIndexMissingActive                                         0
+  requested/accepted                                                1/1
+
+Full validation time may remain substantial on the audit frame; it is no
+longer recurring production work. Geometry, glass, reflections, refraction,
+portal traversal, and camera movement must remain unchanged.

@@ -1423,6 +1423,16 @@ void RtSmokeGeometryUniverse::Clear()
     m_staticIndexCache.clear();
     m_staticTriangleClassCache.clear();
     m_staticTriangleMaterialCache.clear();
+    m_staticBucketAssignmentPlanCache =
+        RtSmokeStaticBucketAssignmentPlan();
+    m_staticBucketAssignmentWorldGeneration = 0;
+    m_staticBucketAssignmentSourceGeneration = 0;
+    m_staticBucketAssignmentStorageGeneration = 0;
+    m_staticBucketAssignmentPortalAreaCount = 0;
+    m_staticBucketAssignmentMaxVertices = 0;
+    m_staticBucketAssignmentMaxIndexes = 0;
+    m_staticBucketAssignmentMaxTriangles = 0;
+    m_staticBucketAssignmentPlanCacheValid = false;
     m_staticBucketResidentGeometryPack =
         RtSmokeStaticBucketGeometryPack();
     m_staticBucketResidentAssignmentPlanSignature = 0;
@@ -3314,8 +3324,94 @@ RtSmokeGeometryUniverse::BuildStaticBucketAssignmentPlan(
     int maxVerticesPerBucket,
     int maxIndexesPerBucket,
     int maxTrianglesPerBucket,
-    const std::vector<bool>* activePortalAreas) const
+    const std::vector<bool>* activePortalAreas,
+    bool* cacheHit)
 {
+    if (cacheHit)
+    {
+        *cacheHit = false;
+    }
+
+    const bool canReuseTopology =
+        m_staticBucketAssignmentPlanCacheValid &&
+        m_staticBucketAssignmentWorldGeneration ==
+            worldGeneration &&
+        m_staticBucketAssignmentSourceGeneration ==
+            sourceGeneration &&
+        m_staticBucketAssignmentStorageGeneration ==
+            m_staticGeometryGeneration &&
+        m_staticBucketAssignmentPortalAreaCount ==
+            portalAreaCount &&
+        m_staticBucketAssignmentMaxVertices ==
+            maxVerticesPerBucket &&
+        m_staticBucketAssignmentMaxIndexes ==
+            maxIndexesPerBucket &&
+        m_staticBucketAssignmentMaxTriangles ==
+            maxTrianglesPerBucket;
+    if (canReuseTopology)
+    {
+        RtSmokeStaticBucketAssignmentPlan plan =
+            m_staticBucketAssignmentPlanCache;
+        plan.stats.activeBuckets = 0;
+        for (RtSmokeStaticBucketAssignmentBucket& bucket :
+            plan.buckets)
+        {
+            bool active = false;
+            if (activePortalAreas)
+            {
+                active =
+                    bucket.portalArea ==
+                        RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA ||
+                    (bucket.portalArea >= 0 &&
+                        bucket.portalArea <
+                            static_cast<int>(
+                                activePortalAreas->size()) &&
+                        (*activePortalAreas)[
+                            bucket.portalArea]);
+            }
+            else
+            {
+                const size_t firstAssignment =
+                    static_cast<size_t>(
+                        bucket.firstAssignment);
+                const size_t endAssignment =
+                    firstAssignment +
+                    static_cast<size_t>(
+                        bucket.assignmentCount);
+                for (size_t assignmentIndex =
+                         firstAssignment;
+                     assignmentIndex < endAssignment &&
+                         assignmentIndex <
+                             plan.assignments.size();
+                     ++assignmentIndex)
+                {
+                    const uint32_t sourceRecordIndex =
+                        plan.assignments[assignmentIndex].
+                            sourceRecordIndex;
+                    if (sourceRecordIndex <
+                            m_staticSurfaceRecords.size() &&
+                        m_staticSurfaceRecords[
+                            sourceRecordIndex].
+                            seenThisFrame)
+                    {
+                        active = true;
+                        break;
+                    }
+                }
+            }
+            bucket.active = active;
+            if (active)
+            {
+                ++plan.stats.activeBuckets;
+            }
+        }
+        if (cacheHit)
+        {
+            *cacheHit = true;
+        }
+        return plan;
+    }
+
     std::vector<RtSmokeStaticBucketAssignmentSurface> surfaces;
     surfaces.reserve(m_staticSurfaceRecords.size());
 
@@ -3382,7 +3478,26 @@ RtSmokeGeometryUniverse::BuildStaticBucketAssignmentPlan(
     desc.maxVerticesPerBucket = maxVerticesPerBucket;
     desc.maxIndexesPerBucket = maxIndexesPerBucket;
     desc.maxTrianglesPerBucket = maxTrianglesPerBucket;
-    return ::BuildSmokeStaticBucketAssignmentPlan(desc);
+    RtSmokeStaticBucketAssignmentPlan plan =
+        ::BuildSmokeStaticBucketAssignmentPlan(desc);
+    m_staticBucketAssignmentPlanCache = plan;
+    m_staticBucketAssignmentWorldGeneration =
+        worldGeneration;
+    m_staticBucketAssignmentSourceGeneration =
+        sourceGeneration;
+    m_staticBucketAssignmentStorageGeneration =
+        m_staticGeometryGeneration;
+    m_staticBucketAssignmentPortalAreaCount =
+        portalAreaCount;
+    m_staticBucketAssignmentMaxVertices =
+        maxVerticesPerBucket;
+    m_staticBucketAssignmentMaxIndexes =
+        maxIndexesPerBucket;
+    m_staticBucketAssignmentMaxTriangles =
+        maxTrianglesPerBucket;
+    m_staticBucketAssignmentPlanCacheValid =
+        plan.exactCoverage;
+    return plan;
 }
 
 RtSmokeStaticBucketGeometryPack
