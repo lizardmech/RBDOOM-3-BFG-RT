@@ -605,3 +605,62 @@ Build and deployment:
 
 Runtime validation remains required for default-unlimited parity and one
 forced-low result-byte convergence interval.
+
+STATIC-BUCKET ADMISSION ACCEPTED
+--------------------------------
+`geometry_geo_step15.log` accepts both required configurations. With the
+default unlimited byte budget, all 56 resident buckets converge under the
+two-operation cap and the final audit reports:
+
+  ready / deferred / retained / invalid       56 / 0 / 0 / 0
+  steady build / reuse / retire                0 / 56 / 0
+  admission result queries / failures          0 / 0
+  operation deferrals / maximum age            756 / 26
+  publication valid / exact / mixed rejected   1 / 1 / 0
+
+The independent 8 KiB result cap then rebuilds the full resident set:
+
+  result requirement queries / failures        1473 / 0
+  allocation / unknown-size failures            0 / 0
+  result-byte / operation deferrals              1417 / 0
+  admitted result bytes                         3635712
+  oversized admissions / bytes                  38 / 3541504
+  maximum deferred age                          49
+  final ready / deferred / retained / invalid   56 / 0 / 0 / 0
+  final build / reuse / retire                   0 / 56 / 0
+  publication failures                          0 / 0 / 0 / 0
+
+The admitted result total equals the authoritative 56-BLAS resident census.
+Ordinary sub-cap results share frames while indivisible results use the
+oversized exception. No request starves, no failure is hidden as a budget
+deferral, and the route remains monolithic during the experiment.
+Static-bucket Slice-4 admission is accepted.
+
+LEGACY-RIGID COMPLETE-PACKAGE REPLACEMENT
+-----------------------------------------
+The legacy rigid prerequisite now treats vertex buffer, index buffer, and BLAS
+as one publication package. A changed upload never overwrites or individually
+replaces live input buffers. It allocates both candidate buffers, creates a
+candidate BLAS over those handles, uploads and submits the complete candidate,
+then atomically swaps all three record handles and retires the prior package.
+
+An unchanged force rebuild may share the immutable current buffers, but it
+still creates and builds a distinct BLAS before retiring the prior handle.
+Build-gate or allocation failure leaves the prior record untouched.
+
+Route readiness now requires an exact CPU-content/upload signature in addition
+to both buffers, a submitted BLAS, and exact vertex/index counts. The CPU
+content signature covers the complete cached local vertex and index payload.
+A retained package that no longer matches refreshed source content therefore
+fails closed to the existing dynamic fallback rather than combining old GPU
+geometry with new route metadata.
+
+Build and deployment:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; all SPIR-V shaders up to date
+  executable    16,024,576 bytes
+  sha256        3AB9C1802E6BE3D974956BEF83CAD07B8C48948AF3910F44ECE853A8556133F8
+
+Runtime validation is required before the legacy provider consumes the common
+operation/result-byte admission planner.

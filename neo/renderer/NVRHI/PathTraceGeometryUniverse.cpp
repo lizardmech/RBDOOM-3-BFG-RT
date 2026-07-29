@@ -799,6 +799,10 @@ uint64 BuildRigidGpuUploadSignature(const RtSmokeGeometryUniverse::RigidMeshCand
 {
     uint64 hash = 14695981039346656037ull;
     hash = HashSmokeBytes(hash, &record.meshHash, sizeof(record.meshHash));
+    hash = HashSmokeBytes(
+        hash,
+        &record.cpuMeshContentSignature,
+        sizeof(record.cpuMeshContentSignature));
     hash = HashSmokeBytes(hash, &record.vertexBufferIdentity, sizeof(record.vertexBufferIdentity));
     hash = HashSmokeBytes(hash, &record.indexBufferIdentity, sizeof(record.indexBufferIdentity));
     hash = HashSmokeBytes(hash, &record.materialId, sizeof(record.materialId));
@@ -926,6 +930,7 @@ bool RigidMeshHasCachedRouteData(const RtSmokeGeometryUniverse::RigidMeshCandida
 {
     if (!(
         record.valid &&
+        record.cpuMeshContentSignature != 0 &&
         record.sourceRange.vertices.count > 0 &&
         record.sourceRange.indexes.count > 0 &&
         (record.sourceRange.indexes.count % 3) == 0 &&
@@ -973,6 +978,8 @@ bool RigidMeshHasCachedRouteGpuReady(const RtSmokeGeometryUniverse::RigidMeshCan
         record.gpuBuffersUploaded &&
         record.gpuBlasCreated &&
         record.gpuBlasBuildSubmitted &&
+        record.gpuUploadSignature ==
+            BuildRigidGpuUploadSignature(record) &&
         record.gpuBlasVertexCount == static_cast<int>(record.cachedLocalVertices.size()) &&
         record.gpuBlasIndexCount == static_cast<int>(record.cachedLocalIndexes.size());
 }
@@ -1327,6 +1334,7 @@ bool CanonicalCompareEndpointsMatch(
 
 void RefreshRigidMeshCandidateCpuCache(RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
 {
+    record.cpuMeshContentSignature = 0;
     if (!record.tri ||
         !record.tri->verts ||
         !record.tri->indexes ||
@@ -1358,6 +1366,25 @@ void RefreshRigidMeshCandidateCpuCache(RtSmokeGeometryUniverse::RigidMeshCandida
 
     record.localBounds = record.tri->bounds;
     record.localBoundsValid = !record.localBounds.IsCleared();
+    uint64 contentSignature = 14695981039346656037ull;
+    if (!record.cachedLocalVertices.empty())
+    {
+        contentSignature = HashSmokeBytes(
+            contentSignature,
+            record.cachedLocalVertices.data(),
+            record.cachedLocalVertices.size() *
+                sizeof(record.cachedLocalVertices[0]));
+    }
+    if (!record.cachedLocalIndexes.empty())
+    {
+        contentSignature = HashSmokeBytes(
+            contentSignature,
+            record.cachedLocalIndexes.data(),
+            record.cachedLocalIndexes.size() *
+                sizeof(record.cachedLocalIndexes[0]));
+    }
+    record.cpuMeshContentSignature =
+        contentSignature != 0 ? contentSignature : 1;
 }
 
 bool BuildRigidResidencyWorldBounds(
@@ -6548,140 +6575,153 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         ++stats.validInputs;
         const size_t requiredVertexBytes = localVertices.size() * sizeof(PathTraceSmokeVertex);
         const size_t requiredIndexBytes = localIndexes.size() * sizeof(uint32_t);
-        bool createdVertexBuffer = false;
-        bool createdIndexBuffer = false;
-        if (RigidSmokeBufferHasCapacity(record.rigidVertexBuffer, requiredVertexBytes, sizeof(PathTraceSmokeVertex)))
-        {
-            ++stats.vertexBuffersReused;
-        }
-        else
-        {
-            nvrhi::BufferHandle replacement =
-                CreateRigidSmokeBuffer(device, "PathTraceRigidMeshLocalVertices", requiredVertexBytes, sizeof(PathTraceSmokeVertex), true, false);
-            createdVertexBuffer = replacement != nullptr;
-            if (createdVertexBuffer)
-            {
-                RetireRigidBuffer(record.rigidVertexBuffer);
-                record.rigidVertexBuffer = replacement;
-                record.gpuBuffersUploaded = false;
-                ++stats.vertexBuffersCreated;
-            }
-        }
-
-        if (RigidSmokeBufferHasCapacity(record.rigidIndexBuffer, requiredIndexBytes, sizeof(uint32_t)))
-        {
-            ++stats.indexBuffersReused;
-        }
-        else
-        {
-            nvrhi::BufferHandle replacement =
-                CreateRigidSmokeBuffer(device, "PathTraceRigidMeshLocalIndices", requiredIndexBytes, sizeof(uint32_t), false, true);
-            createdIndexBuffer = replacement != nullptr;
-            if (createdIndexBuffer)
-            {
-                RetireRigidBuffer(record.rigidIndexBuffer);
-                record.rigidIndexBuffer = replacement;
-                record.gpuBuffersUploaded = false;
-                ++stats.indexBuffersCreated;
-            }
-        }
-
-        if (!RigidSmokeBufferHasCapacity(
+        const uint64 uploadSignature = BuildRigidGpuUploadSignature(record);
+        bool builtThisFrame = false;
+        const bool currentBuffersExact =
+            RigidSmokeBufferHasCapacity(
                 record.rigidVertexBuffer,
                 requiredVertexBytes,
-                sizeof(PathTraceSmokeVertex)) ||
-            !RigidSmokeBufferHasCapacity(
+                sizeof(PathTraceSmokeVertex)) &&
+            RigidSmokeBufferHasCapacity(
                 record.rigidIndexBuffer,
                 requiredIndexBytes,
-                sizeof(uint32_t)))
-        {
-            ++stats.skippedInvalid;
-            continue;
-        }
-
-        const uint64 uploadSignature = BuildRigidGpuUploadSignature(record);
-        const bool uploadRequired = createdVertexBuffer || createdIndexBuffer || !record.gpuBuffersUploaded || record.gpuUploadSignature != uploadSignature;
-        if (uploadRequired)
-        {
-            commandList->beginTrackingBufferState(record.rigidVertexBuffer, nvrhi::ResourceStates::Common);
-            commandList->beginTrackingBufferState(record.rigidIndexBuffer, nvrhi::ResourceStates::Common);
-            commandList->writeBuffer(record.rigidVertexBuffer, localVertices.data(), requiredVertexBytes);
-            commandList->writeBuffer(record.rigidIndexBuffer, localIndexes.data(), requiredIndexBytes);
-            commandList->setBufferState(record.rigidVertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
-            commandList->setBufferState(record.rigidIndexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
-            commandList->commitBarriers();
-            record.gpuUploadSignature = uploadSignature;
-            record.gpuBuffersUploaded = true;
-            ++stats.vertexUploads;
-            ++stats.indexUploads;
-            stats.uploadBytes += static_cast<int>(requiredVertexBytes + requiredIndexBytes);
-        }
-
-        bool builtThisFrame = false;
-        const bool blasInputsCompatible =
+                sizeof(uint32_t)) &&
+            record.gpuBuffersUploaded &&
+            record.gpuUploadSignature == uploadSignature;
+        const bool currentBlasExact =
+            currentBuffersExact &&
             record.rigidBlas &&
+            record.gpuBlasCreated &&
+            record.gpuBlasBuildSubmitted &&
             record.gpuBlasVertexCount == static_cast<int>(localVertices.size()) &&
             record.gpuBlasIndexCount == static_cast<int>(localIndexes.size());
-        RtSmokeRigidBlasBuildPlanInput buildPlanInput;
-        buildPlanInput.submitBuilds = submitBuilds;
-        buildPlanInput.forceRebuild = forceRebuild;
-        buildPlanInput.hasBlas = record.rigidBlas != nullptr;
-        buildPlanInput.uploadRequired = uploadRequired;
-        buildPlanInput.blasInputsCompatible = blasInputsCompatible;
-        const RtSmokeRigidBlasBuildPlan buildPlan = BuildSmokeRigidBlasBuildPlan(buildPlanInput);
-        if (buildPlan.createBlas)
+        const bool replacementRequired =
+            forceRebuild || !currentBlasExact;
+        const bool replaceBuffers = !currentBuffersExact;
+        if (!replacementRequired)
         {
+            ++stats.vertexBuffersReused;
+            ++stats.indexBuffersReused;
+            ++stats.blasHandlesReused;
+            ++stats.blasBuildsSkipped;
+            ++stats.blasBuildsSkippedUnchanged;
+        }
+        else if (!submitBuilds)
+        {
+            ++stats.blasBuildsSkipped;
+            ++stats.buildGateOff;
+        }
+        else
+        {
+            nvrhi::BufferHandle replacementVertexBuffer =
+                replaceBuffers
+                    ? CreateRigidSmokeBuffer(
+                        device,
+                        "PathTraceRigidMeshLocalVertices",
+                        requiredVertexBytes,
+                        sizeof(PathTraceSmokeVertex),
+                        true,
+                        false)
+                    : record.rigidVertexBuffer;
+            nvrhi::BufferHandle replacementIndexBuffer =
+                replaceBuffers
+                    ? CreateRigidSmokeBuffer(
+                        device,
+                        "PathTraceRigidMeshLocalIndices",
+                        requiredIndexBytes,
+                        sizeof(uint32_t),
+                        false,
+                        true)
+                    : record.rigidIndexBuffer;
+            if (!replacementVertexBuffer ||
+                !replacementIndexBuffer)
+            {
+                ++stats.blasBuildsSkipped;
+                ++stats.skippedInvalid;
+                continue;
+            }
+
             RtSmokeBlasCreateDesc blasCreateDesc;
             blasCreateDesc.device = device;
-            blasCreateDesc.vertexBuffer = record.rigidVertexBuffer;
-            blasCreateDesc.indexBuffer = record.rigidIndexBuffer;
+            blasCreateDesc.vertexBuffer = replacementVertexBuffer;
+            blasCreateDesc.indexBuffer = replacementIndexBuffer;
             blasCreateDesc.vertexCount = static_cast<int>(localVertices.size());
             blasCreateDesc.indexCount = static_cast<int>(localIndexes.size());
             blasCreateDesc.debugName = "PathTraceRigidMeshLocalBLAS";
             const RtSmokeBlasCreateResult blasCreateResult = CreateSmokeBlas(blasCreateDesc);
-            if (blasCreateResult.Succeeded())
+            if (!blasCreateResult.Succeeded())
             {
-                if (record.rigidBlas)
-                {
-                    RetireRigidBlas(record);
-                    ++stats.blasRecreatedForInputChange;
-                }
-                record.rigidBlasDesc = blasCreateResult.accelStructDesc;
-                record.rigidBlas = blasCreateResult.accelStruct;
-                record.gpuBlasCreated = true;
-                record.gpuBlasBuildSubmitted = false;
-                record.gpuBlasVertexCount = static_cast<int>(localVertices.size());
-                record.gpuBlasIndexCount = static_cast<int>(localIndexes.size());
-                ++stats.blasHandlesCreated;
+                ++stats.blasBuildsSkipped;
+                continue;
+            }
+
+            if (replaceBuffers)
+            {
+                commandList->beginTrackingBufferState(
+                    replacementVertexBuffer,
+                    nvrhi::ResourceStates::Common);
+                commandList->beginTrackingBufferState(
+                    replacementIndexBuffer,
+                    nvrhi::ResourceStates::Common);
+                commandList->writeBuffer(
+                    replacementVertexBuffer,
+                    localVertices.data(),
+                    requiredVertexBytes);
+                commandList->writeBuffer(
+                    replacementIndexBuffer,
+                    localIndexes.data(),
+                    requiredIndexBytes);
+                commandList->setBufferState(
+                    replacementVertexBuffer,
+                    nvrhi::ResourceStates::AccelStructBuildInput);
+                commandList->setBufferState(
+                    replacementIndexBuffer,
+                    nvrhi::ResourceStates::AccelStructBuildInput);
+                commandList->commitBarriers();
+                ++stats.vertexBuffersCreated;
+                ++stats.indexBuffersCreated;
+                ++stats.vertexUploads;
+                ++stats.indexUploads;
+                stats.uploadBytes += static_cast<int>(
+                    requiredVertexBytes + requiredIndexBytes);
+            }
+
+            nvrhi::utils::BuildBottomLevelAccelStruct(
+                commandList,
+                blasCreateResult.accelStruct,
+                blasCreateResult.accelStructDesc);
+            if (record.rigidBlas)
+            {
+                RetireRigidBlas(record);
+                ++stats.blasRecreatedForInputChange;
+            }
+            if (replaceBuffers)
+            {
+                RetireRigidBuffer(record.rigidVertexBuffer);
+                RetireRigidBuffer(record.rigidIndexBuffer);
+                record.rigidVertexBuffer = replacementVertexBuffer;
+                record.rigidIndexBuffer = replacementIndexBuffer;
             }
             else
             {
-                ++stats.blasBuildsSkipped;
+                ++stats.vertexBuffersReused;
+                ++stats.indexBuffersReused;
             }
-        }
-        else if (record.rigidBlas)
-        {
-            ++stats.blasHandlesReused;
-        }
-
-        if (buildPlan.submitBuild && record.rigidBlas)
-        {
-            nvrhi::utils::BuildBottomLevelAccelStruct(commandList, record.rigidBlas, record.rigidBlasDesc);
+            record.rigidBlasDesc =
+                blasCreateResult.accelStructDesc;
+            record.rigidBlas =
+                blasCreateResult.accelStruct;
+            record.gpuUploadSignature = uploadSignature;
+            record.gpuBuffersUploaded = true;
+            record.gpuBlasCreated = true;
             record.gpuBlasBuildSubmitted = true;
+            record.gpuBlasVertexCount =
+                static_cast<int>(localVertices.size());
+            record.gpuBlasIndexCount =
+                static_cast<int>(localIndexes.size());
+            ++stats.blasHandlesCreated;
             ++stats.blasBuildsSubmitted;
             builtThisFrame = true;
-        }
-        else if (buildPlan.skipBuild)
-        {
-            ++stats.blasBuildsSkipped;
-            if (!submitBuilds)
-            {
-                ++stats.buildGateOff;
-            }
-            else if (record.rigidBlas && !uploadRequired && !forceRebuild && blasInputsCompatible)
-            {
-                ++stats.blasBuildsSkippedUnchanged;
-            }
         }
 
         if (stats.sampleCount < RT_PT_RIGID_BLAS_GPU_SAMPLES)
@@ -6702,8 +6742,10 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
             sample.instanceCount = instanceCount;
             sample.vertexBufferValid = record.rigidVertexBuffer != nullptr;
             sample.indexBufferValid = record.rigidIndexBuffer != nullptr;
-            sample.blasValid = record.rigidBlas != nullptr;
-            sample.uploadedThisFrame = uploadRequired;
+            sample.blasValid =
+                RigidMeshHasCachedRouteGpuReady(record);
+            sample.uploadedThisFrame =
+                builtThisFrame && replaceBuffers;
             sample.builtThisFrame = builtThisFrame;
             sample.materialName = record.materialName;
             sample.modelName = record.modelName;
@@ -6977,7 +7019,9 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
             meshRecord = &m_rigidMeshCandidateRecords[meshIt->second];
         }
         const bool hasMesh = meshRecord && meshRecord->valid;
-        const bool routeReady = hasMesh && meshRecord->rigidBlas;
+        const bool routeReady =
+            hasMesh &&
+            RigidMeshHasCachedRouteGpuReady(*meshRecord);
 
         ++m_rigidResidencyStats.residentInstances;
         if (residentRecord.seenThisFrame)
@@ -6992,7 +7036,7 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         {
             ++m_rigidResidencyStats.residentMissingMesh;
         }
-        else if (!meshRecord->rigidBlas)
+        else if (!routeReady)
         {
             ++m_rigidResidencyStats.residentMissingBlas;
         }
@@ -7386,8 +7430,9 @@ void RtSmokeGeometryUniverse::CollectRigidResidencyBoundsBoxes(std::vector<RtPat
             box.retainedOffscreen &&
             framesToKeep > 0 &&
             residentRecord.lastSeenFrame + framesToKeep <= m_currentFrameIndex + 30;
-        box.routeReady = meshRecord.rigidBlas != nullptr;
-        box.missingBlas = meshRecord.rigidBlas == nullptr;
+        box.routeReady =
+            RigidMeshHasCachedRouteGpuReady(meshRecord);
+        box.missingBlas = !box.routeReady;
         box.area = instance.currentArea;
         box.color = RigidResidencyBoundsColor(box.seenThisFrame, box.retainedOffscreen, box.aboutToAgeOut, box.routeReady, box.missingBlas);
 
@@ -7819,8 +7864,11 @@ RtPathTraceRigidTlasPlanStats RtSmokeGeometryUniverse::BuildRigidTlasPlanStats(c
         bool hasMeshRecord = record && record->valid;
         bool meshSeenThisFrame = hasMeshRecord && record->seenThisFrame;
         bool meshAvailableForRoute = hasMeshRecord && (meshSeenThisFrame || m_rigidResidencyEnabled);
-        bool hasGpuBuffers = hasMeshRecord && record->rigidVertexBuffer && record->rigidIndexBuffer;
-        bool hasBlas = hasMeshRecord && record->rigidBlas;
+        const bool packageReady =
+            hasMeshRecord &&
+            RigidMeshHasCachedRouteGpuReady(*record);
+        bool hasGpuBuffers = packageReady;
+        bool hasBlas = packageReady;
         int triangleCount = 0;
         int meshInstanceCount = 0;
 
@@ -8047,7 +8095,7 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
             }
             const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
             return record.valid &&
-                record.rigidBlas &&
+                RigidMeshHasCachedRouteGpuReady(record) &&
                 (m_rigidResidencyEnabled || record.seenThisFrame);
         };
 
@@ -8178,7 +8226,8 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
             const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
             observation.hasMeshRecord = record.valid;
             observation.meshSeenThisFrame = record.seenThisFrame;
-            observation.hasBlas = record.rigidBlas;
+            observation.hasBlas =
+                RigidMeshHasCachedRouteGpuReady(record);
             observation.routeRecordIndex = static_cast<uint32_t>(it->second);
         }
         PtCanonicalInstanceKey canonicalInstance;

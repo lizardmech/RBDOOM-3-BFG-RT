@@ -3829,6 +3829,34 @@ The CPU planner harness passes and the full Vulkan build succeeds. Runtime
 acceptance still requires default-unlimited parity and a forced-low result-byte
 convergence capture.
 
+D154. STATIC-BUCKET RESULT ADMISSION IS ACCEPTED
+------------------------------------------------
+`geometry_geo_step15.log` proves default-unlimited parity and forced-low
+convergence. Unlimited result bytes perform zero admission-time requirement
+queries and converge 56/56 under the two-operation cap. The final steady state
+reuses 56 BLASes with zero builds or retirement.
+
+At 8 KiB, the provider performs 1,473 authoritative requirement queries with
+zero query or allocation failures, records 1,417 result-byte deferrals, admits
+3,635,712 result bytes, and uses 38 oversized admissions totaling 3,541,504
+bytes. Maximum deferred age is 49 and the queue drains to ready/deferred 56/0.
+Publication remains exact with no missing-BLAS, material-index, range, or
+instance failures. Static-bucket D147 admission is accepted.
+
+D155. LEGACY RIGID REPLACEMENT IS ONE COMPLETE PACKAGE
+------------------------------------------------------
+Legacy rigid may not mutate live vertex/index buffers before replacement BLAS
+admission. Changed input now allocates two candidate buffers and a candidate
+BLAS, uploads and builds that complete package, then swaps all three handles
+and retires the old package. An unchanged force rebuild may share current
+immutable buffers but still builds a distinct candidate BLAS.
+
+Route readiness additionally requires the published upload signature to match
+an exact CPU-content signature over the cached local vertex and index payload,
+plus exact BLAS counts and submitted state. A stale retained package therefore
+fails closed to dynamic fallback rather than mixing source epochs. Runtime
+validation remains required before adding legacy operation/result budgets.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
