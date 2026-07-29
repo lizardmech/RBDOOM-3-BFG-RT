@@ -3414,6 +3414,31 @@ storage, and measured steady-state work. Further AS admission, frame-overlap
 lifetime, scratch/result budget, retirement, and compaction work belongs to
 GEO-11 and must not reopen geometry identity or shading semantics.
 
+D134. GEO-11 ENTRY AUDIT NARROWS LIFETIME AND COMPACTION WORK
+-------------------------------------------------------------
+The current Vulkan/NVRHI path already versions AS scratch and CPU TLAS-instance
+uploads by command-buffer recording and retains their backing chunks until
+queue completion. GEO-11 must not duplicate that ownership.
+
+The application does own BLAS result lifetime after its device address is
+written into a TLAS. Main scene packages and skinned comparison resources use
+exact graphics event queries, but GEO-10 bucket BLASes and backing buffers can
+still be released immediately on replacement, removal, or live scaffold
+disable. Canonical and older rigid BLASes use only a three-CPU-frame delay.
+Exact bucket retirement is the first correctness repair after a no-behavior-
+change result-memory census; rigid retirement follows.
+
+NVRHI exposes AS result memory requirements but does not expose exact Vulkan
+build/update scratch requirements to the application. Initial budgets may use
+operation count, allocated result bytes, deferral reason, and deferral age.
+Scratch remains backend-owned until a narrow telemetry/query extension exists.
+
+Although the public API contains compaction names, the active build has
+`NVRHI_WITH_RTXMU=OFF`, and Vulkan compaction is compiled as a no-op in that
+configuration. Compaction is rejected for current GEO-11 work. Enabling RTXMU
+is a separate backend decision; `AllowCompaction` alone is not an
+implementation.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

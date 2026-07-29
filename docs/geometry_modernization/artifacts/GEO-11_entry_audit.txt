@@ -1,0 +1,237 @@
+GEO-11 ENTRY AUDIT: AS BUDGET, LIFETIME, AND COMPACTION CONTRACTS
+=================================================================
+
+DATE
+----
+2026-07-29
+
+STATUS
+------
+Audit complete. Implementation is authorized only in the ordered slices below.
+This document validates the current Vulkan/NVRHI contract; the GEO-11 proposal
+is not treated as proof.
+
+SCOPE
+-----
+GEO-11 owns acceleration-structure work admission, result lifetime, retirement,
+and backend-supported compaction. It must not change geometry identity, bucket
+assignment, shader decoding, material lookup, SBT routing, or shading.
+
+GEO-10 ENTRY EVIDENCE
+---------------------
+`geometry_geo_step9c.log` closes the GEO-10 prerequisite:
+
+  resident / ready bucket BLASes               56 / 56
+  warm build / reuse / retire                   0 / 56 / 0
+  active cutovers observed                      14, 13, 12, 11, 16
+  missing active BLAS/material indices          0
+  warm upload bytes                             0
+  recurring publication                         297 microseconds
+  audit-only validation                       1,070 microseconds
+  device removal / binding failure              none
+
+GEO-11 must preserve this accepted geometry and routing behavior.
+
+VALIDATED SUBMISSION CONTRACT
+-----------------------------
+The path-tracing scene build, AS commands, and ray dispatch are recorded on the
+main graphics command list. `GL_EndFrame` closes and submits that command list,
+then calls `PathTracePrimaryPass::OnGraphicsCommandListSubmitted`.
+
+The Vulkan backend retains resources explicitly referenced by a command buffer
+until the graphics timeline reports completion. AS scratch allocations and
+CPU-authored TLAS instance uploads are suballocated with the command-buffer
+recording/version ID. Their backing chunks are submitted with the command list
+and cannot be recycled as if they belonged to a later recording.
+
+Therefore:
+
+  - NVRHI already owns in-flight scratch-chunk lifetime.
+  - NVRHI already owns in-flight CPU TLAS-instance-upload lifetime.
+  - Graphics-queue ordering prevents a later TLAS rebuild command from
+    executing before prior commands on the same queue.
+  - The application still owns the lifetime of every BLAS result handle whose
+    device address was copied into a TLAS.
+
+The last point matters because Vulkan TLAS construction reads a BLAS device
+address from each `InstanceDesc`; the TLAS command buffer tracks the TLAS
+resource but does not add every nested BLAS handle to its retained-resource
+list. A CPU handle release can therefore destroy storage still named by an
+older in-flight TLAS unless the application retires it against GPU completion.
+
+CURRENT LIFETIME COVERAGE
+-------------------------
+Owner / resource                         Current authority          Result
+--------------------------------------   -------------------------  ----------
+Main scene buffers + static/dynamic AS   exact graphics event query covered
+Main scene TLAS/bindings/textures        exact graphics event query covered
+Skinned comparison BLAS + source data    exact graphics event query covered
+Vulkan AS scratch chunks                 NVRHI recording/timeline   covered
+Vulkan TLAS instance upload chunks       NVRHI recording/timeline   covered
+GEO-10 bucket BLAS results               immediate handle release  GAP
+GEO-10 bucket input/metadata buffers     immediate handle release  GAP
+Canonical rigid BLAS results             three CPU frames          provisional
+Older rigid-residency BLAS results       three CPU frames          provisional
+
+The main scene retirement path creates an event query when a package is
+retired, arms it immediately after the exact graphics submission that follows
+the retirement, and releases only after both the minimum frame and query
+completion. A query allocation failure intentionally retains the package until
+reset. That is the accepted model for GEO-11.
+
+CONCRETE STATIC-BUCKET DEFECT
+-----------------------------
+The live GEO-10 bucket route has three premature-release paths:
+
+  1. A changed range, input signature, or resident buffer sets
+     `record->blas = nullptr` immediately.
+  2. An unseen bucket record is erased immediately.
+  3. Disabling/clearing the bucket scaffold nulls all bucket buffers and clears
+     all BLAS records immediately.
+
+Map/reset teardown waits for device idle before clearing and is safe. Live CVar
+disable, route transition, buffer growth, source revision, and record
+replacement do not have that proof. These resources must move into an
+event-query-backed retired package owned by `PathTracePrimaryPass`.
+
+The safe ordering is:
+
+  old handle selected for retirement
+    -> retain old BLAS and every replaced backing buffer in a CPU package
+    -> submit the current graphics command list
+    -> arm a graphics event query after that submission
+    -> poll completion on later frames
+    -> release retained handles only after completion
+
+Arming after the following submission is deliberately conservative: it covers
+all older queue work and the current transition command list.
+
+RESULT AND SCRATCH BUDGET CAPABILITY
+------------------------------------
+`IDevice::getAccelStructMemoryRequirements` exposes allocated AS result-buffer
+size and alignment. GEO-11 can use it for result-byte census and admission
+without changing NVRHI.
+
+Exact build/update scratch sizes are calculated inside the Vulkan
+`buildBottomLevelAccelStruct` and `buildTopLevelAccelStruct` calls and are not
+exposed through the current NVRHI interface. The application must not invent a
+scratch estimate and label it authoritative. Initial admission can therefore
+enforce:
+
+  - operation count;
+  - allocated result bytes;
+  - deferred work count, reason, and age;
+  - active-versus-background priority.
+
+Exact scratch high-water/admission requires a later narrow NVRHI Vulkan
+telemetry/query extension. Until that extension exists, scratch remains
+backend-owned and completion-safe but not application-budgeted.
+
+COMPACTION CAPABILITY DECISION
+------------------------------
+The public NVRHI API contains `AllowCompaction`,
+`compactBottomLevelAccelStructs`, `isCompacted`, and result memory queries.
+That API shape is not proof that this build can compact.
+
+The active cache has:
+
+  NVRHI_WITH_RTXMU = OFF
+
+In the Vulkan backend the compacted-size handling, copy scheduling, and handle
+replacement inside `compactBottomLevelAccelStructs` are compiled only under
+`NVRHI_WITH_RTXMU`. With RTXMU disabled the method is a no-op. Adding
+`AllowCompaction` alone would request a compactable build but would never
+complete the required query/copy/publish sequence.
+
+GEO-11 therefore explicitly rejects compaction in the current build. Enabling
+RTXMU is a separate backend/build-system decision and is not part of the first
+GEO-11 implementation. No fake frame-delayed handle swap is permitted.
+
+ORDERED IMPLEMENTATION SLICES
+-----------------------------
+Slice 1 - measured census, no behavior change
+
+  - Report bucket BLAS result bytes and alignment from NVRHI.
+  - Report live/ready/deferred/retired-package counts and retained bytes.
+  - Keep the existing count build limit and accepted route unchanged.
+  - Prove a warm capture reports zero builds and stable result bytes.
+
+Slice 2 - exact bucket retirement
+
+  - Move replaced/removed bucket BLASes and buffers into a pending package.
+  - Drain packages into `PathTracePrimaryPass`.
+  - Reuse the exact graphics-event-query arm/poll policy.
+  - On query creation failure retain until idle reset.
+  - Add counters for pending, armed, released, and no-query packages.
+  - Test live gate off/on, forced rebuild, map restart, and portal traversal.
+
+Slice 3 - exact rigid retirement
+
+  - Replace canonical and older rigid three-frame guesses with the same
+    completion authority.
+  - Preserve last-valid BLAS publication while replacement is deferred.
+
+Slice 4 - admission
+
+  - Separate new build, update, periodic rebuild, and future copy categories.
+  - Enforce operation-count and result-byte budgets.
+  - Prioritize live active work; background work carries explicit reason/age.
+  - Never publish a TLAS reference to an unbuilt/replaced BLAS.
+  - Never silently omit live geometry: retain the last valid route or use the
+    existing monolithic fail-safe.
+
+Slice 5 - optional backend telemetry
+
+  - Add exact Vulkan scratch requirement/high-water exposure only if measured
+    operation/result admission is insufficient.
+  - Keep the NVRHI extension read-only before using it for admission.
+
+Slice 6 - stress and acceptance
+
+  - Forced-low count/result budgets must converge.
+  - Exercise portal churn, spawn/despawn, forced rebuild, gate off/on, map
+    restart, and buffer growth.
+  - Re-run the comm1 generation tuple, crowded skinned scene, and lifecycle
+    removal.
+  - Capture median/p90/max build/TLAS CPU submission times, result bytes,
+    retained retirement bytes, deferral age, and all stale/omission counters.
+
+REJECTED SHORTCUTS
+------------------
+- CPU frame count alone as proof of GPU completion.
+- Treating NVRHI resource tracking of a TLAS as retention of nested BLASes.
+- Guessing scratch bytes from result bytes.
+- Setting `AllowCompaction` without a compacted-size/copy/completion path.
+- Rebuilding or changing shader/SBT geometry identity for an AS lifetime task.
+- Omitting active geometry to satisfy a budget without an explicit fail-safe.
+
+FIRST ACCEPTANCE GATE
+---------------------
+The first code checkpoint adds census only. On the one-shot GEO-10 audit frame,
+each ready bucket BLAS now reports its NVRHI result-buffer requirement. The
+summary fields are:
+
+  result(queries/failures/bytes/max/alignment/compacted)
+
+These calls are not made on ordinary frames. No CVar default, AS build flag,
+route, geometry identity, or shader changed.
+
+Build and deployment:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; all SPIR-V shaders up to date
+  executable    15,985,664 bytes
+  sha256        528E944B1175F1DDA2219E88898241BA1D404A718E8D0584C3E469CAFEEA5DCA
+  deployment    source and prebuilt executable byte-identical
+
+The runtime command remains:
+
+  r_pathTracingGeometryStaticBucketAudit 1
+
+The census checkpoint is accepted when a warm route-1 capture shows:
+
+  bucket result bytes                    stable and nonzero
+  bucket BLAS build/reuse                 0 / all resident
+  result census failures                  0
+  geometry/material/cutover failures      0
+  route or shading changes                none

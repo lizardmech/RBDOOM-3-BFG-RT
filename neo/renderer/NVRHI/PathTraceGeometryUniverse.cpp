@@ -3794,7 +3794,8 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
     bool enabled,
     bool submitBuilds,
     int maxBuildsPerFrame,
-    bool forceRebuild)
+    bool forceRebuild,
+    bool collectResultMemory)
 {
     RtPathTraceStaticBucketBlasGpuStats stats;
     stats.frameIndex = m_currentFrameIndex;
@@ -4254,6 +4255,34 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         if (record.blas && record.buildSubmitted)
         {
             ++stats.readyBuckets;
+            if (collectResultMemory)
+            {
+                const nvrhi::MemoryRequirements requirements =
+                    device->getAccelStructMemoryRequirements(
+                        record.blas);
+                ++stats.blasResultQueries;
+                if (requirements.size == 0)
+                {
+                    ++stats.blasResultQueryFailures;
+                }
+                else
+                {
+                    stats.blasResultBytes +=
+                        requirements.size;
+                    stats.blasResultMaxBytes =
+                        Max(
+                            stats.blasResultMaxBytes,
+                            requirements.size);
+                    stats.blasResultMaxAlignment =
+                        Max(
+                            stats.blasResultMaxAlignment,
+                            requirements.alignment);
+                }
+                if (record.blas->isCompacted())
+                {
+                    ++stats.compactedBlases;
+                }
+            }
         }
         else
         {
@@ -4425,7 +4454,7 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
     const RtPathTraceStaticBucketBlasGpuStats& stats) const
 {
     common->Printf(
-        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d geometry(v/i/t/cpuSurfaceRecords/descs/invalidRanges)=%d/%d/%d/%d/%d/%d metadata(cpuClassWords/gpuClassWords/legacySurfaceOffset/cpuSurfaceBytes)=%d/%d/%d/%llu bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident blasGeometry=one-range-per-bucket traversal=monolithic route=offline-only\n",
+        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d geometry(v/i/t/cpuSurfaceRecords/descs/invalidRanges)=%d/%d/%d/%d/%d/%d metadata(cpuClassWords/gpuClassWords/legacySurfaceOffset/cpuSurfaceBytes)=%d/%d/%d/%llu bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu result(queries/failures/bytes/max/alignment/compacted)=%d/%d/%llu/%llu/%llu/%d skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident blasGeometry=one-range-per-bucket traversal=monolithic route=offline-only\n",
         static_cast<unsigned long long>(stats.frameIndex),
         stats.enabled,
         stats.submitBuilds,
@@ -4462,6 +4491,15 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
         stats.blasRetired,
         static_cast<unsigned long long>(
             stats.buildSubmitMicroseconds),
+        stats.blasResultQueries,
+        stats.blasResultQueryFailures,
+        static_cast<unsigned long long>(
+            stats.blasResultBytes),
+        static_cast<unsigned long long>(
+            stats.blasResultMaxBytes),
+        static_cast<unsigned long long>(
+            stats.blasResultMaxAlignment),
+        stats.compactedBlases,
         stats.skippedNoDevice,
         stats.skippedNoCommandList,
         stats.skippedInexactPack);

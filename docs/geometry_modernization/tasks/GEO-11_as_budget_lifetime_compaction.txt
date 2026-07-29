@@ -57,3 +57,22 @@ current backend capability audit.
 CHECKPOINT
 ----------
   pt geometry GEO-11: enforce AS budget and lifetime contracts
+
+ENTRY AUDIT STATUS
+------------------
+Validated on 2026-07-29:
+
+  docs/geometry_modernization/artifacts/GEO-11_entry_audit.txt
+
+The audit narrows the first implementation to measured result-memory census
+followed by exact event-query retirement of GEO-10 bucket BLASes and buffers.
+NVRHI already versions Vulkan scratch and CPU TLAS-instance uploads by command
+buffer. Exact scratch requirements are not exposed to the application.
+
+Compaction is explicitly unsupported in the active build:
+
+  NVRHI_WITH_RTXMU = OFF
+
+The Vulkan `compactBottomLevelAccelStructs` implementation is a no-op in that
+configuration. Do not set `AllowCompaction` or emulate a handle swap. Enabling
+RTXMU requires a separate backend/build audit.

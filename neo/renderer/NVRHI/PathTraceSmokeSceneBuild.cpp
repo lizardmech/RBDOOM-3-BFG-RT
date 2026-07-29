@@ -6225,7 +6225,8 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
                 0,
                 1024,
                 r_pathTracingGeometryStaticBucketBlasBuildLimit.GetInteger()),
-            r_pathTracingGeometryStaticBucketBlasForceRebuild.GetInteger() != 0);
+            r_pathTracingGeometryStaticBucketBlasForceRebuild.GetInteger() != 0,
+            frame.auditRequested);
     frame.blasScaffoldMicroseconds = elapsedMicroseconds(
         blasScaffoldStart,
         StaticBucketClock::now());

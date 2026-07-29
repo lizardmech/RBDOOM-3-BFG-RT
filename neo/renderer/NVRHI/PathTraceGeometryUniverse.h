@@ -795,6 +795,12 @@ struct RtPathTraceStaticBucketBlasGpuStats
     int blasBuilt = 0;
     int blasReused = 0;
     int blasRetired = 0;
+    int blasResultQueries = 0;
+    int blasResultQueryFailures = 0;
+    int compactedBlases = 0;
+    uint64 blasResultBytes = 0;
+    uint64 blasResultMaxBytes = 0;
+    uint64 blasResultMaxAlignment = 0;
     int skippedNoDevice = 0;
     int skippedNoCommandList = 0;
     int skippedInexactPack = 0;
@@ -956,7 +962,8 @@ public:
             bool enabled,
             bool submitBuilds,
             int maxBuildsPerFrame,
-            bool forceRebuild);
+            bool forceRebuild,
+            bool collectResultMemory);
     void BuildStaticBucketTlasObservations(
         const RtSmokeStaticBucketGeometryPack& geometryPack,
         std::vector<RtSmokeStaticTlasBucketObservation>& buckets) const;

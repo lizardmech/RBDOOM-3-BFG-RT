@@ -96,6 +96,14 @@ GEO-10 FILES
     triangle base in InstanceID, removes contribution 4/5 and compact hit
     libraries, and moves resident-pack caching before live acceptance.
 
+GEO-11 FILES
+------------
+  GEO-11_entry_audit.txt
+    Validated graphics-submission and NVRHI lifetime contract, concrete
+    static-bucket premature-release gap, result-versus-scratch budget
+    capability, current Vulkan compaction rejection, and ordered bounded
+    implementation slices.
+
 NAMING
 ------
 Use:
