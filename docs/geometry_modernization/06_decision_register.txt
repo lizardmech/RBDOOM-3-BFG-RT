@@ -3687,6 +3687,42 @@ GEO-11 returns to its original Slice-3 rigid-retirement acceptance gate; Slice
 4 admission remains blocked until the warm rigid off/on package is armed,
 released by GPU completion, and all rigid routes recover parity.
 
+D146. GEO-11 EXACT RIGID RETIREMENT IS ACCEPTED
+-----------------------------------------------
+`geometry_geo_step11.log` records the warm rigid off/on acceptance gate. Token
+1 released 178 legacy buffers, 89 legacy BLASes, and 83 canonical BLASes after
+graphics-event-query completion, with zero result-query failures and pending
+zero. Portal traversal released tokens 2 through 8 under the same authority.
+
+At frame 1793 the legacy route had 117 instances backed by 117 buffers and 117
+BLASes. Canonical identity and TLAS mapping were exact 117/117; legacy and
+canonical descriptor counts were 117/117; all missing-record, hash, buffer,
+and BLAS counters were zero. The 169 canonical active records are the resident
+catalog accumulated across portal traversal, while the current TLAS remains
+the exact 117-instance publication. No device loss or visual issue occurred.
+GEO-11 Slice 3 is accepted and admission work is unblocked.
+
+D147. AS ADMISSION STARTS AS A PURE DETERMINISTIC PLANNER
+---------------------------------------------------------
+Slice-4 admission first separates policy from resource mutation.
+`BuildSmokeAsAdmissionPlan` classifies new builds, updates, periodic rebuilds,
+and future compaction copies; prioritizes critical-active, active, then
+background work; and ages deferred requests oldest-first within a priority.
+It enforces independent operation and allocated-result-byte caps and emits an
+exact reason for every deferral.
+
+Zero means unlimited. When a result-byte cap is active, unknown result size is
+an explicit deferral rather than a guessed estimate. Scratch is absent because
+the active NVRHI interface does not expose an authoritative application-side
+per-build scratch requirement.
+
+This checkpoint does not change runtime admission. Canonical rigid is the
+first eligible provider because it already retains its prior complete BLAS on
+deferral. Static buckets must stop retiring the prior BLAS before admission,
+and legacy rigid must defer complete buffer-plus-BLAS replacement rather than
+pairing old BLASes with replaced buffers. Main dynamic work remains outside
+the auxiliary budget until an omission-safe fallback exists.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

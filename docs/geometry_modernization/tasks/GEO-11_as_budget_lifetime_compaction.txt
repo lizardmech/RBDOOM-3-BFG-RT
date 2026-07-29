@@ -92,10 +92,12 @@ Slices 1 through 3 are implemented:
     cannot be allocated;
   - fail-retained behavior when a completion query cannot be created.
 
-The warm bucket gate off/on sequence is accepted by `success21.log`. Slice-3
-rigid runtime acceptance remains pending. Admission/budget work must not begin
-until the warm rigid off/on package reaches exact completion and route parity
-recovers.
+The warm bucket gate off/on sequence is accepted by `success21.log`.
+`geometry_geo_step11.log` accepts Slice 3: every rigid retirement package was
+released by graphics-event-query completion with zero query failures and zero
+pending packages, then legacy and canonical rigid routes recovered exact
+117-instance TLAS parity with no missing records or BLASes. Admission/budget
+work may proceed.
 
 SLICE-3 RUNTIME CRASH TRIAGE
 ----------------------------
@@ -307,3 +309,80 @@ deployed 15,997,952-byte executable is byte-identical, SHA-256
 Promoted production stage 0 survived the reliable camera/glass traversal with
 no crash. Transmission triage is closed. Resume the original Slice-3
 rigid-retirement gate before beginning admission work.
+
+SLICE-3 RUNTIME ACCEPTANCE
+--------------------------
+`geometry_geo_step11.log` completed the original warm off/on gate. The first
+package retired 178 legacy buffers, 89 legacy BLASes, and 83 canonical BLASes.
+It was armed as token 1 and released with:
+
+  result query failures       0
+  retained buffer bytes       614808
+  retained result bytes       1018112
+  completed token             1
+  pending packages            0
+  authority                   gpu-event-query
+
+Traversal then generated and released tokens 2 through 8 under the same exact
+authority with zero query failures and zero pending packages. At frame 1793:
+
+  legacy rigid records / valid / invalid        93 / 93 / 0
+  legacy instances / GPU buffers / BLASes       117 / 117 / 117
+  canonical requested instances / unique        117 / 86
+  canonical ready / deferred                    86 / 0
+  canonical identity exact / route              117 / 117
+  TLAS descriptors legacy / canonical           117 / 117
+  exact TLAS mappings / failures                 117 / 0
+  route missing mesh / stale / buffers / BLAS    0 / 0 / 0 / 0
+
+The canonical `active=169` census is the resident catalog accumulated while
+crossing portals, not stale publication: the disable transition retired the
+83-record warm catalog, re-enable rebuilt the current route exactly, and the
+published TLAS remained 117/117. No device loss or visual issue occurred.
+Slice 3 is accepted.
+
+SLICE-4 ADMISSION PLANNER CONTRACT
+----------------------------------
+The first Slice-4 implementation is deliberately CPU-only. One deterministic
+planner now classifies work as new build, update, periodic rebuild, or future
+compaction copy; orders critical-active, active, then background work; and
+orders older deferred work first within each priority. It independently
+enforces an operation cap and an authoritative allocated-result-byte cap.
+Every rejected request records one exact reason:
+
+  operation budget
+  result-byte budget
+  result bytes unknown while a byte budget is active
+
+Zero is the explicit unlimited value for each budget. Scratch is not estimated
+or represented because the active NVRHI interface does not expose an exact
+per-build scratch requirement. Unknown result sizes are admitted only when the
+result-byte budget is unlimited.
+
+The CPU planning harness proves stable request-indexed decisions, exact
+priority/age order, work-kind counts, deferral-reason counts, admitted-byte
+totals, and unlimited behavior.
+
+Runtime integration remains provider-by-provider. A counter must not be added
+directly to the existing paths:
+
+  - canonical rigid replacement already retains its prior complete BLAS and is
+    the first safe integration target;
+  - static buckets currently retire an old BLAS before replacement admission;
+  - legacy rigid currently replaces vertex/index buffers before replacement
+    BLAS admission.
+
+Static-bucket and legacy-rigid paths must first retain one complete old
+buffer/BLAS publication until the replacement is admitted and built. Main
+dynamic scene work remains correctness-critical and outside the auxiliary
+provider budget until it has an explicit safe fallback.
+
+Planner checkpoint build and deployment:
+
+  focused target  PathTraceCpuPlanningHarness
+  focused result  PASS, including all admission cases
+  full command    cmake --build --preset win64-pt-dev-release
+  full result     success; all SPIR-V shaders up to date
+  executable      15,997,952 bytes
+  sha256          8AD6FC808FAE4A293055F18FFA6F83BE1F7049F4EF5F6A1DAD84B4E90A4D8DF9
+  deployment      source and prebuilt executable byte-identical

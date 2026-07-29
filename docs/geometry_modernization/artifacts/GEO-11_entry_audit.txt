@@ -633,3 +633,82 @@ off/on test. Slice-4 admission work remains blocked until that package is
 armed and released by graphics-event-query completion, pending reaches zero,
 and rigid/canonical route parity recovers without missing geometry or device
 loss.
+
+SLICE-3 RUNTIME ACCEPTED
+------------------------
+`geometry_geo_step11.log` records the requested warm rigid off/on sequence.
+Token 1 retired 178 legacy buffers, 89 legacy BLASes, and 83 canonical BLASes.
+The release used `authority=gpu-event-query`, reported zero result-query
+failures, and reached pending=0. Ordinary traversal then armed and released
+tokens 2 through 8 with the same authority, zero failures, and zero pending.
+
+The recovered frame-1793 route was exact:
+
+  legacy records / valid / invalid             93 / 93 / 0
+  legacy instances / buffers / BLASes          117 / 117 / 117
+  canonical requested instances / unique       117 / 86
+  canonical ready / deferred                   86 / 0
+  canonical exact identity mappings            117
+  TLAS descriptors legacy / canonical          117 / 117
+  exact TLAS mappings / failures               117 / 0
+  missing mesh / stale / buffers / BLAS        0 / 0 / 0 / 0
+
+The canonical active catalog reached 169 because portal traversal accumulated
+resident meshes after re-enable. It is not a stale-handle count: the prior
+83-record catalog appears in the exact token-1 retirement source census and
+the active TLAS publication recovered exact 117-instance parity. No device
+loss or visual defect was observed. Slice 3 is accepted and Slice 4 is
+unblocked.
+
+SLICE-4 PROVIDER AUDIT AND CPU PLANNER
+--------------------------------------
+The live providers do not yet share a safe admission point:
+
+  canonical rigid
+    Already defers before replacement publication and retains the prior built
+    BLAS. It is the first safe provider integration target.
+
+  static buckets
+    Retires the old BLAS before checking the existing per-frame build count.
+    It must retain the old complete publication before result-byte admission.
+
+  legacy rigid
+    Replaces/uploads vertex and index buffers before replacement-BLAS
+    admission. Deferring only the BLAS would pair an old BLAS with new buffers
+    or silently omit the object. Replacement must become one complete package.
+
+  main dynamic scene
+    Correctness-critical and has no omission-safe fallback. It is not admitted
+    through the auxiliary-provider budget in the first integration.
+
+`BuildSmokeAsAdmissionPlan` is the CPU-only common contract. It separates new
+build, update, periodic rebuild, and future compaction-copy categories. It
+orders critical-active, active, then background requests; within a priority it
+admits the oldest deferred request first and preserves source order as the
+last tie-break. Operation and result-byte caps are independent, with zero
+meaning unlimited.
+
+An enabled result-byte cap requires an authoritative size. Unknown sizes defer
+with their own reason. This deliberately avoids fabricated scratch estimates:
+active NVRHI exposes allocated AS result requirements but not exact
+application-visible build scratch requirements.
+
+The CPU planning harness accepts:
+
+  - stable decisions aligned with input request indexes;
+  - active-before-background and oldest-first ordering;
+  - exact operation-budget, result-byte-budget, and unknown-size reasons;
+  - exact per-kind request/admit/defer and admitted-byte totals;
+  - unlimited admission when both caps are zero.
+
+No runtime provider behavior changes in this first planner checkpoint.
+
+Build and deployment evidence:
+
+  focused target  PathTraceCpuPlanningHarness
+  focused result  PASS, including all admission cases
+  full command    cmake --build --preset win64-pt-dev-release
+  full result     success; all SPIR-V shaders up to date
+  executable      15,997,952 bytes
+  sha256          8AD6FC808FAE4A293055F18FFA6F83BE1F7049F4EF5F6A1DAD84B4E90A4D8DF9
+  deployment      source and prebuilt executable byte-identical

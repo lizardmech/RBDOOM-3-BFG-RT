@@ -5735,6 +5735,120 @@ void TestGenerationAcceptance()
         "explicit stale CPU work result clears matching pending slot without sync fallback");
 }
 
+void TestAsAdmissionPlan()
+{
+    RtSmokeAsAdmissionBudget budget;
+    budget.maxOperations = 3;
+    budget.maxResultBytes = 100;
+
+    std::vector<RtSmokeAsAdmissionRequest> requests(5);
+    requests[0].kind = RT_SMOKE_AS_WORK_NEW_BUILD;
+    requests[0].priority = RT_SMOKE_AS_PRIORITY_BACKGROUND;
+    requests[0].resultBytes = 30;
+    requests[0].resultBytesKnown = true;
+    requests[0].deferredAge = 10;
+
+    requests[1].kind = RT_SMOKE_AS_WORK_NEW_BUILD;
+    requests[1].priority = RT_SMOKE_AS_PRIORITY_ACTIVE;
+    requests[1].resultBytes = 60;
+    requests[1].resultBytesKnown = true;
+    requests[1].deferredAge = 1;
+
+    requests[2].kind = RT_SMOKE_AS_WORK_UPDATE;
+    requests[2].priority = RT_SMOKE_AS_PRIORITY_ACTIVE;
+    requests[2].resultBytes = 50;
+    requests[2].resultBytesKnown = true;
+    requests[2].deferredAge = 5;
+
+    requests[3].kind = RT_SMOKE_AS_WORK_PERIODIC_REBUILD;
+    requests[3].priority = RT_SMOKE_AS_PRIORITY_BACKGROUND;
+    requests[3].resultBytes = 20;
+    requests[3].resultBytesKnown = true;
+    requests[3].deferredAge = 20;
+
+    requests[4].kind = RT_SMOKE_AS_WORK_UPDATE;
+    requests[4].priority = RT_SMOKE_AS_PRIORITY_ACTIVE;
+    requests[4].deferredAge = 0;
+
+    const RtSmokeAsAdmissionPlan plan =
+        BuildSmokeAsAdmissionPlan(budget, requests);
+    Check(
+        plan.decisions.size() == requests.size(),
+        "AS admission decisions preserve request indexing");
+    Check(
+        plan.decisions[2].admitted &&
+        plan.decisions[2].admittedOrder == 0 &&
+        plan.decisions[3].admitted &&
+        plan.decisions[3].admittedOrder == 1 &&
+        plan.decisions[0].admitted &&
+        plan.decisions[0].admittedOrder == 2,
+        "AS admission prioritizes active work then oldest background work");
+    Check(
+        !plan.decisions[1].admitted &&
+        plan.decisions[1].deferralReason ==
+            RT_SMOKE_AS_DEFER_RESULT_BYTE_BUDGET,
+        "AS admission reports result-byte deferral");
+    Check(
+        !plan.decisions[4].admitted &&
+        plan.decisions[4].deferralReason ==
+            RT_SMOKE_AS_DEFER_RESULT_BYTES_UNKNOWN,
+        "AS admission rejects unknown result size under byte budget");
+    Check(
+        plan.stats.requestedOperations == 5 &&
+        plan.stats.admittedOperations == 3 &&
+        plan.stats.deferredOperations == 2 &&
+        plan.stats.admittedResultBytes == 100 &&
+        plan.stats.maxDeferredAge == 1,
+        "AS admission reports aggregate operation and byte totals");
+    Check(
+        plan.stats.requestedByKind[RT_SMOKE_AS_WORK_NEW_BUILD] == 2 &&
+        plan.stats.admittedByKind[RT_SMOKE_AS_WORK_NEW_BUILD] == 1 &&
+        plan.stats.deferredByKind[RT_SMOKE_AS_WORK_NEW_BUILD] == 1 &&
+        plan.stats.requestedByKind[RT_SMOKE_AS_WORK_UPDATE] == 2 &&
+        plan.stats.admittedByKind[RT_SMOKE_AS_WORK_UPDATE] == 1 &&
+        plan.stats.deferredByKind[RT_SMOKE_AS_WORK_UPDATE] == 1 &&
+        plan.stats.requestedByKind[RT_SMOKE_AS_WORK_PERIODIC_REBUILD] == 1 &&
+        plan.stats.admittedByKind[RT_SMOKE_AS_WORK_PERIODIC_REBUILD] == 1,
+        "AS admission reports exact work-kind census");
+    Check(
+        plan.stats.deferredByReason[
+            RT_SMOKE_AS_DEFER_RESULT_BYTE_BUDGET] == 1 &&
+        plan.stats.deferredByReason[
+            RT_SMOKE_AS_DEFER_RESULT_BYTES_UNKNOWN] == 1,
+        "AS admission reports exact deferral reasons");
+
+    RtSmokeAsAdmissionBudget operationBudget;
+    operationBudget.maxOperations = 2;
+    std::vector<RtSmokeAsAdmissionRequest> operationRequests(3);
+    operationRequests[0].priority = RT_SMOKE_AS_PRIORITY_BACKGROUND;
+    operationRequests[0].deferredAge = 1;
+    operationRequests[1].priority = RT_SMOKE_AS_PRIORITY_BACKGROUND;
+    operationRequests[1].deferredAge = 9;
+    operationRequests[2].priority = RT_SMOKE_AS_PRIORITY_ACTIVE;
+    const RtSmokeAsAdmissionPlan operationPlan =
+        BuildSmokeAsAdmissionPlan(operationBudget, operationRequests);
+    Check(
+        operationPlan.decisions[2].admitted &&
+        operationPlan.decisions[2].admittedOrder == 0 &&
+        operationPlan.decisions[1].admitted &&
+        operationPlan.decisions[1].admittedOrder == 1 &&
+        !operationPlan.decisions[0].admitted &&
+        operationPlan.decisions[0].deferralReason ==
+            RT_SMOKE_AS_DEFER_OPERATION_BUDGET,
+        "AS admission enforces operation cap after deterministic ordering");
+
+    RtSmokeAsAdmissionBudget unlimitedBudget;
+    std::vector<RtSmokeAsAdmissionRequest> unlimitedRequests(1);
+    unlimitedRequests[0].priority = RT_SMOKE_AS_PRIORITY_ACTIVE;
+    const RtSmokeAsAdmissionPlan unlimitedPlan =
+        BuildSmokeAsAdmissionPlan(unlimitedBudget, unlimitedRequests);
+    Check(
+        unlimitedPlan.decisions[0].admitted &&
+        unlimitedPlan.stats.admittedOperations == 1 &&
+        unlimitedPlan.stats.admittedResultBytes == 0,
+        "AS admission accepts unknown result size when byte budget is unlimited");
+}
+
 void RunStressMode(int iterations)
 {
     const int safeIterations = iterations > 0 ? iterations : 100;
@@ -5871,6 +5985,7 @@ int main(int argc, char** argv)
     TestUploadPlan();
     TestGenerationEquality();
     TestGenerationAcceptance();
+    TestAsAdmissionPlan();
 
     if (g_failures != 0)
     {

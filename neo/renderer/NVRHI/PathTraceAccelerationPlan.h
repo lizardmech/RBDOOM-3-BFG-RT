@@ -123,6 +123,73 @@ struct RtSmokeAccelerationPlanTimedResult
     double workerExecutionMs = 0.0;
 };
 
+enum RtSmokeAsWorkKind : uint32_t
+{
+    RT_SMOKE_AS_WORK_NEW_BUILD = 0,
+    RT_SMOKE_AS_WORK_UPDATE = 1,
+    RT_SMOKE_AS_WORK_PERIODIC_REBUILD = 2,
+    RT_SMOKE_AS_WORK_COMPACTION_COPY = 3,
+    RT_SMOKE_AS_WORK_KIND_COUNT = 4
+};
+
+enum RtSmokeAsWorkPriority : uint32_t
+{
+    RT_SMOKE_AS_PRIORITY_CRITICAL_ACTIVE = 0,
+    RT_SMOKE_AS_PRIORITY_ACTIVE = 1,
+    RT_SMOKE_AS_PRIORITY_BACKGROUND = 2
+};
+
+enum RtSmokeAsDeferralReason : uint32_t
+{
+    RT_SMOKE_AS_DEFER_NONE = 0,
+    RT_SMOKE_AS_DEFER_OPERATION_BUDGET = 1,
+    RT_SMOKE_AS_DEFER_RESULT_BYTE_BUDGET = 2,
+    RT_SMOKE_AS_DEFER_RESULT_BYTES_UNKNOWN = 3
+};
+
+struct RtSmokeAsAdmissionBudget
+{
+    // Zero means unlimited. Scratch is deliberately absent: the active NVRHI
+    // interface does not expose an authoritative per-build scratch size.
+    int maxOperations = 0;
+    uint64_t maxResultBytes = 0;
+};
+
+struct RtSmokeAsAdmissionRequest
+{
+    RtSmokeAsWorkKind kind = RT_SMOKE_AS_WORK_NEW_BUILD;
+    RtSmokeAsWorkPriority priority = RT_SMOKE_AS_PRIORITY_BACKGROUND;
+    uint64_t resultBytes = 0;
+    uint64_t deferredAge = 0;
+    bool resultBytesKnown = false;
+};
+
+struct RtSmokeAsAdmissionDecision
+{
+    bool admitted = false;
+    RtSmokeAsDeferralReason deferralReason = RT_SMOKE_AS_DEFER_NONE;
+    int admittedOrder = -1;
+};
+
+struct RtSmokeAsAdmissionStats
+{
+    int requestedOperations = 0;
+    int admittedOperations = 0;
+    int deferredOperations = 0;
+    uint64_t admittedResultBytes = 0;
+    uint64_t maxDeferredAge = 0;
+    int requestedByKind[RT_SMOKE_AS_WORK_KIND_COUNT] = {};
+    int admittedByKind[RT_SMOKE_AS_WORK_KIND_COUNT] = {};
+    int deferredByKind[RT_SMOKE_AS_WORK_KIND_COUNT] = {};
+    int deferredByReason[RT_SMOKE_AS_DEFER_RESULT_BYTES_UNKNOWN + 1] = {};
+};
+
+struct RtSmokeAsAdmissionPlan
+{
+    std::vector<RtSmokeAsAdmissionDecision> decisions;
+    RtSmokeAsAdmissionStats stats;
+};
+
 enum RtSmokePlanTlasInstanceKind : uint32_t
 {
     RT_SMOKE_PLAN_TLAS_STATIC_BLAS = 0,
@@ -1551,3 +1618,7 @@ uint64_t BuildSmokePlanDataSpanSignature(
 
 RtSmokePreviousStaticSnapshotUploadPlan BuildSmokePreviousStaticSnapshotUploadPlan(
     const RtSmokePreviousStaticSnapshotUploadPlanInput& input);
+
+RtSmokeAsAdmissionPlan BuildSmokeAsAdmissionPlan(
+    const RtSmokeAsAdmissionBudget& budget,
+    const std::vector<RtSmokeAsAdmissionRequest>& requests);

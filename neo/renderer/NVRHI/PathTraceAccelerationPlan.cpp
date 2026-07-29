@@ -4220,3 +4220,122 @@ RtSmokePreviousStaticSnapshotUploadPlan BuildSmokePreviousStaticSnapshotUploadPl
         input.previousUploadSignature == input.currentUploadSignature;
     return plan;
 }
+
+RtSmokeAsAdmissionPlan BuildSmokeAsAdmissionPlan(
+    const RtSmokeAsAdmissionBudget& budget,
+    const std::vector<RtSmokeAsAdmissionRequest>& requests)
+{
+    RtSmokeAsAdmissionPlan plan;
+    plan.decisions.resize(requests.size());
+    plan.stats.requestedOperations = static_cast<int>(requests.size());
+
+    std::vector<size_t> orderedRequests(requests.size());
+    for (size_t requestIndex = 0;
+        requestIndex < requests.size();
+        ++requestIndex)
+    {
+        orderedRequests[requestIndex] = requestIndex;
+        const uint32_t kind =
+            static_cast<uint32_t>(requests[requestIndex].kind);
+        if (kind < RT_SMOKE_AS_WORK_KIND_COUNT)
+        {
+            ++plan.stats.requestedByKind[kind];
+        }
+    }
+
+    std::stable_sort(
+        orderedRequests.begin(),
+        orderedRequests.end(),
+        [&requests](size_t lhs, size_t rhs)
+        {
+            const RtSmokeAsAdmissionRequest& lhsRequest =
+                requests[lhs];
+            const RtSmokeAsAdmissionRequest& rhsRequest =
+                requests[rhs];
+            if (lhsRequest.priority != rhsRequest.priority)
+            {
+                return lhsRequest.priority <
+                    rhsRequest.priority;
+            }
+            if (lhsRequest.deferredAge !=
+                rhsRequest.deferredAge)
+            {
+                return lhsRequest.deferredAge >
+                    rhsRequest.deferredAge;
+            }
+            return lhs < rhs;
+        });
+
+    const bool operationBudgetEnabled =
+        budget.maxOperations > 0;
+    const bool resultBudgetEnabled =
+        budget.maxResultBytes > 0;
+    for (size_t requestIndex : orderedRequests)
+    {
+        const RtSmokeAsAdmissionRequest& request =
+            requests[requestIndex];
+        RtSmokeAsAdmissionDecision& decision =
+            plan.decisions[requestIndex];
+        RtSmokeAsDeferralReason reason =
+            RT_SMOKE_AS_DEFER_NONE;
+        if (operationBudgetEnabled &&
+            plan.stats.admittedOperations >=
+                budget.maxOperations)
+        {
+            reason = RT_SMOKE_AS_DEFER_OPERATION_BUDGET;
+        }
+        else if (resultBudgetEnabled &&
+            !request.resultBytesKnown)
+        {
+            reason = RT_SMOKE_AS_DEFER_RESULT_BYTES_UNKNOWN;
+        }
+        else if (resultBudgetEnabled &&
+            request.resultBytes >
+                budget.maxResultBytes -
+                    std::min(
+                        budget.maxResultBytes,
+                        plan.stats.admittedResultBytes))
+        {
+            reason = RT_SMOKE_AS_DEFER_RESULT_BYTE_BUDGET;
+        }
+
+        const uint32_t kind =
+            static_cast<uint32_t>(request.kind);
+        if (reason == RT_SMOKE_AS_DEFER_NONE)
+        {
+            decision.admitted = true;
+            decision.admittedOrder =
+                plan.stats.admittedOperations;
+            ++plan.stats.admittedOperations;
+            plan.stats.admittedResultBytes +=
+                request.resultBytesKnown
+                    ? request.resultBytes
+                    : 0;
+            if (kind < RT_SMOKE_AS_WORK_KIND_COUNT)
+            {
+                ++plan.stats.admittedByKind[kind];
+            }
+            continue;
+        }
+
+        decision.deferralReason = reason;
+        ++plan.stats.deferredOperations;
+        plan.stats.maxDeferredAge =
+            std::max(
+                plan.stats.maxDeferredAge,
+                request.deferredAge);
+        if (kind < RT_SMOKE_AS_WORK_KIND_COUNT)
+        {
+            ++plan.stats.deferredByKind[kind];
+        }
+        const uint32_t reasonIndex =
+            static_cast<uint32_t>(reason);
+        if (reasonIndex <=
+            RT_SMOKE_AS_DEFER_RESULT_BYTES_UNKNOWN)
+        {
+            ++plan.stats.deferredByReason[reasonIndex];
+        }
+    }
+
+    return plan;
+}
