@@ -4049,6 +4049,7 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
     bool enabled,
     bool submitBuilds,
     int maxBuildsPerFrame,
+    uint64 maxResultBytesPerFrame,
     bool forceRebuild,
     bool collectResultMemory)
 {
@@ -4262,13 +4263,105 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
         record.seenThisUpdate = false;
     }
 
-    int buildsRemaining =
-        maxBuildsPerFrame > 0
-            ? maxBuildsPerFrame
-            : std::numeric_limits<int>::max();
-    for (const RtSmokeStaticBucketPackedRecord& bucket :
-        geometryPack.buckets)
+    RtSmokeAsAdmissionBudget admissionBudget;
+    admissionBudget.maxOperations = Max(0, maxBuildsPerFrame);
+    admissionBudget.maxResultBytes = maxResultBytesPerFrame;
+    admissionBudget.allowOneOversizedResult = true;
+    std::vector<RtSmokeAsAdmissionRequest> admissionRequests;
+    admissionRequests.reserve(geometryPack.buckets.size());
+
+    std::vector<size_t> orderedBucketIndexes(
+        geometryPack.buckets.size());
+    for (size_t bucketIndex = 0;
+        bucketIndex < orderedBucketIndexes.size();
+        ++bucketIndex)
     {
+        orderedBucketIndexes[bucketIndex] = bucketIndex;
+    }
+    std::stable_sort(
+        orderedBucketIndexes.begin(),
+        orderedBucketIndexes.end(),
+        [this, &geometryPack](size_t lhs, size_t rhs)
+        {
+            const RtSmokeStaticBucketPackedRecord& lhsBucket =
+                geometryPack.buckets[lhs];
+            const RtSmokeStaticBucketPackedRecord& rhsBucket =
+                geometryPack.buckets[rhs];
+            if (lhsBucket.active != rhsBucket.active)
+            {
+                return lhsBucket.active;
+            }
+            uint64 lhsDeferredSince = 0;
+            uint64 rhsDeferredSince = 0;
+            for (const StaticBucketBlasRecord& record :
+                m_staticBucketBlasRecords)
+            {
+                if (record.bucketKey == lhsBucket.bucketKey)
+                {
+                    lhsDeferredSince = record.deferredSinceFrame;
+                }
+                if (record.bucketKey == rhsBucket.bucketKey)
+                {
+                    rhsDeferredSince = record.deferredSinceFrame;
+                }
+            }
+            const uint64 lhsAge =
+                lhsDeferredSince != 0 &&
+                m_currentFrameIndex >= lhsDeferredSince
+                    ? m_currentFrameIndex - lhsDeferredSince
+                    : 0;
+            const uint64 rhsAge =
+                rhsDeferredSince != 0 &&
+                m_currentFrameIndex >= rhsDeferredSince
+                    ? m_currentFrameIndex - rhsDeferredSince
+                    : 0;
+            if (lhsAge != rhsAge)
+            {
+                return lhsAge > rhsAge;
+            }
+            return lhsBucket.bucketKey < rhsBucket.bucketKey;
+        });
+
+    auto recordAdmissionDeferral =
+        [this](
+            StaticBucketBlasRecord& record,
+            RtSmokeAsDeferralReason reason,
+            uint64 deferredAge)
+        {
+            if (record.deferredSinceFrame == 0)
+            {
+                record.deferredSinceFrame =
+                    m_currentFrameIndex > 0
+                        ? m_currentFrameIndex
+                        : 1;
+            }
+            m_staticBucketAdmissionIntervalStats.maxDeferredAge =
+                Max(
+                    m_staticBucketAdmissionIntervalStats.maxDeferredAge,
+                    deferredAge);
+            switch (reason)
+            {
+                case RT_SMOKE_AS_DEFER_OPERATION_BUDGET:
+                    ++m_staticBucketAdmissionIntervalStats.
+                        deferredOperationBudget;
+                    break;
+                case RT_SMOKE_AS_DEFER_RESULT_BYTE_BUDGET:
+                    ++m_staticBucketAdmissionIntervalStats.
+                        deferredResultByteBudget;
+                    break;
+                case RT_SMOKE_AS_DEFER_RESULT_BYTES_UNKNOWN:
+                    ++m_staticBucketAdmissionIntervalStats.
+                        deferredUnknownResultBytes;
+                    break;
+                default:
+                    break;
+            }
+        };
+
+    for (size_t bucketIndex : orderedBucketIndexes)
+    {
+        const RtSmokeStaticBucketPackedRecord& bucket =
+            geometryPack.buckets[bucketIndex];
         if (bucket.range.vertexOffset < 0 ||
             bucket.range.vertexCount <= 0 ||
             bucket.range.indexOffset < 0 ||
@@ -4357,8 +4450,43 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
                 inputChanged ||
                 !rangeCompatible ||
                 buffersCreated);
-        if (needsBuild && buildsRemaining > 0)
+        if (needsBuild)
         {
+            const uint64 deferredAge =
+                record->deferredSinceFrame != 0 &&
+                m_currentFrameIndex >= record->deferredSinceFrame
+                    ? m_currentFrameIndex -
+                        record->deferredSinceFrame
+                    : 0;
+            RtSmokeAsAdmissionRequest admissionRequest;
+            admissionRequest.kind =
+                record->blas
+                    ? (forceRebuild
+                        ? RT_SMOKE_AS_WORK_PERIODIC_REBUILD
+                        : RT_SMOKE_AS_WORK_UPDATE)
+                    : RT_SMOKE_AS_WORK_NEW_BUILD;
+            admissionRequest.priority =
+                bucket.active
+                    ? RT_SMOKE_AS_PRIORITY_ACTIVE
+                    : RT_SMOKE_AS_PRIORITY_BACKGROUND;
+            admissionRequest.deferredAge = deferredAge;
+            admissionRequests.push_back(admissionRequest);
+            const RtSmokeAsAdmissionPlan operationPlan =
+                BuildSmokeAsAdmissionPlan(
+                    admissionBudget,
+                    admissionRequests);
+            const RtSmokeAsAdmissionDecision& operationDecision =
+                operationPlan.decisions.back();
+            if (operationDecision.deferralReason ==
+                RT_SMOKE_AS_DEFER_OPERATION_BUDGET)
+            {
+                recordAdmissionDeferral(
+                    *record,
+                    operationDecision.deferralReason,
+                    deferredAge);
+                continue;
+            }
+
             nvrhi::rt::AccelStructDesc replacementBlasDesc =
                 nvrhi::rt::AccelStructDesc()
                     .setBuildFlags(
@@ -4398,9 +4526,74 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             nvrhi::rt::AccelStructHandle replacementBlas =
                 device->createAccelStruct(
                     replacementBlasDesc);
-            if (replacementBlas)
+            if (!replacementBlas)
             {
-                ++stats.blasCreated;
+                ++m_staticBucketAdmissionIntervalStats.
+                    deferredAllocationFailure;
+                m_staticBucketAdmissionIntervalStats.maxDeferredAge =
+                    Max(
+                        m_staticBucketAdmissionIntervalStats.
+                            maxDeferredAge,
+                        deferredAge);
+                if (record->deferredSinceFrame == 0)
+                {
+                    record->deferredSinceFrame =
+                        m_currentFrameIndex > 0
+                            ? m_currentFrameIndex
+                            : 1;
+                }
+                admissionRequests.pop_back();
+                continue;
+            }
+
+            if (admissionBudget.maxResultBytes > 0)
+            {
+                const nvrhi::MemoryRequirements requirements =
+                    device->getAccelStructMemoryRequirements(
+                        replacementBlas);
+                ++m_staticBucketAdmissionIntervalStats.
+                    resultRequirementQueries;
+                admissionRequests.back().resultBytes =
+                    requirements.size;
+                admissionRequests.back().resultBytesKnown =
+                    requirements.size > 0;
+                if (requirements.size == 0)
+                {
+                    ++m_staticBucketAdmissionIntervalStats.
+                        resultRequirementFailures;
+                }
+            }
+            const RtSmokeAsAdmissionPlan admissionPlan =
+                BuildSmokeAsAdmissionPlan(
+                    admissionBudget,
+                    admissionRequests);
+            const RtSmokeAsAdmissionDecision& admissionDecision =
+                admissionPlan.decisions.back();
+            if (!admissionDecision.admitted)
+            {
+                recordAdmissionDeferral(
+                    *record,
+                    admissionDecision.deferralReason,
+                    deferredAge);
+                continue;
+            }
+
+            ++stats.blasCreated;
+            if (admissionRequests.back().resultBytesKnown)
+            {
+                m_staticBucketAdmissionIntervalStats.
+                    admittedResultBytes +=
+                        admissionRequests.back().resultBytes;
+            }
+            if (admissionDecision.oversizedResultAdmission)
+            {
+                ++m_staticBucketAdmissionIntervalStats.
+                    oversizedResultAdmissions;
+                m_staticBucketAdmissionIntervalStats.
+                    oversizedResultBytes +=
+                        admissionRequests.back().resultBytes;
+            }
+            {
                 const auto buildStart =
                     std::chrono::steady_clock::now();
                 const bool diagnosticMarkers =
@@ -4449,8 +4642,8 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
                 record->geometryDescCount =
                     static_cast<uint32_t>(
                         geometryPlan.geometries.size());
+                record->deferredSinceFrame = 0;
                 ++stats.blasBuilt;
-                --buildsRemaining;
             }
         }
         else if (record->blas &&
@@ -4459,6 +4652,7 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
             record->inputSignature == inputSignature &&
             rangeCompatible)
         {
+            record->deferredSinceFrame = 0;
             ++stats.blasReused;
         }
     }
@@ -4546,6 +4740,40 @@ RtSmokeGeometryUniverse::UpdateStaticBucketBlasGpuScaffold(
                 ++stats.retainedReplacementBuckets;
             }
         }
+    }
+    stats.deferredOperationBudget =
+        m_staticBucketAdmissionIntervalStats.
+            deferredOperationBudget;
+    stats.deferredResultByteBudget =
+        m_staticBucketAdmissionIntervalStats.
+            deferredResultByteBudget;
+    stats.deferredUnknownResultBytes =
+        m_staticBucketAdmissionIntervalStats.
+            deferredUnknownResultBytes;
+    stats.deferredAllocationFailure =
+        m_staticBucketAdmissionIntervalStats.
+            deferredAllocationFailure;
+    stats.resultRequirementQueries =
+        m_staticBucketAdmissionIntervalStats.
+            resultRequirementQueries;
+    stats.resultRequirementFailures =
+        m_staticBucketAdmissionIntervalStats.
+            resultRequirementFailures;
+    stats.oversizedResultAdmissions =
+        m_staticBucketAdmissionIntervalStats.
+            oversizedResultAdmissions;
+    stats.admittedResultBytes =
+        m_staticBucketAdmissionIntervalStats.
+            admittedResultBytes;
+    stats.oversizedResultBytes =
+        m_staticBucketAdmissionIntervalStats.
+            oversizedResultBytes;
+    stats.maxDeferredAge =
+        m_staticBucketAdmissionIntervalStats.maxDeferredAge;
+    if (collectResultMemory)
+    {
+        m_staticBucketAdmissionIntervalStats =
+            StaticBucketAdmissionIntervalStats();
     }
     stats.uploadSignature = m_staticBucketUploadSignature;
     return stats;
@@ -4718,6 +4946,8 @@ void RtSmokeGeometryUniverse::ReleaseStaticBucketBlasGpuScaffold()
         RetireStaticBucketBlas(record);
     }
     m_staticBucketBlasRecords.clear();
+    m_staticBucketAdmissionIntervalStats =
+        StaticBucketAdmissionIntervalStats();
     m_staticBucketUploadSignature = 0;
     m_staticBucketMaterialIndexUploadSignature = 0;
 }
@@ -4776,7 +5006,7 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
     const RtPathTraceStaticBucketBlasGpuStats& stats) const
 {
     common->Printf(
-        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/retainedReplacement/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d/%d geometry(v/i/t/cpuSurfaceRecords/descs/invalidRanges)=%d/%d/%d/%d/%d/%d metadata(cpuClassWords/gpuClassWords/legacySurfaceOffset/cpuSurfaceBytes)=%d/%d/%d/%llu bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu result(queries/failures/bytes/max/alignment/compacted)=%d/%d/%llu/%llu/%llu/%d skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident blasGeometry=surface-geometries-per-bucket traversal=monolithic route=offline-only\n",
+        "PathTracePrimaryPass: GEO10 static bucket GPU frame=%llu enabled/build=%d/%d signatures(content/upload)=%llu/%llu buckets(resident/active/ready/deferred/retainedReplacement/invalid/multiGeometry)=%d/%d/%d/%d/%d/%d/%d geometry(v/i/t/cpuSurfaceRecords/descs/invalidRanges)=%d/%d/%d/%d/%d/%d metadata(cpuClassWords/gpuClassWords/legacySurfaceOffset/cpuSurfaceBytes)=%d/%d/%d/%llu bytes(v/i/meta/upload)=%llu/%llu/%llu/%llu buffers(create/upload)=%d/%d blas(create/build/reuse/retire/buildUs)=%d/%d/%d/%d/%llu result(queries/failures/bytes/max/alignment/compacted)=%d/%d/%llu/%llu/%llu/%d admission(deferOp/deferBytes/deferUnknown/deferAlloc/query/fail/bytes/oversized/oversizedBytes/maxAge)=%d/%d/%d/%d/%d/%d/%llu/%d/%llu/%llu skips(device/cmd/pack)=%d/%d/%d storage=full-map-resident blasGeometry=surface-geometries-per-bucket traversal=monolithic route=offline-only\n",
         static_cast<unsigned long long>(stats.frameIndex),
         stats.enabled,
         stats.submitBuilds,
@@ -4823,6 +5053,19 @@ void RtSmokeGeometryUniverse::DumpStaticBucketBlasGpuStats(
         static_cast<unsigned long long>(
             stats.blasResultMaxAlignment),
         stats.compactedBlases,
+        stats.deferredOperationBudget,
+        stats.deferredResultByteBudget,
+        stats.deferredUnknownResultBytes,
+        stats.deferredAllocationFailure,
+        stats.resultRequirementQueries,
+        stats.resultRequirementFailures,
+        static_cast<unsigned long long>(
+            stats.admittedResultBytes),
+        stats.oversizedResultAdmissions,
+        static_cast<unsigned long long>(
+            stats.oversizedResultBytes),
+        static_cast<unsigned long long>(
+            stats.maxDeferredAge),
         stats.skippedNoDevice,
         stats.skippedNoCommandList,
         stats.skippedInexactPack);

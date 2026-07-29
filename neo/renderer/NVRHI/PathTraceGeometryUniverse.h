@@ -812,6 +812,16 @@ struct RtPathTraceStaticBucketBlasGpuStats
     uint64 blasResultBytes = 0;
     uint64 blasResultMaxBytes = 0;
     uint64 blasResultMaxAlignment = 0;
+    int deferredOperationBudget = 0;
+    int deferredResultByteBudget = 0;
+    int deferredUnknownResultBytes = 0;
+    int deferredAllocationFailure = 0;
+    int resultRequirementQueries = 0;
+    int resultRequirementFailures = 0;
+    int oversizedResultAdmissions = 0;
+    uint64 admittedResultBytes = 0;
+    uint64 oversizedResultBytes = 0;
+    uint64 maxDeferredAge = 0;
     int skippedNoDevice = 0;
     int skippedNoCommandList = 0;
     int skippedInexactPack = 0;
@@ -1000,6 +1010,7 @@ public:
             bool enabled,
             bool submitBuilds,
             int maxBuildsPerFrame,
+            uint64 maxResultBytesPerFrame,
             bool forceRebuild,
             bool collectResultMemory);
     void BuildStaticBucketTlasObservations(
@@ -1217,6 +1228,21 @@ private:
         nvrhi::rt::AccelStructHandle blas;
         bool buildSubmitted = false;
         bool seenThisUpdate = false;
+        uint64 deferredSinceFrame = 0;
+    };
+
+    struct StaticBucketAdmissionIntervalStats
+    {
+        int deferredOperationBudget = 0;
+        int deferredResultByteBudget = 0;
+        int deferredUnknownResultBytes = 0;
+        int deferredAllocationFailure = 0;
+        int resultRequirementQueries = 0;
+        int resultRequirementFailures = 0;
+        int oversizedResultAdmissions = 0;
+        uint64 admittedResultBytes = 0;
+        uint64 oversizedResultBytes = 0;
+        uint64 maxDeferredAge = 0;
     };
 
     RtSmokePersistentStaticSurfaceRecord* FindStaticSurfaceMutable(uint64 key);
@@ -1312,6 +1338,8 @@ private:
     nvrhi::BufferHandle m_staticBucketTriangleMaterialBuffer;
     nvrhi::BufferHandle m_staticBucketTriangleMaterialIndexBuffer;
     std::vector<StaticBucketBlasRecord> m_staticBucketBlasRecords;
+    StaticBucketAdmissionIntervalStats
+        m_staticBucketAdmissionIntervalStats;
     RtSmokeRetiredStaticBucketGpuResources
         m_retiredStaticBucketGpuResources;
     uint64 m_staticBucketUploadSignature = 0;

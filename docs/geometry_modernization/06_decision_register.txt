@@ -3798,6 +3798,37 @@ recorded count to equal the exact current geometry-plan count. This removes
 unconditional multi-geometry rebuild churn and is expected to address the
 reported high bucket-BLAS steady overhead.
 
+D152. STATIC BUCKET BUILD-THEN-SWAP IS ACCEPTED
+-----------------------------------------------
+`geometry_geo_step14b.log` converges all 56 resident bucket BLASes with four
+active, zero deferred, zero retained replacements, and zero invalid records.
+The steady audit reports build/reuse/retire 0/56/0, 56 authoritative result
+census queries with zero failures, 3,635,712 result bytes, and an exact active
+publication with no missing-BLAS, material-index, range, or instance failures.
+
+Force rebuild remained enabled for 890 two-BLAS frames. Ready state stayed
+56/56 throughout, every retirement token completed through GPU event-query
+authority with zero query failures, and disabling force restored exact steady
+reuse. This accepts the replacement lifetime prerequisite for admission.
+
+D153. STATIC BUCKETS CONSUME D147 ADMISSION
+-------------------------------------------
+The existing static-bucket build limit is now the common planner's operation
+cap. `r_pathTracingGeometryStaticBucketBlasResultBudgetKB` independently caps
+authoritative allocated-result bytes per frame; zero is unlimited and avoids
+admission-time requirement queries.
+
+Active buckets precede background work, older deferred work wins within each
+priority, and bucket key is the final deterministic tie-break. With a byte cap,
+unknown result size defers; one oversized result may be admitted into an empty
+frame to prevent starvation. Operation, byte, unknown-size, and allocation
+deferrals retain the prior complete BLAS. Admission counters accumulate until
+the next one-shot bucket audit.
+
+The CPU planner harness passes and the full Vulkan build succeeds. Runtime
+acceptance still requires default-unlimited parity and a forced-low result-byte
+convergence capture.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

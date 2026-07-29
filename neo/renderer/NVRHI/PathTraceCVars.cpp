@@ -429,6 +429,12 @@ idCVar r_pathTracingGeometryStaticBucketBlasBuildLimit(
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum GEO-10 shadow-only static bucket BLAS builds submitted per frame; 0 means no limit" );
 
+idCVar r_pathTracingGeometryStaticBucketBlasResultBudgetKB(
+    "r_pathTracingGeometryStaticBucketBlasResultBudgetKB",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum static bucket BLAS result bytes admitted per frame in KiB; 0 is unlimited" );
+
 idCVar r_pathTracingGeometryStaticBucketBlasForceRebuild(
     "r_pathTracingGeometryStaticBucketBlasForceRebuild",
     "0",

@@ -536,3 +536,72 @@ Build and deployment:
 
 Runtime validation is required before connecting static buckets to the byte
 admission planner.
+
+STATIC-BUCKET REPLACEMENT ACCEPTED
+----------------------------------
+`geometry_geo_step14b.log` validates both cold convergence and replacement
+lifetime with route 0 retained:
+
+  resident / active buckets                  56 / 4
+  steady ready / deferred                    56 / 0
+  steady retained replacement / invalid      0 / 0
+  steady BLAS build / reuse / retire          0 / 56 / 0
+  result census queries / failures            56 / 0
+  result census bytes / maximum               3635712 / 598784
+  result maximum alignment                    256
+  publication valid / exact / mixed rejected  1 / 1 / 0
+  publication failures                        0 / 0 / 0 / 0
+
+The force-rebuild CVar remained enabled from frame 1319 through frame 2208,
+so the capture exercised substantially more than the requested two-frame
+replacement sample. Every frame retained ready 56/56 while replacing two
+BLASes. All 890 retirement tokens shown by the capture completed through
+graphics-event-query authority with zero result-query failures and pending
+zero. After force was disabled, the final frame returned to build/reuse/retire
+0/56/0. This accepts static-bucket build-then-swap, exact current-input
+publication, and steady reuse.
+
+STATIC-BUCKET RESULT-BYTE ADMISSION
+-----------------------------------
+Static buckets now consume the common deterministic admission planner. The
+existing build-limit CVar remains the operation cap:
+
+  r_pathTracingGeometryStaticBucketBlasBuildLimit
+
+The independent result-byte cap is:
+
+  r_pathTracingGeometryStaticBucketBlasResultBudgetKB
+
+Its default is 0, meaning unlimited and therefore no admission-time result
+requirement queries. With a nonzero cap, each candidate handle is queried
+before build submission. Unknown result size defers explicitly. Active
+buckets are ordered before background buckets, oldest deferred work wins
+within each priority, and the bucket key is the deterministic final
+tie-break. One oversized result may pass when no other result was admitted in
+the frame, guaranteeing convergence under a sub-BLAS cap.
+
+Operation, result-byte, unknown-size, and allocation deferrals leave the prior
+complete record untouched. A changed input remains fail-closed from bucket
+publication until its replacement is current; force rebuild may keep using
+the already-current old record while admission is deferred.
+
+The GPU census now adds:
+
+  admission(deferOp/deferBytes/deferUnknown/deferAlloc/query/fail/
+            bytes/oversized/oversizedBytes/maxAge)
+
+These fields accumulate until a one-shot static-bucket audit consumes the
+interval, so a final audit preserves forced-low-budget evidence.
+
+Build and deployment:
+
+  focused target  PathTraceCpuPlanningHarness
+  focused result  PASS, including all admission cases
+  full command    cmake --build --preset win64-pt-dev-release
+  full result     success; all SPIR-V shaders up to date
+  executable      16,023,552 bytes
+  sha256          9AAC7F8CBD59BD974B0DF0BE62C87B1DFE323A18A95A1061AA7E3A0C5C2B55E8
+  deployment      source and prebuilt executable byte-identical
+
+Runtime validation remains required for default-unlimited parity and one
+forced-low result-byte convergence interval.
