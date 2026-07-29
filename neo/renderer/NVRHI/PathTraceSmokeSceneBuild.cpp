@@ -7391,14 +7391,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingReflectionOpaqueMirror.GetInteger() != 0,
             r_pathTracingCleanRtxdiDiGlassRefractedPsr.GetInteger() != 0,
             staticBucketSecondaryProbeStage);
-    const bool staticBucketReflectionPortalHalo =
+    const bool staticBucketSecondaryOpticalPortalHalo =
         staticBucketProductionRoute &&
         (r_pathTracingCleanRtxdiDiGlassReflectionPsr.GetInteger() != 0 ||
-            r_pathTracingReflectionOpaqueMirror.GetInteger() != 0);
+            r_pathTracingReflectionOpaqueMirror.GetInteger() != 0 ||
+            r_pathTracingCleanRtxdiDiGlassRefractedPsr.GetInteger() != 0);
     const int staticBucketPortalSteps =
         ResolveSmokeStaticBucketPortalSteps(
             r_pathTracingGeometryStaticBucketPortalSteps.GetInteger(),
-            staticBucketReflectionPortalHalo,
+            staticBucketSecondaryOpticalPortalHalo,
             r_pathTracingGeometryStaticBucketReflectionPortalSteps.GetInteger());
     const bool staticBucketCleanDiSecondaryIsolation =
         IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
@@ -8162,7 +8163,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_smokeGeometryFrameIndex,
                 m_smokeSceneMapTimeStamp,
                 staticBucketPortalSteps,
-                staticBucketReflectionPortalHalo,
+                staticBucketSecondaryOpticalPortalHalo,
                 staticBucketConsumerProbe);
     // Diagnostic routes force the resident mask only to remove portal-policy
     // ambiguity. The explicit route-1 production checkpoint retains the

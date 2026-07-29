@@ -3247,6 +3247,23 @@ report both the effective `portalSteps` and `reflectionHalo` state. This keeps
 the accepted primary policy at one while making the validated four-step
 secondary reach automatic.
 
+D128. REFLECTION HALO ACCEPTED; ADMIT REFRACTED CONTINUATION NEXT
+-----------------------------------------------------------------
+The user reports the automatic configuration is visually sound with primary
+portal steps returned to one and the secondary optical halo at four. D127 is
+accepted.
+
+Refracted PSR changes the continuation direction but still calls the same
+route-1 bounded forced-opaque transmission resolver already accepted for
+straight glass. It introduces no new shader, payload, descriptor, SBT record,
+hit group, or any-hit path. Admit it as the next isolated gate while keeping
+secondary reflection shadow rays, GI, RR, and external PDF-NEE disabled.
+
+Refracted continuation also uses the four-step secondary optical halo because
+its direction may leave the clipped primary-visible portal set. The existing
+reflection-named CVar is retained for compatibility, but its description and
+policy now cover glass reflection, opaque mirrors, and refracted PSR.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

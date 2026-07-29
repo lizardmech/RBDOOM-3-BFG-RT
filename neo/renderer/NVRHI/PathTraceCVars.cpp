@@ -439,7 +439,7 @@ idCVar r_pathTracingGeometryStaticBucketReflectionPortalSteps(
     "r_pathTracingGeometryStaticBucketReflectionPortalSteps",
     "4",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Reflection-only GEO-10 portal-neighbor expansion; effective steps are max(primary, reflection) while bounded glass or opaque-mirror reflection is active" );
+    "Secondary optical GEO-10 portal-neighbor expansion; effective steps are max(primary, secondary) while bounded glass reflection, opaque-mirror reflection, or refracted PSR is active" );
 
 idCVar r_pathTracingGeometryStaticBucketRoute(
     "r_pathTracingGeometryStaticBucketRoute",

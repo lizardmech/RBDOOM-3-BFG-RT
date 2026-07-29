@@ -233,7 +233,7 @@ RtSmokePortalVisibilityMaskPlan BuildSmokePortalVisibilityMaskPlan(
     bool forceFullMap);
 int ResolveSmokeStaticBucketPortalSteps(
     int primaryPortalSteps,
-    bool secondaryReflectionActive,
+    bool secondaryOpticalActive,
     int reflectionPortalSteps);
 
 struct RtSmokeStaticBucketAssignmentSurface

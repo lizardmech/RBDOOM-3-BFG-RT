@@ -485,12 +485,12 @@ RtSmokePortalVisibilityMaskPlan BuildSmokePortalVisibilityMaskPlan(
 
 int ResolveSmokeStaticBucketPortalSteps(
     int primaryPortalSteps,
-    bool secondaryReflectionActive,
+    bool secondaryOpticalActive,
     int reflectionPortalSteps)
 {
     const int boundedPrimary =
         std::max(0, std::min(8, primaryPortalSteps));
-    if (!secondaryReflectionActive)
+    if (!secondaryOpticalActive)
     {
         return boundedPrimary;
     }
@@ -2148,14 +2148,18 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     // Carry the accepted stage-24 geometry and bounded transport contract into
     // the normal view-16 continuation. Glass and opaque-mirror reflections
     // share the same bounded mirror resolver and may join only while their
-    // still-unvalidated secondary shadow TraceRay is disabled. Keep refracted
-    // PSR and GI/PDF consumers fail-closed.
+    // still-unvalidated secondary shadow TraceRay is disabled. Refracted PSR
+    // changes only the direction passed to the accepted bounded transmission
+    // resolver. Keep GI/PDF consumers fail-closed.
     const bool reflectionFamilyActive =
         reflectionPsrEnabled ||
         opaqueMirrorEnabled;
     const bool reflectionFamilySupported =
         !reflectionFamilyActive ||
         !reflectionSecondaryShadowsEnabled;
+    const bool refractedContinuationSupported =
+        !refractedPsrEnabled ||
+        transmissionPsrEnabled;
     return routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION &&
         cleanDiEnabled &&
         cleanDiView == 16 &&
@@ -2165,7 +2169,7 @@ bool IsSmokeStaticBucketProductionRouteSupported(
         !dlssRrEnabled &&
         transmissionPsrEnabled &&
         reflectionFamilySupported &&
-        !refractedPsrEnabled &&
+        refractedContinuationSupported &&
         probeStage == 0;
 }
 

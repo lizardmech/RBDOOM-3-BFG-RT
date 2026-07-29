@@ -3040,3 +3040,39 @@ reflection-enabled route-1 configuration with the primary control returned to
 one. The active-set diagnostic must show `portalSteps=4 reflectionHalo=1`,
 reflected brush geometry must remain present, and portal movement must remain
 device-loss free.
+
+REF-10AI HALO ACCEPTANCE AND REFRACTED-PSR GATE - 2026-07-29
+-------------------------------------------------------------
+The user reports no remaining reflected-brush cutoff or new visual issue with
+the automatic secondary halo. REF-10AH is accepted.
+
+The next gate admits `r_pathTracingCleanRtxdiDiGlassRefractedPsr=1`.
+Refracted PSR changes only the direction supplied to the already-accepted
+bounded iterative transmission resolver. Secondary reflection shadows remain
+disabled, so this adds no new trace family. The four-step optical portal halo
+is active for refraction even if glass and opaque reflection are disabled.
+
+CPU support-predicate tests now accept the full bounded optical set:
+
+  - straight transmission;
+  - glass reflection;
+  - opaque exact mirrors;
+  - refracted glass continuation;
+  - secondary optical portal halo 4.
+
+They still reject reflection visibility rays and later consumers.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness                        passed
+  PathTraceCpuPlanningHarness --stress 20            passed
+  full win64-pt-dev-release build                    passed
+  SPIR-V rebuilds                                    0
+
+  executable SHA-256
+    2328285A06581D86D511927E4CFA48F54D80BE3A8DED552F33907BE29911E7A1
+
+Only the executable is deployed. For the runtime gate, keep the accepted
+REF-10AH configuration and change only the refracted-PSR CVar from zero to
+one. Reject incorrect geometry behind glass, a reintroduced portal cutoff,
+camera-motion failure, device removal, or route-1 cutover loss.
