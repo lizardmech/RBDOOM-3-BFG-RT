@@ -7367,6 +7367,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingCleanRestirGiEnable.GetInteger() != 0);
     const int staticBucketSecondaryProbeStage =
         r_pathTracingGeometryStaticBucketSecondaryProbeStage.GetInteger();
+    const bool staticBucketProductionRoute =
+        IsSmokeStaticBucketProductionRouteSupported(
+            staticBucketRouteMode,
+            r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiView.GetInteger(),
+            r_pathTracingNsightGpuMarkers.GetInteger() != 0,
+            r_pathTracingCleanRestirGiEnable.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0 ||
+                r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0,
+            r_pathTracingDLSSRR.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiTransmissionProducer.GetInteger() != 0 &&
+                r_pathTracingCleanRtxdiDiTransmissionCompose.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiGlassReflectionPsr.GetInteger() != 0,
+            r_pathTracingReflectionOpaqueMirror.GetInteger() != 0,
+            r_pathTracingCleanRtxdiDiGlassRefractedPsr.GetInteger() != 0,
+            staticBucketSecondaryProbeStage);
     const bool staticBucketCleanDiSecondaryIsolation =
         IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
             staticBucketRouteMode,
@@ -8129,9 +8145,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_smokeGeometryFrameIndex,
                 m_smokeSceneMapTimeStamp,
                 staticBucketConsumerProbe);
-    // Production remains fail-closed. Mode 2 admits established primary
-    // isolates plus one explicit stage-bounded view-16 diagnostic route.
+    // Diagnostic routes force the resident mask only to remove portal-policy
+    // ambiguity. The explicit route-1 production checkpoint retains the
+    // portal-active mask.
     const bool staticBucketRouteConsumerSupported =
+        staticBucketProductionRoute ||
         staticBucketConsumerProbe;
     RtSmokeStaticBucketCutoverInput
         staticBucketCutoverInput;
@@ -8170,11 +8188,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             (m_smokeGeometryFrameIndex % 120ull) == 1ull))
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO10 static bucket cutover mode=%d requested/accepted=%d/%d consumerSupported=%d primaryOpaqueProbe=%d secondaryIsolation=%d secondaryStage=%d fullResidentProbe=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu materialIndexMissingActive=%d traversal=%s\n",
+            "PathTracePrimaryPass: GEO10 static bucket cutover mode=%d requested/accepted=%d/%d consumerSupported=%d productionRoute=%d primaryOpaqueProbe=%d secondaryIsolation=%d secondaryStage=%d fullResidentProbe=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu materialIndexMissingActive=%d traversal=%s\n",
             staticBucketRouteMode,
             1,
             staticBucketRouteAccepted ? 1 : 0,
             staticBucketRouteConsumerSupported ? 1 : 0,
+            staticBucketProductionRoute ? 1 : 0,
             staticBucketPrimaryOpaqueProbe ? 1 : 0,
             staticBucketCleanDiSecondaryIsolation ? 1 : 0,
             staticBucketCleanDiSecondaryIsolation

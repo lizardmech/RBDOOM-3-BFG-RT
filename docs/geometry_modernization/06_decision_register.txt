@@ -3037,6 +3037,40 @@ Implementation contract:
   - release build succeeded and the rebuilt executable was deployed with a
     matching SHA-256 hash.
 
+D120. SUCCESS20 CAPTURES MONOLITHIC FALLBACK; OPEN ROUTE-1 CHECKPOINT
+--------------------------------------------------------------------
+`success20.log` captures the motion-triggered device removal with per-print
+flushing and confirms the PT render size was 640x360. The final device
+checkpoints both resolve to:
+
+  `clean-rtxdi-di-transmission-producer`
+
+The route evidence is more important than the marker alone. Every cutover
+line reports `mode=2 requested/accepted=1/0`, `consumerSupported=0`,
+`fullResidentProbe=0`, and `traversal=monolithic`. Even after the three
+portal-active buckets and route records become exact, stage 0 remains
+fail-closed. The dispatch therefore also misses the route-publication gate
+that enables bounded transmission and re-enters the already-rejected legacy
+single-TraceRay any-hit path over monolithic static geometry.
+
+Consequences:
+
+  - this is not a bucket-resident device removal;
+  - stage 24 and stage 0 were not traversing the same static geometry route;
+  - particle composite and later consumers are not the current boundary;
+  - a transmission RayQuery replacement would test the wrong contract.
+
+Open the intended route-1 production checkpoint rather than adding another
+stage. Its admission contract is deliberately narrow: clean DI view 16,
+stage 0, checkpoints enabled, GI and external PDF-NEE disabled, transmission
+producer/composition enabled, and glass reflection, opaque mirror, and
+refracted PSR disabled, with RR disabled for this checkpoint. Route 1 requires
+the bounded forced-opaque transmission resolver both while portal-active BLAS
+publication is becoming ready and after cutover, so waiting frames cannot
+re-enter the failing legacy producer. A valid route-1 publication uses the
+portal-active mask. Diagnostic route 2 alone retains the full-resident
+active-mask override.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

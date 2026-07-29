@@ -2016,6 +2016,38 @@ bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
     return diagnosticContractExact;
 }
 
+bool IsSmokeStaticBucketProductionRouteSupported(
+    int routeMode,
+    bool cleanDiEnabled,
+    int cleanDiView,
+    bool diagnosticCheckpointsEnabled,
+    bool cleanGiEnabled,
+    bool externalPdfNeeEnabled,
+    bool dlssRrEnabled,
+    bool transmissionPsrEnabled,
+    bool reflectionPsrEnabled,
+    bool opaqueMirrorEnabled,
+    bool refractedPsrEnabled,
+    int probeStage)
+{
+    // First production checkpoint: carry the accepted stage-24 geometry and
+    // bounded transmission contract into the normal view-16 continuation.
+    // Keep unvalidated secondary reflection/refraction and GI/PDF consumers
+    // fail-closed while this explicit route-1 request is evaluated.
+    return routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION &&
+        cleanDiEnabled &&
+        cleanDiView == 16 &&
+        diagnosticCheckpointsEnabled &&
+        !cleanGiEnabled &&
+        !externalPdfNeeEnabled &&
+        !dlssRrEnabled &&
+        transmissionPsrEnabled &&
+        !reflectionPsrEnabled &&
+        !opaqueMirrorEnabled &&
+        !refractedPsrEnabled &&
+        probeStage == 0;
+}
+
 bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     int routeMode,
     bool cleanDiEnabled,
@@ -2077,11 +2109,14 @@ bool IsSmokeStaticBucketBoundedTransmissionResolverRequired(
     int routeMode,
     bool routePublicationValid)
 {
-    // Route 2 publishes TLAS instances over the bucket-resident pool. Its
-    // accepted production continuation is the bounded forced-opaque resolver;
-    // the legacy single-TraceRay any-hit path device-removes on this topology.
-    return routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
-        routePublicationValid;
+    // Route 1 uses the bounded resolver while its portal-active publication
+    // is still becoming ready as well as after cutover. Otherwise the waiting
+    // frames re-enter the known-unstable legacy single-TraceRay any-hit path
+    // over the monolithic fallback. Route 2 retains its publication gate
+    // because it is a stage-bounded diagnostic route.
+    return routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION ||
+        (routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE &&
+            routePublicationValid);
 }
 
 RtSmokeStaticBucketSecondaryIsolationDispatchPlan

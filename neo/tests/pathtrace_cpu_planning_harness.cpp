@@ -3772,7 +3772,80 @@ void TestStaticBucketAssignmentPlan()
             transmissionMaterialComposePlan.materialFeatureCompose,
         "static bucket stage 24 admits material-feature composition after the accepted bounded producer and DI path");
     Check(
+        IsSmokeStaticBucketProductionRouteSupported(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
+            true,
+            16,
+            true,
+            false,
+            false,
+            false,
+            true,
+            false,
+            false,
+            false,
+            0) &&
+            !IsSmokeStaticBucketProductionRouteSupported(
+                RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
+                true,
+                16,
+                true,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                0) &&
+            !IsSmokeStaticBucketProductionRouteSupported(
+                RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
+                true,
+                16,
+                true,
+                false,
+                false,
+                true,
+                true,
+                false,
+                false,
+                false,
+                0) &&
+            !IsSmokeStaticBucketProductionRouteSupported(
+                RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
+                true,
+                16,
+                true,
+                false,
+                false,
+                false,
+                true,
+                true,
+                false,
+                false,
+                0) &&
+            !IsSmokeStaticBucketProductionRouteSupported(
+                RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
+                true,
+                16,
+                true,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                24),
+        "static bucket route-1 production checkpoint requires the accepted stage-0 view-16 contract and keeps unvalidated secondary features closed");
+    Check(
         IsSmokeStaticBucketBoundedTransmissionResolverRequired(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
+            false) &&
+            IsSmokeStaticBucketBoundedTransmissionResolverRequired(
+            RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
+            true) &&
+            IsSmokeStaticBucketBoundedTransmissionResolverRequired(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
             true) &&
             !IsSmokeStaticBucketBoundedTransmissionResolverRequired(
@@ -3781,7 +3854,7 @@ void TestStaticBucketAssignmentPlan()
             !IsSmokeStaticBucketBoundedTransmissionResolverRequired(
                 RT_SMOKE_STATIC_BUCKET_ROUTE_DISABLED,
                 true),
-        "static bucket production requires bounded transmission resolve only for a valid route-2 publication");
+        "static bucket route 1 requires bounded transmission while waiting and after cutover; route 2 requires a valid publication");
     Check(
         waitingForPublicationPlan.active &&
             waitingForPublicationPlan.requested &&

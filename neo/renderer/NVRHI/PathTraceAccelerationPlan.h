@@ -1329,6 +1329,19 @@ bool IsSmokeStaticBucketPrimaryOpaqueProbeSupported(
     int cleanDiView,
     bool diagnosticCheckpointsEnabled,
     bool cleanGiEnabled);
+bool IsSmokeStaticBucketProductionRouteSupported(
+    int routeMode,
+    bool cleanDiEnabled,
+    int cleanDiView,
+    bool diagnosticCheckpointsEnabled,
+    bool cleanGiEnabled,
+    bool externalPdfNeeEnabled,
+    bool dlssRrEnabled,
+    bool transmissionPsrEnabled,
+    bool reflectionPsrEnabled,
+    bool opaqueMirrorEnabled,
+    bool refractedPsrEnabled,
+    int probeStage);
 bool IsSmokeStaticBucketCleanDiSecondaryIsolationSupported(
     int routeMode,
     bool cleanDiEnabled,
