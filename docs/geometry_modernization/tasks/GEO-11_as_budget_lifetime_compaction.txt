@@ -96,3 +96,40 @@ The warm bucket gate off/on sequence is accepted by `success21.log`. Slice-3
 rigid runtime acceptance remains pending. Admission/budget work must not begin
 until the warm rigid off/on package reaches exact completion and route parity
 recovers.
+
+SLICE-3 RUNTIME CRASH TRIAGE
+----------------------------
+The first rigid-retirement acceptance launch exposed a pre-existing production
+view-16 device removal before the requested rigid off/on transition. Bounded
+controls produced these results:
+
+  canonical rigid BLAS disabled                 device removal
+  clean DI light mode 0                         device removal
+  GPU idle on every portal/scene transition     device removal
+  identical camera/content in clean DI view 12  stable
+
+The RGB door panel is therefore a reliable visibility trigger, not evidence
+that its RGB analytic-light payload is the cause. Shared scene capture,
+material discovery, TLAS construction, and view-12 traversal survive. The
+remaining fault is in work unique to the production view-16 stage chain.
+
+The existing temporal and spatial diagnostic CVars could not isolate that
+chain: view 16 selected temporal and spatial dispatches unconditionally.
+Their gates now have real dispatch authority while preserving the default-on
+production route:
+
+  temporal=0              production initial pass only
+  temporal=1 spatial=0    production initial plus temporal
+  temporal=1 spatial=1    production initial plus temporal plus spatial
+
+Build and deployment after the gate correction:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; all SPIR-V shaders up to date
+  executable    15,995,904 bytes
+  sha256        B19E2ED9EDBAAEC853761A195386B465EA1A88C1794A6B30B8634CD06842A1B7
+  deployment    source and prebuilt executable byte-identical
+
+Do not resume the rigid retirement toggle until the first failing view-16
+stage is identified. Run the three configurations above in order against the
+same right-turn trigger.

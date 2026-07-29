@@ -3219,7 +3219,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingCleanRtxdiDiSubviewSurfacePromote.GetInteger() != 0;
         const bool cleanSpatialRoute =
             !cleanRtxdiDiMaterialClassifierProofView &&
-            (cleanRtxdiDiView == 16 ||
+            ((cleanRtxdiDiView == 16 &&
+                    cleanRtxdiDiTemporalEnabled &&
+                    cleanRtxdiDiSpatialEnabled) ||
                 cleanRtxdiDiRrGuideDebugView ||
                 (cleanRtxdiDiSpatialEnabled &&
                     cleanRtxdiDiTemporalEnabled &&
@@ -3593,7 +3595,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const bool cleanInitialRaygenView =
             cleanRtxdiDiResolveView == 4 ||
             cleanRtxdiDiResolveView == 7 ||
-            (cleanRtxdiDiResolveView == 8 && !cleanRtxdiDiTemporalEnabled);
+            (cleanRtxdiDiResolveView == 8 && !cleanRtxdiDiTemporalEnabled) ||
+            (cleanRtxdiDiResolveView == 16 &&
+                !cleanRtxdiDiTemporalEnabled);
         const bool cleanTemporalRaygenView =
             cleanRtxdiDiResolveView == 5 ||
             cleanRtxdiDiResolveView == 6 ||
@@ -3601,7 +3605,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanRtxdiDiResolveView == 9 ||
             cleanRtxdiDiResolveView == 10 ||
             cleanRtxdiDiResolveView == 11 ||
-            cleanRtxdiDiResolveView == 16;
+            (cleanRtxdiDiResolveView == 16 &&
+                cleanRtxdiDiTemporalEnabled);
         const bool cleanSplitRaygenView = cleanInitialRaygenView || cleanTemporalRaygenView;
         PathTraceCleanRtxdiDiSentinelConstants dispatchConstants = cleanConstants;
         if (cleanSpatialRoute)

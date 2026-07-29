@@ -3509,6 +3509,28 @@ The Vulkan release build and geometry-pool harness pass, the deployed
 executable is byte-identical, and no shader changed. Runtime acceptance remains
 required before GEO-11 admission work begins.
 
+D138. VIEW-16 TEMPORAL AND SPATIAL CVARS OWN THEIR DISPATCH GATES
+----------------------------------------------------------------
+GEO-11 Slice-3 acceptance encountered a camera-directional device removal
+before any rigid retirement request. Disabling real-light sampling and waiting
+for GPU idle at every scene transition did not prevent it, while view 12
+survived the identical content and camera motion. This narrows the failure to
+the production view-16 stage chain rather than RGB-light payload, scene-package
+retirement, or common TLAS/material construction.
+
+The view-16 host route previously dispatched temporal and spatial regardless
+of `r_pathTracingCleanRtxdiDiTemporal` and
+`r_pathTracingCleanRtxdiDiSpatial`. Those CVars changed flags and history
+semantics but were not stage-admission authorities. That made the intended
+initial/temporal/spatial isolation invalid.
+
+View 16 now selects the production initial shader when temporal is disabled,
+selects the production temporal shader only when temporal is enabled, and
+selects the production spatial pass only when both temporal and spatial are
+enabled. Defaults remain temporal=1 and spatial=1, so accepted production
+behavior is unchanged. The corrected gates are diagnostic stage boundaries,
+not a workaround or default feature reduction.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

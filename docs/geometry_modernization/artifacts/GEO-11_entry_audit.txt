@@ -469,3 +469,24 @@ diagnostics. Accept only if both retirement lines use
 failures are zero, the source counts are nonzero for every warm route that was
 active, rigid/canonical TLAS parity recovers, and there is no missing geometry,
 texture corruption, or device removal.
+
+POST-SLICE-3 VIEW-16 TRIAGE
+---------------------------
+The runtime launch failed before the requested retirement toggle. Disabling
+canonical rigid BLAS, setting clean DI light mode 0, and forcing GPU idle on
+portal/scene transitions did not prevent device removal. View 12 survived the
+same content and camera direction. The fault is therefore downstream of shared
+scene/TLAS/material construction and upstream or inside production view-16
+temporal/spatial/resolve work.
+
+Audit of the host dispatch route found that view 16 ignored the temporal and
+spatial diagnostic CVars for stage admission. The CPU route now provides three
+real boundaries without shader edits:
+
+  temporal=0              initial only
+  temporal=1 spatial=0    initial plus temporal
+  temporal=1 spatial=1    full production stage chain
+
+The correction built successfully with all SPIR-V up to date. The deployed
+15,995,904-byte executable is byte-identical to the build output, SHA-256
+B19E2ED9EDBAAEC853761A195386B465EA1A88C1794A6B30B8634CD06842A1B7.
