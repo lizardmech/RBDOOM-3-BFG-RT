@@ -1029,6 +1029,23 @@ post-main-work investigation against the accepted emissive identity contract.
 They do not erase the exact route/geometry/lifecycle evidence. Static bucket
 promotion is the next isolated main-work lane.
 
+GEO-13 static default reconciliation:
+
+The accepted route-1 predicate is not the repository default consumer state.
+It requires view 16, markers on, and clean GI off; defaults are view 12,
+markers off, and clean GI on. Turning on the three bucket gates would therefore
+build resident bucket BLASes and then fail closed to monolithic traversal.
+Static gate defaults remain zero.
+
+The first completion candidate admits clean GI because its existing shaders,
+bindings, routed static buffers, publication tuple, TLAS, and canonical bucket
+address are already shared with the accepted DI route. Only the stale CPU
+isolation exclusion is removed. View 16, markers, bounded transmission, PDF-NEE
+off, RR off, and stage zero remain mandatory. CPU tests and the Vulkan release
+build pass; SPIR-V is unchanged. Deployed-candidate SHA-256 is
+`D5A73E271EE039D5EB85256B049A3B2AD870E4AF48EFB392C71B9DA405893E8D`.
+Runtime acceptance remains open.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

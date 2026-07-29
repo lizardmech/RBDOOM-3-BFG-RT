@@ -2135,7 +2135,7 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     bool cleanDiEnabled,
     int cleanDiView,
     bool diagnosticCheckpointsEnabled,
-    bool cleanGiEnabled,
+    bool /*cleanGiEnabled*/,
     bool externalPdfNeeEnabled,
     bool dlssRrEnabled,
     bool transmissionPsrEnabled,
@@ -2151,7 +2151,10 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     // uses the same bounded forced-opaque loop while route 1 is active, so it
     // no longer enters the legacy shadow any-hit decoder. Refracted PSR
     // changes only the direction passed to the accepted bounded transmission
-    // resolver. Keep GI/PDF consumers fail-closed.
+    // resolver. The clean GI libraries consume the same routed buffers,
+    // publication tuple, and canonical static address, so GI does not require
+    // a separate static namespace. Keep external PDF-NEE and RR consumers
+    // fail-closed until their own route acceptance.
     const bool reflectionFamilyActive =
         reflectionPsrEnabled ||
         opaqueMirrorEnabled;
@@ -2166,7 +2169,6 @@ bool IsSmokeStaticBucketProductionRouteSupported(
         cleanDiEnabled &&
         cleanDiView == 16 &&
         diagnosticCheckpointsEnabled &&
-        !cleanGiEnabled &&
         !externalPdfNeeEnabled &&
         !dlssRrEnabled &&
         transmissionPsrEnabled &&

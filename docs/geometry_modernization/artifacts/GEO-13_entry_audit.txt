@@ -437,6 +437,54 @@ descriptor parity, lifecycle, or default selection acceptance.
 Slice 5A is accepted. Canonical rigid provider and traversal remain default on.
 Static bucket promotion is the next isolated main-work lane.
 
+SLICE-5B STATIC DEFAULT ENTRY RECONCILIATION
+--------------------------------------------
+The accepted GEO-10 route cannot be promoted by changing its three gate
+defaults alone. Its production predicate still requires:
+
+  route mode                                      1
+  clean DI view                                  16
+  Vulkan diagnostic markers                       1
+  bounded transmission producer + compose         1
+  clean GI                                        0
+  external PDF-NEE                                0
+  DLSS RR                                         0
+  secondary isolation stage                       0
+
+Repository defaults are clean DI view 12, diagnostic markers off, and clean GI
+on. Defaulting bucket resource/build/route gates to one under that state would
+build the full resident bucket universe and then fail closed to monolithic
+static traversal. That is avoidable memory/build overhead, not a cutover.
+Static gate defaults therefore remain zero until the actual default consumer
+set is accepted.
+
+The first bounded completion slice is clean GI. The GI shader already:
+
+  - includes the shared static-bucket route helper;
+  - resolves the accepted InstanceID + GeometryIndex + PrimitiveIndex address;
+  - receives the routed t3/t4/t5/t9/t11 static buffers;
+  - receives the same publication base/count/generation tuple as DI;
+  - uses the existing TLAS, descriptor layout, SBT records, and payload ABI.
+
+The only remaining clean-GI exclusion was the CPU production predicate left by
+the GEO-10 crash-isolation ladder. The candidate removes only that exclusion.
+Route 1, view 16, diagnostic markers, bounded transmission, external PDF-NEE
+off, RR off, and stage zero remain mandatory. No CVar default or shader changes.
+
+  PathTraceCpuPlanningHarness --stress 20       PASS
+  clean-GI positive / PDF-NEE and RR negative   PASS
+  cmake --build --preset win64-pt-dev-release  PASS
+  SPIR-V                                        all up to date
+  executable bytes                              16,079,872
+  executable SHA-256
+    D5A73E271EE039D5EB85256B049A3B2AD870E4AF48EFB392C71B9DA405893E8D
+
+Runtime acceptance remains open. The test must explicitly enable the three
+bucket gates under view 16, markers, bounded optics, clean GI on, PDF-NEE off,
+RR off, and stage zero. It must prove exact bucket cutover after BLAS
+convergence, GI dispatch without device loss, portal traversal, optical
+coverage, and explicit route-zero rollback.
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.

@@ -4193,6 +4193,27 @@ legacy/canonical emissive identity contract; it does not revoke the exact
 geometry, descriptor, lifecycle, rollback, restoration, or default-selection
 evidence.
 
+D171. STATIC DEFAULT PROMOTION REQUIRES THE REAL DEFAULT CONSUMER SET
+--------------------------------------------------------------------
+The accepted GEO-10 route-1 predicate is narrower than the repository default
+renderer state. It requires view 16, diagnostic markers, clean GI off,
+external PDF-NEE off, RR off, bounded transmission, and stage zero. Repository
+defaults are view 12, markers off, and clean GI on.
+
+Defaulting the bucket resource, build, and route gates to one without resolving
+that mismatch would construct every resident bucket BLAS and then fail closed
+to monolithic traversal. This is rejected as overhead without cutover. The
+three gates remain default off.
+
+Clean GI is the first bounded consumer-completion slice. Its existing shader
+libraries already consume the routed static buffers and publication tuple and
+resolve the canonical bucket address through the shared helper. The CPU
+isolation predicate was the only remaining exclusion. The candidate admits
+clean GI while retaining route 1, view 16, diagnostic markers, bounded
+transmission, external PDF-NEE off, RR off, and stage zero. No shader, ABI, or
+default changes. Runtime acceptance is required before widening another
+consumer or marker/view policy.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
