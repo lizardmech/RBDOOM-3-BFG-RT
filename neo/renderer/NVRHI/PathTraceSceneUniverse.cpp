@@ -1295,6 +1295,66 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
 
     buildStats.built = true;
     buildStats.cacheHit = canTouchCachedBuild;
+
+    if (staticWorldOnly && canTouchCachedBuild)
+    {
+        // The dedicated bucket universe owns immutable full-map world
+        // geometry. Once its scene generation and storage agree, the generic
+        // render-world/material enumeration only rediscovers the same records
+        // and re-registers the same stable material variant IDs. Retain the
+        // lifecycle touch, but derive counts directly from the resident
+        // records and leave portal activity to the assignment plan below.
+        for (const RtSmokePersistentStaticSurfaceRecord& resident :
+            geometryUniverse.StaticSurfaceRecords())
+        {
+            if (!resident.valid)
+            {
+                ++buildStats.skippedInvalid;
+                continue;
+            }
+
+            RtSmokePersistentStaticSurfaceRecord* record =
+                geometryUniverse.TouchStaticSurface(resident.key);
+            if (!record)
+            {
+                ++buildStats.skippedInvalid;
+                continue;
+            }
+
+            ++buildStats.surfaces;
+            buildStats.vertices +=
+                record->currentRange.vertices.count;
+            buildStats.indexes +=
+                record->currentRange.indexes.count;
+            buildStats.triangles +=
+                record->currentRange.triangles.count;
+            ++classStats.staticWorldSurfaces;
+            classStats.staticWorldVerts +=
+                record->currentRange.vertices.count;
+            classStats.staticWorldIndexes +=
+                record->currentRange.indexes.count;
+            classStats.staticWorldTriangles +=
+                record->currentRange.triangles.count;
+        }
+
+        buildStats.emissiveCapableSurfaces =
+            m_stats.emissiveCapableSurfaces;
+        buildStats.frameFastPath = true;
+        RtSmokeBucketRange& staticRange =
+            bucketRanges.buckets[0];
+        staticRange.vertexOffset = 0;
+        staticRange.indexOffset = 0;
+        staticRange.triangleOffset = 0;
+        staticRange.vertexCount =
+            static_cast<int>(staticVertices.size());
+        staticRange.indexCount =
+            static_cast<int>(staticIndexes.size());
+        staticRange.triangleCount =
+            static_cast<int>(staticTriangleClasses.size());
+        staticRange.surfaceCount = buildStats.surfaces;
+        return buildStats;
+    }
+
     geometryUniverse.ReserveStaticSurfaceRecords(m_surfaces.size());
 
     for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)

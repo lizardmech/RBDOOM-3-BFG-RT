@@ -3321,6 +3321,42 @@ upload bytes, and BLAS build/reuse/retire counts. This is the first measured
 step-9 checkpoint; further optimization must follow the reported dominant
 stage rather than assuming the resident pack still rebuilds.
 
+D131. SNAPSHOT CHECKPOINT ACCEPTED; CACHE STATIC SOURCE AND FULL MATERIAL SET
+-----------------------------------------------------------------------------
+The `geometry_geo_step9.log` evidence accepts D130:
+
+  cache(source/residentPack/materialIndex)           1/1/1
+  retained previous-static snapshot                  0 KB
+  warm GPU upload                                    0 bytes
+  bucket BLAS build/reuse/retire                     0/56/0
+  device removal                                     none
+
+The measured bucket-publication CPU time was 21,375 microseconds, of which
+19,530 microseconds was full static source enumeration. Portal masking,
+assignment, resident-pack lookup, material-index lookup, BLAS reuse planning,
+publication, and material upload together accounted for less than two
+milliseconds. The source walk is therefore the next measured target.
+
+The scene-universe generation and dedicated bucket storage already prove that
+warm full-map static geometry is unchanged. On an exact cache hit, do not walk
+every render entity, resolve every static material, and re-register the same
+runtime material variant IDs. Touch the existing resident static records
+directly so lifecycle continuity remains current, derive the same count/range
+summary from those records, and retain the cold enumeration for generation or
+storage misses. Report this as `sourceFastPath=1`.
+
+The same log exposed a separate correctness defect: only 4 of 73 captured
+route-1 cutover lines were accepted. Portal changes produced nonzero active
+material-index misses, including a 284-index failure, and temporarily restored
+the monolithic fallback. The full resident bucket material set was included
+for diagnostic consumer probes but not for the production route.
+
+Every route capable of admitting resident buckets must prepend and hydrate the
+same full resident material-ID universe before portal activity changes. Extend
+the existing probe policy to `productionRoute || consumerProbe`; do not wait
+for a bucket to become active before its material table entry exists. This is
+a correctness prerequisite for accepting the source fast path.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

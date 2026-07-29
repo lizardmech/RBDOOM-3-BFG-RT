@@ -7474,6 +7474,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool staticBucketConsumerProbe =
         staticBucketPrimaryOpaqueProbe ||
         staticBucketCleanDiSecondaryIsolation;
+    const bool staticBucketResidentMaterialRoute =
+        staticBucketProductionRoute ||
+        staticBucketConsumerProbe;
 
     RtSmokeMaterialMetadataRegistrationTiming metadataTiming;
     {
@@ -7481,13 +7484,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
         if (r_pathTracingWorldStaticEmissives.GetInteger() != 0 ||
             useSceneUniverseStaticGeometry ||
-            staticBucketConsumerProbe)
+            staticBucketResidentMaterialRoute)
         {
             const RtSmokeMaterialMetadataRegistrationTiming worldStaticMetadataTiming =
                 RegisterSmokeWorldStaticMaterialTextureInfo(
                     viewDef,
                     enableTextureProbe ||
-                        staticBucketConsumerProbe);
+                        staticBucketResidentMaterialRoute);
             metadataTiming.metadataMs += worldStaticMetadataTiming.metadataMs;
             metadataTiming.registrationMs += worldStaticMetadataTiming.registrationMs;
         }
@@ -7662,13 +7665,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }();
             materialTableStaticIds.insert(materialTableStaticIds.end(), rigidRouteMaterialIds.begin(), rigidRouteMaterialIds.end());
         }
-        if (staticBucketConsumerProbe)
+        if (staticBucketResidentMaterialRoute)
         {
-            // The full-resident decoder probe makes every resident static
-            // bucket traceable. Its material table must therefore cover the
-            // same full resident triangle-material stream. Keep that stable
-            // universe first so portal-selected monolithic membership cannot
-            // shift the table indexes consumed by resident bucket triangles.
+            // Every route that can admit resident buckets must cover the full
+            // resident triangle-material stream before portal movement makes
+            // another bucket active. Keep that stable universe first so
+            // portal-selected monolithic membership cannot shift or omit the
+            // table indexes consumed by bucket triangles.
             const std::vector<uint32_t>&
                 staticBucketTriangleMaterialIds =
                     m_staticBucketGeometryUniverse.
@@ -7697,7 +7700,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const uint64 materialHydrationRigidSignature =
             BuildSortedUniqueMaterialIdSignature(rigidRouteMaterialIds);
         const uint64 materialHydrationStaticBucketProbeSignature =
-            staticBucketConsumerProbe
+            staticBucketResidentMaterialRoute
                 ? BuildSortedUniqueMaterialIdSignature(
                     m_staticBucketGeometryUniverse.
                         StaticTriangleMaterials())
@@ -7727,7 +7730,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RegisterSmokeMaterialTextureInfoForMaterialIds(
                 *materialHydrationIds,
                 enableTextureProbe ||
-                    staticBucketConsumerProbe);
+                    staticBucketResidentMaterialRoute);
         metadataTiming.metadataMs += cachedStaticMetadataTiming.metadataMs;
         metadataTiming.registrationMs += cachedStaticMetadataTiming.registrationMs;
     }
@@ -13617,10 +13620,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                         (*staticBucketFramePublication.materialIndexes)[0])
                 : 0);
         common->Printf(
-            "PathTracePrimaryPass: GEO10 step9 cache(source/residentPack/materialIndex)=%d/%d/%d timingsUs(total/source/portal/assignment/residentPack/materialIndex/blasScaffold/publication/materialUpload)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu retainedKB(source/previous/residentPack/gpuInputs)=%d/%d/%llu/%llu warmUploadBytes=%llu blas(build/reuse/retire)=%d/%d/%d\n",
+            "PathTracePrimaryPass: GEO10 step9 cache(source/residentPack/materialIndex/sourceFastPath)=%d/%d/%d/%d timingsUs(total/source/portal/assignment/residentPack/materialIndex/blasScaffold/publication/materialUpload)=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu retainedKB(source/previous/residentPack/gpuInputs)=%d/%d/%llu/%llu warmUploadBytes=%llu blas(build/reuse/retire)=%d/%d/%d\n",
             staticBucketSourceBuildStats.cacheHit ? 1 : 0,
             staticBucketFramePublication.residentPackCacheHit ? 1 : 0,
             staticBucketFramePublication.materialIndexCacheHit ? 1 : 0,
+            staticBucketSourceBuildStats.frameFastPath ? 1 : 0,
             static_cast<unsigned long long>(
                 staticBucketFramePublication.totalCpuMicroseconds),
             static_cast<unsigned long long>(

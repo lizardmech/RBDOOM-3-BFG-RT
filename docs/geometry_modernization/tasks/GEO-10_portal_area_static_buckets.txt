@@ -3170,3 +3170,72 @@ unchanged visuals and traversal, `previous=0` in the new retained-memory
 tuple, warm cache values of `1/1/1`, zero warm upload bytes, BLAS reuse with
 zero retirement, and a captured `GEO10 step9` line. The largest measured warm
 CPU stage determines the next optimization.
+
+REF-10AL STEP-9 RESULT, SOURCE FAST PATH, AND MATERIAL COMPLETENESS - 2026-07-29
+-------------------------------------------------------------------------------
+`geometry_geo_step9.log` accepts the previous-static snapshot removal and
+identifies the next measured bottleneck:
+
+  cache(source/residentPack/materialIndex)           1/1/1
+  timings microseconds
+    total                                             21,375
+    source                                            19,530
+    portal                                                25
+    assignment                                           401
+    resident pack                                          0
+    material index                                        47
+    BLAS scaffold                                         11
+    publication                                           22
+    material upload                                        0
+  retained KB(source/previous/pack/GPU inputs)       8094/0/9087/8053
+  warm upload bytes                                        0
+  BLAS build/reuse/retire                            0/56/0
+  device removal                                          none
+
+The source stage consumed 91.4 percent of the measured bucket-publication CPU
+time. On a warm exact generation/storage hit,
+`BuildFullStaticBucketGeometry` now touches the already resident static records
+directly and derives the same vertex/index/triangle and bucket-range summary.
+It no longer re-enumerates render entities, resolves unchanged world
+materials, or re-registers stable runtime material variants. Cold generation
+or storage misses retain the complete original build path. The next audit
+reports a fourth cache bit, `sourceFastPath`.
+
+The log also rejects production cutover stability despite correct visuals:
+only 4 of 73 captured cutover records were accepted. Portal transitions
+produced active material-index misses, including:
+
+  buckets(active/resident/ready)                     15/56/56
+  materialIndexMissingActive                              284
+  requested/accepted                                    1/0
+
+The full resident material-ID set was prepended and hydrated only for
+diagnostic consumer probes. It is now required for
+`productionRoute || consumerProbe`, ensuring that a newly active bucket cannot
+outrun material-table membership. This reuses the existing stable full-resident
+ordering and does not change shader ABI or traversal.
+
+Offline proof:
+
+  PathTraceCpuPlanningHarness                        passed
+  PathTraceCpuPlanningHarness --stress 20            passed
+  full win64-pt-dev-release build                    passed
+  shader rebuilds                                    0
+
+  executable SHA-256
+    F481E5C0EBA22146040BEB3045CFB8314BD67982E3296495FBA413B45B063130
+
+Deploy only the executable. For runtime acceptance, keep the accepted route-1
+optical configuration, allow all 56 BLASes to settle, cross several portals,
+then set `r_pathTracingGeometryStaticBucketAudit 1`. The new audit must show:
+
+  cache(source/residentPack/materialIndex/sourceFastPath)=1/1/1/1
+  retained previous KB                               0
+  warm upload bytes                                  0
+  BLAS build/reuse/retire                            0/56/0
+  materialIndexMissingActive                         0
+  requested/accepted                                 1/1
+
+Geometry, glass, reflection, refraction, and camera movement must remain
+unchanged. The new warm source and total microsecond values determine whether
+another step-9 CPU optimization is warranted.

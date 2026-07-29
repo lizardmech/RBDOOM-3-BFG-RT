@@ -94,6 +94,7 @@ struct RtPathTraceSceneUniverseBuildStats
 {
     bool built = false;
     bool cacheHit = false;
+    bool frameFastPath = false;
     int surfaces = 0;
     int vertices = 0;
     int indexes = 0;
