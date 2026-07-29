@@ -179,11 +179,14 @@ them for the production route:
   0  full producer
   1  source-glass identification/decode, return before secondary TraceRay
   2  bounded forced-opaque trace and closest-hit payload, return before
-     resolved-surface construction/publication
+     resolved-surface construction
+  3  construct the resolved behind-glass surface and diagnostic tuple, return
+     before primary-surface publication and guide/sidecar writes
 
 Stage 1 survived the newly visible glass trigger. Source-glass activation and
-parameter decode are excluded. Stage 2 now separates secondary traversal and
-closest-hit payload construction from the remaining resolved-surface work. No
+parameter decode are excluded. Stage 2 also survived, excluding secondary
+traversal and closest-hit payload construction. Stage 3 now separates
+resolved-surface construction from publication and guide/sidecar writes. No
 shader or ABI change is required.
 
 The initial CPU-only control built successfully with every SPIR-V shader up to date.
@@ -193,3 +196,7 @@ B1BC395341F96AD4736AC4742524F86A05CDFAE123ECCB441943379DF1D9218F.
 The unified stage control built successfully with every SPIR-V shader up to
 date. The deployed 15,997,952-byte executable is byte-identical, SHA-256
 5EECAD0F1527CEB68FA132130CCA9EF534E9A453901FE9A7AF38244BB41086C0.
+
+Stage 3 built successfully with every SPIR-V shader up to date. The deployed
+15,997,952-byte executable is byte-identical, SHA-256
+1CF7B31B7B98867E43979349F75F635BEE6B0DDE4F23EA6022F22FC630F01D26.

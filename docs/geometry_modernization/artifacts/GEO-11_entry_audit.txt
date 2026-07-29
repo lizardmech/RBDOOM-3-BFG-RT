@@ -522,11 +522,17 @@ checkpoint was reported. A default-zero
 `r_pathTracingCleanRtxdiDiTransmissionIsolationStage` exposes the producer's
 already-compiled source-decode/no-secondary-trace branch as stage 1 and its
 bounded forced-opaque trace/closest-hit/no-resolve branch as stage 2.
-Stage 1 survived, excluding source-glass activation and decode. Stage 2 is the
-next binary fault boundary and changes no shader ABI.
+Stage 1 survived, excluding source-glass activation and decode. Stage 2 also
+survived, excluding secondary traversal and closest-hit payload construction.
+Stage 3 uses the compiled resolved-tuple branch to construct the behind-glass
+surface, then returns before primary-surface publication and guide/sidecar
+writes. It is the final binary fault boundary and changes no shader ABI.
 The Vulkan release build passed with every SPIR-V shader up to date. The
 deployed 15,997,440-byte executable is byte-identical, SHA-256
 B1BC395341F96AD4736AC4742524F86A05CDFAE123ECCB441943379DF1D9218F.
 The unified stage-control Vulkan build passed with every SPIR-V shader up to
 date. The deployed 15,997,952-byte executable is byte-identical, SHA-256
 5EECAD0F1527CEB68FA132130CCA9EF534E9A453901FE9A7AF38244BB41086C0.
+The stage-3 Vulkan build also passed with all SPIR-V shaders up to date. The
+deployed 15,997,952-byte executable is byte-identical, SHA-256
+1CF7B31B7B98867E43979349F75F635BEE6B0DDE4F23EA6022F22FC630F01D26.

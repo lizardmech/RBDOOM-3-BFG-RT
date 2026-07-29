@@ -3575,8 +3575,12 @@ glass identification and parameter decode then return before TraceRay, and
 before resolved-surface construction/publication. A default-zero
 `r_pathTracingCleanRtxdiDiTransmissionIsolationStage` selects full behavior,
 stage 1, or stage 2. Stage 1 survived the visibility trigger, excluding source
-activation and parameter decode. Stage 2 is the remaining binary boundary.
-Neither stage adds a shader variant, descriptor change, or payload change.
+activation and parameter decode. Stage 2 also survived, excluding secondary
+traversal and closest-hit payload construction. Stage 3 selects the compiled
+resolved-tuple branch: it constructs the behind-glass surface, writes only its
+diagnostic tuple, and returns before primary-surface publication and
+guide/sidecar writes. None of the stages adds a shader variant, descriptor
+change, or payload change.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
