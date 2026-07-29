@@ -83,6 +83,18 @@ struct RtRetiredSmokeStaticBucketGpuPackage
     RtSmokeRetiredStaticBucketGpuResources resources;
 };
 
+struct RtRetiredSmokeRigidGpuPackage
+{
+    uint64 retireFrame = 0;
+    uint64 completionToken = 0;
+    uint64 bufferBytes = 0;
+    uint64 blasResultBytes = 0;
+    int blasResultQueryFailures = 0;
+    bool completionArmed = false;
+    nvrhi::EventQueryHandle completionQuery;
+    RtSmokeRetiredRigidGpuResources resources;
+};
+
 struct RtSmokeSkinnedComparisonBlasResource
 {
     PtCanonicalInstanceKey instanceKey;
@@ -292,6 +304,11 @@ private:
         RtSmokeRetiredStaticBucketGpuResources& resources,
         uint64 currentFrame);
     int ReleaseCompletedRetiredStaticBucketGpuResources(
+        uint64 currentFrame);
+    void PushRetiredRigidGpuResources(
+        RtSmokeRetiredRigidGpuResources& resources,
+        uint64 currentFrame);
+    int ReleaseCompletedRetiredRigidGpuResources(
         uint64 currentFrame);
     int ReleaseCompletedRetiredSmokeSkinnedComparisonBlases(uint64 currentFrame);
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
@@ -636,6 +653,9 @@ private:
     uint64 m_smokeNextStaticBucketCompletionToken = 1;
     uint64 m_smokeLastCompletedStaticBucketToken = 0;
     bool m_smokeStaticBucketCompletionQueryFailureLogged = false;
+    uint64 m_smokeNextRigidCompletionToken = 1;
+    uint64 m_smokeLastCompletedRigidToken = 0;
+    bool m_smokeRigidCompletionQueryFailureLogged = false;
     nvrhi::BufferHandle m_smokeSkinnedPreviousPositionBuffer;
     nvrhi::BufferHandle m_smokeSkinnedSurfaceDispatchBuffer;
     nvrhi::BufferHandle m_smokeSkinnedTriangleDispatchIndexBuffer;
@@ -800,6 +820,8 @@ private:
     std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
     std::deque<RtRetiredSmokeStaticBucketGpuPackage>
         m_retiredSmokeStaticBucketGpuPackages;
+    std::deque<RtRetiredSmokeRigidGpuPackage>
+        m_retiredSmokeRigidGpuPackages;
     std::vector<uint32_t> m_smokePreviousStaticTriangleMaterialIndexes;
     std::vector<PathTraceSmokeMaterial> m_smokeMaterialTableMaterials;
     std::vector<PathTraceDynamicMaterialRecord> m_smokeDynamicMaterialRecords;

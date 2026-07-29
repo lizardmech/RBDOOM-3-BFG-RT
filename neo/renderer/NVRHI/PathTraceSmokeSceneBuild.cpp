@@ -7428,6 +7428,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingRigidResidencyDump.SetInteger(0);
         }
     }
+    ReleaseCompletedRetiredRigidGpuResources(
+        m_smokeGeometryFrameIndex);
+    RtSmokeRetiredRigidGpuResources
+        retiredRigidGpuResources;
+    if (m_smokeGeometryUniverse.
+            TakeRetiredRigidGpuResources(
+                retiredRigidGpuResources))
+    {
+        PushRetiredRigidGpuResources(
+            retiredRigidGpuResources,
+            m_smokeGeometryFrameIndex);
+    }
     if (useDrawSurfMirrorDynamicFrame && r_pathTracingRigidTlasPlanDump.GetInteger() != 0)
     {
         const RtPathTraceRigidTlasPlanStats rigidTlasPlanStats = m_smokeGeometryUniverse.BuildRigidTlasPlanStats(m_instanceUniverse, &classStats);

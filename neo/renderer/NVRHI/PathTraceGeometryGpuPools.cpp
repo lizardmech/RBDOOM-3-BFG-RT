@@ -6,7 +6,6 @@ namespace {
 
 constexpr std::uint64_t kMinimumPoolGrowthBytes = 64ull * 1024ull;
 constexpr std::uint64_t kMaximumPoolCapacityBytes = 1024ull * 1024ull * 1024ull;
-constexpr std::uint64_t kRetireFrames = 3;
 
 enum PoolIndex
 {
@@ -72,20 +71,6 @@ PtGeometryPoolRange& RecordRange(
 
 }
 
-void PtGeometryGpuPoolSet::ReleaseExpired(
-    Pool& pool,
-    std::uint64_t frameIndex)
-{
-    pool.retired.erase(
-        std::remove_if(
-            pool.retired.begin(),
-            pool.retired.end(),
-            [frameIndex](const RetiredBuffer& retired) {
-                return retired.releaseAfterFrame <= frameIndex;
-            }),
-        pool.retired.end());
-}
-
 void PtGeometryGpuPoolSet::RebaseRecordRanges(
     int poolIndex,
     const PtGeometryPoolGrowthPlan& growth)
@@ -116,6 +101,7 @@ bool PtGeometryGpuPoolSet::EnsureCapacity(
     std::uint64_t frameIndex,
     PtGeometryGpuPoolStats& stats)
 {
+    (void)frameIndex;
     if (requiredUsedBytes <= pool.state.capacityBytes)
     {
         return pool.buffer != nullptr || requiredUsedBytes == 0;
@@ -148,19 +134,19 @@ bool PtGeometryGpuPoolSet::EnsureCapacity(
         return false;
     }
 
-    if (pool.buffer && growth.copyBytes != 0)
+    if (pool.buffer)
     {
-        commandList->copyBuffer(
-            replacement,
-            0,
-            pool.buffer,
-            0,
-            growth.copyBytes);
-        RetiredBuffer retired;
-        retired.buffer = pool.buffer;
-        retired.releaseAfterFrame = frameIndex + kRetireFrames;
-        pool.retired.push_back(retired);
-        stats.copiedGrowthBytes += growth.copyBytes;
+        if (growth.copyBytes != 0)
+        {
+            commandList->copyBuffer(
+                replacement,
+                0,
+                pool.buffer,
+                0,
+                growth.copyBytes);
+            stats.copiedGrowthBytes += growth.copyBytes;
+        }
+        retiredBuffers_.push_back(pool.buffer);
         ++stats.buffersGrown;
     }
     else
@@ -181,17 +167,13 @@ PtGeometryGpuPoolStats PtGeometryGpuPoolSet::Update(
     const PtGeometrySourceRegistry& sources,
     std::uint64_t frameIndex)
 {
+    (void)frameIndex;
     PtGeometryGpuPoolStats stats;
     if (device == nullptr || commandList == nullptr)
     {
         stats.rejectedRecords = sources.RecordCount();
         return stats;
     }
-    for (Pool& pool : pools_)
-    {
-        ReleaseExpired(pool, frameIndex);
-    }
-
     std::vector<std::size_t> pending;
     for (std::size_t index = 0; index < sources.RecordCount(); ++index)
     {
@@ -328,8 +310,8 @@ PtGeometryGpuPoolStats PtGeometryGpuPoolSet::Update(
         stats.used[poolIndex] = pools_[poolIndex].state.usedBytes;
         stats.generations[poolIndex] =
             pools_[poolIndex].state.storageGeneration;
-        stats.retiredBuffers += pools_[poolIndex].retired.size();
     }
+    stats.retiredBuffers = retiredBuffers_.size();
     return stats;
 }
 
@@ -366,19 +348,40 @@ nvrhi::BufferHandle PtGeometryGpuPoolSet::TriangleBuffer() const
 
 void PtGeometryGpuPoolSet::ResetForPublication(std::uint64_t frameIndex)
 {
+    (void)frameIndex;
     records_.clear();
     for (Pool& pool : pools_)
     {
         if (pool.buffer)
         {
-            RetiredBuffer retired;
-            retired.buffer = pool.buffer;
-            retired.releaseAfterFrame = frameIndex + kRetireFrames;
-            pool.retired.push_back(retired);
+            retiredBuffers_.push_back(pool.buffer);
         }
         pool.buffer = nullptr;
         pool.state = PtGeometryPoolState();
     }
+}
+
+std::size_t PtGeometryGpuPoolSet::TakeRetiredBuffers(
+    std::vector<nvrhi::BufferHandle>& buffers)
+{
+    const std::size_t retiredCount = retiredBuffers_.size();
+    buffers.reserve(buffers.size() + retiredCount);
+    for (nvrhi::BufferHandle& buffer : retiredBuffers_)
+    {
+        buffers.push_back(buffer);
+    }
+    retiredBuffers_.clear();
+    return retiredCount;
+}
+
+std::size_t PtGeometryGpuPoolSet::RetiredBufferCount() const
+{
+    return retiredBuffers_.size();
+}
+
+void PtGeometryGpuPoolSet::ClearRetiredBuffers()
+{
+    retiredBuffers_.clear();
 }
 
 void PtGeometryGpuPoolSet::Clear()
@@ -388,4 +391,5 @@ void PtGeometryGpuPoolSet::Clear()
     {
         pool = Pool();
     }
+    retiredBuffers_.clear();
 }

@@ -10,7 +10,6 @@
 
 namespace {
 
-constexpr std::uint64_t kRetireFrames = 3;
 constexpr std::uint64_t kStableFramesBeforeBuild = 3;
 constexpr std::uint64_t kFnvOffsetBasis = 1469598103934665603ull;
 constexpr std::uint64_t kFnvPrime = 1099511628211ull;
@@ -162,26 +161,11 @@ bool FindCandidate(
 
 }
 
-void PtGeometryOffsetBlasProbe::ReleaseExpired(std::uint64_t frameIndex)
-{
-    retired_.erase(
-        std::remove_if(
-            retired_.begin(),
-            retired_.end(),
-            [frameIndex](const RetiredBlas& retired) {
-                return retired.releaseAfterFrame <= frameIndex;
-            }),
-        retired_.end());
-}
-
-void PtGeometryOffsetBlasProbe::RetireCurrent(std::uint64_t frameIndex)
+void PtGeometryOffsetBlasProbe::RetireCurrent()
 {
     if (blas_)
     {
-        RetiredBlas retired;
-        retired.blas = blas_;
-        retired.releaseAfterFrame = frameIndex + kRetireFrames;
-        retired_.push_back(retired);
+        retired_.push_back(blas_);
         ++stats_.blasRetired;
     }
     blas_ = nullptr;
@@ -231,7 +215,7 @@ void PtGeometryOffsetBlasProbe::Update(
     const PtGeometryGpuPoolSet& pools,
     std::uint64_t frameIndex)
 {
-    ReleaseExpired(frameIndex);
+    (void)frameIndex;
     if (stats_.readbackPending && readbackDelayFrames_ > 0)
     {
         --readbackDelayFrames_;
@@ -248,7 +232,7 @@ void PtGeometryOffsetBlasProbe::Update(
     {
         if (observedCandidateSignature_ != 0)
         {
-            RetireCurrent(frameIndex);
+            RetireCurrent();
         }
         observedCandidateSignature_ = 0;
         stats_.selectedSourceIndex =
@@ -275,7 +259,7 @@ void PtGeometryOffsetBlasProbe::Update(
 
     if (candidate.signature != observedCandidateSignature_)
     {
-        RetireCurrent(frameIndex);
+        RetireCurrent();
         observedCandidateSignature_ = candidate.signature;
         stats_.stableFrames = 1;
         stats_.endpointBytesValid = false;
@@ -472,6 +456,29 @@ const PtGeometryOffsetBlasProbeStats&
 PtGeometryOffsetBlasProbe::Stats() const
 {
     return stats_;
+}
+
+std::size_t PtGeometryOffsetBlasProbe::TakeRetiredBlases(
+    std::vector<nvrhi::rt::AccelStructHandle>& blases)
+{
+    const std::size_t retiredCount = retired_.size();
+    blases.reserve(blases.size() + retiredCount);
+    for (nvrhi::rt::AccelStructHandle& blas : retired_)
+    {
+        blases.push_back(blas);
+    }
+    retired_.clear();
+    return retiredCount;
+}
+
+std::size_t PtGeometryOffsetBlasProbe::RetiredBlasCount() const
+{
+    return retired_.size();
+}
+
+void PtGeometryOffsetBlasProbe::ClearRetiredBlases()
+{
+    retired_.clear();
 }
 
 void PtGeometryOffsetBlasProbe::Clear()

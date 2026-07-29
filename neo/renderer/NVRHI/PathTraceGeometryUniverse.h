@@ -818,6 +818,22 @@ struct RtSmokeRetiredStaticBucketGpuResources
     }
 };
 
+struct RtSmokeRetiredRigidGpuResources
+{
+    std::vector<nvrhi::BufferHandle> buffers;
+    std::vector<nvrhi::rt::AccelStructHandle> blases;
+    int legacyBufferCount = 0;
+    int legacyBlasCount = 0;
+    int canonicalBlasCount = 0;
+    int canonicalPoolBufferCount = 0;
+    int canonicalProbeBlasCount = 0;
+
+    bool Empty() const
+    {
+        return buffers.empty() && blases.empty();
+    }
+};
+
 struct RtPathTraceStaticBucketRouteRecord
 {
     uint32_t instanceId = 0;
@@ -1064,6 +1080,9 @@ public:
     RtPathTraceRigidBlasGpuStats UpdateRigidBlasGpuScaffold(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, bool submitBuilds);
     void ReleaseRigidBlasGpuScaffold();
     void ClearRetiredRigidBlas();
+    bool HasRetiredRigidGpuResources() const;
+    bool TakeRetiredRigidGpuResources(
+        RtSmokeRetiredRigidGpuResources& resources);
     void DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGpuStats& stats, int sceneSource, bool scaffoldEnabled, bool submitBuilds) const;
     RtPathTraceRigidResidencyStats UpdateRigidResidency(
         const viewDef_t* viewDef,
@@ -1156,13 +1175,6 @@ public:
     };
 
 private:
-    struct RetiredRigidBlasRecord
-    {
-        nvrhi::rt::AccelStructHandle rigidBlas;
-        uint64 retireFrame = 0;
-        uint64 retireGeneration = 0;
-    };
-
     struct RigidResidentInstanceRecord
     {
         RtPathTraceRigidRouteInstanceObservation observation;
@@ -1195,16 +1207,11 @@ private:
         bool seenThisUpdate = false;
     };
 
-    struct RetiredCanonicalRigidBlas
-    {
-        nvrhi::rt::AccelStructHandle blas;
-        uint64 releaseAfterFrame = 0;
-    };
-
     RtSmokePersistentStaticSurfaceRecord* FindStaticSurfaceMutable(uint64 key);
     RigidMeshCandidateRecord* FindOrCreateRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation, bool& cacheHit);
     void RetireRigidBlas(RigidMeshCandidateRecord& record);
-    void ReleaseExpiredRetiredRigidBlas();
+    void RetireRigidBuffer(nvrhi::BufferHandle& buffer);
+    void RetireRigidMeshGpuResources(RigidMeshCandidateRecord& record);
     void ClearRigidResidencyCaches();
     void ResetRigidMeshCandidateFrameStats();
     CanonicalRigidBlasRecord* FindCanonicalRigidBlasRecord(
@@ -1215,7 +1222,6 @@ private:
         uint64 meshHash) const;
     void RetireCanonicalRigidBlas(
         CanonicalRigidBlasRecord& record);
-    void ReleaseExpiredCanonicalRigidBlas();
     void ReleaseCanonicalRigidBlasScaffold();
     void RetireStaticBucketBuffer(
         nvrhi::BufferHandle& buffer);
@@ -1253,7 +1259,7 @@ private:
     std::vector<uint32_t> m_previousStaticTriangleClassCache;
     std::vector<uint32_t> m_previousStaticTriangleMaterialCache;
     std::vector<RigidMeshCandidateRecord> m_rigidMeshCandidateRecords;
-    std::vector<RetiredRigidBlasRecord> m_retiredRigidBlasRecords;
+    RtSmokeRetiredRigidGpuResources m_retiredRigidGpuResources;
     std::unordered_map<uint64, size_t> m_rigidMeshCandidateLookup;
     std::unordered_set<uint64> m_frameRigidMeshCandidateHashes;
     std::vector<RigidResidentInstanceRecord> m_rigidResidentRecords;
@@ -1273,8 +1279,6 @@ private:
     PtGeometryOffsetBlasProbe m_canonicalOffsetBlasProbe;
     std::vector<CanonicalRigidBlasRecord> m_canonicalRigidBlasRecords;
     std::unordered_multimap<uint64, size_t> m_canonicalRigidBlasLookup;
-    std::vector<RetiredCanonicalRigidBlas>
-        m_retiredCanonicalRigidBlasRecords;
     RtPathTraceCanonicalRigidBlasStats m_canonicalRigidBlasStats;
     uint64 m_canonicalSourceWorldGeneration = 0;
     uint64 m_canonicalSourcePublicationGeneration = 0;

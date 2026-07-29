@@ -24,8 +24,6 @@
 
 namespace {
 
-constexpr uint64 RT_SMOKE_RIGID_BLAS_RETIRE_FRAMES = 3;
-
 void BuildRigidNormalTexMatrix(const idMaterial* material, const float* registers, float matrix[6])
 {
     const float identity[6] = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
@@ -2389,29 +2387,14 @@ void RtSmokeGeometryUniverse::RetireCanonicalRigidBlas(
 {
     if (record.blas)
     {
-        RetiredCanonicalRigidBlas retired;
-        retired.blas = record.blas;
-        retired.releaseAfterFrame =
-            m_currentFrameIndex + RT_SMOKE_RIGID_BLAS_RETIRE_FRAMES;
-        m_retiredCanonicalRigidBlasRecords.push_back(retired);
+        m_retiredRigidGpuResources.blases.push_back(record.blas);
+        ++m_retiredRigidGpuResources.canonicalBlasCount;
         ++m_canonicalRigidBlasStats.blasRetired;
     }
     record.blas = nullptr;
     record.blasDesc = nvrhi::rt::AccelStructDesc();
     record.inputSignature = 0;
     record.buildSubmitted = false;
-}
-
-void RtSmokeGeometryUniverse::ReleaseExpiredCanonicalRigidBlas()
-{
-    m_retiredCanonicalRigidBlasRecords.erase(
-        std::remove_if(
-            m_retiredCanonicalRigidBlasRecords.begin(),
-            m_retiredCanonicalRigidBlasRecords.end(),
-            [this](const RetiredCanonicalRigidBlas& retired) {
-                return retired.releaseAfterFrame <= m_currentFrameIndex;
-            }),
-        m_retiredCanonicalRigidBlasRecords.end());
 }
 
 void RtSmokeGeometryUniverse::ReleaseCanonicalRigidBlasScaffold()
@@ -2431,7 +2414,6 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
     const RtPathTraceInstanceUniverse& instanceUniverse,
     bool enabled)
 {
-    ReleaseExpiredCanonicalRigidBlas();
     const uint64 intervalCreated = m_canonicalRigidBlasStats.blasCreated;
     const uint64 intervalBuilt = m_canonicalRigidBlasStats.blasBuilt;
     const uint64 intervalReused = m_canonicalRigidBlasStats.blasReused;
@@ -2570,12 +2552,11 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
                 *source,
                 *gpu,
                 m_canonicalSourceGpuPools);
-        if (record->blas &&
-            record->inputSignature != inputSignature)
-        {
-            RetireCanonicalRigidBlas(*record);
-        }
-        if (record->blas && record->buildSubmitted)
+        const bool replacementRequired =
+            record->blas &&
+            record->inputSignature != inputSignature;
+        if (record->blas && record->buildSubmitted &&
+            !replacementRequired)
         {
             ++m_canonicalRigidBlasStats.readyRequestedMeshes;
             ++m_canonicalRigidBlasStats.blasReused;
@@ -2584,6 +2565,11 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
         if (buildsRemaining <= 0)
         {
             ++m_canonicalRigidBlasStats.deferredBuilds;
+            if (record->blas && record->buildSubmitted)
+            {
+                ++m_canonicalRigidBlasStats.readyRequestedMeshes;
+                ++m_canonicalRigidBlasStats.blasReused;
+            }
             continue;
         }
 
@@ -2601,15 +2587,22 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
         triangles.vertexStride = sizeof(PtGeometrySourcePosition);
         nvrhi::rt::GeometryDesc geometry;
         geometry.setTriangles(triangles);
-        record->blasDesc = nvrhi::rt::AccelStructDesc()
+        nvrhi::rt::AccelStructDesc replacementBlasDesc =
+            nvrhi::rt::AccelStructDesc()
             .addBottomLevelGeometry(geometry)
             .setBuildFlags(
                 nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
             .setDebugName("PathTraceCanonicalRigidBLAS");
-        record->blas = device->createAccelStruct(record->blasDesc);
-        if (!record->blas)
+        nvrhi::rt::AccelStructHandle replacementBlas =
+            device->createAccelStruct(replacementBlasDesc);
+        if (!replacementBlas)
         {
             ++m_canonicalRigidBlasStats.deferredBuilds;
+            if (record->blas && record->buildSubmitted)
+            {
+                ++m_canonicalRigidBlasStats.readyRequestedMeshes;
+                ++m_canonicalRigidBlasStats.blasReused;
+            }
             continue;
         }
         ++m_canonicalRigidBlasStats.blasCreated;
@@ -2623,13 +2616,19 @@ void RtSmokeGeometryUniverse::UpdateCanonicalRigidBlasScaffold(
         const auto buildStart = std::chrono::steady_clock::now();
         nvrhi::utils::BuildBottomLevelAccelStruct(
             commandList,
-            record->blas,
-            record->blasDesc);
+            replacementBlas,
+            replacementBlasDesc);
         const auto buildEnd = std::chrono::steady_clock::now();
         m_canonicalRigidBlasStats.buildSubmitMicroseconds +=
             static_cast<uint64>(
                 std::chrono::duration_cast<std::chrono::microseconds>(
                     buildEnd - buildStart).count());
+        if (record->blas)
+        {
+            RetireCanonicalRigidBlas(*record);
+        }
+        record->blasDesc = replacementBlasDesc;
+        record->blas = replacementBlas;
         record->inputSignature = inputSignature;
         record->buildSubmitted = true;
         ++m_canonicalRigidBlasStats.blasBuilt;
@@ -2684,13 +2683,11 @@ void RtSmokeGeometryUniverse::DumpCanonicalRigidBlasStats()
 
 void RtSmokeGeometryUniverse::RetireRigidBlas(RigidMeshCandidateRecord& record)
 {
-    if (record.rigidBlas && r_pathTracingAsyncBvh.GetInteger() != 0)
+    if (record.rigidBlas)
     {
-        RetiredRigidBlasRecord retired;
-        retired.rigidBlas = record.rigidBlas;
-        retired.retireFrame = m_currentFrameIndex;
-        retired.retireGeneration = m_generation;
-        m_retiredRigidBlasRecords.push_back(retired);
+        m_retiredRigidGpuResources.blases.push_back(
+            record.rigidBlas);
+        ++m_retiredRigidGpuResources.legacyBlasCount;
     }
 
     record.rigidBlas = nullptr;
@@ -2701,39 +2698,32 @@ void RtSmokeGeometryUniverse::RetireRigidBlas(RigidMeshCandidateRecord& record)
     record.gpuBlasIndexCount = 0;
 }
 
-void RtSmokeGeometryUniverse::ReleaseExpiredRetiredRigidBlas()
+void RtSmokeGeometryUniverse::RetireRigidBuffer(
+    nvrhi::BufferHandle& buffer)
 {
-    if (m_retiredRigidBlasRecords.empty())
+    if (buffer)
     {
-        return;
+        m_retiredRigidGpuResources.buffers.push_back(buffer);
+        ++m_retiredRigidGpuResources.legacyBufferCount;
+        buffer = nullptr;
     }
+}
 
-    if (r_pathTracingAsyncBvh.GetInteger() == 0)
-    {
-        m_retiredRigidBlasRecords.clear();
-        return;
-    }
-
-    const uint64 retireFrames = RT_SMOKE_RIGID_BLAS_RETIRE_FRAMES;
-    m_retiredRigidBlasRecords.erase(
-        std::remove_if(
-            m_retiredRigidBlasRecords.begin(),
-            m_retiredRigidBlasRecords.end(),
-            [this, retireFrames](const RetiredRigidBlasRecord& retired) {
-                return retired.retireFrame + retireFrames < m_currentFrameIndex;
-            }),
-        m_retiredRigidBlasRecords.end());
+void RtSmokeGeometryUniverse::RetireRigidMeshGpuResources(
+    RigidMeshCandidateRecord& record)
+{
+    RetireRigidBlas(record);
+    RetireRigidBuffer(record.rigidVertexBuffer);
+    RetireRigidBuffer(record.rigidIndexBuffer);
+    record.gpuUploadSignature = 0;
+    record.gpuBuffersUploaded = false;
 }
 
 void RtSmokeGeometryUniverse::ClearRigidResidencyCaches()
 {
     for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
     {
-        RetireRigidBlas(record);
-    }
-    if (r_pathTracingAsyncBvh.GetInteger() == 0)
-    {
-        m_retiredRigidBlasRecords.clear();
+        RetireRigidMeshGpuResources(record);
     }
     m_rigidMeshCandidateRecords.clear();
     m_rigidMeshCandidateLookup.clear();
@@ -2818,7 +2808,6 @@ void RtSmokeGeometryUniverse::BeginFrame(
     m_currentFrameIndex = frameIndex;
     m_staticMaterialDirtyTriangleOffset = -1;
     m_staticMaterialDirtyTriangleCount = 0;
-    ReleaseExpiredRetiredRigidBlas();
     m_frameActive = true;
     ResetRigidMeshCandidateFrameStats();
     m_rigidMeshCandidateFrameStats.frameIndex = frameIndex;
@@ -6038,11 +6027,14 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         }
         else
         {
-            record.rigidVertexBuffer = CreateRigidSmokeBuffer(device, "PathTraceRigidMeshLocalVertices", requiredVertexBytes, sizeof(PathTraceSmokeVertex), true, false);
-            record.gpuBuffersUploaded = false;
-            createdVertexBuffer = record.rigidVertexBuffer != nullptr;
+            nvrhi::BufferHandle replacement =
+                CreateRigidSmokeBuffer(device, "PathTraceRigidMeshLocalVertices", requiredVertexBytes, sizeof(PathTraceSmokeVertex), true, false);
+            createdVertexBuffer = replacement != nullptr;
             if (createdVertexBuffer)
             {
+                RetireRigidBuffer(record.rigidVertexBuffer);
+                record.rigidVertexBuffer = replacement;
+                record.gpuBuffersUploaded = false;
                 ++stats.vertexBuffersCreated;
             }
         }
@@ -6053,16 +6045,26 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         }
         else
         {
-            record.rigidIndexBuffer = CreateRigidSmokeBuffer(device, "PathTraceRigidMeshLocalIndices", requiredIndexBytes, sizeof(uint32_t), false, true);
-            record.gpuBuffersUploaded = false;
-            createdIndexBuffer = record.rigidIndexBuffer != nullptr;
+            nvrhi::BufferHandle replacement =
+                CreateRigidSmokeBuffer(device, "PathTraceRigidMeshLocalIndices", requiredIndexBytes, sizeof(uint32_t), false, true);
+            createdIndexBuffer = replacement != nullptr;
             if (createdIndexBuffer)
             {
+                RetireRigidBuffer(record.rigidIndexBuffer);
+                record.rigidIndexBuffer = replacement;
+                record.gpuBuffersUploaded = false;
                 ++stats.indexBuffersCreated;
             }
         }
 
-        if (!record.rigidVertexBuffer || !record.rigidIndexBuffer)
+        if (!RigidSmokeBufferHasCapacity(
+                record.rigidVertexBuffer,
+                requiredVertexBytes,
+                sizeof(PathTraceSmokeVertex)) ||
+            !RigidSmokeBufferHasCapacity(
+                record.rigidIndexBuffer,
+                requiredIndexBytes,
+                sizeof(uint32_t)))
         {
             ++stats.skippedInvalid;
             continue;
@@ -6100,12 +6102,6 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         const RtSmokeRigidBlasBuildPlan buildPlan = BuildSmokeRigidBlasBuildPlan(buildPlanInput);
         if (buildPlan.createBlas)
         {
-            if (record.rigidBlas)
-            {
-                RetireRigidBlas(record);
-                ++stats.blasRecreatedForInputChange;
-            }
-
             RtSmokeBlasCreateDesc blasCreateDesc;
             blasCreateDesc.device = device;
             blasCreateDesc.vertexBuffer = record.rigidVertexBuffer;
@@ -6116,6 +6112,11 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
             const RtSmokeBlasCreateResult blasCreateResult = CreateSmokeBlas(blasCreateDesc);
             if (blasCreateResult.Succeeded())
             {
+                if (record.rigidBlas)
+                {
+                    RetireRigidBlas(record);
+                    ++stats.blasRecreatedForInputChange;
+                }
                 record.rigidBlasDesc = blasCreateResult.accelStructDesc;
                 record.rigidBlas = blasCreateResult.accelStruct;
                 record.gpuBlasCreated = true;
@@ -6187,17 +6188,62 @@ void RtSmokeGeometryUniverse::ReleaseRigidBlasGpuScaffold()
 {
     for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
     {
-        RetireRigidBlas(record);
-        record.rigidVertexBuffer = nullptr;
-        record.rigidIndexBuffer = nullptr;
-        record.gpuUploadSignature = 0;
-        record.gpuBuffersUploaded = false;
+        RetireRigidMeshGpuResources(record);
     }
 }
 
 void RtSmokeGeometryUniverse::ClearRetiredRigidBlas()
 {
-    m_retiredRigidBlasRecords.clear();
+    m_retiredRigidGpuResources =
+        RtSmokeRetiredRigidGpuResources();
+    m_canonicalSourceGpuPools.ClearRetiredBuffers();
+    m_canonicalOffsetBlasProbe.ClearRetiredBlases();
+}
+
+bool RtSmokeGeometryUniverse::HasRetiredRigidGpuResources() const
+{
+    return !m_retiredRigidGpuResources.Empty() ||
+        m_canonicalSourceGpuPools.RetiredBufferCount() != 0 ||
+        m_canonicalOffsetBlasProbe.RetiredBlasCount() != 0;
+}
+
+bool RtSmokeGeometryUniverse::TakeRetiredRigidGpuResources(
+    RtSmokeRetiredRigidGpuResources& resources)
+{
+    const std::size_t canonicalPoolBufferCount =
+        m_canonicalSourceGpuPools.TakeRetiredBuffers(
+            m_retiredRigidGpuResources.buffers);
+    m_retiredRigidGpuResources.canonicalPoolBufferCount +=
+        static_cast<int>(canonicalPoolBufferCount);
+    const std::size_t canonicalProbeBlasCount =
+        m_canonicalOffsetBlasProbe.TakeRetiredBlases(
+            m_retiredRigidGpuResources.blases);
+    m_retiredRigidGpuResources.canonicalProbeBlasCount +=
+        static_cast<int>(canonicalProbeBlasCount);
+    m_canonicalSourceGpuPoolStats.retiredBuffers = 0;
+
+    resources = RtSmokeRetiredRigidGpuResources();
+    if (m_retiredRigidGpuResources.Empty())
+    {
+        return false;
+    }
+    resources.buffers.swap(
+        m_retiredRigidGpuResources.buffers);
+    resources.blases.swap(
+        m_retiredRigidGpuResources.blases);
+    resources.legacyBufferCount =
+        m_retiredRigidGpuResources.legacyBufferCount;
+    resources.legacyBlasCount =
+        m_retiredRigidGpuResources.legacyBlasCount;
+    resources.canonicalBlasCount =
+        m_retiredRigidGpuResources.canonicalBlasCount;
+    resources.canonicalPoolBufferCount =
+        m_retiredRigidGpuResources.canonicalPoolBufferCount;
+    resources.canonicalProbeBlasCount =
+        m_retiredRigidGpuResources.canonicalProbeBlasCount;
+    m_retiredRigidGpuResources =
+        RtSmokeRetiredRigidGpuResources();
+    return true;
 }
 
 void RtSmokeGeometryUniverse::DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGpuStats& stats, int sceneSource, bool scaffoldEnabled, bool submitBuilds) const
@@ -6210,7 +6256,7 @@ void RtSmokeGeometryUniverse::DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGp
         submitBuilds ? 1 : 0,
         r_pathTracingRigidBlasGpuForceRebuild.GetInteger() != 0 ? 1 : 0,
         stats.meshRecords,
-        static_cast<int>(m_retiredRigidBlasRecords.size()),
+        m_retiredRigidGpuResources.legacyBlasCount,
         stats.validInputs,
         stats.invalidInputs,
         stats.instances,
@@ -7188,7 +7234,7 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
             }
             else
             {
-                RetireRigidBlas(record);
+                RetireRigidMeshGpuResources(record);
                 ++m_rigidResidencyStats.meshAgedOut;
             }
         }
@@ -7205,7 +7251,8 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
             m_rigidResidencyStats.generation = m_generation;
         }
     }
-    m_rigidResidencyStats.retiredBlasPending = static_cast<int>(m_retiredRigidBlasRecords.size());
+    m_rigidResidencyStats.retiredBlasPending =
+        m_retiredRigidGpuResources.legacyBlasCount;
 }
 
 RtPathTraceRigidTlasPlanStats RtSmokeGeometryUniverse::BuildRigidTlasPlanStats(const RtPathTraceInstanceUniverse& instanceUniverse, const RtSmokeSurfaceClassStats* sourceClassStats) const

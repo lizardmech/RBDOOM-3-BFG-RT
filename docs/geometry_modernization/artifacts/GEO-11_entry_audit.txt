@@ -409,3 +409,63 @@ exact route-1 publication:
 No device loss or fatal error occurred. Slice 2 is accepted. Slice 3 may replace
 canonical and older rigid frame-count retirement guesses with the same exact
 graphics completion authority.
+
+SLICE-3 EXACT RIGID RETIREMENT IMPLEMENTED
+------------------------------------------
+The rigid lifetime audit found three independent CPU-frame guesses, plus one
+unretained resource class:
+
+  - older rigid mesh BLASes used a three-frame queue only when async BVH was
+    enabled and otherwise dropped immediately;
+  - older rigid vertex/index buffers dropped immediately on growth, eviction,
+    scaffold disable, or cache clear;
+  - canonical rigid BLASes used a three-frame queue;
+  - canonical pooled source buffers and the offset-BLAS probe each used their
+    own three-frame queue.
+
+All replaced or removed resources now drain into one rigid retirement package.
+The package retains older rigid vertex/index buffers, older rigid BLASes,
+canonical rigid BLASes, canonical pool buffer generations, and retired
+offset-probe BLASes. `PathTracePrimaryPass` creates one event query per
+nonempty package, arms it on the graphics queue only after command-list
+submission, and releases the package only after the query polls complete. A
+query-creation failure retains the package until idle teardown.
+
+Replacement publication remains fail-retained. Canonical build deferral or
+allocation failure continues to publish the prior built BLAS. Older rigid BLAS
+allocation failure likewise retains the prior built handle. A successful
+replacement records its build before the prior BLAS enters the exact
+retirement package.
+
+The bounded diagnostics are:
+
+  GEO11 rigid retirement armed
+  GEO11 rigid retirement released
+
+The released line reports package, total buffer/BLAS, source-class, result
+query failure, retained byte, completion-token, and pending-package counts.
+
+Slice-3 build and deployment:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; all SPIR-V shaders up to date
+  harness       PathTraceGeometryPoolHarness PASS
+  executable    15,995,904 bytes
+  sha256        CB9D4A04560EEC740E6FA211838FB2F507BE0A2B576C6E65F41AEBAA5479807F
+  deployment    source and prebuilt executable byte-identical
+
+Runtime acceptance remains pending. Start from the accepted full configuration
+with the rigid routes warm, then run:
+
+  r_pathTracingRigidBlasGpuScaffold 0; r_pathTracingGeometryCanonicalRigidBlas 0
+
+Move across portals until the matching armed and released lines appear. Then:
+
+  r_pathTracingRigidBlasGpuScaffold 1; r_pathTracingRigidBlasGpuBuild 1; r_pathTracingGeometryCanonicalRigidBlas 1
+
+Continue ordinary traversal and request the existing geometry-source/rigid
+diagnostics. Accept only if both retirement lines use
+`authority=gpu-event-query`, released pending reaches zero, result-query
+failures are zero, the source counts are nonzero for every warm route that was
+active, rigid/canonical TLAS parity recovers, and there is no missing geometry,
+texture corruption, or device removal.

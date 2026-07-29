@@ -79,12 +79,20 @@ RTXMU requires a separate backend/build audit.
 
 IMPLEMENTATION STATUS
 ---------------------
-Slices 1 and 2 are implemented behind the existing accepted bucket route:
+Slices 1 through 3 are implemented:
 
   - one-shot NVRHI BLAS result-memory census;
   - event-query retirement for replaced/removed bucket BLASes;
   - event-query retirement for replaced/removed bucket GPU buffers;
+  - event-query retirement for older and canonical rigid BLASes;
+  - event-query retirement for older rigid vertex/index buffers;
+  - event-query retirement for canonical pool buffer generations and the
+    offset-BLAS probe;
+  - fail-retained prior BLAS publication while a replacement is deferred or
+    cannot be allocated;
   - fail-retained behavior when a completion query cannot be created.
 
-Runtime acceptance of the warm census and live bucket gate off/on sequence is
-still required before extending exact retirement to rigid BLAS owners.
+The warm bucket gate off/on sequence is accepted by `success21.log`. Slice-3
+rigid runtime acceptance remains pending. Admission/budget work must not begin
+until the warm rigid off/on package reaches exact completion and route parity
+recovers.

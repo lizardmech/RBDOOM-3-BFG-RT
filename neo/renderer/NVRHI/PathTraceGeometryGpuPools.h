@@ -51,20 +51,17 @@ public:
     nvrhi::BufferHandle IndexBuffer() const;
     nvrhi::BufferHandle TriangleBuffer() const;
     void ResetForPublication(std::uint64_t frameIndex);
+    std::size_t TakeRetiredBuffers(
+        std::vector<nvrhi::BufferHandle>& buffers);
+    std::size_t RetiredBufferCount() const;
+    void ClearRetiredBuffers();
     void Clear();
 
 private:
-    struct RetiredBuffer
-    {
-        nvrhi::BufferHandle buffer;
-        std::uint64_t releaseAfterFrame = 0;
-    };
-
     struct Pool
     {
         nvrhi::BufferHandle buffer;
         PtGeometryPoolState state;
-        std::vector<RetiredBuffer> retired;
     };
 
     bool EnsureCapacity(
@@ -79,11 +76,11 @@ private:
         int poolIndex,
         std::uint64_t frameIndex,
         PtGeometryGpuPoolStats& stats);
-    void ReleaseExpired(Pool& pool, std::uint64_t frameIndex);
     void RebaseRecordRanges(
         int poolIndex,
         const PtGeometryPoolGrowthPlan& growth);
 
     Pool pools_[4];
     std::vector<PtGeometryGpuPoolRecord> records_;
+    std::vector<nvrhi::BufferHandle> retiredBuffers_;
 };

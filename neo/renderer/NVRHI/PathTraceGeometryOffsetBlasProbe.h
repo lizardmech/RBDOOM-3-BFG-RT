@@ -48,15 +48,13 @@ public:
         const PtGeometryGpuPoolSet& pools,
         std::uint64_t frameIndex);
     const PtGeometryOffsetBlasProbeStats& Stats() const;
+    std::size_t TakeRetiredBlases(
+        std::vector<nvrhi::rt::AccelStructHandle>& blases);
+    std::size_t RetiredBlasCount() const;
+    void ClearRetiredBlases();
     void Clear();
 
 private:
-    struct RetiredBlas
-    {
-        nvrhi::rt::AccelStructHandle blas;
-        std::uint64_t releaseAfterFrame = 0;
-    };
-
     struct ReadbackPayload
     {
         std::uint32_t firstIndexes[3] = {};
@@ -67,14 +65,13 @@ private:
         PtGeometrySourceTriangle lastTriangle;
     };
 
-    void ReleaseExpired(std::uint64_t frameIndex);
-    void RetireCurrent(std::uint64_t frameIndex);
+    void RetireCurrent();
     void FinishReadback(nvrhi::IDevice* device);
 
     PtGeometryOffsetBlasProbeStats stats_;
     nvrhi::rt::AccelStructHandle blas_;
     nvrhi::rt::AccelStructDesc blasDesc_;
-    std::vector<RetiredBlas> retired_;
+    std::vector<nvrhi::rt::AccelStructHandle> retired_;
     nvrhi::BufferHandle readbackBuffer_;
     ReadbackPayload expectedReadback_;
     std::uint64_t observedCandidateSignature_ = 0;

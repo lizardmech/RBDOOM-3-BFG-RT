@@ -3484,6 +3484,31 @@ graphics event query completed; result-query failures were zero. Re-enable
 rebuilt two BLASes per frame and recovered exact route 1 at 14/56/56 with every
 publication failure counter zero.
 
+D137. ALL RIGID GPU OWNERS USE GRAPHICS-COMPLETION RETIREMENT
+-------------------------------------------------------------
+GEO-11 Slice 3 found that exact BLAS retirement alone was insufficient. The
+older rigid route also dropped per-mesh vertex/index buffers immediately on
+growth, eviction, scaffold disable, and cache clear. Canonical pooled source
+buffers and the diagnostic offset-BLAS probe had independent three-frame
+queues. Any of these resources can participate in commands recorded for a
+still-in-flight graphics submission.
+
+All five sources now drain into one rigid retirement package: older rigid
+buffers, older rigid BLASes, canonical rigid BLASes, canonical pool buffer
+generations, and offset-probe BLASes. The package is armed only after graphics
+submission and released only when its event query completes. Query creation
+failure retains indefinitely until idle teardown. Async-BVH state and CPU
+frame count are no longer lifetime authorities.
+
+Replacement is fail-retained. A deferred or failed canonical replacement keeps
+the prior built BLAS eligible for publication. The older route likewise keeps
+its prior BLAS when replacement allocation fails. Only a successfully created
+and recorded replacement retires the old handle.
+
+The Vulkan release build and geometry-pool harness pass, the deployed
+executable is byte-identical, and no shader changed. Runtime acceptance remains
+required before GEO-11 admission work begins.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

@@ -2215,6 +2215,153 @@ int PathTracePrimaryPass::ReleaseCompletedRetiredStaticBucketGpuResources(
     return releasedPackages;
 }
 
+void PathTracePrimaryPass::PushRetiredRigidGpuResources(
+    RtSmokeRetiredRigidGpuResources& resources,
+    uint64 currentFrame)
+{
+    if (resources.Empty())
+    {
+        return;
+    }
+
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    RtRetiredSmokeRigidGpuPackage package;
+    package.retireFrame = currentFrame;
+    package.completionQuery =
+        device ? device->createEventQuery() : nullptr;
+    if (!package.completionQuery &&
+        !m_smokeRigidCompletionQueryFailureLogged)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO11 retired rigid resources have no GPU completion query; retaining until idle teardown\n");
+        m_smokeRigidCompletionQueryFailureLogged = true;
+    }
+
+    for (const nvrhi::BufferHandle& buffer :
+        resources.buffers)
+    {
+        if (buffer)
+        {
+            package.bufferBytes +=
+                buffer->getDesc().byteSize;
+        }
+    }
+    if (device)
+    {
+        for (const nvrhi::rt::AccelStructHandle& blas :
+            resources.blases)
+        {
+            if (!blas)
+            {
+                continue;
+            }
+            const nvrhi::MemoryRequirements requirements =
+                device->getAccelStructMemoryRequirements(blas);
+            if (requirements.size == 0)
+            {
+                ++package.blasResultQueryFailures;
+            }
+            else
+            {
+                package.blasResultBytes += requirements.size;
+            }
+        }
+    }
+    package.resources.buffers.swap(resources.buffers);
+    package.resources.blases.swap(resources.blases);
+    package.resources.legacyBufferCount =
+        resources.legacyBufferCount;
+    package.resources.legacyBlasCount =
+        resources.legacyBlasCount;
+    package.resources.canonicalBlasCount =
+        resources.canonicalBlasCount;
+    package.resources.canonicalPoolBufferCount =
+        resources.canonicalPoolBufferCount;
+    package.resources.canonicalProbeBlasCount =
+        resources.canonicalProbeBlasCount;
+    resources = RtSmokeRetiredRigidGpuResources();
+    m_retiredSmokeRigidGpuPackages.push_back(
+        std::move(package));
+}
+
+int PathTracePrimaryPass::ReleaseCompletedRetiredRigidGpuResources(
+    uint64 currentFrame)
+{
+    int releasedPackages = 0;
+    int releasedBuffers = 0;
+    int releasedBlases = 0;
+    int releasedLegacyBuffers = 0;
+    int releasedLegacyBlases = 0;
+    int releasedCanonicalBlases = 0;
+    int releasedCanonicalPoolBuffers = 0;
+    int releasedCanonicalProbeBlases = 0;
+    int releasedBlasResultQueryFailures = 0;
+    uint64 releasedBufferBytes = 0;
+    uint64 releasedBlasResultBytes = 0;
+    nvrhi::IDevice* device =
+        deviceManager ? deviceManager->GetDevice() : nullptr;
+    while (!m_retiredSmokeRigidGpuPackages.empty())
+    {
+        RtRetiredSmokeRigidGpuPackage& package =
+            m_retiredSmokeRigidGpuPackages.front();
+        if (package.retireFrame > currentFrame ||
+            !package.completionArmed ||
+            !package.completionQuery ||
+            !device ||
+            !device->pollEventQuery(package.completionQuery))
+        {
+            break;
+        }
+        m_smokeLastCompletedRigidToken =
+            Max(
+                m_smokeLastCompletedRigidToken,
+                package.completionToken);
+        releasedBuffers += static_cast<int>(
+            package.resources.buffers.size());
+        releasedBlases += static_cast<int>(
+            package.resources.blases.size());
+        releasedLegacyBuffers +=
+            package.resources.legacyBufferCount;
+        releasedLegacyBlases +=
+            package.resources.legacyBlasCount;
+        releasedCanonicalBlases +=
+            package.resources.canonicalBlasCount;
+        releasedCanonicalPoolBuffers +=
+            package.resources.canonicalPoolBufferCount;
+        releasedCanonicalProbeBlases +=
+            package.resources.canonicalProbeBlasCount;
+        releasedBlasResultQueryFailures +=
+            package.blasResultQueryFailures;
+        releasedBufferBytes += package.bufferBytes;
+        releasedBlasResultBytes += package.blasResultBytes;
+        m_retiredSmokeRigidGpuPackages.pop_front();
+        ++releasedPackages;
+    }
+    if (releasedPackages > 0)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO11 rigid retirement released packages=%d buffers/blases=%d/%d source(legacyBuffers/legacyBlases/canonicalBlases/poolBuffers/probeBlases)=%d/%d/%d/%d/%d resultQueryFailures=%d bytes(buffer/result)=%llu/%llu completedToken=%llu pending=%zu authority=gpu-event-query\n",
+            releasedPackages,
+            releasedBuffers,
+            releasedBlases,
+            releasedLegacyBuffers,
+            releasedLegacyBlases,
+            releasedCanonicalBlases,
+            releasedCanonicalPoolBuffers,
+            releasedCanonicalProbeBlases,
+            releasedBlasResultQueryFailures,
+            static_cast<unsigned long long>(
+                releasedBufferBytes),
+            static_cast<unsigned long long>(
+                releasedBlasResultBytes),
+            static_cast<unsigned long long>(
+                m_smokeLastCompletedRigidToken),
+            m_retiredSmokeRigidGpuPackages.size());
+    }
+    return releasedPackages;
+}
+
 int PathTracePrimaryPass::ReleaseCompletedRetiredSmokeSkinnedComparisonBlases(
     uint64 currentFrame)
 {
@@ -2347,6 +2494,42 @@ void PathTracePrimaryPass::OnGraphicsCommandListSubmitted()
             m_retiredSmokeStaticBucketGpuPackages.size());
     }
 
+    int rigidArmedCount = 0;
+    uint64 rigidFirstToken = 0;
+    uint64 rigidLastToken = 0;
+    for (RtRetiredSmokeRigidGpuPackage& package :
+        m_retiredSmokeRigidGpuPackages)
+    {
+        if (package.completionArmed ||
+            !package.completionQuery)
+        {
+            continue;
+        }
+        device->setEventQuery(
+            package.completionQuery,
+            nvrhi::CommandQueue::Graphics);
+        package.completionToken =
+            m_smokeNextRigidCompletionToken++;
+        package.completionArmed = true;
+        rigidFirstToken =
+            rigidFirstToken == 0
+                ? package.completionToken
+                : rigidFirstToken;
+        rigidLastToken = package.completionToken;
+        ++rigidArmedCount;
+    }
+    if (rigidArmedCount > 0)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: GEO11 rigid retirement armed packages=%d tokens=%llu..%llu pending=%zu authority=gpu-event-query\n",
+            rigidArmedCount,
+            static_cast<unsigned long long>(
+                rigidFirstToken),
+            static_cast<unsigned long long>(
+                rigidLastToken),
+            m_retiredSmokeRigidGpuPackages.size());
+    }
+
     int skinnedArmedCount = 0;
     uint64 skinnedFirstToken = 0;
     uint64 skinnedLastToken = 0;
@@ -2443,6 +2626,9 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
             m_staticBucketGeometryUniverse.
                 HasStaticBucketGpuResources() ||
             !m_retiredSmokeStaticBucketGpuPackages.empty() ||
+            m_smokeGeometryUniverse.
+                HasRetiredRigidGpuResources() ||
+            !m_retiredSmokeRigidGpuPackages.empty() ||
             !m_smokeSkinnedComparisonBlases.empty() ||
             !m_retiredSmokeSkinnedComparisonBlases.empty()))
     {
@@ -2513,6 +2699,18 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     {
         PushRetiredStaticBucketGpuResources(
             retiredStaticBucketGpuResources,
+            staticBucketRetireFrame);
+    }
+    ReleaseCompletedRetiredRigidGpuResources(
+        staticBucketRetireFrame);
+    RtSmokeRetiredRigidGpuResources
+        retiredRigidGpuResources;
+    if (m_smokeGeometryUniverse.
+            TakeRetiredRigidGpuResources(
+                retiredRigidGpuResources))
+    {
+        PushRetiredRigidGpuResources(
+            retiredRigidGpuResources,
             staticBucketRetireFrame);
     }
     m_particleDiagnosticFramesRemaining = 0;
