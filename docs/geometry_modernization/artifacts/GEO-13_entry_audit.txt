@@ -392,6 +392,51 @@ canonical descriptors at exact parity, explicit zero/zero restores established
 rigid traversal, and explicit one/one plus map reconstruction restores the
 canonical default without visual, lifecycle, resource, or device-loss failure.
 
+SLICE-5A CANONICAL RIGID RUNTIME ACCEPTANCE
+-------------------------------------------
+`geometry_geo13_rigid.log` and `geometry_geo13_rigid_restored.log` accept the
+canonical rigid default promotion.
+
+Default launch, settled frame 180:
+
+  provider enabled / requested traversal             1 / 1
+  requested instances / unique BLAS                111 / 83
+  ready / active / deferred                         83 / 83 / 0
+  identity/source/pool failures                       0 / 0 / 0
+  legacy / canonical descriptors                    111 / 111
+  exact record mappings / mapping failures           111 / 0
+  submit requested / eligible / selected               1 / 1 / 1
+  traversal                                             canonical
+
+Explicit zero/zero rollback releases all 83 canonical BLASes through the
+event-query retirement path with `resultQueryFailures=0`; the settled rollback
+dump reports provider disabled, no canonical requests or active BLASes, and
+legacy traversal.
+
+Explicit one/one restoration, settled frame 96:
+
+  requested instances / unique BLAS                111 / 83
+  ready / active / deferred                         83 / 83 / 0
+  legacy / canonical descriptors                    111 / 111
+  exact record mappings / mapping failures           111 / 0
+  submit requested / eligible / selected               1 / 1 / 1
+  traversal                                             canonical
+
+An early fail-closed message during each provider startup is expected while
+the build-count budget admits the 83 required BLASes. The settled frames prove
+that convergence completes with no deferred work or partial canonical
+submission. Neither capture contains device loss, Vulkan, allocation, buffer,
+BLAS, TLAS, or event-query failure.
+
+The user reports minor emissive visual issues. They are explicitly deferred
+until the main GEO-13 route work is complete and must be investigated against
+the already accepted legacy/canonical emissive identity evidence before final
+visual sign-off. This known follow-up does not revoke geometry identity,
+descriptor parity, lifecycle, or default selection acceptance.
+
+Slice 5A is accepted. Canonical rigid provider and traversal remain default on.
+Static bucket promotion is the next isolated main-work lane.
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.

@@ -4167,6 +4167,32 @@ normal renderer shutdown. Static admission is accepted. GEO-13 may proceed to
 one-route-at-a-time default promotion; canonical rigid is first, while
 monolithic static and merged dynamic remain required rollback/fallback routes.
 
+D170. CANONICAL RIGID PROVIDER AND TRAVERSAL ARE DEFAULT-ON
+-----------------------------------------------------------
+`geometry_geo13_rigid.log` proves the ordinary default launch selects the
+canonical pooled rigid route at exact parity: 111 legacy descriptors, 111
+canonical descriptors, 111 exact record mappings, zero mapping failures, and
+submit requested/eligible/selected = 1/1/1. The provider has 83/83
+ready/active unique BLASes, zero deferred, and zero identity/source/pool
+failure.
+
+Explicit zero/zero rollback retires all 83 canonical BLASes through GPU event
+queries with zero query failure and restores the legacy route.
+`geometry_geo13_rigid_restored.log` proves explicit one/one restoration
+reconverges to the same 111/111 descriptors, 111 exact mappings, zero failures,
+83 ready BLASes, and canonical submission.
+
+No device-loss, Vulkan, allocation, buffer, BLAS, TLAS, or event-query failure
+appears. Early fail-closed output while the build-count budget is still
+populating the provider is expected and is superseded by the exact settled
+frames.
+
+The user reports minor emissive visual issues and requests that they be fixed
+after the main work. This is a named follow-up against the previously accepted
+legacy/canonical emissive identity contract; it does not revoke the exact
+geometry, descriptor, lifecycle, rollback, restoration, or default-selection
+evidence.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.

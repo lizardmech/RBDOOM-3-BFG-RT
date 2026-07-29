@@ -1014,6 +1014,21 @@ candidate is SHA-256
 Runtime default/rollback/restoration acceptance remains open. Static bucket and
 skinned traversal defaults are unchanged.
 
+GEO-13 canonical rigid runtime result:
+
+`geometry_geo13_rigid.log` and `geometry_geo13_rigid_restored.log` accept the
+default promotion. Default and restored settled frames each publish 111 legacy
+and 111 canonical descriptors, 111 exact mappings, zero failures, 83 ready
+unique BLASes with zero deferred, and canonical submission. Explicit zero/zero
+rollback releases all 83 canonical BLASes through event-query retirement with
+zero query failure and restores legacy traversal. There is no device/resource
+failure. Canonical rigid provider and traversal remain default on.
+
+Minor emissive visual issues reported by the user are retained as an explicit
+post-main-work investigation against the accepted emissive identity contract.
+They do not erase the exact route/geometry/lifecycle evidence. Static bucket
+promotion is the next isolated main-work lane.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material
