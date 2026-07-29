@@ -3108,6 +3108,43 @@ than inside the any-hit shader. That path survives the same scene traversal.
 Do not remove tinted emissives or reopen the legacy any-hit producer as a
 GEO-10 fix.
 
+D122. SUCCESS21 IS CRASH-STABLE BUT VISUALLY REJECTED; USE FRONTEND FLOOD
+----------------------------------------------------------------------------
+The user reports that `success21` retained only roughly one or two portal
+areas of brush geometry. Rigid and skinned objects continued to load and
+retire appropriately. Route 1 is therefore accepted only for GPU stability;
+it is rejected for production visual completeness.
+
+This exactly matches the logged policy rather than a failed BLAS:
+
+  - `portalSteps=1`;
+  - only two to five static buckets active;
+  - all 56 resident bucket BLASes ready;
+  - exact active TLAS/publication counts;
+  - zero missing active material indexes.
+
+REF-8 had already identified the flaw: the static selector walked a fixed
+breadth-first radius from the camera area, while raster can see through a
+longer clipped portal chain. Rigid/static-preload residency uses four steps,
+which explains why non-brush geometry appeared more appropriate, but raising
+the static bucket radius is not the repair. A large fixed radius previously
+failed to match view-dependent portal visibility and retained excess areas.
+
+Production static-bucket membership now uses an immutable frontend snapshot:
+
+  1. after `FlowViewThroughPortals`, copy every area whose `viewCount` matches
+     the current frontend view into the owning `viewDef_t`;
+  2. seed the static active mask with every clipped frontend-visible area;
+  3. interpret `r_pathTracingGeometryStaticBucketPortalSteps` as a conservative
+     neighbor expansion around that complete seed set (default one);
+  4. fail closed to monolithic traversal if the snapshot is absent or empty;
+  5. retain route 2's explicit full-resident diagnostic override.
+
+The snapshot is view-owned because global portal `viewCount` markers are
+reused by later subviews before backend consumption. CPU tests cover exact
+visible-set preservation, one-step boundary expansion, invalid portal edges,
+the no-snapshot fail-closed case, and the explicit full-map diagnostic.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

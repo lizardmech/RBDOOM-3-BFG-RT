@@ -2842,3 +2842,33 @@ emissive-card decisions outside any-hit after a forced-opaque closest hit.
 
 Do not disable colored emissives. Do not restore the legacy transmission
 any-hit producer for route 1.
+
+REF-10AD FRONTEND-VISIBLE STATIC MASK - 2026-07-29
+---------------------------------------------------
+The `success21` route is stable but visually rejected. The user observed only
+one or two portal areas of brush geometry, while rigid and skinned objects
+loaded and retired appropriately. The log proves this is selection loss, not
+BLAS or material failure: all 56 bucket BLASes were ready, active publications
+were exact, missing material indexes stayed zero, but the static mask used
+`portalSteps=1` and selected only two to five buckets.
+
+Do not raise the fixed camera-area radius. REF-8 already rejected that shape:
+raster visibility follows the clipped recursive portal flood and may include
+areas farther away than a fixed graph depth.
+
+The corrected route captures the frontend portal-flood result into each
+`viewDef_t` after `FlowViewThroughPortals`. The backend static mask contains
+every frontend-visible area, then expands one portal neighbor from that
+complete seed set using the existing default-one control. The snapshot is
+view-owned so subviews cannot overwrite it through the global portal
+`viewCount` markers. Missing or empty snapshots fail closed to monolithic
+traversal. Route 2 keeps its full-resident decoder override.
+
+Required runtime evidence:
+
+  - `areas(frontendVisible/selected)` is nonzero;
+  - selected areas are at least the frontend-visible count;
+  - distant brush geometry visible through chained portals is present;
+  - active TLAS outputs still exactly match active buckets;
+  - `materialIndexMissingActive=0`;
+  - portal traversal and the tinted door-panel view remain device-loss free.

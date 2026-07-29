@@ -132,7 +132,12 @@ public:
     RtPathTraceSceneUniverseBuildStats BuildFullStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges);
     RtPathTraceSceneUniverseBuildStats BuildFullStaticBucketGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges);
     RtPathTraceSceneUniverseBuildStats BuildSelectedStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, int portalSteps);
-    bool BuildPortalAreaActiveMask(const viewDef_t* viewDef, int portalSteps, std::vector<bool>& selectedAreas);
+    bool BuildPortalAreaActiveMask(
+        const viewDef_t* viewDef,
+        int portalSteps,
+        std::vector<bool>& selectedAreas,
+        int* frontendVisibleAreaCount = nullptr,
+        int* selectedAreaCount = nullptr);
 
     const RtPathTraceSceneUniverseStats& GetStats() const;
     const std::vector<RtPathTraceSceneUniverseSurface>& Surfaces() const;

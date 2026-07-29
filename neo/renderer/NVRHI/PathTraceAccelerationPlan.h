@@ -207,6 +207,31 @@ static_assert(
         RT_SMOKE_STATIC_BUCKET_TRIANGLE_OFFSET_MASK,
     "GEO-10 transition keeps the existing 23-bit bucket InstanceID payload width");
 
+struct RtSmokePortalAreaEdge
+{
+    int areaA = -1;
+    int areaB = -1;
+};
+
+struct RtSmokePortalVisibilityMaskPlan
+{
+    std::vector<bool> selectedAreas;
+    int frontendVisibleAreas = 0;
+    int selectedAreaCount = 0;
+    int expansionSteps = 0;
+    int validEdges = 0;
+    int invalidEdges = 0;
+    bool valid = false;
+    bool forcedFullMap = false;
+};
+
+RtSmokePortalVisibilityMaskPlan BuildSmokePortalVisibilityMaskPlan(
+    int areaCount,
+    const std::vector<bool>& frontendVisibleAreas,
+    const std::vector<RtSmokePortalAreaEdge>& portalEdges,
+    int expansionSteps,
+    bool forceFullMap);
+
 struct RtSmokeStaticBucketAssignmentSurface
 {
     uint64_t surfaceKey = 0;

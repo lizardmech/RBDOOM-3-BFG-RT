@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceSceneUniverse.h"
+#include "PathTraceAccelerationPlan.h"
 #include "PathTraceCVars.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
@@ -1484,9 +1485,19 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
 bool RtPathTraceSceneUniverse::BuildPortalAreaActiveMask(
     const viewDef_t* viewDef,
     int portalSteps,
-    std::vector<bool>& selectedAreas)
+    std::vector<bool>& selectedAreas,
+    int* frontendVisibleAreaCount,
+    int* selectedAreaCount)
 {
     selectedAreas.clear();
+    if (frontendVisibleAreaCount)
+    {
+        *frontendVisibleAreaCount = 0;
+    }
+    if (selectedAreaCount)
+    {
+        *selectedAreaCount = 0;
+    }
     idRenderWorldLocal* renderWorld =
         viewDef ? viewDef->renderWorld : nullptr;
     if (!renderWorld || !EnsureBuilt(viewDef))
@@ -1496,33 +1507,81 @@ bool RtPathTraceSceneUniverse::BuildPortalAreaActiveMask(
 
     const bool bruteForceFullMap =
         r_pathTracingPortalBruteforceFullMap.GetInteger() != 0;
-    const RtPathTraceSceneUniverseSelectionStats selection =
-        BuildSelectionStats(
-            viewDef,
-            idMath::ClampInt(0, 8, portalSteps),
-            false);
-    if (!selection.valid)
+    const int areaCount = renderWorld->NumAreas();
+    if (areaCount <= 0 ||
+        (!bruteForceFullMap &&
+            (!viewDef->pathTraceVisibleAreas ||
+                viewDef->pathTraceVisibleAreaCount != areaCount)))
     {
         return false;
     }
 
-    selectedAreas.assign(
-        renderWorld->NumAreas(),
-        bruteForceFullMap);
-    if (!bruteForceFullMap)
+    std::vector<bool> frontendVisibleAreas(areaCount, false);
+    if (viewDef->pathTraceVisibleAreas &&
+        viewDef->pathTraceVisibleAreaCount == areaCount)
     {
-        for (int areaListIndex = 0;
-            areaListIndex < selection.selectedAreaListCount;
-            ++areaListIndex)
+        for (int area = 0; area < areaCount; ++area)
         {
-            const int area =
-                selection.selectedAreaList[areaListIndex];
-            if (area >= 0 &&
-                area < static_cast<int>(selectedAreas.size()))
+            frontendVisibleAreas[area] =
+                viewDef->pathTraceVisibleAreas[area];
+        }
+    }
+
+    std::vector<RtSmokePortalAreaEdge> portalEdges;
+    if (!bruteForceFullMap && portalSteps > 0)
+    {
+        for (int area = 0; area < areaCount; ++area)
+        {
+            const int portalCount =
+                renderWorld->NumPortalsInArea(area);
+            for (int portalIndex = 0;
+                 portalIndex < portalCount;
+                 ++portalIndex)
             {
-                selectedAreas[area] = true;
+                const exitPortal_t portal =
+                    renderWorld->GetPortal(area, portalIndex);
+                int nextArea = -1;
+                if (portal.areas[0] == area)
+                {
+                    nextArea = portal.areas[1];
+                }
+                else if (portal.areas[1] == area)
+                {
+                    nextArea = portal.areas[0];
+                }
+                if (nextArea <= area || nextArea >= areaCount)
+                {
+                    continue;
+                }
+                RtSmokePortalAreaEdge edge;
+                edge.areaA = area;
+                edge.areaB = nextArea;
+                portalEdges.push_back(edge);
             }
         }
+    }
+
+    const RtSmokePortalVisibilityMaskPlan plan =
+        BuildSmokePortalVisibilityMaskPlan(
+            areaCount,
+            frontendVisibleAreas,
+            portalEdges,
+            idMath::ClampInt(0, 8, portalSteps),
+            bruteForceFullMap);
+    if (!plan.valid)
+    {
+        return false;
+    }
+    selectedAreas = plan.selectedAreas;
+    if (frontendVisibleAreaCount)
+    {
+        *frontendVisibleAreaCount =
+            plan.frontendVisibleAreas;
+    }
+    if (selectedAreaCount)
+    {
+        *selectedAreaCount =
+            plan.selectedAreaCount;
     }
     return true;
 }

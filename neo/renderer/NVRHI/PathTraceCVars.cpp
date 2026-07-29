@@ -433,7 +433,7 @@ idCVar r_pathTracingGeometryStaticBucketPortalSteps(
     "r_pathTracingGeometryStaticBucketPortalSteps",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Portal-neighbor depth used to derive the GEO-10 static bucket active-area mask" );
+    "Portal-neighbor expansion around the immutable frontend-visible area snapshot used by the GEO-10 static bucket active mask" );
 
 idCVar r_pathTracingGeometryStaticBucketRoute(
     "r_pathTracingGeometryStaticBucketRoute",

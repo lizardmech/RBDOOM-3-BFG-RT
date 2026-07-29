@@ -2191,6 +2191,74 @@ void TestAsyncStaticBucketWorkPlanning()
 
 void TestStaticBucketAssignmentPlan()
 {
+    const std::vector<RtSmokePortalAreaEdge> portalEdges = {
+        { 0, 1 },
+        { 1, 2 },
+        { 2, 3 },
+        { 3, 4 },
+        { 4, 9 }
+    };
+    std::vector<bool> frontendVisibleAreas(5, false);
+    frontendVisibleAreas[0] = true;
+    frontendVisibleAreas[2] = true;
+    const RtSmokePortalVisibilityMaskPlan exactVisibleMask =
+        BuildSmokePortalVisibilityMaskPlan(
+            5,
+            frontendVisibleAreas,
+            portalEdges,
+            0,
+            false);
+    const RtSmokePortalVisibilityMaskPlan expandedVisibleMask =
+        BuildSmokePortalVisibilityMaskPlan(
+            5,
+            frontendVisibleAreas,
+            portalEdges,
+            1,
+            false);
+    const RtSmokePortalVisibilityMaskPlan forcedFullMask =
+        BuildSmokePortalVisibilityMaskPlan(
+            5,
+            std::vector<bool>(5, false),
+            portalEdges,
+            1,
+            true);
+    const RtSmokePortalVisibilityMaskPlan missingFrontendMask =
+        BuildSmokePortalVisibilityMaskPlan(
+            5,
+            std::vector<bool>(5, false),
+            portalEdges,
+            1,
+            false);
+    Check(
+        exactVisibleMask.valid &&
+            exactVisibleMask.frontendVisibleAreas == 2 &&
+            exactVisibleMask.selectedAreaCount == 2 &&
+            exactVisibleMask.selectedAreas[0] &&
+            !exactVisibleMask.selectedAreas[1] &&
+            exactVisibleMask.selectedAreas[2] &&
+            !exactVisibleMask.selectedAreas[3] &&
+            !exactVisibleMask.selectedAreas[4],
+        "static bucket portal mask preserves every clipped frontend-visible area without a camera-local depth cap");
+    Check(
+        expandedVisibleMask.valid &&
+            expandedVisibleMask.frontendVisibleAreas == 2 &&
+            expandedVisibleMask.selectedAreaCount == 4 &&
+            expandedVisibleMask.selectedAreas[0] &&
+            expandedVisibleMask.selectedAreas[1] &&
+            expandedVisibleMask.selectedAreas[2] &&
+            expandedVisibleMask.selectedAreas[3] &&
+            !expandedVisibleMask.selectedAreas[4] &&
+            expandedVisibleMask.validEdges == 4 &&
+            expandedVisibleMask.invalidEdges == 1,
+        "static bucket portal mask expands one safety neighbor from the complete frontend-visible seed set");
+    Check(
+        forcedFullMask.valid &&
+            forcedFullMask.forcedFullMap &&
+            forcedFullMask.selectedAreaCount == 5 &&
+            !missingFrontendMask.valid &&
+            missingFrontendMask.selectedAreaCount == 0,
+        "static bucket portal mask fails closed without a frontend snapshot while retaining the explicit full-map diagnostic");
+
     auto makeSurface = [](
         uint64_t key,
         uint32_t recordIndex,

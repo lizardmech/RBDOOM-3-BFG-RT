@@ -385,6 +385,104 @@ RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
     return plan;
 }
 
+RtSmokePortalVisibilityMaskPlan BuildSmokePortalVisibilityMaskPlan(
+    int areaCount,
+    const std::vector<bool>& frontendVisibleAreas,
+    const std::vector<RtSmokePortalAreaEdge>& portalEdges,
+    int expansionSteps,
+    bool forceFullMap)
+{
+    RtSmokePortalVisibilityMaskPlan plan;
+    plan.expansionSteps = std::max(0, std::min(8, expansionSteps));
+    if (areaCount <= 0 ||
+        static_cast<int>(frontendVisibleAreas.size()) != areaCount)
+    {
+        return plan;
+    }
+
+    plan.selectedAreas.assign(areaCount, false);
+    if (forceFullMap)
+    {
+        std::fill(
+            plan.selectedAreas.begin(),
+            plan.selectedAreas.end(),
+            true);
+        plan.frontendVisibleAreas = static_cast<int>(std::count(
+            frontendVisibleAreas.begin(),
+            frontendVisibleAreas.end(),
+            true));
+        plan.selectedAreaCount = areaCount;
+        plan.valid = true;
+        plan.forcedFullMap = true;
+        return plan;
+    }
+
+    std::vector<std::vector<int>> adjacency(areaCount);
+    for (const RtSmokePortalAreaEdge& edge : portalEdges)
+    {
+        if (edge.areaA < 0 ||
+            edge.areaA >= areaCount ||
+            edge.areaB < 0 ||
+            edge.areaB >= areaCount ||
+            edge.areaA == edge.areaB)
+        {
+            ++plan.invalidEdges;
+            continue;
+        }
+        adjacency[edge.areaA].push_back(edge.areaB);
+        adjacency[edge.areaB].push_back(edge.areaA);
+        ++plan.validEdges;
+    }
+
+    std::vector<int> selectedDepth(areaCount, -1);
+    std::vector<int> queue;
+    queue.reserve(areaCount);
+    for (int area = 0; area < areaCount; ++area)
+    {
+        if (!frontendVisibleAreas[area])
+        {
+            continue;
+        }
+        plan.selectedAreas[area] = true;
+        selectedDepth[area] = 0;
+        queue.push_back(area);
+        ++plan.frontendVisibleAreas;
+    }
+    if (queue.empty())
+    {
+        return plan;
+    }
+
+    for (size_t queueIndex = 0;
+         queueIndex < queue.size();
+         ++queueIndex)
+    {
+        const int area = queue[queueIndex];
+        const int depth = selectedDepth[area];
+        if (depth >= plan.expansionSteps)
+        {
+            continue;
+        }
+        for (const int nextArea : adjacency[area])
+        {
+            if (selectedDepth[nextArea] >= 0)
+            {
+                continue;
+            }
+            selectedDepth[nextArea] = depth + 1;
+            plan.selectedAreas[nextArea] = true;
+            queue.push_back(nextArea);
+        }
+    }
+
+    plan.selectedAreaCount = static_cast<int>(std::count(
+        plan.selectedAreas.begin(),
+        plan.selectedAreas.end(),
+        true));
+    plan.valid = plan.selectedAreaCount > 0;
+    return plan;
+}
+
 RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
     const RtSmokeStaticBucketAssignmentPlanDesc& desc)
 {

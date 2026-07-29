@@ -5991,6 +5991,8 @@ struct RtSmokeStaticBucketFramePublication
     bool activeMaskForcedFullResident = false;
     bool materialIndexUploaded = false;
     int portalAreaCount = 0;
+    int frontendVisibleAreaCount = 0;
+    int selectedPortalAreaCount = 0;
     int maxVerticesPerBucket = 0;
     int maxIndexesPerBucket = 0;
     int maxTrianglesPerBucket = 0;
@@ -6065,7 +6067,9 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
             0,
             8,
             r_pathTracingGeometryStaticBucketPortalSteps.GetInteger()),
-        frame.portalActiveAreas);
+        frame.portalActiveAreas,
+        &frame.frontendVisibleAreaCount,
+        &frame.selectedPortalAreaCount);
     std::vector<bool> activeAreas =
         frame.portalActiveAreas;
     frame.activeMaskValid = frame.portalMaskValid;
@@ -13360,7 +13364,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 DumpStaticBucketActivePublication(
                     staticBucketActivePublication);
             common->Printf(
-                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d residentPack/materialIndexCacheHit=%d/%d maskValid=%d portalMaskValid=%d fullResidentProbe=%d portalSteps=%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/materialBinding/tlas)=%llu/%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
+                "PathTracePrimaryPass: GEO10 static bucket active-set sourceBuilt/cacheHit=%d/%d residentPack/materialIndexCacheHit=%d/%d maskValid=%d portalMaskValid=%d fullResidentProbe=%d portalSteps=%d areas(frontendVisible/selected)=%d/%d buckets(resident/active/inactive/ready/emitted)=%d/%d/%d/%d/%d triangles(resident/active)=%d/%d signatures(plan/active/resident/materialBinding/tlas)=%llu/%llu/%llu/%llu/%llu routes(shaderSupport/blocked/gpuUpload)=%d/%d/%d materialIndexMissingActive=%d epochs(source/storage/material)=%llu/%llu/%llu traversal=shadow-only\n",
                 staticBucketSourceBuildStats.built ? 1 : 0,
                 staticBucketSourceBuildStats.cacheHit ? 1 : 0,
                 staticBucketFramePublication.
@@ -13382,6 +13386,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     8,
                     r_pathTracingGeometryStaticBucketPortalSteps.
                         GetInteger()),
+                staticBucketFramePublication.
+                    frontendVisibleAreaCount,
+                staticBucketFramePublication.
+                    selectedPortalAreaCount,
                 staticBucketShadowWorkPlan.activeSetPlan.
                     residentBuckets,
                 staticBucketShadowWorkPlan.activeSetPlan.

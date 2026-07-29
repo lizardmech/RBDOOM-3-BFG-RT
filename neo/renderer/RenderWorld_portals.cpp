@@ -819,6 +819,21 @@ void idRenderWorldLocal::FindViewLightsAndEntities()
 		// may have the viewOrigin in a solid/invalid area
 		FlowViewThroughPortals( tr.viewDef->renderView.vieworg, 5, tr.viewDef->frustums[FRUSTUM_PRIMARY] );
 	}
+
+	// Preserve the exact frontend-visible area set with this viewDef. The
+	// global portalArea viewCount markers are reused by later subviews before
+	// the backend consumes the primary view, so PT must not read them directly.
+	bool* pathTraceVisibleAreas = numPortalAreas > 0
+		? ( bool* )R_FrameAlloc(
+			numPortalAreas * sizeof( pathTraceVisibleAreas[0] ) )
+		: NULL;
+	for( int areaIndex = 0; areaIndex < numPortalAreas; ++areaIndex )
+	{
+		pathTraceVisibleAreas[areaIndex] =
+			portalAreas[areaIndex].viewCount == tr.viewCount;
+	}
+	tr.viewDef->pathTraceVisibleAreas = pathTraceVisibleAreas;
+	tr.viewDef->pathTraceVisibleAreaCount = numPortalAreas;
 }
 
 /*

@@ -621,6 +621,11 @@ struct viewDef_t
 	// crossing a closed door.  This is used to avoid drawing interactions
 	// when the light is behind a closed door.
 	bool* 				connectedAreas;
+	// Immutable frontend portal-flood visibility snapshot for PT static-bucket
+	// TLAS selection. Unlike connectedAreas, this records the clipped recursive
+	// view flood rather than every area reachable through open doors.
+	const bool*			pathTraceVisibleAreas;
+	int					pathTraceVisibleAreaCount;
 
 	// RB: collect environment probes like lights
 	viewEnvprobe_t*		viewEnvprobes;
