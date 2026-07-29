@@ -263,6 +263,33 @@ Runtime acceptance remains open. Required first capture:
   4. restore both budgets to zero and prove the full geometry returns;
   5. no device loss, buffer/BLAS creation failure, or abnormal shutdown.
 
+SLICE-2 RUNTIME ACCEPTANCE
+--------------------------
+`geometry_geo13_dynamic.log` accepts the checked dynamic admission path:
+
+  1 MiB byte budget:
+    admitted bytes / surfaces                 989,800 / 11
+    byte rejections / rejected bytes                1 / 484,288
+    surface / invalid / overflow rejections          0 / 0 / 0
+
+  four-surface budget:
+    admitted bytes / surfaces                 197,092 / 4
+    surface rejections / rejected bytes             8 / 1,276,996
+    byte / invalid / overflow rejections              0 / 0 / 0
+
+  restored unlimited:
+    admitted bytes / surfaces               1,474,088 / 12
+    all rejection counters                                  0
+
+The user confirmed the deliberately omitted geometry reappeared after restoring
+both budgets to zero. The log contains no device loss, Vulkan failure,
+buffer/BLAS creation failure, admission overflow, or abnormal shutdown.
+
+Slice 2 is accepted. Dynamic capture no longer has a mandatory dependency on
+`RT_SMOKE_MAX_SURFACES`, `RT_SMOKE_MAX_VERTS`, or
+`RT_SMOKE_MAX_INDEXES`. Their remaining dynamic uses are reserve hints only.
+Static admission still uses the old constants and is the next isolated slice.
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.

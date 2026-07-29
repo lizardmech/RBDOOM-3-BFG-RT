@@ -981,6 +981,16 @@ live behavior or shader change. Slice 2 may now integrate the planner into the
 two dynamic capture paths under zero-as-unlimited policy while collecting real
 peak demand.
 
+GEO-13 dynamic runtime result:
+
+`geometry_geo13_dynamic.log` accepts the new dynamic policy. A 1 MiB byte
+budget and a four-surface budget produce exact named rejection totals; restoring
+zero/zero unlimited policy admits 1,474,088 bytes / 12 surfaces with zero
+rejection, and the user confirms all geometry returns. Invalid and overflow
+remain zero, shutdown is normal, and there is no device/resource failure.
+Dynamic mandatory cap removal is complete; static resident admission remains
+the next isolated slice.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

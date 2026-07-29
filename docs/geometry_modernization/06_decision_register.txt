@@ -4127,6 +4127,26 @@ Dynamic capture integration must retain zero-as-unlimited policy until actual
 peaks are measured and must report byte-budget, surface-budget, invalid-count,
 and arithmetic-overflow outcomes separately.
 
+D168. CHECKED DYNAMIC CAP REMOVAL IS RUNTIME-ACCEPTED
+-----------------------------------------------------
+`geometry_geo13_dynamic.log` proves the two dynamic capture implementations and
+retained-occluder path use explicit runtime budgets rather than the old
+compile-time surface/vertex/index admission constants.
+
+A 1 MiB budget admits 989,800 bytes across 11 surfaces and rejects one
+484,288-byte candidate by byte reason. A four-surface budget admits exactly
+four surfaces / 197,092 bytes and rejects eight candidates totaling 1,276,996
+bytes by surface reason. Invalid and arithmetic-overflow counters remain zero.
+
+Restoring zero/zero unlimited policy admits 1,474,088 bytes across all 12
+current fallback surfaces with zero rejection. The user confirms all omitted
+geometry returns. Shutdown is normal and there is no device loss, Vulkan
+failure, or buffer/BLAS creation failure.
+
+Dynamic admission is accepted. The old constants remain only reserve hints in
+that path. Static resident admission remains capped and is the next separate
+GEO-13 slice.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
