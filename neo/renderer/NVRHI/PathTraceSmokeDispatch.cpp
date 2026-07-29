@@ -3740,6 +3740,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         break;
                 }
             }
+            else if (r_pathTracingCleanRtxdiDiTransmissionNoTrace.GetInteger() != 0)
+            {
+                psrConstants.flags &=
+                    ~CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK;
+                psrConstants.flags |=
+                    1u << CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
+                staticBucketTransmissionMarker =
+                    "CleanDI.TransmissionPSR.SourceDecodeNoTrace";
+            }
             {
                 PathTraceGpuMarkerScope nsightMarker(
                     commandList,

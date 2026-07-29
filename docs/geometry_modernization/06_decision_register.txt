@@ -3561,6 +3561,20 @@ GI, RR, and later consumers. This makes transmission the only added dispatch
 family. Its reflection, opaque-mirror, distortion, and refracted-PSR sublanes
 remain independently disabled for the first test.
 
+D141. TRANSMISSION SOURCE DECODE IS SEPARATED FROM SECONDARY TRACE
+-----------------------------------------------------------------
+The straight-through transmission boundary survived several frames and then
+device-removed as camera motion grew the material universe from 407 to 425
+rows. This is consistent with a newly visible glass/material trigger. With no
+GPU checkpoint, it does not identify whether source-glass decode or the
+secondary trace/resolved-hit path faults.
+
+The transmission producer already compiled a branch that completes source
+glass identification and parameter decode, then returns before TraceRay. A
+default-off `r_pathTracingCleanRtxdiDiTransmissionNoTrace` CVar now selects
+that branch for the production route. This supplies one binary boundary
+without a shader variant, descriptor change, or payload change.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

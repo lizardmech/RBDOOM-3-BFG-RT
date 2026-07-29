@@ -165,3 +165,20 @@ off for the first straight-through transmission test.
 The revised CPU boundary built successfully with every SPIR-V shader up to
 date. The deployed 15,996,928-byte executable is byte-identical, SHA-256
 C33CC24F2B0B69C7BE38961906F7C692032B441894443EA7F2F022D82BC61B5C.
+
+The transmission boundary device-removed only after several surviving frames.
+The capture shows material-universe growth 407 -> 416 -> 418 -> 425 as camera
+visibility changed, followed by device loss. This supports a newly active
+glass/material trigger but does not identify a faulting instruction; Vulkan
+reported no diagnostic checkpoint.
+
+The producer already contains a compiled no-trace branch. A default-off
+`r_pathTracingCleanRtxdiDiTransmissionNoTrace` host control now selects it for
+the production route. It executes source-glass identification and parameter
+decode, then returns before secondary TraceRay. Survival assigns the fault to
+secondary traversal or resolved-hit work; failure assigns it to source-glass
+activation/decode or producer setup. No shader or ABI change is required.
+
+The CPU-only control built successfully with every SPIR-V shader up to date.
+The deployed 15,997,440-byte executable is byte-identical, SHA-256
+B1BC395341F96AD4736AC4742524F86A05CDFAE123ECCB441943379DF1D9218F.

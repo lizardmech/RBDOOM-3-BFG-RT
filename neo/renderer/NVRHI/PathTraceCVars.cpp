@@ -1323,6 +1323,12 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionCompose(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean RTXDI DI view 16 glass sidecar compose: 0 off, 1 let the glass pass copy shaded output through the transmission sidecar path" );
 
+idCVar r_pathTracingCleanRtxdiDiTransmissionNoTrace(
+    "r_pathTracingCleanRtxdiDiTransmissionNoTrace",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean RTXDI DI view 16 diagnostic: identify and decode source glass in the transmission PSR producer, then return before secondary TraceRay traversal" );
+
 idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
     "r_pathTracingCleanRtxdiDiTransmissionDebugView",
     "0",
