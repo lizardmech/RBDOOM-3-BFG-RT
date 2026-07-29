@@ -518,10 +518,15 @@ C33CC24F2B0B69C7BE38961906F7C692032B441894443EA7F2F022D82BC61B5C.
 
 The admitted transmission run survived initial frames, then device-removed as
 the material universe grew from 407 to 425 rows with camera visibility. No GPU
-checkpoint was reported. A default-off
-`r_pathTracingCleanRtxdiDiTransmissionNoTrace` now exposes the producer's
-already-compiled source-decode/no-secondary-trace branch on the production
-route. This is the next binary fault boundary and changes no shader ABI.
+checkpoint was reported. A default-zero
+`r_pathTracingCleanRtxdiDiTransmissionIsolationStage` exposes the producer's
+already-compiled source-decode/no-secondary-trace branch as stage 1 and its
+bounded forced-opaque trace/closest-hit/no-resolve branch as stage 2.
+Stage 1 survived, excluding source-glass activation and decode. Stage 2 is the
+next binary fault boundary and changes no shader ABI.
 The Vulkan release build passed with every SPIR-V shader up to date. The
 deployed 15,997,440-byte executable is byte-identical, SHA-256
 B1BC395341F96AD4736AC4742524F86A05CDFAE123ECCB441943379DF1D9218F.
+The unified stage-control Vulkan build passed with every SPIR-V shader up to
+date. The deployed 15,997,952-byte executable is byte-identical, SHA-256
+5EECAD0F1527CEB68FA132130CCA9EF534E9A453901FE9A7AF38244BB41086C0.

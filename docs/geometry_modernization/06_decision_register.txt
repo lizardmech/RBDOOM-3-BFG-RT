@@ -3569,11 +3569,14 @@ rows. This is consistent with a newly visible glass/material trigger. With no
 GPU checkpoint, it does not identify whether source-glass decode or the
 secondary trace/resolved-hit path faults.
 
-The transmission producer already compiled a branch that completes source
-glass identification and parameter decode, then returns before TraceRay. A
-default-off `r_pathTracingCleanRtxdiDiTransmissionNoTrace` CVar now selects
-that branch for the production route. This supplies one binary boundary
-without a shader variant, descriptor change, or payload change.
+The transmission producer already compiled branches that (1) complete source
+glass identification and parameter decode then return before TraceRay, and
+(2) complete a bounded forced-opaque trace and closest-hit payload then return
+before resolved-surface construction/publication. A default-zero
+`r_pathTracingCleanRtxdiDiTransmissionIsolationStage` selects full behavior,
+stage 1, or stage 2. Stage 1 survived the visibility trigger, excluding source
+activation and parameter decode. Stage 2 is the remaining binary boundary.
+Neither stage adds a shader variant, descriptor change, or payload change.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

@@ -3740,14 +3740,31 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         break;
                 }
             }
-            else if (r_pathTracingCleanRtxdiDiTransmissionNoTrace.GetInteger() != 0)
+            else
             {
-                psrConstants.flags &=
-                    ~CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK;
-                psrConstants.flags |=
-                    1u << CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
-                staticBucketTransmissionMarker =
-                    "CleanDI.TransmissionPSR.SourceDecodeNoTrace";
+                const int transmissionIsolationStage = idMath::ClampInt(
+                    0,
+                    2,
+                    r_pathTracingCleanRtxdiDiTransmissionIsolationStage.GetInteger());
+                if (transmissionIsolationStage == 1)
+                {
+                    psrConstants.flags &=
+                        ~CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK;
+                    psrConstants.flags |=
+                        1u << CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT;
+                    staticBucketTransmissionMarker =
+                        "CleanDI.TransmissionPSR.SourceDecodeNoTrace";
+                }
+                else if (transmissionIsolationStage == 2)
+                {
+                    psrConstants.flags &=
+                        ~CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_MASK;
+                    psrConstants.flags |=
+                        CLEAN_RTXDI_DI_FLAG_TRANSMISSION_ITERATIVE_RESOLVE |
+                        (6u << CLEAN_RTXDI_DI_FLAG_TRANSMISSION_TRACE_PROBE_SHIFT);
+                    staticBucketTransmissionMarker =
+                        "CleanDI.TransmissionPSR.TraceClosestHitNoResolve";
+                }
             }
             {
                 PathTraceGpuMarkerScope nsightMarker(

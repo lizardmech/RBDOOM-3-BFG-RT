@@ -172,13 +172,24 @@ visibility changed, followed by device loss. This supports a newly active
 glass/material trigger but does not identify a faulting instruction; Vulkan
 reported no diagnostic checkpoint.
 
-The producer already contains a compiled no-trace branch. A default-off
-`r_pathTracingCleanRtxdiDiTransmissionNoTrace` host control now selects it for
-the production route. It executes source-glass identification and parameter
-decode, then returns before secondary TraceRay. Survival assigns the fault to
-secondary traversal or resolved-hit work; failure assigns it to source-glass
-activation/decode or producer setup. No shader or ABI change is required.
+The producer already contains compiled isolation branches. A default-zero
+`r_pathTracingCleanRtxdiDiTransmissionIsolationStage` host control selects
+them for the production route:
 
-The CPU-only control built successfully with every SPIR-V shader up to date.
+  0  full producer
+  1  source-glass identification/decode, return before secondary TraceRay
+  2  bounded forced-opaque trace and closest-hit payload, return before
+     resolved-surface construction/publication
+
+Stage 1 survived the newly visible glass trigger. Source-glass activation and
+parameter decode are excluded. Stage 2 now separates secondary traversal and
+closest-hit payload construction from the remaining resolved-surface work. No
+shader or ABI change is required.
+
+The initial CPU-only control built successfully with every SPIR-V shader up to date.
 The deployed 15,997,440-byte executable is byte-identical, SHA-256
 B1BC395341F96AD4736AC4742524F86A05CDFAE123ECCB441943379DF1D9218F.
+
+The unified stage control built successfully with every SPIR-V shader up to
+date. The deployed 15,997,952-byte executable is byte-identical, SHA-256
+5EECAD0F1527CEB68FA132130CCA9EF534E9A453901FE9A7AF38244BB41086C0.
