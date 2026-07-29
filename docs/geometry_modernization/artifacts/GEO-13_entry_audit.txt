@@ -363,6 +363,35 @@ compile-time vertex/index/surface caps. Slice 4 beyond-old-cap proof is covered
 for both dynamic and static admission by the forced-low/recovery captures;
 route promotion remains a separate one-lane-at-a-time change.
 
+SLICE-5A CANONICAL RIGID DEFAULT CANDIDATE
+------------------------------------------
+The canonical pooled rigid BLAS provider and its TLAS traversal gate now
+default on together:
+
+  r_pathTracingGeometryCanonicalRigidBlas       1
+  r_pathTracingGeometryCanonicalRigidTraversal  1
+
+This changes no descriptor, shader, SBT, payload, material, motion, or
+acceleration-structure layout. Live canonical selection still requires exact
+legacy/canonical descriptor counts, exact full-key record mappings, and zero
+missing-index, hash-mismatch, or missing-BLAS failures. Any incomplete state
+fails closed to the complete established rigid descriptor list.
+
+The two gates remain independently settable for diagnosis and rollback. Static
+bucket and skinned-route defaults are unchanged.
+
+  PathTraceCpuPlanningHarness --stress 20       PASS
+  cmake --build --preset win64-pt-dev-release  PASS
+  SPIR-V                                        all up to date
+  executable bytes                              16,079,872
+  executable SHA-256
+    07756AA8AA01FFF53C2FC737FD5297268602301B801F29F073C2B7536A227E57
+
+Runtime acceptance remains open. It must prove an ordinary launch selects
+canonical descriptors at exact parity, explicit zero/zero restores established
+rigid traversal, and explicit one/one plus map reconstruction restores the
+canonical default without visual, lifecycle, resource, or device-loss failure.
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.

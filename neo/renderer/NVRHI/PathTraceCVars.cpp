@@ -365,9 +365,9 @@ idCVar r_pathTracingGeometrySourceColorUnorm8(
 
 idCVar r_pathTracingGeometryCanonicalRigidBlas(
     "r_pathTracingGeometryCanonicalRigidBlas",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "GEO-06 default-off canonical pooled rigid BLAS provider; live selection requires the separate traversal gate" );
+    "GEO-13 default-on canonical pooled rigid BLAS provider; live selection requires the separate traversal gate" );
 
 idCVar r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame(
     "r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame",
@@ -383,9 +383,9 @@ idCVar r_pathTracingGeometryCanonicalRigidBlasResultBudgetKB(
 
 idCVar r_pathTracingGeometryCanonicalRigidTraversal(
     "r_pathTracingGeometryCanonicalRigidTraversal",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "GEO-06 default-off canonical rigid TLAS traversal; requires exact descriptor parity and fails closed to legacy" );
+    "GEO-13 default-on canonical rigid TLAS traversal; requires exact descriptor parity and fails closed to legacy" );
 
 idCVar r_pathTracingGeometryCanonicalRigidHitDump(
     "r_pathTracingGeometryCanonicalRigidHitDump",

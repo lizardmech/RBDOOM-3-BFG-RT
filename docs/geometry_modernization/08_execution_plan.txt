@@ -1002,6 +1002,18 @@ there is no allocation, buffer, acceleration-structure, Vulkan, or device-loss
 failure. Static mandatory cap removal is complete. Default promotion now
 proceeds separately, beginning with canonical rigid provider and traversal.
 
+GEO-13 canonical rigid default candidate:
+
+Both `r_pathTracingGeometryCanonicalRigidBlas` and
+`r_pathTracingGeometryCanonicalRigidTraversal` now default to one. Exact
+descriptor and full-key record parity remain mandatory; incomplete provider
+state fails closed to the complete established rigid list. The CPU planner
+stress and Vulkan release build pass, SPIR-V is unchanged, and the deployed
+candidate is SHA-256
+`07756AA8AA01FFF53C2FC737FD5297268602301B801F29F073C2B7536A227E57`.
+Runtime default/rollback/restoration acceptance remains open. Static bucket and
+skinned traversal defaults are unchanged.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material
