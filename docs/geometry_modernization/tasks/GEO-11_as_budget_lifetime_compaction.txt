@@ -303,3 +303,7 @@ No shader ABI, descriptor, payload, SBT, or shader binary changes are required.
 The Vulkan release rebuild passed with every SPIR-V shader up to date. The
 deployed 15,997,952-byte executable is byte-identical, SHA-256
 5498EE944DA6B1BDD3EABE835D6B91016F56C6FD50B802A5FA1CE8646E1A85EF.
+
+Promoted production stage 0 survived the reliable camera/glass traversal with
+no crash. Transmission triage is closed. Resume the original Slice-3
+rigid-retirement gate before beginning admission work.

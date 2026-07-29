@@ -3681,6 +3681,12 @@ the faulting traversal choice from default admission while preserving the same
 source-glass decode, hit-to-surface construction, history/guide publication,
 and resolved transmission-sidecar output proven by stage 6.
 
+D145 runtime disposition: promoted production stage 0 survived the same
+camera/glass traversal with no crash. The transmission detour is closed.
+GEO-11 returns to its original Slice-3 rigid-retirement acceptance gate; Slice
+4 admission remains blocked until the warm rigid off/on package is armed,
+released by GPU completion, and all rigid routes recover parity.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

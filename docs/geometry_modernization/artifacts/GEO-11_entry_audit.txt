@@ -625,4 +625,11 @@ legacy any-hit path remains available only as explicit diagnostic stage 7.
 The Vulkan release rebuild passed with every SPIR-V shader up to date. The
 deployed 15,997,952-byte executable is byte-identical, SHA-256
 5498EE944DA6B1BDD3EABE835D6B91016F56C6FD50B802A5FA1CE8646E1A85EF.
-Runtime acceptance of the promoted default remains pending.
+Promoted production stage 0 survived the reliable camera/glass traversal with
+no crash. Transmission triage is closed.
+
+The next authorized action is the original warm Slice-3 rigid retirement
+off/on test. Slice-4 admission work remains blocked until that package is
+armed and released by graphics-event-query completion, pending reaches zero,
+and rigid/canonical route parity recovers without missing geometry or device
+loss.
