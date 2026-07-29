@@ -3243,8 +3243,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingCleanRtxdiDiStopAfterSpatial.GetInteger() != 0;
         const bool cleanProductionStageIsolation =
             cleanProductionInitialOnly ||
-            cleanProductionTemporalOnly ||
-            cleanProductionSpatialOnly;
+            cleanProductionTemporalOnly;
         const int cleanRequestedLiquidPoolMode = idMath::ClampInt(0, 3, r_pathTracingLiquidPoolMode.GetInteger());
         const bool cleanLiquidPoolTelemetryReady = m_liquidPoolStatusBuffer && m_liquidPoolStatusReadbackBuffer;
         const bool cleanLiquidPoolParametersReady =
@@ -4059,9 +4058,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             if (!m_smokeTestDispatched)
             {
                 common->Printf(
-                    "PathTracePrimaryPass: clean DI view-16 initial-plus-temporal-plus-spatial dispatch completed (%dx%d); transmission PSR, material-feature composition, GI, RR, and later consumers skipped\n",
+                    "PathTracePrimaryPass: clean DI view-16 optional-transmission-plus-initial-plus-temporal-plus-spatial dispatch completed (%dx%d); transmissionActive=%d material-feature composition, GI, RR, and later consumers skipped\n",
                     m_frameResources.width,
-                    m_frameResources.height);
+                    m_frameResources.height,
+                    glassReflectionProducerActive ? 1 : 0);
             }
             m_smokeTestDispatched = true;
             return;

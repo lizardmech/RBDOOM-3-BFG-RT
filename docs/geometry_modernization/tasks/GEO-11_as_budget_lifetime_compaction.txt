@@ -153,3 +153,15 @@ The CPU-only boundary built successfully; all SPIR-V shaders were already up
 to date. The deployed 15,996,928-byte executable is byte-identical to the
 build output, SHA-256
 7A2BF5BCBEF3016ECE99DD0D2A544F6209A6DE241B436ABF39DEEF1BB53A4C7A.
+
+The spatial-only boundary survived the reliable trigger. Initial, temporal,
+and spatial are therefore excluded. The same stop now forms the next exact
+boundary: transmission producer/compose disabled retains the accepted DI-only
+case; enabling both admits transmission PSR before DI and still returns after
+spatial, before material-feature composition, GI, RR, and later consumers.
+Reflection, opaque-mirror, distortion, and refracted-PSR controls must remain
+off for the first straight-through transmission test.
+
+The revised CPU boundary built successfully with every SPIR-V shader up to
+date. The deployed 15,996,928-byte executable is byte-identical, SHA-256
+C33CC24F2B0B69C7BE38961906F7C692032B441894443EA7F2F022D82BC61B5C.

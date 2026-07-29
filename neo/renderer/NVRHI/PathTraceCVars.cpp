@@ -1303,7 +1303,7 @@ idCVar r_pathTracingCleanRtxdiDiStopAfterSpatial(
     "r_pathTracingCleanRtxdiDiStopAfterSpatial",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room Remix DI view 16 diagnostic: stop after initial, temporal, and spatial DispatchRays, before transmission PSR, material-feature composition, GI, RR, and later consumers" );
+    "Clean-room Remix DI view 16 diagnostic: stop after optional transmission PSR plus initial, temporal, and spatial DispatchRays, before material-feature composition, GI, RR, and later consumers; disable the transmission producer or compose CVar for a DI-only boundary" );
 
 idCVar r_pathTracingCleanRtxdiDiBlueNoise(
     "r_pathTracingCleanRtxdiDiBlueNoise",

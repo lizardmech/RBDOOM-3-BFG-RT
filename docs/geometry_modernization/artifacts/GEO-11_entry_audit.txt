@@ -505,3 +505,13 @@ spatial dispatch from the full production tail without another shader variant.
 The Vulkan release build passed with every SPIR-V shader up to date. The
 deployed 15,996,928-byte executable is byte-identical, SHA-256
 7A2BF5BCBEF3016ECE99DD0D2A544F6209A6DE241B436ABF39DEEF1BB53A4C7A.
+
+The exact spatial boundary survived the same camera trigger. The fault is now
+strictly outside initial, temporal, and spatial. For the next boundary,
+stop-after-spatial no longer implicitly suppresses transmission: the existing
+producer/compose CVars select whether straight-through transmission PSR runs
+before the proven DI chain. The return remains before material-feature
+composition, GI, RR, and later consumers.
+The revised Vulkan release build passed with all SPIR-V shaders up to date.
+The deployed 15,996,928-byte executable is byte-identical, SHA-256
+C33CC24F2B0B69C7BE38961906F7C692032B441894443EA7F2F022D82BC61B5C.

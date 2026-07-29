@@ -3548,6 +3548,19 @@ material-feature composition, GI, RR, and later consumers. Default 0 preserves
 the complete production route. This is a CPU dispatch boundary and requires no
 shader variant or descriptor/payload change.
 
+D140. TRANSMISSION ADMISSION IS ORTHOGONAL TO THE SPATIAL STOP
+--------------------------------------------------------------
+The exact initial-plus-temporal-plus-spatial boundary survived the reliable
+trigger, excluding all three production DI passes.
+
+Transmission PSR executes before DI, so the spatial stop is extended without
+another CVar. With transmission producer or compose disabled it remains the
+accepted DI-only boundary. With both enabled it admits transmission PSR, runs
+the proven DI chain, and still returns before material-feature composition,
+GI, RR, and later consumers. This makes transmission the only added dispatch
+family. Its reflection, opaque-mirror, distortion, and refracted-PSR sublanes
+remain independently disabled for the first test.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
