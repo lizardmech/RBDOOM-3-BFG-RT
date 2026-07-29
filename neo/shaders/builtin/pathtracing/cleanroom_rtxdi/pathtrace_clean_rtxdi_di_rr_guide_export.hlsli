@@ -255,16 +255,6 @@ float3 PathTraceCleanRtxdiDiRrSpecularAlbedoFromSurface(RAB_Surface surface)
     {
         return max(specular, saturate(emissive / max(peak, 1.0e-5)));
     }
-
-    PathTraceDynamicMaterialRecord record;
-    if (PathTraceCleanRoomFindDynamicMaterialRecord(surface.material.materialIndex, record) &&
-        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) != 0u &&
-        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u &&
-        record.texMatrix0.w != 0.0 &&
-        max(max(record.color.r, record.color.g), record.color.b) > 1.0e-5)
-    {
-        return max(specular, saturate(record.color.rgb * saturate(record.color.a)));
-    }
     return specular;
 }
 

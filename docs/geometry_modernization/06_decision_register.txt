@@ -3582,6 +3582,26 @@ diagnostic tuple, and returns before primary-surface publication and
 guide/sidecar writes. None of the stages adds a shader variant, descriptor
 change, or payload change.
 
+D142. RESOLVED-SURFACE PUBLICATION MUST NOT RE-DECODE DYNAMIC MATERIAL
+---------------------------------------------------------------------
+Transmission isolation stages 1, 2, and 3 all survived. The accepted boundary
+therefore includes source-glass decode, bounded secondary traversal,
+closest-hit payload construction, and complete behind-glass resolved-surface
+construction. The failure is in publication, guide export, or sidecar output.
+
+The publication audit found one material-generation violation. Resolved
+surface construction calls the canonical material loader, applies the current
+dynamic record, and carries final specular F0 and emissive radiance in
+`RAB_Surface`. RR specular-albedo guide export nevertheless indexed the
+dynamic-material buffer a second time. That lookup was redundant, unique to
+the failing remainder, and crossed the material namespace observed growing
+from 407 to 425 immediately before device loss.
+
+RR guide export now derives its value solely from the resolved surface's
+specular F0 and emissive radiance. Publication no longer re-enters a mutable
+material namespace. This is a contract repair, not a feature reduction:
+dynamic RGB emissive state was already folded into the resolved material.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

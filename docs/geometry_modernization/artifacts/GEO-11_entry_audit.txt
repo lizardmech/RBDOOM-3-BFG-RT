@@ -536,3 +536,18 @@ date. The deployed 15,997,952-byte executable is byte-identical, SHA-256
 The stage-3 Vulkan build also passed with all SPIR-V shaders up to date. The
 deployed 15,997,952-byte executable is byte-identical, SHA-256
 1CF7B31B7B98867E43979349F75F635BEE6B0DDE4F23EA6022F22FC630F01D26.
+
+Stage 3 survived, isolating the fault to publication/guide/sidecar work. The
+only material lookup in that remainder was redundant: resolved-surface
+construction had already applied dynamic RGB/emissive state, but RR specular
+guide export indexed the dynamic-material buffer again. The second lookup
+crossed the material namespace observed growing immediately before device
+loss. It is removed; guide export now consumes the authoritative material
+already carried by `RAB_Surface`.
+
+Exactly the sentinel, glass, and transmission-producer Vulkan RT blobs were
+deleted and regenerated; every blob mtime is newer than the edited include.
+Build and deployment passed, and source/deployed executable plus all three
+SPIR-V blobs are byte-identical. `spirv-val --target-env vulkan1.2` passes for
+all three blobs. Transmission producer SHA-256:
+41BB1F17AA5B42E691DA1027C62861DEBEFBE909FA55D1DA9EC2E01DB9F58B36.

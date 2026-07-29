@@ -200,3 +200,37 @@ date. The deployed 15,997,952-byte executable is byte-identical, SHA-256
 Stage 3 built successfully with every SPIR-V shader up to date. The deployed
 15,997,952-byte executable is byte-identical, SHA-256
 1CF7B31B7B98867E43979349F75F635BEE6B0DDE4F23EA6022F22FC630F01D26.
+
+Stage 3 survived. Source decode, secondary traversal, closest-hit payload, and
+resolved-surface construction are all excluded. Audit of the remaining
+publication path found one material-generation violation:
+
+  - resolved-surface construction already loads the current material, applies
+    its dynamic record, and stores final emissive radiance in `RAB_Surface`;
+  - RR specular-guide export then performed a second indexed dynamic-material
+    lookup from `surface.material.materialIndex`;
+  - this redundant lookup was unique to the failing publication remainder and
+    crossed the material namespace that grew 407 -> 425 at the crash trigger.
+
+RR specular export now consumes only `surface.material.specularF0` and the
+already-resolved `surface.material.emissiveRadiance`. It no longer re-enters
+the dynamic-material namespace during publication. This removes duplicated
+decode, preserves the authoritative resolved-surface contract, and matches the
+one-record/one-decode reference shape.
+
+Shader rebuild/deployment:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; exactly sentinel, glass, and transmission-producer
+                Vulkan RT libraries rebuilt
+  dependency    all three blob mtimes newer than the edited include
+  spirv-val     PASS for all three blobs, target Vulkan 1.2
+  executable    15,997,952 bytes
+  executable sha256
+                1CF7B31B7B98867E43979349F75F635BEE6B0DDE4F23EA6022F22FC630F01D26
+  sentinel sha256
+                195C1065A1A6A24F68FF5A63937D8C7F228393437F880FFB6760E77CFD1E7A96
+  glass sha256  0ACA49F8D426DA01FBDF1FF2CECDCE87399096E84777C61D2A57B1ED54D91970
+  transmission sha256
+                41BB1F17AA5B42E691DA1027C62861DEBEFBE909FA55D1DA9EC2E01DB9F58B36
+  deployment    executable and all three SPIR-V blobs byte-identical
