@@ -2951,6 +2951,92 @@ the planning harness. A motion-triggered device removal implicates
 material-feature composition; stable motion moves the fault to the first
 later consumer after composition.
 
+D118. REVISE CRASH TRIAGE: KEEP DISPATCH GATES, STOP ADDING CODE RUNG LADDERS
+----------------------------------------------------------------------------
+An external review correctly identifies watchdog ambiguity in device-removal
+bisection. Windows System events for the recent failures contain repeated
+Display event 4101 entries:
+
+  `Display driver nvlddmkm stopped responding and has successfully recovered.`
+
+This confirms TDR recovery, but does not distinguish excessive GPU duration
+from a shader memory fault that stalls the channel.
+
+The review overstates one point: stages 17 through 24 do not compile functions
+out of shader modules. They reuse the same deployed SPIR-V and select runtime
+flags or whole dispatch boundaries, so they do not change shader register
+pressure, stack size, or compiled pipeline code. Stages 22 and 23 also produced
+value-level color contracts that exposed and verified the concrete
+bucket-resident versus monolithic buffer mismatch. Nevertheless, a passing
+dispatch gate can still mean only that total GPU work stayed below the
+watchdog threshold. Treat stage-24 failure as a boundary/cost result, not proof
+that one material function is corrupt.
+
+Validated tooling findings:
+
+  - `DeviceManager_VK.cpp` enables `VK_LAYER_KHRONOS_validation` for
+    `r_useValidationLayers 2`, but does not chain
+    `VkValidationFeaturesEXT`; GPU-assisted validation is genuinely missing.
+  - NVRHI Aftermath support exists but `NVRHI_WITH_AFTERMATH` is off and the
+    Vulkan `DeviceDesc.aftermathEnabled` field is not set.
+  - compute RayQuery is already enabled and used by the particle and clean-GI
+    paths, so a transmission RayQuery control is technically viable.
+  - HLSL debug printf is not a one-line change in this build: current DXC
+    commands do not enable `SPV_KHR_non_semantic_info`, and an unbounded
+    full-screen print path would be unsafe.
+
+Do not raise the machine-wide `TdrDelay` during this investigation. This host
+has already lost desktop input during GPU stalls; extending the watchdog can
+turn a short recoverable reset into a long system-wide lock.
+
+Revised order:
+
+  1. Run the already-built stage 24 once; add no stage 25.
+  2. Interpret it only as material-compose dispatch admitted versus omitted.
+  3. Add an init-only Vulkan GPU-assisted-validation mode and run it at reduced
+     render resolution with the validation layer enabled.
+  4. If GPU-AV reports no invalid access, A/B the same failing path at
+     640x360 versus the normal resolution. Resolution sensitivity supports a
+     workload/TDR mechanism.
+  5. If the failure remains resolution-independent and GPU-AV is clean, build
+     one compute RayQuery control over the same TLAS/ray inputs.
+  6. Defer a standalone captured-frame replay harness to a separate tooling
+     ticket; it is justified but is not a small GEO-10 patch.
+
+D119. STAGE 24 SURVIVES; MOVE TO GPU-ASSISTED VALIDATION
+--------------------------------------------------------
+The stage-24 run completed at 2560x1440 with deliberate gameplay movement and
+no device removal. `success19.log` records:
+
+  `stage-24 bounded bucket transmission, initial-temporal-spatial DI, and
+   material-feature composition completed (2560x1440); GI, RR, and later
+   consumers skipped`
+
+The only nearby warning is `idSessionLocal::Pump was not called for 5 seconds`.
+That is evidence of a long frame or blocked main-thread interval, not a Vulkan
+validation diagnosis.
+
+Disposition:
+
+  - material-feature composition is admitted through the surviving boundary;
+  - the remaining failure is in GI/RR/later work or the cumulative workload
+    added after stage 24;
+  - do not add stage 25;
+  - add an init-only, default-off Vulkan GPU-assisted-validation switch and
+    test the failing stage-0 route at reduced resolution before further shader
+    surgery.
+
+Implementation contract:
+
+  - `r_vkGpuAssistedValidation 0` is the production default;
+  - `r_useValidationLayers 2` plus `r_vkGpuAssistedValidation 1`, both supplied
+    on the process command line, enable the Khronos validation layer's
+    GPU-assisted instrumentation and reserved descriptor binding slot before
+    the Vulkan instance is created;
+  - no shader source, descriptor ABI, or path-tracing runtime route changes;
+  - release build succeeded and the rebuilt executable was deployed with a
+    matching SHA-256 hash.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

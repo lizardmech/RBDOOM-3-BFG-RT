@@ -67,6 +67,7 @@
 
 idCVar r_vkPreferFastSync( "r_vkPreferFastSync", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL | CVAR_NEW, "Prefer Fast Sync/no-tearing in place of VSync off/tearing" );
 idCVar r_vkUsePushConstants( "r_vkUsePushConstants", "1", CVAR_RENDERER | CVAR_BOOL | CVAR_INIT | CVAR_NEW, "Use push constants for Vulkan renderer" );
+idCVar r_vkGpuAssistedValidation( "r_vkGpuAssistedValidation", "0", CVAR_BOOL | CVAR_INIT | CVAR_NEW, "Enable Vulkan GPU-assisted validation when r_useValidationLayers is 2." );
 
 // Define the Vulkan dynamic dispatcher - this needs to occur in exactly one cpp file in the program.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -550,6 +551,24 @@ bool DeviceManager_VK::createInstance()
 								  .setPpEnabledExtensionNames( instanceExtVec.data() )
 								  .setPApplicationInfo( &applicationInfo );
 
+	const void* instanceCreatePNext = nullptr;
+	std::array<vk::ValidationFeatureEnableEXT, 2> validationFeatureEnables;
+	vk::ValidationFeaturesEXT validationFeatures;
+	if( m_DeviceParams.enableDebugRuntime && r_vkGpuAssistedValidation.GetBool() )
+	{
+		validationFeatureEnables =
+		{
+			vk::ValidationFeatureEnableEXT::eGpuAssisted,
+			vk::ValidationFeatureEnableEXT::eGpuAssistedReserveBindingSlot
+		};
+		validationFeatures
+			.setEnabledValidationFeatureCount( uint32_t( validationFeatureEnables.size() ) )
+			.setPEnabledValidationFeatures( validationFeatureEnables.data() )
+			.setPNext( instanceCreatePNext );
+		instanceCreatePNext = &validationFeatures;
+		common->Printf( "Vulkan GPU-assisted validation enabled (including reserved descriptor binding slot).\n" );
+	}
+
 #if defined(__APPLE__)
 #if defined( VK_KHR_portability_enumeration )
 	if( IsVulkanInstanceExtensionEnabled( VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME ) )
@@ -620,9 +639,12 @@ bool DeviceManager_VK::createInstance()
 		layerSettingsCreateInfo.settingCount = uint32_t( layerSettings.size() );
 		layerSettingsCreateInfo.pSettings = layerSettings.data();
 
-		info.setPNext( &layerSettingsCreateInfo );
+		layerSettingsCreateInfo.setPNext( instanceCreatePNext );
+		instanceCreatePNext = &layerSettingsCreateInfo;
 	}
 #endif
+
+	info.setPNext( instanceCreatePNext );
 
 	const vk::Result res = vk::createInstance( &info, nullptr, &m_VulkanInstance );
 	if( res != vk::Result::eSuccess )
