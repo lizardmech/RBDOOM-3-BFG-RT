@@ -964,6 +964,23 @@ acceptance criterion until stage 6.
 
 PHASE E GATE / DEFINITION OF DONE
 ---------------------------------
+GEO-13 entry status 2026-07-30:
+
+Full cutover is blocked by the latest GEO-09 disposition. The authoritative GPU
+skinning producer is default on, but per-instance skinned BLAS/TLAS traversal
+and capture split are default off after repeatable Vulkan driver resets.
+Merged dynamic remains a mandatory skinned fallback and no deletion based on
+the earlier acceptance is authorized.
+
+The old static/dynamic vertex/index/surface constants are CPU admission filters,
+not GPU ABI sizes. Actual vector byte counts already size growable downstream
+buffers. GEO-13 Slice 1 adds a pure checked uint64 byte/surface admission
+planner with explicit budget, invalid-count, and overflow results. The full
+Vulkan release build and `PathTraceCpuPlanningHarness --stress 20` pass with no
+live behavior or shader change. Slice 2 may now integrate the planner into the
+two dynamic capture paths under zero-as-unlimited policy while collecting real
+peak demand.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

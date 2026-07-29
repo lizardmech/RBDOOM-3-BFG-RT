@@ -1,0 +1,232 @@
+GEO-13 ENTRY AUDIT: CUTOVER, FALLBACK, AND CAP-REMOVAL CONTRACTS
+================================================================
+
+DATE
+----
+2026-07-30
+
+STATUS
+------
+Entry audit complete. Full Phase-E cutover is not currently authorized.
+Bounded cap-removal work may proceed in the ordered slices below.
+
+The GEO-13 proposal is a target, not proof. Its precondition that every Phase
+A-D gate passes is contradicted by the latest accepted skinned-route result:
+the authoritative GPU skinning producer remains enabled, but the per-instance
+skinned BLAS/TLAS route was revoked after repeatable Vulkan driver resets.
+The merged dynamic route is therefore still a mandatory skinned fallback and
+must not be deleted or narrowed to transient-only ownership.
+
+LATEST-EVIDENCE RULE
+--------------------
+Several earlier handoffs record successful compare or default-on experiments.
+Later runtime revocations supersede those intermediate results. Current CVar
+defaults and the closing disposition in each owning ticket are authoritative:
+
+  - canonical rigid pooled BLAS/traversal: accepted, default off;
+  - authoritative GPU skinning source/output: accepted, default on;
+  - per-instance skinned BLAS/TLAS and capture split: revoked, default off;
+  - portal-area static bucket route: accepted, default off;
+  - color-only canonical CPU storage: accepted, default off.
+
+No GEO-13 change may infer production ownership from an earlier comparison
+checkpoint when a later ticket section explicitly revoked it.
+
+CURRENT ROUTE MATRIX
+--------------------
+Geometry class                         Current owner / required fallback
+------------------------------------   ----------------------------------------
+Authored static world                  Monolithic static route is the default
+                                       and rollback. Accepted bucket route 1 is
+                                       available only when its resource, build,
+                                       and route gates are explicitly enabled.
+
+Immutable rigid/model geometry         The established source-3 rigid route is
+                                       the current routed owner in supported
+                                       production/debug modes. The accepted
+                                       canonical pooled rigid provider and
+                                       traversal are default off and fail closed
+                                       to established rigid descriptors.
+                                       Merged dynamic remains the last fallback.
+
+Eligible true skinned geometry         Authoritative renderer joint-cache input
+                                       and GPU output are default on. Traversal
+                                       still uses merged dynamic because the
+                                       per-instance updateable-BLAS route and
+                                       capture split are revoked.
+
+Particles, beam/trail, transient        Per-frame merged dynamic.
+
+Callback/generated unsupported         Per-frame merged dynamic when admitted
+deformation                            by the existing classifier; otherwise a
+                                       named unsupported/classification skip.
+
+GUI/cinematic/runtime-target            Existing explicitly supported capture
+                                       cases use merged dynamic. Unsupported
+                                       cases retain named GUI/classifier skips.
+
+Allocation/resource creation failure   Scene buffer or BLAS creation prints a
+                                       named failure and aborts the current PT
+                                       scene build. There is no safe partial
+                                       publication contract to invent in GEO-13.
+
+CUTOVER DISPOSITION
+-------------------
+Immutable rigid is the only independently accepted canonical replacement that
+is eligible for a later one-default-at-a-time promotion. It already requires
+exact descriptor and record parity and fails closed to the established rigid
+route.
+
+Static buckets have accepted route-1 geometry and optical coverage, exact
+retirement, and measured warm reuse, but still require an explicit three-gate
+resource/build/route configuration. Their default promotion must be separate
+from cap removal and must preserve monolithic rollback until a complete
+default-on baseline matrix passes.
+
+Skinned promotion is blocked. A separate Vulkan update-path investigation must
+produce an accepted per-instance route before GEO-13 can make merged dynamic a
+transient-only fallback or satisfy the original Phase-E definition of done.
+
+LEGACY CAP TRANSITIVE AUDIT
+---------------------------
+The old constants are live admission filters, not only reserve hints:
+
+  RT_SMOKE_MAX_SURFACES = 128
+  RT_SMOKE_MAX_VERTS = 65,536
+  RT_SMOKE_MAX_INDEXES = 196,608
+  PT_SCENE_UNIVERSE_STATIC_MAX_VERTS = 262,144
+  PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES = 786,432
+
+`RT_SMOKE_MAX_*` currently controls:
+
+  - vector reserve hints in both dynamic capture implementations;
+  - visible dynamic surface/vertex/index admission;
+  - nearby retained-occluder surface/vertex/index admission;
+  - legacy static capture admission;
+  - bounded debug-dump storage.
+
+`PT_SCENE_UNIVERSE_STATIC_MAX_*` controls the default monolithic scene-universe
+static builder and residency-derived static append. The accepted full-map
+bucket source already bypasses one of these checks, proving the values are not
+a renderer or shader ABI.
+
+Downstream dynamic and static GPU buffers are created from actual vector byte
+counts. `ReuseOrCreateSmokeGeometryBuffer` checks existing capacity and creates
+a larger buffer when required. BLAS descriptions use the resulting actual
+vertex/index counts. No descriptor, SBT record, shader array, or fixed GPU
+allocation is sized by the five old constants.
+
+Therefore cap removal does not require a shader or Vulkan ABI change. It does
+require checked CPU arithmetic, configurable admission policy, named rejection
+reasons, and allocation-failure handling. Simply deleting the checks would
+leave unchecked `int` accumulation and host-vector allocation as the policy;
+raising the constants would preserve the original defect.
+
+UNRELATED LIMITS TO RETAIN
+--------------------------
+Semantic/debug bounds are outside this change unless a separate consumer audit
+proves otherwise. Examples include debug-light samples, emissive-triangle
+inventory limits, texture-table limits, TLAS instance limits, per-frame AS
+operation/result budgets, static bucket size partitioning, and bounded log
+pages. They are not geometry capture admission caps merely because they contain
+`MAX` in the name.
+
+ORDERED IMPLEMENTATION SLICES
+-----------------------------
+Slice 1 - pure checked admission planner
+
+  - Define a 64-bit byte/surface admission input and explicit result enum:
+    admitted, surface budget, byte budget, invalid count, arithmetic overflow.
+  - Count the actual CPU capture streams owned at this boundary: rendered
+    vertices, indexes, per-triangle class/material/instance/identity records.
+  - Treat zero budget as unlimited; do not choose an unmeasured production
+    ceiling in this slice.
+  - Add offline coverage for exact boundary, one-byte/one-surface excess,
+    unlimited budgets, invalid triangle counts, and every overflow operation.
+  - Do not change live capture behavior yet.
+
+Slice 2 - dynamic fallback integration
+
+  - Add configurable byte and surface budgets.
+  - Replace vertex/index/surface compile-time tests in both dynamic capture
+    implementations and the retained-occluder pass with the checked planner.
+  - Keep reserve hints as non-authoritative initial capacities or replace them
+    with measured conservative reserves.
+  - Record admitted and rejected surfaces/bytes by explicit reason.
+  - Preserve all mandatory skinned fallback geometry while the budget is
+    unlimited; forced-low validation may reject only with named counters.
+
+Slice 3 - static monolithic integration
+
+  - Replace both scene-universe static cap checks and legacy static-capture cap
+    checks with checked resident byte budgeting.
+  - Use actual persistent cache sizes and candidate stream costs.
+  - Preserve accepted bucket storage, monolithic rollback, cache generations,
+    and all material/class/portal identity.
+
+Slice 4 - beyond-old-cap proof
+
+  - Re-run the known crowded skinned workload that previously exceeded 196,608
+    indexes and prove all required surfaces are admitted under unlimited policy.
+  - Force a low byte budget and prove explicit recoverable rejection totals.
+  - Exercise retained occluders, map replacement, portal traversal, buffer
+    growth, and normal shutdown.
+  - Archive actual peak bytes/surfaces before selecting any finite default.
+
+Slice 5 - route promotion, one lane at a time
+
+  - Promote canonical rigid provider/traversal together and run its full
+    descriptor/hit/material/motion/emissive/lifecycle matrix.
+  - Only then consider the three-gate static bucket default change and its full
+    optical/portal matrix.
+  - Do not promote skinned per-instance traversal without a new accepted Vulkan
+    investigation.
+
+Slice 6 - deletion and cleanup
+
+  - Delete only fields, buffers, functions, diagnostics, and cvars with a
+    transitive CPU/shader/preprocess search proving no live consumer.
+  - Retain the merged dynamic producer, monolithic static rollback, established
+    rigid fail-safe, and bounded route diagnostics while they remain required.
+
+FIRST AUTHORIZED CHECKPOINT
+---------------------------
+Implement Slice 1 only: the pure 64-bit planner and offline harness. It changes
+no CVar default, route, capture admission, buffer, BLAS, descriptor, SBT, shader,
+or deployment behavior. Live integration begins only after that checkpoint
+passes the Vulkan release build and planner stress tests.
+
+SLICE-1 RESULT
+--------------
+`PathTraceGeometryAdmissionPlan` now owns the pure admission calculation. It
+uses checked uint64 multiplication and addition for vertex, index,
+per-triangle metadata, candidate-total, resident-total, and surface-total
+accounting. Zero byte/surface budgets are explicitly unlimited.
+
+The CPU planning harness passes exact boundary, one-byte and one-surface
+rejection, invalid negative/non-triangle counts, and overflow at every
+arithmetic layer. The existing 20-iteration planning stress also passes.
+
+  PathTraceCpuPlanningHarness --stress 20       PASS
+  cmake --build --preset win64-pt-dev-release  PASS
+  SPIR-V                                        all up to date
+  live capture/default/ABI behavior             unchanged
+  executable bytes                              16,070,656
+  executable SHA-256
+    0A2F728E6E6B7EF2B582D8902B2D54E066581A6CCBD8E21986D86155EBEAC7EA
+
+Slice 2 is now authorized. It must use actual live vector sizes for
+`currentBytes`, retain zero-as-unlimited policy until runtime peaks are
+captured, and expose separate budget/invalid/overflow counters. It must not
+map any planner rejection back into the old undifferentiated `limitExceeded`
+counter alone.
+
+REJECTED SHORTCUTS
+------------------
+- Treating intermediate default-on evidence as newer than an explicit revoke.
+- Deleting merged dynamic while skinned per-instance traversal is revoked.
+- Raising compile-time vertex/index counts and calling the cap problem solved.
+- Deleting checks without checked 64-bit arithmetic and named outcomes.
+- Reusing build-count, TLAS-instance, emissive, texture, or debug limits as
+  geometry-byte policy without a separate contract audit.
+- Combining rigid, static, and skinned default changes in one runtime test.

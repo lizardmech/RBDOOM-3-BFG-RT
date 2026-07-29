@@ -533,6 +533,7 @@ set(PATH_TRACE_CPU_WORKER_NO_PCH_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCpuWork.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryGpuPools.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryAdmissionPlan.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryAttributeSurvey.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryIdentityTransport.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryOffsetBlasProbe.cpp
@@ -1517,6 +1518,7 @@ add_executable(PathTraceCpuPlanningHarness
 	tests/pathtrace_cpu_planning_harness.cpp
 	renderer/NVRHI/PathTraceAccelerationPlan.cpp
 	renderer/NVRHI/PathTraceCpuWork.cpp
+	renderer/NVRHI/PathTraceGeometryAdmissionPlan.cpp
 	)
 target_include_directories(PathTraceCpuPlanningHarness PRIVATE renderer/NVRHI)
 if(BUILD_TESTING)

@@ -1,11 +1,13 @@
 #include "../renderer/NVRHI/PathTraceAccelerationPlan.h"
 #include "../renderer/NVRHI/PathTraceCpuWork.h"
+#include "../renderer/NVRHI/PathTraceGeometryAdmissionPlan.h"
 
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <future>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -33,6 +35,118 @@ void Check(bool condition, const char* name)
         std::cout << "[FAIL] " << name << "\n";
         ++g_failures;
     }
+}
+
+void TestGeometryAdmissionPlan()
+{
+    RtSmokeGeometryAdmissionInput input;
+    input.currentBytes = 100;
+    input.currentSurfaces = 4;
+    input.candidateVertexCount = 3;
+    input.candidateIndexCount = 3;
+    input.vertexStride = 112;
+    input.indexStride = 4;
+    input.triangleMetadataStride = 16;
+
+    RtSmokeGeometryAdmissionBudget unlimited;
+    RtSmokeGeometryAdmissionPlan plan =
+        BuildSmokeGeometryAdmissionPlan(unlimited, input);
+    Check(plan.Admitted(), "geometry admission unlimited");
+    Check(plan.candidateTriangles == 1,
+        "geometry admission triangle count");
+    Check(plan.candidateBytes == 364,
+        "geometry admission exact candidate bytes");
+    Check(plan.totalBytes == 464 && plan.totalSurfaces == 5,
+        "geometry admission exact totals");
+
+    RtSmokeGeometryAdmissionBudget exact;
+    exact.maxBytes = 464;
+    exact.maxSurfaces = 5;
+    plan = BuildSmokeGeometryAdmissionPlan(exact, input);
+    Check(plan.Admitted(), "geometry admission exact boundary");
+
+    RtSmokeGeometryAdmissionBudget byteShort = exact;
+    byteShort.maxBytes = 463;
+    plan = BuildSmokeGeometryAdmissionPlan(byteShort, input);
+    Check(plan.result ==
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_BYTE_BUDGET,
+        "geometry admission byte budget rejection");
+
+    RtSmokeGeometryAdmissionBudget surfaceShort = exact;
+    surfaceShort.maxSurfaces = 4;
+    plan = BuildSmokeGeometryAdmissionPlan(surfaceShort, input);
+    Check(plan.result ==
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_SURFACE_BUDGET,
+        "geometry admission surface budget rejection");
+
+    RtSmokeGeometryAdmissionInput invalid = input;
+    invalid.candidateVertexCount = -1;
+    plan = BuildSmokeGeometryAdmissionPlan(unlimited, invalid);
+    Check(plan.result ==
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_INVALID_COUNT,
+        "geometry admission negative count rejection");
+
+    invalid = input;
+    invalid.candidateIndexCount = 4;
+    plan = BuildSmokeGeometryAdmissionPlan(unlimited, invalid);
+    Check(plan.result ==
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_INVALID_COUNT,
+        "geometry admission non-triangle count rejection");
+
+    const uint64_t maxUint64 =
+        std::numeric_limits<uint64_t>::max();
+    RtSmokeGeometryAdmissionInput overflow = input;
+    overflow.candidateVertexCount =
+        static_cast<int64_t>(maxUint64 / 112ull + 1ull);
+    plan = BuildSmokeGeometryAdmissionPlan(unlimited, overflow);
+    Check(plan.result ==
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_ARITHMETIC_OVERFLOW,
+        "geometry admission vertex multiplication overflow");
+
+    overflow = input;
+    overflow.candidateIndexCount =
+        static_cast<int64_t>(
+            ((maxUint64 / 4ull) / 3ull) * 3ull);
+    overflow.indexStride = 5;
+    plan = BuildSmokeGeometryAdmissionPlan(unlimited, overflow);
+    Check(plan.result ==
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_ARITHMETIC_OVERFLOW,
+        "geometry admission index multiplication overflow");
+
+    overflow = input;
+    overflow.candidateIndexCount =
+        std::numeric_limits<int64_t>::max() - 1;
+    overflow.triangleMetadataStride = 7;
+    plan = BuildSmokeGeometryAdmissionPlan(unlimited, overflow);
+    Check(plan.result ==
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_ARITHMETIC_OVERFLOW,
+        "geometry admission triangle multiplication overflow");
+
+    overflow = input;
+    overflow.vertexStride = 2;
+    overflow.indexStride = 1;
+    overflow.triangleMetadataStride = 0;
+    overflow.candidateVertexCount =
+        std::numeric_limits<int64_t>::max();
+    overflow.candidateIndexCount = 3;
+    plan = BuildSmokeGeometryAdmissionPlan(unlimited, overflow);
+    Check(plan.result ==
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_ARITHMETIC_OVERFLOW,
+        "geometry admission candidate addition overflow");
+
+    overflow = input;
+    overflow.currentBytes = maxUint64 - 363;
+    plan = BuildSmokeGeometryAdmissionPlan(unlimited, overflow);
+    Check(plan.result ==
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_ARITHMETIC_OVERFLOW,
+        "geometry admission total byte overflow");
+
+    overflow = input;
+    overflow.currentSurfaces = maxUint64;
+    plan = BuildSmokeGeometryAdmissionPlan(unlimited, overflow);
+    Check(plan.result ==
+            RT_SMOKE_GEOMETRY_ADMISSION_REJECT_ARITHMETIC_OVERFLOW,
+        "geometry admission surface count overflow");
 }
 
 std::vector<HarnessSmokeVertex> BuildTriangleVertices(float materialMarker)
@@ -5971,6 +6085,7 @@ void RunStressMode(int iterations)
 
 int main(int argc, char** argv)
 {
+    TestGeometryAdmissionPlan();
     TestStaticSignature();
     TestStaticSignatureRanges();
     TestCacheAndBaseTlas();

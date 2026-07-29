@@ -4100,6 +4100,33 @@ retained-byte, range, GPU-pool, device-loss, or shutdown failure.
 The candidate is accepted. Its gate remains default off. Default promotion is
 a separate policy change and must not be hidden inside measurement acceptance.
 
+D167. GEO-13 CUTOVER IS PARTIALLY BLOCKED; CHECKED CAP REMOVAL MAY PROCEED
+-------------------------------------------------------------------------
+The GEO-13 entry audit rejects the packet's full-cutover precondition as
+currently unsatisfied. Authoritative GPU skinning input/output remains accepted
+and default on, but the later repeatable Vulkan update-BLAS driver resets
+supersede earlier per-instance traversal acceptance. Skinned TLAS comparison
+and capture split remain default off, so merged dynamic is still a mandatory
+skinned fallback and cannot be deleted or narrowed to transient-only ownership.
+
+Canonical rigid is the first independently promotable route. Static bucket
+route 1 is accepted but retains its explicit resource/build/route gates and
+monolithic rollback. Default changes remain separate from cap removal and must
+be tested one route at a time.
+
+The old vertex/index/surface constants are confirmed live CPU admission filters,
+not GPU ABI sizes. Downstream buffers already allocate from actual vector byte
+counts and grow after capacity checks. GEO-13 may therefore replace the old
+filters with checked 64-bit byte/surface budgeting without a shader, descriptor,
+SBT, or BLAS-layout change.
+
+The first no-behavior-change slice adds a pure admission planner. Its harness
+passes exact/unlimited/budget/invalid and every arithmetic-overflow boundary,
+plus the existing 20-iteration stress. No CVar default or live route changes.
+Dynamic capture integration must retain zero-as-unlimited policy until actual
+peaks are measured and must report byte-budget, surface-budget, invalid-count,
+and arithmetic-overflow outcomes separately.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
