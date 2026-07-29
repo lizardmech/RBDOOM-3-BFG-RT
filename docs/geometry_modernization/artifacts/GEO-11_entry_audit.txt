@@ -590,3 +590,28 @@ Build and deployment evidence:
   transmission sha256
                 B23D834FE72D3B92A0A5B66B49F6F46C2FA1C09B9584B978553C238CB415F553
   deployment    executable and exact three Vulkan blobs byte-identical
+
+Both stage 4 and stage 5 survived. The initial interpretation that this
+isolated the final sidecar store was incorrect: stages 2 through 5 also set
+the iterative-resolve bit, replacing production any-hit traversal with a
+bounded closest-hit loop. The results accept iterative resolved-surface
+construction, history publication, and guide export, not the production
+any-hit path.
+
+The sidecar resource audit found matching render dimensions, RGBA32_FLOAT
+allocation, `rgba32f` shader declaration, `u87` UAV binding, and UAV state.
+Stage 5 had already written empty and pending values to this same resource
+before returning. Generic sidecar addressing and storage are therefore
+excluded.
+
+Isolation stage 6 executes the complete producer with iterative traversal and
+no early return. It includes the exact resolved sidecar store. This creates the
+decisive comparison:
+
+  stage 0  production any-hit traversal plus complete publication
+  stage 6  iterative closest-hit traversal plus complete publication
+
+The CPU-only Vulkan release rebuild passed with every SPIR-V shader up to date.
+The deployed 15,997,952-byte executable is byte-identical, SHA-256
+8C529C0B610065355774310DB76DEB745545B18BD5B09E8848721187A7D6433D.
+Runtime disposition is pending.

@@ -269,3 +269,24 @@ The executable and exact three deployed blobs are byte-identical:
   glass sha256  0ACA49F8D426DA01FBDF1FF2CECDCE87399096E84777C61D2A57B1ED54D91970
   transmission sha256
                 B23D834FE72D3B92A0A5B66B49F6F46C2FA1C09B9584B978553C238CB415F553
+
+Stages 4 and 5 both survived. This does not isolate the final sidecar write:
+the iterative-resolve flag used to encode stages 2 through 5 also selects a
+different traversal implementation from production. The surviving shader had
+already written empty and pending values to the same correctly bound `u87`
+RGBA32_FLOAT texture, so the texture/store contract itself is excluded.
+
+Stage 6 is the corrected exact control. It uses the bounded iterative
+closest-hit resolver and executes the complete producer with no diagnostic
+return, including the resolved sidecar store. Stage 0 remains the legacy
+force-non-opaque any-hit producer. A stage-6 survivor isolates the production
+any-hit traversal; a stage-6 failure retains the full post-trace tail as a
+candidate.
+
+Stage-6 build/deployment:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; all Vulkan SPIR-V shaders up to date
+  executable    15,997,952 bytes
+  sha256        8C529C0B610065355774310DB76DEB745545B18BD5B09E8848721187A7D6433D
+  deployment    source and prebuilt executable byte-identical

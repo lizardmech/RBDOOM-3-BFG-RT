@@ -3635,6 +3635,34 @@ publication. If stage 4 survives and stage 5 fails, it is in resolved guide
 export. If both survive while stage 0 fails, the transmission sidecar store is
 the first remaining write.
 
+D143 runtime correction: stages 4 and 5 both survived, but audit of their flag
+contract found that this does not isolate the sidecar store. The same
+iterative-resolve bit used to encode stages 2 through 5 also replaces the
+production any-hit traversal with the bounded closest-hit loop. Those stages
+prove the complete post-trace construction/publication work only for the
+iterative resolver. They do not exclude the production any-hit traversal.
+
+D144. ITERATIVE FULL PRODUCER IS THE DECISIVE ANY-HIT CONTROL
+-------------------------------------------------------------
+The transmission texture is correctly allocated as render-sized RGBA32_FLOAT,
+bound as `u87`, declared `rgba32f`, and kept in UAV state. More importantly,
+the surviving stage-5 shader already wrote empty and pending values to the
+same `u87` pixels before its final return. The texture binding and generic
+store operation therefore cannot explain the stage-0-only failure.
+
+Isolation stage 6 sets iterative resolve with probe mode zero and executes the
+complete producer, including resolved-history publication, all motion/RR guide
+writes, and the exact resolved transmission-sidecar store. It has no diagnostic
+early return. Stage 6 differs from stage 0 only at transmission traversal:
+
+  0  legacy force-non-opaque TraceRay plus any-hit filtering;
+  6  bounded force-opaque closest-hit TraceRay loop.
+
+If stage 6 survives the same camera/glass trigger, the any-hit producer is the
+remaining cause and the iterative resolver is eligible for production
+promotion. If stage 6 fails, the failure is shared by the full post-trace tail
+and further value-level isolation remains necessary.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.
