@@ -551,3 +551,42 @@ Build and deployment passed, and source/deployed executable plus all three
 SPIR-V blobs are byte-identical. `spirv-val --target-env vulkan1.2` passes for
 all three blobs. Transmission producer SHA-256:
 41BB1F17AA5B42E691DA1027C62861DEBEFBE909FA55D1DA9EC2E01DB9F58B36.
+
+The full producer nevertheless device-removed again on minor camera movement.
+The duplicate material lookup is therefore excluded as the device-loss cause,
+although removing it remains the correct one-record/one-decode contract.
+
+WRITE-BOUNDARY ISOLATION ADDED
+------------------------------
+The surviving stage-3 boundary leaves only the previous-history/current-record
+operation, resolved motion/RR guide writes, and the transmission-sidecar store.
+The publication helper is split so these resource groups can be admitted
+independently:
+
+  isolation stage 4
+    previous-history read and current resolved-history record write;
+    no resolved guide or transmission-sidecar writes
+
+  isolation stage 5
+    previous-history/current-record operation plus resolved motion/RR guides;
+    no transmission-sidecar write
+
+The two stages are carried by unused iterative-resolve plus probe-mode 4/5
+combinations. They introduce no ABI or resource-layout change and are present
+in one binary. Runtime disposition is pending.
+
+Build and deployment evidence:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; exact three Vulkan RT blobs forced newer
+  spirv-val     PASS for sentinel, glass, and transmission producer,
+                target Vulkan 1.2
+  executable    15,997,952 bytes
+  executable sha256
+                6CB8F821C9740F30C8523115134B6218BB41178531FC403A458B25F55B1FE12F
+  sentinel sha256
+                195C1065A1A6A24F68FF5A63937D8C7F228393437F880FFB6760E77CFD1E7A96
+  glass sha256  0ACA49F8D426DA01FBDF1FF2CECDCE87399096E84777C61D2A57B1ED54D91970
+  transmission sha256
+                B23D834FE72D3B92A0A5B66B49F6F46C2FA1C09B9584B978553C238CB415F553
+  deployment    executable and exact three Vulkan blobs byte-identical

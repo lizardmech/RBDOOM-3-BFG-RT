@@ -1327,7 +1327,7 @@ idCVar r_pathTracingCleanRtxdiDiTransmissionIsolationStage(
     "r_pathTracingCleanRtxdiDiTransmissionIsolationStage",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean RTXDI DI view 16 transmission isolation: 0 full producer, 1 source-glass decode then return before secondary trace, 2 bounded forced-opaque trace plus closest-hit payload then return before resolved-surface construction, 3 build resolved-surface tuple then return before publication/guide writes" );
+    "Clean RTXDI DI view 16 transmission isolation: 0 full producer, 1 source decode/no trace, 2 trace/no resolve, 3 resolved tuple/no publish, 4 history record only, 5 history record plus guides/no sidecar" );
 
 idCVar r_pathTracingCleanRtxdiDiTransmissionDebugView(
     "r_pathTracingCleanRtxdiDiTransmissionDebugView",

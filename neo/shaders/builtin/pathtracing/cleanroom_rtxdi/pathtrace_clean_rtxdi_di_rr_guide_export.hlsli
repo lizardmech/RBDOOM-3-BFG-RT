@@ -378,13 +378,11 @@ void PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(uint2 pixel, RAB_Surface 
         true);
 }
 
-bool PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
+bool PathTraceCleanRtxdiDiPublishResolvedPrimarySurfaceRecord(
     uint2 pixel,
     uint2 dimensions,
     inout RAB_Surface surface,
-    uint psrResolvedFlag,
-    float reflectionRayDistance,
-    bool laneChanged)
+    uint psrResolvedFlag)
 {
     const uint width = CleanRtxdiDiWidth != 0u ? CleanRtxdiDiWidth : dimensions.x;
     const uint height = CleanRtxdiDiHeight != 0u ? CleanRtxdiDiHeight : dimensions.y;
@@ -399,6 +397,26 @@ bool PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
         CleanRtxdiDiCameraForwardAndTanX.xyz);
     PrimarySurfaceHistoryCurrent[recordIndex] =
         PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRecord(surface, psrResolvedFlag);
+    return true;
+}
+
+bool PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
+    uint2 pixel,
+    uint2 dimensions,
+    inout RAB_Surface surface,
+    uint psrResolvedFlag,
+    float reflectionRayDistance,
+    bool laneChanged)
+{
+    if (!PathTraceCleanRtxdiDiPublishResolvedPrimarySurfaceRecord(
+        pixel,
+        dimensions,
+        surface,
+        psrResolvedFlag))
+    {
+        return false;
+    }
+
     PathTraceCleanRtxdiDiWriteResolvedSurfaceRrGuides(
         pixel,
         surface,

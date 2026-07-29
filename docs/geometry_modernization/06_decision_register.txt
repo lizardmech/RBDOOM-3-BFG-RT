@@ -3602,6 +3602,39 @@ specular F0 and emissive radiance. Publication no longer re-enters a mutable
 material namespace. This is a contract repair, not a feature reduction:
 dynamic RGB emissive state was already folded into the resolved material.
 
+D142 runtime disposition: the full stage-0 producer still device-removed on
+minor camera movement after this repair. The duplicate lookup was a real
+contract and cost defect, but it was not the device-loss cause.
+
+D143. RESOLVED PUBLICATION IS SPLIT AT ITS RESOURCE-WRITE BOUNDARIES
+-------------------------------------------------------------------
+Stages 1 through 3 exclude source decode, secondary traversal, closest-hit
+payload construction, and resolved-surface construction. The rejected D142
+crash hypothesis leaves only three ordered write groups:
+
+  1. previous-history read plus current resolved-history record publication;
+  2. motion and RR guide export;
+  3. transmission sidecar publication.
+
+The publication helper previously combined groups 1 and 2, so the shader had
+no exact boundary between them. It now exposes a record-only helper and keeps
+the existing full helper as record publication followed by guide export.
+
+`r_pathTracingCleanRtxdiDiTransmissionIsolationStage` is extended without a
+new descriptor, payload, or constant-buffer field:
+
+  4  perform the previous-history check and current resolved-history record
+     write, then return before guide and sidecar writes;
+  5  perform record publication plus motion/RR guide writes, then return before
+     the transmission sidecar write.
+
+The implementation reuses the otherwise-unused iterative-resolve plus probe
+mode 4/5 flag combinations. Default stage 0 remains the complete production
+producer. If stage 4 fails, the defect is in history addressing or record
+publication. If stage 4 survives and stage 5 fails, it is in resolved guide
+export. If both survive while stage 0 fails, the transmission sidecar store is
+the first remaining write.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

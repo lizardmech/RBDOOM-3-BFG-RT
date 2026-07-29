@@ -38,4 +38,20 @@ bool PathTraceCleanRtxdiDiTransmissionClosestHitPositionDiagnosticEnabled()
         PathTraceCleanRtxdiDiTransmissionTraceProbeMode() == 6u;
 }
 
+bool PathTraceCleanRtxdiDiTransmissionRecordOnlyEnabled()
+{
+    // Iterative+mode-4 is unused by the bounded resolver. Reserve it for the
+    // resolved primary-history record boundary without adding another ABI bit.
+    return PathTraceCleanRtxdiDiTransmissionIterativeResolveEnabled() &&
+        PathTraceCleanRtxdiDiTransmissionTraceProbeMode() == 4u;
+}
+
+bool PathTraceCleanRtxdiDiTransmissionGuidesNoSidecarEnabled()
+{
+    // Iterative+mode-5 is unused by the bounded resolver. Reserve it for the
+    // record-plus-guide boundary before the transmission sidecar store.
+    return PathTraceCleanRtxdiDiTransmissionIterativeResolveEnabled() &&
+        PathTraceCleanRtxdiDiTransmissionTraceProbeMode() == 5u;
+}
+
 #endif

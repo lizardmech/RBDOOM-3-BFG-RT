@@ -1176,6 +1176,16 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             (previousTransmissionRecord.header.w & CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED) != 0u);
     }
 
+    if (PathTraceCleanRtxdiDiTransmissionRecordOnlyEnabled())
+    {
+        PathTraceCleanRtxdiDiPublishResolvedPrimarySurfaceRecord(
+            pixel,
+            dimensions,
+            behindGlassSurface,
+            CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED);
+        return;
+    }
+
     if (!PathTraceCleanRtxdiDiPublishResolvedPrimarySurface(
         pixel,
         dimensions,
@@ -1185,6 +1195,11 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
         transmissionPublishLaneChanged))
     {
         PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(pixel);
+        return;
+    }
+
+    if (PathTraceCleanRtxdiDiTransmissionGuidesNoSidecarEnabled())
+    {
         return;
     }
 
