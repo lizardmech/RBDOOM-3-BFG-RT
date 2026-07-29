@@ -636,8 +636,6 @@ private:
     uint64 m_smokeNextStaticBucketCompletionToken = 1;
     uint64 m_smokeLastCompletedStaticBucketToken = 0;
     bool m_smokeStaticBucketCompletionQueryFailureLogged = false;
-    bool m_smokeStaticBucketCompletionArmedLogged = false;
-    bool m_smokeStaticBucketCompletionReleasedLogged = false;
     nvrhi::BufferHandle m_smokeSkinnedPreviousPositionBuffer;
     nvrhi::BufferHandle m_smokeSkinnedSurfaceDispatchBuffer;
     nvrhi::BufferHandle m_smokeSkinnedTriangleDispatchIndexBuffer;

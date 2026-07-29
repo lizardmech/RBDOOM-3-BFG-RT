@@ -348,3 +348,34 @@ the user reported no visual corruption and the one-shot audit showed:
 No source-replacement prune, GEO-11 retirement, device-loss, or fatal-error
 line occurred. The broad entity-count invalidation defect is closed. The
 focused BLAS off/on retirement test from Slice 2 is authorized again.
+
+FIRST OFF/ON CAPTURE DID NOT EXERCISE WARM BLAS RETIREMENT
+----------------------------------------------------------
+`geometry_geo_step9e.txt` and the continuous `success21.log` prove clean
+enable/build/recovery, but not the requested warm retirement case. The launch
+configuration already set `r_pathTracingGeometryStaticBucketBlas 0`. The only
+retirement package contained one 200,432-byte metadata buffer and zero BLASes:
+
+  armed packages / tokens / pending          1 / 1..1 / 1
+  released buffers / BLASes                  1 / 0
+  released buffer / result bytes             200432 / 0
+  result-query failures                      0
+
+The path then built from zero to all 56 BLASes and recovered exact route-1
+publication without visual corruption or device loss. That accepts cold
+enable/recovery only.
+
+The static-bucket armed/released logger was incorrectly one-shot per process,
+so its startup metadata package suppressed later warm-retirement evidence.
+Because retirement is an exceptional bounded event, every nonempty armed and
+released batch is now logged. Query-creation failure remains one-shot. The next
+test must start from 56/56 ready, disable once, and show a nonzero BLAS count in
+the matching armed/released package before re-enabling.
+
+Diagnostic rebuild and deployment:
+
+  command       cmake --build --preset win64-pt-dev-release
+  result        success; all SPIR-V shaders up to date
+  executable    15,991,296 bytes
+  sha256        FDF659A90640687235F6373837F6E54D5995BD52D9B5AA76146E1B40A888C75A
+  deployment    source and prebuilt executable byte-identical

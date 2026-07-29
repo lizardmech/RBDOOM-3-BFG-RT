@@ -3464,6 +3464,19 @@ caches hit, route 1 remained accepted at 17/56/56 active/resident/ready, and
 every missing/invalid/mixed-epoch counter was zero. The user observed no visual
 corruption. GEO-11 retirement testing may resume.
 
+D136. STATIC-BUCKET RETIREMENT EVENTS ARE REPORTED PER BATCH
+------------------------------------------------------------
+The first off/on capture began with bucket BLAS disabled at launch. It proved
+cold rebuild and exact recovery, but its only retirement package contained one
+metadata buffer and zero BLASes. The old one-shot armed/released diagnostics
+then hid all later packages in the same process.
+
+Static-bucket retirement is a bounded exceptional event, so every nonempty
+armed and released batch is now printed. Query-creation failure remains
+one-shot. Warm retirement is accepted only when a 56/56-ready disable reports
+matching nonzero-BLAS armed/released packages with zero result-query failures,
+then rebuilds to an exact route.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  OPEN, owned by GEO-12: UV survey + attribute A/B.

@@ -2196,8 +2196,7 @@ int PathTracePrimaryPass::ReleaseCompletedRetiredStaticBucketGpuResources(
         m_retiredSmokeStaticBucketGpuPackages.pop_front();
         ++releasedPackages;
     }
-    if (releasedPackages > 0 &&
-        !m_smokeStaticBucketCompletionReleasedLogged)
+    if (releasedPackages > 0)
     {
         common->Printf(
             "PathTracePrimaryPass: GEO11 static bucket retirement released packages=%d buffers=%d blases=%d resultQueryFailures=%d bytes(buffer/result)=%llu/%llu completedToken=%llu pending=%zu authority=gpu-event-query\n",
@@ -2212,7 +2211,6 @@ int PathTracePrimaryPass::ReleaseCompletedRetiredStaticBucketGpuResources(
             static_cast<unsigned long long>(
                 m_smokeLastCompletedStaticBucketToken),
             m_retiredSmokeStaticBucketGpuPackages.size());
-        m_smokeStaticBucketCompletionReleasedLogged = true;
     }
     return releasedPackages;
 }
@@ -2337,8 +2335,7 @@ void PathTracePrimaryPass::OnGraphicsCommandListSubmitted()
         staticBucketLastToken = package.completionToken;
         ++staticBucketArmedCount;
     }
-    if (staticBucketArmedCount > 0 &&
-        !m_smokeStaticBucketCompletionArmedLogged)
+    if (staticBucketArmedCount > 0)
     {
         common->Printf(
             "PathTracePrimaryPass: GEO11 static bucket retirement armed packages=%d tokens=%llu..%llu pending=%zu authority=gpu-event-query\n",
@@ -2348,7 +2345,6 @@ void PathTracePrimaryPass::OnGraphicsCommandListSubmitted()
             static_cast<unsigned long long>(
                 staticBucketLastToken),
             m_retiredSmokeStaticBucketGpuPackages.size());
-        m_smokeStaticBucketCompletionArmedLogged = true;
     }
 
     int skinnedArmedCount = 0;
