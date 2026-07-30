@@ -4432,8 +4432,17 @@ resolver used by clean DI. This changes no descriptor, SBT, payload, or storage
 ABI, but all dependent Vulkan GI outputs must be rebuilt and runtime-accepted
 before Slice 6 closes. The 34 affected Vulkan outputs rebuild newer than the
 source edit, pass spirv-val, preserve the namespace-mask/address-add path in
-disassembly, and match the deployed copies. No DXIL output changed. Runtime
-acceptance is the remaining gate.
+disassembly, and match the deployed copies. No DXIL output changed.
+
+`geometry_geo13_gi_bucket.log` accepts the live contract. The 16 debug GI
+pipelines initialize, route 1 converges to 56/56 resident readiness and remains
+exact across portal traversal, and route 0/1 rollback/restoration succeeds.
+The exact emissive audit matches 173/173 active surfaces, 5,042/5,042 triangle
+state rows, and 56/56 monolithic/bucket identities with zero missing, extra,
+invalid, or collision result. Emissives that looked disabled in isolated-GI
+view 6 are correct in production beauty view 0. This is expected debug-view
+presentation, not a geometry regression. The clean-GI bucket decoder repair is
+accepted.
 
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------

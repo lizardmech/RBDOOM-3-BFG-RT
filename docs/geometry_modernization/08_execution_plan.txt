@@ -1141,8 +1141,16 @@ bucket namespace predicate and compatibility loader could not resolve
 secondary static hits. Slice 6 enables the existing one-add resident-pool
 resolver in the GI shader family. All 34 affected Vulkan blobs rebuild newer
 than the source edit, pass spirv-val, contain the live namespace/address path,
-and match the deployed copies; no DXIL changed. Runtime acceptance remains
-before any diagnostic retirement. Full evidence is in
+and match the deployed copies; no DXIL changed.
+
+`geometry_geo13_gi_bucket.log` completes runtime acceptance. All 16 debug GI
+pipelines warm, route 1 reaches 56/56 ready and stays exact across portal
+traversal, route 0/1 rollback and restoration work, and the exact emissive
+audit maps 173/173 active surfaces, 5,042/5,042 active triangles, and 56/56
+emissive identities with no missing, extra, invalid, or collision result. The
+reported dark emissives occur only in isolated-GI view 6 and return in beauty
+view 0, so they are expected debug presentation rather than a route regression.
+The clean-GI bucket decode gate is accepted. Full evidence is in
 artifacts/GEO-13_slice6_transitive_cleanup_audit.txt.
 
 GEO-10 architecture override (2026-07-27):
@@ -1152,21 +1160,21 @@ hit-stage ladder. Preserve the CPU bucket assignment/pack/BLAS/TLAS work, but
 execute the ordered PIVOT-1 through PIVOT-6 plan in
 `artifacts/GEO-10_architecture_pivot_2026-07-27.txt`.
 
-The later reference review in
-`artifacts/GEO-10_reference_contract_review_2026-07-27.txt` supersedes the
-triangle-base InstanceID detail. The accepted target keeps one independently
-instanced BLAS per portal/size activation bucket, places one GeometryDesc per
-packed surface inside it, and resolves a surface as InstanceID base plus
-GeometryIndex. PrimitiveIndex is surface-local. The surface-record table and
-resident geometry use existing static t3/t4/t5/t9/t11 storage and existing
-primary/shadow hit records.
+The reference review's intermediate multi-geometry/GeometryIndex target is
+historical and was superseded by D70-D72 plus REF-10G/REF-10H in that same
+artifact. The accepted live route keeps one independently instanced BLAS per
+portal/size activation bucket and one geometry per bucket BLAS. InstanceID
+encodes the resident packed triangle base, GeometryIndex must be zero, and
+PrimitiveIndex is bucket-local:
 
-Before a multi-geometry bucket BLAS is legal, every live Vulkan TraceRay call
-must prove geometry-contribution multiplier zero in a standalone route-off
-checkpoint. Before live bucket traversal resumes, Vulkan device loss must
-report diagnostic-checkpoint evidence. The route still removes t100-t105,
-route-record decoding, contribution 4/5, compact bucket hit libraries, and
-material/GI payload coupling. Full resident-pack caching remains required.
+  packedTriangleIndex =
+      DecodeTriangleBase(InstanceID()) + PrimitiveIndex()
+
+The route uses existing t3/t4/t5/t9/t11 descriptor slots, contribution zero,
+and the hardware InstanceID/PrimitiveIndex pair as replay identity. It has no
+t100-t105 namespace, GPU route-record table, contribution 4/5, compact bucket
+hit library, or material/GI payload coupling. Full resident-pack caching and
+CPU-only surface/source records for emissive parity remain required.
 
 The modernization is complete only when:
 

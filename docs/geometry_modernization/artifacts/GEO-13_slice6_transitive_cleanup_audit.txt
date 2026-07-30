@@ -148,9 +148,33 @@ names still contain "route" or "bucket".
 
 NEXT GATES
 ----------
-1. Run the production default route with GI enabled and exercise indirect
-   lighting across portal traversal. Route zero remains the A/B rollback.
-2. After the contract repair is accepted, decide separately whether to retire
+1. After the contract repair is accepted, decide separately whether to retire
    the route-2 24-stage bring-up ladder. Do not mix that broad deletion with a
    shader-contract repair.
-3. Continue final correctness and warm identical-content performance evidence.
+2. Continue final correctness and warm identical-content performance evidence.
+
+RUNTIME ACCEPTANCE
+------------------
+`geometry_geo13_gi_bucket.log` accepts the repair:
+
+  GI debug split pipeline warmup                         16/16
+  static buckets resident / ready                       56/56
+  route-1 publication material-index misses                 0
+  emissive surfaces active / matched                   173/173
+  emissive triangle state mapped / invalid              5042/0
+  emissive replay records mapped / invalid                56/0
+  emissive identities monolithic / bucket                56/56
+  missing / extra / collisions                            0/0/0
+
+Route 1 remains exact during portal traversal, route 0 rolls back to
+monolithic traversal, and route 1 restores without device or resource failure.
+The run reaches normal map/render-system shutdown.
+
+The reported "some emissives turned off" observation occurred only in clean-GI
+view 6. That view intentionally presents isolated indirect GI and does not
+preserve directly visible emissive-surface presentation. The same emissives
+are correct in production beauty view 0, so this is expected debug-view
+behavior and not a bucket identity, activation, or shading regression.
+
+The clean-GI resident-bucket decode repair is accepted. Slice 6 may continue
+to final correctness/performance work without reopening the shader contract.
