@@ -2259,6 +2259,12 @@ idCVar r_pathTracingAdditiveDecalKey(
     CVAR_RENDERER | CVAR_INTEGER,
     "Treat additive translucent decal/signage materials as RGB-keyed RT overlays" );
 
+idCVar r_pathTracingAdditiveEmissiveBlendThrough(
+    "r_pathTracingAdditiveEmissiveBlendThrough",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Deterministically composite additive emissive signage/glow cards over their receiver instead of stochastic any-hit coverage; enabled by default after door-panel/signage validation" );
+
 idCVar r_pathTracingDecalComposite(
     "r_pathTracingDecalComposite",
     "0",

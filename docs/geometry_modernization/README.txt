@@ -106,5 +106,8 @@ Current execution status (2026-07-30):
   a supplemental same-camera screenshot A/B also shows no candidate-only
   structural or material regression. The final human pass reports stable
   traversal, and the pre-existing emissive artifact is unchanged by both
-  capture-only and full-route rollback. The synchronized skinned route and
-  capture split are now production defaults with zero/zero rollback retained.
+  capture-only and full-route rollback. Its separate follow-up identifies
+  stochastic any-hit coverage as the owner and accepts deterministic
+  additive-emissive receiver blend-through as the production default. The
+  synchronized skinned route and capture split are now production defaults
+  with zero/zero rollback retained.

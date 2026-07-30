@@ -526,6 +526,7 @@ static void PopulatePathTraceDecalAndLiquidPoolControls(
     constants.decalInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingDecalModulateFloor.GetFloat());
     constants.decalInfo2[0] = static_cast<float>(Max(0, dynamicMaterialRecordCount));
     constants.decalInfo2[1] = static_cast<float>(Max(0, materialOverlayRecordCount));
+    constants.decalInfo2[2] = r_pathTracingAdditiveEmissiveBlendThrough.GetInteger() != 0 ? 1.0f : 0.0f;
     constants.liquidPoolInfo[0] = static_cast<float>(idMath::ClampInt(0, 3, effectiveLiquidPoolMode));
     constants.liquidPoolInfo[1] = static_cast<float>(idMath::ClampInt(0, 6, r_pathTracingLiquidPoolDebug.GetInteger()));
     constants.liquidPoolInfo[2] = static_cast<float>(idMath::ClampInt(0, 3, r_pathTracingLiquidPoolDebugPage.GetInteger()));

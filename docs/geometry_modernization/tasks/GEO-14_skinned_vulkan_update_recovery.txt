@@ -201,8 +201,16 @@ CURRENT STATUS - COMPLETE (2026-07-30)
 The final human pass reports stable traversal. A subset of emissives retains
 its older partial/stochastic appearance, but fixed-view route-1/split-1,
 route-1/split-0, and route-0/split-0 comparison is unchanged. The defect is
-independent of the per-instance route and remains a separate post-main-work
-material investigation.
+independent of the per-instance route. The separate post-main-work material
+investigation subsequently replaced stochastic any-hit visibility for
+additive-emissive signage cards with deterministic receiver blend-through.
+The accepted control is:
+
+  r_pathTracingAdditiveEmissiveBlendThrough 1
+
+Zero retains the original stochastic path. See the emissive follow-up in:
+
+  ../artifacts/GEO-14_final_visual_acceptance_2026-07-30.txt
 
 GEO-14 is complete. The synchronized in-place UPDATE route and capture split
 are production defaults, while zero/zero retains the merged-dynamic rollback.

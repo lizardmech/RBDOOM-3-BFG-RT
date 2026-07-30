@@ -425,6 +425,7 @@ static const uint RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 0x00000040u;
 static const uint RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE = 3u;
+static const uint RT_SMOKE_RAY_MODE_PRIMARY_ADDITIVE_EMISSIVE_COLLECT = 4u;
 static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
 #include "pathtrace_material_classifier.hlsli"
 
@@ -473,6 +474,11 @@ uint PathTraceDecalCompositeStage()
 bool PathTraceDecalCollectEnabled(uint stage)
 {
     return stage == 1u || stage == 3u || stage == 4u;
+}
+
+bool PathTraceAdditiveEmissiveCollectEnabled()
+{
+    return DecalInfo2.z >= 0.5;
 }
 
 uint PathTraceLiquidPoolMode()
@@ -1076,6 +1082,19 @@ bool ResolvePrimaryFilterDecalReceiver(inout PathTraceSmokePayload payload, RayD
         receiverPayload.liquidBarycentricXBits[liquidSlot] = payload.liquidBarycentricXBits[liquidSlot];
         receiverPayload.liquidBarycentricYBits[liquidSlot] = payload.liquidBarycentricYBits[liquidSlot];
         receiverPayload.liquidHitT[liquidSlot] = payload.liquidHitT[liquidSlot];
+    }
+    receiverPayload.decalCount = payload.decalCount;
+    [unroll]
+    for (uint decalSlot = 0u; decalSlot < RT_SMOKE_DECAL_BIN_SIZE; ++decalSlot)
+    {
+        receiverPayload.decalMaterialIndex[decalSlot] =
+            payload.decalMaterialIndex[decalSlot];
+        receiverPayload.decalPackedTexCoord[decalSlot] =
+            payload.decalPackedTexCoord[decalSlot];
+        receiverPayload.decalSortKey[decalSlot] =
+            payload.decalSortKey[decalSlot];
+        receiverPayload.decalHitT[decalSlot] =
+            payload.decalHitT[decalSlot];
     }
     receiverPayload.value = 2u;
     receiverPayload.shadowIgnoreInstanceId = payload.instanceId;
@@ -2070,7 +2089,8 @@ bool SmokeFilterDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord
     {
         return true;
     }
-    if (rayMode == RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE)
+    if (rayMode == RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE ||
+        rayMode == RT_SMOKE_RAY_MODE_PRIMARY_ADDITIVE_EMISSIVE_COLLECT)
     {
         return false;
     }
@@ -2184,7 +2204,10 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBaryce
     const PathTraceSmokeMaterial material = LoadSmokeMaterial(materialIndex);
     const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, hitBarycentrics);
     const uint triangleClassAndFlags = LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
-    const bool shadowRay = rayMode != 0u && rayMode != RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE;
+    const bool shadowRay =
+        rayMode != 0u &&
+        rayMode != RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE &&
+        rayMode != RT_SMOKE_RAY_MODE_PRIMARY_ADDITIVE_EMISSIVE_COLLECT;
     if (SmokeGuiRejectsTransparentHit(instanceId, primitiveIndex, hitBarycentrics, triangleClassAndFlags))
     {
         return true;
@@ -2966,7 +2989,11 @@ void WritePrimaryLiquidPoolDebug(
 void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload payload, float3 rayDirection)
 {
     const uint stage = PathTraceDecalCompositeStage();
-    if ((stage != 1u && stage != 4u) || payload.decalCount == 0u || !RAB_IsSurfaceValid(surface))
+    const bool detailCompositeEnabled = stage == 1u || stage == 4u;
+    const bool additiveEmissiveCompositeEnabled = PathTraceAdditiveEmissiveCollectEnabled();
+    if ((!detailCompositeEnabled && !additiveEmissiveCompositeEnabled) ||
+        payload.decalCount == 0u ||
+        !RAB_IsSurfaceValid(surface))
     {
         return;
     }
@@ -3014,7 +3041,16 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
 
         const uint decalMaterialIndex = payload.decalMaterialIndex[entry];
         const PathTraceSmokeMaterial decalMaterial = LoadSmokeMaterial(decalMaterialIndex);
-        if ((decalMaterial.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) == 0u)
+        const bool detailDecal =
+            (decalMaterial.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u;
+        const bool additiveEmissive =
+            (decalMaterial.flags &
+                (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+                    RT_SMOKE_MATERIAL_EMISSIVE)) ==
+            (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+                RT_SMOKE_MATERIAL_EMISSIVE);
+        if ((!detailDecal || !detailCompositeEnabled) &&
+            (!additiveEmissive || !additiveEmissiveCompositeEnabled))
         {
             continue;
         }
@@ -3101,10 +3137,20 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
         }
         else if ((decalMaterial.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
         {
-            // ADDITIVE: contributes radiance, mirroring the unlit-color fallback the
-            // stochastic path uses for additive cards (glows, light leaks).
+            // ADDITIVE: raster's blend-add equation is receiver + source. The
+            // material loader has already applied the selected live emissive
+            // stage (condition/color/texture variant), so consume that existing
+            // result instead of independently reconstructing parm-driven stages.
+            // Keep coverage only for layer accounting; multiplying radiance by
+            // its own luminance recreates the old stochastic-opacity speckle.
             coverage = saturate(SmokeAdditiveDecalMaterialOpacity(decalMaterial, decalRgb)) * decalStageColor.a;
-            surface.material.emissiveRadiance += decalRgb * coverage;
+            surface.material.emissiveRadiance +=
+                SampleSmokeEmissive(
+                    decalMaterial,
+                    decalTexCoord,
+                    RT_SMOKE_SURFACE_CLASS_TRANSLUCENT,
+                    true) *
+                max(ToyPathInfo.z, 0.0);
         }
         else
         {
@@ -3113,7 +3159,8 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
             surface.material.diffuseAlbedo = lerp(surface.material.diffuseAlbedo, decalRgb, coverage);
         }
 
-        if ((decalMaterial.flags & RT_SMOKE_MATERIAL_EMISSIVE) != 0u)
+        if ((decalMaterial.flags & RT_SMOKE_MATERIAL_EMISSIVE) != 0u &&
+            (decalMaterial.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) == 0u)
         {
             const float3 decalEmissive = SampleSmokeEmissive(decalMaterial, decalTexCoord, surface.surfaceClass, true) * max(ToyPathInfo.z, 0.0);
             surface.material.emissiveRadiance += decalEmissive * coverage;
@@ -3137,7 +3184,7 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
         surface.material.diffuseAlbedo = max(surface.material.diffuseAlbedo, float3(0.01, 0.01, 0.01));
     }
 
-    if (stage == 4u && appliedCount > 0u)
+    if (detailCompositeEnabled && stage == 4u && appliedCount > 0u)
     {
         // Composite diagnostic: false-color by applied-layer count (1=red 2=green 3=blue).
         const float3 countTints[RT_SMOKE_DECAL_BIN_SIZE] = {
@@ -3184,7 +3231,12 @@ void RayGen()
     // runs in plain mode (0) and the legacy filter-decal pass-through experiment is
     // bypassed (docs/decal_cards/08 sec.4 -- do not build on the receiver re-trace).
     const bool decalCollectMode = PathTraceDecalCollectEnabled(PathTraceDecalCompositeStage());
-    payload.value = decalCollectMode ? 0u : RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE;
+    const bool additiveEmissiveCollectMode = PathTraceAdditiveEmissiveCollectEnabled();
+    payload.value = decalCollectMode
+        ? 0u
+        : (additiveEmissiveCollectMode
+            ? RT_SMOKE_RAY_MODE_PRIMARY_ADDITIVE_EMISSIVE_COLLECT
+            : RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE);
     TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
     RAB_Surface surface = RAB_EmptySurface();
     if (payload.value != 0u && !SmokePayloadIsGuiScreen(payload))
@@ -3196,7 +3248,7 @@ void RayGen()
         {
             ApplyPrimaryFilterDecalToSurface(surface, filterDecalPayload);
         }
-        if (decalCollectMode)
+        if (decalCollectMode || additiveEmissiveCollectMode)
         {
             ApplyDetailDecalComposite(surface, payload, ray.Direction);
         }
@@ -3380,8 +3432,11 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED | RT_LIQUID_POOL_STATUS_INVALID_ROUTE;
         }
     }
-    if (payload.value == 0u &&
-        PathTraceDecalCollectEnabled(PathTraceDecalCompositeStage()) &&
+    if ((payload.value == 0u ||
+            (payload.value == 2u &&
+                PathTraceAdditiveEmissiveCollectEnabled()) ||
+            payload.value ==
+                RT_SMOKE_RAY_MODE_PRIMARY_ADDITIVE_EMISSIVE_COLLECT) &&
         !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA) &&
         SmokeTriangleIndexRangeValid(
             lookupInstanceId,
@@ -3390,7 +3445,26 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
         const uint materialIndex = LoadSmokeTriangleMaterialIndex(
             lookupInstanceId,
             lookupPrimitiveIndex);
-        if ((LoadSmokeMaterial(materialIndex).flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u)
+        const PathTraceSmokeMaterial material =
+            LoadSmokeMaterial(materialIndex);
+        const bool detailDecal =
+            payload.value == 0u &&
+            PathTraceDecalCollectEnabled(
+                PathTraceDecalCompositeStage()) &&
+            (material.flags &
+                RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u;
+        const bool additiveEmissiveSignage =
+            PathTraceAdditiveEmissiveCollectEnabled() &&
+            // The rigid-emissive promotion deliberately replaces the original
+            // ParticleAlpha/SignageGlow class and does not retain its subtype.
+            // ADDITIVE_DECAL is the surviving classifier contract; its CPU
+            // producer already excludes particles, glass, GUIs, and decals.
+            (material.flags &
+                (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+                    RT_SMOKE_MATERIAL_EMISSIVE)) ==
+                (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+                    RT_SMOKE_MATERIAL_EMISSIVE);
+        if (detailDecal || additiveEmissiveSignage)
         {
             if (resolved.staticBucket)
             {

@@ -402,6 +402,7 @@ extern idCVar r_pathTracingPortalWindowAlphaScale;
 extern idCVar r_pathTracingPortalWindowMinOpacity;
 extern idCVar r_pathTracingPortalWindowShadowOpacity;
 extern idCVar r_pathTracingAdditiveDecalKey;
+extern idCVar r_pathTracingAdditiveEmissiveBlendThrough;
 extern idCVar r_pathTracingDecalComposite;
 extern idCVar r_pathTracingDecalOffsetStep;
 extern idCVar r_pathTracingDecalMaxOffsetIndex;

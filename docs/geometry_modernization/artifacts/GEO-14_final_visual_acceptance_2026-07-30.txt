@@ -72,11 +72,36 @@ Built and deployed executable:
 
 EMISSIVE FOLLOW-UP
 ------------------
-The attempted command:
+The original attempted command:
 
   r_pathTracingCrosshairMaterialDump
 
-is not registered and logged `Unknown command`, so it captured no material
-identities. Do not infer names from that run. Use `r_showSurfaceInfo 1` for
-on-screen identification or add a bounded read-only crosshair dump before
-editing the independent emissive path.
+was subsequently restored as a bounded read-only crosshair stage dump. It
+identified the affected door/signage families, including:
+
+  models/mapobjects/doors/doorlocklightg
+  models/mapobjects/doors/mcitydoorframeglow
+  models/mapobjects/filler/sodamachine_add2
+  models/mapobjects/filler/sodamachinesq_add2
+
+The primary producer had been using stochastic any-hit rejection for these
+additive emissive cards. That made authored mutually exclusive color stages
+appear partially missing or noisy even though the runtime material record had
+already selected the correct live stage.
+
+The accepted replacement collects additive-emissive cards in the existing
+bounded decal payload, continues to the opaque receiver, then applies the
+already evaluated dynamic material/emissive result additively. It does not
+reconstruct material parms in the shader. The effective-class promotion from
+ParticleAlpha/SignageGlow to RigidEntity does not preserve the translucent
+subtype, so eligibility uses the surviving ADDITIVE_DECAL + EMISSIVE material
+flags; the CPU classifier already excludes particle, glass, GUI, and ordinary
+decal classes from that combination.
+
+Runtime A/B:
+
+  r_pathTracingAdditiveEmissiveBlendThrough 0  partial/stochastic card
+  r_pathTracingAdditiveEmissiveBlendThrough 1  authored card restored
+
+The user accepted mode 1 visually. It is now the production default, with
+mode 0 retained as the exact rollback.
