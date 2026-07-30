@@ -613,6 +613,34 @@ Runtime acceptance is one short marker-off view-16 traversal/optics run. Set
 the clean-GI warmup limit to zero to avoid repeating an already accepted
 consumer and to keep this A/B limited to marker policy.
 
+SLICE-5C MARKER-INDEPENDENT PRODUCTION ACCEPTED
+-----------------------------------------------
+`geometry_geo_step18.log` runs route 1 with markers explicitly disabled:
+
+  marker CVar                                             0
+  consumer supported / production route              1 / 1
+  resident / ready buckets                           56 / 56
+  active TLAS output / active buckets                    exact
+  active material-index misses                              0
+  warm BLAS build / reuse / retire                    0 / 56 / 0
+  result queries / failures                           56 / 0
+  assignment/geometry/publication/address failures          0
+
+The run reaches normal shutdown without device loss. Marker independence is
+accepted.
+
+Do not widen route 1 into default view 12. View 12 is the material-classifier
+proof path and deliberately suppresses temporal/spatial production behavior.
+The already accepted view 16 is the production material resolve. The next
+candidate changes only the clean-DI view default from 12 to 16; static bucket
+resource/build/route defaults remain zero until that selection is verified.
+
+  cmake --build --preset win64-pt-dev-release  PASS
+  SPIR-V                                        all up to date
+  executable bytes                              16,079,872
+  executable SHA-256
+    24354A4FF4566250A60DD456FEDEF1D20A637CA08810A70F4A939CA3261415CF
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.

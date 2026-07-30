@@ -4309,6 +4309,37 @@ check with `r_pathTracingNsightGpuMarkers 0`, prove `consumerSupported=1` and
 exact cutover, and report no device loss. GI need not repeat its full 16/16
 consumer proof; leaving its warmup limit at zero isolates this policy change.
 
+D176. MARKER-OFF ROUTING IS ACCEPTED; PROMOTE THE PRODUCTION VIEW
+----------------------------------------------------------------
+The final `geometry_geo_step18.log` explicitly runs with
+`r_pathTracingNsightGpuMarkers 0`. Route 1 remains supported, converges to
+56/56 ready BLASes, and publishes exact active TLAS counts with zero active
+material-index misses. The settled audit has zero uploads/builds/retirements,
+56/56 BLAS reuse, 56 successful result queries, zero query failure, and every
+assignment/geometry/publication/address failure counter at zero. Shutdown is
+normal and no device-loss or Vulkan/resource failure appears.
+
+Marker independence is accepted. The remaining repository-default mismatch is
+clean DI view 12 versus route 1's accepted view 16.
+
+View 12 is explicitly a material-classifier proof path: it disables temporal
+and spatial production behavior and exists to visualize material ownership.
+It should not be relabeled as a production consumer merely to satisfy the
+static-route predicate. View 16 is the existing production resolve, has the
+complete accepted bucket/optics/GI evidence, and is the correct default.
+
+The next isolated candidate changes only the
+`r_pathTracingCleanRtxdiDiView` default from 12 to 16. Bucket gates remain
+default off, so this does not yet allocate or route static buckets implicitly.
+Runtime proof must use an ordinary launch without explicitly setting the clean
+DI view or marker CVar, then enable the three bucket gates and verify route 1
+cutover. This distinguishes default selection from static default promotion.
+
+The Vulkan release build passes with all SPIR-V up to date. No shader changed.
+The deployed 16,079,872-byte candidate has SHA-256:
+
+  24354A4FF4566250A60DD456FEDEF1D20A637CA08810A70F4A939CA3261415CF
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.

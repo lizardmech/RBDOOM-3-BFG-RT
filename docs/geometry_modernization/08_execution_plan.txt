@@ -1092,6 +1092,17 @@ unchanged, and the executable SHA-256 is
 `DCDB8C9CBF03BF513D3954D0A71645CA8F187DB4BDFA80896F1CC513337715DD`.
 One marker-off view-16 runtime remains before widening the view policy.
 
+The marker-off runtime is accepted: 56/56 ready buckets, exact production
+cutover, zero active material-index misses, 56 warm BLAS reuses, zero query or
+route failure, and normal shutdown. The view policy will not be widened into
+view 12 because that is a material-classifier proof route which intentionally
+suppresses production temporal/spatial behavior. Instead, promote the already
+accepted production resolve by changing only the clean-DI view default from 12
+to 16. Keep all three static bucket defaults off for its isolated runtime
+proof. The candidate builds with SPIR-V unchanged and is deployed with
+executable SHA-256
+`24354A4FF4566250A60DD456FEDEF1D20A637CA08810A70F4A939CA3261415CF`.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material
