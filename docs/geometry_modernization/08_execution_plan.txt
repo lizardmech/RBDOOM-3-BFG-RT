@@ -1366,6 +1366,21 @@ performance result. Continue using the authoritative skinned route and reopen
 only from a same-content GPU profile. See D188 and
 artifacts/GEO-07_q7_single_bone_route_audit_2026-07-30.txt.
 
+Post-packet Q18 closure:
+
+Do not add a second main TLAS to the current graphics-only renderer. The
+existing TLAS is allocated once at fixed capacity. All rebuilds and ray
+consumers are submitted in order on the main graphics queue, while NVRHI
+transitions the result buffer from read to write for a rebuild and back to its
+declared read state before command-list close. CPU instance descriptions and
+scratch are copied into command-versioned backend chunks that remain owned
+until timeline completion. A genuinely replaced TLAS is retained in the
+event-query-backed scene package, and nested BLAS storage remains protected by
+the GEO-11 application retirement queues. Reopen this decision before any
+asynchronous queue split or persistent GPU-authored instance-buffer path. See
+D189 and
+artifacts/GEO-11_q18_tlas_inflight_lifetime_audit_2026-07-30.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

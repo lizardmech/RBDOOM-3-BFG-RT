@@ -103,6 +103,19 @@ Q18. TLAS in-flight buffer lifetime (2026-07-20): reusing or reallocating
      reason - see comment at its gl_raytracing.cpp:1158). Settle by
      inspection of NVRHI barrier/queue semantics, not by waiting for
      corruption.
+     RESOLVED 2026-07-30 by D189: retain the single persistent main TLAS.
+     It is fixed-size rather than reallocated per frame. Its builds and all
+     ray consumers are ordered on the same graphics queue; NVRHI transitions
+     its storage from the declared AccelStructRead initial/final state to
+     AccelStructWrite for each build and back to read before command-list
+     close. CPU instance descriptions are copied during recording into
+     command-versioned upload chunks, not overwritten in persistent GPU
+     storage. A replaced TLAS remains in the scene package until the exact
+     graphics event query completes. Nested BLAS handles still require the
+     separate application retirement queues already accepted by GEO-11.
+     Double-buffering becomes mandatory only if a future change moves build
+     or traversal to independently scheduled queues, introduces a persistent
+     GPU-authored instance buffer, or bypasses completion-backed replacement.
 
 MIGRATION / COVERAGE
 --------------------

@@ -69,6 +69,17 @@ followed by exact event-query retirement of GEO-10 bucket BLASes and buffers.
 NVRHI already versions Vulkan scratch and CPU TLAS-instance uploads by command
 buffer. Exact scratch requirements are not exposed to the application.
 
+Q18's remaining main-TLAS question is closed by:
+
+  docs/geometry_modernization/artifacts/
+    GEO-11_q18_tlas_inflight_lifetime_audit_2026-07-30.txt
+
+The fixed main TLAS is safe to reuse while build and every consumer remain on
+the same ordered graphics queue. NVRHI provides read/write AS barriers and
+command-versioned CPU instance uploads; scene-package event queries retain an
+old TLAS if its handle is actually replaced. Do not generalize this proof to an
+asynchronous queue split or a persistent GPU-authored instance buffer.
+
 Compaction is explicitly unsupported in the active build:
 
   NVRHI_WITH_RTXMU = OFF

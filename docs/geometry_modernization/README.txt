@@ -147,3 +147,10 @@ Current execution status (2026-07-30):
   vertices, and no profile isolates a payoff for another transform/history/AS
   ownership branch. See D188 and
   artifacts/GEO-07_q7_single_bone_route_audit_2026-07-30.txt.
+
+  Q18 is closed without main-TLAS double-buffering. The fixed TLAS rebuild and
+  all consumers are ordered on the graphics queue, NVRHI supplies the required
+  read/write transitions and command-versioned instance uploads, and actual
+  handle replacement remains event-query retired with its scene package.
+  Nested BLAS retirement remains application-owned. See D189 and
+  artifacts/GEO-11_q18_tlas_inflight_lifetime_audit_2026-07-30.txt.

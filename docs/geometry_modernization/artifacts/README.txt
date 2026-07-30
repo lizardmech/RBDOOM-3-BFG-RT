@@ -117,6 +117,12 @@ GEO-11 FILES
     capability, current Vulkan compaction rejection, and ordered bounded
     implementation slices.
 
+  GEO-11_q18_tlas_inflight_lifetime_audit_2026-07-30.txt
+    Source proof that fixed main-TLAS reuse is safe under current graphics
+    queue ordering, NVRHI AS state transitions, versioned instance uploads,
+    and completion-backed replacement; also records the conditions that would
+    reopen the double-buffering decision.
+
 GEO-12 FILES
 ------------
   GEO-12_entry_audit.txt

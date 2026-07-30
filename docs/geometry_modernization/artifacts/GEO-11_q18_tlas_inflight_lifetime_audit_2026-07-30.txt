@@ -1,0 +1,165 @@
+GEO-11 Q18: MAIN TLAS IN-FLIGHT LIFETIME AUDIT
+==============================================
+
+DATE
+----
+2026-07-30
+
+QUESTION
+--------
+Can the renderer safely rebuild one main TLAS every frame while rays from a
+previous frame may still be executing, or must its result and instance buffers
+be double-buffered?
+
+DECISION
+--------
+Retain the single persistent main TLAS under the current architecture.
+Double-buffering is not required by the active Vulkan submission, state, upload,
+or replacement contracts.
+
+This is a conditional decision. Reopen it before moving TLAS build or any
+consumer to an independently scheduled queue, introducing a persistent
+GPU-authored instance buffer, replacing a TLAS outside completion-backed scene
+retirement, or disabling NVRHI automatic AS state tracking.
+
+APPLICATION OWNERSHIP AND SUBMISSION
+------------------------------------
+`PathTraceSmokeResources.cpp` creates `PathTraceSmokeTLAS` once with a fixed
+maximum of 512 instances. Search of the renderer finds no normal per-frame TLAS
+allocation. `CommitRayTracingSmokeSceneResources` assigns a different TLAS
+handle only as part of a scene-resource commit.
+
+`SubmitSmokeAccelerationBuilds` records the main TLAS build on the renderer
+command list. It then marks every nested BLAS for ray-tracing read state.
+Primary, DI, GI, reflection, transmission, and other PT ray dispatches use that
+same renderer command list.
+
+`idRenderBackend::GL_EndFrame`:
+
+  1. closes the renderer command list;
+  2. submits it through `executeCommandList` with the default Graphics queue;
+  3. calls `RB_PathTraceGraphicsCommandListSubmitted`.
+
+Vulkan submissions to one queue execute in order. A TLAS rebuild in a later
+graphics submission therefore cannot execute before ray dispatches in an
+earlier graphics submission.
+
+TLAS RESULT STATE CONTRACT
+--------------------------
+The Vulkan NVRHI backend creates top-level AS storage with:
+
+  initialState      AccelStructRead
+  keepInitialState  true
+
+When recording `buildTopLevelAccelStruct`, the backend requires
+`AccelStructWrite` for the TLAS data buffer and commits the barrier before
+issuing `buildAccelerationStructuresKHR`.
+
+When a ray-tracing binding set contains an acceleration structure,
+`setResourceStatesForBindingSet` requires `AccelStructRead`. At command-list
+close, `keepBufferInitialStates` requires the declared initial state for every
+tracked keep-initial-state buffer and `commitBarriers` records the transition.
+Thus every submitted renderer command list leaves the TLAS in read state, and
+the next rebuild records an ordered read-to-write transition before modifying
+it.
+
+Relevant source:
+
+  neo/extern/nvrhi/src/vulkan/vulkan-raytracing.cpp
+    createAccelStruct
+    buildTopLevelAccelStruct
+  neo/extern/nvrhi/src/vulkan/vulkan-state-tracking.cpp
+    setResourceStatesForBindingSet
+  neo/extern/nvrhi/src/common/state-tracking.cpp
+    requireBufferState
+    keepBufferInitialStates
+  neo/extern/nvrhi/src/vulkan/vulkan-commandlist.cpp
+    CommandList::close
+
+INSTANCE-DESCRIPTION AND SCRATCH CONTRACT
+-----------------------------------------
+The `AccelStruct::instances` vector is CPU-side staging owned by the TLAS
+object. Replacing its contents during later command recording does not replace
+GPU memory read by an earlier build.
+
+For each build, NVRHI:
+
+  - suballocates GPU-visible instance storage from `m_UploadManager`;
+  - tags the allocation with the current command-buffer recording version;
+  - copies the converted Vulkan instance descriptions into that allocation;
+  - passes that allocation's device address to the TLAS build.
+
+`CommandList::executed` converts upload and scratch chunks from their recording
+version to the submitted graphics-queue version. Queue timeline completion
+governs when those chunks become reusable. The same versioned mechanism owns
+the TLAS build scratch allocation.
+
+There is therefore no shared persistent instance-desc buffer that a later CPU
+frame overwrites while an earlier build still reads it.
+
+Relevant source:
+
+  neo/extern/nvrhi/src/vulkan/vulkan-raytracing.cpp
+    buildTopLevelAccelStruct
+    buildTopLevelAccelStructInternal
+  neo/extern/nvrhi/src/vulkan/vulkan-commandlist.cpp
+    CommandList::executed
+  neo/extern/nvrhi/src/vulkan/vulkan-queue.cpp
+    Queue::submit
+    Queue::retireCommandBuffers
+
+HANDLE REPLACEMENT AND NESTED BLAS CONTRACT
+-------------------------------------------
+The main TLAS handle is explicitly referenced by its build and binding command
+buffers, and NVRHI retains explicitly referenced command-buffer resources until
+the graphics timeline completes.
+
+Application replacement has a second safety layer. The retired scene package
+captures the old TLAS together with its buffers, bindings, textures, and main
+BLAS handles. `OnGraphicsCommandListSubmitted` arms a graphics event query
+after the exact submission covering the transition. Release requires the
+minimum retirement frame and successful query completion. If query creation
+fails, the package is retained until reset.
+
+NVRHI's TLAS liveness tracking does not automatically retain every BLAS handle
+whose device address was copied into an instance descriptor. GEO-11's
+event-query retirement for bucket, rigid, skinned-comparison, and whole-scene
+packages remains load-bearing. This audit does not replace or relax it.
+
+Relevant source:
+
+  neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    CaptureRetiredRayTracingSmokeScenePackage
+    PushRetiredRayTracingSmokeScenePackage
+    ReleaseExpiredRetiredRayTracingSmokeScenePackages
+    OnGraphicsCommandListSubmitted
+    CommitRayTracingSmokeSceneResources
+  docs/geometry_modernization/artifacts/GEO-11_entry_audit.txt
+
+WHY A SECOND TLAS IS REJECTED HERE
+----------------------------------
+Double-buffering would add another result allocation, binding-selection rule,
+frame-slot/generation contract, and replacement-retirement path without closing
+a live hazard in this renderer:
+
+  risk                              Current authority
+  --------------------------------  ------------------------------------------
+  prior rays vs next TLAS rebuild   one ordered graphics queue
+  TLAS result read/write ordering   NVRHI automatic AS barriers
+  instance-desc overwrite           per-command versioned upload allocation
+  scratch overwrite                 per-command versioned scratch allocation
+  TLAS handle replacement           scene-package graphics event query
+  nested BLAS premature release     GEO-11 application retirement packages
+
+This differs from architectures that build or consume per-world TLASes on
+independent queues or directly overwrite frame-owned instance buffers. Their
+double-buffering choice is not transferable without the same producer,
+submission, and ownership contract.
+
+ACCEPTANCE
+----------
+Q18 is closed by source-level proof; no code or runtime CVar change is needed.
+The accepted GEO-11 stress, retirement, and normal-shutdown captures remain
+valid supporting evidence. Future queue or instance-buffer work must treat the
+conditional reopen rules above as an entry gate, not rely on soak testing to
+detect lifetime corruption.

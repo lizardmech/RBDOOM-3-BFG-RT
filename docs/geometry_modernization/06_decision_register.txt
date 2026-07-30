@@ -4794,6 +4794,54 @@ Evidence:
 
   artifacts/GEO-07_q7_single_bone_route_audit_2026-07-30.txt
 
+D189. RETAIN THE SINGLE GRAPHICS-QUEUE MAIN TLAS
+------------------------------------------------
+Q18 asked whether the main TLAS result and instance-description storage must
+be double-buffered to prevent a later frame from overwriting traversal data
+still used by an earlier frame. Inspection of the active Vulkan path proves
+that the current single-TLAS design is safe under its existing queue contract.
+
+`PathTraceSmokeTLAS` is created once with a fixed 512-instance capacity. Normal
+frames rebuild that same acceleration-structure handle; they do not reallocate
+or swap its result storage. Scene construction, TLAS build, and every PT ray
+consumer are recorded on the renderer's main command list and submitted to the
+graphics queue. Vulkan preserves command and submission order on that queue,
+so a later TLAS build cannot execute ahead of an earlier ray dispatch.
+
+NVRHI creates top-level AS storage with `AccelStructRead` as its initial state
+and `keepInitialState=true`. `buildTopLevelAccelStruct` requires
+`AccelStructWrite` and commits the resulting barrier. Binding the TLAS to a ray
+pipeline requires `AccelStructRead`; command-list close also returns every
+keep-initial-state buffer to its declared read state and commits that barrier.
+The next recording therefore begins from a defined read state and orders
+read-to-write before its rebuild.
+
+The apparent instance-buffer hazard is not a persistent shared GPU buffer.
+NVRHI copies the CPU `InstanceDesc` array while recording into an upload-manager
+suballocation tagged with the command-buffer recording version. Submission
+converts that allocation to the graphics submission version; the backing chunk
+is not recycled until the queue timeline completes it. Scratch allocations use
+the same versioned mechanism.
+
+Whole-scene handle replacement is separately completion-safe. The retired scene
+package captures the prior TLAS, buffers, bindings, textures, and main BLASes,
+arms a graphics event query immediately after the exact following submission,
+and releases only after that query polls complete. Query allocation failure
+retains the package until reset. NVRHI does not infer ownership of every BLAS
+device address nested inside a TLAS; the GEO-11 bucket, rigid, skinned, and
+scene event-query retirement paths remain required for those resources.
+
+Decision: do not add TLAS double-buffering to the current graphics-only path.
+The safety proof is conditional and must be reopened before moving TLAS build
+or traversal to independently scheduled queues, adding a persistent
+GPU-authored instance buffer, changing the TLAS capacity through live handle
+replacement without scene-package retirement, or removing NVRHI automatic AS
+state tracking.
+
+Evidence:
+
+  artifacts/GEO-11_q18_tlas_inflight_lifetime_audit_2026-07-30.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
@@ -4822,7 +4870,9 @@ DISPOSITION OF 04_open_questions.txt
   Q17 RESOLVED by D45/D46/D47/D48/D49: GPU-output construction/remap,
       material/dynamic-state, DI/GI/RR input comparison, production traversal,
       and same-frame current/previous skinned-emissive publication accepted.
-  Q18 OPEN and elevated by the PT-only failure, owned by GEO-01/GEO-11.
+  Q18 RESOLVED by D189: the fixed main TLAS is safe to reuse under the current
+      same-graphics-queue ordering, NVRHI read/write barriers, versioned
+      instance uploads, and completion-backed handle retirement.
 
 DEFERRED OUTSIDE THIS PACKET
 ----------------------------
