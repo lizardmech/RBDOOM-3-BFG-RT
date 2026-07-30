@@ -172,9 +172,9 @@ GEO-14 FILES
     route/motion/capture-split, retirement, and error results.
 
   GEO-14_extended_matrix_handoff.txt
-    Extended matrix interpretation, raw-log provenance, the post-admission
-    consumer-audit timing limitation, unchanged defaults, and final promotion
-    gates.
+    Extended matrix interpretation, raw-log provenance, the repaired
+    post-admission legacy-shadow audit contract, unchanged defaults, and final
+    promotion gates.
 
 NAMING
 ------

@@ -160,11 +160,12 @@ append, and all live/legacy-shadow consumer failure buckets zero when the
 one-shot is armed before omission. No run contains a device/Vulkan/fatal
 error.
 
-One diagnostic-only ordering defect remains: arming the consumer audit after a
-route set is already capture-split omits the CPU legacy copy, so the live audit
-passes while the requested independent shadow is empty. Make that one-shot
-force one legacy-capture frame before using it for the final material/motion/
-emissive matrix.
+The diagnostic-only ordering defect found by that matrix is corrected. When
+the consumer or hit audit is armed, capture split now retains one CPU-skinned
+frame for the promised independent legacy shadow. A delayed post-admission
+test first omitted 12/12 routes, then audited 12 live and 12 shadow routes
+covering 15,962 triangles with all failure buckets zero; normal omission
+resumed after the one-shot reset.
 
 Defaults remain zero. Human visual acceptance is still required before
 promotion. See:

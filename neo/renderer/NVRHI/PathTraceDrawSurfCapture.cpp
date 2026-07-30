@@ -1022,6 +1022,9 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuBuild.GetInteger() != 0;
+    const bool skinnedLegacyShadowAuditRequested =
+        r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0 ||
+        r_pathTracingGeometrySkinnedHitAudit.GetInteger() != 0;
     const bool skinnedCaptureSplitGate =
         r_pathTracingGeometrySkinnedCaptureSplit.GetInteger() != 0 &&
         r_pathTracingGeometrySkinnedTlasCompare.GetInteger() != 0 &&
@@ -1029,7 +1032,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         r_pathTracingGeometryAuthoritativeGpuSkinning.
             GetInteger() != 0 &&
         r_pathTracingGeometryShadowRegistry.GetInteger() != 0 &&
-        skinnedCaptureAdmissionRoutes != nullptr;
+        skinnedCaptureAdmissionRoutes != nullptr &&
+        !skinnedLegacyShadowAuditRequested;
     captureTiming.skinnedCaptureAdmissionRoutes =
         skinnedCaptureAdmissionRoutes != nullptr
             ? static_cast<int>(

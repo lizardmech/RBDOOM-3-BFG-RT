@@ -95,10 +95,37 @@ The route readback covers 2,896 source-local triangles and passes. A consumer
 audit armed only after capture split had already omitted the legacy CPU copy
 passes the live route but reports the legacy shadow as empty
 (`failuresShadow.routeCount=1`). This is a diagnostic timing limitation, not a
-production-route mismatch: for an independent same-frame legacy shadow, arm
-the one-shot before the frame is admitted for omission. A follow-up should
-make the one-shot force one legacy-capture frame so this ordering cannot
-produce a misleading failure.
+production-route mismatch. It exposed that the one-shot's advertised
+independent same-frame legacy shadow depended on otherwise undocumented
+pre-admission command ordering.
+
+AUDIT CAPTURE FIX
+-----------------
+`CapturePathTraceDynamicFrameFromDrawSurfMirror` now retains CPU-skinned
+capture whenever either independent legacy-shadow audit is armed:
+
+  r_pathTracingGeometrySkinnedConsumerAudit
+  r_pathTracingGeometrySkinnedHitAudit
+
+Both controls default to zero, so ordinary capture-split production behavior
+is unchanged. The backend still resets the one-shot after consuming it; the
+next capture resumes normal omission.
+
+`geometry_geo14_audit_capture_fix.log` directly tests the problematic order.
+Before the delayed command, frame 4 accepts and omits all 12 routes:
+
+  routes/descriptors/motion             12 / 12 / 12
+  omitted surfaces/indexes              12 / 47,886
+  CPU skin append                       0 ms
+
+At frame 119, after capture-split is already active, the delayed consumer
+one-shot retains exactly one legacy frame. Live and legacy-shadow audits each
+accept 12 routes and 15,962 triangles; the shadow maps all 15,962 triangles
+to legacy metadata, motion is ready 12/12, and all thirteen failure buckets
+are zero on both paths. The capture/TLAS result is correctly pre-admission
+with zero omitted surfaces on that audit frame. Subsequent output reports
+`capture split gate=1`, 12 surfaces and 47,886 indexes omitted again, while
+both audit cvars have reset to zero.
 
 AUTOMATION NOTE
 ---------------
@@ -109,7 +136,7 @@ fresh view/map frame was required before acceptance was evaluated.
 
 RUNTIME RESULT
 --------------
-All three logs contain zero matches for:
+All four logs contain zero matches for:
 
   device lost
   device removed
@@ -124,7 +151,7 @@ failure.
 Executable used:
 
   bytes:   16,082,432
-  SHA-256: DAE780BB2BC06B6EFFA499D36DCD25E74D28D8E620998C86EC735910E26FADDB
+  SHA-256: 4BBE88F4EE0DD1EF3839E7E043FEFF89B680C360405F225B3C14369335CA3BAA
 
 RAW EVIDENCE
 ------------
@@ -138,6 +165,8 @@ Under:
     bytes 385424, modified 2026-07-30 14:05:32 Australia/Sydney
   geometry_geo14_lifecycle_batched.log
     bytes 3435221, modified 2026-07-30 14:45:43 Australia/Sydney
+  geometry_geo14_audit_capture_fix.log
+    bytes 10263893, modified 2026-07-30 14:53:27 Australia/Sydney
 
 DEFAULTS AND NEXT GATE
 ----------------------
@@ -150,9 +179,7 @@ The batched UPDATE path now has automated movement, portal/view-set churn,
 spawn growth, replacement retirement, despawn/respawn, and map-transition
 evidence. Before promotion:
 
-  1. remove the post-admission consumer-audit timing trap;
-  2. run the bounded material, motion, and emissive one-shots with the repaired
-     audit ordering;
-  3. obtain human visual acceptance for portal traversal, PDA, characters,
+  1. run the bounded material, motion, and emissive one-shots;
+  2. obtain human visual acceptance for portal traversal, PDA, characters,
      materials, motion, and emissives;
-  4. only then consider changing the two defaults.
+  3. only then consider changing the two defaults.

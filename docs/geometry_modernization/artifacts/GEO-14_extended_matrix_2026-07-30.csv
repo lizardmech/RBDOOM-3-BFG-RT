@@ -6,3 +6,4 @@ lifecycle_spawn_three,1,1,doom3_1,spawn_three_fatzombies,19;0;22,22,26096,22,22,
 lifecycle_despawn,1,1,doom3_1,kill_monsters,22;1,1,NA,NA,NA,NA,0,NA,NA,NA,25,NA,NA,NA,NA,0,PASS_RETIREMENT_QUEUED,geometry_geo14_lifecycle_batched.log
 lifecycle_respawn,1,1,doom3_1,respawn_one_fatzombie,1,1,5096,1,0,0,0,NA,NA,NA,NA,NA,NA,0,0,0,PASS_PRE_ADMISSION,geometry_geo14_lifecycle_batched.log
 mars_city1_to_alphalabs1,1,1,mars_city1_to_alphalabs1,map_transition,0;1,1,2896,1,1,8688,0,2,1,NA,NA,NA,NA,0,1,0,PASS_LIVE_SHADOW_ARMED_TOO_LATE,geometry_geo14_lifecycle_batched.log
+post_admission_consumer_audit,1,1,doom3_1,delayed_one_shot_after_capture_omission,12,12,15962,12,0,0,0,NA,NA,NA,NA,NA,NA,0,0,0,PASS_LEGACY_CAPTURE_FORCED_ONE_FRAME,geometry_geo14_audit_capture_fix.log
