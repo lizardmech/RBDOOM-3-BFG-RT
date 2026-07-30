@@ -1,0 +1,108 @@
+GEO-13 GI + REFRACTED STATIC-ROUTE SAFETY GUARD
+================================================
+
+Date: 2026-07-30
+Branch: restir-development
+Scope: post-acceptance correction to GEO-10/GEO-13 route-one admission
+
+OUTCOME
+-------
+The route-one static-bucket default remains accepted generally, but one
+transitive consumer intersection is now fail-closed:
+
+  clean GI enabled && refracted glass PSR enabled
+
+For that combination, a requested route value of one resolves to:
+
+  requested / accepted                  1 / 0
+  consumerSupported                         0
+  productionRoute                           0
+  traversal                        monolithic
+
+This retains refraction and GI while selecting the established route-zero
+static traversal. It does not disable clean GI, glass transmission, glass
+reflection, or the route-one default for other combinations.
+
+RUNTIME ISOLATION
+-----------------
+The failure requires live GI pipeline dispatch:
+
+  r_pathTracingCleanRestirGiPipelineWarmupLimit 16
+  r_pathTracingCleanRestirGiEnable 1
+  r_pathTracingCleanRestirGiResolve 1
+  r_pathTracingCleanRestirGiView 0
+
+Observed controls:
+
+  basic launcher without live GI warmup                   stable
+  live GI with all glass transport disabled               stable
+  live GI plus straight sky-facing transmission           stable
+  live GI plus glass reflection PSR                       stable
+  live GI plus refracted PSR, strength 0           device removed
+  same, optical portal halo reduced 4 -> 1         delayed removal
+  same, static bucket route 0                              stable
+
+With route one restored, the original location could survive, but a different
+glass panel removed the device after approximately five minutes of traversal.
+The moving failure location and route-zero control identify a route-one
+portal/TLAS/residency intersection rather than one authored sky material.
+
+CONCRETE CONTRACT MISMATCH
+--------------------------
+IsSmokeStaticBucketProductionRouteSupported already accepted both clean-GI
+and refracted-PSR state as inputs, but the clean-GI parameter was deliberately
+ignored. The predicate therefore admitted a combination whose long traversal
+contract had not been established.
+
+The correction uses both inputs and rejects only their conjunction. Positive
+coverage retains:
+
+  route one + clean GI + straight transmission
+  route one + clean GI + reflection PSR
+  route one + refracted PSR with clean GI disabled
+
+This is a safety admission repair, not a claimed GPU root cause.
+
+VERIFICATION
+------------
+CPU:
+
+  PathTraceCpuPlanningHarness
+  result: PASS
+
+The route checkpoint test now proves the combined negative case and the
+separate positive cases.
+
+Build:
+
+  from neo/
+  cmake --build --preset win64-pt-dev-release
+  result: PASS
+  Vulkan SPIR-V: all up to date; no shader changes
+
+Deployment:
+
+  E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+  SHA-256:
+  8A5FDD4471F46F04E094EFC74B1BFB0441CB6B1B1202DBC21E98F18E7DC0CAB4
+
+Runtime:
+
+  The user reports the guarded build seemed stable in the previous failure
+  scene with GI and refracted PSR active.
+
+RE-ADMISSION GATE
+-----------------
+Do not remove this guard based on one successful location. Re-admission
+requires:
+
+  1. GPU-side cause evidence for the route-one failure;
+  2. exact identification of the static TLAS/residency lifetime or dispatch
+     contract being violated;
+  3. repeated out-and-back traversal across multiple glass panels;
+  4. at least one extended soak longer than the observed five-minute failure;
+  5. route-one requested/accepted evidence throughout the run;
+  6. no device removal, geometry/material corruption, or portal cutoff.
+
+Until then, retained monolithic static traversal is the required production
+fallback for this exact consumer intersection.

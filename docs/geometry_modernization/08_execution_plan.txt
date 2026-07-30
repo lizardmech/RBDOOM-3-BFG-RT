@@ -1302,6 +1302,22 @@ production defaults. Their exact zero/zero merged-dynamic rollback remains
 live. GEO-14 and the geometry-modernization execution packet are complete.
 See artifacts/GEO-14_final_visual_acceptance_2026-07-30.txt.
 
+Post-acceptance static-route safety correction:
+
+Extended GI/glass traversal found one production intersection that the GEO-13
+matrix did not exercise long enough: route-one static buckets plus live clean
+GI plus refracted PSR can remove the Vulkan device after portal churn. Straight
+transmission, reflection PSR, and route-zero refracted controls survive. A
+one-step optical portal halo only delays the failure, while route zero prevents
+the reproduction.
+
+The production predicate now rejects only clean-GI plus refracted PSR and
+falls back to retained monolithic static traversal. The route-one default and
+all separately accepted consumers remain unchanged. Re-open bucket admission
+for this intersection only after a GPU-cause investigation and extended
+out-and-back glass soak. See
+artifacts/GEO-13_gi_refracted_route_guard_2026-07-30.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

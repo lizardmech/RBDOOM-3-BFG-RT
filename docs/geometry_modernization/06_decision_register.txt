@@ -4594,6 +4594,47 @@ Evidence:
   artifacts/GEO-14_batched_update_2026-07-30.csv
   artifacts/GEO-14_batched_update_handoff.txt
 
+D184. FAIL CLOSED FOR THE UNSTABLE GI + REFRACTED BUCKET INTERSECTION
+--------------------------------------------------------------------
+Route-one static buckets, clean GI, and glass PSR were initially admitted as
+one production combination. Extended runtime testing refined that claim:
+
+  - the basic launcher without live GI pipeline warmup is stable;
+  - clean GI with all glass transport disabled is stable;
+  - clean GI with straight transmission through sky-facing glass is stable;
+  - clean GI with glass reflection PSR is stable;
+  - enabling refracted PSR produces nondeterministic Vulkan device removal
+    during portal traversal, including with refraction strength zero;
+  - reducing the optical portal halo from four steps to one delays but does
+    not eliminate the failure;
+  - explicit static bucket route zero prevents the reproduced failure;
+  - route one can survive the original location, then remove the device at a
+    different glass panel after approximately five minutes.
+
+The production-admission predicate already receives clean-GI and refracted-PSR
+state, but previously ignored clean GI and claimed the intersection was safe.
+That claim is contradicted by runtime evidence. Reject only
+cleanGiEnabled && refractedPsrEnabled from route-one cutover. The requested
+route remains one, but consumer support becomes false and static traversal
+falls back to the retained monolithic route. Clean GI with straight
+transmission, clean GI with reflection PSR, and refracted PSR without clean GI
+remain admitted.
+
+This is a safety guard, not a root-cause claim. The unresolved defect belongs
+to the route-one static TLAS/residency interaction exposed by refracted glass
+and portal churn. Do not delete the monolithic static fallback. Re-admission
+requires a dedicated GPU-cause investigation and a repeated out-and-back glass
+soak, not a single successful location.
+
+The CPU planning harness covers positive separate-consumer cases and the
+negative combined case. The Vulkan release build passes, no shader source or
+SPIR-V changes are required, and the deployed guard is user-reported stable in
+the previous failure scene.
+
+Evidence:
+
+  artifacts/GEO-13_gi_refracted_route_guard_2026-07-30.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.

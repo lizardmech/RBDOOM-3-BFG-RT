@@ -2135,7 +2135,7 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     bool cleanDiEnabled,
     int cleanDiView,
     bool /*diagnosticCheckpointsEnabled*/,
-    bool /*cleanGiEnabled*/,
+    bool cleanGiEnabled,
     bool externalPdfNeeEnabled,
     bool dlssRrEnabled,
     bool transmissionPsrEnabled,
@@ -2150,10 +2150,13 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     // share the same bounded mirror resolver. Their optional visibility ray
     // uses the same bounded forced-opaque loop while route 1 is active, so it
     // no longer enters the legacy shadow any-hit decoder. Refracted PSR
-    // changes only the direction passed to the accepted bounded transmission
-    // resolver. The clean GI libraries consume the same routed buffers,
-    // publication tuple, and canonical static address, so GI does not require
-    // a separate static namespace. Keep external PDF-NEE and RR consumers
+    // changes the direction passed to the accepted bounded transmission
+    // resolver. Clean GI and refracted PSR are individually accepted route-1
+    // consumers, but repeated runtime validation found that their combination
+    // can device-remove after portal traversal while route 0 remains stable.
+    // Keep that unproven intersection fail-closed to monolithic static
+    // traversal. Reflection PSR, straight transmission, and clean GI remain
+    // independently admitted. Keep external PDF-NEE and RR consumers
     // fail-closed until their own route acceptance. GPU markers instrument
     // these same dispatches; they do not select a shader consumer or alter the
     // routed geometry contract and are not a production-admission requirement.
@@ -2167,6 +2170,9 @@ bool IsSmokeStaticBucketProductionRouteSupported(
     const bool refractedContinuationSupported =
         !refractedPsrEnabled ||
         transmissionPsrEnabled;
+    const bool giRefractedRouteSupported =
+        !cleanGiEnabled ||
+        !refractedPsrEnabled;
     return routeMode == RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION &&
         cleanDiEnabled &&
         cleanDiView == 16 &&
@@ -2175,6 +2181,7 @@ bool IsSmokeStaticBucketProductionRouteSupported(
         transmissionPsrEnabled &&
         reflectionVisibilitySupported &&
         refractedContinuationSupported &&
+        giRefractedRouteSupported &&
         probeStage == 0;
 }
 

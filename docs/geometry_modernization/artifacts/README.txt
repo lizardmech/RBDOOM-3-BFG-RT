@@ -148,6 +148,11 @@ GEO-13 FILES
     Current comm1 exact-route/screenshot evidence, route-zero shutdown control,
     final defaults and retained fallbacks, and the remaining packet blocker.
 
+  GEO-13_gi_refracted_route_guard_2026-07-30.txt
+    Post-acceptance GI/refracted-glass route-one device-removal isolation,
+    narrow monolithic fail-closed decision, CPU test, build/deploy identity,
+    and re-admission requirements.
+
 GEO-14 FILES
 ------------
   GEO-14_update_barrier_2026-07-30.csv

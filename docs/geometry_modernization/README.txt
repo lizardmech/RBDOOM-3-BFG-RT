@@ -111,3 +111,11 @@ Current execution status (2026-07-30):
   additive-emissive receiver blend-through as the production default. The
   synchronized skinned route and capture split are now production defaults
   with zero/zero rollback retained.
+
+  A post-acceptance soak found one narrower static-route exception: live clean
+  GI plus refracted glass PSR can device-remove under route-one portal churn,
+  while route zero, straight transmission, and reflection-only controls
+  survive. Production now fails closed to retained monolithic static traversal
+  only for that intersection. Route one remains the default and remains
+  admitted for the separately accepted consumers. See D184 and
+  artifacts/GEO-13_gi_refracted_route_guard_2026-07-30.txt.

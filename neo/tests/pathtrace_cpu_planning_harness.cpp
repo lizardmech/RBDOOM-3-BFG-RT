@@ -3976,7 +3976,7 @@ void TestStaticBucketAssignmentPlan()
             false,
             false,
             0) &&
-            IsSmokeStaticBucketProductionRouteSupported(
+            !IsSmokeStaticBucketProductionRouteSupported(
                 RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
                 true,
                 16,
@@ -3990,7 +3990,7 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 true,
                 0) &&
-            IsSmokeStaticBucketProductionRouteSupported(
+            !IsSmokeStaticBucketProductionRouteSupported(
                 RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
                 true,
                 16,
@@ -4003,6 +4003,20 @@ void TestStaticBucketAssignmentPlan()
                 true,
                 true,
                 true,
+                0) &&
+            IsSmokeStaticBucketProductionRouteSupported(
+                RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
+                true,
+                16,
+                true,
+                true,
+                false,
+                false,
+                true,
+                true,
+                true,
+                true,
+                false,
                 0) &&
             !IsSmokeStaticBucketProductionRouteSupported(
                 RT_SMOKE_STATIC_BUCKET_ROUTE_PRIMARY_OPAQUE_PROBE,
@@ -4116,7 +4130,7 @@ void TestStaticBucketAssignmentPlan()
                 false,
                 false,
                 24),
-        "static bucket route-1 production checkpoint admits bounded optics and clean GI with or without diagnostic markers while external PDF-NEE, RR, and later probe stages remain closed");
+        "static bucket route-1 production checkpoint admits bounded optics and clean GI separately, fails closed for their unstable refracted intersection, and keeps external PDF-NEE, RR, and later probe stages closed");
     Check(
         IsSmokeStaticBucketBoundedTransmissionResolverRequired(
             RT_SMOKE_STATIC_BUCKET_ROUTE_PRODUCTION,
