@@ -1,0 +1,606 @@
+Geometry capture/cache architecture divergence and performance debt
+===================================================================
+Status: evidence-backed architecture note, 2026-07-31.
+
+Purpose
+-------
+Record where the current path-tracing geometry producer has diverged far
+enough from the RTXDI, RTX Remix, and DoomRTX reference shapes that local
+micro-optimizations alone are unlikely to produce consistently good CPU
+performance.
+
+This is not an implementation ticket and the reference projects are not
+authorities. The conclusions below are grounded first in this repository's
+Optick captures, reproduced failures, and accepted fixes. The references are
+used to identify simpler structures that explain why those fixes worked.
+
+Executive conclusion
+--------------------
+The main remaining problem is not BVH traversal quality and it is not the raw
+cost of issuing a modest number of BLAS builds. It is that the path tracer
+still discovers and reconstructs too much of its scene from frame-local
+drawSurfs, then maintains several partly overlapping geometry, material,
+emissive, and traversal caches around that capture.
+
+In this design a cache hit has repeatedly still performed O(mesh), O(surface),
+or O(scene) work:
+
+  - validate every cached vertex and index;
+  - convert a complete mesh before asking whether its BLAS is current;
+  - copy a complete accepted route into frame-local storage;
+  - rebuild a complete geometry pool when only membership changed;
+  - revisit every visible drawSurf to rediscover material facts already
+    emitted by capture;
+  - build emissive audit records for triangles whose materials are known to
+    be non-emissive;
+  - derive the same upload/signature facts in several downstream consumers.
+
+The accepted performance fixes all moved in the same direction: establish a
+stable owner, validate once when its generation changes, keep the result
+resident, and make steady-frame work consume a small identity or instance
+delta. That direction should now become an explicit architecture rule rather
+than a sequence of isolated optimizations.
+
+The target is:
+
+  persistent mesh facts + persistent material facts + persistent BLAS
+      -> small instance/visibility/transform delta
+      -> coherent TLAS membership and GPU submission
+
+The current broad shape is still:
+
+  visible/live renderer walk
+      -> copied frame mirror
+      -> route-specific reconstruction and validation
+      -> route-specific snapshots and side buffers
+      -> TLAS membership and GPU submission
+
+The second shape can be made faster, but it retains a cost proportional to
+what the camera sees. The first shape makes stable content cost proportional
+to what actually changed.
+
+Evidence already measured in this repository
+--------------------------------------------
+All timings below are CPU wall time from the accepted Optick captures. The
+main capture record is:
+
+  artifacts/GEO-14_cpu_geometry_performance_2026-07-30.txt
+
+1. A rigid cache predicate was not constant-time.
+
+`RigidMeshHasCachedRouteData` rescanned all cached vertices and indexes every
+time residency, material collection, route snapshot, TLAS snapshot, TLAS
+descriptor, or emissive code asked whether a mesh was ready. Validating once
+when the cache was created or invalidated, then storing the validity result,
+was a required part of reducing `test_pbr_orbs`:
+
+  PT Build Scene     65.568 ms -> 8.930 ms
+  Common::Frame                   9.720 ms final
+
+This is the clearest example of a cache whose API said "predicate" while its
+cost still meant "re-parse the asset."
+
+2. Stable accepted data was copied as if it were frame data.
+
+`PruneRigidCachesToCurrentFrame` deep-copied every live mesh record, including
+the complete vertex and index vectors, even when nothing expired. The accepted
+async route was also deep-copied into frame-local working storage every frame.
+Keeping the stable vector in place, compacting only on actual retirement, and
+using the accepted result as persistent working storage reduced:
+
+  rigid residency update              15.288 ms -> 0.057 ms
+  rigid route async orchestration      14.989 ms -> 0.021 ms
+  rigid route metadata snapshot         6.326 ms -> 0.010 ms
+  rigid TLAS snapshot                   6.144 ms -> 0.021 ms
+  rigid route material IDs              6.136 ms -> 0.011 ms
+  rigid TLAS descriptors                6.161 ms -> 0.027 ms
+
+The lesson is stronger than "avoid vector copies." Accepted cache state must
+have durable ownership. A frame should reference it, not clone it.
+
+3. Transient renderer addresses participated in content identity.
+
+The rigid draw-surface path rebuilt and rehashed complete CPU mesh payloads
+when a transient `srfTriangles_t*` wrapper changed. One 60-frame capture found
+1,140 refreshes attributed to that condition. The stable identity already
+contained the model epoch, model surface, GPU vertex/index identities,
+formats, counts, material class, and source kind.
+
+Removing the transient wrapper from invalidation and checking the exact BLAS
+contract before CPU conversion changed `testmaps/test_gltf2_models`:
+
+  PT Build Scene     81.517 ms -> 29.691 ms
+  rigid scaffold     17.149 ms -> 1.032 ms
+
+An address used for current fallback access is not an asset identity. Mixing
+the two makes harmless frontend churn look like new geometry.
+
+4. Visibility/membership changes repacked immutable geometry.
+
+Before the persistent rigid pool correction, portal and camera movement
+caused 16 complete 290k-vertex / 1.48M-index route builds during 600 frames.
+Each complete build averaged 107.946 ms. After immutable geometry ranges were
+kept resident and membership was rebuilt only in the small instance array:
+
+  Common::Frame       13.621 ms -> 10.427 ms
+  complete pool builds   16/600 -> 0/600
+
+Ten geometry-generation transitions were then satisfied from existing ranges.
+This is direct proof that visibility, instance membership, and geometry
+storage must not share one invalidation boundary.
+
+5. Per-triangle facts were rebuilt even when no consumer needed them.
+
+In the matched Fatzombie view, production skinned-route construction computed
+canonical and emissive 64-bit identities for every triangle even though hit
+shaders did not consume those fields. The emissive path copied current and
+previous skinned vertices and built audit records for every non-emissive
+character triangle before filtering by material. Production now computes
+those facts only for explicit validation or genuinely emissive materials.
+
+The same route also converted the current upload twice to recover a pending
+signature, then copied unchanged pending and accepted sets. Reusing the
+existing signature and stable sets removed those repeated operations.
+
+6. Material hydration rediscovered the capture output.
+
+Material metadata performed another full visible-drawSurf validation walk
+after capture had already produced its unique visible material IDs. Consuming
+that captured ID set plus persistent static/rigid IDs reduced:
+
+  PT Register Material Metadata        1.893 ms -> 0.001 ms
+
+This did not eliminate the material system. It established one producer for
+the visible material set and stopped a downstream consumer from independently
+reconstructing it.
+
+7. The remaining character-view penalty is still capture-shaped.
+
+The exact-build matched saves are:
+
+  doom3_2   character/Fatzombie-facing worst view
+  doom3_3   adjacent wall-facing view in the same location
+
+After the accepted local fixes:
+
+  event                         doom3_2   doom3_3   remaining delta
+  Common::Frame                 33.170 ms 19.603 ms   13.567 ms
+  PT Build Scene                31.782 ms 18.239 ms   13.543 ms
+  PT Capture Doom Surfaces      11.751 ms  5.224 ms    6.527 ms
+  dynamic mirror loop            4.398 ms  0.928 ms    3.470 ms
+  skinned GPU scaffold           1.363 ms  0.002 ms    1.361 ms
+  skinned upload conversion      0.980 ms  0.003 ms    0.977 ms
+  dynamic material records       0.843 ms  0.205 ms    0.638 ms
+
+The view-dependent penalty fell from 22.938 ms to 13.543 ms, but the
+remaining cost still scales primarily with visible captured surfaces. A wall
+turning expensive scene construction off is a source-ownership symptom, not a
+BLAS traversal symptom.
+
+8. Cold admission remains a second, distinct problem.
+
+After steady and moving-cache reuse was corrected, first exposure still
+showed:
+
+  draw-surface capture                 up to 253.731 ms
+  entity-feed candidate admission      up to  80.996 ms
+  initial rigid BLAS package creation  up to  90.700 ms
+
+Some cold cost is unavoidable, but the current synchronous clustering of
+discovery, conversion, classification, upload preparation, and BLAS creation
+makes newly visible content arrive as a large render-thread burst. Persistent
+registration and budgeted admission are needed; steady-cache work alone
+cannot solve this.
+
+Reference shapes that explain the results
+-----------------------------------------
+RTXDI and RTX Remix use different engines and are not direct drop-in designs.
+The relevant commonality is their data model at a ray hit:
+
+  instance record
+      -> first geometry/surface index + hardware GeometryIndex()
+      -> geometry/surface record
+      -> bindless index/vertex buffers and material record
+
+Concrete reference points:
+
+  RTXDI MinimalSample:
+    root: E:\prog\references\RTXDI-main
+    Samples/MinimalSample/Shaders/SceneGeometry.hlsli:22
+      bindless ByteAddressBuffer array
+    SceneGeometry.hlsli:67
+      geometryBuffer[instance.firstGeometryIndex + geometryIndex]
+    SceneGeometry.hlsli:70-71
+      geometry-owned bindless index and vertex buffer lookup
+
+  RTXDI FullSample:
+    root: E:\prog\references\RTXDI-main
+    Samples/FullSample/Shaders/SceneGeometry.hlsli:24,69,72-73
+      the same instance -> geometry -> bindless-buffer contract
+
+  RTX Remix:
+    root: E:\prog\references\dxvk-remix-git
+    src/dxvk/shaders/rtx/concept/ray/ray_helper.slangh:49
+      surface identity is custom-index base + GeometryIndex()
+    src/dxvk/shaders/rtx/pass/common_bindings.slangh:45,53
+      bindless geometry and uint32 index buffer arrays
+
+This arrangement has important consequences:
+
+  - a BLAS can contain multiple geometries without inventing a new hit
+    namespace or route-record buffer;
+  - adding another geometry pool does not require adding fixed descriptor
+    slots to every ray pipeline;
+  - geometry identity is supplied by the instance and hardware geometry
+    index rather than reconstructed from several route tests;
+  - the geometry record owns buffer addresses and material linkage;
+  - static, rigid, and animated are residency/update properties, not
+    independent shader universes.
+
+DoomRTX supplies the closest idTech4 lifecycle comparison:
+
+  - render entities own persistent instance/BLAS handles;
+  - UpdateEntityDef updates instance state in place;
+  - FreeEntityDef retires it immediately;
+  - models own reusable BLAS state;
+  - per-world TLAS state consumes those persistent records;
+  - derived mesh metadata is registered at ingestion rather than rediscovered
+    from every visible draw.
+
+The DoomRTX file pointers are listed in 01_target_architecture_ideas.txt.
+DoomRTX is useful for lifecycle ownership and scheduling, not as a model for
+this renderer's skinning, light transport, or storage format.
+
+Where the local design diverges
+-------------------------------
+The following table separates the current architectural tendency from the
+reference shape and the locally observed consequence.
+
+1. Source of truth
+
+  Local tendency:
+    Current visible drawSurfs remain the broad discovery and reconstruction
+    source. Off-screen entity feed and static residency add more producers
+    around that source.
+
+  Reference shape:
+    Mesh and instance records are persistent. Frame visibility observes or
+    selects records; it does not recreate them.
+
+  Consequence:
+    Turning toward characters or imported models changes CPU scene-build cost
+    by many milliseconds even when the assets, transforms, and materials were
+    already known.
+
+2. Cache validity
+
+  Local tendency:
+    Several "has data" and signature paths historically proved validity by
+    rescanning or rehashing complete payloads at every caller.
+
+  Reference shape:
+    validate at ingestion or mutation; store a generation and validity bit;
+    later users compare small generation/identity values.
+
+  Consequence:
+    the same 290k vertices and 1.48M indexes were walked by residency, route,
+    material, TLAS, descriptor, and emissive consumers independently.
+
+3. Stable ownership
+
+  Local tendency:
+    accepted worker/cache results have often been copied into frame-local
+    route builds and snapshots.
+
+  Reference shape:
+    stable records remain owned by the scene database; frame work references
+    immutable records and emits compact instance/update arrays.
+
+  Consequence:
+    six nominally different scopes each spent about 6-15 ms copying or
+    validating the same rigid scene before the persistent-storage fix.
+
+4. Identity
+
+  Local tendency:
+    identity accumulated renderer wrapper addresses, route namespaces,
+    packed special-case instance IDs, content hashes, and generation checks.
+
+  Reference shape:
+    stable mesh ID, stable instance ID, geometry/surface index, and explicit
+    generations for the facts that can actually change.
+
+  Consequence:
+    harmless `srfTriangles_t*` churn triggered 1,140 full mesh refreshes in
+    60 frames; route-specific identity also multiplied validation surfaces.
+
+5. Geometry versus instance changes
+
+  Local tendency:
+    membership, material remap, route generation, and geometry payload have
+    shared invalidation/rebuild paths.
+
+  Reference shape:
+    immutable mesh geometry and BLAS are separate from instance membership,
+    transform, history, and material override.
+
+  Consequence:
+    portal movement repacked complete geometry until the rigid pool was made
+    persistent. The corrected instance rebuild averaged 0.013 ms while the
+    former complete rebuild averaged 107.946 ms.
+
+6. Material and emissive facts
+
+  Local tendency:
+    material discovery, emissive eligibility, dynamic record construction,
+    and light publication are invoked from several geometry consumers.
+
+  Reference shape:
+    stable material/surface facts are owned by persistent records; dynamic
+    animation/register state is a small explicit override generation.
+
+  Consequence:
+    non-emissive character triangles were fully decoded for emissive auditing,
+    and material hydration re-walked visible surfaces already summarized by
+    capture.
+
+7. Shader geometry namespaces
+
+  Historical local divergence:
+    the first GEO-10 bucket implementation created a second geometry universe:
+    six new SRVs, a route-record table, new SBT contributions, compact hit
+    libraries, and route decoding in every pipeline family. It exposed payload
+    ABI, DXC size, binding, and device-removal failure surfaces.
+
+  Current correction:
+    `PathTraceStaticBucketRoute.hlsli` now reuses the existing static pools and
+    resolves the packed triangle base plus PrimitiveIndex without a route
+    record or new descriptor. This is materially better and should not be
+    described as the old six-SRV implementation.
+
+  Remaining divergence:
+    bucket support is still compiled and tested as a route-specific namespace
+    across primary, DI, GI, glass, spatial, temporal, and transmission
+    consumers. RTXDI/Remix instead let a shared surface record resolve the
+    buffers and material for every geometry class.
+
+  Consequence:
+    each new route or consumer expands an N-way shader integration matrix even
+    after its CPU storage is correct. The architecture should stop adding
+    geometry classes as new shader ABIs.
+
+8. Capture and worker boundaries
+
+  Local tendency:
+    pure processing has been moved toward workers, but live drawSurf/entity/
+    material capture remains broad and downstream consumers still reconstruct
+    their own products.
+
+  Reference-compatible shape:
+    the render thread emits one compact immutable observation snapshot;
+    workers process owned data; the render thread accepts a coherent
+    generation and performs only GPU-resource mutation/submission.
+
+  Consequence:
+    entity-feed processing measured about 0.1 ms in earlier captures while
+    capture measured about 7 ms. Moving more processing to a worker without
+    thinning the live capture does not address the dominant cost.
+
+The recurring anti-patterns
+---------------------------
+Future reviews should reject these patterns unless a measurement proves that
+the payload is small:
+
+1. Cache hit plus full validation.
+   If a hit scans every vertex/index/triangle, it is not a useful cache hit.
+
+2. Stable result plus frame-local deep copy.
+   Immutable accepted records should be referenced or moved on generation
+   change, not cloned once per frame.
+
+3. Visibility event plus asset rebuild.
+   Camera/portal membership may update an instance list or TLAS description;
+   it must not repack immutable mesh geometry.
+
+4. Transient pointer plus content identity.
+   Live pointers may locate current frontend data, but only stable asset
+   fields and explicit epochs may invalidate cached content.
+
+5. One producer plus independent consumer reconstruction.
+   Capture should publish compact material, emissive, geometry, and identity
+   facts once. Consumers should not rediscover them from drawSurfs.
+
+6. Diagnostic completeness in the production hot path.
+   Full hashes, per-triangle audit records, and redundant decodes belong
+   behind validation gates or offline replay, not in every production frame.
+
+7. New geometry type plus new shader route.
+   A new geometry source should populate the common mesh/surface/instance
+   schema. It should not add descriptors, SBT records, payload variants, and
+   per-pipeline decode branches.
+
+Required target invariants
+--------------------------
+These are the minimum architecture invariants needed before further work can
+claim the capture/cache design is converging.
+
+1. Ingest once.
+   Stable mesh vertices, indexes, topology, static attributes, material
+   linkage, and derived emissive summaries are created at registration or
+   explicit content-generation change.
+
+2. Validate once per generation.
+   Expensive finite/range/hash validation sets stored validity and generation
+   fields. Steady consumers perform constant-time checks.
+
+3. Separate mesh, instance, and presentation state.
+
+   Mesh:
+     geometry ranges, formats, stable material slots, BLAS, content generation
+
+   Instance:
+     mesh ID, transform, previous transform, overrides, residency, TLAS state
+
+   Presentation observation:
+     visible/active flags, current dynamic material inputs, current skin pose
+
+   A change in one layer invalidates only its dependent layer.
+
+4. Use one hit-address contract.
+   The desired form is conceptually:
+
+     instance = instances[InstanceID()]
+     surface  = surfaces[instance.firstSurface + GeometryIndex()]
+     triangle = surface.firstTriangle + PrimitiveIndex()
+
+   Exact packing can differ, but every producer must populate the same logical
+   records. Static/rigid/skinned flags may select update behavior; they must
+   not select unrelated descriptor universes.
+
+5. Keep geometry storage bindless or indirection-based.
+   A new pool or format should add records/data, not fixed descriptor slots to
+   every ray pipeline.
+
+6. Make material/emissive state generation-driven.
+   Persistent material facts and mesh emissive summaries are updated on
+   material/content generation. Runtime registers, cinematics, image changes,
+   and color animation use a compact dynamic override path.
+
+7. Make lifecycle push-driven.
+   Entity/model registration creates records; UpdateEntityDef changes instance
+   state; FreeEntityDef retires it. DrawSurf and world walks remain safety-net
+   discovery/validation, not primary liveness ownership.
+
+8. Keep worker ownership explicit.
+   Use immutable snapshot -> worker result -> render-thread generation check
+   -> narrow GPU apply. A worker result that must be deep-copied and revalidated
+   on the render thread has not established useful ownership.
+
+9. Keep diagnostics observational.
+   Production records expose generations and counters sufficient for audit.
+   Expensive identity ladders and exhaustive per-triangle comparison run only
+   when requested and do not define the production ABI.
+
+Migration priorities
+--------------------
+This is an ordering guide, not permission to perform a wholesale rewrite.
+
+Priority 0 - stop increasing divergence
+  - Do not add another route-specific descriptor namespace.
+  - Do not add a full-payload scan to a readiness predicate.
+  - Do not make a transient pointer part of stable content identity.
+  - Do not deep-copy accepted geometry merely to give a frame ownership.
+
+Priority 1 - define the common records
+  - Formalize one MeshRecord, SurfaceRecord, MaterialRecord, and InstanceRecord.
+  - Record which fields are immutable, generation-driven, or frame-dynamic.
+  - Map every current static, rigid, skinned, particle, decal, and fallback
+    producer onto that schema before deleting any rollback route.
+
+Priority 2 - turn capture into observation
+  - Make the visible drawSurf pass publish a compact set of instance IDs,
+    current transforms/poses, dynamic material overrides, and genuinely new
+    asset observations.
+  - Stop copying geometry/material facts already resident in the registries.
+  - Retain loud counters for fallback discoveries so missing lifecycle hooks
+    remain visible.
+
+Priority 3 - unify hit decode
+  - Move all geometry classes toward the shared instance + GeometryIndex +
+    PrimitiveIndex contract.
+  - Treat the current simplified static bucket address as a transition toward
+    the common SurfaceRecord, not as a template for more packed namespaces.
+  - Remove route-specific shader gates only after numeric and visual parity.
+
+Priority 4 - make derived data resident
+  - Store material feature/classification facts once per material generation.
+  - Store emissive triangle ranges/summaries once per mesh/material generation.
+  - Publish dynamic overrides rather than rebuilding full tables and
+    inventories.
+
+Priority 5 - centralize AS and TLAS ownership
+  - BLAS belongs to the mesh or skinned instance that owns its geometry.
+  - Geometry generation controls BLAS rebuild/update.
+  - Transform/membership generation controls TLAS descriptions.
+  - Visibility changes do not dirty geometry.
+  - Preserve the accepted NVRHI queue ordering and retirement rules.
+
+Priority 6 - capture/replay and performance gates
+  - Add a live snapshot capture/replay corpus at the owned-data boundary.
+  - Use the existing CPU planning harness for deterministic contract tests.
+  - Keep Optick matched-view and moving-camera captures as acceptance gates.
+  - Add Vulkan timestamp evidence when investigating GPU traversal/shading;
+    CPU scene-build timings cannot answer that question.
+
+Acceptance gates for future geometry/cache changes
+--------------------------------------------------
+A change in this lane is not architecturally complete merely because it builds
+or makes one test scene faster. It should satisfy the applicable gates:
+
+  - Stable camera, stable scene:
+      no O(vertex), O(index), O(triangle), or O(scene) validation/copy work
+      except genuinely changing skinned output.
+
+  - Camera rotation over already admitted content:
+      no mesh conversion, full route build, full material rediscovery, or
+      emissive inventory rebuild.
+
+  - Portal/membership transition:
+      update compact instance/TLAS membership only; resident mesh ranges and
+      BLAS remain unchanged.
+
+  - Material-only change:
+      update material/dynamic override generations only; geometry upload and
+      BLAS generations remain unchanged.
+
+  - Transform-only change:
+      update instance/TLAS state only; mesh and material records remain exact.
+
+  - New geometry source:
+      no new fixed descriptor set, SBT contribution, payload ABI, or
+      per-pipeline hit decoder.
+
+  - Cache API:
+      readiness and generation checks are constant-time after admission.
+
+  - Worker path:
+      render thread does not wait for same-frame pure processing and does not
+      deep-copy or fully revalidate an unchanged accepted result.
+
+  - Diagnostics:
+      disabling validation removes exhaustive hashes/decodes without changing
+      production visibility or material behavior.
+
+Non-goals and cautions
+----------------------
+- Do not delete the retained monolithic/static/legacy rollback routes until
+  the common record path has consumer parity and soak coverage.
+- Do not rewrite all ray pipelines as RayQuery as a prerequisite for fixing
+  CPU capture. RTXDI/Remix show why centralized query-based resolution can
+  reduce SBT fan-out, but that is a larger shader-lane decision.
+- Do not assume every material fact is static. Runtime registers, cinematic
+  images, GUI targets, program stages, and color-changing emissives need an
+  explicit dynamic override contract.
+- Do not force skinned positions into immutable mesh storage. Bind data is a
+  mesh fact; current/previous posed positions and per-instance update BLAS are
+  dynamic instance state.
+- Do not conflate cold first-admission latency, steady CPU scene construction,
+  GPU AS build time, and ray traversal time. They require separate evidence.
+- Do not copy reference source into the clean-room shader lanes. The useful
+  result here is the data-flow shape, verified independently against local
+  contracts and measurements.
+
+Decision
+--------
+The packet's preliminary "one mesh registry + one instance registry, no
+routes" direction is now supported by runtime evidence. The completed fixes
+were not isolated accidents: every large win removed work caused by treating
+stable data as frame-local or by asking multiple consumers to prove the same
+facts independently.
+
+Further optimization should therefore be reviewed against the target
+invariants above. Another local cache is acceptable only if it has a clear
+owner, explicit invalidation generation, constant-time steady hit, and no
+frame-local full-payload copy. If it cannot meet those conditions, it deepens
+the design divergence and should be replaced by movement toward the shared
+mesh/surface/instance records instead.

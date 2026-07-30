@@ -6,8 +6,9 @@ This directory now contains two layers:
          These remain useful background, but proposals in them are not
          automatically implementation requirements.
 
-  05-08  Validated runtime evidence, decisions, worker rules, and the
-         ordered execution plan. These documents control the work.
+  05-09  Validated runtime evidence, decisions, worker rules, the ordered
+         execution plan, and the post-acceptance capture/cache architecture
+         assessment. These documents control the work.
 
   tasks/ Self-contained implementation tickets. Execute them in the order
          listed by tasks/README.txt. Do not skip a phase gate because a
@@ -50,6 +51,12 @@ Reading order:
   07_worker_protocol.txt          - branch, scope, build/deploy, shader,
                                     evidence, checkpoint, and rollback rules
   08_execution_plan.txt           - phase order, dependencies, and phase gates
+  09_capture_cache_architecture_divergence.txt
+                                  - measured cases where frame-local capture,
+                                    validation, copying, and route-specific
+                                    caches diverge from persistent
+                                    mesh/surface/instance reference designs;
+                                    target invariants for follow-up work
   tasks/README.txt                - ordered self-contained worker tickets
   artifacts/README.txt            - durable baselines, capture commands, field
                                     ownership, and completed-ticket handoffs
