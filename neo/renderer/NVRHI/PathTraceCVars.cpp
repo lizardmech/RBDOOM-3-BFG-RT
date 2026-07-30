@@ -403,7 +403,7 @@ idCVar r_pathTracingGeometrySkinnedTlasCompare(
     "r_pathTracingGeometrySkinnedTlasCompare",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental per-instance canonical skinned TLAS route; default off after repeatable Vulkan BLAS-update TDRs and fails closed to the legacy dynamic BLAS" );
+    "Experimental per-instance canonical skinned TLAS route: 0 off (production fallback), 1 in-place PerformUpdate, 2 logical updates as full BUILD controls; default off after repeatable Vulkan BLAS-update TDRs" );
 
 idCVar r_pathTracingGeometrySkinnedTlasCompareDump(
     "r_pathTracingGeometrySkinnedTlasCompareDump",

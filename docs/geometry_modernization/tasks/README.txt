@@ -48,11 +48,16 @@ Phase E - cutover
 
   GEO-13_cutover_cap_removal_cleanup.txt
 
+Phase E recovery - blocked skinned cutover
+
+  GEO-14_skinned_vulkan_update_recovery.txt
+
 Current Phase-E status (2026-07-30):
   GEO-13's authorized rigid/static/cap/cleanup/performance work is complete.
   Packet-wide completion remains blocked by the intentionally revoked
   per-instance skinned update-BLAS route; merged dynamic remains its production
-  fallback. See ../artifacts/GEO-13_final_correctness_handoff.txt.
+  fallback. GEO-14 owns the separate Vulkan recovery investigation. See
+  ../artifacts/GEO-13_final_correctness_handoff.txt.
 
 CLAIMING A TICKET
 -----------------

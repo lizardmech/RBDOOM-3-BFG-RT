@@ -87,3 +87,10 @@ Current execution status (2026-07-30):
   Phase-E completion remains blocked by the revoked per-instance skinned
   update-BLAS route. Retained monolithic static, merged dynamic, and legacy
   rigid owners are intentional live fallbacks, not dead code.
+
+  GEO-14 has now isolated the first skinned reset owner to a Vulkan BLAS UPDATE
+  state-contract mismatch: the prior BLAS source read was absent from NVRHI's
+  automatic barrier state. The fixed diagnostic route survives scripted
+  movement with capture split off and on, while the full-BUILD control is
+  rejected at about 4.45 ms. Defaults remain off pending batched-barrier
+  optimization, the full GEO-09 matrix, and human visual acceptance.

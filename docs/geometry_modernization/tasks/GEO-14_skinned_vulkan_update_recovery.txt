@@ -1,0 +1,134 @@
+GEO-14 - Recover the per-instance skinned Vulkan BLAS update path
+=================================================================
+
+GOAL
+----
+Identify and remove the Vulkan device-reset owner that forced per-instance
+skinned traversal back to the merged dynamic fallback. Do not re-promote the
+route until the replacement update/lifetime shape passes the full GEO-09
+consumer and lifecycle matrix.
+
+PRECONDITIONS
+-------------
+- GEO-13's authorized rigid/static/cap/cleanup work is checkpointed.
+- Merged dynamic remains the production owner throughout this investigation.
+- The existing per-instance route, capture split, exact state table, and
+  completion-query retirement remain default off/on-demand diagnostics.
+
+CURRENT FAILURE BOUNDARY
+------------------------
+The accepted GPU skinning output, route records, shader consumers, resource
+contracts, capture split, and TLAS descriptor set all passed independently.
+Mask-zero descriptors were subsequently removed from the TLAS before
+pre-admission. Device removal still reproduced with zero submitted skinned
+descriptors and localized to a frame submitting twelve in-place
+`PerformUpdate` BLAS operations.
+
+REFERENCE FINDINGS
+------------------
+RTXDI FullSample uses NVRHI but does not update skinned BLASes in place. Each
+skinned mesh owns two BLAS objects, swaps current/previous, transitions every
+destination and vertex buffer before the build loop, and performs full builds.
+
+Remix does use Vulkan UPDATE mode, but its path:
+
+  - retains and compares the complete prior/current build information;
+  - rejects UPDATE when type, flags, geometry count, vertex format, index type,
+    maximum vertex, stride, or primitive counts differ;
+  - tracks source and destination resource liveness;
+  - emits explicit compute/transfer -> AS-build and BLAS-build -> TLAS barriers;
+  - plans one shared scratch allocation;
+  - submits all BLAS builds/updates in one vkCmdBuildAccelerationStructuresKHR.
+
+The current rbdoom route validates topology/generation/ranges but records one
+NVRHI build call and one scratch suballocation per BLAS. Its in-place update
+premise is therefore not accepted merely because the descriptor contract is
+exact.
+
+ORDERED STEPS
+-------------
+1. Add a diagnostic full-build control without changing defaults:
+
+     r_pathTracingGeometrySkinnedTlasCompare 0
+       disabled; current production default
+     r_pathTracingGeometrySkinnedTlasCompare 1
+       existing in-place PerformUpdate experiment
+     r_pathTracingGeometrySkinnedTlasCompare 2
+       same exact state/resources, but logical updates submit BUILD mode
+
+   Keep separate counters for in-place updates and update-as-full-builds.
+   Timing output must count the latter as rebuild work, not update work.
+
+2. Run mode 2 with capture split zero first. This records BLAS work while the
+   merged dynamic route remains visible and the per-instance descriptors stay
+   out of the TLAS. Movement must survive long enough to cross the prior
+   update-reset boundary.
+
+3. If step 2 survives, run mode 2 plus capture split one. Require 12/12 exact
+   routes, zero CPU skin append, portal movement, optics, and no device loss.
+   Compare GPU BLAS cost against both merged dynamic and historical in-place
+   update samples.
+
+4. If full builds survive but in-place updates do not, choose the production
+   architecture explicitly:
+
+   A. completion-safe ping-pong/ring BLAS ownership, modeled on RTXDI but sized
+      for this renderer's real in-flight submission count; or
+   B. a batched NVRHI Vulkan update API with Remix-shaped build-info validation,
+      shared scratch planning, explicit barriers, and resource tracking.
+
+   Do not promote repeated full builds as the final route solely because they
+   avoid a reset; first disclose their measured cost.
+
+5. If mode 2 also resets, isolate destination reuse from operation type:
+   create a fresh build destination, retain the old BLAS through its exact
+   graphics-completion token, and publish only the completed replacement.
+
+6. Repeat the GEO-09 consumer, crowd, spawn/despawn, offscreen/return, map,
+   comm1, PDA, portal, material, motion, and emissive matrix before changing
+   either default.
+
+VALIDATION
+----------
+- Mode 0 is byte/behavior-identical to the current production fallback.
+- Mode 2 never sets PerformUpdate and reports each substituted operation.
+- State-table transitions remain exact; diagnostic operation choice must not
+  weaken topology, source, output, or generation checks.
+- No BLAS is written while a retained TLAS can still reference it without an
+  explicit same-queue dependency or completed lifetime token.
+- No mask-zero or pre-admission BLAS enters a TLAS.
+- A survived load without camera/animation movement is not acceptance.
+
+DONE WHEN
+---------
+The device-reset owner is identified with a reproducible A/B, the selected
+replacement has explicit Vulkan synchronization/lifetime evidence, eligible
+skinned instances again omit CPU skin/copy and traverse their own BLASes, the
+full consumer/lifecycle matrix passes, and defaults can be promoted without
+removing the merged fallback.
+
+CHECKPOINTS
+-----------
+Use one checkpoint for the diagnostic control and evidence, then a separate
+checkpoint for any selected lifetime/batching architecture. Suggested first
+subject:
+
+  GEO-14 add skinned BLAS full-build control
+
+CURRENT STATUS - FIRST CONTROL ACCEPTED (2026-07-30)
+----------------------------------------------------
+Mode 2 survives capture split zero/one and scripted camera movement, but costs
+about 4.45 ms for 12 full BLAS builds and is not a production candidate.
+
+The audit found a concrete NVRHI Vulkan mismatch: PerformUpdate used the prior
+BLAS as source but tracked only destination write access. The repaired path
+commits AS-build source read, then combined AS-build read/write. Mode 1 now
+survives bounded movement with split off and on; split on accepts 12/12 then
+19/19 routes, preserves complete motion records, and removes CPU captured
+indexes. Median UPDATE cost is about 0.635 ms.
+
+Defaults remain zero. Next reduce the per-BLAS barrier-commit overhead without
+weakening the dependency, then run the complete GEO-09 promotion matrix. See:
+
+  ../artifacts/GEO-14_update_barrier_2026-07-30.csv
+  ../artifacts/GEO-14_update_barrier_handoff.txt

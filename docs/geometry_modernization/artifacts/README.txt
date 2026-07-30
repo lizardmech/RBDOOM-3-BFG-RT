@@ -148,6 +148,17 @@ GEO-13 FILES
     Current comm1 exact-route/screenshot evidence, route-zero shutdown control,
     final defaults and retained fallbacks, and the remaining packet blocker.
 
+GEO-14 FILES
+------------
+  GEO-14_update_barrier_2026-07-30.csv
+    Machine-diffable full-BUILD control, historical UPDATE baseline, and
+    post-fix barriered UPDATE timing/correctness rows.
+
+  GEO-14_update_barrier_handoff.txt
+    Vulkan UPDATE state-contract root cause, full-BUILD rejection, fixed-route
+    movement/capture-split evidence, unchanged defaults, raw-log provenance,
+    and the remaining promotion matrix.
+
 NAMING
 ------
 Use:

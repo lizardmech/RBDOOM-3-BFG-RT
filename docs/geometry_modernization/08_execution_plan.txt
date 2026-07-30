@@ -1212,6 +1212,41 @@ a new Vulkan investigation accepts the per-instance update path. Full evidence
 is in artifacts/GEO-13_final_correctness_matrix_2026-07-30.csv and
 artifacts/GEO-13_final_correctness_handoff.txt.
 
+GEO-14 owns that investigation. Its first control does not change a default:
+comparison mode 2 substitutes a full BUILD for every logically stable skinned
+update while preserving the same resource, topology, range, generation, and
+state-table contracts. Test it first with capture split off, then with split
+on only after the BLAS-only control survives animated camera movement.
+
+The architecture decision follows evidence. RTXDI's NVRHI sample ping-pongs
+two skinned BLASes and performs full builds; Remix batches validated in-place
+updates behind explicit barriers and shared scratch planning. If BUILD survives
+and UPDATE resets, choose between completion-safe BLAS rotation and a bounded
+NVRHI batch-update extension. Do not promote per-frame full rebuilds without
+measuring and disclosing their cost.
+
+GEO-14 first-control result:
+
+Mode 2 survives both capture-split states and scripted camera movement, but
+costs about 4.45 ms for 12 full skinned BLAS builds and is rejected for
+production. The Vulkan audit found that NVRHI's in-place UPDATE declared only
+destination write access even though UPDATE also reads the prior BLAS. With
+comparison descriptors excluded from the TLAS, consecutive updates could
+therefore lack a build-write to build-read dependency.
+
+The first repair explicitly commits the prior BLAS as AS-build source-read and
+then enters combined AS-build read/write before PerformUpdate. Fixed mode 1
+survives scripted movement with split off through frame 2,956 and with split on
+through frame 407. The split-on route accepts 12/12 then 19/19 instances with
+complete motion and zero CPU captured indexes. Median UPDATE cost is about
+0.635 ms; the remaining gap versus the historical unsafe 0.059 ms sample is
+the current per-BLAS barrier-commit shape.
+
+Defaults remain 0/0. Preserve the explicit dependency while investigating
+batched transitions/submission, then repeat the full GEO-09 matrix and human
+visual traversal before promotion. See
+artifacts/GEO-14_update_barrier_handoff.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

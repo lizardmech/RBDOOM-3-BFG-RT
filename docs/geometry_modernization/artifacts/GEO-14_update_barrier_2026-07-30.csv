@@ -1,0 +1,7 @@
+case,compare_mode,capture_split,scripted_movement,max_frame,initial_routes,post_move_routes,cpu_captured_indexes_steady,operation,samples,median_gpu_us,min_gpu_us,max_gpu_us,merged_samples,merged_median_gpu_us,result,raw_log
+historical_unbarriered_update,1,0,NO,407,12,NA,VARIED,UPDATE,40,59.4,25.9,866.2,40,456.95,UNSTABLE_DEVICE_REMOVAL_BASELINE,geometry_geo124_auto.log
+full_build_split0_stationary,2,0,NO,477,12,NA,47886,BUILD,118,4550.05,4061.8,5163.1,120,1086.1,PASS_ANIMATED_ONLY,geometry_geo14_fullbuild_split0.log
+full_build_split0_move,2,0,YES,8595,12,19,32424,BUILD,116,4497.5,3891.8,5316.2,120,1070.95,PASS_BOUNDED_STOP,geometry_geo14_fullbuild_split0_move.log
+full_build_split1_move,2,1,YES,653,12,19,0,BUILD,116,4448.15,3887.3,5518.0,120,162.05,PASS_BOUNDED_STOP,geometry_geo14_fullbuild_split1_move.log
+barriered_update_split0_move,1,0,YES,2956,12,19,32424,UPDATE,115,632.4,605.9,1102.6,NA,NA,PASS_BOUNDED_STOP,geometry_geo14_update_barrier_split0_move.log
+barriered_update_split1_move,1,1,YES,407,12,19,0,UPDATE,115,634.9,572.3,1427.3,120,180.35,PASS_BOUNDED_STOP,geometry_geo14_update_barrier_split1_move.log

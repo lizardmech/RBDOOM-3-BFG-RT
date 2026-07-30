@@ -2692,6 +2692,7 @@ struct RtSmokeSkinnedBlasShadowAudit
 struct RtSmokeSkinnedComparisonBlasAudit
 {
     bool gate = false;
+    bool forceUpdateAsFullBuild = false;
     int candidates = 0;
     int buildPending = 0;
     int updatePending = 0;
@@ -2702,6 +2703,7 @@ struct RtSmokeSkinnedComparisonBlasAudit
     int replaced = 0;
     int buildSubmitted = 0;
     int updateSubmitted = 0;
+    int updateAsFullBuildSubmitted = 0;
     int rebuildSubmitted = 0;
     int replacementDeferred = 0;
     int failed = 0;
@@ -3808,15 +3810,16 @@ SubmitSmokeSkinnedComparisonBlases(
     nvrhi::ICommandList* commandList,
     nvrhi::BufferHandle outputBuffer,
     uint64 outputBufferGeneration,
-    bool gate,
+    int mode,
     uint64 frameIndex,
     int retireFrames,
     bool& retirementQueryFailureLogged)
 {
     RtSmokeSkinnedComparisonBlasAudit audit;
-    audit.gate = gate;
+    audit.gate = mode != 0;
+    audit.forceUpdateAsFullBuild = mode >= 2;
     audit.candidates = static_cast<int>(records.size());
-    if (!gate ||
+    if (!audit.gate ||
         device == nullptr ||
         commandList == nullptr ||
         !outputBuffer ||
@@ -4060,7 +4063,8 @@ SubmitSmokeSkinnedComparisonBlases(
         }
         nvrhi::rt::AccelStructDesc submitDesc =
             resource->blasDesc;
-        if (action == PtSkinnedBlasAction::Update)
+        if (action == PtSkinnedBlasAction::Update &&
+            !audit.forceUpdateAsFullBuild)
         {
             submitDesc.buildFlags =
                 submitDesc.buildFlags |
@@ -4093,6 +4097,10 @@ SubmitSmokeSkinnedComparisonBlases(
                     break;
                 case PtSkinnedBlasAction::Update:
                     ++audit.updateSubmitted;
+                    if (audit.forceUpdateAsFullBuild)
+                    {
+                        ++audit.updateAsFullBuildSubmitted;
+                    }
                     break;
                 case PtSkinnedBlasAction::Rebuild:
                     ++audit.rebuildSubmitted;
@@ -11694,9 +11702,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 smokeSkinnedCurrentOutputVertexBuffer,
                 bufferCreateDesc.
                     skinnedOutputStorageGeneration,
-                canonicalSkinnedSourceOutputRoute &&
-                    r_pathTracingGeometrySkinnedTlasCompare.
-                        GetInteger() != 0,
+                canonicalSkinnedSourceOutputRoute
+                    ? idMath::ClampInt(
+                        0,
+                        2,
+                        r_pathTracingGeometrySkinnedTlasCompare.
+                            GetInteger())
+                    : 0,
                 geometryUniverseStats.frameIndex,
                 idMath::ClampInt(
                     0,
@@ -11718,11 +11730,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 0));
         skinnedBlasGpuTimer->updateCount =
             static_cast<uint32>(Max(
-                skinnedComparisonBlasAudit.updateSubmitted,
+                skinnedComparisonBlasAudit.updateSubmitted -
+                    skinnedComparisonBlasAudit.
+                        updateAsFullBuildSubmitted,
                 0));
         skinnedBlasGpuTimer->rebuildCount =
             static_cast<uint32>(Max(
-                skinnedComparisonBlasAudit.rebuildSubmitted,
+                skinnedComparisonBlasAudit.rebuildSubmitted +
+                    skinnedComparisonBlasAudit.
+                        updateAsFullBuildSubmitted,
                 0));
         skinnedBlasGpuTimer->reuseCount =
             static_cast<uint32>(Max(
@@ -11757,15 +11773,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         !m_smokeSkinnedComparisonBlasUpdateLogged)
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO08 skinned comparison BLAS update frame=%llu pending=%d exact=%d reused=%d submitted=%d deferred=%d failed=%d flags=allow-update+perform-update tlas=excluded\n",
+            "PathTracePrimaryPass: GEO14 skinned comparison BLAS logical update frame=%llu mode=%d pending=%d exact=%d reused=%d submitted(logical/inPlace/fullBuild)=%d/%d/%d deferred=%d failed=%d flags=%s tlas=excluded\n",
             static_cast<unsigned long long>(
                 geometryUniverseStats.frameIndex),
+            skinnedComparisonBlasAudit.
+                forceUpdateAsFullBuild ? 2 : 1,
             skinnedComparisonBlasAudit.updatePending,
             skinnedComparisonBlasAudit.exactContracts,
             skinnedComparisonBlasAudit.reused,
             skinnedComparisonBlasAudit.updateSubmitted,
+            skinnedComparisonBlasAudit.updateSubmitted -
+                skinnedComparisonBlasAudit.
+                    updateAsFullBuildSubmitted,
+            skinnedComparisonBlasAudit.
+                updateAsFullBuildSubmitted,
             skinnedComparisonBlasAudit.replacementDeferred,
-            skinnedComparisonBlasAudit.failed);
+            skinnedComparisonBlasAudit.failed,
+            skinnedComparisonBlasAudit.
+                    forceUpdateAsFullBuild
+                ? "allow-update+prefer-fast-build+build"
+                : "allow-update+prefer-fast-build+perform-update");
         m_smokeSkinnedComparisonBlasUpdateLogged = true;
     }
     if (skinnedComparisonBlasAudit.rebuildSubmitted > 0 &&

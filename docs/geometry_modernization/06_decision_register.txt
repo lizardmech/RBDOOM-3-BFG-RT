@@ -4523,6 +4523,49 @@ Full evidence is archived in
 artifacts/GEO-13_final_correctness_matrix_2026-07-30.csv and
 artifacts/GEO-13_final_correctness_handoff.txt.
 
+D182. REQUIRE AS-BUILD SOURCE READ BEFORE VULKAN BLAS UPDATE
+------------------------------------------------------------
+GEO-14's mode-2 control replaced logical skinned UPDATE operations with full
+BUILD operations without changing topology, source ranges, resource identity,
+generation, or state-table decisions. It survived a scripted camera change
+from 12 to 19 visible skinned surfaces with capture split both off and on.
+With split on, 19/19 routes and motion records were admitted and CPU captured
+indexes became zero.
+
+Full BUILD is not a production answer: its median GPU cost is about 4.45 ms
+for 12 skinned BLASes, versus 59.4 us in the historical unbarriered UPDATE
+sample and about 1.09 ms for the merged dynamic BLAS in the split-zero control.
+
+The NVRHI Vulkan UPDATE path set the same BLAS as source and destination but
+required only `AccelStructWrite` on its backing buffer. This omitted the
+AS-build source read and, when the comparison BLAS stayed outside the TLAS,
+could leave consecutive in-place updates without a write-to-read dependency.
+That contract matches the reset boundary previously observed with zero
+skinned descriptors submitted to the TLAS.
+
+For PerformUpdate, transition the prior BLAS to `AccelStructBuildBlas`, commit
+the source-read dependency, then transition to
+`AccelStructBuildBlas | AccelStructWrite` before the Vulkan build command.
+Full BUILD is unchanged.
+
+After the fix, mode 1 with scripted camera movement survives through frame
+2,956 with capture split off and frame 407 with split on. Split-on accepts
+12/12 then 19/19 routes with complete motion and zero CPU captured indexes.
+No device/Vulkan/fatal error occurs. Barriered UPDATE median is 632.4-634.9 us,
+far below the full-BUILD control but above the unbarriered historical sample
+because the generic NVRHI call commits the two dependencies per BLAS.
+
+Keep comparison and capture-split defaults at zero. The synchronization defect
+is identified and the first fixed route is accepted for extended validation,
+not production promotion. Any batching optimization must preserve the explicit
+prior-write -> source-read -> destination-write contract. The full GEO-09
+consumer/lifecycle matrix and human visual traversal remain required.
+
+Evidence:
+
+  artifacts/GEO-14_update_barrier_2026-07-30.csv
+  artifacts/GEO-14_update_barrier_handoff.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.

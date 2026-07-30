@@ -1,0 +1,190 @@
+GEO-14 Vulkan skinned UPDATE barrier handoff
+================================================
+
+SCOPE
+-----
+This checkpoint identifies the first concrete Vulkan contract mismatch behind
+the revoked per-instance skinned BLAS route. It adds and measures a full-BUILD
+control, repairs the NVRHI Vulkan UPDATE state transition, and leaves both the
+comparison route and capture split default off.
+
+This is not final GEO-14 promotion. The full GEO-09 consumer/lifecycle matrix
+and a longer human visual traversal still remain before either default changes.
+
+CONTROL RESULT
+--------------
+`r_pathTracingGeometrySkinnedTlasCompare 2` preserves the exact state-table,
+resource, topology, generation, vertex-range, and index-range checks but omits
+PerformUpdate for a logical update.
+
+With capture split zero it survived 477 animated frames while submitting
+12/12 logical updates as full BUILD operations. A second run changed the
+camera from:
+
+  (-700.61 -1369.41 279.89) yaw 159.9
+
+to yaw 130. The visible skinned set changed from 12 to 19 surfaces and the run
+survived through frame 8,595 before a bounded external stop.
+
+With capture split one, the same camera change admitted 12/12 then 19/19
+source-only routes with complete motion records and zero rejected routes.
+CPU captured indexes became zero and the merged fallback fell to 24-36
+indexes. The run survived through frame 653.
+
+The control rejects full BUILD as a production answer:
+
+  split-zero full BUILD median              4,550.05 us
+  split-one full BUILD median               4,448.15 us
+  split-zero merged dynamic median          1,086.10 us
+  historical in-place UPDATE median            59.40 us
+
+VULKAN CONTRACT MISMATCH
+------------------------
+NVRHI's Vulkan `buildBottomLevelAccelStruct` selected UPDATE mode and set the
+same acceleration structure as source and destination, but automatic state
+tracking required only `AccelStructWrite` for its backing buffer.
+
+That is incomplete for UPDATE:
+
+  - Vulkan UPDATE reads the prior BLAS as the source;
+  - the state therefore needs AS-build read access as well as write access;
+  - when comparison BLASes are excluded from the TLAS, the backing buffer can
+    remain in the same write state across frames;
+  - same-state tracking emits no new dependency, so a later UPDATE can read a
+    prior UPDATE result without an AS-build write-to-read barrier.
+
+This exactly matches the historical failure boundary: device removal remained
+possible with zero skinned descriptors submitted to the TLAS, so the fault did
+not require a hit shader or traversal consumer.
+
+FIX
+---
+For Vulkan PerformUpdate only:
+
+  1. require `AccelStructBuildBlas` on the prior BLAS backing buffer;
+  2. commit that AS-build write-to-read dependency;
+  3. require `AccelStructBuildBlas | AccelStructWrite`;
+  4. commit before vkCmdBuildAccelerationStructuresKHR.
+
+Full BUILD behavior is unchanged. Vertex/index build-input state remains under
+the existing automatic barrier path. No shader, descriptor, SBT, payload,
+geometry-storage, or route ABI changes.
+
+POST-FIX RESULT
+---------------
+The formerly unstable mode 1 survived both bounded movement tests:
+
+  capture split 0:
+    max frame                                      2,956
+    routes before/after camera move                12 / 19
+    in-place UPDATE samples                           115
+    UPDATE median/min/max us        632.4 / 605.9 / 1,102.6
+    device/Vulkan/fatal errors                          0
+
+  capture split 1:
+    max frame                                        407
+    accepted routes before/after move             12 / 19
+    motion-ready routes before/after move          12 / 19
+    CPU captured indexes after acceptance               0
+    in-place UPDATE samples                           115
+    UPDATE median/min/max us        634.9 / 572.3 / 1,427.3
+    merged-dynamic median us                       180.35
+    device/Vulkan/fatal errors                          0
+
+The automated visual capture retains the Mars City Reception scene, player
+view, and visible character silhouettes without an obvious missing-geometry
+failure. It is noisy and dark because it is an early low-resolution PT frame;
+it is supporting evidence, not human visual acceptance.
+
+PERFORMANCE DISPOSITION
+-----------------------
+The barriered path is roughly 0.58 ms slower than the historical unbarriered
+UPDATE median because the generic NVRHI entry point commits source-read and
+combined read/write transitions per BLAS. It remains about 3.8 ms faster than
+the full-BUILD control and, with capture split enabled, removes the measured
+CPU skinned append work.
+
+Do not optimize this by deleting either dependency. A later GEO-14 slice may
+batch the state transitions and build submissions, but only if it preserves
+the now-explicit prior-write -> source-read -> destination-write contract.
+
+DEFAULTS AND ROLLBACK
+---------------------
+Unchanged:
+
+  r_pathTracingGeometrySkinnedTlasCompare      0
+  r_pathTracingGeometrySkinnedCaptureSplit     0
+
+Mode 0 remains the merged-dynamic production fallback. Mode 2 remains a
+diagnostic full-BUILD control. No current result authorizes deletion of the
+merged fallback.
+
+BUILD AND DEPLOY
+----------------
+Command:
+
+  cd neo
+  cmake --build --preset win64-pt-dev-release
+
+Result:
+
+  release build passed
+  NVRHI Vulkan library rebuilt
+  all SPIR-V shaders reported up to date
+  no DXIL compilation or deployment
+
+Source and deployed executable:
+
+  bytes:   16,080,384
+  SHA-256: 59EF69CD3EBC2BE68036FC13794FADF4C0F6B4D7A4FADB44531E188D4F9F1810
+
+NVRHI submodule:
+
+  prior revision: c1fc334
+  fixed revision: 2065874
+  subject:        Vulkan: synchronize BLAS update source reads
+
+RAW EVIDENCE
+------------
+Logs are outside git under:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+
+  geometry_geo14_fullbuild_split0.log
+    bytes 348306, modified 2026-07-30 13:21:16 Australia/Sydney
+  geometry_geo14_fullbuild_split0_move.log
+    bytes 2415318, modified 2026-07-30 13:30:40 Australia/Sydney
+  geometry_geo14_fullbuild_split1_move.log
+    bytes 319366, modified 2026-07-30 13:34:07 Australia/Sydney
+  geometry_geo14_update_barrier_split0_move.log
+    bytes 980129, modified 2026-07-30 13:40:20 Australia/Sydney
+  geometry_geo14_update_barrier_split1_move.log
+    bytes 331598, modified 2026-07-30 13:44:08 Australia/Sydney
+  geometry_geo14_update_barrier_visual.log
+    bytes 163802, modified 2026-07-30 13:45:29 Australia/Sydney
+
+Historical comparison:
+
+  geometry_geo124_auto.log
+    bytes 4206287, modified 2026-07-26 13:41:06 Australia/Sydney
+
+Visual capture:
+
+  E:/prog/rbdoom-3-BFG-prebuilt/base/
+    geometry_geo14_update_barrier_visual
+  PNG bytes:   703846
+  modified:    2026-07-30 13:45:25 Australia/Sydney
+  SHA-256:     491AC0429ABA4B6B6F390D8DB2282DBF3143A98F3FE081477A15ADABC41C531A
+
+The normal `quit` path again reached renderer shutdown and then returned
+Windows status 0xC0000374. Bounded movement runs were externally stopped by
+their exact process IDs. Neither outcome is counted as a device-removal pass
+or a clean-exit claim.
+
+NEXT
+----
+1. Preserve this barrier contract while reducing per-BLAS commit overhead.
+2. Re-run split zero and split one after any batching change.
+3. Run the GEO-09 crowd, spawn/despawn, offscreen/return, map, comm1, PDA,
+   portal, material, motion, and emissive matrix.
+4. Obtain human visual acceptance before changing either default.
