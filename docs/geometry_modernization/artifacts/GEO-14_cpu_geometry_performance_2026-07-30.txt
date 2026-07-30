@@ -188,3 +188,66 @@ draw-surface capture (up to 253.731 ms), entity-feed candidate admission (up
 to 80.996 ms), and initial rigid BLAS package creation (up to 90.700 ms).
 Those are distinct from the corrected recurring pool repack and are deferred
 as a separate cold-admission optimization.
+
+Matched Fatzombie view follow-up
+--------------------------------
+
+Two saves captured the same location with only the camera direction changed:
+
+  doom3_2   worst character-heavy view
+  doom3_3   adjacent highest-FPS view
+
+Both captures used 640x360 PT output, GI disabled, CPU-only Optick markers,
+and 360 steady frames. The initial matched comparison proved that the
+reported slowdown was CPU scene construction, not DI/GI or ray resolution:
+
+  event                                      doom3_2 worst   doom3_3 wall   delta
+  Common::Frame                                  42.134 ms      19.183 ms  22.951 ms
+  PT Build Scene                                 40.761 ms      17.823 ms  22.938 ms
+  PT Capture Doom Surfaces                       11.521 ms       5.009 ms   6.513 ms
+  PT Skinned Route Current Upload Build           4.743 ms       0.000 ms   4.743 ms
+  PT Emissive Inventory                           5.153 ms       3.136 ms   2.016 ms
+  PT Skinned GPU Scaffold                         1.396 ms       0.002 ms   1.393 ms
+  PT Register Material Metadata                   1.865 ms       0.531 ms   1.334 ms
+  PT Skinned Route Pending Set Copy               1.076 ms       0.000 ms   1.076 ms
+  PT Skinned Route Upload Conversion              0.979 ms       0.002 ms   0.977 ms
+
+The worst view contains 25 source-only skinned route surfaces with 68,172
+indexes. Their materials are non-emissive, including the spawned Fatzombies.
+Three repeated-work defects were corrected:
+
+1. Production route construction calculated canonical and emissive 64-bit
+   identities for every triangle, although hit shaders do not consume either
+   field. Canonical identities are now generated only for explicit
+   validation. Emissive identities remain generated for genuinely eligible
+   skinned emissive materials and for validation.
+2. The skinned emissive path copied the complete current/previous skinned
+   vertex arrays, decoded canonical placeholder vertices, and constructed an
+   audit-triangle record for every non-emissive character triangle before
+   filtering by material. Production now prefilters route metadata and lazily
+   creates those arrays only when an eligible emissive triangle exists.
+   Forced emissive validation retains the complete previous behavior.
+3. The current route upload was converted to GPU layout a second time solely
+   to derive the pending-set signature, then deep-copied into unchanged
+   pending and accepted route sets every frame. The already-computed upload
+   signature is now reused, and unchanged route sets remain in place.
+
+The same worst-view capture after each correction measured:
+
+  event                                      initial   identities   emissive   route reuse
+  PT Build Scene                              40.761 ms   37.530 ms  34.675 ms   33.925 ms
+  current upload route build                   4.743 ms    0.706 ms   0.709 ms    0.710 ms
+  emissive inventory                           5.153 ms    5.315 ms   3.471 ms    3.500 ms
+  pending-set copy/signature                    1.076 ms    1.073 ms   1.068 ms    0.002 ms
+  accepted-set copy                            0.067 ms    0.071 ms   0.068 ms    0.001 ms
+
+The accepted result removes 6.836 ms, or 16.8 percent, from the worst-view
+scene build. The final outer `Common::Frame` sample was paced near 60 FPS and
+is not used as an unblocked CPU comparison; `PT Build Scene` remains a direct
+CPU event with the same work and camera.
+
+The remaining worst-versus-wall difference is about 16.1 ms. Its largest
+measured pieces are view-dependent draw-surface capture/material registration,
+the skinned GPU scaffold, and the still-required one-time-per-frame GPU route
+conversion. They require broader caching or capture-contract changes and are
+not conflated with the three proven redundant operations above.

@@ -193,6 +193,8 @@ struct PtSkinnedHitRouteCandidate
     std::uint32_t fallbackTriangleClassAndFlags = 0;
     bool legacyCapturePresent = true;
     bool dispatchReady = false;
+    bool requirePrimitiveIdentity = true;
+    bool requireEmissiveIdentity = true;
 };
 
 enum class PtSkinnedCaptureAdmissionResult : std::uint32_t

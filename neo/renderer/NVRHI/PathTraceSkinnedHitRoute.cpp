@@ -437,19 +437,25 @@ PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
                 ++sourceOnlyTriangles;
             }
 
-            PtCanonicalPrimitiveKey primitiveKey;
-            primitiveKey.mesh = candidate.meshKey;
-            primitiveKey.localPrimitiveIndex =
-                triangle.sourcePrimitiveIndex;
-            triangle.canonicalPrimitiveHash =
-                PtHashCanonicalPrimitiveKey(primitiveKey);
-            triangle.emissiveIdentityHash =
-                BuildEmissiveIdentity(
-                    instanceHash,
-                    triangle.sourcePrimitiveIndex,
-                    triangle.materialId,
-                    triangle.materialIndex,
-                    triangle.triangleClassAndFlags);
+            if (candidate.requirePrimitiveIdentity)
+            {
+                PtCanonicalPrimitiveKey primitiveKey;
+                primitiveKey.mesh = candidate.meshKey;
+                primitiveKey.localPrimitiveIndex =
+                    triangle.sourcePrimitiveIndex;
+                triangle.canonicalPrimitiveHash =
+                    PtHashCanonicalPrimitiveKey(primitiveKey);
+            }
+            if (candidate.requireEmissiveIdentity)
+            {
+                triangle.emissiveIdentityHash =
+                    BuildEmissiveIdentity(
+                        instanceHash,
+                        triangle.sourcePrimitiveIndex,
+                        triangle.materialId,
+                        triangle.materialIndex,
+                        triangle.triangleClassAndFlags);
+            }
             candidateTriangles.push_back(triangle);
         }
 
@@ -486,34 +492,37 @@ PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
         for (const PtSkinnedHitRouteTriangle& triangle :
             candidateTriangles)
         {
-            const auto existingIdentity =
-                emissiveIdentities.find(
-                    triangle.emissiveIdentityHash);
-            if (existingIdentity !=
-                    emissiveIdentities.end() &&
-                (existingIdentity->second.instanceHash !=
-                        instanceHash ||
-                 existingIdentity->second.triangle.
-                        sourcePrimitiveIndex !=
-                    triangle.sourcePrimitiveIndex ||
-                 existingIdentity->second.triangle.materialId !=
-                    triangle.materialId ||
-                 existingIdentity->second.triangle.materialIndex !=
-                    triangle.materialIndex ||
-                 existingIdentity->second.triangle.
-                        triangleClassAndFlags !=
-                    triangle.triangleClassAndFlags))
+            if (triangle.emissiveIdentityHash != 0)
             {
-                ++build.stats.emissiveIdentityCollisions;
-            }
-            else
-            {
-                EmissiveIdentityOwner owner;
-                owner.instanceHash = instanceHash;
-                owner.triangle = triangle;
-                emissiveIdentities.emplace(
-                    triangle.emissiveIdentityHash,
-                    owner);
+                const auto existingIdentity =
+                    emissiveIdentities.find(
+                        triangle.emissiveIdentityHash);
+                if (existingIdentity !=
+                        emissiveIdentities.end() &&
+                    (existingIdentity->second.instanceHash !=
+                            instanceHash ||
+                     existingIdentity->second.triangle.
+                            sourcePrimitiveIndex !=
+                        triangle.sourcePrimitiveIndex ||
+                     existingIdentity->second.triangle.materialId !=
+                        triangle.materialId ||
+                     existingIdentity->second.triangle.materialIndex !=
+                        triangle.materialIndex ||
+                     existingIdentity->second.triangle.
+                            triangleClassAndFlags !=
+                        triangle.triangleClassAndFlags))
+                {
+                    ++build.stats.emissiveIdentityCollisions;
+                }
+                else
+                {
+                    EmissiveIdentityOwner owner;
+                    owner.instanceHash = instanceHash;
+                    owner.triangle = triangle;
+                    emissiveIdentities.emplace(
+                        triangle.emissiveIdentityHash,
+                        owner);
+                }
             }
             build.triangles.push_back(triangle);
         }
