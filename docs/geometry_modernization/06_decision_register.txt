@@ -4444,6 +4444,48 @@ view 6 are correct in production beauty view 0. This is expected debug-view
 presentation, not a geometry regression. The clean-GI bucket decoder repair is
 accepted.
 
+D180. CACHE EXACT RESIDENT MATERIAL HYDRATION; DISCLOSE REMAINING ROUTE COST
+----------------------------------------------------------------------------
+The first warm identical-content GEO-13 comparison measured a route-1 scene
+median of 44.5 ms against 35 ms for a fresh-process route-zero control. Capture
+and CPU skinning remained 20 ms and 5 ms respectively, while metadata rose
+from 2 ms to 7 ms.
+
+The resident route performed two overlapping jobs: a complete static-world and
+rigid model traversal through RegisterSmokeWorldStaticMaterialTextureInfo,
+followed by RegisterSmokeMaterialTextureInfoForMaterialIds over the exact
+cached resident bucket material-ID set. The exact ID-set path already owns
+missing-decl discovery, texture-handle refresh, residency caching, and
+signature/generation behavior.
+
+When staticBucketResidentMaterialRoute is true, skip only the redundant broad
+traversal. Preserve it for world-static-emissive mode and scene-universe source
+2. This changes no geometry storage, descriptor, SBT, payload, shader, route,
+fallback, or rollback contract.
+
+After the change, route-1 scene median is 39 ms and metadata is 2 ms. Exact
+bucket assignment is 1,789/1,789 surfaces and 50,108/50,108 primitives; 56/56
+resident BLASes are reused with zero failure; the post-fix emissive audit
+matches 276/276 surfaces, 48/48 replay records, and 48/48/48
+monolithic/bucket/captured identities with zero missing, extra, invalid, or
+collision result.
+
+The remaining identical-content route-1 difference is disclosed rather than
+explained away: 4 ms scene median, concentrated in required resident
+material-table and active-bucket emissive work. A larger cache/ownership change
+is outside this narrow fix. The old GEO-00 baseline has different animated
+content and is not used for a causal percentage claim.
+
+The CPU harness stress, full Vulkan release build, and deployment pass. SPIR-V
+is unchanged and no DXIL is compiled or deployed. The 16,079,872-byte source
+and deployed executable both have SHA-256:
+
+  90FF3E5E55C5C70C1D0BBD803D6BB757F59F870163CF939BFD49AB2D0A50F844
+
+Full evidence is archived in
+artifacts/GEO-13_final_performance_2026-07-30.csv and
+artifacts/GEO-13_final_performance_handoff.txt.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.

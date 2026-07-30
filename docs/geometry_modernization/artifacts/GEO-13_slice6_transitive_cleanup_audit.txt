@@ -178,3 +178,26 @@ behavior and not a bucket identity, activation, or shading regression.
 
 The clean-GI resident-bucket decode repair is accepted. Slice 6 may continue
 to final correctness/performance work without reopening the shader contract.
+
+WARM PERFORMANCE FOLLOW-UP
+--------------------------
+The first identical-content route-1 capture exposed a 9.5 ms scene-build
+median regression against fresh-process route zero. Capture and CPU skinning
+were unchanged; metadata alone rose from 2 ms to 7 ms. The route-1 path was
+both traversing every static-world/rigid model and then hydrating the exact
+cached resident material-ID set.
+
+The exact ID-set hydration is the authoritative owner. Removing only the
+redundant broad traversal for staticBucketResidentMaterialRoute reduced the
+route-1 scene median from 44.5 ms to 39 ms and metadata from 7 ms to 2 ms.
+An exact post-fix emissive replay audit remains clean and both runs shut down
+normally.
+
+The remaining identical-content route-1 difference is disclosed: 39 ms versus
+35 ms scene median. It is concentrated in the required resident material-table
+and active-bucket emissive work, not capture, CPU skinning, or warm static BLAS
+construction. Exact samples, memory accounting, raw-log provenance, and build
+identity are in:
+
+  artifacts/GEO-13_final_performance_2026-07-30.csv
+  artifacts/GEO-13_final_performance_handoff.txt

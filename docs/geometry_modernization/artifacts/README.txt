@@ -121,6 +121,25 @@ GEO-12 FILES
     contract, CPU-only storage boundary, unchanged transport/GPU ABI, pure
     acceptance, and ordered runtime A/B.
 
+GEO-13 FILES
+------------
+  GEO-13_entry_audit.txt
+    Checked cap-removal boundary, route/default prerequisites, and ordered
+    cutover slices.
+
+  GEO-13_slice6_transitive_cleanup_audit.txt
+    Transitive live-consumer proof, retained rollback/fallback owners, clean-GI
+    resident-bucket decode repair, Vulkan-only shader validation, and runtime
+    acceptance.
+
+  GEO-13_final_performance_2026-07-30.csv
+    Machine-diffable historical baseline, identical-content route-zero control,
+    pre-fix route-one candidate, and optimized route-one timing/memory rows.
+
+  GEO-13_final_performance_handoff.txt
+    Exact warm A/B method, disclosed remaining overhead, memory accounting,
+    post-fix route/emissive audit, raw-log provenance, and build/deploy identity.
+
 NAMING
 ------
 Use:

@@ -1153,6 +1153,34 @@ view 0, so they are expected debug presentation rather than a route regression.
 The clean-GI bucket decode gate is accepted. Full evidence is in
 artifacts/GEO-13_slice6_transitive_cleanup_audit.txt.
 
+GEO-13 warm identical-content performance result:
+
+Fresh-process route-zero and route-one runs now use the same executable,
+doom3_1 save, 640x360 viewport, 45-frame warmup, 100 scene timing samples, and
+60 merged-dynamic BLAS timing samples. The initial route-one result was
+44.5 ms scene median versus 35 ms for route zero, with unchanged 20 ms capture
+and 5 ms CPU skinning medians. The regression localized to a duplicate broad
+static-world material registration followed by the already-authoritative exact
+resident material-ID hydration.
+
+Skipping only that redundant broad registration when the resident bucket route
+owns material hydration reduces route one to 39 ms scene median and restores
+metadata parity at 2 ms. Exact route assignment, packed geometry, active
+material lookup, and post-fix emissive identity replay remain clean. The
+remaining disclosed 4 ms route-one median cost is required full-resident
+material-table plus active-bucket emissive work; it is not warm BLAS rebuilding.
+This checkpoint does not attempt a larger material/emissive cache redesign.
+
+The historical GEO-00 STATIC_BUSY capture is not identical content: its
+skinned workload was 21 surfaces / 35,238 indexes versus 12 surfaces / 47,886
+CPU-skinned indexes in the current prepared save. It remains orientation, not
+a percentage comparison. Exact current-head distributions, memory, raw logs,
+and build/deploy identity are archived in
+artifacts/GEO-13_final_performance_2026-07-30.csv and
+artifacts/GEO-13_final_performance_handoff.txt.
+
+Final correctness-matrix reconciliation remains open before GEO-13 can close.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

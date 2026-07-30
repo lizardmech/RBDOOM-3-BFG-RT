@@ -7955,8 +7955,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Register Material Metadata");
         metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
         if (r_pathTracingWorldStaticEmissives.GetInteger() != 0 ||
-            useSceneUniverseStaticGeometry ||
-            staticBucketResidentMaterialRoute)
+            useSceneUniverseStaticGeometry)
         {
             const RtSmokeMaterialMetadataRegistrationTiming worldStaticMetadataTiming =
                 RegisterSmokeWorldStaticMaterialTextureInfo(

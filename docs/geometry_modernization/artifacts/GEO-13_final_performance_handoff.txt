@@ -1,0 +1,132 @@
+GEO-13 FINAL WARM PERFORMANCE HANDOFF
+=====================================
+
+Date: 2026-07-30
+Map/save: maps/game/mars_city1.map / doom3_1
+Viewport: 640x360
+Executable bytes: 16,079,872
+Executable SHA-256:
+  90FF3E5E55C5C70C1D0BBD803D6BB757F59F870163CF939BFD49AB2D0A50F844
+
+SCOPE AND METHOD
+----------------
+The current prepared save is the same content for every current-head A/B. Each
+process waits 45 rendered frames after save load, then captures:
+
+  - 100 per-frame CPU scene-build timing records;
+  - 60 merged-dynamic BLAS GPU/CPU submission timing records.
+
+Route zero is a fresh-process monolithic rollback control. Route one uses the
+repository production defaults and reaches 56/56 resident/ready bucket BLASes
+before the timed interval. The launch, save, resolution, executable, and sample
+windows are otherwise identical.
+
+The 2026-07-23 GEO-00 STATIC_BUSY row is not identical content. It contained 21
+skinned surfaces / 35,238 skinned indexes; the current save contains 12
+CPU-skinned surfaces / 47,886 skinned indexes and 47,910 total dynamic indexes.
+The old 24/14/2 ms scene/capture/skin medians are retained for orientation only.
+No percentage claim against that historical row is valid.
+
+IDENTICAL-CONTENT RESULT
+------------------------
+                                      route 0    route 1 before   route 1 fixed
+  scene median / p90 / max ms         35/38/225     44.5/49/59       39/42/46
+  capture median / p90 / max ms       20/21/24      20/21/25         20/21/23
+  CPU skin median / p90 / max ms       5/6/7         5/7/11           5/6/8
+  metadata median / p90 / max ms       2/3/4         7/8/9            2/3/3
+  material median / p90 / max ms       2/3/4         4/4/5            4/4/5
+  emissive median / p90 / max ms     3.5/4/6         6/6/7            6/6/7
+  merged BLAS GPU median / p90 us  1113/1553.4    822.4/1206.6     1087.5/1531.4
+  CPU TLAS submit median / p90 us      68/72          85/95           83.5/92
+  CPU accel submit median / p90 us    132/141        146/161         147.5/158
+
+The route-1 implementation first performed two overlapping operations:
+
+  1. RegisterSmokeWorldStaticMaterialTextureInfo traversed every static-world
+     and rigid source model.
+  2. RegisterSmokeMaterialTextureInfoForMaterialIds then hydrated the exact
+     cached resident bucket material-ID set, including missing-decl discovery,
+     texture-handle refresh, and residency state.
+
+The second operation is the authoritative route-1 owner. Skipping the first
+operation only when staticBucketResidentMaterialRoute is true reduces the scene
+median by 5.5 ms and metadata median by 5 ms. Capture, CPU skinning, geometry
+storage, descriptor layout, SBT, payloads, shader binaries, and route policy do
+not change.
+
+The remaining route-1 median difference is 4 ms. Metadata is at route-0 parity;
+the difference is the required full resident-universe material table and
+active-bucket emissive publication, approximately +2 ms and +2.5 ms in these
+integer sub-timers. This regression is disclosed. Removing it would require a
+separate cache/ownership design, not another narrow duplicate-traversal fix.
+
+STATIC MEMORY AND WARM BUILD STATE
+----------------------------------
+The settled route-1 audit records:
+
+  packed resident input buffers                         8,044,944 bytes
+    vertex                                              7,042,784
+    index                                                 601,296
+    metadata/class                                        400,864
+  56 BLAS allocated result bytes                        3,635,712
+  largest BLAS allocated result                           598,784
+  result-byte alignment                                       256
+  warm create / upload / build / reuse / retire          0/0/0/56/0
+  retained prior static snapshot                              0 KB
+
+Application-visible exact scratch requirements are unavailable in the current
+NVRHI Vulkan backend. GEO-11 D161 already rejected an estimate: scratch
+lifetime remains command-buffer-versioned backend ownership and the final
+table reports this field as NA.
+
+CORRECTNESS CHECK
+-----------------
+The fixed route-1 run reports:
+
+  bucket assignment surfaces                         1789/1789
+  assigned / retained primitives                    50108/50108
+  packed buckets                                         56/56
+  packed vertices / indexes / triangles       62882/150324/50108
+  active buckets                                           14
+  active material-index misses                              0
+  assignment/geometry/publication/address failures          0
+  result queries / failures                              56/0
+
+A short post-fix route-0 audit then proves that the skipped broad traversal is
+not required for material/emissive correctness:
+
+  portal publication valid                                  1
+  emissive surfaces matched                           276/276
+  mapped emissive triangles                               4867
+  replay records matched                                 48/48
+  monolithic / bucket / captured identities          48/48/48
+  missing / extra / zero / collisions                   0/0/0/0
+
+The fixed production run and the route-0 audit both shut down normally with no
+device-loss, Vulkan, allocation, or fatal error.
+
+RAW LOGS
+--------
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo13_final_perf2.log
+      bytes 1,174,025; modified 2026-07-30 12:48:43 +10:00
+    geometry_geo13_final_perf_legacy.log
+      bytes 300,045; modified 2026-07-30 12:51:26 +10:00
+    geometry_geo13_final_perf_fixed.log
+      bytes 415,116; modified 2026-07-30 12:55:07 +10:00
+    geometry_geo13_material_cache_validation.log
+      bytes 165,398; modified 2026-07-30 12:57:10 +10:00
+
+BUILD AND DEPLOY
+----------------
+  PathTraceCpuPlanningHarness --stress 20              PASS
+  cmake --build --preset win64-pt-dev-release          PASS
+  SPIR-V status                              all up to date
+  DXIL compiled/deployed                                  no
+  source/deployed executable hash match                 PASS
+
+DISPOSITION
+-----------
+The duplicate traversal fix is accepted as a narrow GEO-13 CPU optimization.
+The warm identical-content route comparison is archived and its regression is
+explicit. It does not by itself close the separate final correctness matrix.
