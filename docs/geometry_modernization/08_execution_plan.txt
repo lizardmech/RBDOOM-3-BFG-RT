@@ -1289,6 +1289,19 @@ the gameplay movement/PDA layer, so defaults remain 0/0 pending the explicit
 interactive portal, animation, and PDA checks in
 artifacts/GEO-14_visual_preflight_2026-07-30.txt.
 
+GEO-14 final human acceptance:
+
+The user reports stable traversal. A subset of emissive materials retains its
+older partial/stochastic or z-fighting-like appearance, but fixed-view
+route-1/split-1, route-1/split-0, and route-0/split-0 comparison produces no
+change. The emissive defect is independent of the skinned TLAS route and
+capture omission and remains the explicit post-main-work material follow-up.
+
+The synchronized in-place UPDATE route and capture split are promoted to
+production defaults. Their exact zero/zero merged-dynamic rollback remains
+live. GEO-14 and the geometry-modernization execution packet are complete.
+See artifacts/GEO-14_final_visual_acceptance_2026-07-30.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

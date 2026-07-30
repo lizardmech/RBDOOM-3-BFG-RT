@@ -190,6 +190,11 @@ GEO-14 FILES
     stability, raw image/log provenance, exact candidate/rollback commands,
     and the still-required interactive portal/animation/PDA checks.
 
+  GEO-14_final_visual_acceptance_2026-07-30.txt
+    Final human stability/visual acceptance, fixed-view emissive rollback A/B,
+    promotion decision, exact rollback, and separation of the pre-existing
+    emissive/material follow-up.
+
 NAMING
 ------
 Use:

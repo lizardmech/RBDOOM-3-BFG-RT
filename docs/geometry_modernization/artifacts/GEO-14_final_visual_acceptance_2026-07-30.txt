@@ -1,0 +1,82 @@
+GEO-14 final visual acceptance - 2026-07-30
+================================================
+
+OUTCOME
+-------
+The final human stability and visual pass accepts the synchronized per-instance
+skinned UPDATE route and CPU-capture split for default promotion.
+
+The user reported stable traversal. The only observed defect was a pre-existing
+subset of emissive materials that appear partially missing, stochastic, or
+z-fighting-like. A fixed-view A/B changed:
+
+  candidate             route 1 / split 1
+  capture rollback      route 1 / split 0
+  full skinned rollback route 0 / split 0
+
+The emissive defect was unchanged in every state. It is therefore independent
+of the GEO-14 TLAS route and capture omission and does not block promotion.
+It remains the explicitly deferred post-main-work emissive/material issue.
+
+LOG
+---
+Under:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+
+  geometry_geo14_visual_final.log
+    bytes:    103,156
+    modified: 2026-07-30 18:08:18 Australia/Sydney
+
+The log records:
+
+  r_pathTracingGeometrySkinnedCaptureSplit 0
+  r_pathTracingGeometrySkinnedTlasCompare 0
+
+It contains no device-lost, device-removed, VK_ERROR, or fatal-error result.
+
+PROMOTION
+---------
+Promote:
+
+  r_pathTracingGeometrySkinnedTlasCompare  0 -> 1
+  r_pathTracingGeometrySkinnedCaptureSplit 0 -> 1
+
+Retain the exact rollback:
+
+  r_pathTracingGeometrySkinnedCaptureSplit 0
+  r_pathTracingGeometrySkinnedTlasCompare  0
+
+All other geometry defaults remain unchanged.
+
+BUILD AND DEPLOY
+----------------
+From `neo/`:
+
+  cmake --build --preset win64-pt-dev-release
+
+Result:
+
+  PASS
+  All SPIR-V shaders are up to date.
+
+No shader source changed, so only the executable was deployed. CPU harnesses:
+
+  ctest --test-dir build-win64-pt-dev -C Release --output-on-failure
+  14/14 passed
+
+Built and deployed executable:
+
+  bytes:   16,083,968
+  SHA-256: 18DF7EEED0A6D86FB1612E08E88DDBFA3314046FC3C6100F2CC80529507E4989
+
+EMISSIVE FOLLOW-UP
+------------------
+The attempted command:
+
+  r_pathTracingCrosshairMaterialDump
+
+is not registered and logged `Unknown command`, so it captured no material
+identities. Do not infer names from that run. Use `r_showSurfaceInfo 1` for
+on-screen identification or add a bounded read-only crosshair dump before
+editing the independent emissive path.

@@ -179,3 +179,16 @@ image names, raw-log identity, observations, and the remaining five checks are
 archived in:
 
   GEO-14_visual_preflight_2026-07-30.txt
+
+FINAL ACCEPTANCE
+----------------
+The subsequent human pass reports stable traversal. A subset of emissive
+materials retains its older partial/stochastic appearance, but fixed-view
+route-1/split-1, route-1/split-0, and route-0/split-0 comparison is unchanged.
+The defect is independent of this route and remains a separate post-main-work
+material investigation.
+
+GEO-14 is accepted. The route and capture-split defaults are promoted to one
+with their exact zero/zero rollback retained. See:
+
+  GEO-14_final_visual_acceptance_2026-07-30.txt

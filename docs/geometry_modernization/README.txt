@@ -102,7 +102,9 @@ Current execution status (2026-07-30):
   failure bucket zero. The final automated consumer matrix also passes live
   and shadow consumers, 318 comparable hit/material/motion pairs, 772/772
   current and previous emissive records, and 24/24 current and previous
-  publication records with every mismatch bucket zero. Defaults remain off;
+  publication records with every mismatch bucket zero.
   a supplemental same-camera screenshot A/B also shows no candidate-only
-  structural or material regression. Only the required interactive portal,
-  animation, and PDA visual acceptance remains before promotion.
+  structural or material regression. The final human pass reports stable
+  traversal, and the pre-existing emissive artifact is unchanged by both
+  capture-only and full-route rollback. The synchronized skinned route and
+  capture split are now production defaults with zero/zero rollback retained.

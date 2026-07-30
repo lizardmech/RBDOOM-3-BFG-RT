@@ -57,10 +57,11 @@ Current Phase-E status (2026-07-30):
   GEO-14's batched in-place UPDATE route has passed its automated lifecycle,
   live/shadow consumer, hit/material/motion, and emissive publication matrix.
   A supplemental same-camera screenshot A/B also finds no candidate-only
-  structural or material regression.
-  The per-instance route and capture split remain default off, with merged
-  dynamic as production fallback, pending the required final interactive
-  portal/animation/PDA visual acceptance. See
+  structural or material regression. The final human pass reports stable
+  traversal; the remaining older emissive artifact is unchanged by
+  capture-only and full-route rollback. The per-instance route and capture
+  split are production defaults, with merged dynamic retained as the exact
+  zero/zero rollback. See
   ../artifacts/GEO-14_final_consumer_handoff.txt.
 
 CLAIMING A TICKET
