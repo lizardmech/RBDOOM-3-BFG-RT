@@ -8414,7 +8414,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtSmokeMaterialMetadataRegistrationTiming metadataTiming;
     {
         OPTICK_EVENT("PT Register Material Metadata");
-        metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
+        // Capture has already validated the visible surfaces and collected
+        // their unique material IDs. Keep per-frame classifier/stat setup,
+        // then hydrate that captured set below instead of walking every
+        // draw surface a second time.
+        metadataTiming =
+            RegisterSmokeMaterialTextureInfoForFrame(
+                viewDef,
+                false);
         if (r_pathTracingWorldStaticEmissives.GetInteger() != 0 ||
             useSceneUniverseStaticGeometry)
         {
@@ -8632,6 +8639,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             BuildSortedUniqueMaterialIdSignature(fullLevelStaticEmissiveMaterialIds);
         const uint64 materialHydrationRigidSignature =
             BuildSortedUniqueMaterialIdSignature(rigidRouteMaterialIds);
+        const uint64 materialHydrationVisibleSignature =
+            BuildSortedUniqueMaterialIdSignature(
+                materialStats.materialIds);
         const uint64 materialHydrationStaticBucketProbeSignature =
             staticBucketResidentMaterialRoute
                 ? BuildSortedUniqueMaterialIdSignature(
@@ -8644,17 +8654,29 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeMaterialHydrationStaticTriangleMaterialCount == materialHydrationStaticTriangleMaterialCount &&
             m_smokeMaterialHydrationEmissiveSignature == materialHydrationEmissiveSignature &&
             m_smokeMaterialHydrationRigidSignature == materialHydrationRigidSignature &&
+            m_smokeMaterialHydrationVisibleSignature ==
+                materialHydrationVisibleSignature &&
             m_smokeMaterialHydrationStaticBucketProbeSignature ==
                 materialHydrationStaticBucketProbeSignature;
         if (!materialHydrationIdsCacheHit)
         {
             OPTICK_EVENT("PT Material Hydration Unique IDs");
-            m_smokeMaterialHydrationIds = BuildSortedUniqueMaterialIds(materialTableStaticIds);
+            std::vector<uint32_t> materialHydrationSourceIds =
+                materialTableStaticIds;
+            materialHydrationSourceIds.insert(
+                materialHydrationSourceIds.end(),
+                materialStats.materialIds.begin(),
+                materialStats.materialIds.end());
+            m_smokeMaterialHydrationIds =
+                BuildSortedUniqueMaterialIds(
+                    materialHydrationSourceIds);
             m_smokeMaterialHydrationIdsValid = true;
             m_smokeMaterialHydrationStaticGeneration = materialHydrationStaticGeneration;
             m_smokeMaterialHydrationStaticTriangleMaterialCount = materialHydrationStaticTriangleMaterialCount;
             m_smokeMaterialHydrationEmissiveSignature = materialHydrationEmissiveSignature;
             m_smokeMaterialHydrationRigidSignature = materialHydrationRigidSignature;
+            m_smokeMaterialHydrationVisibleSignature =
+                materialHydrationVisibleSignature;
             m_smokeMaterialHydrationStaticBucketProbeSignature =
                 materialHydrationStaticBucketProbeSignature;
         }

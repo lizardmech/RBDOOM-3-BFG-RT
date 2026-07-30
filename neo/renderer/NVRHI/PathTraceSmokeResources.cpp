@@ -2788,6 +2788,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeMaterialHydrationStaticTriangleMaterialCount = 0;
     m_smokeMaterialHydrationEmissiveSignature = 0;
     m_smokeMaterialHydrationRigidSignature = 0;
+    m_smokeMaterialHydrationVisibleSignature = 0;
     m_smokeMaterialHydrationStaticBucketProbeSignature = 0;
     m_smokeEmissiveTriangleBuffer = nullptr;
     m_smokePreviousEmissiveTriangleBuffer = nullptr;

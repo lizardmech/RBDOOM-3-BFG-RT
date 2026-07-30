@@ -214,7 +214,7 @@ reported slowdown was CPU scene construction, not DI/GI or ray resolution:
 
 The worst view contains 25 source-only skinned route surfaces with 68,172
 indexes. Their materials are non-emissive, including the spawned Fatzombies.
-Three repeated-work defects were corrected:
+Four repeated-work defects were corrected:
 
 1. Production route construction calculated canonical and emissive 64-bit
    identities for every triangle, although hit shaders do not consume either
@@ -231,6 +231,11 @@ Three repeated-work defects were corrected:
    to derive the pending-set signature, then deep-copied into unchanged
    pending and accepted route sets every frame. The already-computed upload
    signature is now reused, and unchanged route sets remain in place.
+4. Material metadata performed another complete validation walk of the visible
+   draw-surface array after capture had already produced its unique visible
+   material IDs. Hydration now combines that captured set with persistent
+   static/rigid IDs. Per-frame classifier setup and the dynamic texture-handle
+   refresh subset remain active; material-table ordering is unchanged.
 
 The same worst-view capture after each correction measured:
 
@@ -241,13 +246,21 @@ The same worst-view capture after each correction measured:
   pending-set copy/signature                    1.076 ms    1.073 ms   1.068 ms    0.002 ms
   accepted-set copy                            0.067 ms    0.071 ms   0.068 ms    0.001 ms
 
-The accepted result removes 6.836 ms, or 16.8 percent, from the worst-view
-scene build. The final outer `Common::Frame` sample was paced near 60 FPS and
-is not used as an unblocked CPU comparison; `PT Build Scene` remains a direct
-CPU event with the same work and camera.
+The material-hydration follow-up reduced `PT Register Material Metadata` from
+1.893 ms to 0.001 ms and the final worst-view `PT Build Scene` to 31.782 ms.
+That is 8.979 ms, or 22.0 percent, below the initial 40.761 ms.
 
-The remaining worst-versus-wall difference is about 16.1 ms. Its largest
-measured pieces are view-dependent draw-surface capture/material registration,
-the skinned GPU scaffold, and the still-required one-time-per-frame GPU route
-conversion. They require broader caching or capture-contract changes and are
-not conflated with the three proven redundant operations above.
+The final exact-build matched captures measured:
+
+  event                                      doom3_2 worst   doom3_3 wall   delta
+  Common::Frame                                  33.170 ms      19.603 ms  13.567 ms
+  PT Build Scene                                 31.782 ms      18.239 ms  13.543 ms
+
+The character-view gap therefore fell from 22.938 ms to 13.543 ms, removing
+9.395 ms or 41.0 percent of the view-dependent CPU regression.
+
+The remaining worst-versus-wall difference is about 13.5 ms. Its largest
+measured pieces are view-dependent draw-surface capture/dynamic-material
+records, the skinned GPU scaffold, and the still-required one-time-per-frame
+GPU route conversion. They require broader caching or capture-contract changes
+and are not conflated with the four proven redundant operations above.
