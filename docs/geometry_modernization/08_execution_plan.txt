@@ -1125,6 +1125,26 @@ merged dynamic, and rigid fail-safe routes because they remain live rollback
 or fallback owners. Delete only scaffolding whose CPU, shader, preprocess, and
 build consumers are all proven absent.
 
+GEO-13 Slice-6 transitive audit result:
+
+The rejected t100-t105/compact-hit/SBT-4/5 bucket ABI is already absent. The
+current route uses contribution zero and the established t3/t4/t5/t9/t11
+binding tuple. CPU route records, surface replay records, monolithic static,
+merged dynamic, and legacy rigid all retain concrete publication, emissive,
+startup, rollback, or fail-safe consumers. Every geometry CVar also has a live
+runtime consumer. The route-2 stages are a live bring-up ladder and can only be
+removed as a deliberate diagnostic decommission, not as dead code.
+
+The audit did find a production contract mismatch before deletion: the clean
+GI root shader left RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS at zero, so its
+bucket namespace predicate and compatibility loader could not resolve
+secondary static hits. Slice 6 enables the existing one-add resident-pool
+resolver in the GI shader family. All 34 affected Vulkan blobs rebuild newer
+than the source edit, pass spirv-val, contain the live namespace/address path,
+and match the deployed copies; no DXIL changed. Runtime acceptance remains
+before any diagnostic retirement. Full evidence is in
+artifacts/GEO-13_slice6_transitive_cleanup_audit.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

@@ -1,0 +1,156 @@
+GEO-13 SLICE-6 TRANSITIVE CLEANUP AUDIT
+========================================
+
+Date: 2026-07-30
+Scope: production geometry route fields, buffers, functions, shader ABI,
+       diagnostics, CVars, and build outputs after Slice-5 default promotion
+
+RULE
+----
+GEO-13 does not infer dead code from a default-off CVar, an old name, or a
+replacement route. A deletion requires a transitive search across CPU
+producers, scene inputs, descriptor bindings, shader source, generated shader
+families, offline harnesses, and build declarations. Required fail-closed
+owners and rollback routes remain live even when the canonical route is the
+compiled default.
+
+SEARCH RESULT: ABANDONED PARALLEL BUCKET ABI
+--------------------------------------------
+The rejected pre-pivot bucket implementation is absent:
+
+  - no bucket-specific t100 through t105 descriptor declarations;
+  - no bucket-specific compact hit libraries;
+  - no static-bucket SBT contribution 4/5;
+  - no bucket shader blob or CMake target outside the normal primary, clean-DI,
+    and clean-GI shader families.
+
+Current bucket traversal uses hit-group contribution zero. The hardware
+InstanceID contains the resident triangle base and PrimitiveIndex supplies the
+bucket-local triangle. Shader resolution is one checked addition into the
+selected t3/t4/t5/t9/t11 tuple. The route helper adds no descriptor and its
+PathTraceStaticBucketRouteRecord is a compatibility function shape, not a GPU
+buffer ABI.
+
+The accepted resident bucket pool is still a separately cached backing store
+on the CPU/GPU. At cutover, those buffers replace the monolithic buffers in the
+existing t3/t4/t5/t9/t11 bindings. This is not the rejected parallel shader
+namespace. The resident pack is content-signature cached and is required by
+the portal-active BLAS topology; it is not proven redundant with the
+monolithic capture allocation.
+
+LIVE STATIC-BUCKET OWNERS
+-------------------------
+The following superficially old-looking objects have transitive consumers and
+must remain:
+
+  RtPathTraceStaticBucketActivePublication.routeRecords
+    - validates resident-route cardinality and publication epochs;
+    - supplies exact CPU emissive identity replay;
+    - participates in cutover diagnostics.
+
+  RtPathTraceStaticBucketRouteRecord
+    - CPU-only publication/emissive validation record;
+    - is not uploaded as a shader route table.
+
+  static bucket surface records and source-triangle mapping
+    - build exact packed ranges and class metadata;
+    - validate canonical address replay;
+    - compare monolithic and portal-active emissive identities.
+
+  StaticBucketRouteInfo
+    - publishes the resident triangle count and route generation in the shared
+      constant ABI;
+    - gates the bucket InstanceID namespace in primary and clean-DI consumers.
+
+  monolithic static buffers/BLAS
+    - own startup while the bounded bucket build schedule converges;
+    - own route-zero rollback and any failed publication/capacity path.
+
+  merged dynamic buffers/BLAS
+    - remain the production owner for skinned geometry because the
+      per-instance skinned BLAS route is revoked;
+    - retain small transient and unsupported-deformation fallback classes.
+
+  legacy rigid provider
+    - remains the exact fail-safe when canonical rigid descriptor parity,
+      allocation, or generation validation fails.
+
+GEOMETRY CVAR SEARCH
+--------------------
+Every r_pathTracingGeometry* CVar declared in PathTraceCVars.h has at least one
+consumer outside its declaration/definition. No geometry CVar is therefore
+eligible for dead-code deletion in this slice.
+
+The route-2 primary/secondary probe and its stages 1 through 24 are live
+bring-up diagnostics, not unreachable code. They transitively select scene
+publication policy, pipeline creation, dispatch boundaries, presentation, and
+CPU harness expectations. The surface is too large for the intended final
+diagnostic contract, but removing it would be a deliberate diagnostic
+decommission rather than dead-code deletion. Keep it until that separate
+change names the retained replacement evidence and removes the CPU planner,
+runtime branches, CVar, and tests together.
+
+CONTRACT MISMATCH FOUND BEFORE DELETION
+---------------------------------------
+The clean-GI production predicate claimed that GI consumed the routed resident
+static tuple, but pathtrace_clean_restir_gi.rt.hlsl included
+PathTraceStaticBucketRoute.hlsli with
+RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS left at its default zero. As a
+result:
+
+  - PathTraceIsStaticBucketRouteInstance constant-folded to false in GI;
+  - CleanGiTryLoadStaticBucketTriangleRoute called the compatibility fallback
+    that always returns false;
+  - successful dispatch and a plausible final image could not prove that
+    secondary GI hardware hits used the bucket material/class/index address.
+
+Slice 6 repairs this contradiction by enabling the existing bucket helper in
+the GI family and implementing the same checked resident-pool address resolve
+used by clean DI. It adds no descriptor, route table, SBT record, payload
+field, or geometry storage. All GI split RT libraries plus the producer
+ray-query and temporal compute outputs must be rebuilt because they include
+the edited root shader.
+
+BUILD AND OFFLINE VALIDATION
+----------------------------
+The affected outputs were deleted before compilation so the source dependency
+could not leave a stale blob in place.
+
+  cmake --build --preset win64-pt-dev-release          PASS
+  affected Vulkan GI blobs rebuilt                       34
+  rebuilt blobs newer than source edit                34/34
+  spirv-val --target-env vulkan1.2                    34/34
+  DXIL outputs newer than source edit                      0
+  PathTraceCpuPlanningHarness                            PASS
+
+SPIR-V disassembly of both the producer ray-query compute shader and a
+production split TraceRay library contains the 0x00800000 namespace bit, the
+0x007fffff triangle-base mask, and the integer address-add path. This proves
+the bucket branch survived compilation instead of being constant-folded away.
+
+The executable and exactly those 34 Vulkan blobs were deployed. Source and
+destination hashes match 34/34. The executable did not change in this
+shader-only checkpoint:
+
+  executable bytes                                16,079,872
+  executable SHA-256
+    EBF6D0710BECDD28D22448A721E5D3AB3B4B3CE1E4E2262E0A61469624718D51
+
+DELETION DECISION
+-----------------
+No current producer, buffer, CVar, or diagnostic is proven transitively dead.
+No code deletion is authorized by the dead-code rule in this pass.
+
+The only stale artifacts proven absent are the already-retired parallel bucket
+ABI and compact bucket libraries. Their absence is now recorded so later work
+does not attempt to remove current resident-pool objects merely because their
+names still contain "route" or "bucket".
+
+NEXT GATES
+----------
+1. Run the production default route with GI enabled and exercise indirect
+   lighting across portal traversal. Route zero remains the A/B rollback.
+2. After the contract repair is accepted, decide separately whether to retire
+   the route-2 24-stage bring-up ladder. Do not mix that broad deletion with a
+   shader-contract repair.
+3. Continue final correctness and warm identical-content performance evidence.

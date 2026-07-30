@@ -4410,6 +4410,31 @@ GEO-13 proceeds to Slice 6. No legacy producer or diagnostic is deleted until
 a transitive CPU/shader/build search proves it has no live production,
 rollback, failure, or validation consumer.
 
+D179. GEO-13 SLICE-6 FINDS NO DEAD ROUTE AND REPAIRS CLEAN-GI BUCKET DECODE
+----------------------------------------------------------------------------
+The Slice-6 transitive audit finds that the rejected parallel bucket shader ABI
+is already absent: no t100-t105 bucket descriptors, compact bucket hit
+libraries, or SBT contribution 4/5 remain. The current route rebinds its cached
+resident pool through the established t3/t4/t5/t9/t11 tuple and uses
+contribution zero. CPU route/surface records remain live for publication,
+canonical replay, and emissive validation. Monolithic static, merged dynamic,
+and legacy rigid remain startup, revoked-skinned, transient, rollback, or
+fail-safe owners. Every geometry CVar has a transitive runtime consumer.
+
+The route-2 stages 1-24 are live diagnostic selectors. They are not dead and
+may only be removed later as one explicit diagnostic-decommission change.
+
+The audit also rejects the prior assertion that clean GI already decoded the
+bucket namespace. Its root shader included PathTraceStaticBucketRoute.hlsli
+with bucket consumers disabled, making the namespace test and compatibility
+loader return false. Enable the same checked one-add resident-pool address
+resolver used by clean DI. This changes no descriptor, SBT, payload, or storage
+ABI, but all dependent Vulkan GI outputs must be rebuilt and runtime-accepted
+before Slice 6 closes. The 34 affected Vulkan outputs rebuild newer than the
+source edit, pass spirv-val, preserve the namespace-mask/address-add path in
+disassembly, and match the deployed copies. No DXIL output changed. Runtime
+acceptance is the remaining gate.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.

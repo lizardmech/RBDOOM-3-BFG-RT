@@ -247,7 +247,9 @@ StructuredBuffer<uint> SmokeStaticTriangleMaterials : register(t9);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterials : register(t10);
 StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
+#define RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS 1
 #include "../PathTraceStaticBucketRoute.hlsli"
+#undef RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
@@ -1148,13 +1150,30 @@ bool CleanGiTryLoadStaticBucketTriangleRoute(
     out uint packedTriangleIndex,
     out uint3 packedVertexIndexes)
 {
-    return PathTraceTryLoadStaticBucketTriangleRoute(
+    route = (PathTraceStaticBucketRouteRecord)0;
+    packedTriangleIndex = 0u;
+    packedVertexIndexes = uint3(0u, 0u, 0u);
+    PathTraceStaticGeometryAddress address;
+    if (!PathTraceTryResolveCanonicalStaticBucketSourceTriangle(
         instanceId,
         primitiveIndex,
         CleanRtxdiDiStaticBucketRouteInfo,
-        route,
-        packedTriangleIndex,
-        packedVertexIndexes);
+        (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0),
+        (uint)max(CleanRtxdiDiGeometryInfo0.y, 0.0),
+        CleanRtxdiDiStaticTriangleCount,
+        address))
+    {
+        return false;
+    }
+
+    route.instanceId = instanceId;
+    route.indexOffset = address.indexOffset;
+    route.triangleOffset = address.triangleIndex;
+    route.triangleCount = address.triangleCount;
+    route.surfaceCount = 1u;
+    packedTriangleIndex = address.triangleIndex;
+    packedVertexIndexes = address.vertexIndexes;
+    return true;
 }
 
 bool CleanGiLoadSurfaceRecord(uint2 pixel, uint2 dimensions, out PathTracePrimarySurfaceRecord record)
