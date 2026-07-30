@@ -2704,6 +2704,8 @@ struct RtSmokeSkinnedComparisonBlasAudit
     int buildSubmitted = 0;
     int updateSubmitted = 0;
     int updateAsFullBuildSubmitted = 0;
+    int updateBarrierBatches = 0;
+    int updateBarrierBlases = 0;
     int rebuildSubmitted = 0;
     int replacementDeferred = 0;
     int failed = 0;
@@ -3848,7 +3850,16 @@ SubmitSmokeSkinnedComparisonBlases(
         return audit;
     }
 
-    bool inputBarriersCommitted = false;
+    struct PendingSubmission
+    {
+        PtCanonicalInstanceKey instanceKey;
+        PtSkinnedBlasAction action =
+            PtSkinnedBlasAction::None;
+        nvrhi::rt::AccelStructHandle blas;
+        nvrhi::rt::AccelStructDesc desc;
+    };
+    std::vector<PendingSubmission> pendingSubmissions;
+    pendingSubmissions.reserve(records.size());
     for (const RtSmokeSkinnedSurfaceRecord& record : records)
     {
         const PtSkinnedBlasRecord* state =
@@ -4048,19 +4059,6 @@ SubmitSmokeSkinnedComparisonBlases(
             ++audit.reused;
         }
 
-        if (!inputBarriersCommitted)
-        {
-            commandList->setBufferState(
-                outputBuffer,
-                nvrhi::ResourceStates::
-                    AccelStructBuildInput);
-            commandList->setBufferState(
-                sourceIndexBuffer,
-                nvrhi::ResourceStates::
-                    AccelStructBuildInput);
-            commandList->commitBarriers();
-            inputBarriersCommitted = true;
-        }
         nvrhi::rt::AccelStructDesc submitDesc =
             resource->blasDesc;
         if (action == PtSkinnedBlasAction::Update &&
@@ -4071,26 +4069,111 @@ SubmitSmokeSkinnedComparisonBlases(
                 nvrhi::rt::AccelStructBuildFlags::
                     PerformUpdate;
         }
+        PendingSubmission submission;
+        submission.instanceKey =
+            record.canonicalInstance;
+        submission.action = action;
+        submission.blas = resource->blas;
+        submission.desc = std::move(submitDesc);
+        pendingSubmissions.push_back(
+            std::move(submission));
+    }
+
+    if (!pendingSubmissions.empty())
+    {
+        commandList->setBufferState(
+            outputBuffer,
+            nvrhi::ResourceStates::
+                AccelStructBuildInput);
+        commandList->setBufferState(
+            sourceIndexBuffer,
+            nvrhi::ResourceStates::
+                AccelStructBuildInput);
+        commandList->commitBarriers();
+    }
+
+    for (const PendingSubmission& submission :
+        pendingSubmissions)
+    {
+        if ((submission.desc.buildFlags &
+                nvrhi::rt::AccelStructBuildFlags::
+                    PerformUpdate) == 0)
+        {
+            continue;
+        }
+        commandList->setAccelStructState(
+            submission.blas,
+            nvrhi::ResourceStates::
+                AccelStructBuildBlas);
+        ++audit.updateBarrierBlases;
+    }
+    if (audit.updateBarrierBlases > 0)
+    {
+        commandList->commitBarriers();
+        ++audit.updateBarrierBatches;
+        for (const PendingSubmission& submission :
+            pendingSubmissions)
+        {
+            if ((submission.desc.buildFlags &
+                    nvrhi::rt::AccelStructBuildFlags::
+                        PerformUpdate) == 0)
+            {
+                continue;
+            }
+            commandList->setAccelStructState(
+                submission.blas,
+                nvrhi::ResourceStates::
+                    AccelStructBuildBlas |
+                    nvrhi::ResourceStates::
+                        AccelStructWrite);
+        }
+        commandList->commitBarriers();
+        ++audit.updateBarrierBatches;
+    }
+
+    for (const PendingSubmission& submission :
+        pendingSubmissions)
+    {
+        const bool updateBarriersPrepared =
+            (submission.desc.buildFlags &
+                nvrhi::rt::AccelStructBuildFlags::
+                    PerformUpdate) != 0;
+        if (updateBarriersPrepared)
+        {
+            commandList->setEnableAutomaticBarriers(
+                false);
+        }
         nvrhi::utils::BuildBottomLevelAccelStruct(
             commandList,
-            resource->blas,
-            submitDesc);
+            submission.blas,
+            submission.desc);
+        if (updateBarriersPrepared)
+        {
+            commandList->setEnableAutomaticBarriers(
+                true);
+        }
         if (stateTable.MarkSubmitted(
-                record.canonicalInstance,
-                action,
+                submission.instanceKey,
+                submission.action,
                 true,
                 frameIndex) ==
             PtSkinnedBlasSubmitResult::Succeeded)
         {
             const PtSkinnedBlasRecord* submittedState =
                 stateTable.Find(
-                    record.canonicalInstance);
-            if (submittedState != nullptr)
+                    submission.instanceKey);
+            RtSmokeSkinnedComparisonBlasResource*
+                submittedResource =
+                    FindSmokeSkinnedComparisonBlasResource(
+                        resources,
+                        submission.instanceKey);
+            if (submittedState != nullptr &&
+                submittedResource != nullptr)
             {
-                resource->blasGeneration =
+                submittedResource->blasGeneration =
                     submittedState->blasGeneration;
             }
-            switch (action)
+            switch (submission.action)
             {
                 case PtSkinnedBlasAction::Build:
                     ++audit.buildSubmitted;
@@ -11773,7 +11856,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         !m_smokeSkinnedComparisonBlasUpdateLogged)
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO14 skinned comparison BLAS logical update frame=%llu mode=%d pending=%d exact=%d reused=%d submitted(logical/inPlace/fullBuild)=%d/%d/%d deferred=%d failed=%d flags=%s tlas=excluded\n",
+            "PathTracePrimaryPass: GEO14 skinned comparison BLAS logical update frame=%llu mode=%d pending=%d exact=%d reused=%d submitted(logical/inPlace/fullBuild)=%d/%d/%d barriers(batches/blases)=%d/%d deferred=%d failed=%d flags=%s tlas=excluded\n",
             static_cast<unsigned long long>(
                 geometryUniverseStats.frameIndex),
             skinnedComparisonBlasAudit.
@@ -11787,6 +11870,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     updateAsFullBuildSubmitted,
             skinnedComparisonBlasAudit.
                 updateAsFullBuildSubmitted,
+            skinnedComparisonBlasAudit.
+                updateBarrierBatches,
+            skinnedComparisonBlasAudit.
+                updateBarrierBlases,
             skinnedComparisonBlasAudit.replacementDeferred,
             skinnedComparisonBlasAudit.failed,
             skinnedComparisonBlasAudit.

@@ -1,0 +1,5 @@
+case,compare_mode,capture_split,scripted_movement,max_frame,initial_routes,post_move_routes,cpu_captured_indexes_steady,update_blases,barrier_batches,samples,median_gpu_us,min_gpu_us,max_gpu_us,merged_samples,merged_median_gpu_us,result,raw_log
+correct_per_blas_barriers_split0,1,0,YES,2956,12,19,32424,12,24,115,632.4,605.9,1102.6,NA,NA,PASS_REFERENCE,GEO-14_update_barrier_2026-07-30.csv
+correct_per_blas_barriers_split1,1,1,YES,407,12,19,0,12,24,115,634.9,572.3,1427.3,120,180.35,PASS_REFERENCE,GEO-14_update_barrier_2026-07-30.csv
+batched_barriers_split0,1,0,YES,2941,12,19,32424,12,2,115,84.3,73.4,102.9,120,1129.1,PASS_BOUNDED_STOP,geometry_geo14_update_batch_split0_move.log
+batched_barriers_split1,1,1,YES,407,12,19,0,12,2,115,79.1,74.4,111.6,120,178.15,PASS_BOUNDED_STOP,geometry_geo14_update_batch_split1_move.log

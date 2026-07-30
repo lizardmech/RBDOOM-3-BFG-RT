@@ -92,5 +92,7 @@ Current execution status (2026-07-30):
   state-contract mismatch: the prior BLAS source read was absent from NVRHI's
   automatic barrier state. The fixed diagnostic route survives scripted
   movement with capture split off and on, while the full-BUILD control is
-  rejected at about 4.45 ms. Defaults remain off pending batched-barrier
-  optimization, the full GEO-09 matrix, and human visual acceptance.
+  rejected at about 4.45 ms. Batched source-read/read-write transitions reduce
+  the correct UPDATE median from about 0.635 ms to 0.079-0.084 ms while
+  preserving route and motion admission. Defaults remain off pending the full
+  GEO-09 matrix and human visual acceptance.

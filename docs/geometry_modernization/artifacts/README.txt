@@ -159,6 +159,14 @@ GEO-14 FILES
     movement/capture-split evidence, unchanged defaults, raw-log provenance,
     and the remaining promotion matrix.
 
+  GEO-14_batched_update_2026-07-30.csv
+    Machine-diffable correct per-BLAS versus batched-barrier UPDATE timing and
+    capture-split correctness rows.
+
+  GEO-14_batched_update_handoff.txt
+    Two-phase validated job-list design, two-batch barrier contract, movement
+    evidence, performance recovery, unchanged defaults, and next matrix gates.
+
 NAMING
 ------
 Use:

@@ -1247,6 +1247,22 @@ batched transitions/submission, then repeat the full GEO-09 matrix and human
 visual traversal before promotion. See
 artifacts/GEO-14_update_barrier_handoff.txt.
 
+GEO-14 batched-transition result:
+
+The renderer now prepares exact jobs before submission, commits all UPDATE
+BLAS source-read transitions together, then commits all combined read/write
+transitions together. The same individual Vulkan UPDATE commands and scratch
+allocations remain. The audit reports two barrier batches for 12 BLASes.
+
+Split-zero and split-one scripted movement both survive. Split one retains
+12/12 then 19/19 exact route/motion admission and zero CPU captured indexes.
+UPDATE median falls from 632.4-634.9 us with correct per-BLAS commits to
+79.1-84.3 us with batching, versus 59.4 us in the unsafe historical sample.
+
+The optimization is accepted for extended validation. Defaults remain 0/0.
+Proceed to the complete GEO-09 lifecycle/consumer matrix and human visual
+acceptance. See artifacts/GEO-14_batched_update_handoff.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

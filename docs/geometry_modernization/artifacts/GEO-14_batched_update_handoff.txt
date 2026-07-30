@@ -1,0 +1,142 @@
+GEO-14 batched skinned UPDATE transition handoff
+================================================
+
+SCOPE
+-----
+Optimize only the synchronization shape accepted by D182. Do not remove the
+prior-write -> source-read -> combined source-read/destination-write contract,
+change Vulkan UPDATE semantics, change BLAS scratch ownership, change route
+identity, or change either production default.
+
+IMPLEMENTATION
+--------------
+`SubmitSmokeSkinnedComparisonBlases` now separates validation/resource
+preparation from submission:
+
+  1. validate the same exact source, output, generation, topology, and range
+     contract and prepare an immutable submission record;
+  2. transition every PerformUpdate BLAS to `AccelStructBuildBlas`;
+  3. commit all prior-write -> source-read barriers together;
+  4. transition every PerformUpdate BLAS to
+     `AccelStructBuildBlas | AccelStructWrite`;
+  5. commit all source-read -> combined read/write barriers together;
+  6. issue the same individual NVRHI UPDATE calls with automatic barriers
+     disabled only for the jobs whose complete states were prepared above;
+  7. restore automatic barriers immediately after each such call.
+
+Full BUILD and rebuild jobs continue through NVRHI automatic barriers. Shared
+GPU vertex/index inputs are transitioned once before the job list. State-table
+success and resource BLAS generations are published only after each command is
+issued, as before.
+
+This slice batches state transitions, not Vulkan build commands or scratch
+allocations. NVRHI's D182 backend fallback remains correct for any caller that
+does not prepare a batch.
+
+AUDIT
+-----
+The one-shot audit reports:
+
+  submitted(logical/inPlace/fullBuild)=12/12/0
+  barriers(batches/blases)=2/12
+  deferred=0
+  failed=0
+
+The two batches are invariant with the number of eligible update BLASes:
+one source-read batch and one combined read/write batch.
+
+RUNTIME RESULT
+--------------
+Both tests used Vulkan validation, 640x360 PT resolution, doom3_1, 120 timing
+samples, and a scripted camera change from the saved yaw 159.9 to yaw 130.
+
+Capture split zero:
+
+  max frame                                      2,941
+  routes before/after camera move                12 / 19
+  update BLASes / barrier batches                12 / 2
+  UPDATE samples                                     115
+  UPDATE median/min/max us           84.3 / 73.4 / 102.9
+  merged-dynamic median us                      1,129.1
+  device/Vulkan/fatal errors                          0
+
+Capture split one:
+
+  max frame                                        407
+  accepted routes before/after move             12 / 19
+  motion-ready routes before/after move          12 / 19
+  CPU captured indexes after acceptance               0
+  update BLASes / barrier batches                12 / 2
+  UPDATE samples                                     115
+  UPDATE median/min/max us           79.1 / 74.4 / 111.6
+  merged-dynamic median us                       178.15
+  device/Vulkan/fatal errors                          0
+
+PERFORMANCE RESULT
+------------------
+For the same 12-BLAS prepared save:
+
+  historical unsafe UPDATE median                 59.4 us
+  correct per-BLAS barriers split-zero median     632.4 us
+  batched barriers split-zero median               84.3 us
+  correct per-BLAS barriers split-one median      634.9 us
+  batched barriers split-one median                79.1 us
+  full-BUILD control median                    about 4,450 us
+
+Batching removes about 548-556 us from the correct per-BLAS shape and retains
+the accepted dependency. The remaining 19.7-24.9 us difference from the unsafe
+historical median is disclosed; the captures are different executable runs and
+are not claimed as a cycle-exact microbenchmark.
+
+DEFAULTS
+--------
+Unchanged:
+
+  r_pathTracingGeometrySkinnedTlasCompare      0
+  r_pathTracingGeometrySkinnedCaptureSplit     0
+
+Mode 0 remains the production merged-dynamic fallback. This checkpoint accepts
+the optimized path for the extended GEO-09 matrix, not for default promotion.
+
+BUILD AND DEPLOY
+----------------
+Command:
+
+  cd neo
+  cmake --build --preset win64-pt-dev-release
+
+Result:
+
+  release build passed
+  all SPIR-V shaders reported up to date
+  no DXIL compilation or deployment
+
+Source and deployed executable:
+
+  bytes:   16,082,432
+  SHA-256: DAE780BB2BC06B6EFFA499D36DCD25E74D28D8E620998C86EC735910E26FADDB
+
+NVRHI submodule remains at the D182 fix:
+
+  2065874 Vulkan: synchronize BLAS update source reads
+
+RAW EVIDENCE
+------------
+Under:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+
+  geometry_geo14_update_batch_split0_move.log
+    bytes 974901, modified 2026-07-30 13:54:05 Australia/Sydney
+  geometry_geo14_update_batch_split1_move.log
+    bytes 335433, modified 2026-07-30 13:57:31 Australia/Sydney
+
+Both movement runs were externally stopped by their exact process IDs at the
+three-minute test bound. Neither produced a device/Vulkan/fatal error.
+
+NEXT
+----
+Run the full GEO-09 consumer and lifecycle matrix: crowd, spawn/despawn,
+offscreen/return, map and Communications transitions, PDA/portal movement,
+materials, motion, and emissive publication. Human visual acceptance remains
+required before changing defaults or deleting the merged fallback.

@@ -132,3 +132,20 @@ weakening the dependency, then run the complete GEO-09 promotion matrix. See:
 
   ../artifacts/GEO-14_update_barrier_2026-07-30.csv
   ../artifacts/GEO-14_update_barrier_handoff.txt
+
+CURRENT STATUS - BATCHED TRANSITIONS ACCEPTED (2026-07-30)
+----------------------------------------------------------
+The renderer prepares validated jobs first, commits one source-read transition
+batch and one combined read/write transition batch for all UPDATE BLASes, then
+issues the same individual UPDATE commands. The audit reports 2 barrier batches
+for 12 BLASes.
+
+Split-zero and split-one movement tests survive. Split one retains 12/12 then
+19/19 exact route/motion admission and zero CPU captured indexes. UPDATE median
+falls from 632.4-634.9 us to 79.1-84.3 us. Defaults remain zero.
+
+Proceed to the full GEO-09 consumer/lifecycle matrix and human visual
+acceptance. See:
+
+  ../artifacts/GEO-14_batched_update_2026-07-30.csv
+  ../artifacts/GEO-14_batched_update_handoff.txt

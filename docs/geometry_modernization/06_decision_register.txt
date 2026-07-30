@@ -4566,6 +4566,34 @@ Evidence:
   artifacts/GEO-14_update_barrier_2026-07-30.csv
   artifacts/GEO-14_update_barrier_handoff.txt
 
+D183. BATCH THE ACCEPTED SKINNED UPDATE TRANSITIONS
+---------------------------------------------------
+The D182 source-read/read-write dependency is correct but committing it twice
+per BLAS raises the 12-BLAS UPDATE median to 632.4-634.9 us. Preserve the
+dependency and split validated resource preparation from command submission.
+
+For all PerformUpdate jobs, commit one batch that transitions prior BLASes to
+AS-build source read, then one batch that enters combined AS-build read/write.
+Issue the same individual UPDATE commands with automatic barriers disabled
+only for those fully prepared jobs. Full build/rebuild operations and generic
+NVRHI callers retain automatic barriers and the D182 fallback.
+
+Runtime audits report exactly 12 update BLASes and two barrier batches.
+Scripted movement changes the visible set from 12 to 19 surfaces. Split zero
+survives through frame 2,941 with an 84.3 us UPDATE median. Split one survives
+through frame 407, accepts 12/12 then 19/19 routes and motion records, records
+zero CPU captured indexes, and measures a 79.1 us UPDATE median. Neither run
+reports a device, Vulkan, or fatal error.
+
+This recovers about 548-556 us against the correct per-BLAS barrier shape while
+retaining the explicit synchronization contract. Defaults remain zero. Accept
+the batched path for the extended GEO-09 matrix, not production promotion.
+
+Evidence:
+
+  artifacts/GEO-14_batched_update_2026-07-30.csv
+  artifacts/GEO-14_batched_update_handoff.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
