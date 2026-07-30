@@ -134,9 +134,18 @@ untextured appearance was instead traced to:
 
 Six other character materials failed the same active table in that frame.
 The material universe admitted the runtime IDs, so preliminary Q15's
-identity concern is resolved for this case. Safe NVRHI texture descriptor
-creation/registration is a separate material-system defect and must not be
-misdiagnosed as geometry loss.
+identity concern was resolved for this case. At the time, safe NVRHI texture
+descriptor creation/registration was a separate material-system defect and
+was not a geometry loss.
+
+Current-head closure on 2026-07-30 confirms that the intervening material
+handle/cache repairs removed that separate ordinary-diffuse defect. The
+prepared-save table contains the Fatzombie and reports 402 diffuse images,
+402 current handles, and 402 safe descriptors. The exhaustive five-row
+missing list contains only materials with no diffuse image by contract:
+sky, absorbing black, stage-driven PDA FX, and two glass rows. Q15 is fully
+resolved by D191; specialized sky/glass/effect sampling remains outside the
+geometry-universe question.
 
 PT-ONLY LEVEL GEOMETRY DISAPPEARANCE
 ------------------------------------

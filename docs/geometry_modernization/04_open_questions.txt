@@ -139,6 +139,15 @@ Q15. Material universe interaction: mid-level-first-seen materials
      (spawned creatures) - confirm the material table admits new IDs at
      runtime or fix alongside the instance registry (same structural
      cause as the geometry gap).
+     RESOLVED 2026-07-30 by D191. The original spawned-Fatzombie capture
+     already proved runtime ID admission. A current-head texture-probe census
+     contains the Fatzombie and reports 402 diffuse-image entries, 402 current
+     handles, and 402 safe descriptors. Its exhaustive five-entry missing
+     list contains only sky, absorbing black, stage-driven PDA FX, and glass
+     rows with no diffuse image. The earlier image-present `fatty_d`
+     descriptor rejection is gone. Reopen only for a newly seen ordinary
+     textured material that fails admission, current-handle refresh, or
+     descriptor-table rebuilding.
 Q16. Motion vectors during migration: the temporal lanes (ReSTIR DI/GI,
      DLSS-RR guides) consume previous-position data keyed to the current
      buffer layouts. Any layout change must ship with its motion-vector

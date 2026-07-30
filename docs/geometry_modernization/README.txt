@@ -161,3 +161,11 @@ Current execution status (2026-07-30):
   records while transport and GPU attributes remain full float. CVar zero plus
   map reload is the rollback. See D190 and
   artifacts/GEO-12_color_unorm8_default_promotion_2026-07-30.txt.
+
+  Q15 is now fully closed. The original spawn capture proved that the
+  Fatzombie's first-seen material IDs entered the universe; a current-head
+  audit now finds the Fatzombie in the live table and reports current safe
+  handles for all 402 entries that expose diffuse images. The only five
+  missing rows have no diffuse image by their sky/black/effect/glass
+  contracts. See D191 and
+  artifacts/GEO-Q15_material_universe_closure_2026-07-30.txt.

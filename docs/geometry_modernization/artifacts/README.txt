@@ -123,6 +123,13 @@ GEO-11 FILES
     and completion-backed replacement; also records the conditions that would
     reopen the double-buffering decision.
 
+POST-PACKET QUESTION CLOSURES
+-----------------------------
+  GEO-Q15_material_universe_closure_2026-07-30.txt
+    Spawned-material admission and ordinary diffuse descriptor closure,
+    current source/cache contract, bounded Fatzombie runtime census, raw-log
+    provenance, and specialized non-diffuse exclusions.
+
 GEO-12 FILES
 ------------
   GEO-12_entry_audit.txt

@@ -4883,6 +4883,39 @@ Evidence:
 
   artifacts/GEO-12_color_unorm8_default_promotion_2026-07-30.txt
 
+D191. CLOSE MID-LEVEL MATERIAL ADMISSION AND ORDINARY DIFFUSE SAFETY
+-------------------------------------------------------------------
+Q15 was left partially resolved because its original spawned-Fatzombie
+capture proved runtime material-ID admission but found the present
+`models/monsters/zombie/fatty/fatty_d` image rejected at the NVRHI texture
+descriptor boundary.
+
+The later material-system repairs refresh strong NVRHI texture handles from
+current image objects on both frame and resident-cache hits, repopulate
+texture slots on material-table cache hits, validate resulting indexes, and
+reset/fill descriptor arrays across scene and table changes. The geometry
+universe does not own or duplicate this state.
+
+A bounded current-head `doom3_1` audit contains the Fatzombie as two surfaces
+and 10,192 triangles in the live material census. The table contains 407
+entries. All 402 entries with diffuse images have current texture handles and
+all 402 are descriptor-safe. The exhaustive five-entry missing list contains
+only sky, absorbing black, stage-driven PDA FX, and two glass rows, each with
+no diffuse image. The same census repeats twice later in the run. The earlier
+image-present Fatty rejection is absent.
+
+Decision: Q15 is resolved without another geometry change. Mid-level-first-seen
+IDs are admitted, and the specific ordinary diffuse descriptor defect that
+kept the question partial is repaired. Materials that intentionally lack a
+diffuse image remain under their specialized sky, effect, emissive, or
+transmission contracts. Reopen only if a newly seen ordinary textured
+material fails ID admission, current-handle refresh, descriptor rebuild, or
+stable table indexing.
+
+Evidence:
+
+  artifacts/GEO-Q15_material_universe_closure_2026-07-30.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR LOSSLESS COLOR by D165/D166/D190; color UNORM8 is the
@@ -4907,7 +4940,8 @@ DISPOSITION OF 04_open_questions.txt
   Q13 RESOLVED by D11; exact budgets measured in GEO-12/GEO-13.
   Q14 RESOLVED: retain funnel totals and bounded samples; delete duplicate
       scaffold with each retired route in GEO-13.
-  Q15 PARTIALLY RESOLVED: IDs admitted; texture descriptor defect is separate.
+  Q15 RESOLVED by D191: spawned IDs are admitted and the current descriptor
+      path safely binds every ordinary diffuse image in the prepared scene.
   Q16 RESOLVED by D43/D44: primary tuple, motion, and reset policy accepted.
   Q17 RESOLVED by D45/D46/D47/D48/D49: GPU-output construction/remap,
       material/dynamic-state, DI/GI/RR input comparison, production traversal,

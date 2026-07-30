@@ -1,0 +1,123 @@
+GEO-Q15 MATERIAL UNIVERSE AND DIFFUSE DESCRIPTOR CLOSURE
+========================================================
+
+Date: 2026-07-30
+Scope: post-packet closure of 04_open_questions.txt Q15
+Code change: none
+
+QUESTION
+--------
+Q15 asked whether a material first seen after level load, especially one from
+a spawned creature, can enter the live material table. The original
+Fatzombie capture answered the identity half but exposed a second failure:
+
+  material  models/monsters/zombie/fatty/fatty
+  diffuse   models/monsters/zombie/fatty/fatty_d
+  image     present
+  result    rejected texture desc
+
+The geometry was valid and the spawned material IDs were admitted. Q15
+remained marked partial only because that ordinary diffuse image could not
+produce a safe NVRHI descriptor.
+
+CURRENT SOURCE CONTRACT
+-----------------------
+The intervening material-system repairs now make the descriptor path
+generation-aware:
+
+1. Frame and resident-cache hits refresh texture handles from the current
+   idImage objects instead of trusting retained raw image/descriptor state.
+2. RtSmokeMaterialTextureInfo owns strong NVRHI handles for diffuse, alpha,
+   normal, specular, emissive, and sky textures.
+3. A material-table cache hit reruns PopulateSmokeMaterialTextureSlots and
+   validates the resulting material indexes instead of reusing stale
+   descriptor indexes.
+4. Descriptor-array population fills the active table safely and resets the
+   table with scene replacement, preventing an old slot from surviving a
+   smaller/new material set.
+5. Resident material-ID hydration resolves missing IDs through the declaration
+   universe and refreshes existing handle state before table construction.
+
+The key historical implementation checkpoints are:
+
+  654f44f85 Avoid stale image pointers in material table
+  695fec408 Rebuild material descriptors on cache hits
+  243434225 Harden smoke texture descriptor residency
+
+These are material-system fixes, not changes to geometry identity.
+
+BOUNDED CURRENT-HEAD RUNTIME AUDIT
+----------------------------------
+Executable:
+
+  path    E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+  bytes   16121856
+  sha256  55E43F34AC34DB93895A17520BF77836B1512261BFD48AE1D9CEC4E7D2E33F19
+
+Raw log:
+
+  path      C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_q15_material_audit.log
+  bytes     5972210
+  modified  2026-07-30 22:16:51 Australia/Sydney
+
+The prepared `doom3_1` save was loaded autonomously with Vulkan PT, debug mode
+8, and one bounded broad-log interval. The Fatzombie was present in the live
+dynamic census:
+
+  material                      models/monsters/zombie/fatty/fatty
+  material-table ID             2967161850
+  surfaces / triangles          2 / 10192
+
+The same frame's exhaustive diffuse descriptor census reported:
+
+  material table entries        407
+  entries with diffuse images   402
+  entries with texture handles  402
+  entries with safe textures    402
+  missing or rejected           5
+
+The missing list contained exactly five entries, matching the aggregate:
+
+  textures/skies/commoutside    no fast-path or diffuse-stage image
+  textures/sfx/black            absorbing black material
+  models/items/pda/cd2fx        no fast-path or diffuse-stage image
+  textures/glass/glass1         no fast-path or diffuse-stage image
+  textures/glass/glass1         no fast-path or diffuse-stage image
+
+Therefore every entry that actually exposed an ordinary diffuse image had a
+handle and passed descriptor safety. The Fatzombie is present in the table and
+is absent from the exhaustive five-entry failure list. The earlier
+`fatty_d` image-present/descriptor-rejected failure no longer exists.
+
+The audit repeated twice later in the run and again reported every diffuse
+image as handled and safe, with only the same non-diffuse semantic cases in
+the missing list. The run reached Game Map Shutdown and
+idRenderSystem::Shutdown without a device-loss marker. Its final Windows
+status was the already isolated post-render 0xC0000374 shutdown warning,
+which also occurs in route-zero controls and is not a Q15 failure.
+
+DECISION
+--------
+Q15 is resolved.
+
+The original spawn capture proves that mid-level-first-seen IDs enter the
+material universe. The current source audit and runtime census prove that the
+specific ordinary diffuse descriptor defect that kept Q15 partial has been
+repaired. No geometry or material code change is required for closure.
+
+This decision does not require every material to own a diffuse texture. Sky,
+absorbing black, stage-driven PDA effects, and glass are intentionally
+different material contracts. Their specialized sampling, emissive, or
+transmission behavior remains owned by the material/lighting lanes and must
+not be reopened as a geometry-universe identity failure.
+
+REOPEN CONDITIONS
+-----------------
+Reopen Q15 only if a newly spawned or newly streamed ordinary textured
+material:
+
+  - does not enter the current material-ID universe;
+  - has a valid resident diffuse image but no current NVRHI texture handle;
+  - receives a stale/wrong descriptor after a table cache hit, portal change,
+    map change, image reload, or material-universe growth; or
+  - changes geometry/material identity because its table row is reordered.

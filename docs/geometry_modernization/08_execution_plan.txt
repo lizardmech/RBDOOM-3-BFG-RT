@@ -1392,6 +1392,20 @@ rollback is CVar zero plus map reload. Half UV, oct basis, `color2`, transport,
 and shader/GPU packing remain deferred. See D190 and
 artifacts/GEO-12_color_unorm8_default_promotion_2026-07-30.txt.
 
+Post-packet Q15 closure:
+
+Treat runtime material admission and texture residency as adjacent but
+separate contracts. The original spawned-Fatzombie evidence already proves
+that a mid-level-first-seen material ID enters the universe. Current-head
+material-handle refresh and cache-hit descriptor rebuilding remove the
+ordinary diffuse failure that kept Q15 partial: the prepared save contains
+the Fatzombie, and all 402 table entries with diffuse images have both current
+handles and safe descriptors. The only five missing rows expose no diffuse
+image by material contract. No geometry implementation step remains. Reopen
+only for a newly seen ordinary textured material that fails admission,
+handle refresh, descriptor rebuild, or stable indexing. See D191 and
+artifacts/GEO-Q15_material_universe_closure_2026-07-30.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material
