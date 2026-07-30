@@ -670,6 +670,31 @@ publication are ready. Route zero remains rollback.
   executable SHA-256
     EBF6D0710BECDD28D22448A721E5D3AB3B4B3CE1E4E2262E0A61469624718D51
 
+SLICE-5D STATIC DEFAULT RUNTIME ACCEPTANCE
+-----------------------------------------
+`geometry_geo13_static_default.log` accepts the final route promotion:
+
+  view / markers defaults                              16 / 0
+  bucket resource / build / route defaults          1 / 1 / 1
+  static buckets resident / ready                      56 / 56
+  active portal sets exercised                         9 .. 19
+  active audit TLAS / routes                           19 / 56
+  active material-index misses                              0
+  warm BLAS build / reuse / retire                    0 / 56 / 0
+  result queries / failures                           56 / 0
+  assignment/geometry/publication/address failures          0
+
+Startup remains safely monolithic until the two-builds-per-frame schedule
+converges. The route then cuts over automatically. Route-zero rollback and
+route-one restoration both work without rebuilding or retiring the resident
+cache. Portal and optics behavior is accepted, no device/Vulkan/resource
+failure appears, and shutdown is normal.
+
+Slice 5 is complete for canonical rigid and static world routes. Skinned
+per-instance traversal remains revoked; merged dynamic and monolithic static
+remain required fallbacks. Begin Slice 6 with a transitive dead-code and
+diagnostic-consumer audit, not deletion by naming similarity.
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.

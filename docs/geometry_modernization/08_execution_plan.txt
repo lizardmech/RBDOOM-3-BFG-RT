@@ -1113,6 +1113,18 @@ before static default promotion is final. The candidate builds with SPIR-V
 unchanged and is deployed with executable SHA-256
 `EBF6D0710BECDD28D22448A721E5D3AB3B4B3CE1E4E2262E0A61469624718D51`.
 
+The ordinary static-default run is accepted. Compiled defaults select view 16,
+markers off, and bucket resource/build/route 1/1/1. Startup fails closed while
+56 BLASes converge under the two-operation budget, then automatically cuts
+over with exact active TLAS output and zero material/address failure.
+Rollback/restoration, portal traversal, optics, audits, and shutdown pass.
+Canonical rigid and static world promotion are complete.
+
+Proceed to GEO-13 Slice 6 with a transitive audit. Retain monolithic static,
+merged dynamic, and rigid fail-safe routes because they remain live rollback
+or fallback owners. Delete only scaffolding whose CPU, shader, preprocess, and
+build consumers are all proven absent.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material
