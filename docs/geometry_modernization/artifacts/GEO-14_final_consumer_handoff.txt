@@ -1,0 +1,165 @@
+GEO-14 final skinned consumer matrix handoff
+================================================
+
+OUTCOME
+-------
+The remaining automated GEO-09 consumer gates pass on the batched Vulkan
+in-place UPDATE candidate:
+
+  - live source-only and independent legacy-shadow consumer contracts;
+  - primary-hit geometry, material, basis, UV, and motion parity;
+  - current/previous canonical GPU-skinned emissive geometry;
+  - emissive identity/remap transition behavior;
+  - validation-only publication into current and previous light records.
+
+This closes the automated consumer portion of GEO-14. The route and capture
+split defaults remain zero pending the ticket's final human visual pass.
+
+ACTIVE CONTRACT
+---------------
+The final run used:
+
+  r_pathTracingGpuSkinning                      1
+  r_pathTracingGeometryAuthoritativeGpuSkinning 2
+  r_pathTracingGeometryShadowRegistry           1
+  r_pathTracingGeometrySkinnedTlasCompare        1
+  r_pathTracingGeometrySkinnedCaptureSplit       1
+  r_pathTracingDebugMode                         58
+  r_pathTracingCleanRtxdiDiEnable                0
+  r_pathTracingCleanRestirGiEnable               0
+
+The audit controls were armed separately after 12/12 capture-split admission:
+
+  r_pathTracingGeometrySkinnedConsumerAudit 1
+  r_pathTracingGeometrySkinnedHitAudit       1
+  r_pathTracingGeometrySkinnedEmissiveAudit  1
+
+AUDIT CONTRACT REPAIRS
+----------------------
+The bounded matrix exposed three diagnostic-only ordering assumptions.
+
+First, consumer and hit audits already retained one CPU-skinned frame so their
+independent legacy shadow remained available after capture split. The
+emissive audit did not, so its GPU-output check compared against source-local
+or zero placeholder vertices. The emissive one-shot now requests the same CPU
+reference retention.
+
+Second, a command may become visible to the backend after the corresponding
+frontend capture has already omitted CPU geometry, and the first retained
+frame may not yet have an exact retained previous-position range. The emissive
+one-shot now latches its request once per scene build and consumes value one
+only after every routed instance has exact current and previous CPU ranges.
+
+Third, retaining CPU geometry can change frame-local material slots. The
+cached source-only route is now rebuilt against the current frame's material
+table for all CPU-reference audit frames, not only ordinary omitted-capture
+frames. Validation material lookup also resolves the stable material ID to the
+current table index. This removes stale-index failures without weakening the
+production route: audit-retained routes remain excluded from traversal.
+
+Finally, validation-only emissive publication is permitted while that
+CPU-reference frame intentionally keeps the per-instance BLAS out of the
+production TLAS. The CVar defaults to zero, the injected set remains capped at
+24 records, and output reports
+`defaultProductionBehaviorChanged=0`.
+
+RUNTIME RESULTS
+---------------
+Capture split first accepts:
+
+  routes / descriptors / motion ready  12 / 12 / 12
+  omitted surfaces / verts / indexes   12 / 9,889 / 47,886
+  CPU skin append                       0 ms
+
+The consumer audit at frame 2387 reports:
+
+  live accepted/routes/triangles        1 / 12 / 15,962
+  shadow accepted/routes/triangles      1 / 12 / 15,962
+  live source-only triangles            15,962
+  shadow legacy-mapped triangles        15,962
+  live failure buckets                  all 13 zero
+  shadow failure buckets                all 13 zero
+
+The hit/material/motion audit at frame 3302 reports:
+
+  accepted / motionAccepted             1 / 1
+  dimensions / sample pairs             640x360 / 3,600
+  canonical skinned hits                345
+  comparable / same primitive           318 / 318
+  all 16 mismatch buckets               zero
+  legacy/canonical valid motion         318 / 318
+  max previous-position error           0.000183105469
+
+The emissive audit at frame 4258 reports:
+
+  GPU-output accepted                   1
+  validation-forced materials           1
+  expected/actual current records       772 / 772
+  expected/actual previous records      772 / 772
+  compared current/previous vertices    9,889 / 9,889
+  vertex mismatches                     0 / 0
+  identity/metadata/numeric/remap       0 / 0 / 0 / 0
+  remap valid/previous missing/total    772 / 0 / 772
+  stable/spawn/despawn/identical tests  1 / 1 / 1 / 1
+  publication accepted/work             1 / 24
+  publication compared current/previous 24 / 24
+  publication mismatches                0 / 0 / 0 / 0
+  publication max error                 0.000000954
+  publication pass                      1
+
+The final process remained responsive through a post-audit soak. The raw log
+contains zero matches for:
+
+  device lost
+  device removed
+  VK_ERROR
+  fatal error
+
+BUILD AND DEPLOY
+----------------
+From `neo/`:
+
+  cmake --build --preset win64-pt-dev-release
+
+Result:
+
+  PASS
+  All SPIR-V shaders are up to date.
+
+No shader source changed, so only the executable was deployed. CPU harnesses:
+
+  ctest --test-dir build-win64-pt-dev -C Release --output-on-failure
+  14/14 passed
+
+Executable:
+
+  bytes:   16,083,968
+  SHA-256: C79AE9E0FDFFDBE7B24A85EE3DBA943B84086894B09BB841FD2ED5EE5344A585
+
+The built and deployed executable hashes match.
+
+RAW EVIDENCE
+------------
+Under:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+
+  geometry_geo14_final_consumer_matrix2.log
+    bytes:    216118
+    modified: 2026-07-30 16:01:06 Australia/Sydney
+
+Machine-diffable summary:
+
+  GEO-14_final_consumer_matrix_2026-07-30.csv
+
+DEFAULTS AND REMAINING GATE
+---------------------------
+Unchanged:
+
+  r_pathTracingGeometrySkinnedTlasCompare  0
+  r_pathTracingGeometrySkinnedCaptureSplit 0
+
+Automated lifecycle, update synchronization, capture split, consumer,
+material, motion, and emissive gates are complete. The only remaining GEO-14
+promotion gate is a human visual pass covering portal traversal, PDA,
+characters, materials, motion, and emissives on the final executable.

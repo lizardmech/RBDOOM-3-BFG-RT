@@ -8913,9 +8913,49 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         skinnedEmissiveGpuWork;
     size_t skinnedEmissiveCurrentBase = 0;
     size_t skinnedEmissivePreviousBase = 0;
-    const bool skinnedEmissivePublishValidation =
+    const int skinnedEmissiveAuditCountdown =
         r_pathTracingGeometrySkinnedEmissiveAudit.
-            GetInteger() == 1;
+            GetInteger();
+    const bool skinnedEmissivePublishValidationRequested =
+        skinnedEmissiveAuditCountdown == 1;
+    bool skinnedEmissiveCpuReferenceReady =
+        skinnedEmissivePublishValidationRequested &&
+        !skinnedHitRouteUploadBuild.records.empty();
+    for (const PtSkinnedHitRouteRecord& route :
+        skinnedHitRouteUploadBuild.records)
+    {
+        bool foundCpuReference = false;
+        for (const RtSmokeSkinnedSurfaceRecord& record :
+            currentSkinnedSurfaceRecords)
+        {
+            if (record.canonicalInstance == route.instanceKey)
+            {
+                foundCpuReference =
+                    !record.cpuCaptureOmitted &&
+                    SmokeSkinnedCurrentVertexRangeValid(
+                        record,
+                        dynamicVertexData) &&
+                    record.previousValid &&
+                    record.previousVertexOffset >= 0 &&
+                    record.previousVertexOffset <=
+                        static_cast<int>(
+                            previousSkinnedVertexData.size()) &&
+                    record.vertexCount <=
+                        static_cast<int>(
+                            previousSkinnedVertexData.size()) -
+                            record.previousVertexOffset;
+                break;
+            }
+        }
+        if (!foundCpuReference)
+        {
+            skinnedEmissiveCpuReferenceReady = false;
+            break;
+        }
+    }
+    const bool skinnedEmissivePublishValidation =
+        skinnedEmissivePublishValidationRequested &&
+        skinnedEmissiveCpuReferenceReady;
     int skinnedEmissivePublishValidationForcedMaterials = 0;
     uint32 skinnedEmissivePublishValidationFallbackMaterial =
         UINT32_MAX;
@@ -9343,7 +9383,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         for (const PtSkinnedHitRouteRecord& route :
             skinnedHitRouteUploadBuild.records)
         {
-            if (!SmokeSkinnedCaptureInstanceWasOmitted(
+            if (!skinnedEmissivePublishValidation &&
+                !SmokeSkinnedCaptureInstanceWasOmitted(
                     currentSkinnedSurfaceRecords,
                     route.instanceKey))
             {
@@ -9459,6 +9500,19 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
                 PtSkinnedEmissiveAuditTriangle item = {};
                 item.materialIndex = triangle.materialIndex;
+                if (skinnedEmissivePublishValidation)
+                {
+                    const int currentMaterialIndex =
+                        FindSmokeMaterialTableIndexById(
+                            materialTable,
+                            triangle.materialId);
+                    if (currentMaterialIndex >= 0)
+                    {
+                        item.materialIndex =
+                            static_cast<uint32_t>(
+                                currentMaterialIndex);
+                    }
+                }
                 item.materialId = triangle.materialId;
                 item.instanceId = route.shaderInstanceId;
                 item.primitiveIndex =
@@ -9966,7 +10020,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             emissiveDistribution.totalPdf,
             r_pathTracingEmissiveDistribution.GetInteger());
     }
-    if (captureTiming.skinnedCaptureOmittedSurfaces > 0 &&
+    const bool skinnedCpuReferenceAuditActive =
+        r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0 ||
+        r_pathTracingGeometrySkinnedHitAudit.GetInteger() != 0 ||
+        skinnedEmissiveAuditCountdown != 0;
+    if ((captureTiming.skinnedCaptureOmittedSurfaces > 0 ||
+            skinnedCpuReferenceAuditActive) &&
         canonicalSkinnedSourceOutputRoute &&
         m_smokeSkinnedCurrentOutputVertexBuffer)
     {
@@ -9974,8 +10033,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         // route IDs and per-triangle material indexes belong to the frame in
         // which that view set was last observed. Rebuild those route records
         // from this frame's draw surfaces, rigid-route end, and material table
-        // before creating the upload. This keeps alternating portal sets from
-        // addressing stale current-frame slots.
+        // before creating the upload. Audit-retained CPU geometry can also
+        // change frame-local material slots, even though its source-only route
+        // is excluded from traversal, so refresh those validation frames too.
         const uint64 currentOutputCapacity =
             m_smokeSkinnedCurrentOutputVertexBuffer->
                 getDesc().byteSize;
@@ -11132,7 +11192,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     FinalizeSmokeSkinnedGpuFunnel(skinnedGpuScaffold, skinnedGpuComputeDispatched);
-    if (r_pathTracingGeometrySkinnedEmissiveAudit.GetInteger() == 1 &&
+    if (skinnedEmissivePublishValidation &&
         skinnedGpuComputeDispatched &&
         !skinnedHitRouteUploadBuild.records.empty())
     {
@@ -11140,11 +11200,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         for (const PtSkinnedHitRouteTriangle& triangle :
             skinnedHitRouteUploadBuild.triangles)
         {
-            if (triangle.materialIndex <
-                materialTable.materials.size())
+            const int currentMaterialIndex =
+                FindSmokeMaterialTableIndexById(
+                    materialTable,
+                    triangle.materialId);
+            if (currentMaterialIndex >= 0)
             {
                 routedMaterialIndexes.insert(
-                    triangle.materialIndex);
+                    static_cast<uint32_t>(
+                        currentMaterialIndex));
             }
         }
 
@@ -11241,8 +11305,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     skinnedHitRouteUploadBuild.triangles[
                         static_cast<size_t>(metadataIndex)];
                 PtSkinnedEmissiveAuditTriangle audit = {};
+                const int currentMaterialIndex =
+                    FindSmokeMaterialTableIndexById(
+                        materialTable,
+                        triangle.materialId);
                 audit.materialIndex =
-                    triangle.materialIndex;
+                    currentMaterialIndex >= 0
+                        ? static_cast<uint32_t>(
+                            currentMaterialIndex)
+                        : triangle.materialIndex;
                 audit.materialId = triangle.materialId;
                 audit.instanceId = route.shaderInstanceId;
                 audit.primitiveIndex =
@@ -12524,16 +12595,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<unsigned long long>(shadowAudit.emissiveIdentityCollision));
         r_pathTracingGeometrySkinnedConsumerAudit.SetInteger(0);
     }
-    const int skinnedEmissiveAuditCountdown =
-        r_pathTracingGeometrySkinnedEmissiveAudit.GetInteger();
     if (skinnedEmissiveAuditCountdown > 1 &&
         !skinnedHitRouteUploadBuild.records.empty())
     {
         r_pathTracingGeometrySkinnedEmissiveAudit.SetInteger(
             skinnedEmissiveAuditCountdown - 1);
     }
-    else if (skinnedEmissiveAuditCountdown == 1 &&
-        !skinnedHitRouteUploadBuild.records.empty())
+    else if (skinnedEmissivePublishValidation)
     {
         uint64 emissiveAuditTriangles = 0;
         uint64 emissiveAuditInvalid = 0;
@@ -12568,7 +12636,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 const PtSkinnedHitRouteTriangle& triangle =
                     skinnedHitRouteUploadBuild.triangles[
                         static_cast<size_t>(triangleIndex)];
-                if (triangle.materialIndex >=
+                uint32_t materialIndex =
+                    triangle.materialIndex;
+                if (skinnedEmissivePublishValidation)
+                {
+                    const int currentMaterialIndex =
+                        FindSmokeMaterialTableIndexById(
+                            materialTable,
+                            triangle.materialId);
+                    if (currentMaterialIndex >= 0)
+                    {
+                        materialIndex =
+                            static_cast<uint32_t>(
+                                currentMaterialIndex);
+                    }
+                }
+                if (materialIndex >=
                     materialTable.materials.size())
                 {
                     ++emissiveAuditInvalid;
@@ -12576,9 +12659,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 }
                 const PathTraceSmokeMaterial& material =
                     materialTable.materials[
-                        triangle.materialIndex];
+                        materialIndex];
                 emissiveAuditRoutedMaterials.insert(
-                    triangle.materialIndex);
+                    materialIndex);
                 if ((material.flags &
                         RT_SMOKE_MATERIAL_EMISSIVE) == 0u)
                 {
@@ -12602,7 +12685,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 emissiveAuditInstances.insert(
                     route.instanceHash);
                 emissiveAuditMaterials.insert(
-                    triangle.materialIndex);
+                    materialIndex);
                 if (triangle.emissiveIdentityHash == 0)
                 {
                     ++emissiveAuditZeroIdentity;
@@ -12992,7 +13075,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
 
-    const bool skinnedEmissivePublishAccepted =
+    const bool skinnedEmissiveProductionPublishAccepted =
         skinnedGpuComputeDispatched &&
         !skinnedEmissiveGpuWork.empty() &&
         skinnedTlasPlan.result ==
@@ -13004,6 +13087,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 captureTiming.skinnedCaptureOmittedSurfaces,
                 0)) &&
         captureTiming.skinnedCaptureOmittedSurfaces > 0;
+    const bool skinnedEmissivePublishAccepted =
+        skinnedEmissiveProductionPublishAccepted ||
+        (skinnedEmissivePublishValidation &&
+            skinnedGpuComputeDispatched &&
+            !skinnedEmissiveGpuWork.empty());
     if (!skinnedEmissiveGpuWork.empty())
     {
         for (PathTraceSkinnedEmissiveGpuWork& work :

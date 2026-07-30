@@ -1263,6 +1263,23 @@ The optimization is accepted for extended validation. Defaults remain 0/0.
 Proceed to the complete GEO-09 lifecycle/consumer matrix and human visual
 acceptance. See artifacts/GEO-14_batched_update_handoff.txt.
 
+GEO-14 final automated-consumer result:
+
+The extended lifecycle matrix and final bounded consumers now pass. The final
+candidate accepts 12 live and 12 independent legacy-shadow routes covering
+15,962 triangles with all consumer failure buckets zero; 318 comparable
+same-primitive hit/material/motion samples have all sixteen mismatch buckets
+zero. Canonical GPU emissive output matches 772/772 current and previous
+records, and validation publication matches 24/24 current and previous
+records with zero mismatches.
+
+The audit path retains exact CPU current/previous references, refreshes
+frame-local material indexes by stable material ID, and permits
+validation-only publication without admitting the audit-retained BLAS into
+the production TLAS. These controls default to zero. Automated validation is
+complete; defaults remain 0/0 pending only the human visual pass. See
+artifacts/GEO-14_final_consumer_handoff.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

@@ -176,6 +176,15 @@ GEO-14 FILES
     post-admission legacy-shadow audit contract, unchanged defaults, and final
     promotion gates.
 
+  GEO-14_final_consumer_matrix_2026-07-30.csv
+    Machine-diffable final live/shadow consumer, hit/material/motion, emissive
+    GPU-output, temporal-remap, publication, and error results.
+
+  GEO-14_final_consumer_handoff.txt
+    Self-contained CPU-reference audit repairs, exact final runtime tuples,
+    build/deploy identity, unchanged defaults, and the remaining human visual
+    promotion gate.
+
 NAMING
 ------
 Use:

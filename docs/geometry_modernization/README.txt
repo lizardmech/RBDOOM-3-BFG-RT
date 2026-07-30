@@ -99,5 +99,8 @@ Current execution status (2026-07-30):
   without a device/Vulkan/fatal error. Consumer/hit one-shots now force one
   legacy-capture frame, so a delayed post-admission audit also passes 12 live
   and 12 independent shadow routes covering 15,962 triangles with every
-  failure bucket zero. Defaults remain off pending the remaining bounded
-  material/motion/emissive checks and human visual acceptance.
+  failure bucket zero. The final automated consumer matrix also passes live
+  and shadow consumers, 318 comparable hit/material/motion pairs, 772/772
+  current and previous emissive records, and 24/24 current and previous
+  publication records with every mismatch bucket zero. Defaults remain off;
+  only the required human visual acceptance remains before promotion.

@@ -1,0 +1,6 @@
+case,compare_mode,capture_split,scene,frame,routes,triangles,pairs,comparable,current_expected,current_actual,previous_expected,previous_actual,mismatch_buckets,motion_ready,publication_work,published_compared,max_error,device_vulkan_fatal_errors,result,raw_log
+capture_split_admission,1,1,doom3_1,1116,12,15962,NA,NA,NA,NA,NA,NA,NA,12,NA,NA,NA,0,PASS,geometry_geo14_final_consumer_matrix2.log
+live_and_legacy_consumer,1,1,doom3_1,2387,12,15962,NA,NA,NA,NA,NA,NA,0,12,NA,NA,NA,0,PASS_BOTH,geometry_geo14_final_consumer_matrix2.log
+hit_material_motion,1,1,doom3_1,3302,12,NA,3600,318,NA,NA,NA,NA,0,318,NA,NA,0.000183105469,0,PASS,geometry_geo14_final_consumer_matrix2.log
+emissive_gpu_output,1,1,doom3_1,4258,12,15962,NA,NA,772,772,772,772,0,772,24,NA,0.000373840332,0,PASS,geometry_geo14_final_consumer_matrix2.log
+emissive_publication,1,1,doom3_1,4258,12,15962,NA,NA,772,772,772,772,0,24,24,24,0.000000954,0,PASS,geometry_geo14_final_consumer_matrix2.log
