@@ -32,6 +32,7 @@
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSkinnedConsumerAudit.h"
+#include "PathTraceSkinnedAttributeDeriveSurvey.h"
 #include "PathTraceSkinnedHitRoute.h"
 #include "PathTraceSkinnedHistoryPolicy.h"
 #include "PathTraceSkinning.h"
@@ -357,6 +358,231 @@ void DumpRenderedAttributeSurvey(
             stats.tangentOct16MaxAngularErrorDegrees,
             record.modelName.c_str(),
             record.materialName.c_str());
+    }
+}
+
+void DumpSkinnedAttributeDeriveSurvey(
+    const RtSmokeGeometryUniverse& geometryUniverse,
+    const std::vector<RtSmokeSkinnedSurfaceRecord>& skinnedRecords,
+    const std::vector<PathTraceSmokeVertex>& currentVertices)
+{
+    struct SurveyRow
+    {
+        int entityIndex = -1;
+        int modelSurfaceIndex = -1;
+        idStr modelName;
+        PtSkinnedAttributeDeriveSurveyStats stats;
+    };
+
+    PtSkinnedAttributeDeriveSurveyStats totals;
+    std::vector<SurveyRow> rows;
+    std::uint64_t missingIdentity = 0;
+    std::uint64_t invalidSource = 0;
+    std::uint64_t invalidCurrentRange = 0;
+
+    for (const RtSmokeSkinnedSurfaceRecord& record : skinnedRecords)
+    {
+        const PtGeometryIdentityBinding* binding =
+            geometryUniverse.FindCanonicalIdentityBinding(
+                record.canonicalInstance);
+        if (binding == nullptr)
+        {
+            ++missingIdentity;
+            continue;
+        }
+        const PtGeometrySourceRecord* source =
+            geometryUniverse.FindCanonicalSourceRecord(
+                binding->meshKey);
+        if (source == nullptr ||
+            source->key.sourceDomain !=
+                PtCanonicalMeshSourceDomain::SkinnedBindSource ||
+            source->payload.positions.size() !=
+                static_cast<size_t>(Max(record.vertexCount, 0)) ||
+            source->payload.AttributeCount() !=
+                source->payload.positions.size() ||
+            source->payload.indexes.empty() ||
+            (source->payload.indexes.size() % 3u) != 0u)
+        {
+            ++invalidSource;
+            continue;
+        }
+        if (record.currentVertexOffset < 0 ||
+            record.vertexCount <= 0 ||
+            static_cast<size_t>(record.currentVertexOffset) >
+                currentVertices.size() ||
+            static_cast<size_t>(record.vertexCount) >
+                currentVertices.size() -
+                    static_cast<size_t>(record.currentVertexOffset))
+        {
+            ++invalidCurrentRange;
+            continue;
+        }
+
+        std::vector<PtSkinnedAttributeDeriveSourceVertex>
+            sourceValues(source->payload.positions.size());
+        bool decoded = true;
+        for (size_t vertexIndex = 0;
+            vertexIndex < sourceValues.size();
+            ++vertexIndex)
+        {
+            PtGeometrySourceAttribute attribute;
+            if (!source->payload.DecodeAttribute(
+                    vertexIndex,
+                    attribute))
+            {
+                decoded = false;
+                break;
+            }
+            PtSkinnedAttributeDeriveSourceVertex& destination =
+                sourceValues[vertexIndex];
+            memcpy(
+                destination.position,
+                source->payload.positions[vertexIndex].xyz,
+                sizeof(destination.position));
+            memcpy(
+                destination.normal,
+                attribute.normal,
+                sizeof(destination.normal));
+            memcpy(
+                destination.tangent,
+                attribute.tangent,
+                sizeof(destination.tangent));
+        }
+        if (!decoded)
+        {
+            ++invalidSource;
+            continue;
+        }
+
+        std::vector<PtSkinnedAttributeDeriveCurrentVertex>
+            currentValues(static_cast<size_t>(record.vertexCount));
+        for (size_t vertexIndex = 0;
+            vertexIndex < currentValues.size();
+            ++vertexIndex)
+        {
+            const PathTraceSmokeVertex& sourceVertex =
+                currentVertices[
+                    static_cast<size_t>(record.currentVertexOffset) +
+                    vertexIndex];
+            PtSkinnedAttributeDeriveCurrentVertex& destination =
+                currentValues[vertexIndex];
+            memcpy(
+                destination.position,
+                sourceVertex.position,
+                sizeof(destination.position));
+            memcpy(
+                destination.normal,
+                sourceVertex.normal,
+                sizeof(destination.normal));
+            memcpy(
+                destination.tangent,
+                sourceVertex.tangent,
+                sizeof(destination.tangent));
+        }
+
+        SurveyRow row;
+        row.entityIndex = record.entityIndex;
+        row.modelSurfaceIndex = record.modelSurfaceIndex;
+        row.modelName = record.modelName;
+        PtSurveySkinnedAttributeDerivation(
+            sourceValues.data(),
+            sourceValues.size(),
+            currentValues.data(),
+            currentValues.size(),
+            source->payload.indexes.data(),
+            source->payload.indexes.size(),
+            row.stats);
+        PtAccumulateSkinnedAttributeDeriveSurvey(
+            row.stats,
+            totals);
+        rows.push_back(row);
+    }
+
+    std::sort(
+        rows.begin(),
+        rows.end(),
+        [](const SurveyRow& a, const SurveyRow& b)
+        {
+            const float aWorst = Max(
+                a.stats.transportedNormalMaxErrorDegrees,
+                a.stats.transportedTangentMaxErrorDegrees);
+            const float bWorst = Max(
+                b.stats.transportedNormalMaxErrorDegrees,
+                b.stats.transportedTangentMaxErrorDegrees);
+            return aWorst > bWorst;
+        });
+
+    common->Printf(
+        "PathTracePrimaryPass: GEO12 Q2 skinned derive survey candidate=bind-triangle-orthonormal-frame-delta accepted/rejected=%llu/%llu rejects(identity/source/currentRange)=%llu/%llu/%llu vertices(source/current)=%llu/%llu indexes=%llu triangles(requested/sampled/invalidIndex/degenerateBind/degenerateCurrent)=%llu/%llu/%llu/%llu/%llu corners(sampled/invalidDirection)=%llu/%llu\n",
+        static_cast<unsigned long long>(totals.surfaceCount),
+        static_cast<unsigned long long>(
+            missingIdentity + invalidSource + invalidCurrentRange),
+        static_cast<unsigned long long>(missingIdentity),
+        static_cast<unsigned long long>(invalidSource),
+        static_cast<unsigned long long>(invalidCurrentRange),
+        static_cast<unsigned long long>(totals.sourceVertexCount),
+        static_cast<unsigned long long>(totals.currentVertexCount),
+        static_cast<unsigned long long>(totals.indexCount),
+        static_cast<unsigned long long>(totals.requestedTriangleCount),
+        static_cast<unsigned long long>(totals.sampledTriangleCount),
+        static_cast<unsigned long long>(totals.invalidIndexTriangles),
+        static_cast<unsigned long long>(totals.degenerateBindTriangles),
+        static_cast<unsigned long long>(totals.degenerateCurrentTriangles),
+        static_cast<unsigned long long>(totals.cornerSampleCount),
+        static_cast<unsigned long long>(totals.invalidDirectionCorners));
+    common->Printf(
+        "PathTracePrimaryPass: GEO12 Q2 skinned derive errorDegrees geometricNormal(rms/max)=%.9g/%.9g transportedNormal(rms/max/over1/over5/over10)=%0.9g/%.9g/%llu/%llu/%llu transportedTangent=%0.9g/%.9g/%llu/%llu/%llu\n",
+        PtSkinnedAttributeDeriveGeometricNormalRmsDegrees(totals),
+        totals.geometricNormalMaxErrorDegrees,
+        PtSkinnedAttributeDeriveTransportedNormalRmsDegrees(totals),
+        totals.transportedNormalMaxErrorDegrees,
+        static_cast<unsigned long long>(
+            totals.transportedNormalOver1Degree),
+        static_cast<unsigned long long>(
+            totals.transportedNormalOver5Degrees),
+        static_cast<unsigned long long>(
+            totals.transportedNormalOver10Degrees),
+        PtSkinnedAttributeDeriveTransportedTangentRmsDegrees(totals),
+        totals.transportedTangentMaxErrorDegrees,
+        static_cast<unsigned long long>(
+            totals.transportedTangentOver1Degree),
+        static_cast<unsigned long long>(
+            totals.transportedTangentOver5Degrees),
+        static_cast<unsigned long long>(
+            totals.transportedTangentOver10Degrees));
+    common->Printf(
+        "PathTracePrimaryPass: GEO12 Q2 skinned derive bytes currentPerFrameBasisWrite=%llu candidatePersistentCornerDeltaOct16=%llu currentBasisBytesPerVertex=48 candidateBytesPerCorner=8 accounting=different-lifetimes-no-combined-savings-claim\n",
+        static_cast<unsigned long long>(totals.currentBasisWriteBytes),
+        static_cast<unsigned long long>(totals.candidateCornerDeltaBytes));
+
+    const int rowCount =
+        Min(static_cast<int>(rows.size()), 16);
+    for (int rowIndex = 0; rowIndex < rowCount; ++rowIndex)
+    {
+        const SurveyRow& row =
+            rows[static_cast<size_t>(rowIndex)];
+        common->Printf(
+            "PathTracePrimaryPass: GEO12 Q2 skinned derive row=%d entity/surface=%d/%d verts/indexes=%llu/%llu corners=%llu normal(rms/max/over1)=%0.7g/%.7g/%llu tangent=%0.7g/%.7g/%llu model='%s'\n",
+            rowIndex + 1,
+            row.entityIndex,
+            row.modelSurfaceIndex,
+            static_cast<unsigned long long>(
+                row.stats.currentVertexCount),
+            static_cast<unsigned long long>(
+                row.stats.indexCount),
+            static_cast<unsigned long long>(
+                row.stats.cornerSampleCount),
+            PtSkinnedAttributeDeriveTransportedNormalRmsDegrees(
+                row.stats),
+            row.stats.transportedNormalMaxErrorDegrees,
+            static_cast<unsigned long long>(
+                row.stats.transportedNormalOver1Degree),
+            PtSkinnedAttributeDeriveTransportedTangentRmsDegrees(
+                row.stats),
+            row.stats.transportedTangentMaxErrorDegrees,
+            static_cast<unsigned long long>(
+                row.stats.transportedTangentOver1Degree),
+            row.modelName.c_str());
     }
 }
 
@@ -8782,6 +9008,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             dynamicVertexData,
             currentCapturedSurfaceRecords);
         r_pathTracingGeometryRenderedAttributeSurveyDump.
+            SetInteger(0);
+    }
+    if (r_pathTracingGeometrySkinnedAttributeDeriveDump.
+            GetInteger() != 0)
+    {
+        DumpSkinnedAttributeDeriveSurvey(
+            m_smokeGeometryUniverse,
+            currentSkinnedSurfaceRecords,
+            dynamicVertexData);
+        r_pathTracingGeometrySkinnedAttributeDeriveDump.
             SetInteger(0);
     }
     {

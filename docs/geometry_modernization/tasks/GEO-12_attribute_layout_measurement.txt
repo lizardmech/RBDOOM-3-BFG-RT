@@ -198,3 +198,46 @@ losses, or abnormal shutdowns in either new log.
 The color-only encoding is accepted. The CVar remains default off so that
 promotion stays an explicit later change rather than being hidden in the
 measurement checkpoint.
+
+Q2 WRITE-VS-DERIVE CLOSURE
+--------------------------
+The post-packet Q2 continuation tests the least invasive concrete version of
+"geometric normal plus stored deltas" before introducing any shader ABI. For
+each exact skinned source triangle, it expresses the bind normal and tangent in
+an orthonormal bind-triangle frame, reconstructs those directions in the exact
+posed-triangle frame, and compares them with the current full-fidelity
+CPU-skinned output. This is an unquantized best case: a packed implementation
+could only add error.
+
+The one-shot command is:
+
+  r_pathTracingGeometrySkinnedAttributeDeriveDump 1
+
+It forces one existing CPU reference-capture frame, observes only value-owned
+canonical source/index data and the exact posed output, then restores the
+production capture split. It never uploads or routes the derived values.
+
+`geometry_q2_derive.log` covers 12/12 surfaces, 9,889 vertices, 47,886 indexes,
+15,962 triangles, and 47,886 corners with no identity, source, range, index,
+degenerate-triangle, or direction rejection. The candidate yields:
+
+  transported normal   RMS 12.5543 degrees, max 178.7222 degrees
+  transported tangent  RMS  9.7922 degrees, max 137.4259 degrees
+  above 10 degrees     7,348 normals / 6,812 tangents
+
+The single-bone chair and rigid-like small head surfaces remain within about
+0.03 degrees, while Fatzombie and articulated suit surfaces dominate the
+failure. That control rules out a general topology/address mismatch and shows
+that triangle-frame transport does not reproduce linear-blend-skinned basis
+directions under true deformation.
+
+The current basis write is 474,672 bytes per frame in this scene. An optimistic
+two-oct16-direction delta at every triangle corner would retain 383,088 bytes
+before alignment/metadata and before accounting for the already-rejected
+bitangent derivation. Because numeric fidelity fails first, no shader timing
+variant or hit-path fan-out is authorized. Q2 is resolved in favor of writing
+normal, tangent, and bitangent once in the skinning compute.
+
+Detailed contract and evidence:
+
+  ../artifacts/GEO-12_q2_write_vs_derive_2026-07-30.txt

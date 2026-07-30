@@ -153,6 +153,10 @@ GEO-13 FILES
     narrow monolithic fail-closed decision, CPU test, build/deploy identity,
     and re-admission requirements.
 
+  GEO-12_q2_write_vs_derive_2026-07-30.txt
+    Post-packet exact posed-frame normal/tangent derivation survey, numeric
+    rejection, byte accounting, retained write-once contract, and Q2 closure.
+
 GEO-14 FILES
 ------------
   GEO-14_update_barrier_2026-07-30.csv

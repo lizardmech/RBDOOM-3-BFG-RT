@@ -1318,6 +1318,18 @@ for this intersection only after a GPU-cause investigation and extended
 out-and-back glass soak. See
 artifacts/GEO-13_gi_refracted_route_guard_2026-07-30.txt.
 
+Post-packet Q2 closure:
+
+The first still-open low-risk storage decision is now measured without a new
+shader route. Exact canonical bind triangles and one forced CPU-reference posed
+frame test an unquantized bind-triangle-frame normal/tangent reconstruction.
+Across 47,886 valid corners it produces 12.55-degree normal RMS and 9.79-degree
+tangent RMS; articulated Fatzombie and suit surfaces fail while single-bone
+controls remain essentially exact. The candidate is rejected before shader
+timing or ABI work. Continue writing the posed normal/tangent/bitangent once in
+the skinning compute. See D185 and
+artifacts/GEO-12_q2_write_vs_derive_2026-07-30.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

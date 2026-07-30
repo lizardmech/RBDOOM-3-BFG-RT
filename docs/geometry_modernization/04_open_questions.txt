@@ -16,6 +16,13 @@ Q2. Does hit shading want skinned NORMALS/TANGENTS recomputed per frame in
     the skinning compute (extra bandwidth) or derived in-shader from
     geometric normal + stored deltas? Measure; default assumption is the
     skinning compute writes them.
+    RESOLVED 2026-07-30 by D185: retain the default assumption. An
+    unquantized best-case bind-triangle-frame transport measured 12.55 degree
+    normal RMS and 9.79 degree tangent RMS over 47,886 posed corners, with
+    15.34/14.23 percent above 10 degrees. Single-bone surfaces reconstruct
+    essentially exactly, localizing the failure to true deformation rather
+    than range/index mismatch. Do not move this reconstruction into hit
+    shaders.
 Q3. Index pooling: shared uint32 pool vs per-mesh buffers. Pool assumed;
     verify BLAS build performance is insensitive to index buffer offsets.
 Q4. Scene-origin anchoring: the current capture re-anchors world-space data

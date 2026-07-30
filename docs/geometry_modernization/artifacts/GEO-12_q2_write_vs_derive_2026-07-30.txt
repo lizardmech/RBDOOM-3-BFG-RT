@@ -1,0 +1,184 @@
+GEO-12 / Q2 skinned write-vs-derive measurement
+================================================
+Date: 2026-07-30
+Status: candidate rejected on numeric fidelity; current write path retained
+
+QUESTION
+--------
+Q2 asked whether the PT skinning compute should continue writing posed normal
+and tangent data once per vertex per frame, or whether hit shading could derive
+the basis from the posed geometric triangle plus immutable stored deltas.
+
+This artifact settles the first concrete and least invasive derivation shape.
+It does not change the production vertex ABI or claim that every imaginable
+compression has been disproved.
+
+CANDIDATE CONTRACT
+------------------
+For every triangle corner:
+
+  1. Construct an orthonormal frame from the canonical bind triangle.
+  2. Express the canonical source normal and tangent in that frame.
+  3. Construct the corresponding orthonormal frame from the exact current
+     posed triangle.
+  4. Reconstruct the two directions from the same coefficients.
+  5. Compare them with the current full-fidelity linear-blend-skinned output.
+
+The survey uses unquantized float directions. It is therefore a best case for
+a stored-delta implementation. The reported eight bytes per corner model two
+signed oct16 direction coefficients only for storage accounting; quantization
+is not applied to the error result.
+
+The diagnostic is pure observation:
+
+  r_pathTracingGeometrySkinnedAttributeDeriveDump 1
+
+It adds this request to the existing one-frame CPU-reference capture condition,
+then resets itself after printing. It does not upload derived data, change
+BLAS/TLAS input, alter hit reconstruction, or change a production default.
+
+IMPLEMENTATION
+--------------
+  neo/renderer/NVRHI/PathTraceSkinnedAttributeDeriveSurvey.h
+  neo/renderer/NVRHI/PathTraceSkinnedAttributeDeriveSurvey.cpp
+  neo/tests/pathtrace_skinned_attribute_derive_survey_harness.cpp
+
+The renderer joins each current skinned record to its exact canonical mesh
+binding, decodes the value-owned source attributes, uses source-local indexes,
+and validates the current CPU-reference vertex range. It prints aggregate
+counts plus the 16 worst surfaces.
+
+OFFLINE VERIFICATION
+--------------------
+  PathTraceSkinnedAttributeDeriveSurveyHarness  PASS
+  cmake --build --preset win64-pt-dev-release  PASS
+  Vulkan SPIR-V                                 all up to date
+  shader source edits                           none
+
+The harness covers:
+
+  - exact rigid-frame transport of a deliberately smooth normal;
+  - a non-rigid deformation mismatch entering the angular buckets;
+  - invalid index and degenerate-triangle fail-closed behavior;
+  - exact sample-weighted aggregate RMS.
+
+RUNTIME METHOD
+--------------
+Executable:
+
+  E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+
+Deployed:
+
+  E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Both copies:
+
+  bytes: 16,104,960
+  SHA-256: 7C72CBDD3E64A76072428B33089FFB45AB790589D401F9AD95181E5F2E965164
+
+Run:
+
+  - Vulkan, PT scene source 3, 640x360;
+  - clean DI beauty view 16;
+  - clean GI disabled;
+  - static bucket route explicitly disabled;
+  - prepared `doom3_1` save;
+  - trigger the one-shot after the canonical skinned route stabilizes.
+
+The game reached the prepared save, emitted the survey, continued rendering,
+and performed normal map/render-system shutdown. No device-removed, Vulkan,
+fatal, or survey contract error was printed.
+
+RAW LOG
+-------
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_q2_derive.log
+  bytes: 184,493
+  modified: 2026-07-30 21:18:39 Australia/Sydney
+
+EXACT AGGREGATE
+---------------
+  accepted/rejected surfaces                 12 / 0
+  missing identity/source/current range       0 / 0 / 0
+  source/current vertices                     9,889 / 9,889
+  indexes                                    47,886
+  requested/sampled triangles                15,962 / 15,962
+  invalid index triangles                     0
+  degenerate bind/current triangles           0 / 0
+  sampled/invalid-direction corners          47,886 / 0
+
+  geometric normal RMS/max                  160.9610 / 180.0000 degrees
+  transported normal RMS/max                 12.5543 / 178.7222 degrees
+  transported tangent RMS/max                 9.7922 / 137.4259 degrees
+
+  normal over 1 / 5 / 10 degrees             23,866 / 13,628 / 7,348
+  normal percentage over 1 / 5 / 10           49.84 / 28.46 / 15.34
+  tangent over 1 / 5 / 10                    23,667 / 12,872 / 6,812
+  tangent percentage over 1 / 5 / 10          49.42 / 26.88 / 14.23
+
+CONTROL INTERPRETATION
+----------------------
+Rigid-like surfaces validate the join and frame math:
+
+  soft_desk_chair2, 477 vertices:
+    normal RMS/max  0.00297 / 0.02798 degrees
+    tangent RMS/max 0.00314 / 0.02798 degrees
+
+  small head surfaces:
+    maximum about 0.03 degrees
+
+True deformers reject the candidate:
+
+  each zfat surface, 3,050 vertices / 15,288 corners:
+    normal RMS about 13.0-13.85 degrees
+    tangent RMS about 9.61-10.05 degrees
+    normal maximum 178.72 degrees
+
+  suit surface 5, 536 vertices / 2,334 corners:
+    normal RMS/max  23.71 / 169.57 degrees
+    tangent RMS/max 20.07 / 137.43 degrees
+
+The fact that the same exact machinery is sub-degree on single-bone and
+rigid-like surfaces but fails on articulated surfaces localizes the error to
+the reconstruction model under deformation, rather than a source-index,
+current-range, coordinate-space, or general winding mismatch.
+
+BYTE ACCOUNTING
+---------------
+Current PathTraceSmokeVertex writes three float4 basis values:
+
+  9,889 vertices * 48 bytes = 474,672 bytes per frame
+
+An optimistic precomputed candidate stores two oct16 directions per corner:
+
+  47,886 corners * 8 bytes = 383,088 persistent bytes
+
+These have different lifetimes and must not be subtracted as a combined saving.
+The candidate storage is already 80.71 percent of the avoided per-frame write
+count before alignment, route metadata, and hit-fetch cost. Recomputing the
+coefficients instead would avoid that storage only by adding canonical source
+reads and bind-frame construction to every hit.
+
+The 474,672-byte write figure is also optimistic: it assumes bitangent can be
+derived. GEO-12's representative rendered survey independently found four
+invalid bitangent reconstructions and a 10.6427-degree valid maximum, so a
+fidelity-preserving implementation may save only the 32 normal/tangent bytes
+per vertex while retaining bitangent output.
+
+DECISION
+--------
+Reject this triangle-frame derivation before shader implementation or timing.
+Its unquantized numeric error is far outside the full-fidelity reference on
+the exact monsters and characters Q2 needs to serve, while its best-case byte
+shape is not compelling enough to justify per-hit source/frame work.
+
+Retain the established production contract:
+
+  - skin positions, normal, tangent, and bitangent once per vertex per frame;
+  - write the existing 112-byte PathTraceSmokeVertex output;
+  - let all hit families consume the same posed basis;
+  - do not add another source/delta descriptor or decode path.
+
+This resolves Q2 for the proposed geometric-frame/stored-delta alternative.
+Future representation work must propose a different exact reconstruction and
+pass a pure numeric survey before any shader fan-out or performance A/B.

@@ -4635,10 +4635,50 @@ Evidence:
 
   artifacts/GEO-13_gi_refracted_route_guard_2026-07-30.txt
 
+D185. WRITE THE SKINNED BASIS ONCE; REJECT TRIANGLE-FRAME HIT DERIVATION
+-------------------------------------------------------------------------
+Q2's proposed alternative was underspecified until the current canonical
+source and exact posed CPU-reference paths both existed. The measured candidate
+is now concrete: express each bind normal and tangent in its source triangle's
+orthonormal frame, reconstruct it in the corresponding posed triangle frame,
+and compare it against the current full-fidelity linear-blend-skinned basis.
+This is an unquantized best case for "geometric normal plus stored deltas"; a
+packed shader implementation cannot improve its numeric result.
+
+The one-shot prepared-save run accepts all 12 surfaces, 9,889 vertices, 47,886
+indexes, 15,962 triangles, and 47,886 corners. It reports zero missing
+identity/source/current range, invalid index, degenerate triangle, or invalid
+direction. Transported normals are 12.5543 degrees RMS with a 178.7222-degree
+maximum; transported tangents are 9.7922 degrees RMS with a 137.4259-degree
+maximum. 7,348 normals and 6,812 tangents exceed 10 degrees.
+
+The single-bone chair and rigid-like small head surfaces reconstruct within
+about 0.03 degrees. Fatzombie and articulated suit surfaces dominate the
+failure. The same source/index/address machinery therefore succeeds for rigid
+motion and fails specifically under true deformation; this is not evidence of
+a general route mismatch.
+
+The current normal/tangent/bitangent output accounts for an optimistic 474,672
+bytes of per-frame writes in this scene. Precomputed two-oct16 direction deltas
+at every triangle corner would retain 383,088 bytes before alignment and
+metadata. Alternatively recomputing those deltas in hit shaders would require
+canonical source reads and bind-frame construction on every hit. Both shapes
+also inherit GEO-12's independent bitangent-reconstruction failures.
+
+Numeric fidelity is the first acceptance gate, so no shader timing variant is
+authorized. Keep normal, tangent, and bitangent written once by the skinning
+compute and consumed through the established 112-byte output ABI. The one-shot
+survey remains observation-only for future representation research.
+
+Evidence:
+
+  artifacts/GEO-12_q2_write_vs_derive_2026-07-30.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
-  Q2  OPEN, owned by GEO-07/GEO-12: measure write-vs-derive attributes.
+  Q2  RESOLVED by D185: write the posed basis once; reject triangle-frame
+      hit derivation on numeric fidelity before shader timing.
   Q3  OPEN, owned by GEO-06: offset BLAS-build microbenchmark.
   Q4  OPEN, owned by GEO-04/GEO-06: enumerate sceneOrigin consumers first.
   Q5  RESOLVED by D18: staged compact GPU joint array for the first cut.

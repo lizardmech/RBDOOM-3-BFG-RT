@@ -66,6 +66,7 @@ extern idCVar r_pathTracingGeometryStaticResidentSurfaceBudget;
 extern idCVar r_pathTracingGeometryAdmissionDump;
 extern idCVar r_pathTracingGeometryAttributeSurveyDump;
 extern idCVar r_pathTracingGeometryRenderedAttributeSurveyDump;
+extern idCVar r_pathTracingGeometrySkinnedAttributeDeriveDump;
 extern idCVar r_pathTracingGeometrySourceColorUnorm8;
 extern idCVar r_pathTracingGeometryCanonicalRigidBlas;
 extern idCVar r_pathTracingGeometryCanonicalRigidBlasBuildsPerFrame;

@@ -119,3 +119,10 @@ Current execution status (2026-07-30):
   only for that intersection. Route one remains the default and remains
   admitted for the separately accepted consumers. See D184 and
   artifacts/GEO-13_gi_refracted_route_guard_2026-07-30.txt.
+
+  The first post-packet open storage question is also closed. A numeric survey
+  rejects deriving posed skinned normal/tangent data from bind-triangle deltas
+  in hit shaders: articulated surfaces show double-digit RMS error while
+  single-bone controls remain exact. The production skinning compute continues
+  to write the full posed basis once. See D185 and
+  artifacts/GEO-12_q2_write_vs_derive_2026-07-30.txt.

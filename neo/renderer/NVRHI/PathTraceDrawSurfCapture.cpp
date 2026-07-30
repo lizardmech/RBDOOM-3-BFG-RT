@@ -1025,7 +1025,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     const bool skinnedCpuReferenceAuditRequested =
         r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0 ||
         r_pathTracingGeometrySkinnedHitAudit.GetInteger() != 0 ||
-        r_pathTracingGeometrySkinnedEmissiveAudit.GetInteger() != 0;
+        r_pathTracingGeometrySkinnedEmissiveAudit.GetInteger() != 0 ||
+        r_pathTracingGeometrySkinnedAttributeDeriveDump.GetInteger() != 0;
     const bool skinnedCaptureSplitGate =
         r_pathTracingGeometrySkinnedCaptureSplit.GetInteger() != 0 &&
         r_pathTracingGeometrySkinnedTlasCompare.GetInteger() != 0 &&

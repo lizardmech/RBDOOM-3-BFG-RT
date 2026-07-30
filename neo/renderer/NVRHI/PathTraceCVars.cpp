@@ -357,6 +357,12 @@ idCVar r_pathTracingGeometryRenderedAttributeSurveyDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to a 1-based page for one bounded GEO-12 final rendered static/dynamic attribute survey; measurement only" );
 
+idCVar r_pathTracingGeometrySkinnedAttributeDeriveDump(
+    "r_pathTracingGeometrySkinnedAttributeDeriveDump",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "One-shot GEO-12/Q2 exact posed-frame survey of geometric-frame transported skinned normal/tangent reconstruction; measurement only" );
+
 idCVar r_pathTracingGeometrySourceColorUnorm8(
     "r_pathTracingGeometrySourceColorUnorm8",
     "0",
