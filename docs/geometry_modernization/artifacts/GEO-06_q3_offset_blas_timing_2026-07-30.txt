@@ -1,0 +1,115 @@
+GEO-06 / Q3 pooled index-offset BLAS timing
+===========================================
+Date: 2026-07-30
+Status: accepted; retain the shared uint32 index pool
+
+QUESTION
+--------
+Q3 asks whether Vulkan BLAS build performance is sensitive to a mesh's
+non-zero byte offset inside a shared uint32 index pool. GEO-06 already proved
+correct non-zero-offset addressing, but its `buildSubmitUs` value is CPU
+command-recording time for one build and cannot answer the GPU performance
+question.
+
+CONTROLLED EXPERIMENT
+---------------------
+The default-off command is:
+
+  r_pathTracingGeometryOffsetBlasTiming 64
+
+The diagnostic selects the largest eligible canonical mesh whose production
+pool records all have non-zero offsets. It copies that mesh's exact local
+uint32 index stream twice into one scratch index buffer:
+
+  control range     byte offset 0
+  treatment range   byte offset 61,184
+
+The ranges do not overlap and contain identical bytes. Both BLAS descriptors
+use the same canonical pooled vertex buffer and vertex offset, vertex/index
+counts, formats, strides, topology, and PreferFastTrace build flag. Only
+`GeometryTriangles.indexOffset` differs. Each successive pair reverses build
+order. Neither result is placed in a TLAS or used by a shader.
+
+Each build has its own NVRHI Vulkan GPU timer query. Query polling begins after
+four frames. The scratch buffer and two BLASes enter the existing GEO-11 rigid
+GPU-event retirement path only after every query resolves.
+
+BUILD AND DEPLOY
+----------------
+  cmake --build --preset win64-pt-dev-release  PASS
+  Vulkan SPIR-V                                 all up to date
+  shader source edits                           none
+
+Built and deployed executable:
+
+  SHA-256: AE1C429D76A32B6470DFEC80FB9E0F2D5D9BCA3DF7BA2684AAAB145677EB1DF7
+
+The build and prebuilt copies have identical hashes.
+
+RUNTIME EVIDENCE
+----------------
+Raw log:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_q3_offset.log
+  bytes: 89,171
+  modified: 2026-07-30 21:50:33 Australia/Sydney
+  SHA-256: 8BDAAAE8F56F70F543A2FF7273658AE73E35C358984A912BB2F96417E856AC17
+
+The prepared `doom3_1` save used Vulkan, the established low-resolution
+diagnostic launch, monolithic static traversal, and no bucket shader route.
+The run completed normal game-map and renderer shutdown. There is no
+device-removed, VK_ERROR, fatal, timer failure, or resource failure in the log.
+
+EXACT WORKLOAD
+--------------
+  candidate signature                    17,318,596,245,967,070,437
+  source pooled vertex offset                         647,316 bytes
+  tested scratch index offset                          61,184 bytes
+  vertices / indexes / primitives              3,050 / 15,288 / 5,096
+  requested / submitted pairs                            64 / 64
+  completed timer queries                                  128
+  warm-up / measured pairs                                4 / 60
+  invalid measured pairs                                       0
+  timer-create / resource-create failures                   0 / 0
+
+RESULTS
+-------
+Microseconds:
+
+                    mean       median       p95         min         max
+  zero offset       254.5424   254.9440     262.7200    245.4720    264.5440
+  non-zero offset   254.4805   254.7200     262.6240    244.2240    265.1200
+
+The non-zero-minus-zero changes are:
+
+  difference of means                         -0.0243 percent
+  difference of distribution medians          -0.0879 percent
+  mean paired percentage                       +0.0229 percent
+  median paired percentage                     +0.005855 percent
+  paired p95 / min / max                  +4.823 / -7.097 / +6.546 percent
+
+ORDER CONTROL
+-------------
+The relatively wide per-pair tails are an ordering effect:
+
+  zero-offset built first:
+    paired non-zero-minus-zero median          -1.6805 percent
+
+  non-zero-offset built first:
+    paired non-zero-minus-zero median          +2.1415 percent
+
+The second build tends to be faster regardless of which offset it uses.
+Alternating order balances that cache/scheduling effect. The aggregate means,
+medians, and p95 values then agree to substantially less than one tenth of one
+percent.
+
+DECISION
+--------
+There is no measurable Vulkan BLAS-build penalty attributable to the non-zero
+index offset in this controlled workload. Retain the shared uint32 index pool
+and its checked per-record byte offsets. Do not introduce per-mesh index
+buffers to improve BLAS build time.
+
+This experiment isolates index offset only. It does not claim that source
+upload, allocation, or pool growth are free; those remain governed by GEO-06's
+separate immutable-upload and generation-safe growth contracts.

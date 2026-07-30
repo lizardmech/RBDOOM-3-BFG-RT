@@ -2278,6 +2278,8 @@ void PathTracePrimaryPass::PushRetiredRigidGpuResources(
         resources.canonicalBlasCount;
     package.resources.canonicalPoolBufferCount =
         resources.canonicalPoolBufferCount;
+    package.resources.canonicalProbeBufferCount =
+        resources.canonicalProbeBufferCount;
     package.resources.canonicalProbeBlasCount =
         resources.canonicalProbeBlasCount;
     resources = RtSmokeRetiredRigidGpuResources();
@@ -2295,6 +2297,7 @@ int PathTracePrimaryPass::ReleaseCompletedRetiredRigidGpuResources(
     int releasedLegacyBlases = 0;
     int releasedCanonicalBlases = 0;
     int releasedCanonicalPoolBuffers = 0;
+    int releasedCanonicalProbeBuffers = 0;
     int releasedCanonicalProbeBlases = 0;
     int releasedBlasResultQueryFailures = 0;
     uint64 releasedBufferBytes = 0;
@@ -2329,6 +2332,8 @@ int PathTracePrimaryPass::ReleaseCompletedRetiredRigidGpuResources(
             package.resources.canonicalBlasCount;
         releasedCanonicalPoolBuffers +=
             package.resources.canonicalPoolBufferCount;
+        releasedCanonicalProbeBuffers +=
+            package.resources.canonicalProbeBufferCount;
         releasedCanonicalProbeBlases +=
             package.resources.canonicalProbeBlasCount;
         releasedBlasResultQueryFailures +=
@@ -2341,7 +2346,7 @@ int PathTracePrimaryPass::ReleaseCompletedRetiredRigidGpuResources(
     if (releasedPackages > 0)
     {
         common->Printf(
-            "PathTracePrimaryPass: GEO11 rigid retirement released packages=%d buffers/blases=%d/%d source(legacyBuffers/legacyBlases/canonicalBlases/poolBuffers/probeBlases)=%d/%d/%d/%d/%d resultQueryFailures=%d bytes(buffer/result)=%llu/%llu completedToken=%llu pending=%zu authority=gpu-event-query\n",
+            "PathTracePrimaryPass: GEO11 rigid retirement released packages=%d buffers/blases=%d/%d source(legacyBuffers/legacyBlases/canonicalBlases/poolBuffers/probeBuffers/probeBlases)=%d/%d/%d/%d/%d/%d resultQueryFailures=%d bytes(buffer/result)=%llu/%llu completedToken=%llu pending=%zu authority=gpu-event-query\n",
             releasedPackages,
             releasedBuffers,
             releasedBlases,
@@ -2349,6 +2354,7 @@ int PathTracePrimaryPass::ReleaseCompletedRetiredRigidGpuResources(
             releasedLegacyBlases,
             releasedCanonicalBlases,
             releasedCanonicalPoolBuffers,
+            releasedCanonicalProbeBuffers,
             releasedCanonicalProbeBlases,
             releasedBlasResultQueryFailures,
             static_cast<unsigned long long>(

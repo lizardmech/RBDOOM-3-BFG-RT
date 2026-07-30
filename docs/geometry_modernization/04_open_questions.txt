@@ -25,6 +25,12 @@ Q2. Does hit shading want skinned NORMALS/TANGENTS recomputed per frame in
     shaders.
 Q3. Index pooling: shared uint32 pool vs per-mesh buffers. Pool assumed;
     verify BLAS build performance is insensitive to index buffer offsets.
+    RESOLVED 2026-07-30 by D186. A paired Vulkan GPU-timestamp run built the
+    same 5,096-triangle geometry from identical index bytes at offsets 0 and
+    61,184 in the same buffer. After four warm-up pairs, 60 alternating-order
+    pairs measured 254.944/254.720 microsecond zero/non-zero medians and a
+    +0.0059 percent paired median delta. The remaining split follows build
+    order, not offset. Retain the shared uint32 pool assumption.
 Q4. Scene-origin anchoring: the current capture re-anchors world-space data
     to a scene origin for precision. Under local-space instancing this
     moves into the TLAS instance transforms - confirm no shader assumes

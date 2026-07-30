@@ -24,6 +24,165 @@
 
 namespace {
 
+struct OffsetBlasTimingDistribution
+{
+    double mean = 0.0;
+    double median = 0.0;
+    double p95 = 0.0;
+    double minimum = 0.0;
+    double maximum = 0.0;
+};
+
+OffsetBlasTimingDistribution BuildOffsetBlasTimingDistribution(
+    std::vector<double> values)
+{
+    OffsetBlasTimingDistribution result;
+    if (values.empty())
+    {
+        return result;
+    }
+    std::sort(values.begin(), values.end());
+    double sum = 0.0;
+    for (double value : values)
+    {
+        sum += value;
+    }
+    result.mean = sum / static_cast<double>(values.size());
+    const std::size_t middle = values.size() / 2;
+    result.median = (values.size() & 1u) != 0u
+        ? values[middle]
+        : (values[middle - 1] + values[middle]) * 0.5;
+    const std::size_t p95Index =
+        std::min(
+            values.size() - 1,
+            (values.size() * 95 + 99) / 100 - 1);
+    result.p95 = values[p95Index];
+    result.minimum = values.front();
+    result.maximum = values.back();
+    return result;
+}
+
+void DumpOffsetBlasTimingReport(
+    const PtGeometryOffsetBlasTimingReport& report)
+{
+    const std::size_t warmupPairs =
+        report.samples.size() > 8 ? 4u : 0u;
+    std::vector<double> zeroValues;
+    std::vector<double> nonZeroValues;
+    std::vector<double> pairedDeltaPercent;
+    std::vector<double> zeroFirstDeltaPercent;
+    std::vector<double> nonZeroFirstDeltaPercent;
+    std::uint64_t invalidPairs = 0;
+    for (std::size_t pairIndex = warmupPairs;
+        pairIndex < report.samples.size();
+        ++pairIndex)
+    {
+        const PtGeometryOffsetBlasTimingSample& sample =
+            report.samples[pairIndex];
+        if (sample.zeroOffsetMicroseconds <= 0.0 ||
+            sample.nonZeroOffsetMicroseconds <= 0.0)
+        {
+            ++invalidPairs;
+            continue;
+        }
+        zeroValues.push_back(sample.zeroOffsetMicroseconds);
+        nonZeroValues.push_back(
+            sample.nonZeroOffsetMicroseconds);
+        const double deltaPercent =
+            (sample.nonZeroOffsetMicroseconds -
+                sample.zeroOffsetMicroseconds) *
+            100.0 / sample.zeroOffsetMicroseconds;
+        pairedDeltaPercent.push_back(deltaPercent);
+        (sample.zeroOffsetBuiltFirst
+                ? zeroFirstDeltaPercent
+                : nonZeroFirstDeltaPercent).
+            push_back(deltaPercent);
+    }
+
+    const OffsetBlasTimingDistribution zero =
+        BuildOffsetBlasTimingDistribution(zeroValues);
+    const OffsetBlasTimingDistribution nonZero =
+        BuildOffsetBlasTimingDistribution(nonZeroValues);
+    const OffsetBlasTimingDistribution delta =
+        BuildOffsetBlasTimingDistribution(pairedDeltaPercent);
+    const OffsetBlasTimingDistribution zeroFirstDelta =
+        BuildOffsetBlasTimingDistribution(
+            zeroFirstDeltaPercent);
+    const OffsetBlasTimingDistribution nonZeroFirstDelta =
+        BuildOffsetBlasTimingDistribution(
+            nonZeroFirstDeltaPercent);
+    common->Printf(
+        "PathTracePrimaryPass: GEO06 Q3 offset BLAS GPU timing signature=%llu pairs(requested/submitted/valid/invalid/warmup)=%llu/%llu/%llu/%llu/%llu queries(completed/timerCreateFail/resourceCreateFail)=%llu/%llu/%llu geometry(vertexOffset/indexOffset/v/i/p)=%llu/%llu/%llu/%llu/%llu control=same-index-buffer-identical-bytes-alternating-order\n",
+        static_cast<unsigned long long>(
+            report.candidateSignature),
+        static_cast<unsigned long long>(
+            report.requestedPairs),
+        static_cast<unsigned long long>(
+            report.submittedPairs),
+        static_cast<unsigned long long>(zeroValues.size()),
+        static_cast<unsigned long long>(invalidPairs),
+        static_cast<unsigned long long>(warmupPairs),
+        static_cast<unsigned long long>(
+            report.completedQueries),
+        static_cast<unsigned long long>(
+            report.timerCreateFailures),
+        static_cast<unsigned long long>(
+            report.resourceCreateFailures),
+        static_cast<unsigned long long>(
+            report.vertexOffsetBytes),
+        static_cast<unsigned long long>(
+            report.testedIndexOffsetBytes),
+        static_cast<unsigned long long>(
+            report.vertexCount),
+        static_cast<unsigned long long>(
+            report.indexCount),
+        static_cast<unsigned long long>(
+            report.primitiveCount));
+    common->Printf(
+        "PathTracePrimaryPass: GEO06 Q3 offset BLAS GPU summary us zero(mean/median/p95/min/max)=%.6f/%.6f/%.6f/%.6f/%.6f nonzero=%.6f/%.6f/%.6f/%.6f/%.6f pairedNonzeroMinusZeroPct(mean/median/p95/min/max)=%.6f/%.6f/%.6f/%.6f/%.6f orderMedianPct(zeroFirst/nonzeroFirst)=%.6f/%.6f\n",
+        zero.mean,
+        zero.median,
+        zero.p95,
+        zero.minimum,
+        zero.maximum,
+        nonZero.mean,
+        nonZero.median,
+        nonZero.p95,
+        nonZero.minimum,
+        nonZero.maximum,
+        delta.mean,
+        delta.median,
+        delta.p95,
+        delta.minimum,
+        delta.maximum,
+        zeroFirstDelta.median,
+        nonZeroFirstDelta.median);
+    for (std::size_t pairIndex = 0;
+        pairIndex < report.samples.size();
+        ++pairIndex)
+    {
+        const PtGeometryOffsetBlasTimingSample& sample =
+            report.samples[pairIndex];
+        const double deltaPercent =
+            sample.zeroOffsetMicroseconds > 0.0
+                ? (sample.nonZeroOffsetMicroseconds -
+                    sample.zeroOffsetMicroseconds) *
+                    100.0 /
+                    sample.zeroOffsetMicroseconds
+                : 0.0;
+        common->Printf(
+            "PathTracePrimaryPass: GEO06 Q3 offset BLAS GPU sample=%llu warmup=%d order=%s zeroUs=%.6f nonzeroUs=%.6f deltaPct=%.6f\n",
+            static_cast<unsigned long long>(pairIndex + 1),
+            pairIndex < warmupPairs ? 1 : 0,
+            sample.zeroOffsetBuiltFirst
+                ? "zero-first"
+                : "nonzero-first",
+            sample.zeroOffsetMicroseconds,
+            sample.nonZeroOffsetMicroseconds,
+            deltaPercent);
+    }
+}
+
 void BuildRigidNormalTexMatrix(const idMaterial* material, const float* registers, float matrix[6])
 {
     const float identity[6] = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
@@ -1787,7 +1946,22 @@ void RtSmokeGeometryUniverse::UpdateCanonicalSourceGpuPools(
         commandList,
         m_canonicalSourceRegistry,
         m_canonicalSourceGpuPools,
-        m_currentFrameIndex);
+        m_currentFrameIndex,
+        idMath::ClampInt(
+            0,
+            120,
+            r_pathTracingGeometryOffsetBlasTiming.
+                GetInteger()));
+    if (r_pathTracingGeometryOffsetBlasTiming.GetInteger() != 0)
+    {
+        r_pathTracingGeometryOffsetBlasTiming.SetInteger(0);
+    }
+    PtGeometryOffsetBlasTimingReport timingReport;
+    if (m_canonicalOffsetBlasProbe.TakeTimingReport(
+            timingReport))
+    {
+        DumpOffsetBlasTimingReport(timingReport);
+    }
 }
 
 void RtSmokeGeometryUniverse::DumpCanonicalSourceImportStats()
@@ -7053,6 +7227,7 @@ void RtSmokeGeometryUniverse::ClearRetiredRigidBlas()
     m_retiredRigidGpuResources =
         RtSmokeRetiredRigidGpuResources();
     m_canonicalSourceGpuPools.ClearRetiredBuffers();
+    m_canonicalOffsetBlasProbe.ClearRetiredBuffers();
     m_canonicalOffsetBlasProbe.ClearRetiredBlases();
 }
 
@@ -7060,6 +7235,7 @@ bool RtSmokeGeometryUniverse::HasRetiredRigidGpuResources() const
 {
     return !m_retiredRigidGpuResources.Empty() ||
         m_canonicalSourceGpuPools.RetiredBufferCount() != 0 ||
+        m_canonicalOffsetBlasProbe.RetiredBufferCount() != 0 ||
         m_canonicalOffsetBlasProbe.RetiredBlasCount() != 0;
 }
 
@@ -7071,6 +7247,11 @@ bool RtSmokeGeometryUniverse::TakeRetiredRigidGpuResources(
             m_retiredRigidGpuResources.buffers);
     m_retiredRigidGpuResources.canonicalPoolBufferCount +=
         static_cast<int>(canonicalPoolBufferCount);
+    const std::size_t canonicalProbeBufferCount =
+        m_canonicalOffsetBlasProbe.TakeRetiredBuffers(
+            m_retiredRigidGpuResources.buffers);
+    m_retiredRigidGpuResources.canonicalProbeBufferCount +=
+        static_cast<int>(canonicalProbeBufferCount);
     const std::size_t canonicalProbeBlasCount =
         m_canonicalOffsetBlasProbe.TakeRetiredBlases(
             m_retiredRigidGpuResources.blases);
@@ -7095,6 +7276,8 @@ bool RtSmokeGeometryUniverse::TakeRetiredRigidGpuResources(
         m_retiredRigidGpuResources.canonicalBlasCount;
     resources.canonicalPoolBufferCount =
         m_retiredRigidGpuResources.canonicalPoolBufferCount;
+    resources.canonicalProbeBufferCount =
+        m_retiredRigidGpuResources.canonicalProbeBufferCount;
     resources.canonicalProbeBlasCount =
         m_retiredRigidGpuResources.canonicalProbeBlasCount;
     m_retiredRigidGpuResources =

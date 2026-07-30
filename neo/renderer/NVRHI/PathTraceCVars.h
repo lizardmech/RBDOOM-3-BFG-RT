@@ -58,6 +58,7 @@ extern idCVar r_pathTracingGeometryLifecycleStage;
 extern idCVar r_pathTracingGeometryLifecycleDump;
 extern idCVar r_pathTracingGeometryShadowRegistry;
 extern idCVar r_pathTracingGeometryShadowRegistryDump;
+extern idCVar r_pathTracingGeometryOffsetBlasTiming;
 extern idCVar r_pathTracingGeometrySourceDeltaBudgetMB;
 extern idCVar r_pathTracingGeometryDynamicFallbackBudgetMB;
 extern idCVar r_pathTracingGeometryDynamicFallbackSurfaceBudget;

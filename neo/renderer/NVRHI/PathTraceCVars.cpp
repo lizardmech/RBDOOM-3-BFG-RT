@@ -309,6 +309,12 @@ idCVar r_pathTracingGeometryShadowRegistryDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump the GEO-05 per-world lifecycle shadow registry once" );
 
+idCVar r_pathTracingGeometryOffsetBlasTiming(
+    "r_pathTracingGeometryOffsetBlasTiming",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1..120 for one GEO-06/Q3 paired Vulkan GPU timing run comparing identical index data at zero and non-zero offsets; measurement only" );
+
 idCVar r_pathTracingGeometrySourceDeltaBudgetMB(
     "r_pathTracingGeometrySourceDeltaBudgetMB",
     "8",

@@ -11,6 +11,8 @@
 namespace {
 
 constexpr std::uint64_t kStableFramesBeforeBuild = 3;
+constexpr std::uint64_t kTimingQueryPollDelayFrames = 4;
+constexpr std::uint64_t kTimingIndexOffsetAlignment = 256;
 constexpr std::uint64_t kFnvOffsetBasis = 1469598103934665603ull;
 constexpr std::uint64_t kFnvPrime = 1099511628211ull;
 
@@ -147,7 +149,13 @@ bool FindCandidate(
         }
 
         ++eligibleRecords;
-        if (candidate.source == nullptr)
+        if (candidate.source == nullptr ||
+            source->payload.triangles.size() >
+                candidate.source->payload.triangles.size() ||
+            (source->payload.triangles.size() ==
+                    candidate.source->payload.triangles.size() &&
+                source->payload.positions.size() >
+                    candidate.source->payload.positions.size()))
         {
             candidate.sourceIndex = sourceIndex;
             candidate.source = source;
@@ -159,6 +167,346 @@ bool FindCandidate(
     return candidate.source != nullptr;
 }
 
+}
+
+void PtGeometryOffsetBlasProbe::RetireTimingResources()
+{
+    if (timingIndexBuffer_)
+    {
+        retiredBuffers_.push_back(timingIndexBuffer_);
+    }
+    if (timingZeroOffsetBlas_)
+    {
+        retired_.push_back(timingZeroOffsetBlas_);
+    }
+    if (timingNonZeroOffsetBlas_)
+    {
+        retired_.push_back(timingNonZeroOffsetBlas_);
+    }
+    timingIndexBuffer_ = nullptr;
+    timingZeroOffsetBlas_ = nullptr;
+    timingNonZeroOffsetBlas_ = nullptr;
+    timingZeroOffsetBlasDesc_ = nvrhi::rt::AccelStructDesc();
+    timingNonZeroOffsetBlasDesc_ = nvrhi::rt::AccelStructDesc();
+    timingRunActive_ = false;
+    timingCandidateSignature_ = 0;
+    timingTargetPairs_ = 0;
+    timingSubmittedPairs_ = 0;
+    timingCompletedQueries_ = 0;
+    timingIndexOffsetBytes_ = 0;
+    timingVertexOffsetBytes_ = 0;
+    timingVertexCount_ = 0;
+    timingIndexCount_ = 0;
+    timingPrimitiveCount_ = 0;
+    timingSamples_.clear();
+}
+
+void PtGeometryOffsetBlasProbe::PollTimingQueries(
+    nvrhi::IDevice* device,
+    std::uint64_t frameIndex)
+{
+    if (device == nullptr)
+    {
+        return;
+    }
+    for (TimingQuerySlot& slot : timingQuerySlots_)
+    {
+        if (!slot.pending ||
+            !slot.query ||
+            frameIndex < slot.earliestPollFrame ||
+            !device->pollTimerQuery(slot.query))
+        {
+            continue;
+        }
+
+        const double microseconds =
+            static_cast<double>(
+                device->getTimerQueryTime(slot.query)) *
+            1000000.0;
+        if (timingRunActive_ &&
+            slot.runSerial == timingRunSerial_ &&
+            slot.pairIndex < timingSamples_.size())
+        {
+            PtGeometryOffsetBlasTimingSample& sample =
+                timingSamples_[
+                    static_cast<std::size_t>(slot.pairIndex)];
+            if (slot.nonZeroOffset)
+            {
+                sample.nonZeroOffsetMicroseconds = microseconds;
+            }
+            else
+            {
+                sample.zeroOffsetMicroseconds = microseconds;
+            }
+            ++timingCompletedQueries_;
+        }
+        slot.pending = false;
+    }
+}
+
+bool PtGeometryOffsetBlasProbe::BeginTimingRun(
+    nvrhi::IDevice* device,
+    nvrhi::ICommandList* commandList,
+    const PtGeometrySourceRecord& source,
+    const PtGeometryGpuPoolRecord& gpu,
+    const PtGeometryGpuPoolSet& pools,
+    std::uint64_t candidateSignature)
+{
+    if (device == nullptr ||
+        commandList == nullptr ||
+        pendingTimingPairRequest_ <= 0)
+    {
+        return false;
+    }
+
+    std::uint64_t indexBytes = 0;
+    if (PtGeometryPoolByteSizeForElements(
+            source.payload.indexes.size(),
+            sizeof(std::uint32_t),
+            indexBytes) != PtGeometryPoolPlanResult::Success ||
+        indexBytes == 0 ||
+        indexBytes >
+            std::numeric_limits<std::uint64_t>::max() -
+                (kTimingIndexOffsetAlignment - 1))
+    {
+        ++timingResourceCreateFailures_;
+        pendingTimingPairRequest_ = 0;
+        return false;
+    }
+    const std::uint64_t alignedIndexBytes =
+        (indexBytes + kTimingIndexOffsetAlignment - 1) &
+        ~(kTimingIndexOffsetAlignment - 1);
+    if (alignedIndexBytes >
+            std::numeric_limits<std::uint64_t>::max() -
+                indexBytes ||
+        alignedIndexBytes + indexBytes >
+            static_cast<std::uint64_t>(
+                std::numeric_limits<std::size_t>::max()))
+    {
+        ++timingResourceCreateFailures_;
+        pendingTimingPairRequest_ = 0;
+        return false;
+    }
+
+    ++timingRunSerial_;
+    timingRunActive_ = true;
+    timingCandidateSignature_ = candidateSignature;
+    timingTargetPairs_ =
+        static_cast<std::uint64_t>(pendingTimingPairRequest_);
+    pendingTimingPairRequest_ = 0;
+    timingSubmittedPairs_ = 0;
+    timingCompletedQueries_ = 0;
+    timingTimerCreateFailures_ = 0;
+    timingResourceCreateFailures_ = 0;
+    timingIndexOffsetBytes_ = alignedIndexBytes;
+    timingVertexOffsetBytes_ = gpu.positions.offsetBytes;
+    timingVertexCount_ = source.payload.positions.size();
+    timingIndexCount_ = source.payload.indexes.size();
+    timingPrimitiveCount_ = source.payload.triangles.size();
+    timingSamples_.assign(
+        static_cast<std::size_t>(timingTargetPairs_),
+        PtGeometryOffsetBlasTimingSample());
+    for (std::size_t pairIndex = 0;
+        pairIndex < timingSamples_.size();
+        ++pairIndex)
+    {
+        timingSamples_[pairIndex].zeroOffsetBuiltFirst =
+            (pairIndex & 1u) == 0u;
+    }
+
+    nvrhi::BufferDesc indexDesc;
+    indexDesc.byteSize = static_cast<std::size_t>(
+        alignedIndexBytes + indexBytes);
+    indexDesc.debugName =
+        "PathTraceOffsetBlasTimingIndexBuffer";
+    indexDesc.structStride = sizeof(std::uint32_t);
+    indexDesc.isIndexBuffer = true;
+    indexDesc.isAccelStructBuildInput = true;
+    indexDesc.initialState = nvrhi::ResourceStates::Common;
+    indexDesc.keepInitialState = true;
+    timingIndexBuffer_ = device->createBuffer(indexDesc);
+    if (!timingIndexBuffer_)
+    {
+        ++timingResourceCreateFailures_;
+        timingTargetPairs_ = 0;
+        FinishTimingRunIfReady();
+        return false;
+    }
+
+    commandList->beginTrackingBufferState(
+        timingIndexBuffer_,
+        nvrhi::ResourceStates::Common);
+    commandList->writeBuffer(
+        timingIndexBuffer_,
+        source.payload.indexes.data(),
+        static_cast<std::size_t>(indexBytes),
+        0);
+    commandList->writeBuffer(
+        timingIndexBuffer_,
+        source.payload.indexes.data(),
+        static_cast<std::size_t>(indexBytes),
+        timingIndexOffsetBytes_);
+    commandList->setBufferState(
+        timingIndexBuffer_,
+        nvrhi::ResourceStates::AccelStructBuildInput);
+    commandList->setBufferState(
+        pools.PositionBuffer(),
+        nvrhi::ResourceStates::AccelStructBuildInput);
+    commandList->commitBarriers();
+
+    auto buildDesc =
+        [&](std::uint64_t indexOffset, const char* debugName)
+        {
+            nvrhi::rt::GeometryTriangles triangles;
+            triangles.vertexBuffer = pools.PositionBuffer();
+            triangles.indexBuffer = timingIndexBuffer_;
+            triangles.vertexFormat = nvrhi::Format::RGB32_FLOAT;
+            triangles.indexFormat = nvrhi::Format::R32_UINT;
+            triangles.vertexOffset = gpu.positions.offsetBytes;
+            triangles.indexOffset = indexOffset;
+            triangles.vertexCount = static_cast<std::uint32_t>(
+                source.payload.positions.size());
+            triangles.indexCount = static_cast<std::uint32_t>(
+                source.payload.indexes.size());
+            triangles.vertexStride =
+                sizeof(PtGeometrySourcePosition);
+
+            nvrhi::rt::GeometryDesc geometry;
+            geometry.setTriangles(triangles);
+            return nvrhi::rt::AccelStructDesc()
+                .addBottomLevelGeometry(geometry)
+                .setBuildFlags(
+                    nvrhi::rt::AccelStructBuildFlags::
+                        PreferFastTrace)
+                .setDebugName(debugName);
+        };
+
+    timingZeroOffsetBlasDesc_ =
+        buildDesc(
+            0,
+            "PathTraceOffsetBlasTimingZero");
+    timingNonZeroOffsetBlasDesc_ =
+        buildDesc(
+            timingIndexOffsetBytes_,
+            "PathTraceOffsetBlasTimingNonZero");
+    timingZeroOffsetBlas_ =
+        device->createAccelStruct(timingZeroOffsetBlasDesc_);
+    timingNonZeroOffsetBlas_ =
+        device->createAccelStruct(timingNonZeroOffsetBlasDesc_);
+    if (!timingZeroOffsetBlas_ ||
+        !timingNonZeroOffsetBlas_)
+    {
+        ++timingResourceCreateFailures_;
+        timingTargetPairs_ = 0;
+        FinishTimingRunIfReady();
+        return false;
+    }
+    return true;
+}
+
+void PtGeometryOffsetBlasProbe::SubmitTimingPair(
+    nvrhi::IDevice* device,
+    nvrhi::ICommandList* commandList,
+    std::uint64_t frameIndex)
+{
+    if (!timingRunActive_ ||
+        device == nullptr ||
+        commandList == nullptr ||
+        timingSubmittedPairs_ >= timingTargetPairs_)
+    {
+        return;
+    }
+
+    TimingQuerySlot* available[2] = {};
+    int availableCount = 0;
+    for (TimingQuerySlot& slot : timingQuerySlots_)
+    {
+        if (slot.pending)
+        {
+            continue;
+        }
+        if (!slot.query)
+        {
+            slot.query = device->createTimerQuery();
+            if (!slot.query)
+            {
+                ++timingTimerCreateFailures_;
+                timingTargetPairs_ = timingSubmittedPairs_;
+                FinishTimingRunIfReady();
+                return;
+            }
+        }
+        available[availableCount++] = &slot;
+        if (availableCount == 2)
+        {
+            break;
+        }
+    }
+    if (availableCount != 2)
+    {
+        return;
+    }
+
+    const std::uint64_t pairIndex = timingSubmittedPairs_;
+    const bool zeroFirst =
+        timingSamples_[static_cast<std::size_t>(pairIndex)].
+            zeroOffsetBuiltFirst;
+    auto submit =
+        [&](TimingQuerySlot& slot, bool nonZeroOffset)
+        {
+            slot.pending = true;
+            slot.nonZeroOffset = nonZeroOffset;
+            slot.runSerial = timingRunSerial_;
+            slot.pairIndex = pairIndex;
+            slot.earliestPollFrame =
+                frameIndex + kTimingQueryPollDelayFrames;
+            commandList->beginTimerQuery(slot.query);
+            nvrhi::utils::BuildBottomLevelAccelStruct(
+                commandList,
+                nonZeroOffset
+                    ? timingNonZeroOffsetBlas_
+                    : timingZeroOffsetBlas_,
+                nonZeroOffset
+                    ? timingNonZeroOffsetBlasDesc_
+                    : timingZeroOffsetBlasDesc_);
+            commandList->endTimerQuery(slot.query);
+        };
+
+    submit(*available[0], !zeroFirst);
+    submit(*available[1], zeroFirst);
+    ++timingSubmittedPairs_;
+}
+
+void PtGeometryOffsetBlasProbe::FinishTimingRunIfReady()
+{
+    if (!timingRunActive_ ||
+        timingSubmittedPairs_ != timingTargetPairs_ ||
+        timingCompletedQueries_ != timingTargetPairs_ * 2)
+    {
+        return;
+    }
+
+    timingReport_ = PtGeometryOffsetBlasTimingReport();
+    timingReport_.candidateSignature =
+        timingCandidateSignature_;
+    timingReport_.vertexOffsetBytes =
+        timingVertexOffsetBytes_;
+    timingReport_.testedIndexOffsetBytes =
+        timingIndexOffsetBytes_;
+    timingReport_.vertexCount = timingVertexCount_;
+    timingReport_.indexCount = timingIndexCount_;
+    timingReport_.primitiveCount = timingPrimitiveCount_;
+    timingReport_.requestedPairs = timingTargetPairs_;
+    timingReport_.submittedPairs = timingSubmittedPairs_;
+    timingReport_.completedQueries =
+        timingCompletedQueries_;
+    timingReport_.timerCreateFailures =
+        timingTimerCreateFailures_;
+    timingReport_.resourceCreateFailures =
+        timingResourceCreateFailures_;
+    timingReport_.samples = timingSamples_;
+    timingReportPending_ = true;
+    RetireTimingResources();
 }
 
 void PtGeometryOffsetBlasProbe::RetireCurrent()
@@ -213,9 +561,19 @@ void PtGeometryOffsetBlasProbe::Update(
     nvrhi::ICommandList* commandList,
     const PtGeometrySourceRegistry& sources,
     const PtGeometryGpuPoolSet& pools,
-    std::uint64_t frameIndex)
+    std::uint64_t frameIndex,
+    int requestedTimingPairs)
 {
-    (void)frameIndex;
+    if (requestedTimingPairs > 0 &&
+        !timingRunActive_ &&
+        !timingReportPending_)
+    {
+        pendingTimingPairRequest_ =
+            std::max(1, std::min(120, requestedTimingPairs));
+    }
+    PollTimingQueries(device, frameIndex);
+    FinishTimingRunIfReady();
+
     if (stats_.readbackPending && readbackDelayFrames_ > 0)
     {
         --readbackDelayFrames_;
@@ -230,6 +588,12 @@ void PtGeometryOffsetBlasProbe::Update(
             candidate,
             stats_.eligibleRecords))
     {
+        if (timingRunActive_)
+        {
+            pendingTimingPairRequest_ =
+                static_cast<int>(timingTargetPairs_);
+            RetireTimingResources();
+        }
         if (observedCandidateSignature_ != 0)
         {
             RetireCurrent();
@@ -269,6 +633,28 @@ void PtGeometryOffsetBlasProbe::Update(
     {
         ++stats_.stableFrames;
     }
+
+    if (timingRunActive_ &&
+        timingCandidateSignature_ != candidate.signature)
+    {
+        pendingTimingPairRequest_ =
+            static_cast<int>(timingTargetPairs_);
+        RetireTimingResources();
+    }
+    if (!timingRunActive_ &&
+        pendingTimingPairRequest_ > 0 &&
+        stats_.stableFrames >= kStableFramesBeforeBuild)
+    {
+        BeginTimingRun(
+            device,
+            commandList,
+            *candidate.source,
+            *candidate.gpu,
+            pools,
+            candidate.signature);
+    }
+    SubmitTimingPair(device, commandList, frameIndex);
+    FinishTimingRunIfReady();
 
     if (device == nullptr || commandList == nullptr ||
         stats_.stableFrames < kStableFramesBeforeBuild ||
@@ -458,6 +844,32 @@ PtGeometryOffsetBlasProbe::Stats() const
     return stats_;
 }
 
+bool PtGeometryOffsetBlasProbe::TakeTimingReport(
+    PtGeometryOffsetBlasTimingReport& report)
+{
+    if (!timingReportPending_)
+    {
+        return false;
+    }
+    report = timingReport_;
+    timingReport_ = PtGeometryOffsetBlasTimingReport();
+    timingReportPending_ = false;
+    return true;
+}
+
+std::size_t PtGeometryOffsetBlasProbe::TakeRetiredBuffers(
+    std::vector<nvrhi::BufferHandle>& buffers)
+{
+    const std::size_t retiredCount = retiredBuffers_.size();
+    buffers.reserve(buffers.size() + retiredCount);
+    for (nvrhi::BufferHandle& buffer : retiredBuffers_)
+    {
+        buffers.push_back(buffer);
+    }
+    retiredBuffers_.clear();
+    return retiredCount;
+}
+
 std::size_t PtGeometryOffsetBlasProbe::TakeRetiredBlases(
     std::vector<nvrhi::rt::AccelStructHandle>& blases)
 {
@@ -471,9 +883,19 @@ std::size_t PtGeometryOffsetBlasProbe::TakeRetiredBlases(
     return retiredCount;
 }
 
+std::size_t PtGeometryOffsetBlasProbe::RetiredBufferCount() const
+{
+    return retiredBuffers_.size();
+}
+
 std::size_t PtGeometryOffsetBlasProbe::RetiredBlasCount() const
 {
     return retired_.size();
+}
+
+void PtGeometryOffsetBlasProbe::ClearRetiredBuffers()
+{
+    retiredBuffers_.clear();
 }
 
 void PtGeometryOffsetBlasProbe::ClearRetiredBlases()
@@ -486,10 +908,37 @@ void PtGeometryOffsetBlasProbe::Clear()
     stats_ = PtGeometryOffsetBlasProbeStats();
     blas_ = nullptr;
     blasDesc_ = nvrhi::rt::AccelStructDesc();
+    retiredBuffers_.clear();
     retired_.clear();
     readbackBuffer_ = nullptr;
     expectedReadback_ = ReadbackPayload();
     observedCandidateSignature_ = 0;
     builtCandidateSignature_ = 0;
     readbackDelayFrames_ = 0;
+    pendingTimingPairRequest_ = 0;
+    timingRunActive_ = false;
+    timingReportPending_ = false;
+    timingRunSerial_ = 0;
+    timingCandidateSignature_ = 0;
+    timingTargetPairs_ = 0;
+    timingSubmittedPairs_ = 0;
+    timingCompletedQueries_ = 0;
+    timingTimerCreateFailures_ = 0;
+    timingResourceCreateFailures_ = 0;
+    timingIndexOffsetBytes_ = 0;
+    timingVertexOffsetBytes_ = 0;
+    timingVertexCount_ = 0;
+    timingIndexCount_ = 0;
+    timingPrimitiveCount_ = 0;
+    timingIndexBuffer_ = nullptr;
+    timingZeroOffsetBlas_ = nullptr;
+    timingNonZeroOffsetBlas_ = nullptr;
+    timingZeroOffsetBlasDesc_ = nvrhi::rt::AccelStructDesc();
+    timingNonZeroOffsetBlasDesc_ = nvrhi::rt::AccelStructDesc();
+    for (TimingQuerySlot& slot : timingQuerySlots_)
+    {
+        slot = TimingQuerySlot();
+    }
+    timingSamples_.clear();
+    timingReport_ = PtGeometryOffsetBlasTimingReport();
 }

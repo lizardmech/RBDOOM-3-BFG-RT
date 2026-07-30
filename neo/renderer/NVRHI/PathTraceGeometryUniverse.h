@@ -857,6 +857,7 @@ struct RtSmokeRetiredRigidGpuResources
     int legacyBlasCount = 0;
     int canonicalBlasCount = 0;
     int canonicalPoolBufferCount = 0;
+    int canonicalProbeBufferCount = 0;
     int canonicalProbeBlasCount = 0;
 
     bool Empty() const

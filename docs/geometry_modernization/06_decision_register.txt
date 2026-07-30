@@ -4674,12 +4674,51 @@ Evidence:
 
   artifacts/GEO-12_q2_write_vs_derive_2026-07-30.txt
 
+D186. SHARED INDEX POOL OFFSETS HAVE NO MEASURABLE BLAS-BUILD PENALTY
+--------------------------------------------------------------------
+Q3 could not be settled by GEO-06's original `buildSubmitUs`: that counter
+measures CPU command recording for one non-zero-offset build and has no
+zero-offset control. The replacement diagnostic is a default-off paired Vulkan
+GPU timestamp experiment. It copies one canonical local-index stream twice
+into the same scratch index buffer, at byte offsets 0 and 61,184, while keeping
+the pooled vertex buffer/range, topology, formats, strides, BLAS flags, and
+geometry counts identical. Each pair reverses build order from the preceding
+pair so cache/order effects cannot masquerade as an offset effect. Neither BLAS
+enters a TLAS.
+
+The prepared-save run selected the largest eligible non-zero-offset canonical
+surface: 3,050 vertices, 15,288 indexes, and 5,096 primitives. All 64 pairs and
+128 timer queries completed with zero invalid pairs, timer-create failures, or
+resource-create failures. Four pairs were declared warm-up before inspection.
+Across the remaining 60 pairs:
+
+  zero offset     mean/median/p95 = 254.542/254.944/262.720 microseconds
+  non-zero offset mean/median/p95 = 254.481/254.720/262.624 microseconds
+  paired non-zero-minus-zero median = +0.005855 percent
+
+The distribution medians differ by -0.088 percent and the means by -0.024
+percent. Order-stratified paired medians are -1.681 percent when zero offset is
+built first and +2.142 percent when non-zero offset is built first: the second
+build in a pair tends to be faster regardless of which offset it uses. The
+balanced aggregate cancels that order effect and provides no evidence of an
+index-offset penalty.
+
+The test isolates the offset field, not source upload, buffer allocation, or
+pool-growth cost. Those are separate lifecycle concerns already measured by
+GEO-06. Retain the shared uint32 index pool and checked per-record byte offsets;
+do not introduce per-mesh index buffers for BLAS build performance.
+
+Evidence:
+
+  artifacts/GEO-06_q3_offset_blas_timing_2026-07-30.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
   Q2  RESOLVED by D185: write the posed basis once; reject triangle-frame
       hit derivation on numeric fidelity before shader timing.
-  Q3  OPEN, owned by GEO-06: offset BLAS-build microbenchmark.
+  Q3  RESOLVED by D186: paired Vulkan timestamps show no measurable
+      non-zero-index-offset BLAS-build penalty.
   Q4  OPEN, owned by GEO-04/GEO-06: enumerate sceneOrigin consumers first.
   Q5  RESOLVED by D18: staged compact GPU joint array for the first cut.
   Q6  RESOLVED FOR MIGRATION by D05: GPU default path, explicit CPU fallback.

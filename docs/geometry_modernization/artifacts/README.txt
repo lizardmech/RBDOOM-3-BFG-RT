@@ -74,6 +74,10 @@ GEO-06 FILES
     handoffs. Records the correction that resolved material binding is
     instance/route state rather than immutable mesh-source content.
 
+  GEO-06_q3_offset_blas_timing_2026-07-30.txt
+    Paired Vulkan GPU-timestamp comparison of identical index data at zero and
+    non-zero offsets, alternating-order analysis, and Q3 decision.
+
 GEO-07 FILES
 ------------
   GEO-07_entry_audit.txt

@@ -126,3 +126,9 @@ Current execution status (2026-07-30):
   single-bone controls remain exact. The production skinning compute continues
   to write the full posed basis once. See D185 and
   artifacts/GEO-12_q2_write_vs_derive_2026-07-30.txt.
+
+  Q3 is closed as well. A controlled paired Vulkan timing run found no
+  measurable BLAS-build penalty from a non-zero index-buffer offset after
+  alternating build order. The shared uint32 index pool remains the accepted
+  layout. See D186 and
+  artifacts/GEO-06_q3_offset_blas_timing_2026-07-30.txt.

@@ -75,3 +75,37 @@ DONE WHEN
 CHECKPOINT
 ----------
   pt geometry GEO-06: prove pooled shared-rigid traversal
+
+Q3 OFFSET-BUILD PERFORMANCE CLOSURE
+-----------------------------------
+The original shadow probe proves non-zero-offset addressing and endpoint
+readback, but its `buildSubmitUs` field is CPU command-recording time for one
+build. It cannot compare GPU BLAS-build cost. The post-packet diagnostic:
+
+  r_pathTracingGeometryOffsetBlasTiming 64
+
+selects the largest valid non-zero-offset canonical surface, writes its exact
+local index stream twice into the same scratch buffer, and GPU-times paired
+BLAS builds at offset zero and a non-overlapping non-zero offset. Vertex
+buffer/range, geometry, formats, strides, and build flags remain identical.
+Pair order alternates and neither BLAS is published to a TLAS. The resources
+use the established GPU-event retirement path after all timer queries resolve.
+
+`geometry_q3_offset.log` records 64/64 submitted pairs and 128 completed
+queries with no invalid pair or timer/resource failure. The selected geometry
+contains 3,050 vertices, 15,288 indexes, and 5,096 primitives. Discarding four
+declared warm-up pairs leaves 60:
+
+  zero offset median                 254.944 microseconds
+  non-zero offset median             254.720 microseconds
+  paired non-zero-minus-zero median   +0.005855 percent
+  zero/non-zero p95                  262.720 / 262.624 microseconds
+
+The order medians are -1.681 percent for zero-first pairs and +2.142 percent
+for non-zero-first pairs. That sign reversal identifies the visible variance
+as pair-order/cache behavior, not offset behavior. Q3 is resolved in favor of
+the shared uint32 index pool.
+
+Detailed evidence:
+
+  ../artifacts/GEO-06_q3_offset_blas_timing_2026-07-30.txt
