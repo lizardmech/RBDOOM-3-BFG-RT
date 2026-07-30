@@ -79,6 +79,15 @@ Platform boundary:
   - Deploy rebuilt shader blobs from base/renderprogs2/spirv only.
 
 Current execution status (2026-07-30):
+  FINAL ACCEPTANCE REOPENED. The completed implementation packet left
+  `r_pathTracingCleanRestirGiPipelineWarmupLimit` at the diagnostic value zero,
+  which prevents every GI ray pipeline from being built even though GI enable
+  and resolve default to one. The accepted production default is restored to
+  16. Build/deploy and autonomous default-dispatch proof pass; ordinary
+  interactive launch, visible GI, movement, portal, and glass validation are
+  still required before the packet may be called complete again. See D192 and
+  artifacts/GEO-GI_default_restore_handoff_2026-07-30.txt.
+
   GEO-13 has accepted checked dynamic/static cap removal, canonical rigid and
   static-bucket production defaults, clean-GI resident-bucket decoding, and a
   warm identical-content route comparison. The latest CPU checkpoint removes

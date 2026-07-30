@@ -1,0 +1,117 @@
+GEOMETRY PACKET - CLEAN GI PRODUCTION DEFAULT RESTORATION
+========================================================
+
+Date: 2026-07-30
+Branch: restir-development
+Status: automated default-dispatch proof passed; interactive acceptance pending
+
+USER-REPORTED REGRESSION
+------------------------
+After the geometry packet was marked complete, the normal launcher no longer
+produced GI. Before the geometry work, clean GI launched and ran without a
+manual warmup override.
+
+ROOT CAUSE
+----------
+The visible GI controls were still enabled:
+
+  r_pathTracingCleanRestirGiEnable       1
+  r_pathTracingCleanRestirGiResolve      1
+  r_pathTracingCleanRestirGiView         0
+
+However, geometry checkpoint e89e7b53ad changed:
+
+  r_pathTracingCleanRestirGiPipelineWarmupLimit  16 -> 0
+
+Limit zero prevents all sixteen Vulkan GI ray pipelines from being built.
+No partial limit dispatches GI. The result was therefore an effectively
+disabled production GI lane despite enable and resolve remaining one.
+
+The later geometry validation explicitly accepted the complete 16/16 lane in
+geometry_geo_step18.log, then added a narrow safety guard for the one unstable
+intersection:
+
+  clean GI + refracted glass PSR + static bucket route one
+
+That guard retains GI and refraction but selects the monolithic static route
+for this conjunction. It does not require GI itself to remain disabled. The
+accepted warmup default was simply never restored after the diagnostic ladder.
+
+CHANGE
+------
+Only the warmup default is changed:
+
+  r_pathTracingCleanRestirGiPipelineWarmupLimit  0 -> 16
+
+GI enable, resolve, view, final mix, blue noise, shaders, static-bucket
+defaults, and the GI+refracted-glass monolithic safety guard are unchanged.
+Zero remains the explicit rollback that builds no GI ray pipelines.
+
+BUILD AND DEPLOY
+----------------
+Command, from neo/:
+
+  cmake --build --preset win64-pt-dev-release
+
+Result:
+
+  PASS
+  All SPIR-V shaders are up to date.
+  No DX12 shader validation or deployment was performed.
+
+Executable:
+
+  source    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+  deployed  E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+  bytes     16121856
+  sha256    A41FEE84AE7FD76A7C60462DA75225374D73B554367FBA311CD50AAB880DE0CA
+  identity  byte-identical
+
+AUTOMATED DEFAULT-DISPATCH PROOF
+--------------------------------
+The prepared doom3_1 save was loaded with Vulkan PT and the ordinary clean-DI
+production view. No value for
+`r_pathTracingCleanRestirGiPipelineWarmupLimit`,
+`r_pathTracingCleanRestirGiEnable`, or
+`r_pathTracingCleanRestirGiResolve` was supplied on the command line.
+
+Raw log:
+
+  path      C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/geometry_gi_default_restore.log
+  bytes     169168
+  modified  2026-07-30 22:33:45 Australia/Sydney
+
+Exact evidence:
+
+  warmup entry api=vulkan view=0 resolve=1 limit=16
+  GI production split pipeline warmup 16/16 pass=seed
+  GI production split pipelines initialized
+  dispatched GI lane (640x360, view=0)
+  Game Map Shutdown
+  idRenderSystem::Shutdown()
+
+The log contains no Device Removed or VK_ERROR_DEVICE_LOST marker.
+
+ROLLBACK
+--------
+For diagnosis only:
+
+  r_pathTracingCleanRestirGiPipelineWarmupLimit 0
+
+This intentionally disables all clean-GI ray-pipeline creation and therefore
+must not be treated as the production default.
+
+REMAINING ACCEPTANCE
+--------------------
+Do not re-close the geometry packet from automated dispatch alone. Run the
+ordinary launch.bat without an added GI warmup override and verify:
+
+  1. indirect GI is visibly present after the 16-pipeline warmup;
+  2. normal movement and portal traversal remain stable;
+  3. indoor and sky-facing glass retain transmission/refraction;
+  4. the GI+refracted-glass conjunction uses the existing monolithic static
+     fallback without losing brush geometry; and
+  5. no device removal occurs during a representative traversal.
+
+The packet remains reopened until this interactive production-default pass is
+accepted.

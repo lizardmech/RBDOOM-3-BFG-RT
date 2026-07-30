@@ -1751,9 +1751,9 @@ idCVar r_pathTracingCleanRestirGiEnable(
 
 idCVar r_pathTracingCleanRestirGiPipelineWarmupLimit(
     "r_pathTracingCleanRestirGiPipelineWarmupLimit",
-    "0",
+    "16",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Vulkan clean-GI split-pipeline warmup cap: 0 builds none (safe unvalidated default), 1..15 stop after that many modules for bounded validation, 16 builds the complete lane" );
+    "Vulkan clean-GI split-pipeline warmup cap: 0 builds none, 1..15 stop after that many modules for bounded validation, 16 builds the complete production lane (default)" );
 
 idCVar r_pathTracingCleanRestirGiView(
     "r_pathTracingCleanRestirGiView",

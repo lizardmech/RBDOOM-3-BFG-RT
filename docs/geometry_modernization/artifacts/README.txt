@@ -125,6 +125,11 @@ GEO-11 FILES
 
 POST-PACKET QUESTION CLOSURES
 -----------------------------
+  GEO-GI_default_restore_handoff_2026-07-30.txt
+    Regression root cause, restored full-GI warmup default, unchanged
+    GI/refraction static-route safety guard, build/deploy identity, autonomous
+    default-dispatch proof, rollback, and pending interactive acceptance.
+
   GEO-Q15_material_universe_closure_2026-07-30.txt
     Spawned-material admission and ordinary diffuse descriptor closure,
     current source/cache contract, bounded Fatzombie runtime census, raw-log

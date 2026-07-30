@@ -1,6 +1,6 @@
 Geometry modernization - worker ticket index
 =============================================
-Status: completed implementation packet, 2026-07-30.
+Status: implementation complete; final acceptance reopened, 2026-07-30.
 
 REQUIRED READING
 ----------------
@@ -53,6 +53,12 @@ Phase E recovery - completed skinned cutover
   GEO-14_skinned_vulkan_update_recovery.txt
 
 Current Phase-E status (2026-07-30):
+  The production-default acceptance is reopened by D192. The diagnostic
+  clean-GI warmup cap was left at zero after the complete 16/16 lane had
+  already passed, making normal-launch GI effectively off. The default is now
+  restored to 16 and autonomous dispatch proof passes. Interactive
+  normal-launch GI, movement, portal, and glass validation remains required.
+
   GEO-13's authorized rigid/static/cap/cleanup/performance work is complete.
   GEO-14's batched in-place UPDATE route has passed its automated lifecycle,
   live/shadow consumer, hit/material/motion, and emissive publication matrix.

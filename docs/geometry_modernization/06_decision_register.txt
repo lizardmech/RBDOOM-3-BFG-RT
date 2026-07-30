@@ -4916,6 +4916,50 @@ Evidence:
 
   artifacts/GEO-Q15_material_universe_closure_2026-07-30.txt
 
+D192. RESTORE THE ACCEPTED CLEAN-GI PRODUCTION WARMUP DEFAULT
+-------------------------------------------------------------
+Packet-level final acceptance is reopened after the user reported that normal
+launch no longer produced GI.
+
+The concrete regression is not in GI enable, resolve, or shading. Geometry
+checkpoint e89e7b53ad changed
+`r_pathTracingCleanRestirGiPipelineWarmupLimit` from 16 to the diagnostic
+value zero while isolating Vulkan pipeline creation. Limit zero builds none of
+the sixteen split ray pipelines, and no partial limit dispatches GI. It
+therefore leaves the nominally enabled production lane effectively off.
+
+Later geometry evidence accepted the complete 16/16 GI lane as a static-bucket
+consumer. The subsequent GI+refracted-glass guard retains GI and refraction
+while selecting monolithic static traversal only for their unstable
+route-one conjunction. Neither accepted result requires the global GI warmup
+default to remain zero.
+
+Decision: restore
+
+  r_pathTracingCleanRestirGiPipelineWarmupLimit 16
+
+as the production default. Keep zero as the explicit no-GI-pipeline rollback.
+Do not change GI enable, resolve, view, final mix, blue noise, shader behavior,
+or the narrow refracted-glass static-route guard in this correction.
+
+The Vulkan release build passes with all SPIR-V up to date, and the deployed
+executable is byte-identical to the build output. An autonomous prepared-save
+run supplies no GI warmup, enable, or resolve overrides and reports:
+
+  warmup entry api=vulkan view=0 resolve=1 limit=16
+  GI production split pipeline warmup 16/16
+  GI production split pipelines initialized
+  dispatched GI lane (640x360, view=0)
+
+It reaches renderer shutdown without a device-loss marker. This proves the
+production defaults dispatch GI again, but packet-level acceptance remains
+open until an ordinary interactive launch confirms visible indirect light,
+movement/portal stability, and glass behavior.
+
+Evidence:
+
+  artifacts/GEO-GI_default_restore_handoff_2026-07-30.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR LOSSLESS COLOR by D165/D166/D190; color UNORM8 is the

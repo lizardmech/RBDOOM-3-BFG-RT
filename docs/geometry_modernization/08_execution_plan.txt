@@ -1,6 +1,6 @@
 Geometry modernization - ordered execution plan
 ================================================
-Status: completed controlling phase plan, updated 2026-07-30.
+Status: implementation complete; final acceptance reopened, updated 2026-07-30.
 
 OBJECTIVE
 ---------
@@ -1301,8 +1301,11 @@ capture omission and remains the explicit post-main-work material follow-up.
 
 The synchronized in-place UPDATE route and capture split are promoted to
 production defaults. Their exact zero/zero merged-dynamic rollback remains
-live. GEO-14 and the geometry-modernization execution packet are complete.
-See artifacts/GEO-14_final_visual_acceptance_2026-07-30.txt.
+live. GEO-14 implementation is complete. The later D192 GI-default regression
+reopens packet-level acceptance; do not describe the whole execution packet as
+complete until its normal-launch interactive check passes. See
+artifacts/GEO-14_final_visual_acceptance_2026-07-30.txt and
+artifacts/GEO-GI_default_restore_handoff_2026-07-30.txt.
 
 Post-acceptance static-route safety correction:
 
