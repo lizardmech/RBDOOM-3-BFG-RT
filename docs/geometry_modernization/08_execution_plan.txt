@@ -1280,6 +1280,15 @@ the production TLAS. These controls default to zero. Automated validation is
 complete; defaults remain 0/0 pending only the human visual pass. See
 artifacts/GEO-14_final_consumer_handoff.txt.
 
+A supplemental unattended visual preflight repeatedly flips the final
+candidate and rollback routes, reloads the prepared save twice, and compares
+same-camera/frozen screenshots at multiple headings. Candidate and rollback
+retain matching scene and prepared-character structure, pose, materials, and
+silhouettes with no device/Vulkan/fatal error. Synthetic input does not reach
+the gameplay movement/PDA layer, so defaults remain 0/0 pending the explicit
+interactive portal, animation, and PDA checks in
+artifacts/GEO-14_visual_preflight_2026-07-30.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

@@ -185,6 +185,11 @@ GEO-14 FILES
     build/deploy identity, unchanged defaults, and the remaining human visual
     promotion gate.
 
+  GEO-14_visual_preflight_2026-07-30.txt
+    Supplemental same-camera screenshot A/B, repeated route-flip/save-reload
+    stability, raw image/log provenance, exact candidate/rollback commands,
+    and the still-required interactive portal/animation/PDA checks.
+
 NAMING
 ------
 Use:

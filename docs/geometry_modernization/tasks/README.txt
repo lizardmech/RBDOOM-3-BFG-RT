@@ -56,9 +56,12 @@ Current Phase-E status (2026-07-30):
   GEO-13's authorized rigid/static/cap/cleanup/performance work is complete.
   GEO-14's batched in-place UPDATE route has passed its automated lifecycle,
   live/shadow consumer, hit/material/motion, and emissive publication matrix.
+  A supplemental same-camera screenshot A/B also finds no candidate-only
+  structural or material regression.
   The per-instance route and capture split remain default off, with merged
-  dynamic as production fallback, pending the required final human visual
-  acceptance. See ../artifacts/GEO-14_final_consumer_handoff.txt.
+  dynamic as production fallback, pending the required final interactive
+  portal/animation/PDA visual acceptance. See
+  ../artifacts/GEO-14_final_consumer_handoff.txt.
 
 CLAIMING A TICKET
 -----------------

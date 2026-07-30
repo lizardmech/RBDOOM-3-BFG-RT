@@ -163,3 +163,19 @@ Automated lifecycle, update synchronization, capture split, consumer,
 material, motion, and emissive gates are complete. The only remaining GEO-14
 promotion gate is a human visual pass covering portal traversal, PDA,
 characters, materials, motion, and emissives on the final executable.
+
+SUPPLEMENTAL VISUAL PREFLIGHT
+-----------------------------
+An unattended same-camera screenshot A/B and repeated route-flip/save-reload
+run also survives on the exact executable above. Candidate and rollback images
+show matching prepared-character structure, pose, materials, and silhouettes,
+with no candidate-only omission, duplicate, T-pose, material substitution, or
+gross transform error. The run reaches exact 12/12 capture-split admission
+repeatedly and has no device/Vulkan/fatal error.
+
+Synthetic input did not reach the gameplay movement/PDA layer, so this remains
+a preflight rather than the required interactive acceptance. Exact commands,
+image names, raw-log identity, observations, and the remaining five checks are
+archived in:
+
+  GEO-14_visual_preflight_2026-07-30.txt

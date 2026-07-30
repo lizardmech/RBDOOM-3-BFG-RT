@@ -1,0 +1,146 @@
+GEO-14 unattended visual preflight - 2026-07-30
+=================================================
+
+PURPOSE
+-------
+Narrow the final human visual gate without promoting either default. This is
+a supplemental screenshot and runtime-stability check, not a replacement for
+interactive portal traversal, animation judgment, or PDA acceptance.
+
+BUILD
+-----
+Executable:
+
+  E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+  bytes:   16,083,968
+  SHA-256: C79AE9E0FDFFDBE7B24A85EE3DBA943B84086894B09BB841FD2ED5EE5344A585
+
+The executable is the same final GEO-14 consumer-matrix build recorded in:
+
+  GEO-14_final_consumer_handoff.txt
+
+No shader source changed and no shader blob was deployed for this preflight.
+
+CANDIDATE
+---------
+The production-shaped candidate used:
+
+  r_pathTracingGpuSkinning                       1
+  r_pathTracingGeometryAuthoritativeGpuSkinning 1
+  r_pathTracingGeometryShadowRegistry           1
+  r_pathTracingGeometrySkinnedTlasCompare       1
+  r_pathTracingGeometrySkinnedCaptureSplit      1
+  r_pathTracingDebugMode                        0
+
+The comparison side changed only:
+
+  r_pathTracingGeometrySkinnedTlasCompare       0
+  r_pathTracingGeometrySkinnedCaptureSplit      0
+
+TEST
+----
+The prepared `doom3_1` save was loaded under clean-DI beauty view 16 at
+960x540 path-tracing resolution. The running process was exercised through:
+
+  - repeated live candidate/rollback route flips;
+  - two same-save reloads;
+  - a frozen same-camera candidate/rollback pair at the save position;
+  - frozen candidate/rollback pairs at changed headings;
+  - the second reproducible camera tuple recovered from earlier geometry logs:
+
+      setviewpos -699.2 -1376.49 278.26 230.9
+
+The candidate reached exact capture-split admission seven times during the
+session. The prepared-save set repeatedly reported:
+
+  routes / descriptors / motion ready  12 / 12 / 12
+  omitted surfaces / verts / indexes   12 / 9,889 / 47,886
+  CPU skin append                       0 ms
+
+The process remained responsive until it was stopped externally after the
+bounded run.
+
+VISUAL RESULT
+-------------
+Manual inspection of the screenshot pairs found the same scene structure,
+character poses, character materials, and silhouettes on the candidate and
+rollback sides. No candidate-only omission, duplicate surface, T-pose,
+material substitution, or gross transform error was visible.
+
+The screenshots are deliberately not treated as pixel-equality evidence.
+Each capture contains independent path-tracing noise and FPS text. They are
+only a coarse structural preflight.
+
+External screenshots:
+
+  E:/prog/rbdoom-3-BFG-prebuilt/base/screenshots/
+
+  geo14_rollback.png
+  geo14_candidate.png
+  geo14_candidate_yaw120.png
+  geo14_rollback_yaw120.png
+  geo14_rollback_yaw160.png
+  geo14_candidate_yaw160.png
+  geo14_candidate_yaw200.png
+  geo14_candidate_reload_frozen.png
+  geo14_rollback_reload_frozen.png
+  geo14_candidate_view2.png
+  geo14_rollback_view2.png
+
+The most useful prepared-character pair is:
+
+  geo14_candidate_reload_frozen.png
+  geo14_rollback_reload_frozen.png
+
+RAW LOG
+-------
+Under:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+
+  geometry_geo14_visual_ab.log
+    bytes:    763,554
+    SHA-256: 4234BC4011470D9CC6F8C731740992F6F836968CFC6692962530F000B277A793
+    modified: 2026-07-30 16:22:00 Australia/Sydney
+
+The log has zero matches for:
+
+  device lost
+  device removed
+  VK_ERROR
+  fatal error
+  Cannot bind buffer
+  validation error
+
+LIMITATION
+----------
+Synthetic key-down messages reached the menu and console but not the gameplay
+movement/PDA command layer. The attempted movement did not change `getviewpos`,
+and `impulse 19` is not a registered console command in this build. Therefore
+this run does not claim portal traversal or PDA acceptance.
+
+REMAINING HUMAN GATE
+--------------------
+Use the normal launch configuration and beauty view. After loading the
+prepared save, paste:
+
+  r_pathTracingGpuSkinning 1; r_pathTracingGeometryAuthoritativeGpuSkinning 1; r_pathTracingGeometryShadowRegistry 1; r_pathTracingGeometrySkinnedTlasCompare 1; r_pathTracingGeometrySkinnedCaptureSplit 1; r_pathTracingDebugMode 0
+
+Then:
+
+  1. Walk through at least two portal boundaries and return.
+  2. Rotate across the prepared NPC/monster group while they animate.
+  3. Check pose, material, silhouette, flicker, duplicate surfaces, and
+     disappearance.
+  4. Open and close the PDA, then re-check the characters.
+  5. Inspect animated/image emissives while characters enter and leave view.
+
+For a live rollback comparison:
+
+  r_pathTracingGeometrySkinnedCaptureSplit 0; r_pathTracingGeometrySkinnedTlasCompare 0
+
+Restore the candidate with:
+
+  r_pathTracingGeometrySkinnedTlasCompare 1; r_pathTracingGeometrySkinnedCaptureSplit 1
+
+Do not promote the two zero defaults until this interactive pass is accepted.
