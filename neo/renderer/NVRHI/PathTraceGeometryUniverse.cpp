@@ -6036,6 +6036,31 @@ void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMes
     int seenCount = 0;
     if (record)
     {
+        const bool cpuMeshCacheMissing =
+            !cacheHit ||
+            record->cpuMeshContentSignature == 0;
+        const bool cpuMeshIdentityChanged =
+            record->vertexBufferIdentity !=
+                observation.vertexBufferIdentity ||
+            record->indexBufferIdentity !=
+                observation.indexBufferIdentity ||
+            record->vertexFormat != observation.vertexFormat ||
+            record->modelEpoch != observation.modelEpoch;
+        const bool cpuMeshRangeChanged =
+            record->sourceRange.vertices.count !=
+                observation.numVerts ||
+            record->sourceRange.indexes.count !=
+                observation.numIndexes;
+        const bool cpuMeshTextureMatrixChanged =
+            std::memcmp(
+                record->normalTexMatrix,
+                observation.normalTexMatrix,
+                sizeof(record->normalTexMatrix)) != 0;
+        const bool cpuMeshCacheChanged =
+            cpuMeshCacheMissing ||
+            cpuMeshIdentityChanged ||
+            cpuMeshRangeChanged ||
+            cpuMeshTextureMatrixChanged;
         record->tri = observation.tri;
         record->vertexBufferIdentity = observation.vertexBufferIdentity;
         record->indexBufferIdentity = observation.indexBufferIdentity;
@@ -6054,7 +6079,19 @@ void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMes
         record->sourceRange.triangles.count = observation.numIndexes / 3;
         record->materialName = observation.materialName;
         record->modelName = observation.modelName;
-        RefreshRigidMeshCandidateCpuCache(*record);
+        if (cpuMeshCacheChanged)
+        {
+            const char* refreshEvent =
+                cpuMeshCacheMissing
+                    ? "PT Rigid Cache Refresh Missing"
+                    : cpuMeshIdentityChanged
+                        ? "PT Rigid Cache Refresh Identity"
+                        : cpuMeshRangeChanged
+                            ? "PT Rigid Cache Refresh Range"
+                            : "PT Rigid Cache Refresh TexMatrix";
+            OPTICK_EVENT_DYNAMIC(refreshEvent);
+            RefreshRigidMeshCandidateCpuCache(*record);
+        }
         if (!record->seenThisFrame)
         {
             record->seenThisFrame = true;
@@ -6844,19 +6881,15 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
             continue;
         }
 
-        localVertices.clear();
-        localIndexes.clear();
-        if (!BuildRigidLocalMeshData(record, localVertices, localIndexes))
-        {
-            invalidFlags |= RT_PT_RIGID_BLAS_INPUT_INVALID_INDEX_COUNT;
-            ++stats.invalidInputs;
-            ++stats.skippedInvalid;
-            continue;
-        }
-
         ++stats.validInputs;
-        const size_t requiredVertexBytes = localVertices.size() * sizeof(PathTraceSmokeVertex);
-        const size_t requiredIndexBytes = localIndexes.size() * sizeof(uint32_t);
+        const size_t requiredVertexBytes =
+            static_cast<size_t>(
+                record.sourceRange.vertices.count) *
+            sizeof(PathTraceSmokeVertex);
+        const size_t requiredIndexBytes =
+            static_cast<size_t>(
+                record.sourceRange.indexes.count) *
+            sizeof(uint32_t);
         const uint64 uploadSignature = BuildRigidGpuUploadSignature(record);
         bool builtThisFrame = false;
         const bool currentBuffersExact =
@@ -6875,8 +6908,10 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
             record.rigidBlas &&
             record.gpuBlasCreated &&
             record.gpuBlasBuildSubmitted &&
-            record.gpuBlasVertexCount == static_cast<int>(localVertices.size()) &&
-            record.gpuBlasIndexCount == static_cast<int>(localIndexes.size());
+            record.gpuBlasVertexCount ==
+                record.sourceRange.vertices.count &&
+            record.gpuBlasIndexCount ==
+                record.sourceRange.indexes.count;
         const bool replacementRequired =
             forceRebuild || !currentBlasExact;
         const bool replaceBuffers = !currentBuffersExact;
@@ -6896,6 +6931,17 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         }
         else
         {
+            localVertices.clear();
+            localIndexes.clear();
+            if (!BuildRigidLocalMeshData(
+                    record,
+                    localVertices,
+                    localIndexes))
+            {
+                ++stats.invalidInputs;
+                ++stats.skippedInvalid;
+                continue;
+            }
             const uint64 deferredAge =
                 record.deferredSinceFrame != 0 &&
                 m_currentFrameIndex >=

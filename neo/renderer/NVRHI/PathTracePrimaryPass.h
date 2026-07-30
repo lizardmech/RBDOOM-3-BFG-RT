@@ -554,7 +554,6 @@ private:
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     PtSkinnedOutputAllocator m_smokeSkinnedOutputAllocator;
     PtSkinnedBlasStateTable m_smokeSkinnedBlasStateTable;
-    PtSkinnedHitRouteBuild m_smokeSkinnedHitRouteUploadShadow;
     struct SmokeSkinnedCaptureRouteSetState
     {
         uint64 signature = 0;

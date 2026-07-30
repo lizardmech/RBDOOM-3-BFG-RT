@@ -4043,6 +4043,8 @@ SubmitSmokeSkinnedComparisonBlases(
     int retireFrames,
     bool& retirementQueryFailureLogged)
 {
+    OPTICK_EVENT("PT Skinned BLAS Route Submit");
+
     RtSmokeSkinnedComparisonBlasAudit audit;
     audit.gate = mode != 0;
     audit.forceUpdateAsFullBuild = mode >= 2;
@@ -4318,25 +4320,10 @@ SubmitSmokeSkinnedComparisonBlases(
         commandList->commitBarriers();
     }
 
-    for (const PendingSubmission& submission :
-        pendingSubmissions)
     {
-        if ((submission.desc.buildFlags &
-                nvrhi::rt::AccelStructBuildFlags::
-                    PerformUpdate) == 0)
-        {
-            continue;
-        }
-        commandList->setAccelStructState(
-            submission.blas,
-            nvrhi::ResourceStates::
-                AccelStructBuildBlas);
-        ++audit.updateBarrierBlases;
-    }
-    if (audit.updateBarrierBlases > 0)
-    {
-        commandList->commitBarriers();
-        ++audit.updateBarrierBatches;
+        OPTICK_EVENT("PT Skinned BLAS Update Barriers");
+        OPTICK_GPU_EVENT("PT GPU Skinned BLAS Update Barriers");
+
         for (const PendingSubmission& submission :
             pendingSubmissions)
         {
@@ -4349,17 +4336,40 @@ SubmitSmokeSkinnedComparisonBlases(
             commandList->setAccelStructState(
                 submission.blas,
                 nvrhi::ResourceStates::
-                    AccelStructBuildBlas |
+                    AccelStructBuildBlas);
+            ++audit.updateBarrierBlases;
+        }
+        if (audit.updateBarrierBlases > 0)
+        {
+            commandList->commitBarriers();
+            ++audit.updateBarrierBatches;
+            for (const PendingSubmission& submission :
+                pendingSubmissions)
+            {
+                if ((submission.desc.buildFlags &
+                        nvrhi::rt::AccelStructBuildFlags::
+                            PerformUpdate) == 0)
+                {
+                    continue;
+                }
+                commandList->setAccelStructState(
+                    submission.blas,
+                    nvrhi::ResourceStates::
+                        AccelStructBuildBlas |
                     nvrhi::ResourceStates::
                         AccelStructWrite);
+            }
+            commandList->commitBarriers();
+            ++audit.updateBarrierBatches;
         }
-        commandList->commitBarriers();
-        ++audit.updateBarrierBatches;
     }
 
     for (const PendingSubmission& submission :
         pendingSubmissions)
     {
+        OPTICK_EVENT("PT Skinned BLAS Build Command");
+        OPTICK_GPU_EVENT("PT GPU Skinned BLAS Build Command");
+
         const bool updateBarriersPrepared =
             (submission.desc.buildFlags &
                 nvrhi::rt::AccelStructBuildFlags::
@@ -6992,6 +7002,69 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
 
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
 {
+#if USE_OPTICK
+    static bool optickCaptureRequestArmed = false;
+    static bool optickCaptureActive = false;
+    static int optickCaptureDelayFrames = 0;
+    static int optickCaptureFramesRemaining = 0;
+
+    if (optickCaptureActive)
+    {
+        --optickCaptureFramesRemaining;
+        if (optickCaptureFramesRemaining <= 0)
+        {
+            Optick::StopCapture();
+            Optick::SaveCapture("pathtrace_geometry");
+            optickCaptureActive = false;
+            optickCaptureRequestArmed = false;
+            r_pathTracingOptickCaptureFrames.SetInteger(0);
+            common->Printf(
+                "PathTracePrimaryPass: Optick automatic capture saved as pathtrace_geometry(timestamp).opt\n");
+        }
+    }
+
+    const int requestedOptickCaptureFrames = idMath::ClampInt(
+        0,
+        10000,
+        r_pathTracingOptickCaptureFrames.GetInteger());
+    if (!optickCaptureActive && requestedOptickCaptureFrames <= 0)
+    {
+        optickCaptureRequestArmed = false;
+        optickCaptureDelayFrames = 0;
+    }
+    else if (!optickCaptureActive)
+    {
+        if (!optickCaptureRequestArmed)
+        {
+            optickCaptureRequestArmed = true;
+            optickCaptureDelayFrames = idMath::ClampInt(
+                0,
+                10000,
+                r_pathTracingOptickCaptureDelayFrames.GetInteger());
+        }
+        if (optickCaptureDelayFrames > 0)
+        {
+            --optickCaptureDelayFrames;
+        }
+        else if (Optick::StartCapture(Optick::Mode::INSTRUMENTATION))
+        {
+            optickCaptureActive = true;
+            optickCaptureFramesRemaining =
+                requestedOptickCaptureFrames;
+            common->Printf(
+                "PathTracePrimaryPass: Optick automatic capture started frames=%d\n",
+                requestedOptickCaptureFrames);
+        }
+        else
+        {
+            optickCaptureRequestArmed = false;
+            r_pathTracingOptickCaptureFrames.SetInteger(0);
+            common->Warning(
+                "PathTracePrimaryPass: Optick automatic capture could not start");
+        }
+    }
+#endif
+
     OPTICK_EVENT("PT Build Scene");
 
     BuildPathTraceParticleCompositeCapture(viewDef, m_particleCapture);
@@ -8113,11 +8186,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeGeometryUniverse.DumpCanonicalRigidIdentityStats(
                 identityStats);
         }
-        m_smokeGeometryUniverse.UpdateCanonicalRigidBlasScaffold(
-            device,
-            commandList,
-            m_instanceUniverse,
-            r_pathTracingGeometryCanonicalRigidBlas.GetInteger() != 0);
+        {
+            OPTICK_EVENT("PT Canonical Rigid BLAS Scaffold");
+            m_smokeGeometryUniverse.UpdateCanonicalRigidBlasScaffold(
+                device,
+                commandList,
+                m_instanceUniverse,
+                r_pathTracingGeometryCanonicalRigidBlas.GetInteger() != 0);
+        }
         if (geometrySourceDumpRequested)
         {
             m_smokeGeometryUniverse.DumpCanonicalRigidBlasStats();
@@ -10276,24 +10352,28 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const uint64 currentOutputCapacity =
             m_smokeSkinnedCurrentOutputVertexBuffer->
                 getDesc().byteSize;
-        PtSkinnedHitRouteBuild currentFrameUploadBuild =
-            BuildSmokeSkinnedHitRouteShadow(
-                currentSkinnedSurfaceRecords,
-                skinnedGpuScaffold.dispatchRecords,
-                m_smokeGeometryUniverse,
-                m_smokeSkinnedBlasStateTable,
-                m_smokeSkinnedComparisonBlases,
-                dynamicIndexData,
-                dynamicTriangleClassData,
-                dynamicTriangleMaterialData,
-                materialTable.dynamicMaterialIndexes,
-                materialTable,
-                m_smokeSkinnedCurrentOutputVertexBuffer,
-                skinnedGpuScaffold.previousPositions.size(),
-                currentOutputCapacity,
-                2ull + rigidRouteBuild.instances.size(),
-                true,
-                true);
+        PtSkinnedHitRouteBuild currentFrameUploadBuild;
+        {
+            OPTICK_EVENT("PT Skinned Route Current Upload Build");
+            currentFrameUploadBuild =
+                BuildSmokeSkinnedHitRouteShadow(
+                    currentSkinnedSurfaceRecords,
+                    skinnedGpuScaffold.dispatchRecords,
+                    m_smokeGeometryUniverse,
+                    m_smokeSkinnedBlasStateTable,
+                    m_smokeSkinnedComparisonBlases,
+                    dynamicIndexData,
+                    dynamicTriangleClassData,
+                    dynamicTriangleMaterialData,
+                    materialTable.dynamicMaterialIndexes,
+                    materialTable,
+                    m_smokeSkinnedCurrentOutputVertexBuffer,
+                    skinnedGpuScaffold.previousPositions.size(),
+                    currentOutputCapacity,
+                    2ull + rigidRouteBuild.instances.size(),
+                    true,
+                    true);
+        }
         if (SmokeSkinnedHitRoutesMatchOmittedCapture(
                 currentFrameUploadBuild.records,
                 currentSkinnedSurfaceRecords,
@@ -10301,10 +10381,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             skinnedHitRouteUploadBuild =
                 std::move(currentFrameUploadBuild);
-            skinnedHitRouteUploadBuildSignature =
-                PtBuildSkinnedHitRouteGpuUpload(
-                    skinnedHitRouteUploadBuild,
-                    0).signature;
         }
         else
         {
@@ -10323,18 +10399,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     const int bufferCreateStartMs = Sys_Milliseconds();
-    const std::vector<PtSkinnedHitRouteRecord>
+    std::vector<PtSkinnedHitRouteRecord>
+        skinnedHitRouteUploadCpuRecords;
+    PtSkinnedHitRouteGpuUpload skinnedHitRouteGpuUpload;
+    {
+        OPTICK_EVENT("PT Skinned Route Upload Conversion");
         skinnedHitRouteUploadCpuRecords =
             r_pathTracingGeometrySkinnedTlasCompare.
-                    GetInteger() != 0
+                GetInteger() != 0
                 ? skinnedHitRouteUploadBuild.records
                 : std::vector<
                     PtSkinnedHitRouteRecord>();
-    const PtSkinnedHitRouteGpuUpload skinnedHitRouteGpuUpload =
-        PtBuildSkinnedHitRouteGpuUpload(
-            skinnedHitRouteUploadBuild,
-            static_cast<uint32_t>(
-                2ull + rigidRouteBuild.instances.size()));
+        skinnedHitRouteGpuUpload =
+            PtBuildSkinnedHitRouteGpuUpload(
+                skinnedHitRouteUploadBuild,
+                static_cast<uint32_t>(
+                    2ull + rigidRouteBuild.instances.size()));
+        skinnedHitRouteUploadBuildSignature =
+            skinnedHitRouteGpuUpload.signature;
+    }
     RtPathTraceCpuWorkGeneration rigidRouteSideBufferGeneration;
     rigidRouteSideBufferGeneration.frameIndex = 0;
     rigidRouteSideBufferGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
@@ -12227,24 +12310,55 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             : 0;
     const uint64 firstSkinnedHitRouteInstanceId =
         2ull + rigidRouteBuild.instances.size();
-    const PtSkinnedHitRouteBuild skinnedHitRouteShadow =
-        BuildSmokeSkinnedHitRouteShadow(
+    PtSkinnedHitRouteBuild rebuiltSkinnedHitRouteShadow;
+    const bool reuseCurrentFrameSkinnedHitRoute =
+        canonicalSkinnedSourceOutputRoute &&
+        !skinnedHitRouteUploadBuild.records.empty() &&
+        SmokeSkinnedHitRoutesMatchOmittedCapture(
+            skinnedHitRouteUploadBuild.records,
             currentSkinnedSurfaceRecords,
-            skinnedGpuScaffold.dispatchRecords,
-            m_smokeGeometryUniverse,
+            captureTiming.skinnedCaptureOmittedSurfaces) &&
+        ValidateSmokeSkinnedCaptureAcceptedBuildLive(
+            skinnedHitRouteUploadBuild,
             m_smokeSkinnedBlasStateTable,
             m_smokeSkinnedComparisonBlases,
-            dynamicIndexData,
-            dynamicTriangleClassData,
-            dynamicTriangleMaterialData,
-            materialTable.dynamicMaterialIndexes,
-            materialTable,
             smokeSkinnedCurrentOutputVertexBuffer,
-            skinnedGpuScaffold.previousPositions.size(),
-            skinnedHitRouteOutputCapacity,
-            firstSkinnedHitRouteInstanceId,
-            canonicalSkinnedSourceOutputRoute,
-            canonicalSkinnedSourceOutputRoute);
+            m_smokeGeometryUniverse.
+                CanonicalSourceIndexBuffer()) ==
+            SmokeSkinnedCaptureLiveResult::Live;
+    const PtSkinnedHitRouteBuild* skinnedHitRouteShadowPtr =
+        nullptr;
+    if (reuseCurrentFrameSkinnedHitRoute)
+    {
+        skinnedHitRouteShadowPtr =
+            &skinnedHitRouteUploadBuild;
+    }
+    else
+    {
+        OPTICK_EVENT("PT Skinned Route Post Submit Shadow Build");
+        rebuiltSkinnedHitRouteShadow =
+            BuildSmokeSkinnedHitRouteShadow(
+                currentSkinnedSurfaceRecords,
+                skinnedGpuScaffold.dispatchRecords,
+                m_smokeGeometryUniverse,
+                m_smokeSkinnedBlasStateTable,
+                m_smokeSkinnedComparisonBlases,
+                dynamicIndexData,
+                dynamicTriangleClassData,
+                dynamicTriangleMaterialData,
+                materialTable.dynamicMaterialIndexes,
+                materialTable,
+                smokeSkinnedCurrentOutputVertexBuffer,
+                skinnedGpuScaffold.previousPositions.size(),
+                skinnedHitRouteOutputCapacity,
+                firstSkinnedHitRouteInstanceId,
+                canonicalSkinnedSourceOutputRoute,
+                canonicalSkinnedSourceOutputRoute);
+        skinnedHitRouteShadowPtr =
+            &rebuiltSkinnedHitRouteShadow;
+    }
+    const PtSkinnedHitRouteBuild& skinnedHitRouteShadow =
+        *skinnedHitRouteShadowPtr;
     const PtSkinnedHitRouteBuild skinnedHitRouteLegacyAuditShadow =
         (r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0 ||
             r_pathTracingGeometrySkinnedHitAudit.GetInteger() != 0)
@@ -12266,8 +12380,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 canonicalSkinnedSourceOutputRoute,
                 false)
             : PtSkinnedHitRouteBuild();
-    m_smokeSkinnedHitRouteUploadShadow =
-        skinnedHitRouteShadow;
     const int skinnedShadowAccepted =
         static_cast<int>(
             skinnedHitRouteShadow.stats.accepted);
@@ -12364,12 +12476,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             routeSet->signature =
                 skinnedCaptureViewSignature;
         }
-        routeSet->pendingBuild =
-            skinnedHitRouteShadow;
-        routeSet->pendingBuildSignature =
-            PtBuildSkinnedHitRouteGpuUpload(
-                skinnedHitRouteShadow,
-                0).signature;
+        {
+            OPTICK_EVENT("PT Skinned Route Pending Set Copy");
+            routeSet->pendingBuild =
+                skinnedHitRouteShadow;
+            routeSet->pendingBuildSignature =
+                PtBuildSkinnedHitRouteGpuUpload(
+                    skinnedHitRouteShadow,
+                    0).signature;
+        }
         routeSet->lastUsedFrame =
             m_smokeGeometryFrameIndex;
     }
@@ -13104,10 +13219,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         // validated this frame. Pre-admission descriptors remain outside the
         // TLAS while their CPU fallback is retained; the omitted InstanceKey
         // set is checked against this upload before next-frame submission.
-        activeCaptureRouteSet->acceptedBuild =
-            skinnedHitRouteUploadBuild;
-        activeCaptureRouteSet->acceptedBuildSignature =
-            skinnedHitRouteUploadBuildSignature;
+        {
+            OPTICK_EVENT("PT Skinned Route Accepted Set Copy");
+            activeCaptureRouteSet->acceptedBuild =
+                skinnedHitRouteUploadBuild;
+            activeCaptureRouteSet->acceptedBuildSignature =
+                skinnedHitRouteUploadBuildSignature;
+        }
         activeCaptureRouteSet->lastUsedFrame =
             m_smokeGeometryFrameIndex;
     }

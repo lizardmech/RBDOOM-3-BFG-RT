@@ -123,6 +123,17 @@ Current execution status (2026-07-30):
   synchronized skinned route and capture split are now production defaults
   with zero/zero rollback retained.
 
+  A post-acceptance Optick performance pass then removed two repeated CPU
+  geometry paths without changing those defaults. The skinned route no longer
+  rebuilds identical source-only hit metadata after submission when its full
+  live contract remains exact. Stable rigid meshes no longer reconvert their
+  local payload before an exact-BLAS check or invalidate content on transient
+  `srfTriangles_t*` wrapper churn. `PT Build Scene` improves from 40.995 to
+  37.502 ms/frame in the character scene and from 81.517 to 29.691 ms/frame in
+  `testmaps/test_gltf2_models`. Final human visual confirmation is pending.
+  See D193 and
+  artifacts/GEO-14_cpu_geometry_performance_2026-07-30.txt.
+
   A post-acceptance soak found one narrower static-route exception: live clean
   GI plus refracted glass PSR can device-remove under route-one portal churn,
   while route zero, straight transmission, and reflection-only controls

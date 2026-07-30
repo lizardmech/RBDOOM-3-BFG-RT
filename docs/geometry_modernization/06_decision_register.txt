@@ -4960,6 +4960,34 @@ Evidence:
 
   artifacts/GEO-GI_default_restore_handoff_2026-07-30.txt
 
+D193. CACHE STEADY SKINNED ROUTES AND STABLE RIGID MESH CONTENT
+---------------------------------------------------------------
+Post-acceptance Optick captures reject BLAS command-submission count as the
+owner of the reported character slowdown. The steady GPU-skinned route spent
+about 2.915 ms/frame constructing its current upload metadata and another
+2.914 ms/frame reconstructing the same source-only metadata after submission.
+Reuse is accepted only after the complete live route/resource/BLAS contract
+validates. Bootstrap, replacement, buffer-generation change, and mismatch
+frames retain the second build. `PT Build Scene` improves from 40.995 to
+37.502 ms/frame versus 37.815 ms for merged CPU rollback.
+
+The GLTF scene exposed two separate rigid repeated-work defects. Exact resident
+BLASes rebuilt local CPU payloads before testing their signatures, and a
+transient `srfTriangles_t*` wrapper address invalidated a cache whose stable
+identity deliberately excludes that pointer. Check the resident signature
+before payload conversion, and invalidate CPU mesh content only on the stable
+GPU/model/range/texture-matrix contracts. `PT Build Scene` improves from
+81.517 to 29.691 ms/frame in `testmaps/test_gltf2_models`.
+
+Decision: accept both cache corrections without changing route defaults.
+Require a final human visual pass. If frame rate remains materially below the
+new CPU-bound rate, measure Vulkan GPU timestamps before changing BLAS
+topology.
+
+Evidence:
+
+  artifacts/GEO-14_cpu_geometry_performance_2026-07-30.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR LOSSLESS COLOR by D165/D166/D190; color UNORM8 is the

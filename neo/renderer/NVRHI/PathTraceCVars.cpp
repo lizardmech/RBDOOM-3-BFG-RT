@@ -2382,6 +2382,18 @@ idCVar r_pathTracingOptickGpuMarkers(
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable experimental Optick GPU markers inside the RT smoke/path tracing build and dispatch passes" );
 
+idCVar r_pathTracingOptickCaptureDelayFrames(
+    "r_pathTracingOptickCaptureDelayFrames",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Optick-only automatic PT capture delay in built scene frames; used with r_pathTracingOptickCaptureFrames" );
+
+idCVar r_pathTracingOptickCaptureFrames(
+    "r_pathTracingOptickCaptureFrames",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Optick-only automatic instrumentation capture length in built scene frames; saves pathtrace_geometry(timestamp).opt" );
+
 idCVar r_pathTracingNsightGpuMarkers(
     "r_pathTracingNsightGpuMarkers",
     "0",

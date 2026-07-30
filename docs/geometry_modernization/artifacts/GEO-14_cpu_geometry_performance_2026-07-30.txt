@@ -1,0 +1,108 @@
+GEO-14 CPU GEOMETRY PERFORMANCE FOLLOW-UP - 2026-07-30
+======================================================
+
+Purpose
+-------
+Investigate two post-acceptance performance reports:
+
+1. character-heavy views were substantially slower than the retired merged
+   CPU-skinned route even with GI disabled and a 640x360 PT render size;
+2. `testmaps/test_gltf2_models` fell below 5 FPS despite containing only a
+   small room and a modest number of model instances.
+
+Method
+------
+The release renderer was rebuilt with `USE_OPTICK=ON`. Captures used CPU
+instrumentation only; `r_pathTracingOptickGpuMarkers` remained zero because
+the native GPU marker route is not a stable validation dependency. The
+repository-local `tools/optick_capture_summary.js` reader extracted aggregate
+event times directly from each `.opt` capture.
+
+All values below cover 240 steady frames unless explicitly labelled. They are
+CPU wall time inside the renderer events, not GPU timestamp results.
+
+Skinned route result
+--------------------
+
+  capture                                      PT Build Scene   dynamic loop
+  GPU route before fix (23-31-58)                 40.995 ms       4.456 ms
+  merged CPU rollback (23-27-35)                  37.815 ms       9.824 ms
+  GPU route after fix (23-38-02)                  37.502 ms       3.933 ms
+
+The per-instance GPU route was not slow because it submits 12-13 BLAS
+commands. Their CPU submission cost was about 0.16 ms/frame. The regression
+was repeated CPU metadata construction:
+
+  current upload route build                       2.915 ms/frame
+  duplicate post-submit shadow build               2.914 ms/frame
+  pending-set copy                                  0.745 ms/frame
+  upload conversion                                 0.679 ms/frame
+
+The accepted correction reuses the current-frame source-only route after BLAS
+submission only when the complete live contract still validates: routable
+state, instance/mesh/source checksums, source/output generations and ranges,
+buffer handles, BLAS generation, and live BLAS handle. Bootstrap,
+reallocation, replacement, and mismatch frames retain the post-submit rebuild.
+It also removes a dead diagnostic shadow member and avoids a throwaway first
+GPU-upload conversion used only to recover a signature.
+
+The duplicate steady rebuild disappears from the post-fix capture. Build Scene
+falls 3.493 ms/frame and the GPU route becomes slightly cheaper on the CPU
+than the rollback while retaining the roughly 5.9 ms/frame CPU-skinning
+avoidance.
+
+GLTF rigid result
+-----------------
+
+  capture                                      PT Build Scene   dynamic loop   rigid scaffold
+  before rigid-cache fix (23-39-48)               81.517 ms      33.302 ms      17.149 ms
+  scaffold-only fix (23-43-03)                     64.802 ms      33.724 ms       0.830 ms
+  final rigid-cache fix, 120 frames (23-48-29)     29.691 ms       5.263 ms       1.032 ms
+
+Two independent repeated-work defects owned the GLTF CPU cost.
+
+First, `UpdateRigidBlasGpuScaffold` converted every live rigid mesh to local
+CPU vertices and indexes before checking whether its buffers, upload
+signature, and BLAS were already exact. The exact check now uses the resident
+range counts and cheap upload signature first. Local payload conversion occurs
+only when an actual build/replacement is required.
+
+Second, every rigid draw-surface observation rebuilt and rehashed the complete
+CPU mesh cache when the transient `srfTriangles_t*` wrapper changed. A focused
+60-frame capture recorded 1,140 refreshes, all attributed to that identity
+condition. The stable rigid identity already contains model epoch, model
+surface, GPU vertex/index identities, format, vertex/index counts, material
+class, and source kind; it intentionally does not contain the transient CPU
+wrapper address. The cache now invalidates on those stable content contracts,
+range changes, or texture-matrix changes while still refreshing the live
+wrapper pointer used by fallback/diagnostic access.
+
+Acceptance and remaining work
+-----------------------------
+- Both the Optick and normal Vulkan release targets compile and link.
+- The normal executable is deployed; no shader source changed and no SPIR-V
+  copy is required.
+- The measured CPU regressions are corrected without changing production
+  route defaults or rollback CVars.
+- Human visual traversal remains required for final presentation/correctness
+  confirmation, especially moving rigid GLTF objects and character portal
+  crossings.
+- The GLTF Build Scene still costs about 29.7 ms/frame. Its largest remaining
+  pieces are rigid residency, route snapshot/material construction, and TLAS
+  instance snapshot/description work. These are valid candidates for a later
+  cache/generation pass, but they are no longer consistent with the reported
+  sub-5-FPS CPU bottleneck.
+- This capture does not measure ray-traversal or shading cost. If the normal
+  build remains far below the CPU-limited rate after this correction, collect
+  Vulkan GPU timestamps before changing BLAS topology.
+
+Rollback
+--------
+The code change is structural and has no new production gate. The existing
+route rollback remains:
+
+  r_pathTracingGeometrySkinnedTlasCompare 0
+  r_pathTracingGeometrySkinnedCaptureSplit 0
+
+Reverting this follow-up restores the old repeated CPU work but is not
+required to restore legacy traversal.

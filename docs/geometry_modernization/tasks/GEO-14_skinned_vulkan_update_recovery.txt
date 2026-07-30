@@ -217,3 +217,23 @@ are production defaults, while zero/zero retains the merged-dynamic rollback.
 See:
 
   ../artifacts/GEO-14_final_visual_acceptance_2026-07-30.txt
+
+POST-ACCEPTANCE CPU PERFORMANCE FOLLOW-UP (2026-07-30)
+-------------------------------------------------------
+Optick A/B evidence found that the accepted GPU-skinned route rebuilt the same
+15,962-triangle source-only hit metadata twice per steady frame. Guarded
+post-submit reuse removes the duplicate build only when the full live
+resource/BLAS contract remains exact; bootstrap and mismatch frames retain the
+original rebuild. `PT Build Scene` falls from 40.995 to 37.502 ms/frame and is
+slightly below the 37.815 ms merged-CPU rollback while avoiding about
+5.9 ms/frame of CPU skinning.
+
+The same investigation corrected an independent GLTF rigid-cache defect.
+Transient `srfTriangles_t*` wrapper changes no longer invalidate otherwise
+stable rigid mesh content, and the rigid BLAS scaffold checks its resident
+signature before converting local payloads. On `testmaps/test_gltf2_models`,
+`PT Build Scene` falls from 81.517 to 29.691 ms/frame.
+
+No route default changes. Final visual confirmation remains required. See:
+
+  ../artifacts/GEO-14_cpu_geometry_performance_2026-07-30.txt

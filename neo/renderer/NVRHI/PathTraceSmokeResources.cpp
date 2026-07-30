@@ -2833,7 +2833,6 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedCurrentJointMatrixBuffer = nullptr;
     m_smokeSkinnedPreviousJointMatrixBuffer = nullptr;
     m_smokeSkinnedEmissiveWorkBuffer = nullptr;
-    m_smokeSkinnedHitRouteUploadShadow = PtSkinnedHitRouteBuild();
     m_smokeSkinnedCaptureSplitShadowMaxLogged = 0;
     m_smokeSkinnedCaptureSplitTlasMaxLogged = 0;
     m_smokeSkinnedEmissivePublishMaxLogged = 0;

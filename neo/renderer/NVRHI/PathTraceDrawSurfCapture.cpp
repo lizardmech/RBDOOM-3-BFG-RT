@@ -572,16 +572,20 @@ void RecordPathTraceDrawSurfMirrorObservation(
     meshKey.materialId = materialId;
     meshKey.materialClassSignature = materialClassSignature;
     meshKey.sourceKind = sourceKind;
-    const RtPathTraceRigidInstanceSnapshot rigidSnapshot = BuildPathTraceRigidInstanceSnapshot(
-        meshKey,
-        renderModel,
-        tri,
-        renderDefKey,
-        modelEpoch,
-        entity ? entity->index : -1,
-        renderEntity ? renderEntity->entityNum : -1,
-        drawSurf ? drawSurf->modelSurfaceIndex : -1,
-        sourceFlags);
+    RtPathTraceRigidInstanceSnapshot rigidSnapshot;
+    {
+        OPTICK_EVENT("PT DrawSurf Observation Identity");
+        rigidSnapshot = BuildPathTraceRigidInstanceSnapshot(
+            meshKey,
+            renderModel,
+            tri,
+            renderDefKey,
+            modelEpoch,
+            entity ? entity->index : -1,
+            renderEntity ? renderEntity->entityNum : -1,
+            drawSurf ? drawSurf->modelSurfaceIndex : -1,
+            sourceFlags);
+    }
 
     RtPathTraceMeshObservation meshObservation;
     meshObservation.key = rigidSnapshot.meshKey;
@@ -613,7 +617,15 @@ void RecordPathTraceDrawSurfMirrorObservation(
     instanceObservation.materialName = meshObservation.materialName;
     instanceObservation.modelName = meshObservation.modelName;
 
-    instanceUniverse.RecordObservation(meshObservation, instanceObservation, surfaceClass, tri->numVerts, tri->numIndexes);
+    {
+        OPTICK_EVENT("PT DrawSurf Instance Observation");
+        instanceUniverse.RecordObservation(
+            meshObservation,
+            instanceObservation,
+            surfaceClass,
+            tri->numVerts,
+            tri->numIndexes);
+    }
     const bool eligibleRigid = PtMirrorIsEligibleRigidCandidate(meshObservation, instanceObservation);
     if ((boundsOverlayMode == 1 || boundsOverlayMode == 2) && boundsOverlayDrawn < boundsOverlayMax)
     {
@@ -653,7 +665,11 @@ void RecordPathTraceDrawSurfMirrorObservation(
             candidateObservation.normalTexMatrix);
         candidateObservation.materialName = meshObservation.materialName;
         candidateObservation.modelName = meshObservation.modelName;
-        geometryUniverse->RecordRigidMeshCandidate(candidateObservation);
+        {
+            OPTICK_EVENT("PT DrawSurf Rigid Candidate");
+            geometryUniverse->RecordRigidMeshCandidate(
+                candidateObservation);
+        }
     }
 }
 
