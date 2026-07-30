@@ -570,6 +570,21 @@ struct RtPathTraceRigidRouteBuildStats
     int transformContinuousInstances = 0;
 };
 
+struct RtPathTraceRigidRouteGeometryRange
+{
+    uint64 meshHash = 0;
+    uint64 gpuUploadSignature = 0;
+    uint32_t vertexOffset = 0;
+    uint32_t indexOffset = 0;
+    uint32_t triangleOffset = 0;
+    uint32_t vertexCount = 0;
+    uint32_t indexCount = 0;
+    uint32_t triangleCount = 0;
+    uint32_t materialId = 0;
+    uint32_t materialIndex = 0;
+    uint32_t triangleClassAndFlags = 0;
+};
+
 struct RtPathTraceRigidRouteBuild
 {
     std::vector<PathTraceSmokeVertex> vertices;
@@ -577,6 +592,7 @@ struct RtPathTraceRigidRouteBuild
     std::vector<uint32_t> triangleMaterials;
     std::vector<uint32_t> triangleMaterialIndexes;
     std::vector<uint32_t> triangleClassAndFlags;
+    std::vector<RtPathTraceRigidRouteGeometryRange> geometryRanges;
     std::vector<PathTraceRigidRouteInstance> instances;
     std::vector<std::array<float, 16>> instanceObjectToWorld;
     std::vector<uint32_t> instanceSeenThisFrame;
@@ -1405,6 +1421,22 @@ private:
 };
 
 RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot);
+
+bool UpdateRigidRouteGeometryFromSnapshot(
+    RtPathTraceRigidRouteBuild& build,
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot);
+
+bool RigidRouteGeometrySnapshotCovered(
+    const RtPathTraceRigidRouteBuild& build,
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot);
+
+bool RemapRigidRouteMaterialIndexes(
+    RtPathTraceRigidRouteBuild& build,
+    const std::vector<uint32_t>& materialTableIds);
+
+void RebuildRigidRouteInstancesFromSnapshot(
+    RtPathTraceRigidRouteBuild& build,
     const RtPathTraceRigidRouteBuildSnapshot& snapshot);
 
 uint64_t BuildRigidRouteGeometryUploadSignature(

@@ -8316,7 +8316,11 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
                 m_rigidMeshCandidateRecords[recordIndex];
             const bool referencedByResident =
                 residentMeshHashes.find(record.meshHash) != residentMeshHashes.end();
-            const uint64 recordMeshFramesToKeep = ApplyEntityFeedRetentionCap(meshFramesToKeep);
+            // Entity-feed ownership limits how long an unseen instance may
+            // remain addressable, but immutable mesh/BLAS packages are safe to
+            // retain independently. Reclaim them on the dedicated mesh window
+            // instead of rebuilding large GLTF payloads after two missed frames.
+            const uint64 recordMeshFramesToKeep = meshFramesToKeep;
             const bool keepRecord = v2
                 ? record.valid && (referencedByResident || record.seenThisFrame || record.lastSeenFrame + recordMeshFramesToKeep >= m_currentFrameIndex)
                 : record.valid && record.seenThisFrame;
@@ -9049,7 +9053,7 @@ static bool RigidSnapshotTlasInstanceValid(
     return ValidateRigidResidencyBoundsBox(boundsBox);
 }
 
-RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
+static RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshotLegacy(
     const RtPathTraceRigidRouteBuildSnapshot& snapshot)
 {
     struct RigidRouteGeometryRange
@@ -9206,6 +9210,261 @@ RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
         }
     }
 
+    return build;
+}
+
+static const RtPathTraceRigidRouteGeometryRange* FindRigidRouteGeometryRange(
+    const RtPathTraceRigidRouteBuild& build,
+    const RtPathTraceRigidRouteMeshSnapshot& mesh)
+{
+    const uint32_t triangleClassAndFlags =
+        mesh.triangleClassAndFlags != 0u
+            ? mesh.triangleClassAndFlags
+            : mesh.surfaceClassId;
+    for (const RtPathTraceRigidRouteGeometryRange& range : build.geometryRanges)
+    {
+        if (range.meshHash == mesh.meshHash &&
+            range.gpuUploadSignature == mesh.gpuUploadSignature &&
+            range.vertexCount == mesh.vertexCount &&
+            range.indexCount == mesh.indexCount &&
+            range.materialId == mesh.materialId &&
+            range.triangleClassAndFlags == triangleClassAndFlags)
+        {
+            return &range;
+        }
+    }
+    return nullptr;
+}
+
+bool RigidRouteGeometrySnapshotCovered(
+    const RtPathTraceRigidRouteBuild& build,
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot)
+{
+    for (const RtPathTraceRigidRouteMeshSnapshot& mesh : snapshot.meshes)
+    {
+        if (mesh.valid &&
+            mesh.routeReady &&
+            !FindRigidRouteGeometryRange(build, mesh))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool UpdateRigidRouteGeometryFromSnapshot(
+    RtPathTraceRigidRouteBuild& build,
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot)
+{
+    bool geometryChanged = false;
+    for (const RtPathTraceRigidRouteMeshSnapshot& mesh : snapshot.meshes)
+    {
+        if (!mesh.valid ||
+            !mesh.routeReady ||
+            mesh.vertices.empty() ||
+            mesh.indexes.empty() ||
+            FindRigidRouteGeometryRange(build, mesh))
+        {
+            continue;
+        }
+
+        RtPathTraceRigidRouteGeometryRange range;
+        range.meshHash = mesh.meshHash;
+        range.gpuUploadSignature = mesh.gpuUploadSignature;
+        range.vertexOffset = static_cast<uint32_t>(build.vertices.size());
+        range.indexOffset = static_cast<uint32_t>(build.indexes.size());
+        range.triangleOffset = static_cast<uint32_t>(build.triangleMaterials.size());
+        range.vertexCount = static_cast<uint32_t>(mesh.vertices.size());
+        range.indexCount = static_cast<uint32_t>(mesh.indexes.size());
+        range.triangleCount = static_cast<uint32_t>(mesh.indexes.size() / 3);
+        range.materialId = mesh.materialId;
+        range.materialIndex = FindRigidRouteMaterialTableIndex(
+            snapshot.materialTableIds,
+            mesh.materialId,
+            build.stats.missingMaterialTableIndex);
+        range.triangleClassAndFlags =
+            mesh.triangleClassAndFlags != 0u
+                ? mesh.triangleClassAndFlags
+                : mesh.surfaceClassId;
+
+        build.vertices.insert(build.vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
+        build.indexes.insert(build.indexes.end(), mesh.indexes.begin(), mesh.indexes.end());
+        for (uint32_t triangleIndex = 0; triangleIndex < range.triangleCount; ++triangleIndex)
+        {
+            build.triangleMaterials.push_back(range.materialId);
+            build.triangleMaterialIndexes.push_back(range.materialIndex);
+            build.triangleClassAndFlags.push_back(range.triangleClassAndFlags);
+        }
+        build.geometryRanges.push_back(range);
+        geometryChanged = true;
+    }
+
+    build.stats.vertices = static_cast<int>(build.vertices.size());
+    build.stats.indexes = static_cast<int>(build.indexes.size());
+    build.stats.triangles = static_cast<int>(build.triangleMaterials.size());
+    return geometryChanged;
+}
+
+bool RemapRigidRouteMaterialIndexes(
+    RtPathTraceRigidRouteBuild& build,
+    const std::vector<uint32_t>& materialTableIds)
+{
+    bool changed = false;
+    int missingMaterialTableIndex = 0;
+    for (RtPathTraceRigidRouteGeometryRange& range : build.geometryRanges)
+    {
+        const uint32_t materialIndex = FindRigidRouteMaterialTableIndex(
+            materialTableIds,
+            range.materialId,
+            missingMaterialTableIndex);
+        if (range.materialIndex == materialIndex)
+        {
+            continue;
+        }
+
+        range.materialIndex = materialIndex;
+        const size_t triangleEnd =
+            static_cast<size_t>(range.triangleOffset) +
+            static_cast<size_t>(range.triangleCount);
+        if (triangleEnd <= build.triangleMaterialIndexes.size())
+        {
+            for (size_t triangleIndex = range.triangleOffset;
+                 triangleIndex < triangleEnd;
+                 ++triangleIndex)
+            {
+                build.triangleMaterialIndexes[triangleIndex] = materialIndex;
+            }
+        }
+        changed = true;
+    }
+    build.stats.missingMaterialTableIndex = missingMaterialTableIndex;
+    return changed;
+}
+
+void RebuildRigidRouteInstancesFromSnapshot(
+    RtPathTraceRigidRouteBuild& build,
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot)
+{
+    build.instances.clear();
+    build.instanceObjectToWorld.clear();
+    build.instanceSeenThisFrame.clear();
+    build.instances.reserve(snapshot.plan.instances.size());
+    build.instanceObjectToWorld.reserve(snapshot.plan.instances.size());
+    build.instanceSeenThisFrame.reserve(snapshot.plan.instances.size());
+
+    build.stats.visibleInstances = snapshot.plan.visibleInstances;
+    build.stats.emittedInstances = 0;
+    build.stats.skippedNonRigid = snapshot.plan.rejectedNonRigid;
+    build.stats.skippedMissingMesh =
+        snapshot.plan.rejectedMissingMesh + snapshot.plan.rejectedStaleMesh;
+    build.stats.skippedMissingBlas = snapshot.plan.rejectedMissingBlas;
+    build.stats.emittedSeenThisFrame = 0;
+    build.stats.emittedFromCache = 0;
+    build.stats.emittedUniqueMeshes = 0;
+    build.stats.previousTransformInstances = 0;
+    build.stats.transformContinuousInstances = 0;
+    std::unordered_set<uint64> emittedMeshHashes;
+
+    for (const RtSmokePlanTlasInstance& plannedInstance : snapshot.plan.instances)
+    {
+        const RtPathTraceRigidRouteMeshSnapshot* mesh =
+            FindRigidRouteMeshSnapshot(snapshot, plannedInstance.routeRecordIndex);
+        if (!mesh ||
+            !mesh->valid ||
+            mesh->meshHash != plannedInstance.meshHash)
+        {
+            ++build.stats.skippedMissingMesh;
+            AppendRigidRoutePlaceholder(build, plannedInstance);
+            continue;
+        }
+        if (!RigidSnapshotTlasInstanceValid(plannedInstance, *mesh))
+        {
+            ++build.stats.skippedMissingBlas;
+            AppendRigidRoutePlaceholder(build, plannedInstance);
+            continue;
+        }
+        const RtPathTraceRigidRouteGeometryRange* range =
+            FindRigidRouteGeometryRange(build, *mesh);
+        if (!range)
+        {
+            ++build.stats.skippedMissingMesh;
+            AppendRigidRoutePlaceholder(build, plannedInstance);
+            continue;
+        }
+
+        PathTraceRigidRouteInstance routeInstance;
+        routeInstance.vertexOffset = range->vertexOffset;
+        routeInstance.indexOffset = range->indexOffset;
+        routeInstance.triangleOffset = range->triangleOffset;
+        routeInstance.materialId =
+            plannedInstance.materialId != 0u
+                ? plannedInstance.materialId
+                : range->materialId;
+        routeInstance.materialIndex = FindRigidRouteMaterialTableIndex(
+            snapshot.materialTableIds,
+            routeInstance.materialId,
+            build.stats.missingMaterialTableIndex);
+        routeInstance.vertexCount = range->vertexCount;
+        routeInstance.indexCount = range->indexCount;
+        routeInstance.triangleCount = range->triangleCount;
+        routeInstance.instanceIdLo = static_cast<uint32_t>(
+            plannedInstance.sourceInstanceId & 0xffffffffull);
+        routeInstance.instanceIdHi = static_cast<uint32_t>(
+            (plannedInstance.sourceInstanceId >> 32) & 0xffffffffull);
+        if (plannedInstance.hasPreviousTransform)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM;
+            ++build.stats.previousTransformInstances;
+        }
+        if (plannedInstance.transformContinuous)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
+            ++build.stats.transformContinuousInstances;
+        }
+        if (!plannedInstance.sourceSeenThisFrame)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_CACHED_SOURCE;
+        }
+        CopyRigidRouteTransformRows(
+            routeInstance.currentObjectToWorld,
+            plannedInstance.transform);
+        CopyRigidRouteTransformRows(
+            routeInstance.previousObjectToWorld,
+            plannedInstance.hasPreviousTransform
+                ? plannedInstance.previousTransform
+                : plannedInstance.transform);
+        build.instances.push_back(routeInstance);
+        build.instanceSeenThisFrame.push_back(
+            plannedInstance.sourceSeenThisFrame ? 1u : 0u);
+        std::array<float, 16> objectToWorld = {};
+        for (int elementIndex = 0; elementIndex < 16; ++elementIndex)
+        {
+            objectToWorld[elementIndex] = plannedInstance.transform[elementIndex];
+        }
+        build.instanceObjectToWorld.push_back(objectToWorld);
+
+        ++build.stats.emittedInstances;
+        if (emittedMeshHashes.insert(mesh->meshHash).second)
+        {
+            ++build.stats.emittedUniqueMeshes;
+        }
+        if (plannedInstance.sourceSeenThisFrame)
+        {
+            ++build.stats.emittedSeenThisFrame;
+        }
+        else
+        {
+            ++build.stats.emittedFromCache;
+        }
+    }
+}
+
+RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot)
+{
+    RtPathTraceRigidRouteBuild build;
+    UpdateRigidRouteGeometryFromSnapshot(build, snapshot);
+    RebuildRigidRouteInstancesFromSnapshot(build, snapshot);
     return build;
 }
 

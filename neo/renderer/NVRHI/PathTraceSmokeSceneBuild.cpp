@@ -2425,40 +2425,87 @@ bool CanUploadStableSmokeMaterialTableWithDynamicOverrides(
     return true;
 }
 
-uint64_t BuildSmokeRigidRouteMaterialIdSignature(const std::vector<uint32_t>& materialTableIds)
+uint64_t BuildSmokeRigidRouteMaterialBindingSignature(
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot)
 {
     uint64_t hash = 14695981039346656037ull;
-    const uint64_t materialCount = static_cast<uint64_t>(materialTableIds.size());
-    hash = HashSmokeBytes(hash, &materialCount, sizeof(materialCount));
-    if (!materialTableIds.empty())
+    const auto findMaterialIndex =
+        [&snapshot](uint32_t materialId) -> uint32_t
+        {
+            for (uint32_t materialIndex = 0;
+                 materialIndex < static_cast<uint32_t>(snapshot.materialTableIds.size());
+                 ++materialIndex)
+            {
+                if (snapshot.materialTableIds[materialIndex] == materialId)
+                {
+                    return materialIndex;
+                }
+            }
+            return UINT32_MAX;
+        };
+    std::vector<uint64_t> materialBindings;
+    materialBindings.reserve(
+        snapshot.meshes.size() + snapshot.plan.instances.size());
+    const auto appendMaterialBinding =
+        [&materialBindings, &findMaterialIndex](uint32_t materialId)
+        {
+            const uint32_t materialIndex = findMaterialIndex(materialId);
+            materialBindings.push_back(
+                (static_cast<uint64_t>(materialId) << 32) |
+                static_cast<uint64_t>(materialIndex));
+        };
+
+    for (const RtPathTraceRigidRouteMeshSnapshot& mesh : snapshot.meshes)
     {
-        hash = HashSmokeBytes(hash, materialTableIds.data(), materialTableIds.size() * sizeof(materialTableIds[0]));
+        appendMaterialBinding(mesh.materialId);
+    }
+
+    for (const RtSmokePlanTlasInstance& instance : snapshot.plan.instances)
+    {
+        uint32_t materialId = instance.materialId;
+        if (materialId == 0u)
+        {
+            for (const RtPathTraceRigidRouteMeshSnapshot& mesh : snapshot.meshes)
+            {
+                if (mesh.routeRecordIndex == instance.routeRecordIndex)
+                {
+                    materialId = mesh.materialId;
+                    break;
+                }
+            }
+        }
+        appendMaterialBinding(materialId);
+    }
+    std::sort(materialBindings.begin(), materialBindings.end());
+    materialBindings.erase(
+        std::unique(materialBindings.begin(), materialBindings.end()),
+        materialBindings.end());
+    const uint64_t bindingCount =
+        static_cast<uint64_t>(materialBindings.size());
+    hash = HashSmokeBytes(hash, &bindingCount, sizeof(bindingCount));
+    if (!materialBindings.empty())
+    {
+        hash = HashSmokeBytes(
+            hash,
+            materialBindings.data(),
+            materialBindings.size() * sizeof(materialBindings[0]));
     }
     return hash;
 }
 
 uint64_t BuildSmokeRigidRouteStructureToken(
-    const RtSmokeRigidTlasPlan& plan,
-    const std::vector<uint32_t>& materialTableIds)
+    const RtSmokeRigidTlasPlan& plan)
 {
-    uint64_t hash = BuildSmokeRigidRouteMaterialIdSignature(materialTableIds);
-    const int instanceCount = static_cast<int>(plan.instances.size());
-    hash = HashSmokeBytes(hash, &plan.visibleInstances, sizeof(plan.visibleInstances));
-    hash = HashSmokeBytes(hash, &plan.rigidInstances, sizeof(plan.rigidInstances));
-    hash = HashSmokeBytes(hash, &plan.emittedInstances, sizeof(plan.emittedInstances));
-    hash = HashSmokeBytes(hash, &plan.rejectedNonRigid, sizeof(plan.rejectedNonRigid));
-    hash = HashSmokeBytes(hash, &plan.rejectedMissingMesh, sizeof(plan.rejectedMissingMesh));
-    hash = HashSmokeBytes(hash, &plan.rejectedStaleMesh, sizeof(plan.rejectedStaleMesh));
-    hash = HashSmokeBytes(hash, &plan.rejectedMissingBlas, sizeof(plan.rejectedMissingBlas));
+    uint64_t hash = 14695981039346656037ull;
+    const uint64_t instanceCount = static_cast<uint64_t>(plan.instances.size());
     hash = HashSmokeBytes(hash, &instanceCount, sizeof(instanceCount));
     for (const RtSmokePlanTlasInstance& instance : plan.instances)
     {
+        // The persistent route build only needs to be repacked when its mesh
+        // topology changes. Per-frame identity, transform, history and TLAS
+        // fields are refreshed or consumed directly from the current plan.
         hash = HashSmokeBytes(hash, &instance.kind, sizeof(instance.kind));
-        hash = HashSmokeBytes(hash, &instance.instanceId, sizeof(instance.instanceId));
-        hash = HashSmokeBytes(hash, &instance.instanceMask, sizeof(instance.instanceMask));
-        hash = HashSmokeBytes(hash, &instance.hitGroupContribution, sizeof(instance.hitGroupContribution));
         hash = HashSmokeBytes(hash, &instance.meshHash, sizeof(instance.meshHash));
-        hash = HashSmokeBytes(hash, &instance.sourceInstanceId, sizeof(instance.sourceInstanceId));
         hash = HashSmokeBytes(hash, &instance.routeRecordIndex, sizeof(instance.routeRecordIndex));
     }
     return hash;
@@ -2525,6 +2572,11 @@ bool RefreshSmokeRigidRouteBuildInstanceTransforms(
     RtPathTraceRigidRouteBuild& build,
     const RtSmokeRigidTlasPlan& plan)
 {
+    build.stats.visibleInstances = plan.visibleInstances;
+    build.stats.skippedNonRigid = plan.rejectedNonRigid;
+    build.stats.skippedMissingMesh =
+        plan.rejectedMissingMesh + plan.rejectedStaleMesh;
+    build.stats.skippedMissingBlas = plan.rejectedMissingBlas;
     build.stats.previousTransformInstances = 0;
     build.stats.transformContinuousInstances = 0;
     build.stats.emittedSeenThisFrame = 0;
@@ -8843,13 +8895,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 }
                 return rigidRouteSnapshot;
             };
-            const uint64_t rigidRouteMaterialIdSignature = [&]() {
-                OPTICK_EVENT("PT Rigid Route Material Signature");
-                return BuildSmokeRigidRouteMaterialIdSignature(materialTable.materialIds);
+            const uint64_t rigidRouteMaterialBindingSignature = [&]() {
+                OPTICK_EVENT("PT Rigid Route Material Binding Signature");
+                return BuildSmokeRigidRouteMaterialBindingSignature(rigidRouteMetadataSnapshot);
             }();
             const uint64_t rigidRouteBuildStructureToken = [&]() {
                 OPTICK_EVENT("PT Rigid Route Structure Token");
-                return BuildSmokeRigidRouteStructureToken(rigidTlasPlan, materialTable.materialIds);
+                return BuildSmokeRigidRouteStructureToken(rigidTlasPlan);
             }();
             const uint64_t rigidRoutePayloadToken = [&]() {
                 OPTICK_EVENT("PT Rigid Route Payload Token");
@@ -8860,9 +8912,36 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             rigidRouteBuildGeneration.frameIndex = 0;
             rigidRouteBuildGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
             rigidRouteBuildGeneration.geometryGeneration = rigidRoutePayloadToken;
-            rigidRouteBuildGeneration.materialGeneration = rigidRouteMaterialIdSignature;
+            rigidRouteBuildGeneration.materialGeneration = rigidRouteMaterialBindingSignature;
             rigidRouteBuildGeneration.lightGeneration = rigidRouteBuildStructureToken;
             RtPathTraceCpuWorkPublishSnapshot(m_smokeRigidRouteBuildCpuWorkState, rigidRouteBuildGeneration);
+            if (!m_smokeRigidRouteBuildAsyncCachedBuildValid)
+            {
+                OPTICK_EVENT("PT Rigid Route Dirty Cache Invalid");
+            }
+            else
+            {
+                if (m_smokeRigidRouteBuildAsyncCachedGeneration.sceneGeneration !=
+                    rigidRouteBuildGeneration.sceneGeneration)
+                {
+                    OPTICK_EVENT("PT Rigid Route Dirty Scene");
+                }
+                if (m_smokeRigidRouteBuildAsyncCachedGeneration.geometryGeneration !=
+                    rigidRouteBuildGeneration.geometryGeneration)
+                {
+                    OPTICK_EVENT("PT Rigid Route Dirty Geometry");
+                }
+                if (m_smokeRigidRouteBuildAsyncCachedGeneration.materialGeneration !=
+                    rigidRouteBuildGeneration.materialGeneration)
+                {
+                    OPTICK_EVENT("PT Rigid Route Dirty Materials");
+                }
+                if (m_smokeRigidRouteBuildAsyncCachedGeneration.lightGeneration !=
+                    rigidRouteBuildGeneration.lightGeneration)
+                {
+                    OPTICK_EVENT("PT Rigid Route Dirty Structure");
+                }
+            }
 
             if (m_smokeRigidRouteBuildFuture.valid())
             {
@@ -8907,6 +8986,98 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 {
                     RtPathTraceCpuWorkAcceptLatest(m_smokeRigidRouteBuildCpuWorkState, rigidRouteBuildGeneration, nullptr, true);
                 }
+            }
+
+            const bool rigidRouteCachedSceneCompatible =
+                !rigidRouteBuildAcceptedFromAsync &&
+                m_smokeRigidRouteBuildAsyncCachedBuildValid &&
+                m_smokeRigidRouteBuildAsyncCachedGeneration.sceneGeneration ==
+                    rigidRouteBuildGeneration.sceneGeneration;
+            const bool rigidRouteGeometryDirty =
+                rigidRouteCachedSceneCompatible &&
+                m_smokeRigidRouteBuildAsyncCachedGeneration.geometryGeneration !=
+                    rigidRouteBuildGeneration.geometryGeneration;
+            const bool rigidRouteMaterialsDirty =
+                rigidRouteCachedSceneCompatible &&
+                m_smokeRigidRouteBuildAsyncCachedGeneration.materialGeneration !=
+                    rigidRouteBuildGeneration.materialGeneration;
+            const bool rigidRouteStructureDirty =
+                rigidRouteCachedSceneCompatible &&
+                m_smokeRigidRouteBuildAsyncCachedGeneration.lightGeneration !=
+                    rigidRouteBuildGeneration.lightGeneration;
+            if (rigidRouteCachedSceneCompatible &&
+                (rigidRouteGeometryDirty ||
+                    rigidRouteMaterialsDirty ||
+                    rigidRouteStructureDirty))
+            {
+                bool geometryPayloadChanged = false;
+                if (rigidRouteGeometryDirty)
+                {
+                    const bool geometryAlreadyResident =
+                        RigidRouteGeometrySnapshotCovered(
+                            rigidRouteBuild,
+                            rigidRouteMetadataSnapshot);
+                    if (geometryAlreadyResident)
+                    {
+                        OPTICK_EVENT("PT Rigid Route Geometry Reuse");
+                    }
+                    else
+                    {
+                        OPTICK_EVENT("PT Rigid Route Geometry Append");
+                        geometryPayloadChanged =
+                            UpdateRigidRouteGeometryFromSnapshot(
+                                rigidRouteBuild,
+                                CaptureRigidRoutePayloadSnapshot());
+                    }
+                }
+
+                bool geometryMaterialIndexesChanged = false;
+                if (rigidRouteMaterialsDirty)
+                {
+                    OPTICK_EVENT("PT Rigid Route Material Remap");
+                    geometryMaterialIndexesChanged =
+                        RemapRigidRouteMaterialIndexes(
+                            rigidRouteBuild,
+                            rigidRouteMetadataSnapshot.materialTableIds);
+                }
+
+                {
+                    OPTICK_EVENT("PT Rigid Route Instance Rebuild");
+                    RebuildRigidRouteInstancesFromSnapshot(
+                        rigidRouteBuild,
+                        rigidRouteMetadataSnapshot);
+                }
+
+                if (geometryPayloadChanged ||
+                    geometryMaterialIndexesChanged ||
+                    !m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid)
+                {
+                    rigidRouteGeometryUploadSignature =
+                        BuildRigidRouteGeometryUploadSignature(rigidRouteBuild);
+                    rigidRouteGeometryUploadSignatureValid = true;
+                }
+                else
+                {
+                    rigidRouteGeometryUploadSignature =
+                        m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature;
+                    rigidRouteGeometryUploadSignatureValid =
+                        m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid;
+                }
+                rigidRouteInstanceUploadSignature =
+                    BuildRigidRouteInstanceUploadSignature(rigidRouteBuild);
+                rigidRouteInstanceUploadSignatureValid = true;
+                m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature =
+                    rigidRouteGeometryUploadSignature;
+                m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature =
+                    rigidRouteInstanceUploadSignature;
+                m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid =
+                    rigidRouteGeometryUploadSignatureValid;
+                m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid =
+                    rigidRouteInstanceUploadSignatureValid;
+                m_smokeRigidRouteBuildAsyncCachedGeneration =
+                    rigidRouteBuildGeneration;
+                rigidRouteBuildAcceptedFromAsync = true;
+                rigidRouteBuildAsyncCached = true;
             }
 
             if (!rigidRouteBuildAcceptedFromAsync &&

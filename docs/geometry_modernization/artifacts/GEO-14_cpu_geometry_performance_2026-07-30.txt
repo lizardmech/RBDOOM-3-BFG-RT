@@ -152,3 +152,39 @@ ceiling) under the same low-resolution, GI-off, route-1 configuration. This
 does not substitute for Vulkan GPU timestamps, but it proves the reported
 14-FPS result was CPU-limited before these corrections and that geometry
 scene construction is no longer the limiter in this map.
+
+Moving-camera persistent-pool follow-up
+---------------------------------------
+
+The first moving-camera capture showed that the steady-frame fix did not
+cover portal/membership transitions. A route generation change still rebuilt
+the complete 290k-vertex / 1.48M-index pool:
+
+  capture / correction                         Common::Frame   sync full builds
+  moving baseline (00-28-36)                     13.621 ms       16 / 600
+  persistent geometry pool (00-37-45)             10.427 ms        0 / 600
+
+Each baseline full build averaged 107.946 ms. The replacement follows the
+static-geometry split used by the NVIDIA RTXPT and RTXDI samples:
+
+- immutable mesh geometry is appended to persistent pooled storage once;
+- cached geometry ranges carry mesh/upload identity and pooled offsets;
+- current membership, transforms, history flags, and material overrides are
+  rebuilt in the small instance array;
+- material-table changes remap the triangle material-index side buffer without
+  recopying vertex or index payloads;
+- meshes retained by the 900-frame mesh window remain reusable even though
+  entity-feed instance residency retains its separate two-frame safety cap.
+
+During the accepted 600-frame traversal, 27 instance-list rebuilds consumed
+0.338 ms total (0.013 ms average each). Ten geometry-generation transitions
+were satisfied from already resident ranges. There were no full route builds,
+payload snapshots, or asynchronous full-payload queues.
+
+The user reported that movement was substantially improved. A few cold
+first-exposure hitches remained and disappeared after the scene had been on
+camera. A capture starting at map admission attributed those cold costs to
+draw-surface capture (up to 253.731 ms), entity-feed candidate admission (up
+to 80.996 ms), and initial rigid BLAS package creation (up to 90.700 ms).
+Those are distinct from the corrected recurring pool repack and are deferred
+as a separate cold-admission optimization.
