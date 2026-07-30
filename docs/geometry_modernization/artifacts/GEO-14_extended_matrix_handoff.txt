@@ -1,0 +1,158 @@
+GEO-14 extended skinned UPDATE matrix handoff
+================================================
+
+SCOPE
+-----
+Extend the accepted batched Vulkan UPDATE result through portal/view-set churn,
+spawn/despawn/respawn, and two independent map transitions. This evidence does
+not change either production default and does not replace the required final
+human visual pass.
+
+ACTIVE CONTRACT
+---------------
+All accepted samples used:
+
+  r_pathTracingGeometrySkinnedTlasCompare          1
+  r_pathTracingGeometrySkinnedCaptureSplit         1
+  r_pathTracingGeometrySkinnedCaptureRouteSetLimit 1
+  r_pathTracingGpuSkinning                         1
+  r_pathTracingGeometryAuthoritativeGpuSkinning    1
+  r_pathTracingGeometryShadowRegistry              1
+
+The lifecycle launch did not preserve `CaptureSplit 1` from its long startup
+post-command. The value was queried, found at zero, and explicitly enabled at
+the `GEO14_SPLIT_ENABLED` marker. Only evidence after that marker is used for
+capture-split acceptance.
+
+PORTAL AND VIEW-SET CHURN
+-------------------------
+`geometry_geo14_extended_traversal.log` covers real keyboard/mouse movement
+and a PDA open/close through the prepared doom3_1 scene. The canonical route
+set changed:
+
+  12 -> 15 -> 12 -> 15 -> 18 -> 17 -> 18 -> 17 -> 15 -> 14 -> 18
+
+Accepted sets continued to report complete route/descriptor/motion counts,
+zero CPU skin append, and no device/Vulkan/fatal error. Representative settled
+sets were 15/15 and 18/18. The first UPDATE report retained the batched
+`barriers(batches/blases)=2/12` contract.
+
+MAP TRANSITION
+--------------
+`geometry_geo14_map_transition.log` starts in comm1 with 2/2 accepted routes,
+then executes the marked transition to doom3_1. The renderer reports:
+
+  PT render world map changed ... serial 1 -> 2; clearing scene caches
+  route shadow                         0 -> 12
+  UPDATE submissions                  12/12 in-place
+  barrier batches / BLASes            2 / 12
+  accepted routes/descriptors/motion  12 / 12 / 12
+  omitted surfaces/indexes            12 / 47,886
+  CPU skin append                     0 ms
+
+Rigid and static-bucket retirement packages arm and release with zero result
+query failures. No device/Vulkan/fatal error is present.
+
+SPAWN, DESPAWN, AND RESPAWN
+---------------------------
+`geometry_geo14_lifecycle_batched.log` establishes a post-marker baseline of
+19 routes and 10,808 triangles. Both the live source-only consumer and the
+independent legacy-backed shadow accept all 19 routes with all thirteen
+failure buckets zero. Capture split accepts 19/19 route/descriptor/motion
+records, omits 32,424 indexes, and performs zero CPU skin append.
+
+Spawning three Fatzombies changes the accepted set from 19 to 22:
+
+  replacement resources               19
+  submitted build / update / rebuild  3 / 0 / 19
+  deferred / failed                   0 / 0
+  retirement packages armed/released  19 / 19
+  accepted live/shadow routes          22 / 22
+  accepted live/shadow triangles       26,096 / 26,096
+  motion-ready routes                  22 / 22
+  omitted surfaces/indexes             22 / 78,288
+  CPU skin append                      0 ms
+  all consumer failure buckets         0
+
+`killMonsters` queues 25 comparison resources for retirement while leaving one
+active route. A subsequent single-Fatzombie respawn produces one accepted live
+and shadow route covering 5,096 triangles, motion ready 1/1, with every
+consumer failure bucket zero. Its first capture-split frame correctly remains
+pre-admission; CPU geometry is retained until a later exact-set frame.
+
+SECOND MAP TRANSITION
+---------------------
+The same process then changes mars_city1 to alphalabs1:
+
+  map serial                           1 -> 2
+  route shadow                         0 -> 1
+  in-place UPDATE / barrier batches    1 / 2
+  accepted route/descriptor/motion     1 / 1 / 1
+  omitted surfaces/indexes             1 / 8,688
+  CPU skin append                      0 ms
+
+The route readback covers 2,896 source-local triangles and passes. A consumer
+audit armed only after capture split had already omitted the legacy CPU copy
+passes the live route but reports the legacy shadow as empty
+(`failuresShadow.routeCount=1`). This is a diagnostic timing limitation, not a
+production-route mismatch: for an independent same-frame legacy shadow, arm
+the one-shot before the frame is admitted for omission. A follow-up should
+make the one-shot force one legacy-capture frame so this ordering cannot
+produce a misleading failure.
+
+AUTOMATION NOTE
+---------------
+Leaving the idTech console open repeats the last backend view without a fresh
+frontend capture. Long pre-admission runs in this log are harness setup noise,
+not route rejection. Commands were marked, the console was closed, and a
+fresh view/map frame was required before acceptance was evaluated.
+
+RUNTIME RESULT
+--------------
+All three logs contain zero matches for:
+
+  device lost
+  device removed
+  VK_ERROR
+  fatal error
+
+The lifecycle process remained responsive through the final 30-second
+alphalabs1 soak and was externally stopped by exact PID. Normal `quit` was not
+used because this branch has a separately known post-renderer-shutdown heap
+failure.
+
+Executable used:
+
+  bytes:   16,082,432
+  SHA-256: DAE780BB2BC06B6EFFA499D36DCD25E74D28D8E620998C86EC735910E26FADDB
+
+RAW EVIDENCE
+------------
+Under:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+
+  geometry_geo14_extended_traversal.log
+    bytes 243612, modified 2026-07-30 14:01:35 Australia/Sydney
+  geometry_geo14_map_transition.log
+    bytes 385424, modified 2026-07-30 14:05:32 Australia/Sydney
+  geometry_geo14_lifecycle_batched.log
+    bytes 3435221, modified 2026-07-30 14:45:43 Australia/Sydney
+
+DEFAULTS AND NEXT GATE
+----------------------
+Unchanged:
+
+  r_pathTracingGeometrySkinnedTlasCompare  0
+  r_pathTracingGeometrySkinnedCaptureSplit 0
+
+The batched UPDATE path now has automated movement, portal/view-set churn,
+spawn growth, replacement retirement, despawn/respawn, and map-transition
+evidence. Before promotion:
+
+  1. remove the post-admission consumer-audit timing trap;
+  2. run the bounded material, motion, and emissive one-shots with the repaired
+     audit ordering;
+  3. obtain human visual acceptance for portal traversal, PDA, characters,
+     materials, motion, and emissives;
+  4. only then consider changing the two defaults.

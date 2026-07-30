@@ -167,6 +167,15 @@ GEO-14 FILES
     Two-phase validated job-list design, two-batch barrier contract, movement
     evidence, performance recovery, unchanged defaults, and next matrix gates.
 
+  GEO-14_extended_matrix_2026-07-30.csv
+    Machine-diffable portal/view-set, map-transition, spawn/despawn/respawn,
+    route/motion/capture-split, retirement, and error results.
+
+  GEO-14_extended_matrix_handoff.txt
+    Extended matrix interpretation, raw-log provenance, the post-admission
+    consumer-audit timing limitation, unchanged defaults, and final promotion
+    gates.
+
 NAMING
 ------
 Use:

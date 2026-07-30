@@ -1,0 +1,8 @@
+case,compare_mode,capture_split,scene,action,route_sequence,settled_routes,settled_triangles,motion_ready,omitted_surfaces,omitted_indexes,cpu_skin_append_ms,barrier_batches,barrier_blases,replacements,retirement_queued,retirement_armed,retirement_released,consumer_live_failures,consumer_shadow_failures,device_vulkan_fatal_errors,result,raw_log
+portal_visibility_churn,1,1,doom3_1,keyboard_mouse_pda_traversal,12;15;12;15;18;17;18;17;15;14;18,18,NA,18,18,57570,0,2,12,NA,NA,NA,NA,NA,NA,0,PASS_BOUNDED_STOP,geometry_geo14_extended_traversal.log
+comm1_to_doom3_1,1,1,comm1_to_mars_city1,map_transition,2;12,12,NA,12,12,47886,0,2,12,NA,NA,NA,NA,NA,NA,0,PASS_BOUNDED_STOP,geometry_geo14_map_transition.log
+lifecycle_baseline,1,1,doom3_1,baseline_consumer_audit,19,19,10808,19,19,32424,0,2,12,NA,NA,NA,NA,0,0,0,PASS,geometry_geo14_lifecycle_batched.log
+lifecycle_spawn_three,1,1,doom3_1,spawn_three_fatzombies,19;0;22,22,26096,22,22,78288,0,2,NA,19,NA,19,19,0,0,0,PASS,geometry_geo14_lifecycle_batched.log
+lifecycle_despawn,1,1,doom3_1,kill_monsters,22;1,1,NA,NA,NA,NA,0,NA,NA,NA,25,NA,NA,NA,NA,0,PASS_RETIREMENT_QUEUED,geometry_geo14_lifecycle_batched.log
+lifecycle_respawn,1,1,doom3_1,respawn_one_fatzombie,1,1,5096,1,0,0,0,NA,NA,NA,NA,NA,NA,0,0,0,PASS_PRE_ADMISSION,geometry_geo14_lifecycle_batched.log
+mars_city1_to_alphalabs1,1,1,mars_city1_to_alphalabs1,map_transition,0;1,1,2896,1,1,8688,0,2,1,NA,NA,NA,NA,0,1,0,PASS_LIVE_SHADOW_ARMED_TOO_LATE,geometry_geo14_lifecycle_batched.log

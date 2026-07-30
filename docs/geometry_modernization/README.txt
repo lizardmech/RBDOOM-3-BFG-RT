@@ -94,5 +94,9 @@ Current execution status (2026-07-30):
   movement with capture split off and on, while the full-BUILD control is
   rejected at about 4.45 ms. Batched source-read/read-write transitions reduce
   the correct UPDATE median from about 0.635 ms to 0.079-0.084 ms while
-  preserving route and motion admission. Defaults remain off pending the full
-  GEO-09 matrix and human visual acceptance.
+  preserving route and motion admission. Extended portal/view-set, two-map,
+  spawn/despawn/respawn, replacement-retirement, and soak coverage also passes
+  without a device/Vulkan/fatal error. A diagnostic one-shot armed after CPU
+  capture omission cannot reconstruct its independent legacy shadow and must
+  force one legacy-capture frame before the final audit matrix. Defaults remain
+  off pending that correction and human visual acceptance.

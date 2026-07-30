@@ -149,3 +149,25 @@ acceptance. See:
 
   ../artifacts/GEO-14_batched_update_2026-07-30.csv
   ../artifacts/GEO-14_batched_update_handoff.txt
+
+CURRENT STATUS - EXTENDED MATRIX ACCEPTED (2026-07-30)
+------------------------------------------------------
+The batched mode-1 route now survives real portal/view-set churn, a marked
+comm1 -> doom3_1 transition, three-Fatzombie growth, replacement retirement,
+kill/respawn, a mars_city1 -> alphalabs1 transition, and a final soak. Accepted
+sets reach 22 routes and 26,096 triangles with complete motion, zero CPU skin
+append, and all live/legacy-shadow consumer failure buckets zero when the
+one-shot is armed before omission. No run contains a device/Vulkan/fatal
+error.
+
+One diagnostic-only ordering defect remains: arming the consumer audit after a
+route set is already capture-split omits the CPU legacy copy, so the live audit
+passes while the requested independent shadow is empty. Make that one-shot
+force one legacy-capture frame before using it for the final material/motion/
+emissive matrix.
+
+Defaults remain zero. Human visual acceptance is still required before
+promotion. See:
+
+  ../artifacts/GEO-14_extended_matrix_2026-07-30.csv
+  ../artifacts/GEO-14_extended_matrix_handoff.txt
