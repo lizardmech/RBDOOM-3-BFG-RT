@@ -1353,6 +1353,19 @@ it is renamed `m_smokeCaptureAnchor`. The separate always-zero field is removed
 from the CPU static-BLAS signature. See D187 and
 artifacts/GEO-04_q4_scene_origin_consumer_audit_2026-07-30.txt.
 
+Post-packet Q7 closure:
+
+Do not create a special production rigid-per-joint route for single-bone MD5
+surfaces in the first cut. The conservative classifier remains useful
+metadata, but the representative survey's 62 single-bone observations account
+for only 4,042 of 135,849 skinned vertices (2.98 percent), and accepted
+GPU-skinning captures already process them with exact parity and no failures.
+The proposed route would introduce separate composed-transform, history,
+BLAS, material, emissive, and lifecycle contracts without an isolated
+performance result. Continue using the authoritative skinned route and reopen
+only from a same-content GPU profile. See D188 and
+artifacts/GEO-07_q7_single_bone_route_audit_2026-07-30.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

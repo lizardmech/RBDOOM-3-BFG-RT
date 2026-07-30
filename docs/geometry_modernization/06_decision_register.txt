@@ -4749,6 +4749,51 @@ Evidence:
 
   artifacts/GEO-04_q4_scene_origin_consumer_audit_2026-07-30.txt
 
+D188. RETAIN SINGLE-BONE CLASSIFICATION WITHOUT A SPECIAL LIVE ROUTE
+--------------------------------------------------------------------
+Q7 proposed that every single-bone MD5 surface should avoid GPU skinning by
+sharing a rigid BLAS and moving the controlling joint matrix into the TLAS
+instance transform. The source and evidence audit does not justify that extra
+production route.
+
+`IsEntityFeedSingleBoneSurface` is a conservative classifier: every vertex
+must have exactly one byte weight equal to 255, all other weights must be zero,
+and the nonzero component must name the same joint for the whole surface. Any
+mixed weight, missing weight, or joint disagreement returns false. The entity
+feed records `RigidSkinned` separately from `TrueDeform`, but production
+intentionally admits only `RigidEntity` to the rigid route. Single-bone
+surfaces therefore remain in the authoritative GPU-skinning and per-instance
+skinned-BLAS path.
+
+The representative geometry-plan census contains 359 MD5 surface
+observations and 135,849 vertices. Sixty-two observations are classified
+single-bone, but they contain only 4,042 vertices, or 2.98 percent of the
+surveyed skinned vertex workload. Later accepted runtime captures explicitly
+show single-bone chair and head surfaces reaching `dispatchedGpu` with zero
+funnel failures and exact sampled current, previous, and motion results.
+`explicitSingleBoneRoute` remains zero by design.
+
+A live rigid promotion would need more than the existing boolean classifier:
+the immutable source must export the validated controlling joint index, the
+current and previous composed object-to-world times joint transforms must have
+the same HistoryOwner semantics as the skinned route, and pooled source/BLAS
+ownership must remain correct across model epochs and render-def retirement.
+It would also add another material, motion, emissive, and lifecycle
+integration branch. There is no isolated GPU skinning or BLAS timing showing
+that the 2.98-percent vertex subset repays that complexity.
+
+Decision: keep the conservative classifier as diagnostic/planning metadata,
+but do not implement the special per-joint rigid route in the first
+modernization cut. Continue to GPU-skin these surfaces through the already
+accepted path. Reopen only if a same-content GPU profile isolates a material
+single-bone dispatch or per-instance BLAS cost; that future experiment must
+first return a validated joint index and prove current/previous composed
+transforms before entering a TLAS.
+
+Evidence:
+
+  artifacts/GEO-07_q7_single_bone_route_audit_2026-07-30.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
@@ -4760,7 +4805,9 @@ DISPOSITION OF 04_open_questions.txt
       retain world-space legacy capture and local-space instancing.
   Q5  RESOLVED by D18: staged compact GPU joint array for the first cut.
   Q6  RESOLVED FOR MIGRATION by D05: GPU default path, explicit CPU fallback.
-  Q7  PARTIALLY RESOLVED by capture; implementation proof in GEO-04/GEO-07.
+  Q7  RESOLVED by D188: keep classification metadata, retain the accepted GPU
+      skinning route, and defer rigid-per-joint promotion unless profiling
+      supplies a material isolated cost.
   Q8  RESOLVED FOR FIRST CUT: fixed rebuild cadence, tune in GEO-08.
   Q9  RESOLVED by D04: per-instance, no pose-sharing optimization initially.
   Q10 RESOLVED FOR FIRST CUT by D12; budget values remain measured in GEO-11.

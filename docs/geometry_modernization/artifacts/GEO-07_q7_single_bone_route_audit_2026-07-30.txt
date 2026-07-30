@@ -1,0 +1,134 @@
+GEO-07 / Q7 - single-bone route audit
+====================================
+Date: 2026-07-30
+Branch: restir-development
+Audit base: baab132c4
+
+QUESTION
+--------
+Q7 proposed that single-bone MD5 surfaces should use one immutable rigid BLAS
+plus the controlling joint matrix in the TLAS instance transform, avoiding the
+normal GPU-skinning path. The proposal required proof that classification,
+joint identity, current/previous transforms, and downstream semantics were
+reliable before promotion.
+
+CLASSIFIER CONTRACT
+-------------------
+The live classifier is:
+
+  IsEntityFeedSingleBoneSurface
+    neo/renderer/NVRHI/PathTraceSurfaceClassification.cpp
+
+It returns true only when:
+
+  - the triangle surface and vertex array exist;
+  - every vertex has exactly one nonzero byte weight;
+  - that weight is exactly 255;
+  - all other weight components are zero; and
+  - every vertex's nonzero component names the same joint index.
+
+It rejects missing weights, fractional/mixed byte weights, more than one
+weighted component, and any joint disagreement. This is conservative: valid
+content that does not satisfy the exact byte representation stays
+true-deforming. It does not return the controlling joint or validate it against
+the authoritative joint count, so its boolean alone is not a safe TLAS
+promotion token.
+
+DOWNSTREAM ROUTE
+----------------
+ClassifyEntityFeedSurface reports qualifying surfaces as:
+
+  RtPtFeedClass::RigidSkinned
+
+and reports other joint-bearing surfaces as:
+
+  RtPtFeedClass::TrueDeform
+
+The production entity-feed route admits only `RtPtFeedClass::RigidEntity` to
+rigid capture. `RigidSkinned` therefore remains on the same authoritative
+jointCache GPU-skinning, current/previous output, and per-instance skinned-BLAS
+route as other deforming surfaces. The GPU funnel keeps
+`explicitSingleBoneRoute=0`; `singleBoneObserved` is observation only.
+
+No caller supplies a nonnegative joint index to
+BuildPathTraceRigidInstanceSnapshot in the live rigid producers. The existing
+jointIndex fields reserve identity plumbing but do not constitute a completed
+per-joint route.
+
+REPRESENTATIVE WORKLOAD
+-----------------------
+The geometry_plan.log census matching the validated 359-surface observation
+contains:
+
+  all MD5 surface observations       359
+  all MD5 vertices               135,849
+  single-bone observations            62
+  single-bone vertices              4,042
+  single-bone share               2.975%
+
+The surface fraction is larger because many classified surfaces are small
+head, helmet, flashlight, cabinet, and prop subsets. Vertex work, which bounds
+the skinning dispatch payload, is approximately three percent in this sample.
+
+ACCEPTED PRODUCTION EVIDENCE
+----------------------------
+geometry_geo15.log:
+
+  mode-2 candidates/dispatched/exact       23 / 23 / 1
+  singleBoneObserved                        3
+  funnel failures                           0
+  sampled current/previous/motion failures  0 / 0 / 0
+
+The detail includes two 477-vertex soft-desk-chair single-bone surfaces.
+
+geometry_geo18.log:
+
+  candidates/dispatched/exact              10 / 10 / 1
+  singleBoneObserved                        2
+  funnel failures                           0
+
+The detail explicitly dispatches:
+
+  soft_desk_chair2.md5mesh                 477 vertices
+  h2_cinematic.md5mesh head surface        138 vertices
+
+Both carry valid previous history in the accepted capture. The established
+GEO-03 readback reports exact sampled current, previous, and motion parity for
+the covered single-bone surfaces.
+
+MISSING CONTRACT FOR RIGID PROMOTION
+------------------------------------
+A safe per-joint rigid route would still need to:
+
+  1. resolve and range-check the one controlling joint from the immutable
+     canonical source rather than a mutable resolved triangle pointer;
+  2. prove the canonical source positions/normals/tangents are in the exact
+     joint-local space required by a shared rigid BLAS;
+  3. compose object-to-world and joint transforms in the renderer's matrix
+     convention for both current and previous HistoryOwner states;
+  4. preserve material, UV-matrix, motion, emissive, and logical instance
+     identity semantics;
+  5. retain mesh/BLAS ownership across model epochs and render-def retirement;
+  6. demonstrate a same-content GPU timing win for both skin dispatch and BLAS
+     work.
+
+The current classifier proves only the first structural shape, not these
+consumer contracts.
+
+DECISION
+--------
+Do not add a special per-joint rigid production route in the first geometry
+modernization cut. Retain the conservative classification as diagnostics and
+planning metadata. Continue routing the surfaces through the already accepted
+authoritative GPU-skinning and per-instance skinned-BLAS path.
+
+This rejects Q7's "never pay the skinning path" premise as an unmeasured
+optimization requirement. Reopen only if a same-content GPU profile isolates a
+material cost for the single-bone subset. Any future experiment must return a
+validated joint index and prove current/previous composed transforms before
+entering a TLAS.
+
+CODE IMPACT
+-----------
+None. This is a source/evidence decision. Production gates, defaults, geometry
+bytes, transforms, shader ABI, SPIR-V, and runtime behavior are unchanged.

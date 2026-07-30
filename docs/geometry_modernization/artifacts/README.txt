@@ -92,6 +92,11 @@ GEO-07 FILES
     and the default-off authoritative current-joint GPU-copy comparison
     contract.
 
+  GEO-07_q7_single_bone_route_audit_2026-07-30.txt
+    Classifier and downstream-route audit, representative workload share,
+    accepted parity evidence, and decision not to add an unprofiled
+    rigid-per-joint production branch.
+
 GEO-10 FILES
 ------------
   GEO-10_entry_audit.txt

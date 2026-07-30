@@ -139,3 +139,11 @@ Current execution status (2026-07-30):
   anchor is renamed and the dead always-zero CPU signature field is removed.
   See D187 and
   artifacts/GEO-04_q4_scene_origin_consumer_audit_2026-07-30.txt.
+
+  Q7 is closed without adding a special single-bone production route. The
+  classifier is conservative and remains available as metadata, while
+  single-bone surfaces continue through the accepted GPU-skinning and
+  per-instance BLAS path. They represent 2.98 percent of surveyed skinned
+  vertices, and no profile isolates a payoff for another transform/history/AS
+  ownership branch. See D188 and
+  artifacts/GEO-07_q7_single_bone_route_audit_2026-07-30.txt.

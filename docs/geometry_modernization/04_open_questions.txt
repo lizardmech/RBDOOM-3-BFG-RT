@@ -56,6 +56,14 @@ Q7. Single-bone "rigid-skinned" md5 surfaces (hanging lights etc., see
     route as per-joint rigid instances (BLAS once + jointMat as instance
     transform) - confirm the classifier separates them from true deforming
     surfaces reliably so they never pay the skinning path.
+    RESOLVED 2026-07-30 by D188: retain conservative single-bone
+    classification, but do not add a production per-joint rigid route in the
+    first cut. The representative 359-surface census classified 62
+    single-bone surfaces, accounting for only 4,042 of 135,849 vertices
+    (2.98%). Accepted GPU-skinning runs dispatch the observed single-bone
+    surfaces with exact current/previous/motion parity and no funnel failures.
+    A second transform/history/BLAS ownership path has no measured payoff.
+    Reopen only from a profile that isolates a material single-bone cost.
 
 ACCEL / SCHEDULING
 ------------------

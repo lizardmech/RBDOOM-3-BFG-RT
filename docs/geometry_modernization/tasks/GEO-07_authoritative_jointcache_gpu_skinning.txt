@@ -83,3 +83,25 @@ cutover is completed in GEO-08 after per-instance BLAS/TLAS parity passes.
 CHECKPOINT
 ----------
   pt geometry GEO-07: use authoritative GPU skinned outputs
+
+Q7 SINGLE-BONE POLICY CLOSURE
+-----------------------------
+The proposed per-joint rigid promotion is not part of the accepted first cut.
+`IsEntityFeedSingleBoneSurface` remains a conservative classifier and the
+entity-feed census retains its separate `RigidSkinned` count, but production
+continues to process these surfaces through authoritative GPU skinning and
+per-instance skinned BLASes.
+
+The representative 359-surface census reports 62 single-bone observations but
+only 4,042 of 135,849 vertices (2.98 percent). Accepted runtime captures
+explicitly dispatched single-bone chair and head surfaces with zero funnel
+failures and exact sampled current/previous/motion parity. No same-content GPU
+profile isolates a material cost for this subset.
+
+A future optimization must not infer promotion from the current boolean alone.
+It must export a range-validated controlling joint index from the immutable
+source, prove current and previous composed object/joint transforms under the
+HistoryOwner contract, and measure the isolated skin-dispatch and BLAS benefit
+before changing TLAS admission. See D188 and:
+
+  ../artifacts/GEO-07_q7_single_bone_route_audit_2026-07-30.txt
