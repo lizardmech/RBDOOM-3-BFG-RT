@@ -1374,7 +1374,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         regirSettings.enabled &&
         (regirSettings.debugView >= 1 && regirSettings.debugView <= 10);
     const bool standaloneDebugRouteRequested = regirDebugRouteRequested || neeCacheDebugRouteRequested;
-    const idVec3 regirResolvedCenter = ResolvePathTraceReGIRCenter(m_smokeGeometryUniverse, regirSettings, m_smokeSceneOrigin);
+    const idVec3 regirResolvedCenter = ResolvePathTraceReGIRCenter(m_smokeGeometryUniverse, regirSettings, m_smokeCaptureAnchor);
     auto printCleanRtxdiDiDump = [&](const char* stage, const char* earlyReturn, int selectedCleanShaderTable)
     {
         const bool cleanEnabledNow = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;

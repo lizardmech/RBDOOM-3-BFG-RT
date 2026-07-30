@@ -132,3 +132,10 @@ Current execution status (2026-07-30):
   alternating build order. The shared uint32 index pool remains the accepted
   layout. See D186 and
   artifacts/GEO-06_q3_offset_blas_timing_2026-07-30.txt.
+
+  Q4's required consumer audit found no live geometry scene-origin anchor to
+  migrate. Legacy capture is world-space, canonical geometry is local-space
+  with TLAS transforms, and shaders receive no `sceneOrigin`. The capture/order
+  anchor is renamed and the dead always-zero CPU signature field is removed.
+  See D187 and
+  artifacts/GEO-04_q4_scene_origin_consumer_audit_2026-07-30.txt.

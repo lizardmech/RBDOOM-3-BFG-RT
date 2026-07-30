@@ -4712,6 +4712,43 @@ Evidence:
 
   artifacts/GEO-06_q3_offset_blas_timing_2026-07-30.txt
 
+D187. THERE IS NO LIVE GEOMETRY SCENE-ORIGIN ANCHOR
+---------------------------------------------------
+Q4 assumed the old capture subtracts a `sceneOrigin` from world-space
+positions for precision and asked whether local-space instancing could move
+that origin into TLAS transforms. The required full consumer inventory finds
+that this description no longer matches the code.
+
+Legacy draw-surface capture transforms positions directly from model-local to
+world space and stores those world coordinates in `PathTraceSmokeVertex`.
+There is no origin subtraction. Canonical rigid and skinned source records are
+local-space by contract and their placement is already carried by instance
+object-to-world/TLAS transforms. No HLSL source, binding, constant buffer, or
+hit decoder contains `sceneOrigin`.
+
+The member formerly named `m_smokeSceneOrigin` is produced by the capture
+anchor step: normally it is the current view origin; under the default-off
+anchor-ray diagnostic it is the closest center-ray hit. Its consumers are
+surface iteration order/anchor diagnostics and the snapped world-space ReGIR
+fallback center. It does not alter geometry coordinates. It is renamed
+`m_smokeCaptureAnchor` and remains world-space.
+
+A second `sceneOrigin` field existed in the pure CPU static-BLAS signature
+description/snapshot. Production unconditionally assigned `(0,0,0)` before
+planning, and no render or shader consumer read it. The field, its hash input,
+and its obsolete harness assertion are removed. Vertex bytes, index bytes,
+counts, and exact static ranges remain the geometry signature authority.
+
+Do not add a TLAS origin translation: it would change currently correct world
+placement and create a new camera/light/history coordinate ABI. If large-world
+precision later requires floating-origin support, treat that as a separate
+cross-renderer design with an explicit origin shared by geometry, camera rays,
+lights, motion/history, and every secondary consumer.
+
+Evidence:
+
+  artifacts/GEO-04_q4_scene_origin_consumer_audit_2026-07-30.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
@@ -4719,7 +4756,8 @@ DISPOSITION OF 04_open_questions.txt
       hit derivation on numeric fidelity before shader timing.
   Q3  RESOLVED by D186: paired Vulkan timestamps show no measurable
       non-zero-index-offset BLAS-build penalty.
-  Q4  OPEN, owned by GEO-04/GEO-06: enumerate sceneOrigin consumers first.
+  Q4  RESOLVED by D187: no live geometry re-anchoring or shader consumer;
+      retain world-space legacy capture and local-space instancing.
   Q5  RESOLVED by D18: staged compact GPU joint array for the first cut.
   Q6  RESOLVED FOR MIGRATION by D05: GPU default path, explicit CPU fallback.
   Q7  PARTIALLY RESOLVED by capture; implementation proof in GEO-04/GEO-07.

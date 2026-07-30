@@ -11,13 +11,6 @@
 #include <limits>
 #include <vector>
 
-struct RtSmokePlanVec3
-{
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-};
-
 struct RtSmokePlanGeometryRange
 {
     int vertexOffset = 0;
@@ -47,7 +40,6 @@ struct RtSmokePlanStaticBlasSignatureDesc
     const uint32_t* triangleMaterials = nullptr;
     int totalTriangleCount = 0;
     RtSmokePlanGeometryRange staticRange;
-    RtSmokePlanVec3 sceneOrigin;
 };
 
 struct RtSmokeStaticBlasSignatureSnapshot
@@ -59,7 +51,6 @@ struct RtSmokeStaticBlasSignatureSnapshot
     std::vector<uint32_t> triangleClasses;
     std::vector<uint32_t> triangleMaterials;
     RtSmokePlanGeometryRange staticRange;
-    RtSmokePlanVec3 sceneOrigin;
 };
 
 struct RtSmokePlanStaticCacheInput

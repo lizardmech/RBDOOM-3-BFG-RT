@@ -7536,7 +7536,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             {
                 OPTICK_EVENT("PT Capture Visible Doom Surfaces");
-                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, &currentSkinnedSurfaceRecords, false, false, true);
+                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeCaptureAnchor, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, &currentSkinnedSurfaceRecords, false, false, true);
             }
             const bool staticAreaPreloadEnabled =
                 r_pathTracingStaticAreaPreload.GetInteger() != 0 ||
@@ -7668,7 +7668,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             {
                 OPTICK_EVENT("PT Capture Legacy Doom Surfaces");
-                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
+                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeCaptureAnchor, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
             }
         }
         {
@@ -10705,9 +10705,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         accelerationPlanInput.staticSignature.staticRange.indexCount = staticGeometryRange.indexCount;
         accelerationPlanInput.staticSignature.staticRange.triangleOffset = staticGeometryRange.triangleOffset;
         accelerationPlanInput.staticSignature.staticRange.triangleCount = staticGeometryRange.triangleCount;
-        accelerationPlanInput.staticSignature.sceneOrigin.x = vec3_origin.x;
-        accelerationPlanInput.staticSignature.sceneOrigin.y = vec3_origin.y;
-        accelerationPlanInput.staticSignature.sceneOrigin.z = vec3_origin.z;
         accelerationPlanInput.staticCache.hasStaticBlas = hasStaticBlas;
         accelerationPlanInput.staticCache.cacheValid = m_smokeStaticBlasCacheValid;
         accelerationPlanInput.staticCache.cacheResourcesReady =

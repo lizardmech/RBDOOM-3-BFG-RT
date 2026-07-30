@@ -2407,7 +2407,7 @@ uint32_t SmokeRuntimeMaterialTableIdForEntitySurface(const idRenderEntityLocal* 
     return baseMaterialId;
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint32_t>* triangleInstanceData, std::vector<uint32_t>* triangleIdentityData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint32_t>* triangleInstanceData, std::vector<uint32_t>* triangleIdentityData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& captureAnchor, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
 {
     OPTICK_EVENT("PT Capture Doom Surfaces Detail");
 
@@ -2435,10 +2435,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         OPTICK_EVENT("PT Capture Anchor");
         if (r_pathTracingAnchorRaycast.GetInteger() == 0)
         {
-            sceneOrigin = viewDef->renderView.vieworg;
+            captureAnchor = viewDef->renderView.vieworg;
             anchorSurface = 0;
         }
-        else if (!FindCenterCameraRayAnchor(viewDef, sceneOrigin, anchorSurface, anchorTriangle, &captureTiming))
+        else if (!FindCenterCameraRayAnchor(viewDef, captureAnchor, anchorSurface, anchorTriangle, &captureTiming))
         {
             captureTiming.anchorMs = Sys_Milliseconds() - anchorStartMs;
             return false;

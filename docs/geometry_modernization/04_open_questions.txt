@@ -35,6 +35,12 @@ Q4. Scene-origin anchoring: the current capture re-anchors world-space data
     to a scene origin for precision. Under local-space instancing this
     moves into the TLAS instance transforms - confirm no shader assumes
     the old anchoring (grep for sceneOrigin consumers before removal).
+    RESOLVED 2026-07-30 by D187: the premise was stale. Legacy capture emits
+    world-space positions without origin subtraction; canonical sources are
+    local-space and use TLAS transforms; no shader consumes `sceneOrigin`.
+    The live value was only a world-space capture/order anchor and ReGIR
+    fallback center, so it is renamed accordingly. The always-zero dead field
+    was removed from the CPU static-BLAS signature.
 
 SKINNING
 --------

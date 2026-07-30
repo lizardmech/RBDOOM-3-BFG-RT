@@ -68,3 +68,26 @@ DONE WHEN
 CHECKPOINT
 ----------
   pt geometry GEO-04: define canonical mesh instance contract
+
+Q4 SCENE-ORIGIN CONSUMER CLOSURE
+--------------------------------
+The required source and consumer inventory found no scene-origin geometry ABI:
+
+- legacy captured positions are transformed directly into world space;
+- canonical source positions remain model-local;
+- rigid/skinned object placement is already in instance/TLAS transforms;
+- no shader source, resource binding, or hit decoder consumes `sceneOrigin`;
+- the capture value previously named `m_smokeSceneOrigin` is only a
+  world-space view/center-hit anchor used for surface order and as ReGIR's
+  fallback center;
+- the separate static-BLAS planning field is always zero in production and is
+  read only by CPU hashing/snapshot code.
+
+The live anchor is renamed `m_smokeCaptureAnchor`; its behavior does not
+change. The dead planning field and its obsolete harness assertion are
+deleted. No geometry, TLAS transform, shader ABI, or production default
+changes. Q4 is resolved without adding a floating-origin transform.
+
+Detailed evidence:
+
+  ../artifacts/GEO-04_q4_scene_origin_consumer_audit_2026-07-30.txt

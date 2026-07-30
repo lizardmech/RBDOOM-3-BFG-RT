@@ -598,7 +598,8 @@ private:
     PathTraceRemixLightManager m_remixLightManager;
     uint32_t m_smokeTextureProbeMaterialId;
     int m_smokeTextureProbeRequestedIndex;
-    idVec3 m_smokeSceneOrigin;
+    // World-space capture/order anchor. This is not subtracted from geometry.
+    idVec3 m_smokeCaptureAnchor;
     nvrhi::BufferHandle m_smokeStaticVertexBuffer;
     nvrhi::BufferHandle m_smokeStaticIndexBuffer;
     nvrhi::BufferHandle m_smokeStaticTriangleClassBuffer;

@@ -321,10 +321,6 @@ void TestStaticSignatureRanges()
         ComputeSmokeStaticBlasSignaturePlan(outsideMaterialChangedDesc);
     Check(rangedSignature.hash == outsideMaterialChangedSignature.hash, "static BLAS ranged signature ignores triangle metadata outside range");
 
-    rangedDesc.sceneOrigin.x = 1.0f;
-    const RtSmokePlanStaticBlasSignature originChangedSignature =
-        ComputeSmokeStaticBlasSignaturePlan(rangedDesc);
-    Check(rangedSignature.hash != originChangedSignature.hash, "static BLAS signature includes scene origin");
 }
 
 void TestCacheAndBaseTlas()

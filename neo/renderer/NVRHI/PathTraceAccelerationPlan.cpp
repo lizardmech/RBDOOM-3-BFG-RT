@@ -86,7 +86,6 @@ RtSmokePlanStaticBlasSignatureDesc MakeSignatureDescFromSnapshot(
             ? snapshot.triangleClasses.size()
             : snapshot.triangleMaterials.size());
     desc.staticRange = snapshot.staticRange;
-    desc.sceneOrigin = snapshot.sceneOrigin;
     return desc;
 }
 
@@ -127,8 +126,6 @@ static uint64_t HashSmokeStaticBlasSignatureInput(
     hash = HashSmokePlanBytes(hash, &desc.staticRange.vertexCount, sizeof(desc.staticRange.vertexCount));
     hash = HashSmokePlanBytes(hash, &desc.staticRange.indexOffset, sizeof(desc.staticRange.indexOffset));
     hash = HashSmokePlanBytes(hash, &desc.staticRange.indexCount, sizeof(desc.staticRange.indexCount));
-    hash = HashSmokePlanBytes(hash, &desc.sceneOrigin, sizeof(desc.sceneOrigin));
-
     if (desc.vertices && desc.vertexStride > 0 &&
         PlanRangeValid(desc.staticRange.vertexOffset, desc.staticRange.vertexCount, desc.totalVertexCount))
     {
@@ -167,7 +164,6 @@ static RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureMetadat
     snapshot.vertexStride = desc.vertexStride;
     snapshot.totalVertexCount = desc.totalVertexCount;
     snapshot.staticRange = desc.staticRange;
-    snapshot.sceneOrigin = desc.sceneOrigin;
     return snapshot;
 }
 
@@ -249,9 +245,6 @@ RtSmokePlanStaticBlasSignature ComputeSmokeStaticBlasSignaturePlan(
     signature.triangleCount = desc.staticRange.triangleCount;
 
     uint64_t hash = 14695981039346656037ull;
-    hash = HashSmokePlanBytes(hash, &desc.sceneOrigin.x, sizeof(desc.sceneOrigin.x));
-    hash = HashSmokePlanBytes(hash, &desc.sceneOrigin.y, sizeof(desc.sceneOrigin.y));
-    hash = HashSmokePlanBytes(hash, &desc.sceneOrigin.z, sizeof(desc.sceneOrigin.z));
     hash = HashSmokePlanBytes(hash, &signature.vertexCount, sizeof(signature.vertexCount));
     hash = HashSmokePlanBytes(hash, &signature.indexCount, sizeof(signature.indexCount));
 

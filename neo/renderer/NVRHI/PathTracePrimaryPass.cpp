@@ -133,7 +133,7 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeSceneMapTimeStamp(0)
     , m_smokeTextureProbeMaterialId(0)
     , m_smokeTextureProbeRequestedIndex(-1)
-    , m_smokeSceneOrigin(vec3_origin)
+    , m_smokeCaptureAnchor(vec3_origin)
 {
     PtSkinnedOutputAllocatorConfig skinnedOutputConfig;
     skinnedOutputConfig.initialCapacityVertices = 16384;

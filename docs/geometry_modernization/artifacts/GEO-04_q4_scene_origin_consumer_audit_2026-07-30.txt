@@ -1,0 +1,115 @@
+GEO-04 / Q4 scene-origin consumer audit
+=======================================
+Date: 2026-07-30
+Status: resolved; no live geometry origin migration exists
+
+QUESTION
+--------
+Q4 states that current capture re-anchors world-space geometry to a
+`sceneOrigin` for precision and proposes moving that anchor into TLAS instance
+transforms under local-space instancing. It requires enumerating every consumer
+before removal.
+
+The inventory shows that premise is stale. The live renderer has two unrelated
+CPU values whose old names suggested a geometry origin, but neither represents
+one.
+
+GEOMETRY COORDINATE CONTRACT
+----------------------------
+Legacy draw-surface capture:
+
+  PathTraceSceneCapture.cpp
+    BuildSmokeSurfaceVertexFromSource
+    TransformSurfacePointToWorld
+
+The source position is transformed by the draw surface's model matrix and the
+resulting world position is written directly to `PathTraceSmokeVertex.position`.
+No anchor is subtracted.
+
+Canonical rigid/skinned geometry:
+
+  PathTraceGeometrySourceRegistry / PathTraceGeometryUniverse
+    immutable source positions are model-local
+
+  PathTraceSceneCapture
+    captured instance records copy objectToWorld
+
+  canonical rigid/skinned TLAS builders
+    instance placement is emitted through the TLAS transform
+
+This is already the local-source plus instance-transform shape Q4 anticipated.
+No extra anchor translation is needed.
+
+LIVE CAPTURE ANCHOR
+-------------------
+Producer:
+
+  CaptureDoomSurfacesForSmokeTest
+
+With `r_pathTracingAnchorRaycast 0` (default), the value is the current view
+origin and dynamic surfaces start at draw-surface index zero. With the
+default-off diagnostic enabled, `FindCenterCameraRayAnchor` stores the nearest
+center-ray world-space hit and its draw-surface/triangle indices.
+
+Consumers:
+
+  - `anchorSurface` rotates dynamic draw-surface iteration order when the
+    diagnostic is enabled;
+  - `anchorTriangle` and anchor timing/counts are logging fields;
+  - `ResolvePathTraceReGIRCenter` uses the world-space anchor as its fallback
+    center, then snaps it to the ReGIR cell grid.
+
+The value does not participate in vertex conversion, BLAS input, TLAS
+transforms, hit decoding, material lookup, or motion history. It is renamed:
+
+  m_smokeSceneOrigin -> m_smokeCaptureAnchor
+  sceneOrigin parameter -> captureAnchor
+
+SHADER AND BINDING AUDIT
+------------------------
+A case-sensitive and case-insensitive search of the PT shader tree and NVRHI
+binding code finds no `sceneOrigin` shader symbol, constant-buffer field,
+descriptor, push constant, or reconstruction helper. No shader contract needs
+migration.
+
+DEAD STATIC-BLAS SIGNATURE FIELD
+--------------------------------
+`RtSmokePlanStaticBlasSignatureDesc` and its owned snapshot retained a
+`sceneOrigin` member. Its only consumers were:
+
+  - CPU input-token hashing;
+  - CPU static-BLAS signature hashing;
+  - snapshot copy/restore;
+  - one harness assertion that changing it changes the hash.
+
+Production assigned `(0,0,0)` unconditionally. It was not derived from the
+capture anchor and no renderer consumer read it. The field, obsolete
+`RtSmokePlanVec3` type, hash inputs, copies, assignments, and harness assertion
+are removed. The signature continues to cover exact vertex/index bytes,
+counts, and ranges.
+
+VERIFICATION
+------------
+  PathTraceCpuPlanningHarness                PASS
+  cmake --build --preset win64-pt-dev-release PASS
+  Vulkan SPIR-V                               all up to date
+  shader source edits                         none
+
+The build and prebuilt executable hashes match. This cleanup changes no
+geometry bytes, instance transforms, shader ABI, route, or CVar default.
+
+  SHA-256: B5B47DE7D092AD942B7B6AF7CBE0298FFB9682B1859B560D5AA62032053B098C
+
+DECISION
+--------
+Q4 is resolved:
+
+  - retain direct world-space legacy capture;
+  - retain local-space canonical sources plus TLAS instance transforms;
+  - retain the explicitly named world-space capture anchor for ordering and
+    ReGIR fallback;
+  - do not add an origin translation to TLAS transforms.
+
+A future floating-origin feature would be a new cross-renderer ABI. It must
+move geometry, camera rays, lights, ReGIR/NEE grids, temporal history, and
+secondary-ray consumers together; the capture anchor is not that ABI.

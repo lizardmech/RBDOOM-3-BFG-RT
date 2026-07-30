@@ -1342,6 +1342,17 @@ order/cache effect rather than an offset effect. Keep the shared uint32 index
 pool. See D186 and
 artifacts/GEO-06_q3_offset_blas_timing_2026-07-30.txt.
 
+Post-packet Q4 closure:
+
+The required consumer audit rejects Q4's premise rather than proposing a new
+TLAS translation. Legacy capture already stores world-space vertices without
+origin subtraction, canonical records already use local-space geometry plus
+instance transforms, and no shader consumes `sceneOrigin`. The similarly named
+live member is only the world-space capture/order anchor and ReGIR fallback, so
+it is renamed `m_smokeCaptureAnchor`. The separate always-zero field is removed
+from the CPU static-BLAS signature. See D187 and
+artifacts/GEO-04_q4_scene_origin_consumer_audit_2026-07-30.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material
