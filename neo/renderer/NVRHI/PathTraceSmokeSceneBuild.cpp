@@ -8796,7 +8796,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     materialDiagnosticDesc.materialTable = &materialTable;
     materialDiagnosticDesc.enableTextureProbe = enableTextureProbe;
     const bool buildRigidRouteBuffers = enableRigidRouteForMode;
-    RtPathTraceRigidRouteBuild rigidRouteBuild;
+    // The accepted rigid route is already persistent cache state. Use that
+    // storage directly so a stable frame does not deep-copy its complete
+    // vertex/index payload into a temporary and back again. Preserve the old
+    // empty-build contract when the route is disabled without discarding the
+    // cached route needed if it is enabled again.
+    RtPathTraceRigidRouteBuild disabledRigidRouteBuild;
+    RtPathTraceRigidRouteBuild& rigidRouteBuild =
+        buildRigidRouteBuffers
+            ? m_smokeRigidRouteBuildAsyncCachedBuild
+            : disabledRigidRouteBuild;
     int rigidRouteBuildMs = 0;
     bool rigidRouteBuildAcceptedFromAsync = false;
     bool rigidRouteBuildAsyncCached = false;
@@ -8878,13 +8887,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                         RtPathTraceCpuWorkAcceptLatest(m_smokeRigidRouteBuildCpuWorkState, rigidRouteBuildGeneration, &asyncEnvelope, false);
                     if (asyncDecision.accepted)
                     {
-                        rigidRouteBuild = timedResult.build;
+                        rigidRouteBuild =
+                            std::move(timedResult.build);
                         rigidRouteGeometryUploadSignature = timedResult.geometryUploadSignature;
                         rigidRouteInstanceUploadSignature = timedResult.instanceUploadSignature;
                         rigidRouteGeometryUploadSignatureValid = timedResult.geometryUploadSignatureValid;
                         rigidRouteInstanceUploadSignatureValid = timedResult.instanceUploadSignatureValid;
                         rigidRouteBuildMs = 0;
-                        m_smokeRigidRouteBuildAsyncCachedBuild = timedResult.build;
                         m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature = timedResult.geometryUploadSignature;
                         m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature = timedResult.instanceUploadSignature;
                         m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid = timedResult.geometryUploadSignatureValid;
@@ -8904,7 +8913,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_smokeRigidRouteBuildAsyncCachedBuildValid &&
                 RtPathTraceCpuWorkGenerationEquals(m_smokeRigidRouteBuildAsyncCachedGeneration, rigidRouteBuildGeneration))
             {
-                rigidRouteBuild = m_smokeRigidRouteBuildAsyncCachedBuild;
                 rigidRouteGeometryUploadSignature = m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature;
                 rigidRouteInstanceUploadSignature = m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature;
                 rigidRouteGeometryUploadSignatureValid = m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid;
@@ -8960,7 +8968,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
             if (!rigidRouteBuildAcceptedFromAsync)
             {
-                m_smokeRigidRouteBuildAsyncCachedBuild = rigidRouteBuild;
                 m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature = rigidRouteGeometryUploadSignature;
                 m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature = rigidRouteInstanceUploadSignature;
                 m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid = rigidRouteGeometryUploadSignatureValid;

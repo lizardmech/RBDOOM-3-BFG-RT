@@ -106,3 +106,49 @@ route rollback remains:
 
 Reverting this follow-up restores the old repeated CPU work but is not
 required to restore legacy traversal.
+
+PBR orb stress-map follow-up
+----------------------------
+
+`testmaps/test_pbr_orbs` remained near 14 FPS at 640x360 after the first
+follow-up. An identical 240-frame Optick capture reproduced the report:
+
+  capture / correction                         PT Build Scene   Common::Frame
+  reported state (23-58-23)                       65.568 ms          n/a
+  cached validation only (00-02-43)               31.193 ms          n/a
+  validation + zero-copy stable reuse (00-05-22)   8.930 ms        9.720 ms
+
+The map contains about 290k cached rigid vertices and 1.48M cached rigid
+indexes. It exposed three additional linear-per-query/copy defects:
+
+1. `RigidMeshHasCachedRouteData` was not a predicate in cost. Every call
+   rescanned all cached vertices for finite positions and every cached index
+   for range validity. Residency, TLAS snapshot, material collection, route
+   snapshot, TLAS descriptor, and emissive paths called it independently.
+   Validation now happens once when `RefreshRigidMeshCandidateCpuCache`
+   creates or invalidates the cache. A stored validity bit makes later
+   readiness queries constant-time without weakening the validation.
+2. `PruneRigidCachesToCurrentFrame` deep-copied every live mesh record,
+   including its full vertex and index vectors, into a temporary vector every
+   frame even when no record expired. It now leaves a stable vector in place
+   and only move-compacts records when retirement actually removes one.
+3. The async route cache was deep-copied into a frame-local route build every
+   stable frame. The accepted persistent route build is now the frame's
+   working storage. Generation checks and upload signatures remain unchanged;
+   newly accepted worker results move into that storage.
+
+The final capture reduced the key steady events as follows:
+
+  event                                      reported state   final
+  rigid residency update                       15.288 ms      0.057 ms
+  rigid route async orchestration, inclusive    14.989 ms      0.021 ms
+  rigid route metadata snapshot                  6.326 ms      0.010 ms
+  rigid TLAS snapshot                            6.144 ms      0.021 ms
+  rigid route material IDs                       6.136 ms      0.011 ms
+  rigid TLAS instance descriptors                6.161 ms      0.027 ms
+
+The final total CPU `Common::Frame` average is 9.720 ms (about a 103 FPS CPU
+ceiling) under the same low-resolution, GI-off, route-1 configuration. This
+does not substitute for Vulkan GPU timestamps, but it proves the reported
+14-FPS result was CPU-limited before these corrections and that geometry
+scene construction is no longer the limiter in this map.

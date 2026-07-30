@@ -1203,6 +1203,7 @@ public:
         nvrhi::rt::AccelStructDesc rigidBlasDesc;
         nvrhi::rt::AccelStructHandle rigidBlas;
         uint64 cpuMeshContentSignature = 0;
+        bool cachedRouteDataValid = false;
         uint64 gpuUploadSignature = 0;
         int gpuBlasVertexCount = 0;
         int gpuBlasIndexCount = 0;
