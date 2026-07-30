@@ -8058,6 +8058,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
 
+    ProcessSmokeCrosshairMaterialDump(viewDef);
     ProcessSmokeCrosshairZeroRoughnessToggle(viewDef);
     ProcessSmokeCrosshairFullMetalToggle(viewDef);
 

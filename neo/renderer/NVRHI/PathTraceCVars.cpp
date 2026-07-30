@@ -1089,6 +1089,12 @@ idCVar r_pathTracingMatClassDebugList(
     CVAR_RENDERER | CVAR_INTEGER,
     "Dump new material-classifier records; 1=registered materials, 2=also one-shot all-decl surfaceType distribution, 3=also per-stage .mtr evidence" );
 
+idCVar r_pathTracingCrosshairMaterialDump(
+    "r_pathTracingCrosshairMaterialDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the PT material and evaluated stage state under the crosshair on the next path-traced frame; resets to 0" );
+
 idCVar r_pathTracingMatClassDebugMax(
     "r_pathTracingMatClassDebugMax",
     "64",

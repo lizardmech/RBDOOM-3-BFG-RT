@@ -188,6 +188,7 @@ extern idCVar r_pathTracingMatClassUseRmao;
 extern idCVar r_pathTracingMatClassDriveLegacySpec;
 extern idCVar r_pathTracingMatClassNormalDecodeMode;
 extern idCVar r_pathTracingMatClassDebugList;
+extern idCVar r_pathTracingCrosshairMaterialDump;
 extern idCVar r_pathTracingMatClassDebugMax;
 extern idCVar r_pathTracingUseNormalMaps;
 extern idCVar r_pathTracingNormalMapFlipGreen;
