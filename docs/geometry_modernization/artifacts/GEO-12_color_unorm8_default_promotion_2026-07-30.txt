@@ -1,0 +1,144 @@
+GEO-12: CANONICAL COLOR UNORM8 DEFAULT PROMOTION
+================================================
+
+DATE
+----
+2026-07-30
+
+DECISION
+--------
+Promote the already accepted canonical CPU source `color` UNORM8 encoding:
+
+  r_pathTracingGeometrySourceColorUnorm8 1
+
+Rollback remains:
+
+  r_pathTracingGeometrySourceColorUnorm8 0
+  reload the map
+
+The CVar is sampled when a canonical source record is first captured, so a map
+reload is required for a complete rollback or comparison.
+
+SCOPE
+-----
+This changes only retained CPU storage for eligible canonical source records.
+It does not change:
+
+  - logical source checksums or mesh identity;
+  - frontend/backend transport record layout;
+  - the decoded 80-byte canonical GPU attribute pool;
+  - rendered `PathTraceSmokeVertex`;
+  - BLAS vertex stride;
+  - descriptors, SBT records, or shaders;
+  - `color2`, UV, basis, position, index, or triangle storage.
+
+Eligible records retain `color` as UNORM8x4 in a 68-byte source attribute
+instead of the 80-byte full-float attribute. Decode occurs before every
+full-float transport/GPU boundary.
+
+SAFETY CONTRACT
+---------------
+Eligibility is record-atomic. Every `color` component must be finite, inside
+[0,1], and round-trip through the producer-matched byte decode within 1e-7.
+The first failed class selects one named reason:
+
+  non_finite
+  out_of_range
+  non_exact
+
+An ineligible record remains full float. Packing never clamps a value and does
+not reject geometry. The checksum is calculated over the logical full-fidelity
+payload before the storage representation is selected.
+
+PRIOR ACCEPTANCE
+----------------
+The accepted off/on A/B covered 988 canonical records and 64,986 vertices.
+The enabled run packed all 988 records and reduced retained attribute storage:
+
+  logical bytes     5,198,880
+  stored bytes      4,419,048
+  saved bytes         779,832
+  saved per vertex          12
+  saved fraction            15 percent
+
+All finite/range/exact fallback counters were zero. The decoded survey matched
+the complete full-fidelity aggregate in record, class, vertex, range, basis,
+color, joint, and weight fields.
+
+CURRENT-HEAD CONTRACT AUDIT
+---------------------------
+Later GEO-13/GEO-14 work did not add a second consumer of packed storage.
+`PathTraceGeometryLifecycle.cpp` still passes the CVar only to
+`PtGeometrySourceRegistry::Observe`. The registry owns the representation and
+its decode helper. `PathTraceGeometrySourceTransport` continues to validate the
+logical checksum and retained-byte claim from decoded full-fidelity data. The
+canonical GPU pool remains full float.
+
+FOCUSED VERIFICATION
+--------------------
+Command:
+
+  cmake --build --preset win64-pt-dev-release --target
+    PathTraceGeometrySourceRegistryHarness
+    PathTraceGeometrySourceTransportHarness
+    PathTraceGeometryAttributeSurveyHarness
+
+Results:
+
+  PathTraceGeometrySourceRegistryHarness     PASS
+  PathTraceGeometrySourceTransportHarness    PASS
+  PathTraceGeometryAttributeSurveyHarness    PASS
+
+FULL BUILD AND DEPLOYMENT
+-------------------------
+Command:
+
+  cmake --build --preset win64-pt-dev-release
+
+Result:
+
+  full build       PASS
+  shader result    all SPIR-V shaders up to date
+  executable       16,121,856 bytes
+  SHA-256
+    55E43F34AC34DB93895A17520BF77836B1512261BFD48AE1D9CEC4E7D2E33F19
+  deployment       source and prebuilt executables byte-identical
+
+No shader source or SPIR-V output changed.
+
+AUTONOMOUS DEFAULT-ON RUNTIME PROOF
+-----------------------------------
+The bounded Vulkan run used the production default with no storage override:
+
+  com_autoLoadSave doom3_1
+  r_pathTracingGeometryAttributeSurveyDump 1
+
+Raw log:
+
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo12_color_default.log
+  bytes       180280
+  modified    2026-07-30 22:10:37 Australia/Sydney
+
+Observed storage tuple:
+
+  gate                                      1
+  records packed / full                    988 / 0
+  logical / stored / saved bytes           5198880 / 4419048 / 779832
+  fallback nonfinite / range / exact       0 / 0 / 0
+  transport                                decoded-full
+  GPU attribute ABI                        full-float
+
+The run reaches Game Map Shutdown and `idRenderSystem::Shutdown`. The log
+contains no Vulkan device-loss, geometry-import, checksum, retained-byte, or
+GPU-pool rejection. The process subsequently returns Windows status
+0xC0000374, the existing post-render heap termination already reproduced with
+route-zero controls. It is retained as an engine shutdown warning and is not
+attributed to this CPU storage default.
+
+EXPLICIT NON-DECISIONS
+----------------------
+Half UV remains deferred after nonzero measured error. Oct16 normal/tangent
+remains a later lossy candidate. `color2` was not combined with this experiment.
+Transport and GPU/shader packing remain separate work. This promotion must not
+be cited as evidence for any of those layouts.

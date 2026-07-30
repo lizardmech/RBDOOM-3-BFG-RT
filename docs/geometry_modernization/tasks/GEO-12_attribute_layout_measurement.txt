@@ -195,9 +195,27 @@ full-fidelity `geometry_geo12d.log` aggregate in every reported numeric field.
 There are no source import/checksum/retained/range/GPU-pool rejections, device
 losses, or abnormal shutdowns in either new log.
 
-The color-only encoding is accepted. The CVar remains default off so that
-promotion stays an explicit later change rather than being hidden in the
+The color-only encoding was accepted with the CVar still default off so that
+promotion remained an explicit later change rather than being hidden in the
 measurement checkpoint.
+
+DEFAULT PROMOTION
+-----------------
+The explicit later promotion is accepted on 2026-07-30. The default is now:
+
+  r_pathTracingGeometrySourceColorUnorm8 1
+
+All three focused harnesses pass on current head. The full Vulkan release build
+passes with all SPIR-V up to date. An autonomous `doom3_1` load with no
+geometry-storage override repeats 988/988 packed records, zero fallback
+counters, and 779,832 saved retained CPU bytes. It reaches normal map and
+renderer shutdown without a device-loss marker. Rollback is CVar zero followed
+by map reload.
+
+This promotion remains CPU-canonical storage only. Half UV, oct basis, `color2`,
+transport packing, and GPU/shader packing remain deferred. Detailed proof:
+
+  ../artifacts/GEO-12_color_unorm8_default_promotion_2026-07-30.txt
 
 Q2 WRITE-VS-DERIVE CLOSURE
 --------------------------

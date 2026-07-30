@@ -371,9 +371,9 @@ idCVar r_pathTracingGeometrySkinnedAttributeDeriveDump(
 
 idCVar r_pathTracingGeometrySourceColorUnorm8(
     "r_pathTracingGeometrySourceColorUnorm8",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "GEO-12 default-off lossless UNORM8 color storage for newly captured canonical CPU source records; reload the map for a complete A/B" );
+    "GEO-12 lossless UNORM8 color storage for newly captured canonical CPU source records; set 0 and reload the map for full-float rollback" );
 
 idCVar r_pathTracingGeometryCanonicalRigidBlas(
     "r_pathTracingGeometryCanonicalRigidBlas",

@@ -12,6 +12,14 @@ Q1. Exact attribute layout. Oct-normal + oct-tangent + sign vs quaternion
     scrolling/tiling materials can exceed half range - per-mesh "wide UV"
     flag or always float2? Decide with a survey of actual UV ranges in
     shipped maps + a hit-shader cost measurement.
+    RESOLVED FOR THE LOSSLESS FIRST CUT by D165/D166/D190: canonical source
+    `color` uses record-atomic UNORM8 storage by default and decodes to the
+    unchanged full-float transport/GPU ABI. Representative coverage packs
+    988/988 records, saves 779,832 retained CPU bytes, and has zero fallback
+    records. Full-float rollback sets
+    `r_pathTracingGeometrySourceColorUnorm8 0` and reloads the map. Half UV
+    and oct basis remain explicitly deferred lossy candidates; this decision
+    does not authorize either.
 Q2. Does hit shading want skinned NORMALS/TANGENTS recomputed per frame in
     the skinning compute (extra bandwidth) or derived in-shader from
     geometric normal + stored deltas? Measure; default assumption is the

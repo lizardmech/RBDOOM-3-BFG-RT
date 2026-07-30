@@ -1381,6 +1381,17 @@ asynchronous queue split or persistent GPU-authored instance-buffer path. See
 D189 and
 artifacts/GEO-11_q18_tlas_inflight_lifetime_audit_2026-07-30.txt.
 
+Post-packet GEO-12 lossless-storage promotion:
+
+Promote only the already accepted canonical source `color` UNORM8 encoding.
+The default now packs eligible CPU source records while retaining the unchanged
+decoded full-float transport and GPU attribute ABI. Current-head harnesses pass
+and the production-default prepared-save census repeats 988/988 packed records,
+zero fallback counters, and 779,832 retained bytes saved. The full-float
+rollback is CVar zero plus map reload. Half UV, oct basis, `color2`, transport,
+and shader/GPU packing remain deferred. See D190 and
+artifacts/GEO-12_color_unorm8_default_promotion_2026-07-30.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

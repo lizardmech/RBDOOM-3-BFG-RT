@@ -130,6 +130,11 @@ GEO-12 FILES
     limit, first observation-only paged survey contract, rejected assumptions,
     and ordered completion/encoding slices.
 
+  GEO-12_color_unorm8_default_promotion_2026-07-30.txt
+    Current-head harness, Vulkan build/deploy, and autonomous runtime proof for
+    promoting the accepted lossless canonical color encoding, including exact
+    storage savings, fallback behavior, rollback, and excluded lossy formats.
+
   GEO-12_rendered_capture_survey.txt
     Final rendered static/dynamic ownership and identity contract, both-UV-pair
     paged survey, prepared-save and representative coverage evidence, class

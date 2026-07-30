@@ -154,3 +154,10 @@ Current execution status (2026-07-30):
   handle replacement remains event-query retired with its scene package.
   Nested BLAS retirement remains application-owned. See D189 and
   artifacts/GEO-11_q18_tlas_inflight_lifetime_audit_2026-07-30.txt.
+
+  GEO-12's accepted lossless canonical `color` UNORM8 storage is now the
+  production default. The current-head prepared-save census again packs
+  988/988 records, saves 779,832 retained CPU bytes, and reports zero fallback
+  records while transport and GPU attributes remain full float. CVar zero plus
+  map reload is the rollback. See D190 and
+  artifacts/GEO-12_color_unorm8_default_promotion_2026-07-30.txt.

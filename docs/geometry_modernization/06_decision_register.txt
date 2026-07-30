@@ -4842,9 +4842,51 @@ Evidence:
 
   artifacts/GEO-11_q18_tlas_inflight_lifetime_audit_2026-07-30.txt
 
+D190. PROMOTE LOSSLESS CANONICAL COLOR STORAGE
+----------------------------------------------
+GEO-12's only accepted storage encoding is promoted from an opt-in experiment
+to the production default:
+
+  r_pathTracingGeometrySourceColorUnorm8 1
+
+This does not promote a rendered-vertex or shader ABI. Eligible canonical CPU
+source records store `color` as UNORM8x4 and decode to the unchanged 80-byte
+full-float attribute at transport and GPU-pool boundaries. The logical source
+checksum remains representation-independent. Eligibility is record-atomic;
+non-finite, out-of-range, or non-exact input retains full-float storage with a
+named fallback reason. No value is clamped.
+
+The earlier accepted A/B measured 988/988 eligible records, 64,986 vertices,
+zero fallback counters, and 779,832 retained CPU bytes saved. The enabled
+decoded aggregate matched the full-fidelity baseline in every reported field.
+No later geometry cutover changed this registry/transport contract.
+
+Current-head verification repeats all three focused harnesses and the full
+Vulkan release build. An autonomous production-default load of `doom3_1`
+again reports:
+
+  records packed / full                     988 / 0
+  logical / stored / saved bytes            5198880 / 4419048 / 779832
+  nonfinite / range / exact fallback        0 / 0 / 0
+  transport / GPU ABI                       decoded-full / full-float
+
+The log reaches Game Map Shutdown and `idRenderSystem::Shutdown` without a
+Vulkan/device-loss marker. The process then returns the existing post-render
+Windows heap status 0xC0000374, already reproduced by route-zero controls and
+therefore not attributed to this CPU storage default.
+
+Rollback remains `r_pathTracingGeometrySourceColorUnorm8 0` followed by a map
+reload. Half UV, oct basis, `color2`, transport packing, and GPU/shader packing
+remain outside this decision.
+
+Evidence:
+
+  artifacts/GEO-12_color_unorm8_default_promotion_2026-07-30.txt
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
-  Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.
+  Q1  RESOLVED FOR LOSSLESS COLOR by D165/D166/D190; color UNORM8 is the
+      production default and lossy UV/basis storage remains deferred.
   Q2  RESOLVED by D185: write the posed basis once; reject triangle-frame
       hit derivation on numeric fidelity before shader timing.
   Q3  RESOLVED by D186: paired Vulkan timestamps show no measurable
