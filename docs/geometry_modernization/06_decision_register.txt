@@ -4486,6 +4486,43 @@ Full evidence is archived in
 artifacts/GEO-13_final_performance_2026-07-30.csv and
 artifacts/GEO-13_final_performance_handoff.txt.
 
+D181. CLOSE AUTHORIZED GEO-13 WORK; RETAIN THE SKINNED PHASE-E BLOCKER
+---------------------------------------------------------------------
+The final matrix reconciles current production defaults with all archived
+geometry gates. A current Communications fixture run reaches exact route-1
+cutover at 19 active / 76 resident / 76 ready buckets, maps 2,134/2,134
+surfaces and 94,088/94,088 primitives, and packs 110,641 vertices / 282,264
+indexes / 94,088 triangles with every assignment, range, address, class, and
+material-index failure zero. A PT screenshot after cutover retains the
+Communications Garage brush shell.
+
+The 282,264-index full resident pack is greater than the retired 196,608
+static-index admission ceiling. Together with the already-accepted forced-low
+byte/surface rejection and exact unlimited-policy recovery, this closes the
+beyond-old-cap requirement with a real current workload.
+
+Both route one and an explicit route-zero control reach Game Map Shutdown and
+idRenderSystem::Shutdown, contain no Vulkan/device/fatal/geometry error, and
+then terminate with Windows status 0xC0000374. The route-zero reproduction
+isolates the post-render heap termination from static buckets. Retain it as an
+engine/save shutdown warning; do not describe either process exit as clean.
+
+GEO-12 deliberately left UV and UV2 full-float after half-UV error measurement.
+Wide-UV fallback is therefore not a live compressed-route gate: all wide-UV
+records already remain full fidelity. Record this as not applicable, not as an
+unimplemented compression success.
+
+Authorized GEO-13 work is complete: checked dynamic/static admission, canonical
+rigid and static defaults, clean-GI decode, transitive cleanup audit, warm
+identical-content performance, the resident-material CPU fix, and the final
+production-route matrix. Packet-wide Phase-E completion remains blocked by the
+revoked per-instance skinned update-BLAS route. Merged dynamic stays mandatory
+until a separate Vulkan investigation supersedes the repeated reset evidence.
+
+Full evidence is archived in
+artifacts/GEO-13_final_correctness_matrix_2026-07-30.csv and
+artifacts/GEO-13_final_correctness_handoff.txt.
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.

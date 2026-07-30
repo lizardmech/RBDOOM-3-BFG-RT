@@ -1,0 +1,120 @@
+GEO-13 FINAL CORRECTNESS MATRIX HANDOFF
+=======================================
+
+Date: 2026-07-30
+Branch: restir-development
+Current checkpoint entering this audit:
+  4466ddfed GEO-13 cache resident material hydration
+
+OUTCOME
+-------
+Every final GEO-13 geometry case that belongs to an accepted production route
+has current or archived exact evidence. The matrix is in:
+
+  artifacts/GEO-13_final_correctness_matrix_2026-07-30.csv
+
+The result does not erase the already-recorded skinned-route revocation.
+Per-instance GPU-skinned BLAS traversal remains default off after repeatable
+Vulkan update-BLAS resets. Production correctly retains the merged CPU capture
+and dynamic BLAS fallback. Consequently GEO-13's authorized rigid/static/cap/
+cleanup work is complete, but the packet-wide Phase-E definition of done
+remains blocked on a separate accepted skinned update-path investigation.
+
+CURRENT COMMUNICATIONS REFRESH
+------------------------------
+The GAME-autosave fixture is the Communications save created for the earlier
+comm1 regression return. A low-resolution current-executable launch with no
+static-route override reaches the post-load command at the Communications
+Garage view and reports:
+
+  requested / accepted route                              1 / 1
+  consumer supported                                          1
+  active / resident / ready buckets                    19/76/76
+  TLAS outputs / route records                         19 / 76
+  active material-index misses                              0
+  assigned surfaces                                2134 / 2134
+  assigned / retained primitives                 94088 / 94088
+  packed vertices / indexes / triangles       110641/282264/94088
+  geometry failure counters (all ten)                       0
+  warm create / upload / build / reuse / retire       0/0/0/76/0
+  result queries / failures                              76 / 0
+
+The 282,264-index resident static pack is a real current workload beyond the
+former 196,608 static-index ceiling. This closes the numeric part of the old-cap
+stress without inventing a synthetic comparison.
+
+The screenshot command captured the current PT frame after exact cutover:
+
+  E:/prog/rbdoom-3-BFG-prebuilt/base/geometry_geo13_final_comm1
+  bytes: 529,230
+  dimensions: 2088x1267
+  modified: 2026-07-30 13:07:47 +10:00
+
+The frame contains the surrounding Communications Garage brush shell, weapon,
+HUD, and rigid scene content. It supplements rather than replaces the exact
+route/address evidence. The existing user-driven comm1 pass remains the motion
+and raster/PT comparison evidence.
+
+POST-SHUTDOWN WARNING
+---------------------
+Both current-default route 1 and an explicit route-zero control:
+
+  - reach the requested audit command;
+  - render normally;
+  - log Game Map Shutdown and idRenderSystem::Shutdown;
+  - contain no device-removed, VK_ERROR, fatal, or geometry failure;
+  - then terminate with Windows status 0xC0000374.
+
+Because route zero reproduces exactly, the post-render heap termination is not
+caused by bucket traversal or resident material hydration. Earlier doom3_1
+performance/audit runs on the same executable shut down normally. This is
+retained as a Communications-save/engine-shutdown warning and is not relabeled
+as a clean process exit.
+
+RAW CURRENT LOGS
+----------------
+  C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+    geometry_geo13_final_comm1.log
+      bytes 183,883; modified 2026-07-30 13:05:58 +10:00
+    geometry_geo13_final_comm1_visual.log
+      bytes 183,750; modified 2026-07-30 13:07:48 +10:00
+    geometry_geo13_final_comm1_route0.log
+      bytes 173,784; modified 2026-07-30 13:10:20 +10:00
+
+WIDE-UV DISPOSITION
+-------------------
+GEO-12 did not promote half-UV or another lossy UV representation. UV and UV2
+remain full-float in canonical storage, transport, the GPU vertex ABI, and all
+shaders. A wide-UV mesh therefore cannot fall out of the accepted route due to
+compression: it already uses full fidelity. The final matrix marks this case
+NOT_APPLICABLE_FULL_FIDELITY rather than manufacturing a compressed-UV pass.
+
+RETAINED FALLBACKS AND DEFAULTS
+-------------------------------
+  canonical rigid BLAS provider / traversal             1 / 1
+  static bucket resources / build / route             1/1/1
+  clean DI production view                                  16
+  monolithic static rollback                              live
+  legacy rigid fail-safe                                  live
+  merged dynamic/skinned fallback                         live
+  per-instance skinned BLAS traversal                  default off
+  GEO-12 color UNORM8 experiment                       default off
+
+No current producer, buffer, CVar, or diagnostic was deleted because the
+Slice-6 transitive audit found no candidate without a live production,
+rollback, failure, or validation consumer.
+
+CLOSURE
+-------
+GEO-13 has finished the authorized:
+
+  - checked dynamic/static cap removal;
+  - canonical rigid and static-bucket default promotion;
+  - clean-GI bucket decode repair;
+  - transitive cleanup audit;
+  - identical-content performance comparison and narrow CPU cache fix;
+  - final production-route correctness reconciliation.
+
+The packet remains open only for the separately named per-instance skinned
+update-BLAS blocker. Do not delete merged dynamic or promote the skinned route
+until that investigation produces new Vulkan runtime acceptance.

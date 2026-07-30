@@ -1181,6 +1181,37 @@ artifacts/GEO-13_final_performance_handoff.txt.
 
 Final correctness-matrix reconciliation remains open before GEO-13 can close.
 
+GEO-13 final correctness reconciliation:
+
+The current production executable passes the accepted static, rigid, retained
+skinned-fallback, lifecycle, transition, spawn/despawn, and checked-admission
+contracts. A fresh Communications fixture run reaches exact route-1 cutover at
+19 active / 76 resident / 76 ready buckets, assigns 2,134/2,134 surfaces and
+94,088/94,088 primitives, packs 110,641 vertices / 282,264 indexes / 94,088
+triangles, and reports zero geometry/address/material-index failure. Its PT
+screenshot retains the Communications Garage brush shell. The 282,264 static
+indexes provide a true current workload beyond the former 196,608 static-index
+ceiling.
+
+Both this run and an explicit route-zero control reach renderer shutdown and
+then terminate with Windows status 0xC0000374. The route-zero reproduction
+isolates that post-render shutdown defect from bucket traversal; it remains a
+named warning, not a clean-exit claim.
+
+Wide-UV compression is not a live route: GEO-12 explicitly deferred half UV,
+so UV/UV2 remain full-float through canonical storage, transport, GPU ABI, and
+shaders. The matrix records this case as full-fidelity/not-applicable rather
+than claiming an unimplemented compressed-UV fallback.
+
+GEO-13 has completed all currently authorized rigid/static/cap-removal,
+cleanup, performance, and final production-route evidence. Packet-wide Phase-E
+completion is still blocked by the separately revoked per-instance skinned
+update-BLAS route. Merged dynamic remains its mandatory production fallback.
+Do not delete that fallback or claim the modernization definition of done until
+a new Vulkan investigation accepts the per-instance update path. Full evidence
+is in artifacts/GEO-13_final_correctness_matrix_2026-07-30.csv and
+artifacts/GEO-13_final_correctness_handoff.txt.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

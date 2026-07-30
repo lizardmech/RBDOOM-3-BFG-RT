@@ -82,6 +82,8 @@ Current execution status (2026-07-30):
   static-bucket production defaults, clean-GI resident-bucket decoding, and a
   warm identical-content route comparison. The latest CPU checkpoint removes
   a duplicate whole-world material registration and archives the remaining
-  disclosed route-one overhead. Final correctness-matrix reconciliation is the
-  remaining closure gate; retained monolithic static, merged dynamic, and
-  legacy rigid owners are intentional live fallbacks, not dead code.
+  disclosed route-one overhead. The final production-route matrix is archived.
+  GEO-13's authorized rigid/static/cap/cleanup work is complete, but packet-wide
+  Phase-E completion remains blocked by the revoked per-instance skinned
+  update-BLAS route. Retained monolithic static, merged dynamic, and legacy
+  rigid owners are intentional live fallbacks, not dead code.

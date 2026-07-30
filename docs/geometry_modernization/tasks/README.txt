@@ -48,6 +48,12 @@ Phase E - cutover
 
   GEO-13_cutover_cap_removal_cleanup.txt
 
+Current Phase-E status (2026-07-30):
+  GEO-13's authorized rigid/static/cap/cleanup/performance work is complete.
+  Packet-wide completion remains blocked by the intentionally revoked
+  per-instance skinned update-BLAS route; merged dynamic remains its production
+  fallback. See ../artifacts/GEO-13_final_correctness_handoff.txt.
+
 CLAIMING A TICKET
 -----------------
 1. Verify every predecessor's DONE WHEN section and checkpoint commit.

@@ -140,6 +140,14 @@ GEO-13 FILES
     Exact warm A/B method, disclosed remaining overhead, memory accounting,
     post-fix route/emissive audit, raw-log provenance, and build/deploy identity.
 
+  GEO-13_final_correctness_matrix_2026-07-30.csv
+    Final production-route matrix for static, skinned fallback, comm1,
+    lifecycle, transitions, GPU fallback, UV disposition, and old-cap stress.
+
+  GEO-13_final_correctness_handoff.txt
+    Current comm1 exact-route/screenshot evidence, route-zero shutdown control,
+    final defaults and retained fallbacks, and the remaining packet blocker.
+
 NAMING
 ------
 Use:
