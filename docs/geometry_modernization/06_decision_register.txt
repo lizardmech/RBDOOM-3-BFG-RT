@@ -4340,6 +4340,43 @@ The deployed 16,079,872-byte candidate has SHA-256:
 
   24354A4FF4566250A60DD456FEDEF1D20A637CA08810A70F4A939CA3261415CF
 
+D177. PRODUCTION VIEW DEFAULT IS ACCEPTED; PROMOTE STATIC BUCKET DEFAULTS
+-----------------------------------------------------------------------
+`geometry_geo13_view_default.log` proves the executable selects clean DI view
+16 and markers off from compiled defaults. After enabling only the three
+static bucket gates, route 1 remains supported, converges to 56/56 resident
+BLASes, and stays exact across active portal sets from 13 through 19 buckets.
+The settled audit reports exact 17-bucket TLAS output, zero active
+material-index misses, 56/56 warm BLAS reuse, zero query failure, and zero
+assignment/geometry/publication/address failure. Shutdown is normal.
+
+All other production-predicate inputs already have accepted matching defaults:
+clean DI enabled, bounded transmission/compose/reflection/refracted PSR on,
+external PDF-NEE off, RR off, and stage zero. The three static gates are now
+the only remaining manual cutover inputs.
+
+The next isolated candidate changes their defaults together:
+
+  r_pathTracingGeometryStaticBucketBlas       1
+  r_pathTracingGeometryStaticBucketBlasBuild  1
+  r_pathTracingGeometryStaticBucketRoute      1
+
+They are one atomic route: route without resources cannot cut over, resources
+without builds cannot converge, and resources/builds without route create
+pure overhead. The existing all-resident/publication predicate continues to
+fail closed to monolithic traversal during startup or on any mismatch. Route
+zero remains the explicit rollback and does not destroy the resident cache.
+
+Runtime acceptance must use an ordinary raw launch which overrides none of the
+three bucket gates, view, or marker CVar. It must query all five compiled
+defaults, reach exact route-1 cutover, traverse portals and optics, prove
+route-zero rollback and route-one restoration, and shut down normally.
+
+The full Vulkan release build passes with all SPIR-V up to date. No shader
+changed. The deployed 16,079,872-byte candidate has SHA-256:
+
+  EBF6D0710BECDD28D22448A721E5D3AB3B4B3CE1E4E2262E0A61469624718D51
+
 DISPOSITION OF 04_open_questions.txt
 ------------------------------------
   Q1  RESOLVED FOR COLOR by D165/D166; lossy UV storage remains deferred.

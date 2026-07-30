@@ -1103,6 +1103,16 @@ proof. The candidate builds with SPIR-V unchanged and is deployed with
 executable SHA-256
 `24354A4FF4566250A60DD456FEDEF1D20A637CA08810A70F4A939CA3261415CF`.
 
+The ordinary-default view proof is accepted: view 16/default 16, markers
+0/default 0, 56/56 buckets ready, exact route-1 publication, zero failures, and
+normal shutdown. All production-predicate defaults now align. Promote the
+static bucket resource/build/route gates atomically to one; retain route zero
+as monolithic rollback and the all-resident exact-publication gate as startup
+fail-closed behavior. One ordinary-launch rollback/restoration runtime remains
+before static default promotion is final. The candidate builds with SPIR-V
+unchanged and is deployed with executable SHA-256
+`EBF6D0710BECDD28D22448A721E5D3AB3B4B3CE1E4E2262E0A61469624718D51`.
+
 GEO-10 architecture override (2026-07-27):
 
 The parallel bucket shader ABI is rejected. Do not continue the material

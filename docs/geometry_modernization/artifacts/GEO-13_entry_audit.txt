@@ -641,6 +641,35 @@ resource/build/route defaults remain zero until that selection is verified.
   executable SHA-256
     24354A4FF4566250A60DD456FEDEF1D20A637CA08810A70F4A939CA3261415CF
 
+SLICE-5D PRODUCTION VIEW ACCEPTED; STATIC DEFAULT CANDIDATE
+----------------------------------------------------------
+`geometry_geo13_view_default.log` proves:
+
+  clean DI view current / default                       16 / 16
+  markers current / default                               0 / 0
+  consumer supported / production route                  1 / 1
+  static buckets resident / ready                       56 / 56
+  active portal sets exercised                         13 .. 19
+  settled active / TLAS output                           17 / 17
+  active material-index misses                               0
+  warm BLAS build / reuse / retire                     0 / 56 / 0
+  result queries / failures                            56 / 0
+
+All exact assignment, geometry, publication, and address counters pass and
+shutdown is normal. The view-16 compiled default is accepted.
+
+Every non-static production input now matches its accepted default. Promote
+the bucket resource, build, and route defaults atomically to one. They are one
+functional route, while the existing cutover planner still fails closed to
+monolithic traversal until all 56 resident BLASes and the exact active
+publication are ready. Route zero remains rollback.
+
+  cmake --build --preset win64-pt-dev-release  PASS
+  SPIR-V                                        all up to date
+  executable bytes                              16,079,872
+  executable SHA-256
+    EBF6D0710BECDD28D22448A721E5D3AB3B4B3CE1E4E2262E0A61469624718D51
+
 REJECTED SHORTCUTS
 ------------------
 - Treating intermediate default-on evidence as newer than an explicit revoke.

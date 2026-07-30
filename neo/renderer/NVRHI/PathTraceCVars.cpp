@@ -473,15 +473,15 @@ idCVar r_pathTracingGeometryStaticBucketMaxTriangles(
 
 idCVar r_pathTracingGeometryStaticBucketBlas(
     "r_pathTracingGeometryStaticBucketBlas",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "GEO-10 standalone full-map bucket storage and per-bucket BLAS resource gate; enable explicitly before requesting live cutover" );
+    "GEO-10 full-map resident bucket storage and per-bucket BLAS resource gate; default on for the accepted production route, set 0 for monolithic rollback" );
 
 idCVar r_pathTracingGeometryStaticBucketBlasBuild(
     "r_pathTracingGeometryStaticBucketBlasBuild",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Submit GEO-10 standalone per-bucket BLAS builds when the bucket resource gate is enabled; enable explicitly after cold pipeline warmup" );
+    "Submit GEO-10 per-bucket BLAS builds when the bucket resource gate is enabled; default on with bounded per-frame admission, set 0 to retain storage without new builds" );
 
 idCVar r_pathTracingGeometryStaticBucketBlasBuildLimit(
     "r_pathTracingGeometryStaticBucketBlasBuildLimit",
@@ -515,9 +515,9 @@ idCVar r_pathTracingGeometryStaticBucketReflectionPortalSteps(
 
 idCVar r_pathTracingGeometryStaticBucketRoute(
     "r_pathTracingGeometryStaticBucketRoute",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Default-off GEO-10 route mode: 0 monolithic, 1 production request (fail-closed until all consumers agree), 2 isolated primary probe in view 2 status, view 17 motion, view 19 post-composite albedo, or view 24 material classification; never allocates/builds buckets implicitly" );
+    "GEO-10 route mode: 0 monolithic rollback, 1 default production request (fail-closed until resources and consumers agree), 2 isolated primary probe in view 2 status, view 17 motion, view 19 post-composite albedo, or view 24 material classification" );
 
 idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage(
     "r_pathTracingGeometryStaticBucketSecondaryProbeStage",
@@ -1351,7 +1351,7 @@ idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
     "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room Remix DI path: default-on clean material-classifier view-12 route; set 0 to opt out for diagnostics; independent of existing RRX debug views" );
+    "Clean-room Remix DI path: default-on production view-16 route; set 0 to opt out for diagnostics; independent of existing RRX debug views" );
 
 idCVar r_pathTracingCleanRtxdiDiView(
     "r_pathTracingCleanRtxdiDiView",
