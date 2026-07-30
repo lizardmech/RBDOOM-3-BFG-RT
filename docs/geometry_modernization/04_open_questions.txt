@@ -1,8 +1,9 @@
 Geometry modernization - open questions and risks (preliminary)
 ===============================================================
-Status: working notes, 2026-07-19. Unresolved decisions. Each of these
-should be settled (by measurement or a short spike, not by debate) before
-any rigid plan/tickets are written for the area it touches.
+Status: resolved question register, updated 2026-07-30. These began as
+preliminary working notes; D185-D191 and the final disposition in
+06_decision_register.txt record the accepted outcomes. Reopen a question only
+under its named conditions and with a current contradiction or measurement.
 Updated 2026-07-20: Q10/Q12 amended with DoomRTX findings; Q18 added.
 
 VERTEX / STORAGE

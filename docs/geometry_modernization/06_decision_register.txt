@@ -1,6 +1,6 @@
 Geometry modernization - decision register
 ===========================================
-Status: controlling decisions, 2026-07-23.
+Status: controlling decisions, updated 2026-07-30.
 
 This register converts measured facts into implementation constraints. A
 worker may challenge a decision only with a current-code contradiction or a
@@ -4957,4 +4957,5 @@ DEFERRED OUTSIDE THIS PACKET
 - Pose sharing / animation instancing.
 - A custom software BVH or non-hardware traversal path.
 - DX12 shader or runtime validation.
-- General material-texture remediation, including the Fatzombie descriptor.
+- Specialized sky/effect/glass material sampling beyond D191's accepted
+  ordinary-diffuse descriptor closure.

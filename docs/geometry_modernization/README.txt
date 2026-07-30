@@ -54,10 +54,11 @@ Reading order:
   artifacts/README.txt            - durable baselines, capture commands, field
                                     ownership, and completed-ticket handoffs
 
-Start implementation with tasks/GEO-00_runtime_baseline.txt. The existing
-runtime captures satisfy much of GEO-00, but the ticket must still establish
-durable artifacts and the exact comm1 reproduction checkpoint before any
-behavioral patch.
+The historical implementation entry point was
+tasks/GEO-00_runtime_baseline.txt. The ordered packet has since completed
+through GEO-14; do not restart a completed ticket unless its recorded reopen
+conditions are met. Use the current execution status below and the decision
+register for follow-up work.
 
 Related prior work:
   docs/geometry_classifier/            (classifier + remix pivot history)
@@ -83,10 +84,11 @@ Current execution status (2026-07-30):
   warm identical-content route comparison. The latest CPU checkpoint removes
   a duplicate whole-world material registration and archives the remaining
   disclosed route-one overhead. The final production-route matrix is archived.
-  GEO-13's authorized rigid/static/cap/cleanup work is complete, but packet-wide
-  Phase-E completion remains blocked by the revoked per-instance skinned
-  update-BLAS route. Retained monolithic static, merged dynamic, and legacy
-  rigid owners are intentional live fallbacks, not dead code.
+  At the GEO-13 checkpoint, packet-wide Phase-E completion was still blocked
+  by the revoked per-instance skinned update-BLAS route. GEO-14, summarized
+  immediately below, superseded that blocker and completed the cutover.
+  Retained monolithic static, merged dynamic, and legacy rigid owners are
+  intentional rollback/fallback paths, not dead code.
 
   GEO-14 has now isolated the first skinned reset owner to a Vulkan BLAS UPDATE
   state-contract mismatch: the prior BLAS source read was absent from NVRHI's

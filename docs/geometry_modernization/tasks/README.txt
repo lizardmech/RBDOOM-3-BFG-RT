@@ -1,6 +1,6 @@
 Geometry modernization - worker ticket index
 =============================================
-Status: ordered implementation packet, 2026-07-23.
+Status: completed implementation packet, 2026-07-30.
 
 REQUIRED READING
 ----------------
@@ -48,7 +48,7 @@ Phase E - cutover
 
   GEO-13_cutover_cap_removal_cleanup.txt
 
-Phase E recovery - blocked skinned cutover
+Phase E recovery - completed skinned cutover
 
   GEO-14_skinned_vulkan_update_recovery.txt
 

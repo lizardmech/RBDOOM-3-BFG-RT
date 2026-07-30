@@ -1,6 +1,6 @@
 Geometry modernization - ordered execution plan
 ================================================
-Status: controlling phase plan, 2026-07-23.
+Status: completed controlling phase plan, updated 2026-07-30.
 
 OBJECTIVE
 ---------
@@ -1179,7 +1179,9 @@ and build/deploy identity are archived in
 artifacts/GEO-13_final_performance_2026-07-30.csv and
 artifacts/GEO-13_final_performance_handoff.txt.
 
-Final correctness-matrix reconciliation remains open before GEO-13 can close.
+At this historical checkpoint, final correctness-matrix reconciliation
+remained open before GEO-13 could close. The following reconciliation and
+GEO-14 sections supersede this status.
 
 GEO-13 final correctness reconciliation:
 
