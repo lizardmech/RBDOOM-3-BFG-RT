@@ -1933,7 +1933,7 @@ idCVar r_pathTracingCleanRestirGiProducerConsumeProof(
     "r_pathTracingCleanRestirGiProducerConsumeProof",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI producer workload proof: 0 normal, 1 trace immediate invalid candidate, 2 shade immediate magenta return, 3 shade full surface load/unpack/store only, 4 full shade with visibility accepted before shadow TraceRay, 5 shade scalar valid-field read plus near-identical magenta return, 6 trace with force-opaque closest-hit payload only and no material rebuild, 7 trace with normal non-opaque any-hit plus closest-hit payload and no material rebuild" );
+    "Clean-room ReSTIR GI producer workload proof: 0 normal, 1 trace immediate invalid candidate, 2 shade immediate magenta return, 3 shade full surface load/unpack/store only, 4 full shade with visibility accepted before shadow TraceRay, 5 shade scalar valid-field read plus near-identical magenta return, 6 trace with normal any-hit/closest-hit payload but no reconstruction, 7 mode 6 plus full three-vertex geometry loads but no material evaluation or candidate packing" );
 
 idCVar r_pathTracingCleanRestirGiProducerSimple(
     "r_pathTracingCleanRestirGiProducerSimple",

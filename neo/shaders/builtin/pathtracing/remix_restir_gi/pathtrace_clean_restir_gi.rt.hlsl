@@ -6058,6 +6058,44 @@ uint CleanGiFirstIndirectPayloadProofChecksum(PathTraceCleanRestirGiPayload payl
     return checksum;
 }
 
+uint CleanGiFirstIndirectGeometryProofChecksum(uint instanceId, uint primitiveIndex)
+{
+    float3 p0, p1, p2;
+    float3 n0, n1, n2;
+    float2 uv0, uv1, uv2;
+    float2 normalUv0, normalUv1, normalUv2;
+    float4 c0, c1, c2;
+    float4 c20, c21, c22;
+    if (!CleanGiLoadTriangleGeometryFull(
+        instanceId,
+        primitiveIndex,
+        p0, p1, p2,
+        n0, n1, n2,
+        uv0, uv1, uv2,
+        normalUv0, normalUv1, normalUv2,
+        c0, c1, c2,
+        c20, c21, c22))
+    {
+        return 0u;
+    }
+
+    uint4 checksum = asuint(float4(p0, p1.x));
+    checksum ^= asuint(float4(p1.yz, p2.xy));
+    checksum ^= asuint(float4(p2.z, n0));
+    checksum ^= asuint(float4(n1, n2.x));
+    checksum ^= asuint(float4(n2.yz, uv0));
+    checksum ^= asuint(float4(uv1, uv2));
+    checksum ^= asuint(float4(normalUv0, normalUv1));
+    checksum ^= asuint(float4(normalUv2, c0.xy));
+    checksum ^= asuint(float4(c0.zw, c1.xy));
+    checksum ^= asuint(float4(c1.zw, c2.xy));
+    checksum ^= asuint(float4(c2.zw, c20.xy));
+    checksum ^= asuint(float4(c20.zw, c21.xy));
+    checksum ^= asuint(float4(c21.zw, c22.xy));
+    checksum ^= asuint(float4(c22.zw, 0.0, 0.0));
+    return checksum.x ^ checksum.y ^ checksum.z ^ checksum.w;
+}
+
 uint CleanGiTraceFirstIndirectHitStageProof(
     float3 primaryPosition,
     float3 primaryGeometricNormal,
@@ -6076,21 +6114,24 @@ uint CleanGiTraceFirstIndirectHitStageProof(
     bounceRay.TMax = 100000.0;
 
     PathTraceCleanRestirGiPayload payload = (PathTraceCleanRestirGiPayload)0;
-    const bool forceOpaque = proofMode == 6u;
-    payload.rayMode = forceOpaque ? 1u : 0u;
+    payload.rayMode = 0u;
     payload.ignoreInstanceId = 0xffffffffu;
     payload.ignorePrimitiveIndex = 0xffffffffu;
     payload.ignoreMaterialIndex = 0xffffffffu;
 
-    // Mode 6 bypasses any-hit but retains the normal closest-hit payload write.
-    // Mode 7 forces the default non-opaque route so the normal alpha/liquid
-    // any-hit work also runs. Neither mode rebuilds a material surface in
-    // raygen after TraceRay.
-    const uint rayFlags = forceOpaque
-        ? RAY_FLAG_FORCE_OPAQUE
-        : RAY_FLAG_FORCE_NON_OPAQUE;
-    TraceRay(SmokeScene, rayFlags, 0xff, 0, 0, 0, bounceRay, payload);
-    return CleanGiFirstIndirectPayloadProofChecksum(payload);
+    // Both modes retain the now-measured normal non-opaque any-hit and
+    // closest-hit stages. Mode 7 additionally performs the raw full-vertex
+    // loads used by secondary reconstruction, but no normal/material texture
+    // sampling, classifier work, or candidate packing.
+    TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 0, 0, bounceRay, payload);
+    uint checksum = CleanGiFirstIndirectPayloadProofChecksum(payload);
+    if (proofMode == 7u && payload.value != 0u)
+    {
+        checksum ^= CleanGiFirstIndirectGeometryProofChecksum(
+            payload.hitInstanceId,
+            payload.hitPrimitiveIndex);
+    }
+    return checksum;
 }
 
 CleanGiProducerResult CleanGiShadeFirstIndirectSurface(

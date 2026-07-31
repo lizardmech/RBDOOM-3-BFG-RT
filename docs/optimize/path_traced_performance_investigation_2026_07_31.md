@@ -409,23 +409,41 @@ placing roughly 9.9 ms exclusively after the bare traversal boundary in this
 scene. Primary reconstruction, RNG/ray sampling, TLAS traversal, the large
 payload, and miss handling are all below FPS resolution in that test.
 
-Modes 6 and 7 now split the remaining hit path:
+The third probe measured 35 FPS in mode 1, 35 FPS in force-opaque
+closest-hit-only mode 6, 33 FPS in non-opaque any-hit mode 7, and 26 FPS in
+normal mode 0. In frame time, any-hit accounts for about 1.7 ms
+(28.6 -> 30.3 ms), while the post-trace reconstruction block accounts for
+about 8.2 ms (30.3 -> 38.5 ms). The all-geometry-any-hit policy is real but is
+not the dominant current cost.
 
-- mode 6 traces with `FORCE_OPAQUE`, executes the normal closest-hit shader,
-  consumes a fingerprint of the complete payload, but does not rebuild the
-  secondary material surface after `TraceRay`;
-- mode 7 traces with `FORCE_NON_OPAQUE`, executes the normal any-hit and
-  closest-hit shaders, consumes the same complete-payload fingerprint, but
-  likewise skips secondary material reconstruction;
-- mode 0 retains the normal non-opaque trace, any-hit and closest-hit, then
-  performs dry-surface geometry/material reconstruction and packs the
-  144-byte candidate.
+The next modes split raw geometry transport from the rest of reconstruction:
 
-The candidate remains invalid in proof modes, keeping downstream shade
-work equivalent. Compare `FirstIndirect.0a Trace DispatchRays`: `6 - 1`
-measures traversal plus closest-hit payload handling; `7 - 6` isolates
-alpha/liquid any-hit work; `0 - 7` isolates post-trace secondary geometry,
-texture/material reconstruction, liquid resolution, and candidate packing.
+- mode 6 performs the normal non-opaque trace, any-hit, closest-hit, and full
+  payload fingerprint, then stops;
+- mode 7 performs mode 6 plus `CleanGiLoadTriangleGeometryFull` and consumes
+  every returned position, normal, UV, normal UV, vertex color, and secondary
+  color value, but performs no normal/material texture sampling, classifier
+  work, liquid resolution, or 144-byte candidate packing;
+- mode 0 retains the complete dry-surface reconstruction and packing.
+
+`PathTraceSmokeVertex` was already five `float4` values, 80 bytes, before the
+first NVIDIA-reference comparison. It is now seven `float4` values, 112 bytes.
+The hit loader fetches three composite vertex records, nominally 240 bytes in
+the early design and 336 bytes now, even though later stages consume only
+subsets. The same vertex ABI and route-dependent loaders feed DI and GI.
+
+The production geometry-proof SPIR-V is 444,452 bytes and passes
+`spirv-val` for Vulkan 1.2. It contains 72 static composite
+`OpLoad %PathTraceSmokeVertex` sites because the three-vertex load is duplicated
+across static, dynamic, bucket, and rigid route branches in both the normal and
+proof call graphs. These are static sites rather than a per-lane execution
+count, but they demonstrate the route-megakernel shape surrounding a logically
+simple three-vertex fetch.
+
+Compare `FirstIndirect.0a Trace DispatchRays`: `7 - 6` isolates route/index
+resolution and three full vertex loads; `0 - 7` isolates interpolation/tangent
+math, normal/diffuse/specular/alpha/emissive texture work, classifier and
+override work, liquid resolution, and candidate packing.
 
 The installed Nsight 2026.1 replay CLI accepts frame captures but rejects
 `.ngfx-gputrace` files as an invalid replay header. Existing GPU Trace
@@ -466,10 +484,10 @@ The next modes isolate that skipped work inside the same dispatch:
   before the shadow `TraceRay`.
 - mode 5: read only the packed surface's scalar `valid` field, then return the
   same magenta marker as mode 2 with a visually negligible loaded-data delta.
-- mode 6: trace force-opaque with closest-hit payload writes, fingerprint the
-  complete payload, and skip post-trace material reconstruction;
-- mode 7: trace force-non-opaque with normal any-hit and closest-hit, fingerprint
-  the complete payload, and skip post-trace material reconstruction.
+- mode 6: trace force-non-opaque with normal any-hit and closest-hit, fingerprint
+  the complete payload, and stop before reconstruction;
+- mode 7: perform mode 6 plus all three full vertex-record loads, fingerprint
+  every returned geometry attribute, and skip material evaluation and packing.
 
 Capture the `FirstIndirect.0b ShadeFast DispatchRays` GPU duration for each
 mode, rather than comparing FPS alone. Mode 3 minus mode 2 bounds surface
