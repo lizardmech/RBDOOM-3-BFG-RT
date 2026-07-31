@@ -6026,10 +6026,43 @@ bool CleanGiBuildFirstIndirectTraceCandidate(
     return true;
 }
 
-uint CleanGiTraceFirstIndirectTraversalOnly(
+uint CleanGiFirstIndirectPayloadProofChecksum(PathTraceCleanRestirGiPayload payload)
+{
+    uint checksum =
+        payload.value ^
+        payload.rayMode ^
+        payload.ignoreInstanceId ^
+        payload.ignorePrimitiveIndex ^
+        payload.ignoreMaterialIndex ^
+        payload.hitInstanceId ^
+        payload.hitPrimitiveIndex ^
+        asuint(payload.hitT) ^
+        asuint(payload.hitBarycentrics.x) ^
+        asuint(payload.hitBarycentrics.y) ^
+        payload.liquidPool.rawCount ^
+        payload.liquidPool.retainedCount ^
+        payload.liquidPool.statusMask ^
+        payload.liquidPool.rejectionCount;
+
+    [unroll]
+    for (uint i = 0u; i < CLEAN_RESTIR_GI_LIQUID_POOL_CANDIDATE_CAPACITY; ++i)
+    {
+        checksum ^=
+            payload.liquidPool.instanceId[i] ^
+            payload.liquidPool.materialIndex[i] ^
+            payload.liquidPool.primitiveIndex[i] ^
+            payload.liquidPool.barycentricXBits[i] ^
+            payload.liquidPool.barycentricYBits[i] ^
+            asuint(payload.liquidPool.hitT[i]);
+    }
+    return checksum;
+}
+
+uint CleanGiTraceFirstIndirectHitStageProof(
     float3 primaryPosition,
     float3 primaryGeometricNormal,
-    CleanGiFirstIndirectRaySample raySample)
+    CleanGiFirstIndirectRaySample raySample,
+    uint proofMode)
 {
     if (!PathTraceFirstIndirectCandidateRaySampleIsValid(raySample))
     {
@@ -6043,20 +6076,21 @@ uint CleanGiTraceFirstIndirectTraversalOnly(
     bounceRay.TMax = 100000.0;
 
     PathTraceCleanRestirGiPayload payload = (PathTraceCleanRestirGiPayload)0;
-    payload.rayMode = 1u;
+    const bool forceOpaque = proofMode == 6u;
+    payload.rayMode = forceOpaque ? 1u : 0u;
     payload.ignoreInstanceId = 0xffffffffu;
     payload.ignorePrimitiveIndex = 0xffffffffu;
     payload.ignoreMaterialIndex = 0xffffffffu;
 
-    // Traverse the same TLAS with the normal large payload, but suppress both
-    // any-hit and closest-hit execution. This isolates traversal/miss overhead
-    // from rbdoom's material and secondary-surface hit handling.
-    const uint rayFlags =
-        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
-        RAY_FLAG_SKIP_CLOSEST_HIT_SHADER |
-        RAY_FLAG_FORCE_OPAQUE;
+    // Mode 6 bypasses any-hit but retains the normal closest-hit payload write.
+    // Mode 7 forces the default non-opaque route so the normal alpha/liquid
+    // any-hit work also runs. Neither mode rebuilds a material surface in
+    // raygen after TraceRay.
+    const uint rayFlags = forceOpaque
+        ? RAY_FLAG_FORCE_OPAQUE
+        : RAY_FLAG_FORCE_NON_OPAQUE;
     TraceRay(SmokeScene, rayFlags, 0xff, 0, 0, 0, bounceRay, payload);
-    return payload.value;
+    return CleanGiFirstIndirectPayloadProofChecksum(payload);
 }
 
 CleanGiProducerResult CleanGiShadeFirstIndirectSurface(
@@ -7614,16 +7648,15 @@ void FirstIndirectTraceRayGen()
         if (consumeProofMode == 6u || consumeProofMode == 7u)
         {
             // Keep the candidate invalid so downstream shade work is
-            // identical. Carry the sampled PDF, plus a negligible traversal
-            // result bit, only to retain the diagnostic setup and TraceRay.
-            const uint traversalResult = consumeProofMode == 7u
-                ? CleanGiTraceFirstIndirectTraversalOnly(
-                    RAB_GetSurfaceWorldPos(surface),
-                    primaryGeometricNormal,
-                    raySample)
-                : 0u;
+            // identical. Carry a negligible payload fingerprint only to retain
+            // every proof payload field through the diagnostic TraceRay.
+            const uint payloadChecksum = CleanGiTraceFirstIndirectHitStageProof(
+                RAB_GetSurfaceWorldPos(surface),
+                primaryGeometricNormal,
+                raySample,
+                consumeProofMode);
             gbuf.sourcePdf = raySample.sourcePdf +
-                (float)(traversalResult & 1u) * (1.0 / 1048576.0);
+                (float)(payloadChecksum & 1023u) * (1.0 / 1073741824.0);
         }
         else
         {

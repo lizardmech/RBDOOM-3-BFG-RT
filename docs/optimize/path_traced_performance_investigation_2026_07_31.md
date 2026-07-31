@@ -401,32 +401,31 @@ inside the first-indirect trace dispatch. It does not prove that the primary
 ABI is free across DI temporal/spatial neighbor loops, but it removes the
 record load from the leading explanation for this GI dispatch.
 
-Modes 6 and 7 are now reused for the next boundary while mode 1 remains the
-immediate invalid-candidate baseline:
+The second probe reused modes 6 and 7 for normal primary/RNG/ray setup and then
+force-opaque traversal with any-hit and closest-hit suppressed. Modes 1, 6,
+and 7 again produced the same result: 26 FPS in normal mode 0 versus 35 FPS in
+all three proof modes. That is approximately 38.5 ms versus 28.6 ms per frame,
+placing roughly 9.9 ms exclusively after the bare traversal boundary in this
+scene. Primary reconstruction, RNG/ray sampling, TLAS traversal, the large
+payload, and miss handling are all below FPS resolution in that test.
 
-- mode 6 loads the normal primary surface, initializes RNG, constructs the
-  material surface, and samples the normal first-indirect ray, then invalidates
-  the candidate before `TraceRay`;
-- mode 7 performs the same setup and launches the ray into the same TLAS with
-  the normal large payload, but forces opaque traversal and suppresses both
-  any-hit and closest-hit execution;
-- mode 0 remains the complete normal first-indirect trace, hit handling,
-  secondary-surface reconstruction, and candidate packing.
+Modes 6 and 7 now split the remaining hit path:
 
-The candidate remains invalid in modes 1, 6, and 7, keeping downstream shade
-work equivalent. Compare `FirstIndirect.0a Trace DispatchRays`: `6 - 1` bounds
-primary reconstruction, RNG, and BSDF ray sampling; `7 - 6` isolates TLAS
-traversal, miss handling, and the large payload without material hit shaders;
-`0 - 7` attributes the remaining cost to forced-non-opaque any-hit,
-closest-hit, dry-surface/material reconstruction, liquid-capable payload
-handling, and packing the secondary candidate.
+- mode 6 traces with `FORCE_OPAQUE`, executes the normal closest-hit shader,
+  consumes a fingerprint of the complete payload, but does not rebuild the
+  secondary material surface after `TraceRay`;
+- mode 7 traces with `FORCE_NON_OPAQUE`, executes the normal any-hit and
+  closest-hit shaders, consumes the same complete-payload fingerprint, but
+  likewise skips secondary material reconstruction;
+- mode 0 retains the normal non-opaque trace, any-hit and closest-hit, then
+  performs dry-surface geometry/material reconstruction and packs the
+  144-byte candidate.
 
-The rebuilt production Vulkan trace library is 429,044 bytes and passes
-`spirv-val` for Vulkan 1.2. Its disassembly has a distinct mode-7
-`OpTraceRayKHR` with constant ray flags `13`
-(`FORCE_OPAQUE | ACCEPT_FIRST_HIT_AND_END_SEARCH |
-SKIP_CLOSEST_HIT_SHADER`); mode 6 branches around that instruction. The normal
-mode-0 `OpTraceRayKHR` and material-hit path remain present.
+The candidate remains invalid in proof modes, keeping downstream shade
+work equivalent. Compare `FirstIndirect.0a Trace DispatchRays`: `6 - 1`
+measures traversal plus closest-hit payload handling; `7 - 6` isolates
+alpha/liquid any-hit work; `0 - 7` isolates post-trace secondary geometry,
+texture/material reconstruction, liquid resolution, and candidate packing.
 
 The installed Nsight 2026.1 replay CLI accepts frame captures but rejects
 `.ngfx-gputrace` files as an invalid replay header. Existing GPU Trace
@@ -467,10 +466,10 @@ The next modes isolate that skipped work inside the same dispatch:
   before the shadow `TraceRay`.
 - mode 5: read only the packed surface's scalar `valid` field, then return the
   same magenta marker as mode 2 with a visually negligible loaded-data delta.
-- mode 6: in the trace pass, perform normal primary reconstruction, RNG setup,
-  and first-indirect ray sampling, then invalidate before `TraceRay`;
-- mode 7: perform mode 6 plus force-opaque TLAS traversal using the normal
-  payload, with any-hit and closest-hit execution suppressed.
+- mode 6: trace force-opaque with closest-hit payload writes, fingerprint the
+  complete payload, and skip post-trace material reconstruction;
+- mode 7: trace force-non-opaque with normal any-hit and closest-hit, fingerprint
+  the complete payload, and skip post-trace material reconstruction.
 
 Capture the `FirstIndirect.0b ShadeFast DispatchRays` GPU duration for each
 mode, rather than comparing FPS alone. Mode 3 minus mode 2 bounds surface
@@ -495,6 +494,36 @@ architecture layer: dispatch extent and active-lane count, primary/secondary
 ray count, trace-to-shade record size and access shape, ray payload and
 attribute size, SBT/hit-group routing, forced any-hit policy, and the compiled
 production entry-point shape versus the NVIDIA sample.
+
+### Foundational any-hit candidate: every BLAS geometry is non-opaque
+
+The BLAS creation contract matches the historical constraint and is now a
+leading shared DI/GI candidate.
+
+NVRHI initializes `nvrhi::rt::GeometryDesc::flags` to
+`GeometryFlags::None`; opacity requires explicitly setting
+`GeometryFlags::Opaque`. rbdoom's original `CreateSmokeBlas` path and the
+current legacy, canonical-rigid, static-bucket, and skinned BLAS builders call
+`geometry.setTriangles(...)` but do not set the opaque geometry flag. This
+policy is present in the extracted acceleration helper from commit
+`ab82fcf8a` on May 2, before the NVIDIA sample comparison work.
+
+Consequently, the early bounce rays' `RAY_FLAG_NONE` did not mean that ordinary
+opaque triangles took an opaque fast path. It honored the BLAS geometry's
+non-opaque classification and allowed any-hit execution. Later clean DI/GI
+shaders made the same policy explicit with `RAY_FLAG_FORCE_NON_OPAQUE`.
+
+This cannot be fixed by marking every existing mixed geometry range opaque:
+alpha-tested cards and other rejecting materials still require any-hit. A
+shipping repair would need opacity-aware geometry partitioning or an equivalent
+per-instance/per-range contract. The current mode-6 versus mode-7 proof is safe
+as a diagnostic because mode 6 force-bypasses any-hit only for the isolated
+invalid-candidate trace.
+
+If mode 6 is materially faster than mode 7, this identifies a low-level policy
+that predates and is shared by DI and GI. If they are equal, the remaining
+mode-0 gap belongs to post-trace secondary material reconstruction rather than
+BLAS opacity/any-hit routing.
 
 The deployed Vulkan probe build was verified as follows:
 
