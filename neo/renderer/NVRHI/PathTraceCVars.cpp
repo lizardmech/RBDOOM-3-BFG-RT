@@ -1929,6 +1929,12 @@ idCVar r_pathTracingCleanRestirGiProducerOpaqueTrace(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI diagnostic: trace producer bounce rays as opaque to bypass any-hit alpha/material rejection. Off preserves alpha-aware GI producer behavior" );
 
+idCVar r_pathTracingCleanRestirGiProducerConsumeProof(
+    "r_pathTracingCleanRestirGiProducerConsumeProof",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI deployed-shader proof: 0 normal, 1 production trace invalidates every candidate, 2 production shade writes unmistakable magenta radiance" );
+
 idCVar r_pathTracingCleanRestirGiProducerSimple(
     "r_pathTracingCleanRestirGiProducerSimple",
     "0",

@@ -491,6 +491,11 @@ bool CleanGiProducerFeatureEnabled(uint featureBit)
     return (CleanRestirGiProducerFeatureFlags & featureBit) != 0u;
 }
 
+uint CleanGiProducerConsumeProofMode()
+{
+    return (CleanRestirGiProducerFeatureFlags >> 4u) & 3u;
+}
+
 void CleanGiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)
 {
 #ifdef RBPT_ENABLE_BLUE_NOISE
@@ -7540,6 +7545,19 @@ void FirstIndirectTraceRayGen()
     }
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
 
+    if (CleanGiProducerConsumeProofMode() == 1u)
+    {
+        const CleanGiProducerSurface emptySurface = (CleanGiProducerSurface)0;
+        CleanGiProducerSurfaceBuffer[flatIndex] = emptySurface;
+        CleanGiStoreFirstIndirectTraceCandidateForRawGiSample(
+            pixel,
+            emptySurface,
+            float3(0.0, 0.0, 0.0),
+            float3(0.0, 0.0, 0.0),
+            0.0);
+        return;
+    }
+
     PathTracePrimarySurfaceRecord record;
     const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
 
@@ -7960,6 +7978,12 @@ void FirstIndirectShadeRayGen()
     }
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
 
+    if (CleanGiProducerConsumeProofMode() == 2u)
+    {
+        CleanRestirGiProducerRadiance[pixel] = float4(64.0, 0.0, 64.0, 1.0);
+        return;
+    }
+
     if (CleanRestirGiView == 22u)
     {
         return;
@@ -8115,6 +8139,12 @@ void FirstIndirectShadeFastRayGen()
         return;
     }
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+
+    if (CleanGiProducerConsumeProofMode() == 2u)
+    {
+        CleanRestirGiProducerRadiance[pixel] = float4(64.0, 0.0, 64.0, 1.0);
+        return;
+    }
 
     if (CleanRestirGiView == 22u)
     {
