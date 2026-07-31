@@ -496,6 +496,22 @@ uint CleanGiProducerConsumeProofMode()
     return (CleanRestirGiProducerFeatureFlags >> 4u) & 7u;
 }
 
+uint CleanGiPrimarySurfaceProofChecksum(PathTracePrimarySurfaceRecord record)
+{
+    uint4 checksum = record.header;
+    checksum ^= asuint(record.worldPositionAndViewDepth);
+    checksum ^= asuint(record.geometricNormalAndRoughness);
+    checksum ^= asuint(record.shadingNormalAndOpacity);
+    checksum ^= asuint(record.viewDirectionAndReserved);
+    checksum ^= asuint(record.albedoAndAlphaCutoff);
+    checksum ^= asuint(record.specularF0AndReserved);
+    checksum ^= asuint(record.emissiveAndHeight);
+    checksum ^= asuint(record.previousPositionOrMotion);
+    checksum ^= record.materialAndSurface;
+    checksum ^= record.instancePrimitiveObject;
+    return checksum.x ^ checksum.y ^ checksum.z ^ checksum.w;
+}
+
 void CleanGiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)
 {
 #ifdef RBPT_ENABLE_BLUE_NOISE
@@ -7543,9 +7559,25 @@ void FirstIndirectTraceRayGen()
     }
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
 
-    if (CleanGiProducerConsumeProofMode() == 1u)
+    const uint consumeProofMode = CleanGiProducerConsumeProofMode();
+    if (consumeProofMode == 1u || consumeProofMode == 6u || consumeProofMode == 7u)
     {
-        const CleanGiProducerSurface emptySurface = (CleanGiProducerSurface)0;
+        uint proofBits = 0u;
+        if (consumeProofMode == 6u)
+        {
+            proofBits = PrimarySurfaceHistoryCurrent[flatIndex].header.y;
+        }
+        else if (consumeProofMode == 7u)
+        {
+            const PathTracePrimarySurfaceRecord proofRecord = PrimarySurfaceHistoryCurrent[flatIndex];
+            proofBits = CleanGiPrimarySurfaceProofChecksum(proofRecord);
+        }
+
+        CleanGiProducerSurface emptySurface = (CleanGiProducerSurface)0;
+        // Keep the candidate invalid so downstream work is identical. Carry a
+        // finite fingerprint in an otherwise ignored field to prevent DXC from
+        // removing the diagnostic primary-surface read.
+        emptySurface.sourcePdf = asfloat(0x3f000000u | (proofBits & 0x007fffffu));
         CleanGiProducerSurfaceBuffer[flatIndex] = emptySurface;
         CleanGiStoreFirstIndirectTraceCandidateForRawGiSample(
             pixel,

@@ -351,6 +351,77 @@ is the next architectural producer experiment, after measuring the any-hit and
 visibility changes. It requires a packed trace/shade ABI and should not be mixed
 into the current checkpoint.
 
+### Leading historically valid candidate: the primary-surface ABI
+
+The 144-byte GI trace-to-shade record is a current cost, but it was introduced
+after the original basic DI/GI implementation. It cannot by itself explain the
+long-standing two-to-three-times gap.
+
+The primary-surface contract can. The first primary-history implementation,
+commit `b4d550a48` on May 8, used a 128-byte
+`PathTracePrimarySurfaceHistory`: eight complete 16-byte vectors. Commit
+`b8074836f`, the next day's path-trace core refactor baseline, expanded that
+design to the current 176-byte `PathTracePrimarySurfaceRecord`. The current
+record contains eleven 16-byte vectors: validity/status, world position/depth,
+two normals, view direction, resolved albedo, F0, emissive, previous
+position/motion, material/surface identity, and instance/primitive identity.
+DI initial, DI temporal, DI spatial, GI trace, and GI shade all consume this
+structured buffer. The exact 176-byte layout is not the historical invariant;
+the invariant is a large, unpacked, composite structured surface record from
+the start of temporal history.
+
+The NVIDIA sample instead reads five packed G-buffer values for the equivalent
+primary surface:
+
+- one 32-bit depth value;
+- two 32-bit octahedral normals;
+- one 32-bit packed diffuse value;
+- one 32-bit packed specular/roughness value.
+
+It reconstructs world position and view direction from depth and view
+constants. The nominal primary input is therefore 20 bytes per pixel rather
+than a 176-byte structured record, before considering that individual textures
+can be loaded selectively.
+
+One complete 176-byte sweep is about 348 MiB at 1920x1080 and 1.36 GiB at
+3840x2160. The compiled Vulkan shaders contain composite structured-buffer
+loads of this record in every hot family examined: two static sites in DI
+temporal, four in DI spatial, one in first-indirect trace, and one primary plus
+one 144-byte secondary load in first-indirect ShadeFast. Static load sites are
+not a dynamic byte count, and the NVIDIA driver may scalarize them, so this is
+a leading candidate rather than proof of physical memory traffic.
+
+Modes 1, 6, and 7 of
+`r_pathTracingCleanRestirGiProducerConsumeProof` directly test that question in
+`FirstIndirect.0a Trace DispatchRays` while suppressing ray traversal and
+downstream shade work:
+
+- mode 1: write an invalid candidate without reading primary history;
+- mode 6: read only `header.y` from the primary record, then write the same
+  invalid candidate;
+- mode 7: read and fingerprint all eleven vectors of the 176-byte record, then
+  write the same invalid candidate.
+
+The candidate remains invalid in all three modes. A finite fingerprint is
+carried in its otherwise ignored `sourcePdf` field solely to keep DXC from
+deleting the diagnostic reads. Compare the trace dispatch GPU duration, not
+whole-frame FPS. `6 - 1` measures one scalar structured-buffer access; `7 - 6`
+measures forcing the rest of the 176-byte record through the same pass.
+
+The production Vulkan trace blob proves the intended compiler shape:
+
+- mode 6 uses an `OpAccessChain` directly to member `header.y` followed by one
+  scalar `OpLoad`;
+- mode 7 uses one composite `OpLoad %PathTracePrimarySurfaceRecord`, extracts
+  all eleven members, and XOR-reduces them into the stored fingerprint;
+- the blob is 428,832 bytes, postdates the HLSL edit, and passes `spirv-val`
+  for Vulkan 1.2.
+
+The installed Nsight 2026.1 replay CLI accepts frame captures but rejects
+`.ngfx-gputrace` files as an invalid replay header. Existing GPU Trace
+bandwidth/cache/scoreboard counters therefore need to be read in the Nsight UI
+or exported from it; they cannot be recovered through `ngfx-replay`.
+
 ### Disproven producer-slice verification
 
 - All three experimental production GI Vulkan libraries compiled and passed
@@ -385,6 +456,10 @@ The next modes isolate that skipped work inside the same dispatch:
   before the shadow `TraceRay`.
 - mode 5: read only the packed surface's scalar `valid` field, then return the
   same magenta marker as mode 2 with a visually negligible loaded-data delta.
+- mode 6: in the trace pass, read only the primary record's scalar validity
+  word, then write an invalid candidate as mode 1 does;
+- mode 7: in the trace pass, read and fingerprint the complete 176-byte primary
+  record, then write an invalid candidate as mode 1 does.
 
 Capture the `FirstIndirect.0b ShadeFast DispatchRays` GPU duration for each
 mode, rather than comparing FPS alone. Mode 3 minus mode 2 bounds surface
