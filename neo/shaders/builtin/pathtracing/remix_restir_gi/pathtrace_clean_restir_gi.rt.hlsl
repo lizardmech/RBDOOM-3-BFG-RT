@@ -2552,15 +2552,23 @@ float CleanGiVisibilityRandom(uint2 pixel, uint instanceId, uint primitiveIndex,
         salt);
 }
 
-bool CleanGiMaterialRejectsHit(uint2 pixel, uint instanceId, uint primitiveIndex, float2 barycentrics, bool shadowRay)
+bool CleanGiMaterialRejectsHit(
+    uint2 pixel,
+    uint instanceId,
+    uint primitiveIndex,
+    uint materialIndex,
+    float2 barycentrics,
+    bool shadowRay)
 {
-    const uint materialIndex = CleanGiLoadTriangleMaterialIndex(instanceId, primitiveIndex);
     if (materialIndex >= (uint)TextureInfo.z)
     {
         return false;
     }
 
-    const PathTraceSmokeMaterial material = CleanGiLoadSmokeMaterial(materialIndex);
+    // Visibility rejection only consumes static opacity/classification fields.
+    // Dynamic material records modify emissive state, so applying them here
+    // adds unrelated buffer traffic to every any-hit candidate.
+    const PathTraceSmokeMaterial material = SmokeMaterials[materialIndex];
     const uint triangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(instanceId, primitiveIndex);
     const uint surfaceClass = CleanGiTriangleSurfaceClass(triangleClassAndFlags);
     const uint translucentSubtype = CleanGiTriangleTranslucentSubtype(triangleClassAndFlags);
@@ -2581,6 +2589,29 @@ bool CleanGiMaterialRejectsHit(uint2 pixel, uint instanceId, uint primitiveIndex
         // this GI lane yet; continue through it consistently in both TraceRay
         // any-hit and inline ray-query paths.
         return true;
+    }
+
+    const bool guiScreenSurface =
+        surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN;
+    const uint alphaMaterialFlags =
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+        RT_SMOKE_MATERIAL_FILTER_DECAL |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
+    const bool alphaDriven =
+        material.alphaTextureIndex != 0xffffffffu ||
+        (material.flags & (RT_SMOKE_MATERIAL_ALPHA_TEST | alphaMaterialFlags)) != 0u;
+
+    // FORCE_NON_OPAQUE routes every ordinary opaque candidate through this
+    // shader. Classify those candidates before rebuilding three vertices or
+    // sampling their diffuse texture; only alpha-driven and GUI materials need
+    // barycentric attributes for rejection.
+    if (!alphaDriven && !guiScreenSurface)
+    {
+        return false;
     }
 
     float3 p0, p1, p2;
@@ -2607,11 +2638,13 @@ bool CleanGiMaterialRejectsHit(uint2 pixel, uint instanceId, uint primitiveIndex
     const float2 texCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
     const float4 vertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
 
-    if (surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
-        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN &&
-        vertexColor.a <= 0.03)
+    if (guiScreenSurface && vertexColor.a <= 0.03)
     {
         return true;
+    }
+    if (!alphaDriven)
+    {
+        return false;
     }
 
     const float coverage = saturate(CleanGiAlphaCoverage(material, texCoord));
@@ -2640,20 +2673,6 @@ bool CleanGiMaterialRejectsHit(uint2 pixel, uint instanceId, uint primitiveIndex
         visibilityCoverage = saturate(visibilityCoverage * 0.5);
     }
 
-    const uint alphaMaterialFlags =
-        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
-        RT_SMOKE_MATERIAL_FILTER_DECAL |
-        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY |
-        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
-        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
-        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
-    const bool alphaDriven =
-        material.alphaTextureIndex != 0xffffffffu ||
-        (material.flags & alphaMaterialFlags) != 0u;
-    if (!alphaDriven)
-    {
-        return false;
-    }
     if (visibilityCoverage <= 0.001)
     {
         return true;
@@ -5770,6 +5789,7 @@ bool CleanGiBuildProducerSurfaceRayQuery(
                 pixel,
                 candidateInstanceId,
                 candidatePrimitiveIndex,
+                candidateMaterialIndex,
                 candidateBarycentrics,
                 false))
             {
@@ -8844,6 +8864,7 @@ void AnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersec
         DispatchRaysIndex().xy,
         instanceId,
         primitiveIndex,
+        materialIndex,
         attributes.barycentrics,
         false))
     {
@@ -8867,6 +8888,7 @@ void ShadowAnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIn
         DispatchRaysIndex().xy,
         instanceId,
         primitiveIndex,
+        materialIndex,
         attributes.barycentrics,
         true))
     {

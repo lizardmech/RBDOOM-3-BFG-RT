@@ -240,3 +240,133 @@ Acceptance for the current slice:
    measure CPU submission separately.
 6. Return to optional glass, extra bounce, reflection, and denoiser features only
    after the base pass-shape and history costs are accounted for.
+
+## Producer follow-up after runtime A/B
+
+The packed-material/direct-u70 slice improved the DI temporal and spatial events
+by about 10 percent in the test map. This confirms that the reuse cleanup was
+real, but also confirms that reuse was not the main frame-time limiter. Nsight
+shows `DispatchRays` dominated by:
+
+- `CleanDI.0 Initial`;
+- `FirstIndirect.0a Trace`;
+- `FirstIndirect.0b ShadeFast` (or the full shade fallback).
+
+The follow-up therefore compares those producer passes with the matching Vulkan
+ray-generation permutations in `E:\prog\rtxdi_testing`.
+
+### Compiled producer comparison
+
+The NVIDIA rows were compiled from the modified local sample with DXC, SPIR-V,
+ray-query disabled, and ReGIR disabled. Counts cover the hot entrypoint or
+hit-shader function body.
+
+| Function | SPIR-V operations | Loads | Branches | Image operations | Static TraceRay sites |
+|---|---:|---:|---:|---:|---:|
+| NVIDIA DI initial raygen | 7,798 | 78 | 542 | 23 | 2 |
+| rbdoom clean DI initial raygen | 54,048 | 1,561 | 10,033 | 271 | 9 |
+| NVIDIA BRDF/first-indirect trace raygen | 1,992 | 97 | 241 | 33 | 1 |
+| rbdoom first-indirect trace raygen | 12,650 | 428 | 2,170 | 214 | 1 |
+| NVIDIA material any-hit | 348 | 35 | 51 | 3 | 0 |
+| rbdoom first-indirect material any-hit, before | 6,395 | 384 | 1,038 | 168 | 0 |
+| NVIDIA secondary-surface shade raygen | 17,948 | 182 | 1,297 | 63 | 4 |
+| rbdoom `ShadeFast` raygen | 26,237 | 613 | 4,805 | 167 | 5 |
+| NVIDIA shadow any-hit | 260 | 20 | 36 | 2 | 0 |
+| rbdoom `ShadeFast` shadow any-hit, before | 3,686 | 214 | 615 | 96 | 0 |
+
+Static TraceRay sites are not rays per pixel; they are separately inlined
+control-flow routes in the compiled function. The first-indirect trace has one
+actual material ray for each valid launched receiver. `ShadeFast` selects one
+direct proposal by default and traces its shadow ray, but its compiled pipeline
+contains five possible inlined visibility routes.
+
+### DI visibility paid twice by default
+
+NVIDIA's default DI parameters enable initial visibility and enable final
+visibility reuse. rbdoom also enables initial visibility, but previously
+defaulted `r_pathTracingCleanRtxdiDiResolveVisibilityReuse` to 0. A surviving
+sample could therefore pay one shadow ray in initial sampling and another in
+final resolve.
+
+The default is now 1: reuse packed reservoir visibility when valid, otherwise
+fall back to the final visibility trace. This matches the reference policy and
+does not force stale visibility when RTXDI rejects the stored value.
+
+There is a separate diagnostic-control bug in the initial shader: setting
+`r_pathTracingCleanRtxdiDiInitialVisibility 0` disables storing visibility but
+does not skip the trace. Fixing that gate in the current all-entry sentinel tips
+DXC over its existing SPIR-V ID limit. It must be fixed together with a split of
+the monolithic diagnostic library; the production default remains initial
+visibility on.
+
+### GI any-hit did full surface work for opaque candidates
+
+The rbdoom GI material and shadow rays use `RAY_FLAG_FORCE_NON_OPAQUE`. Every
+candidate, including ordinary opaque walls, therefore executes any-hit.
+
+Before this follow-up, `CleanGiMaterialRejectsHit` did the following before
+checking whether the material had any alpha-driven behavior:
+
+1. resolved the triangle material route a second time;
+2. loaded and applied dynamic emissive material state;
+3. rebuilt all three vertices with normals, two UV sets, and two color sets;
+4. sampled diffuse/alpha coverage.
+
+For a normal opaque material, all of that work was discarded and the hit was
+accepted. The hot path now:
+
+- passes the already-resolved material index into rejection;
+- loads static visibility fields without applying unrelated dynamic emissive
+  state;
+- classifies alpha-driven and GUI materials before geometry reconstruction;
+- immediately accepts ordinary opaque candidates.
+
+Alpha test, keyed alpha, additive/filter decals, GUI vertex alpha, glass
+transmission, and liquid-pool collection retain their existing paths.
+
+Compiled any-hit size moves only modestly because those uncommon paths still
+exist:
+
+| Function | Operations before | Operations after | Loads before | Loads after | Branches before | Branches after |
+|---|---:|---:|---:|---:|---:|---:|
+| material any-hit | 6,395 | 6,152 | 384 | 373 | 1,038 | 984 |
+| shadow any-hit | 3,686 | 3,443 | 214 | 203 | 615 | 561 |
+
+The expected runtime gain is larger than the static reduction because opaque
+candidates now exit before the large retained tail.
+
+### GI trace-to-shade record is three times the reference size
+
+rbdoom writes and rereads a 144-byte
+`PathTraceFirstIndirectCandidateSurface` at full internal resolution between
+trace and shade. NVIDIA's `SecondaryGBufferData` is 48 bytes and packs normals,
+albedo, F0/roughness, throughput, and flags.
+
+At 3840x2160, rbdoom's record represents roughly 1.11 GiB for one full write
+plus one full read, versus about 0.37 GiB for the reference-shaped record. This
+is the next architectural producer experiment, after measuring the any-hit and
+visibility changes. It requires a packed trace/shade ABI and should not be mixed
+into the current checkpoint.
+
+### Producer slice verification
+
+- All three production GI Vulkan libraries compile and pass `spirv-val`.
+- `first_indirect_trace`: 427,148 -> 419,572 bytes.
+- `first_indirect_shade_fast`: 658,568 -> 650,992 bytes.
+- `first_indirect_shade`: 1,291,724 -> 1,284,148 bytes.
+- The targeted Release executable build succeeds.
+- The complete preset still stops at the pre-existing all-entry DI sentinel
+  `ID overflow`; production Vulkan permutations compile successfully.
+
+Required runtime A/B for this slice:
+
+1. Compare base DI with
+   `r_pathTracingCleanRtxdiDiResolveVisibilityReuse 0` and 1.
+2. Compare DI + GI before/after using the same camera and capture
+   `FirstIndirect.0a Trace` plus `FirstIndirect.0b ShadeFast`.
+3. As a diagnostic only, test
+   `r_pathTracingCleanRestirGiProducerOpaqueTrace 1`; a large gain would quantify
+   remaining any-hit/traversal cost but is not an alpha-correct shipping mode.
+4. Capture shader-profiler instruction and any-hit invocation counts. Static
+   SPIR-V size cannot reveal how often candidate intersections execute the
+   retained alpha/decal/liquid tails.
