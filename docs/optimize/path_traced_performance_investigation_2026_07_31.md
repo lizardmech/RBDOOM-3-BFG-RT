@@ -383,12 +383,32 @@ The next modes isolate that skipped work inside the same dispatch:
 - mode 4: normal proposal selection, BSDF/target/contribution math, and result
   store, but return visible after the normal geometric visibility gates and
   before the shadow `TraceRay`.
+- mode 5: read only the packed surface's scalar `valid` field, then return the
+  same magenta marker as mode 2 with a visually negligible loaded-data delta.
 
 Capture the `FirstIndirect.0b ShadeFast DispatchRays` GPU duration for each
 mode, rather than comparing FPS alone. Mode 3 minus mode 2 bounds surface
 transport and unpack/store cost. Mode 0 minus mode 4 isolates the selected
 shadow traversal and hit-shader cost. Mode 4 minus mode 3 bounds proposal,
 random-sampler, BSDF/target, and contribution work.
+
+Initial FPS A/B showed modes 3 and 4 both about 4 FPS faster than mode 0,
+whereas mode 2 was previously about 50 percent faster. The tie between 3 and 4
+puts proposal/RNG/BSDF work below FPS measurement resolution and attributes
+only the roughly 4 FPS delta to the selected shadow ray. The large mode-2 to
+mode-3 gap moves the primary suspicion to the trace-to-shade record crossing.
+Mode 5 distinguishes the cost of one scalar buffer access from materializing
+the complete record; use marker GPU duration because FPS differences are
+non-linear.
+
+The renderer was already comparably slow when only basic DI and GI existed.
+Treat that history as a hard scope constraint: later glass, multibounce, RLU,
+DLSS-RR, special-reflection, and material features may add incremental cost but
+cannot be the root cause. The primary comparison must remain at the original
+architecture layer: dispatch extent and active-lane count, primary/secondary
+ray count, trace-to-shade record size and access shape, ray payload and
+attribute size, SBT/hit-group routing, forced any-hit policy, and the compiled
+production entry-point shape versus the NVIDIA sample.
 
 The deployed Vulkan probe build was verified as follows:
 

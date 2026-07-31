@@ -7982,6 +7982,17 @@ void FirstIndirectShadeRayGen()
         return;
     }
 
+    if (CleanGiProducerConsumeProofMode() == 5u)
+    {
+        // Keep output effectively identical to mode 2 while forcing one scalar
+        // field read from the trace-to-shade buffer. Unlike mode 3, this must
+        // not materialize the complete 144-byte structured-buffer record.
+        const uint packedValid = CleanGiProducerSurfaceBuffer[flatIndex].valid;
+        const float marker = 64.0 + (float)(packedValid & 1u) * (1.0 / 1024.0);
+        CleanRestirGiProducerRadiance[pixel] = float4(marker, 0.0, marker, 1.0);
+        return;
+    }
+
     if (CleanRestirGiView == 22u)
     {
         return;
@@ -8148,6 +8159,15 @@ void FirstIndirectShadeFastRayGen()
     if (CleanGiProducerConsumeProofMode() == 2u)
     {
         CleanRestirGiProducerRadiance[pixel] = float4(64.0, 0.0, 64.0, 1.0);
+        return;
+    }
+
+    if (CleanGiProducerConsumeProofMode() == 5u)
+    {
+        // Scalar-touch control for the mode-3 composite surface load.
+        const uint packedValid = CleanGiProducerSurfaceBuffer[flatIndex].valid;
+        const float marker = 64.0 + (float)(packedValid & 1u) * (1.0 / 1024.0);
+        CleanRestirGiProducerRadiance[pixel] = float4(marker, 0.0, marker, 1.0);
         return;
     }
 
