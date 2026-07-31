@@ -391,31 +391,42 @@ one 144-byte secondary load in first-indirect ShadeFast. Static load sites are
 not a dynamic byte count, and the NVIDIA driver may scalarize them, so this is
 a leading candidate rather than proof of physical memory traffic.
 
-Modes 1, 6, and 7 of
-`r_pathTracingCleanRestirGiProducerConsumeProof` directly test that question in
-`FirstIndirect.0a Trace DispatchRays` while suppressing ray traversal and
-downstream shade work:
+Modes 1, 6, and 7 initially tested that question in
+`FirstIndirect.0a Trace DispatchRays`: no primary read, one scalar primary
+read, and forced consumption of all 176 bytes. All three modes produced the
+same roughly 50-percent FPS improvement over normal mode 0.
 
-- mode 1: write an invalid candidate without reading primary history;
-- mode 6: read only `header.y` from the primary record, then write the same
-  invalid candidate;
-- mode 7: read and fingerprint all eleven vectors of the 176-byte record, then
-  write the same invalid candidate.
+That runtime result disproves primary-surface transport as the large cost
+inside the first-indirect trace dispatch. It does not prove that the primary
+ABI is free across DI temporal/spatial neighbor loops, but it removes the
+record load from the leading explanation for this GI dispatch.
 
-The candidate remains invalid in all three modes. A finite fingerprint is
-carried in its otherwise ignored `sourcePdf` field solely to keep DXC from
-deleting the diagnostic reads. Compare the trace dispatch GPU duration, not
-whole-frame FPS. `6 - 1` measures one scalar structured-buffer access; `7 - 6`
-measures forcing the rest of the 176-byte record through the same pass.
+Modes 6 and 7 are now reused for the next boundary while mode 1 remains the
+immediate invalid-candidate baseline:
 
-The production Vulkan trace blob proves the intended compiler shape:
+- mode 6 loads the normal primary surface, initializes RNG, constructs the
+  material surface, and samples the normal first-indirect ray, then invalidates
+  the candidate before `TraceRay`;
+- mode 7 performs the same setup and launches the ray into the same TLAS with
+  the normal large payload, but forces opaque traversal and suppresses both
+  any-hit and closest-hit execution;
+- mode 0 remains the complete normal first-indirect trace, hit handling,
+  secondary-surface reconstruction, and candidate packing.
 
-- mode 6 uses an `OpAccessChain` directly to member `header.y` followed by one
-  scalar `OpLoad`;
-- mode 7 uses one composite `OpLoad %PathTracePrimarySurfaceRecord`, extracts
-  all eleven members, and XOR-reduces them into the stored fingerprint;
-- the blob is 428,832 bytes, postdates the HLSL edit, and passes `spirv-val`
-  for Vulkan 1.2.
+The candidate remains invalid in modes 1, 6, and 7, keeping downstream shade
+work equivalent. Compare `FirstIndirect.0a Trace DispatchRays`: `6 - 1` bounds
+primary reconstruction, RNG, and BSDF ray sampling; `7 - 6` isolates TLAS
+traversal, miss handling, and the large payload without material hit shaders;
+`0 - 7` attributes the remaining cost to forced-non-opaque any-hit,
+closest-hit, dry-surface/material reconstruction, liquid-capable payload
+handling, and packing the secondary candidate.
+
+The rebuilt production Vulkan trace library is 429,044 bytes and passes
+`spirv-val` for Vulkan 1.2. Its disassembly has a distinct mode-7
+`OpTraceRayKHR` with constant ray flags `13`
+(`FORCE_OPAQUE | ACCEPT_FIRST_HIT_AND_END_SEARCH |
+SKIP_CLOSEST_HIT_SHADER`); mode 6 branches around that instruction. The normal
+mode-0 `OpTraceRayKHR` and material-hit path remain present.
 
 The installed Nsight 2026.1 replay CLI accepts frame captures but rejects
 `.ngfx-gputrace` files as an invalid replay header. Existing GPU Trace
@@ -456,10 +467,10 @@ The next modes isolate that skipped work inside the same dispatch:
   before the shadow `TraceRay`.
 - mode 5: read only the packed surface's scalar `valid` field, then return the
   same magenta marker as mode 2 with a visually negligible loaded-data delta.
-- mode 6: in the trace pass, read only the primary record's scalar validity
-  word, then write an invalid candidate as mode 1 does;
-- mode 7: in the trace pass, read and fingerprint the complete 176-byte primary
-  record, then write an invalid candidate as mode 1 does.
+- mode 6: in the trace pass, perform normal primary reconstruction, RNG setup,
+  and first-indirect ray sampling, then invalidate before `TraceRay`;
+- mode 7: perform mode 6 plus force-opaque TLAS traversal using the normal
+  payload, with any-hit and closest-hit execution suppressed.
 
 Capture the `FirstIndirect.0b ShadeFast DispatchRays` GPU duration for each
 mode, rather than comparing FPS alone. Mode 3 minus mode 2 bounds surface

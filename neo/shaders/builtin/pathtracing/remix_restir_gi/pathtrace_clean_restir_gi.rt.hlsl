@@ -496,22 +496,6 @@ uint CleanGiProducerConsumeProofMode()
     return (CleanRestirGiProducerFeatureFlags >> 4u) & 7u;
 }
 
-uint CleanGiPrimarySurfaceProofChecksum(PathTracePrimarySurfaceRecord record)
-{
-    uint4 checksum = record.header;
-    checksum ^= asuint(record.worldPositionAndViewDepth);
-    checksum ^= asuint(record.geometricNormalAndRoughness);
-    checksum ^= asuint(record.shadingNormalAndOpacity);
-    checksum ^= asuint(record.viewDirectionAndReserved);
-    checksum ^= asuint(record.albedoAndAlphaCutoff);
-    checksum ^= asuint(record.specularF0AndReserved);
-    checksum ^= asuint(record.emissiveAndHeight);
-    checksum ^= asuint(record.previousPositionOrMotion);
-    checksum ^= record.materialAndSurface;
-    checksum ^= record.instancePrimitiveObject;
-    return checksum.x ^ checksum.y ^ checksum.z ^ checksum.w;
-}
-
 void CleanGiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)
 {
 #ifdef RBPT_ENABLE_BLUE_NOISE
@@ -6042,6 +6026,39 @@ bool CleanGiBuildFirstIndirectTraceCandidate(
     return true;
 }
 
+uint CleanGiTraceFirstIndirectTraversalOnly(
+    float3 primaryPosition,
+    float3 primaryGeometricNormal,
+    CleanGiFirstIndirectRaySample raySample)
+{
+    if (!PathTraceFirstIndirectCandidateRaySampleIsValid(raySample))
+    {
+        return 0u;
+    }
+
+    RayDesc bounceRay;
+    bounceRay.Origin = primaryPosition + primaryGeometricNormal * 0.5 + raySample.direction * 0.25;
+    bounceRay.Direction = raySample.direction;
+    bounceRay.TMin = 0.01;
+    bounceRay.TMax = 100000.0;
+
+    PathTraceCleanRestirGiPayload payload = (PathTraceCleanRestirGiPayload)0;
+    payload.rayMode = 1u;
+    payload.ignoreInstanceId = 0xffffffffu;
+    payload.ignorePrimitiveIndex = 0xffffffffu;
+    payload.ignoreMaterialIndex = 0xffffffffu;
+
+    // Traverse the same TLAS with the normal large payload, but suppress both
+    // any-hit and closest-hit execution. This isolates traversal/miss overhead
+    // from rbdoom's material and secondary-surface hit handling.
+    const uint rayFlags =
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
+        RAY_FLAG_SKIP_CLOSEST_HIT_SHADER |
+        RAY_FLAG_FORCE_OPAQUE;
+    TraceRay(SmokeScene, rayFlags, 0xff, 0, 0, 0, bounceRay, payload);
+    return payload.value;
+}
+
 CleanGiProducerResult CleanGiShadeFirstIndirectSurface(
     RAB_Surface secondarySurface,
     bool primarySampledSpecular,
@@ -7560,24 +7577,9 @@ void FirstIndirectTraceRayGen()
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
 
     const uint consumeProofMode = CleanGiProducerConsumeProofMode();
-    if (consumeProofMode == 1u || consumeProofMode == 6u || consumeProofMode == 7u)
+    if (consumeProofMode == 1u)
     {
-        uint proofBits = 0u;
-        if (consumeProofMode == 6u)
-        {
-            proofBits = PrimarySurfaceHistoryCurrent[flatIndex].header.y;
-        }
-        else if (consumeProofMode == 7u)
-        {
-            const PathTracePrimarySurfaceRecord proofRecord = PrimarySurfaceHistoryCurrent[flatIndex];
-            proofBits = CleanGiPrimarySurfaceProofChecksum(proofRecord);
-        }
-
         CleanGiProducerSurface emptySurface = (CleanGiProducerSurface)0;
-        // Keep the candidate invalid so downstream work is identical. Carry a
-        // finite fingerprint in an otherwise ignored field to prevent DXC from
-        // removing the diagnostic primary-surface read.
-        emptySurface.sourcePdf = asfloat(0x3f000000u | (proofBits & 0x007fffffu));
         CleanGiProducerSurfaceBuffer[flatIndex] = emptySurface;
         CleanGiStoreFirstIndirectTraceCandidateForRawGiSample(
             pixel,
@@ -7609,15 +7611,32 @@ void FirstIndirectTraceRayGen()
             primaryGeometricNormal,
             rng);
 
-        RAB_Surface secondarySurface;
-        CleanGiBuildFirstIndirectTraceCandidate(
-            RAB_GetSurfaceWorldPos(surface),
-            primaryGeometricNormal,
-            raySample,
-            secondarySurface,
-            gbuf,
-            hitPosition,
-            hitNormal);
+        if (consumeProofMode == 6u || consumeProofMode == 7u)
+        {
+            // Keep the candidate invalid so downstream shade work is
+            // identical. Carry the sampled PDF, plus a negligible traversal
+            // result bit, only to retain the diagnostic setup and TraceRay.
+            const uint traversalResult = consumeProofMode == 7u
+                ? CleanGiTraceFirstIndirectTraversalOnly(
+                    RAB_GetSurfaceWorldPos(surface),
+                    primaryGeometricNormal,
+                    raySample)
+                : 0u;
+            gbuf.sourcePdf = raySample.sourcePdf +
+                (float)(traversalResult & 1u) * (1.0 / 1048576.0);
+        }
+        else
+        {
+            RAB_Surface secondarySurface;
+            CleanGiBuildFirstIndirectTraceCandidate(
+                RAB_GetSurfaceWorldPos(surface),
+                primaryGeometricNormal,
+                raySample,
+                secondarySurface,
+                gbuf,
+                hitPosition,
+                hitNormal);
+        }
     }
 
     CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
