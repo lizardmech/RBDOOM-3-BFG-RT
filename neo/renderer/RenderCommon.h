@@ -97,7 +97,7 @@ struct drawSurf_t
 	vertCacheHandle_t		indexCache;			// triIndex_t
 	vertCacheHandle_t		ambientCache;		// idDrawVert
 	vertCacheHandle_t		jointCache;			// idJointMat
-	const idJointMat*		jointCacheCpuSnapshot;	// frame-owned validation copy of the exact jointCache upload source
+	const idJointMat*		jointCacheCpuSnapshot;	// frame-owned history/parity copy of the exact jointCache upload source
 	int						jointCacheCpuSnapshotCount;
 	const viewEntity_t* 	space;
 	const idMaterial* 		material;			// may be NULL for shadow volumes

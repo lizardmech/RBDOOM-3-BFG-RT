@@ -297,7 +297,11 @@ void R_SetupDrawSurfJoints( drawSurf_t* drawSurf, const srfTriangles_t* tri, con
 	if( !vertexCache.CacheIsCurrent( model->jointsInvertedBuffer ) )
 	{
 		model->jointsInvertedBuffer = vertexCache.AllocJoint( model->jointsInverted, model->numInvertedJoints, sizeof( idJointMat ), commandList );
-		if( r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() >= 2 )
+		// The backend uses this exact upload pose as the next frame's
+		// deformation history.  It cannot safely recover that pose later from
+		// model->jointsInverted: the frontend may already have advanced the
+		// live model while the backend consumes this draw surface.
+		if( r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() != 0 )
 		{
 			const int snapshotBytes = model->numInvertedJoints * sizeof( idJointMat );
 			idJointMat* snapshot = static_cast<idJointMat*>( R_FrameAlloc( snapshotBytes, FRAME_ALLOC_SURFACE_TRIANGLES ) );
@@ -308,7 +312,7 @@ void R_SetupDrawSurfJoints( drawSurf_t* drawSurf, const srfTriangles_t* tri, con
 		}
 	}
 	drawSurf->jointCache = model->jointsInvertedBuffer;
-	if( r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() >= 2 &&
+	if( r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() != 0 &&
 		model->jointsInvertedParitySnapshot != NULL &&
 		model->jointsInvertedParitySnapshotBuffer == model->jointsInvertedBuffer &&
 		model->jointsInvertedParitySnapshotFrame == tr.frameCount )

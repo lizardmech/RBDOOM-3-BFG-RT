@@ -5193,22 +5193,38 @@ static void BuildSmokeSkinnedTriangleDispatchIndex(
     }
 }
 
-bool SmokeSkinnedSurfaceKeysEqual(const RtSmokeSkinnedSurfaceKey& a, const RtSmokeSkinnedSurfaceKey& b)
+bool SmokeSkinnedSurfaceHistoryIdentityEqual(
+    const RtSmokeSkinnedSurfaceRecord& a,
+    const RtSmokeSkinnedSurfaceRecord& b)
 {
-    return a.entityIndex == b.entityIndex &&
-        a.entityDef == b.entityDef &&
-        a.model == b.model &&
-        a.tri == b.tri &&
-        a.materialId == b.materialId &&
-        a.surfaceClassId == b.surfaceClassId;
+    const bool aHasCanonicalIdentity =
+        PtCanonicalInstanceKeyIsValid(a.canonicalInstance);
+    const bool bHasCanonicalIdentity =
+        PtCanonicalInstanceKeyIsValid(b.canonicalInstance);
+    if (aHasCanonicalIdentity || bHasCanonicalIdentity)
+    {
+        return aHasCanonicalIdentity &&
+            bHasCanonicalIdentity &&
+            a.canonicalInstance == b.canonicalInstance;
+    }
+
+    // Transitional fallback for capture sources that do not yet publish the
+    // lifecycle-backed instance identity. Animated frontend triangle wrappers
+    // are not stable content identity and must not participate once the
+    // canonical key exists.
+    return a.key.entityIndex == b.key.entityIndex &&
+        a.key.entityDef == b.key.entityDef &&
+        a.key.model == b.key.model &&
+        a.key.tri == b.key.tri;
 }
 
-bool SmokeSkinnedSurfaceLooseKeysEqual(const RtSmokeSkinnedSurfaceKey& a, const RtSmokeSkinnedSurfaceKey& b)
+bool SmokeSkinnedSurfaceHistoryContractEqual(
+    const RtSmokeSkinnedSurfaceRecord& a,
+    const RtSmokeSkinnedSurfaceRecord& b)
 {
-    return a.entityIndex == b.entityIndex &&
-        a.entityDef == b.entityDef &&
-        a.model == b.model &&
-        a.tri == b.tri;
+    return SmokeSkinnedSurfaceHistoryIdentityEqual(a, b) &&
+        a.key.materialId == b.key.materialId &&
+        a.key.surfaceClassId == b.key.surfaceClassId;
 }
 
 const RtSmokeSkinnedSurfaceRecord* FindSmokeSkinnedPreviousRecord(
@@ -5217,7 +5233,9 @@ const RtSmokeSkinnedSurfaceRecord* FindSmokeSkinnedPreviousRecord(
 {
     for (const RtSmokeSkinnedSurfaceRecord& previous : previousRecords)
     {
-        if (SmokeSkinnedSurfaceKeysEqual(previous.key, current.key))
+        if (SmokeSkinnedSurfaceHistoryContractEqual(
+                previous,
+                current))
         {
             return &previous;
         }
@@ -5231,7 +5249,9 @@ const RtSmokeSkinnedSurfaceRecord* FindSmokeSkinnedPreviousLooseRecord(
 {
     for (const RtSmokeSkinnedSurfaceRecord& previous : previousRecords)
     {
-        if (SmokeSkinnedSurfaceLooseKeysEqual(previous.key, current.key))
+        if (SmokeSkinnedSurfaceHistoryIdentityEqual(
+                previous,
+                current))
         {
             return &previous;
         }

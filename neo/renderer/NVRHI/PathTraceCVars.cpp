@@ -409,7 +409,7 @@ idCVar r_pathTracingGeometryAuthoritativeGpuSkinning(
     "r_pathTracingGeometryAuthoritativeGpuSkinning",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Authoritative PT GPU-skinning source gate; 0 keeps legacy CPU capture, 1 stages renderer jointCache bytes for production, 2 also retains an exact frame-owned CPU upload snapshot for validation" );
+    "Authoritative PT GPU-skinning source gate; 0 keeps legacy CPU capture, 1 stages renderer jointCache bytes and retains the exact frame-owned upload pose for history, 2 is a compatibility alias for 1" );
 
 idCVar r_pathTracingGeometrySkinnedTlasCompare(
     "r_pathTracingGeometrySkinnedTlasCompare",

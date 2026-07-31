@@ -2593,6 +2593,22 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
     uint64_t motionValidityMismatch = 0;
     uint64_t motionStatusMismatch = 0;
     uint64_t previousPositionMismatch = 0;
+    uint64_t legacyMotionMagnitudeSamples = 0;
+    uint64_t canonicalMotionMagnitudeSamples = 0;
+    uint64_t legacyMotionAbove1e4 = 0;
+    uint64_t canonicalMotionAbove1e4 = 0;
+    uint64_t legacyMotionAbove1e3 = 0;
+    uint64_t canonicalMotionAbove1e3 = 0;
+    uint64_t legacyMotionAbove1e2 = 0;
+    uint64_t canonicalMotionAbove1e2 = 0;
+    uint64_t legacyMotionAbove1e1 = 0;
+    uint64_t canonicalMotionAbove1e1 = 0;
+    uint64_t legacyMotionAbove1 = 0;
+    uint64_t canonicalMotionAbove1 = 0;
+    double legacyMotionMagnitudeSum = 0.0;
+    double canonicalMotionMagnitudeSum = 0.0;
+    float maxLegacyMotionMagnitude = 0.0f;
+    float maxCanonicalMotionMagnitude = 0.0f;
     float maxHitTDelta = 0.0f;
     float maxPositionDelta = 0.0f;
     float maxGeometricNormalDelta = 0.0f;
@@ -2928,6 +2944,59 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
                 }
                 else
                 {
+                    const auto motionMagnitude =
+                        [](const RtPathTracePrimarySurfaceRecord& record)
+                        {
+                            const float dx =
+                                record.previousPositionOrMotion[0] -
+                                record.worldPositionAndViewDepth[0];
+                            const float dy =
+                                record.previousPositionOrMotion[1] -
+                                record.worldPositionAndViewDepth[1];
+                            const float dz =
+                                record.previousPositionOrMotion[2] -
+                                record.worldPositionAndViewDepth[2];
+                            return idMath::Sqrt(
+                                dx * dx + dy * dy + dz * dz);
+                        };
+                    const float legacyMotionMagnitude =
+                        motionMagnitude(legacy);
+                    const float canonicalMotionMagnitude =
+                        motionMagnitude(canonical);
+                    ++legacyMotionMagnitudeSamples;
+                    ++canonicalMotionMagnitudeSamples;
+                    legacyMotionMagnitudeSum +=
+                        legacyMotionMagnitude;
+                    canonicalMotionMagnitudeSum +=
+                        canonicalMotionMagnitude;
+                    maxLegacyMotionMagnitude =
+                        Max(
+                            maxLegacyMotionMagnitude,
+                            legacyMotionMagnitude);
+                    maxCanonicalMotionMagnitude =
+                        Max(
+                            maxCanonicalMotionMagnitude,
+                            canonicalMotionMagnitude);
+                    legacyMotionAbove1e4 +=
+                        legacyMotionMagnitude > 1.0e-4f ? 1u : 0u;
+                    canonicalMotionAbove1e4 +=
+                        canonicalMotionMagnitude > 1.0e-4f ? 1u : 0u;
+                    legacyMotionAbove1e3 +=
+                        legacyMotionMagnitude > 1.0e-3f ? 1u : 0u;
+                    canonicalMotionAbove1e3 +=
+                        canonicalMotionMagnitude > 1.0e-3f ? 1u : 0u;
+                    legacyMotionAbove1e2 +=
+                        legacyMotionMagnitude > 1.0e-2f ? 1u : 0u;
+                    canonicalMotionAbove1e2 +=
+                        canonicalMotionMagnitude > 1.0e-2f ? 1u : 0u;
+                    legacyMotionAbove1e1 +=
+                        legacyMotionMagnitude > 1.0e-1f ? 1u : 0u;
+                    canonicalMotionAbove1e1 +=
+                        canonicalMotionMagnitude > 1.0e-1f ? 1u : 0u;
+                    legacyMotionAbove1 +=
+                        legacyMotionMagnitude > 1.0f ? 1u : 0u;
+                    canonicalMotionAbove1 +=
+                        canonicalMotionMagnitude > 1.0f ? 1u : 0u;
                     previousPositionDelta =
                         maxFloatDelta(
                             legacy.previousPositionOrMotion,
@@ -3115,6 +3184,34 @@ void PathTracePrimaryPass::ReadBackSkinnedHitAuditSamples()
         maxNormalUvDelta,
         maxBarycentricDelta,
         maxPreviousPositionDelta);
+    common->Printf(
+        "PathTracePrimaryPass: GEO09 skinned hit motion magnitude world samples(legacy/canonical)=%llu/%llu above(1e-4/1e-3/1e-2/1e-1/1.0) legacy=%llu/%llu/%llu/%llu/%llu canonical=%llu/%llu/%llu/%llu/%llu mean(legacy/canonical)=%.9g/%.9g max=%.9g/%.9g\n",
+        static_cast<unsigned long long>(
+            legacyMotionMagnitudeSamples),
+        static_cast<unsigned long long>(
+            canonicalMotionMagnitudeSamples),
+        static_cast<unsigned long long>(legacyMotionAbove1e4),
+        static_cast<unsigned long long>(legacyMotionAbove1e3),
+        static_cast<unsigned long long>(legacyMotionAbove1e2),
+        static_cast<unsigned long long>(legacyMotionAbove1e1),
+        static_cast<unsigned long long>(legacyMotionAbove1),
+        static_cast<unsigned long long>(canonicalMotionAbove1e4),
+        static_cast<unsigned long long>(canonicalMotionAbove1e3),
+        static_cast<unsigned long long>(canonicalMotionAbove1e2),
+        static_cast<unsigned long long>(canonicalMotionAbove1e1),
+        static_cast<unsigned long long>(canonicalMotionAbove1),
+        legacyMotionMagnitudeSamples > 0
+            ? legacyMotionMagnitudeSum /
+                static_cast<double>(
+                    legacyMotionMagnitudeSamples)
+            : 0.0,
+        canonicalMotionMagnitudeSamples > 0
+            ? canonicalMotionMagnitudeSum /
+                static_cast<double>(
+                    canonicalMotionMagnitudeSamples)
+            : 0.0,
+        maxLegacyMotionMagnitude,
+        maxCanonicalMotionMagnitude);
 
     device->unmapBuffer(m_skinnedHitAuditReadbackBuffer);
     m_skinnedHitAuditReadbackQueued = false;
