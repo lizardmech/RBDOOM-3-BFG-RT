@@ -1589,9 +1589,9 @@ idCVar r_pathTracingCleanRtxdiDiView18Tile(
 
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI spatial resolve visibility policy: 0 trace final selected-light visibility, 1 reuse packed reservoir visibility when valid before tracing (default, matching RTXDI), 2 force selected sample visible with no final visibility trace, 3 checkerboard skip about half of final visibility traces" );
+    "Clean-room Remix DI spatial resolve visibility diagnostic: 0 trace final selected-light visibility, 1 reuse packed reservoir visibility when valid before tracing, 2 force selected sample visible with no final visibility trace, 3 checkerboard skip about half of final visibility traces" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveSolidAnglePdf(
     "r_pathTracingCleanRtxdiDiResolveSolidAnglePdf",
@@ -1933,7 +1933,7 @@ idCVar r_pathTracingCleanRestirGiProducerConsumeProof(
     "r_pathTracingCleanRestirGiProducerConsumeProof",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI deployed-shader proof: 0 normal, 1 production trace invalidates every candidate, 2 production shade writes unmistakable magenta radiance" );
+    "Clean-room ReSTIR GI producer workload proof: 0 normal, 1 trace invalidates every candidate, 2 shade immediate magenta return, 3 shade surface load/unpack/store only, 4 full shade with visibility accepted before shadow TraceRay" );
 
 idCVar r_pathTracingCleanRestirGiProducerSimple(
     "r_pathTracingCleanRestirGiProducerSimple",

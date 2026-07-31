@@ -1620,7 +1620,7 @@ bool PathTraceCleanRestirGiExecute(
         (r_pathTracingCleanRestirGiLocalityRis.GetInteger() != 0 ? 4u : 0u) |
         (inputs.dlssRrActive && r_pathTracingCleanRestirGiDlssRrCompatibility.GetInteger() != 0 ? 8u : 0u) |
         (static_cast<uint32_t>(idMath::ClampInt(
-            0, 3, r_pathTracingCleanRestirGiProducerConsumeProof.GetInteger())) << 4u) |
+            0, 7, r_pathTracingCleanRestirGiProducerConsumeProof.GetInteger())) << 4u) |
         (static_cast<uint32_t>(idMath::ClampInt(
             1, 160, r_pathTracingCleanRestirGiDlssRrCompatibilityRadius.GetInteger())) << 8u);
     const uint32_t requestedLiquidPoolMode = static_cast<uint32_t>(

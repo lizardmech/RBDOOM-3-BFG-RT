@@ -493,7 +493,7 @@ bool CleanGiProducerFeatureEnabled(uint featureBit)
 
 uint CleanGiProducerConsumeProofMode()
 {
-    return (CleanRestirGiProducerFeatureFlags >> 4u) & 3u;
+    return (CleanRestirGiProducerFeatureFlags >> 4u) & 7u;
 }
 
 void CleanGiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)
@@ -2557,23 +2557,15 @@ float CleanGiVisibilityRandom(uint2 pixel, uint instanceId, uint primitiveIndex,
         salt);
 }
 
-bool CleanGiMaterialRejectsHit(
-    uint2 pixel,
-    uint instanceId,
-    uint primitiveIndex,
-    uint materialIndex,
-    float2 barycentrics,
-    bool shadowRay)
+bool CleanGiMaterialRejectsHit(uint2 pixel, uint instanceId, uint primitiveIndex, float2 barycentrics, bool shadowRay)
 {
+    const uint materialIndex = CleanGiLoadTriangleMaterialIndex(instanceId, primitiveIndex);
     if (materialIndex >= (uint)TextureInfo.z)
     {
         return false;
     }
 
-    // Visibility rejection only consumes static opacity/classification fields.
-    // Dynamic material records modify emissive state, so applying them here
-    // adds unrelated buffer traffic to every any-hit candidate.
-    const PathTraceSmokeMaterial material = SmokeMaterials[materialIndex];
+    const PathTraceSmokeMaterial material = CleanGiLoadSmokeMaterial(materialIndex);
     const uint triangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(instanceId, primitiveIndex);
     const uint surfaceClass = CleanGiTriangleSurfaceClass(triangleClassAndFlags);
     const uint translucentSubtype = CleanGiTriangleTranslucentSubtype(triangleClassAndFlags);
@@ -2594,29 +2586,6 @@ bool CleanGiMaterialRejectsHit(
         // this GI lane yet; continue through it consistently in both TraceRay
         // any-hit and inline ray-query paths.
         return true;
-    }
-
-    const bool guiScreenSurface =
-        surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
-        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN;
-    const uint alphaMaterialFlags =
-        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
-        RT_SMOKE_MATERIAL_FILTER_DECAL |
-        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY |
-        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
-        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
-        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
-    const bool alphaDriven =
-        material.alphaTextureIndex != 0xffffffffu ||
-        (material.flags & (RT_SMOKE_MATERIAL_ALPHA_TEST | alphaMaterialFlags)) != 0u;
-
-    // FORCE_NON_OPAQUE routes every ordinary opaque candidate through this
-    // shader. Classify those candidates before rebuilding three vertices or
-    // sampling their diffuse texture; only alpha-driven and GUI materials need
-    // barycentric attributes for rejection.
-    if (!alphaDriven && !guiScreenSurface)
-    {
-        return false;
     }
 
     float3 p0, p1, p2;
@@ -2643,13 +2612,11 @@ bool CleanGiMaterialRejectsHit(
     const float2 texCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
     const float4 vertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
 
-    if (guiScreenSurface && vertexColor.a <= 0.03)
+    if (surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN &&
+        vertexColor.a <= 0.03)
     {
         return true;
-    }
-    if (!alphaDriven)
-    {
-        return false;
     }
 
     const float coverage = saturate(CleanGiAlphaCoverage(material, texCoord));
@@ -2676,6 +2643,21 @@ bool CleanGiMaterialRejectsHit(
             ? max(max(albedo.r, albedo.g), albedo.b)
             : 1.0 - min(min(albedo.r, albedo.g), albedo.b);
         visibilityCoverage = saturate(visibilityCoverage * 0.5);
+    }
+
+    const uint alphaMaterialFlags =
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+        RT_SMOKE_MATERIAL_FILTER_DECAL |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
+    const bool alphaDriven =
+        material.alphaTextureIndex != 0xffffffffu ||
+        (material.flags & alphaMaterialFlags) != 0u;
+    if (!alphaDriven)
+    {
+        return false;
     }
 
     if (visibilityCoverage <= 0.001)
@@ -4120,6 +4102,14 @@ float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3
     if (dot(geometricNormal, direction) <= 0.0)
     {
         return 0.0;
+    }
+
+    // Workload proof 4 preserves proposal selection, BSDF/target evaluation,
+    // contribution math, and the visibility call's geometric gates. It removes
+    // only the shadow TraceRay and its hit shaders from the producer shade.
+    if (CleanGiProducerConsumeProofMode() == 4u)
+    {
+        return 1.0;
     }
 
     RayDesc shadowRay;
@@ -5794,7 +5784,6 @@ bool CleanGiBuildProducerSurfaceRayQuery(
                 pixel,
                 candidateInstanceId,
                 candidatePrimitiveIndex,
-                candidateMaterialIndex,
                 candidateBarycentrics,
                 false))
             {
@@ -5936,6 +5925,15 @@ CleanGiProducerResult CleanGiMakeShadedFirstIndirectCandidate(RAB_Surface second
     candidate.materialOpacity = secondarySurface.material.opacity;
     candidate.sourcePdf = sourcePdf;
     return candidate;
+}
+
+CleanGiProducerResult CleanGiMakeSurfaceConsumeProofCandidate(CleanGiProducerSurface packedSurface)
+{
+    const RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(packedSurface);
+    return CleanGiMakeShadedFirstIndirectCandidate(
+        secondarySurface,
+        secondarySurface.material.emissiveRadiance,
+        packedSurface.sourcePdf);
 }
 
 void CleanGiAttachFirstIndirectDebugMaterial(inout CleanGiProducerResult candidate, uint materialIndex)
@@ -7994,18 +7992,25 @@ void FirstIndirectShadeRayGen()
     CleanGiProducerResult producer = (CleanGiProducerResult)0;
     if (gbuf.valid != 0u)
     {
-        RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
-        if (CleanRestirGiMaxBounces >= 2u)
+        if (CleanGiProducerConsumeProofMode() == 3u)
         {
-            producer = CleanGiShadeFirstIndirectTraceCandidateDirectUnclamped(gbuf, true, rng);
+            producer = CleanGiMakeSurfaceConsumeProofCandidate(gbuf);
         }
         else
         {
-            producer = CleanGiShadeFirstIndirectTraceCandidate(
-                gbuf,
-                CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE,
-                true,
-                rng);
+            RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+            if (CleanRestirGiMaxBounces >= 2u)
+            {
+                producer = CleanGiShadeFirstIndirectTraceCandidateDirectUnclamped(gbuf, true, rng);
+            }
+            else
+            {
+                producer = CleanGiShadeFirstIndirectTraceCandidate(
+                    gbuf,
+                    CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE,
+                    true,
+                    rng);
+            }
         }
     }
 
@@ -8156,12 +8161,19 @@ void FirstIndirectShadeFastRayGen()
     CleanGiProducerResult producer = (CleanGiProducerResult)0;
     if (gbuf.valid != 0u)
     {
-        RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
-        producer = CleanGiShadeFirstIndirectTraceCandidate(
-            gbuf,
-            CLEAN_GI_FIRST_INDIRECT_SHADE_DEFAULT_ONE_SAMPLE,
-            true,
-            rng);
+        if (CleanGiProducerConsumeProofMode() == 3u)
+        {
+            producer = CleanGiMakeSurfaceConsumeProofCandidate(gbuf);
+        }
+        else
+        {
+            RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+            producer = CleanGiShadeFirstIndirectTraceCandidate(
+                gbuf,
+                CLEAN_GI_FIRST_INDIRECT_SHADE_DEFAULT_ONE_SAMPLE,
+                true,
+                rng);
+        }
     }
 
     CleanGiStoreShadedFirstIndirectCandidateForRawGiSample(pixel, producer);
@@ -8894,7 +8906,6 @@ void AnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersec
         DispatchRaysIndex().xy,
         instanceId,
         primitiveIndex,
-        materialIndex,
         attributes.barycentrics,
         false))
     {
@@ -8918,7 +8929,6 @@ void ShadowAnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIn
         DispatchRaysIndex().xy,
         instanceId,
         primitiveIndex,
-        materialIndex,
         attributes.barycentrics,
         true))
     {

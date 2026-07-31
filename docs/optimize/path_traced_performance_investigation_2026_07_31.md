@@ -280,7 +280,7 @@ actual material ray for each valid launched receiver. `ShadeFast` selects one
 direct proposal by default and traces its shadow ray, but its compiled pipeline
 contains five possible inlined visibility routes.
 
-### DI visibility paid twice by default
+### DI final-visibility reuse hypothesis: disproven at frame level
 
 NVIDIA's default DI parameters enable initial visibility and enable final
 visibility reuse. rbdoom also enables initial visibility, but previously
@@ -288,9 +288,10 @@ defaulted `r_pathTracingCleanRtxdiDiResolveVisibilityReuse` to 0. A surviving
 sample could therefore pay one shadow ray in initial sampling and another in
 final resolve.
 
-The default is now 1: reuse packed reservoir visibility when valid, otherwise
-fall back to the final visibility trace. This matches the reference policy and
-does not force stale visibility when RTXDI rejects the stored value.
+The experiment changed the default to 1: reuse packed reservoir visibility when
+valid, otherwise fall back to the final visibility trace. Runtime A/B showed no
+measurable frame-rate change. The default has therefore been restored to 0.
+This policy mismatch is real, but it is not the missing producer performance.
 
 There is a separate diagnostic-control bug in the initial shader: setting
 `r_pathTracingCleanRtxdiDiInitialVisibility 0` disables storing visibility but
@@ -299,12 +300,12 @@ DXC over its existing SPIR-V ID limit. It must be fixed together with a split of
 the monolithic diagnostic library; the production default remains initial
 visibility on.
 
-### GI any-hit did full surface work for opaque candidates
+### GI opaque-candidate any-hit hypothesis: disproven at frame level
 
 The rbdoom GI material and shadow rays use `RAY_FLAG_FORCE_NON_OPAQUE`. Every
 candidate, including ordinary opaque walls, therefore executes any-hit.
 
-Before this follow-up, `CleanGiMaterialRejectsHit` did the following before
+`CleanGiMaterialRejectsHit` does the following before
 checking whether the material had any alpha-driven behavior:
 
 1. resolved the triangle material route a second time;
@@ -312,8 +313,8 @@ checking whether the material had any alpha-driven behavior:
 3. rebuilt all three vertices with normals, two UV sets, and two color sets;
 4. sampled diffuse/alpha coverage.
 
-For a normal opaque material, all of that work was discarded and the hit was
-accepted. The hot path now:
+For a normal opaque material, all of that work is discarded and the hit is
+accepted. An experiment changed the path to:
 
 - passes the already-resolved material index into rejection;
 - loads static visibility fields without applying unrelated dynamic emissive
@@ -322,7 +323,7 @@ accepted. The hot path now:
 - immediately accepts ordinary opaque candidates.
 
 Alpha test, keyed alpha, additive/filter decals, GUI vertex alpha, glass
-transmission, and liquid-pool collection retain their existing paths.
+transmission, and liquid-pool collection retained their existing paths.
 
 Compiled any-hit size moves only modestly because those uncommon paths still
 exist:
@@ -332,8 +333,10 @@ exist:
 | material any-hit | 6,395 | 6,152 | 384 | 373 | 1,038 | 984 |
 | shadow any-hit | 3,686 | 3,443 | 214 | 203 | 615 | 561 |
 
-The expected runtime gain is larger than the static reduction because opaque
-candidates now exit before the large retained tail.
+Despite the static reduction, the deployed A/B showed no measurable frame-rate
+change. The fast path has been rolled back. This eliminates ordinary-candidate
+any-hit material work as the explanation for the current producer gap in the
+reference scene.
 
 ### GI trace-to-shade record is three times the reference size
 
@@ -348,9 +351,10 @@ is the next architectural producer experiment, after measuring the any-hit and
 visibility changes. It requires a packed trace/shade ABI and should not be mixed
 into the current checkpoint.
 
-### Producer slice verification
+### Disproven producer-slice verification
 
-- All three production GI Vulkan libraries compile and pass `spirv-val`.
+- All three experimental production GI Vulkan libraries compiled and passed
+  `spirv-val`.
 - `first_indirect_trace`: 427,148 -> 419,572 bytes.
 - `first_indirect_shade_fast`: 658,568 -> 650,992 bytes.
 - `first_indirect_shade`: 1,291,724 -> 1,284,148 bytes.
@@ -358,15 +362,43 @@ into the current checkpoint.
 - The complete preset still stops at the pre-existing all-entry DI sentinel
   `ID overflow`; production Vulkan permutations compile successfully.
 
-Required runtime A/B for this slice:
+Runtime result: the combined change produced no measurable improvement. Both
+behavior changes were rolled back.
 
-1. Compare base DI with
-   `r_pathTracingCleanRtxdiDiResolveVisibilityReuse 0` and 1.
-2. Compare DI + GI before/after using the same camera and capture
-   `FirstIndirect.0a Trace` plus `FirstIndirect.0b ShadeFast`.
-3. As a diagnostic only, test
-   `r_pathTracingCleanRestirGiProducerOpaqueTrace 1`; a large gain would quantify
-   remaining any-hit/traversal cost but is not an alpha-correct shipping mode.
-4. Capture shader-profiler instruction and any-hit invocation counts. Static
-   SPIR-V size cannot reveal how often candidate intersections execute the
-   retained alpha/decal/liquid tails.
+### Active-shader proof and next isolation boundary
+
+`r_pathTracingCleanRestirGiProducerConsumeProof 2` returns immediately from the
+production shade raygen after writing magenta. It improved FPS by roughly 50
+percent in the reference scene. This proves that the rebuilt production shader
+is consumed. It does not identify an internal culprit: mode 2 bypasses the
+144-byte surface read/unpack, RNG, proposal selection, BSDF/target math, shadow
+`TraceRay`, hit shaders, and the normal result store.
+
+The next modes isolate that skipped work inside the same dispatch:
+
+- mode 0: normal production workload;
+- mode 2: dispatch launch plus immediate magenta UAV write;
+- mode 3: producer-surface load, unpack, emissive candidate construction, and
+  normal radiance store; no RNG, proposal selection, BSDF, or shadow ray;
+- mode 4: normal proposal selection, BSDF/target/contribution math, and result
+  store, but return visible after the normal geometric visibility gates and
+  before the shadow `TraceRay`.
+
+Capture the `FirstIndirect.0b ShadeFast DispatchRays` GPU duration for each
+mode, rather than comparing FPS alone. Mode 3 minus mode 2 bounds surface
+transport and unpack/store cost. Mode 0 minus mode 4 isolates the selected
+shadow traversal and hit-shader cost. Mode 4 minus mode 3 bounds proposal,
+random-sampler, BSDF/target, and contribution work.
+
+The deployed Vulkan probe build was verified as follows:
+
+- production trace: 427,448 bytes;
+- production ShadeFast: 659,936 bytes;
+- production full shade: 1,293,616 bytes;
+- all three output mtimes postdate the HLSL edit and pass `spirv-val` for
+  Vulkan 1.2;
+- ShadeFast disassembly contains the mode-3/mode-4 branches, a composite load
+  of the producer surface record, and the retained shadow `OpTraceRayKHR`;
+- the targeted Release executable build succeeds;
+- the complete preset still stops later at the pre-existing monolithic clean
+  DI sentinel `ID overflow`.
