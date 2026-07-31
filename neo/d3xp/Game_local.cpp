@@ -72,6 +72,13 @@ const char* idGameLocal::sufaceTypeNames[ MAX_SURFACE_TYPES ] =
 };
 
 idCVar net_usercmd_timing_debug( "net_usercmd_timing_debug", "0", CVAR_BOOL, "Print messages about usercmd timing." );
+idCVar g_settleBoundEntityVisuals(
+	"g_settleBoundEntityVisuals",
+	"1",
+	CVAR_GAME | CVAR_INTEGER,
+	"refresh bound static attachment transforms after all entity animation has finished; 0 = off, 1 = on, 2 = on with periodic diagnostics",
+	0,
+	2 );
 
 
 // List of all defs used by the player that will stay on the fast timeline
@@ -2625,6 +2632,76 @@ void idGameLocal::RunSharedThink()
 
 /*
 ================
+SettleBoundEntityVisuals
+
+Physics teams are evaluated parent-first, but a team member can finish its own
+animation later in its separate Think. This occurs when an animated actor is
+bound to a mover: joint-bound static attachments below the actor (notably
+separate heads) have already evaluated against the actor's earlier pose.
+
+Re-evaluate only kinematic static attachments after all entity Think/event work
+is complete. Do not run actor, mover, or other gameplay physics a second time.
+The team chain is already ordered with bind masters before their descendants.
+================
+*/
+static void SettleBoundEntityVisuals()
+{
+	const int mode = g_settleBoundEntityVisuals.GetInteger();
+	if( mode <= 0 )
+	{
+		return;
+	}
+
+	int evaluated = 0;
+	int refreshed = 0;
+	for( idEntity* team = gameLocal.spawnedEntities.Next();
+			team != NULL;
+			team = team->spawnNode.Next() )
+	{
+		if( team->GetTeamMaster() != team )
+		{
+			continue;
+		}
+
+		for( idEntity* part = team->GetNextTeamEntity();
+				part != NULL;
+				part = part->GetNextTeamEntity() )
+		{
+			if( part->GetBindMaster() == NULL )
+			{
+				continue;
+			}
+
+			idPhysics* physics = part->GetPhysics();
+			if( physics == NULL ||
+				( !physics->IsType( idPhysics_Static::Type ) &&
+					!physics->IsType( idPhysics_StaticMulti::Type ) ) )
+			{
+				continue;
+			}
+
+			++evaluated;
+			if( physics->Evaluate( 0, gameLocal.time ) )
+			{
+				part->UpdateVisuals();
+				part->Present();
+				++refreshed;
+			}
+		}
+	}
+
+	if( mode >= 2 && refreshed > 0 && ( gameLocal.framenum % 120 ) == 0 )
+	{
+		gameLocal.Printf(
+			"bound visual settle frame=%d evaluated=%d refreshed=%d\n",
+			gameLocal.framenum,
+			evaluated,
+			refreshed );
+	}
+}
+
+/*
+================
 idGameLocal::RunFrame
 ================
 */
@@ -2841,6 +2918,11 @@ void idGameLocal::RunFrame( idUserCmdMgr& cmdMgr, gameReturn_t& ret )
 			SelectTimeGroup( true );
 			idEvent::ServiceFastEvents();
 			SelectTimeGroup( false );
+
+			// Bind descendants must be published from the final parent pose for
+			// this game frame, including parents that completed animation after
+			// their physics team's earlier evaluation.
+			SettleBoundEntityVisuals();
 
 			timer_events.Stop();
 
