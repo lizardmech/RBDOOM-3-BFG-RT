@@ -329,6 +329,8 @@ extern idCVar r_pathTracingCleanRestirGiLocalityRis;
 extern idCVar r_pathTracingCleanRestirGiContinuationOpaqueTrace;
 extern idCVar r_pathTracingCleanRestirGiProducerOpaqueTrace;
 extern idCVar r_pathTracingCleanRestirGiProducerConsumeProof;
+extern idCVar r_pathTracingCleanRestirGiForceFullShade;
+extern idCVar r_pathTracingCleanRestirGiBindingSetCache;
 extern idCVar r_pathTracingCleanRestirGiProducerSimple;
 extern idCVar r_pathTracingCleanRestirGiProducerLeanSplit;
 extern idCVar r_pathTracingCleanRestirGiProducerRayQuery;

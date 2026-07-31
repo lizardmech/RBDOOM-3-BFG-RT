@@ -12,6 +12,7 @@
 #include "PathTraceBlueNoise.h"
 
 #include <cstdint>
+#include <vector>
 
 // Exact byte size of the live DI constants prefix mirrored at the head of the
 // clean GI cbuffer. The GI-owned tail begins immediately after this prefix in
@@ -51,6 +52,13 @@ struct PathTraceCleanRestirGiRayTracingPipelineState
 
 struct PathTraceCleanRestirGiState
 {
+    struct CachedBindingSet
+    {
+        nvrhi::IBindingLayout* layout = nullptr;
+        nvrhi::BindingSetDesc desc;
+        nvrhi::BindingSetHandle bindingSet;
+    };
+
     nvrhi::BufferHandle constantsBuffer;
     nvrhi::BufferHandle reservoirBuffer;
     uint32_t reservoirWidth = 0;
@@ -94,7 +102,9 @@ struct PathTraceCleanRestirGiState
     bool pipelineWarmupEntryLogged = false;
     bool pipelineWarmupInputGateLogged = false;
     bool dispatchLogged = false;
+    std::vector<CachedBindingSet> bindingSetCache;
 
+    void InvalidateHistoryAndBindings();
     void ReleaseResources();
 };
 

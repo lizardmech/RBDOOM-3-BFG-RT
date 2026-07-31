@@ -1935,6 +1935,18 @@ idCVar r_pathTracingCleanRestirGiProducerConsumeProof(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room ReSTIR GI producer workload proof: 0 normal, 1 trace immediate invalid candidate, 2 shade immediate magenta return, 3 shade full surface load/unpack/store only, 4 full shade with visibility accepted before shadow TraceRay, 5 shade scalar valid-field read plus near-identical magenta return, 6 trace with normal any-hit/closest-hit payload but no reconstruction, 7 mode 6 plus full three-vertex geometry loads but no material evaluation or candidate packing" );
 
+idCVar r_pathTracingCleanRestirGiForceFullShade(
+    "r_pathTracingCleanRestirGiForceFullShade",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI diagnostic: at the otherwise identical one-bounce production settings, select the full producer shade pipeline instead of ShadeFast so shader-shape cost can be separated from continuation-bounce cost" );
+
+idCVar r_pathTracingCleanRestirGiBindingSetCache(
+    "r_pathTracingCleanRestirGiBindingSetCache",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI Vulkan performance A/B: retain identical binding sets instead of creating and destroying a dedicated Vulkan descriptor pool for every set every frame" );
+
 idCVar r_pathTracingCleanRestirGiProducerSimple(
     "r_pathTracingCleanRestirGiProducerSimple",
     "0",

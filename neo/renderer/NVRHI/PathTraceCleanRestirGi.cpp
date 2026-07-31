@@ -43,6 +43,51 @@ const uint32_t LIQUID_POOL_CONTROL_PARAMETERS_READY = 1u << 3u;
 const uint32_t CLEAN_RESTIR_GI_DI_BLOB_SIZE =
     PATH_TRACE_CLEAN_RTXDI_DI_CONSTANTS_SIZE;
 const uint32_t CLEAN_RESTIR_GI_DI_ANALYTIC_LIGHT_COUNT_OFFSET = 4u * sizeof(uint32_t);
+const size_t CLEAN_RESTIR_GI_BINDING_SET_CACHE_LIMIT = 32u;
+
+nvrhi::BindingSetHandle CleanRestirGiGetOrCreateBindingSet(
+    PathTraceCleanRestirGiState& state,
+    nvrhi::IDevice* device,
+    const nvrhi::BindingSetDesc& desc,
+    nvrhi::IBindingLayout* layout)
+{
+    const bool cacheEnabled =
+        r_pathTracingCleanRestirGiBindingSetCache.GetInteger() != 0;
+    if (cacheEnabled)
+    {
+        for (const PathTraceCleanRestirGiState::CachedBindingSet& cached :
+            state.bindingSetCache)
+        {
+            if (cached.layout == layout && cached.desc == desc)
+            {
+                return cached.bindingSet;
+            }
+        }
+    }
+    else
+    {
+        state.bindingSetCache.clear();
+    }
+
+    nvrhi::BindingSetHandle bindingSet =
+        device->createBindingSet(desc, layout);
+    if (!bindingSet || !cacheEnabled)
+    {
+        return bindingSet;
+    }
+
+    if (state.bindingSetCache.size() >=
+        CLEAN_RESTIR_GI_BINDING_SET_CACHE_LIMIT)
+    {
+        state.bindingSetCache.clear();
+    }
+    PathTraceCleanRestirGiState::CachedBindingSet cached;
+    cached.layout = layout;
+    cached.desc = desc;
+    cached.bindingSet = bindingSet;
+    state.bindingSetCache.push_back(cached);
+    return bindingSet;
+}
 
 // GI-owned cbuffer tail; layout must match the trailing fields of
 // PathTraceCleanRestirGiConstants in pathtrace_clean_restir_gi.rt.hlsl.
@@ -375,7 +420,11 @@ bool CleanRestirGiBuildSingleRayPipeline(
         skinnedAnyHit,
         skinnedShadowClosestHit,
         skinnedShadowAnyHit);
-    pipelineDesc.maxPayloadSize = 64;
+    // The bounce payload contains 40 bytes of hit state plus the 112-byte
+    // liquid-pool candidate set. Shadow rays use a separate 4-byte payload.
+    // NVRHI's Vulkan backend derives this from SPIR-V; this value supplies the
+    // explicit shader-config size required by the D3D12 state object.
+    pipelineDesc.maxPayloadSize = 152;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
     pipelineDesc.useDeferredHostOperations = true;
@@ -613,7 +662,7 @@ bool CleanRestirGiEnsureD3D12MonolithicPipeline(
         skinnedAnyHit,
         skinnedShadowClosestHit,
         skinnedShadowAnyHit);
-    pipelineDesc.maxPayloadSize = 64;
+    pipelineDesc.maxPayloadSize = 152;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
     state.pipeline =
@@ -1142,6 +1191,7 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         state.reservoirBuffer->getDesc().byteSize >= reservoirBytes;
     if (!reservoirValid)
     {
+        state.bindingSetCache.clear();
         nvrhi::BufferDesc reservoirDesc;
         reservoirDesc.byteSize = reservoirBytes;
         reservoirDesc.structStride = sizeof(RTXDI_PackedGIReservoir);
@@ -1177,6 +1227,7 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         state.producerRadianceTexture->getDesc().height == height;
     if (!texturesValid)
     {
+        state.bindingSetCache.clear();
         nvrhi::TextureDesc producerDesc;
         producerDesc.width = width;
         producerDesc.height = height;
@@ -1267,8 +1318,15 @@ void PathTraceCleanRestirGiRayTracingPipelineState::Release()
     pipelineInitAttempted = false;
 }
 
+void PathTraceCleanRestirGiState::InvalidateHistoryAndBindings()
+{
+    reservoirClearPending = true;
+    bindingSetCache.clear();
+}
+
 void PathTraceCleanRestirGiState::ReleaseResources()
 {
+    InvalidateHistoryAndBindings();
     constantsBuffer = nullptr;
     reservoirBuffer = nullptr;
     reservoirWidth = 0;
@@ -1532,7 +1590,11 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, inputs.rrInputColorTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(127, state.blueNoise.texture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, inputs.materialSampler));
-    nvrhi::BindingSetHandle bindingSet = inputs.device->createBindingSet(bindingSetDesc, rayTracing.bindingLayout);
+    nvrhi::BindingSetHandle bindingSet = CleanRestirGiGetOrCreateBindingSet(
+        state,
+        inputs.device,
+        bindingSetDesc,
+        rayTracing.bindingLayout);
     if (!bindingSet)
     {
         clearFailureOutput();
@@ -1731,7 +1793,11 @@ bool PathTraceCleanRestirGiExecute(
             desc.addItem(nvrhi::BindingSetItem::Texture_UAV(0, radianceTexture));
             desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(1, state.producerSurfaceBuffer));
             desc.addItem(nvrhi::BindingSetItem::Sampler(0, inputs.materialSampler));
-            return inputs.device->createBindingSet(desc, state.skyResolveBindingLayout);
+            return CleanRestirGiGetOrCreateBindingSet(
+                state,
+                inputs.device,
+                desc,
+                state.skyResolveBindingLayout);
         };
         skyResolveProducerBindingSet = createSkyResolveBindingSet(
             state.producerRadianceTexture,
@@ -1796,7 +1862,11 @@ bool PathTraceCleanRestirGiExecute(
         r_pathTracingCleanRestirGiProducerRayQuery.GetInteger() != 0;
     if (producerRayQueryComputeRequested && CleanRestirGiEnsureProducerRayQueryComputePipeline(state, inputs))
     {
-        producerRayQueryComputeBindingSet = inputs.device->createBindingSet(bindingSetDesc, state.producerRayQueryComputeBindingLayout);
+        producerRayQueryComputeBindingSet = CleanRestirGiGetOrCreateBindingSet(
+            state,
+            inputs.device,
+            bindingSetDesc,
+            state.producerRayQueryComputeBindingLayout);
         if (!producerRayQueryComputeBindingSet)
         {
             common->Printf("PathTraceCleanRestirGi: failed to create GI producer ray-query compute binding set; falling back to trace-rays\n");
@@ -1812,7 +1882,11 @@ bool PathTraceCleanRestirGiExecute(
     const bool temporalComputeRequested = view == 0 && tail.spatialEnabled != 0u;
     if (temporalComputeRequested && CleanRestirGiEnsureTemporalComputePipeline(state, inputs))
     {
-        temporalComputeBindingSet = inputs.device->createBindingSet(bindingSetDesc, state.temporalComputeBindingLayout);
+        temporalComputeBindingSet = CleanRestirGiGetOrCreateBindingSet(
+            state,
+            inputs.device,
+            bindingSetDesc,
+            state.temporalComputeBindingLayout);
         if (!temporalComputeBindingSet)
         {
             common->Printf("PathTraceCleanRestirGi: failed to create GI temporal compute binding set; falling back to raygen\n");
@@ -1821,6 +1895,7 @@ bool PathTraceCleanRestirGiExecute(
     const bool temporalComputeActive = temporalComputeBindingSet != nullptr;
     const bool defaultOneSampleShade =
         view == 0 &&
+        r_pathTracingCleanRestirGiForceFullShade.GetInteger() == 0 &&
         tail.neeCacheSecondaryEnabled == 0u &&
         tail.maxBounces <= 1u &&
         tail.secondaryDirectSamples == 1u &&
@@ -2184,7 +2259,11 @@ bool PathTraceCleanRestirGiExecute(
         filterSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, inputs.primarySurfaceCurrentBuffer));
         filterSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(5, state.indirectDiffuseLobeTexture));
         filterSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(6, state.indirectSpecularLobeTexture));
-        nvrhi::BindingSetHandle filterSet = inputs.device->createBindingSet(filterSetDesc, state.boilingFilterBindingLayout);
+        nvrhi::BindingSetHandle filterSet = CleanRestirGiGetOrCreateBindingSet(
+            state,
+            inputs.device,
+            filterSetDesc,
+            state.boilingFilterBindingLayout);
         if (filterSet)
         {
             PathTraceCleanRestirGiBoilingFilterConstants filterConstants;

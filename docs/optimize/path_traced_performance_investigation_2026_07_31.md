@@ -14,6 +14,182 @@ This pass intentionally starts below optional glass, multibounce, reflection, an
 denoiser features. Those features have measurable costs, but they do not explain
 the base DI/temporal/spatial discrepancy.
 
+## Correct production GI baseline
+
+The minimal-room performance baseline must use DI view 4, GI view 0, and
+`r_pathTracingCleanRestirGiResolve 1`. GI debug views are not a substitute for
+displaying production GI: any nonzero GI view selects `debugRayTracing`, and
+views 1 and 2 deliberately retain the full diagnostic producer shade path.
+
+With the corrected route, the minimal room measures approximately 48 FPS.
+The only tested GI control with a material frame-level effect is
+`r_pathTracingCleanRestirGiMaxBounces`, at roughly 20 percent. All earlier
+33--38 FPS GI-view-1 numbers and their proof-mode decomposition remain useful
+only for understanding the debug/full-shade shader. They are not the production
+view-0 baseline and must not drive root-cause attribution.
+
+The max-bounce A/B itself contains two changes. At one bounce, view 0 can select
+`FirstIndirectShadeFastRayGen`; at two bounces, `defaultOneSampleShade` becomes
+false and the host selects the larger `FirstIndirectShadeRayGen`, then submits
+the continuation trace and continuation shade dispatches. The observed 20
+percent therefore combines a shader-permutation change with the actual second
+bounce. Nsight marker durations, or a host-only permutation override, are
+needed to split those costs.
+
+`r_pathTracingCleanRestirGiForceFullShade` supplies that override. With view 0,
+one bounce, one direct sample, direct probability 1, and secondary NEE cache
+off, its only effect is choosing the full shade shader table instead of
+ShadeFast. The controlled matrix is:
+
+- one bounce, force-full 0: ShadeFast, no continuation;
+- one bounce, force-full 1: full Shade, no continuation;
+- two bounces: full Shade plus continuation trace/shade.
+
+The second row minus the first measures shader-permutation shape. The third row
+minus the second measures continuation work without conflating the ShadeFast
+transition.
+
+The compiled entrypoint shapes are substantially different despite the
+controlled one-sample settings:
+
+| Production entry | SPIR-V operations | Loads | Stores | Branches | Static `TraceRay` sites |
+|---|---:|---:|---:|---:|---:|
+| `FirstIndirectShadeFastRayGen` | 26,344 | 616 | 31 | 4,831 | 5 |
+| `FirstIndirectShadeRayGen` | 63,322 | 1,492 | 70 | 11,391 | 12 |
+
+The full entry is about 2.4 times the compiled operation count. The force-full
+runtime comparison tests whether disabled dynamic branches from that larger
+entry still impose register-pressure or occupancy cost at the original basic
+one-sample workload.
+
+Runtime result: forcing the full shade permutation at the otherwise identical
+one-bounce production settings had no measurable FPS effect. The 2.4-times
+larger static entrypoint is therefore not by itself imposing the observed
+steady-state cost when its optional branches are disabled. Of the tested live
+controls on the corrected production route, only max bounces and analytic-light
+trials produced measurable changes.
+
+### Delayed DI-view response with GI enabled
+
+An observed DI view 16 to view 4 transition took more than 15 seconds before
+the displayed frame rate rose when production GI resolve was enabled. With GI
+disabled, switching between those DI views changed FPS immediately.
+
+One-time Vulkan GI pipeline warmup was the first hypothesis. The renderer builds
+16 separate GI RT pipelines, at most one per frame, with a 15-frame cooldown
+between builds. Runtime testing disproved this explanation: the delay recurred
+after the game had been running for a long time and after more than five
+view-16/view-4 transitions.
+
+Queued GPU work is also implausible. Vulkan presentation waits on the preceding
+frame's graphics-queue event in the explicit triple-buffered frame cycle, so it
+cannot accumulate a 15-second command backlog. The displayed FPS is averaged
+over only six frames.
+
+The apparent DI-buffer lifetime mismatch is not the cause either. View 4
+dispatches only the initial DI raygen, while the GI host binding selects the
+temporal DI buffer whenever the temporal CVar is enabled. However, the initial
+raygen's `PathTraceCleanRoomStoreInitialReservoir` writes the newly generated
+sample into both current and temporal reservoir storage. GI therefore receives
+fresh view-4 DI data despite the misleading host-side selection expression.
+
+GI temporal state is bounded much more tightly than the observed delay. The
+production defaults cap confidence history at 4 and reservoir age at 12 frames,
+with history rejected at the age limit. At the measured 30--50 FPS, legitimate
+GI reservoir persistence should disappear in well under one second. The next
+runtime discriminator is `r_pathTracingCleanRestirGiMaxHistoryLength 0` during
+the same repeated view-16 -> view-4 transition. If the long delay remains, the
+cause lies outside GI reservoir history and needs per-pass GPU timestamps at
+the start and end of the recovery interval.
+
+Runtime behavior is more generally unstable than a single delayed transition.
+Changing a control in the nominally more expensive direction can temporarily
+raise performance: one observation moved from roughly 48 to 56 FPS after
+increasing light candidates, then drifted down again over approximately one
+minute. This invalidates short post-CVar FPS comparisons. Each A/B must now be
+held long enough to expose drift, and it needs GPU-pass timings or a continuous
+frame-time trace rather than one settled-looking FPS value.
+
+The behavior also reproduces without a CVar transition. In the minimal room at
+one bounce and DI view 4, a fresh load can remain near 48 FPS for roughly 30
+seconds, then rise to about 58 FPS, occasionally return to 48 FPS, and sometimes
+remain at the lower plateau. The corresponding frame times are 20.83 and 17.24
+ms, a discrete difference of approximately 3.59 ms. Reducing resolution far
+enough reaches the 120-FPS cap, so the normal-resolution plateau is GPU-bound,
+not a render-thread ceiling. This pattern is not compatible with six-frame FPS
+smoothing or legitimate 12-frame GI history. Capture or timestamp the same
+labeled GPU passes at both plateaus; whichever interval changes by about 3.6 ms
+owns the state transition.
+
+### GI history invalidation across scene resets
+
+DI view 4 can acquire a blue tint after a same-resolution map reload and, less
+consistently, after changing resolution. Source tracing found a concrete stale
+history path: `ResetRayTracingSmokeSceneResources` resets the scene and DI-owned
+state, but clean GI reservoirs were only marked for clearing when the GI-owned
+reservoir buffer itself changed dimensions. A map reload at the same dimensions
+could therefore consume reservoirs belonging to the previous scene.
+
+Clean GI now invalidates reservoir history and cached bindings on the existing
+frame reset reasons for scene resources, output resize, and backbuffer resize.
+The reset is applied before GI dispatch, so the first GI execution after any of
+those events clears both reservoir ping-pong regions before reuse. This is a
+correctness fix for the blue-tint/reset contamination. It may remove a source of
+bad post-reload timing, but it does not by itself explain a stable 48/58-FPS
+plateau that can recur without a reset.
+
+### Per-frame Vulkan descriptor-pool churn
+
+A low-level lifetime mismatch exists between rbdoom and the NVIDIA sample.
+NVRHI Vulkan's `Device::createBindingSet` creates a dedicated
+`VkDescriptorPool` with `maxSets=1`, allocates one descriptor set, and makes the
+binding set own that pool. Command-buffer liveness retains the binding set until
+GPU retirement; its destructor then destroys the pool. The clean production
+path was creating the large DI set and as many as five GI sets inside every
+frame dispatch. At 50 FPS this can create and destroy approximately 18,000
+Vulkan descriptor pools per minute. The NVIDIA sample instead retains binding
+sets and recreates them only when render targets or RTXDI resources change.
+
+The first bounded repair caches identical GI binding descriptions, separated by
+layout, with a 32-entry cap. The cache is cleared when GI-owned buffers or
+textures are recreated and in `ReleaseResources`. CVar
+`r_pathTracingCleanRestirGiBindingSetCache` defaults to 1; value 0 restores the
+original per-frame pool churn. This is host-only and does not change shader
+work, descriptors, dispatch count, or reservoir history. DI's per-frame binding
+set remains unchanged for this first A/B.
+
+### Analytic trial overrun regression
+
+`r_pathTracingRestirPTAnalyticLightTrials` defaults to 32 and supplies the
+production RLU Doom-analytic sample count. The nominal
+`r_pathTracingCleanRtxdiDiCandidateCount` does not control the active typed-RLU
+initial producer. Runtime testing identifies analytic trials as one of only two
+GI/DI controls with a measurable steady-state effect.
+
+The sampler contained a concrete overrun. Commit `e877e931d` removed both the
+manager-side and shader-side `min(sampleCount, rangeCount)` while adding
+repeated emissive-triangle replay. Repeated UV proposals can be meaningful for
+an emissive triangle, but the removal also affected Doom analytic records. The
+shader then computes `stride = max(1, rangeCount / sampleCount)` and clamps the
+resulting index to the end of the range. With six analytic lights and 32
+trials, it evaluates lights 0--4 once and the final light 27 times.
+
+The narrow repair caps only Doom analytic attempts to their range size.
+Emissive triangles retain repeated UV replay. This restores the original
+analytic bound without reverting the emissive feature and gives the minimal
+room a controlled 32-requested/6-executed A/B.
+
+The production DI initial Vulkan library compiled directly after deleting its
+old blob and passed `spirv-val --target-env vulkan1.2`:
+
+- size: 971,708 bytes;
+- SHA-256: `A5753C375EFC25AC6DC19971A0B619336869CCF103BE49C624823C8C73A01519`;
+- output mtime: 2026-07-31 13:27:03 UTC.
+
+Runtime acceptance in the six-light room is that requested trials 32 and 6
+have the same cost after restart, while 6 versus 1 retains only the legitimate
+distinct-light proposal difference.
+
 ## Main conclusion
 
 The slowdown is visible in the compiled production shaders. It is not merely an
@@ -445,6 +621,134 @@ resolution and three full vertex loads; `0 - 7` isolates interpolation/tangent
 math, normal/diffuse/specular/alpha/emissive texture work, classifier and
 override work, liquid resolution, and candidate packing.
 
+Runtime measured both modes 6 and 7 at about 33--34 FPS. Full secondary
+vertex-record transport is therefore also below FPS measurement resolution in
+this dispatch. The remaining roughly 8.2 ms mode-0 gap starts after the vertex
+loads: interpolation and tangent construction, normal/diffuse/specular/alpha/
+emissive texture sampling, material/classifier overrides, liquid resolution,
+and candidate packing.
+
+### Debug-view workload cliffs
+
+The DI and GI debug-view numbers are not a monotonic shader-feature bisect.
+Several view transitions silently change the number of candidates or activate
+additional full-screen dispatches.
+
+Observed DI behavior was effectively frame-rate-limited through view 7, then
+dropped by about 40 FPS at view 8. The host/shader routing explains a real
+workload boundary:
+
+- views 1--3 are sentinel/status presentations and do not run the initial DI
+  producer;
+- view 4 runs initial DI, but the host supplies one local-light candidate;
+- views 5 and 6 run initial plus temporal, also with one candidate;
+- view 7 runs one-candidate initial DI and presents reservoir identity/history;
+- view 8 changes `CleanRtxdiDiCandidateCount` from one to the CVar default of
+  eight and, when temporal is enabled, runs both initial and temporal;
+- the default stacked view-8 diagnostic also replays selected-sample
+  visibility in band 8, covering one sixteenth of the screen.
+
+Changing `r_pathTracingCleanRtxdiDiCandidateCount` from 1 through 20 produced
+no FPS change. Source tracing showed that this CVar does not control the active
+producer when the Remix light-universe route is enabled:
+`PathTraceCleanRoomRunInitialProducer` diverts to
+`PathTraceCleanRoomRunTypedRluInitialProducer`, which streams the RLU's
+independent typed sample counts instead. Those counts are populated from
+`r_pathTracingReservoirCandidateTrials` for emissive triangles (default 1) and
+`r_pathTracingRestirPTAnalyticLightTrials` for Doom analytic lights (default
+32). A valid candidate-count test on this route must change those Cvars, not
+`r_pathTracingCleanRtxdiDiCandidateCount`.
+
+The other clean separation is `r_pathTracingCleanRtxdiDiView8Band 0`, which
+retains the initial and temporal dispatches but replaces the stacked 16-band
+presentation with the cheapest temporal-gate output. If that restores the
+missing FPS, the cliff is in view 8's diagnostic replay/presentation rather
+than reservoir production or temporal reuse.
+
+The valid RLU proposal-count test reduced
+`r_pathTracingRestirPTAnalyticLightTrials` from its default 32 to 1. DI view 8
+recovered about 10 FPS, but the complete level with DI and GI active recovered
+barely 1 FPS. The 32-trial default is unnecessarily expensive in the isolated
+DI view, but it is only a secondary cost once the full frame is dominated by
+GI and cannot explain the renderer-wide 2--3x gap.
+
+Disabling manual bilinear texture filtering while retaining the safe
+`Texture.Load` method also produced no measurable FPS change. The four-load
+manual filter is therefore not the dominant fixed cost.
+
+The strongest scene-complexity control is an extremely simple closed box with
+about six lights and one stationary low-poly Doom 3 monster. It contains no
+reflective surfaces. DI view 4 remains at 120 FPS, while enabling GI view 1
+immediately drops to about 33 FPS. That is the same roughly 8.3-to-30.3 ms
+transition seen in materially busier content.
+
+This invariance rules out geometry count, BVH traversal complexity, reflective
+materials, multibounce behavior, and later optional features as explanations
+for the dominant GI cost. The remaining culprit is fixed per dispatched pixel:
+dispatch extent, compiled shader/occupancy shape, trace-to-shade dependency and
+record transport, or unconditional per-pixel reconstruction.
+
+An attempted modes 2/5/3 comparison under GI debug views 1 and 6 initially
+showed no response. That was a deployment error rather than a shader result:
+the host selects `debugRayTracing` for every nonzero GI view, while the proof
+work had only been rebuilt and deployed in the `split/production` libraries
+used by view 0. The three `split/debug` blobs still predated the proof source by
+one day.
+
+The debug first-indirect trace, ShadeFast, and full-shade libraries were rebuilt
+directly with the generated Vulkan DXC definitions, passed `spirv-val` for
+Vulkan 1.2, and were deployed to the prebuilt tree. Their deployed sizes and
+SHA-256 values are:
+
+- trace: 444,452 bytes,
+  `F65DAF4268FBFD88C34556DE18A20C34A33A8CFCCC2AE8DD88B146D47EC1FC08`;
+- ShadeFast: 660,316 bytes,
+  `479CAB90CF5B207E9958CADEEABFE52B4F0F91F6C626FC7F77C507540EFAB0FB`;
+- full shade: 1,612,632 bytes,
+  `6ADD56E600FC3EFBDE5818226A30713A6632972BD796C29327A687C22221ADEB`.
+
+The modes 2/5/3 comparison must be repeated after a renderer restart. Mode 2
+is immediate output, mode 5 adds one scalar trace-to-shade buffer read, and
+mode 3 materializes the complete producer record and executes the proof store.
+
+### Simple-room Nsight capture
+
+An Nsight GPU Trace of DI view 4 plus GI view 1 in the six-light box measured a
+35.27 ms frame. The dominant labeled dispatches were:
+
+- `FirstIndirect.0a Trace DispatchRays`: 6.02 ms;
+- `FirstIndirect.0b Shade DispatchRays`: 11.76 ms;
+- `FirstIndirect.0c ContinuationTrace Dispatch`: 4.77 ms.
+
+The trace and shade producer alone therefore consume 17.78 ms in the nearly
+empty scene. This directly confirms that the dominant cost is inside the
+full-screen GI producer passes rather than scene geometry or optional
+reflection materials.
+
+The capture is not a one-bounce baseline: the continuation marker proves
+`r_pathTracingCleanRestirGiMaxBounces` was 2 (also the current default). That
+optional trace visibly costs 4.77 ms, but removing it still leaves the two
+basic producer passes at 17.78 ms. The clean modes 2/5/3 capture should use
+`r_pathTracingCleanRestirGiMaxBounces 1` so continuation work does not obscure
+the trace-to-shade comparison.
+
+Observed GI behavior, while DI view 4 remained near 120 FPS, was about 33 FPS
+for GI views 1 and 2 and about 28 FPS for view 3. These are approximately
+8.3 ms, 30.3 ms, and 35.7 ms per frame respectively: the GI producer adds
+about 22.0 ms, then the view-3 consumer chain adds about 5.4 ms.
+
+GI views 1 and 2 are untextured only in presentation. The host still dispatches
+the complete first-indirect trace and shade producer over the full image, and
+the shade raygen performs the normal producer work before writing the simple
+radiance or hit-geometry debug color. Seed and reuse dispatches are also
+submitted, but their shaders return immediately for these views.
+
+View 3 stops satisfying `CleanGiSeedPassSkipsView`. It therefore adds the INIT
+seed pass and temporal reuse; when spatial reuse is enabled it also adds the
+separate spatial dispatch. The 33-to-28 FPS transition is consequently a
+producer-to-producer-plus-consumers boundary, not the cost of displaying an
+initial-reservoir color.
+
 The installed Nsight 2026.1 replay CLI accepts frame captures but rejects
 `.ngfx-gputrace` files as an invalid replay header. Existing GPU Trace
 bandwidth/cache/scoreboard counters therefore need to be read in the Nsight UI
@@ -538,10 +842,11 @@ per-instance/per-range contract. The current mode-6 versus mode-7 proof is safe
 as a diagnostic because mode 6 force-bypasses any-hit only for the isolated
 invalid-candidate trace.
 
-If mode 6 is materially faster than mode 7, this identifies a low-level policy
-that predates and is shared by DI and GI. If they are equal, the remaining
-mode-0 gap belongs to post-trace secondary material reconstruction rather than
-BLAS opacity/any-hit routing.
+Modes 6 and 7 measured equally at about 33--34 FPS. Together with the earlier
+35-FPS closest-hit-only result, this leaves roughly 1.7 ms attributable to
+any-hit and moves the remaining mode-0 gap into post-trace secondary material
+reconstruction rather than BLAS opacity/any-hit routing or raw vertex
+transport.
 
 The deployed Vulkan probe build was verified as follows:
 
@@ -555,3 +860,80 @@ The deployed Vulkan probe build was verified as follows:
 - the targeted Release executable build succeeds;
 - the complete preset still stops later at the pre-existing monolithic clean
   DI sentinel `ID overflow`.
+
+### One-bounce simple-room shade decomposition
+
+The proof modes were repeated after the debug shader deployment was corrected,
+in the minimal six-light room with DI view 4, GI view 1, and one GI bounce:
+
+- two-bounce baseline: 33 FPS, or about 30.30 ms;
+- one-bounce mode 0: 38 FPS, or about 26.32 ms;
+- one-bounce mode 2: 70 FPS, or about 14.29 ms;
+- one-bounce mode 3: 67 FPS, or about 14.93 ms;
+- one-bounce mode 4: 50 FPS, or about 20.00 ms.
+
+These frame-level differences are large enough to overturn the earlier
+full-level FPS inference:
+
+- mode 3 minus mode 2 is only about 0.64 ms. Materializing and consuming the
+  complete 144-byte trace-to-shade record is therefore not the dominant shade
+  cost in this scene.
+- mode 4 minus mode 3 is about 5.07 ms. Proposal selection, sampler/BSDF/target
+  work, contribution construction, and the pre-trace visibility gates are a
+  major cost even with approximately six lights.
+- mode 0 minus mode 4 is about 6.32 ms. The selected shadow `TraceRay`, its hit
+  path, and any compiler/register-pressure consequence of retaining that trace
+  account for the other major half of the shade gap.
+- enabling the second bounce adds about 3.99 ms by frame time. The earlier
+  Nsight capture measured its continuation trace dispatch directly at 4.77 ms.
+
+Mode 2 is now a proven active-shader lower bound, not merely a marker test.
+The roughly 12.0 ms difference from mode 2 to normal one-bounce shading agrees
+closely with the 11.76 ms Nsight shade dispatch.
+
+There is one important debug-route qualification. GI view 1 deliberately
+selects the full `FirstIndirectShadeRayGen` library. The host selects the
+smaller `FirstIndirectShadeFastRayGen` only when view is 0, NEE-cache secondary
+sampling is disabled, max bounces is at most 1, the direct sample count is 1,
+and direct probability is 1. The view-1 proof cleanly decomposes the full shade
+path, but its absolute 11.76 ms must not be attributed automatically to the
+shipping one-bounce fast permutation. A view-0 Nsight capture should compare
+the `ShadeFast` marker directly; frame FPS alone includes seed/reuse/final work.
+
+### Shadow-payload contract experiment
+
+The current bounce payload is 152 bytes: 40 bytes of the original hit/control
+state plus a 112-byte four-entry liquid-pool candidate set. Both GI pipeline
+descriptors still declared `maxPayloadSize = 64`. The 64-byte declaration was
+valid for the original 40-byte payload and became stale when the liquid
+candidate set was appended. This descriptor field is not a Vulkan performance
+control: NVRHI's Vulkan backend derives the interface from SPIR-V and does not
+read `maxPayloadSize`; its explicit use is in the D3D12 shader-config object.
+Correcting it is an ABI repair, not a proposed explanation for Vulkan timing.
+
+More importantly, every visibility shadow ray reused this complete bounce
+payload even though shadow traversal communicates only one blocked/unblocked
+`uint`. The shadow any-hit shader reads no payload state; the shadow closest-hit
+and miss shaders only set `value`. This design also predates the liquid
+extension: the original visibility ray still carried a 40-byte bounce payload
+where four bytes sufficed. The later 112-byte extension can amplify a current
+cost but cannot by itself explain the renderer's historical slowdown.
+
+A narrow A/B build now:
+
+- gives visibility rays a separate four-byte payload;
+- preserves static and skinned alpha/liquid any-hit behavior;
+- leaves the 152-byte bounce payload and all lighting math unchanged;
+- corrects the pipeline's largest-payload declaration from 64 to 152 bytes.
+
+The changed common skinned-hit, debug shade, debug ShadeFast, production shade,
+and production ShadeFast Vulkan libraries all pass `spirv-val` for Vulkan 1.2.
+The Release executable builds successfully. The full preset continues to stop
+only at the known unrelated clean-DI sentinel `ID overflow`.
+
+Runtime acceptance is deliberately simple: with one bounce and GI view 1,
+mode 4 should remain near 50 FPS because it never traces the visibility ray.
+If mode 0 rises materially from the prior 38 FPS toward mode 4, oversized
+shadow payload liveness was part of the 6.32 ms boundary. If mode 0 remains
+near 38 FPS, revert the experiment and continue inside traversal/hit routing
+and the five-millisecond proposal/setup slice.

@@ -64,6 +64,14 @@ struct PathTraceCleanRestirGiPayload
     CleanGiLiquidPoolCandidateSet liquidPool;
 };
 
+// Visibility only needs a blocked/unblocked bit. Keeping shadow rays on the
+// full bounce payload makes the 152-byte hit/liquid record live across the
+// producer shade megakernel even though shadow any-hit never consumes it.
+struct PathTraceCleanRestirGiShadowPayload
+{
+    uint value;
+};
+
 #if defined(CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_CS)
 void CleanGiTraceRayUnusedForProducerRayQueryCs(inout PathTraceCleanRestirGiPayload payload)
 {
@@ -4118,11 +4126,7 @@ float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3
     shadowRay.TMin = 0.01;
     shadowRay.TMax = max(distance - 0.5, 0.01);
 
-    PathTraceCleanRestirGiPayload shadowPayload = (PathTraceCleanRestirGiPayload)0;
-    shadowPayload.rayMode = 1u;
-    shadowPayload.ignoreInstanceId = 0xffffffffu;
-    shadowPayload.ignorePrimitiveIndex = 0xffffffffu;
-    shadowPayload.ignoreMaterialIndex = 0xffffffffu;
+    PathTraceCleanRestirGiShadowPayload shadowPayload = (PathTraceCleanRestirGiShadowPayload)0;
     const uint rayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE;
     TraceRay(SmokeScene, rayFlags, 0xff, 1, 0, 1, shadowRay, shadowPayload);
     return shadowPayload.value == 0u ? 1.0 : 0.0;
@@ -9018,7 +9022,7 @@ void Miss(inout PathTraceCleanRestirGiPayload payload)
 }
 
 [shader("miss")]
-void ShadowMiss(inout PathTraceCleanRestirGiPayload payload)
+void ShadowMiss(inout PathTraceCleanRestirGiShadowPayload payload)
 {
     payload.value = 0u;
 }
@@ -9059,7 +9063,7 @@ void AnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersec
 }
 
 [shader("anyhit")]
-void ShadowAnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
+void ShadowAnyHit(inout PathTraceCleanRestirGiShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
     const uint primitiveIndex = PrimitiveIndex();
@@ -9092,7 +9096,7 @@ void ClosestHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleInte
 }
 
 [shader("closesthit")]
-void ShadowClosestHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
+void ShadowClosestHit(inout PathTraceCleanRestirGiShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     payload.value = 1u;
 }

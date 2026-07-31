@@ -4306,6 +4306,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeTestDispatched = true;
             return;
         }
+        const uint32_t cleanGiHistoryResetMask =
+            RT_FRAME_RESET_OUTPUT_RESIZE |
+            RT_FRAME_RESET_BACKBUFFER_RESIZE |
+            RT_FRAME_RESET_SCENE_RESOURCES;
+        if ((m_frameResources.settings.resetReasonFlags &
+                cleanGiHistoryResetMask) != 0u)
+        {
+            m_cleanRestirGiState.InvalidateHistoryAndBindings();
+        }
+
         auto dispatchCleanRestirGi = [&](bool resolveToRrInputColor, bool dlssRrActive) -> bool
         {
             PathTraceCleanRestirGiDispatchInputs giInputs;

@@ -51,6 +51,11 @@ struct PathTraceCleanRestirGiPayload
     CleanGiLiquidPoolCandidateSet liquidPool;
 };
 
+struct PathTraceCleanRestirGiShadowPayload
+{
+    uint value;
+};
+
 struct PathTraceSmokeMaterial
 {
     float4 debugAlbedo;
@@ -966,7 +971,7 @@ void CLEAN_GI_HIT_ANY_EXPORT(
 
 [shader("anyhit")]
 void CLEAN_GI_HIT_SHADOW_ANY_EXPORT(
-    inout PathTraceCleanRestirGiPayload payload,
+    inout PathTraceCleanRestirGiShadowPayload payload,
     BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
@@ -1014,7 +1019,7 @@ void CLEAN_GI_HIT_CLOSEST_EXPORT(
 
 [shader("closesthit")]
 void CLEAN_GI_HIT_SHADOW_CLOSEST_EXPORT(
-    inout PathTraceCleanRestirGiPayload payload,
+    inout PathTraceCleanRestirGiShadowPayload payload,
     BuiltInTriangleIntersectionAttributes attributes)
 {
     payload.value = 1u;
