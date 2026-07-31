@@ -141,7 +141,7 @@ StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
 StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
-RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiPreviousReservoirs : register(u71);
+RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiTemporalReservoirs : register(u70);
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiSpatialReservoirs : register(u72);
 StructuredBuffer<PathTraceUnifiedLightRecord> CleanRtxdiDiRluCurrentLights : register(t66);
 StructuredBuffer<PathTraceMaterialFeatureRecord> PathTraceMaterialFeatures : register(t80);
@@ -151,7 +151,7 @@ RWStructuredBuffer<uint> PathTraceLiquidPoolStatusCounters : register(u94);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
-#define RTXDI_LIGHT_RESERVOIR_BUFFER CleanRtxdiDiPreviousReservoirs
+#define RTXDI_LIGHT_RESERVOIR_BUFFER CleanRtxdiDiTemporalReservoirs
 #include "Rtxdi/DI/ReservoirStorage.hlsli"
 
 cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
@@ -1102,7 +1102,11 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
     surface.instanceId = record.instancePrimitiveObject.x;
     surface.primitiveIndex = record.instancePrimitiveObject.y;
 
+#if defined(CLEAN_DI_VIEW_STATIC)
+    const uint resolvedMaterialIndex = record.materialAndSurface.y;
+#else
     const uint resolvedMaterialIndex = CleanResolveLiveMaterialIndex(record);
+#endif
 
     RAB_Material material = RAB_EmptyMaterial();
     material.materialId = surface.materialId;
@@ -1112,6 +1116,7 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
     material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
     material.roughness = saturate(record.geometricNormalAndRoughness.w);
     material.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
+#if !defined(CLEAN_DI_VIEW_STATIC)
     if ((record.header.w &
             (CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED |
                 CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED)) == 0u)
@@ -1122,6 +1127,7 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
             material.specularF0,
             material.roughness);
     }
+#endif
     material.opacity = saturate(record.shadingNormalAndOpacity.w);
     if ((record.header.w &
             (CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED |
@@ -1138,8 +1144,11 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
 
 RAB_Surface CleanSurfaceForView(PathTracePrimarySurfaceRecord record)
 {
-    if (CleanRtxdiDiView == 16u ||
-        CleanLiveMaterialClassifierBsdfActive(CleanResolveLiveMaterialIndex(record)))
+    if (CleanRtxdiDiView == 16u)
+    {
+        return CleanMaterialSurfaceFromRecord(record);
+    }
+    if (CleanLiveMaterialClassifierBsdfActive(CleanResolveLiveMaterialIndex(record)))
     {
         return CleanMaterialSurfaceFromRecord(record);
     }

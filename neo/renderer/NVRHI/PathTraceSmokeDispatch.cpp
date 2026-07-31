@@ -4105,17 +4105,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         if (cleanSpatialRoute &&
             staticBucketSecondaryIsolation.spatial)
         {
-            commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::CopySource);
-            commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::CopyDest);
-            commandList->commitBarriers();
-            commandList->copyBuffer(
-                m_smokeCleanRtxdiDiPreviousReservoirBuffer,
-                0,
-                m_smokeCleanRtxdiDiTemporalReservoirBuffer,
-                0,
-                cleanReservoirBytes);
-            m_smokeCleanRtxdiDiPreviousReservoirValid = cleanRtxdiDiTemporalEnabled;
-            commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->commitBarriers();
@@ -4139,6 +4129,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiSpatialReservoirBuffer);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
+            std::swap(
+                m_smokeCleanRtxdiDiTemporalReservoirBuffer,
+                m_smokeCleanRtxdiDiPreviousReservoirBuffer);
+            m_smokeCleanRtxdiDiPreviousReservoirValid = cleanRtxdiDiTemporalEnabled;
         }
         if (cleanProductionSpatialOnly)
         {

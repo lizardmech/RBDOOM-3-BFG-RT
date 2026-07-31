@@ -319,7 +319,11 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
     surface.instanceId = record.instancePrimitiveObject.x;
     surface.primitiveIndex = record.instancePrimitiveObject.y;
 
+#if defined(CLEAN_DI_VIEW_STATIC)
+    const uint resolvedMaterialIndex = record.materialAndSurface.y;
+#else
     const uint resolvedMaterialIndex = PathTraceCleanRoomResolveLiveMaterialIndex(record);
+#endif
 
     RAB_Material material = RAB_EmptyMaterial();
     material.materialId = surface.materialId;
@@ -329,8 +333,7 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
     material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
     material.roughness = saturate(record.geometricNormalAndRoughness.w);
     material.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
-    // Transmission/reflection PSR already wrote resolved hit materials; do not
-    // re-run the live classifier over the replacement surface.
+#if !defined(CLEAN_DI_VIEW_STATIC)
     if ((record.header.w &
             (CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED |
                 CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED)) == 0u)
@@ -341,6 +344,7 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
             material.specularF0,
             material.roughness);
     }
+#endif
     material.opacity = saturate(record.shadingNormalAndOpacity.w);
     if ((record.header.w &
             (CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED |
@@ -357,8 +361,11 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
 
 RAB_Surface PathTraceCleanRoomSurfaceForView(PathTracePrimarySurfaceRecord record)
 {
-    if (CleanRtxdiDiView == 16u ||
-        PathTraceCleanRoomLiveMaterialClassifierBsdfActive(PathTraceCleanRoomResolveLiveMaterialIndex(record)))
+    if (CleanRtxdiDiView == 16u)
+    {
+        return PathTraceCleanRoomMaterialSurfaceFromRecord(record);
+    }
+    if (PathTraceCleanRoomLiveMaterialClassifierBsdfActive(PathTraceCleanRoomResolveLiveMaterialIndex(record)))
     {
         return PathTraceCleanRoomMaterialSurfaceFromRecord(record);
     }
