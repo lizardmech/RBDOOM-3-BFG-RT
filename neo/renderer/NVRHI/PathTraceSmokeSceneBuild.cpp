@@ -14586,6 +14586,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.unifiedLightRemapCount = static_cast<int>(unifiedLights.currentToPreviousRemap.size());
     sceneInputs.lights.restirLightManagerCurrentPayloadCount = static_cast<int>(restirLightManagerCurrentPayloadRecords.size());
     sceneInputs.lights.restirLightManagerPreviousPayloadCount = static_cast<int>(restirLightManagerPreviousPayloadRecords.size());
+    sceneInputs.lights.restirLightManagerEmissiveRangeOffset = remixLightManagerSignatureStats.emissiveRangeOffset;
+    sceneInputs.lights.restirLightManagerEmissiveRangeCount = remixLightManagerSignatureStats.emissiveRangeCount;
+    sceneInputs.lights.restirLightManagerDoomAnalyticRangeOffset = remixLightManagerSignatureStats.doomAnalyticRangeOffset;
+    sceneInputs.lights.restirLightManagerDoomAnalyticRangeCount = remixLightManagerSignatureStats.doomAnalyticRangeCount;
+    sceneInputs.lights.restirLightManagerDoomAnalyticSampleableCount = remixLightManagerSignatureStats.doomAnalyticCurrentSampleableCount;
+    sceneInputs.lights.restirLightManagerStructuralSignature = remixLightManagerSignatureStats.structuralSignature;
+    sceneInputs.lights.restirLightManagerMappingSignature = remixLightManagerSignatureStats.mappingSignature;
+    sceneInputs.lights.restirLightManagerPayloadSignature = remixLightManagerSignatureStats.payloadSignature;
     sceneInputs.lights.emissiveDistributionTotalPdf = emissiveDistribution.totalPdf;
     sceneInputs.lights.emissiveDistributionFallbackWeight = emissiveDistribution.fallbackWeight;
     sceneInputs.lights.emissiveDistributionValid = emissiveDistribution.valid;

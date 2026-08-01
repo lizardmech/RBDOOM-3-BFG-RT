@@ -1,0 +1,369 @@
+UPT-04 Minimal Unified Initial Sampler: GPU Work Admission
+==========================================================
+
+Status
+------
+
+Pre-implementation gate complete. UPT-04 itself is not complete.
+
+First host-publication portion implemented:
+
+    RtPathTraceSceneInputs now publishes manager-owned emissive/analytic ranges,
+    analytic sampleable-prefix count, and structural/mapping/payload signatures.
+    No GPU work or renderer route was added. P1/P2/P3 remain prerequisites.
+
+This document freezes the first renderer workload before any production UPT-04
+resource, pipeline, ray, or host dispatch is written. It reconciles the UPT-01
+live ownership audit with the UPT-02/03 codec and identifies mandatory host
+publications that would otherwise force hidden scans, duplicated tables, or
+reuse of the current DI/GI binding universe.
+
+Exact estimator step admitted
+-----------------------------
+
+The baseline initial sampler performs one draw from one normalized proposal
+mixture per valid primary receiver. It does not generate one unconditional
+candidate for every family.
+
+Enabled top-level families are:
+
+    explicit local light
+        Select one current sampleable manager record. Its record type chooses
+        analytic versus emissive-triangle sampling. Evaluate the baseline
+        material at the primary receiver and trace at most one visibility ray.
+
+    environment
+        Select a direction from the published environment provider and trace at
+        most one visibility ray. This family remains disabled and its mixture
+        probability is renormalized to zero until M6 publishes the provider.
+
+    indirect continuation
+        Ask the baseline MaterialSet for one continuation event and trace at
+        most one continuation ray. A miss may consume the environment provider.
+        An emissive hit may terminate with endpoint emission. At an opaque hit,
+        evaluate one explicit local-light NEE proposal and trace at most one
+        visibility ray for that connection.
+
+This admits one logical candidate and therefore M = 1 for a defined trial in
+the first production specialization. The shared reservoir is still required:
+it fixes the selected-sample ABI, event classification, later reuse input, and
+identical normalization for direct/global families. Raising the initial
+candidate count is a new ledger decision, not a cvar hidden inside this pass.
+
+The stored proposal PDF includes every probability used to create the event:
+
+    top-level family probability
+    local-light type/range and dense-record selection probability
+    light-surface or environment-direction PDF
+    material lobe and continuation-direction PDF where applicable
+
+For an indirect opaque-hit NEE event, the stored forward path PDF also includes
+the primary material continuation PDF. Russian roulette is absent. No
+visibility probability is multiplied into a PDF; visibility changes the
+defined candidate to VALID_ZERO when occluded.
+
+Family disable rule
+-------------------
+
+Only available families participate in normalization. A missing environment,
+an empty sampleable local-light range, or a material with no continuation lobe
+removes that branch and renormalizes the remaining probabilities before the
+family draw. A disabled branch creates no placeholder candidate.
+
+If no family is available, the receiver writes canonical empty. If a selected
+available technique produces a mathematically defined zero contribution, it is
+VALID_ZERO. Broken identity, stale generation, zero/non-finite required PDF,
+impossible hit route, or failed material decode is INVALID and cannot change M.
+
+Ray ledger
+----------
+
+Per valid receiver, mutually exclusive family work is:
+
+    family/event                 continuation rays   visibility rays   maximum
+    explicit analytic/emissive          0                   1              1
+    direct environment                  0                   1              1
+    indirect miss/environment           1                   0              1
+    indirect emissive endpoint          1                   0              1
+    indirect opaque-hit local NEE       1                   1              2
+
+Absolute ceiling:
+
+    primary/camera rays             0; consume current primary surface
+    continuation rays               <= eligible receivers
+    visibility rays                 <= eligible receivers
+    total D0 rays                   <= 2 * eligible receivers
+    resolve/reconnection rays       0
+
+There is no branch where both a direct-family visibility ray and an indirect
+continuation execute for the same receiver. A visibility segment already
+proved by the selected initial path is never retraced in UPT-05 resolve.
+
+Backend A/B contract
+--------------------
+
+Two static composition entry points must call the same transport, material,
+proposal, random, validation, update, and pack modules:
+
+    initial_rayquery
+        compute, 8 x 8 candidate group proposed for the first measurement
+
+    initial_raygen
+        ray-generation entry with the same receiver domain and candidate policy
+
+Only the trace adapter differs. Both adapters return the same compact facts:
+
+    miss/hit status
+    instance, geometry, and primitive identity
+    barycentrics, hit distance, and front-face state
+
+Neither backend may shade inside its trace adapter. The caller-owned transport
+loop passes hit facts to the selected MaterialSet/geometry adapter. The A/B uses
+the same dimensions, scene, fixed random provider, family probabilities, and
+ray ceiling. Pipeline order is alternated because UPT-00 proved first-created
+pipeline timing can contaminate a comparison.
+
+The losing backend is removed from the baseline specialization after the A/B.
+Keeping both active or creating both pipelines on every launch is forbidden.
+
+Resource ledger
+---------------
+
+Existing, reused inputs:
+
+    current TLAS
+    current primary-surface StructuredBuffer, 176-byte rows
+    current manager unified-light StructuredBuffer, 112-byte rows
+    current emissive replay StructuredBuffer
+    only the current static/dynamic/rigid/skinned geometry buffers needed by the
+        accepted hit decoder
+    material table, feature table, parameter table, and dynamic material table
+        visible only inside the selected MaterialSet
+    one existing bindless texture descriptor table/layout and sampler, after M4
+        publishes a compute-plus-ray-tracing compatible contract
+
+New UPT-owned runtime allocation:
+
+    reservoir page 0
+        width * height * 64 bytes, structured UAV/SRV
+        created only while the UPT route is active
+        every in-domain invocation writes selected or canonical empty
+        no per-frame clear; clear only at creation/reset before first dispatch
+
+Optional debug specialization only:
+
+    one fixed counter buffer and CPU readback
+        receiver valid/invalid
+        candidate INVALID/VALID_ZERO/VALID_POSITIVE by family
+        selected event by family/path length
+        continuation and visibility rays emitted
+        canonical-empty writes
+
+Not allocated in UPT-04:
+
+    HDR output; admitted by UPT-05, not D0
+    reservoir page 1 or any history
+    DI/GI reservoirs, validity images, sample-ID/duplication images
+    ray/hit/work queues or indirect arguments
+    copied primary/material/light/texture/geometry data
+    environment texture or alias owned privately by the smoke renderer
+    blue-noise texture
+    any RR, PSR, liquid, particle, ReGIR, NEE-cache, or denoiser resource
+
+Descriptor ownership
+--------------------
+
+The exact numeric slots are frozen only after the missing publications below
+are added and both backend reflections are available. The ownership split is
+already fixed:
+
+    set 0, UPT pass layout
+        TLAS
+        primary surface SRV
+        manager current-light SRV
+        emissive replay SRV
+        geometry/material SRVs required by the hit and MaterialSet adapters
+        reservoir page-0 UAV
+        optional counter UAV only in a separate debug entry point/layout
+
+    set 1, shared material texture layout
+        existing bindless texture descriptor table
+        existing shared sampler under the published material-texture contract
+
+ReSTIR/reservoir/proposal modules declare none of the concrete geometry,
+material-table, texture, or sampler resources. The composition root passes
+transport-neutral results into reservoir update. A narrow resource count is
+not achieved by hiding concrete buffers in global modules.
+
+Per-dispatch control
+--------------------
+
+The proposed push-constant block contains only uint32/float32 scalar words:
+
+    render width/height and surface count
+    frame/sample index
+    enabled-family mask and static specialization identity
+    sampleable emissive/analytic range starts and counts
+    environment enabled flag
+    primary/material/light/texture/geometry/ABI generation fingerprints
+
+Target is <= 128 bytes. There is no legacy PathTraceSmokeConstants binding.
+If reflection or Vulkan device limits reject the frozen push block, stop and
+admit one small UPT volatile constant buffer explicitly; do not reuse the smoke
+constant buffer.
+
+Mandatory publications before D0 host wiring
+---------------------------------------------
+
+P1. Explicit UPT scene-publication request (UPT-01 M9)
+
+    BuildRayTracingSmokeTestScene must publish current material textures,
+    emissive replay, and manager payload when UPT is requested while every
+    current DI/GI route is off. It may not activate or initialize a DI/GI pass.
+
+P2. Neutral primary-producer schedule (UPT-01 M7)
+
+    The current producer is nested under cleanRtxdiDiView 2..25 after Clean-DI
+    pipeline preparation. Extract request/prepare/dispatch/barrier/publication
+    so UPT can request it without loading Clean-DI/GI pipelines. The current
+    user modification that swaps current/previous primary handles must remain
+    owned by the single post-consumer history publication; extraction may not
+    reintroduce a duplicate copy or swap.
+
+P3. Material texture binding publication (UPT-01 M4)
+
+    Publish layout, sampler, logical descriptor count excluding the CPU
+    sentinel, and descriptor generation with the table handle. Widen the one
+    shared layout to compute plus ray-tracing visibility only if NVRHI/Vulkan
+    reflection proves the same descriptor table remains valid. Do not clone
+    2048 descriptors for RayQuery.
+
+P4. Current sampleable light ranges
+
+    This is newly confirmed by the live manager audit. currentLightCount is the
+    size of m_currentLightPayloads, not the number of sampleable records.
+    RebuildAnalyticStabilityClassification marks analytic sampleability, then
+    SortCurrentDoomAnalyticRangeByCacheability places stable, unstable, and
+    rejected records in that order. Sampling [0, currentLightCount) would admit
+    rejected analytic identities or force per-pixel scans.
+
+    Publish the manager-owned current emissive start/count and the analytic
+    sampleable-prefix start/count, together with the payload generation. UPT
+    samples only those ranges. It must not scan flags, build a compacted light
+    list, or treat an unsampleable identity as a defined zero to preserve FPS.
+
+P5. Environment provider (UPT-01 M6)
+
+    Not a bring-up blocker. Until texture, sampler/policy, intensity, and
+    generation are published outside private smoke state, environment is
+    reported unavailable and receives zero mixture probability. The source
+    interface and random dimensions still exist so enabling it later does not
+    change reservoir ABI or reorder other draws.
+
+P6. Stable page generation snapshot
+
+    Freeze scene/map, TLAS/geometry, material/dynamic/texture, light payload,
+    primary producer, resolution, camera-cut, and ABI tokens before binding.
+    Any change drops the cached binding set and writes a new page generation.
+    UPT-04 has no history consumer, but stale identity must still fail closed.
+
+Host scheduling
+---------------
+
+The route remains inside PathTracePrimaryPass::ExecuteRayTracingSmokeTest only
+as a narrow call to a separate UPT composition owner:
+
+1. Build/commit RtPathTraceSceneInputs under an explicit UPT request.
+2. Run the neutral primary producer once for all requesting routes.
+3. Issue BufferUavBarrier on primary current.
+4. Invoke UPT.Initial bind/dispatch only when the UPT route is active.
+5. Do not run UPT.Resolve until UPT-05.
+6. Publish primary current-to-previous history once after all consumers.
+7. Return before current Clean DI/GI/NEE/ReGIR/PSR/particle/RR paths when UPT is
+   the selected route.
+
+UPT owns a route-neutral dispatched/output state. It must not set
+m_smokeTestDispatched merely to satisfy presentation. UPT-04 has no beauty
+output; presentation selection is admitted only with UPT-05 R2.
+
+Module boundary frozen for implementation
+-----------------------------------------
+
+    contracts.surface
+    contracts.hit
+    contracts.light
+    contracts.path_event
+    material.contract
+    material.openpbr_opaque
+    material.set_baseline
+    random.contract
+    random.white_hash
+    proposals.local_light
+    proposals.environment
+    transport.initial_bounded
+    backend.rayquery or backend.raygen
+    reservoir.contract/codec from UPT-03
+    pass.initial
+    composition.initial_<backend>_<materialset>_<randomprovider>
+
+The reservoir contract imports material.contract only for transport-neutral
+types if required; it never imports material.openpbr_opaque or the baseline set.
+Concrete resource declarations belong to adapters/composition. Replacing the
+baseline set with a deterministic test set changes only the composition import.
+
+Static production specializations
+---------------------------------
+
+Production candidates:
+
+    unified_white_<backend>
+    direct_only_white_<backend>
+    indirect_only_white_<backend>
+
+These are separate entry points/pipelines for validation. There is no large
+runtime debug switch and no environment/blue-noise binding in a specialization
+where that provider is unavailable. Diagnostic counters are a separate debug
+closure, not a production flag branch.
+
+Stop conditions before shader/host implementation
+-------------------------------------------------
+
+Stop rather than code around any of these:
+
+    UPT scene publication still requires enabling a DI/GI cvar
+    primary production cannot be requested without preparing DI/GI pipelines
+    current sampleable light ranges cannot be published by their CPU owner
+    RayQuery requires a cloned bindless descriptor table
+    the secondary-hit adapter cannot identify static/dynamic/rigid/skinned
+        geometry without scanning or guessing an instance route
+    direct and indirect backends do not return identical compact hit facts
+    any concrete OpenPBR field or texture index enters a ReSTIR module
+    the initial pass needs more than one reservoir page or an unledgered queue
+    a receiver can emit more than one continuation or one visibility ray
+    an unavailable family consumes a random slot by advancing a shared cursor
+    or the build creates temporal/spatial/resolve/optional-feature pipelines.
+
+Next implementation portion
+---------------------------
+
+Implement P1/P2/P4 as host-owned publications first, with a CPU scheduling test
+where possible. Do not begin the stochastic shader while the only route to a
+valid primary surface is still nested under Clean DI. After those publications
+build and preserve current DI behavior, add the contract/material/random modules
+and compile the two backend compositions against the frozen ledger above.
+
+Verification of this portion
+----------------------------
+
+The generated Release RBDoom3BFG C++ project compiled and linked successfully
+with BuildProjectReferences=false, including PathTraceSmokeSceneBuild.cpp and
+every consumer of RtPathTraceSceneInputs.
+
+The normal full target was attempted first. It stopped in the pre-existing,
+currently modified Clean-DI sentinel shader before compiling this C++ change:
+
+    DXC SPIR-V legalization: ID overflow; try compact-ids
+
+That shader is outside UPT-04 and was not edited or rolled back. The C++-only
+verification isolates this publication change without consuming or disturbing
+the user's active shader experiments.

@@ -230,6 +230,11 @@ Packet index
         Completed UPT-03 deterministic Slang compute codec, exact CPU/GPU byte
         comparison, reflection/dependency gate, and bounded zero-ray ledger.
 
+    12_upt04_initial_sampler_admission.txt
+        UPT-04 pre-implementation GPU work admission: one-draw proposal mixture,
+        exact ray ceiling, resource/module boundaries, and mandatory neutral
+        producer plus sampleable-light-range publications.
+
 Stop condition
 --------------
 

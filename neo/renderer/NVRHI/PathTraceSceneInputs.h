@@ -240,6 +240,14 @@ struct RtPathTraceSceneInputLights
     int unifiedLightRemapCount = 0;
     int restirLightManagerCurrentPayloadCount = 0;
     int restirLightManagerPreviousPayloadCount = 0;
+    uint32_t restirLightManagerEmissiveRangeOffset = 0;
+    uint32_t restirLightManagerEmissiveRangeCount = 0;
+    uint32_t restirLightManagerDoomAnalyticRangeOffset = 0;
+    uint32_t restirLightManagerDoomAnalyticRangeCount = 0;
+    uint32_t restirLightManagerDoomAnalyticSampleableCount = 0;
+    uint64_t restirLightManagerStructuralSignature = 0;
+    uint64_t restirLightManagerMappingSignature = 0;
+    uint64_t restirLightManagerPayloadSignature = 0;
     float emissiveDistributionTotalPdf = 0.0f;
     float emissiveDistributionFallbackWeight = 0.0f;
     bool emissiveDistributionValid = false;
