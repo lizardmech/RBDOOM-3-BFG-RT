@@ -12,7 +12,7 @@ void main()
         return;
     const Upt04InitialTraceWork work = Upt04PrepareInitialTraceWork(pixel);
     Upt04HitFacts hit = Upt04MissFacts(work.ray.tMax);
-    if (work.valid != 0u)
+    if (work.valid != 0u && work.traceRequired != 0u)
     {
         RayDesc ray;
         ray.Origin = work.ray.origin;

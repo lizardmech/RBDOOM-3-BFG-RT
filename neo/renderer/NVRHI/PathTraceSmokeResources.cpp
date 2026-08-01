@@ -77,6 +77,7 @@ static uint64_t BuildPathTraceSceneTransitionSignature(const RtPathTraceSceneInp
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.rigidRouteInstanceCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.skinnedHitRouteRecordCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.skinnedHitRouteTriangleCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.skinnedSourceIndexCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.materialTableEntryCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.materialFeatureRecordCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.materialFeatureParameterRecordCount));

@@ -14533,6 +14533,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             : static_cast<int>(
                 skinnedHitRouteGpuUpload.records.front().
                     triangleMetadataCount);
+    sceneInputs.geometry.skinnedSourceIndexCount =
+        static_cast<int>(skinnedSourceIndexCount);
     sceneInputs.geometry.skinnedPreviousPositionCount = static_cast<int>(skinnedGpuScaffold.previousPositions.size());
     sceneInputs.geometry.skinnedSurfaceDispatchCount = static_cast<int>(skinnedGpuScaffold.dispatchRecords.size());
     sceneInputs.geometry.skinnedTriangleDispatchIndexCount = static_cast<int>(skinnedGpuScaffold.dynamicTriangleDispatchIndexes.size());

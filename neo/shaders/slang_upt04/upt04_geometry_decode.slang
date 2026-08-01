@@ -1,0 +1,340 @@
+import upt04_geometry_contract;
+import upt04_geometry_bindings;
+import upt04_initial_bindings;
+import upt04_initial_control;
+import upt04_hit_contract;
+
+public float3 Upt04GeometrySafeNormalize(float3 value, float3 fallback)
+{
+    const float lengthSquared = dot(value, value);
+    return isfinite(lengthSquared) && lengthSquared > 1.0e-12f
+        ? value * rsqrt(lengthSquared)
+        : fallback;
+}
+
+public bool Upt04TriangleIndexOffset(uint primitiveIndex, uint indexCount, out uint indexOffset)
+{
+    indexOffset = 0u;
+    if (primitiveIndex > (0xffffffffu - 2u) / 3u)
+        return false;
+    indexOffset = primitiveIndex * 3u;
+    return indexOffset < indexCount && indexCount - indexOffset >= 3u;
+}
+
+public bool Upt04LoadIndexedTriangle(
+    uint primitiveIndex,
+    uint vertexCount,
+    uint indexCount,
+    StructuredBuffer<Upt04SmokeVertex> vertices,
+    StructuredBuffer<uint> indices,
+    out Upt04SmokeVertex vertex0,
+    out Upt04SmokeVertex vertex1,
+    out Upt04SmokeVertex vertex2)
+{
+    vertex0 = (Upt04SmokeVertex)0;
+    vertex1 = (Upt04SmokeVertex)0;
+    vertex2 = (Upt04SmokeVertex)0;
+    uint indexOffset;
+    if (!Upt04TriangleIndexOffset(primitiveIndex, indexCount, indexOffset))
+        return false;
+    const uint index0 = indices[indexOffset + 0u];
+    const uint index1 = indices[indexOffset + 1u];
+    const uint index2 = indices[indexOffset + 2u];
+    if (index0 >= vertexCount || index1 >= vertexCount || index2 >= vertexCount)
+        return false;
+    vertex0 = vertices[index0];
+    vertex1 = vertices[index1];
+    vertex2 = vertices[index2];
+    return true;
+}
+
+public float3 Upt04RigidTransformPoint(Upt04RigidRouteInstance route, float3 point)
+{
+    return float3(
+        dot(route.currentObjectToWorld0, float4(point, 1.0f)),
+        dot(route.currentObjectToWorld1, float4(point, 1.0f)),
+        dot(route.currentObjectToWorld2, float4(point, 1.0f)));
+}
+
+public float3 Upt04RigidTransformVector(Upt04RigidRouteInstance route, float3 vector)
+{
+    return float3(
+        dot(route.currentObjectToWorld0.xyz, vector),
+        dot(route.currentObjectToWorld1.xyz, vector),
+        dot(route.currentObjectToWorld2.xyz, vector));
+}
+
+public Upt04SmokeVertex Upt04RigidTransformVertex(
+    Upt04RigidRouteInstance route,
+    Upt04SmokeVertex vertex)
+{
+    vertex.position.xyz = Upt04RigidTransformPoint(route, vertex.position.xyz);
+    vertex.normal.xyz = Upt04GeometrySafeNormalize(
+        Upt04RigidTransformVector(route, vertex.normal.xyz),
+        float3(0.0f, 0.0f, 1.0f));
+    vertex.tangent.xyz = Upt04GeometrySafeNormalize(
+        Upt04RigidTransformVector(route, vertex.tangent.xyz),
+        float3(1.0f, 0.0f, 0.0f));
+    vertex.bitangent.xyz = Upt04GeometrySafeNormalize(
+        Upt04RigidTransformVector(route, vertex.bitangent.xyz),
+        float3(0.0f, 1.0f, 0.0f));
+    return vertex;
+}
+
+public bool Upt04LoadStaticTriangle(
+    uint triangleIndex,
+    uint identityInstanceId,
+    uint identityPrimitiveIndex,
+    out Upt04ResolvedTriangle triangle)
+{
+    triangle = (Upt04ResolvedTriangle)0;
+    if (triangleIndex >= gUpt04Control.staticTriangleCount
+        || !Upt04LoadIndexedTriangle(
+            triangleIndex,
+            gUpt04Control.staticVertexCount,
+            gUpt04Control.staticIndexCount,
+            gUpt04StaticVertices,
+            gUpt04StaticIndices,
+            triangle.vertex0,
+            triangle.vertex1,
+            triangle.vertex2))
+        return false;
+    triangle.materialIndex = gUpt04StaticTriangleMaterialIndices[triangleIndex];
+    triangle.triangleClassAndFlags = gUpt04StaticTriangleClasses[triangleIndex];
+    triangle.instanceId = identityInstanceId;
+    triangle.primitiveIndex = identityPrimitiveIndex;
+    triangle.valid = 1u;
+    return true;
+}
+
+public bool Upt04LoadDynamicTriangle(uint primitiveIndex, out Upt04ResolvedTriangle triangle)
+{
+    triangle = (Upt04ResolvedTriangle)0;
+    if (primitiveIndex >= gUpt04Control.dynamicTriangleCount
+        || !Upt04LoadIndexedTriangle(
+            primitiveIndex,
+            gUpt04Control.dynamicVertexCount,
+            gUpt04Control.dynamicIndexCount,
+            gUpt04DynamicVertices,
+            gUpt04DynamicIndices,
+            triangle.vertex0,
+            triangle.vertex1,
+            triangle.vertex2))
+        return false;
+    triangle.materialIndex = gUpt04DynamicTriangleMaterialIndices[primitiveIndex];
+    triangle.triangleClassAndFlags = gUpt04DynamicTriangleClasses[primitiveIndex];
+    triangle.instanceId = 1u;
+    triangle.primitiveIndex = primitiveIndex;
+    triangle.valid = 1u;
+    return true;
+}
+
+public bool Upt04LoadRigidTriangle(
+    uint instanceId,
+    uint primitiveIndex,
+    out Upt04ResolvedTriangle triangle)
+{
+    triangle = (Upt04ResolvedTriangle)0;
+    if (instanceId < 2u || instanceId - 2u >= gUpt04Control.rigidInstanceCount)
+        return false;
+    const Upt04RigidRouteInstance route = gUpt04RigidInstances[instanceId - 2u];
+    if (primitiveIndex >= route.triangleCount
+        || route.triangleOffset > gUpt04Control.rigidTriangleCount
+        || primitiveIndex >= gUpt04Control.rigidTriangleCount - route.triangleOffset
+        || primitiveIndex > (0xffffffffu - 2u) / 3u)
+        return false;
+    const uint localIndexOffset = primitiveIndex * 3u;
+    if (localIndexOffset >= route.indexCount || route.indexCount - localIndexOffset < 3u
+        || route.indexOffset > gUpt04Control.rigidIndexCount
+        || localIndexOffset >= gUpt04Control.rigidIndexCount - route.indexOffset
+        || gUpt04Control.rigidIndexCount - route.indexOffset - localIndexOffset < 3u)
+        return false;
+    const uint indexOffset = route.indexOffset + localIndexOffset;
+    const uint localIndex0 = gUpt04RigidIndices[indexOffset + 0u];
+    const uint localIndex1 = gUpt04RigidIndices[indexOffset + 1u];
+    const uint localIndex2 = gUpt04RigidIndices[indexOffset + 2u];
+    if (localIndex0 >= route.vertexCount || localIndex1 >= route.vertexCount || localIndex2 >= route.vertexCount
+        || route.vertexOffset > gUpt04Control.rigidVertexCount
+        || localIndex0 >= gUpt04Control.rigidVertexCount - route.vertexOffset
+        || localIndex1 >= gUpt04Control.rigidVertexCount - route.vertexOffset
+        || localIndex2 >= gUpt04Control.rigidVertexCount - route.vertexOffset)
+        return false;
+    triangle.vertex0 = Upt04RigidTransformVertex(route, gUpt04RigidVertices[route.vertexOffset + localIndex0]);
+    triangle.vertex1 = Upt04RigidTransformVertex(route, gUpt04RigidVertices[route.vertexOffset + localIndex1]);
+    triangle.vertex2 = Upt04RigidTransformVertex(route, gUpt04RigidVertices[route.vertexOffset + localIndex2]);
+    triangle.materialIndex = route.materialIndex;
+    triangle.triangleClassAndFlags = kUpt04RigidSurfaceClass;
+    triangle.instanceId = instanceId;
+    triangle.primitiveIndex = primitiveIndex;
+    triangle.valid = 1u;
+    return true;
+}
+
+public bool Upt04SkinnedInstanceInRange(uint instanceId, out uint routeIndex)
+{
+    routeIndex = 0u;
+    if (gUpt04Control.skinnedRouteRecordCount == 0u)
+        return false;
+    const Upt04SkinnedRouteRecord header = gUpt04SkinnedRoutes[0];
+    if (header.routeCount != gUpt04Control.skinnedRouteRecordCount
+        || header.triangleMetadataCount != gUpt04Control.skinnedRouteTriangleCount
+        || instanceId < header.shaderInstanceId
+        || instanceId - header.shaderInstanceId >= header.routeCount)
+        return false;
+    routeIndex = instanceId - header.shaderInstanceId;
+    return true;
+}
+
+public bool Upt04LoadSkinnedTriangle(
+    uint instanceId,
+    uint primitiveIndex,
+    out Upt04ResolvedTriangle triangle)
+{
+    triangle = (Upt04ResolvedTriangle)0;
+    uint routeIndex;
+    if (!Upt04SkinnedInstanceInRange(instanceId, routeIndex))
+        return false;
+    const Upt04SkinnedRouteRecord route = gUpt04SkinnedRoutes[routeIndex];
+    if (route.shaderInstanceId != instanceId
+        || route.routeCount != gUpt04Control.skinnedRouteRecordCount
+        || route.triangleMetadataCount != gUpt04Control.skinnedRouteTriangleCount
+        || primitiveIndex >= route.triangleCount
+        || primitiveIndex > (0xffffffffu - 2u) / 3u)
+        return false;
+    const uint localIndexOffset = primitiveIndex * 3u;
+    if (localIndexOffset >= route.indexCount || route.indexCount - localIndexOffset < 3u
+        || route.sourceIndexOffset > gUpt04Control.skinnedSourceIndexCount
+        || localIndexOffset >= gUpt04Control.skinnedSourceIndexCount - route.sourceIndexOffset
+        || gUpt04Control.skinnedSourceIndexCount - route.sourceIndexOffset - localIndexOffset < 3u
+        || route.triangleMetadataOffset > gUpt04Control.skinnedRouteTriangleCount
+        || primitiveIndex >= gUpt04Control.skinnedRouteTriangleCount - route.triangleMetadataOffset)
+        return false;
+    const Upt04SkinnedRouteTriangle metadata =
+        gUpt04SkinnedTriangles[route.triangleMetadataOffset + primitiveIndex];
+    if (metadata.sourcePrimitiveIndex != primitiveIndex)
+        return false;
+    const uint indexOffset = route.sourceIndexOffset + localIndexOffset;
+    const uint localIndex0 = gUpt04SkinnedSourceIndices[indexOffset + 0u];
+    const uint localIndex1 = gUpt04SkinnedSourceIndices[indexOffset + 1u];
+    const uint localIndex2 = gUpt04SkinnedSourceIndices[indexOffset + 2u];
+    if (localIndex0 >= route.vertexCount || localIndex1 >= route.vertexCount || localIndex2 >= route.vertexCount
+        || route.outputVertexOffset > gUpt04Control.skinnedCurrentVertexCount
+        || localIndex0 >= gUpt04Control.skinnedCurrentVertexCount - route.outputVertexOffset
+        || localIndex1 >= gUpt04Control.skinnedCurrentVertexCount - route.outputVertexOffset
+        || localIndex2 >= gUpt04Control.skinnedCurrentVertexCount - route.outputVertexOffset)
+        return false;
+    triangle.vertex0 = gUpt04SkinnedCurrentVertices[route.outputVertexOffset + localIndex0];
+    triangle.vertex1 = gUpt04SkinnedCurrentVertices[route.outputVertexOffset + localIndex1];
+    triangle.vertex2 = gUpt04SkinnedCurrentVertices[route.outputVertexOffset + localIndex2];
+    triangle.materialIndex = metadata.materialIndex;
+    triangle.triangleClassAndFlags = metadata.triangleClassAndFlags;
+    triangle.instanceId = instanceId;
+    triangle.primitiveIndex = primitiveIndex;
+    triangle.valid = 1u;
+    return true;
+}
+
+public bool Upt04ResolveTriangle(Upt04HitFacts hit, out Upt04ResolvedTriangle triangle)
+{
+    triangle = (Upt04ResolvedTriangle)0;
+    if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u)
+        return false;
+
+    const bool staticBucket =
+        (gUpt04Control.availabilityFlags & kUpt04RouteStaticBuckets) != 0u
+        && (hit.instanceId & ~kUpt04ShaderInstanceMask) == 0u
+        && (hit.instanceId & kUpt04StaticBucketInstanceBit) != 0u;
+    if (staticBucket)
+    {
+        const uint triangleBase = hit.instanceId & kUpt04StaticBucketTriangleMask;
+        if (triangleBase >= gUpt04Control.staticTriangleCount
+            || hit.primitiveId >= gUpt04Control.staticTriangleCount - triangleBase)
+            return false;
+        return Upt04LoadStaticTriangle(
+            triangleBase + hit.primitiveId,
+            hit.instanceId,
+            hit.primitiveId,
+            triangle);
+    }
+    if (hit.instanceId == 0u)
+        return Upt04LoadStaticTriangle(hit.primitiveId, 0u, hit.primitiveId, triangle);
+    if (hit.instanceId == 1u)
+        return Upt04LoadDynamicTriangle(hit.primitiveId, triangle);
+
+    uint skinnedRouteIndex;
+    if (Upt04SkinnedInstanceInRange(hit.instanceId, skinnedRouteIndex))
+        return Upt04LoadSkinnedTriangle(hit.instanceId, hit.primitiveId, triangle);
+    return Upt04LoadRigidTriangle(hit.instanceId, hit.primitiveId, triangle);
+}
+
+public Upt04GeometryHitSurface Upt04BuildGeometryHitSurface(
+    Upt04ResolvedTriangle triangle,
+    float2 hitBarycentrics,
+    uint frontFace)
+{
+    Upt04GeometryHitSurface surface = (Upt04GeometryHitSurface)0;
+    if (triangle.valid == 0u || !all(isfinite(hitBarycentrics)))
+        return surface;
+    const float3 barycentrics = float3(
+        1.0f - hitBarycentrics.x - hitBarycentrics.y,
+        hitBarycentrics.x,
+        hitBarycentrics.y);
+    if (any(barycentrics < -1.0e-4f) || any(barycentrics > 1.0001f))
+        return surface;
+    const float3 position0 = triangle.vertex0.position.xyz;
+    const float3 position1 = triangle.vertex1.position.xyz;
+    const float3 position2 = triangle.vertex2.position.xyz;
+    const float3 geometricNormal = Upt04GeometrySafeNormalize(
+        cross(position1 - position0, position2 - position0),
+        float3(0.0f, 0.0f, 1.0f));
+    const float3 shadingNormal = Upt04GeometrySafeNormalize(
+        triangle.vertex0.normal.xyz * barycentrics.x
+            + triangle.vertex1.normal.xyz * barycentrics.y
+            + triangle.vertex2.normal.xyz * barycentrics.z,
+        geometricNormal);
+    const float3 rawTangent = triangle.vertex0.tangent.xyz * barycentrics.x
+        + triangle.vertex1.tangent.xyz * barycentrics.y
+        + triangle.vertex2.tangent.xyz * barycentrics.z;
+    const float3 tangent = Upt04GeometrySafeNormalize(
+        rawTangent - shadingNormal * dot(shadingNormal, rawTangent),
+        Upt04GeometrySafeNormalize(cross(float3(0.0f, 0.0f, 1.0f), shadingNormal),
+            float3(1.0f, 0.0f, 0.0f)));
+    const float3 rawBitangent = triangle.vertex0.bitangent.xyz * barycentrics.x
+        + triangle.vertex1.bitangent.xyz * barycentrics.y
+        + triangle.vertex2.bitangent.xyz * barycentrics.z;
+    const float3 bitangent = Upt04GeometrySafeNormalize(
+        rawBitangent - shadingNormal * dot(shadingNormal, rawBitangent)
+            - tangent * dot(tangent, rawBitangent),
+        Upt04GeometrySafeNormalize(cross(shadingNormal, tangent), float3(0.0f, 1.0f, 0.0f)));
+
+    surface.valid = 1u;
+    surface.materialIndex = triangle.materialIndex;
+    surface.triangleClassAndFlags = triangle.triangleClassAndFlags;
+    surface.frontFace = frontFace;
+    surface.position = position0 * barycentrics.x + position1 * barycentrics.y + position2 * barycentrics.z;
+    surface.geometricNormal = geometricNormal;
+    surface.shadingNormal = shadingNormal;
+    surface.tangent = tangent;
+    surface.bitangent = bitangent;
+    surface.texCoord = triangle.vertex0.texCoord.xy * barycentrics.x
+        + triangle.vertex1.texCoord.xy * barycentrics.y
+        + triangle.vertex2.texCoord.xy * barycentrics.z;
+    surface.normalTexCoord = triangle.vertex0.texCoord.zw * barycentrics.x
+        + triangle.vertex1.texCoord.zw * barycentrics.y
+        + triangle.vertex2.texCoord.zw * barycentrics.z;
+    surface.vertexColor = triangle.vertex0.color * barycentrics.x
+        + triangle.vertex1.color * barycentrics.y
+        + triangle.vertex2.color * barycentrics.z;
+    surface.vertexColorAdd = triangle.vertex0.color2 * barycentrics.x
+        + triangle.vertex1.color2 * barycentrics.y
+        + triangle.vertex2.color2 * barycentrics.z;
+    return surface;
+}
+
+public Upt04GeometryHitSurface Upt04DecodeGeometryHit(Upt04HitFacts hit)
+{
+    Upt04ResolvedTriangle triangle;
+    if (!Upt04ResolveTriangle(hit, triangle))
+        return (Upt04GeometryHitSurface)0;
+    return Upt04BuildGeometryHitSurface(triangle, hit.barycentrics, hit.frontFace);
+}

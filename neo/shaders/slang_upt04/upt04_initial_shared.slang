@@ -15,6 +15,8 @@ import upt04_path_event_contract;
 public struct Upt04InitialTraceWork
 {
     public uint valid;
+    public uint candidateStatus;
+    public uint traceRequired;
     public uint surfaceIndex;
     public uint lightIndex;
     public uint lightType;
@@ -93,19 +95,7 @@ public Upt04InitialTraceWork Upt04PrepareInitialTraceWork(uint2 pixel)
         light,
         surface.worldPositionAndViewDepth.xyz,
         selection.sampleCoordinates);
-    if (lightSample.valid == 0u)
-        return work;
-
-    work.transport = Upt04BeginBoundedTransport();
-    if (!Upt04AdmitDirectVisibility(work.transport)
-        || !Upt04RayBudgetWithinD0Ceiling(work.transport))
-        return work;
-
-    work.ray.origin = surface.worldPositionAndViewDepth.xyz;
-    work.ray.tMin = 0.01f;
-    work.ray.direction = lightSample.direction;
-    work.ray.tMax = max(lightSample.distance - 0.02f, work.ray.tMin + 1.0e-4f);
-    if (!Upt04TraceRequestValid(work.ray))
+    if (lightSample.status == kUpt04SampleInvalid)
         return work;
 
     const float3 bindingProbe = Upt04MaterialBindingProbe(
@@ -125,6 +115,24 @@ public Upt04InitialTraceWork Upt04PrepareInitialTraceWork(uint2 pixel)
     if (!Upt04FinitePositive(work.proposalPdf))
         return work;
     work.sampleCoordinates = selection.sampleCoordinates;
+    work.candidateStatus = lightSample.status == kUpt04SampleValidPositive
+            && work.material.target > 0.0f
+        ? kUpt04SampleValidPositive
+        : kUpt04SampleValidZero;
+    work.transport = Upt04BeginBoundedTransport();
+    if (work.candidateStatus == kUpt04SampleValidPositive)
+    {
+        if (!Upt04AdmitDirectVisibility(work.transport)
+            || !Upt04RayBudgetWithinD0Ceiling(work.transport))
+            return work;
+        work.ray.origin = surface.worldPositionAndViewDepth.xyz;
+        work.ray.tMin = 0.01f;
+        work.ray.direction = lightSample.direction;
+        work.ray.tMax = max(lightSample.distance - 0.02f, work.ray.tMin + 1.0e-4f);
+        if (!Upt04TraceRequestValid(work.ray))
+            return work;
+        work.traceRequired = 1u;
+    }
     work.valid = 1u;
     return work;
 }
@@ -135,7 +143,11 @@ public void Upt04FinishInitialTraceWork(Upt04InitialTraceWork work, Upt04HitFact
     if (work.valid != 0u)
     {
         Upt03Candidate candidate = (Upt03Candidate)0;
-        candidate.status = hit.status == kUpt04HitMiss && work.material.target > 0.0f ? 2u : 1u;
+        candidate.status = work.candidateStatus == kUpt04SampleValidPositive
+                && work.traceRequired != 0u
+                && hit.status == kUpt04HitMiss
+            ? kUpt04SampleValidPositive
+            : kUpt04SampleValidZero;
         candidate.eventKind = work.lightType == kUpt04LightEmissiveTriangle ? 2u : kUpt04EventAnalytic;
         candidate.lobeMask = work.material.lobeMask;
         candidate.flags = 1u;

@@ -169,6 +169,7 @@ struct RtPathTraceSceneInputGeometry
     int rigidRoutePreviousTransformCount = 0;
     int skinnedHitRouteRecordCount = 0;
     int skinnedHitRouteTriangleCount = 0;
+    int skinnedSourceIndexCount = 0;
     int skinnedPreviousPositionCount = 0;
     int skinnedSurfaceDispatchCount = 0;
     int skinnedTriangleDispatchIndexCount = 0;

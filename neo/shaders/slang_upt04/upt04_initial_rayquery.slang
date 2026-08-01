@@ -13,7 +13,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     const Upt04InitialTraceWork work = Upt04PrepareInitialTraceWork(pixel);
     Upt04HitFacts hit = Upt04MissFacts(work.ray.tMax);
-    if (work.valid != 0u)
+    if (work.valid != 0u && work.traceRequired != 0u)
         hit = Upt04TraceRayQuery(work.ray);
     Upt04FinishInitialTraceWork(work, hit);
 }

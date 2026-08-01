@@ -40,6 +40,8 @@ struct PathTraceSmokeMaterial
     uint32_t padding1 = 0;
     uint32_t padding2 = 0;
 };
+static_assert(sizeof(PathTraceSmokeMaterial) == 112,
+    "PathTraceSmokeMaterial HLSL ABI mismatch");
 static_assert((sizeof(PathTraceSmokeMaterial) % 16) == 0, "PathTraceSmokeMaterial must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
 struct PathTraceSmokeEmissiveTriangle
@@ -63,6 +65,8 @@ struct PathTraceSmokeEmissiveTriangle
     uint32_t identityHashHi = 0;
     uint32_t padding0 = 0;
 };
+static_assert(sizeof(PathTraceSmokeEmissiveTriangle) == 144,
+    "PathTraceSmokeEmissiveTriangle HLSL ABI mismatch");
 static_assert((sizeof(PathTraceSmokeEmissiveTriangle) % 16) == 0, "PathTraceSmokeEmissiveTriangle must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
 const uint32_t RT_SMOKE_EMISSIVE_REMAP_VALID = 0x00000001u;

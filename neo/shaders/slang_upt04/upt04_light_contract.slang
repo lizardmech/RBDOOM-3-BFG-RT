@@ -3,6 +3,9 @@ public static const uint kUpt04LightEmissiveTriangle = 1u;
 public static const uint kUpt04LightDoomAnalytic = 2u;
 public static const uint kUpt04LightCurrentSampleable = 1u << 24u;
 public static const uint kUpt04InvalidLightIndex = 0xffffffffu;
+public static const uint kUpt04SampleInvalid = 0u;
+public static const uint kUpt04SampleValidZero = 1u;
+public static const uint kUpt04SampleValidPositive = 2u;
 
 // Exact field order of PathTraceUnifiedLightRecord.  Scalar layout gives the
 // manager-owned current payload a 112-byte StructuredBuffer stride.
@@ -47,7 +50,7 @@ public struct Upt04LocalLightSelection
 
 public struct Upt04LocalLightSample
 {
-    public uint valid;
+    public uint status;
     public float3 position;
     public float3 normal;
     public float distance;

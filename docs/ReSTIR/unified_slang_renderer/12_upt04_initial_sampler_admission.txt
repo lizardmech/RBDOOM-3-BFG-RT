@@ -4,8 +4,9 @@ UPT-04 Minimal Unified Initial Sampler: GPU Work Admission
 Status
 ------
 
-Pre-implementation gate and first backend-closure checkpoint complete. UPT-04
-itself is not complete and has no live runtime dispatch or display output.
+Pre-implementation gate, first backend closure, and the isolated geometry/replay
+closure are complete. UPT-04 itself is not complete and has no live runtime
+dispatch or display output.
 
 First host-publication portion implemented:
 
@@ -216,9 +217,12 @@ The proposed push-constant block contains only uint32/float32 scalar words:
     enabled-family mask and static specialization identity
     sampleable emissive/analytic range starts and counts
     environment enabled flag
-    primary/material/light/texture/geometry/ABI generation fingerprints
+    one 64-bit page-generation fingerprint combined by the host from primary,
+        material, light, texture, geometry, and ABI generations
+    exact static/dynamic/rigid/skinned geometry counts used for O(1) bounds
 
-Target is <= 128 bytes. There is no legacy PathTraceSmokeConstants binding.
+The admitted block is exactly 128 bytes. There is no legacy
+PathTraceSmokeConstants binding.
 If reflection or Vulkan device limits reject the frozen push block, stop and
 admit one small UPT volatile constant buffer explicitly; do not reuse the smoke
 constant buffer.
@@ -307,6 +311,59 @@ P6. Stable page generation snapshot
     primary producer, resolution, camera-cut, and ABI tokens before binding.
     Any change drops the cached binding set and writes a new page generation.
     UPT-04 has no history consumer, but stale identity must still fail closed.
+
+P7. Skinned source-index count
+
+    The skinned route records publish per-route source-index offsets/counts but
+    did not publish the canonical source-index buffer's total element count in
+    RtPathTraceSceneInputGeometry. A new decoder could not prove the final
+    offset in bounds without trusting an out-of-range GPU read or scanning the
+    route table. Publish the already-known owner count and include it in the
+    scene transition signature. This adds no allocation, upload, copy, or scan.
+
+    Implemented. Exact CPU ABI assertions are also frozen for the existing
+    112-byte PathTraceSmokeVertex, 144-byte rigid route, 80/36-byte skinned
+    route/triangle, and 144-byte emissive replay records before Slang mirrors
+    any of them.
+
+Secondary-hit/replay route matrix
+---------------------------------
+
+Every hardware hit must decode in O(1); no route-table scan is admitted:
+
+    static bucket
+        classify from the encoded 0x00800000 InstanceID bit, add the encoded
+        packed triangle base to bucket-local PrimitiveIndex, require
+        GeometryIndex == 0, then use the shared static pool
+
+    monolithic static
+        InstanceID == 0, PrimitiveIndex addresses the static triangle pool
+
+    monolithic dynamic
+        InstanceID == 1, PrimitiveIndex addresses the dynamic triangle pool
+
+    rigid
+        InstanceID - 2 directly addresses the rigid route instance; its local
+        PrimitiveIndex addresses that route's index/triangle range
+
+    skinned
+        record zero publishes the contiguous first InstanceID and route count;
+        subtraction gives the route record, whose source-index/output-vertex
+        and triangle-metadata offsets resolve the hit directly
+
+The full unified/emissive/indirect composition may bind only these existing
+buffers in addition to the seven-binding direct closure:
+
+    current emissive replay records
+    static vertices, indices, triangle class, triangle material index
+    dynamic vertices, indices, triangle class, triangle material index
+    rigid vertices, indices, route instances
+    skinned current vertices, source indices, route records, route triangles
+
+That is sixteen existing SRVs. Material IDs are not duplicated: static/dynamic
+stable identity uses material index plus the page generation; rigid and skinned
+records already carry their material identity. A direct-analytic-only
+specialization must not import or bind this geometry closure.
 
 Host scheduling
 ---------------
@@ -446,7 +503,7 @@ Only their trace adapter differs. Reflection proves identical descriptor ABI:
     set 0 binding 4   page-0 reservoirs, stride 64
     set 0 binding 5   shared material sampler
     set 1 binding 0   existing unbounded material texture table
-    push constants    21 scalar words / 84 bytes
+    push constants    32 scalar words / 128 bytes
 
 The set-1 binding is retained through an explicit disabled-by-default material
 binding probe. It is not used to invent a primary-surface UV: the 176-byte
@@ -462,23 +519,43 @@ The UPT-04 CPU harness compile-time-checks pair uniqueness.
 
 Current backend artifacts:
 
-    upt04_initial_rayquery          46,012 bytes; 1,042 instructions
-    upt04_initial_raygen            45,968 bytes; 1,042 instructions
-    upt04_initial_miss                 592 bytes;    19 instructions
-    upt04_initial_closest_hit        1,468 bytes;    33 instructions
+    upt04_initial_rayquery          47,488 bytes; 1,751 instructions
+    upt04_initial_raygen            47,444 bytes; 1,737 instructions
+    upt04_initial_miss                 592 bytes;    15 instructions
+    upt04_initial_closest_hit        1,468 bytes;    51 instructions
 
-The current closure intentionally fails emissive selection to canonical empty
-until exact triangle positions/UV replay is implemented. It never substitutes
-the manager record's center. It also does not yet implement the indirect
-continuation family, secondary-hit material decoding, environment, debug
-counters, live resource allocation, NVRHI pipelines, or dispatch. Therefore it
-must not be deployed or benchmarked as UPT-04 yet.
+The direct backend closure still intentionally fails emissive selection to
+canonical empty until the independently compiled geometry/replay adapter is
+composed into it. It never substitutes the manager record's center. Defined
+zero analytic/material contributions are now VALID_ZERO and emit no visibility
+ray; only structurally invalid samples are INVALID. This prevents invalid
+samples entering M while also preventing pointless zero-target ray work.
 
-Next implement exact emissive triangle replay and the shared static/dynamic/
-rigid/skinned hit geometry adapter, then add the one-continuation indirect
-branch through the same bounded transport state. Only after those close should
-the host allocate page 0 and create one selected backend pipeline for an
-in-game A/B.
+The geometry/replay closure now compiles as one trace-free 8 x 8 probe. It
+resolves static buckets, monolithic static/dynamic, rigid, and skinned hits by
+bounded direct indexing. Exact emissive replay validates dense-record identity,
+loads the source triangle, samples sqrt-warped barycentrics, interpolates exact
+UVs, and converts area PDF to solid-angle PDF. It binds no copied geometry and
+performs no route-table scan.
+
+    upt04_geometry_probe           59,900 bytes; 2,001 instructions
+
+Reflection locks set 0 bindings 1..21 plus the shared set 1 texture table,
+128-byte push constants, and live strides 4/36/64/80/112/144/176. The two
+144-byte declarations are rigid-route and emissive-replay records. Disassembly
+rejects OpTraceRayKHR and every OpRayQuery instruction in this decoder-only
+probe.
+
+The composition still does not implement the indirect continuation family,
+secondary-hit material evaluation, environment, debug counters, live resource
+allocation, NVRHI pipelines, or dispatch. Therefore it must not be deployed or
+benchmarked as UPT-04 yet.
+
+Next compose exact emissive replay into both initial backends, then add the
+one-continuation indirect branch and secondary-hit MaterialSet evaluation
+through the same bounded transport state. Only after those close should the
+host allocate page 0 and create one selected backend pipeline for an in-game
+A/B.
 
 Verification of this portion
 ----------------------------
@@ -504,11 +581,17 @@ two reflected UPT compositions rather than inferred from the C++ build.
 The backend-closure build passed Slang restrictive capability checks,
 spirv-val for Vulkan 1.2, SPIR-V reflection, and disassembly verification for
 both backends. Reflection confirms identical seven-descriptor layouts, the
-84-byte push block, 176/112/112/64 structured strides, and the shared set-1
+128-byte push block, 176/112/112/64 structured strides, and the shared set-1
 unbounded texture binding. Disassembly confirms the 32-byte hit-facts shape and
 one backend-specific ray instruction. The updated C++ schedule/random-ledger
 harness also passes. No game executable or SPIR-V was deployed because no live
 UPT pipeline consumes these modules yet.
+
+The independent geometry/replay build also passed Slang compilation,
+spirv-val, reflection, and its trace-free disassembly gate. The generated
+Release C++ project compiled and linked the exact host ABI assertions and the
+new skinned-source-index publication/transition token. The UPT-04 schedule and
+random-ledger CPU harness remains green.
 
 The normal full target was attempted first. It stopped in the pre-existing,
 currently modified Clean-DI sentinel shader before compiling this C++ change:

@@ -106,15 +106,14 @@ public Upt04LocalLightSample Upt04SampleAnalyticSphere(
     const float influenceRadius = light.uvOrDoomParams.x;
     const float radiusFraction = saturate(centerDistance / influenceRadius);
     const float influence = saturate(1.0f - radiusFraction * radiusFraction);
-    if (influence <= 0.0f)
-        return result;
-
-    result.valid = 1u;
     result.position = receiverPosition + direction * hitT;
     result.normal = normalize(result.position - light.positionAndRadius.xyz);
     result.distance = hitT;
     result.direction = direction;
     result.solidAnglePdf = 1.0f / solidAngle;
     result.radiance = max(light.radianceAndLuminance.xyz, float3(0.0f)) * influence;
+    result.status = influence > 0.0f
+        ? kUpt04SampleValidPositive
+        : kUpt04SampleValidZero;
     return result;
 }

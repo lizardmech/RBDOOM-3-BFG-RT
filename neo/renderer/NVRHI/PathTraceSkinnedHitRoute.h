@@ -133,6 +133,8 @@ struct PathTraceSkinnedHitRouteGpuRecord
     // ray pipelines can bounds-check without extending their cbuffers.
     std::uint32_t padding0 = 0;
 };
+static_assert(sizeof(PathTraceSkinnedHitRouteGpuRecord) == 80,
+    "PathTraceSkinnedHitRouteGpuRecord HLSL ABI mismatch");
 
 struct PathTraceSkinnedHitRouteGpuTriangle
 {
@@ -146,6 +148,8 @@ struct PathTraceSkinnedHitRouteGpuTriangle
     std::uint32_t emissiveIdentityHashLo = 0;
     std::uint32_t emissiveIdentityHashHi = 0;
 };
+static_assert(sizeof(PathTraceSkinnedHitRouteGpuTriangle) == 36,
+    "PathTraceSkinnedHitRouteGpuTriangle HLSL ABI mismatch");
 
 struct PtSkinnedHitRouteLegacyView
 {

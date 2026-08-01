@@ -16,6 +16,8 @@ struct PathTraceSmokeVertex
     float tangent[4];
     float bitangent[4];
 };
+static_assert(sizeof(PathTraceSmokeVertex) == 112,
+    "PathTraceSmokeVertex HLSL ABI mismatch");
 
 // Source data for the future PT-owned GPU skinning path. This deliberately
 // stays separate from PathTraceSmokeVertex, which is the current rendered
@@ -98,6 +100,8 @@ struct PathTraceRigidRouteInstance
     float currentObjectToWorld[12];
     float previousObjectToWorld[12];
 };
+static_assert(sizeof(PathTraceRigidRouteInstance) == 144,
+    "PathTraceRigidRouteInstance HLSL ABI mismatch");
 
 bool SmokeFloatIsFinite(float value);
 bool SmokeVec2IsFinite(const idVec2& value);

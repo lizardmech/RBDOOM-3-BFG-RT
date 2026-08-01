@@ -144,3 +144,41 @@ add_custom_target(PathTraceSlangUpt04BackendClosure
     DEPENDS ${UPT04_BACKEND_OUTPUTS} "${UPT04_BACKEND_VERIFY_STAMP}")
 set_target_properties(PathTraceSlangUpt04BackendClosure PROPERTIES FOLDER "Shaders/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04BackendClosure)
+
+set(UPT04_GEOMETRY_MODULES
+    ${UPT04_BACKEND_MODULES}
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_bindings.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_decode.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_replay.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_probe.slang")
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_geometry_probe
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_probe.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_GEOMETRY_MODULES}
+    OUT_VAR geometry_outputs)
+
+set(UPT04_GEOMETRY_VERIFY_STAMP "${UPT04_OUTPUT_DIR}/upt04_geometry_closure_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT04_GEOMETRY_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT04_GEOMETRY_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_geometry_probe.slang.spirv-reflection.json
+        -DUPT04_GEOMETRY_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_geometry_probe.slang.spvasm
+        -DUPT04_STAMP=${UPT04_GEOMETRY_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04GeometryClosure.cmake"
+    DEPENDS ${geometry_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04GeometryClosure.cmake"
+    COMMENT "UPT-04 verifying bounded O(1) geometry/replay closure"
+    VERBATIM)
+
+add_custom_target(PathTraceSlangUpt04GeometryClosure
+    DEPENDS ${geometry_outputs} "${UPT04_GEOMETRY_VERIFY_STAMP}")
+set_target_properties(PathTraceSlangUpt04GeometryClosure PROPERTIES FOLDER "Shaders/UPT-04")
+add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04GeometryClosure)
