@@ -819,6 +819,7 @@ private:
     int m_smokeSkyCubeProbeReadbackDelayFrames = 0;
     idStr m_smokeSkyEnvironmentSourceName;
     nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
+    uint64 m_smokeTextureDescriptorGeneration = 0;
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
     std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
     std::deque<RtRetiredSmokeStaticBucketGpuPackage>

@@ -1537,7 +1537,9 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
 
     nvrhi::BindlessLayoutDesc textureBindlessLayoutDesc;
     textureBindlessLayoutDesc
-        .setVisibility(nvrhi::ShaderType::AllRayTracing)
+        .setVisibility(
+            nvrhi::ShaderType::AllRayTracing |
+            nvrhi::ShaderType::Compute)
         .setFirstSlot(0)
         .setMaxCapacity(RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY)
         .addRegisterSpace(nvrhi::BindingLayoutItem::Texture_SRV(1));
@@ -3000,6 +3002,8 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     }
     m_smokeBindingSet = desc.bindingSet;
     m_smokeTextureDescriptorTable = desc.textureDescriptorTable;
+    m_smokeTextureDescriptorGeneration =
+        desc.sceneInputs.materials.textureDescriptorGeneration;
     m_smokeActiveTextureTable = desc.activeTextureTable;
     m_smokeSkyEnvironmentCube = desc.skyEnvironmentCube;
     m_smokeSkyCubeProbeBindingSet = desc.skyCubeProbeBindingSet;

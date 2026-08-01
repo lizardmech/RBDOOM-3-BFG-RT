@@ -1667,6 +1667,10 @@ endif()
 # GPU resources; UPT-03 will consume its byte contract from a separate kernel.
 add_subdirectory(tests/upt02)
 
+# UPT-04 freezes the CPU-side request matrix before the existing primary
+# producer is mechanically extracted from the Clean-DI branch.
+add_subdirectory(tests/upt04)
+
 if(WIN32 AND PATH_TRACING_ENABLE_STREAMLINE_DLSS_RR)
 	set(PATH_TRACING_STREAMLINE_INCLUDE_DIR "${PATH_TRACING_STREAMLINE_SDK_ROOT}/include")
 	set(PATH_TRACING_STREAMLINE_LIB "${PATH_TRACING_STREAMLINE_SDK_ROOT}/lib/x64/sl.interposer.lib")

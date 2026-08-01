@@ -192,13 +192,17 @@ struct RtPathTraceSceneInputMaterials
     nvrhi::BufferHandle materialFeatureBuffer;
     nvrhi::BufferHandle materialFeatureParameterBuffer;
     nvrhi::BufferHandle dynamicMaterialBuffer;
+    nvrhi::BindingLayoutHandle textureBindlessLayout;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
+    nvrhi::SamplerHandle textureSampler;
     int materialTableEntryCount = 0;
     int materialFeatureRecordCount = 0;
     int materialFeatureParameterRecordCount = 0;
     int dynamicMaterialRecordCount = 0;
     bool materialTableGpuStable = false;
     int activeTextureCount = 0;
+    int logicalTextureDescriptorCount = 0;
+    uint64_t textureDescriptorGeneration = 0;
     const char* materialTablePath = "unknown";
     uint32_t capabilityFlags = 0;
 };

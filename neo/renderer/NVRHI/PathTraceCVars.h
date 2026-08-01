@@ -382,6 +382,7 @@ extern idCVar r_pathTracingEmissiveDistribution;
 extern idCVar r_pathTracingDisableDiffuseSecondaryRay;
 extern idCVar r_pathTracingDisableReflectionRay;
 extern idCVar r_pathTracingDisablePrimarySurfaceHistory;
+extern idCVar r_pathTracingCleanRtxdiDiPrimarySurfaceHistorySwap;
 extern idCVar r_pathTracingDisableRestirVisibilityRay;
 extern idCVar r_pathTracingSmokeParticleDither;
 extern idCVar r_pathTracingSmokeParticleAlphaScale;

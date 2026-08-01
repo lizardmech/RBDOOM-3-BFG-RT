@@ -1369,7 +1369,7 @@ idCVar r_pathTracingUnifiedPtEnable(
     "r_pathTracingUnifiedPtEnable",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean unified Slang ReSTIR PT route request; currently publishes its independent scene inputs only and does not dispatch or present UPT output" );
+    "Clean unified Slang ReSTIR PT route request; currently publishes independent scene inputs and runs the shared primary producer only, with no UPT initial sampler or presented output yet" );
 
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
@@ -2138,6 +2138,12 @@ idCVar r_pathTracingDisablePrimarySurfaceHistory(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic kill switch: disable primary surface history writes, clears, copies, and previous-camera history validity" );
+
+idCVar r_pathTracingCleanRtxdiDiPrimarySurfaceHistorySwap(
+    "r_pathTracingCleanRtxdiDiPrimarySurfaceHistorySwap",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Promote clean DI primary-surface history by swapping current/previous buffer handles instead of copying the full 176-byte-per-pixel buffer; 0 restores the legacy copy for comparison" );
 
 idCVar r_pathTracingDisableRestirVisibilityRay(
     "r_pathTracingDisableRestirVisibilityRay",

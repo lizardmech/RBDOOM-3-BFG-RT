@@ -14555,13 +14555,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.materials.materialFeatureBuffer = smokeMaterialFeatureBuffer;
     sceneInputs.materials.materialFeatureParameterBuffer = smokeMaterialFeatureParameterBuffer;
     sceneInputs.materials.dynamicMaterialBuffer = smokeDynamicMaterialBuffer;
+    sceneInputs.materials.textureBindlessLayout = m_smokeTextureBindlessLayout;
     sceneInputs.materials.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
+    sceneInputs.materials.textureSampler =
+        m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
     sceneInputs.materials.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
     sceneInputs.materials.materialFeatureRecordCount = static_cast<int>(materialTable.materialFeatures.size());
     sceneInputs.materials.materialFeatureParameterRecordCount = static_cast<int>(materialTable.materialFeatureParameters.size());
     sceneInputs.materials.dynamicMaterialRecordCount = static_cast<int>(dynamicMaterialRecords.size());
     sceneInputs.materials.materialTableGpuStable = stableGpuMaterialTableCovered;
     sceneInputs.materials.activeTextureCount = static_cast<int>(bindingBuildResult.activeTextureTable.size());
+    sceneInputs.materials.logicalTextureDescriptorCount = Max(
+        0,
+        static_cast<int>(bindingBuildResult.activeTextureTable.size()) - 1);
+    sceneInputs.materials.textureDescriptorGeneration =
+        m_smokeTextureDescriptorGeneration +
+        ((m_smokeTextureDescriptorGeneration == 0 ||
+             bindingBuildResult.textureDescriptorTableCreated ||
+             bindingBuildResult.textureDescriptorTableWritten)
+                ? 1ull
+                : 0ull);
     sceneInputs.materials.materialTablePath = materialTablePath;
     sceneInputs.materials.capabilityFlags = RT_SCENE_INPUT_MATERIAL_STOPGAP_CLASSIFIER | RT_SCENE_INPUT_MATERIAL_IDTECH4_SEMANTICS_RESERVED | RT_SCENE_INPUT_MATERIAL_PBR_ROLES_RESERVED;
     if (!dynamicMaterialRecords.empty())

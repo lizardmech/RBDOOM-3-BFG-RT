@@ -14,6 +14,7 @@
 #include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceSmokeDispatch.h"
 #include "PathTracePrimaryPass.h"
+#include "PathTraceUnifiedPtSchedule.h"
 #include "PathTraceAcceleration.h"
 #include "PathTraceAccelerationPlan.h"
 #include "PathTraceDebugDumps.h"
@@ -993,6 +994,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     };
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
     const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
+    const bool unifiedPtRouteRequested =
+        r_pathTracingUnifiedPtEnable.GetInteger() != 0 &&
+        NormalizePathTraceDebugMode(idMath::ClampInt(0, 58, r_pathTracingDebugMode.GetInteger())) == 0;
     const bool cleanRtxdiDiProductionView = cleanRtxdiDiView == 16;
     const int staticBucketSecondaryProbeStage =
         r_pathTracingGeometryStaticBucketSecondaryProbeStage.GetInteger();
@@ -1683,10 +1687,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_smokeDoomAnalyticCurrentIdentityBuffer && m_smokeDoomAnalyticPreviousIdentityBuffer && m_smokeDoomAnalyticRemapBuffer &&
         m_smokeRigidRouteVertexBuffer && m_smokeRigidRouteIndexBuffer && m_smokeRigidRouteTriangleMaterialBuffer &&
         m_smokeRigidRouteTriangleMaterialIndexBuffer && m_smokeRigidRouteInstanceBuffer;
+    const bool unifiedPtPrimaryBaseResourcesValid =
+        viewDef && m_smokeSceneBuilt && m_smokeTlas && m_smokeBindingSet &&
+        m_smokeTextureDescriptorTable && m_smokeConstantsBuffer &&
+        m_frameResources.primarySurfaceHistoryBuffers.IsValidFor(
+            static_cast<uint32_t>(m_frameResources.width),
+            static_cast<uint32_t>(m_frameResources.height));
     const bool baseResourcesValid = neeCacheDebugRouteRequested ? neeCacheDebugBaseResourcesValid :
         (regirDebugRouteRequested ? regirDebugBaseResourcesValid :
         (cleanRtxdiDiRouteRequested ? cleanRtxdiDiBaseResourcesValid :
-        (pdfNeeRluCurrentProducerRequested ? pdfNeeVerifierBaseResourcesValid : smokeBaseResourcesValid)));
+        (pdfNeeRluCurrentProducerRequested ? pdfNeeVerifierBaseResourcesValid :
+        (unifiedPtRouteRequested ? unifiedPtPrimaryBaseResourcesValid : smokeBaseResourcesValid))));
     if (!baseResourcesValid)
     {
         if (cleanRtxdiDiDumpRequested)
@@ -1723,6 +1734,63 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
     }
+
+    auto publishPrimarySurfaceHistory = [&](const char* copyMarker)
+    {
+        if (r_pathTracingCleanRtxdiDiPrimarySurfaceHistorySwap.GetBool())
+        {
+            std::swap(
+                m_frameResources.primarySurfaceHistoryBuffers.current,
+                m_frameResources.primarySurfaceHistoryBuffers.previous);
+        }
+        else
+        {
+            PathTraceGpuMarkerScope nsightMarker(
+                commandList,
+                copyMarker,
+                nsightGpuMarkers);
+            commandList->setBufferState(
+                m_frameResources.primarySurfaceHistoryBuffers.current,
+                nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(
+                m_frameResources.primarySurfaceHistoryBuffers.previous,
+                nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyBuffer(
+                m_frameResources.primarySurfaceHistoryBuffers.previous,
+                0,
+                m_frameResources.primarySurfaceHistoryBuffers.current,
+                0,
+                m_frameResources.primarySurfaceHistoryBuffers.surfaceBytes);
+        }
+
+        idVec3 historyForward = viewDef->renderView.viewaxis[0];
+        idVec3 historyLeft = viewDef->renderView.viewaxis[1];
+        idVec3 historyUp = viewDef->renderView.viewaxis[2];
+        historyForward.Normalize();
+        historyLeft.Normalize();
+        historyUp.Normalize();
+
+        RtPathTraceFrameCameraState currentHistoryView;
+        currentHistoryView.valid = true;
+        currentHistoryView.width = m_frameResources.width;
+        currentHistoryView.height = m_frameResources.height;
+        currentHistoryView.origin = viewDef->renderView.vieworg;
+        currentHistoryView.forward = historyForward;
+        currentHistoryView.left = historyLeft;
+        currentHistoryView.up = historyUp;
+        currentHistoryView.tanX = idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
+        currentHistoryView.tanY = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
+        const bool objectMotionAvailable =
+            (m_sceneInputs.geometry.skinnedPreviousPositionBufferAvailable &&
+                m_sceneInputs.geometry.skinnedSurfaceDispatchCount > 0) ||
+            (m_sceneInputs.geometry.previousTransformAvailable &&
+                m_sceneInputs.geometry.rigidRouteInstanceCount > 0);
+        m_frameResources.SetPrimarySurfaceHistoryView(
+            currentHistoryView,
+            objectMotionAvailable);
+        m_frameResources.primarySurfaceHistoryNeedsClear = false;
+    };
 
     if (r_pathTracingSkyCubeProbe.GetInteger() != 0)
     {
@@ -1787,9 +1855,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         r_pathTracingSkyCubeProbe.SetInteger(0);
     }
 
-    if (cleanRtxdiDiRouteRequested)
+    if (cleanRtxdiDiRouteRequested || unifiedPtRouteRequested)
     {
         const bool cleanExternalPdfNeeCurrent = cleanExternalPdfNeeRequested || pdfNeeRluCurrentProducerRequested;
+        if (cleanRtxdiDiRouteRequested)
+        {
         if (!staticBucketSecondaryIsolationActive)
         {
             if ((r_pathTracingCleanRtxdiDiNeeCacheProvider.GetInteger() != 0 ||
@@ -1969,6 +2039,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 return;
             }
         }
+        }
         nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
         if (!device)
         {
@@ -1979,7 +2050,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             return;
         }
-        if (cleanNeeCacheBuildPrepassRequested &&
+        if (cleanRtxdiDiRouteRequested &&
+            cleanNeeCacheBuildPrepassRequested &&
             staticBucketSecondaryIsolation.neeCachePrimaryUpdate &&
             (!m_smokeNeeCachePrimarySurfaceUpdatePipeline || !m_smokeNeeCachePrimarySurfaceUpdateBindingLayout))
         {
@@ -1991,9 +2063,25 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
-        if (cleanRtxdiDiView >= 2 && cleanRtxdiDiView <= 25)
+        rb::upt::PrimaryProducerScheduleInput primaryScheduleInput;
+        primaryScheduleInput.unifiedPtRequested = unifiedPtRouteRequested;
+        primaryScheduleInput.cleanDiRequested = cleanRtxdiDiRouteRequested;
+        primaryScheduleInput.cleanDiView = cleanRtxdiDiView;
+        primaryScheduleInput.pipelineReady = m_smokePrimarySurfaceProducerShaderTable != nullptr;
+        primaryScheduleInput.resourcesReady = true;
+        primaryScheduleInput.isolationActive = staticBucketSecondaryIsolationActive;
+        primaryScheduleInput.isolationAllowsPipelineCreation =
+            !staticBucketSecondaryIsolationActive ||
+            staticBucketSecondaryIsolation.primaryPipelineCreation;
+        primaryScheduleInput.isolationAllowsDispatch =
+            !staticBucketSecondaryIsolationActive ||
+            staticBucketSecondaryIsolation.primaryDispatch;
+        rb::upt::PrimaryProducerSchedule primarySchedule =
+            rb::upt::BuildPrimaryProducerSchedule(primaryScheduleInput);
+
+        if (primarySchedule.requested)
         {
-            if (!m_smokePrimarySurfaceProducerShaderTable)
+            if (primarySchedule.createPipeline)
             {
                 if (staticBucketSecondaryIsolationActive)
                 {
@@ -2002,6 +2090,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         staticBucketSecondaryIsolation.stage);
                 }
                 InitRayTracingSmokeRestirPipeline(9);
+                primaryScheduleInput.pipelineReady =
+                    m_smokePrimarySurfaceProducerShaderTable != nullptr;
+                primarySchedule =
+                    rb::upt::BuildPrimaryProducerSchedule(primaryScheduleInput);
             }
             if (!m_smokePrimarySurfaceProducerShaderTable)
             {
@@ -2286,9 +2378,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceArgs.height = m_frameResources.height;
             primarySurfaceArgs.depth = 1;
             {
-                PathTraceGpuMarkerScope nsightMarker(
+                    PathTraceGpuMarkerScope nsightMarker(
                     commandList,
-                    staticBucketSecondaryIsolationActive
+                    unifiedPtRouteRequested && !cleanRtxdiDiRouteRequested
+                        ? "UPT.P0 SharedPrimary DispatchRays"
+                        : staticBucketSecondaryIsolationActive
                         ? "GEO10.View16.Stage2 PrimarySurface DispatchRays"
                         : "CleanDI.P0 PrimarySurface DispatchRays",
                     nsightGpuMarkers);
@@ -2426,6 +2520,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     }
                 }
             }
+        }
+
+        if (unifiedPtRouteRequested && !cleanRtxdiDiRouteRequested)
+        {
+            // UPT-04 has no admitted HDR resolve or presentation path yet.
+            // The shared primary page has no consumer yet, so publish its
+            // history once and stop before every legacy execution branch.
+            publishPrimarySurfaceHistory("UPT.P0 PrimarySurfaceHistory Copy");
+            return;
         }
 
         if (staticBucketSecondaryIsolationActive &&
@@ -4649,38 +4752,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         QueueStaticContractShaderSample(commandList);
         if (cleanRtxdiDiView >= 2 && cleanPromoteSubviewSurface)
         {
-            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::CopySource);
-            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::CopyDest);
-            commandList->commitBarriers();
-            commandList->copyBuffer(
-                m_frameResources.primarySurfaceHistoryBuffers.previous,
-                0,
-                m_frameResources.primarySurfaceHistoryBuffers.current,
-                0,
-                m_frameResources.primarySurfaceHistoryBuffers.surfaceBytes);
-
-            idVec3 cleanHistoryForward = viewDef->renderView.viewaxis[0];
-            idVec3 cleanHistoryLeft = viewDef->renderView.viewaxis[1];
-            idVec3 cleanHistoryUp = viewDef->renderView.viewaxis[2];
-            cleanHistoryForward.Normalize();
-            cleanHistoryLeft.Normalize();
-            cleanHistoryUp.Normalize();
-
-            RtPathTraceFrameCameraState currentHistoryView;
-            currentHistoryView.valid = true;
-            currentHistoryView.width = m_frameResources.width;
-            currentHistoryView.height = m_frameResources.height;
-            currentHistoryView.origin = viewDef->renderView.vieworg;
-            currentHistoryView.forward = cleanHistoryForward;
-            currentHistoryView.left = cleanHistoryLeft;
-            currentHistoryView.up = cleanHistoryUp;
-            currentHistoryView.tanX = idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
-            currentHistoryView.tanY = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
-            const bool objectMotionAvailable =
-                (m_sceneInputs.geometry.skinnedPreviousPositionBufferAvailable && m_sceneInputs.geometry.skinnedSurfaceDispatchCount > 0) ||
-                (m_sceneInputs.geometry.previousTransformAvailable && m_sceneInputs.geometry.rigidRouteInstanceCount > 0);
-            m_frameResources.SetPrimarySurfaceHistoryView(currentHistoryView, objectMotionAvailable);
-            m_frameResources.primarySurfaceHistoryNeedsClear = false;
+            publishPrimarySurfaceHistory("CleanDI.4 PrimarySurfaceHistory Copy");
         }
         if (!m_smokeTestDispatched)
         {

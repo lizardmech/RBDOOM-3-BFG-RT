@@ -13,8 +13,12 @@ First host-publication portion implemented:
     r_pathTracingUnifiedPtEnable now independently requests full material-texture
     hydration, rigid emissive replay, stable full-domain analytic publication,
     and the current manager payload without enabling a DI/GI execution route.
-    No UPT GPU work or presentation route was added. P1 and P4 are complete;
-    P2/P3 remain prerequisites.
+    The primary producer now has a route-neutral CPU schedule shared by UPT and
+    Clean DI. UPT-only initializes only producer kind 9, dispatches it once,
+    barriers the current page, publishes history once, and returns before all
+    legacy execution branches. No UPT initial-sampler or presentation work was
+    added. P1/P2/P3/P4 host publication is complete. P3's final shader-
+    reflection proof remains coupled to the two UPT backend compositions.
 
 This document freezes the first renderer workload before any production UPT-04
 resource, pipeline, ray, or host dispatch is written. It reconciles the UPT-01
@@ -240,6 +244,18 @@ P2. Neutral primary-producer schedule (UPT-01 M7)
     owned by the single post-consumer history publication; extraction may not
     reintroduce a duplicate copy or swap.
 
+    Implemented. PathTraceUnifiedPtSchedule.h is a renderer-independent route
+    matrix with an isolated CPU harness. UPT-only, Clean-DI-only, and combined
+    requests all converge on one producer dispatch. The UPT-only host path
+    initializes only restirLibraryKind 9, then returns before Clean DI/GI/NEE,
+    ReGIR, PSR, particles, and presentation. Primary current-to-previous handle
+    swap/copy plus camera-state publication is now one shared post-consumer
+    operation; the old Clean-DI site calls that same operation.
+
+    The existing primary shader still writes its RR/motion guide side outputs.
+    That upstream cost is intentionally retained for this mechanical ownership
+    extraction and remains a later measured producer-specialization decision.
+
 P3. Material texture binding publication (UPT-01 M4)
 
     Publish layout, sampler, logical descriptor count excluding the CPU
@@ -247,6 +263,18 @@ P3. Material texture binding publication (UPT-01 M4)
     shared layout to compute plus ray-tracing visibility only if NVRHI/Vulkan
     reflection proves the same descriptor table remains valid. Do not clone
     2048 descriptors for RayQuery.
+
+    Host publication implemented. RtPathTraceSceneInputMaterials now carries
+    the existing bindless layout, existing descriptor-table handle, shared
+    anisotropic sampler, logical descriptor count excluding the CPU sentinel,
+    and a monotonic content/write generation. The sole bindless layout has
+    Compute plus AllRayTracing visibility; no second table or descriptor copy
+    exists. The local NVRHI Vulkan backend maps the combined ShaderType mask
+    directly to combined VkShaderStageFlags on the same descriptor-set layout.
+
+    Final acceptance remains fail-closed until Slang reflection for both
+    initial_rayquery and initial_raygen proves the same set-1 texture ABI and
+    both Vulkan pipelines create against this exact published layout/table.
 
 P4. Current sampleable light ranges
 
@@ -372,6 +400,16 @@ every consumer of RtPathTraceSceneInputs.
 The P1 scene-publication request was verified by the same generated Release
 C++ project build after the P4 checkpoint; it compiled and linked the cvar and
 PathTraceSmokeSceneBuild.cpp changes successfully.
+
+The P2 CPU route harness passes all disabled, UPT-only, Clean-DI-only,
+coexisting, missing-pipeline, missing-resource, and staged-isolation cases. The
+generated Release RBDoom3BFG C++ project also compiles and links the live
+schedule, producer dispatch, and shared history-publication integration.
+
+The P3 host publication and combined NVRHI visibility compile and link in the
+generated Release RBDoom3BFG project. No descriptor clone or extra GPU upload
+was added. Runtime shader-layout acceptance is deliberately deferred to the
+two reflected UPT compositions rather than inferred from the C++ build.
 
 The normal full target was attempted first. It stopped in the pre-existing,
 currently modified Clean-DI sentinel shader before compiling this C++ change:
