@@ -269,6 +269,65 @@ add_custom_target(PathTraceSlangUpt04StaticSpecializations
 set_target_properties(PathTraceSlangUpt04StaticSpecializations PROPERTIES FOLDER "Shaders/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04StaticSpecializations)
 
+# Minimal live-game TLAS compiler A/B. These modules intentionally share only
+# a TLAS and one uint UAV; they do not import any UPT estimator modules.
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_live_tlas_probe_slang
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_live_tlas_probe.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    OUT_VAR live_tlas_probe_slang_outputs
+    RAY_QUERY)
+path_tracing_declare_dxc_spirv_comparison_module(
+    NAME upt04_live_tlas_probe_dxc
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_live_tlas_probe.hlsl"
+    ENTRY main
+    PROFILE cs_6_6
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    OUT_VAR live_tlas_probe_dxc_outputs
+    RAY_QUERY)
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_live_tlas_full_layout_probe
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_live_tlas_full_layout_probe.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_GEOMETRY_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_live_tlas_full_layout_probe.slang"
+    OUT_VAR live_tlas_full_layout_probe_outputs
+    RAY_QUERY)
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_live_tlas_full_host_probe
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_live_tlas_full_host_probe.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/upt04_live_tlas_full_host_probe.slang"
+    OUT_VAR live_tlas_full_host_probe_outputs
+    RAY_QUERY)
+set(UPT04_LIVE_TLAS_PROBE_VERIFY_STAMP
+    "${UPT04_OUTPUT_DIR}/upt04_live_tlas_probe_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT04_LIVE_TLAS_PROBE_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT04_SLANG_PROBE_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_live_tlas_probe_slang.slang.spvasm
+        -DUPT04_DXC_PROBE_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_live_tlas_probe_dxc.dxc.spvasm
+        -DUPT04_FULL_LAYOUT_PROBE_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_live_tlas_full_layout_probe.slang.spvasm
+        -DUPT04_FULL_HOST_PROBE_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_live_tlas_full_host_probe.slang.spvasm
+        -DUPT04_PROBE_STAMP=${UPT04_LIVE_TLAS_PROBE_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04LiveTlasProbe.cmake"
+    DEPENDS ${live_tlas_probe_slang_outputs} ${live_tlas_probe_dxc_outputs}
+        ${live_tlas_full_layout_probe_outputs}
+        ${live_tlas_full_host_probe_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04LiveTlasProbe.cmake"
+    COMMENT "UPT-04 verifying compact live-TLAS Slang/DXC probes"
+    VERBATIM)
+
 # Runtime admission is explicit: copy only the six selectable initial modules
 # and the two shared raygen hit modules after every offline verifier passes.
 # Reflection/disassembly artifacts remain build-only evidence.
@@ -299,6 +358,64 @@ foreach(runtime_module IN LISTS UPT04_RUNTIME_MODULES)
         VERBATIM)
     list(APPEND UPT04_RUNTIME_OUTPUTS "${runtime_output}")
 endforeach()
+
+set(UPT04_LIVE_TLAS_PROBE_SLANG_RUNTIME_OUTPUT
+    "${UPT04_RUNTIME_OUTPUT_DIR}/upt04_live_tlas_probe_slang.bin")
+add_custom_command(
+    OUTPUT "${UPT04_LIVE_TLAS_PROBE_SLANG_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT04_RUNTIME_OUTPUT_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT04_OUTPUT_DIR}/upt04_live_tlas_probe_slang.slang.spv"
+        "${UPT04_LIVE_TLAS_PROBE_SLANG_RUNTIME_OUTPUT}"
+    DEPENDS "${UPT04_OUTPUT_DIR}/upt04_live_tlas_probe_slang.slang.spv"
+        "${UPT04_LIVE_TLAS_PROBE_VERIFY_STAMP}"
+    COMMENT "UPT-04 verified live-TLAS Slang runtime probe"
+    VERBATIM)
+set(UPT04_LIVE_TLAS_PROBE_DXC_RUNTIME_OUTPUT
+    "${UPT04_RUNTIME_OUTPUT_DIR}/upt04_live_tlas_probe_dxc.bin")
+add_custom_command(
+    OUTPUT "${UPT04_LIVE_TLAS_PROBE_DXC_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT04_RUNTIME_OUTPUT_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT04_OUTPUT_DIR}/upt04_live_tlas_probe_dxc.dxc.spv"
+        "${UPT04_LIVE_TLAS_PROBE_DXC_RUNTIME_OUTPUT}"
+    DEPENDS "${UPT04_OUTPUT_DIR}/upt04_live_tlas_probe_dxc.dxc.spv"
+        "${UPT04_LIVE_TLAS_PROBE_VERIFY_STAMP}"
+    COMMENT "UPT-04 verified live-TLAS DXC runtime probe"
+    VERBATIM)
+list(APPEND UPT04_RUNTIME_OUTPUTS
+    "${UPT04_LIVE_TLAS_PROBE_SLANG_RUNTIME_OUTPUT}"
+    "${UPT04_LIVE_TLAS_PROBE_DXC_RUNTIME_OUTPUT}")
+
+set(UPT04_LIVE_TLAS_FULL_LAYOUT_PROBE_RUNTIME_OUTPUT
+    "${UPT04_RUNTIME_OUTPUT_DIR}/upt04_live_tlas_full_layout_probe.bin")
+add_custom_command(
+    OUTPUT "${UPT04_LIVE_TLAS_FULL_LAYOUT_PROBE_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT04_RUNTIME_OUTPUT_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT04_OUTPUT_DIR}/upt04_live_tlas_full_layout_probe.slang.spv"
+        "${UPT04_LIVE_TLAS_FULL_LAYOUT_PROBE_RUNTIME_OUTPUT}"
+    DEPENDS "${UPT04_OUTPUT_DIR}/upt04_live_tlas_full_layout_probe.slang.spv"
+        "${UPT04_LIVE_TLAS_PROBE_VERIFY_STAMP}"
+    COMMENT "UPT-04 verified full-layout live-TLAS Slang runtime probe"
+    VERBATIM)
+list(APPEND UPT04_RUNTIME_OUTPUTS
+    "${UPT04_LIVE_TLAS_FULL_LAYOUT_PROBE_RUNTIME_OUTPUT}")
+
+set(UPT04_LIVE_TLAS_FULL_HOST_PROBE_RUNTIME_OUTPUT
+    "${UPT04_RUNTIME_OUTPUT_DIR}/upt04_live_tlas_full_host_probe.bin")
+add_custom_command(
+    OUTPUT "${UPT04_LIVE_TLAS_FULL_HOST_PROBE_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT04_RUNTIME_OUTPUT_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT04_OUTPUT_DIR}/upt04_live_tlas_full_host_probe.slang.spv"
+        "${UPT04_LIVE_TLAS_FULL_HOST_PROBE_RUNTIME_OUTPUT}"
+    DEPENDS "${UPT04_OUTPUT_DIR}/upt04_live_tlas_full_host_probe.slang.spv"
+        "${UPT04_LIVE_TLAS_PROBE_VERIFY_STAMP}"
+    COMMENT "UPT-04 verified full-host live-TLAS Slang runtime probe"
+    VERBATIM)
+list(APPEND UPT04_RUNTIME_OUTPUTS
+    "${UPT04_LIVE_TLAS_FULL_HOST_PROBE_RUNTIME_OUTPUT}")
 
 add_custom_target(PathTraceSlangUpt04RuntimeArtifacts
     DEPENDS ${UPT04_RUNTIME_OUTPUTS})

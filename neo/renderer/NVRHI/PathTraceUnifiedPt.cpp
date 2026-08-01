@@ -77,6 +77,79 @@ static const char* Upt04InitialShaderPath(
     }
 }
 
+static uint32_t Upt04PipelineVariant(const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    return inputs.shaderProofMode >= 7u && inputs.shaderProofMode <= 13u
+        ? inputs.shaderProofMode
+        : 0u;
+}
+
+static bool Upt04UsesCompactProbeLayout(uint32_t pipelineVariant)
+{
+    return pipelineVariant == 7u || pipelineVariant == 8u;
+}
+
+static bool Upt04UsesMinimalProductionSlotLayout(uint32_t pipelineVariant)
+{
+    return pipelineVariant == 12u || pipelineVariant == 13u;
+}
+
+static bool Upt04UsesPushConstants(uint32_t pipelineVariant)
+{
+    return pipelineVariant != 7u && pipelineVariant != 8u &&
+        pipelineVariant != 12u;
+}
+
+static bool Upt04UsesBindlessSet(uint32_t pipelineVariant)
+{
+    return pipelineVariant != 7u && pipelineVariant != 8u &&
+        pipelineVariant != 11u && pipelineVariant != 12u &&
+        pipelineVariant != 13u;
+}
+
+static const char* Upt04LiveTlasProbePath(uint32_t pipelineVariant)
+{
+    switch (pipelineVariant)
+    {
+    case 7u:
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_live_tlas_probe_slang.bin";
+    case 8u:
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_live_tlas_probe_dxc.bin";
+    case 9u:
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_live_tlas_full_layout_probe.bin";
+    default:
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_live_tlas_full_host_probe.bin";
+    }
+}
+
+static const char* Upt04LiveTlasProbeDebugName(uint32_t pipelineVariant)
+{
+    switch (pipelineVariant)
+    {
+    case 7u: return "PathTraceUnifiedPtLiveTlasProbeSlang";
+    case 8u: return "PathTraceUnifiedPtLiveTlasProbeDxc";
+    case 9u: return "PathTraceUnifiedPtLiveTlasFullLayoutProbeSlang";
+    case 10u: return "PathTraceUnifiedPtLiveTlasFullHostProbeSlang";
+    case 11u: return "PathTraceUnifiedPtLiveTlasSet0OnlyProbeSlang";
+    case 12u: return "PathTraceUnifiedPtLiveTlasB0B4ProbeSlang";
+    default: return "PathTraceUnifiedPtLiveTlasB0B4PushProbeSlang";
+    }
+}
+
+static const char* Upt04LiveTlasProbeMarkerName(uint32_t pipelineVariant)
+{
+    switch (pipelineVariant)
+    {
+    case 7u: return "UPT.D0 LiveTLAS Probe Slang 1x1";
+    case 8u: return "UPT.D0 LiveTLAS Probe DXC 1x1";
+    case 9u: return "UPT.D0 LiveTLAS FullLayout Probe Slang 1x1";
+    case 10u: return "UPT.D0 LiveTLAS FullHost Probe Slang 1x1";
+    case 11u: return "UPT.D0 LiveTLAS Set0Only Probe Slang 1x1";
+    case 12u: return "UPT.D0 LiveTLAS B0B4 Probe Slang 1x1";
+    default: return "UPT.D0 LiveTLAS B0B4Push Probe Slang 1x1";
+    }
+}
+
 static uint64_t Upt04HashBytes(const void* data, size_t size)
 {
     const uint8_t* bytes = static_cast<const uint8_t*>(data);
@@ -130,7 +203,7 @@ struct Upt04InitialControl
     uint32_t logicalTextureCount;
     uint32_t pageGenerationLo;
     uint32_t pageGenerationHi;
-    uint32_t textureBindingProbeEnabled;
+    uint32_t shaderProofMode;
     uint32_t materialCount;
     uint32_t currentLightCount;
     uint32_t staticVertexCount;
@@ -342,7 +415,7 @@ static Upt04InitialControl Upt04BuildControl(const PathTraceUnifiedPtDispatchInp
     control.logicalTextureCount = static_cast<uint32_t>(Max(0, materials.logicalTextureDescriptorCount));
     control.pageGenerationLo = static_cast<uint32_t>(pageGeneration);
     control.pageGenerationHi = static_cast<uint32_t>(pageGeneration >> 32u);
-    control.textureBindingProbeEnabled = 0u;
+    control.shaderProofMode = dispatch.shaderProofMode;
     control.materialCount = static_cast<uint32_t>(Max(0, materials.materialTableEntryCount));
     control.currentLightCount = static_cast<uint32_t>(Max(0, lights.restirLightManagerCurrentPayloadCount));
     control.staticVertexCount = static_cast<uint32_t>(Max(0, geometry.staticVertexCount));
@@ -389,8 +462,29 @@ void PathTraceUnifiedPtState::Release()
     m_pageHeight = 0;
     m_pageBytes = 0;
     m_pageNeedsClear = false;
+    m_pipelineVariant = 0;
     m_selectionValid = false;
     m_resourceFailureLogged = false;
+    m_reportedProofStage = UINT32_MAX;
+}
+
+void PathTraceUnifiedPtState::ReportProofStage(
+    uint32_t stage,
+    const char* label,
+    PathTraceUnifiedPtBackend backend,
+    PathTraceUnifiedPtFamily family)
+{
+    if (m_reportedProofStage == stage)
+    {
+        return;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: proofStage=%u reached=%s backend=%s family=%s\n",
+        stage,
+        label,
+        Upt04BackendName(backend),
+        Upt04FamilyName(family));
+    m_reportedProofStage = stage;
 }
 
 bool PathTraceUnifiedPtState::EnsurePage(const PathTraceUnifiedPtDispatchInputs& inputs)
@@ -446,16 +540,25 @@ bool PathTraceUnifiedPtState::EnsurePage(const PathTraceUnifiedPtDispatchInputs&
 
 bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInputs& inputs)
 {
-    if (!m_selectionValid || m_backend != inputs.backend || m_family != inputs.family)
+    const uint32_t pipelineVariant = Upt04PipelineVariant(inputs);
+    const bool liveTlasProbe = pipelineVariant != 0u;
+    const bool compactLiveTlasProbe = Upt04UsesCompactProbeLayout(pipelineVariant);
+    const bool minimalProductionSlotLayout =
+        Upt04UsesMinimalProductionSlotLayout(pipelineVariant);
+    const bool usesPushConstants = Upt04UsesPushConstants(pipelineVariant);
+    const bool usesBindlessSet = Upt04UsesBindlessSet(pipelineVariant);
+    if (!m_selectionValid || m_backend != inputs.backend || m_family != inputs.family ||
+        m_pipelineVariant != pipelineVariant)
     {
         ReleasePipeline();
         m_backend = inputs.backend;
         m_family = inputs.family;
+        m_pipelineVariant = pipelineVariant;
         m_selectionValid = true;
         m_resourceFailureLogged = false;
     }
 
-    if ((m_backend == PathTraceUnifiedPtBackend::RayQuery && m_computePipeline) ||
+    if (((liveTlasProbe || m_backend == PathTraceUnifiedPtBackend::RayQuery) && m_computePipeline) ||
         (m_backend == PathTraceUnifiedPtBackend::RayGeneration && m_shaderTable))
     {
         return true;
@@ -466,7 +569,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
     }
     m_pipelineAttempted = true;
 
-    if (m_backend == PathTraceUnifiedPtBackend::RayQuery &&
+    if ((liveTlasProbe || m_backend == PathTraceUnifiedPtBackend::RayQuery) &&
         !inputs.device->queryFeatureSupport(nvrhi::Feature::RayQuery))
     {
         common->Printf("PathTraceUnifiedPt: RayQuery backend requested but unsupported\n");
@@ -474,23 +577,58 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
     }
 
     nvrhi::BindingLayoutDesc layoutDesc;
-    layoutDesc.visibility = m_backend == PathTraceUnifiedPtBackend::RayQuery
+    layoutDesc.visibility = liveTlasProbe || m_backend == PathTraceUnifiedPtBackend::RayQuery
         ? nvrhi::ShaderType::Compute
         : nvrhi::ShaderType::AllRayTracing;
+    // UPT Slang shaders declare explicit Vulkan descriptor sets. Keep NVRHI's
+    // host-side set mapping explicit as well; this is the same contract used by
+    // the standalone UPT-00 RayQuery harness.
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
     layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
         .setShaderResourceOffset(0)
         .setSamplerOffset(0)
-        .setUnorderedAccessViewOffset(0)
-        .setConstantBufferOffset(0);
-    Upt04AddBindingLayoutItems(layoutDesc);
+        .setUnorderedAccessViewOffset(0);
+    // Keep NVRHI's default constant-buffer offset (256). Its old Vulkan
+    // backend represents PushConstants as a zero-count descriptor-layout item
+    // for binding-index bookkeeping. Flattening b0 to Vulkan binding 0 would
+    // collide with the TLAS at t0 and make traversal consume an undefined AS
+    // descriptor even though push constants are not shader descriptors.
+    if (compactLiveTlasProbe)
+    {
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(1));
+    }
+    else if (minimalProductionSlotLayout)
+    {
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(4));
+        if (usesPushConstants)
+        {
+            layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+                0, UPT04_PUSH_CONSTANT_BYTES));
+        }
+    }
+    else
+    {
+        Upt04AddBindingLayoutItems(layoutDesc);
+    }
     m_bindingLayout = inputs.device->createBindingLayout(layoutDesc);
     if (!m_bindingLayout)
     {
-        common->Printf("PathTraceUnifiedPt: failed to create 23-descriptor binding layout\n");
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create %s binding layout\n",
+            compactLiveTlasProbe
+                ? "compact live-TLAS probe"
+                : (minimalProductionSlotLayout
+                    ? "minimal production-slot probe"
+                    : "23-descriptor"));
         return false;
     }
 
-    const char* initialPath = Upt04InitialShaderPath(m_backend, m_family);
+    const char* initialPath = liveTlasProbe
+        ? Upt04LiveTlasProbePath(pipelineVariant)
+        : Upt04InitialShaderPath(m_backend, m_family);
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -500,12 +638,14 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         return false;
     }
 
-    if (m_backend == PathTraceUnifiedPtBackend::RayQuery)
+    if (liveTlasProbe || m_backend == PathTraceUnifiedPtBackend::RayQuery)
     {
         nvrhi::ShaderDesc shaderDesc;
         shaderDesc.shaderType = nvrhi::ShaderType::Compute;
         shaderDesc.entryName = "main";
-        shaderDesc.debugName = "PathTraceUnifiedPtInitialRayQuery";
+        shaderDesc.debugName = liveTlasProbe
+            ? Upt04LiveTlasProbeDebugName(pipelineVariant)
+            : "PathTraceUnifiedPtInitialRayQuery";
         m_computeShader = inputs.device->createShader(shaderDesc, initialData, initialSize);
         Mem_Free(initialData);
         if (!m_computeShader)
@@ -516,10 +656,12 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
 
         nvrhi::ComputePipelineDesc pipelineDesc;
         pipelineDesc.CS = m_computeShader;
-        pipelineDesc.bindingLayouts = {
-            m_bindingLayout,
-            inputs.sceneInputs->materials.textureBindlessLayout
-        };
+        pipelineDesc.bindingLayouts = { m_bindingLayout };
+        if (usesBindlessSet)
+        {
+            pipelineDesc.bindingLayouts.push_back(
+                inputs.sceneInputs->materials.textureBindlessLayout);
+        }
         const uint64_t pipelineStartUs = Sys_Microseconds();
         m_computePipeline = inputs.device->createComputePipeline(pipelineDesc);
         const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
@@ -529,12 +671,16 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             return false;
         }
         common->Printf(
-            "PathTraceUnifiedPt: pipeline backend=%s family=%s blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
+            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
             Upt04BackendName(m_backend),
             Upt04FamilyName(m_family),
+            pipelineVariant,
+            pipelineVariant == 8u ? "dxc" : "slang",
             initialSize,
             static_cast<unsigned long long>(initialHash),
             static_cast<long long>(initialTimestamp),
+            liveTlasProbe ? "1x1" : "8x8",
+            usesBindlessSet ? 1 : 0,
             static_cast<unsigned long long>(pipelineUs));
         return true;
     }
@@ -658,7 +804,34 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
 
 bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs)
 {
-    const nvrhi::BindingSetDesc desc = Upt04BuildBindingSetDesc(inputs, m_page0);
+    const bool compactLiveTlasProbe =
+        Upt04UsesCompactProbeLayout(Upt04PipelineVariant(inputs));
+    const bool minimalProductionSlotLayout =
+        Upt04UsesMinimalProductionSlotLayout(Upt04PipelineVariant(inputs));
+    const bool usesPushConstants =
+        Upt04UsesPushConstants(Upt04PipelineVariant(inputs));
+    nvrhi::BindingSetDesc desc;
+    if (compactLiveTlasProbe)
+    {
+        desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(
+            0, inputs.sceneInputs->geometry.tlas));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(1, m_page0));
+    }
+    else if (minimalProductionSlotLayout)
+    {
+        desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(
+            0, inputs.sceneInputs->geometry.tlas));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, m_page0));
+        if (usesPushConstants)
+        {
+            desc.addItem(nvrhi::BindingSetItem::PushConstants(
+                0, UPT04_PUSH_CONSTANT_BYTES));
+        }
+    }
+    else
+    {
+        desc = Upt04BuildBindingSetDesc(inputs, m_page0);
+    }
     if (m_bindingSet && m_bindingSetDescValid && m_bindingSetDesc == desc)
     {
         return true;
@@ -666,7 +839,13 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
     m_bindingSet = inputs.device->createBindingSet(desc, m_bindingLayout);
     if (!m_bindingSet)
     {
-        common->Printf("PathTraceUnifiedPt: failed to create set-0 binding set\n");
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create %s set-0 binding set\n",
+            compactLiveTlasProbe
+                ? "compact live-TLAS probe"
+                : (minimalProductionSlotLayout
+                    ? "minimal production-slot probe"
+                    : "UPT-04"));
         return false;
     }
     m_bindingSetDesc = desc;
@@ -686,19 +865,67 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         }
         return false;
     }
-    if (!EnsurePage(inputs) || !EnsurePipeline(inputs) || !EnsureBindingSet(inputs))
+    if (inputs.proofStage <= 1u)
+    {
+        ReportProofStage(1u, "input-closure", inputs.backend, inputs.family);
+        return true;
+    }
+    if (!EnsurePage(inputs))
     {
         return false;
     }
+    if (inputs.proofStage == 2u)
+    {
+        ReportProofStage(2u, "page-allocation", inputs.backend, inputs.family);
+        return true;
+    }
+    if (!EnsurePipeline(inputs))
+    {
+        return false;
+    }
+    if (inputs.proofStage == 3u)
+    {
+        ReportProofStage(3u, "pipeline-creation", inputs.backend, inputs.family);
+        return true;
+    }
+    if (!EnsureBindingSet(inputs))
+    {
+        return false;
+    }
+    if (inputs.proofStage == 4u)
+    {
+        ReportProofStage(4u, "descriptor-creation", inputs.backend, inputs.family);
+        return true;
+    }
     m_resourceFailureLogged = false;
 
-    const Upt04InitialControl control = Upt04BuildControl(inputs);
+    const bool liveTlasProbe = Upt04PipelineVariant(inputs) != 0u;
+    const bool compactLiveTlasProbe =
+        Upt04UsesCompactProbeLayout(Upt04PipelineVariant(inputs));
+    const bool minimalProductionSlotLayout =
+        Upt04UsesMinimalProductionSlotLayout(Upt04PipelineVariant(inputs));
+    const bool usesPushConstants =
+        Upt04UsesPushConstants(Upt04PipelineVariant(inputs));
+    const bool usesBindlessSet =
+        Upt04UsesBindlessSet(Upt04PipelineVariant(inputs));
+    const Upt04InitialControl control = !usesPushConstants
+        ? Upt04InitialControl{}
+        : Upt04BuildControl(inputs);
     {
         Upt04MarkerScope marker(
             inputs.commandList,
             "UPT.D0 Initial Bind+Barriers",
             inputs.nsightMarkers);
-        Upt04SetSrvStates(inputs.commandList, inputs);
+        if (compactLiveTlasProbe || minimalProductionSlotLayout)
+        {
+            inputs.commandList->setAccelStructState(
+                inputs.sceneInputs->geometry.tlas,
+                nvrhi::ResourceStates::AccelStructRead);
+        }
+        else
+        {
+            Upt04SetSrvStates(inputs.commandList, inputs);
+        }
         inputs.commandList->setBufferState(m_page0, nvrhi::ResourceStates::UnorderedAccess);
         inputs.commandList->commitBarriers();
         if (m_pageNeedsClear)
@@ -708,14 +935,22 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
             m_pageNeedsClear = false;
         }
 
-        if (m_backend == PathTraceUnifiedPtBackend::RayQuery)
+        if (inputs.proofStage == 5u)
+        {
+            ReportProofStage(5u, "barriers-and-clear", inputs.backend, inputs.family);
+            return true;
+        }
+
+        if (liveTlasProbe || m_backend == PathTraceUnifiedPtBackend::RayQuery)
         {
             nvrhi::ComputeState state;
             state.pipeline = m_computePipeline;
-            state.bindings = {
-                m_bindingSet,
-                inputs.sceneInputs->materials.textureDescriptorTable
-            };
+            state.bindings = { m_bindingSet };
+            if (usesBindlessSet)
+            {
+                state.bindings.push_back(
+                    inputs.sceneInputs->materials.textureDescriptorTable);
+            }
             inputs.commandList->setComputeState(state);
         }
         else
@@ -728,26 +963,68 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
             };
             inputs.commandList->setRayTracingState(state);
         }
-        inputs.commandList->setPushConstants(&control, sizeof(control));
+        if (usesPushConstants)
+        {
+            inputs.commandList->setPushConstants(&control, sizeof(control));
+        }
+
+        if (inputs.proofStage == 6u)
+        {
+            ReportProofStage(6u, "state-and-push-binding", inputs.backend, inputs.family);
+            return true;
+        }
     }
 
     {
-        const char* markerName = m_backend == PathTraceUnifiedPtBackend::RayQuery
-            ? "UPT.D0 Initial RayQuery Dispatch"
-            : "UPT.D0 Initial RayGen DispatchRays";
+        const bool oneGroup = inputs.proofStage == 7u;
+        const bool oneGroupRow = inputs.proofStage == 8u;
+        const char* oneGroupRayQueryMarker = inputs.shaderProofMode == 1u
+            ? "UPT.D0 Initial RayQuery 8x8 UavWrite"
+            : (inputs.shaderProofMode == 2u
+                ? "UPT.D0 Initial RayQuery 8x8 PrimaryRead"
+                : (inputs.shaderProofMode == 3u
+                    ? "UPT.D0 Initial RayQuery 8x8 ProposalNoTrace"
+                    : (inputs.shaderProofMode == 4u
+                        ? "UPT.D0 Initial RayQuery 8x8 FixedRayStatus"
+                        : (inputs.shaderProofMode == 5u
+                            ? "UPT.D0 Initial RayQuery 8x8 ProposedRayStatus"
+                            : "UPT.D0 Initial RayQuery 8x8 FullHitMetadata"))));
+        const char* markerName = liveTlasProbe
+            ? Upt04LiveTlasProbeMarkerName(m_pipelineVariant)
+            : (m_backend == PathTraceUnifiedPtBackend::RayQuery
+            ? (oneGroup
+                ? oneGroupRayQueryMarker
+                : (oneGroupRow
+                    ? "UPT.D0 Initial RayQuery Dispatch OneGroupRow"
+                    : "UPT.D0 Initial RayQuery Dispatch FullFrame"))
+            : (oneGroup
+                ? "UPT.D0 Initial RayGen DispatchRays 8x8"
+                : (oneGroupRow
+                    ? "UPT.D0 Initial RayGen DispatchRays OneGroupRow"
+                    : "UPT.D0 Initial RayGen DispatchRays FullFrame")));
         Upt04MarkerScope marker(inputs.commandList, markerName, inputs.nsightMarkers);
-        if (m_backend == PathTraceUnifiedPtBackend::RayQuery)
+        if (liveTlasProbe)
         {
+            inputs.commandList->dispatch(1u, 1u, 1u);
+        }
+        else if (m_backend == PathTraceUnifiedPtBackend::RayQuery)
+        {
+            const uint32_t groupCountX = oneGroup
+                ? 1u
+                : (inputs.width + 7u) / 8u;
+            const uint32_t groupCountY = oneGroup || oneGroupRow
+                ? 1u
+                : (inputs.height + 7u) / 8u;
             inputs.commandList->dispatch(
-                (inputs.width + 7u) / 8u,
-                (inputs.height + 7u) / 8u,
+                groupCountX,
+                groupCountY,
                 1u);
         }
         else
         {
             nvrhi::rt::DispatchRaysArguments args;
-            args.width = inputs.width;
-            args.height = inputs.height;
+            args.width = oneGroup ? Min(inputs.width, 8u) : inputs.width;
+            args.height = oneGroup || oneGroupRow ? Min(inputs.height, 8u) : inputs.height;
             args.depth = 1u;
             inputs.commandList->dispatchRays(args);
         }
@@ -759,6 +1036,22 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
             "UPT.D0 Initial OutputBarrier",
             inputs.nsightMarkers);
         nvrhi::utils::BufferUavBarrier(inputs.commandList, m_page0);
+    }
+    if (inputs.proofStage == 7u)
+    {
+        ReportProofStage(
+            7u,
+            liveTlasProbe ? "one-invocation-live-tlas-probe" : "one-8x8-group",
+            inputs.backend,
+            inputs.family);
+    }
+    else if (inputs.proofStage == 8u)
+    {
+        ReportProofStage(8u, "one-full-width-group-row", inputs.backend, inputs.family);
+    }
+    else
+    {
+        ReportProofStage(9u, "full-frame-dispatch", inputs.backend, inputs.family);
     }
     return true;
 }

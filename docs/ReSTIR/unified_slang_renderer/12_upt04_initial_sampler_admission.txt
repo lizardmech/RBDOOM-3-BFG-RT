@@ -4,10 +4,44 @@ UPT-04 Minimal Unified Initial Sampler: GPU Work Admission
 Status
 ------
 
-Pre-implementation gate, complete D0 shader closure, and host runtime wiring are
-complete. The Release executable compiles the selected-pipeline owner, but live
-Vulkan pipeline creation and GPU dispatch have not yet been run. UPT-04 is not
-accepted and has no display output.
+Pre-implementation, complete D0 shader closure, host runtime wiring, and the
+first live RayQuery crash investigation are complete. UPT-04 is not accepted
+yet and has no display output; the remaining admission work is estimator modes
+5/6 followed by bounded row and full-frame execution.
+
+The first live attempt with the default direct-only RayQuery route produced
+Windows LiveKernelEvent 141. r_pathTracingUnifiedPtProofStage localized the
+failure to GPU execution, and shader-proof modes 1 through 3 ran while mode 4
+device-removed. Compact Slang and DXC probes (modes 7 and 8) then traversed the
+same live game TLAS successfully. This proved the compiler, driver, NVRHI
+RayQuery support, TLAS descriptor, TLAS state transition, and fixed ray were
+valid rather than merely inferred from offline SPIR-V.
+
+Modes 9 through 13 isolated the host descriptor ABI. Mode 12, containing only
+the production t0 TLAS and u4 output, survived. Mode 13 added only the 128-byte
+b0 push range and device-removed. The cause was a duplicate flattened Vulkan
+binding in the host layout: UPT forced every NVRHI register-class offset,
+including constantBuffer, to zero. This old NVRHI backend retains push constants
+as a zero-count uniform-buffer layout entry for binding-index bookkeeping.
+Consequently PushConstants(0) and RayTracingAccelStruct(0) both became Vulkan
+binding 0. NVRHI's class-separated validation and Slang reflection could not see
+that host-only collision, and traversal consumed an undefined acceleration-
+structure descriptor.
+
+UPT now keeps NVRHI's default constant-buffer offset of 256 while retaining the
+explicit SRV/UAV/sampler offsets required by the Slang descriptor ABI. After
+that one-line correction, the user confirmed both mode 13 and the original
+181736-byte direct-only shader mode 4 survive the one-group live-TLAS gate. The
+same latent zero-offset PushConstants(0) plus TLAS t0 collision was removed from
+the particle-lighting RayQuery layout. The Vulkan NVRHI backend now rejects any
+duplicate flattened binding before creating a descriptor-set layout, so a
+future cross-register-class collision fails pipeline preparation instead of
+reaching GPU traversal.
+
+The screen remaining static during these probes is not a command-queue stall:
+geometry frame numbers continue advancing. UPT is execution-exclusive and has
+no presentation output yet, so it deliberately leaves the last legacy image on
+screen.
 
 First host-publication portion implemented:
 
@@ -22,7 +56,8 @@ First host-publication portion implemented:
     legacy execution branches. That host-publication checkpoint added no UPT
     initial sampler or presentation work. P1/P2/P3/P4 host publication is
     complete. Both UPT backends now pass static reflection and are wired to the
-    exact published layout/table; live Vulkan creation remains unverified.
+    exact published layout/table. RayQuery live Vulkan creation and fixed-ray
+    one-group traversal are verified; ray-generation execution remains pending.
 
 This document freezes the first renderer workload before any production UPT-04
 resource, pipeline, ray, or host dispatch is written. It reconciles the UPT-01
@@ -595,7 +630,8 @@ entry point.
 The composition still does not implement the environment provider or debug
 counters. It now has live resource allocation, one selected NVRHI pipeline,
 the reflected 23-descriptor layout, and the D0 host dispatch. It must not be
-treated as accepted UPT-04 until live pipeline creation and dispatch pass.
+treated as accepted UPT-04 until proposed-ray/full-hit estimator execution,
+full-frame cost, and ray-generation parity pass.
 
 Runtime wiring implemented
 --------------------------
@@ -624,6 +660,20 @@ Runtime controls:
         0 unified direct + indirect
         1 direct-only (default bring-up)
         2 indirect-only
+    r_pathTracingUnifiedPtShaderProof
+        1 selected shader: UAV write only
+        2 selected shader: primary read
+        3 selected shader: proposal/material preparation without tracing
+        4 selected shader: fixed valid RayQuery, status only
+        5 selected shader: proposed visibility RayQuery, status only
+        6 selected shader: committed-hit metadata and reservoir completion
+        7 compact live-TLAS Slang query
+        8 compact live-TLAS DXC-to-SPIR-V query
+        9 minimal Slang query through complete production set 0 and bindless set 1
+        10 pure b0/b4 query through the same full host layout
+        11 pure query with complete set 0 and no bindless set 1
+        12 production t0 TLAS plus u4 output only
+        13 mode 12 plus the 128-byte production push range
 
 The direct-only default makes the first live build exercise the smallest
 166-KB closure. The unified 268-KB module is never created merely because the
@@ -650,7 +700,8 @@ Nsight markers are separate:
     UPT.D0 Initial OutputBarrier
     UPT.P0 PrimarySurfaceHistory Copy
 
-The Slang target copies only eight verifier-approved SPIR-V modules to
+The Slang target copies the eight selectable/runtime support modules plus four
+verifier-approved live-admission probe modules to
 base/renderprogs2/spirv/builtin/pathtracing/slang_upt04. RBDoom3BFG depends on
 that runtime-artifact target, so a source/import edit retriggers Slang and the
 game cannot silently consume an older D0 blob.
@@ -701,11 +752,20 @@ between RayQuery and TraceRay adapters. The updated C++ schedule/random-ledger
 harness also passes. At that checkpoint no game executable or SPIR-V was
 deployed because no live UPT pipeline consumed the modules.
 
-The runtime-wiring build now passes the full UPT-04 Slang module graph, all
-offline reflection/disassembly validators, verified runtime artifact copies,
-and the generated Release RBDoom3BFG C++ compile/link. The built executable and
-runtime blobs have not yet been exercised in the game, so this is compile proof
-only rather than Vulkan runtime acceptance.
+The runtime-wiring build passes the full UPT-04 Slang module graph, all offline
+reflection/disassembly validators, verified runtime artifact copies, and the
+generated Release RBDoom3BFG C++ compile/link. Live execution confirmed proof
+stages 1 through 6, compact Slang and DXC live-TLAS traversal, and the corrected
+mode-13 and original direct-only mode-4 one-group traversal. This is runtime
+acceptance of the resource/pipeline/descriptor/binding and fixed-ray boundary,
+not yet acceptance of proposed-ray/full-hit estimator work or full-frame cost.
+
+The duplicate-binding fix was compiled in the exact nvrhi_vk Release project,
+then the Release game executable was relinked against that library. The particle
+lighting layout compiles with the same safe default constant-buffer offset. A
+source audit found no other renderer layout combining setConstantBufferOffset(0)
+with PushConstants; the other explicit-zero layouts contain real constant
+buffers, while other push-constant layouts retain separated default offsets.
 
 The independent geometry/replay build also passed Slang compilation,
 spirv-val, reflection, and its trace-free disassembly gate. The generated

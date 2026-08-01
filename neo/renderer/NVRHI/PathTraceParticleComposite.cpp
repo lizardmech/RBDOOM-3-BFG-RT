@@ -532,8 +532,10 @@ void PathTracePrimaryPass::ExecutePathTraceParticleComposite(nvrhi::ICommandList
             lightingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
             lightingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
                 .setShaderResourceOffset(0)
-                .setUnorderedAccessViewOffset(0)
-                .setConstantBufferOffset(0);
+                .setUnorderedAccessViewOffset(0);
+            // Keep NVRHI's default constant-buffer offset. This backend emits a
+            // zero-count descriptor-layout entry for PushConstants, so mapping
+            // b0 to binding 0 would collide with the TLAS at t0.
             lightingLayoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(0, sizeof(ParticleLightingConstants)));
             lightingLayoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
             lightingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));

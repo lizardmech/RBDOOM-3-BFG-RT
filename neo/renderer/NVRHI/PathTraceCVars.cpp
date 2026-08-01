@@ -1383,6 +1383,18 @@ idCVar r_pathTracingUnifiedPtFamily(
     CVAR_RENDERER | CVAR_INTEGER,
     "UPT-04 static family specialization: 0 unified direct+indirect, 1 direct-only (default bring-up), 2 indirect-only; only one pipeline exists at a time" );
 
+idCVar r_pathTracingUnifiedPtProofStage(
+    "r_pathTracingUnifiedPtProofStage",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-04 live admission ladder after the full-frame GPU watchdog: 1 input closure only (safe default), 2 page allocation, 3 selected pipeline creation, 4 descriptor creation, 5 barriers+initial clear, 6 state+push binding, 7 one 8x8 group, 8 one full-width 8-pixel row, 9 full-frame dispatch" );
+
+idCVar r_pathTracingUnifiedPtShaderProof(
+    "r_pathTracingUnifiedPtShaderProof",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-04 RayQuery execution ladder: 1 UAV write, 2 primary read, 3 proposal/material without tracing, 4 fixed valid RayQuery with status only, 5 proposed visibility RayQuery with status only, 6 full committed-hit metadata and reservoir completion, 7 compact one-invocation live-TLAS Slang probe, 8 byte-equivalent DXC-to-SPIR-V probe, 9 production reservoir/push shader ABI through the full host layout, 10 pure b0/b4 fixed query through that same full host layout, 11 same pure query with complete set 0 but bindless set 1 omitted, 12 only production TLAS b0 plus uint UAV b4, 13 mode 12 plus the 128-byte production push range" );
+
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
     "1",

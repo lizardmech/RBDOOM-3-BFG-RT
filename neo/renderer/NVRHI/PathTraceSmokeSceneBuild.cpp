@@ -9413,7 +9413,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         staticBucketCutoverPlan.accepted;
     if (staticBucketRouteRequested &&
         (staticBucketFramePublication.auditRequested ||
-            (m_smokeGeometryFrameIndex % 120ull) == 1ull))
+            (r_pathTracingSmokeLog.GetInteger() != 0 &&
+                (m_smokeGeometryFrameIndex % 120ull) == 1ull)))
     {
         common->Printf(
             "PathTracePrimaryPass: GEO10 static bucket cutover mode=%d requested/accepted=%d/%d consumerSupported=%d productionRoute=%d primaryOpaqueProbe=%d secondaryIsolation=%d secondaryStage=%d fullResidentProbe=%d allResidentReady=%d publicationExact=%d buckets(active/resident/ready)=%d/%d/%d outputs(tlas/routes)=%zu/%zu materialIndexMissingActive=%d traversal=%s\n",

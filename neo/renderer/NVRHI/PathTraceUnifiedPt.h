@@ -34,6 +34,8 @@ struct PathTraceUnifiedPtDispatchInputs
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t frameSampleIndex = 0;
+    uint32_t proofStage = 1;
+    uint32_t shaderProofMode = 1;
     PathTraceUnifiedPtBackend backend = PathTraceUnifiedPtBackend::RayQuery;
     PathTraceUnifiedPtFamily family = PathTraceUnifiedPtFamily::DirectOnly;
     bool nsightMarkers = false;
@@ -49,14 +51,21 @@ private:
     bool EnsurePage(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsurePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void ReportProofStage(
+        uint32_t stage,
+        const char* label,
+        PathTraceUnifiedPtBackend backend,
+        PathTraceUnifiedPtFamily family);
     void ReleasePipeline();
 
     PathTraceUnifiedPtBackend m_backend = PathTraceUnifiedPtBackend::RayQuery;
     PathTraceUnifiedPtFamily m_family = PathTraceUnifiedPtFamily::DirectOnly;
+    uint32_t m_pipelineVariant = 0;
     bool m_selectionValid = false;
     bool m_pipelineAttempted = false;
     bool m_resourceFailureLogged = false;
     bool m_pageNeedsClear = false;
+    uint32_t m_reportedProofStage = UINT32_MAX;
 
     uint32_t m_pageWidth = 0;
     uint32_t m_pageHeight = 0;

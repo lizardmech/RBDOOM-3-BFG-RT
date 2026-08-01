@@ -102,6 +102,8 @@ function(path_tracing_declare_slang_spirv_module)
             -entry "${PTSLANG_ENTRY}"
             -stage "${PTSLANG_STAGE}"
             -O3
+            -zero-initialize
+            -emit-spirv-directly
             -matrix-layout-row-major
             -fvk-use-scalar-layout
             -fvk-use-entrypoint-name

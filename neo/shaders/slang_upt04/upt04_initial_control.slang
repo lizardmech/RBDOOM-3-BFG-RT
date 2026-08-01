@@ -23,7 +23,7 @@ public struct Upt04InitialControl
     public uint logicalTextureCount;
     public uint pageGenerationLo;
     public uint pageGenerationHi;
-    public uint textureBindingProbeEnabled;
+    public uint shaderProofMode;
     public uint materialCount;
     public uint currentLightCount;
     public uint staticVertexCount;

@@ -16,7 +16,7 @@ public static const uint kUpt04TriangleEmissiveStageOff = 0x00040000u;
 // disabled in the admitted production specialization until hit UV decoding exists.
 public float3 Upt04MaterialBindingProbe(uint materialIndex, float2 uv)
 {
-    if (gUpt04Control.textureBindingProbeEnabled == 0u
+    if ((gUpt04Control.shaderProofMode & 0x80000000u) == 0u
         || materialIndex >= gUpt04Control.materialCount)
         return float3(1.0f);
     const Upt04SmokeMaterialRecord material = gUpt04Materials[materialIndex];
