@@ -36,7 +36,7 @@ after UPT-02 proves round trip and bandwidth.
 
     replay/termination state
         compact replay seed/index or equivalent deterministic key plus enough
-        path-PDF state to reproduce every survived Russian-roulette decision;
+        path-PDF state to reproduce a bounded path without roulette dimensions;
         do not assume every selected indirect path has exactly one continuation
 
     classification state
@@ -151,8 +151,8 @@ Russian roulette is transport sampling, not a reservoir candidate family:
     already produced candidates remain valid;
     any candidate produced after surviving roulette includes the survival
         probability in its path PDF/throughput exactly once;
-    replay and receiver-domain re-evaluation reproduce the same accumulated
-        survival-probability semantics;
+    replay and receiver-domain re-evaluation consume the stored accumulated
+        survival-probability semantics without replaying roulette decisions;
     if no selectable candidate exists, canonical empty is written under the
         normal candidate contract.
 
@@ -169,21 +169,35 @@ Counters are debug-only and must not alter production timing.
 Direct/global unification rule
 ------------------------------
 
-"Unified" means the selected sample and normalization belong to one proposal
-mixture. It does not mean adding precomputed DI and GI radiance and putting the
-sum into a struct.
+"Unified" means that the primary NEE candidate and candidates produced along
+the BSDF continuation path are streamed through one reservoir. It does not mean
+adding precomputed DI and GI radiance and putting the sum into a struct.
 
-Each proposal family must record:
+At each admitted path vertex, NEE is evaluated in addition to the bounded BSDF
+continuation. For k_max = 2 the path tree is primary NEE at x1, one continuation
+x1 -> x2, and (for an opaque x2) NEE at x2. A miss or emissive x2 contributes
+the continuation-technique endpoint candidate. An emissive opaque x2 may
+contribute both its endpoint and its x2 NEE candidate. All candidates share one
+weighted streaming update and the finalized initial confidence is c = 1.
 
-    its sampling probability including family/lobe selection;
+Each candidate must record:
+
+    its sampling probability including light/lobe selection;
     target evaluation at the receiver;
     visibility policy;
     stable identity or replay state;
     how the selected contribution is reconstructed by final resolve.
 
-The direct/global mixture probabilities must sum to one over enabled families.
-Disabling a family renormalizes the remaining mixture. A disabled family does
-not generate a zero placeholder candidate.
+The sampling technique is distinct from direct/global classification:
+
+    tau = 1    the final vertex was reached by NEE
+    tau = 2    the final vertex was reached by BSDF continuation
+
+When the same geometric path is reachable by both techniques, apply the balance
+heuristic m_tau = c_tau / (c_1 + c_2) from their exact strategy PDFs. A disabled
+technique creates no zero placeholder. Direct-only and indirect-only are static
+diagnostic/measurement compositions, not probabilities in a top-level XOR
+mixture.
 
 No-reuse final estimate
 -----------------------

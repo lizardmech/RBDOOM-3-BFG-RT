@@ -1,5 +1,6 @@
 import upt04_initial_bindings;
 import upt04_geometry_contract;
+import upt04_light_contract;
 
 [[vk::binding(6, 0)]] StructuredBuffer<Upt04EmissiveReplayRecord> gUpt04EmissiveReplay;
 [[vk::binding(7, 0)]] StructuredBuffer<Upt04SmokeVertex> gUpt04StaticVertices;
@@ -17,3 +18,4 @@ import upt04_geometry_contract;
 [[vk::binding(19, 0)]] StructuredBuffer<uint> gUpt04SkinnedSourceIndices;
 [[vk::binding(20, 0)]] StructuredBuffer<Upt04SkinnedRouteRecord> gUpt04SkinnedRoutes;
 [[vk::binding(21, 0)]] StructuredBuffer<Upt04SkinnedRouteTriangle> gUpt04SkinnedTriangles;
+[[vk::binding(22, 0)]] StructuredBuffer<Upt04EmissiveLookupEntry> gUpt04EmissiveLookup;

@@ -4,7 +4,8 @@
 //
 // UPT-04 owns exactly one 64-byte reservoir page and exactly one selected
 // initial-sampling pipeline. It deliberately does not own output, history,
-// temporal/spatial reuse, counters, queues, or any legacy smoke constants.
+// temporal/spatial reuse, queues, or any legacy smoke constants. A separate
+// one-shot diagnostic specialization owns one fixed counter/readback pair.
 
 #include "PathTraceSceneInputs.h"
 
@@ -39,6 +40,7 @@ struct PathTraceUnifiedPtDispatchInputs
     PathTraceUnifiedPtBackend backend = PathTraceUnifiedPtBackend::RayQuery;
     PathTraceUnifiedPtFamily family = PathTraceUnifiedPtFamily::DirectOnly;
     bool nsightMarkers = false;
+    bool diagnostics = false;
 };
 
 class PathTraceUnifiedPtState
@@ -51,6 +53,8 @@ private:
     bool EnsurePage(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsurePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureDiagnosticBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void DrainDiagnosticReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
     void ReportProofStage(
         uint32_t stage,
         const char* label,
@@ -62,6 +66,7 @@ private:
     PathTraceUnifiedPtFamily m_family = PathTraceUnifiedPtFamily::DirectOnly;
     uint32_t m_pipelineVariant = 0;
     bool m_selectionValid = false;
+    bool m_diagnostics = false;
     bool m_pipelineAttempted = false;
     bool m_resourceFailureLogged = false;
     bool m_pageNeedsClear = false;
@@ -71,6 +76,10 @@ private:
     uint32_t m_pageHeight = 0;
     uint64_t m_pageBytes = 0;
     nvrhi::BufferHandle m_page0;
+    nvrhi::BufferHandle m_diagnosticCounters;
+    nvrhi::BufferHandle m_diagnosticReadback;
+    bool m_diagnosticReadbackPending = false;
+    int m_diagnosticReadbackDelayFrames = 0;
 
     nvrhi::BindingLayoutHandle m_bindingLayout;
     nvrhi::BindingSetHandle m_bindingSet;

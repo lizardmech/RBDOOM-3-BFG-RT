@@ -60,9 +60,36 @@ public struct Upt04LocalLightSample
     public uint reserved;
 };
 
+public struct Upt04EvaluatedLocalLight
+{
+    public uint valid;
+    public Upt04LocalLightSample sample;
+    public float2 storedSampleCoordinates;
+};
+
+public struct Upt04EmissiveLookupEntry
+{
+    public uint instanceId;
+    public uint primitiveIndex;
+    public uint denseLightIndex;
+    public uint occupied;
+};
+
+public static const uint kUpt04EmissiveLookupMaxProbes = 16u;
+
 public bool Upt04FinitePositive(float value)
 {
     return isfinite(value) && value > 0.0f;
+}
+
+public float Upt04BalanceHeuristic(float selectedPdf, float alternatePdf)
+{
+    if (!Upt04FinitePositive(selectedPdf))
+        return 0.0f;
+    if (!Upt04FinitePositive(alternatePdf))
+        return 1.0f;
+    const float sum = selectedPdf + alternatePdf;
+    return Upt04FinitePositive(sum) ? selectedPdf / sum : 0.0f;
 }
 
 public bool Upt04UnifiedLightRecordStructurallyValid(Upt04UnifiedLightRecord record)

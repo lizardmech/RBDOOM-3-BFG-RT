@@ -10526,6 +10526,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_remixLightManager.GetCurrentLightPayloads();
     const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerPreviousPayloadRecords =
         m_remixLightManager.GetPreviousLightPayloads();
+    const PathTraceUnifiedEmissiveLookupBuild unifiedPtEmissiveLookup =
+        unifiedPtScenePublicationRequested
+        ? BuildPathTraceUnifiedEmissiveLookup(
+            restirLightManagerCurrentPayloadRecords,
+            m_remixLightManager.GetStats().emissiveRangeOffset,
+            m_remixLightManager.GetStats().emissiveRangeCount)
+        : PathTraceUnifiedEmissiveLookupBuild();
     emissiveDistribution = [&]() {
         OPTICK_EVENT("PT Emissive Distribution");
         return BuildSmokeEmissiveDistribution(emissiveTriangles);
@@ -10823,6 +10830,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.restirLightManagerPreviousToCurrentBuffer = m_smokeRestirLightManagerPreviousToCurrentBuffer;
     bufferCreateDesc.existingBuffers.restirLightManagerCurrentPayloadBuffer = m_smokeRestirLightManagerCurrentPayloadBuffer;
     bufferCreateDesc.existingBuffers.restirLightManagerPreviousPayloadBuffer = m_smokeRestirLightManagerPreviousPayloadBuffer;
+    bufferCreateDesc.existingBuffers.unifiedPtEmissiveLookupBuffer = m_smokeUnifiedPtEmissiveLookupBuffer;
     if (asyncRigidRouteSideBufferRing && rigidRouteSideBufferWriteSlot >= 0)
     {
         const RtSmokeRigidRouteSideBufferSlot& sideSlot =
@@ -10890,6 +10898,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.restirLightManagerPreviousToCurrentBytes = restirLightManagerPreviousToCurrentRemap.size() * sizeof(uint32_t);
     bufferCreateDesc.restirLightManagerCurrentPayloadBytes = restirLightManagerCurrentPayloadRecords.size() * sizeof(PathTraceUnifiedLightRecord);
     bufferCreateDesc.restirLightManagerPreviousPayloadBytes = restirLightManagerPreviousPayloadRecords.size() * sizeof(PathTraceUnifiedLightRecord);
+    bufferCreateDesc.unifiedPtEmissiveLookupBytes = unifiedPtEmissiveLookup.entries.size() * sizeof(PathTraceUnifiedEmissiveLookupEntry);
     bufferCreateDesc.rigidRouteVertexBytes = rigidRouteBuild.vertices.size() * sizeof(PathTraceSmokeVertex);
     bufferCreateDesc.rigidRouteIndexBytes = rigidRouteBuild.indexes.size() * sizeof(uint32_t);
     bufferCreateDesc.rigidRouteTriangleMaterialBytes = rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t);
@@ -11009,6 +11018,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeRestirLightManagerPreviousToCurrentBuffer = smokeBuffers.restirLightManagerPreviousToCurrentBuffer;
     nvrhi::BufferHandle smokeRestirLightManagerCurrentPayloadBuffer = smokeBuffers.restirLightManagerCurrentPayloadBuffer;
     nvrhi::BufferHandle smokeRestirLightManagerPreviousPayloadBuffer = smokeBuffers.restirLightManagerPreviousPayloadBuffer;
+    nvrhi::BufferHandle smokeUnifiedPtEmissiveLookupBuffer = smokeBuffers.unifiedPtEmissiveLookupBuffer;
     nvrhi::BufferHandle smokeRigidRouteVertexBuffer = smokeBuffers.rigidRouteVertexBuffer;
     nvrhi::BufferHandle smokeRigidRouteIndexBuffer = smokeBuffers.rigidRouteIndexBuffer;
     nvrhi::BufferHandle smokeRigidRouteTriangleMaterialBuffer = smokeBuffers.rigidRouteTriangleMaterialBuffer;
@@ -11719,6 +11729,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeRestirLightManagerPreviousToCurrentBuffer, restirLightManagerPreviousToCurrentRemap, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeRestirLightManagerCurrentPayloadBuffer, restirLightManagerCurrentPayloadRecords, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeRestirLightManagerPreviousPayloadBuffer, restirLightManagerPreviousPayloadRecords, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeUnifiedPtEmissiveLookupBuffer, unifiedPtEmissiveLookup.entries, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeRigidRouteVertexBuffer, rigidRouteBuild.vertices, nvrhi::ResourceStates::ShaderResource, skipRigidRouteSideBufferUpload),
         MakeSmokeVectorUploadItem(smokeRigidRouteIndexBuffer, rigidRouteBuild.indexes, nvrhi::ResourceStates::ShaderResource, skipRigidRouteSideBufferUpload),
         MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialBuffer, rigidRouteBuild.triangleMaterials, nvrhi::ResourceStates::ShaderResource, skipRigidRouteSideBufferUpload),
@@ -14601,6 +14612,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.unifiedLightRemapBuffer = smokeUnifiedLightRemapBuffer;
     sceneInputs.lights.restirLightManagerCurrentPayloadBuffer = smokeRestirLightManagerCurrentPayloadBuffer;
     sceneInputs.lights.restirLightManagerPreviousPayloadBuffer = smokeRestirLightManagerPreviousPayloadBuffer;
+    sceneInputs.lights.unifiedPtEmissiveLookupBuffer = smokeUnifiedPtEmissiveLookupBuffer;
     sceneInputs.lights.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
     sceneInputs.lights.emissiveDistributionCount = static_cast<int>(emissiveDistribution.entries.size());
     sceneInputs.lights.emissiveDistributionZeroPdfSkipped = emissiveDistribution.zeroPdfSkipped;
@@ -14621,6 +14633,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.unifiedLightRemapCount = static_cast<int>(unifiedLights.currentToPreviousRemap.size());
     sceneInputs.lights.restirLightManagerCurrentPayloadCount = static_cast<int>(restirLightManagerCurrentPayloadRecords.size());
     sceneInputs.lights.restirLightManagerPreviousPayloadCount = static_cast<int>(restirLightManagerPreviousPayloadRecords.size());
+    sceneInputs.lights.unifiedPtEmissiveLookupCount = static_cast<int>(unifiedPtEmissiveLookup.entries.size());
     sceneInputs.lights.restirLightManagerEmissiveRangeOffset = remixLightManagerSignatureStats.emissiveRangeOffset;
     sceneInputs.lights.restirLightManagerEmissiveRangeCount = remixLightManagerSignatureStats.emissiveRangeCount;
     sceneInputs.lights.restirLightManagerDoomAnalyticRangeOffset = remixLightManagerSignatureStats.doomAnalyticRangeOffset;
@@ -14629,9 +14642,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.restirLightManagerStructuralSignature = remixLightManagerSignatureStats.structuralSignature;
     sceneInputs.lights.restirLightManagerMappingSignature = remixLightManagerSignatureStats.mappingSignature;
     sceneInputs.lights.restirLightManagerPayloadSignature = remixLightManagerSignatureStats.payloadSignature;
+    sceneInputs.lights.unifiedPtEmissiveLookupSignature = unifiedPtEmissiveLookup.signature;
     sceneInputs.lights.emissiveDistributionTotalPdf = emissiveDistribution.totalPdf;
     sceneInputs.lights.emissiveDistributionFallbackWeight = emissiveDistribution.fallbackWeight;
     sceneInputs.lights.emissiveDistributionValid = emissiveDistribution.valid;
+    sceneInputs.lights.unifiedPtEmissiveLookupExact = unifiedPtEmissiveLookup.exact;
     sceneInputs.lights.capabilityFlags = RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED;
     sceneInputs.diagnostics.geometryUploadBytes = staticUploadBytes + previousStaticUploadBytes + dynamicUploadBytes + rigidRouteUploadBytes;
     sceneInputs.diagnostics.staticUploadBytes = staticUploadBytes;
@@ -14688,6 +14703,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.unifiedLightRemapCount = sceneInputs.lights.unifiedLightRemapCount;
     resourceCommitBuildDesc.restirLightManagerCurrentPayloadCount = sceneInputs.lights.restirLightManagerCurrentPayloadCount;
     resourceCommitBuildDesc.restirLightManagerPreviousPayloadCount = sceneInputs.lights.restirLightManagerPreviousPayloadCount;
+    resourceCommitBuildDesc.unifiedPtEmissiveLookupCount = sceneInputs.lights.unifiedPtEmissiveLookupCount;
     RtSmokeSceneResourceCommitDesc resourceCommitDesc;
     {
         OPTICK_EVENT("PT Commit Scene Desc Build");

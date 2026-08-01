@@ -80,6 +80,25 @@ struct PathTraceUnifiedLightBuild
     uint32_t previousAnalyticLightCount = 0;
 };
 
+static constexpr uint32_t PATH_TRACE_UNIFIED_EMISSIVE_LOOKUP_MAX_PROBES = 16u;
+
+struct PathTraceUnifiedEmissiveLookupEntry
+{
+    uint32_t instanceId = 0;
+    uint32_t primitiveIndex = 0;
+    uint32_t denseLightIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    uint32_t occupied = 0;
+};
+static_assert(sizeof(PathTraceUnifiedEmissiveLookupEntry) == 16,
+    "PathTraceUnifiedEmissiveLookupEntry must match Slang scalar layout");
+
+struct PathTraceUnifiedEmissiveLookupBuild
+{
+    std::vector<PathTraceUnifiedEmissiveLookupEntry> entries;
+    uint64_t signature = 0;
+    bool exact = false;
+};
+
 PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(
     const std::vector<PathTraceSmokeEmissiveTriangle>& currentEmissiveTriangles,
     const std::vector<PathTraceSmokeEmissiveTriangle>& previousEmissiveTriangles,
@@ -90,3 +109,8 @@ PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(
     const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& previousAnalyticIdentities,
     const std::vector<PathTraceDoomAnalyticLightRemap>& analyticRemap,
     float analyticStateCompatibilityTolerance);
+
+PathTraceUnifiedEmissiveLookupBuild BuildPathTraceUnifiedEmissiveLookup(
+    const std::vector<PathTraceUnifiedLightRecord>& currentLights,
+    uint32_t emissiveRangeStart,
+    uint32_t emissiveRangeCount);

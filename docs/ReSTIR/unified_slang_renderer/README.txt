@@ -233,9 +233,22 @@ Packet index
         comparison, reflection/dependency gate, and bounded zero-ray ledger.
 
     12_upt04_initial_sampler_admission.txt
-        UPT-04 GPU work admission and implementation record: one-draw proposal
-        mixture, exact ray ceiling, resource/module boundaries, mandatory host
-        publications, offline shader closure, and selected runtime wiring.
+        UPT-04 GPU work admission and implementation record: corrected path-tree
+        candidate streaming, exact three-ray ceiling, resource/module boundaries,
+        mandatory host publications, fixed counter readback, offline shader
+        closure, and selected runtime wiring.
+
+        SUPERSEDED IN PART by 13. Its initial-sampling design (one-draw
+        technique mixture, M = 1, two-ray ceiling) does not match the cited
+        paper. Read 13 before implementing or reviewing D0.
+
+    13_upt04_corrections_and_paper_reference.txt
+        Correction of the initial sampler to the paper's path-tree formulation,
+        plus a self-contained transcription of the ReSTIR PT Enhanced math
+        (RIS/GRIS, reservoir tuple, technique index and MIS, hybrid shift and
+        Jacobian, unified DI+GI initial sampling, RIS-based NEE, Russian
+        roulette, measured costs) so the PDF does not have to be re-read.
+        Also carries the live host-side blockers.
 
 Stop condition
 --------------

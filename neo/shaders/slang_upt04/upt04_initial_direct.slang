@@ -4,9 +4,9 @@ import upt04_initial_bindings;
 import upt04_hit_contract;
 import upt04_light_contract;
 import upt04_local_light_proposal;
-import upt04_local_light_evaluation;
+import upt04_local_light_evaluation_direct;
 import upt04_material_contract;
-import upt04_material_set_live_probe;
+import upt04_material_primary_live;
 import upt04_primary_surface_live_contract;
 import upt04_random_contract;
 import upt04_random_white_hash;
@@ -15,8 +15,7 @@ import upt04_transport_initial_bounded;
 public Upt04InitialTraceWork Upt04PrepareDirectTrial(
     Upt04InitialTraceWork work,
     Upt04PrimarySurfaceRecord surface,
-    uint2 pixel,
-    float familyPdf)
+    uint2 pixel)
 {
     Upt04LocalLightRanges ranges;
     ranges.emissiveStart = gUpt04Control.emissiveRangeStart;
@@ -43,25 +42,21 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial(
         return work;
 
     const Upt04UnifiedLightRecord light = gUpt04CurrentLights[selection.denseIndex];
-    const Upt04EvaluatedLocalLight evaluated = Upt04EvaluateSelectedLocalLight(
+    const Upt04EvaluatedLocalLight evaluated = Upt04EvaluateSelectedLocalLightDirectOnly(
         selection,
         light,
         surface.worldPositionAndViewDepth.xyz);
     if (evaluated.valid == 0u)
         return work;
 
-    const float3 bindingProbe = Upt04MaterialBindingProbe(
-        surface.materialAndSurface.y,
-        selection.sampleCoordinates);
     const Upt04MaterialEvaluation material = Upt04EvaluatePrimaryDirectProbe(
         surface,
         evaluated.sample.direction,
-        evaluated.sample.radiance,
-        bindingProbe);
+        evaluated.sample.radiance);
     if (material.valid == 0u)
         return work;
 
-    const float proposalPdf = familyPdf * selection.selectionPdf
+    const float proposalPdf = selection.selectionPdf
         * evaluated.sample.solidAnglePdf;
     if (!Upt04FinitePositive(proposalPdf))
         return work;
@@ -82,8 +77,14 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial(
     work.partialJacobian = 1.0f;
     work.accumulatedRouletteProbability = 1.0f;
     work.sampleCoordinates = evaluated.storedSampleCoordinates;
-    work.contribution = material.weightedContribution;
-    work.target = material.target;
+    work.pathLength = 1u;
+    work.reconnectionVertexLength = 0u;
+    const float techniqueMis = selection.type == kUpt04LightEmissiveTriangle
+        ? Upt04BalanceHeuristic(proposalPdf, material.directionalPdf)
+        : 1.0f;
+    work.contribution = material.weightedContribution * techniqueMis;
+    work.target = max(work.contribution.x,
+        max(work.contribution.y, work.contribution.z));
     work.candidateStatus = evaluated.sample.status == kUpt04SampleValidPositive
             && material.target > 0.0f
         ? kUpt04SampleValidPositive

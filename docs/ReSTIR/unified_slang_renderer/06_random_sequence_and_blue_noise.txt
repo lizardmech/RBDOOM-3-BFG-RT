@@ -199,6 +199,16 @@ Offline/GPU tests:
     white fallback works beyond STBN coverage and across mask epochs
     replay result is identical between white and STBN display providers
 
+Russian-roulette ownership correction
+-------------------------------------
+
+The reserved indirect.roulette_survival stream is consumed only by initial
+transport at its path vertex. Roulette is not part of the replay PSS, and
+replay must not request this dimension or reproduce a survival draw. A surviving
+initial path multiplies its path PDF by the accumulated survival probabilities;
+that stored estimator state is what later replay/shift code consumes. Keeping
+the numeric slot reserved prevents renumbering without making it a replay input.
+
 Image/performance A/B at UPT-05B:
 
     identical camera, scene, ray counts, proposal counts, and material set

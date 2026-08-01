@@ -1,0 +1,655 @@
+UPT-04 Corrections and ReSTIR PT Enhanced Reference
+===================================================
+
+Purpose
+-------
+
+This document supersedes the initial-sampling portions of
+03_unified_reservoir_contract.txt and 12_upt04_initial_sampler_admission.txt.
+
+It exists because UPT-04's initial sampler implements a design that is not the
+one in the cited paper. This document records the correction, and embeds enough
+of the paper's algorithm and math that no agent has to re-read the PDF to
+implement or review the fix.
+
+Source and license
+------------------
+
+    Daqi Lin, Markus Kettunen, Chris Wyman. 2026.
+    "ReSTIR PT Enhanced: Algorithmic Advances for Faster and More Robust
+    ReSTIR Path Tracing."
+    Proc. ACM Comput. Graph. Interact. Tech. 9, 1, Article 13 (May 2026).
+    https://doi.org/10.1145/3804494
+
+    Local copies:
+        E:/prog/references/lin2026restirptenhanced.pdf
+        E:/prog/references/lin2026restirptenhanced_supplemental.pdf
+
+The paper is published under Creative Commons Attribution 4.0 International.
+Implementing its algorithms with attribution is permitted. This is a different
+license situation from the RTXDI SDK sources; the CC-BY paper is a clean design
+authority for a GPL-distributable implementation. The prohibition on copying
+NVIDIA SDK shader bodies is unchanged and unaffected.
+
+Equations transcribed below are marked either VERIFIED (read directly and
+unambiguous in the extracted text) or CHECK-PDF (the structure is correct but
+sub/superscripts were lost in text extraction; confirm exact indices against the
+cited page before relying on the literal form).
+
+
+PART 1 - ROOT CAUSE
+===================
+
+The single-sentence version
+---------------------------
+
+The plan treats "unified DI/GI" as a random draw between a direct technique and
+an indirect technique. The paper treats it as tracing both and letting
+resampling choose. Candidates are cheap; rays are what cost. UPT-04 conflated
+"one candidate" with "bounded ray count" and therefore deleted the mechanism
+that makes unification work.
+
+What the paper actually specifies (Section 6.1, page 13:10)
+-----------------------------------------------------------
+
+Quoted:
+
+    "Lin et al. [2022] start by initially sampling a path tree by emanating NEE
+    rays from BSDF-sampled vertices [x2, ..., xk] where k is limited by the
+    maximum allowed bounces. Initial resampling selects and stores a single
+    path in the reservoir, i.e. xbar = [x0, x1, x2, ..., xk] with a single
+    NEE/BSDF ray connecting to a light at xk (see Section 2.3) with k <= 3
+    originally. Direct light can be handled by simply tracing another NEE ray
+    from x1 when generating the path tree, and giving the (unified) initial
+    resampling a chance to select a shorter direct lighting path (k = 2) from
+    the tree. The selected path is thus sampled from the full path space."
+
+Therefore:
+
+    the NEE ray at x1 is traced IN ADDITION TO the BSDF continuation,
+        not instead of it;
+    the tree yields several candidate paths per pixel, so initial M > 1;
+    selection among them is RIS weighted by the target function p-hat,
+        not a uniform pre-draw over techniques;
+    every candidate is a complete path in the full path space, carrying
+        whatever direct and indirect radiance that path gathered.
+
+What UPT-04 implements instead
+------------------------------
+
+    neo/shaders/slang_upt04/upt04_initial_shared.slang:85-95
+        familyPdf = 1/familyCount, familyOrdinal from one white hash,
+        then chooseDirect ? PrepareDirectTrial : PrepareIndirectTrial.
+        A blind uniform draw between techniques before anything is evaluated.
+
+    neo/shaders/slang_upt04/upt04_transport_initial_bounded.slang:30-48
+        Upt04AdmitDirectVisibility and Upt04AdmitIndirectContinuation share
+        the precondition stage == kUpt04TransportInitial &&
+        continuationRays == 0 && visibilityRays == 0. Whichever fires first
+        advances the stage and permanently locks the other out. XOR is
+        enforced structurally, not by policy.
+
+    12_upt04_initial_sampler_admission.txt
+        "This admits one logical candidate and therefore M = 1"
+        "There is no branch where both a direct-family visibility ray and an
+        indirect continuation execute for the same receiver."
+        Stop condition: "a receiver can emit more than one continuation or one
+        visibility ray" - this forbids the second visibility ray that the
+        correct design requires.
+
+    03_unified_reservoir_contract.txt:161-178
+        "'Unified' means the selected sample and normalization belong to one
+        proposal mixture ... The direct/global mixture probabilities must sum
+        to one over enabled families."
+        This is where the drift starts. README decision 3 is correct - it is a
+        statement about the reservoir ABI (one record type, not two). Doc 03
+        reinterpreted it as one technique draw, and doc 12 implemented that.
+
+Consequence of M = 1
+--------------------
+
+With a single candidate, RIS degenerates algebraically:
+
+    W = (1 / p-hat(x)) * (p-hat(x) / p(x)) = 1 / p(x)
+
+The target function cancels exactly. The final estimate is f(x)/p(x), i.e.
+plain importance sampling. Any target function - correct, wrong, or constant -
+produces an identical image. UPT-04 therefore cannot exercise p-hat at all, and
+the paper's own conclusion is that "overall quality is bounded by the
+effectiveness of initial sampling."
+
+
+PART 2 - PAPER REFERENCE
+========================
+
+Notation used throughout
+------------------------
+
+    xbar        a path [x0, x1, ..., xk]; x0 = sensor, x1 = primary hit
+    k           path length (number of vertices after x0)
+    F(xbar)     path contribution: BSDF, geometry, sensor and emitter terms
+    p-hat       target function (scalar; usually luminance of F, see 6.3)
+    p           source PDF the candidate was actually drawn from
+    W           unbiased contribution weight (UCW), E[W | Y] = 1 / p(Y)
+    c           confidence weight (originally "effective sample count", M)
+    m_i         resampling MIS weight
+    T           shift mapping, y = T(x)
+    |dT/dx|     Jacobian determinant of the shift
+    ubar        primary sample space (PSS) coordinates, a random number vector
+    tau         technique index, tau in {1, 2}: 1 = NEE, 2 = BSDF continuation
+
+2.1 RIS (paper Section 2.1, page 13:2) - VERIFIED
+--------------------------------------------------
+
+Draw M i.i.d. candidates x_i ~ p. Compute resampling weights:
+
+    w_i = (1/M) * p-hat(x_i) / p(x_i)
+
+Select Y from {x_i} with probability proportional to w_i. As M -> infinity, Y's
+distribution converges to p-bar = p-hat / integral(p-hat).
+
+The unbiased contribution weight of the selection is:
+
+    W_Y = (1 / p-hat(Y)) * sum_{i=1..M} w_i
+
+and F(Y) * W_Y unbiasedly estimates integral(F). W_Y estimates 1/p(Y).
+
+Talbot et al. construct p-hat by dropping the visibility term. The paper follows
+this for NEE (see 6.1 below): visibility is excluded from the target function
+and tested only for the selected light.
+
+2.2 GRIS resampling weight (paper Equation 1, page 13:3) - CHECK-PDF
+---------------------------------------------------------------------
+
+Candidates may come from different domains and are mapped into the target
+domain by bijective shift mappings T_i. With y_i = T_i(x_i):
+
+    w_i = m_i(y_i) * p-hat(y_i) * W_i * |dT_i/dx_i|
+
+and the output is sampled proportionally to w_i. Here W_i are unbiased
+contribution weights from prior RIS/GRIS passes, and m_i are resampling MIS
+weights that normalize coverage of the target domain.
+
+Unbiasedness requires including a canonical sample that fully covers the
+support of p-hat among the GRIS inputs. In temporal/spatial reuse the current
+pixel's own reservoir is that canonical sample.
+
+2.3 Reservoir (paper Section 2.2, page 13:3) - VERIFIED
+--------------------------------------------------------
+
+A reservoir is the tuple (Y, W_Y, c):
+
+    Y     the selected sample
+    W_Y   its unbiased contribution weight
+    c     confidence weight, used to weight domains/techniques in resampling
+          MIS
+
+Initial sampling initialises the reservoir with c = 1 via weighted reservoir
+sampling (Chao 1982 streaming form). Temporal reuse gives:
+
+    c_new = min(c_cap, c_temporal) + 1
+
+with the paper's default c_cap = 20. Spatial reuse sums the confidence weights
+of all accepted neighbours. Paper defaults for spatial: 3 random neighbours in
+a 30-pixel radius.
+
+Note for our codec: "confidence weight" is the field UPT-02/03 call effective M.
+It is not a count of rays and not a count of candidates evaluated; it is the
+resampling MIS bookkeeping term.
+
+2.4 Path space, lobes and the technique index (supplemental Section 1)
+-----------------------------------------------------------------------
+
+ReSTIR PT evaluates a single BSDF lobe per vertex, so paths carry a lobe
+sequence and the integrand is split across lobe combinations. NEE at each vertex
+is performed with all lobes enabled. The NEE sample at the final vertex xk is
+encoded by lobe index 0.
+
+A technique index tau in {1, 2} is attached to each path to record whether the
+final vertex was reached by NEE (tau = 1) or by a BSDF-sampled continuation
+(tau = 2). This is mandatory, not optional bookkeeping: without it the same
+geometric path can be produced by two techniques and MIS cannot be applied.
+
+MIS weight between techniques (supplemental Section 1) - CHECK-PDF:
+
+    m_1(xbar) = c_1(xbar) / (c_1(xbar) + c_2(xbar))
+    m_2(xbar) = c_2(xbar) / (c_1(xbar) + c_2(xbar))
+
+where c_1 and c_2 are the NEE and BSDF light-sampling strategy PDFs for the same
+path. This is a balance heuristic over the two techniques.
+
+PSS parameterisation: the path tracer maps a random sequence ubar into a path
+via xbar = W_{k,tau}(ubar), and the integrand becomes
+
+    f(ubar) = m_tau(xbar) * F(xbar) / p(xbar)
+
+integrated over the unit hypercube. For paths produced directly by the path
+tracer the PSS source PDF is p(ubar) = 1.
+
+2.5 Hybrid shift and reconnection (paper Section 2.3, page 13:3-13:4)
+----------------------------------------------------------------------
+
+Not required for D0, but the reservoir ABI must be able to carry it, so record
+it here.
+
+Reconnection is postponed until a vertex pair satisfies two criteria; until then
+the shifted path is retraced by replaying the same random numbers. ReSTIR PT
+precomputes a reconnection vertex on the base path by finding the first pair
+(x_{j-1}, x_j) satisfying:
+
+    roughness:  min(alpha_{j-1}, alpha_j) >= alpha_min
+                (alpha from the path's sampled lobes, lobe-specific)
+    distance:   || x_j - x_{j-1} || >= d_min
+                (avoids geometric singularities)
+
+This predetermines the replayed path length. Shift invertibility is checked when
+connecting from y_{j-1} to x_j.
+
+Jacobian (paper Equation 2, supplemental Equation 4) - CHECK-PDF:
+
+The hybrid-shift PSS Jacobian is a ratio of directional sampling PDFs and
+single-sided geometry terms at the reconnection vertex:
+
+    |dubar_from / dubar_to|
+        = [ p_{j-1}^to(omega_{j-1}^to) * G(y_{j-1} -> x_j) * p_j^to(omega_j) ]
+        / [ p_{j-1}^from(omega_{j-1}^from) * G(x_{j-1} -> x_j) * p_j^from(omega_j) ]
+
+with the single-sided geometry term G(x -> y) = cos(theta) / ||x - y||^2, theta
+being the angle between the connecting direction and the normal at the origin
+vertex.
+
+Two facts matter for our ABI:
+
+    the Jacobian is purely the result of reconnection;
+    random replay is an identity shift in PSS and therefore has Jacobian 1.
+
+Confirm exact index placement against the PDF before implementing; the extracted
+text lost superscripts.
+
+2.6 Unified DI+GI initial sampling (paper Section 6.1) - the core change
+-------------------------------------------------------------------------
+
+Algorithm:
+
+    1. From the primary hit x1, trace an NEE ray. This produces a candidate
+       path of length k = 2 with tau = 1.
+    2. BSDF-sample at x1 and trace a continuation ray to x2.
+       - miss: environment path, k = 2, tau = 2
+       - emissive hit: endpoint-emission path, k = 2, tau = 2
+       - opaque hit: continue
+    3. From x2, trace an NEE ray. Candidate path k = 3, tau = 1.
+    4. Repeat 2-3 up to k_max (paper uses k <= 3, i.e. NEE at x1, x2 and x3).
+    5. Stream every candidate through ONE reservoir with RIS. The reservoir
+       initialises with c = 1 regardless of how many candidates were streamed.
+    6. Store the single selected path.
+
+Quality mechanism, quoted:
+
+    "Somewhat surprisingly, it also improves quality as direct lighting now
+    benefits from ReSTIR PT's built-in shift mapping (especially on glossy
+    highlights)."
+
+Supplemental Figure 4 attributes the gain specifically to "hybrid shift and
+pairwise MIS". Both are reuse machinery. The quality benefit of unification is
+therefore NOT observable in a no-reuse renderer - see Part 4.
+
+Many-light NEE, quoted:
+
+    "For scenes with many lights, we optionally apply RIS when generating NEE
+    samples at x1. As in ReSTIR DI, visibility is excluded from the target
+    function and tested only for the selected light. We reuse the presampled
+    light-tile scheme from Wyman and Panteleev [2021] to improve cache
+    coherence: each frame precomputes 128 tiles with 1024 lights, from which
+    each 8 x 8 screen tile draws a light tile to generate candidates per
+    bounce."
+
+This matters for Doom 3 map light counts and matters more once emissive
+surfaces become mesh lights.
+
+2.7 MIS and UCW under RIS-based NEE (supplemental Section 5) - CHECK-PDF
+--------------------------------------------------------------------------
+
+When NEE uses RIS with M > 1 light candidates, two things change.
+
+MIS weight becomes the multi-sample form, using the light sampling source PDF
+p_1 and assuming RIS approximates fully evaluating all M lights:
+
+    m_1(xbar) = c_1(xbar) / (c_1(xbar) + c_2(xbar))
+
+(as in 2.4, but c_1 now derived from the light-sampling source PDF rather than
+an exactly known NEE PDF).
+
+PSS treatment: the RIS process is treated as a black box. The PSS definition
+still assumes a single NEE sample with a known PDF, so the integrand is
+unchanged at m_1(xbar) * F(xbar) / p_1(xbar). The effect of RIS is folded into
+the UCW instead. For the selected NEE sample:
+
+    W = W_RIS * p_1(tau(ubar))
+
+where tau(ubar) are the hypothetical random numbers that would have produced the
+same light sample under the original single-sample NEE procedure, W_RIS is the
+path-space UCW from the RIS process (area measure, as in ReSTIR DI), and
+p_1(tau(ubar)) is also the Jacobian converting between parameterisations.
+
+Sanity check stated in the paper: original single-sample NEE has
+W(ubar) = 1 / p_1(tau(ubar)), which cancels the Jacobian to yield 1.
+
+Getting this wrong produces a plausible image with wrong energy. Implement the
+sanity check as a test: with RIS candidate count 1, the unified path must
+produce bit-identical output to plain single-sample NEE.
+
+2.8 Russian roulette (paper Section 6.2.4, supplemental Section 6) - VERIFIED
+------------------------------------------------------------------------------
+
+This directly contradicts our 07_three_bounce_and_russian_roulette_readiness.txt
+and doc 03. The paper does NOT replay roulette decisions.
+
+Quoted problem statement:
+
+    "Usually, the primary sample space (PSS) is extended with random numbers for
+    Russian roulette, which can create caveats for shift mapping: naively
+    replaying the random numbers to perform Russian roulette tests in hybrid
+    shift can increase shift failure, as a survived path can sometimes be
+    shifted to a killed path, invalidating the sample."
+
+Their solution: decouple the PSS definition from the actual sampling process.
+Paths are defined in the original PSS WITHOUT roulette dimensions. Roulette only
+alters the initial sample's PDF:
+
+    p(ubar) = product_{i=1..k-1} q_i(ubar)
+
+where q_i are the survival probabilities at each bounce. RR is applied at initial
+sampling only and removed from random replay entirely, so roulette failures
+during shift mapping are eliminated.
+
+Cost effect, from Table 1: applying RR moved total frame time from 25.02 ms to
+16.52 ms, with initial sampling dropping 12.56 -> 5.21 ms. It is the single
+largest optimisation in the paper.
+
+2.9 Measured costs (paper Table 1, page 13:12) - VERIFIED
+-----------------------------------------------------------
+
+Averaged over Veach Ajar, Carousel, Opera House, Bathroom at 1920x1080.
+Milliseconds.
+
+    Method                          Total  Initial  Temporal  Spatial  DI+other
+    Baseline                        35.73   10.59      5.30    14.79      5.05
+    +Code microop      (6.2.1)      32.98   10.70      4.16    13.06      5.07
+    +Forced NEE reconn (6.2.3)      29.75   11.44      3.40     9.73      5.19
+    +Replay compaction (6.2.2)      26.81   11.79      2.66     6.99      5.37
+    +Paired spatial    (3)          25.02   12.56      2.80     4.11      5.55
+    +Russian roulette  (6.2.4)      16.52    5.21      2.24     3.83      5.24
+    +Unify DI & GI     (6.1)        13.04    6.47      2.14     3.43      1.00
+    +New thresholds    (4)          14.51    6.68      2.92     3.60      1.31
+    +All improvements  (5,6.3,6.4)  15.53    6.77      3.20     3.73      1.83
+
+Read the unification row carefully:
+
+    initial sampling got 24 percent MORE expensive (5.21 -> 6.47 ms)
+    because it now traces the extra NEE ray at x1 and resamples a larger tree;
+
+    the net win (-3.48 ms) comes almost entirely from deleting the separate
+    ReSTIR DI pass (5.24 -> 1.00 ms).
+
+Storage (paper Section 7.1): compressing the reservoir and unifying DI/GI
+reduces per-pixel storage from 2 x (88 + 16) bytes to 2 x 64 bytes, i.e.
+431 MB -> 265 MB at 1920x1080. Two sets are required because temporal reuse
+needs history. Our 64-byte target matches theirs exactly.
+
+
+PART 3 - REQUIRED FIXES
+=======================
+
+F1. Replace the technique mixture with a path tree
+---------------------------------------------------
+
+Files:
+    neo/shaders/slang_upt04/upt04_initial_shared.slang
+    neo/shaders/slang_upt04/upt04_transport_initial_bounded.slang
+    neo/shaders/slang_upt04/upt04_initial_direct.slang
+    neo/shaders/slang_upt04/upt04_initial_indirect.slang
+    neo/shaders/slang_upt04/upt04_initial_direct_only_rayquery.slang and the
+        five sibling entry points
+
+Delete:
+    Upt04PrepareInitialTraceWork's familyCount / familyPdf / familyOrdinal
+        uniform draw;
+    the kUpt04StreamInitialFamilySelection random slot as a *selection*
+        mechanism (keep the slot reserved, see F6);
+    the mutual exclusion in Upt04AdmitDirectVisibility /
+        Upt04AdmitIndirectContinuation.
+
+Minimal faithful D0 (k_max = 2, one continuation):
+
+    candidate A: NEE from x1              k=2, tau=1   1 shadow ray
+    continuation: BSDF sample at x1 -> x2                1 ray
+        miss          -> candidate B: environment    k=2, tau=2  0 rays
+        emissive hit  -> candidate B: endpoint       k=2, tau=2  0 rays
+        opaque hit    -> candidate C: NEE from x2    k=3, tau=1  1 shadow ray
+    stream A, and B or C, through one reservoir (RIS)
+
+    rays per eligible receiver: <= 3
+    candidates per eligible receiver: 2 (3 if an emissive opaque hit yields
+        both an endpoint path and an NEE path from x2)
+    reservoir confidence weight on output: c = 1
+
+The key correction to internalise: candidates are free, rays are not. An
+emissive opaque hit produces two candidate paths from the same two rays. M is a
+count of resampling inputs, not a ray budget.
+
+Acceptance:
+    direct and indirect contributions can both exist for the same receiver;
+    p-hat is load-bearing - changing the target function changes the image;
+    with the light count set to 1 and the continuation disabled, output is
+        bit-identical to the previous direct-only path.
+
+F2. Raise the ray ledger from 2 to 3 and delete the blocking stop condition
+----------------------------------------------------------------------------
+
+File: 12_upt04_initial_sampler_admission.txt
+
+The ray ledger table and the absolute ceiling both need rewriting:
+
+    continuation rays      <= 1 per eligible receiver   (unchanged at k_max=2)
+    visibility rays        <= 2 per eligible receiver   (was 1)
+    total D0 rays          <= 3 * eligible receivers    (was 2)
+
+Delete the stop condition "a receiver can emit more than one continuation or one
+visibility ray". As written it forbids the correct implementation. Replace with
+a ceiling parameterised on k_max:
+
+    visibility rays <= k_max, continuation rays <= k_max - 1
+
+Record explicitly that this is a 50 percent ray-budget increase over the
+currently ledgered D0 and that it is the honest cost of the cited design.
+
+F3. Rewrite the unification rule in doc 03
+-------------------------------------------
+
+File: 03_unified_reservoir_contract.txt, section "Direct/global unification
+rule" (lines 161-178).
+
+Remove:
+    "'Unified' means the selected sample and normalization belong to one
+    proposal mixture"
+    "The direct/global mixture probabilities must sum to one over enabled
+    families. Disabling a family renormalizes the remaining mixture."
+
+Replace with the path-tree formulation from 2.6 above. The existing warning
+against "adding precomputed DI and GI radiance and putting the sum into a
+struct" is correct and should stay - it was the remedy that overshot, not the
+diagnosis.
+
+Note that README decision 3 needs no change; it is an ABI statement and it is
+right.
+
+F4. Add the technique index and per-technique MIS
+--------------------------------------------------
+
+The reservoir already carries eventKind and lobeMask. Confirm that eventKind can
+express tau in {1, 2} unambiguously and that it is distinct from "direct vs
+indirect", which is a derived classification and not a sampling technique.
+
+Implement m_1 / m_2 per 2.4. Without it, an emissive surface reachable by both
+the continuation ray and an NEE connection is double-counted.
+
+Acceptance: a scene with one large area light, rendered with NEE only, BSDF
+only, and both-with-MIS, must produce the same mean energy in all three.
+
+F5. Correct the Russian roulette contract
+------------------------------------------
+
+Files:
+    07_three_bounce_and_russian_roulette_readiness.txt
+    03_unified_reservoir_contract.txt (roulette paragraph)
+
+Remove the requirement that replay reproduce every survived roulette decision.
+Replace with 2.8: paths are parameterised in a PSS without roulette dimensions;
+roulette modifies only the initial sample's PDF via the product of survival
+probabilities; roulette is absent from random replay.
+
+Consequence for the random ledger: indirect.roulette_survival is consumed at
+initial sampling only. Keep the reserved slot, but document that replay does not
+consume it.
+
+F6. Fix the page generation fingerprint
+----------------------------------------
+
+File: neo/renderer/NVRHI/PathTraceUnifiedPt.cpp, Upt04BuildPageGeneration
+
+Currently hashes scene, geometry, material, light, texture, resolution and
+camera signatures plus a compile-time ABI constant. It omits everything that
+changes the meaning of a stored proposalPdf:
+
+    enabledFamilyMask
+    availabilityFlags (including environment availability)
+    k_max / transport policy identity
+    RIS candidate count for NEE
+    backend and family selection
+
+Harmless today because there is no history consumer. Silent history poisoning
+the moment UPT-06 lands. Fix now while it is one function.
+
+F7. Plan for light-tile presampled NEE
+---------------------------------------
+
+Not a D0 blocker, but it must be in the ledger before the light count grows.
+Paper scheme: 128 tiles x 1024 lights per frame, each 8x8 screen tile draws one
+tile, candidates generated per bounce, visibility excluded from the target and
+tested only for the winner.
+
+Given the plan to convert emissive surfaces into mesh lights, uniform sampling
+over the manager's sampleable range will become the dominant DI error term long
+before anything else in the packet does.
+
+
+PART 4 - CONSEQUENCES FOR THE GO/NO-GO
+======================================
+
+The performance argument does not transfer to greenfield
+---------------------------------------------------------
+
+The paper's unification is net faster only because it deletes an existing
+separate ReSTIR DI pass. UPT is being built from scratch and has no such pass to
+delete. In our architecture we buy the +24 percent on initial sampling and
+collect none of the -4.24 ms offset.
+
+In greenfield, unification is a quality and memory decision, not a speed one.
+The memory win does transfer (2 x 64 bytes per pixel, 265 MB at 1080p). The
+speed win does not. Do not set a UPT-05 performance expectation that assumes it.
+
+The quality benefit is not visible before reuse
+------------------------------------------------
+
+The gain is attributed to hybrid shift and pairwise MIS. Neither exists in the
+baseline, and both sit behind the UPT-05 stop condition. At M small and no
+reuse, a correct unified renderer and a split DI/GI renderer produce nearly
+identical images.
+
+Therefore UPT-05 is a plumbing gate - is it correct, is the ABI sound, is the
+cost within budget - and not a design gate. The unified-versus-split verdict
+requires at least a temporal pass with a working shift mapping.
+
+Decide deliberately between:
+
+    A. accept UPT-05 as plumbing-only and move the design go/no-go to after
+       UPT-07 temporal reuse;
+    B. pull a minimal temporal pass with reconnection shift into the spike
+       specifically to expose the reuse benefit, accepting that this violates
+       the current stop condition.
+
+What does not need to change
+-----------------------------
+
+    the 64-byte reservoir stride - matches the paper exactly;
+    doc 03's stored fields: path length, reconnection vertex length, replay
+        key, path PDF, partial Jacobian, confidence weight - all genuine
+        ReSTIR PT and all needed;
+    the three-state candidate model (INVALID / VALID_ZERO / VALID_POSITIVE);
+    the material/ReSTIR separation and the composition-root design;
+    the random dimension ledger structure;
+    README decision 3.
+
+The damage is confined to initial sampling, the ray ledger, and the roulette
+replay contract. The ABI survives.
+
+
+PART 5 - UNRELATED LIVE BLOCKERS (carry forward)
+================================================
+
+These are host-side and independent of everything above. They are why UPT-04 has
+never executed.
+
+B1. Duplicate Vulkan binding 0 in the set-0 layout
+
+    PathTraceUnifiedPt.cpp zeroes all four VulkanBindingOffsets including
+    setConstantBufferOffset(0), then adds both RayTracingAccelStruct(0) and
+    PushConstants(0, 128). NVRHI maps PushConstants through
+    bindingOffsets.constantBuffer, so both become Vulkan binding 0 in the same
+    VkDescriptorSetLayout. That violates
+    VUID-VkDescriptorSetLayoutCreateInfo-binding-00279 and corrupts the
+    acceleration-structure descriptor, which is why every RayQuery dies while
+    UAV writes and SRV reads survive.
+
+    Fix: drop .setConstantBufferOffset(0) and leave the 256 default. No shader
+    change, no reflection change.
+
+    NVRHI's own validation layer cannot see this - it tracks duplicates per
+    D3D register class, where SRV 0 and CB 0 are distinct.
+
+B2. No Vulkan validation layer in any gate
+
+    r_useValidationLayers defaults to 1 (NVRHI only). 2 loads
+    VK_LAYER_KHRONOS_validation. B1 would have been reported at layout
+    creation on the first launch. Add a first-launch validation-layer run to
+    the UPT gate list.
+
+B3. Scalar block layout mismatch between harness and game
+
+    Shaders compile with -fvk-use-scalar-layout
+    (neo/cmake/PathTracingSlang.cmake:108). The UPT-00 and UPT-03 harnesses
+    require and enable vulkan12.scalarBlockLayout. The game device never
+    enables it (neo/sys/DeviceManager_VK.cpp:1044-1055) and does not request
+    VK_EXT_scalar_block_layout.
+
+    Currently latent only because spirv-val runs without
+    --scalar-block-layout and is therefore enforcing the stricter std430
+    rules, which every present struct happens to satisfy.
+
+    Fix one way or the other and record it in doc 08's frozen-command table.
+    Do not "fix" it by adding --scalar-block-layout to the validator; that
+    converts a build error into runtime UB on the game device.
+
+B4. Observability
+
+    05_tasks_and_validation.txt requires debug-only counters in UPT-04 scope;
+    02_gpu_work_ledger.txt R3 makes them optional; doc 12 shipped none. The
+    entire staged bring-up therefore had one observable - did the machine
+    survive. Add the fixed counter block and a readback before resuming the
+    stage ladder.
+
+    IMPLEMENTED: the RayQuery-only upt04_initial_diagnostics entry owns set-0
+    u23, a fixed 16-word counter tuple, and three trace sites matching unified
+    production. The host clears/copies/maps a dedicated 64-byte counter/readback
+    pair under the one-shot r_pathTracingUnifiedPtDiagnostics cvar. Production
+    artifacts have no binding 23 or diagnostic branch.

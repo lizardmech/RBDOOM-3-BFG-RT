@@ -2573,7 +2573,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 break;
             }
             unifiedPtInputs.nsightMarkers = nsightGpuMarkers;
+            unifiedPtInputs.diagnostics =
+                r_pathTracingUnifiedPtDiagnostics.GetInteger() != 0;
             m_unifiedPtState.ExecuteInitial(unifiedPtInputs);
+            if (unifiedPtInputs.diagnostics)
+            {
+                r_pathTracingUnifiedPtDiagnostics.SetInteger(0);
+            }
 
             // UPT-04 has no admitted HDR resolve or presentation path yet.
             // Publish the shared primary history once after the D0 consumer,

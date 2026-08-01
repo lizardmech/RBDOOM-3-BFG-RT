@@ -134,6 +134,38 @@ R3. Tiny diagnostic counters/readback
     Size: fixed small counter block, not screen-sized.
     Must be absent from production binaries/timing.
 
+R4. Emissive hit-to-light reverse map
+
+    New allocation: yes; one compact manager-owned StructuredBuffer shared by
+        the unified and indirect initial-sampling specializations.
+    Producer: PathTraceRemixLightManager CPU publication, from the exact
+        current sampleable emissive payload range after all manager filtering.
+    Consumer: UPT-04 continuation-endpoint MIS only. Direct-only does not bind
+        it. No temporal, spatial, resolve, or unrelated DI/GI pass consumes it.
+    Logical entry: uint instanceId, uint primitiveIndex, uint denseLightIndex,
+        uint occupied; 16-byte scalar-layout stride.
+    Organization: power-of-two open-addressed table with a maximum shader probe
+        count of 16. Start at nextPowerOfTwo(max(2, 2 * emissiveCount)); the
+        producer may grow to nextPowerOfTwo(max(2, 4 * emissiveCount)) if that
+        is required to keep every published key within the bound. If the exact
+        table still cannot be built, the UPT route is unavailable for that
+        frame; it must not scan the light range or silently use MIS weight 1.
+    Byte formula: tableEntryCount * 16. This is 32 bytes per emissive at the
+        normal 0.5 load factor, independent of screen resolution: 192 bytes
+        for 6 emissives, 32 KiB for 1024, and 2 MiB for 65536.
+    Lifetime: current-frame scene publication; reuse or resize with the other
+        manager payload buffers. No history copy and no per-frame clear because
+        the producer uploads every entry, including canonical empty slots.
+    Binding/state: set 0 binding 22, StructuredBuffer SRV, producer upload to
+        ShaderResource before D0. It is absent from the direct-only layout.
+    Existing-resource rejection: the manager payload and emissive replay arrays
+        are compact source-order arrays required by existing samplers, not
+        identity-sorted maps. A continuation hit provides only instance and
+        primitive identity. Linear search is unbounded per-pixel GPU work;
+        reordering either source array breaks current source-index contracts.
+    Removal condition: remove only if geometry publication later supplies an
+        exact O(1) dense emissive index in hit facts with the same generation.
+
 No other baseline resource is admitted. In particular, there is initially no:
 
     separate DI reservoir
@@ -154,8 +186,9 @@ D0. Unified initial sampling
 
     Pipeline: RayGen or compute RayQuery, selected by UPT-04 A/B.
     Domain: reservoir dimensions; every invocation first validates receiver.
-    Responsibility: generate one configured initial path sample, classify
-        candidate state, stream eligible direct/global contributions, and
+    Responsibility: generate the bounded primary-NEE plus BSDF-continuation
+        path tree, classify every candidate state, stream eligible
+        direct/global contributions, and
         write one packed reservoir or canonical empty record.
     Material ownership: call the selected MaterialSet interface for material
         decode/evaluate/sample/PDF. No material implementation belongs in D0's
@@ -172,9 +205,16 @@ D0. Unified initial sampling
 
         primary rays                 0 (existing primary input)
         first-indirect continuation <= 1 per eligible receiver
-        direct/NEE visibility       <= 1 only when required by the accepted
-                                      candidate/visibility policy
+        direct/NEE visibility       <= 2 (one at x1 and one at x2) only when
+                                      required by the accepted candidate policy
         final/reconnection rays      0 in the no-reuse phase
+
+    Total D0 ceiling is three rays per eligible receiver at k_max = 2:
+    visibility rays <= k_max and continuation rays <= k_max - 1. The initial
+    reservoir streams two candidates normally, or three when an emissive opaque
+    x2 contributes both its BSDF endpoint and an NEE candidate. Candidate count
+    is not a ray count. Per-technique balance-heuristic MIS uses the exact NEE
+    and BSDF PDFs for paths reachable by both techniques.
 
     The measured counter must explain every emitted ray. A ray count above the
     accepted ceiling blocks the task.

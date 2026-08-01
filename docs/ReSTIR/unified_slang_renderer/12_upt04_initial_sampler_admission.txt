@@ -1,15 +1,29 @@
 UPT-04 Minimal Unified Initial Sampler: GPU Work Admission
 ==========================================================
 
+SUPERSEDED IN PART
+------------------
+
+The originally recorded initial-sampling design - a one-draw mixture over
+transport families, M = 1, and a two-ray ceiling with direct/indirect mutually
+exclusive - was not the design in the cited ReSTIR PT Enhanced paper. The live
+implementation sections below have now been corrected to trace the primary NEE
+ray in addition to the continuation, build a path tree, and let initial
+resampling select among several candidate paths.
+
+Read 13_upt04_corrections_and_paper_reference.txt before implementing or
+reviewing D0. The resource ledger, descriptor ownership, host publications,
+module boundary, and runtime wiring in this document remain valid.
+
 Status
 ------
 
-Pre-implementation, complete D0 shader closure, host runtime wiring, and the
-first live RayQuery crash investigation are complete. UPT-04 is not accepted
-yet and has no display output. Before scale admission resumes, the corrected
-scalar-layout game-device contract, Vulkan validation, live diagnostic readback,
-and the family-specific descriptor-closure issue below must be closed. Estimator
-modes 5/6, bounded row/full-frame execution, and ray-generation parity follow.
+The corrected D0 path-tree shader closure, host runtime wiring, exact emissive
+reverse map, family-specific descriptor closures, scalar-layout game-device
+contract, and fixed diagnostic readback are implemented and pass offline build,
+reflection, disassembly, and native compile gates. UPT-04 is not accepted yet
+and has no display output. Vulkan validation plus live diagnostic/full-hit,
+bounded row/full-frame, and ray-generation parity remain runtime gates.
 
 The first live attempt with the default direct-only RayQuery route produced
 Windows LiveKernelEvent 141. r_pathTracingUnifiedPtProofStage localized the
@@ -86,16 +100,11 @@ reuse of the current DI/GI binding universe.
 Exact estimator step admitted
 -----------------------------
 
-The baseline initial sampler performs one draw from one normalized proposal
-mixture per valid primary receiver. It does not generate one unconditional
-candidate for every family.
-
-With M = 1, the target function cancels from the ordinary RIS final estimate.
-UPT-05 can therefore expose path generation, stored contribution/PDF, and
-resolve plumbing, but it cannot validate that the live target function ranks
-samples correctly. Before reuse makes the target load-bearing, admit a separate
-bounded M > 1 diagnostic or deterministic target-function oracle with an
-explicit ray ledger. Do not increase production ray count under this exception.
+The baseline initial sampler traces a bounded path tree per valid primary
+receiver. It evaluates primary NEE and, independently, one BSDF continuation.
+Every resulting candidate is streamed through one reservoir, so the target
+function is load-bearing in production D0. The finalized initial confidence is
+c = 1 even though two candidates normally participate in weighted selection.
 
 Enabled top-level families are:
 
@@ -150,26 +159,29 @@ impossible hit route, or failed material decode is INVALID and cannot change M.
 Ray ledger
 ----------
 
-Per valid receiver, mutually exclusive family work is:
+Per valid receiver, the bounded path-tree work is:
 
-    family/event                 continuation rays   visibility rays   maximum
-    explicit analytic/emissive          0                   1              1
-    direct environment                  0                   1              1
-    indirect miss/environment           1                   0              1
-    indirect emissive endpoint          1                   0              1
-    indirect opaque-hit local NEE       1                   1              2
+    path-tree edge/event            continuation rays   visibility rays
+    primary x1 local-light NEE              0                   1
+    x1 -> x2 BSDF continuation              1                   0
+    x2 miss/environment endpoint            0                   0
+    x2 emissive endpoint                    0                   0
+    opaque x2 local-light NEE               0                   1
 
 Absolute ceiling:
 
     primary/camera rays             0; consume current primary surface
     continuation rays               <= eligible receivers
-    visibility rays                 <= eligible receivers
-    total D0 rays                   <= 2 * eligible receivers
+    visibility rays                 <= 2 * eligible receivers
+    total D0 rays                   <= 3 * eligible receivers
     resolve/reconnection rays       0
 
-There is no branch where both a direct-family visibility ray and an indirect
-continuation execute for the same receiver. A visibility segment already
-proved by the selected initial path is never retraced in UPT-05 resolve.
+At k_max = 2, visibility rays <= k_max and continuation rays <= k_max - 1.
+This is a 50 percent increase over the superseded two-ray ledger and is the
+honest cost of the cited unified design. Candidates remain free bookkeeping:
+an emissive opaque x2 can stream its BSDF endpoint and its NEE candidate without
+another continuation ray. A visibility segment already proved by the selected
+initial path is never retraced in UPT-05 resolve.
 
 Backend A/B contract
 --------------------
@@ -231,6 +243,21 @@ production timing/binaries:
         selected event by family/path length
         continuation and visibility rays emitted
         canonical-empty writes
+
+    Frozen readback tuple, 16 uint32 words in order:
+        receiver valid, receiver invalid
+        direct invalid, direct valid-zero, direct valid-positive
+        indirect invalid, indirect valid-zero, indirect valid-positive
+        selected primary NEE, selected BSDF endpoint, selected secondary NEE
+        continuation rays, visibility rays
+        canonical-empty writes, candidate inputs, ray-ceiling violations
+
+    r_pathTracingUnifiedPtDiagnostics 1 selects this RayQuery-only entry for
+    one dispatch, clears its 64-byte UAV, copies it to a CPU-read buffer, then
+    returns to the selected production entry. The tuple is printed after a
+    bounded two-frame readback delay. Production reflection must not contain
+    binding 23; diagnostic reflection must contain set-0 u23 and exactly the
+    same three bounded trace sites as the unified production entry.
 
 Not allocated in UPT-04:
 
@@ -491,14 +518,17 @@ runtime debug switch and no environment/blue-noise binding in a specialization
 where that provider is unavailable. Diagnostic counters are a separate debug
 closure, not a production flag branch.
 
-Current exception to remove before timing acceptance: the direct-only closure
-retains set 1 solely through a disabled material binding probe and the host binds
-the 2048-entry table. That contradicts the descriptor ledger because direct-only
-uses the already evaluated primary surface and samples no secondary material.
-The unified/indirect closures legitimately require set 1 for secondary emissive
-and diffuse texture evaluation. Probe modes 9/10 may retain a deliberately full
-host layout for ABI isolation, but that diagnostic layout is not a production
-resource contract.
+The direct-only closure now drops the material table, sampler, bindless set,
+triangle-class buffers, and emissive reverse lookup. Its emissive-light target
+uses the light manager's published radiance estimate. This is the only way to
+make that closure material-resource-free: exact point evaluation of a textured
+emissive endpoint requires the MaterialSet and bindless texture table. Therefore
+the F1 bit-identity gate against the former full-material direct path applies
+to analytic and constant-emissive lights. Textured-emissive parity is a unified
+closure gate, not a direct-only descriptor-shedding gate. The unified/indirect
+closures retain set 1 for exact secondary/emissive material evaluation. Probe
+modes 9/10 may retain a deliberately full host layout for ABI isolation, but
+that diagnostic layout is not a production resource contract.
 
 Stop conditions before shader/host implementation
 -------------------------------------------------
@@ -559,9 +589,9 @@ compile/offline-only:
         sampling, not a center-point proxy
 
     transport.initial_bounded
-        an explicit state machine that cannot admit more than one continuation
-        and one visibility ray and cannot combine direct visibility with an
-        indirect continuation for the same initial family draw
+        an explicit path-tree state machine that admits at most one continuation
+        and two visibility rays, in the fixed x1 NEE -> x1 continuation -> x2
+        NEE order
 
     material.set_live_probe
         a replaceable baseline MaterialSet owns primary continuation sampling,
@@ -570,21 +600,21 @@ compile/offline-only:
         reservoir modules
 
     pass.initial_direct / pass.initial_indirect
-        separate source modules joined only by a thin family-selection and
-        reservoir composition root; no optional renderer feature is present
+        separate source modules joined only by a thin path-tree and reservoir
+        composition root; both can contribute for the same receiver and no
+        optional renderer feature is present
 
     composition.initial_rayquery
-        compute 8 x 8, exactly two statically bounded RayQuery trace sites
+        compute 8 x 8, exactly three statically bounded RayQuery trace sites
 
     composition.initial_raygen
-        ray generation plus minimal miss/closest-hit modules, exactly two
+        ray generation plus minimal miss/closest-hit modules, exactly three
         statically bounded OpTraceRayKHR sites
 
-The first site is either direct visibility or indirect continuation. The second
-site is reachable only after an indirect opaque hit admits local-light NEE.
-Direct and indirect are never both executed for one receiver. Both entry points
-call the same preparation/material/proposal/finish modules; only their trace
-adapter differs. Reflection proves identical descriptor ABI:
+The sites are primary NEE visibility, primary BSDF continuation, and optional
+x2 NEE visibility. Both entry points call the same preparation/material/
+proposal/stream modules; only their trace adapter differs. Reflection proves
+identical unified-backend descriptor ABI:
 
     set 0 binding 0   TLAS
     set 0 binding 1   current primary surfaces, stride 176
@@ -595,14 +625,14 @@ adapter differs. Reflection proves identical descriptor ABI:
     set 0 binding 6   emissive replay records, stride 144
     set 0 bindings 7..21
                       existing static/dynamic/rigid/skinned geometry closure
+    set 0 binding 22  exact emissive hit-to-dense-light reverse lookup
     set 1 binding 0   existing unbounded material texture table
     push constants    32 scalar words / 128 bytes
 
-The set-1 binding is retained through an explicit disabled-by-default material
-binding probe. It is not used to invent a primary-surface UV: the 176-byte
-producer record already contains evaluated primary material values and does
-not publish UVs. Secondary-hit texture evaluation remains owned by the future
-hit decoder/MaterialSet.
+The direct-only specialization has a separately reflected 18-descriptor set-0
+closure and no set 1. Unified/indirect set 1 is used by exact secondary-hit and
+textured-emissive evaluation. The 176-byte producer record contains evaluated
+primary material values and does not publish UVs.
 
 The random contract now includes a 25-slot language-neutral ledger shared by
 C++ and Slang. Each decision addresses an explicit (stream, dimension) pair;
@@ -610,16 +640,18 @@ reservoir selection, future roulette, material sampling, direct families,
 replay, temporal, and spatial slots cannot shift when another feature is off.
 The UPT-04 CPU harness compile-time-checks pair uniqueness.
 
-The direct branch now uses exact emissive geometry and material-owned emission
-sampling. The indirect branch samples one primary continuation, decodes the
+The direct branch uses exact emissive geometry; unified uses material-owned
+point emission while the resource-shed direct-only closure uses manager-owned
+radiance. The indirect branch samples one primary continuation, decodes the
 compact hit facts through the shared O(1) geometry adapter, terminates on
 endpoint emission, or samples one local-light NEE connection at an opaque hit.
 A miss while the environment provider is unavailable and defined zero BSDF,
 emission, or light outcomes remain VALID_ZERO. They do not issue visibility
 rays. Structural decode/identity/PDF failures remain INVALID and never enter M.
 
-The selected family probability is included once in proposalPdf. Indirect NEE
-also includes the continuation, light-selection, and light-surface PDFs. The
+There is no selected-family probability. Each candidate carries its own path-
+technique PDF and balance-heuristic MIS weight. Indirect NEE includes the
+continuation, light-selection, and light-surface PDFs. The
 work contract already carries path length, reconnection length, replay key,
 path PDF, partial Jacobian, and accumulated roulette probability. The current
 one-continuation specialization writes the same 64-byte reservoir that the
@@ -628,22 +660,24 @@ policy, not this ABI.
 
 Current backend artifacts:
 
-    upt04_initial_rayquery         268,300 bytes; 15,840 SPIR-V operations
-    upt04_initial_raygen           267,908 bytes; 15,802 SPIR-V operations
+    upt04_initial_rayquery         223,612 bytes; 13,365 SPIR-V operations
+    upt04_initial_raygen           223,004 bytes; 13,309 SPIR-V operations
+    upt04_initial_diagnostics      231,500 bytes; 13,881 SPIR-V operations
     upt04_initial_miss                 592 bytes;     34 SPIR-V operations
     upt04_initial_closest_hit        1,468 bytes;     84 SPIR-V operations
 
 Static family closures prove that the compiler actually removes the other
 family rather than retaining a runtime-disabled branch:
 
-    direct-only RayQuery           181,736 bytes; 10,823 operations; 1 ray site
-    direct-only raygen             166,200 bytes;  9,794 operations; 1 ray site
-    indirect-only RayQuery         216,444 bytes; 12,675 operations; 2 ray sites
-    indirect-only raygen           216,076 bytes; 12,641 operations; 2 ray sites
+    direct-only RayQuery            96,492 bytes;  5,870 operations; 1 ray site
+    direct-only raygen              80,484 bytes;  4,805 operations; 1 ray site
+    indirect-only RayQuery         154,836 bytes;  8,974 operations; 2 ray sites
+    indirect-only raygen           154,500 bytes;  8,940 operations; 2 ray sites
 
-All four retain the same live 23-descriptor ABI so host A/B changes pipeline
-selection only, not resource ownership. Their verifier also requires each
-static artifact to be smaller than its unified backend counterpart.
+Direct-only exposes 18 descriptors with no bindless set; indirect exposes the
+full 24-descriptor closure. Their verifier requires exact reflected slots,
+backend parity inside each family, the expected 1/2 trace sites, and each
+static artifact to be smaller than its unified counterpart.
 
 The geometry/replay closure now compiles as one trace-free 8 x 8 probe. It
 resolves static buckets, monolithic static/dynamic, rigid, and skinned hits by
@@ -669,12 +703,13 @@ and GPU duration against static direct-only/indirect-only closures and the
 reference capture. Do not hide the size by merging later features into this
 entry point.
 
-The composition still does not implement the environment provider or required
-debug counter/readback specialization. It now has live resource allocation, one
-selected NVRHI pipeline, the reflected 23-descriptor layout, and the D0 host
-dispatch. It must not be treated as accepted UPT-04 until the scalar-layout and
-direct-only descriptor corrections are rebuilt, Vulkan validation/readback pass,
-and proposed-ray/full-hit, full-frame, and ray-generation parity gates pass.
+The composition still does not implement the environment provider. The fixed
+debug counter/readback specialization, scalar-layout device contract, exact
+emissive reverse lookup, path-tree estimator, and direct-only descriptor shedding
+are implemented. Offline reflection accepts 24 descriptors for unified/indirect,
+18 for direct-only, and 25 only for the diagnostic entry. UPT-04 remains runtime-
+unaccepted until Vulkan validation/readback, proposed-ray/full-hit, full-frame,
+and ray-generation parity gates pass.
 
 Runtime wiring implemented
 --------------------------
@@ -685,7 +720,9 @@ barrier and before the single primary-history publication. It owns:
     one width * height * 64-byte structured page-0 UAV
     one set-0 binding layout and one cached binding set
     one selected backend/family pipeline
-    no output, history, counter, queue, constant buffer, or optional feature
+    no output, history, queue, constant buffer, or optional feature
+    one optional 64-byte counter UAV plus 64-byte CPU-read buffer owned only by
+        the one-shot diagnostic specialization
 
 The route is execution-exclusive. r_pathTracingUnifiedPtEnable overrides the
 default-on Clean-DI/GI execution request so legacy pipeline creation and GPU
@@ -717,13 +754,15 @@ Runtime controls:
         11 pure query with complete set 0 and no bindless set 1
         12 production t0 TLAS plus u4 output only
         13 mode 12 plus the 128-byte production push range
+    r_pathTracingUnifiedPtDiagnostics
+        0 production specialization (default)
+        1 one-shot RayQuery fixed-counter specialization and readback
 
-The direct-only default makes the first live RayQuery build exercise the
-182-KB proof-instrumented closure. The unified 268-KB module is never created
-merely because the route exists. The current equal-ABI policy is not accepted for production:
-direct-only must drop the unused material table/sampler/bindless closure, while
-unified/indirect retain the resources required for secondary material sampling.
-Backend A/B within one family must still keep identical resource ownership.
+The direct-only default creates only its statically pruned closure. Reflection
+proves that it drops set 1 and the secondary-material resources. The unified
+module is never created merely because the route exists. Unified/indirect retain
+the resources required for secondary and textured-emissive material sampling.
+Backend A/B within one family keeps identical resource ownership.
 
 Raygen uses three SBT hit records, not the legacy renderer table. The live TLAS
 contributes record 0 for legacy/static/rigid geometry and record 2 for skinned
@@ -745,7 +784,7 @@ Nsight markers are separate:
     UPT.D0 Initial OutputBarrier
     UPT.P0 PrimarySurfaceHistory Copy
 
-The Slang target copies the eight selectable/runtime support modules plus four
+The Slang target copies the nine selectable/runtime support modules plus four
 verifier-approved live-admission probe modules to
 base/renderprogs2/spirv/builtin/pathtracing/slang_upt04. RBDoom3BFG depends on
 that runtime-artifact target, so a source/import edit retriggers Slang and the
@@ -790,15 +829,15 @@ generated Release RBDoom3BFG project. No descriptor clone or extra GPU upload
 was added. Runtime shader-layout acceptance is deliberately deferred to the
 two reflected UPT compositions rather than inferred from the C++ build.
 
-The backend-closure build passed Slang restrictive capability checks,
+The corrected backend-closure build passed Slang restrictive capability checks,
 spirv-val for Vulkan 1.2, SPIR-V reflection, and disassembly verification for
-both backends. Reflection confirms identical 23-descriptor layouts, the
-128-byte push block, live 4/36/64/80/112/144/176-byte structured strides, and
-the shared set-1 unbounded texture binding. Disassembly confirms the 32-byte
-hit-facts shape, exactly two bounded ray sites, and no cross-contamination
-between RayQuery and TraceRay adapters. The updated C++ schedule/random-ledger
-harness also passes. At that checkpoint no game executable or SPIR-V was
-deployed because no live UPT pipeline consumed the modules.
+both backends. Reflection confirms production set 0 bindings 0..22 plus the
+shared set-1 texture binding, and diagnostic set 0 bindings 0..23 plus set 1.
+The direct-only verifier separately confirms its 18-descriptor, no-set-1
+closure. Disassembly confirms the 32-byte hit-facts shape, exactly three bounded
+ray sites in unified/diagnostic, and no cross-contamination between RayQuery and
+TraceRay adapters. The fixed 128-byte push block and live structured strides
+remain accepted.
 
 The runtime-wiring build passes the full UPT-04 Slang module graph, all offline
 reflection/disassembly validators, verified runtime artifact copies, and the

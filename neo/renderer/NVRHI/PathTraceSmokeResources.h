@@ -52,6 +52,7 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle restirLightManagerPreviousToCurrentBuffer;
     nvrhi::BufferHandle restirLightManagerCurrentPayloadBuffer;
     nvrhi::BufferHandle restirLightManagerPreviousPayloadBuffer;
+    nvrhi::BufferHandle unifiedPtEmissiveLookupBuffer;
     nvrhi::BufferHandle rigidRouteVertexBuffer;
     nvrhi::BufferHandle rigidRouteIndexBuffer;
     nvrhi::BufferHandle rigidRouteTriangleMaterialBuffer;
@@ -113,6 +114,7 @@ struct RtSmokeSceneBufferCreateDesc
     size_t restirLightManagerPreviousToCurrentBytes = 0;
     size_t restirLightManagerCurrentPayloadBytes = 0;
     size_t restirLightManagerPreviousPayloadBytes = 0;
+    size_t unifiedPtEmissiveLookupBytes = 0;
     size_t rigidRouteVertexBytes = 0;
     size_t rigidRouteIndexBytes = 0;
     size_t rigidRouteTriangleMaterialBytes = 0;
@@ -224,6 +226,7 @@ struct RtSmokeSceneResourceCommitDesc
     int unifiedLightRemapCount = 0;
     int restirLightManagerCurrentPayloadCount = 0;
     int restirLightManagerPreviousPayloadCount = 0;
+    int unifiedPtEmissiveLookupCount = 0;
 };
 
 struct RtSmokeSceneResourceCommitBuildDesc
@@ -261,6 +264,7 @@ struct RtSmokeSceneResourceCommitBuildDesc
     int unifiedLightRemapCount = 0;
     int restirLightManagerCurrentPayloadCount = 0;
     int restirLightManagerPreviousPayloadCount = 0;
+    int unifiedPtEmissiveLookupCount = 0;
 };
 
 RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc);

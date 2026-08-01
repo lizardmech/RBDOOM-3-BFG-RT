@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -18,6 +19,39 @@ float Max3(const float x, const float y, const float z)
 float Luminance(const float rgb[3])
 {
     return rgb[0] * 0.2126f + rgb[1] * 0.7152f + rgb[2] * 0.0722f;
+}
+
+uint32_t EmissiveLookupHash(uint32_t instanceId, uint32_t primitiveIndex)
+{
+    uint32_t value = instanceId ^ (primitiveIndex + 0x9e3779b9u +
+        (instanceId << 6u) + (instanceId >> 2u));
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    value ^= value >> 16u;
+    return value;
+}
+
+uint64_t EmissiveLookupHashValue(uint64_t hash, uint64_t value)
+{
+    hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6u) + (hash >> 2u);
+    return hash;
+}
+
+uint32_t NextPowerOfTwoAtLeastTwo(uint64_t value)
+{
+    value = std::max<uint64_t>(value, 2u);
+    if (value > (uint64_t(1u) << 31u))
+    {
+        return 0u;
+    }
+    uint32_t result = 2u;
+    while (result < value)
+    {
+        result <<= 1u;
+    }
+    return result;
 }
 
 bool DoomAnalyticIdentitySampleable(const PathTraceDoomAnalyticLightCandidateIdentity& identity)
@@ -346,5 +380,106 @@ PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(
         }
     }
 
+    return build;
+}
+
+PathTraceUnifiedEmissiveLookupBuild BuildPathTraceUnifiedEmissiveLookup(
+    const std::vector<PathTraceUnifiedLightRecord>& currentLights,
+    uint32_t emissiveRangeStart,
+    uint32_t emissiveRangeCount)
+{
+    PathTraceUnifiedEmissiveLookupBuild build;
+    const uint64_t rangeEnd = uint64_t(emissiveRangeStart) +
+        uint64_t(emissiveRangeCount);
+    if (rangeEnd > currentLights.size())
+    {
+        build.entries.resize(2u);
+        return build;
+    }
+
+    const uint64_t requestedCapacities[2] = {
+        uint64_t(emissiveRangeCount) * 2u,
+        uint64_t(emissiveRangeCount) * 4u
+    };
+    for (uint32_t capacityAttempt = 0u; capacityAttempt < 2u; ++capacityAttempt)
+    {
+        const uint32_t capacity = NextPowerOfTwoAtLeastTwo(
+            requestedCapacities[capacityAttempt]);
+        if (capacity == 0u || uint64_t(capacity) >
+                std::numeric_limits<size_t>::max() /
+                    sizeof(PathTraceUnifiedEmissiveLookupEntry))
+        {
+            break;
+        }
+
+        std::vector<PathTraceUnifiedEmissiveLookupEntry> entries(capacity);
+        bool exact = true;
+        const uint32_t mask = capacity - 1u;
+        for (uint32_t localIndex = 0u; localIndex < emissiveRangeCount; ++localIndex)
+        {
+            const uint32_t denseIndex = emissiveRangeStart + localIndex;
+            const PathTraceUnifiedLightRecord& light = currentLights[denseIndex];
+            if (light.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+            {
+                exact = false;
+                break;
+            }
+
+            const uint32_t firstSlot = EmissiveLookupHash(
+                light.instanceId, light.primitiveIndex) & mask;
+            bool inserted = false;
+            for (uint32_t probe = 0u;
+                 probe < PATH_TRACE_UNIFIED_EMISSIVE_LOOKUP_MAX_PROBES;
+                 ++probe)
+            {
+                PathTraceUnifiedEmissiveLookupEntry& entry =
+                    entries[(firstSlot + probe) & mask];
+                if (entry.occupied == 0u)
+                {
+                    entry.instanceId = light.instanceId;
+                    entry.primitiveIndex = light.primitiveIndex;
+                    entry.denseLightIndex = denseIndex;
+                    entry.occupied = 1u;
+                    inserted = true;
+                    break;
+                }
+                if (entry.instanceId == light.instanceId &&
+                    entry.primitiveIndex == light.primitiveIndex)
+                {
+                    // Two manager records for one trace identity make the
+                    // alternate-technique PDF ambiguous. Refuse biased MIS.
+                    inserted = false;
+                    break;
+                }
+            }
+            if (!inserted)
+            {
+                exact = false;
+                break;
+            }
+        }
+        if (!exact)
+        {
+            continue;
+        }
+
+        uint64_t signature = 1469598103934665603ull;
+        signature = EmissiveLookupHashValue(signature, capacity);
+        signature = EmissiveLookupHashValue(signature, emissiveRangeStart);
+        signature = EmissiveLookupHashValue(signature, emissiveRangeCount);
+        for (const PathTraceUnifiedEmissiveLookupEntry& entry : entries)
+        {
+            signature = EmissiveLookupHashValue(signature, entry.instanceId);
+            signature = EmissiveLookupHashValue(signature, entry.primitiveIndex);
+            signature = EmissiveLookupHashValue(signature, entry.denseLightIndex);
+            signature = EmissiveLookupHashValue(signature, entry.occupied);
+        }
+        build.entries.swap(entries);
+        build.signature = signature;
+        build.exact = true;
+        return build;
+    }
+
+    build.entries.assign(2u, PathTraceUnifiedEmissiveLookupEntry());
     return build;
 }

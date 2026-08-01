@@ -36,7 +36,8 @@ The following are required before the one-bounce renderer is accepted:
 
     selected path length is explicit data
     reconnection vertex length is explicit data
-    replay identity can reproduce a bounded multivertex path
+    replay identity can reproduce a bounded multivertex path without roulette
+        dimensions
     random dimensions include a path-vertex component
     material sample/evaluate/PDF interfaces are independent of maximum depth
     transport state can accumulate finite throughput and path PDF
@@ -78,10 +79,13 @@ For each eligible continuation depth:
 
     derive a finite survival probability from the configured transport policy
     clamp only to the explicitly configured and mathematically documented range
-    draw from indirect.roulette_survival at that path vertex
+    draw from indirect.roulette_survival at that path vertex during initial
+        sampling only
     on termination, emit no continuation ray
     on survival, include the probability exactly once in throughput/path PDF
-    record/reconstruct the same semantics during replay and shifting
+    multiply the candidate path PDF by the accumulated survival probabilities;
+        replay and shifting consume that stored PDF state and do not replay the
+        roulette draws or survival decisions
 
 Roulette termination is not a candidate. It neither increments reservoir M nor
 creates INVALID/VALID_ZERO sample identity. Candidates already generated at
@@ -106,8 +110,10 @@ The architecture permits measured policies containing:
 
 Defaults are not frozen here. UPT-10A records the reference variables and tests
 an aggressive policy against an unbiased/no-RR or conservative authority.
-Configuration changes invalidate history when they change selected-sample PDF
-or replay interpretation.
+The path PSS contains no roulette dimensions. The reserved roulette stream is
+owned only by initial transport; replay never consumes it. Configuration
+changes invalidate history when they change selected-sample PDF or transport
+interpretation.
 
 Execution architecture gate
 ---------------------------
@@ -164,7 +170,8 @@ Stop or redesign if:
 
     three bounces require a second reservoir ABI
     material code must be copied into a depth-specific ReSTIR pass
-    replay cannot reproduce RR survival/PDF semantics
+    replay invents or re-executes RR decisions instead of consuming the stored
+        accumulated survival-PDF semantics
     a roulette rejection is admitted as a reservoir sample
     throughput compensation is missing, duplicated, or non-finite
     the one-bounce route pays payload, queue, binding, or pipeline cost

@@ -2,9 +2,10 @@ import upt03_reservoir_contract;
 import upt04_backend_rayquery;
 import upt04_hit_contract;
 import upt04_initial_bindings;
-import upt04_initial_shared;
+import upt04_initial_direct_only_shared;
 import upt04_initial_work_contract;
 import upt04_primary_surface_live_contract;
+import upt04_initial_reservoir_stream;
 
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)

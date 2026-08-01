@@ -2,9 +2,10 @@ import upt04_hit_contract;
 
 public static const uint kUpt04TransportInitial = 0u;
 public static const uint kUpt04TransportDirectVisibility = 1u;
-public static const uint kUpt04TransportIndirectContinuation = 2u;
-public static const uint kUpt04TransportIndirectNeeVisibility = 3u;
-public static const uint kUpt04TransportComplete = 4u;
+public static const uint kUpt04TransportReadyContinuation = 2u;
+public static const uint kUpt04TransportIndirectContinuation = 3u;
+public static const uint kUpt04TransportIndirectNeeVisibility = 4u;
+public static const uint kUpt04TransportComplete = 5u;
 
 public struct Upt04RayBudget
 {
@@ -37,10 +38,21 @@ public bool Upt04AdmitDirectVisibility(inout Upt04BoundedTransportState state)
     return true;
 }
 
+public bool Upt04CompletePrimaryNeeStage(inout Upt04BoundedTransportState state)
+{
+    if (state.valid == 0u
+        || (state.stage != kUpt04TransportInitial
+            && state.stage != kUpt04TransportDirectVisibility))
+        return false;
+    state.stage = kUpt04TransportReadyContinuation;
+    return true;
+}
+
 public bool Upt04AdmitIndirectContinuation(inout Upt04BoundedTransportState state)
 {
-    if (state.valid == 0u || state.stage != kUpt04TransportInitial
-        || state.budget.continuationRays != 0u || state.budget.visibilityRays != 0u)
+    if (state.valid == 0u || state.stage != kUpt04TransportReadyContinuation
+        || state.budget.continuationRays != 0u
+        || state.budget.visibilityRays > 1u)
         return false;
     state.budget.continuationRays = 1u;
     state.stage = kUpt04TransportIndirectContinuation;
@@ -50,9 +62,9 @@ public bool Upt04AdmitIndirectContinuation(inout Upt04BoundedTransportState stat
 public bool Upt04AdmitIndirectNeeVisibility(inout Upt04BoundedTransportState state)
 {
     if (state.valid == 0u || state.stage != kUpt04TransportIndirectContinuation
-        || state.budget.continuationRays != 1u || state.budget.visibilityRays != 0u)
+        || state.budget.continuationRays != 1u || state.budget.visibilityRays > 1u)
         return false;
-    state.budget.visibilityRays = 1u;
+    state.budget.visibilityRays += 1u;
     state.stage = kUpt04TransportIndirectNeeVisibility;
     return true;
 }
@@ -61,6 +73,6 @@ public bool Upt04RayBudgetWithinD0Ceiling(Upt04BoundedTransportState state)
 {
     return state.valid != 0u
         && state.budget.continuationRays <= 1u
-        && state.budget.visibilityRays <= 1u
-        && state.budget.continuationRays + state.budget.visibilityRays <= 2u;
+        && state.budget.visibilityRays <= 2u
+        && state.budget.continuationRays + state.budget.visibilityRays <= 3u;
 }

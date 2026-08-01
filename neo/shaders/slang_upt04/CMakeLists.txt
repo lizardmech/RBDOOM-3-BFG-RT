@@ -36,6 +36,10 @@ set(UPT04_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_local_light_proposal.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_transport_initial_bounded.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_set_live_probe.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_primary_live.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_local_light_evaluation_direct.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_reservoir_stream.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_shared.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_shared.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_backend_rayquery.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_random_contract.slang"
@@ -55,7 +59,8 @@ set(UPT04_UNIFIED_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_bindings.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_decode.slang"
-    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_replay.slang")
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_replay.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_lookup.slang")
 
 set(UPT04_ALL_OUTPUTS)
 foreach(material_set baseline deterministic)
@@ -108,6 +113,22 @@ path_tracing_declare_slang_spirv_module(
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS ${rayquery_outputs})
 
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_diagnostics
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_diagnostics.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_diagnostics.slang"
+    OUT_VAR diagnostic_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${diagnostic_outputs})
+
 foreach(ray_stage raygen miss closest_hit)
     if(ray_stage STREQUAL "raygen")
         set(ray_source upt04_initial_raygen.slang)
@@ -141,6 +162,8 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}"
         -DUPT04_RAYQUERY_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_rayquery.slang.spirv-reflection.json
         -DUPT04_RAYQUERY_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_rayquery.slang.spvasm
+        -DUPT04_DIAGNOSTIC_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_diagnostics.slang.spirv-reflection.json
+        -DUPT04_DIAGNOSTIC_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_diagnostics.slang.spvasm
         -DUPT04_RAYGEN_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_raygen.slang.spirv-reflection.json
         -DUPT04_RAYGEN_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_raygen.slang.spvasm
         -DUPT04_MISS_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_miss.slang.spvasm
@@ -171,6 +194,7 @@ set(UPT04_GEOMETRY_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_bindings.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_decode.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_replay.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_lookup.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_probe.slang")
 path_tracing_declare_slang_spirv_module(
@@ -335,6 +359,7 @@ set(UPT04_RUNTIME_OUTPUT_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../../../base/renderprogs2/spirv/builtin/pathtracing/slang_upt04")
 set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery
+    upt04_initial_diagnostics
     upt04_initial_direct_only_rayquery
     upt04_initial_indirect_only_rayquery
     upt04_initial_raygen

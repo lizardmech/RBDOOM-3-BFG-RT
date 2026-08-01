@@ -14,7 +14,14 @@ static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 128u;
 static constexpr uint32_t UPT04_FAMILY_LOCAL_LIGHT = 1u << 0u;
 static constexpr uint32_t UPT04_FAMILY_INDIRECT = 1u << 1u;
 static constexpr uint32_t UPT04_ROUTE_STATIC_BUCKETS = 1u << 1u;
-static constexpr uint32_t UPT04_ABI_VERSION = 4u;
+static constexpr uint32_t UPT04_EMISSIVE_LOOKUP_EXACT = 1u << 3u;
+static constexpr uint32_t UPT04_TRANSPORT_K_MAX = 2u;
+static constexpr uint32_t UPT04_TRANSPORT_POLICY_ID = 1u;
+static constexpr uint32_t UPT04_NEE_RIS_CANDIDATE_COUNT = 1u;
+static constexpr uint32_t UPT04_ABI_VERSION = 5u;
+static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 16u;
+static constexpr uint32_t UPT04_DIAGNOSTIC_BYTES =
+    UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
 
 static const char* Upt04BackendName(PathTraceUnifiedPtBackend backend)
 {
@@ -77,8 +84,17 @@ static const char* Upt04InitialShaderPath(
     }
 }
 
+static const char* Upt04DiagnosticShaderPath()
+{
+    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_diagnostics.bin";
+}
+
 static uint32_t Upt04PipelineVariant(const PathTraceUnifiedPtDispatchInputs& inputs)
 {
+    if (inputs.diagnostics)
+    {
+        return 0u;
+    }
     return inputs.shaderProofMode >= 7u && inputs.shaderProofMode <= 13u
         ? inputs.shaderProofMode
         : 0u;
@@ -105,6 +121,14 @@ static bool Upt04UsesBindlessSet(uint32_t pipelineVariant)
     return pipelineVariant != 7u && pipelineVariant != 8u &&
         pipelineVariant != 11u && pipelineVariant != 12u &&
         pipelineVariant != 13u;
+}
+
+static bool Upt04UsesDirectOnlyProductionLayout(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    return Upt04PipelineVariant(inputs) == 0u &&
+        !inputs.diagnostics &&
+        inputs.family == PathTraceUnifiedPtFamily::DirectOnly;
 }
 
 static const char* Upt04LiveTlasProbePath(uint32_t pipelineVariant)
@@ -183,6 +207,9 @@ static uint64_t Upt04BuildPageGeneration(
     hash = Upt04HashValue(hash, enabledFamilyMask);
     hash = Upt04HashValue(hash, specializationIdentity);
     hash = Upt04HashValue(hash, availabilityFlags);
+    hash = Upt04HashValue(hash, UPT04_TRANSPORT_K_MAX);
+    hash = Upt04HashValue(hash, UPT04_TRANSPORT_POLICY_ID);
+    hash = Upt04HashValue(hash, UPT04_NEE_RIS_CANDIDATE_COUNT);
     hash = Upt04HashValue(hash, inputs.lights.restirLightManagerEmissiveRangeOffset);
     hash = Upt04HashValue(hash, inputs.lights.restirLightManagerEmissiveRangeCount);
     hash = Upt04HashValue(hash, inputs.lights.restirLightManagerDoomAnalyticRangeOffset);
@@ -198,6 +225,7 @@ static uint64_t Upt04BuildPageGeneration(
     hash = Upt04HashValue(hash, inputs.lights.restirLightManagerStructuralSignature);
     hash = Upt04HashValue(hash, inputs.lights.restirLightManagerMappingSignature);
     hash = Upt04HashValue(hash, inputs.lights.restirLightManagerPayloadSignature);
+    hash = Upt04HashValue(hash, inputs.lights.unifiedPtEmissiveLookupSignature);
     hash = Upt04HashValue(hash, inputs.geometry.staticBucketRouteGeneration);
     return hash;
 }
@@ -309,21 +337,35 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
     const RtPathTraceSceneInputMaterials& materials = inputs.materials;
     const RtPathTraceSceneInputLights& lights = inputs.lights;
-    return geometry.tlas &&
+    const bool commonGeometryValid = geometry.tlas &&
         geometry.staticVertexBuffer && geometry.staticIndexBuffer &&
-        geometry.staticTriangleClassBuffer && geometry.staticTriangleMaterialIndexBuffer &&
+        geometry.staticTriangleMaterialIndexBuffer &&
         geometry.dynamicVertexBuffer && geometry.dynamicIndexBuffer &&
-        geometry.dynamicTriangleClassBuffer && geometry.dynamicTriangleMaterialIndexBuffer &&
+        geometry.dynamicTriangleMaterialIndexBuffer &&
         geometry.rigidRouteVertexBuffer && geometry.rigidRouteIndexBuffer &&
         geometry.rigidRouteInstanceBuffer && geometry.skinnedHitRouteRecordBuffer &&
         geometry.skinnedHitRouteTriangleBuffer && Upt04SkinnedIndexBuffer(inputs) &&
-        Upt04SkinnedVertexBuffer(inputs) && materials.materialTableBuffer &&
-        materials.textureBindlessLayout && materials.textureDescriptorTable &&
-        materials.textureSampler && lights.restirLightManagerCurrentPayloadBuffer &&
+        Upt04SkinnedVertexBuffer(inputs) &&
+        lights.restirLightManagerCurrentPayloadBuffer &&
         lights.emissiveTriangleBuffer;
+    if (!commonGeometryValid)
+    {
+        return false;
+    }
+    if (Upt04UsesDirectOnlyProductionLayout(dispatch))
+    {
+        return true;
+    }
+    return geometry.staticTriangleClassBuffer &&
+        geometry.dynamicTriangleClassBuffer && materials.materialTableBuffer &&
+        materials.textureBindlessLayout && materials.textureDescriptorTable &&
+        materials.textureSampler && lights.unifiedPtEmissiveLookupBuffer &&
+        lights.unifiedPtEmissiveLookupExact;
 }
 
-static void Upt04AddBindingLayoutItems(nvrhi::BindingLayoutDesc& desc)
+static void Upt04AddBindingLayoutItems(
+    nvrhi::BindingLayoutDesc& desc,
+    bool diagnostics)
 {
     desc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
@@ -335,12 +377,33 @@ static void Upt04AddBindingLayoutItems(nvrhi::BindingLayoutDesc& desc)
     {
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
     }
+    desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
+    if (diagnostics)
+    {
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(23));
+    }
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
+}
+
+static void Upt04AddDirectBindingLayoutItems(nvrhi::BindingLayoutDesc& desc)
+{
+    desc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+    desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
+    desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
+    desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(4));
+    for (const uint32_t slot : { 6u, 7u, 8u, 10u, 11u, 12u, 14u,
+            15u, 16u, 17u, 18u, 19u, 20u, 21u })
+    {
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
+    }
+    desc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT04_PUSH_CONSTANT_BYTES));
 }
 
 static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     const PathTraceUnifiedPtDispatchInputs& dispatch,
-    nvrhi::BufferHandle page0)
+    nvrhi::BufferHandle page0,
+    nvrhi::BufferHandle diagnosticCounters)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -362,6 +425,42 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, geometry.dynamicVertexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, geometry.dynamicIndexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(13, geometry.dynamicTriangleClassBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(14, geometry.dynamicTriangleMaterialIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(15, geometry.rigidRouteVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, geometry.rigidRouteIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(17, geometry.rigidRouteInstanceBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, Upt04SkinnedVertexBuffer(inputs)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, Upt04SkinnedIndexBuffer(inputs)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(20, geometry.skinnedHitRouteRecordBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(21, geometry.skinnedHitRouteTriangleBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(22, lights.unifiedPtEmissiveLookupBuffer));
+    if (dispatch.diagnostics)
+    {
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            23, diagnosticCounters));
+    }
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
+    return desc;
+}
+
+static nvrhi::BindingSetDesc Upt04BuildDirectBindingSetDesc(
+    const PathTraceUnifiedPtDispatchInputs& dispatch,
+    nvrhi::BufferHandle page0)
+{
+    const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
+    const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
+    const RtPathTraceSceneInputLights& lights = inputs.lights;
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, geometry.tlas));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, dispatch.primarySurfaceBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, lights.restirLightManagerCurrentPayloadBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, page0));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, lights.emissiveTriangleBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, geometry.staticVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, geometry.staticIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, geometry.staticTriangleMaterialIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, geometry.dynamicVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, geometry.dynamicIndexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(14, geometry.dynamicTriangleMaterialIndexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(15, geometry.rigidRouteVertexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, geometry.rigidRouteIndexBuffer));
@@ -400,6 +499,32 @@ static void Upt04SetSrvStates(
     commandList->setBufferState(Upt04SkinnedIndexBuffer(inputs), nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(geometry.skinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(geometry.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.lights.unifiedPtEmissiveLookupBuffer, nvrhi::ResourceStates::ShaderResource);
+}
+
+static void Upt04SetDirectSrvStates(
+    nvrhi::ICommandList* commandList,
+    const PathTraceUnifiedPtDispatchInputs& dispatch)
+{
+    const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
+    const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
+    commandList->setAccelStructState(geometry.tlas, nvrhi::ResourceStates::AccelStructRead);
+    commandList->setBufferState(dispatch.primarySurfaceBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.lights.restirLightManagerCurrentPayloadBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.lights.emissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.staticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.dynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.dynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.dynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.rigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.rigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.rigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(Upt04SkinnedVertexBuffer(inputs), nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(Upt04SkinnedIndexBuffer(inputs), nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.skinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
 }
 
 static Upt04InitialControl Upt04BuildControl(const PathTraceUnifiedPtDispatchInputs& dispatch)
@@ -412,9 +537,13 @@ static Upt04InitialControl Upt04BuildControl(const PathTraceUnifiedPtDispatchInp
     const uint32_t specializationIdentity =
         static_cast<uint32_t>(dispatch.family) |
         (static_cast<uint32_t>(dispatch.backend) << 8u);
-    const uint32_t availabilityFlags = geometry.staticBucketRoutePublicationValid
-        ? UPT04_ROUTE_STATIC_BUCKETS
-        : 0u;
+    const uint32_t availabilityFlags =
+        (geometry.staticBucketRoutePublicationValid
+            ? UPT04_ROUTE_STATIC_BUCKETS
+            : 0u) |
+        (lights.unifiedPtEmissiveLookupExact
+            ? UPT04_EMISSIVE_LOOKUP_EXACT
+            : 0u);
     const uint64_t pageGeneration = Upt04BuildPageGeneration(
         dispatch,
         enabledFamilyMask,
@@ -484,8 +613,13 @@ void PathTraceUnifiedPtState::Release()
     m_pageHeight = 0;
     m_pageBytes = 0;
     m_pageNeedsClear = false;
+    m_diagnosticCounters = nullptr;
+    m_diagnosticReadback = nullptr;
+    m_diagnosticReadbackPending = false;
+    m_diagnosticReadbackDelayFrames = 0;
     m_pipelineVariant = 0;
     m_selectionValid = false;
+    m_diagnostics = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
 }
@@ -568,14 +702,18 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
     const bool minimalProductionSlotLayout =
         Upt04UsesMinimalProductionSlotLayout(pipelineVariant);
     const bool usesPushConstants = Upt04UsesPushConstants(pipelineVariant);
-    const bool usesBindlessSet = Upt04UsesBindlessSet(pipelineVariant);
+    const bool directOnlyProduction =
+        Upt04UsesDirectOnlyProductionLayout(inputs);
+    const bool usesBindlessSet = Upt04UsesBindlessSet(pipelineVariant) &&
+        !directOnlyProduction;
     if (!m_selectionValid || m_backend != inputs.backend || m_family != inputs.family ||
-        m_pipelineVariant != pipelineVariant)
+        m_pipelineVariant != pipelineVariant || m_diagnostics != inputs.diagnostics)
     {
         ReleasePipeline();
         m_backend = inputs.backend;
         m_family = inputs.family;
         m_pipelineVariant = pipelineVariant;
+        m_diagnostics = inputs.diagnostics;
         m_selectionValid = true;
         m_resourceFailureLogged = false;
     }
@@ -590,6 +728,13 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         return false;
     }
     m_pipelineAttempted = true;
+
+    if (inputs.diagnostics && inputs.backend != PathTraceUnifiedPtBackend::RayQuery)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: diagnostics require the RayQuery backend; dispatch skipped\n");
+        return false;
+    }
 
     if ((liveTlasProbe || m_backend == PathTraceUnifiedPtBackend::RayQuery) &&
         !inputs.device->queryFeatureSupport(nvrhi::Feature::RayQuery))
@@ -631,9 +776,13 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                 0, UPT04_PUSH_CONSTANT_BYTES));
         }
     }
+    else if (directOnlyProduction)
+    {
+        Upt04AddDirectBindingLayoutItems(layoutDesc);
+    }
     else
     {
-        Upt04AddBindingLayoutItems(layoutDesc);
+        Upt04AddBindingLayoutItems(layoutDesc, inputs.diagnostics);
     }
     m_bindingLayout = inputs.device->createBindingLayout(layoutDesc);
     if (!m_bindingLayout)
@@ -644,13 +793,17 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                 ? "compact live-TLAS probe"
                 : (minimalProductionSlotLayout
                     ? "minimal production-slot probe"
-                    : "23-descriptor"));
+                    : (directOnlyProduction
+                        ? "direct-only production"
+                        : "24-descriptor")));
         return false;
     }
 
-    const char* initialPath = liveTlasProbe
+    const char* initialPath = inputs.diagnostics
+        ? Upt04DiagnosticShaderPath()
+        : (liveTlasProbe
         ? Upt04LiveTlasProbePath(pipelineVariant)
-        : Upt04InitialShaderPath(m_backend, m_family);
+        : Upt04InitialShaderPath(m_backend, m_family));
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -667,7 +820,9 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         shaderDesc.entryName = "main";
         shaderDesc.debugName = liveTlasProbe
             ? Upt04LiveTlasProbeDebugName(pipelineVariant)
-            : "PathTraceUnifiedPtInitialRayQuery";
+            : (inputs.diagnostics
+                ? "PathTraceUnifiedPtInitialDiagnostics"
+                : "PathTraceUnifiedPtInitialRayQuery");
         m_computeShader = inputs.device->createShader(shaderDesc, initialData, initialSize);
         Mem_Free(initialData);
         if (!m_computeShader)
@@ -769,10 +924,12 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
     }
 
     nvrhi::rt::PipelineDesc pipelineDesc;
-    pipelineDesc.globalBindingLayouts = {
-        m_bindingLayout,
-        inputs.sceneInputs->materials.textureBindlessLayout
-    };
+    pipelineDesc.globalBindingLayouts = { m_bindingLayout };
+    if (usesBindlessSet)
+    {
+        pipelineDesc.globalBindingLayouts.push_back(
+            inputs.sceneInputs->materials.textureBindlessLayout);
+    }
     pipelineDesc.shaders = {
         { "Upt04RayGen", rayGeneration, nullptr },
         { "Upt04Miss", miss, nullptr }
@@ -832,6 +989,8 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
         Upt04UsesMinimalProductionSlotLayout(Upt04PipelineVariant(inputs));
     const bool usesPushConstants =
         Upt04UsesPushConstants(Upt04PipelineVariant(inputs));
+    const bool directOnlyProduction =
+        Upt04UsesDirectOnlyProductionLayout(inputs);
     nvrhi::BindingSetDesc desc;
     if (compactLiveTlasProbe)
     {
@@ -850,9 +1009,14 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
                 0, UPT04_PUSH_CONSTANT_BYTES));
         }
     }
+    else if (directOnlyProduction)
+    {
+        desc = Upt04BuildDirectBindingSetDesc(inputs, m_page0);
+    }
     else
     {
-        desc = Upt04BuildBindingSetDesc(inputs, m_page0);
+        desc = Upt04BuildBindingSetDesc(
+            inputs, m_page0, m_diagnosticCounters);
     }
     if (m_bindingSet && m_bindingSetDescValid && m_bindingSetDesc == desc)
     {
@@ -867,7 +1031,9 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
                 ? "compact live-TLAS probe"
                 : (minimalProductionSlotLayout
                     ? "minimal production-slot probe"
-                    : "UPT-04"));
+                    : (directOnlyProduction
+                        ? "direct-only production"
+                        : "UPT-04")));
         return false;
     }
     m_bindingSetDesc = desc;
@@ -875,8 +1041,77 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
     return true;
 }
 
+bool PathTraceUnifiedPtState::EnsureDiagnosticBuffers(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.diagnostics)
+    {
+        return true;
+    }
+    if (!m_diagnosticCounters)
+    {
+        nvrhi::BufferDesc desc;
+        desc.debugName = "PathTraceUnifiedPtDiagnosticCounters";
+        desc.byteSize = UPT04_DIAGNOSTIC_BYTES;
+        desc.structStride = sizeof(uint32_t);
+        desc.canHaveUAVs = true;
+        desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        desc.keepInitialState = true;
+        m_diagnosticCounters = inputs.device->createBuffer(desc);
+    }
+    if (!m_diagnosticReadback)
+    {
+        nvrhi::BufferDesc desc;
+        desc.debugName = "PathTraceUnifiedPtDiagnosticReadback";
+        desc.byteSize = UPT04_DIAGNOSTIC_BYTES;
+        desc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        desc.initialState = nvrhi::ResourceStates::CopyDest;
+        desc.keepInitialState = true;
+        m_diagnosticReadback = inputs.device->createBuffer(desc);
+    }
+    if (!m_diagnosticCounters || !m_diagnosticReadback)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate diagnostic counter/readback buffers\n");
+        return false;
+    }
+    return true;
+}
+
+void PathTraceUnifiedPtState::DrainDiagnosticReadback(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_diagnosticReadbackPending || !m_diagnosticReadback || !inputs.device)
+    {
+        return;
+    }
+    if (m_diagnosticReadbackDelayFrames > 0)
+    {
+        --m_diagnosticReadbackDelayFrames;
+        return;
+    }
+    const uint32_t* counters = static_cast<const uint32_t*>(
+        inputs.device->mapBuffer(
+            m_diagnosticReadback, nvrhi::CpuAccessMode::Read));
+    if (!counters)
+    {
+        common->Printf("PathTraceUnifiedPt: diagnostic readback map failed\n");
+        m_diagnosticReadbackPending = false;
+        return;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: diagnostic receivers(valid/invalid)=%u/%u candidates(direct invalid/zero/positive)=%u/%u/%u candidates(indirect invalid/zero/positive)=%u/%u/%u selected(primaryNee/bsdfEndpoint/secondaryNee)=%u/%u/%u rays(continuation/visibility)=%u/%u canonicalEmpty=%u candidateInputs=%u rayCeilingViolations=%u\n",
+        counters[0], counters[1], counters[2], counters[3], counters[4],
+        counters[5], counters[6], counters[7], counters[8], counters[9],
+        counters[10], counters[11], counters[12], counters[13], counters[14],
+        counters[15]);
+    inputs.device->unmapBuffer(m_diagnosticReadback);
+    m_diagnosticReadbackPending = false;
+}
+
 bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInputs& inputs)
 {
+    DrainDiagnosticReadback(inputs);
     if (!Upt04InputsValid(inputs))
     {
         if (!m_resourceFailureLogged)
@@ -893,6 +1128,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         return true;
     }
     if (!EnsurePage(inputs))
+    {
+        return false;
+    }
+    if (!EnsureDiagnosticBuffers(inputs))
     {
         return false;
     }
@@ -929,7 +1168,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     const bool usesPushConstants =
         Upt04UsesPushConstants(Upt04PipelineVariant(inputs));
     const bool usesBindlessSet =
-        Upt04UsesBindlessSet(Upt04PipelineVariant(inputs));
+        Upt04UsesBindlessSet(Upt04PipelineVariant(inputs)) &&
+        !Upt04UsesDirectOnlyProductionLayout(inputs);
+    const bool directOnlyProduction =
+        Upt04UsesDirectOnlyProductionLayout(inputs);
     const Upt04InitialControl control = !usesPushConstants
         ? Upt04InitialControl{}
         : Upt04BuildControl(inputs);
@@ -944,17 +1186,32 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 inputs.sceneInputs->geometry.tlas,
                 nvrhi::ResourceStates::AccelStructRead);
         }
+        else if (directOnlyProduction)
+        {
+            Upt04SetDirectSrvStates(inputs.commandList, inputs);
+        }
         else
         {
             Upt04SetSrvStates(inputs.commandList, inputs);
         }
         inputs.commandList->setBufferState(m_page0, nvrhi::ResourceStates::UnorderedAccess);
+        if (inputs.diagnostics)
+        {
+            inputs.commandList->setBufferState(
+                m_diagnosticCounters, nvrhi::ResourceStates::UnorderedAccess);
+        }
         inputs.commandList->commitBarriers();
         if (m_pageNeedsClear)
         {
             inputs.commandList->clearBufferUInt(m_page0, 0u);
             nvrhi::utils::BufferUavBarrier(inputs.commandList, m_page0);
             m_pageNeedsClear = false;
+        }
+        if (inputs.diagnostics)
+        {
+            inputs.commandList->clearBufferUInt(m_diagnosticCounters, 0u);
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_diagnosticCounters);
         }
 
         if (inputs.proofStage == 5u)
@@ -979,10 +1236,12 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         {
             nvrhi::rt::State state;
             state.shaderTable = m_shaderTable;
-            state.bindings = {
-                m_bindingSet,
-                inputs.sceneInputs->materials.textureDescriptorTable
-            };
+            state.bindings = { m_bindingSet };
+            if (usesBindlessSet)
+            {
+                state.bindings.push_back(
+                    inputs.sceneInputs->materials.textureDescriptorTable);
+            }
             inputs.commandList->setRayTracingState(state);
         }
         if (usesPushConstants)
@@ -1058,6 +1317,24 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
             "UPT.D0 Initial OutputBarrier",
             inputs.nsightMarkers);
         nvrhi::utils::BufferUavBarrier(inputs.commandList, m_page0);
+        if (inputs.diagnostics)
+        {
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_diagnosticCounters);
+            inputs.commandList->setBufferState(
+                m_diagnosticCounters, nvrhi::ResourceStates::CopySource);
+            inputs.commandList->setBufferState(
+                m_diagnosticReadback, nvrhi::ResourceStates::CopyDest);
+            inputs.commandList->commitBarriers();
+            inputs.commandList->copyBuffer(
+                m_diagnosticReadback,
+                0,
+                m_diagnosticCounters,
+                0,
+                UPT04_DIAGNOSTIC_BYTES);
+            m_diagnosticReadbackPending = true;
+            m_diagnosticReadbackDelayFrames = 2;
+        }
     }
     if (inputs.proofStage == 7u)
     {

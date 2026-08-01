@@ -166,6 +166,7 @@ static bool SmokeSceneBuffersChanged(const RtSmokeSceneBufferHandles& oldBuffers
         oldBuffers.restirLightManagerPreviousToCurrentBuffer != newBuffers.restirLightManagerPreviousToCurrentBuffer ||
         oldBuffers.restirLightManagerCurrentPayloadBuffer != newBuffers.restirLightManagerCurrentPayloadBuffer ||
         oldBuffers.restirLightManagerPreviousPayloadBuffer != newBuffers.restirLightManagerPreviousPayloadBuffer ||
+        oldBuffers.unifiedPtEmissiveLookupBuffer != newBuffers.unifiedPtEmissiveLookupBuffer ||
         oldBuffers.rigidRouteVertexBuffer != newBuffers.rigidRouteVertexBuffer ||
         oldBuffers.rigidRouteIndexBuffer != newBuffers.rigidRouteIndexBuffer ||
         oldBuffers.rigidRouteTriangleMaterialBuffer != newBuffers.rigidRouteTriangleMaterialBuffer ||
@@ -296,6 +297,7 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.restirLightManagerPreviousToCurrentBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerPreviousToCurrentBuffer, "PathTraceRestirLightManagerPreviousToCurrent", desc.restirLightManagerPreviousToCurrentBytes, sizeof(uint32_t), false, false, false);
     result.buffers.restirLightManagerCurrentPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerCurrentPayloadBuffer, "PathTraceRestirLightManagerCurrentPayload", desc.restirLightManagerCurrentPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
     result.buffers.restirLightManagerPreviousPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerPreviousPayloadBuffer, "PathTraceRestirLightManagerPreviousPayload", desc.restirLightManagerPreviousPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
+    result.buffers.unifiedPtEmissiveLookupBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPtEmissiveLookupBuffer, "PathTraceUnifiedPtEmissiveLookup", desc.unifiedPtEmissiveLookupBytes, sizeof(PathTraceUnifiedEmissiveLookupEntry));
     result.buffers.rigidRouteVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteVertexBuffer, "PathTraceRigidRouteVertices", desc.rigidRouteVertexBytes, sizeof(PathTraceSmokeVertex), false, false, false);
     result.buffers.rigidRouteIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteIndexBuffer, "PathTraceRigidRouteIndices", desc.rigidRouteIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialBuffer, "PathTraceRigidRouteTriangleMaterials", desc.rigidRouteTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
@@ -668,6 +670,7 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.unifiedLightRemapCount = desc.unifiedLightRemapCount;
     commitDesc.restirLightManagerCurrentPayloadCount = desc.restirLightManagerCurrentPayloadCount;
     commitDesc.restirLightManagerPreviousPayloadCount = desc.restirLightManagerPreviousPayloadCount;
+    commitDesc.unifiedPtEmissiveLookupCount = desc.unifiedPtEmissiveLookupCount;
     return commitDesc;
 }
 
@@ -1851,6 +1854,7 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
     buffers.restirLightManagerPreviousToCurrentBuffer = m_smokeRestirLightManagerPreviousToCurrentBuffer;
     buffers.restirLightManagerCurrentPayloadBuffer = m_smokeRestirLightManagerCurrentPayloadBuffer;
     buffers.restirLightManagerPreviousPayloadBuffer = m_smokeRestirLightManagerPreviousPayloadBuffer;
+    buffers.unifiedPtEmissiveLookupBuffer = m_smokeUnifiedPtEmissiveLookupBuffer;
     buffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
     buffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
     buffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
@@ -1885,6 +1889,7 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
         m_smokeRestirLightManagerPreviousToCurrentBuffer ||
         m_smokeRestirLightManagerCurrentPayloadBuffer ||
         m_smokeRestirLightManagerPreviousPayloadBuffer ||
+        m_smokeUnifiedPtEmissiveLookupBuffer ||
         m_smokeSkinnedHitRouteRecordBuffer ||
         m_smokeSkinnedHitRouteTriangleBuffer ||
         m_smokeSkinnedSourceVertexBuffer ||
@@ -1945,6 +1950,7 @@ RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeSc
     package.buffers.restirLightManagerPreviousToCurrentBuffer = m_smokeRestirLightManagerPreviousToCurrentBuffer;
     package.buffers.restirLightManagerCurrentPayloadBuffer = m_smokeRestirLightManagerCurrentPayloadBuffer;
     package.buffers.restirLightManagerPreviousPayloadBuffer = m_smokeRestirLightManagerPreviousPayloadBuffer;
+    package.buffers.unifiedPtEmissiveLookupBuffer = m_smokeUnifiedPtEmissiveLookupBuffer;
     package.buffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
     package.buffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
     package.buffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
@@ -2810,6 +2816,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeRestirLightManagerPreviousToCurrentBuffer = nullptr;
     m_smokeRestirLightManagerCurrentPayloadBuffer = nullptr;
     m_smokeRestirLightManagerPreviousPayloadBuffer = nullptr;
+    m_smokeUnifiedPtEmissiveLookupBuffer = nullptr;
     m_smokeRigidRouteVertexBuffer = nullptr;
     m_smokeRigidRouteIndexBuffer = nullptr;
     m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
@@ -2905,6 +2912,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeUnifiedLightRemapCount = 0;
     m_smokeRestirLightManagerCurrentPayloadCount = 0;
     m_smokeRestirLightManagerPreviousPayloadCount = 0;
+    m_smokeUnifiedPtEmissiveLookupCount = 0;
     m_smokePreviousEmissiveTriangles.clear();
     m_retiredSmokeScenePackages.clear();
 }
@@ -2974,6 +2982,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeRestirLightManagerPreviousToCurrentBuffer = desc.buffers.restirLightManagerPreviousToCurrentBuffer;
     m_smokeRestirLightManagerCurrentPayloadBuffer = desc.buffers.restirLightManagerCurrentPayloadBuffer;
     m_smokeRestirLightManagerPreviousPayloadBuffer = desc.buffers.restirLightManagerPreviousPayloadBuffer;
+    m_smokeUnifiedPtEmissiveLookupBuffer = desc.buffers.unifiedPtEmissiveLookupBuffer;
     m_smokeRigidRouteVertexBuffer = desc.buffers.rigidRouteVertexBuffer;
     m_smokeRigidRouteIndexBuffer = desc.buffers.rigidRouteIndexBuffer;
     m_smokeRigidRouteTriangleMaterialBuffer = desc.buffers.rigidRouteTriangleMaterialBuffer;
@@ -3024,6 +3033,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeUnifiedLightRemapCount = desc.unifiedLightRemapCount;
     m_smokeRestirLightManagerCurrentPayloadCount = desc.restirLightManagerCurrentPayloadCount;
     m_smokeRestirLightManagerPreviousPayloadCount = desc.restirLightManagerPreviousPayloadCount;
+    m_smokeUnifiedPtEmissiveLookupCount = desc.unifiedPtEmissiveLookupCount;
     const uint64_t uploadBytes =
         desc.sceneInputs.diagnostics.geometryUploadBytes +
         desc.sceneInputs.diagnostics.materialUploadBytes +

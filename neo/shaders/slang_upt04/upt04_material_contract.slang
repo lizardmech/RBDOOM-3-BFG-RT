@@ -7,6 +7,7 @@ public struct Upt04MaterialEvaluation
 {
     public float3 weightedContribution;
     public float target;
+    public float directionalPdf;
     public uint lobeMask;
     public uint valid;
 };

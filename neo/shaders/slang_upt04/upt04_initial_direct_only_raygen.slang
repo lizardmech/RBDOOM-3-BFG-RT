@@ -1,7 +1,8 @@
 import upt04_hit_contract;
 import upt04_initial_bindings;
-import upt04_initial_shared;
+import upt04_initial_direct_only_shared;
 import upt04_initial_work_contract;
+import upt04_initial_reservoir_stream;
 
 [shader("raygeneration")]
 void main()

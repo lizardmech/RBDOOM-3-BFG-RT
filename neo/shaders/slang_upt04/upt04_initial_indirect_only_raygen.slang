@@ -2,6 +2,10 @@ import upt04_hit_contract;
 import upt04_initial_bindings;
 import upt04_initial_shared;
 import upt04_initial_work_contract;
+import upt03_reservoir_contract;
+import upt04_transport_initial_bounded;
+import upt04_initial_indirect;
+import upt04_initial_reservoir_stream;
 
 public void Upt04TraceIndirectRaygen(
     Upt04InitialTraceWork work,
@@ -25,16 +29,30 @@ void main()
     const uint2 pixel = DispatchRaysIndex().xy;
     if (pixel.x >= gUpt04Control.renderWidth || pixel.y >= gUpt04Control.renderHeight)
         return;
-    if (pixel.y * gUpt04Control.renderWidth + pixel.x >= gUpt04Control.surfaceCount)
+    const uint surfaceIndex = pixel.y * gUpt04Control.renderWidth + pixel.x;
+    if (surfaceIndex >= gUpt04Control.surfaceCount)
         return;
-    Upt04InitialTraceWork work = Upt04PrepareStaticInitialFamilyTraceWork(
-        pixel,
-        kUpt04InitialFamilyIndirect);
-    Upt04HitFacts hit = Upt04MissFacts(work.ray.tMax);
-    Upt04TraceIndirectRaygen(work, hit);
-    work = Upt04AdvanceInitialTraceWork(work, hit);
-    hit = Upt04MissFacts(work.ray.tMax);
-    Upt04TraceIndirectRaygen(work, hit);
-    work = Upt04AdvanceInitialTraceWork(work, hit);
-    Upt04FinishInitialTraceWork(work);
+
+    Upt03LogicalReservoir reservoir = (Upt03LogicalReservoir)0;
+    Upt04BoundedTransportState transport = Upt04BeginBoundedTransport();
+    if (!Upt04CompletePrimaryNeeStage(transport))
+    {
+        Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+        return;
+    }
+    Upt04InitialTraceWork continuation =
+        Upt04PrepareIndirectPathTreeWork(pixel, transport);
+    Upt04HitFacts hit = Upt04MissFacts(continuation.ray.tMax);
+    Upt04TraceIndirectRaygen(continuation, hit);
+    const Upt04IndirectHitTrialResult indirect =
+        Upt04PrepareIndirectHitTrials(continuation, hit, pixel);
+    Upt04StreamInitialTraceWork(
+        reservoir, indirect.endpointCandidate, pixel, 0u);
+
+    Upt04InitialTraceWork secondaryNee = indirect.neeWork;
+    hit = Upt04MissFacts(secondaryNee.ray.tMax);
+    Upt04TraceIndirectRaygen(secondaryNee, hit);
+    secondaryNee = Upt04AdvanceInitialTraceWork(secondaryNee, hit);
+    Upt04StreamInitialTraceWork(reservoir, secondaryNee, pixel, 1u);
+    Upt04WriteInitialReservoir(surfaceIndex, reservoir);
 }

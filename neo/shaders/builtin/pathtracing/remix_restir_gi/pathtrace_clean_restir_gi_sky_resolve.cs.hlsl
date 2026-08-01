@@ -3,6 +3,7 @@
 // producer. All routes publish the same first-indirect candidate surface, so
 // cube sampling is isolated here at a proven-safe compute boundary.
 
+#include "../../../vulkan.hlsli"
 #include "../cleanroom_common/pathtrace_first_indirect_candidate.hlsli"
 
 cbuffer CleanRestirGiSkyResolveConstants : register(b0)
@@ -14,7 +15,7 @@ cbuffer CleanRestirGiSkyResolveConstants : register(b0)
 
 TextureCube<float4> CleanRestirGiSkyResolveCube : register(t0);
 SamplerState CleanRestirGiSkyResolveSampler : register(s0);
-RWTexture2D<float4> CleanRestirGiSkyResolveRadiance : register(u0);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiSkyResolveRadiance : register(u0);
 RWStructuredBuffer<PathTraceFirstIndirectCandidateSurface> CleanRestirGiSkyResolveSurfaces : register(u1);
 
 static const uint RT_SMOKE_MATERIAL_SKY_ENVIRONMENT = 0x00040000u;
