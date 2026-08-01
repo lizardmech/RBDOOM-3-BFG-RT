@@ -86,6 +86,24 @@ R0. Existing primary-surface current input
     Gate: audit every required field and reject the route if a field is absent;
         do not add speculative duplicates.
 
+    UPT-01 result: accepted as a direct SRV after the neutral producer barrier.
+        The exact record, ownership, generation gaps, and scheduling prerequisite
+        are recorded in 09_upt01_live_input_ownership_audit.txt. The producer's
+        camera ray and RR-guide writes remain separately marked upstream work;
+        they are not hidden inside D0 timing.
+
+R0a. Narrow per-dispatch parameter transport
+
+    New allocation: no; use a frozen Vulkan push-constant block if it remains
+        within the justified device/ABI budget.
+    Purpose: render dimensions, random/frame index, logical input counts,
+        explicit generation tuple, and production-safe mode flags.
+    Rejected reuse: the legacy PathTraceSmokeConstants buffer because its
+        monolithic smoke/DI/GI/debug ABI would couple the isolated shaders to
+        unrelated features.
+    Fallback gate: if the frozen block cannot use push constants, admit exactly
+        one small UPT-owned volatile constant buffer here before creating it.
+
 R1. Unified packed reservoir page 0
 
     New allocation: yes, after UPT-02 freezes and readback-proves the packed

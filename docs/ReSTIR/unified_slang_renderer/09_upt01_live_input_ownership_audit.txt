@@ -1,0 +1,708 @@
+UPT-01 Live Input and Ownership Audit
+======================================
+
+Status
+------
+
+Complete. Read-only source audit; documentation changes only.
+
+Verdict
+-------
+
+UPT-01 passes, with explicit prerequisites for the later host-wiring task.
+
+The isolated renderer can consume the current scene, primary-surface, material,
+texture, and light publications without calling a current DI or GI dispatch or
+loading a current DI/GI shader family. The UPT route must not reuse the old
+smoke binding set, smoke constants buffer, DI/GI pipeline initializers, or any
+DI/GI reservoir.
+
+The existing primary-surface data is reusable, but its producer is not yet a
+neutral scheduling unit. It is embedded inside the Clean DI branch, requires
+the old giant binding set, and writes motion plus all RR guides alongside the
+surface buffer. Before UPT-04 can run independently, the producer dispatch and
+history publication must be factored into a renderer-neutral upstream stage.
+That extraction may continue to load only
+pathtrace_primary_surface_producer.rt.bin. It may not initialize or dispatch a
+Clean DI/GI pipeline.
+
+No UPT-01 stop condition was reached. The required change is an ownership and
+scheduling extraction, not a dependency on a current DI/GI implementation.
+
+Audit authority
+---------------
+
+The live contract was traced from these symbols rather than inferred from old
+plans:
+
+    RtPathTraceSceneInputs
+        neo/renderer/NVRHI/PathTraceSceneInputs.h
+
+    PathTracePrimaryPass::BuildRayTracingSmokeTestScene
+        scene-input population and commit in
+        neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+    PathTracePrimaryPass::CommitRayTracingSmokeSceneResources
+    PathTracePrimaryPass::ResetRayTracingSmokeSceneResources
+    PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline
+    CreatePathTraceSmokeRayTracingPipeline
+        neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+
+    PathTracePrimaryPass::ExecuteRayTracingSmokeTest
+        primary producer, current DI/GI dispatch ordering, RR handoff, and
+        primary-history publication in
+        neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+
+    RtPathTraceFrameResources
+        neo/renderer/NVRHI/PathTraceFrameResources.h/.cpp
+
+    RtPathTracePrimarySurfaceRecord / PathTracePrimarySurfaceRecord
+        neo/renderer/NVRHI/PathTracePrimarySurface.h
+        neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+
+    PathTraceUnifiedLightRecord
+        neo/renderer/NVRHI/PathTraceUnifiedLight.h/.cpp
+        neo/shaders/builtin/pathtracing/RtxdiBridge/
+            RAB_UnifiedLightRecord.hlsli
+
+    PathTraceSmokeMaterial, PathTraceSmokeEmissiveTriangle
+        neo/renderer/NVRHI/PathTraceEmissiveCandidates.h
+
+    RtPathTraceMaterialFeatureRecord and parameter record
+        neo/renderer/NVRHI/PathTracePrimarySurface.h
+        neo/shaders/builtin/pathtracing/PathTraceMaterialFeatureTypes.hlsli
+
+Completed baseline input ledger
+-------------------------------
+
+The word "reuse" below means bind the current publication directly. It does
+not authorize copying it into a UPT-owned mirror.
+
+B0. Immutable per-dispatch CPU snapshot
+
+    Source:
+        RtPathTraceSceneInputs after
+        CommitRayTracingSmokeSceneResources() has completed.
+
+    Reuse:
+        yes; no GPU allocation.
+
+    Required values:
+        valid and sceneSource
+        render width and height
+        resource handles and their logical counts
+        portal/static-bucket publication facts
+        explicit generation tuple defined later in this audit
+
+    Rule:
+        construct one local UPT dispatch description at the composition root.
+        A pass must not reach back into PathTracePrimaryPass members while it is
+        recording commands.
+
+B1. Current primary-surface buffer
+
+    Source:
+        m_frameResources.primarySurfaceHistoryBuffers.current
+
+    Format:
+        StructuredBuffer<PathTracePrimarySurfaceRecord>
+        version 2, stride 176 bytes, one record per render-resolution pixel.
+
+    Reuse:
+        yes; bind as SRV after the producer UAV barrier. Do not allocate a UPT
+        G-buffer and do not retrace a camera ray in UPT initial sampling.
+
+    Current record contents:
+        header: ABI version, valid/motion flags, debug status, triangle flags
+        world position and view depth
+        geometric normal and roughness
+        shading normal and opacity
+        outgoing/view direction
+        resolved diffuse albedo and alpha cutoff
+        resolved specular F0
+        resolved emissive radiance
+        previous world position plus validity selector
+        material id, material table index, material flags, surface class
+        TLAS instance id, primitive index, object placeholder, emissive texture
+            descriptor index
+
+    Generation reality:
+        the record has an ABI version but no scene, material, texture, light,
+        camera-cut, resolution, or producer generation. The current/previous
+        validity booleans live on the CPU in
+        RtPathTracePrimarySurfaceHistoryState. They are not per-record epochs.
+
+    Baseline gate:
+        version must equal 2, RT_PRIMARY_SURFACE_VALID must be set, the flat
+        pixel index must be below surfaceCount, and the buffer dimensions must
+        equal the UPT reservoir dimensions. Invalid receivers write a canonical
+        empty reservoir without sampling a material or tracing a ray.
+
+B2. Current TLAS
+
+    Source:
+        m_sceneInputs.geometry.tlas, currently m_smokeTlas.
+
+    Reuse:
+        yes. UPT owns no BLAS/TLAS build, copy, compaction, or duplicate
+        instance list.
+
+    Ownership:
+        scene construction owns static, dynamic, resident rigid, skinned, and
+        static-bucket instances. Commit/retirement owns handle lifetime. UPT
+        observes the committed handle only and rebuilds its binding set when
+        that handle changes.
+
+B3. Geometry decode buffers
+
+    Source:
+        m_sceneInputs.geometry.
+
+    Reuse for secondary hit and emissive replay:
+        current static vertex/index/class/material/material-index buffers
+        current dynamic vertex/index/class/material/material-index buffers
+        rigid-route vertex/index/material/material-index/instance buffers
+        skinned hit-route records and triangles
+        skinned current output vertices and dispatch/source-index buffers when
+            the committed capability/counts say that route is active
+
+    Not a baseline binding:
+        previous static buffers, previous rigid transforms, previous skinned
+        positions, and joint matrices. They become eligible only when a pass
+        has a measured temporal or motion requirement.
+
+    Address contract:
+        ordinary static hits use InstanceID 0;
+        ordinary dynamic hits use InstanceID 1;
+        routed rigid hits use the published rigid instance records;
+        resident static buckets use bit 23 of the 24-bit InstanceID and encode
+            the packed triangle base in the lower 23 bits.
+
+        Static-bucket PrimitiveIndex is bucket-local. The exact current decode
+        is the small contract in PathTraceStaticBucketRoute.hlsli; it needs no
+        route-record buffer. A new Slang geometry adapter must reproduce and
+        unit-test this address rule without importing a DI/GI shader graph.
+
+    Publication token already exposed:
+        staticBucketRouteFirstInstanceId
+        staticBucketTriangleCount
+        staticBucketRouteGeneration
+        staticBucketRoutePublicationValid
+
+    Publication gap:
+        equivalent explicit generations for the ordinary dynamic, rigid, and
+        skinned decode publications are not exposed by RtPathTraceSceneInputs.
+
+B4. Material storage, provider-private
+
+    Sources:
+        materials.materialTableBuffer
+            PathTraceSmokeMaterial, 112-byte rows
+        materials.materialFeatureBuffer
+            RtPathTraceMaterialFeatureRecord, 32-byte rows, ABI 4
+        materials.materialFeatureParameterBuffer
+            RtPathTraceMaterialFeatureParameterRecord, 96-byte rows
+        materials.dynamicMaterialBuffer
+            PathTraceDynamicMaterialRecord, 64-byte rows
+
+    Reuse:
+        yes, inside the selected material provider only.
+
+    Rule:
+        ReSTIR, proposal, reservoir, reuse, and resolve modules may not declare
+        any of these layouts or index these buffers. A composition-selected
+        rbdoom material adapter owns bounds/stride/ABI validation and converts
+        them into transport-neutral results.
+
+    Existing seam that is useful:
+        the feature record already publishes material kind, capability bits,
+        lobe bits, supported passes, modifier kind, and parameter row.
+
+    Existing seam that is not sufficient:
+        RAB_Material and the duplicated primary/DI/GI hit adapters bake a
+        resolved Lambert/PBR-like field set into the renderer. The generic
+        PathTraceMaterialFeatureDispatch helper changes shader tables on an old
+        RT state; it is a feature-pass dispatch convenience, not a BSDF/material
+        interface, and is not reusable by UPT.
+
+B5. Bindless material textures and sampler
+
+    Current owner:
+        PathTracePrimaryPass scene binding construction.
+
+    Current publication:
+        m_sceneInputs.materials.textureDescriptorTable
+        m_smokeTextureBindlessLayout
+        m_backend->GetCommonPasses().m_AnisotropicWrapSampler
+
+    Current layout:
+        register space 1, Texture_SRV from slot 0, capacity 2048, visibility
+        AllRayTracing.
+
+    Current index rule:
+        PathTraceSmokeMaterial texture fields are descriptor indexes. The CPU
+        m_smokeActiveTextureTable has a fallback sentinel at vector element 0;
+        descriptor slot N is activeTextureTable[N + 1]. The scene input's
+        activeTextureCount currently reports the vector size including that
+        sentinel, while shader constants traditionally subtract one.
+
+    Reuse:
+        one descriptor table, one layout, one sampler. No UPT descriptor-table
+        clone and no per-pass texture table.
+
+    UPT-04 prerequisite:
+        RtPathTraceSceneInputs currently publishes the descriptor table but not
+        the bindless layout handle, sampler handle, logical descriptor count,
+        or descriptor publication generation. Publish those as one immutable
+        material-texture binding contract.
+
+        The existing layout is ray-tracing-visible only. A compute-RayQuery A/B
+        cannot fairly use it as written. Widen the one shared layout to the
+        required compute plus ray-tracing visibility, or prove another single
+        shared-layout solution. Do not solve this by duplicating 2048 descriptor
+        writes for a compute-only UPT table.
+
+B6. Current unified light domain
+
+    Preferred source:
+        m_sceneInputs.lights.restirLightManagerCurrentPayloadBuffer
+
+    Format:
+        StructuredBuffer<PathTraceUnifiedLightRecord>, 112-byte rows.
+
+    Reuse:
+        yes. It is the current manager-owned payload with sampleability and
+        stability classification already applied. UPT must not rebuild another
+        analytic/emissive light universe.
+
+        The skinned-emissive publisher can patch this buffer as a UAV during
+        scene build; the existing transition back to ShaderResource and
+        commitBarriers is part of the publication contract. UPT must consume
+        only after that barrier.
+
+    Record contents:
+        position/radius, normal/area, radiance/luminance, UV or Doom parameters
+        type, source index, flags, material/light id
+        instance id, primitive index, two-word stable identity
+        source PDF, source weight, previous dense index
+
+    Baseline bindings:
+        current payload and current count only. Previous payload and remaps are
+        forbidden until temporal reuse is admitted.
+
+    Future temporal resources already owned by the manager:
+        current payload, previous payload, current-to-previous map, and
+        previous-to-current map. RtPathTraceSceneInputs currently omits both
+        manager map handles even though the committed smoke resource package
+        owns them. They must be published later; UPT must not synthesize maps by
+        scanning on the GPU.
+
+B7. Emissive triangle replay source
+
+    Source:
+        m_sceneInputs.lights.emissiveTriangleBuffer and its logical count.
+
+    Reuse:
+        yes, when the selected unified record is an emissive triangle.
+
+    Purpose:
+        maps the unified record's sourceIndex to material index, instance id,
+        primitive index, texture metadata, centroid/UV bounds, and stable
+        identity. Exact triangle positions and per-vertex UVs are reconstructed
+        from B3. The current clean replay path proves static, dynamic, and rigid
+        reconstruction; no center-point triangle approximation is needed.
+
+    Not initially bound:
+        previous emissive triangle buffer, emissive remap, and emissive
+        distribution. Admit them only for a named temporal or proposal method.
+
+B8. Environment input
+
+    Current state:
+        missing from RtPathTraceSceneInputs. m_smokeSkyEnvironmentCube and its
+        brightness/policy remain private PathTracePrimaryPass state.
+
+    Requirement:
+        environment is part of the planned unified event domain, so the scene
+        input must eventually publish an environment provider handle, sampler,
+        enabled/policy flags, intensity, and payload generation.
+
+    Baseline decision:
+        UPT-04 may fail closed to no environment contribution while the direct
+        and emissive/analytic path is brought up, but it must report that domain
+        as unavailable. It may not read a private smoke member from ReSTIR code.
+
+B9. Per-dispatch parameters
+
+    New allocation:
+        none if Vulkan push constants cover the frozen block. NVRHI already
+        supports push-constant binding and updates in this renderer.
+
+    Contents allowed for the first pass:
+        render dimensions, frame/random index, candidate counts and modes,
+        scene/material/light/texture generation tokens, and debug specialization
+        flags that do not change the production binary.
+
+    Rejected alternative:
+        m_smokeConstantsBuffer. It carries the old monolithic smoke/DI/GI/debug
+        ABI and would make the supposedly isolated pipeline depend on unrelated
+        fields. If the final frozen block exceeds the justified push-constant
+        budget, a single small UPT-owned volatile constant buffer needs a new
+        ledger admission before implementation.
+
+B10. UPT reservoir and output
+
+    New resources:
+        R1 unified reservoir page 0, only after UPT-02 freezes its codec
+        R2 one RGBA16F test HDR output at render resolution
+        R3 optional fixed diagnostic counter/readback block in debug builds
+
+    Existing output reuse:
+        none. Do not bind outputTexture, accumulationTexture, rrInputColorTexture,
+        reflection/transmission sidecars, or any RR guide as a UPT UAV.
+
+    Presentation:
+        BlitDebugOutput() and TonemapDebugOutput() currently read
+        m_frameResources.outputTexture directly in PathTracePrimaryPass.cpp.
+        Add a host-only active-output selector so the UPT texture can be shown
+        without a full-screen copy. The selector must not make particles,
+        DLSS-RR, PSR, or another current post pass a baseline consumer.
+
+Existing resources reused without duplication
+---------------------------------------------
+
+    committed TLAS
+    current primary-surface buffer
+    current static/dynamic/rigid/skinned geometry publications as required
+    material table, feature table, parameter table, dynamic material table
+    one shared bindless texture descriptor table/layout and sampler
+    manager current unified-light payload
+    current emissive triangle replay buffer
+
+Specifically forbidden duplicates:
+
+    camera-ray G-buffer or copied primary surface
+    UPT-built TLAS/BLAS or instance list
+    UPT material table or texture descriptor table
+    UPT analytic/emissive light inventory
+    separate direct and indirect reservoirs
+    per-pixel validity/motion/RR sidecars
+
+Missing mandatory publication fields
+------------------------------------
+
+M1. Stable primary object identity
+
+    instancePrimitiveObject.z is explicitly written as zero and marked TODO.
+    This does not block no-reuse UPT-04, but it blocks robust temporal identity,
+    disocclusion, and object-history validation. Do not substitute a transient
+    table row and call it stable.
+
+M2. Explicit generation tuple
+
+    The current scene contract supplies broad signatures, but it does not
+    expose all generations needed to validate a bound snapshot or history:
+
+        scene/map generation
+        TLAS/geometry publication generation
+        material table/feature ABI and payload generation
+        dynamic material payload generation
+        texture descriptor publication generation
+        unified-light payload generation
+        unified-light mapping generation
+        environment payload generation
+        primary-surface producer generation
+        render-resolution generation
+        camera-cut generation distinct from ordinary camera motion
+
+    cpuUploadGeneration is the geometry frame index and changes every frame; it
+    is not a stable scene epoch. cameraProjection hashes the live camera and
+    also changes during normal motion; it is not a camera-cut epoch.
+
+M3. Light signatures are not content generations
+
+    sceneInputs.signatures.lightMembership currently hashes only emissive count,
+    emissive candidate-material count, analytic count, and analytic remap count.
+    Equal counts can contain different lights.
+
+    reservoirScene includes the light manager structural signature, but that
+    structural signature hashes type constants and ABI sizes, not current light
+    payload or mapping bytes. PathTraceRemixLightManager already computes
+    mappingSignature and payloadSignature; publish them instead of inventing a
+    second hash.
+
+    The GPU skinned-emissive publisher can patch current/previous unified and
+    manager payload buffers after the manager's CPU signatures were computed.
+    The published light generation must also cover that post-upload GPU work;
+    an unmodified CPU payload hash alone is not a complete publication token.
+
+M4. Complete texture binding publication
+
+    Publish bindless layout, sampler, logical descriptor count excluding the
+    CPU sentinel, and descriptor generation alongside textureDescriptorTable.
+    A bare descriptor-table handle plus activeTextureCount is ambiguous and not
+    enough to build a compute-visible isolated pipeline safely.
+
+M5. Manager remap handles and range metadata
+
+    Publish current-to-previous and previous-to-current manager map handles,
+    their counts/generation, and the current type ranges when temporal reuse is
+    admitted. The baseline binds none of them.
+
+M6. Environment provider publication
+
+    Publish the sky/environment texture/provider and generation outside private
+    smoke state before environment candidates are enabled.
+
+M7. Neutral primary producer schedule
+
+    Extract primary production from the Clean DI branch. Its contract is:
+
+        prepare/validate existing scene and primary output
+        clear history only on an explicit invalidation
+        dispatch the producer once if any active route requests it
+        issue the current-buffer UAV barrier
+        allow all consumers to run
+        publish current to previous and update camera/history state exactly once
+
+    The existing producer also writes motion/RR guides. Baseline UPT timing must
+    show primary-producer time separately from UPT initial/resolve time. A later
+    producer specialization may omit guide UAVs only after an A/B proves it does
+    not duplicate camera-ray work or break existing consumers.
+
+M8. Render versus presentation dimensions
+
+    RtPathTraceSceneInputs has outputWidth/outputHeight, but scene construction
+    fills them from m_frameResources.width/height (render resolution). Publish
+    explicitly named render and presentation dimensions before the UPT output
+    selector or later RR integration relies on them.
+
+    PathTracePrimaryPass::Execute() currently calls
+    PathTraceDLSSRRBridge_QueryOptimalRenderSize() before resize regardless of
+    which PT route will run. Baseline UPT must bypass RR sizing and use its
+    requested render dimensions directly. RR-controlled sizing is admitted only
+    with the later RR integration task.
+
+M9. Route-independent scene publication request
+
+    BuildRayTracingSmokeTestScene() currently decides texture and emissive/RLU
+    preparation from legacy debug, Clean DI, ReGIR, NEE-cache, and verifier
+    route state. Add an explicit UPT scene-publication request so UPT receives
+    current material textures, emissive inventory, and manager payload while all
+    DI/GI routes remain disabled.
+
+    This is a producer requirement only. It must not enable a Clean DI/GI cvar,
+    initialize a DI/GI pipeline, or make UPT call a DI/GI helper.
+
+M10. Output-resource coupling in scene build
+
+    ResizeOutputSizedResources() currently creates output, accumulation,
+    reflection/transmission, motion, and every RR guide together, and the scene
+    build preflight requires most of those handles even to publish geometry and
+    materials. UPT will not bind those shared current-renderer textures, but the
+    inherited allocation dependency must be reported as upstream infrastructure
+    in UPT-04 measurements.
+
+    The clean long-term ownership is to let scene/TLAS/material/light publication
+    validate scene resources independently from route-specific output resources.
+    Do not duplicate the scene builder merely to remove this coupling.
+
+Transport-neutral material boundary
+-----------------------------------
+
+The ReSTIR files may see only these logical values:
+
+    SurfaceGeometry
+        valid/status
+        world position
+        geometric normal
+        shading normal
+        outgoing direction
+        front/back-face state when available
+        opaque geometry identity for replay/debug
+
+    MaterialHandle
+        opaque provider/domain tag
+        opaque row/key words
+        material generation token
+
+    MaterialSupport
+        supported lobe/event flags
+        supported pass flags
+        fail-closed status
+
+    MaterialEmission
+        radiance
+        status
+
+    MaterialEval
+        value
+        PDF
+        lobe/event flags
+        status
+
+    MaterialSample
+        sampled direction
+        value
+        PDF
+        lobe/event flags
+        opaque event/replay data
+        status
+
+For the current primary input, the adapter maps validity, position, normals,
+view direction, material id/index, surface class, instance id, and primitive id
+into SurfaceGeometry plus an opaque MaterialHandle. The provider may reload the
+same primary record privately when it needs its already-resolved material.
+
+These current concrete fields must remain provider-private:
+
+    diffuse/base color
+    roughness
+    specular F0
+    opacity and alpha cutoff
+    emissive value and emissive texture index
+    PathTraceSmokeMaterial texture indexes, dimensions, flags, and padding
+    dynamic color/stage/texture-matrix records
+    material feature parameter words and ordered stage words
+    descriptor indexes and texture decoding policy
+    any Lambert, GGX, OpenPBR, glass, liquid, or decal formula
+
+Emission, BSDF value, BSDF PDF, and a sampled event cross back only as the
+typed results above. ReSTIR may branch on generic valid/empty/event status and
+proposal family; it may not branch on a Doom material kind or concrete closure
+layout.
+
+Secondary hits add UV, tangent frame, barycentrics, and front-face state to the
+provider's interaction input. Those values are geometry facts, not reservoir
+fields and not a reason to copy them into every primary-surface record. The hit
+adapter obtains them from B3 only for the selected/traced path.
+
+Lifecycle and invalidation matrix
+---------------------------------
+
+Event                         Existing owner/action                  UPT action
+-----                         ---------------------                  ----------
+map/render-world/load serial  scene build waits idle, resets scene  drop bindings,
+change                        resources and primary history          reservoir empty
+
+committed handle change       old package retired for configured    rebuild only the
+                              frames; new m_sceneInputs installed    affected binding
+
+render/output resize          frame resources wait idle, recreate   recreate R1/R2,
+                              output-sized resources, reset scene    reset generations
+
+backbuffer resize             scene reset plus output reset          recreate/republish
+
+material payload change       table/signature may update             compare explicit
+                                                                      material generation
+
+dynamic material change       buffer may change with same row count  compare new dynamic
+                                                                      payload generation
+
+light payload/remap change    manager computes payload/mapping hash  compare published
+                                                                      manager signatures
+
+ordinary camera motion        cameraProjection changes               no blanket history
+                                                                      reset
+
+camera cut                    no dedicated published generation       require M2 token
+
+primary ABI change            record version/stride constants         reject and reset
+
+UPT ABI/reservoir codec       not currently present                   recreate and reset
+change
+
+The current BuildPathTraceSceneTransitionSignature is not the UPT history key.
+It hashes broad signatures/counts and omits resource handles and light payload
+content. PackageHandlesChanged separately protects resource retirement, but it
+does not give a shader/history consumer a complete generation tuple.
+
+Exact host composition point
+----------------------------
+
+The composition root remains:
+
+    PathTracePrimaryPass::Execute(const viewDef_t*)
+        ResizeRayTracingSmokeOutput()
+        BuildRayTracingSmokeTestScene()
+        ExecuteRayTracingSmokeTest()
+
+The isolated GPU call remains inside:
+
+    PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t*)
+    in neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp.
+
+UPT-04 must first feed an explicit UPT producer request into
+BuildRayTracingSmokeTestScene(), then add its dispatch selection beside the
+current route selection near the start of ExecuteRayTracingSmokeTest(). Use this
+order:
+
+    1. consume the already committed RtPathTraceSceneInputs snapshot;
+    2. run the extracted neutral primary producer once;
+    3. after BufferUavBarrier(primarySurfaceHistoryBuffers.current), call the
+       isolated UPT composition root;
+    4. UPT records only unified initial sampling and trace-free final resolve;
+    5. select the UPT HDR texture for existing presentation/tonemap on the host;
+    6. publish primary current-to-previous history once after all consumers;
+    7. return before the current Clean DI, Clean GI, NEE cache, ReGIR, PSR,
+       particle, DLSS-RR, and legacy smoke dispatch blocks.
+
+The route sets a route-neutral "PT output available" state for presentation;
+it must not pretend that the old smoke renderer dispatched merely to satisfy
+the current m_smokeTestDispatched presentation guard.
+
+The current semantic insertion point is immediately after the primary producer
+UAV barriers (currently following the DispatchRays around lines 2279-2308), and
+before the optional NEE-cache primary update and all Clean DI/GI dispatches.
+Those line numbers are an audit anchor, not permission to leave UPT nested in
+the Clean DI branch.
+
+The isolated composition root owns separate:
+
+    Slang shader modules
+    narrow binding layouts and binding sets
+    pipeline(s) and marker names
+    R1/R2 resources
+    generation snapshot
+    counters/readback when compiled in
+
+It consumes the existing primary producer as an upstream dependency. It does
+not call InitRayTracingSmokeRestirPipeline(15/17/18/19/20),
+PathTraceCleanRestirGi::Execute, or any current DI/GI dispatch helper.
+
+RR and current output ownership
+-------------------------------
+
+The current primary producer writes these renderer-owned resources:
+
+    motionVectorTexture
+    rrMotionVectorTexture
+    motionVectorMaskTexture
+    rrGuideAlbedoTexture
+    rrGuideSpecularAlbedoTexture
+    rrGuideNormalRoughnessTexture
+    rrGuideDepthTexture
+    rrGuideHitDistanceTexture
+    rrGuideResetMaskTexture
+    rrGuidePositionTexture
+
+DLSS-RR later consumes rrInputColor plus the RR guide textures and writes
+accumulationTexture, which is copied into outputTexture. These textures are not
+UPT baseline outputs or scratch. UPT-04 must neither clear nor alias them.
+
+The producer's guide writes are shared-upstream cost, not D0/D1 cost. Nsight
+markers must therefore report at least:
+
+    UPT.PrimarySurface.Upstream
+    UPT.Initial
+    UPT.Resolve
+
+This preserves both measurements: incremental UPT algorithm cost and complete
+frame cost including the inherited primary producer.
+
+UPT-02 handoff
+--------------
+
+UPT-02 may proceed without a runtime test. It is an offline reservoir codec and
+validity task. It must use the generation/event requirements in this audit but
+must not allocate GPU resources or begin the host extraction described above.

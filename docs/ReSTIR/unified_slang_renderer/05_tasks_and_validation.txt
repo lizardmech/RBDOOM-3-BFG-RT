@@ -48,6 +48,9 @@ Stop:
 UPT-01: Read-only live input and ownership audit
 ------------------------------------------------
 
+Result:
+    complete; see 09_upt01_live_input_ownership_audit.txt
+
 Type:
     read-only; docs only
 

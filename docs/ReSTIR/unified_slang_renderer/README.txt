@@ -4,8 +4,9 @@ Unified ReSTIR PT Slang Test Renderer
 Status
 ------
 
-Preimplementation architecture packet. No renderer or shader implementation is
-authorized by this packet alone.
+Architecture packet with UPT-00 and UPT-01 complete. Only the isolated UPT-00
+compiler/GPU harness is implemented; the unified renderer itself has not begun.
+No later renderer task is authorized by this packet alone.
 
 Purpose
 -------
@@ -215,6 +216,11 @@ Packet index
     08_upt00_toolchain_results.txt
         Implemented UPT-00 build boundary, ABI/readback proof, compiler/SPIR-V
         metrics, repeated GPU timings, and the first-pipeline order finding.
+
+    09_upt01_live_input_ownership_audit.txt
+        Completed UPT-01 live resource ledger, exact primary/scene/material/
+        light ownership, missing generation publications, transport-neutral
+        material boundary, lifecycle matrix, and host composition point.
 
 Stop condition
 --------------
