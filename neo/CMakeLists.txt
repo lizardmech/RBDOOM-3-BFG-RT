@@ -1707,5 +1707,6 @@ add_subdirectory(shaders)
 # add Slang work or comparison artifacts to normal builds.
 add_subdirectory(shaders/slang_upt00)
 add_subdirectory(shaders/slang_upt03)
+add_subdirectory(shaders/slang_upt04)
 add_dependencies(Shaders ShaderMake)
 add_dependencies(${APP_NAME} Shaders ${MASKED_OCCLUSION_LIBRARY} ${ISPC_TEXCOMP_LIBRARY})

@@ -384,11 +384,26 @@ Stop rather than code around any of these:
 Next implementation portion
 ---------------------------
 
-Implement P1/P2/P4 as host-owned publications first, with a CPU scheduling test
-where possible. Do not begin the stochastic shader while the only route to a
-valid primary surface is still nested under Clean DI. After those publications
-build and preserve current DI behavior, add the contract/material/random modules
-and compile the two backend compositions against the frozen ledger above.
+P1/P2/P3/P4 host ownership is complete. The first isolated Slang ownership
+graph also compiles two trace-free probe compositions against the UPT-03 codec:
+
+    baseline material probe + WhiteHashProvider
+    deterministic replacement material probe + WhiteHashProvider
+
+Both import the same surface/path-event/material contracts and reservoir codec;
+changing the concrete material set requires no reservoir edit. Reflection
+checks 48-byte probe surfaces, 64-byte packed reservoirs, two bindings, and an
+8 x 8 workgroup. Disassembly rejects every ray instruction/capability.
+
+Measured compile artifacts:
+
+    upt04_contract_baseline       12,536 bytes; 298 SPIR-V instructions
+    upt04_contract_deterministic  12,172 bytes; 294 SPIR-V instructions
+
+These are ownership/closure probes, not the admitted initial sampler and not
+runtime shaders. Next implement contracts.hit, proposals.local_light,
+transport.initial_bounded, then the identical RayQuery/raygen compositions.
+Only their reflection may close P3's set-1 compatibility gate.
 
 Verification of this portion
 ----------------------------
