@@ -112,6 +112,9 @@ Acceptance:
 UPT-03: GPU ABI and deterministic reservoir kernel
 --------------------------------------------------
 
+Result:
+    complete; see 11_upt03_gpu_abi_results.txt
+
 Type:
     one compute shader; no rays
 

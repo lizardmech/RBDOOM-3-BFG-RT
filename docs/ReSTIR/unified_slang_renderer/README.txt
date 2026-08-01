@@ -226,6 +226,10 @@ Packet index
         Completed UPT-02 candidate-state derivation, 64-byte CPU codec, random
         dimension schedule, packing/memory budget, and three-bounce/RR vectors.
 
+    11_upt03_gpu_abi_results.txt
+        Completed UPT-03 deterministic Slang compute codec, exact CPU/GPU byte
+        comparison, reflection/dependency gate, and bounded zero-ray ledger.
+
 Stop condition
 --------------
 

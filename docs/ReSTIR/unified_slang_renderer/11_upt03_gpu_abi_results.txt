@@ -1,0 +1,184 @@
+UPT-03 GPU ABI and Deterministic Reservoir Kernel Results
+=========================================================
+
+Status
+------
+
+Complete. The isolated Vulkan/Slang kernel writes the exact UPT-02 64-byte
+reservoir encoding for a deterministic candidate corpus. Every GPU byte matches
+the CPU codec oracle, two consecutive trials produce the fixed hash
+0x72ee283cfb295d70, and SPIR-V inspection confirms zero ray work.
+
+Scope and allowed files
+-----------------------
+
+UPT-03 changed only:
+
+    neo/shaders/slang_upt03/*
+    neo/CMakeLists.txt, to register the opt-in isolated subdirectory
+    this packet's task status/index/results documentation
+
+It does not change or link RBDoom3BFG, a renderer class, a production shader,
+the old DI/GI include graph, or a material implementation. It allocates no
+screen-sized or persistent game resource.
+
+Algorithm authority
+-------------------
+
+The shader mechanically implements the UPT-02 owned reference steps:
+
+1. Accept an explicit INVALID / VALID_ZERO / VALID_POSITIVE CandidateStatus.
+2. Validate generation, event identity, replay identity, classification,
+   coordinates, topology, finite contribution, target, proposal/path PDFs,
+   Jacobian, and accumulated roulette probability before mutation.
+3. INVALID changes no state.
+4. VALID_ZERO increments M, adds zero weight, and cannot select.
+5. VALID_POSITIVE computes target / proposalPdf, atomically rejects non-finite
+   overflow, increments M, adds weight, and performs weighted selection from an
+   explicitly supplied winner random.
+6. Finalize once: no selected sample writes 16 zero words; otherwise encode the
+   exact frozen UPT-02 header, identity/replay, contribution, and estimator/path
+   state.
+
+The input corpus uses exactly representable arithmetic where byte equality
+depends on a GPU operation. This avoids weakening the gate to an epsilon
+comparison while still exercising positive selection, non-selection,
+VALID_ZERO normalization, invalid rejection, event-specific coordinate packing,
+and a path-length-3 indirect sample.
+
+Module and composition boundaries
+---------------------------------
+
+    upt03_reservoir_contract.slang
+        Owns only candidate validation, reservoir update, and 64-byte packing.
+        It declares no resource, material, random generator, ray, or renderer
+        dependency.
+
+    upt03_test_random_provider.slang
+        Supplies the deterministic winner value already present in each test
+        candidate. A later white/hash provider can replace it without editing
+        the reservoir module or output ABI.
+
+    upt03_codec_test.slang
+        Composition root. It owns the candidate SRV and reservoir UAV, imports
+        the two modules above, streams four bounded candidates, and stores one
+        result.
+
+The deterministic candidate buffer is the transport-neutral material/proposal
+boundary for this task. A different producer may fill Upt03Candidate without
+changing reservoir source or output bytes. No concrete material formula or
+closure layout crosses into the reservoir module.
+
+GPU work ledger
+---------------
+
+The whole test allocation is bounded, independent of display resolution:
+
+    resource                         count x stride        bytes   justification
+    deterministic candidate SRV         32 x 96           3,072   CPU oracle input
+    packed reservoir UAV                 8 x 64             512   bytes under test
+    CPU-readback buffer                   8 x 64             512   exact comparison
+
+Descriptor set 0 contains exactly:
+
+    binding 0  StructuredBuffer<Upt03Candidate>, read-only
+    binding 1  RWStructuredBuffer<Upt03PackedReservoir>
+
+Per validation trial:
+
+    dispatch groups        1 x 1 x 1
+    threads per group      64 x 1 x 1
+    active outputs         8; remaining lanes return before resource access
+    candidates per output  4, compile-time bounded
+    rays                   0
+    textures/samplers      0
+    indirect dispatches    0
+    atomics                0
+
+The harness performs one upload before measurement, then two identical
+one-dispatch/readback trials solely to prove determinism. NVRHI owns the normal
+Common-to-SRV/UAV and UAV-to-copy transitions. There is no application-visible
+barrier, queue, history page, TLAS, or renderer command list.
+
+SPIR-V/reflection gate
+---------------------
+
+Build output:
+
+    module                         upt03_codec_test.slang.spv
+    entry point                    main, compute
+    SPIR-V bytes                   19,000
+    disassembly bytes              50,840
+    disassembly Op lines           1,168
+    OpFunction count               1 after optimization/inlining
+    reflected candidate stride     96 bytes
+    reflected reservoir stride     64 bytes
+    reflected workgroup            64 x 1 x 1
+    reflected descriptor bindings  2
+    ray instructions/capabilities  0
+
+The CMake verifier fails the build if either stride or the workgroup changes,
+if the descriptor count/bindings change, or if ray instructions/capabilities
+appear. Slang's depfile plus explicit module dependencies rebuild the SPIR-V
+when the contract or test provider changes. Only Vulkan SPIR-V is declared; no
+DXIL/DX12 target is present.
+
+CPU/GPU corpus
+--------------
+
+Eight outputs cover:
+
+    valid-zero, positive analytic, valid-zero, explicit invalid
+    four valid-zero trials finalizing to canonical empty
+    zero proposal PDF and NaN contribution finalizing empty
+    weighted selection of an emissive candidate and retention over a later
+        low-weight candidate
+    path-length-3, reconnection-length-2 indirect sample with replay metadata,
+        path PDF 0.0125, and accumulated RR probability 0.125
+    environment sample using signed octahedral coordinates
+    stale generation finalizing empty
+    valid-zero followed by valid-positive, preserving M = 2
+
+For each output, the harness feeds the same input through the UPT-02 C++ update
+and pack functions, then compares all 16 uint32 GPU words by memcmp. It repeats
+the GPU trial and compares the full 512-byte result again. Finally it checks the
+hard-coded FNV-1a-64 corpus hash so an accidental simultaneous oracle/kernel
+change cannot silently redefine the frozen test.
+
+Build and observed result
+-------------------------
+
+Configure the opt-in target once:
+
+    cd neo
+    cmake --preset win64-pt-dev -DPATH_TRACING_ENABLE_SLANG_UPT03=ON
+
+Build and run only the Vulkan proof target:
+
+    cmake --build --preset win64-pt-dev-release \
+        --target RunPathTraceSlangUpt03Harness
+
+Observed on NVIDIA GeForce RTX 4090:
+
+    UPT-03 CPU/GPU byte comparison passed
+    candidate_stride=96 reservoir_stride=64 candidates=32 outputs=8
+    dispatches_per_trial=1 validation_trials=2 rays=0
+    hash=0x72ee283cfb295d70
+
+Acceptance and handoff
+----------------------
+
+UPT-03 passes:
+
+    GPU bytes equal the CPU codec/update oracle
+    fixed inputs produce a fixed output hash
+    C++ static assertions and SPIR-V reflection agree on both strides
+    no screen-sized runtime resource exists
+    no ray work exists
+    candidate/material producer and winner-random provider remain outside the
+        reservoir module and can be substituted without changing its ABI
+
+No in-game testing is required. UPT-04 is the first isolated renderer task and
+must begin with its own resource/dispatch/ray ledger. It may consume this codec
+but may not expand this deterministic test entry point into a production
+megakernel.

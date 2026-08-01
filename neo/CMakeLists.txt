@@ -1702,5 +1702,6 @@ add_subdirectory(shaders)
 # dependency of Shaders, PathTracingShaders, or RBDoom3BFG and therefore cannot
 # add Slang work or comparison artifacts to normal builds.
 add_subdirectory(shaders/slang_upt00)
+add_subdirectory(shaders/slang_upt03)
 add_dependencies(Shaders ShaderMake)
 add_dependencies(${APP_NAME} Shaders ${MASKED_OCCLUSION_LIBRARY} ${ISPC_TEXCOMP_LIBRARY})
