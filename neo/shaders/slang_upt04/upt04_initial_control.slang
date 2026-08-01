@@ -1,4 +1,5 @@
 public static const uint kUpt04FamilyLocalLight = 0x00000001u;
+public static const uint kUpt04FamilyIndirect = 0x00000002u;
 public static const uint kUpt04RouteStaticBuckets = 0x00000002u;
 public static const uint kUpt04EnvironmentAvailable = 0x00000004u;
 public static const uint kUpt04TextureProbeDisabled = 0u;

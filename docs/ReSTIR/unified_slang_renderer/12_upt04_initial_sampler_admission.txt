@@ -463,7 +463,7 @@ Measured compile artifacts:
 These are ownership/closure probes, not the admitted initial sampler and not
 runtime shaders.
 
-The next backend-closure checkpoint is now also implemented, but remains
+The complete D0 shader closure is now implemented, but remains
 compile/offline-only:
 
     contracts.primary_surface_live
@@ -486,15 +486,28 @@ compile/offline-only:
         and one visibility ray and cannot combine direct visibility with an
         indirect continuation for the same initial family draw
 
+    material.set_live_probe
+        a replaceable baseline MaterialSet owns primary continuation sampling,
+        exact emissive texture evaluation, and secondary-hit direct evaluation;
+        its temporary diffuse policy does not enter proposal, transport, or
+        reservoir modules
+
+    pass.initial_direct / pass.initial_indirect
+        separate source modules joined only by a thin family-selection and
+        reservoir composition root; no optional renderer feature is present
+
     composition.initial_rayquery
-        compute 8 x 8, exactly one OpRayQueryInitializeKHR in its closure
+        compute 8 x 8, exactly two statically bounded RayQuery trace sites
 
     composition.initial_raygen
-        ray generation plus minimal miss/closest-hit modules, exactly one
-        OpTraceRayKHR in the ray-generation closure
+        ray generation plus minimal miss/closest-hit modules, exactly two
+        statically bounded OpTraceRayKHR sites
 
-Both entry points call the same preparation/material/proposal/finish modules.
-Only their trace adapter differs. Reflection proves identical descriptor ABI:
+The first site is either direct visibility or indirect continuation. The second
+site is reachable only after an indirect opaque hit admits local-light NEE.
+Direct and indirect are never both executed for one receiver. Both entry points
+call the same preparation/material/proposal/finish modules; only their trace
+adapter differs. Reflection proves identical descriptor ABI:
 
     set 0 binding 0   TLAS
     set 0 binding 1   current primary surfaces, stride 176
@@ -502,6 +515,9 @@ Only their trace adapter differs. Reflection proves identical descriptor ABI:
     set 0 binding 3   selected MaterialSet table, stride 112
     set 0 binding 4   page-0 reservoirs, stride 64
     set 0 binding 5   shared material sampler
+    set 0 binding 6   emissive replay records, stride 144
+    set 0 bindings 7..21
+                      existing static/dynamic/rigid/skinned geometry closure
     set 1 binding 0   existing unbounded material texture table
     push constants    32 scalar words / 128 bytes
 
@@ -517,19 +533,40 @@ reservoir selection, future roulette, material sampling, direct families,
 replay, temporal, and spatial slots cannot shift when another feature is off.
 The UPT-04 CPU harness compile-time-checks pair uniqueness.
 
+The direct branch now uses exact emissive geometry and material-owned emission
+sampling. The indirect branch samples one primary continuation, decodes the
+compact hit facts through the shared O(1) geometry adapter, terminates on
+endpoint emission, or samples one local-light NEE connection at an opaque hit.
+A miss while the environment provider is unavailable and defined zero BSDF,
+emission, or light outcomes remain VALID_ZERO. They do not issue visibility
+rays. Structural decode/identity/PDF failures remain INVALID and never enter M.
+
+The selected family probability is included once in proposalPdf. Indirect NEE
+also includes the continuation, light-selection, and light-surface PDFs. The
+work contract already carries path length, reconnection length, replay key,
+path PDF, partial Jacobian, and accumulated roulette probability. The current
+one-continuation specialization writes the same 64-byte reservoir that the
+three-bounce/RR codec tests use; adding depths changes pathVertex and transport
+policy, not this ABI.
+
 Current backend artifacts:
 
-    upt04_initial_rayquery          47,488 bytes; 1,751 instructions
-    upt04_initial_raygen            47,444 bytes; 1,737 instructions
+    upt04_initial_rayquery         268,276 bytes; 10,675 instructions
+    upt04_initial_raygen           267,884 bytes; 10,646 instructions
     upt04_initial_miss                 592 bytes;    15 instructions
     upt04_initial_closest_hit        1,468 bytes;    51 instructions
 
-The direct backend closure still intentionally fails emissive selection to
-canonical empty until the independently compiled geometry/replay adapter is
-composed into it. It never substitutes the manager record's center. Defined
-zero analytic/material contributions are now VALID_ZERO and emit no visibility
-ray; only structurally invalid samples are INVALID. This prevents invalid
-samples entering M while also preventing pointless zero-target ray work.
+Static family closures prove that the compiler actually removes the other
+family rather than retaining a runtime-disabled branch:
+
+    direct-only RayQuery           166,252 bytes;  6,445 instructions; 1 ray site
+    direct-only raygen             166,176 bytes;  6,431 instructions; 1 ray site
+    indirect-only RayQuery         216,456 bytes;  8,469 instructions; 2 ray sites
+    indirect-only raygen           216,088 bytes;  8,440 instructions; 2 ray sites
+
+All four retain the same live 23-descriptor ABI so host A/B changes pipeline
+selection only, not resource ownership. Their verifier also requires each
+static artifact to be smaller than its unified backend counterpart.
 
 The geometry/replay closure now compiles as one trace-free 8 x 8 probe. It
 resolves static buckets, monolithic static/dynamic, rigid, and skinned hits by
@@ -546,16 +583,22 @@ Reflection locks set 0 bindings 1..21 plus the shared set 1 texture table,
 rejects OpTraceRayKHR and every OpRayQuery instruction in this decoder-only
 probe.
 
-The composition still does not implement the indirect continuation family,
-secondary-hit material evaluation, environment, debug counters, live resource
-allocation, NVRHI pipelines, or dispatch. Therefore it must not be deployed or
-benchmarked as UPT-04 yet.
+The roughly 268 KB unified artifacts are now an explicit admission risk because
+the old renderer's very large pipeline builds are already suspect. They contain
+only the bounded D0 estimator—not PSR, liquids, particles, ReGIR, NEE cache,
+denoising, temporal, spatial, or resolve—but size alone is not runtime proof.
+Before production admission, compare selected-backend pipeline creation time
+and GPU duration against static direct-only/indirect-only closures and the
+reference capture. Do not hide the size by merging later features into this
+entry point.
 
-Next compose exact emissive replay into both initial backends, then add the
-one-continuation indirect branch and secondary-hit MaterialSet evaluation
-through the same bounded transport state. Only after those close should the
-host allocate page 0 and create one selected backend pipeline for an in-game
-A/B.
+The composition still does not implement the environment provider, debug
+counters, live resource allocation, NVRHI pipelines, or dispatch. Therefore it
+must not be deployed or benchmarked as UPT-04 yet. Next allocate page 0, build
+one selected backend pipeline only, bind the reflected 23-descriptor layout,
+and add the first in-game direct-only/indirect-only/unified A/B. Runtime work
+must stop if pipeline build time or the unified closure duration makes the
+static split necessary.
 
 Verification of this portion
 ----------------------------
@@ -580,10 +623,11 @@ two reflected UPT compositions rather than inferred from the C++ build.
 
 The backend-closure build passed Slang restrictive capability checks,
 spirv-val for Vulkan 1.2, SPIR-V reflection, and disassembly verification for
-both backends. Reflection confirms identical seven-descriptor layouts, the
-128-byte push block, 176/112/112/64 structured strides, and the shared set-1
-unbounded texture binding. Disassembly confirms the 32-byte hit-facts shape and
-one backend-specific ray instruction. The updated C++ schedule/random-ledger
+both backends. Reflection confirms identical 23-descriptor layouts, the
+128-byte push block, live 4/36/64/80/112/144/176-byte structured strides, and
+the shared set-1 unbounded texture binding. Disassembly confirms the 32-byte
+hit-facts shape, exactly two bounded ray sites, and no cross-contamination
+between RayQuery and TraceRay adapters. The updated C++ schedule/random-ledger
 harness also passes. No game executable or SPIR-V was deployed because no live
 UPT pipeline consumes these modules yet.
 

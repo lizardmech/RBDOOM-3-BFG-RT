@@ -45,6 +45,18 @@ set(UPT04_BACKEND_MODULES
     "${UPT04_RANDOM_SLOT_LEDGER}"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang")
 
+set(UPT04_UNIFIED_BACKEND_MODULES
+    ${UPT04_BACKEND_MODULES}
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_work_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_random.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_local_light_evaluation.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_bindings.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_decode.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_replay.slang")
+
 set(UPT04_ALL_OUTPUTS)
 foreach(material_set baseline deterministic)
     path_tracing_declare_slang_spirv_module(
@@ -91,7 +103,7 @@ path_tracing_declare_slang_spirv_module(
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_LIST_DIR}/.."
         "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
-    DEPENDS ${UPT04_BACKEND_MODULES}
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
     OUT_VAR rayquery_outputs
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS ${rayquery_outputs})
@@ -117,7 +129,7 @@ foreach(ray_stage raygen miss closest_hit)
             "${CMAKE_CURRENT_SOURCE_DIR}"
             "${CMAKE_CURRENT_LIST_DIR}/.."
             "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
-        DEPENDS ${UPT04_BACKEND_MODULES}
+        DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
         OUT_VAR ray_stage_outputs
         RAY_TRACING)
     list(APPEND UPT04_BACKEND_OUTPUTS ${ray_stage_outputs})
@@ -146,11 +158,20 @@ set_target_properties(PathTraceSlangUpt04BackendClosure PROPERTIES FOLDER "Shade
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04BackendClosure)
 
 set(UPT04_GEOMETRY_MODULES
-    ${UPT04_BACKEND_MODULES}
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_bindings.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_control.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_primary_surface_live_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_hit_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_live_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_set_live_probe.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_path_event_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_bindings.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_decode.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_replay.slang"
+    "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_probe.slang")
 path_tracing_declare_slang_spirv_module(
     NAME upt04_geometry_probe
@@ -182,3 +203,68 @@ add_custom_target(PathTraceSlangUpt04GeometryClosure
     DEPENDS ${geometry_outputs} "${UPT04_GEOMETRY_VERIFY_STAMP}")
 set_target_properties(PathTraceSlangUpt04GeometryClosure PROPERTIES FOLDER "Shaders/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04GeometryClosure)
+
+set(UPT04_STATIC_SPECIALIZATION_OUTPUTS)
+foreach(family direct indirect)
+    path_tracing_declare_slang_spirv_module(
+        NAME "upt04_initial_${family}_only_rayquery"
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_rayquery.slang"
+        ENTRY main
+        STAGE compute
+        OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+        INCLUDE_DIRS
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_LIST_DIR}/.."
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+            "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_rayquery.slang"
+        OUT_VAR static_rayquery_outputs
+        RAY_QUERY)
+    list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS ${static_rayquery_outputs})
+
+    path_tracing_declare_slang_spirv_module(
+        NAME "upt04_initial_${family}_only_raygen"
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_raygen.slang"
+        ENTRY main
+        STAGE raygeneration
+        OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+        INCLUDE_DIRS
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_LIST_DIR}/.."
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+            "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_raygen.slang"
+        OUT_VAR static_raygen_outputs
+        RAY_TRACING)
+    list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS ${static_raygen_outputs})
+endforeach()
+
+set(UPT04_STATIC_VERIFY_STAMP "${UPT04_OUTPUT_DIR}/upt04_static_specializations_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT04_STATIC_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT04_DIRECT_RQ_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_direct_only_rayquery.slang.spirv-reflection.json
+        -DUPT04_DIRECT_RQ_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_direct_only_rayquery.slang.spvasm
+        -DUPT04_DIRECT_RQ_SPV=${UPT04_OUTPUT_DIR}/upt04_initial_direct_only_rayquery.slang.spv
+        -DUPT04_DIRECT_RG_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_direct_only_raygen.slang.spirv-reflection.json
+        -DUPT04_DIRECT_RG_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_direct_only_raygen.slang.spvasm
+        -DUPT04_DIRECT_RG_SPV=${UPT04_OUTPUT_DIR}/upt04_initial_direct_only_raygen.slang.spv
+        -DUPT04_INDIRECT_RQ_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_indirect_only_rayquery.slang.spirv-reflection.json
+        -DUPT04_INDIRECT_RQ_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_indirect_only_rayquery.slang.spvasm
+        -DUPT04_INDIRECT_RQ_SPV=${UPT04_OUTPUT_DIR}/upt04_initial_indirect_only_rayquery.slang.spv
+        -DUPT04_INDIRECT_RG_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_indirect_only_raygen.slang.spirv-reflection.json
+        -DUPT04_INDIRECT_RG_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_indirect_only_raygen.slang.spvasm
+        -DUPT04_INDIRECT_RG_SPV=${UPT04_OUTPUT_DIR}/upt04_initial_indirect_only_raygen.slang.spv
+        -DUPT04_UNIFIED_RQ_SPV=${UPT04_OUTPUT_DIR}/upt04_initial_rayquery.slang.spv
+        -DUPT04_UNIFIED_RG_SPV=${UPT04_OUTPUT_DIR}/upt04_initial_raygen.slang.spv
+        -DUPT04_STAMP=${UPT04_STATIC_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04StaticSpecializations.cmake"
+    DEPENDS ${UPT04_STATIC_SPECIALIZATION_OUTPUTS} ${UPT04_BACKEND_OUTPUTS}
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04StaticSpecializations.cmake"
+    COMMENT "UPT-04 verifying static direct/indirect family closures"
+    VERBATIM)
+
+add_custom_target(PathTraceSlangUpt04StaticSpecializations
+    DEPENDS ${UPT04_STATIC_SPECIALIZATION_OUTPUTS} "${UPT04_STATIC_VERIFY_STAMP}")
+set_target_properties(PathTraceSlangUpt04StaticSpecializations PROPERTIES FOLDER "Shaders/UPT-04")
+add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04StaticSpecializations)

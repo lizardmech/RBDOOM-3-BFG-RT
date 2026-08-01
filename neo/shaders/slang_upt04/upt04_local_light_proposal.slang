@@ -1,5 +1,23 @@
 import upt04_light_contract;
 
+public bool Upt04LocalLightRangesStructurallyValid(
+    Upt04LocalLightRanges ranges,
+    uint currentLightCount)
+{
+    const uint totalCount = ranges.emissiveCount + ranges.analyticCount;
+    return totalCount >= ranges.emissiveCount
+        && ranges.emissiveStart <= currentLightCount
+        && ranges.emissiveCount <= currentLightCount - ranges.emissiveStart
+        && ranges.analyticStart <= currentLightCount
+        && ranges.analyticCount <= currentLightCount - ranges.analyticStart;
+}
+
+public uint Upt04LocalLightRangeCount(Upt04LocalLightRanges ranges)
+{
+    const uint totalCount = ranges.emissiveCount + ranges.analyticCount;
+    return totalCount >= ranges.emissiveCount ? totalCount : 0u;
+}
+
 public Upt04LocalLightSelection Upt04SelectUniformLocalLight(
     Upt04LocalLightRanges ranges,
     float identityRandom,

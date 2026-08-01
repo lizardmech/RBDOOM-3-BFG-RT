@@ -86,5 +86,6 @@ public Upt04EmissiveGeometrySample Upt04ReplayEmissiveTriangleGeometry(
     sample.distance = distance;
     sample.solidAnglePdf = solidAnglePdf;
     sample.texCoord = surface.texCoord;
+    sample.barycentrics = replayHit.barycentrics;
     return sample;
 }

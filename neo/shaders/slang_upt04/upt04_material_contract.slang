@@ -10,3 +10,12 @@ public struct Upt04MaterialEvaluation
     public uint lobeMask;
     public uint valid;
 };
+
+// Material-owned endpoint emission. Geometry/ReSTIR code sees only the
+// evaluated radiance and validity; texture indices and Doom material policy
+// remain inside the selected MaterialSet.
+public struct Upt04MaterialEmissionEvaluation
+{
+    public float3 radiance;
+    public uint valid;
+};

@@ -138,4 +138,5 @@ public struct Upt04EmissiveGeometrySample
     public float distance;
     public float solidAnglePdf;
     public float2 texCoord;
+    public float2 barycentrics;
 };
