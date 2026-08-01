@@ -1260,10 +1260,10 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
 
     nvrhi::BindingLayoutDesc neeCachePrimarySurfaceUpdateBindingLayoutDesc;
     neeCachePrimarySurfaceUpdateBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
-    neeCachePrimarySurfaceUpdateBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
-        .setShaderResourceOffset(0)
-        .setConstantBufferOffset(0)
-        .setUnorderedAccessViewOffset(0);
+    // This shader is built through ShaderMake and therefore uses NVRHI's
+    // standard Vulkan register-class offsets (t=0, s=128, b=256, u=384).
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.bindingOffsets =
+        nvrhi::VulkanBindingOffsets();
     neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
     neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
     neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
@@ -1409,10 +1409,10 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
 
     nvrhi::BindingLayoutDesc cleanBoilingFilterBindingLayoutDesc;
     cleanBoilingFilterBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
-    cleanBoilingFilterBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
-        .setShaderResourceOffset(0)
-        .setUnorderedAccessViewOffset(0)
-        .setConstantBufferOffset(0);
+    // This shader is built through ShaderMake and therefore uses NVRHI's
+    // standard Vulkan register-class offsets (t=0, s=128, b=256, u=384).
+    cleanBoilingFilterBindingLayoutDesc.bindingOffsets =
+        nvrhi::VulkanBindingOffsets();
     cleanBoilingFilterBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
     cleanBoilingFilterBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(1));
     cleanBoilingFilterBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(2));

@@ -1,7 +1,7 @@
 #ifndef RB_PATH_TRACE_CLEAN_RTXDI_DI_REFLECTION_SIDECAR_HLSLI
 #define RB_PATH_TRACE_CLEAN_RTXDI_DI_REFLECTION_SIDECAR_HLSLI
 
-// Reflection sidecar (u90/t90) shared by:
+// Reflection sidecar (u96 producer / t90 consumer) shared by:
 //   - Dense hybrid mirror radiance (rgb = radiance * Fresnel)
 //   - Reflection PSR lane metadata (rgb = selected lobe throughput)
 //

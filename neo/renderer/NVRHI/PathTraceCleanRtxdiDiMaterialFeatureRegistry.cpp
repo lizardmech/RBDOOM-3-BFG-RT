@@ -88,7 +88,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
             "glass-like material writes thin-glass attenuation rgb plus contribution weight to transmission output and optional reflected radiance/cosmetic distortion to sidecars",
             "opaque material writes neutral zero-weight transmission payload and dark debug sentinel",
             "clean RTXDI DI primary view 16 unchanged unless transmission debug view is enabled",
-            "RtPathTraceMaterialFeatureOutputDesc transmission u87, reflection sidecar u90, cosmetic distortion sidecar u91, rr-guide-specular-albedo u53 plus optional debug output-color-source t89, output-color u1, rr-input-color u54",
+            "RtPathTraceMaterialFeatureOutputDesc transmission u95, reflection sidecar u96, cosmetic distortion sidecar u91, rr-guide-specular-albedo u53 plus optional debug output-color-source t89, output-color u1, rr-input-color u54",
             "PathTraceMaterialFeatureRuntimeInfo plus PathTraceMaterialFeatureParameters t81 with b88 defaults/controls"
         },
         RtPathTraceMaterialFeaturePassKind::TransmissionProducer,

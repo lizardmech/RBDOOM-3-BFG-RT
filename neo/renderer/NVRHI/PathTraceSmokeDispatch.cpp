@@ -3047,7 +3047,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
         auto cleanOptionalSrv = [&](const nvrhi::BufferHandle& buffer) -> nvrhi::BufferHandle {
-            return buffer ? buffer : m_smokeReGIRState.placeholderSrvBuffer;
+            return buffer
+                ? buffer
+                : (m_smokeNeeCacheState.placeholderSrvBuffer
+                    ? m_smokeNeeCacheState.placeholderSrvBuffer
+                    : m_smokeReGIRState.placeholderSrvBuffer);
         };
         const nvrhi::BufferHandle cleanNeeCacheProviderSrv = m_smokeNeeCacheState.providerResultBuffer
             ? m_smokeNeeCacheState.providerResultBuffer

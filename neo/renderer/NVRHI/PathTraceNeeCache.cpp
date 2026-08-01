@@ -59,6 +59,24 @@ nvrhi::BufferHandle CreateNeeCacheUavBuffer(nvrhi::IDevice* device, const char* 
     return device->createBuffer(desc);
 }
 
+nvrhi::BufferHandle CreateNeeCachePlaceholderSrvBuffer(nvrhi::IDevice* device)
+{
+    if (!device)
+    {
+        return nullptr;
+    }
+
+    nvrhi::BufferDesc desc;
+    desc.debugName = "PathTraceNeeCachePlaceholderSRV";
+    desc.byteSize = 256;
+    desc.structStride = sizeof(uint32_t);
+    desc.canHaveUAVs = false;
+    desc.canHaveTypedViews = false;
+    desc.initialState = nvrhi::ResourceStates::ShaderResource;
+    desc.keepInitialState = true;
+    return device->createBuffer(desc);
+}
+
 }
 
 PathTraceNeeCacheSettings BuildPathTraceNeeCacheSettingsFromCVars()
@@ -194,7 +212,13 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
         cellBuffer = nullptr;
         taskBuffer = nullptr;
         candidateBuffer = nullptr;
-        placeholderSrvBuffer = nullptr;
+        // Clean DI/GI shader libraries retain statically reachable NEE-cache
+        // descriptor loads even when the provider is disabled. Keep one
+        // bounded SRV alive so those descriptors are always valid.
+        if (!PlaceholderBufferMatches(placeholderSrvBuffer))
+        {
+            placeholderSrvBuffer = CreateNeeCachePlaceholderSrvBuffer(device);
+        }
         observedRluStructuralSignature = 0u;
         observedRluMappingSignature = 0u;
         observedRluPayloadSignature = 0u;
@@ -212,7 +236,7 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
         cleanProviderLastViewValid = false;
         secondaryVisualSnapshotHoldActive = false;
         secondaryVisualBandActiveLastFrame = false;
-        return true;
+        return !device || placeholderSrvBuffer != nullptr;
     }
 
     const bool buffersMatch =
@@ -259,15 +283,7 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
     }
     if (!PlaceholderBufferMatches(placeholderSrvBuffer))
     {
-        nvrhi::BufferDesc placeholderDesc;
-        placeholderDesc.debugName = "PathTraceNeeCachePlaceholderSRV";
-        placeholderDesc.byteSize = 256;
-        placeholderDesc.structStride = sizeof(uint32_t);
-        placeholderDesc.canHaveUAVs = false;
-        placeholderDesc.canHaveTypedViews = false;
-        placeholderDesc.initialState = nvrhi::ResourceStates::ShaderResource;
-        placeholderDesc.keepInitialState = true;
-        placeholderSrvBuffer = device->createBuffer(placeholderDesc);
+        placeholderSrvBuffer = CreateNeeCachePlaceholderSrvBuffer(device);
         allocated = true;
     }
 

@@ -18,13 +18,13 @@ static const RtPathTraceMaterialFeatureOutputDesc kMaterialFeatureOutputs[] = {
     },
     {
         RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_OUTPUT,
-        87u,
+        95u,
         "transmission-output",
         &RtPathTraceFrameResources::transmissionTexture
     },
     {
         RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_OUTPUT,
-        90u,
+        96u,
         "reflection-output",
         &RtPathTraceFrameResources::reflectionSidecarTexture
     },

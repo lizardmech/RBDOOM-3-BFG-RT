@@ -131,7 +131,9 @@ protected:
 		if( m_VulkanDevice )
 		{
 			destroySwapChain();
+			destroySwapChainSemaphores();
 			createSwapChain();
+			createSwapChainSemaphores();
 		}
 	}
 
@@ -213,6 +215,8 @@ private:
 	bool createDevice();
 	bool createSwapChain();
 	void destroySwapChain();
+	void createSwapChainSemaphores();
+	void destroySwapChainSemaphores();
 
 	struct VulkanExtensionSet
 	{
@@ -328,7 +332,9 @@ private:
 	nvrhi::DeviceHandle m_ValidationLayer;
 
 	//nvrhi::CommandListHandle m_BarrierCommandList;		// SRS - no longer needed
-	std::queue<vk::Semaphore> m_PresentSemaphoreQueue;
+	std::queue<vk::Semaphore> m_AcquireSemaphoreQueue;
+	vk::Semaphore m_AcquireSemaphore;
+	std::vector<vk::Semaphore> m_PresentSemaphores;
 	vk::Semaphore m_PresentSemaphore;
 
 	nvrhi::EventQueryHandle m_FrameWaitQuery;
@@ -1279,6 +1285,44 @@ bool DeviceManager_VK::createSwapChain()
 	return true;
 }
 
+void DeviceManager_VK::createSwapChainSemaphores()
+{
+	assert( m_AcquireSemaphoreQueue.empty() );
+	assert( m_PresentSemaphores.empty() );
+
+	// Acquire semaphores belong to CPU frames in flight and are consumed by
+	// graphics-queue waits. Present semaphores instead belong to swapchain
+	// images: an image being acquired again proves that presentation has
+	// finished waiting on that image's semaphore.
+	for( size_t i = 0; i < m_SwapChainImages.size(); ++i )
+	{
+		m_AcquireSemaphoreQueue.push( m_VulkanDevice.createSemaphore( vk::SemaphoreCreateInfo() ) );
+		m_PresentSemaphores.push_back( m_VulkanDevice.createSemaphore( vk::SemaphoreCreateInfo() ) );
+	}
+
+	assert( !m_AcquireSemaphoreQueue.empty() );
+	m_AcquireSemaphore = m_AcquireSemaphoreQueue.front();
+	m_PresentSemaphore = vk::Semaphore();
+}
+
+void DeviceManager_VK::destroySwapChainSemaphores()
+{
+	while( !m_AcquireSemaphoreQueue.empty() )
+	{
+		m_VulkanDevice.destroySemaphore( m_AcquireSemaphoreQueue.front() );
+		m_AcquireSemaphoreQueue.pop();
+	}
+
+	for( vk::Semaphore semaphore : m_PresentSemaphores )
+	{
+		m_VulkanDevice.destroySemaphore( semaphore );
+	}
+	m_PresentSemaphores.clear();
+
+	m_AcquireSemaphore = vk::Semaphore();
+	m_PresentSemaphore = vk::Semaphore();
+}
+
 bool DeviceManager_VK::CreateDeviceAndSwapChain()
 {
 	// RB: control these through the cmdline
@@ -1422,13 +1466,7 @@ bool DeviceManager_VK::CreateDeviceAndSwapChain()
 	CHECK( createSwapChain() );
 
 	//m_BarrierCommandList = m_NvrhiDevice->createCommandList();		// SRS - no longer needed
-
-	// SRS - Give each swapchain image its own semaphore in case of overlap (e.g. MoltenVK async queue submit)
-	for( int i = 0; i < m_SwapChainImages.size(); i++ )
-	{
-		m_PresentSemaphoreQueue.push( m_VulkanDevice.createSemaphore( vk::SemaphoreCreateInfo() ) );
-	}
-	m_PresentSemaphore = m_PresentSemaphoreQueue.front();
+	createSwapChainSemaphores();
 
 	m_FrameWaitQuery = m_NvrhiDevice->createEventQuery();
 	m_NvrhiDevice->setEventQuery( m_FrameWaitQuery, nvrhi::CommandQueue::Graphics );
@@ -1454,13 +1492,7 @@ void DeviceManager_VK::DestroyDeviceAndSwapChain()
 	}
 
 	m_FrameWaitQuery = nullptr;
-
-	for( int i = 0; i < m_SwapChainImages.size(); i++ )
-	{
-		m_VulkanDevice.destroySemaphore( m_PresentSemaphoreQueue.front() );
-		m_PresentSemaphoreQueue.pop();
-	}
-	m_PresentSemaphore = vk::Semaphore();
+	destroySwapChainSemaphores();
 
 	//m_BarrierCommandList = nullptr;		// SRS - no longer needed
 
@@ -1527,13 +1559,15 @@ void DeviceManager_VK::BeginFrame()
 
 	const vk::Result res = m_VulkanDevice.acquireNextImageKHR( m_SwapChain,
 						   std::numeric_limits<uint64_t>::max(), // timeout
-						   m_PresentSemaphore,
+						   m_AcquireSemaphore,
 						   vk::Fence(),
 						   &m_SwapChainIndex );
 
 	assert( res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR );
+	assert( m_SwapChainIndex < m_PresentSemaphores.size() );
+	m_PresentSemaphore = m_PresentSemaphores[m_SwapChainIndex];
 
-	m_NvrhiDevice->queueWaitForSemaphore( nvrhi::CommandQueue::Graphics, m_PresentSemaphore, 0 );
+	m_NvrhiDevice->queueWaitForSemaphore( nvrhi::CommandQueue::Graphics, m_AcquireSemaphore, 0 );
 }
 
 void DeviceManager_VK::EndFrame()
@@ -1587,10 +1621,12 @@ void DeviceManager_VK::Present()
 	const vk::Result res = m_PresentQueue.presentKHR( &info );
 	assert( res == vk::Result::eSuccess || res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR );
 
-	// SRS - Cycle the semaphore queue and setup m_PresentSemaphore for the next swapchain image
-	m_PresentSemaphoreQueue.pop();
-	m_PresentSemaphoreQueue.push( m_PresentSemaphore );
-	m_PresentSemaphore = m_PresentSemaphoreQueue.front();
+	// The graphics queue consumed this frame's acquire semaphore. Cycle only
+	// that pool; the presentation semaphore remains indexed by the acquired
+	// swapchain image and is selected in BeginFrame().
+	m_AcquireSemaphoreQueue.pop();
+	m_AcquireSemaphoreQueue.push( m_AcquireSemaphore );
+	m_AcquireSemaphore = m_AcquireSemaphoreQueue.front();
 
 	// SRS - The following event queries provide explicit CPU/GPU synchronization (supports validation layer if enabled)
 	if constexpr( NUM_FRAME_DATA > 2 )

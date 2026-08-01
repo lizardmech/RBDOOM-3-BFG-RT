@@ -6,8 +6,8 @@
 // RR owns guide policy. The mirror record is ephemeral feature-pass output, not
 // a reflection ReSTIR history or permission to replay primary DI reservoirs.
 
-VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiTransmissionOutput : register(u87);
-VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceCleanRtxdiDiReflectionSidecarOutput : register(u90);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiTransmissionOutput : register(u95);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceCleanRtxdiDiReflectionSidecarOutput : register(u96);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceCleanRtxdiDiGlassDistortionSidecarOutput : register(u91);
 
 static const float RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_MAX_PIXELS = 12.0;

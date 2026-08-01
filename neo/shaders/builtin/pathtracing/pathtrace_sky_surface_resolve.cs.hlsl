@@ -3,6 +3,8 @@
 // already-proven renderer-owned cube contract rather than dereferencing a cube
 // from the transmission RT library.
 
+#include "../../vulkan.hlsli"
+
 struct PathTracePrimarySurfaceRecord
 {
     uint4 header;
@@ -28,8 +30,8 @@ cbuffer PathTraceSkySurfaceResolveConstants : register(b0)
 TextureCube<float4> PathTraceSkySurfaceResolveCube : register(t0);
 SamplerState PathTraceSkySurfaceResolveSampler : register(s0);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PathTraceSkySurfaceRecords : register(u0);
-RWTexture2D<float4> PathTraceSkySurfaceSpecularAlbedo : register(u1);
-RWTexture2D<float4> PathTraceSkySurfaceReflectionSidecar : register(u2);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceSkySurfaceSpecularAlbedo : register(u1);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceSkySurfaceReflectionSidecar : register(u2);
 RWTexture2D<float4> PathTraceSkySurfaceGuidePosition : register(u3);
 
 static const uint RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION = 2u;
