@@ -998,9 +998,13 @@ bool DeviceManager_VK::createDevice()
 
 	// SRS - get/set shading rate features which are detected individually by nvrhi (not just at extension level)
 	vk::PhysicalDeviceFeatures2 actualDeviceFeatures2;
+	vk::PhysicalDeviceVulkan12Features actualVulkan12Features;
 	vk::PhysicalDeviceFragmentShadingRateFeaturesKHR fragmentShadingRateFeatures;
-	actualDeviceFeatures2.pNext = &fragmentShadingRateFeatures;
+	actualDeviceFeatures2.pNext = &actualVulkan12Features;
+	actualVulkan12Features.pNext = &fragmentShadingRateFeatures;
 	m_VulkanPhysicalDevice.getFeatures2( &actualDeviceFeatures2 );
+	common->Printf( "Vulkan scalarBlockLayout feature: %s\n",
+		actualVulkan12Features.scalarBlockLayout ? "enabled for device creation" : "unsupported" );
 
 	auto vrsFeatures = vk::PhysicalDeviceFragmentShadingRateFeaturesKHR()
 					   .setPipelineFragmentShadingRate( fragmentShadingRateFeatures.pipelineFragmentShadingRate )
@@ -1049,6 +1053,7 @@ bool DeviceManager_VK::createDevice()
 							.setTimelineSemaphore( true )
 							.setShaderSampledImageArrayNonUniformIndexing( true )
 							.setBufferDeviceAddress( bufferAddressSupported )
+							.setScalarBlockLayout( actualVulkan12Features.scalarBlockLayout )
 #if USE_OPTICK
 							.setHostQueryReset( true )
 #endif

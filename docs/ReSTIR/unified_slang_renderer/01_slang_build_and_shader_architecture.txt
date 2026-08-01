@@ -60,6 +60,12 @@ command. The candidate family to test includes:
 
 Do not silently combine -fvk-use-dx-layout, scalar layout, and manual padding.
 Choose one host/shader layout contract and verify it by reflection and readback.
+The selected UPT contract is Vulkan scalar block layout. The shared Slang/DXC
+build requests it, both standalone GPU harnesses require/enable it, and the game
+queries and enables the Vulkan 1.2 scalarBlockLayout feature on the same device.
+Do not remove the feature from only one consumer: without scalar layout, Slang
+uses std430 alignment for fields such as a float2 following a scalar while DXC's
+HLSL layout remains tighter, breaking byte-identical structured records.
 
 HLSL coexistence
 ----------------
@@ -97,12 +103,16 @@ Every Slang entry point must have a checked manifest containing:
 Slang reflection JSON is evidence, not the sole authority. Compare it with:
 
     C++ offsetof/sizeof static assertions
-    NVRHI binding layout declarations
+    NVRHI's effective Vulkan binding after applying the resource-class offset,
+        with descriptor type/count and descriptor set; the pre-offset HLSL
+        register-class slot alone is not the Vulkan ABI
     SPIR-V decorations
     a GPU write/readback ABI probe
 
-Any disagreement stops the task. Do not repair it by adding unexplained padding
-until the selected layout rule is understood.
+The comparison must reject duplicate effective bindings within one descriptor
+set before Vulkan layout creation. Any disagreement stops the task. Do not
+repair it by adding unexplained padding until the selected layout rule is
+understood.
 
 Compiler A/B gate
 -----------------

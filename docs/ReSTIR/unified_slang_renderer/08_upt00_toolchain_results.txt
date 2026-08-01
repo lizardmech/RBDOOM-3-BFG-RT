@@ -45,6 +45,15 @@ Frozen tools and commands
     validation:
         spirv-val --target-env vulkan1.2
 
+The original UPT-00 run requested scalar block layout in both compilers and
+enabled scalarBlockLayout in its private Vulkan device, while the game device
+did not. Removing the flag was tested rather than assumed: SPIR-V remained
+valid, but Slang expanded Upt00RayOutput from 32 to 40 bytes under std430 while
+DXC retained the 32-byte HLSL layout, and the GPU readbacks diverged. Scalar
+layout is therefore an actual shared ABI requirement, not a decorative flag.
+The game now queries and enables the Vulkan 1.2 scalarBlockLayout feature so its
+device contract matches UPT-00/03 and the compiled production lane.
+
 DXC dependency emission is a separate -MD/-MF command because this installed
 DXC produces dependency output instead of SPIR-V when those flags share the
 compile command. Slang uses its native depfile output.
@@ -95,6 +104,12 @@ The output hashes were identical in every trial:
     structured_math    0xa701ae4fb7f282c9
     reservoir_update   0xbb2f8533c45c6e37
     ray_query           0x90fb222a0e6d0383
+
+The scalar-device-contract correction was followed by a fresh ten-process
+(five per creation order) GPU run on the RTX 4090. All three hashes remained
+identical between Slang, DXC, and their CPU/known-hit oracles. The deliberately
+flag-free reduction failed before this accepted rerun and is not acceptance
+evidence for a standard-layout lane.
 
 Pipeline creation finding
 -------------------------

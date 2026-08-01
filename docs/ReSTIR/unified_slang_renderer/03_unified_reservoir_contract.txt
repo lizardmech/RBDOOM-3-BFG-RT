@@ -70,9 +70,9 @@ Every proposal is classified before reservoir streaming:
         its contribution/target is zero, such as a valid direction with zero
         BSDF support or a visibility result that is legitimately occluded.
 
-        Contract: cannot be selected and contributes zero weight. Whether it
-        increments the estimator's effective sample count is determined by the
-        public estimator derivation/reference contract and recorded explicitly.
+        Contract: cannot be selected, contributes zero weight, and increments
+        logical effective M while candidates are streamed. This keeps a defined
+        zero trial in the denominator when another positive candidate is stored.
         Do not silently treat it as INVALID merely to brighten the image.
 
     VALID_POSITIVE
@@ -107,6 +107,14 @@ An empty reservoir is a single canonical all-zero/known-tag representation:
 
 Empty writes are mandatory for invalid receivers and receivers with no selected
 sample. Do not leave a previous frame's bytes in place.
+
+The current 64-byte codec deliberately finalizes a zero-only stream as canonical
+empty and therefore discards its transient logical M. That is accepted only for
+UPT-04, which has no history consumer. Before UPT-06 admits history, the public
+reuse derivation must either prove that zero-only trial count is irrelevant or
+admit a distinct count-only representation with no selectable identity. Do not
+let temporal/spatial reuse silently interpret canonical empty as evidence that
+no mathematically defined trial occurred.
 
 Initial unified sampling contract
 ---------------------------------

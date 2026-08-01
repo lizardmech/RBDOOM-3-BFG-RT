@@ -6,8 +6,10 @@ Status
 
 Pre-implementation, complete D0 shader closure, host runtime wiring, and the
 first live RayQuery crash investigation are complete. UPT-04 is not accepted
-yet and has no display output; the remaining admission work is estimator modes
-5/6 followed by bounded row and full-frame execution.
+yet and has no display output. Before scale admission resumes, the corrected
+scalar-layout game-device contract, Vulkan validation, live diagnostic readback,
+and the family-specific descriptor-closure issue below must be closed. Estimator
+modes 5/6, bounded row/full-frame execution, and ray-generation parity follow.
 
 The first live attempt with the default direct-only RayQuery route produced
 Windows LiveKernelEvent 141. r_pathTracingUnifiedPtProofStage localized the
@@ -43,6 +45,22 @@ geometry frame numbers continue advancing. UPT is execution-exclusive and has
 no presentation output yet, so it deliberately leaves the last legacy image on
 screen.
 
+A post-crash contract review found a second real device mismatch: the isolated
+Slang/DXC lane requested scalar block layout and its private UPT-00/03 harnesses
+enabled scalarBlockLayout, while the game device did not. Removing the compiler
+flag was tested and rejected: Slang's standard std430 layout expanded the
+UPT-00 ray output from 32 to 40 bytes while DXC retained 32-byte HLSL packing,
+and GPU readbacks diverged. The game now queries and enables the Vulkan 1.2
+scalarBlockLayout feature, matching the proven compiler/harness ABI. No extension
+name is needed when the feature is enabled through Vulkan 1.2 core features.
+
+The same review confirmed that survival-only proof modes are not data-correctness
+proof. Modes 1..6 currently have no GPU readback. The separate fixed counter
+specialization required by UPT-04 remains an acceptance blocker. It would prove
+primary reads/reservoir writes and estimator/ray counts, although mode 2 alone
+could not have diagnosed the TLAS/push binding-0 collision because it never
+traverses the TLAS.
+
 First host-publication portion implemented:
 
     RtPathTraceSceneInputs now publishes manager-owned emissive/analytic ranges,
@@ -71,6 +89,13 @@ Exact estimator step admitted
 The baseline initial sampler performs one draw from one normalized proposal
 mixture per valid primary receiver. It does not generate one unconditional
 candidate for every family.
+
+With M = 1, the target function cancels from the ordinary RIS final estimate.
+UPT-05 can therefore expose path generation, stored contribution/PDF, and
+resolve plumbing, but it cannot validate that the live target function ranks
+samples correctly. Before reuse makes the target load-bearing, admit a separate
+bounded M > 1 diagnostic or deterministic target-function oracle with an
+explicit ray ledger. Do not increase production ray count under this exception.
 
 Enabled top-level families are:
 
@@ -197,7 +222,8 @@ New UPT-owned runtime allocation:
         every in-domain invocation writes selected or canonical empty
         no per-frame clear; clear only at creation/reset before first dispatch
 
-Optional debug specialization only:
+Required UPT-04 diagnostic specialization; optional at runtime and absent from
+production timing/binaries:
 
     one fixed counter buffer and CPU readback
         receiver valid/invalid
@@ -233,7 +259,8 @@ already fixed:
         reservoir page-0 UAV
         optional counter UAV only in a separate debug entry point/layout
 
-    set 1, shared material texture layout
+    set 1, shared material texture layout, only for unified/indirect closures
+        that actually sample a secondary-hit material
         existing bindless texture descriptor table
         existing shared sampler under the published material-texture contract
 
@@ -343,9 +370,15 @@ P5. Environment provider (UPT-01 M6)
 P6. Stable page generation snapshot
 
     Freeze scene/map, TLAS/geometry, material/dynamic/texture, light payload,
-    primary producer, resolution, camera-cut, and ABI tokens before binding.
+    primary producer, resolution, camera-cut, ABI, enabled family, backend,
+    provider availability, and sampleable light-range tokens before binding.
     Any change drops the cached binding set and writes a new page generation.
     UPT-04 has no history consumer, but stale identity must still fail closed.
+
+    Implemented for the currently available providers. enabledFamilyMask,
+    specialization identity, availability flags, and emissive/analytic range
+    starts/counts now participate explicitly. A future environment provider
+    must add its availability/policy generation to this same hash.
 
 P7. Skinned source-index count
 
@@ -458,6 +491,15 @@ runtime debug switch and no environment/blue-noise binding in a specialization
 where that provider is unavailable. Diagnostic counters are a separate debug
 closure, not a production flag branch.
 
+Current exception to remove before timing acceptance: the direct-only closure
+retains set 1 solely through a disabled material binding probe and the host binds
+the 2048-entry table. That contradicts the descriptor ledger because direct-only
+uses the already evaluated primary surface and samples no secondary material.
+The unified/indirect closures legitimately require set 1 for secondary emissive
+and diffuse texture evaluation. Probe modes 9/10 may retain a deliberately full
+host layout for ABI isolation, but that diagnostic layout is not a production
+resource contract.
+
 Stop conditions before shader/host implementation
 -------------------------------------------------
 
@@ -490,10 +532,10 @@ changing the concrete material set requires no reservoir edit. Reflection
 checks 48-byte probe surfaces, 64-byte packed reservoirs, two bindings, and an
 8 x 8 workgroup. Disassembly rejects every ray instruction/capability.
 
-Measured compile artifacts:
+Measured compile artifacts after direct SPIR-V emission:
 
-    upt04_contract_baseline       12,536 bytes; 298 SPIR-V instructions
-    upt04_contract_deterministic  12,172 bytes; 294 SPIR-V instructions
+    upt04_contract_baseline       12,536 bytes;   790 SPIR-V operations
+    upt04_contract_deterministic  12,172 bytes;   770 SPIR-V operations
 
 These are ownership/closure probes, not the admitted initial sampler and not
 runtime shaders.
@@ -586,18 +628,18 @@ policy, not this ABI.
 
 Current backend artifacts:
 
-    upt04_initial_rayquery         268,276 bytes; 10,675 instructions
-    upt04_initial_raygen           267,884 bytes; 10,646 instructions
-    upt04_initial_miss                 592 bytes;    15 instructions
-    upt04_initial_closest_hit        1,468 bytes;    51 instructions
+    upt04_initial_rayquery         268,300 bytes; 15,840 SPIR-V operations
+    upt04_initial_raygen           267,908 bytes; 15,802 SPIR-V operations
+    upt04_initial_miss                 592 bytes;     34 SPIR-V operations
+    upt04_initial_closest_hit        1,468 bytes;     84 SPIR-V operations
 
 Static family closures prove that the compiler actually removes the other
 family rather than retaining a runtime-disabled branch:
 
-    direct-only RayQuery           166,252 bytes;  6,445 instructions; 1 ray site
-    direct-only raygen             166,176 bytes;  6,431 instructions; 1 ray site
-    indirect-only RayQuery         216,456 bytes;  8,469 instructions; 2 ray sites
-    indirect-only raygen           216,088 bytes;  8,440 instructions; 2 ray sites
+    direct-only RayQuery           181,736 bytes; 10,823 operations; 1 ray site
+    direct-only raygen             166,200 bytes;  9,794 operations; 1 ray site
+    indirect-only RayQuery         216,444 bytes; 12,675 operations; 2 ray sites
+    indirect-only raygen           216,076 bytes; 12,641 operations; 2 ray sites
 
 All four retain the same live 23-descriptor ABI so host A/B changes pipeline
 selection only, not resource ownership. Their verifier also requires each
@@ -610,7 +652,7 @@ loads the source triangle, samples sqrt-warped barycentrics, interpolates exact
 UVs, and converts area PDF to solid-angle PDF. It binds no copied geometry and
 performs no route-table scan.
 
-    upt04_geometry_probe           59,900 bytes; 2,001 instructions
+    upt04_geometry_probe           59,924 bytes; 3,446 SPIR-V operations
 
 Reflection locks set 0 bindings 1..21 plus the shared set 1 texture table,
 128-byte push constants, and live strides 4/36/64/80/112/144/176. The two
@@ -627,11 +669,12 @@ and GPU duration against static direct-only/indirect-only closures and the
 reference capture. Do not hide the size by merging later features into this
 entry point.
 
-The composition still does not implement the environment provider or debug
-counters. It now has live resource allocation, one selected NVRHI pipeline,
-the reflected 23-descriptor layout, and the D0 host dispatch. It must not be
-treated as accepted UPT-04 until proposed-ray/full-hit estimator execution,
-full-frame cost, and ray-generation parity pass.
+The composition still does not implement the environment provider or required
+debug counter/readback specialization. It now has live resource allocation, one
+selected NVRHI pipeline, the reflected 23-descriptor layout, and the D0 host
+dispatch. It must not be treated as accepted UPT-04 until the scalar-layout and
+direct-only descriptor corrections are rebuilt, Vulkan validation/readback pass,
+and proposed-ray/full-hit, full-frame, and ray-generation parity gates pass.
 
 Runtime wiring implemented
 --------------------------
@@ -675,10 +718,12 @@ Runtime controls:
         12 production t0 TLAS plus u4 output only
         13 mode 12 plus the 128-byte production push range
 
-The direct-only default makes the first live build exercise the smallest
-166-KB closure. The unified 268-KB module is never created merely because the
-route exists. Every selection retains the same reflected descriptor ABI so an
-A/B changes pipeline code, not live resource ownership.
+The direct-only default makes the first live RayQuery build exercise the
+182-KB proof-instrumented closure. The unified 268-KB module is never created
+merely because the route exists. The current equal-ABI policy is not accepted for production:
+direct-only must drop the unused material table/sampler/bindless closure, while
+unified/indirect retain the resources required for secondary material sampling.
+Backend A/B within one family must still keep identical resource ownership.
 
 Raygen uses three SBT hit records, not the legacy renderer table. The live TLAS
 contributes record 0 for legacy/static/rigid geometry and record 2 for skinned
@@ -708,14 +753,17 @@ game cannot silently consume an older D0 blob.
 
 First live gate:
 
-    1. enable UPT with the default direct-only RayQuery selection;
+    1. launch Vulkan once with r_useValidationLayers 2 (value 1 is NVRHI-only),
+       then enable UPT with the default direct-only RayQuery selection;
     2. confirm exactly one page allocation and one pipeline log;
     3. confirm no Clean-DI/GI pipeline warmup occurs;
     4. confirm the five marker regions above and no legacy secondary dispatch;
-    5. hold a stable capture and record D0 dispatch time;
-    6. switch only family, then only backend, recording cold create time and
-       steady dispatch time for all six selections;
-    7. disable UPT and confirm the route falls back without a UPT dispatch.
+    5. run the diagnostic specialization/readback and compare exact counters;
+    6. hold a stable capture and record D0 steady dispatch time;
+    7. measure each cold pipeline creation in a separate process and balance
+       family/backend creation order; in-process fixed-order cold times are not
+       comparable because the first create absorbs process/driver startup;
+    8. disable UPT and confirm the route falls back without a UPT dispatch.
 
 Any Vulkan validation error, device removal, missing descriptor entry, repeated
 pipeline creation, or unexpectedly long direct-only creation stops UPT-04.

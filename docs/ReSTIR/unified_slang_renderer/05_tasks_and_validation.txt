@@ -148,7 +148,8 @@ Scope:
         families accepted by the proposal-mixture design
     one shared reservoir page
     canonical empty output
-    debug-only counters
+    debug-only counters/readback in a separate diagnostic specialization;
+        required for UPT-04 acceptance but absent from production binaries
     RayGen versus RayQuery A/B on identical transport logic
     white/hash RandomProvider using the frozen dimension schedule
 
@@ -163,6 +164,10 @@ Acceptance:
     invalid receivers/candidates write canonical empty
     direct-only and indirect-only diagnostic specializations work
     unified selection contains both event families in an appropriate scene
+    diagnostic readback proves primary reads, reservoir writes, candidate
+        status counts, event selection, and emitted-ray counts in the live route
+    first Vulkan launch passes with r_useValidationLayers 2; default value 1
+        enables NVRHI validation only and is not Vulkan validation evidence
     SPIR-V/pipeline size and cold build time are bounded
     ReSTIR dependency closure contains material.contract but no concrete
         material module by direct import

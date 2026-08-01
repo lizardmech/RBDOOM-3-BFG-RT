@@ -168,10 +168,25 @@ static uint64_t Upt04HashValue(uint64_t hash, uint64_t value)
     return hash;
 }
 
-static uint64_t Upt04BuildPageGeneration(const RtPathTraceSceneInputs& inputs)
+static uint64_t Upt04BuildPageGeneration(
+    const PathTraceUnifiedPtDispatchInputs& dispatch,
+    uint32_t enabledFamilyMask,
+    uint32_t specializationIdentity,
+    uint32_t availabilityFlags)
 {
+    const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     uint64_t hash = 1469598103934665603ull;
     hash = Upt04HashValue(hash, UPT04_ABI_VERSION);
+    // These words define the proposal mixture and stored-PDF interpretation.
+    // They must invalidate a future history page even when scene identity did
+    // not change.
+    hash = Upt04HashValue(hash, enabledFamilyMask);
+    hash = Upt04HashValue(hash, specializationIdentity);
+    hash = Upt04HashValue(hash, availabilityFlags);
+    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerEmissiveRangeOffset);
+    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerEmissiveRangeCount);
+    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerDoomAnalyticRangeOffset);
+    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerDoomAnalyticSampleableCount);
     hash = Upt04HashValue(hash, inputs.signatures.geometryMembership);
     hash = Upt04HashValue(hash, inputs.signatures.materialTable);
     hash = Upt04HashValue(hash, inputs.signatures.lightMembership);
@@ -393,7 +408,18 @@ static Upt04InitialControl Upt04BuildControl(const PathTraceUnifiedPtDispatchInp
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
     const RtPathTraceSceneInputMaterials& materials = inputs.materials;
     const RtPathTraceSceneInputLights& lights = inputs.lights;
-    const uint64_t pageGeneration = Upt04BuildPageGeneration(inputs);
+    const uint32_t enabledFamilyMask = Upt04FamilyMask(dispatch.family);
+    const uint32_t specializationIdentity =
+        static_cast<uint32_t>(dispatch.family) |
+        (static_cast<uint32_t>(dispatch.backend) << 8u);
+    const uint32_t availabilityFlags = geometry.staticBucketRoutePublicationValid
+        ? UPT04_ROUTE_STATIC_BUCKETS
+        : 0u;
+    const uint64_t pageGeneration = Upt04BuildPageGeneration(
+        dispatch,
+        enabledFamilyMask,
+        specializationIdentity,
+        availabilityFlags);
     const uint64_t surfaceCount64 = uint64_t(dispatch.width) * uint64_t(dispatch.height);
 
     Upt04InitialControl control = {};
@@ -401,17 +427,13 @@ static Upt04InitialControl Upt04BuildControl(const PathTraceUnifiedPtDispatchInp
     control.renderHeight = dispatch.height;
     control.surfaceCount = static_cast<uint32_t>(surfaceCount64);
     control.frameSampleIndex = dispatch.frameSampleIndex;
-    control.enabledFamilyMask = Upt04FamilyMask(dispatch.family);
-    control.specializationIdentity =
-        static_cast<uint32_t>(dispatch.family) |
-        (static_cast<uint32_t>(dispatch.backend) << 8u);
+    control.enabledFamilyMask = enabledFamilyMask;
+    control.specializationIdentity = specializationIdentity;
     control.emissiveRangeStart = lights.restirLightManagerEmissiveRangeOffset;
     control.emissiveRangeCount = lights.restirLightManagerEmissiveRangeCount;
     control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
     control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
-    control.availabilityFlags = geometry.staticBucketRoutePublicationValid
-        ? UPT04_ROUTE_STATIC_BUCKETS
-        : 0u;
+    control.availabilityFlags = availabilityFlags;
     control.logicalTextureCount = static_cast<uint32_t>(Max(0, materials.logicalTextureDescriptorCount));
     control.pageGenerationLo = static_cast<uint32_t>(pageGeneration);
     control.pageGenerationHi = static_cast<uint32_t>(pageGeneration >> 32u);
