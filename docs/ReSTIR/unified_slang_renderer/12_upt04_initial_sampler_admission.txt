@@ -10,7 +10,11 @@ First host-publication portion implemented:
 
     RtPathTraceSceneInputs now publishes manager-owned emissive/analytic ranges,
     analytic sampleable-prefix count, and structural/mapping/payload signatures.
-    No GPU work or renderer route was added. P1/P2/P3 remain prerequisites.
+    r_pathTracingUnifiedPtEnable now independently requests full material-texture
+    hydration, rigid emissive replay, stable full-domain analytic publication,
+    and the current manager payload without enabling a DI/GI execution route.
+    No UPT GPU work or presentation route was added. P1 and P4 are complete;
+    P2/P3 remain prerequisites.
 
 This document freezes the first renderer workload before any production UPT-04
 resource, pipeline, ray, or host dispatch is written. It reconciles the UPT-01
@@ -221,6 +225,12 @@ P1. Explicit UPT scene-publication request (UPT-01 M9)
     emissive replay, and manager payload when UPT is requested while every
     current DI/GI route is off. It may not activate or initialize a DI/GI pass.
 
+    Implemented. The default-off r_pathTracingUnifiedPtEnable request is read by
+    scene build only. It independently preserves material texture indices,
+    hydrates the shared texture table, admits routed rigid emissives, forces the
+    stable uncapped analytic inventory, and selects manager domain 2. It is not
+    part of any Clean-DI/GI pipeline or dispatch predicate.
+
 P2. Neutral primary-producer schedule (UPT-01 M7)
 
     The current producer is nested under cleanRtxdiDiView 2..25 after Clean-DI
@@ -358,6 +368,10 @@ Verification of this portion
 The generated Release RBDoom3BFG C++ project compiled and linked successfully
 with BuildProjectReferences=false, including PathTraceSmokeSceneBuild.cpp and
 every consumer of RtPathTraceSceneInputs.
+
+The P1 scene-publication request was verified by the same generated Release
+C++ project build after the P4 checkpoint; it compiled and linked the cvar and
+PathTraceSmokeSceneBuild.cpp changes successfully.
 
 The normal full target was attempted first. It stopped in the pre-existing,
 currently modified Clean-DI sentinel shader before compiling this C++ change:

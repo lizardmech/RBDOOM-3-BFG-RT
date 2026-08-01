@@ -7169,6 +7169,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
     const int requestedDebugMode = NormalizePathTraceDebugMode(idMath::ClampInt(0, 58, r_pathTracingDebugMode.GetInteger()));
+    const bool unifiedPtScenePublicationRequested =
+        requestedDebugMode == 0 &&
+        r_pathTracingUnifiedPtEnable.GetInteger() != 0;
     const int cleanRtxdiDiSceneBuildView = r_pathTracingCleanRtxdiDiView.GetInteger();
     const int cleanRtxdiDiSceneBuildResolveView =
         (cleanRtxdiDiSceneBuildView >= 18 && cleanRtxdiDiSceneBuildView <= 23) ? 16 : cleanRtxdiDiSceneBuildView;
@@ -7215,6 +7218,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         (cleanRtxdiDiSceneBuildResolveView == 16 || cleanRtxdiDiMaterialClassifierProofRoute || cleanRtxdiDiPsrMaskRoute);
     const bool enableTextureProbe =
         PathTraceDebugModeNeedsTextureProbe(requestedDebugMode) ||
+        unifiedPtScenePublicationRequested ||
         cleanRtxdiDiSceneBuildRluEmissives ||
         cleanRtxdiDiMaterialValidationRoute ||
         neeCacheSceneBuildRluEmissives;
@@ -7396,6 +7400,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRigidBlasGpuBuild.GetInteger() != 0 &&
         (routeResidencyV2Mode ||
             PathTraceDebugModeUsesRigidRoute(requestedDebugMode) ||
+            unifiedPtScenePublicationRequested ||
             cleanRtxdiDiSceneBuildRluEmissives ||
             (requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0));
     const bool rigidResidencyBoundsDebug = IsPathTraceBoundsOverlayDebugMode(requestedDebugMode);
@@ -8768,7 +8773,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         common->Printf("PathTracePrimaryPass: invalid RT smoke material table, skipping scene build\n");
         return;
     }
-    if ((cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives) && !cleanRtxdiDiMaterialValidationRoute)
+    if ((cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives) &&
+        !cleanRtxdiDiMaterialValidationRoute &&
+        !unifiedPtScenePublicationRequested)
     {
         for (PathTraceSmokeMaterial& material : materialTable.materials)
         {
@@ -9896,7 +9903,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 staticBucketEmissiveMissingIdentities,
                 staticBucketEmissiveExtraIdentities);
         }
-        if (enableRigidRouteForMode && (cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives))
+        if (enableRigidRouteForMode &&
+            (unifiedPtScenePublicationRequested ||
+                cleanRtxdiDiSceneBuildRluEmissives ||
+                neeCacheSceneBuildRluEmissives))
         {
             AppendSmokeRigidRouteEmissiveTriangleInventory(
                 materialTable.materialIds,
@@ -10403,6 +10413,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         doomAnalyticBuildOptions.includeOutOfSelectedArea = true;
         doomAnalyticBuildOptions.ignoreConfiguredCandidateCap = true;
     }
+    if (unifiedPtScenePublicationRequested)
+    {
+        doomAnalyticBuildOptions.forceBuild = true;
+        doomAnalyticBuildOptions.stableReservoirOrder = true;
+        doomAnalyticBuildOptions.includeOutOfSelectedArea = true;
+        doomAnalyticBuildOptions.ignoreConfiguredCandidateCap = true;
+    }
     {
         OPTICK_EVENT("PT Doom Analytic Lights");
         doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef, doomAnalyticBuildOptions);
@@ -10455,11 +10472,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingNeeCacheMode.GetInteger() != 0;
     const bool remixLightUniverseEnabled =
         r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
+        unifiedPtScenePublicationRequested ||
         regirLightUniverseRequested ||
         cleanRtxdiDiRluRequested ||
         pdfNeeRluCurrentProducerRequested ||
         neeCacheRluCurrentProducerRequested;
     const bool currentRluDenseProducerRequested =
+        unifiedPtScenePublicationRequested ||
         cleanRtxdiDiRluRequested ||
         pdfNeeRluCurrentProducerRequested ||
         neeCacheRluCurrentProducerRequested;

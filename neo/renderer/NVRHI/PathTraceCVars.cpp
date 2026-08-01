@@ -1365,6 +1365,12 @@ idCVar r_pathTracingRestirPdfNeeVerifierSourcePolicy(
     CVAR_RENDERER | CVAR_INTEGER,
     "Replacement RLU current producer source policy: 0 full dense RLU uniform baseline, 1 RLU-04 range-stratified typed ranges using rangeSampleCount/(rangeCount*totalProposalSamples)" );
 
+idCVar r_pathTracingUnifiedPtEnable(
+    "r_pathTracingUnifiedPtEnable",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean unified Slang ReSTIR PT route request; currently publishes its independent scene inputs only and does not dispatch or present UPT output" );
+
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
     "1",
