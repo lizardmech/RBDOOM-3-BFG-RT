@@ -1,0 +1,329 @@
+UPT-02 Unified Reservoir Paper Contract and Offline Codec Results
+=================================================================
+
+Status
+------
+
+Complete. This task added only a standalone CPU oracle and documentation. It
+does not allocate a GPU resource, link renderer code, compile a shader, or
+change a live rendering route.
+
+Authority and files
+-------------------
+
+The implementation derives from this packet's owned contracts:
+
+    03_unified_reservoir_contract.txt
+    06_random_sequence_and_blue_noise.txt
+    07_three_bounce_and_russian_roulette_readiness.txt
+
+The executable specification is:
+
+    neo/tests/upt02/upt02_unified_reservoir_codec.h
+    neo/tests/upt02/upt02_random_dimensions.def
+    neo/tests/upt02/upt02_unified_reservoir_codec_test.cpp
+
+The CMake target is:
+
+    PathTraceUnifiedReservoirCodecHarness
+
+No NVIDIA structure or packed ABI was copied. UPT-03 must translate this owned
+byte contract mechanically into the first deterministic Slang codec kernel.
+
+Candidate status and estimator decision
+---------------------------------------
+
+The update API receives CandidateStatus explicitly before any mutation:
+
+    INVALID
+        No well-defined proposal. It changes neither effective M, weight sum,
+        nor selected identity. Structural validation also maps stale
+        generation, invalid identity/replay, impossible topology, bad sample
+        coordinates, non-positive PDF, and non-finite state to this outcome.
+
+    VALID_ZERO
+        A defined proposal trial with target and contribution equal to zero.
+        It increments effective M, adds zero weight, cannot become selected,
+        and does not consume the reservoir-winner random value.
+
+    VALID_POSITIVE
+        A coherent proposal with positive finite target and proposal PDF. Its
+        streaming weight is target / proposalPdf. It increments M, adds that
+        weight, and participates in weighted selection.
+
+The VALID_ZERO decision follows the ordinary one-sample RIS estimator. For M
+defined proposal trials, candidate i has w_i = target_i / proposalPdf_i. The
+selected sample's final multiplier is:
+
+    W = sum_i(w_i) / (M * selectedTarget)
+
+A defined zero trial has w_i = 0 but remains one of the M trials. Removing it
+conditions normalization on non-zero outcomes and biases energy upward. An
+INVALID record was not a draw from the stated proposal technique, so counting
+it would instead invent a sample. Disabled candidate families are absent and
+renormalized; they do not emit VALID_ZERO placeholders.
+
+When every admitted trial is VALID_ZERO, the transient logical M is useful
+during streaming but there is no selected estimator to preserve. Finalization
+writes the one canonical empty record: all 64 bytes zero, including M. Future
+reuse must not interpret an empty record as confidence.
+
+Overflow is fail-closed and atomic. If uint32 M would overflow, or a new weight
+sum cannot be represented as positive finite binary32, the candidate changes no
+reservoir field and an overflow result is returned. No clamp conceals the
+failure.
+
+Logical selected sample
+-----------------------
+
+The CPU Candidate contains:
+
+    event kind and direct/global plus lobe classification
+    event-specific stable identity pair and 2-D sample coordinate
+    replay key/index
+    page-generation fingerprint used before streaming
+    RGB selected contribution and scalar target
+    weight/proposal PDF state
+    forward path PDF and partial shift Jacobian
+    accumulated roulette survival probability
+    path length and reconnection vertex length
+    visibility/replay/shift flags and age
+
+Material closure data is deliberately absent. The selected contribution is
+stored so the no-reuse resolve needs no ray. Identity plus sample coordinates
+reconstruct the selected source/reconnection vertex against current scene
+buffers: triangle events use barycentrics, environment uses octahedral
+direction coordinates, and analytic lights use their owned surface parameter.
+Normal and position are therefore derived from the stable identity, not copied
+per pixel. An indirect sample additionally carries the replay pair needed to
+reproduce a bounded multivertex path.
+
+Identity value 0 and indirect replay key 0 are reserved invalid sentinels.
+Lobe classification must contain at least one defined bit. Visibility-passed
+cannot be set unless visibility-known is also set; packing never repairs an
+incoherent flag combination.
+
+The complete scene/light/material/primary/resolution/camera/ABI generation
+tuple remains page metadata owned by the host lifecycle from UPT-01. It is
+validated before any page is consumed. The logical CPU candidate carries a
+generation fingerprint so stale-identity behavior can already be tested; the
+same fingerprint is intentionally not repeated in every 64-byte pixel.
+
+Frozen 64-byte physical layout
+------------------------------
+
+All words are little-endian uint32 storage words. Float words are IEEE-754
+binary32 bit patterns.
+
+    word  byte  field
+       0     0  header
+       1     4  effective M, uint32
+       2     8  event-specific stable identity 0
+       3    12  event-specific stable identity 1/sub-element
+       4    16  replay key
+       5    20  replay index
+       6    24  two packed sample coordinates
+       7    28  selected contribution R, float32
+       8    32  selected contribution G, float32
+       9    36  selected contribution B, float32
+      10    40  selected target, float32
+      11    44  reservoir weight sum, float32
+      12    48  complete proposal-mixture PDF, float32
+      13    52  forward path PDF including survived RR exactly once, float32
+      14    56  partial shift/reconnection Jacobian, float32
+      15    60  accumulated roulette survival probability, float32
+
+Header bit allocation:
+
+    bits  0.. 3  ABI version; 1 for this layout, 0 only for empty
+    bits  4.. 6  EventKind; analytic/emissive/environment/indirect
+    bits  7..11  lobe mask; diffuse/specular/transmission/delta/emission
+    bits 12..17  selected/global/visibility-known/visibility-passed/
+                  replayable/needs-shift flags
+    bits 18..23  age, 0..63
+    bits 24..27  selected path length, 0..15
+    bits 28..31  reconnection vertex length, 0..15 and <= path length
+
+For analytic, emissive, and indirect events, word 6 is UNORM16 x 2. Emissive
+and indirect coordinates are triangle barycentrics and must also satisfy
+u + v <= 1. For environment events it is SNORM16 x 2 octahedral direction
+coordinates. The all-zero record is empty and no other empty encoding is
+accepted.
+
+The final multiplier is derived rather than stored:
+
+    finalWeight = weightSum / (effectiveM * selectedTarget)
+
+This keeps the stored state authoritative and avoids a redundant float whose
+value could disagree after reuse.
+
+Packing bounds and rejection policy
+-----------------------------------
+
+    integer/header/identity/replay/M fields
+        exact within their documented ranges
+
+    UNORM16 sample coordinates
+        maximum absolute round-to-nearest error 1 / (2 * 65535), about
+        7.63e-6
+
+    SNORM16 environment oct coordinates
+        maximum absolute round-to-nearest error 1 / (2 * 32767), about
+        1.53e-5; -1 and +1 are exact
+
+    binary32 scalar/contribution fields
+        round-to-nearest conversion; for normalized finite values the maximum
+        relative rounding error is 2^-24, about 5.96e-8. Subnormal values have
+        binary32 absolute-error behavior. A positive value that underflows to
+        zero, or any value that overflows/non-finitely converts, is rejected.
+
+The CPU corpus checks representative coordinate limits, a three-bounce 0.125
+survival probability, and final-weight round-trip. UPT-03 must compare every
+one of the 16 GPU-written words with this CPU oracle; it may not merely compare
+decoded floating-point values.
+
+Memory budget
+-------------
+
+The 64-byte target ceiling is met exactly. Values below exclude allocator
+alignment and the small page-level generation header.
+
+    resolution    pixels       one page bytes   one page MiB   two pages MiB
+    1280 x 720       921,600       58,982,400        56.25          112.50
+    1920 x 1080    2,073,600      132,710,400       126.56          253.13
+    2560 x 1440    3,686,400      235,929,600       225.00          450.00
+    3440 x 1440    4,953,600      317,030,400       302.34          604.69
+    3840 x 2160    8,294,400      530,841,600       506.25        1,012.50
+    7680 x 4320   33,177,600    2,123,366,400     2,025.00        4,050.00
+
+Baseline UPT-04/05 allocates one page only. The second-page numbers describe
+the already planned future history/spatial schedule; UPT-02 allocates neither.
+The exact-ceiling stride remains a bandwidth risk to measure at UPT-05. It is
+not permission to allocate extra classification, debug, or future-feature
+images.
+
+Frozen random key and numeric schedule
+--------------------------------------
+
+RandomKey is a logical nine-uint32 tuple, 36 bytes in the CPU contract:
+
+    pixelX, pixelY, frameSampleIndex, passNamespace, pathVertex,
+    streamNamespace, dimension, sampleOrdinal, replayEpoch
+
+It is supplied to a RandomProvider and is not stored whole per reservoir. The
+reservoir stores its compact 64-bit replay key/index pair. sampleOrdinal names
+repeated candidates/taps within one slot. pathVertex extends multibounce draws.
+Neither branch-dependent work nor enabling a feature renumbers another slot.
+
+The authoritative numeric source is upt02_random_dimensions.def. The frozen
+(pass, stream, dimension) tuples are:
+
+    logical slot                         pass  stream  dimension
+    initial.family_selection             0001    0001          0
+    initial.reservoir_selection          0001    0002          0
+    material.lobe_selection              0001    0003          0
+    material.direction_u                 0001    0003          1
+    material.direction_v                 0001    0003          2
+    analytic.light_selection             0001    0004          0
+    analytic.light_surface_u             0001    0004          1
+    analytic.light_surface_v             0001    0004          2
+    emissive.light_selection             0001    0005          0
+    emissive.surface_u                   0001    0005          1
+    emissive.surface_v                   0001    0005          2
+    environment.direction_u              0001    0006          0
+    environment.direction_v              0001    0006          1
+    indirect.continuation_u              0001    0007          0
+    indirect.continuation_v              0001    0007          1
+    indirect.roulette_survival           0001    0007          2
+    replay.path_event                    0002    0008          0
+    temporal.tap_selection               0003    0009          0
+    temporal.reservoir_selection         0003    0002          0
+    spatial.neighbor_coordinate_u        0004    000a          0
+    spatial.neighbor_coordinate_v        0004    000a          1
+    spatial.reservoir_selection          0004    0002          0
+
+The harness proves the 22 tuples collision-free. Initial/temporal/spatial
+winner streams remain distinct by pass namespace. Roulette uses pathVertex;
+adding a bounce does not alter the material, light, replay, or winner IDs.
+Rejected candidates may leave their own keyed values unused but cannot advance
+a shared cursor or steal another family's values.
+
+Three-bounce and roulette vectors
+---------------------------------
+
+Roulette survival is transport state, never a reservoir candidate. For every
+survived eligible continuation with probability p:
+
+    compensatedThroughput <- compensatedThroughput / p
+    pathPdf               <- pathPdf * p
+    accumulatedSurvival   <- accumulatedSurvival * p
+
+Each factor is applied exactly once. A roulette rejection emits no later ray
+and calls no reservoir update. Candidates produced at earlier vertices remain
+unchanged.
+
+Reference vectors used by the CPU contract:
+
+    path length  survival sequence  base path PDF  stored path PDF  RR product  compensation
+              1  none                         0.20            0.20       1.000          1.0
+              2  0.25                         0.20            0.05       0.250          4.0
+              3  0.25, 0.50                   0.10            0.0125     0.125          8.0
+
+The executable constructs the path-length-3/reconnection-length-2 sample,
+streams it through the same update, packs it into the same 64 bytes, decodes it,
+and verifies path length, reconnection length, path PDF, and 0.125 accumulated
+survival without a second ABI. The exact mapping between the NVIDIA UI's
+"three bounces" and rbdoom maxContinuationRaysAfterReceiver remains the later
+UPT-10A terminology gate; this codec does not assume that ambiguous UI count.
+
+Test corpus and result
+----------------------
+
+The standalone harness covers:
+
+    explicit INVALID with byte-stable logical state
+    VALID_ZERO before and after a selected candidate
+    deterministic positive selection and non-selection
+    NaN contribution and Inf path PDF
+    zero proposal PDF
+    stale page generation
+    missing indirect replay identity
+    missing lobe classification and incoherent visibility flags
+    invalid triangle barycentrics and impossible reconnection topology
+    uint32 M and float32 weight-sum overflow with atomic rejection
+    all-zero canonical empty and rejection of non-canonical empty-like bytes
+    zero-only stream finalization to canonical empty
+    analytic, emissive, environment, and three-bounce indirect round trips
+    coordinate and float packing bounds
+    random tuple collision and pathVertex stability
+    accumulated RR PDF/throughput semantics
+
+Verified command:
+
+    cd neo
+    cmake --build --preset win64-pt-dev-release \
+        --target PathTraceUnifiedReservoirCodecHarness
+    ../build-win64-pt-dev/tests/upt02/Release/
+        PathTraceUnifiedReservoirCodecHarness.exe
+
+Observed result:
+
+    UPT-02 codec tests passed; stride=64 bytes randomSlots=22
+
+UPT-03 handoff and stop conditions
+----------------------------------
+
+UPT-02 passes its acceptance gate. UPT-03 may add one deterministic compute
+kernel and readback around this exact contract. It must stop if:
+
+    Slang cannot reproduce all 16 words exactly for deterministic inputs;
+    scalar-layout/reflection reports a stride other than 64 bytes;
+    generation validation would require a per-pixel duplicate field;
+    an event cannot reconstruct its source/reconnection facts from the identity,
+        sample coordinates, and replay pair without a resolve ray;
+    a three-bounce sample needs a different packed record;
+    or a material implementation/closure leaks into the reservoir codec.
+
+No in-game testing is required for UPT-02. Its authority is CPU correctness;
+GPU ABI/readback parity belongs to UPT-03 and renderer image/performance proof
+belongs to UPT-04/05.

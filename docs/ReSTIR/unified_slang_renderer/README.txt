@@ -222,6 +222,10 @@ Packet index
         light ownership, missing generation publications, transport-neutral
         material boundary, lifecycle matrix, and host composition point.
 
+    10_upt02_unified_reservoir_codec_results.txt
+        Completed UPT-02 candidate-state derivation, 64-byte CPU codec, random
+        dimension schedule, packing/memory budget, and three-bounce/RR vectors.
+
 Stop condition
 --------------
 

@@ -81,6 +81,9 @@ Stop:
 UPT-02: Unified reservoir paper contract and offline codec
 ----------------------------------------------------------
 
+Result:
+    complete; see 10_upt02_unified_reservoir_codec_results.txt
+
 Type:
     CPU/offline correctness only; no GPU allocation
 

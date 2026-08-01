@@ -1663,6 +1663,10 @@ if(BUILD_TESTING)
 	add_test(NAME PathTraceLiquidPoolReducerHarness COMMAND $<TARGET_FILE:PathTraceLiquidPoolReducerHarness>)
 endif()
 
+# UPT-02 is an isolated CPU oracle.  It does not link the renderer or allocate
+# GPU resources; UPT-03 will consume its byte contract from a separate kernel.
+add_subdirectory(tests/upt02)
+
 if(WIN32 AND PATH_TRACING_ENABLE_STREAMLINE_DLSS_RR)
 	set(PATH_TRACING_STREAMLINE_INCLUDE_DIR "${PATH_TRACING_STREAMLINE_SDK_ROOT}/include")
 	set(PATH_TRACING_STREAMLINE_LIB "${PATH_TRACING_STREAMLINE_SDK_ROOT}/lib/x64/sl.interposer.lib")
