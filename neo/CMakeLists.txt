@@ -1694,5 +1694,9 @@ endif()
            
 
 add_subdirectory(shaders)
+# UPT-00 is an explicit, Vulkan-only compiler comparison target. It is not a
+# dependency of Shaders, PathTracingShaders, or RBDoom3BFG and therefore cannot
+# add Slang work or comparison artifacts to normal builds.
+add_subdirectory(shaders/slang_upt00)
 add_dependencies(Shaders ShaderMake)
 add_dependencies(${APP_NAME} Shaders ${MASKED_OCCLUSION_LIBRARY} ${ISPC_TEXCOMP_LIBRARY})

@@ -1,0 +1,236 @@
+Slang Build and Shader Architecture Contract
+============================================
+
+Decision
+--------
+
+Use Slang for the new test renderer while leaving existing HLSL/DXC lanes
+unchanged. This is an incremental compiler lane, not a whole-repository shader
+migration.
+
+The installed Vulkan SDK already provides:
+
+    C:/VulkanSDK/1.4.341.1/Bin/slangc.exe
+    Slang build 2026.1-52-gc8ddf20bb
+
+Official Slang documentation classifies Vulkan SPIR-V, HLSL syntax, Vulkan
+interop, and ray tracing as supported/stable areas. This makes a bounded test
+reasonable. It does not establish that Slang-generated SPIR-V is faster than
+DXC-generated SPIR-V on this renderer or driver.
+
+Build boundary
+--------------
+
+Add a new CMake helper only when UPT-00 starts implementation. Suggested
+responsibility:
+
+    path_tracing_declare_slang_spirv_module(...)
+
+It must:
+
+    locate slangc from an explicit cache variable or Vulkan SDK;
+    fail clearly when slangc is missing;
+    compile Vulkan SPIR-V only;
+    use a depfile so imported .slang/.slangh edits retrigger compilation;
+    preserve entry-point names for NVRHI shader-library lookup;
+    select row-major matrix layout;
+    use one documented buffer-layout mode;
+    emit reflection JSON beside build artifacts;
+    run spirv-val on every output;
+    optionally emit spirv-dis and offline metrics for audit builds;
+    copy only accepted .bin files under base/renderprogs2/spirv;
+    never invoke DXIL or DX12 tools.
+
+Do not add Slang support to ShaderMake for this experiment. A direct custom
+command keeps dependency tracking, flags, generated files, and ownership
+visible. Do not link the Slang compiler library into RBDoom3BFG initially;
+compile offline with slangc.
+
+Compiler flags are not frozen by this document. UPT-00 must prove the exact
+command. The candidate family to test includes:
+
+    -target spirv
+    -profile sm_6_6 or the lowest proven sufficient profile
+    -O3
+    -matrix-layout-row-major
+    -fvk-use-entrypoint-name
+    one explicit Vulkan buffer-layout option
+    restrictive capability checking
+    ray-tracing capability declarations required by the entry point
+
+Do not silently combine -fvk-use-dx-layout, scalar layout, and manual padding.
+Choose one host/shader layout contract and verify it by reflection and readback.
+
+HLSL coexistence
+----------------
+
+Allowed:
+
+    existing .hlsl/.hlsli -> DXC -> existing SPIR-V targets
+    new .slang/.slangh    -> slangc -> new SPIR-V targets
+    shared host C++ structs when their offsets are independently validated
+    small language-neutral generated constants when provenance is clear
+
+Not allowed initially:
+
+    compiling the same production file sometimes with DXC and sometimes Slang
+    importing the existing giant .hlsli graph into the Slang entry points
+    Slang source that depends on DXC register-shift accidents
+    changing global binding shifts for existing shaders
+    runtime compilation or hot reload
+
+ABI manifest
+------------
+
+Every Slang entry point must have a checked manifest containing:
+
+    module name and SPIR-V hash
+    entry points and stages
+    descriptor set/binding, resource kind, and array count
+    push-constant size and offsets
+    constant-buffer size and member offsets
+    structured-buffer element stride
+    ray payload and hit-attribute size
+    maximum recursion depth
+    required Vulkan/SPIR-V capabilities
+
+Slang reflection JSON is evidence, not the sole authority. Compare it with:
+
+    C++ offsetof/sizeof static assertions
+    NVRHI binding layout declarations
+    SPIR-V decorations
+    a GPU write/readback ABI probe
+
+Any disagreement stops the task. Do not repair it by adding unexplained padding
+until the selected layout rule is understood.
+
+Compiler A/B gate
+-----------------
+
+Before the renderer uses Slang-only source, compile three tiny rbdoom-owned
+kernels through both compilers:
+
+    A. trace-free structured-buffer load/math/store compute kernel
+    B. one-ray minimal ray-generation or ray-query kernel
+    C. compact reservoir update kernel with deterministic inputs
+
+For each compiler record:
+
+    compiler version and exact command
+    SPIR-V bytes, IDs, instructions, loads, stores, branches, functions
+    entry-point resources and layout
+    cold and warm vkCreate*Pipeline duration
+    GPU timestamp at identical dispatch size
+    output hash/readback
+
+Slang is accepted when correctness/ABI match and it is not materially slower.
+No performance advantage is assumed. If DXC is faster for a particular narrow
+entry point, coexistence permits that entry point to remain HLSL, but the
+exception must be recorded rather than hidden behind a global build switch.
+
+Module rules
+------------
+
+Use Slang modules to make dependencies narrower, not merely prettier.
+
+Suggested source modules:
+
+    contracts.surface
+    contracts.material
+    contracts.light
+    contracts.reservoir
+    contracts.path_event
+    math.sampling
+    math.reservoir
+    random.contract
+    random.white_hash
+    random.stbn_low_dimension
+    material.contract
+    material.openpbr_opaque
+    material.set_baseline
+    proposals.analytic
+    proposals.emissive
+    proposals.environment
+    transport.initial_bounded
+    transport.policy_depth1
+    transport.policy_depth3_rr
+    passes.initial
+    passes.resolve
+
+Rules:
+
+    imports flow from pass -> concrete policy -> contracts/math;
+    contracts never import a pass;
+    ReSTIR modules import only material.contract, never a concrete material;
+    concrete material modules never import proposals, reservoirs, passes, or
+        temporal/spatial modules;
+    a thin composition entry point chooses MaterialSet and RandomProvider
+        specializations outside the ReSTIR implementation;
+    no Lambert, GGX, OpenPBR, glass, liquid, texture decode, or material
+        fallback formula may be written in a ReSTIR source file;
+    material modules are independently compile-tested and have their own
+        eval/sample/PDF and energy tests;
+    adding a material type changes its module and an explicit material-set
+        manifest, not any ReSTIR algorithm module;
+    random providers never import a pass; passes receive a typed stream/key;
+    debug modules never enter production entry-point closure;
+    optional feature modules are absent from the baseline specialization;
+    each pass has a concrete specialization, not runtime interface dispatch;
+    generic/interface specializations are counted and listed at build time;
+    one generic abstraction may not instantiate an unbounded feature cross
+        product.
+
+Slang interfaces are for source ownership and static specialization first.
+Do not use dynamic interface dispatch in a hot ray shader until a separate A/B
+proves its generated SPIR-V and GPU cost.
+
+Vulkan ultimately executes a linked/specialized SPIR-V entry point, so reachable
+material machine code will exist in that final binary. That does not permit
+source-level embedding. Build reports must identify material modules reachable
+from each entry point and attribute their byte/instruction delta separately
+from ReSTIR math.
+
+Anti-megakernel gate
+--------------------
+
+Reject an entry point if any of the following is true without a written
+exception:
+
+    it contains initial, temporal, spatial, and final paths together;
+    it selects debug/production behavior through a large runtime switch;
+    it imports PSR, liquid, particle, cache, and RR implementations when off;
+    it exports hit groups for a pass that cannot trace rays;
+    it contains multiple material systems selected only by global cvars;
+    it requires a payload sized for inactive feature candidates;
+    its SPIR-V grows by more than the accepted feature's measured closure;
+    its pipeline is created when its pass cannot execute.
+
+Each produced binary receives a build report. At minimum, warn when it exceeds
+twice the byte/instruction count of the closest local reference pass. A warning
+is a stop-and-review gate, not permission to ship a larger module.
+
+Ray backend decision
+--------------------
+
+Do not choose ray-generation versus compute ray query by preference. The core
+initial-transport function should be expressible behind two small concrete
+backend adapters during UPT-04:
+
+    RT-pipeline RayGen + TraceRay
+    compute + RayQuery
+
+Compile and time identical one-bounce logic. Retain only the faster/correct
+backend in the baseline. Trace-free passes are compute-only.
+
+Pipeline creation rules
+-----------------------
+
+    create only pipelines reachable in the active route;
+    never require debug pipeline creation before production can run;
+    do not build future temporal/spatial pipelines during initial validation;
+    one pass module contains only entry points used by that pipeline;
+    log module hash, byte size, groups, payload, creation time, and cache state;
+    do not use the current single-joiner deferred-host workaround as the new
+        lane's default;
+    compare ordinary driver-managed creation with bounded multi-join deferred
+        creation before selecting a policy.

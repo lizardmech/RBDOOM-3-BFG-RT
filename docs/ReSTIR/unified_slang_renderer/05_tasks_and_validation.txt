@@ -1,0 +1,389 @@
+Ordered Tasks and Validation Gates
+==================================
+
+Protocol
+--------
+
+Tasks run in order. A task may change only its declared lane. No temporal or
+spatial implementation starts before UPT-05 is accepted by runtime measurement.
+
+Every implementation task begins with:
+
+    exact reference/public algorithm step
+    completed GPU work ledger rows
+    allowed files
+    expected SPIR-V modules/entry points
+    expected resources/dispatches/rays
+    rollback condition
+
+UPT-00: Slang toolchain and compiler A/B
+----------------------------------------
+
+Type:
+    build-only spike; no renderer behavior
+
+Deliver:
+
+    Vulkan-only CMake slangc helper
+    dependency tracking for .slang/.slangh imports
+    reflection JSON and spirv-val step
+    three tiny Slang/DXC comparison kernels from
+        01_slang_build_and_shader_architecture.txt
+    compiler and SPIR-V metrics report
+
+Acceptance:
+
+    HLSL targets unchanged
+    no DXIL invoked
+    edits rebuild the correct Slang output without deleting blobs manually
+    ABI/readback outputs match
+    Slang GPU time is not materially worse than DXC
+    exact compiler version/flags are frozen in the report
+
+Stop:
+
+    unresolved layout difference, invalid SPIR-V, entry-point lookup failure,
+    or unexplained performance regression
+
+UPT-01: Read-only live input and ownership audit
+------------------------------------------------
+
+Type:
+    read-only; docs only
+
+Audit:
+
+    primary-surface fields and generations
+    TLAS and geometry/material buffers
+    unified light records and remap generations
+    bindless texture/sampler ownership
+    output and RR guide resources
+    scene/reset/resolution lifecycle
+    existing material adapter, parameter-table, and texture ownership seams
+
+Deliver:
+
+    completed resource ledger for baseline inputs
+    list of existing resources reused without duplication
+    list of missing mandatory fields
+    exact host call site for the isolated renderer
+    exact material data that can cross the transport-neutral interface without
+        making ReSTIR understand a concrete material layout
+
+Stop:
+
+    if the test route would need to call current DI/GI dispatch helpers or load
+    their shader/pipeline families
+
+UPT-02: Unified reservoir paper contract and offline codec
+----------------------------------------------------------
+
+Type:
+    CPU/offline correctness only; no GPU allocation
+
+Deliver:
+
+    rbdoom-owned logical reservoir and candidate-status specification
+    proposed packed layout and byte/field budget
+    CPU pack/unpack/reference update tests
+    invalid/valid-zero/valid-positive test corpus
+    NaN/Inf, zero PDF, stale identity, overflow, and empty-canonical tests
+    resolution memory table
+    frozen random stream/namespace/dimension table from
+        06_random_sequence_and_blue_noise.txt
+    three-bounce/path-length and accumulated roulette-probability test vectors
+        from 07_three_bounce_and_russian_roulette_readiness.txt
+
+Acceptance:
+
+    invalid candidates never change M/weight/identity
+    valid-zero behavior is justified by estimator math
+    empty record has one canonical encoding
+    packing error bounds are recorded
+    target stride ceiling met or exception approved
+    mapped three-bounce samples do not require another reservoir ABI
+
+UPT-03: GPU ABI and deterministic reservoir kernel
+--------------------------------------------------
+
+Type:
+    one compute shader; no rays
+
+Deliver:
+
+    minimal Slang contract/codec modules
+    deterministic candidate buffer input
+    reservoir output/readback
+    C++/Slang layout assertions and reflection check
+
+Acceptance:
+
+    GPU bytes match CPU codec/update oracle
+    fixed inputs produce fixed output hash
+    no screen-sized runtime renderer resources yet
+    pass timing and SPIR-V metrics recorded
+    material provider and random provider can be substituted without changing
+        reservoir source or output ABI
+
+UPT-04: Minimal unified initial sampler
+---------------------------------------
+
+Type:
+    isolated renderer implementation
+
+Scope:
+
+    consume existing primary surface
+    baseline opaque MaterialSet selected at the composition root
+    analytic/emissive/environment and one indirect continuation candidate
+        families accepted by the proposal-mixture design
+    one shared reservoir page
+    canonical empty output
+    debug-only counters
+    RayGen versus RayQuery A/B on identical transport logic
+    white/hash RandomProvider using the frozen dimension schedule
+
+Forbidden:
+
+    temporal, spatial, final visibility retrace, RR, PSR, liquid, particles,
+    NEE cache, multibounce, debug megaswitches
+
+Acceptance:
+
+    exact dispatch and ray ceilings match the ledger
+    invalid receivers/candidates write canonical empty
+    direct-only and indirect-only diagnostic specializations work
+    unified selection contains both event families in an appropriate scene
+    SPIR-V/pipeline size and cold build time are bounded
+    ReSTIR dependency closure contains material.contract but no concrete
+        material module by direct import
+    replacing baseline MaterialSet with a deterministic test material requires
+        no ReSTIR source edit
+
+UPT-05: Trace-free resolve and first image gate
+-----------------------------------------------
+
+Type:
+    isolated renderer implementation and runtime acceptance
+
+Scope:
+
+    one compute resolve pass
+    baseline OpenPBR evaluation
+    one RGBA16F test output/debug target
+    direct/global and diffuse/specular classification views using the same
+        output, not extra full-screen images
+
+Required scenes:
+
+    simple box with analytic lights and one opaque model
+    emissive-only test
+    colored bounce wall/floor
+    glossy/high-F0 object
+    sky/environment visibility
+    no-contribution/empty region
+
+Correctness acceptance:
+
+    no stable energy shift between mixture and isolated proposal references
+    empty pixels remain finite and dark
+    no invalid sample obtains age/M/identity
+    fixed RNG/camera produces repeatable output hash
+    output visually improves or matches the intended one-sample unified PT
+        reference behavior before reuse
+
+Performance acceptance:
+
+    Nsight markers separate bind/barrier and dispatch time
+    no pipeline creation occurs during measured steady frames
+    initial and resolve times held for a long stable capture, not a short FPS
+        observation
+    compare against the corresponding E:/prog/rtxdi_testing passes at identical
+        resolution and as-close-as-possible feature/ray policy
+    investigate before proceeding if a trace-free pass exceeds the reference by
+        more than 25 percent or the initial pass shows an unexplained common
+        multiplier
+    module bytes/instructions/functions and driver pipeline-build time recorded
+
+This is the explicit user review point before temporal or spatial is written.
+
+UPT-05B: Pre-reuse blue-noise provider A/B
+-------------------------------------------
+
+Type:
+    optional stochastic-provider experiment; still no temporal/spatial reuse
+
+Scope:
+
+    reuse the exact UPT-05 renderer and material set
+    add the STBN RandomProvider specialization described in
+        06_random_sequence_and_blue_noise.txt
+    bind the existing shared 128 x 128 x 64 mask only for that specialization
+    keep the white/hash specialization as the correctness/performance authority
+
+Acceptance:
+
+    white and STBN variants consume identical logical dimension slots
+    fixed-provider output remains deterministic
+    mean energy and proposal frequencies remain statistically consistent
+    noise/quality benefit is visible at equal rays and equal accumulation
+    exact texture-load and GPU-time delta recorded
+    missing/disabled STBN selects the white pipeline with zero blue-noise
+        binding, upload, branch, or pipeline creation
+    temporal/spatial remain absent
+
+If the A/B fails, retain the random-provider contract and discard the STBN
+specialization. Do not alter ReSTIR or material code to force an improvement.
+
+UPT-06: History/resource page admission
+---------------------------------------
+
+Type:
+    planning and allocation only after UPT-05 acceptance
+
+Deliver:
+
+    second reservoir-page size/lifetime
+    page-role schedule for temporal-only, spatial-only, and combined modes
+    reset/generation matrix
+    proof that no third full-resolution reservoir is required
+
+No resampling math in this task.
+
+UPT-07: Temporal reuse with empty-current recovery
+--------------------------------------------------
+
+Requirements:
+
+    current initial and previous history are independent candidates
+    invalid current does not reject valid history
+    invalid/stale history never changes M or age
+    previous-surface neighborhood search is bounded and compatible
+    shifted history is re-evaluated at current receiver
+    both empty sets needs-rescue/boost state in reservoir flags
+    temporal off produces bit-identical initial resolve
+
+Acceptance:
+
+    static convergence
+    moving camera/object rejection without long trails
+    current-empty/history-valid recovery proof
+    current-valid/history-invalid proof
+    light/material/scene reset proof
+    exact shift/reconnection ray count
+
+UPT-08: Duplication history reduction
+--------------------------------------
+
+Compare:
+
+    fused sample-ID output + duplication compute
+    explicit FillSampleID + duplication compute
+
+Acceptance:
+
+    invalid IDs excluded
+    counts and history reduction match CPU oracle
+    total bandwidth/time measured
+    feature disabled means no resources/dispatches
+
+UPT-09: Spatial reuse with invalid-center rescue
+------------------------------------------------
+
+First policy:
+    reciprocal neighbor selection
+
+Required A/B:
+    bounded random/disc baseline
+    reciprocal selection
+
+Requirements:
+
+    valid receiver with empty center still searches
+    invalid neighbors never enter sample count
+    compatibility precedes expensive shift where valid
+    neighbor contribution is evaluated in receiver domain
+    bounded adaptive rescue count
+    no full-screen feature/debug side buffers
+
+Acceptance:
+
+    empty-center/valid-neighbor recovery scene
+    thin-wall rejection
+    static and camera-motion quality
+    ray/tap counts and GPU timing
+    reciprocal policy demonstrates its intended cost reduction or is rejected
+
+UPT-10A: Three-bounce transport and aggressive roulette
+-------------------------------------------------------
+
+Type:
+    later measured transport-policy extension; not part of initial acceptance
+
+Prerequisite:
+    map the NVIDIA reference's user-tested three-bounce setting to exact local
+        continuation-ray/path-vertex semantics and record the comparable RR
+        variables used during that validation
+
+Required A/B:
+
+    one-bounce baseline
+    bounded three-bounce fixed-loop specialization
+    three-bounce wavefront only if fixed-loop measurements justify its buffers
+        and dispatches
+    roulette disabled/reference policy versus aggressive measured policy
+
+Acceptance:
+
+    no reservoir ABI, ReSTIR module, or material-interface rewrite
+    unbiased RR compensation and deterministic replay tests pass
+    exact ray/survival/termination histogram by continuation depth
+    no full transient path state added to RT payload
+    material implementations remain independent of depth and RR policy
+    equal-work Nsight markers cover trace, shade, queues, barriers, and resolve
+    three-bounce image benefit and total frame cost recorded in the known test
+        scenes before it becomes a normal renderer option
+
+See 07_three_bounce_and_russian_roulette_readiness.txt.
+
+UPT-10B and later: other feature lanes
+--------------------------------------
+
+Open only one at a time after baseline/reuse acceptance:
+
+    clear-window PSR
+    DLSS RR guide/output bridge
+    liquid-pool special pass
+    screen-space particle lighting/composite
+    optional ReGIR/NEE cache proposal provider
+    additional OpenPBR shading types
+
+Each feature receives a separate task packet and GPU work ledger. It may not
+expand the baseline specialization when absent.
+
+Global rejection conditions
+---------------------------
+
+Reject or roll back a task when:
+
+    it improves an image by admitting invalid samples;
+    it masks a broken initial estimator with temporal/spatial history;
+    it adds rays not present in the ledger;
+    it creates pipelines for inactive/debug routes;
+    it imports the current DI/GI megakernel include graph;
+    it implements a concrete material formula inside a ReSTIR module;
+    adding a material type requires a ReSTIR source edit;
+    a material module owns or mutates reservoir state;
+    random consumption changes merely because an optional feature is toggled;
+    the one-bounce implementation encodes a one-bounce-only reservoir ABI;
+    Russian-roulette survival probability is omitted or applied more than once;
+    roulette termination is inserted as a fake reservoir candidate;
+    multibounce work enlarges the baseline payload or allocates queues while
+        the one-bounce specialization is active;
+    it creates a trace-free RT pipeline;
+    it allocates a future resource before a consumer exists;
+    it compiles optional features into the baseline entry point;
+    it uses a CPU harness as proof of GPU speed;
+    it reports FPS without per-pass GPU timing and a stable-duration capture;
+    or it cannot identify the public/reference behavior justifying low-level
+        GPU work.

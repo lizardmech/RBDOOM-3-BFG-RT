@@ -1,0 +1,173 @@
+UPT-00 Slang Toolchain and Compiler A/B Results
+================================================
+
+Status
+------
+
+Accepted for the isolated test-renderer lane on 2026-08-01. This does not
+migrate any production shader and does not claim Slang is intrinsically faster.
+
+Implemented boundary
+--------------------
+
+    option: PATH_TRACING_ENABLE_SLANG_UPT00, default OFF
+    shader target: PathTraceSlangUpt00Shaders
+    proof executable: PathTraceSlangUpt00Harness
+    repeated proof target: RunPathTraceSlangUpt00Harness
+
+The targets are Vulkan-only and are not dependencies of Shaders,
+PathTracingShaders, or RBDoom3BFG. No DXIL command or output exists. Accepted
+SPIR-V remains in the build tree; nothing is deployed under base/renderprogs2.
+
+Frozen tools and commands
+-------------------------
+
+    Slang: 2026.1-52-gc8ddf20bb
+    DXC: 1.9.0.5180
+    SPIR-V Tools: 2026.1
+
+    Slang common:
+        -target spirv -profile sm_6_6 -stage compute -O3
+        -matrix-layout-row-major -fvk-use-scalar-layout
+        -fvk-use-entrypoint-name -restrictive-capability-check
+        -capability SPIRV_1_5
+
+    Slang ray-query addition:
+        -capability SPV_KHR_ray_query
+
+    DXC common:
+        -T cs_6_6 -E main -spirv -fspv-target-env=vulkan1.2
+        -fvk-use-scalar-layout -fspv-entrypoint-name=main -Zpr -O3
+
+    DXC ray-query addition:
+        -fspv-extension=SPV_KHR_ray_query
+
+    validation:
+        spirv-val --target-env vulkan1.2
+
+DXC dependency emission is a separate -MD/-MF command because this installed
+DXC produces dependency output instead of SPIR-V when those flags share the
+compile command. Slang uses its native depfile output.
+
+Dependency proof
+----------------
+
+Changing only upt00_contracts.slang rebuilt exactly the three importing Slang
+modules and regenerated validation/metrics. Changing only
+upt00_contracts.hlsli rebuilt exactly the three importing DXC modules and
+regenerated validation/metrics. An immediate second build compiled no shader.
+No blob was deleted manually.
+
+ABI and correctness proof
+-------------------------
+
+All host/shader records are exactly 32 bytes. C++ sizeof/offsetof assertions,
+Slang reflection, SPIRV-Cross reflection, SPIR-V ArrayStride decorations, and
+GPU readback agree. Both compilers expose main as compute 64x1x1. Both ray-query
+modules contain exactly one OpRayQueryInitializeKHR.
+
+The standalone Vulkan/NVRHI harness uses identical input bytes, descriptor
+layouts, dispatch dimensions, and one-triangle TLAS for both compilers. It
+checks:
+
+    structured math against a CPU oracle and the other compiler;
+    reservoir update against a CPU oracle and the other compiler;
+    ray query against the other compiler and a known alternating hit/miss set;
+    all full readback buffers with a deterministic FNV-1a hash.
+
+The five-trial medians below used 262144 invocations, 128 untimed warm-up
+dispatches, and 1024 timed dispatches per pipeline on an RTX 4090. Each order
+ran in a separate process. Values are GPU milliseconds per dispatch.
+
+    order         kernel             Slang       DXC         delta
+    slang-first   structured_math    0.010999    0.010609    +3.7%
+    slang-first   reservoir_update   0.037853    0.036216    +4.5%
+    slang-first   ray_query          0.024166    0.022852    +5.8%
+    dxc-first     structured_math    0.010142    0.010490    -3.3%
+    dxc-first     reservoir_update   0.035473    0.034798    +1.9%
+    dxc-first     ray_query          0.023076    0.022668    +1.8%
+
+No stable material Slang GPU regression was found. This is compiler-lane
+admission only; production modules still require their own timings.
+
+The output hashes were identical in every trial:
+
+    structured_math    0xa701ae4fb7f282c9
+    reservoir_update   0xbb2f8533c45c6e37
+    ray_query           0x90fb222a0e6d0383
+
+Pipeline creation finding
+-------------------------
+
+The apparent large first-pipeline regression followed creation order, not the
+compiler. With warm driver caches, the median first structured pipeline was
+3.2408 ms for Slang when Slang ran first and 3.2056 ms for DXC when DXC ran
+first; the second compiler was 0.69-0.78 ms. Earlier uncached launches showed
+the same order effect at roughly 17-20 ms for the first pipeline and 6-7 ms for
+the second. Warm repeated creates were generally about 0.04-0.13 ms.
+
+Therefore this spike does not attribute rbdoom's very long production pipeline
+builds to HLSL versus Slang. It does prove that single first-create timings are
+contaminated by process/driver startup and must be order-balanced. A later
+production-pipeline investigation must separately measure shader-module create,
+pipeline-layout create, first pipeline create, cache hit/miss, and serialized
+driver-cache behavior.
+
+SPIR-V metrics
+--------------
+
+    kernel             compiler  bytes  ids  ops  loads stores branches rayq
+    structured_math    Slang     2364    84  128      2      2        0    0
+    structured_math    DXC       2356    85  125      2      1        0    0
+    reservoir_update   Slang     4488   153  261      2      6       18    0
+    reservoir_update   DXC       4004   132  216      2      1        8    0
+    ray_query          Slang     3128    93  178      3      7        6    1
+    ray_query          DXC       2908    79  156      3      1        4    1
+
+The larger Slang instruction/store/branch counts are retained as a design
+warning. They did not create a material regression in these kernels, but no
+future entry point inherits acceptance from this spike.
+
+Synthetic GPU work ledger
+-------------------------
+
+This work exists only in the standalone proof executable and is absent from
+the game and normal builds.
+
+    structured kernel:
+        8 MiB input, 8 MiB UAV output, 8 MiB readback;
+        trace-free load/math/store; 4096 groups of 64;
+        proves scalar-layout structured-buffer ABI and basic code generation.
+
+    reservoir kernel:
+        32 MiB candidate input, 8 MiB UAV output, 8 MiB readback;
+        four candidates per invocation, invalid candidates rejected before
+        selection; 4096 groups of 64; no rays;
+        proves deterministic branch/loop/record behavior without borrowing a
+        production estimator contract.
+
+    ray-query kernel:
+        8 MiB ray input, 8 MiB UAV output, 8 MiB readback, one three-vertex
+        BLAS and one-instance TLAS;
+        exactly one forced-opaque accept-first-hit ray per invocation;
+        proves the minimal ray-query compiler/capability path.
+
+The large fixed domains and repeated dispatches are admitted only to produce a
+stable timestamp interval. They are not a proposed renderer allocation or pass
+shape and can be removed with the UPT-00 target.
+
+Reproduction
+------------
+
+From neo/:
+
+    cmake --preset win64-pt-dev -DPATH_TRACING_ENABLE_SLANG_UPT00=ON
+    cmake --build --preset win64-pt-dev-release --target PathTraceSlangUpt00Shaders -- /m
+    cmake --build --preset win64-pt-dev-release --target RunPathTraceSlangUpt00Harness -- /m
+
+Primary generated evidence:
+
+    build-win64-pt-dev/shaders/slang_upt00/artifacts/toolchain.txt
+    build-win64-pt-dev/shaders/slang_upt00/artifacts/spirv_contract_verified.txt
+    build-win64-pt-dev/shaders/slang_upt00/artifacts/spirv_metrics.csv
+    build-win64-pt-dev/shaders/slang_upt00/artifacts/gpu_comparison_summary.csv

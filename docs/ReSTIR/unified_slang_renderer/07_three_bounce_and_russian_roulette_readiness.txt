@@ -1,0 +1,172 @@
+Three-Bounce and Russian-Roulette Readiness Contract
+====================================================
+
+Evidence and scope
+------------------
+
+The user extensively tested the NVIDIA reference PT demo and found that its
+three-bounce configuration was needed for good image quality. Aggressive
+Russian-roulette variables were needed to make that configuration tolerable in
+performance.
+
+This does not add multibounce work to the initial renderer. It prevents an
+initial one-bounce implementation from choosing contracts that later require a
+reservoir, replay, material, RNG, payload, or pass-graph rewrite.
+
+Terminology gate
+----------------
+
+Before UPT-10A implementation, record exactly what the reference UI/configuration
+counts as "three bounces":
+
+    primary receiver inclusion/exclusion
+    number of continuation rays after the receiver
+    maximum path vertices and light vertex treatment
+    whether NEE/emissive/environment termination changes the count
+    roulette start depth and the variables/values used in the accepted test
+
+Define rbdoom's transport policy in unambiguous terms such as
+maxContinuationRaysAfterReceiver. Do not copy an integer named maxBounces and
+assume the two implementations trace the same workload.
+
+Early invariants
+----------------
+
+The following are required before the one-bounce renderer is accepted:
+
+    selected path length is explicit data
+    reconnection vertex length is explicit data
+    replay identity can reproduce a bounded multivertex path
+    random dimensions include a path-vertex component
+    material sample/evaluate/PDF interfaces are independent of maximum depth
+    transport state can accumulate finite throughput and path PDF
+    roulette survival probability has an explicit accumulation rule
+    direct/global and lobe classification work at any accepted path length
+    reservoir pack/unpack tests include the mapped three-bounce target
+
+No early field may be named or interpreted as firstIndirectOnly when its real
+semantic is selected path event/path length.
+
+Transient transport state
+-------------------------
+
+Logical state for a continuation loop includes:
+
+    current ray/hit facts
+    continuation depth/path vertex
+    throughput
+    forward/proposal PDF state
+    accumulated roulette survival probability or equivalent compensated state
+    replay key/index
+    current material interaction handle
+    previous direction/normal facts required by the accepted reconnectibility
+        policy
+    termination reason
+
+This state is not automatically persistent or reservoir data. The reservoir
+stores only what selected-event reconstruction, shifting, and replay need.
+UPT-02 decides which values are stored versus deterministically reconstructed.
+
+Do not put the complete state in an RT ray payload. A TraceRay/RayQuery backend
+returns compact hit/miss/barycentric/identity facts. The caller owns transport
+state between iterations. Payload growth must be justified per field.
+
+Russian-roulette estimator contract
+------------------------------------
+
+For each eligible continuation depth:
+
+    derive a finite survival probability from the configured transport policy
+    clamp only to the explicitly configured and mathematically documented range
+    draw from indirect.roulette_survival at that path vertex
+    on termination, emit no continuation ray
+    on survival, include the probability exactly once in throughput/path PDF
+    record/reconstruct the same semantics during replay and shifting
+
+Roulette termination is not a candidate. It neither increments reservoir M nor
+creates INVALID/VALID_ZERO sample identity. Candidates already generated at
+earlier vertices remain eligible. Later candidates exist only on the survived
+path and carry its probability.
+
+The survival policy belongs to InitialTransportPolicy. Material implementations
+must not secretly terminate paths or compensate throughput for RR. They report
+material absorption/invalid/valid events separately.
+
+Required policies and controls
+------------------------------
+
+The architecture permits measured policies containing:
+
+    max continuation rays after receiver
+    roulette start continuation depth
+    survival lower and upper bounds
+    throughput/importance scalar definition
+    optional throughput minimum
+    optional eta-aware compensation for transmissive materials when supported
+
+Defaults are not frozen here. UPT-10A records the reference variables and tests
+an aggressive policy against an unbiased/no-RR or conservative authority.
+Configuration changes invalidate history when they change selected-sample PDF
+or replay interpretation.
+
+Execution architecture gate
+---------------------------
+
+First multibounce candidate:
+
+    one bounded initial-transport dispatch
+    compact loop with a compile-time maximum mapped to the three-bounce target
+    early exits for miss, emission/termination, invalid material event, and RR
+    no new full-screen queues or indirect dispatches
+
+This is not permission for a feature megakernel. The loop calls the independent
+MaterialSet and proposal interfaces, and its generated module remains subject to
+the existing SPIR-V/dependency-closure limits.
+
+Wavefront alternative:
+
+    compact current/next path-state queues
+    trace and shade stages with explicit queue ownership
+    indirect argument generation only if justified
+    exact barriers and queue-capacity/overflow behavior
+
+Wavefront is admitted only when measurements show its divergence/code-size win
+exceeds queue traffic, additional dispatches, barriers, and memory. No wavefront
+resource is allocated for one-bounce or disabled multibounce modes.
+
+Measurement contract
+--------------------
+
+Debug-only counters/histograms:
+
+    eligible receivers
+    continuation rays emitted by depth
+    miss, emissive/environment, absorption, invalid-event, max-depth, and RR
+        termination counts
+    RR probability/survivor distribution by depth
+    selected candidates and event types by path length
+    replay success/failure by path length
+
+Production timing:
+
+    counters disabled
+    identical resolution/material/light policy
+    long stable capture
+    per-stage GPU timestamps and total frame cost
+    one bounce versus mapped three-bounce quality/cost
+    conservative/no-RR versus aggressive RR quality/energy/cost
+    fixed-loop versus wavefront only if both execute equivalent work
+
+Stop conditions
+---------------
+
+Stop or redesign if:
+
+    three bounces require a second reservoir ABI
+    material code must be copied into a depth-specific ReSTIR pass
+    replay cannot reproduce RR survival/PDF semantics
+    a roulette rejection is admitted as a reservoir sample
+    throughput compensation is missing, duplicated, or non-finite
+    the one-bounce route pays payload, queue, binding, or pipeline cost
+    wavefront buffers exist without a measured consumer
+    or the reference/local bounce definitions remain ambiguous.

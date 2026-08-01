@@ -1,0 +1,311 @@
+Feature Extension Architecture
+==============================
+
+Goal
+----
+
+Reserve correct ownership boundaries for known Doom 3 features without
+compiling or dispatching them in the baseline renderer. Extensibility means a
+feature has a place to attach; it does not mean every kernel carries inactive
+feature code, bindings, payload, or buffers.
+
+Core interfaces
+---------------
+
+The source architecture may use Slang interfaces/generics for static ownership:
+
+    PrimarySurfaceProvider
+    MaterialClosureProvider
+    BsdfEvaluateSamplePdf
+    LightProposalProvider
+    InitialTransportPolicy
+    ReservoirCodec
+    OutputDecomposer
+
+The baseline builds one concrete specialization. Do not use runtime interface
+dispatch in hot shaders without a separate performance gate.
+
+Hard material/ReSTIR boundary
+-----------------------------
+
+ReSTIR owns:
+
+    proposal-family probabilities and selection
+    candidate validity and reservoir streaming
+    target/shift/reconnection orchestration
+    temporal/spatial reuse
+    selected-event transport metadata
+
+The material system owns:
+
+    material record and texture decoding
+    receiver modifier resolution before lighting
+    supported lobe/event declaration
+    emission
+    BSDF evaluation, sampling, and PDF
+    material-specific transport parameters
+    fail-closed behavior for unsupported material kinds
+
+The boundary types must be transport-neutral, for example:
+
+    MaterialHandle / MaterialInteraction
+    MaterialSupport
+    MaterialEval { value, pdf, lobeFlags, status }
+    MaterialSample { direction, value, pdf, lobeFlags, eventData, status }
+
+No ReSTIR file may declare a Lambert/OpenPBR closure struct or perform concrete
+BSDF arithmetic. No material file may update a reservoir, choose a ReSTIR
+proposal family, or read temporal/spatial history.
+
+Source and build layout:
+
+    material.contract.slangh
+        interfaces and transport-neutral boundary records only
+
+    materials/openpbr_opaque.slang
+    materials/glass.slang
+    materials/liquid_pool.slang
+    materials/<future_type>.slang
+        independently owned implementations and tests
+
+    material_sets/baseline.slang
+        thin manifest mapping material kind/capabilities to the enabled
+        implementations; contains no BSDF formulas
+
+    composition/initial_white.slang
+    composition/initial_stbn.slang
+        select a material set, random provider, and transport policy, then call
+        the generic pass; contain no algorithm implementation
+
+Adding a material may edit its implementation, tests, and the material-set
+manifest. It must not edit initial sampling, reservoir, temporal, spatial,
+proposal, or resolve modules. A dependency-closure report enforces this.
+
+Do not use callable shaders, dynamic interface dispatch, or one pipeline per
+material merely to obtain source separation. Those mechanisms change payload,
+shader-table, divergence, or pipeline costs and require an explicit A/B. Static
+specialization through the thin composition root is the baseline.
+
+Baseline material set
+---------------------
+
+The baseline MaterialSet implementation exposes a compact rbdoom-owned OpenPBR
+opaque material:
+
+    base color
+    shading/geometric normal
+    view direction
+    roughness
+    specular F0
+    emission
+    material/feature tag
+
+Evaluation, sampling, and PDF are one material contract. Initial target
+evaluation and final reconstruction call that contract without knowing its
+concrete model. Begin with opaque EON
+diffuse plus isotropic GGX Smith/VNDF if the existing OpenPBR plan's unit tests
+and compiler-size gate pass. A Lambert-only debug specialization remains for
+comparison but is not compiled into the production entry point as a runtime
+mode switch.
+
+Adding a shading type requires:
+
+    a new closure tag and only the fields it needs;
+    eval/sample/pdf consistency tests;
+    energy/furnace tests;
+    generated SPIR-V delta;
+    ray/payload delta;
+    explicit list of entry points importing it;
+    a decision whether it belongs in general traversal or a separate pass.
+
+It also requires a negative dependency proof: adding the type produces no diff
+in ReSTIR algorithm modules.
+
+Do not import full OpenPBR resolved inputs, transmission, volume, thin-film,
+dispersion, and tables into the first renderer.
+
+Clear-window PSR
+----------------
+
+Ownership boundary:
+
+    existing primary surface
+        -> classify PSR-eligible clear window
+        -> dedicated replacement-surface producer
+        -> unified PT consumes resolved primary surface
+
+PSR is not a branch inside the unified initial sampler. The initial sampler
+sees one final receiver contract regardless of whether it came from the normal
+primary surface or a replacement surface.
+
+Future PSR work must:
+
+    run only on an eligible pixel mask/worklist;
+    compare masked full-screen dispatch with compacted dispatch before adding a
+        worklist buffer;
+    trace only the replacement ray required by the selected PSR mode;
+    publish full material/depth/motion/identity facts needed by temporal reuse
+        and RR guides;
+    invalidate history when the replacement route changes;
+    remain absent from baseline pipeline bindings and payload.
+
+Basic clear transmission and sharp reflection are separate PSR modes. Generic
+glossy reflections are not silently folded into the clear-window pass.
+
+DLSS Ray Reconstruction guides
+------------------------------
+
+The unified renderer owns semantic outputs; the existing RR bridge owns
+Streamline resources/evaluation.
+
+Plan from the start for:
+
+    linear HDR input color
+    diffuse and specular radiance decomposition
+    diffuse/base-color albedo
+    specular albedo/F0
+    encoded normal and roughness
+    linear depth
+    motion vectors and validity/reset mask
+    specular hit distance
+
+Do not allocate duplicate guide textures in the test renderer. The baseline
+test output is isolated; RR integration later writes or aliases the existing
+PathTraceRRGuide*/input resources only when RR is enabled.
+
+Guide generation must not trace extra rays merely to populate metadata. Hit
+distance comes from the selected path/PSR event that actually produced the
+specular contribution. A missing relevant hit produces zero/invalid, not a
+guide-only ray.
+
+Liquid-pool modifier
+--------------------
+
+The liquid pool remains a dedicated special-material lane. It must not enlarge
+the common reservoir, common ray payload, or every hit shader with its complete
+candidate set.
+
+Planned boundary:
+
+    material classification identifies liquid-pool pixels/hits
+    a compact parameter record describes the pool behavior
+    dedicated producer/modifier pass handles pool-specific ray work
+    unified renderer consumes its published surface/contribution contract
+
+If secondary path traversal must interact with liquid geometry, add only the
+minimal hit-time tag/parameters required for correct transport. The expensive
+pool search/candidate logic remains outside unrelated materials and passes.
+
+Any worklist/indirect dispatch needs density measurements and a direct masked
+dispatch A/B. Do not assume compaction is free.
+
+Screen-space particles
+----------------------
+
+Particles remain a screen-space/raster-derived lighting and composite lane.
+They are not inserted into the TLAS or unified path reservoir merely to make
+the renderer architecturally uniform.
+
+Planned order:
+
+    unified PT resolve
+    particle lighting using existing screen/depth/light inputs
+    particle composite
+    RR input/guide ownership reconciled explicitly
+
+Particle occlusion/depth and motion metadata must be supplied by the particle
+lane. The core path tracer does no particle rays.
+
+Optional screen-space ReGIR / NEE cache
+---------------------------------------
+
+The cache is a proposal provider, not a second lighting owner.
+
+It may provide candidate light identities/proposal PDFs to initial sampling.
+The unified reservoir still owns selection, target evaluation, visibility,
+normalization, and final output.
+
+Rules:
+
+    cache construction/update is a separate optional compute pass;
+    cache-off means no cache dispatch, clear, descriptor churn, or branch-heavy
+        implementation in the baseline specialization;
+    an empty cache result is INVALID, not a zero-light candidate;
+    fallback proposal probabilities are explicit and normalized;
+    cache lookup must not cause an extra visibility ray until its candidate is
+        eligible/selected under the accepted policy;
+    screen-space cache validity includes depth/normal/material/generation;
+    cache buffers are admitted only after candidate-quality versus build/lookup
+        cost is measured.
+
+Multiple bounces
+----------------
+
+The first renderer supports one indirect continuation. More bounces are an
+explicit transport-policy extension, not an integer loop that activates large
+inactive code in every pass. The compatibility target is the mapped equivalent
+of the user-validated NVIDIA reference three-bounce mode; exact terminology and
+ray counts must be mapped before implementation because its path-length counter
+does not necessarily equal rbdoom's UI notion of a bounce.
+
+The following contracts are depth-parametric from the first implementation:
+
+    material path-event sample/evaluate/PDF
+    transient throughput and proposal-PDF accumulation
+    path length and reconnection-vertex length
+    deterministic replay key/index
+    random dimensions indexed by path vertex
+    selected-event direct/global and diffuse/specular classification
+    Russian-roulette survival probability
+
+The initial reservoir packing must round-trip/test path lengths through this
+three-bounce target even while runtime ray count is capped at one continuation.
+Do not encode first-indirect as a unique struct layout or infer path length from
+the selected event kind.
+
+Russian roulette is owned by InitialTransportPolicy, not a material module or
+reservoir update. The material system supplies the continuation sample/value/PDF;
+the transport policy decides whether another vertex is attempted and applies
+unbiased survival compensation. Configuration must support at least:
+
+    start continuation depth
+    lower/upper survival-probability bounds
+    throughput/importance measure used to propose survival probability
+    optional minimum-throughput termination policy, if mathematically justified
+    maximum continuation depth
+
+Aggressive settings are a supported performance policy, not hard-coded math.
+Record the exact policy in captures and expose debug-only histograms for rays,
+survivors, roulette terminations, and candidates by continuation depth.
+
+Do not place the full transient path state in an RT payload. The ray backend
+returns only the compact hit/miss facts needed by the caller; throughput,
+roulette state, replay state, and depth stay in the transport implementation or
+an explicitly admitted wavefront state buffer.
+
+Before bounce two is added, decide from one-bounce shader measurements whether:
+
+    a compact fixed-depth shader remains small enough; or
+    a wavefront path-state/trace/shade sequence is justified.
+
+Wavefront queues and indirect dispatch are not preallocated. They require a
+buffer/dispatch ledger demonstrating that lower divergence/code size outweighs
+queue bandwidth and extra synchronization.
+
+See 07_three_bounce_and_russian_roulette_readiness.txt for the frozen early
+constraints and later implementation gate.
+
+Debug and experimentation
+-------------------------
+
+Debug outputs reuse the test HDR target. Small counters are compiled only in a
+debug specialization. Do not add dozens of runtime debug branches to production
+entry points.
+
+Every optional feature has three states:
+
+    absent from build specialization
+    present but disabled with zero GPU work
+    active with its own measured markers
+
+The first state is the baseline performance authority.

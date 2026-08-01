@@ -1,0 +1,288 @@
+GPU Work Admission and Planned Ledger
+=====================================
+
+Rule
+----
+
+Nothing that reaches Vulkan is admitted because it is conventional, convenient,
+or potentially useful later. Every resource and operation must have a completed
+ledger row and a reference/performance justification before implementation.
+
+Resource admission form
+-----------------------
+
+For every buffer or texture record:
+
+    name
+    owning pass/module
+    exact producer(s)
+    exact consumer(s)
+    logical contents
+    format or element layout
+    dimensions/count formula with overflow-safe host type
+    byte size at 1280x720, 1920x1080, and current test resolution
+    allocation and destruction point
+    frame lifetime and aliasing opportunity
+    current/previous/history semantics
+    clear/reset condition and why clearing is required
+    descriptor set/binding and state transitions
+    reference implementation/resource serving the same purpose
+    reason an existing rbdoom resource cannot be reused
+    debug-only or production
+    condition under which the resource can be removed
+
+Dispatch admission form
+-----------------------
+
+For every dispatch record:
+
+    pass name and single responsibility
+    reference pass or public algorithm step
+    pipeline type
+    dispatch dimensions and group size
+    active-pixel predicate and expected active ratio
+    inputs, outputs, and barriers
+    maximum rays by category per active pixel
+    payload, attributes, recursion, and ray flags
+    reason the work cannot be fused with a producer at zero extra cost
+    reason fusion would not create a megakernel
+    reason the work cannot be deferred to the actual consumer
+    expected and measured GPU milliseconds
+    output correctness proof
+    disable proof showing zero dispatch and zero writes
+
+Ray admission form
+------------------
+
+For every ray category record:
+
+    origin pass
+    semantic purpose
+    exact pixels/materials eligible
+    maximum attempts
+    miss behavior
+    alpha/opaque flags and justification
+    visibility policy
+    whether the ray can be postponed until its candidate is selected
+    whether an existing traced segment already proves the same visibility
+    counter/debug method
+    reference algorithm ray serving the same purpose
+
+Counters that modify timing are debug-only. Production timing is captured with
+counters disabled.
+
+Baseline resource ledger
+------------------------
+
+R0. Existing primary-surface current input
+
+    New allocation: no.
+    Purpose: receiver position, geometric/shading normal, material identity,
+        view direction, depth, material-parameter handle, motion/reset metadata
+        already produced by the renderer. ReSTIR does not interpret a fixed
+        Lambert/OpenPBR field set; the selected material provider does.
+    Justification: retracing the camera ray would duplicate known work. The
+        test renderer consumes an adapter over the existing current surface.
+    Gate: audit every required field and reject the route if a field is absent;
+        do not add speculative duplicates.
+
+R1. Unified packed reservoir page 0
+
+    New allocation: yes, after UPT-02 freezes and readback-proves the packed
+        format.
+    Purpose: one selected direct/global path contribution per reservoir pixel.
+    Initial phase pages: one.
+    Format: structured buffer, final stride not accepted until packing audit;
+        target ceiling is 64 bytes per pixel unless evidence requires more.
+    Lifetime: renderer-owned, resolution-sized, recreated on dimension/ABI
+        change, explicitly invalidated on scene/light/material generation reset.
+    Clear: only at creation/reset. The initial pass must write a canonical
+        valid-or-empty record for every in-domain pixel, so no per-frame clear.
+
+R2. Test HDR output
+
+    New allocation: one RGBA16F texture.
+    Purpose: isolated output and debug presentation without corrupting the
+        current renderer or forcing DLSS RR.
+    Producer: final resolve compute.
+    Consumers: presentation/debug capture only.
+    No separate debug images. Debug modes overwrite this output.
+
+R3. Tiny diagnostic counters/readback
+
+    New allocation: optional, debug specialization only.
+    Purpose: counts of receiver pixels, candidate states, selected event kinds,
+        and emitted ray categories.
+    Size: fixed small counter block, not screen-sized.
+    Must be absent from production binaries/timing.
+
+No other baseline resource is admitted. In particular, there is initially no:
+
+    separate DI reservoir
+    separate GI reservoir
+    temporal history page
+    spatial scratch page
+    sample-ID image
+    duplication map
+    per-pixel validity texture
+    ray queue or hit queue
+    per-feature output sidecar
+    copied primary G-buffer
+
+Baseline dispatch ledger
+------------------------
+
+D0. Unified initial sampling
+
+    Pipeline: RayGen or compute RayQuery, selected by UPT-04 A/B.
+    Domain: reservoir dimensions; every invocation first validates receiver.
+    Responsibility: generate one configured initial path sample, classify
+        candidate state, stream eligible direct/global contributions, and
+        write one packed reservoir or canonical empty record.
+    Material ownership: call the selected MaterialSet interface for material
+        decode/evaluate/sample/PDF. No material implementation belongs in D0's
+        ReSTIR modules.
+    Random ownership: consume named random dimension slices through the selected
+        RandomProvider. Do not own a private sequential RNG.
+    Initial bounce limit: one indirect continuation.
+    Forbidden work: temporal/spatial reuse, final beauty resolve, RR guide
+        writes, PSR, liquid pool, particles, cache construction, debug switch
+        trees, more-bounce fallback.
+
+    Initial ray ceiling to verify against the selected public/reference
+    algorithm:
+
+        primary rays                 0 (existing primary input)
+        first-indirect continuation <= 1 per eligible receiver
+        direct/NEE visibility       <= 1 only when required by the accepted
+                                      candidate/visibility policy
+        final/reconnection rays      0 in the no-reuse phase
+
+    The measured counter must explain every emitted ray. A ray count above the
+    accepted ceiling blocks the task.
+
+D1. Trace-free final resolve
+
+    Pipeline: compute.
+    Domain: output/reservoir dimensions.
+    Responsibility: load receiver and selected reservoir, ask the selected
+        MaterialSet to reconstruct/evaluate the selected event, split
+        direct/indirect and diffuse/specular only in registers, and write the
+        test HDR output. It contains no concrete material formula.
+    Rays: zero. The initial path was already traced; no reuse shift needs
+        revalidation yet.
+    No hit/miss/any-hit exports may exist in this module.
+
+Future resources already planned but not admitted
+--------------------------------------------------
+
+F0. Reservoir page 1
+
+    Added only with temporal or spatial reuse. See page schedules in
+    03_unified_reservoir_contract.txt.
+
+F1. Compact sample-ID image
+
+    Candidate format: R32_UINT. Added only if duplication-based history
+    reduction is accepted and a bandwidth A/B proves it preferable to reading
+    IDs from packed reservoirs.
+
+F2. Duplication-count image
+
+    Candidate format: R16_UINT if the maximum count is proven to fit, otherwise
+    R32_UINT. Added only with duplication history reduction.
+
+F3. Optional feature worklists
+
+    PSR/liquid/special materials may justify compact index/argument buffers.
+    They are not allocated full-screen by default. Admission requires measured
+    active density and comparison against a direct masked dispatch.
+
+F4. Optional shared STBN mask
+
+    Existing asset: textures/bluenoise/stbn_scalar_128x128x64.raw.
+    Candidate GPU shape: 128 x 128 x 64 R8_UNORM Texture2DArray, approximately
+        1 MiB, loaded once and reused rather than duplicated per pass.
+    It is bound only by an explicitly selected STBN shader specialization.
+    The white/hash baseline has no blue-noise descriptor, texture requirement,
+        runtime branch, upload, or pipeline creation.
+    Admission occurs in the pre-reuse blue-noise A/B after the white/hash first
+        image is correct. See 06_random_sequence_and_blue_noise.txt.
+
+F5. Optional multibounce path-state queues
+
+    Not allocated for the one-bounce renderer and not assumed necessary.
+    A fixed-depth three-bounce specialization requires no screen-sized queue by
+        default. Queue/state/indirect-argument buffers are admitted only if the
+        fixed-loop versus wavefront A/B proves that reduced divergence/code size
+        outweighs their bandwidth, barriers, clears, and dispatch overhead.
+    See 07_three_bounce_and_russian_roulette_readiness.txt.
+
+Future dispatches already planned but not admitted
+---------------------------------------------------
+
+F-D0. Temporal resampling
+    One pass. Reads current initial plus previous history, writes current page.
+    Must rescue an invalid current reservoir from valid history.
+
+F-D1. Spatial resampling
+    One pass. Reads temporal/current page, writes the other page.
+    Must search for valid neighbors even when center reservoir is empty.
+
+F-D2. Duplication map
+    One or two compute passes only after the fused-store versus explicit-fill
+    A/B in 03_unified_reservoir_contract.txt.
+
+F-D3. Boiling/firefly control
+    Not part of baseline. Prefer candidate-domain robust weighting/clamping.
+    A separate screen pass requires evidence that it is cheaper or safer.
+
+F-D4. Three-bounce transport
+
+    Later transport-policy specialization. Its first candidate is one initial
+        dispatch with a compact bounded continuation loop and Russian roulette,
+        because that adds no queue resources or inter-pass synchronization.
+    A wavefront trace/shade sequence is an A/B alternative, not the default.
+    Required metrics include rays and survivors per continuation depth,
+        roulette terminations, material/event distribution, shader/payload
+        size, divergence, and total dispatch/barrier time.
+
+Barrier rules
+-------------
+
+    barriers belong to producer/consumer edges, not generic pass startup;
+    no AllCommands barrier may be added without explaining why narrower Vulkan
+        stages/access masks are insufficient;
+    one UAV write->read dependency receives one barrier, not repeated helper
+        barriers in both producer and consumer;
+    no per-frame state churn for immutable SRVs/TLAS unless ownership changes;
+    marker scopes separate state binding/barrier time from actual dispatch;
+    all barriers appear in the dispatch ledger.
+
+Descriptor rules
+----------------
+
+    one stable binding layout for the baseline initial pass;
+    one stable binding layout for the baseline resolve pass;
+    binding sets are cached and recreated only when a bound handle/generation
+        changes;
+    do not create a descriptor pool/set every frame;
+    optional feature bindings live in their pass, not reserved across every
+        baseline entry point;
+    material texture/table bindings belong to the selected MaterialSet contract,
+        not to reservoir/reuse modules;
+    bindless textures are admitted only for passes that sample materials.
+
+Failure gates
+-------------
+
+Stop implementation if:
+
+    a pass cannot state its ray ceiling;
+    a resource has no current consumer;
+    a disable path still dispatches or clears;
+    a trace-free pass needs an RT pipeline;
+    a full-screen buffer is proposed only to carry a one-bit validity state;
+    a debug feature changes the production binding layout or payload;
+    a barrier is justified only as "NVRHI usually needs it";
+    or a future feature forces allocation/work in the initial baseline.

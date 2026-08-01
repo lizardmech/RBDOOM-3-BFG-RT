@@ -1,0 +1,213 @@
+Random Sequence and Blue-Noise Contract
+=======================================
+
+Decision
+--------
+
+Plan random sequence ownership before the initial stochastic pass is written.
+The blue-noise texture/provider may be added after the white/hash first image,
+but it must plug into a frozen stream and dimension contract. It may not be
+bolted into individual ReSTIR or material functions later.
+
+Why this is early architecture
+------------------------------
+
+Adding a texture lookup later is mechanically small. Correctly adding blue
+noise later is not small if the renderer already relies on branch-dependent
+sequential RNG consumption. It can then change:
+
+    which candidate family or lobe receives each random value
+    replay identity and path reconstruction
+    temporal/spatial winner decisions
+    fixed-seed reproducibility
+    correlations between material and light sampling
+    behavior when an optional feature is enabled
+
+Therefore freeze logical random ownership in UPT-02 and use it in UPT-03/04,
+even while the only compiled provider is white/hash.
+
+Source ownership
+----------------
+
+    random.contract.slangh
+        RandomKey, stream namespaces, dimension identifiers, provider interface
+
+    random.white_hash.slang
+        full-entropy deterministic default and replay provider
+
+    random.stbn_low_dimension.slang
+        optional low-dimension STBN mask plus white/hash fallback
+
+    random.tests.*
+        CPU/GPU determinism, range, distribution, and dimension-use tests
+
+ReSTIR and material modules request values through random.contract. They do not
+hash seeds, sample a blue-noise texture, select layers, or maintain private RNG
+implementations.
+
+Logical key
+-----------
+
+Every draw is derived from an explicit logical key containing at least:
+
+    pixel or tile coordinate
+    frame/sample index
+    pass namespace
+    path vertex/bounce index
+    stream namespace
+    dimension identifier
+    replay/epoch component where required
+
+The exact packed form is frozen by UPT-02. It does not have to be stored in full
+per reservoir; replay metadata may encode a compact stable seed/index when the
+codec tests prove equivalence.
+
+Dimension ownership
+-------------------
+
+Create a checked table before UPT-04. Initial namespaces include:
+
+    initial.family_selection
+    initial.reservoir_selection
+    material.lobe_selection
+    material.direction_u
+    material.direction_v
+    analytic.light_selection
+    analytic.light_surface_u
+    analytic.light_surface_v
+    emissive.light_selection
+    emissive.surface_u
+    emissive.surface_v
+    environment.direction_u
+    environment.direction_v
+    indirect.continuation_u
+    indirect.continuation_v
+    indirect.roulette_survival
+    replay.path_event
+    temporal.tap_selection
+    temporal.reservoir_selection
+    spatial.neighbor_coordinate_u
+    spatial.neighbor_coordinate_v
+    spatial.reservoir_selection
+
+These are logical names in the design/tests, not permission to allocate one
+large global numeric range blindly. Freeze collision-free numeric identifiers
+in a generated language-neutral table shared by host/tests/Slang.
+
+Rules:
+
+    an optional proposal/material feature owns a reserved namespace;
+    disabling it does not shift another feature's dimensions;
+    rejected/invalid candidates do not steal dimensions from another family;
+    material sampling receives its own slice/key from the caller;
+    material implementations may consume only dimensions declared by their
+        contract and report the maximum consumed set at build time;
+    reservoir winner selection has a stream independent from candidate
+        generation and material sampling;
+    replay uses an independent deterministic stream and must not depend on
+        whether the display-time provider is STBN or white/hash;
+    adding a bounce extends the path-vertex component, not every pass's magic
+        dimension constant.
+
+Russian-roulette draws have their own stream/dimension at every continuation
+depth. Enabling or changing roulette must not shift material, light, replay, or
+reservoir-selection dimensions. Replay reconstructs the same survival decisions
+from the stored key/index and policy generation.
+
+Provider contract
+-----------------
+
+The provider returns uniform values in [0, 1) for a RandomKey. Providers may be
+stateless or expose a small scoped cursor, but their observable dimension use is
+the frozen key schedule.
+
+Required providers:
+
+    WhiteHashProvider
+        baseline correctness/replay provider with no texture binding
+
+    StbnLowDimensionProvider
+        optional provider for approved low-dimensional screen-space decisions;
+        loads the shared scalar STBN mask and falls back to WhiteHashProvider
+        outside its approved dimensions/epochs
+
+A finite table mask is not a substitute for the entropy needed by arbitrary
+path replay or unbounded candidate loops. STBN coverage is deliberately narrow;
+white/hash remains the complete provider.
+
+Initial eligibility policy
+--------------------------
+
+Eligible for measured STBN use before reuse:
+
+    initial proposal-family selection
+    low-dimensional light/emissive/environment coordinates
+    material lobe/direction coordinates declared STBN-safe
+    initial reservoir selection only if equal-energy/frequency tests pass
+
+Always white/hash initially:
+
+    replay and reconnection identity
+    variable-length/unbounded loops
+    NEE-cache provider loops
+    rare-event or high-entropy decisions beyond the approved STBN dimensions
+    temporal reservoir winner selection
+
+Spatial neighbor-coordinate selection is a later STBN A/B candidate. Spatial
+reservoir winner selection remains an independent white/hash stream initially.
+The current renderer provides evidence that feeding structured producer noise
+into recursive temporal winner selection can turn fine error into persistent
+low-frequency islands, so the new design does not inherit one provider policy
+for all passes.
+
+Build and binding policy
+------------------------
+
+Use separate static composition entry points/pipelines:
+
+    initial_white
+        MaterialSet + WhiteHashProvider
+        no blue-noise binding or runtime branch
+
+    initial_stbn
+        same MaterialSet and transport policy + StbnLowDimensionProvider
+        one STBN SRV binding
+
+Create only the selected pipeline. Do not reserve the STBN descriptor in every
+pass and do not bind a dummy texture to make layouts uniform. The shared texture
+is loaded/uploaded once when the STBN specialization is actually selected.
+
+Changing provider must not change:
+
+    material or ReSTIR source
+    reservoir layout
+    ray ceiling
+    dispatch count
+    proposal mixture probabilities
+    logical dimension consumption
+
+Validation
+----------
+
+Offline/GPU tests:
+
+    same key/provider produces identical value and output hash
+    every declared dimension is unique within its namespace
+    feature enable/disable does not renumber unrelated draws
+    material implementation cannot consume outside its declared slice
+    STBN values remain finite and in [0, 1)
+    white fallback works beyond STBN coverage and across mask epochs
+    replay result is identical between white and STBN display providers
+
+Image/performance A/B at UPT-05B:
+
+    identical camera, scene, ray counts, proposal counts, and material set
+    white/hash versus STBN noise spectrum and equal-sample image quality
+    mean energy/event frequency consistency
+    exact added texture loads and GPU milliseconds
+    long-duration stability, including mask-layer wrap/epoch behavior
+
+Reject the STBN specialization if it creates bias, persistent structures,
+material/replay disagreement, or a cost larger than its equal-ray quality gain.
+The frozen provider interface and dimension schedule remain useful even if that
+specific blue-noise implementation is rejected.

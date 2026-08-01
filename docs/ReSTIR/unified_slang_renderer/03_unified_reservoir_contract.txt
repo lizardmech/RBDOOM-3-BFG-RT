@@ -1,0 +1,341 @@
+Unified Reservoir, Validity, and Reuse Contract
+===============================================
+
+Goal
+----
+
+Represent one selected light-transport contribution per receiver in a shared
+direct/global reservoir while preserving enough information for later temporal
+and spatial path shifting. The initial version must be useful without reuse.
+
+Logical selected sample
+-----------------------
+
+The logical contract needs these categories. Physical packing is frozen only
+after UPT-02 proves round trip and bandwidth.
+
+    selected event kind
+        analytic NEE, emissive, environment, or indirect continuation
+
+    selected source identity
+        stable light identity/sample parameters for explicit lights, or replay
+        seed/index and path/reconnection metadata for path events
+
+    translated/reconnection vertex
+        position/direction representation plus normal when applicable
+
+    contribution state
+        radiance/throughput representation and target function
+
+    estimator state
+        weight sum/final reservoir weight, effective M, age, and flags
+
+    shift state
+        proposal/reconnection PDF terms, partial Jacobian, path length, and
+        reconnection vertex length needed by the accepted shift mapping
+
+    replay/termination state
+        compact replay seed/index or equivalent deterministic key plus enough
+        path-PDF state to reproduce every survived Russian-roulette decision;
+        do not assume every selected indirect path has exactly one continuation
+
+    classification state
+        direct/global and diffuse/specular classification required for output
+        decomposition; do not store data that final resolve can derive cheaply
+
+Target packed stride:
+
+    no more than 64 bytes per pixel unless an explicit field/quality proof
+    demonstrates that a larger record is worth its bandwidth and memory cost.
+
+Do not freeze field widths by copying the NVIDIA packed ABI. Derive a
+rbdoom-owned packing, document every quantization, and test encode/decode error.
+
+Candidate status: mandatory three-state model
+---------------------------------------------
+
+Every proposal is classified before reservoir streaming:
+
+    INVALID
+        There is no well-defined Monte Carlo candidate. Examples: invalid light
+        identity, missing surface, invalid replay metadata, non-positive or
+        non-finite proposal PDF where a PDF is required, NaN/Inf state, stale
+        generation, impossible path topology, failed decode.
+
+        Contract: do not increment M, do not add weight, do not set identity,
+        and do not allow selection.
+
+    VALID_ZERO
+        The sampling procedure produced a mathematically defined candidate but
+        its contribution/target is zero, such as a valid direction with zero
+        BSDF support or a visibility result that is legitimately occluded.
+
+        Contract: cannot be selected and contributes zero weight. Whether it
+        increments the estimator's effective sample count is determined by the
+        public estimator derivation/reference contract and recorded explicitly.
+        Do not silently treat it as INVALID merely to brighten the image.
+
+    VALID_POSITIVE
+        Identity, PDFs, target, contribution, and required metadata are finite
+        and coherent, with positive selectable weight.
+
+        Contract: may increment effective M and participate in weighted sample
+        selection.
+
+The update function accepts CandidateStatus explicitly. It must not infer
+validity solely from radiance, a packed valid bit, or M after mutation.
+
+Reservoir validity
+------------------
+
+A stored reservoir is valid only when all are true:
+
+    a selected sample identity exists;
+    effective M is positive and finite/in-range;
+    stored weight/final multiplier is finite and positive;
+    selected target is finite and positive;
+    event-specific identity/replay fields pass validation;
+    generation/domain flags match the current interpretation.
+
+An empty reservoir is a single canonical all-zero/known-tag representation:
+
+    no selected identity
+    M = 0
+    weight = 0
+    age = 0
+    no boost/history authority
+
+Empty writes are mandatory for invalid receivers and receivers with no selected
+sample. Do not leave a previous frame's bytes in place.
+
+Initial unified sampling contract
+---------------------------------
+
+For every valid primary receiver:
+
+1. Ask the selected MaterialSet to decode the receiver and return a typed,
+   transport-neutral material interaction handle/result.
+2. Generate only the configured reference-justified candidate families.
+3. Classify each proposal INVALID / VALID_ZERO / VALID_POSITIVE before update.
+4. Stream direct and global candidates through one update contract.
+5. Finalize once after all admitted candidates.
+6. If nothing selectable survived, store canonical empty.
+7. Otherwise store exactly one selected shared reservoir.
+
+The reservoir/update/reuse modules may consume material-evaluation results such
+as value, PDF, lobe/event flags, emission, and validity. They may not inspect a
+Lambert/OpenPBR closure layout or implement a BSDF. Material sampling receives a
+named random-dimension slice from the pass; it may not advance a hidden global
+RNG and thereby reorder ReSTIR decisions.
+
+The one-bounce implementation may use narrower runtime control flow, but the
+logical selected-sample contract and proposed packing are tested with path
+lengths through the mapped three-bounce target. Path length is data, not an
+event-kind alias such as direct versus first-indirect. A later three-bounce
+specialization must not require a second reservoir type or reinterpret existing
+packed fields.
+
+Russian roulette is transport sampling, not a reservoir candidate family:
+
+    a roulette rejection terminates future continuation work;
+    it is not streamed as an INVALID or VALID_ZERO reservoir candidate merely
+        because the path ended;
+    already produced candidates remain valid;
+    any candidate produced after surviving roulette includes the survival
+        probability in its path PDF/throughput exactly once;
+    replay and receiver-domain re-evaluation reproduce the same accumulated
+        survival-probability semantics;
+    if no selectable candidate exists, canonical empty is written under the
+        normal candidate contract.
+
+The initial pass must expose counters for:
+
+    valid/invalid receiver
+    each candidate status by event kind
+    selected event kind
+    canonical empty output
+    emitted ray category
+
+Counters are debug-only and must not alter production timing.
+
+Direct/global unification rule
+------------------------------
+
+"Unified" means the selected sample and normalization belong to one proposal
+mixture. It does not mean adding precomputed DI and GI radiance and putting the
+sum into a struct.
+
+Each proposal family must record:
+
+    its sampling probability including family/lobe selection;
+    target evaluation at the receiver;
+    visibility policy;
+    stable identity or replay state;
+    how the selected contribution is reconstructed by final resolve.
+
+The direct/global mixture probabilities must sum to one over enabled families.
+Disabling a family renormalizes the remaining mixture. A disabled family does
+not generate a zero placeholder candidate.
+
+No-reuse final estimate
+-----------------------
+
+Before temporal/spatial exist, final resolve reads the initial reservoir and
+reconstructs the selected contribution. It traces no new ray because the
+selected initial path/connection was already evaluated under the initial
+visibility policy.
+
+This image is the first required quality/performance checkpoint. Compare:
+
+    mean energy and event decomposition against a brute/reference mode;
+    ray counts against the initial ray ledger;
+    direct-only, indirect-only, and unified mixture views;
+    empty-reservoir map;
+    finite-value and weight distributions.
+
+Temporal contract planned now
+-----------------------------
+
+Temporal reuse is not implemented in the baseline, but its ownership is fixed:
+
+    current receiver may have a valid or empty initial reservoir;
+    previous history is searched around the reprojected location;
+    previous surface and reservoir must both validate;
+    invalid current does not prevent valid history from becoming the result;
+    invalid history never increases M or age;
+    selected history is shifted/re-evaluated at the current receiver;
+    age/history caps apply only to valid selected history;
+    if current and history are empty, output stays canonical empty and sets a
+        reservoir-local spatial-boost/needs-rescue flag;
+    scene, light-universe, material, resolution, camera-cut, or ABI generation
+        changes reject history before any sample metadata is consumed.
+
+Temporal fallback taps are history candidates, not a license to borrow an
+incompatible previous pixel. Each tap must validate surface compatibility and
+reservoir validity independently.
+
+Spatial contract planned now
+----------------------------
+
+Spatial reuse operates on a valid receiver surface even when its center
+reservoir is empty.
+
+Required behavior:
+
+    do not early-return because center reservoir is invalid;
+    search neighbor locations according to a pluggable neighbor policy;
+    reject invalid neighbor surfaces/reservoirs without adding to M;
+    evaluate compatibility before expensive path shift work where possible;
+    shift/reconnect the neighbor sample into the receiver domain;
+    re-evaluate target/PDF/Jacobian at the receiver;
+    perform required visibility/invertibility validation;
+    only then stream it as a candidate;
+    if no valid neighbor survives, preserve canonical empty;
+    never copy a neighbor's shaded radiance as though it belonged to the
+        receiver.
+
+Neighbor policy interface reserved from the start:
+
+    baseline random/disc selection
+    reciprocal neighbor selection from ReSTIR PT Enhanced
+    optional compatibility-guided preselection
+
+The spatial algorithm must not hard-code one policy into reservoir math. The
+policy returns candidate coordinates; the common validation/shift/update path
+owns correctness.
+
+Reciprocal selection is the first production target because the public Enhanced
+paper reports roughly halving spatial reuse cost. Compatibility-guided
+selection is a later measured alternative; it may not add unbounded taps or
+extra rays without a ledger update.
+
+Adaptive rescue budget
+----------------------
+
+Neighbor attempts depend on reservoir-local state:
+
+    valid mature center       minimal accepted neighbor count
+    valid but low confidence  increased bounded count
+    empty/disoccluded center  bounded rescue count
+
+The maximum is compile-time bounded and appears in the ray/dispatch ledger.
+Rejected neighbors should normally cost surface/reservoir reads, not rays.
+Only the small accepted subset may perform expensive shift/reconnection work.
+
+Reservoir page schedules
+------------------------
+
+Baseline, no reuse:
+
+    page 0 <- initial
+    resolve reads page 0
+    allocated pages: 1
+
+Temporal only:
+
+    two pages with roles flipped each frame
+    current page <- initial
+    temporal reads current + history and overwrites current per-pixel
+    resolve reads current
+    next frame swaps current/history roles
+
+    Gate: in-place temporal output is accepted only after proving no invocation
+    reads another pixel from the current initial page after that pixel may have
+    been overwritten. Previous-history neighborhood reads remain on the other
+    page.
+
+Spatial only:
+
+    page 0 <- initial
+    page 1 <- spatial(page 0)
+    resolve reads page 1
+
+Temporal + spatial:
+
+    page 0 <- initial
+    page 0 <- temporal(page 0 current, page 1 previous history)
+    full barrier
+    page 1 <- spatial(page 0)
+    resolve reads page 1
+    page 1 becomes next-frame history
+
+No third full-resolution scratch reservoir is admitted unless the two-page
+schedule is proven unsafe.
+
+Duplication map plan
+--------------------
+
+Duplication-based history reduction is planned before temporal stabilization,
+but no resources are allocated in the baseline.
+
+Evaluate two implementations:
+
+    A. Reservoir-output pass also writes compact selected sample ID; one compute
+       pass builds the neighborhood duplication count.
+
+    B. Separate fill-sample-ID pass followed by duplication-count pass, matching
+       the reference structure.
+
+Also estimate direct packed-reservoir reads, but reject it if neighborhood
+bandwidth exceeds the compact-ID path.
+
+Acceptance considers total dispatch time and bandwidth, not the number of
+passes alone. Invalid reservoirs write ID 0/reserved invalid and are excluded
+from positive duplication counts.
+
+Bias/robustness prohibitions
+----------------------------
+
+Do not:
+
+    count structurally invalid candidates to inflate confidence;
+    drop valid-zero samples from normalization without derivation;
+    invent weight clamps to hide NaNs;
+    admit a neighbor before receiver-domain target evaluation;
+    use history age as validity;
+    accept stale light IDs after universe remap;
+    make an empty center ineligible for neighbor rescue;
+    add extra visibility rays for segments already traced and unchanged;
+    normalize by requested neighbor count instead of admitted technique/sample
+        counts required by the estimator;
+    or use temporal/spatial reuse to conceal a broken initial estimator.
