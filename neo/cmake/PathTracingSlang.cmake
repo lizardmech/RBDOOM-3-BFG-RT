@@ -55,7 +55,7 @@ function(path_tracing_find_slang_spirv_tools)
 endfunction()
 
 function(path_tracing_declare_slang_spirv_module)
-    set(options RAY_QUERY)
+    set(options RAY_QUERY RAY_TRACING)
     set(oneValueArgs NAME SOURCE ENTRY STAGE OUTPUT_DIR OUT_VAR)
     set(multiValueArgs INCLUDE_DIRS DEPENDS)
     cmake_parse_arguments(PTSLANG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
@@ -83,6 +83,9 @@ function(path_tracing_declare_slang_spirv_module)
     set(capability_args -capability SPIRV_1_5)
     if(PTSLANG_RAY_QUERY)
         list(APPEND capability_args -capability SPV_KHR_ray_query)
+    endif()
+    if(PTSLANG_RAY_TRACING)
+        list(APPEND capability_args -capability SPV_KHR_ray_tracing)
     endif()
 
     add_custom_command(

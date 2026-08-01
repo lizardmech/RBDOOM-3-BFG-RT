@@ -22,8 +22,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         key.pixelX = dispatchThreadId.x;
         key.pixelY = dispatchThreadId.y;
         key.passNamespace = kUpt04PassInitial;
-        key.streamNamespace = kUpt04StreamReservoir;
-        key.dimension = kUpt04DimensionReservoirSelection;
+        key.streamNamespace = kUpt04StreamInitialReservoirSelection;
+        key.dimension = kUpt04DimensionInitialReservoirSelection;
         Upt03Candidate candidate = (Upt03Candidate)0;
         candidate.status = 2u;
         candidate.eventKind = kUpt04EventAnalytic;

@@ -12,5 +12,11 @@ public struct Upt04RandomKey
 };
 
 public static const uint kUpt04PassInitial = 0x0001u;
-public static const uint kUpt04StreamReservoir = 0x0002u;
-public static const uint kUpt04DimensionReservoirSelection = 0u;
+
+// Fixed cross-language slot map.  Providers address (stream, dimension)
+// directly; disabling a family never advances a shared cursor.
+#define UPT_RANDOM_SLOT(name, streamValue, dimensionValue) \
+    public static const uint kUpt04Stream##name = streamValue; \
+    public static const uint kUpt04Dimension##name = dimensionValue;
+#include "PathTraceUnifiedPtRandomDimensions.inc"
+#undef UPT_RANDOM_SLOT

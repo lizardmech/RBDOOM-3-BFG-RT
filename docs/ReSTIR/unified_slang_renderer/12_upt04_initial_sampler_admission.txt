@@ -4,7 +4,8 @@ UPT-04 Minimal Unified Initial Sampler: GPU Work Admission
 Status
 ------
 
-Pre-implementation gate complete. UPT-04 itself is not complete.
+Pre-implementation gate and first backend-closure checkpoint complete. UPT-04
+itself is not complete and has no live runtime dispatch or display output.
 
 First host-publication portion implemented:
 
@@ -17,8 +18,10 @@ First host-publication portion implemented:
     Clean DI. UPT-only initializes only producer kind 9, dispatches it once,
     barriers the current page, publishes history once, and returns before all
     legacy execution branches. No UPT initial-sampler or presentation work was
-    added. P1/P2/P3/P4 host publication is complete. P3's final shader-
-    reflection proof remains coupled to the two UPT backend compositions.
+    added. P1/P2/P3/P4 host publication is complete. The two UPT backend
+    compositions now pass the static shader-reflection half of P3; actual
+    Vulkan pipeline creation against the published layout/table remains part
+    of runtime wiring.
 
 This document freezes the first renderer workload before any production UPT-04
 resource, pipeline, ray, or host dispatch is written. It reconciles the UPT-01
@@ -401,9 +404,81 @@ Measured compile artifacts:
     upt04_contract_deterministic  12,172 bytes; 294 SPIR-V instructions
 
 These are ownership/closure probes, not the admitted initial sampler and not
-runtime shaders. Next implement contracts.hit, proposals.local_light,
-transport.initial_bounded, then the identical RayQuery/raygen compositions.
-Only their reflection may close P3's set-1 compatibility gate.
+runtime shaders.
+
+The next backend-closure checkpoint is now also implemented, but remains
+compile/offline-only:
+
+    contracts.primary_surface_live
+        exact version-2, 176-byte current-primary record
+
+    contracts.hit
+        32-byte trace-only facts: status, instance, geometry, primitive,
+        barycentrics, hit T, and front-face state
+
+    contracts.light
+        exact 112-byte manager current-light record and range selection
+
+    proposals.local_light
+        one uniform draw over the manager-published sampleable emissive and
+        analytic ranges; analytic spheres use replayable visible-solid-angle
+        sampling, not a center-point proxy
+
+    transport.initial_bounded
+        an explicit state machine that cannot admit more than one continuation
+        and one visibility ray and cannot combine direct visibility with an
+        indirect continuation for the same initial family draw
+
+    composition.initial_rayquery
+        compute 8 x 8, exactly one OpRayQueryInitializeKHR in its closure
+
+    composition.initial_raygen
+        ray generation plus minimal miss/closest-hit modules, exactly one
+        OpTraceRayKHR in the ray-generation closure
+
+Both entry points call the same preparation/material/proposal/finish modules.
+Only their trace adapter differs. Reflection proves identical descriptor ABI:
+
+    set 0 binding 0   TLAS
+    set 0 binding 1   current primary surfaces, stride 176
+    set 0 binding 2   current manager lights, stride 112
+    set 0 binding 3   selected MaterialSet table, stride 112
+    set 0 binding 4   page-0 reservoirs, stride 64
+    set 0 binding 5   shared material sampler
+    set 1 binding 0   existing unbounded material texture table
+    push constants    21 scalar words / 84 bytes
+
+The set-1 binding is retained through an explicit disabled-by-default material
+binding probe. It is not used to invent a primary-surface UV: the 176-byte
+producer record already contains evaluated primary material values and does
+not publish UVs. Secondary-hit texture evaluation remains owned by the future
+hit decoder/MaterialSet.
+
+The random contract now includes a 25-slot language-neutral ledger shared by
+C++ and Slang. Each decision addresses an explicit (stream, dimension) pair;
+reservoir selection, future roulette, material sampling, direct families,
+replay, temporal, and spatial slots cannot shift when another feature is off.
+The UPT-04 CPU harness compile-time-checks pair uniqueness.
+
+Current backend artifacts:
+
+    upt04_initial_rayquery          46,012 bytes; 1,042 instructions
+    upt04_initial_raygen            45,968 bytes; 1,042 instructions
+    upt04_initial_miss                 592 bytes;    19 instructions
+    upt04_initial_closest_hit        1,468 bytes;    33 instructions
+
+The current closure intentionally fails emissive selection to canonical empty
+until exact triangle positions/UV replay is implemented. It never substitutes
+the manager record's center. It also does not yet implement the indirect
+continuation family, secondary-hit material decoding, environment, debug
+counters, live resource allocation, NVRHI pipelines, or dispatch. Therefore it
+must not be deployed or benchmarked as UPT-04 yet.
+
+Next implement exact emissive triangle replay and the shared static/dynamic/
+rigid/skinned hit geometry adapter, then add the one-continuation indirect
+branch through the same bounded transport state. Only after those close should
+the host allocate page 0 and create one selected backend pipeline for an
+in-game A/B.
 
 Verification of this portion
 ----------------------------
@@ -425,6 +500,15 @@ The P3 host publication and combined NVRHI visibility compile and link in the
 generated Release RBDoom3BFG project. No descriptor clone or extra GPU upload
 was added. Runtime shader-layout acceptance is deliberately deferred to the
 two reflected UPT compositions rather than inferred from the C++ build.
+
+The backend-closure build passed Slang restrictive capability checks,
+spirv-val for Vulkan 1.2, SPIR-V reflection, and disassembly verification for
+both backends. Reflection confirms identical seven-descriptor layouts, the
+84-byte push block, 176/112/112/64 structured strides, and the shared set-1
+unbounded texture binding. Disassembly confirms the 32-byte hit-facts shape and
+one backend-specific ray instruction. The updated C++ schedule/random-ledger
+harness also passes. No game executable or SPIR-V was deployed because no live
+UPT pipeline consumes these modules yet.
 
 The normal full target was attempted first. It stopped in the pre-existing,
 currently modified Clean-DI sentinel shader before compiling this C++ change:

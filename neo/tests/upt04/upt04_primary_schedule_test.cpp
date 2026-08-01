@@ -1,4 +1,5 @@
 #include "PathTraceUnifiedPtSchedule.h"
+#include "PathTraceUnifiedPtRandomDimensions.h"
 
 #include <iostream>
 
@@ -32,6 +33,14 @@ PrimaryProducerSchedule ReadySchedule(bool upt, bool clean, int view)
 
 int main()
 {
+    Check(RandomSlotsAreUnique(),
+        "shared C++/Slang random-slot ledger must be collision-free");
+    Check(kRandomSlotInitialReservoirSelection.streamNamespace !=
+            kRandomSlotInitialLocalLightIdentity.streamNamespace,
+        "reservoir selection must not share the local-light stream");
+    Check(kRandomSlotIndirectRouletteSurvival.streamNamespace !=
+            kRandomSlotIndirectContinuationU.streamNamespace,
+        "future roulette must not shift continuation dimensions");
     {
         const PrimaryProducerSchedule plan = ReadySchedule(false, false, 0);
         Check(!plan.requested && !plan.dispatch,
