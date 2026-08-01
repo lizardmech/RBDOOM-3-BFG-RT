@@ -27,6 +27,7 @@
 #include "PathTraceSkinnedHitRoute.h"
 #include "PathTraceSkinnedOutputAllocator.h"
 #include "PathTraceSmokeResources.h"
+#include "PathTraceUnifiedPt.h"
 
 #include <nvrhi/nvrhi.h>
 #include <condition_variable>
@@ -750,6 +751,7 @@ private:
     nvrhi::BufferHandle m_smokeCleanRtxdiDiPreviousReservoirBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiSpatialReservoirBuffer;
     PathTraceBlueNoiseState m_smokeCleanRtxdiDiBlueNoise;
+    PathTraceUnifiedPtState m_unifiedPtState;
     PathTraceCleanRestirGiState m_cleanRestirGiState;
     PathTraceNeeCacheState m_smokeNeeCacheState;
     PathTraceReGIRState m_smokeReGIRState;

@@ -187,6 +187,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeCleanRtxdiDiHistorySignature = 0;
     m_smokeCleanRtxdiDiHistoryResetCount = 0;
     m_smokeCleanRtxdiDiBlueNoise.Release();
+    m_unifiedPtState.Release();
     m_smokeTlas = nullptr;
     m_smokePrimarySurfaceProducerShaderTable = nullptr;
     m_smokeRestirPdfNeeRluCurrentShaderTable = nullptr;

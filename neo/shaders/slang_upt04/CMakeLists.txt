@@ -268,3 +268,42 @@ add_custom_target(PathTraceSlangUpt04StaticSpecializations
     DEPENDS ${UPT04_STATIC_SPECIALIZATION_OUTPUTS} "${UPT04_STATIC_VERIFY_STAMP}")
 set_target_properties(PathTraceSlangUpt04StaticSpecializations PROPERTIES FOLDER "Shaders/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04StaticSpecializations)
+
+# Runtime admission is explicit: copy only the six selectable initial modules
+# and the two shared raygen hit modules after every offline verifier passes.
+# Reflection/disassembly artifacts remain build-only evidence.
+set(UPT04_RUNTIME_OUTPUT_DIR
+    "${CMAKE_CURRENT_LIST_DIR}/../../../base/renderprogs2/spirv/builtin/pathtracing/slang_upt04")
+set(UPT04_RUNTIME_MODULES
+    upt04_initial_rayquery
+    upt04_initial_direct_only_rayquery
+    upt04_initial_indirect_only_rayquery
+    upt04_initial_raygen
+    upt04_initial_direct_only_raygen
+    upt04_initial_indirect_only_raygen
+    upt04_initial_miss
+    upt04_initial_closest_hit)
+set(UPT04_RUNTIME_OUTPUTS)
+foreach(runtime_module IN LISTS UPT04_RUNTIME_MODULES)
+    set(runtime_source "${UPT04_OUTPUT_DIR}/${runtime_module}.slang.spv")
+    set(runtime_output "${UPT04_RUNTIME_OUTPUT_DIR}/${runtime_module}.bin")
+    add_custom_command(
+        OUTPUT "${runtime_output}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT04_RUNTIME_OUTPUT_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${runtime_source}" "${runtime_output}"
+        DEPENDS "${runtime_source}"
+            "${UPT04_BACKEND_VERIFY_STAMP}"
+            "${UPT04_STATIC_VERIFY_STAMP}"
+        COMMENT "UPT-04 verified Vulkan runtime artifact: ${runtime_module}"
+        VERBATIM)
+    list(APPEND UPT04_RUNTIME_OUTPUTS "${runtime_output}")
+endforeach()
+
+add_custom_target(PathTraceSlangUpt04RuntimeArtifacts
+    DEPENDS ${UPT04_RUNTIME_OUTPUTS})
+set_target_properties(PathTraceSlangUpt04RuntimeArtifacts PROPERTIES FOLDER "Shaders/UPT-04")
+add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04RuntimeArtifacts)
+if(TARGET RBDoom3BFG)
+    add_dependencies(RBDoom3BFG PathTraceSlangUpt04RuntimeArtifacts)
+endif()

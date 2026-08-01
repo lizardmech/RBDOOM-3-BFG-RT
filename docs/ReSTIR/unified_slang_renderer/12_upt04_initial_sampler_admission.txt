@@ -4,9 +4,10 @@ UPT-04 Minimal Unified Initial Sampler: GPU Work Admission
 Status
 ------
 
-Pre-implementation gate, first backend closure, and the isolated geometry/replay
-closure are complete. UPT-04 itself is not complete and has no live runtime
-dispatch or display output.
+Pre-implementation gate, complete D0 shader closure, and host runtime wiring are
+complete. The Release executable compiles the selected-pipeline owner, but live
+Vulkan pipeline creation and GPU dispatch have not yet been run. UPT-04 is not
+accepted and has no display output.
 
 First host-publication portion implemented:
 
@@ -18,11 +19,10 @@ First host-publication portion implemented:
     The primary producer now has a route-neutral CPU schedule shared by UPT and
     Clean DI. UPT-only initializes only producer kind 9, dispatches it once,
     barriers the current page, publishes history once, and returns before all
-    legacy execution branches. No UPT initial-sampler or presentation work was
-    added. P1/P2/P3/P4 host publication is complete. The two UPT backend
-    compositions now pass the static shader-reflection half of P3; actual
-    Vulkan pipeline creation against the published layout/table remains part
-    of runtime wiring.
+    legacy execution branches. That host-publication checkpoint added no UPT
+    initial sampler or presentation work. P1/P2/P3/P4 host publication is
+    complete. Both UPT backends now pass static reflection and are wired to the
+    exact published layout/table; live Vulkan creation remains unverified.
 
 This document freezes the first renderer workload before any production UPT-04
 resource, pipeline, ray, or host dispatch is written. It reconciles the UPT-01
@@ -592,13 +592,83 @@ and GPU duration against static direct-only/indirect-only closures and the
 reference capture. Do not hide the size by merging later features into this
 entry point.
 
-The composition still does not implement the environment provider, debug
-counters, live resource allocation, NVRHI pipelines, or dispatch. Therefore it
-must not be deployed or benchmarked as UPT-04 yet. Next allocate page 0, build
-one selected backend pipeline only, bind the reflected 23-descriptor layout,
-and add the first in-game direct-only/indirect-only/unified A/B. Runtime work
-must stop if pipeline build time or the unified closure duration makes the
-static split necessary.
+The composition still does not implement the environment provider or debug
+counters. It now has live resource allocation, one selected NVRHI pipeline,
+the reflected 23-descriptor layout, and the D0 host dispatch. It must not be
+treated as accepted UPT-04 until live pipeline creation and dispatch pass.
+
+Runtime wiring implemented
+--------------------------
+
+PathTraceUnifiedPt is a separate owner called after the shared primary UAV
+barrier and before the single primary-history publication. It owns:
+
+    one width * height * 64-byte structured page-0 UAV
+    one set-0 binding layout and one cached binding set
+    one selected backend/family pipeline
+    no output, history, counter, queue, constant buffer, or optional feature
+
+The route is execution-exclusive. r_pathTracingUnifiedPtEnable overrides the
+default-on Clean-DI/GI execution request so legacy pipeline creation and GPU
+work cannot contaminate UPT timing. Disabling UPT releases its page, binding,
+shader, pipeline, and table handles. Changing backend or family releases the
+old pipeline before synchronously creating the selected replacement.
+
+Runtime controls:
+
+    r_pathTracingUnifiedPtEnable 0/1
+    r_pathTracingUnifiedPtBackend
+        0 RayQuery compute (default)
+        1 ray generation
+    r_pathTracingUnifiedPtFamily
+        0 unified direct + indirect
+        1 direct-only (default bring-up)
+        2 indirect-only
+
+The direct-only default makes the first live build exercise the smallest
+166-KB closure. The unified 268-KB module is never created merely because the
+route exists. Every selection retains the same reflected descriptor ABI so an
+A/B changes pipeline code, not live resource ownership.
+
+Raygen uses three SBT hit records, not the legacy renderer table. The live TLAS
+contributes record 0 for legacy/static/rigid geometry and record 2 for skinned
+geometry; record 1 is an addressable placeholder. All three records use the
+same 32-byte trace-only closest-hit decoder. RayQuery has no SBT dependency.
+
+Pipeline logs report backend, family, module bytes, FNV-1a module hashes,
+driver-visible timestamps, group/payload shape, synchronous create time in
+microseconds, deferred-host setting, and the fact that driver cache state is
+opaque to NVRHI. Deferred host operations are disabled for this first ordinary
+driver-managed measurement.
+
+Nsight markers are separate:
+
+    UPT.P0 SharedPrimary DispatchRays
+    UPT.D0 Initial Bind+Barriers
+    UPT.D0 Initial RayQuery Dispatch
+        or UPT.D0 Initial RayGen DispatchRays
+    UPT.D0 Initial OutputBarrier
+    UPT.P0 PrimarySurfaceHistory Copy
+
+The Slang target copies only eight verifier-approved SPIR-V modules to
+base/renderprogs2/spirv/builtin/pathtracing/slang_upt04. RBDoom3BFG depends on
+that runtime-artifact target, so a source/import edit retriggers Slang and the
+game cannot silently consume an older D0 blob.
+
+First live gate:
+
+    1. enable UPT with the default direct-only RayQuery selection;
+    2. confirm exactly one page allocation and one pipeline log;
+    3. confirm no Clean-DI/GI pipeline warmup occurs;
+    4. confirm the five marker regions above and no legacy secondary dispatch;
+    5. hold a stable capture and record D0 dispatch time;
+    6. switch only family, then only backend, recording cold create time and
+       steady dispatch time for all six selections;
+    7. disable UPT and confirm the route falls back without a UPT dispatch.
+
+Any Vulkan validation error, device removal, missing descriptor entry, repeated
+pipeline creation, or unexpectedly long direct-only creation stops UPT-04.
+UPT-05 resolve does not begin until this gate passes.
 
 Verification of this portion
 ----------------------------
@@ -628,8 +698,14 @@ both backends. Reflection confirms identical 23-descriptor layouts, the
 the shared set-1 unbounded texture binding. Disassembly confirms the 32-byte
 hit-facts shape, exactly two bounded ray sites, and no cross-contamination
 between RayQuery and TraceRay adapters. The updated C++ schedule/random-ledger
-harness also passes. No game executable or SPIR-V was deployed because no live
-UPT pipeline consumes these modules yet.
+harness also passes. At that checkpoint no game executable or SPIR-V was
+deployed because no live UPT pipeline consumed the modules.
+
+The runtime-wiring build now passes the full UPT-04 Slang module graph, all
+offline reflection/disassembly validators, verified runtime artifact copies,
+and the generated Release RBDoom3BFG C++ compile/link. The built executable and
+runtime blobs have not yet been exercised in the game, so this is compile proof
+only rather than Vulkan runtime acceptance.
 
 The independent geometry/replay build also passed Slang compilation,
 spirv-val, reflection, and its trace-free disassembly gate. The generated

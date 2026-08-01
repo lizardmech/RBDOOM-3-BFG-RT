@@ -235,6 +235,8 @@ extern idCVar r_pathTracingRestirPdfNeeVerifierSamples;
 extern idCVar r_pathTracingRestirPdfNeeVerifierVisibility;
 extern idCVar r_pathTracingRestirPdfNeeVerifierSourcePolicy;
 extern idCVar r_pathTracingUnifiedPtEnable;
+extern idCVar r_pathTracingUnifiedPtBackend;
+extern idCVar r_pathTracingUnifiedPtFamily;
 extern idCVar r_pathTracingCleanRtxdiDiEnable;
 extern idCVar r_pathTracingCleanRtxdiDiView;
 extern idCVar r_pathTracingCleanRtxdiDiTemporal;

@@ -4,9 +4,11 @@ Unified ReSTIR PT Slang Test Renderer
 Status
 ------
 
-Architecture packet with UPT-00 and UPT-01 complete. Only the isolated UPT-00
-compiler/GPU harness is implemented; the unified renderer itself has not begun.
-No later renderer task is authorized by this packet alone.
+UPT-00 through UPT-03 are complete. UPT-04 now has its offline shader closure,
+exact live ABI, one-page runtime owner, selected-pipeline wiring, and compiled
+host dispatch. It has not yet passed live Vulkan pipeline creation or GPU
+dispatch, and it has no displayed output until UPT-05. Temporal and spatial
+work remains unauthorized.
 
 Purpose
 -------
@@ -231,9 +233,9 @@ Packet index
         comparison, reflection/dependency gate, and bounded zero-ray ledger.
 
     12_upt04_initial_sampler_admission.txt
-        UPT-04 pre-implementation GPU work admission: one-draw proposal mixture,
-        exact ray ceiling, resource/module boundaries, and mandatory neutral
-        producer plus sampleable-light-range publications.
+        UPT-04 GPU work admission and implementation record: one-draw proposal
+        mixture, exact ray ceiling, resource/module boundaries, mandatory host
+        publications, offline shader closure, and selected runtime wiring.
 
 Stop condition
 --------------

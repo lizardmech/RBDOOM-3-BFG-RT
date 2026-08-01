@@ -1369,7 +1369,19 @@ idCVar r_pathTracingUnifiedPtEnable(
     "r_pathTracingUnifiedPtEnable",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean unified Slang ReSTIR PT route request; currently publishes independent scene inputs and runs the shared primary producer only, with no UPT initial sampler or presented output yet" );
+    "Clean unified Slang ReSTIR PT route request; overrides legacy Clean-DI/GI execution, runs the shared primary producer and one selected UPT-04 initial sampler into a private 64-byte reservoir page, with no presented output yet" );
+
+idCVar r_pathTracingUnifiedPtBackend(
+    "r_pathTracingUnifiedPtBackend",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-04 static backend: 0 RayQuery compute (default), 1 ray-generation; changing it releases the old pipeline and creates only the selected replacement" );
+
+idCVar r_pathTracingUnifiedPtFamily(
+    "r_pathTracingUnifiedPtFamily",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-04 static family specialization: 0 unified direct+indirect, 1 direct-only (default bring-up), 2 indirect-only; only one pipeline exists at a time" );
 
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",

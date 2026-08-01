@@ -997,6 +997,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool unifiedPtRouteRequested =
         r_pathTracingUnifiedPtEnable.GetInteger() != 0 &&
         NormalizePathTraceDebugMode(idMath::ClampInt(0, 58, r_pathTracingDebugMode.GetInteger())) == 0;
+    if (!unifiedPtRouteRequested)
+    {
+        // UPT owns no persistent GPU allocation or pipeline while its route is
+        // inactive. Re-enabling deliberately measures a fresh selected build.
+        m_unifiedPtState.Release();
+    }
     const bool cleanRtxdiDiProductionView = cleanRtxdiDiView == 16;
     const int staticBucketSecondaryProbeStage =
         r_pathTracingGeometryStaticBucketSecondaryProbeStage.GetInteger();
@@ -1073,7 +1079,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint32_t cleanRtxdiDiFrameIndexForDispatch = r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0
         ? 0u
         : m_smokeCleanRtxdiDiFrameIndex;
-    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 25;
+    // UPT is an isolated renderer selection, not an optional Clean-DI feature.
+    // Letting the default-on Clean-DI cvars remain an execution request here
+    // would build and dispatch the legacy lane before UPT, invalidating every
+    // cold-build and steady-state comparison.
+    const bool cleanRtxdiDiRouteRequested =
+        !unifiedPtRouteRequested &&
+        cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 25;
     const bool cleanRtxdiDiSpatialEnabled =
         r_pathTracingCleanRtxdiDiSpatial.GetInteger() != 0 &&
         r_cleanDiSpatial.GetInteger() != 0 &&
@@ -2524,9 +2536,40 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
         if (unifiedPtRouteRequested && !cleanRtxdiDiRouteRequested)
         {
+            PathTraceUnifiedPtDispatchInputs unifiedPtInputs;
+            unifiedPtInputs.device = device;
+            unifiedPtInputs.commandList = commandList;
+            unifiedPtInputs.sceneInputs = &m_sceneInputs;
+            unifiedPtInputs.primarySurfaceBuffer =
+                m_frameResources.primarySurfaceHistoryBuffers.current;
+            unifiedPtInputs.width = static_cast<uint32_t>(m_frameResources.width);
+            unifiedPtInputs.height = static_cast<uint32_t>(m_frameResources.height);
+            unifiedPtInputs.frameSampleIndex = m_frameResources.restirPTFrameIndex;
+            unifiedPtInputs.backend =
+                r_pathTracingUnifiedPtBackend.GetInteger() == 1
+                    ? PathTraceUnifiedPtBackend::RayGeneration
+                    : PathTraceUnifiedPtBackend::RayQuery;
+            switch (idMath::ClampInt(
+                0,
+                2,
+                r_pathTracingUnifiedPtFamily.GetInteger()))
+            {
+            case 0:
+                unifiedPtInputs.family = PathTraceUnifiedPtFamily::Unified;
+                break;
+            case 2:
+                unifiedPtInputs.family = PathTraceUnifiedPtFamily::IndirectOnly;
+                break;
+            default:
+                unifiedPtInputs.family = PathTraceUnifiedPtFamily::DirectOnly;
+                break;
+            }
+            unifiedPtInputs.nsightMarkers = nsightGpuMarkers;
+            m_unifiedPtState.ExecuteInitial(unifiedPtInputs);
+
             // UPT-04 has no admitted HDR resolve or presentation path yet.
-            // The shared primary page has no consumer yet, so publish its
-            // history once and stop before every legacy execution branch.
+            // Publish the shared primary history once after the D0 consumer,
+            // then stop before every legacy execution branch.
             publishPrimarySurfaceHistory("UPT.P0 PrimarySurfaceHistory Copy");
             return;
         }
