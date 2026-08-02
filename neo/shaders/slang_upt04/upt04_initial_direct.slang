@@ -42,7 +42,7 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial<
         || selection.denseIndex >= gUpt04Control.currentLightCount)
         return work;
 
-    const Upt04UnifiedLightRecord light = gUpt04CurrentLights[selection.denseIndex];
+    const Upt04UnifiedLightRecord light = Upt04LoadCurrentLightRecord(selection.denseIndex);
     const Upt04EvaluatedLocalLight evaluated = Upt04EvaluateSelectedLocalLightDirectOnly(
         selection,
         light,

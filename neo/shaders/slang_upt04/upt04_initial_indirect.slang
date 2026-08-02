@@ -197,7 +197,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     if (selection.valid == 0u
         || selection.denseIndex >= gUpt04Control.currentLightCount)
         return result;
-    const Upt04UnifiedLightRecord light = gUpt04CurrentLights[selection.denseIndex];
+    const Upt04UnifiedLightRecord light = Upt04LoadCurrentLightRecord(selection.denseIndex);
     const Upt04EvaluatedLocalLight evaluated =
         Upt04EvaluateSelectedLocalLight<TMaterialSet>(
         selection,

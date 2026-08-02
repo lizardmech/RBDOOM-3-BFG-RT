@@ -43,7 +43,7 @@ public bool Upt04FindEmissiveDenseLight(
             if (entry.denseLightIndex >= gUpt04Control.currentLightCount)
                 return false;
             const Upt04UnifiedLightRecord light =
-                gUpt04CurrentLights[entry.denseLightIndex];
+                Upt04LoadCurrentLightRecord(entry.denseLightIndex);
             if (light.type != kUpt04LightEmissiveTriangle
                 || light.instanceId != instanceId
                 || light.primitiveIndex != primitiveIndex)
@@ -75,7 +75,7 @@ public float Upt04ExactNeePdfForEmissiveHit(
     if (lightCount == 0u)
         return 0.0f;
 
-    const Upt04UnifiedLightRecord light = gUpt04CurrentLights[denseLightIndex];
+    const Upt04UnifiedLightRecord light = Upt04LoadCurrentLightRecord(denseLightIndex);
     const float area = light.normalAndArea.w;
     const float3 toLight = hitPosition - receiverPosition;
     const float distanceSquared = dot(toLight, toLight);

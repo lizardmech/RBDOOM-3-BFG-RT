@@ -1389,6 +1389,12 @@ idCVar r_pathTracingUnifiedPtCompactGeometry(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT D0 geometry replay A/B for Vulkan RayQuery production with compact receiver 2: 0 binds the scene's 112-byte vertices; 1 GPU-packs four UPT-only 48-byte sidecars before D0 and binds those at the existing vertex slots" );
 
+idCVar r_pathTracingUnifiedPtCompactLights(
+    "r_pathTracingUnifiedPtCompactLights",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT D0 current-light A/B after compact geometry: 0 binds the manager's 112-byte records; 1 GPU-packs a UPT-only 64-byte current-light sidecar before D0 while preserving all replay identities" );
+
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",
     "0",

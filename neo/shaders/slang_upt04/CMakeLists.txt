@@ -183,6 +183,39 @@ path_tracing_declare_slang_spirv_module(
 list(APPEND UPT04_BACKEND_OUTPUTS ${compact_geometry_pack_outputs})
 
 path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_rayquery_compact32_geometry48_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1
+    OUT_VAR compact32_geometry48_light64_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${compact32_geometry48_light64_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_compact_light_pack
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_compact_light_pack.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_compact_light_pack.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
+    OUT_VAR compact_light_pack_outputs)
+list(APPEND UPT04_BACKEND_OUTPUTS ${compact_light_pack_outputs})
+
+path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_diagnostics
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_diagnostics.slang"
     ENTRY main
@@ -406,6 +439,24 @@ foreach(family direct indirect)
         ${static_compact32_geometry48_rayquery_outputs})
 
     path_tracing_declare_slang_spirv_module(
+        NAME "upt04_initial_${family}_only_rayquery_compact32_geometry48_light64"
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_rayquery.slang"
+        ENTRY main
+        STAGE compute
+        OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+        INCLUDE_DIRS
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_LIST_DIR}/.."
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+            "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_rayquery.slang"
+        DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1
+        OUT_VAR static_compact32_geometry48_light64_rayquery_outputs
+        RAY_QUERY)
+    list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS
+        ${static_compact32_geometry48_light64_rayquery_outputs})
+
+    path_tracing_declare_slang_spirv_module(
         NAME "upt04_initial_${family}_only_raygen"
         SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_raygen.slang"
         ENTRY main
@@ -626,15 +677,19 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery_compact32
     upt04_initial_rayquery_compact32_geometry48
     upt04_compact_geometry_pack
+    upt04_initial_rayquery_compact32_geometry48_light64
+    upt04_compact_light_pack
     upt04_initial_diagnostics
     upt04_initial_direct_only_rayquery
     upt04_initial_direct_only_rayquery_compact
     upt04_initial_direct_only_rayquery_compact32
     upt04_initial_direct_only_rayquery_compact32_geometry48
+    upt04_initial_direct_only_rayquery_compact32_geometry48_light64
     upt04_initial_indirect_only_rayquery
     upt04_initial_indirect_only_rayquery_compact
     upt04_initial_indirect_only_rayquery_compact32
     upt04_initial_indirect_only_rayquery_compact32_geometry48
+    upt04_initial_indirect_only_rayquery_compact32_geometry48_light64
     upt04_initial_raygen
     upt04_initial_raygen_compact
     upt04_initial_raygen_compact32

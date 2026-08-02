@@ -598,3 +598,45 @@ no 112-byte smoke-vertex storage buffer in that D0 variant.  The separate G0
 shader proves one 112-byte source load and one 48-byte destination record per
 eligible vertex pool element.  The retained legacy D0 variants remain the
 rollback/control.
+
+Runtime acceptance: the compact48 geometry capture reduced D0 to about 0.94 ms
+in the user's test, reduced sustained cache load, and removed most of the
+violent frame-time fluctuations.  G0 remained visually small relative to D0.
+This is evidence that the wide replay ABI crossed a cache/contention threshold,
+not merely that it added a small linear bandwidth cost.
+
+Experimental 64-byte current-light sidecar
+-------------------------------------------
+
+The next isolated experiment keeps the manager-owned 112-byte RLU current
+payload authoritative and GPU-packs only the current records consumed by D0.
+It is gated on the accepted compact32 receiver plus compact48 geometry lane, so
+its rollback changes only light storage.
+
+The 64-byte record keeps full-precision position, analytic radius, emissive
+area, and Doom influence radius; oct16 emissive normal; fp16 radiance and
+luminance; and the complete source/material/instance/primitive/hash identity
+set.  The unused sourcePdf, previousIndex, padding, and unused Doom parameter
+components are absent.  Positive sourceWeight is represented as an admission
+bit during packing because D0 never consumes its magnitude.
+
+Runtime A/B:
+
+    r_pathTracingUnifiedPtCompactReceiver 2
+    r_pathTracingUnifiedPtCompactGeometry 1
+    r_pathTracingUnifiedPtCompactLights 0  manager-owned legacy112 records
+    r_pathTracingUnifiedPtCompactLights 1  GPU-packed compact64 sidecar
+
+The pipeline log prints lights=compact64 or lights=legacy112.  Nsight exposes:
+
+    UPT.L0 CompactLight64 Dispatch
+    UPT.D0 Initial RayQuery Dispatch FullFrame
+
+Judge L0+D0 combined time, image parity, light cutoffs/intensity, L2/VRAM
+throughput, RTCORE dependency, and frame stability.  The pack executes each
+frame for the first A/B; generation-gating it is a later optimization if the
+storage reduction wins.
+
+Emitted SPIR-V proves ArrayStride 64 and compact-light loads in D0 with no
+112-byte unified-light storage buffer.  The separate L0 pack shader is the only
+module that loads the authoritative 112-byte light record.

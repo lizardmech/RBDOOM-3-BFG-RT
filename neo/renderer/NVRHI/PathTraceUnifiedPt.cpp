@@ -13,6 +13,8 @@ namespace {
 static constexpr uint32_t UPT04_RESERVOIR_STRIDE = 64u;
 static constexpr uint32_t UPT04_COMPACT_VERTEX_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_GEOMETRY_PUSH_CONSTANT_BYTES = 16u;
+static constexpr uint32_t UPT04_COMPACT_LIGHT_STRIDE = 64u;
+static constexpr uint32_t UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES = 4u;
 static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 128u;
 static constexpr uint32_t UPT04_FAMILY_LOCAL_LIGHT = 1u << 0u;
 static constexpr uint32_t UPT04_FAMILY_INDIRECT = 1u << 1u;
@@ -73,36 +75,43 @@ static const char* Upt04InitialShaderPath(
     PathTraceUnifiedPtBackend backend,
     PathTraceUnifiedPtFamily family,
     uint32_t primaryReceiverMode,
-    bool compactGeometry)
+    bool compactGeometry,
+    bool compactLights)
 {
     if (backend == PathTraceUnifiedPtBackend::RayQuery)
     {
         switch (family)
         {
         case PathTraceUnifiedPtFamily::Unified:
-            return compactGeometry
+            return compactLights
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64.bin"
+                : (compactGeometry
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48.bin"
                 : (primaryReceiverMode == 2u
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32.bin"
                 : (primaryReceiverMode == 1u
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact.bin"
-                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery.bin"));
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery.bin")));
         case PathTraceUnifiedPtFamily::IndirectOnly:
-            return compactGeometry
+            return compactLights
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact32_geometry48_light64.bin"
+                : (compactGeometry
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact32_geometry48.bin"
                 : (primaryReceiverMode == 2u
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact32.bin"
                 : (primaryReceiverMode == 1u
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact.bin"
-                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery.bin"));
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery.bin")));
         default:
-            return compactGeometry
+            return compactLights
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact32_geometry48_light64.bin"
+                : (compactGeometry
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact32_geometry48.bin"
                 : (primaryReceiverMode == 2u
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact32.bin"
                 : (primaryReceiverMode == 1u
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact.bin"
-                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery.bin"));
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery.bin")));
         }
     }
 
@@ -344,6 +353,14 @@ static_assert(
         UPT04_COMPACT_GEOMETRY_PUSH_CONSTANT_BYTES,
     "UPT compact-geometry push constants must match Slang reflection");
 
+struct Upt04CompactLightPackControl
+{
+    uint32_t lightCount;
+};
+static_assert(
+    sizeof(Upt04CompactLightPackControl) == UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES,
+    "UPT compact-light push constants must match Slang reflection");
+
 class Upt04MarkerScope
 {
 public:
@@ -493,7 +510,8 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     nvrhi::BufferHandle compactStaticVertices,
     nvrhi::BufferHandle compactDynamicVertices,
     nvrhi::BufferHandle compactRigidVertices,
-    nvrhi::BufferHandle compactSkinnedVertices)
+    nvrhi::BufferHandle compactSkinnedVertices,
+    nvrhi::BufferHandle compactLights)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -503,7 +521,8 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     nvrhi::BindingSetDesc desc;
     desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, geometry.tlas));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, dispatch.primarySurfaceBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, lights.restirLightManagerCurrentPayloadBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        2, dispatch.compactLights ? compactLights : lights.restirLightManagerCurrentPayloadBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, materials.materialTableBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, page0));
     desc.addItem(nvrhi::BindingSetItem::Sampler(5, materials.textureSampler));
@@ -543,7 +562,8 @@ static nvrhi::BindingSetDesc Upt04BuildDirectBindingSetDesc(
     nvrhi::BufferHandle compactStaticVertices,
     nvrhi::BufferHandle compactDynamicVertices,
     nvrhi::BufferHandle compactRigidVertices,
-    nvrhi::BufferHandle compactSkinnedVertices)
+    nvrhi::BufferHandle compactSkinnedVertices,
+    nvrhi::BufferHandle compactLights)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -551,7 +571,8 @@ static nvrhi::BindingSetDesc Upt04BuildDirectBindingSetDesc(
     nvrhi::BindingSetDesc desc;
     desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, geometry.tlas));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, dispatch.primarySurfaceBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, lights.restirLightManagerCurrentPayloadBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        2, dispatch.compactLights ? compactLights : lights.restirLightManagerCurrentPayloadBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, page0));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, lights.emissiveTriangleBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
@@ -738,10 +759,24 @@ void PathTraceUnifiedPtState::ReleaseCompactGeometry()
     m_compactSkinnedVertexCapacity = 0;
 }
 
+void PathTraceUnifiedPtState::ReleaseCompactLights()
+{
+    m_compactLightBindingSet = nullptr;
+    m_compactLightBindingSetDesc = nvrhi::BindingSetDesc();
+    m_compactLightBindingSetDescValid = false;
+    m_compactLightPipeline = nullptr;
+    m_compactLightShader = nullptr;
+    m_compactLightBindingLayout = nullptr;
+    m_compactLightPipelineAttempted = false;
+    m_compactLightsBuffer = nullptr;
+    m_compactLightCapacity = 0;
+}
+
 void PathTraceUnifiedPtState::Release()
 {
     ReleasePipeline();
     ReleaseCompactGeometry();
+    ReleaseCompactLights();
     ReleaseResolve();
     m_page0 = nullptr;
     m_pageWidth = 0;
@@ -761,6 +796,7 @@ void PathTraceUnifiedPtState::Release()
     m_diagnostics = false;
     m_primaryReceiverMode = 0;
     m_compactGeometry = false;
+    m_compactLights = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
 }
@@ -870,7 +906,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
     if (!m_selectionValid || m_backend != inputs.backend || m_family != inputs.family ||
         m_pipelineVariant != pipelineVariant || m_diagnostics != inputs.diagnostics ||
         m_primaryReceiverMode != inputs.primaryReceiverMode ||
-        m_compactGeometry != inputs.compactGeometry)
+        m_compactGeometry != inputs.compactGeometry ||
+        m_compactLights != inputs.compactLights)
     {
         ReleasePipeline();
         m_backend = inputs.backend;
@@ -879,6 +916,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_diagnostics = inputs.diagnostics;
         m_primaryReceiverMode = inputs.primaryReceiverMode;
         m_compactGeometry = inputs.compactGeometry;
+        m_compactLights = inputs.compactLights;
         m_selectionValid = true;
         m_resourceFailureLogged = false;
     }
@@ -982,7 +1020,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             m_backend,
             m_family,
             inputs.primaryReceiverMode,
-            inputs.compactGeometry));
+            inputs.compactGeometry,
+            inputs.compactLights));
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -1027,7 +1066,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             return false;
         }
         common->Printf(
-            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
+            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
             Upt04BackendName(m_backend),
             Upt04FamilyName(m_family),
             pipelineVariant,
@@ -1039,6 +1078,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             usesBindlessSet ? 1 : 0,
             Upt04ReceiverName(inputs.primaryReceiverMode),
             inputs.compactGeometry ? "compact48" : "legacy112",
+            inputs.compactLights ? "compact64" : "legacy112",
             static_cast<unsigned long long>(pipelineUs));
         return true;
     }
@@ -1211,7 +1251,8 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_compactStaticVertices,
             m_compactDynamicVertices,
             m_compactRigidVertices,
-            m_compactSkinnedVertices);
+            m_compactSkinnedVertices,
+            m_compactLightsBuffer);
     }
     else
     {
@@ -1222,7 +1263,8 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_compactStaticVertices,
             m_compactDynamicVertices,
             m_compactRigidVertices,
-            m_compactSkinnedVertices);
+            m_compactSkinnedVertices,
+            m_compactLightsBuffer);
     }
     if (m_bindingSet && m_bindingSetDescValid && m_bindingSetDesc == desc)
     {
@@ -1594,6 +1636,209 @@ bool PathTraceUnifiedPtState::ExecuteCompactGeometryPack(
     return true;
 }
 
+bool PathTraceUnifiedPtState::EnsureCompactLightResources(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactLights)
+    {
+        return true;
+    }
+    const uint32_t requestedCount = static_cast<uint32_t>(Max(
+        0, inputs.sceneInputs->lights.restirLightManagerCurrentPayloadCount));
+    const uint32_t capacity = Max(1u, requestedCount);
+    const uint64_t bytes = uint64_t(capacity) * UPT04_COMPACT_LIGHT_STRIDE;
+    if (m_compactLightsBuffer &&
+        m_compactLightsBuffer->getDesc().structStride == UPT04_COMPACT_LIGHT_STRIDE &&
+        m_compactLightsBuffer->getDesc().byteSize >= bytes)
+    {
+        return true;
+    }
+
+    nvrhi::BufferDesc desc;
+    desc.debugName = "PathTraceUnifiedPtCompactCurrentLights";
+    desc.byteSize = bytes;
+    desc.structStride = UPT04_COMPACT_LIGHT_STRIDE;
+    desc.canHaveUAVs = true;
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    m_compactLightsBuffer = inputs.device->createBuffer(desc);
+    if (!m_compactLightsBuffer)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate compact lights count=%u bytes=%llu\n",
+            requestedCount,
+            static_cast<unsigned long long>(bytes));
+        return false;
+    }
+    m_compactLightCapacity = capacity;
+    m_compactLightBindingSet = nullptr;
+    m_compactLightBindingSetDescValid = false;
+    m_bindingSet = nullptr;
+    m_bindingSetDescValid = false;
+    common->Printf(
+        "PathTraceUnifiedPt: compact light sidecar stride=%u capacity=%u bytes=%llu\n",
+        UPT04_COMPACT_LIGHT_STRIDE,
+        capacity,
+        static_cast<unsigned long long>(bytes));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureCompactLightPipeline(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactLights || m_compactLightPipeline)
+    {
+        return true;
+    }
+    if (m_compactLightPipelineAttempted)
+    {
+        return false;
+    }
+    m_compactLightPipelineAttempted = true;
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES));
+    m_compactLightBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_compactLightBindingLayout)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact light binding layout\n");
+        return false;
+    }
+
+    void* shaderData = nullptr;
+    int shaderSize = 0;
+    ID_TIME_T shaderTimestamp = 0;
+    uint64_t shaderHash = 0;
+    if (!Upt04ReadShader(
+            "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_compact_light_pack.bin",
+            shaderData,
+            shaderSize,
+            shaderTimestamp,
+            shaderHash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtCompactLightPack";
+    m_compactLightShader = inputs.device->createShader(
+        shaderDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!m_compactLightShader)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact light shader\n");
+        return false;
+    }
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_compactLightShader;
+    pipelineDesc.bindingLayouts = { m_compactLightBindingLayout };
+    const uint64_t pipelineStartUs = Sys_Microseconds();
+    m_compactLightPipeline = inputs.device->createComputePipeline(pipelineDesc);
+    const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
+    if (!m_compactLightPipeline)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact light pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: compact light pack compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=128x1 stride=64 createUs=%llu\n",
+        shaderSize,
+        static_cast<unsigned long long>(shaderHash),
+        static_cast<long long>(shaderTimestamp),
+        static_cast<unsigned long long>(pipelineUs));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureCompactLightBindingSet(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactLights)
+    {
+        return true;
+    }
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        0, inputs.sceneInputs->lights.restirLightManagerCurrentPayloadBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+        1, m_compactLightsBuffer));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES));
+    if (m_compactLightBindingSet && m_compactLightBindingSetDescValid &&
+        m_compactLightBindingSetDesc == desc)
+    {
+        return true;
+    }
+    m_compactLightBindingSet = inputs.device->createBindingSet(
+        desc, m_compactLightBindingLayout);
+    if (!m_compactLightBindingSet)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact light binding set\n");
+        return false;
+    }
+    m_compactLightBindingSetDesc = desc;
+    m_compactLightBindingSetDescValid = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteCompactLightPack(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactLights)
+    {
+        return true;
+    }
+    const uint32_t lightCount = static_cast<uint32_t>(Max(
+        0, inputs.sceneInputs->lights.restirLightManagerCurrentPayloadCount));
+    const Upt04CompactLightPackControl control = { lightCount };
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.L0 CompactLight64 Bind+Barriers",
+            inputs.nsightMarkers);
+        inputs.commandList->setBufferState(
+            inputs.sceneInputs->lights.restirLightManagerCurrentPayloadBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_compactLightsBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+        nvrhi::ComputeState state;
+        state.pipeline = m_compactLightPipeline;
+        state.bindings = { m_compactLightBindingSet };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+    }
+    if (lightCount > 0u)
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.L0 CompactLight64 Dispatch",
+            inputs.nsightMarkers);
+        inputs.commandList->dispatch((lightCount + 127u) / 128u, 1u, 1u);
+    }
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.L0 CompactLight64 OutputBarrier",
+            inputs.nsightMarkers);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_compactLightsBuffer);
+        inputs.commandList->setBufferState(
+            m_compactLightsBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->commitBarriers();
+    }
+    return true;
+}
+
 void PathTraceUnifiedPtState::DrainDiagnosticReadback(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
@@ -1679,6 +1924,13 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     {
         return false;
     }
+    if (inputs.compactLights &&
+        (!EnsureCompactLightResources(inputs) ||
+         !EnsureCompactLightPipeline(inputs) ||
+         !EnsureCompactLightBindingSet(inputs)))
+    {
+        return false;
+    }
     if (!EnsureBindingSet(inputs))
     {
         return false;
@@ -1689,6 +1941,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         return true;
     }
     if (!ExecuteCompactGeometryPack(inputs))
+    {
+        return false;
+    }
+    if (!ExecuteCompactLightPack(inputs))
     {
         return false;
     }

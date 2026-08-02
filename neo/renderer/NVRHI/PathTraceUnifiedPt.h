@@ -51,6 +51,7 @@ struct PathTraceUnifiedPtDispatchInputs
     bool diagnostics = false;
     uint32_t primaryReceiverMode = 0;
     bool compactGeometry = false;
+    bool compactLights = false;
     float primaryCameraOrigin[3] = {};
 };
 
@@ -77,6 +78,10 @@ private:
     bool EnsureCompactGeometryPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureCompactGeometryBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool ExecuteCompactGeometryPack(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureCompactLightResources(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureCompactLightPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureCompactLightBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool ExecuteCompactLightPack(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolveResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolvePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolveBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -88,6 +93,7 @@ private:
         PathTraceUnifiedPtFamily family);
     void ReleasePipeline();
     void ReleaseCompactGeometry();
+    void ReleaseCompactLights();
 
     PathTraceUnifiedPtBackend m_backend = PathTraceUnifiedPtBackend::RayQuery;
     PathTraceUnifiedPtFamily m_family = PathTraceUnifiedPtFamily::DirectOnly;
@@ -96,6 +102,7 @@ private:
     bool m_diagnostics = false;
     uint32_t m_primaryReceiverMode = 0;
     bool m_compactGeometry = false;
+    bool m_compactLights = false;
     bool m_pipelineAttempted = false;
     bool m_resourceFailureLogged = false;
     bool m_pageNeedsClear = false;
@@ -138,6 +145,16 @@ private:
     nvrhi::ShaderHandle m_compactGeometryShader;
     nvrhi::ComputePipelineHandle m_compactGeometryPipeline;
     bool m_compactGeometryPipelineAttempted = false;
+
+    uint32_t m_compactLightCapacity = 0;
+    nvrhi::BufferHandle m_compactLightsBuffer;
+    nvrhi::BindingLayoutHandle m_compactLightBindingLayout;
+    nvrhi::BindingSetHandle m_compactLightBindingSet;
+    nvrhi::BindingSetDesc m_compactLightBindingSetDesc;
+    bool m_compactLightBindingSetDescValid = false;
+    nvrhi::ShaderHandle m_compactLightShader;
+    nvrhi::ComputePipelineHandle m_compactLightPipeline;
+    bool m_compactLightPipelineAttempted = false;
 
     nvrhi::ShaderLibraryHandle m_rayGenerationLibrary;
     nvrhi::ShaderLibraryHandle m_missLibrary;
