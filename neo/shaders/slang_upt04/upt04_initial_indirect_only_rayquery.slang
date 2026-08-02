@@ -9,6 +9,10 @@ import upt04_initial_indirect;
 import upt04_initial_reservoir_stream;
 import upt05_material_set_openpbr;
 
+#ifndef UPT04_SPLIT_INITIAL_INDIRECT
+#define UPT04_SPLIT_INITIAL_INDIRECT 0
+#endif
+
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -19,8 +23,18 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (surfaceIndex >= gUpt04Control.surfaceCount)
         return;
 
+    uint directVisibilityRays = 0u;
+#if UPT04_SPLIT_INITIAL_INDIRECT
+    Upt03LogicalReservoir reservoir = Upt04LoadIntermediateInitialReservoir(
+        surfaceIndex,
+        directVisibilityRays);
+#else
     Upt03LogicalReservoir reservoir = (Upt03LogicalReservoir)0;
+#endif
     Upt04BoundedTransportState transport = Upt04BeginBoundedTransport();
+#if UPT04_SPLIT_INITIAL_INDIRECT
+    transport.budget.visibilityRays = directVisibilityRays;
+#endif
     if (!Upt04CompletePrimaryNeeStage(transport))
     {
         Upt04WriteInitialReservoir(surfaceIndex, reservoir);
@@ -35,13 +49,28 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
             continuation, hit, pixel);
     Upt04StreamInitialTraceWork(
-        reservoir, indirect.endpointCandidate, pixel, 0u);
+        reservoir,
+        indirect.endpointCandidate,
+        pixel,
+#if UPT04_SPLIT_INITIAL_INDIRECT
+        1u);
+#else
+        0u);
+#endif
 
     Upt04InitialTraceWork secondaryNee = indirect.neeWork;
     hit = Upt04MissFacts(secondaryNee.ray.tMax);
     if (secondaryNee.valid != 0u && secondaryNee.traceRequired != 0u)
         hit = Upt04TraceRayQuery(secondaryNee.ray);
     secondaryNee = Upt04AdvanceInitialTraceWork(secondaryNee, hit);
-    Upt04StreamInitialTraceWork(reservoir, secondaryNee, pixel, 1u);
+    Upt04StreamInitialTraceWork(
+        reservoir,
+        secondaryNee,
+        pixel,
+#if UPT04_SPLIT_INITIAL_INDIRECT
+        2u);
+#else
+        1u);
+#endif
     Upt04WriteInitialReservoir(surfaceIndex, reservoir);
 }

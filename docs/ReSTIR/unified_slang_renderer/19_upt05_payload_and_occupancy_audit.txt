@@ -688,3 +688,68 @@ buffer.  The separate M0 module performs the sole 112-byte authoritative load
 and writes one 48-byte record per material.  Packing every frame is deliberate
 for the first correctness-safe A/B; generation-gating can be considered only
 after combined-time and visual acceptance.
+
+Runtime result: M0 measured about 0.01 ms, but the user observed no measurable
+D0 or frame-time change between legacy112 and compact48 materials.  This is a
+neutral result, not evidence of a hidden pack cost: the material table is a
+small scene-sized working set and is sufficiently coherent in this test.  Keep
+the experiment default-off and do not spend further effort compacting this
+table unless a later material-heavy capture contradicts the result.  The next
+footprint work must target per-pixel, per-path, or high-frequency random-access
+state where the accepted receiver and geometry experiments demonstrated an
+actual cache threshold.
+
+Experimental exact direct/indirect D0 split
+--------------------------------------------
+
+The first megakernel split is a default-off RayQuery A/B at the existing
+direct/indirect family boundary.  It does not allocate a work queue or a second
+reservoir.  D0a runs primary NEE and direct visibility, then publishes an
+intermediate form into the existing 64-byte page.  D0b loads that page, runs
+the continuation and secondary NEE work, and overwrites it with the ordinary
+final reservoir consumed by resolve.
+
+The intermediate form is deliberately not the final normalized reservoir.
+It preserves the unnormalized weight sum, valid-zero effective M, selected
+candidate, and the already-spent direct visibility ray.  The visibility count
+uses bit 31 of packed word1 only between D0a and D0b; D0b strips it before the
+final pack.  Indirect candidate selection retains ordinals 1 and 2, matching
+the monolithic direct/endpoint/secondary ordering of 0, 1, and 2.  D0b performs
+the sole normalization, so the split does not bolt invalid/zero candidates
+back onto a finalized reservoir or change their admission probability.
+
+Runtime A/B prerequisites and control:
+
+    r_pathTracingUnifiedPtBackend 0
+    r_pathTracingUnifiedPtFamily 0
+    r_pathTracingUnifiedPtProofStage 9
+    r_pathTracingUnifiedPtShaderProof 6
+    r_pathTracingUnifiedPtDiagnostics 0
+    r_pathTracingUnifiedPtCompactReceiver 2
+    r_pathTracingUnifiedPtCompactGeometry 1
+    r_pathTracingUnifiedPtCompactLights 1
+    r_pathTracingUnifiedPtSplitInitial 0  monolithic three-query D0
+    r_pathTracingUnifiedPtSplitInitial 1  exact direct/indirect split
+
+The pipeline log prints split=monolithic or split=direct+indirect.  Nsight
+separates the split as:
+
+    UPT.D0a Split Direct RayQuery FullFrame
+    UPT.D0 Split Intermediate Reservoir Barrier
+    UPT.D0b Split Indirect RayQuery FullFrame
+
+Judge the sum of all three split ranges against the monolithic D0 range.  The
+split deliberately adds one full-frame 64-byte intermediate write and read:
+about 450 MiB of extra traffic at 2560x1440.  That traffic is the explicit
+price of shortening live ranges; it is admitted only for this A/B and must be
+rejected if occupancy/traversal gains do not exceed it.  No other queue or
+page traffic is hidden in the test.
+
+Compiled SPIR-V contains one OpRayQueryProceedKHR loop in D0a and two in D0b,
+versus three in the monolithic shader.  The blobs are 115,548 bytes for D0a
+and 237,632 bytes for legacy-material D0b, versus 313,964 bytes monolithic.
+Both split modules retain ArrayStride 64 for the one shared page.  Validate
+fixed-sample image parity first, then compare total duration, registers/live
+warps, local-memory traffic, L2/VRAM traffic, RTCORE dependency, and frame
+stability.  A later continuation/shading split is not authorized until this
+boundary proves that live-range reduction can repay an explicit boundary.

@@ -8,6 +8,19 @@ import upt04_primary_surface_live_contract;
 import upt04_initial_reservoir_stream;
 import upt05_material_set_openpbr;
 
+#ifndef UPT04_SPLIT_INITIAL_DIRECT
+#define UPT04_SPLIT_INITIAL_DIRECT 0
+#endif
+
+public void Upt04FinishDirectPass(Upt04InitialTraceWork work)
+{
+#if UPT04_SPLIT_INITIAL_DIRECT
+    Upt04FinishIntermediateDirectTraceWork(work);
+#else
+    Upt04FinishInitialTraceWork(work);
+#endif
+}
+
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -37,7 +50,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         kUpt04InitialFamilyDirect);
     if (gUpt04Control.shaderProofMode == 3u)
     {
-        Upt04FinishInitialTraceWork(work);
+        Upt04FinishDirectPass(work);
         return;
     }
     Upt04TraceRequest queryRequest = work.ray;
@@ -62,5 +75,5 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
     work = Upt04AdvanceInitialTraceWork(work, hit);
-    Upt04FinishInitialTraceWork(work);
+    Upt04FinishDirectPass(work);
 }

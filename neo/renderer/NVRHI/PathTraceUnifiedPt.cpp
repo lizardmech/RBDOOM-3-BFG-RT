@@ -147,6 +147,18 @@ static const char* Upt04InitialShaderPath(
     }
 }
 
+static const char* Upt04SplitDirectShaderPath()
+{
+    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_geometry48_light64.bin";
+}
+
+static const char* Upt04SplitIndirectShaderPath(bool compactMaterials)
+{
+    return compactMaterials
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_material48.bin"
+        : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64.bin";
+}
+
 static const char* Upt04DiagnosticShaderPath()
 {
     return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_diagnostics.bin";
@@ -754,6 +766,8 @@ void PathTraceUnifiedPtState::ReleasePipeline()
     m_rayGenerationLibrary = nullptr;
     m_missLibrary = nullptr;
     m_closestHitLibrary = nullptr;
+    m_splitIndirectComputePipeline = nullptr;
+    m_splitIndirectComputeShader = nullptr;
     m_computePipeline = nullptr;
     m_computeShader = nullptr;
     m_bindingLayout = nullptr;
@@ -832,6 +846,7 @@ void PathTraceUnifiedPtState::Release()
     m_compactGeometry = false;
     m_compactLights = false;
     m_compactMaterials = false;
+    m_splitInitial = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
 }
@@ -943,7 +958,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_primaryReceiverMode != inputs.primaryReceiverMode ||
         m_compactGeometry != inputs.compactGeometry ||
         m_compactLights != inputs.compactLights ||
-        m_compactMaterials != inputs.compactMaterials)
+        m_compactMaterials != inputs.compactMaterials ||
+        m_splitInitial != inputs.splitInitial)
     {
         ReleasePipeline();
         m_backend = inputs.backend;
@@ -954,11 +970,14 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactGeometry = inputs.compactGeometry;
         m_compactLights = inputs.compactLights;
         m_compactMaterials = inputs.compactMaterials;
+        m_splitInitial = inputs.splitInitial;
         m_selectionValid = true;
         m_resourceFailureLogged = false;
     }
 
-    if (((liveTlasProbe || m_backend == PathTraceUnifiedPtBackend::RayQuery) && m_computePipeline) ||
+    if (((liveTlasProbe || m_backend == PathTraceUnifiedPtBackend::RayQuery) &&
+            m_computePipeline &&
+            (!inputs.splitInitial || m_splitIndirectComputePipeline)) ||
         (m_backend == PathTraceUnifiedPtBackend::RayGeneration && m_shaderTable))
     {
         return true;
@@ -1053,13 +1072,15 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         ? Upt04DiagnosticShaderPath()
         : (liveTlasProbe
         ? Upt04LiveTlasProbePath(pipelineVariant)
+        : (inputs.splitInitial
+        ? Upt04SplitDirectShaderPath()
         : Upt04InitialShaderPath(
             m_backend,
             m_family,
             inputs.primaryReceiverMode,
             inputs.compactGeometry,
             inputs.compactLights,
-            inputs.compactMaterials));
+            inputs.compactMaterials)));
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -1103,8 +1124,51 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             common->Printf("PathTraceUnifiedPt: failed to create RayQuery pipeline\n");
             return false;
         }
+        int splitIndirectSize = 0;
+        ID_TIME_T splitIndirectTimestamp = 0;
+        uint64_t splitIndirectHash = 0;
+        uint64_t splitIndirectPipelineUs = 0;
+        if (inputs.splitInitial)
+        {
+            void* splitIndirectData = nullptr;
+            if (!Upt04ReadShader(
+                    Upt04SplitIndirectShaderPath(inputs.compactMaterials),
+                    splitIndirectData,
+                    splitIndirectSize,
+                    splitIndirectTimestamp,
+                    splitIndirectHash))
+            {
+                return false;
+            }
+            nvrhi::ShaderDesc splitShaderDesc;
+            splitShaderDesc.shaderType = nvrhi::ShaderType::Compute;
+            splitShaderDesc.entryName = "main";
+            splitShaderDesc.debugName = "PathTraceUnifiedPtSplitIndirectRayQuery";
+            m_splitIndirectComputeShader = inputs.device->createShader(
+                splitShaderDesc,
+                splitIndirectData,
+                splitIndirectSize);
+            Mem_Free(splitIndirectData);
+            if (!m_splitIndirectComputeShader)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: failed to create split indirect RayQuery shader\n");
+                return false;
+            }
+            pipelineDesc.CS = m_splitIndirectComputeShader;
+            const uint64_t splitPipelineStartUs = Sys_Microseconds();
+            m_splitIndirectComputePipeline =
+                inputs.device->createComputePipeline(pipelineDesc);
+            splitIndirectPipelineUs = Sys_Microseconds() - splitPipelineStartUs;
+            if (!m_splitIndirectComputePipeline)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: failed to create split indirect RayQuery pipeline\n");
+                return false;
+            }
+        }
         common->Printf(
-            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
+            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s split=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
             Upt04BackendName(m_backend),
             Upt04FamilyName(m_family),
             pipelineVariant,
@@ -1118,7 +1182,17 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.compactGeometry ? "compact48" : "legacy112",
             inputs.compactLights ? "compact64" : "legacy112",
             inputs.compactMaterials ? "compact48" : "legacy112",
+            inputs.splitInitial ? "direct+indirect" : "monolithic",
             static_cast<unsigned long long>(pipelineUs));
+        if (inputs.splitInitial)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 createUs=%llu\n",
+                splitIndirectSize,
+                static_cast<unsigned long long>(splitIndirectHash),
+                static_cast<long long>(splitIndirectTimestamp),
+                static_cast<unsigned long long>(splitIndirectPipelineUs));
+        }
         return true;
     }
 
@@ -2328,11 +2402,17 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         const char* markerName = liveTlasProbe
             ? Upt04LiveTlasProbeMarkerName(m_pipelineVariant)
             : (m_backend == PathTraceUnifiedPtBackend::RayQuery
-            ? (oneGroup
+            ? (inputs.splitInitial
+                ? (oneGroup
+                    ? "UPT.D0a Split Direct RayQuery 8x8"
+                    : (oneGroupRow
+                        ? "UPT.D0a Split Direct RayQuery OneGroupRow"
+                        : "UPT.D0a Split Direct RayQuery FullFrame"))
+                : (oneGroup
                 ? oneGroupRayQueryMarker
                 : (oneGroupRow
                     ? "UPT.D0 Initial RayQuery Dispatch OneGroupRow"
-                    : "UPT.D0 Initial RayQuery Dispatch FullFrame"))
+                    : "UPT.D0 Initial RayQuery Dispatch FullFrame")))
             : (oneGroup
                 ? "UPT.D0 Initial RayGen DispatchRays 8x8"
                 : (oneGroupRow
@@ -2364,6 +2444,42 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
             args.height = oneGroup || oneGroupRow ? Min(inputs.height, 8u) : inputs.height;
             args.depth = 1u;
             inputs.commandList->dispatchRays(args);
+        }
+    }
+
+    if (inputs.splitInitial)
+    {
+        const bool oneGroup = inputs.proofStage == 7u;
+        const bool oneGroupRow = inputs.proofStage == 8u;
+        {
+            Upt04MarkerScope marker(
+                inputs.commandList,
+                "UPT.D0 Split Intermediate Reservoir Barrier",
+                inputs.nsightMarkers);
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, m_page0);
+            inputs.commandList->commitBarriers();
+            nvrhi::ComputeState state;
+            state.pipeline = m_splitIndirectComputePipeline;
+            state.bindings = { m_bindingSet };
+            state.bindings.push_back(
+                inputs.sceneInputs->materials.textureDescriptorTable);
+            inputs.commandList->setComputeState(state);
+            inputs.commandList->setPushConstants(&control, sizeof(control));
+        }
+        {
+            const char* markerName = oneGroup
+                ? "UPT.D0b Split Indirect RayQuery 8x8"
+                : (oneGroupRow
+                    ? "UPT.D0b Split Indirect RayQuery OneGroupRow"
+                    : "UPT.D0b Split Indirect RayQuery FullFrame");
+            Upt04MarkerScope marker(
+                inputs.commandList,
+                markerName,
+                inputs.nsightMarkers);
+            inputs.commandList->dispatch(
+                oneGroup ? 1u : (inputs.width + 7u) / 8u,
+                oneGroup || oneGroupRow ? 1u : (inputs.height + 7u) / 8u,
+                1u);
         }
     }
 

@@ -53,6 +53,7 @@ struct PathTraceUnifiedPtDispatchInputs
     bool compactGeometry = false;
     bool compactLights = false;
     bool compactMaterials = false;
+    bool splitInitial = false;
     float primaryCameraOrigin[3] = {};
 };
 
@@ -110,6 +111,7 @@ private:
     bool m_compactGeometry = false;
     bool m_compactLights = false;
     bool m_compactMaterials = false;
+    bool m_splitInitial = false;
     bool m_pipelineAttempted = false;
     bool m_resourceFailureLogged = false;
     bool m_pageNeedsClear = false;
@@ -136,6 +138,8 @@ private:
 
     nvrhi::ShaderHandle m_computeShader;
     nvrhi::ComputePipelineHandle m_computePipeline;
+    nvrhi::ShaderHandle m_splitIndirectComputeShader;
+    nvrhi::ComputePipelineHandle m_splitIndirectComputePipeline;
 
     uint32_t m_compactStaticVertexCapacity = 0;
     uint32_t m_compactDynamicVertexCapacity = 0;

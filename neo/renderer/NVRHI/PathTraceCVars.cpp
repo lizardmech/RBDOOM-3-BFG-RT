@@ -1401,6 +1401,12 @@ idCVar r_pathTracingUnifiedPtCompactMaterials(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT D0 material A/B after compact lights: 0 binds the 112-byte material table; 1 GPU-packs a lossless-for-D0 48-byte sidecar; direct-only family suppresses the pack because it does not read secondary material records" );
 
+idCVar r_pathTracingUnifiedPtSplitInitial(
+    "r_pathTracingUnifiedPtSplitInitial",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT unified D0 A/B: 0 runs the three-query RayQuery megakernel; 1 splits direct and indirect work into two 8x8 dispatches using one exact intermediate/final 64-byte reservoir page; requires unified RayQuery production with compact receiver, geometry, and lights" );
+
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",
     "0",
