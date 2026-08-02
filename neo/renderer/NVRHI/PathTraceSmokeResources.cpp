@@ -1667,6 +1667,25 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
         }
         return initialized;
     }
+    case 21:
+    {
+        // The compact-payload experiment is intentionally Vulkan-only.  Keep
+        // the existing cross-API primary producer as the fallback on D3D12.
+        if (!deviceManager ||
+            deviceManager->GetGraphicsAPI() != nvrhi::GraphicsAPI::VULKAN)
+        {
+            return false;
+        }
+        return initLibrary(
+            m_smokeUptLeanPrimarySurfaceProducerShaderLibrary,
+            m_smokeUptLeanPrimarySurfaceProducerPipeline,
+            m_smokeUptLeanPrimarySurfaceProducerShaderTable,
+            "UPT lean primary-surface producer",
+            nullptr,
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_primary_surface_producer_upt_lean.rt.bin",
+            nullptr,
+            nullptr);
+    }
     case 15:
     {
         nvrhi::ShaderLibraryHandle sentinelSkinnedHitLibrary;

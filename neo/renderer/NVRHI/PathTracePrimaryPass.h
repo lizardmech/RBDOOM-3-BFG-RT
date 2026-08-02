@@ -870,6 +870,7 @@ private:
     int m_smokeUnifiedPtEmissiveLookupCount = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokePrimarySurfaceProducerShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeUptLeanPrimarySurfaceProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirPdfNeeRluCurrentShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSentinelShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSkinnedHitsShaderLibrary;
@@ -898,6 +899,7 @@ private:
     nvrhi::ComputePipelineHandle m_smokeNeeCachePrimarySurfaceUpdatePipeline;
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::PipelineHandle m_smokePrimarySurfaceProducerPipeline;
+    nvrhi::rt::PipelineHandle m_smokeUptLeanPrimarySurfaceProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirPdfNeeRluCurrentPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiSentinelPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiInitialPipeline;
@@ -910,6 +912,7 @@ private:
     nvrhi::rt::PipelineHandle m_smokeNeeCacheDebugPipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokePrimarySurfaceProducerShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeUptLeanPrimarySurfaceProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirPdfNeeRluCurrentShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiSentinelShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiInitialShaderTable;

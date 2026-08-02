@@ -213,6 +213,51 @@ distribution.  It answers whether the same live TLAS and Vulkan RayQuery path
 can sustain traversal when the surrounding state is removed; it is not an
 image-quality or equal-ray-distribution benchmark.
 
+Accepted runtime result
+-----------------------
+
+The user captured proof mode 14 in Nsight.  Traversal rose to nearly maximum
+RT-core utilization toward the end of the marker and appeared constrained by
+VRAM reads rather than writes.  This accepts interpretation case 1:
+
+    the live TLAS is capable of feeding the RT cores;
+    Vulkan inline RayQuery is not intrinsically limited to the production
+        shader's roughly 18-percent RT-core utilization;
+    descriptor-set mapping and the NVRHI RayQuery path are not the shared
+        low-utilization cause;
+    production D0's surrounding live state and/or shading work is responsible
+        for starving traversal and producing the pathological write pressure.
+
+Read pressure at high traversal utilization is not the failure seen in the
+production capture.  Acceleration-structure and geometry traversal naturally
+consume reads.  The important inversion is that the minimal proof drives the
+RT cores while production D0 is write-heavy with the RT cores mostly idle.
+
+One discriminator remains before admitting queue buffers.  Capture the
+existing production ray-generation backend with the same family, scene, and
+camera.  It retains the same source-level sampling/shading sequence but moves
+traversal behind TraceRay with a 32-byte hit payload:
+
+    r_pathTracingUnifiedPtEnable 0
+    r_pathTracingUnifiedPtBackend 1
+    r_pathTracingUnifiedPtFamily 0
+    r_pathTracingUnifiedPtDiagnostics 0
+    r_pathTracingUnifiedPtResolve 0
+    r_pathTracingUnifiedPtProofStage 9
+    r_pathTracingUnifiedPtShaderProof 6
+    r_pathTracingUnifiedPtFixedSampleIndex -1
+    r_pathTracingUnifiedPtEnable 1
+
+Select only:
+
+    UPT.D0 Initial RayGen DispatchRays FullFrame
+
+If raygen restores high RT utilization and removes the write ceiling, prefer
+the existing compact-payload raygen backend and then reduce its remaining live
+state before adding reuse.  If raygen retains the production RayQuery counter
+pattern, admit an explicit D0 split at the continuation-hit boundary; do not
+add generic queues without that result.
+
 Likely remediation boundary if case 1 passes
 --------------------------------------------
 
@@ -227,3 +272,94 @@ state must be compact at each pass boundary, and separate traversal/shading
 stages must justify each queue and buffer in the GPU work ledger.  This is not
 authorization to add generic queues speculatively; the proof result selects
 the next design.
+
+RTX Remix primary-visibility comparison
+---------------------------------------
+
+The user supplied an NvRemixBridge GPU Trace as a fully ray-traced primary-
+visibility comparison.  The frame-level selection reports an approximately
+85.73-percent RT-core ray-tracing input dependency.  It must not be compared to
+UPT P0 at whole-frame scope because the capture also contains direct and
+indirect integration work.
+
+The local Remix source confirms that its path-tracer G-buffer produces primary
+visibility with hardware rays, not rasterization.  It exposes three primary
+backends:
+
+    compute RayQuery
+    ray-generation shader containing RayQuery
+    ray-generation shader using TraceRay
+
+On NVIDIA the automatic preset selects compute RayQuery for G-buffer primary
+rays and direct integration, then TraceRay for indirect integration.  In the
+supplied capture the single visible 5.75-ms vkCmdTraceRaysKHR is therefore most
+likely indirect integration rather than primary visibility.  The exact P0
+comparison scope is the nested profile region:
+
+    Gbuffer Raytracing
+        Primary Rays
+
+With the automatic NVIDIA preset this region is a 16x8 compute dispatch.  Use
+its RT-core utilization, VRAM reads/writes, live registers, local-memory
+loads/stores, and duration; do not use the aggregate 33.9-ms frame or assume
+the largest TraceRays event is primary.
+
+The current Remix source contains a particularly relevant design correction.
+Its hot primary pass defers uncommon work to explicit follow-up passes:
+
+    PSR Prepare
+    Unordered Decal Prepare
+
+The source states that this keeps PSR sampling and unordered decal blending
+out of the common Primary Rays variants and reduces register pressure.  This
+is the inverse of rbdoom P0, where decal and liquid candidate arrays are
+members of the 336-byte static ray payload for every primary ray regardless of
+runtime use.
+
+Remix also packs its RayQuery GeometryResolverState aggressively: half-
+precision direction, attenuation, cone radius and accumulated rotation, plus
+bit-packed flags.  Its RayQuery primary path has no TraceRay payload at all;
+material resolution uses compact local state and writes explicit G-buffer
+outputs.  This reference does not authorize copying Remix code or layouts.  It
+does validate the required rbdoom design constraints:
+
+    keep the common primary traversal state compact;
+    keep optional/rare material features out of its static live contract;
+    attach PSR/decal/liquid work at separately measured boundaries;
+    compare the actual primary profile region, not an entire path-traced frame.
+
+UPT-only compact-primary A/B implementation
+--------------------------------------------
+
+The first P0 isolation change is implemented as a separately compiled Vulkan
+RT library.  It is selected only when UPT is the sole primary-surface consumer
+and the experiment cvar is enabled:
+
+    r_pathTracingUnifiedPtLeanPrimary 0  existing shared P0, 336-byte payload
+    r_pathTracingUnifiedPtLeanPrimary 1  UPT lean P0, 172-byte payload (default)
+
+The lean variant removes the three-entry detail-decal bin and four-entry liquid
+candidate set from the static TraceRay payload.  SPIR-V inspection confirms its
+RayPayloadKHR type has exactly the original 24 base members through debugFlags;
+the compiled library is 586,440 bytes versus 1,073,604 bytes for the unchanged
+shared variant.  It still writes the same 176-byte PathTracePrimarySurfaceRecord
+and retains ordinary opaque, alpha-tested, and filter-decal receiver behavior.
+Liquid modifier cards and detail/additive decal cards pass through to their
+base receiver in this test; their appearance is intentionally not part of this
+payload-cost experiment.
+
+The Nsight ranges identify the selected binary without changing any other UPT
+work:
+
+    UPT.P0 SharedPrimary DispatchRays
+    UPT.P0 LeanPrimary DispatchRays
+
+Test with the normal full-sample UPT configuration at the same camera and
+resolution.  Toggle only r_pathTracingUnifiedPtLeanPrimary between 0 and 1,
+allow the lazily selected pipeline to build once, then capture a steady frame.
+Compare P0 duration, RT-core utilization, VRAM read/write throughput, registers,
+local-memory traffic, and occupancy.  Also compare D0 duration to catch a
+downstream receiver-contract change; its inputs and binary must otherwise be
+identical.  A meaningful P0 gain with stable D0 validates the payload/live-state
+cause.  No gain rejects payload size alone and points the next split at material
+reconstruction inside P0 rather than optional candidate transport.

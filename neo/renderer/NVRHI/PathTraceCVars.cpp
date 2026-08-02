@@ -1369,7 +1369,13 @@ idCVar r_pathTracingUnifiedPtEnable(
     "r_pathTracingUnifiedPtEnable",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean unified Slang ReSTIR PT route request; overrides legacy Clean-DI/GI execution, runs the shared primary producer and one selected UPT-04 initial sampler into a private 64-byte reservoir page; UPT-05 presentation is separately admitted by r_pathTracingUnifiedPtResolve" );
+    "Clean unified Slang ReSTIR PT route request; overrides legacy Clean-DI/GI execution, runs the selected primary producer and one selected UPT-04 initial sampler into a private 64-byte reservoir page; UPT-05 presentation is separately admitted by r_pathTracingUnifiedPtResolve" );
+
+idCVar r_pathTracingUnifiedPtLeanPrimary(
+    "r_pathTracingUnifiedPtLeanPrimary",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-only primary payload A/B: 0 uses the existing 336-byte shared P0 payload; 1 uses a Vulkan-only 172-byte payload with decal/liquid candidate bins omitted while preserving the 176-byte receiver ABI" );
 
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",

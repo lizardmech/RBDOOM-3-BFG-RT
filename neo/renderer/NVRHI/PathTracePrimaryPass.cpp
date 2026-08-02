@@ -190,6 +190,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_unifiedPtState.Release();
     m_smokeTlas = nullptr;
     m_smokePrimarySurfaceProducerShaderTable = nullptr;
+    m_smokeUptLeanPrimarySurfaceProducerShaderTable = nullptr;
     m_smokeRestirPdfNeeRluCurrentShaderTable = nullptr;
     m_smokeCleanRtxdiDiSentinelShaderTable = nullptr;
     m_smokeCleanRtxdiDiInitialShaderTable = nullptr;
@@ -217,6 +218,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeCleanRtxdiDiBoilingFilterShader = nullptr;
     m_smokeNeeCachePrimarySurfaceUpdateShader = nullptr;
     m_smokePrimarySurfaceProducerPipeline = nullptr;
+    m_smokeUptLeanPrimarySurfaceProducerPipeline = nullptr;
     m_smokeRestirPdfNeeRluCurrentPipeline = nullptr;
     m_smokeCleanRtxdiDiSentinelPipeline = nullptr;
     m_smokeCleanRtxdiDiInitialPipeline = nullptr;
@@ -236,6 +238,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeBindingLayout = nullptr;
     m_smokeTextureBindlessLayout = nullptr;
     m_smokePrimarySurfaceProducerShaderLibrary = nullptr;
+    m_smokeUptLeanPrimarySurfaceProducerShaderLibrary = nullptr;
     m_smokeRestirPdfNeeRluCurrentShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiSentinelShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiSkinnedHitsShaderLibrary = nullptr;

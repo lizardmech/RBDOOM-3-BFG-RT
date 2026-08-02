@@ -2075,11 +2075,23 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
+        const bool uptOnlyPrimaryRequested =
+            unifiedPtRouteRequested && !cleanRtxdiDiRouteRequested;
+        const bool useUptLeanPrimary =
+            uptOnlyPrimaryRequested &&
+            r_pathTracingUnifiedPtLeanPrimary.GetBool() &&
+            deviceManager &&
+            deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
+        nvrhi::rt::ShaderTableHandle selectedPrimarySurfaceShaderTable =
+            useUptLeanPrimary
+                ? m_smokeUptLeanPrimarySurfaceProducerShaderTable
+                : m_smokePrimarySurfaceProducerShaderTable;
+
         rb::upt::PrimaryProducerScheduleInput primaryScheduleInput;
         primaryScheduleInput.unifiedPtRequested = unifiedPtRouteRequested;
         primaryScheduleInput.cleanDiRequested = cleanRtxdiDiRouteRequested;
         primaryScheduleInput.cleanDiView = cleanRtxdiDiView;
-        primaryScheduleInput.pipelineReady = m_smokePrimarySurfaceProducerShaderTable != nullptr;
+        primaryScheduleInput.pipelineReady = selectedPrimarySurfaceShaderTable != nullptr;
         primaryScheduleInput.resourcesReady = true;
         primaryScheduleInput.isolationActive = staticBucketSecondaryIsolationActive;
         primaryScheduleInput.isolationAllowsPipelineCreation =
@@ -2101,13 +2113,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         "PathTracePrimaryPass: GEO-10 primary pipeline creation begin (stage=%d deferredHost=1)\n",
                         staticBucketSecondaryIsolation.stage);
                 }
-                InitRayTracingSmokeRestirPipeline(9);
+                InitRayTracingSmokeRestirPipeline(useUptLeanPrimary ? 21 : 9);
+                selectedPrimarySurfaceShaderTable =
+                    useUptLeanPrimary
+                        ? m_smokeUptLeanPrimarySurfaceProducerShaderTable
+                        : m_smokePrimarySurfaceProducerShaderTable;
                 primaryScheduleInput.pipelineReady =
-                    m_smokePrimarySurfaceProducerShaderTable != nullptr;
+                    selectedPrimarySurfaceShaderTable != nullptr;
                 primarySchedule =
                     rb::upt::BuildPrimaryProducerSchedule(primaryScheduleInput);
             }
-            if (!m_smokePrimarySurfaceProducerShaderTable)
+            if (!selectedPrimarySurfaceShaderTable)
             {
                 if (cleanRtxdiDiDumpRequested)
                 {
@@ -2387,7 +2403,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
 
             nvrhi::rt::State primarySurfaceState;
-            primarySurfaceState.shaderTable = m_smokePrimarySurfaceProducerShaderTable;
+            primarySurfaceState.shaderTable = selectedPrimarySurfaceShaderTable;
             primarySurfaceState.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
             commandList->setRayTracingState(primarySurfaceState);
 
@@ -2398,8 +2414,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                     PathTraceGpuMarkerScope nsightMarker(
                     commandList,
-                    unifiedPtRouteRequested && !cleanRtxdiDiRouteRequested
-                        ? "UPT.P0 SharedPrimary DispatchRays"
+                    uptOnlyPrimaryRequested
+                        ? (useUptLeanPrimary
+                            ? "UPT.P0 LeanPrimary DispatchRays"
+                            : "UPT.P0 SharedPrimary DispatchRays")
                         : staticBucketSecondaryIsolationActive
                         ? "GEO10.View16.Stage2 PrimarySurface DispatchRays"
                         : "CleanDI.P0 PrimarySurface DispatchRays",

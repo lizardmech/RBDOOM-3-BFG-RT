@@ -22,8 +22,12 @@ architecture divergence: the early/current P0 payloads are 176/336 bytes
 versus NVIDIA FullSample's 40-byte PT payload, and unified RayQuery D0 retains
 multiple 168-byte work records across three inline traversal loops. A 5,732-
 byte full-frame traversal-isolation shader is built and deployed as proof mode
-14. Timing stability is retained, but low-level efficiency is not yet
-accepted. Temporal and spatial work remains unauthorized pending that A/B.
+14. Its live Nsight result reached nearly maximum RT-core utilization and was
+read-constrained, proving that the live TLAS and Vulkan RayQuery path can feed
+traversal when production D0 state is absent. Production raygen versus
+RayQuery remains the final discriminator before admitting a D0 split. Timing
+stability is retained, but low-level efficiency is not yet accepted. Temporal
+and spatial work remains unauthorized pending that A/B.
 
 Purpose
 -------
@@ -283,7 +287,8 @@ Packet index
     19_upt05_payload_and_occupancy_audit.txt
         Exact early/current/reference payload sizes, unified D0 live-state and
         three-query megakernel evidence, and the deployed full-frame
-        traversal-isolation proof mode 14.
+        traversal-isolation proof mode 14, plus the UPT-only 336-byte versus
+        172-byte compact-primary payload A/B.
 
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,

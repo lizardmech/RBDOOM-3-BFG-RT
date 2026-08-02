@@ -8,6 +8,10 @@
 #endif
 #endif
 
+#ifndef RB_PT_UPT_LEAN_PRIMARY
+#define RB_PT_UPT_LEAN_PRIMARY 0
+#endif
+
 #define RT_SMOKE_DECAL_BIN_SIZE 3
 #define RT_LIQUID_POOL_CANDIDATE_CAPACITY 4
 
@@ -37,6 +41,7 @@ struct PathTraceSmokePayload
     uint shadowIgnoreMaterialId;
     float3 debugVector;
     uint debugFlags;
+#if !RB_PT_UPT_LEAN_PRIMARY
     // Detail-decal blend-through bin (docs/decal_cards/02 M4): any-hit accumulates
     // decal layers here and IgnoreHit()s; the base wall stays the committed
     // closest hit and the layers composite at surface-build time.
@@ -58,6 +63,7 @@ struct PathTraceSmokePayload
     uint liquidBarycentricXBits[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
     uint liquidBarycentricYBits[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
     float liquidHitT[RT_LIQUID_POOL_CANDIDATE_CAPACITY];
+#endif
 };
 
 struct PathTraceSmokeShadowPayload
@@ -1067,6 +1073,7 @@ bool ResolvePrimaryFilterDecalReceiver(inout PathTraceSmokePayload payload, RayD
     }
 
     PathTraceSmokePayload receiverPayload = InitSmokePayload();
+#if !RB_PT_UPT_LEAN_PRIMARY
     // Seed the retrace with the first trace's dedicated set. Any-hit deduplicates
     // the exact five-word occurrence key before capacity accounting.
     receiverPayload.liquidRawCount = payload.liquidRawCount;
@@ -1096,6 +1103,7 @@ bool ResolvePrimaryFilterDecalReceiver(inout PathTraceSmokePayload payload, RayD
         receiverPayload.decalHitT[decalSlot] =
             payload.decalHitT[decalSlot];
     }
+#endif
     receiverPayload.value = 2u;
     receiverPayload.shadowIgnoreInstanceId = payload.instanceId;
     receiverPayload.shadowIgnorePrimitiveIndex = payload.primitiveIndex;
@@ -1420,6 +1428,7 @@ PathTraceSmokePayload InitSmokePayload()
     payload.shadowIgnoreMaterialId = 0xffffffffu;
     payload.debugVector = float3(0.0, 0.0, 0.0);
     payload.debugFlags = 0u;
+#if !RB_PT_UPT_LEAN_PRIMARY
     payload.decalCount = 0u;
     [unroll]
     for (uint decalSlot = 0u; decalSlot < RT_SMOKE_DECAL_BIN_SIZE; ++decalSlot)
@@ -1443,6 +1452,7 @@ PathTraceSmokePayload InitSmokePayload()
         payload.liquidBarycentricYBits[liquidSlot] = 0u;
         payload.liquidHitT[liquidSlot] = 0.0;
     }
+#endif
     return payload;
 }
 
@@ -2291,6 +2301,7 @@ bool PathTraceLiquidPoolUsesInvertedFilterBlackKey(
     return false;
 }
 
+#if !RB_PT_UPT_LEAN_PRIMARY
 void ConditionallyStoreLiquidPoolCandidate(
     inout PathTraceSmokePayload payload,
     uint instanceId,
@@ -2333,6 +2344,7 @@ void ConditionallyStoreLiquidPoolCandidate(
     payload.liquidBarycentricYBits[slot] = key.barycentricYBits;
     payload.liquidHitT[slot] = RayTCurrent();
 }
+#endif
 
 bool TryBuildLiquidPoolCardEvidence(
     uint instanceId,
@@ -2577,6 +2589,7 @@ uint LiquidPoolDiagnosticHash(LiquidPoolContributorKey key)
     return (hash ^ key.barycentricYBits) * 16777619u;
 }
 
+#if !RB_PT_UPT_LEAN_PRIMARY
 struct LiquidPoolPrimaryResolve
 {
     LiquidPoolResolvedFilm film;
@@ -3198,6 +3211,7 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
             0.65);
     }
 }
+#endif
 
 [shader("raygeneration")]
 void RayGen()
@@ -3230,8 +3244,16 @@ void RayGen()
     // Detail-decal composite stages collect decals in any-hit, so the primary ray
     // runs in plain mode (0) and the legacy filter-decal pass-through experiment is
     // bypassed (docs/decal_cards/08 sec.4 -- do not build on the receiver re-trace).
+#if RB_PT_UPT_LEAN_PRIMARY
+    // UPT's lean P0 keeps the ordinary opaque/alpha-tested/filter-decal receiver
+    // contract, but deliberately omits the optional any-hit candidate bins.  The
+    // emitted PathTracePrimarySurfaceRecord remains byte-for-byte ABI compatible.
+    const bool decalCollectMode = false;
+    const bool additiveEmissiveCollectMode = false;
+#else
     const bool decalCollectMode = PathTraceDecalCollectEnabled(PathTraceDecalCompositeStage());
     const bool additiveEmissiveCollectMode = PathTraceAdditiveEmissiveCollectEnabled();
+#endif
     payload.value = decalCollectMode
         ? 0u
         : (additiveEmissiveCollectMode
@@ -3248,14 +3270,18 @@ void RayGen()
         {
             ApplyPrimaryFilterDecalToSurface(surface, filterDecalPayload);
         }
+#if !RB_PT_UPT_LEAN_PRIMARY
         if (decalCollectMode || additiveEmissiveCollectMode)
         {
             ApplyDetailDecalComposite(surface, payload, ray.Direction);
         }
+#endif
     }
+#if !RB_PT_UPT_LEAN_PRIMARY
     LiquidPoolPrimaryResolve liquidResolve = ResolvePrimaryLiquidPool(surface, payload, ray.Direction);
     WritePrimaryLiquidPoolDebug(outputPixel, surface, payload, liquidResolve);
     PublishLiquidPoolExceptionalStatus(liquidResolve.statusMask);
+#endif
     StorePrimarySurfaceRecord(pixel, surface);
     // MotionVectorInfo.y is a host-owned publication bit for the shared
     // producer. UPT consumes only PrimarySurfaceHistoryCurrent; clean DI owns
@@ -3283,6 +3309,7 @@ void ShadowMiss(inout PathTraceSmokeShadowPayload payload)
 // Remix-style conditionallyStoreDecal: keep the RT_SMOKE_DECAL_BIN_SIZE entries
 // with the highest sort keys (the topmost-drawn layers). The decal never commits;
 // receiver validation happens at composite time where the base hitT is known.
+#if !RB_PT_UPT_LEAN_PRIMARY
 void ConditionallyStoreDetailDecalResolved(
     inout PathTraceSmokePayload payload,
     uint materialIndex,
@@ -3352,6 +3379,7 @@ void ConditionallyStoreDetailDecal(
             primitiveIndex,
             barycentrics));
 }
+#endif
 
 [shader("anyhit")]
 void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
@@ -3384,7 +3412,7 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             return;
         }
     }
-    if (PathTraceLiquidPoolCollectionEnabled() &&
+    if ((RB_PT_UPT_LEAN_PRIMARY || PathTraceLiquidPoolCollectionEnabled()) &&
         SmokeTriangleIndexRangeValid(
             lookupInstanceId,
             lookupPrimitiveIndex))
@@ -3394,6 +3422,12 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             lookupPrimitiveIndex);
         if (PathTraceMaterialIsSemanticLiquidPool(materialIndex))
         {
+#if RB_PT_UPT_LEAN_PRIMARY
+            // Modifier cards do not become receivers when their candidate bin is
+            // absent; pass through to the ordinary surface behind them.
+            IgnoreHit();
+            return;
+#else
             // Semantic pool cards are receiver modifiers in every supported
             // geometry domain. Routed-rigid cards retain their own local
             // geometry and owner identity for resolve-time validation.
@@ -3437,13 +3471,20 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             }
 
             payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_FAIL_CLOSED | RT_LIQUID_POOL_STATUS_INVALID_ROUTE;
+#endif
         }
     }
-    if ((payload.value == 0u ||
+#if RB_PT_UPT_LEAN_PRIMARY
+    const bool inspectOptionalDecalCard = true;
+#else
+    const bool inspectOptionalDecalCard =
+        payload.value == 0u ||
             (payload.value == 2u &&
                 PathTraceAdditiveEmissiveCollectEnabled()) ||
-            payload.value ==
-                RT_SMOKE_RAY_MODE_PRIMARY_ADDITIVE_EMISSIVE_COLLECT) &&
+        payload.value ==
+                RT_SMOKE_RAY_MODE_PRIMARY_ADDITIVE_EMISSIVE_COLLECT;
+#endif
+    if (inspectOptionalDecalCard &&
         !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA) &&
         SmokeTriangleIndexRangeValid(
             lookupInstanceId,
@@ -3454,6 +3495,16 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             lookupPrimitiveIndex);
         const PathTraceSmokeMaterial material =
             LoadSmokeMaterial(materialIndex);
+#if RB_PT_UPT_LEAN_PRIMARY
+        const bool detailDecal =
+            (material.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u;
+        const bool additiveEmissiveSignage =
+            (material.flags &
+                (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+                    RT_SMOKE_MATERIAL_EMISSIVE)) ==
+                (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+                    RT_SMOKE_MATERIAL_EMISSIVE);
+#else
         const bool detailDecal =
             payload.value == 0u &&
             PathTraceDecalCollectEnabled(
@@ -3471,8 +3522,10 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                     RT_SMOKE_MATERIAL_EMISSIVE)) ==
                 (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
                     RT_SMOKE_MATERIAL_EMISSIVE);
+#endif
         if (detailDecal || additiveEmissiveSignage)
         {
+#if !RB_PT_UPT_LEAN_PRIMARY
             if (resolved.staticBucket)
             {
                 if (PathTraceStaticBucketDetailDecalFacesPrimaryRay(
@@ -3498,6 +3551,7 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                     primitiveIndex,
                     attributes.barycentrics);
             }
+#endif
             IgnoreHit();
             return;
         }
