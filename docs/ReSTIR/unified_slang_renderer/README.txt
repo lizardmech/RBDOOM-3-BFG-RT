@@ -10,10 +10,12 @@ backend-parity gates. UPT-05 now owns one verified trace-free compute resolve,
 one RGBA16F output, direct presentation, and a statically selected modular
 OpenPBR material provider. A zero-production-cost fixed-input repeatability
 probe is also accepted for direct-only and unified RayQuery at 2560 x 1440
-through the existing one-shot diagnostic. The live image was fully functional
-and remained at the user's 120 FPS cap with textured models. This is preliminary
-first-image throughput evidence, not a substitute for the required long stable
-Nsight capture and remaining scene matrix. Temporal and spatial work remains
+through the existing one-shot diagnostic. Four 2560 x 1440 Nsight GPU Trace
+captures now also accept the steady-state timing and no-pipeline-creation gates:
+the UPT submit remained within 4.67-4.83 ms and P0+D0+R0 remained within
+4.24-4.37 ms. The live image was fully functional and remained at the user's
+120 FPS cap with textured models. The remaining scene matrix and equal-work
+reference comparison are still open. Temporal and spatial work remains
 unauthorized.
 
 Purpose
@@ -260,6 +262,11 @@ Packet index
         SUPERSEDED IN PART by 13. Its initial-sampling design (one-draw
         technique mixture, M = 1, two-ray ceiling) does not match the cited
         paper. Read 13 before implementing or reviewing D0.
+
+    17_upt05_nsight_timing_results.txt
+        Four-capture 1440p P0/D0/R0 timing comparison, submit-scope stability,
+        zero steady-frame Vulkan creation events, and remaining comparison
+        gates.
 
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,

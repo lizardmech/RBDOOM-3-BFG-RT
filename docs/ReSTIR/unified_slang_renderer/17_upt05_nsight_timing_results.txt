@@ -1,0 +1,134 @@
+UPT-05 Nsight Timing Results
+============================
+
+Date
+----
+
+2026-08-02
+
+Scope
+-----
+
+This records four steady-state NVIDIA Nsight Graphics GPU Trace captures of
+the 2560 x 1440 UPT RayQuery route. The user's capture-state ordering, oldest
+to newest, was:
+
+    standard
+    standard
+    game time frozen
+    game time live, r_pathTracingUnifiedPtFixedSampleIndex -1
+
+The trace files themselves expose the RayQuery marker names, but do not embed
+the console cvar transcript. The state labels above are therefore the user's
+capture-time authority rather than an inference from marker timing.
+
+Capture files
+-------------
+
+All files are under:
+
+    C:/Users/lizard/Documents/NVIDIA Nsight Graphics
+
+    17:15:46  RBDoom3BFG_2026_08_02_17_15_46.ngfx-gputrace  20,888,411 bytes
+    17:16:06  RBDoom3BFG_2026_08_02_17_16_06.ngfx-gputrace  21,931,161 bytes
+    17:16:25  RBDoom3BFG_2026_08_02_17_16_25.ngfx-gputrace  21,197,057 bytes
+    17:16:42  RBDoom3BFG_2026_08_02_17_16_42.ngfx-gputrace  21,977,768 bytes
+
+Measured ranges
+---------------
+
+Durations below are the Nsight event-list GPU durations. Bind/barrier ranges
+reported below 0.01 ms are retained as such rather than rounded into a made-up
+number.
+
+                         standard 1   standard 2   time frozen   live/-1
+    trace window             7.08 ms      8.68 ms       7.67 ms    8.52 ms
+    UPT queue submit         4.81 ms      4.67 ms       4.83 ms    4.77 ms
+    P0 shared primary        2.42 ms      2.38 ms       2.80 ms    2.39 ms
+    D0 bind/barriers        <0.01 ms     <0.01 ms      <0.01 ms   <0.01 ms
+    D0 RayQuery dispatch     1.33 ms      1.32 ms       1.27 ms    1.62 ms
+    D0 output barrier        0.00 ms      0.00 ms       0.00 ms    0.00 ms
+    R0 bind/barriers        <0.01 ms     <0.01 ms      <0.01 ms   <0.01 ms
+    R0 resolve dispatch      0.62 ms      0.54 ms       0.30 ms    0.30 ms
+    R0 output barrier       <0.01 ms     <0.01 ms      <0.01 ms   <0.01 ms
+    P0 + D0 + R0             4.37 ms      4.24 ms       4.37 ms    4.31 ms
+    submit remainder         0.44 ms      0.43 ms       0.46 ms    0.46 ms
+
+The trace-window duration is not treated as UPT GPU work. It includes time
+outside the measured submit and is affected by the running presentation/frame
+schedule. The queue-submit and labeled-range durations are the useful values
+for this gate.
+
+Stability result
+----------------
+
+The UPT queue submit spans only 4.67 to 4.83 ms across all four captures:
+
+    mean                         4.77 ms
+    maximum range               0.16 ms
+    maximum range / mean        3.35 percent
+
+The three material UPT dispatch ranges span only 4.24 to 4.37 ms in total:
+
+    mean                         4.3225 ms
+    maximum range               0.13 ms
+    maximum range / mean        3.01 percent
+
+They account for 90.36 to 90.85 percent of the measured submit. The unlabeled
+remainder is nearly fixed at 0.43 to 0.46 ms. This capture set therefore does
+not reproduce a growing allocation, barrier, descriptor, or pipeline-creation
+cost in the UPT submit.
+
+Individual marker time does move between stages. The frozen capture moves
+about 0.4 ms into shared-primary relative to the other three. The live/-1
+capture moves about 0.3 ms from the resolve/other distribution into D0. Those
+movements mostly cancel at submit scope. It would be incorrect to diagnose a
+D0 regression from the single 1.62 ms sample while ignoring that its whole
+submit is within 0.06 ms of the four-capture mean.
+
+Steady-state creation check
+---------------------------
+
+Filtering each capture's API event list for vkCreate produced zero events.
+No measured capture contains Vulkan pipeline or resource creation. This
+accepts the steady-frame no-pipeline-creation requirement for this scene.
+
+Performance interpretation
+--------------------------
+
+At this no-reuse baseline, the largest repeatable GPU item is not a UPT
+reservoir or resolve operation. It is the shared P0 primary-surface ray trace
+at roughly 2.4 ms in three of four captures. D0 is normally about 1.3 ms and
+the trace-free R0 resolve is 0.3 to 0.6 ms. Bindings and barriers do not explain
+the cost.
+
+The result is evidence against a broad low-level multiplier inside the new UPT
+producer/resolve lane on this simple scene. It is not yet an equal-work NVIDIA
+reference comparison, and it does not prove that the inherited shared-primary
+producer is optimal. The next useful comparison is therefore pass-specific:
+
+    compare D0 against the matching no-reuse RTXDI/PT initial sampler
+    compare R0 against a trace-free packed-reservoir resolve
+    treat P0 separately because it is shared upstream work
+
+Do not compare only whole-frame FPS between the two applications. Record
+resolution, ray policy, material set, candidate count, and dispatch dimensions
+beside each corresponding marker.
+
+UPT-05 disposition
+------------------
+
+Accepted by this capture set:
+
+    stable repeated Nsight timings for P0, D0, and R0
+    separate bind/barrier and dispatch ranges
+    no Vulkan creation work in measured steady frames
+    no evidence of a time-growing UPT submit in this scene
+
+Still open:
+
+    remaining required scene matrix
+    identical-resolution/equal-work comparison with E:/prog/rtxdi_testing
+
+Temporal and spatial reuse remain unauthorized until those remaining gates are
+evaluated.

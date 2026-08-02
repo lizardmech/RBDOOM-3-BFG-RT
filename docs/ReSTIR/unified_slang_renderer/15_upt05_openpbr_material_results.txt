@@ -118,12 +118,14 @@ the BSDF or admitting zero-contribution samples to the reservoir.
 Remaining UPT-05 gates
 ----------------------
 
-    stable Nsight capture of UPT.D0 and UPT.R0
-    no pipeline creation during measured steady frames
     remaining required scene matrix
     identical-resolution comparison with E:/prog/rtxdi_testing
 
 Fixed-input direct-only and unified repeatability are accepted in
 16_upt05_repeatability_probe.txt.
+
+Four repeated 2560 x 1440 Nsight captures accept the stable P0/D0/R0 timing and
+no-steady-frame-pipeline-creation gates in
+17_upt05_nsight_timing_results.txt.
 
 Temporal and spatial reuse remain unauthorized until these gates are evaluated.
