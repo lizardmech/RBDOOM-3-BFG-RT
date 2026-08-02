@@ -7,9 +7,8 @@ import upt04_geometry_contract;
 import upt04_light_contract;
 import upt04_local_light_proposal;
 import upt04_local_light_evaluation;
-import upt04_material_set_live_probe;
-import upt04_material_primary_live;
 import upt04_material_contract;
+import upt04_material_provider_contract;
 import upt04_path_event_contract;
 import upt04_primary_surface_live_contract;
 import upt04_random_contract;
@@ -53,13 +52,14 @@ public Upt04InitialTraceWork Upt04MakeIndirectZero(
     return work;
 }
 
-public Upt04InitialTraceWork Upt04PrepareIndirectTrial(
+public Upt04InitialTraceWork Upt04PrepareIndirectTrial<
+    TMaterialSet : IUpt04MaterialSet>(
     Upt04InitialTraceWork work,
     Upt04PrimarySurfaceRecord surface,
     uint2 pixel,
     Upt04BoundedTransportState transport)
 {
-    const Upt04PathEvent continuation = Upt04SamplePrimaryContinuation(
+    const Upt04PathEvent continuation = TMaterialSet.SamplePrimaryContinuation(
         surface,
         Upt04WhiteHash(Upt04InitialRandomKey(
             pixel,
@@ -105,7 +105,8 @@ public Upt04InitialTraceWork Upt04PrepareIndirectTrial(
     return work;
 }
 
-public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials(
+public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
+    TMaterialSet : IUpt04MaterialSet>(
     Upt04InitialTraceWork work,
     Upt04HitFacts hit,
     uint2 pixel)
@@ -135,7 +136,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials(
     endpoint.pathLength = 1u;
     endpoint.reconnectionVertexLength = 1u;
     const Upt04MaterialEmissionEvaluation endpointEmission =
-        Upt04EvaluateEmissiveEndpoint(
+        TMaterialSet.EvaluateEmissiveEndpoint(
             hitSurface.materialIndex,
             hitSurface.triangleClassAndFlags,
             hitSurface.texCoord);
@@ -197,14 +198,16 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials(
         || selection.denseIndex >= gUpt04Control.currentLightCount)
         return result;
     const Upt04UnifiedLightRecord light = gUpt04CurrentLights[selection.denseIndex];
-    const Upt04EvaluatedLocalLight evaluated = Upt04EvaluateSelectedLocalLight(
+    const Upt04EvaluatedLocalLight evaluated =
+        Upt04EvaluateSelectedLocalLight<TMaterialSet>(
         selection,
         light,
         hitSurface.position);
     if (evaluated.valid == 0u)
         return result;
-    const Upt04MaterialEvaluation material = Upt04EvaluateSecondaryDirectProbe(
+    const Upt04MaterialEvaluation material = TMaterialSet.EvaluateSecondaryDirect(
         hitSurface,
+        -work.ray.direction,
         evaluated.sample.direction,
         evaluated.sample.radiance);
     if (material.valid == 0u)

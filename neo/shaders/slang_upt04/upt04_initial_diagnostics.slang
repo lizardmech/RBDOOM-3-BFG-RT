@@ -10,6 +10,7 @@ import upt04_initial_reservoir_stream;
 import upt04_primary_surface_live_contract;
 import upt04_light_contract;
 import upt04_initial_control;
+import upt05_material_set_openpbr;
 
 // This entry point is intentionally separate from every production entry.
 // The fixed 16-word tuple is a bring-up observable, not production state.
@@ -105,7 +106,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     const bool directEnabled =
         (gUpt04Control.enabledFamilyMask & kUpt04FamilyLocalLight) != 0u;
-    Upt04InitialTraceWork direct = Upt04PrepareDirectPathTreeWork(pixel);
+    Upt04InitialTraceWork direct =
+        Upt04PrepareDirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel);
     Upt04HitFacts hit = Upt04MissFacts(direct.ray.tMax);
     Upt04DiagRay(direct, false);
     if (direct.valid != 0u && direct.traceRequired != 0u)
@@ -126,13 +128,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     const bool indirectEnabled =
         (gUpt04Control.enabledFamilyMask & kUpt04FamilyIndirect) != 0u;
     Upt04InitialTraceWork continuation =
-        Upt04PrepareIndirectPathTreeWork(pixel, transport);
+        Upt04PrepareIndirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel, transport);
     hit = Upt04MissFacts(continuation.ray.tMax);
     Upt04DiagRay(continuation, true);
     if (continuation.valid != 0u && continuation.traceRequired != 0u)
         hit = Upt04TraceRayQuery(continuation.ray);
     const Upt04IndirectHitTrialResult indirect =
-        Upt04PrepareIndirectHitTrials(continuation, hit, pixel);
+        Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
+            continuation, hit, pixel);
     if (indirectEnabled)
         Upt04DiagCandidate(indirect.endpointCandidate, false);
     Upt04StreamInitialTraceWork(

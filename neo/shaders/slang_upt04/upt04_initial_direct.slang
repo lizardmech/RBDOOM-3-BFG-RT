@@ -6,13 +6,14 @@ import upt04_light_contract;
 import upt04_local_light_proposal;
 import upt04_local_light_evaluation_direct;
 import upt04_material_contract;
-import upt04_material_primary_live;
+import upt04_material_provider_contract;
 import upt04_primary_surface_live_contract;
 import upt04_random_contract;
 import upt04_random_white_hash;
 import upt04_transport_initial_bounded;
 
-public Upt04InitialTraceWork Upt04PrepareDirectTrial(
+public Upt04InitialTraceWork Upt04PrepareDirectTrial<
+    TMaterialSet : IUpt04MaterialSet>(
     Upt04InitialTraceWork work,
     Upt04PrimarySurfaceRecord surface,
     uint2 pixel)
@@ -49,7 +50,7 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial(
     if (evaluated.valid == 0u)
         return work;
 
-    const Upt04MaterialEvaluation material = Upt04EvaluatePrimaryDirectProbe(
+    const Upt04MaterialEvaluation material = TMaterialSet.EvaluatePrimaryDirect(
         surface,
         evaluated.sample.direction,
         evaluated.sample.radiance);

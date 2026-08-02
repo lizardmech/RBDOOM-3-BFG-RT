@@ -9,10 +9,11 @@ are implemented, built, deployed, and live-tested. At 2560 x 1440 the user
 reported a fully functional image with textured models while the game remained
 at its 120 FPS cap.
 
-This accepts the first-image plumbing and preliminary throughput gate. It does
-not yet accept the complete UPT-05 task: the modular baseline OpenPBR material
-provider, required scene matrix, fixed-output repeatability, long stable Nsight
-capture, and reference timing comparison remain.
+This accepts the first-image plumbing and preliminary throughput gate. The
+modular baseline OpenPBR provider is now implemented and runtime-accepted in
+15_upt05_openpbr_material_results.txt. The required scene matrix, fixed-output
+repeatability, long stable Nsight capture, and reference timing comparison
+remain.
 
 Admitted GPU work
 -----------------
@@ -111,8 +112,8 @@ durations in a stable Nsight capture without inferring unused headroom from the
 Next work boundary
 ------------------
 
-Implement the baseline OpenPBR material provider as an independently owned
-Slang module selected by the UPT composition root. ReSTIR candidate streaming,
-reservoir packing, and resolve source must not acquire concrete material math.
-Temporal and spatial reuse remain blocked until the remaining UPT-05 correctness
-and timing gates are evaluated.
+The baseline OpenPBR material provider is complete. Continue with the remaining
+UPT-05 correctness and stable-timing gates recorded in
+15_upt05_openpbr_material_results.txt. ReSTIR candidate streaming, reservoir
+packing, and resolve source must not acquire concrete material math. Temporal
+and spatial reuse remain blocked until those gates are evaluated.

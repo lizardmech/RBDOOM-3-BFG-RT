@@ -3,9 +3,10 @@ import upt04_local_light_proposal;
 import upt04_geometry_contract;
 import upt04_emissive_replay;
 import upt04_material_contract;
-import upt04_material_set_live_probe;
+import upt04_material_provider_contract;
 
-public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight(
+public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
+    TMaterialSet : IUpt04MaterialSet>(
     Upt04LocalLightSelection selection,
     Upt04UnifiedLightRecord light,
     float3 receiverPosition)
@@ -25,7 +26,7 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight(
         if (replay.status == kUpt04SampleInvalid)
             return result;
         const Upt04MaterialEmissionEvaluation emission =
-            Upt04EvaluateEmissiveEndpoint(
+            TMaterialSet.EvaluateEmissiveEndpoint(
                 replay.materialIndex,
                 replay.triangleClassAndFlags,
                 replay.texCoord);

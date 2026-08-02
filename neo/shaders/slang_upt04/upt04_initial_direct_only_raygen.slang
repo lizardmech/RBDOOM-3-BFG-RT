@@ -3,6 +3,7 @@ import upt04_initial_bindings;
 import upt04_initial_direct_only_shared;
 import upt04_initial_work_contract;
 import upt04_initial_reservoir_stream;
+import upt05_material_set_openpbr;
 
 [shader("raygeneration")]
 void main()
@@ -12,7 +13,8 @@ void main()
         return;
     if (pixel.y * gUpt04Control.renderWidth + pixel.x >= gUpt04Control.surfaceCount)
         return;
-    Upt04InitialTraceWork work = Upt04PrepareStaticInitialFamilyTraceWork(
+    Upt04InitialTraceWork work =
+        Upt04PrepareStaticInitialFamilyTraceWork<Upt05OpenPbrMaterialSet>(
         pixel,
         kUpt04InitialFamilyDirect);
     Upt04HitFacts hit = Upt04MissFacts(work.ray.tMax);

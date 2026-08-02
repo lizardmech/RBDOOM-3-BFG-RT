@@ -4,8 +4,10 @@ import upt04_initial_reservoir_stream;
 import upt04_initial_work_contract;
 import upt04_hit_contract;
 import upt04_primary_surface_live_contract;
+import upt04_material_provider_contract;
 
-public Upt04InitialTraceWork Upt04PrepareStaticInitialFamilyTraceWork(
+public Upt04InitialTraceWork Upt04PrepareStaticInitialFamilyTraceWork<
+    TMaterialSet : IUpt04MaterialSet>(
     uint2 pixel,
     uint familyKind)
 {
@@ -21,7 +23,7 @@ public Upt04InitialTraceWork Upt04PrepareStaticInitialFamilyTraceWork(
         return work;
     const Upt04PrimarySurfaceRecord surface = gUpt04PrimarySurfaces[surfaceIndex];
     return Upt04PrimarySurfaceRecordValid(surface)
-        ? Upt04PrepareDirectTrial(work, surface, pixel)
+        ? Upt04PrepareDirectTrial<TMaterialSet>(work, surface, pixel)
         : work;
 }
 

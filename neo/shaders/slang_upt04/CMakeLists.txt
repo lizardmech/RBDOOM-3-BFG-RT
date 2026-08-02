@@ -32,11 +32,14 @@ set(UPT04_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_control.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_live_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_provider_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_bindings.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_local_light_proposal.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_transport_initial_bounded.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_set_live_probe.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_primary_live.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_openpbr.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_set_openpbr.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_local_light_evaluation_direct.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_reservoir_stream.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_shared.slang"
@@ -188,7 +191,11 @@ set(UPT04_GEOMETRY_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_live_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_provider_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_set_live_probe.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_primary_live.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_openpbr.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_set_openpbr.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_path_event_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_bindings.slang"
@@ -293,6 +300,33 @@ add_custom_target(PathTraceSlangUpt04StaticSpecializations
 set_target_properties(PathTraceSlangUpt04StaticSpecializations PROPERTIES FOLDER "Shaders/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04StaticSpecializations)
 
+set(UPT05_MATERIAL_BOUNDARY_STAMP
+    "${UPT04_OUTPUT_DIR}/upt05_material_boundary_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT05_MATERIAL_BOUNDARY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT05_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DUPT05_STAMP=${UPT05_MATERIAL_BOUNDARY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt05MaterialBoundary.cmake"
+    DEPENDS ${UPT04_BACKEND_OUTPUTS} ${UPT04_STATIC_SPECIALIZATION_OUTPUTS}
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt05MaterialBoundary.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_provider_contract.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_openpbr.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_set_openpbr.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_shared.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_shared.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_local_light_evaluation.slang"
+    COMMENT "UPT-05 verifying generic material boundary and OpenPBR composition"
+    VERBATIM)
+add_custom_target(PathTraceSlangUpt05MaterialBoundary
+    DEPENDS "${UPT05_MATERIAL_BOUNDARY_STAMP}")
+set_target_properties(PathTraceSlangUpt05MaterialBoundary
+    PROPERTIES FOLDER "Shaders/UPT-05")
+add_dependencies(PathTraceSlangUpt04ModuleGraph
+    PathTraceSlangUpt05MaterialBoundary)
+
 # Minimal live-game TLAS compiler A/B. These modules intentionally share only
 # a TLAS and one uint UAV; they do not import any UPT estimator modules.
 path_tracing_declare_slang_spirv_module(
@@ -379,6 +413,7 @@ foreach(runtime_module IN LISTS UPT04_RUNTIME_MODULES)
         DEPENDS "${runtime_source}"
             "${UPT04_BACKEND_VERIFY_STAMP}"
             "${UPT04_STATIC_VERIFY_STAMP}"
+            "${UPT05_MATERIAL_BOUNDARY_STAMP}"
         COMMENT "UPT-04 verified Vulkan runtime artifact: ${runtime_module}"
         VERBATIM)
     list(APPEND UPT04_RUNTIME_OUTPUTS "${runtime_output}")

@@ -7,6 +7,7 @@ import upt03_reservoir_contract;
 import upt04_transport_initial_bounded;
 import upt04_initial_indirect;
 import upt04_initial_reservoir_stream;
+import upt05_material_set_openpbr;
 
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -26,12 +27,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
     Upt04InitialTraceWork continuation =
-        Upt04PrepareIndirectPathTreeWork(pixel, transport);
+        Upt04PrepareIndirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel, transport);
     Upt04HitFacts hit = Upt04MissFacts(continuation.ray.tMax);
     if (continuation.valid != 0u && continuation.traceRequired != 0u)
         hit = Upt04TraceRayQuery(continuation.ray);
     const Upt04IndirectHitTrialResult indirect =
-        Upt04PrepareIndirectHitTrials(continuation, hit, pixel);
+        Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
+            continuation, hit, pixel);
     Upt04StreamInitialTraceWork(
         reservoir, indirect.endpointCandidate, pixel, 0u);
 

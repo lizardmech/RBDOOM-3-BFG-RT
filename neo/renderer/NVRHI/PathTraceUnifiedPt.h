@@ -27,6 +27,12 @@ enum class PathTraceUnifiedPtFamily : uint32_t
     IndirectOnly = 2
 };
 
+enum PathTraceUnifiedPtMaterialPolicyFlags : uint32_t
+{
+    PATH_TRACE_UPT_MATERIAL_USE_SPECULAR_MAPS = 1u << 0u,
+    PATH_TRACE_UPT_MATERIAL_LEGACY_SPECMAP_TO_PBR = 1u << 1u
+};
+
 struct PathTraceUnifiedPtDispatchInputs
 {
     nvrhi::IDevice* device = nullptr;
@@ -36,6 +42,7 @@ struct PathTraceUnifiedPtDispatchInputs
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t frameSampleIndex = 0;
+    uint32_t materialPolicyFlags = 0;
     uint32_t proofStage = 1;
     uint32_t shaderProofMode = 1;
     PathTraceUnifiedPtBackend backend = PathTraceUnifiedPtBackend::RayQuery;

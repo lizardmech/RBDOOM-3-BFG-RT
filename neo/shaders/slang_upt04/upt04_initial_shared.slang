@@ -8,7 +8,7 @@ import upt04_initial_work_contract;
 import upt04_hit_contract;
 import upt04_light_contract;
 import upt04_local_light_proposal;
-import upt04_material_primary_live;
+import upt04_material_provider_contract;
 import upt04_primary_surface_live_contract;
 import upt04_random_white_hash;
 import upt04_random_contract;
@@ -52,7 +52,8 @@ public bool Upt04LoadInitialSurface(
     return Upt04PrimarySurfaceRecordValid(surface);
 }
 
-public Upt04InitialTraceWork Upt04PrepareDirectPathTreeWork(uint2 pixel)
+public Upt04InitialTraceWork Upt04PrepareDirectPathTreeWork<
+    TMaterialSet : IUpt04MaterialSet>(uint2 pixel)
 {
     Upt04InitialTraceWork work;
     Upt04PrimarySurfaceRecord surface;
@@ -60,10 +61,11 @@ public Upt04InitialTraceWork Upt04PrepareDirectPathTreeWork(uint2 pixel)
         return work;
     if (!Upt04DirectFamilyAvailable())
         return work;
-    return Upt04PrepareDirectTrial(work, surface, pixel);
+    return Upt04PrepareDirectTrial<TMaterialSet>(work, surface, pixel);
 }
 
-public Upt04InitialTraceWork Upt04PrepareIndirectPathTreeWork(
+public Upt04InitialTraceWork Upt04PrepareIndirectPathTreeWork<
+    TMaterialSet : IUpt04MaterialSet>(
     uint2 pixel,
     Upt04BoundedTransportState transport)
 {
@@ -73,24 +75,25 @@ public Upt04InitialTraceWork Upt04PrepareIndirectPathTreeWork(
         return work;
     const bool indirectAvailable =
         (gUpt04Control.enabledFamilyMask & kUpt04FamilyIndirect) != 0u
-        && Upt04PrimaryContinuationAvailable(surface);
+        && TMaterialSet.PrimaryContinuationAvailable(surface);
     return indirectAvailable
-        ? Upt04PrepareIndirectTrial(work, surface, pixel, transport)
+        ? Upt04PrepareIndirectTrial<TMaterialSet>(work, surface, pixel, transport)
         : work;
 }
 
-public Upt04InitialTraceWork Upt04PrepareStaticInitialFamilyTraceWork(
+public Upt04InitialTraceWork Upt04PrepareStaticInitialFamilyTraceWork<
+    TMaterialSet : IUpt04MaterialSet>(
     uint2 pixel,
     uint familyKind)
 {
     if (familyKind == kUpt04InitialFamilyDirect)
-        return Upt04PrepareDirectPathTreeWork(pixel);
+        return Upt04PrepareDirectPathTreeWork<TMaterialSet>(pixel);
     if (familyKind == kUpt04InitialFamilyIndirect)
     {
         Upt04BoundedTransportState transport = Upt04BeginBoundedTransport();
         if (!Upt04CompletePrimaryNeeStage(transport))
             return (Upt04InitialTraceWork)0;
-        return Upt04PrepareIndirectPathTreeWork(pixel, transport);
+        return Upt04PrepareIndirectPathTreeWork<TMaterialSet>(pixel, transport);
     }
     return (Upt04InitialTraceWork)0;
 }

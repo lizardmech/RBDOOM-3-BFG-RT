@@ -15,6 +15,8 @@ static constexpr uint32_t UPT04_FAMILY_LOCAL_LIGHT = 1u << 0u;
 static constexpr uint32_t UPT04_FAMILY_INDIRECT = 1u << 1u;
 static constexpr uint32_t UPT04_ROUTE_STATIC_BUCKETS = 1u << 1u;
 static constexpr uint32_t UPT04_EMISSIVE_LOOKUP_EXACT = 1u << 3u;
+static constexpr uint32_t UPT04_MATERIAL_USE_SPECULAR_MAPS = 1u << 4u;
+static constexpr uint32_t UPT04_MATERIAL_LEGACY_SPECMAP_TO_PBR = 1u << 5u;
 static constexpr uint32_t UPT04_TRANSPORT_K_MAX = 2u;
 static constexpr uint32_t UPT04_TRANSPORT_POLICY_ID = 1u;
 static constexpr uint32_t UPT04_NEE_RIS_CANDIDATE_COUNT = 1u;
@@ -554,6 +556,14 @@ static Upt04InitialControl Upt04BuildControl(const PathTraceUnifiedPtDispatchInp
             : 0u) |
         (lights.unifiedPtEmissiveLookupExact
             ? UPT04_EMISSIVE_LOOKUP_EXACT
+            : 0u) |
+        ((dispatch.materialPolicyFlags
+                & PATH_TRACE_UPT_MATERIAL_USE_SPECULAR_MAPS) != 0u
+            ? UPT04_MATERIAL_USE_SPECULAR_MAPS
+            : 0u) |
+        ((dispatch.materialPolicyFlags
+                & PATH_TRACE_UPT_MATERIAL_LEGACY_SPECMAP_TO_PBR) != 0u
+            ? UPT04_MATERIAL_LEGACY_SPECMAP_TO_PBR
             : 0u);
     const uint64_t pageGeneration = Upt04BuildPageGeneration(
         dispatch,

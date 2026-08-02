@@ -2,6 +2,7 @@ import upt04_material_contract;
 import upt04_primary_surface_live_contract;
 import upt04_path_event_contract;
 import upt04_light_contract;
+import upt05_material_openpbr;
 
 public Upt04MaterialEvaluation Upt04EvaluatePrimaryDirectProbe(
     Upt04PrimarySurfaceRecord surface,
@@ -13,31 +14,40 @@ public Upt04MaterialEvaluation Upt04EvaluatePrimaryDirectProbe(
         || !all(isfinite(lightDirection))
         || !all(isfinite(incidentRadiance)))
         return result;
-    const float cosine = saturate(dot(
-        normalize(surface.shadingNormalAndOpacity.xyz), lightDirection));
-    result.weightedContribution =
-        max(surface.albedoAndAlphaCutoff.xyz, float3(0.0f))
-        * max(incidentRadiance, float3(0.0f)) * cosine
-        * 0.3183098861837907f;
+    const float3 normal = Upt05OpenPbrSafeNormalize(
+        surface.shadingNormalAndOpacity.xyz,
+        Upt05OpenPbrSafeNormalize(
+            surface.geometricNormalAndRoughness.xyz,
+            float3(0.0f, 0.0f, 1.0f)));
+    const float3 viewDirection = Upt05OpenPbrSafeNormalize(
+        surface.viewDirectionAndReserved.xyz, normal);
+    Upt05OpenPbrParameters parameters;
+    parameters.baseColor = saturate(surface.albedoAndAlphaCutoff.xyz);
+    parameters.roughness = saturate(surface.geometricNormalAndRoughness.w);
+    parameters.specularF0 = saturate(surface.specularF0AndReserved.xyz);
+    const Upt05OpenPbrEvaluation evaluated = Upt05OpenPbrEvaluate(
+        parameters,
+        normal,
+        lightDirection,
+        viewDirection);
+    if (evaluated.valid == 0u)
+        return result;
+    const float cosine = saturate(dot(normal, lightDirection));
+    result.weightedContribution = evaluated.brdf
+        * max(incidentRadiance, float3(0.0f)) * cosine;
     result.target = max(result.weightedContribution.x,
         max(result.weightedContribution.y, result.weightedContribution.z));
-    result.directionalPdf = cosine * 0.3183098861837907f;
-    result.lobeMask = kUpt04LobeDiffuse;
+    result.directionalPdf = evaluated.directionalPdf;
+    result.lobeMask = evaluated.lobeMask;
     result.valid = all(isfinite(result.weightedContribution)) ? 1u : 0u;
     return result;
-}
-
-public float3 Upt04MaterialBuildPerpendicular(float3 normal)
-{
-    return normalize(abs(normal.z) < 0.999f
-        ? cross(float3(0.0f, 0.0f, 1.0f), normal)
-        : cross(float3(0.0f, 1.0f, 0.0f), normal));
 }
 
 public bool Upt04PrimaryContinuationAvailable(Upt04PrimarySurfaceRecord surface)
 {
     return Upt04PrimarySurfaceRecordValid(surface)
-        && any(max(surface.albedoAndAlphaCutoff.xyz, float3(0.0f)) > 0.0f);
+        && (any(max(surface.albedoAndAlphaCutoff.xyz, float3(0.0f)) > 0.0f)
+            || any(max(surface.specularF0AndReserved.xyz, float3(0.0f)) > 0.0f));
 }
 
 public Upt04PathEvent Upt04SamplePrimaryContinuation(
@@ -51,23 +61,29 @@ public Upt04PathEvent Upt04SamplePrimaryContinuation(
         || !all(isfinite(directionRandom))
         || any(directionRandom < 0.0f) || any(directionRandom >= 1.0f))
         return result;
-    const float3 normal = normalize(surface.shadingNormalAndOpacity.xyz);
-    const float radius = sqrt(directionRandom.x);
-    const float phi = 6.283185307179586f * directionRandom.y;
-    const float3 tangent = Upt04MaterialBuildPerpendicular(normal);
-    const float3 bitangent = cross(normal, tangent);
-    const float3 direction = normalize(
-        tangent * (radius * cos(phi))
-        + bitangent * (radius * sin(phi))
-        + normal * sqrt(max(0.0f, 1.0f - directionRandom.x)));
-    const float cosine = saturate(dot(normal, direction));
-    const float pdf = cosine * 0.3183098861837907f;
-    if (!Upt04FinitePositive(pdf))
+    const float3 normal = Upt05OpenPbrSafeNormalize(
+        surface.shadingNormalAndOpacity.xyz,
+        Upt05OpenPbrSafeNormalize(
+            surface.geometricNormalAndRoughness.xyz,
+            float3(0.0f, 0.0f, 1.0f)));
+    const float3 viewDirection = Upt05OpenPbrSafeNormalize(
+        surface.viewDirectionAndReserved.xyz, normal);
+    Upt05OpenPbrParameters parameters;
+    parameters.baseColor = saturate(surface.albedoAndAlphaCutoff.xyz);
+    parameters.roughness = saturate(surface.geometricNormalAndRoughness.w);
+    parameters.specularF0 = saturate(surface.specularF0AndReserved.xyz);
+    const Upt05OpenPbrSample sampled = Upt05SampleOpenPbr(
+        parameters,
+        normal,
+        viewDirection,
+        lobeRandom,
+        directionRandom);
+    if (sampled.valid == 0u || !Upt04FinitePositive(sampled.directionalPdf))
         return result;
-    result.direction = direction;
-    result.pdf = pdf;
-    result.throughput = max(surface.albedoAndAlphaCutoff.xyz, float3(0.0f));
-    result.lobeMask = kUpt04LobeDiffuse;
+    result.direction = sampled.direction;
+    result.pdf = sampled.directionalPdf;
+    result.throughput = sampled.throughput;
+    result.lobeMask = sampled.lobeMask;
     result.valid = all(isfinite(result.throughput)) ? 1u : 0u;
     return result;
 }

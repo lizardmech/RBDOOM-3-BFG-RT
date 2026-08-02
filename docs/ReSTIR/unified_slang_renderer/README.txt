@@ -7,11 +7,12 @@ Status
 UPT-00 through UPT-03 are complete. UPT-04 has passed its live RayQuery and
 ray-generation execution ladder, full-frame dispatch, diagnostic counter, and
 backend-parity gates. UPT-05 now owns one verified trace-free compute resolve,
-one RGBA16F output, and direct presentation. The first live 2560 x 1440 image
-was fully functional and remained at the user's 120 FPS cap with textured
-models. This is preliminary first-image throughput evidence, not a substitute
-for the required long Nsight capture or OpenPBR material acceptance. Temporal
-and spatial work remains unauthorized.
+one RGBA16F output, direct presentation, and a statically selected modular
+OpenPBR material provider. The live 2560 x 1440 image was fully functional and
+remained at the user's 120 FPS cap with textured models. This is preliminary
+first-image throughput evidence, not a substitute for the required long stable
+Nsight capture and remaining scene/repeatability gates. Temporal and spatial
+work remains unauthorized.
 
 Purpose
 -------
@@ -244,6 +245,11 @@ Packet index
     14_upt05_trace_free_resolve_results.txt
         UPT-05 resolve resource/dispatch admission, static SPIR-V closure,
         direct presentation path, and first live 1440p image result.
+
+    15_upt05_openpbr_material_results.txt
+        Static material-provider boundary, rbdoom-owned EON/GGX/VNDF baseline,
+        Vulkan build and live image result, shader sizes, and disposition of
+        the inherited Doom analytic-light range cutoff seen in resolve view 2.
 
         SUPERSEDED IN PART by 13. Its initial-sampling design (one-draw
         technique mixture, M = 1, two-ray ceiling) does not match the cited

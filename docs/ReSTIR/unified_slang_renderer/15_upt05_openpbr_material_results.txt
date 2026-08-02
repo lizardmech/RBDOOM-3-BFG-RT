@@ -1,0 +1,127 @@
+UPT-05 Baseline OpenPBR Material Results
+========================================
+
+Status
+------
+
+The baseline opaque OpenPBR material provider is implemented as a statically
+selected Slang specialization, built, deployed, and live-tested. The user
+reported a fully functional 2560 x 1440 image with textured models while the
+game remained at its 120 FPS cap.
+
+This accepts the UPT-05 material-module and first-image runtime gates. It does
+not accept the required long stable Nsight capture, fixed-output repeatability
+matrix, or reference timing comparison. Temporal and spatial reuse remain
+blocked by those outstanding measurement gates.
+
+Module boundary
+---------------
+
+The ReSTIR/transport modules depend only on IUpt04MaterialSet. Production entry
+points select Upt05OpenPbrMaterialSet statically; there is no runtime interface
+dispatch and no material-type switch inside the ReSTIR candidate stream.
+
+Owned material modules:
+
+    upt04_material_provider_contract.slang
+        transport-facing static material interface
+
+    upt05_material_openpbr.slang
+        resource-free EON diffuse and isotropic GGX evaluation
+        GGX VNDF continuation sampling and matching mixture PDF
+
+    upt05_material_set_openpbr.slang
+        concrete production composition
+
+Primary and secondary live-material adapters own texture decoding and legacy
+Doom specular-map policy. The OpenPBR math module declares no descriptor,
+texture, buffer, acceleration-structure, ray-query, or TraceRay operation.
+
+Material policy transport
+-------------------------
+
+The host publishes two material-policy bits through the existing UPT control
+record:
+
+    use specular maps
+    apply legacy Doom specmap-to-PBR conversion
+
+They are derived from the existing renderer controls and participate in the
+UPT page fingerprint, so a policy change cannot silently reuse an incompatible
+page. No new GPU allocation, descriptor binding, dispatch, or ray was added.
+
+Static verification
+-------------------
+
+VerifyUpt05MaterialBoundary.cmake proves:
+
+    the ReSTIR core does not import a concrete material implementation
+    production entry points select Upt05OpenPbrMaterialSet
+    the interface and concrete conformance are present
+    EON, GGX evaluation, GGX VNDF sampling, and matching PDF code are present
+    the OpenPBR math module has zero resource declarations and zero ray sites
+
+The complete Vulkan-only UPT-04 runtime-artifact target passed all Slang,
+spirv-val, reflection, disassembly, backend-closure, specialization, ABI, and
+material-boundary verifiers. The full win64-pt-dev-release game build passed.
+
+Deployed production shader sizes
+--------------------------------
+
+    unified RayQuery            273440 bytes
+    unified ray generation      272832 bytes
+    direct-only RayQuery        108528 bytes
+    direct-only ray generation   92520 bytes
+    indirect-only RayQuery      193208 bytes
+    indirect-only ray generation 192872 bytes
+    diagnostic                  281328 bytes
+
+The unified OpenPBR closures are approximately 49.8 KB larger than the prior
+Lambert-era unified closures. Static family closure and descriptor shedding
+still pass; this size observation is not a substitute for steady GPU timing.
+
+Live result, 2026-08-02
+-----------------------
+
+Observed result:
+
+    Vulkan at 2560 x 1440
+    fully functional image
+    textured models displayed
+    frame rate remained capped at 120 FPS
+    no device removal reported
+
+The only reported visual concern was a rigid boundary around lights in resolve
+view 2. Source tracing proves this is not an OpenPBR lobe defect:
+
+    PathTraceDoomLights records max(lightRadius.xyz) as radiusMax
+    the analytic candidate publishes radiusMax as doomRadiusAndArea.x
+    the unified record copies it to uvOrDoomParams.x
+    Upt04SampleAnalyticSphere uses 1 - (distance / influenceRadius)^2
+    influence is exactly zero at and beyond influenceRadius
+
+The legacy HLSL analytic NEE path uses the same Doom-radius rejection and the
+same quadratic influence expression. Resolve view 2 is categorical: valid
+reservoirs receive a diffuse/specular color and canonical-empty records are
+black, so it makes the exact-zero light-volume boundary especially conspicuous.
+
+Disposition of analytic cutoff
+-------------------------------
+
+Do not alter the cutoff in the material provider. It is an inherited analytic
+light policy and part of current Doom lighting parity, not material shading.
+If estimator view 0 later shows an objectionable boundary, investigate a
+separate analytic-light policy with an explicit support radius, falloff, PDF,
+and reference-image contract. Do not extend light support by silently changing
+the BSDF or admitting zero-contribution samples to the reservoir.
+
+Remaining UPT-05 gates
+----------------------
+
+    stable Nsight capture of UPT.D0 and UPT.R0
+    no pipeline creation during measured steady frames
+    fixed camera/RNG repeatability evidence
+    remaining required scene matrix
+    identical-resolution comparison with E:/prog/rtxdi_testing
+
+Temporal and spatial reuse remain unauthorized until these gates are evaluated.
