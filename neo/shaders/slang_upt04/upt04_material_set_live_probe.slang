@@ -37,7 +37,7 @@ public float3 Upt04MaterialBindingProbe(uint materialIndex, float2 uv)
     if ((gUpt04Control.shaderProofMode & 0x80000000u) == 0u
         || materialIndex >= gUpt04Control.materialCount)
         return float3(1.0f);
-    const Upt04SmokeMaterialRecord material = gUpt04Materials[materialIndex];
+    const Upt04SmokeMaterialRecord material = Upt04LoadMaterialRecord(materialIndex);
     if (material.diffuseTextureIndex == kUpt04InvalidIdentity
         || material.diffuseTextureIndex >= gUpt04Control.logicalTextureCount)
         return max(material.debugAlbedo.xyz, float3(0.0f));
@@ -55,7 +55,7 @@ public Upt04MaterialEmissionEvaluation Upt04EvaluateEmissiveEndpoint(
         || !all(isfinite(uv)))
         return result;
 
-    const Upt04SmokeMaterialRecord material = gUpt04Materials[materialIndex];
+    const Upt04SmokeMaterialRecord material = Upt04LoadMaterialRecord(materialIndex);
     if ((material.flags & kUpt04MaterialEmissive) == 0u
         || (triangleClassAndFlags & kUpt04TriangleEmissiveStageOff) != 0u)
     {
@@ -95,7 +95,7 @@ public Upt04MaterialEvaluation Upt04EvaluateSecondaryDirectProbe(
         || !all(isfinite(incidentRadiance)))
         return result;
 
-    const Upt04SmokeMaterialRecord material = gUpt04Materials[surface.materialIndex];
+    const Upt04SmokeMaterialRecord material = Upt04LoadMaterialRecord(surface.materialIndex);
     float3 baseColor = max(material.debugAlbedo.xyz, float3(0.0f));
     if (material.diffuseTextureIndex != kUpt04InvalidIdentity)
     {

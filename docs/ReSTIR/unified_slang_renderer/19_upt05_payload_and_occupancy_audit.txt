@@ -640,3 +640,51 @@ storage reduction wins.
 Emitted SPIR-V proves ArrayStride 64 and compact-light loads in D0 with no
 112-byte unified-light storage buffer.  The separate L0 pack shader is the only
 module that loads the authoritative 112-byte light record.
+
+Runtime acceptance: in the larger-scene comparison L0 occupied about 0.1 ms,
+while the complete renderer differed by only about 0.2 ms from the fastest
+runs.  The light sidecar therefore remains admitted as a useful foundation for
+the next storage experiment; its own pack cost is small enough that it does not
+hide D0 behavior.
+
+Experimental 48-byte material replay sidecar
+---------------------------------------------
+
+The next isolated experiment compacts the 112-byte material table only at the
+UPT D0 consumer boundary.  The authoritative CPU-uploaded material table and
+all legacy renderer consumers remain unchanged.  A small compute pass packs
+each live table entry once per frame into a 48-byte D0 sidecar.
+
+This reduction is lossless for the current D0 shader.  It retains full fp32
+debug albedo and emissive color, plus the diffuse, specular, and emissive
+texture indices and the complete material flags.  D0 has three material load
+sites and none consumes alpha/normal texture indices, alpha cutoff, texture
+dimensions, or padding.  Those fields remain available in the authoritative
+table but are not replayed through D0's cache footprint.
+
+Runtime A/B:
+
+    r_pathTracingUnifiedPtCompactReceiver 2
+    r_pathTracingUnifiedPtCompactGeometry 1
+    r_pathTracingUnifiedPtCompactLights 1
+    r_pathTracingUnifiedPtCompactMaterials 0  legacy112 material reads
+    r_pathTracingUnifiedPtCompactMaterials 1  GPU-packed compact48 sidecar
+
+The pipeline log prints materials=compact48 or materials=legacy112.  Nsight
+exposes the new cost separately:
+
+    UPT.M0 CompactMaterial48 Dispatch
+    UPT.D0 Initial RayQuery Dispatch FullFrame
+
+Judge M0+D0 combined duration rather than D0 alone.  Also compare L2 and VRAM
+throughput, RTCORE dependency, frame stability, and visual parity for textured,
+emissive, and specular-mapped surfaces.  Because direct-only D0 never reads a
+secondary-hit material record, the runtime suppresses this sidecar and its pack
+pass for that family instead of doing material work with no consumer.
+
+Emitted SPIR-V proves ArrayStride 48 and exactly three compact-material load
+sites in the unified D0 variant.  It contains no 112-byte material storage
+buffer.  The separate M0 module performs the sole 112-byte authoritative load
+and writes one 48-byte record per material.  Packing every frame is deliberate
+for the first correctness-safe A/B; generation-gating can be considered only
+after combined-time and visual acceptance.

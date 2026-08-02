@@ -15,6 +15,8 @@ static constexpr uint32_t UPT04_COMPACT_VERTEX_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_GEOMETRY_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT04_COMPACT_LIGHT_STRIDE = 64u;
 static constexpr uint32_t UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES = 4u;
+static constexpr uint32_t UPT04_COMPACT_MATERIAL_STRIDE = 48u;
+static constexpr uint32_t UPT04_COMPACT_MATERIAL_PUSH_CONSTANT_BYTES = 4u;
 static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 128u;
 static constexpr uint32_t UPT04_FAMILY_LOCAL_LIGHT = 1u << 0u;
 static constexpr uint32_t UPT04_FAMILY_INDIRECT = 1u << 1u;
@@ -76,14 +78,17 @@ static const char* Upt04InitialShaderPath(
     PathTraceUnifiedPtFamily family,
     uint32_t primaryReceiverMode,
     bool compactGeometry,
-    bool compactLights)
+    bool compactLights,
+    bool compactMaterials)
 {
     if (backend == PathTraceUnifiedPtBackend::RayQuery)
     {
         switch (family)
         {
         case PathTraceUnifiedPtFamily::Unified:
-            return compactLights
+            return compactMaterials
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_material48.bin"
+                : (compactLights
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64.bin"
                 : (compactGeometry
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48.bin"
@@ -91,9 +96,11 @@ static const char* Upt04InitialShaderPath(
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32.bin"
                 : (primaryReceiverMode == 1u
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact.bin"
-                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery.bin")));
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery.bin"))));
         case PathTraceUnifiedPtFamily::IndirectOnly:
-            return compactLights
+            return compactMaterials
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact32_geometry48_light64_material48.bin"
+                : (compactLights
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact32_geometry48_light64.bin"
                 : (compactGeometry
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact32_geometry48.bin"
@@ -101,9 +108,11 @@ static const char* Upt04InitialShaderPath(
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact32.bin"
                 : (primaryReceiverMode == 1u
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact.bin"
-                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery.bin")));
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery.bin"))));
         default:
-            return compactLights
+            return compactMaterials
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact32_geometry48_light64_material48.bin"
+                : (compactLights
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact32_geometry48_light64.bin"
                 : (compactGeometry
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact32_geometry48.bin"
@@ -111,7 +120,7 @@ static const char* Upt04InitialShaderPath(
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact32.bin"
                 : (primaryReceiverMode == 1u
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact.bin"
-                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery.bin")));
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery.bin"))));
         }
     }
 
@@ -361,6 +370,15 @@ static_assert(
     sizeof(Upt04CompactLightPackControl) == UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES,
     "UPT compact-light push constants must match Slang reflection");
 
+struct Upt04CompactMaterialPackControl
+{
+    uint32_t materialCount;
+};
+static_assert(
+    sizeof(Upt04CompactMaterialPackControl) ==
+        UPT04_COMPACT_MATERIAL_PUSH_CONSTANT_BYTES,
+    "UPT compact-material push constants must match Slang reflection");
+
 class Upt04MarkerScope
 {
 public:
@@ -511,7 +529,8 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     nvrhi::BufferHandle compactDynamicVertices,
     nvrhi::BufferHandle compactRigidVertices,
     nvrhi::BufferHandle compactSkinnedVertices,
-    nvrhi::BufferHandle compactLights)
+    nvrhi::BufferHandle compactLights,
+    nvrhi::BufferHandle compactMaterials)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -523,7 +542,8 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, dispatch.primarySurfaceBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         2, dispatch.compactLights ? compactLights : lights.restirLightManagerCurrentPayloadBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, materials.materialTableBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        3, dispatch.compactMaterials ? compactMaterials : materials.materialTableBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, page0));
     desc.addItem(nvrhi::BindingSetItem::Sampler(5, materials.textureSampler));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, lights.emissiveTriangleBuffer));
@@ -772,11 +792,25 @@ void PathTraceUnifiedPtState::ReleaseCompactLights()
     m_compactLightCapacity = 0;
 }
 
+void PathTraceUnifiedPtState::ReleaseCompactMaterials()
+{
+    m_compactMaterialBindingSet = nullptr;
+    m_compactMaterialBindingSetDesc = nvrhi::BindingSetDesc();
+    m_compactMaterialBindingSetDescValid = false;
+    m_compactMaterialPipeline = nullptr;
+    m_compactMaterialShader = nullptr;
+    m_compactMaterialBindingLayout = nullptr;
+    m_compactMaterialPipelineAttempted = false;
+    m_compactMaterialsBuffer = nullptr;
+    m_compactMaterialCapacity = 0;
+}
+
 void PathTraceUnifiedPtState::Release()
 {
     ReleasePipeline();
     ReleaseCompactGeometry();
     ReleaseCompactLights();
+    ReleaseCompactMaterials();
     ReleaseResolve();
     m_page0 = nullptr;
     m_pageWidth = 0;
@@ -797,6 +831,7 @@ void PathTraceUnifiedPtState::Release()
     m_primaryReceiverMode = 0;
     m_compactGeometry = false;
     m_compactLights = false;
+    m_compactMaterials = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
 }
@@ -907,7 +942,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_pipelineVariant != pipelineVariant || m_diagnostics != inputs.diagnostics ||
         m_primaryReceiverMode != inputs.primaryReceiverMode ||
         m_compactGeometry != inputs.compactGeometry ||
-        m_compactLights != inputs.compactLights)
+        m_compactLights != inputs.compactLights ||
+        m_compactMaterials != inputs.compactMaterials)
     {
         ReleasePipeline();
         m_backend = inputs.backend;
@@ -917,6 +953,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_primaryReceiverMode = inputs.primaryReceiverMode;
         m_compactGeometry = inputs.compactGeometry;
         m_compactLights = inputs.compactLights;
+        m_compactMaterials = inputs.compactMaterials;
         m_selectionValid = true;
         m_resourceFailureLogged = false;
     }
@@ -1021,7 +1058,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             m_family,
             inputs.primaryReceiverMode,
             inputs.compactGeometry,
-            inputs.compactLights));
+            inputs.compactLights,
+            inputs.compactMaterials));
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -1066,7 +1104,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             return false;
         }
         common->Printf(
-            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
+            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
             Upt04BackendName(m_backend),
             Upt04FamilyName(m_family),
             pipelineVariant,
@@ -1079,6 +1117,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             Upt04ReceiverName(inputs.primaryReceiverMode),
             inputs.compactGeometry ? "compact48" : "legacy112",
             inputs.compactLights ? "compact64" : "legacy112",
+            inputs.compactMaterials ? "compact48" : "legacy112",
             static_cast<unsigned long long>(pipelineUs));
         return true;
     }
@@ -1264,7 +1303,8 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_compactDynamicVertices,
             m_compactRigidVertices,
             m_compactSkinnedVertices,
-            m_compactLightsBuffer);
+            m_compactLightsBuffer,
+            m_compactMaterialsBuffer);
     }
     if (m_bindingSet && m_bindingSetDescValid && m_bindingSetDesc == desc)
     {
@@ -1839,6 +1879,209 @@ bool PathTraceUnifiedPtState::ExecuteCompactLightPack(
     return true;
 }
 
+bool PathTraceUnifiedPtState::EnsureCompactMaterialResources(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactMaterials)
+    {
+        return true;
+    }
+    const uint32_t requestedCount = static_cast<uint32_t>(Max(
+        0, inputs.sceneInputs->materials.materialTableEntryCount));
+    const uint32_t capacity = Max(1u, requestedCount);
+    const uint64_t bytes = uint64_t(capacity) * UPT04_COMPACT_MATERIAL_STRIDE;
+    if (m_compactMaterialsBuffer &&
+        m_compactMaterialsBuffer->getDesc().structStride == UPT04_COMPACT_MATERIAL_STRIDE &&
+        m_compactMaterialsBuffer->getDesc().byteSize >= bytes)
+    {
+        return true;
+    }
+
+    nvrhi::BufferDesc desc;
+    desc.debugName = "PathTraceUnifiedPtCompactMaterials";
+    desc.byteSize = bytes;
+    desc.structStride = UPT04_COMPACT_MATERIAL_STRIDE;
+    desc.canHaveUAVs = true;
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    m_compactMaterialsBuffer = inputs.device->createBuffer(desc);
+    if (!m_compactMaterialsBuffer)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate compact materials count=%u bytes=%llu\n",
+            requestedCount,
+            static_cast<unsigned long long>(bytes));
+        return false;
+    }
+    m_compactMaterialCapacity = capacity;
+    m_compactMaterialBindingSet = nullptr;
+    m_compactMaterialBindingSetDescValid = false;
+    m_bindingSet = nullptr;
+    m_bindingSetDescValid = false;
+    common->Printf(
+        "PathTraceUnifiedPt: compact material sidecar stride=%u capacity=%u bytes=%llu\n",
+        UPT04_COMPACT_MATERIAL_STRIDE,
+        capacity,
+        static_cast<unsigned long long>(bytes));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureCompactMaterialPipeline(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactMaterials || m_compactMaterialPipeline)
+    {
+        return true;
+    }
+    if (m_compactMaterialPipelineAttempted)
+    {
+        return false;
+    }
+    m_compactMaterialPipelineAttempted = true;
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT04_COMPACT_MATERIAL_PUSH_CONSTANT_BYTES));
+    m_compactMaterialBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_compactMaterialBindingLayout)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact material binding layout\n");
+        return false;
+    }
+
+    void* shaderData = nullptr;
+    int shaderSize = 0;
+    ID_TIME_T shaderTimestamp = 0;
+    uint64_t shaderHash = 0;
+    if (!Upt04ReadShader(
+            "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_compact_material_pack.bin",
+            shaderData,
+            shaderSize,
+            shaderTimestamp,
+            shaderHash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtCompactMaterialPack";
+    m_compactMaterialShader = inputs.device->createShader(
+        shaderDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!m_compactMaterialShader)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact material shader\n");
+        return false;
+    }
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_compactMaterialShader;
+    pipelineDesc.bindingLayouts = { m_compactMaterialBindingLayout };
+    const uint64_t pipelineStartUs = Sys_Microseconds();
+    m_compactMaterialPipeline = inputs.device->createComputePipeline(pipelineDesc);
+    const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
+    if (!m_compactMaterialPipeline)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact material pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: compact material pack compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=128x1 stride=48 createUs=%llu\n",
+        shaderSize,
+        static_cast<unsigned long long>(shaderHash),
+        static_cast<long long>(shaderTimestamp),
+        static_cast<unsigned long long>(pipelineUs));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureCompactMaterialBindingSet(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactMaterials)
+    {
+        return true;
+    }
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        0, inputs.sceneInputs->materials.materialTableBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+        1, m_compactMaterialsBuffer));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT04_COMPACT_MATERIAL_PUSH_CONSTANT_BYTES));
+    if (m_compactMaterialBindingSet && m_compactMaterialBindingSetDescValid &&
+        m_compactMaterialBindingSetDesc == desc)
+    {
+        return true;
+    }
+    m_compactMaterialBindingSet = inputs.device->createBindingSet(
+        desc, m_compactMaterialBindingLayout);
+    if (!m_compactMaterialBindingSet)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact material binding set\n");
+        return false;
+    }
+    m_compactMaterialBindingSetDesc = desc;
+    m_compactMaterialBindingSetDescValid = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteCompactMaterialPack(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactMaterials)
+    {
+        return true;
+    }
+    const uint32_t materialCount = static_cast<uint32_t>(Max(
+        0, inputs.sceneInputs->materials.materialTableEntryCount));
+    const Upt04CompactMaterialPackControl control = { materialCount };
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.M0 CompactMaterial48 Bind+Barriers",
+            inputs.nsightMarkers);
+        inputs.commandList->setBufferState(
+            inputs.sceneInputs->materials.materialTableBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_compactMaterialsBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+        nvrhi::ComputeState state;
+        state.pipeline = m_compactMaterialPipeline;
+        state.bindings = { m_compactMaterialBindingSet };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+    }
+    if (materialCount > 0u)
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.M0 CompactMaterial48 Dispatch",
+            inputs.nsightMarkers);
+        inputs.commandList->dispatch((materialCount + 127u) / 128u, 1u, 1u);
+    }
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.M0 CompactMaterial48 OutputBarrier",
+            inputs.nsightMarkers);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_compactMaterialsBuffer);
+        inputs.commandList->setBufferState(
+            m_compactMaterialsBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->commitBarriers();
+    }
+    return true;
+}
+
 void PathTraceUnifiedPtState::DrainDiagnosticReadback(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
@@ -1931,6 +2174,13 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     {
         return false;
     }
+    if (inputs.compactMaterials &&
+        (!EnsureCompactMaterialResources(inputs) ||
+         !EnsureCompactMaterialPipeline(inputs) ||
+         !EnsureCompactMaterialBindingSet(inputs)))
+    {
+        return false;
+    }
     if (!EnsureBindingSet(inputs))
     {
         return false;
@@ -1945,6 +2195,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         return false;
     }
     if (!ExecuteCompactLightPack(inputs))
+    {
+        return false;
+    }
+    if (!ExecuteCompactMaterialPack(inputs))
     {
         return false;
     }

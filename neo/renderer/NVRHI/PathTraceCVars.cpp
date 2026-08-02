@@ -1395,6 +1395,12 @@ idCVar r_pathTracingUnifiedPtCompactLights(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT D0 current-light A/B after compact geometry: 0 binds the manager's 112-byte records; 1 GPU-packs a UPT-only 64-byte current-light sidecar before D0 while preserving all replay identities" );
 
+idCVar r_pathTracingUnifiedPtCompactMaterials(
+    "r_pathTracingUnifiedPtCompactMaterials",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT D0 material A/B after compact lights: 0 binds the 112-byte material table; 1 GPU-packs a lossless-for-D0 48-byte sidecar; direct-only family suppresses the pack because it does not read secondary material records" );
+
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",
     "0",

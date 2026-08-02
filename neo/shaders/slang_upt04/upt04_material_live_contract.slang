@@ -25,3 +25,41 @@ public struct Upt04SmokeMaterialRecord
     public uint padding1;
     public uint padding2;
 };
+
+// UPT-only D0 sidecar. The authoritative 112-byte material table remains
+// unchanged; the admitted material set needs only these full-precision values.
+public struct Upt04CompactMaterialRecord
+{
+    public uint4 debugAlbedo;
+    public uint4 emissiveColor;
+    public uint4 textureIndicesAndFlags;
+};
+
+public Upt04CompactMaterialRecord Upt04PackCompactMaterial(
+    Upt04SmokeMaterialRecord material)
+{
+    Upt04CompactMaterialRecord packed = (Upt04CompactMaterialRecord)0;
+    packed.debugAlbedo = asuint(material.debugAlbedo);
+    packed.emissiveColor = asuint(material.emissiveColor);
+    packed.textureIndicesAndFlags = uint4(
+        material.diffuseTextureIndex,
+        material.specularTextureIndex,
+        material.emissiveTextureIndex,
+        material.flags);
+    return packed;
+}
+
+public Upt04SmokeMaterialRecord Upt04UnpackCompactMaterial(
+    Upt04CompactMaterialRecord packed)
+{
+    Upt04SmokeMaterialRecord material = (Upt04SmokeMaterialRecord)0;
+    material.debugAlbedo = asfloat(packed.debugAlbedo);
+    material.emissiveColor = asfloat(packed.emissiveColor);
+    material.diffuseTextureIndex = packed.textureIndicesAndFlags.x;
+    material.specularTextureIndex = packed.textureIndicesAndFlags.y;
+    material.emissiveTextureIndex = packed.textureIndicesAndFlags.z;
+    material.flags = packed.textureIndicesAndFlags.w;
+    material.alphaTextureIndex = 0xffffffffu;
+    material.normalTextureIndex = 0xffffffffu;
+    return material;
+}

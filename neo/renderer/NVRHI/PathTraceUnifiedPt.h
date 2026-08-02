@@ -52,6 +52,7 @@ struct PathTraceUnifiedPtDispatchInputs
     uint32_t primaryReceiverMode = 0;
     bool compactGeometry = false;
     bool compactLights = false;
+    bool compactMaterials = false;
     float primaryCameraOrigin[3] = {};
 };
 
@@ -82,6 +83,10 @@ private:
     bool EnsureCompactLightPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureCompactLightBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool ExecuteCompactLightPack(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureCompactMaterialResources(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureCompactMaterialPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureCompactMaterialBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool ExecuteCompactMaterialPack(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolveResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolvePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolveBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -94,6 +99,7 @@ private:
     void ReleasePipeline();
     void ReleaseCompactGeometry();
     void ReleaseCompactLights();
+    void ReleaseCompactMaterials();
 
     PathTraceUnifiedPtBackend m_backend = PathTraceUnifiedPtBackend::RayQuery;
     PathTraceUnifiedPtFamily m_family = PathTraceUnifiedPtFamily::DirectOnly;
@@ -103,6 +109,7 @@ private:
     uint32_t m_primaryReceiverMode = 0;
     bool m_compactGeometry = false;
     bool m_compactLights = false;
+    bool m_compactMaterials = false;
     bool m_pipelineAttempted = false;
     bool m_resourceFailureLogged = false;
     bool m_pageNeedsClear = false;
@@ -155,6 +162,16 @@ private:
     nvrhi::ShaderHandle m_compactLightShader;
     nvrhi::ComputePipelineHandle m_compactLightPipeline;
     bool m_compactLightPipelineAttempted = false;
+
+    uint32_t m_compactMaterialCapacity = 0;
+    nvrhi::BufferHandle m_compactMaterialsBuffer;
+    nvrhi::BindingLayoutHandle m_compactMaterialBindingLayout;
+    nvrhi::BindingSetHandle m_compactMaterialBindingSet;
+    nvrhi::BindingSetDesc m_compactMaterialBindingSetDesc;
+    bool m_compactMaterialBindingSetDescValid = false;
+    nvrhi::ShaderHandle m_compactMaterialShader;
+    nvrhi::ComputePipelineHandle m_compactMaterialPipeline;
+    bool m_compactMaterialPipelineAttempted = false;
 
     nvrhi::ShaderLibraryHandle m_rayGenerationLibrary;
     nvrhi::ShaderLibraryHandle m_missLibrary;
