@@ -1,0 +1,316 @@
+UPT-05 Bandwidth Bottleneck Audit
+=================================
+
+Date
+----
+
+2026-08-02
+
+Trigger
+-------
+
+The NVIDIA FullSample trace was reported at more than 90 percent RT-core
+utilization with low VRAM activity.  The corresponding rbdoom UPT trace was
+reported near the VRAM-write ceiling while using only about 18 percent of the
+RT cores.  That counter split is incompatible with treating the accepted
+P0/D0/R0 duration alone as proof of an efficient low-level design.
+
+Disposition
+-----------
+
+The counter observation is explained by the live shader ABI and compiled
+SPIR-V.  The current no-reuse UPT path is memory-traffic heavy before temporal
+or spatial reuse exists.  Temporal and spatial work remains blocked.
+
+This audit corrects one earlier suspicion.  The live UPT P0 route uses
+pathtrace_primary_surface_producer.rt.bin, not the old pathtrace_smoke.rt.bin
+store helper.  Its compiled SPIR-V contains one full primary-record store and
+no primary-record reload.  The old smoke shader's store/load/store sequence is
+therefore not charged to the captured UPT.P0 marker.
+
+Live contracts
+--------------
+
+At 2560 x 1440 there are 3,686,400 receiver pixels.
+
+Primary receiver
+~~~~~~~~~~~~~~~~
+
+The inherited PathTracePrimarySurfaceRecord is 176 bytes:
+
+    11 x 16-byte fields
+    one page                    648,806,400 bytes     618.750 MiB
+    current + previous pages 1,297,612,800 bytes   1,237.500 MiB
+
+The record mixes current shading state with cold or later-use state:
+
+    version/valid/debug/class flags
+    world position and view depth
+    geometric normal and roughness
+    shading normal and opacity
+    view direction
+    albedo and alpha cutoff
+    specular F0
+    emissive and height placeholder
+    previous position or motion
+    material/surface identities
+    instance/primitive/object identities
+
+The current UPT initial sampler directly consumes only validity plus current
+position, normals, view direction, albedo, roughness, and F0.  Nevertheless a
+StructuredBuffer load materializes the full 176-byte struct.
+
+Unified reservoir
+~~~~~~~~~~~~~~~~~
+
+Upt03PackedReservoir is 64 bytes:
+
+    16 x uint32 words
+    one page                    235,929,600 bytes     225.000 MiB
+
+The 64-byte record remains subject to a separate hot/cold review before reuse.
+It is not yet declared defective merely because it is larger than NVIDIA's
+private layout: replay, invalid-sample, candidate-family, MIS, and future
+three-bounce/RR requirements must remain representable.
+
+P0: shared primary producer
+---------------------------
+
+The live source unconditionally performs, after the camera ray:
+
+    StorePrimarySurfaceRecord
+    StoreRayReconstructionGuides
+    StoreRayReconstructionMotionGuides
+
+For UPT-only execution, the first store is required.  UPT D0 does not bind or
+consume any of the RR guide images, but P0 still writes:
+
+    primary receiver                    176 B/pixel
+    RR albedo RGBA16F                     8 B/pixel
+    RR specular albedo RGBA16F            8 B/pixel
+    RR normal/roughness RGBA16F            8 B/pixel
+    RR depth R32F                         4 B/pixel
+    RR hit distance R32F                  4 B/pixel
+    RR position RGBA32F                  16 B/pixel
+    RR reset mask R32UI                   4 B/pixel
+    minimum UPT-only output              228 B/pixel
+
+This is 840,499,200 bytes or 801.563 MiB of output per 1440p dispatch.  If
+motion-vector export is enabled, RGBA16F motion, RG16F RR motion, and R32UI
+motion-mask stores add up to another 16 B/pixel.
+
+At the representative 2.4 ms P0 duration, the minimum output stores alone
+correspond to about 350 GB/s.  This excludes acceleration-structure traffic,
+geometry/material/texture reads, and ray payload work.  Low RT-core occupancy
+beside high memory activity is therefore expected from the present contract.
+
+Compiled-SPIR-V proof
+~~~~~~~~~~~~~~~~~~~~~
+
+The deployed Vulkan blob is:
+
+    base/renderprogs2/spirv/builtin/pathtracing/
+        pathtrace_primary_surface_producer.rt.bin
+
+spirv-dis reports:
+
+    one OpStore to PrimarySurfaceHistoryCurrent
+    zero OpLoad of PathTracePrimarySurfaceRecord
+    30 static OpImageWrite instructions across the shader's guide branches
+
+The one-store result is why the old smoke shader's store/load/store sequence
+must not be used in the UPT traffic total.
+
+D0: unified initial sampler
+---------------------------
+
+The source calls Upt04LoadInitialSurface independently through:
+
+    Upt04PrepareDirectPathTreeWork
+    Upt04PrepareIndirectPathTreeWork
+
+The deployed Slang SPIR-V preserves both full struct loads:
+
+    OpDecorate primary runtime array ArrayStride 176
+    first  OpLoad Upt04PrimarySurfaceRecord
+    second OpLoad Upt04PrimarySurfaceRecord
+
+Minimum logical structured traffic is therefore:
+
+    two primary receiver loads           352 B/pixel
+    one packed reservoir store             64 B/pixel
+    minimum D0 structured traffic         416 B/pixel
+
+At 1440p this is 1,533,542,400 bytes or 1,462.500 MiB per dispatch.  Dividing
+that logical amount by a 1.3 ms marker produces about 1.18 TB/s, so cache reuse
+must service part of it; it still demonstrates that memory-system pressure is
+built into D0.  Ray-query traversal, light/material tables, geometry replay,
+and texture reads are additional traffic.
+
+R0: trace-free resolve
+----------------------
+
+The deployed Slang SPIR-V performs one full 64-byte reservoir load and one
+RGBA16F output write:
+
+    reservoir load                         64 B/pixel
+    output store                             8 B/pixel
+    minimum R0 traffic                      72 B/pixel
+
+At 1440p this is 265,420,800 bytes or 253.125 MiB.  This pass is necessarily
+bandwidth-oriented, but a later hot/cold reservoir split may reduce its read.
+
+No-reuse frame total
+--------------------
+
+The minimum logical P0/D0/R0 traffic visible from these contracts is:
+
+    P0                                     228 B/pixel
+    D0                                     416 B/pixel
+    R0                                      72 B/pixel
+    total                                  716 B/pixel
+    total at 1440p               2,639,462,400 bytes
+    total at 1440p                   2,517.188 MiB/frame
+    logical rate at 120 FPS                 316.7 GB/s
+
+This total is deliberately conservative.  It excludes AS, geometry, material,
+texture, light, descriptor, cache-line amplification, and copy/publication
+traffic.  It is not a claimed DRAM-byte counter.  It is sufficient to show why
+the shader can saturate memory paths while leaving RT cores underfed.
+
+Immediate mechanical corrections
+--------------------------------
+
+Two corrections do not require designing the final compact temporal ABI:
+
+1. UPT-only P0 must not export DLSS-RR guides.
+
+   Preserve all current guide outputs whenever the clean DI/RR route requests
+   the shared producer.  When UPT is the only consumer, store only its receiver
+   contract.  This removes 52 B/pixel or 182.813 MiB/frame.
+
+2. Unified D0 must load the primary receiver once.
+
+   Pass one loaded receiver through direct-primary NEE and primary
+   continuation preparation.  Direct-only and indirect-only entry points may
+   retain their single-load wrappers.  This removes 176 B/pixel or
+   618.750 MiB/frame.
+
+Together these changes reduce the conservative no-reuse total from 716 to
+488 B/pixel:
+
+    before                         2,517.188 MiB/frame
+    after                          1,715.625 MiB/frame
+    removed                          801.563 MiB/frame
+    reduction                              31.84 percent
+
+They require a separate Nsight A/B.  An FPS-only result is not sufficient;
+record P0, D0, R0, memory-write activity, RT-core utilization, and total submit.
+
+Mechanical implementation checkpoint
+------------------------------------
+
+Both corrections were implemented and Vulkan-built on 2026-08-02.
+
+UPT-only guide suppression
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The shared primary-producer host publishes MotionVectorInfo.y only when the
+primary schedule has a live clean-DI consumer.  The producer performs its
+primary receiver store unconditionally, then branches around both RR guide
+export functions when that bit is zero.  UPT plus clean DI preserves the old
+guide path; UPT alone suppresses it.
+
+The rebuilt deployed P0 SPIR-V contains:
+
+    one primary receiver OpStore
+    zero primary receiver OpLoad
+    one uniform load of MotionVectorInfo.y immediately after the store
+    one conditional branch around the guide-export control-flow region
+
+Single-load unified D0
+~~~~~~~~~~~~~~~~~~~~~~
+
+The first attempt to bind the StructuredBuffer element directly to a const
+local was rejected after disassembly.  Slang scalarized that form into one base
+pointer but 36 repeated 16-byte field loads, or 576 emitted logical bytes.  A
+source-level shared variable was therefore not accepted as proof of shared GPU
+work.
+
+The accepted form calls Upt04LoadInitialSurface once at the composition root
+and passes the resulting value to direct and indirect preparation helpers.
+Both rebuilt production backends contain exactly:
+
+    ArrayStride 176
+    one primary-buffer OpAccessChain
+    one OpLoad Upt04PrimarySurfaceRecord
+
+This is verified independently in:
+
+    upt04_initial_rayquery.bin
+    upt04_initial_raygen.bin
+
+Build and deployment proof
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Vulkan-only preset completed successfully, including backend closure,
+static specialization, material-boundary, runtime-artifact, and fixed-input
+repeatability verification:
+
+    cmake --build --preset win64-pt-dev-release
+
+The rebuilt executable and affected P0/RayQuery/raygen Vulkan blobs were copied
+to E:/prog/rbdoom-3-BFG-prebuilt.  Source and deployed SHA-256 hashes matched:
+
+    RBDoom3BFG.exe
+        37DE01A2F7385A04A6052C6310FE334E82F1A0CCCC0F9C7A3909CF7AB355A295
+    pathtrace_primary_surface_producer.rt.bin
+        330567874997EBCE0CE0E376B73F8C6CD1FF03F8F694164E82DA42E83CFB7101
+    upt04_initial_rayquery.bin
+        20E295AC086DD8FC33026F5D55A49F6EC532264E726D4CC932F822B16A68688D
+    upt04_initial_raygen.bin
+        EF2BF1EA4D39AFC5084C166BA5E13873751E12F597A11221D3D30CB845F62385
+
+Runtime and Nsight A/B remain open.
+
+Architectural correction required before reuse
+----------------------------------------------
+
+The 176-byte legacy record is not accepted as the UPT temporal/spatial hot
+receiver ABI.  Simply retaining it and adding neighbor/history reads would
+multiply the identified traffic across every reuse tap.
+
+The next design task must define a UPT-owned compact receiver contract or an
+explicit hot/cold split.  It must be derived from exact consumers:
+
+    initial direct and continuation material evaluation
+    temporal reprojection and receiver similarity
+    spatial receiver similarity
+    selected-sample replay and visibility
+    material/surface/instance identity
+    future three-bounce and Russian-roulette replay
+    optional RR guide export at a later explicit boundary
+
+Current-only shading data must not drag previous-position, diagnostics, or
+cold identities through every initial/reuse load.  Conversely, compacting may
+not discard the identities needed to reject invalid history or replay a
+selected sample.  Candidate validity and empty-center neighbor recovery remain
+foundational contracts, not after-the-fact fixes.
+
+Revised gate
+------------
+
+The timing stability recorded in 17 remains valid, as does the absence of
+steady-frame pipeline creation.  Its broad efficiency interpretation is now
+qualified: acceptable elapsed time at the user's 120 FPS cap did not reveal
+that the implementation was spending most of its work budget moving oversized
+records and unused guide outputs.
+
+Do not authorize temporal or spatial reuse until:
+
+    the two mechanical corrections have a pass-specific Nsight A/B;
+    the UPT hot receiver ABI is explicitly admitted in the GPU work ledger;
+    the reservoir hot/cold decision is recorded;
+    projected temporal and spatial bytes/pixel are bounded before coding;
+    and the measured counters no longer show a memory ceiling with idle RT
+        capacity under the accepted workload.

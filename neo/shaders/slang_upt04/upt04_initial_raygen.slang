@@ -6,6 +6,7 @@ import upt03_reservoir_contract;
 import upt04_transport_initial_bounded;
 import upt04_initial_indirect;
 import upt04_initial_reservoir_stream;
+import upt04_primary_surface_live_contract;
 import upt05_material_set_openpbr;
 
 public void Upt04TraceInitialRaygen(
@@ -36,9 +37,17 @@ void main()
 
     Upt03LogicalReservoir reservoir = (Upt03LogicalReservoir)0;
     Upt04BoundedTransportState transport = Upt04BeginBoundedTransport();
+    Upt04InitialTraceWork receiverWork;
+    Upt04PrimarySurfaceRecord primarySurface;
+    if (!Upt04LoadInitialSurface(pixel, receiverWork, primarySurface))
+    {
+        Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+        return;
+    }
 
     Upt04InitialTraceWork direct =
-        Upt04PrepareDirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel);
+        Upt04PrepareDirectPathTreeWorkFromSurface<Upt05OpenPbrMaterialSet>(
+            pixel, receiverWork.surfaceIndex, primarySurface);
     Upt04HitFacts hit = Upt04MissFacts(direct.ray.tMax);
     Upt04TraceInitialRaygen(direct, hit);
     direct = Upt04AdvanceInitialTraceWork(direct, hit);
@@ -52,7 +61,8 @@ void main()
     }
 
     Upt04InitialTraceWork continuation =
-        Upt04PrepareIndirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel, transport);
+        Upt04PrepareIndirectPathTreeWorkFromSurface<Upt05OpenPbrMaterialSet>(
+            pixel, receiverWork.surfaceIndex, primarySurface, transport);
     hit = Upt04MissFacts(continuation.ray.tMax);
     Upt04TraceInitialRaygen(continuation, hit);
     const Upt04IndirectHitTrialResult indirect =

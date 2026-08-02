@@ -3257,8 +3257,15 @@ void RayGen()
     WritePrimaryLiquidPoolDebug(outputPixel, surface, payload, liquidResolve);
     PublishLiquidPoolExceptionalStatus(liquidResolve.statusMask);
     StorePrimarySurfaceRecord(pixel, surface);
-    StoreRayReconstructionGuides(pixel, surface);
-    StoreRayReconstructionMotionGuides(pixel, surface);
+    // MotionVectorInfo.y is a host-owned publication bit for the shared
+    // producer. UPT consumes only PrimarySurfaceHistoryCurrent; clean DI owns
+    // the RR guide images. Avoid full-frame writes to unused guide UAVs when
+    // UPT is the sole consumer.
+    if (MotionVectorInfo.y >= 0.5)
+    {
+        StoreRayReconstructionGuides(pixel, surface);
+        StoreRayReconstructionMotionGuides(pixel, surface);
+    }
 }
 
 [shader("miss")]

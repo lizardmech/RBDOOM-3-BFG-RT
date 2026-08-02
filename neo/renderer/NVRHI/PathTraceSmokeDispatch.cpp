@@ -2264,6 +2264,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.dispatchTileInfo[2] = static_cast<float>(Max(0, m_frameResources.width));
             primarySurfaceConstants.dispatchTileInfo[3] = static_cast<float>(Max(0, m_frameResources.height));
             primarySurfaceConstants.motionVectorInfo[0] = cleanRtxdiDiView >= 5 || r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
+            // The shared producer also serves UPT, but UPT consumes only the
+            // primary receiver buffer.  Keep RR guide traffic exclusive to a
+            // live clean-DI consumer instead of exporting eight unused images
+            // on the UPT-only route.
+            primarySurfaceConstants.motionVectorInfo[1] =
+                primarySchedule.requestedByCleanDi ? 1.0f : 0.0f;
             primarySurfaceConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
             primarySurfaceConstants.restirPTInfo[0] = static_cast<float>(cleanRtxdiDiFrameIndexForDispatch);
             primarySurfaceConstants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;

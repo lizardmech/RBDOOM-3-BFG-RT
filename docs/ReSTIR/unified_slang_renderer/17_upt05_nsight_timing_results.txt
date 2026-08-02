@@ -102,10 +102,14 @@ at roughly 2.4 ms in three of four captures. D0 is normally about 1.3 ms and
 the trace-free R0 resolve is 0.3 to 0.6 ms. Bindings and barriers do not explain
 the cost.
 
-The result is evidence against a broad low-level multiplier inside the new UPT
-producer/resolve lane on this simple scene. It is not yet an equal-work NVIDIA
-reference comparison, and it does not prove that the inherited shared-primary
-producer is optimal. The next useful comparison is therefore pass-specific:
+The elapsed-time result alone appeared to be evidence against a broad
+low-level multiplier inside the new UPT producer/resolve lane on this simple
+scene. The later live-SPIR-V and counter audit in 18 supersedes that efficiency
+interpretation: P0 writes unused RR guides, unified D0 loads a 176-byte receiver
+twice, and P0+D0+R0 move at least 716 logical bytes/pixel before AS, geometry,
+material, light, and texture traffic. Stable time does not make that design
+acceptable. It is not yet an equal-work NVIDIA reference comparison. The next
+useful comparison remains pass-specific:
 
     compare D0 against the matching no-reuse RTXDI/PT initial sampler
     compare R0 against a trace-free packed-reservoir resolve
@@ -179,9 +183,10 @@ likewise consistent with more surviving visibility/shading work.
 
 This comparison does not close the formal equal-work gate because the
 resolution, scene, primary-visibility method, and exact candidate/ray counts do
-not match. It does close the narrower question raised by these captures: the
-new UPT D0/R0 implementation is not slower than FullSample's shared DI stages
-in these measured views.
+not match. It closes only the elapsed-time question raised by these captures:
+the new UPT D0/R0 ranges are not slower than FullSample's shared DI ranges in
+these measured views. It does not close memory efficiency or RT-core occupancy;
+those are explicitly reopened by 18.
 
 UPT-05 disposition
 ------------------
@@ -198,6 +203,8 @@ Still open:
     remaining required scene matrix
     formal identical-resolution/equal-work comparison with
         E:/prog/rtxdi_testing
+    UPT-only RR-guide suppression and one-load unified D0 A/B from 18
+    admitted compact/hot receiver ABI before temporal or spatial reads
 
 Temporal and spatial reuse remain unauthorized until those remaining gates are
 evaluated.

@@ -11,12 +11,16 @@ one RGBA16F output, direct presentation, and a statically selected modular
 OpenPBR material provider. A zero-production-cost fixed-input repeatability
 probe is also accepted for direct-only and unified RayQuery at 2560 x 1440
 through the existing one-shot diagnostic. Four 2560 x 1440 Nsight GPU Trace
-captures now also accept the steady-state timing and no-pipeline-creation gates:
+captures accept the steady-state timing and no-pipeline-creation gates:
 the UPT submit remained within 4.67-4.83 ms and P0+D0+R0 remained within
 4.24-4.37 ms. The live image was fully functional and remained at the user's
-120 FPS cap with textured models. The remaining scene matrix and equal-work
-reference comparison are still open. Temporal and spatial work remains
-unauthorized.
+120 FPS cap with textured models. A subsequent live-SPIR-V bandwidth audit
+found that UPT-only P0 exports unused RR guides and unified D0 loads the
+176-byte receiver twice. The conservative no-reuse total is 716 bytes/pixel,
+or 2,517.188 MiB at 1440p, before AS, geometry, material, light, and texture
+traffic. Timing stability is retained, but low-level efficiency is not yet
+accepted. Temporal and spatial work remains unauthorized pending the bounded
+remediation in 18.
 
 Purpose
 -------
@@ -268,6 +272,11 @@ Packet index
         zero steady-frame Vulkan creation events, and remaining comparison
         gates.
 
+    18_upt05_bandwidth_bottleneck_audit.txt
+        Live-SPIR-V proof of the 176-byte receiver loads, unused UPT-only RR
+        guide writes, 64-byte reservoir traffic, exact bytes/pixel budget, and
+        the pre-reuse remediation gate.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math
@@ -287,4 +296,6 @@ Do not add temporal or spatial reuse unless the no-reuse renderer:
     has stable output at fixed RNG input;
     has small, pass-specific SPIR-V modules;
     builds Vulkan pipelines in a normal bounded time;
-    and reaches the reference-comparison timing gate in UPT-05.
+    reaches the reference-comparison timing gate in UPT-05;
+    eliminates the proven unused/duplicate no-reuse traffic in 18;
+    and admits a bounded UPT-owned hot receiver ABI before neighbor reads.

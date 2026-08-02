@@ -52,6 +52,20 @@ public bool Upt04LoadInitialSurface(
     return Upt04PrimarySurfaceRecordValid(surface);
 }
 
+public Upt04InitialTraceWork Upt04PrepareDirectPathTreeWorkFromSurface<
+    TMaterialSet : IUpt04MaterialSet>(
+    uint2 pixel,
+    uint surfaceIndex,
+    Upt04PrimarySurfaceRecord surface)
+{
+    Upt04InitialTraceWork work = (Upt04InitialTraceWork)0;
+    work.surfaceIndex = surfaceIndex;
+    if (!Upt04PrimarySurfaceRecordValid(surface)
+        || !Upt04DirectFamilyAvailable())
+        return work;
+    return Upt04PrepareDirectTrial<TMaterialSet>(work, surface, pixel);
+}
+
 public Upt04InitialTraceWork Upt04PrepareDirectPathTreeWork<
     TMaterialSet : IUpt04MaterialSet>(uint2 pixel)
 {
@@ -59,9 +73,27 @@ public Upt04InitialTraceWork Upt04PrepareDirectPathTreeWork<
     Upt04PrimarySurfaceRecord surface;
     if (!Upt04LoadInitialSurface(pixel, work, surface))
         return work;
-    if (!Upt04DirectFamilyAvailable())
+    return Upt04PrepareDirectPathTreeWorkFromSurface<TMaterialSet>(
+        pixel, work.surfaceIndex, surface);
+}
+
+public Upt04InitialTraceWork Upt04PrepareIndirectPathTreeWorkFromSurface<
+    TMaterialSet : IUpt04MaterialSet>(
+    uint2 pixel,
+    uint surfaceIndex,
+    Upt04PrimarySurfaceRecord surface,
+    Upt04BoundedTransportState transport)
+{
+    Upt04InitialTraceWork work = (Upt04InitialTraceWork)0;
+    work.surfaceIndex = surfaceIndex;
+    if (!Upt04PrimarySurfaceRecordValid(surface))
         return work;
-    return Upt04PrepareDirectTrial<TMaterialSet>(work, surface, pixel);
+    const bool indirectAvailable =
+        (gUpt04Control.enabledFamilyMask & kUpt04FamilyIndirect) != 0u
+        && TMaterialSet.PrimaryContinuationAvailable(surface);
+    return indirectAvailable
+        ? Upt04PrepareIndirectTrial<TMaterialSet>(work, surface, pixel, transport)
+        : work;
 }
 
 public Upt04InitialTraceWork Upt04PrepareIndirectPathTreeWork<
@@ -73,12 +105,8 @@ public Upt04InitialTraceWork Upt04PrepareIndirectPathTreeWork<
     Upt04PrimarySurfaceRecord surface;
     if (!Upt04LoadInitialSurface(pixel, work, surface))
         return work;
-    const bool indirectAvailable =
-        (gUpt04Control.enabledFamilyMask & kUpt04FamilyIndirect) != 0u
-        && TMaterialSet.PrimaryContinuationAvailable(surface);
-    return indirectAvailable
-        ? Upt04PrepareIndirectTrial<TMaterialSet>(work, surface, pixel, transport)
-        : work;
+    return Upt04PrepareIndirectPathTreeWorkFromSurface<TMaterialSet>(
+        pixel, work.surfaceIndex, surface, transport);
 }
 
 public Upt04InitialTraceWork Upt04PrepareStaticInitialFamilyTraceWork<

@@ -7,6 +7,7 @@ import upt03_reservoir_contract;
 import upt04_transport_initial_bounded;
 import upt04_initial_indirect;
 import upt04_initial_reservoir_stream;
+import upt04_primary_surface_live_contract;
 import upt05_material_set_openpbr;
 
 [numthreads(8, 8, 1)]
@@ -21,9 +22,17 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     Upt03LogicalReservoir reservoir = (Upt03LogicalReservoir)0;
     Upt04BoundedTransportState transport = Upt04BeginBoundedTransport();
+    Upt04InitialTraceWork receiverWork;
+    Upt04PrimarySurfaceRecord primarySurface;
+    if (!Upt04LoadInitialSurface(pixel, receiverWork, primarySurface))
+    {
+        Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+        return;
+    }
 
     Upt04InitialTraceWork direct =
-        Upt04PrepareDirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel);
+        Upt04PrepareDirectPathTreeWorkFromSurface<Upt05OpenPbrMaterialSet>(
+            pixel, receiverWork.surfaceIndex, primarySurface);
     Upt04HitFacts hit = Upt04MissFacts(direct.ray.tMax);
     if (direct.valid != 0u && direct.traceRequired != 0u)
         hit = Upt04TraceRayQuery(direct.ray);
@@ -38,7 +47,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 
     Upt04InitialTraceWork continuation =
-        Upt04PrepareIndirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel, transport);
+        Upt04PrepareIndirectPathTreeWorkFromSurface<Upt05OpenPbrMaterialSet>(
+            pixel, receiverWork.surfaceIndex, primarySurface, transport);
     hit = Upt04MissFacts(continuation.ray.tMax);
     if (continuation.valid != 0u && continuation.traceRequired != 0u)
         hit = Upt04TraceRayQuery(continuation.ray);
