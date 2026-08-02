@@ -28,6 +28,7 @@ set(UPT04_MODULES
 
 set(UPT04_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_primary_surface_live_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_packed_primary_surface.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_hit_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_control.slang"
@@ -117,6 +118,22 @@ path_tracing_declare_slang_spirv_module(
 list(APPEND UPT04_BACKEND_OUTPUTS ${rayquery_outputs})
 
 path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_rayquery_compact
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=1
+    OUT_VAR compact_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${compact_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_diagnostics
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_diagnostics.slang"
     ENTRY main
@@ -158,6 +175,22 @@ foreach(ray_stage raygen miss closest_hit)
         RAY_TRACING)
     list(APPEND UPT04_BACKEND_OUTPUTS ${ray_stage_outputs})
 endforeach()
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_raygen_compact
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_raygen.slang"
+    ENTRY main
+    STAGE raygeneration
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=1
+    OUT_VAR compact_raygen_outputs
+    RAY_TRACING)
+list(APPEND UPT04_BACKEND_OUTPUTS ${compact_raygen_outputs})
 
 set(UPT04_BACKEND_VERIFY_STAMP "${UPT04_OUTPUT_DIR}/upt04_backend_closure_verified.txt")
 add_custom_command(
@@ -254,6 +287,24 @@ foreach(family direct indirect)
     list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS ${static_rayquery_outputs})
 
     path_tracing_declare_slang_spirv_module(
+        NAME "upt04_initial_${family}_only_rayquery_compact"
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_rayquery.slang"
+        ENTRY main
+        STAGE compute
+        OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+        INCLUDE_DIRS
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_LIST_DIR}/.."
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+            "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_rayquery.slang"
+        DEFINES UPT04_PACKED_PRIMARY_RECEIVER=1
+        OUT_VAR static_compact_rayquery_outputs
+        RAY_QUERY)
+    list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS
+        ${static_compact_rayquery_outputs})
+
+    path_tracing_declare_slang_spirv_module(
         NAME "upt04_initial_${family}_only_raygen"
         SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_raygen.slang"
         ENTRY main
@@ -268,6 +319,24 @@ foreach(family direct indirect)
         OUT_VAR static_raygen_outputs
         RAY_TRACING)
     list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS ${static_raygen_outputs})
+
+    path_tracing_declare_slang_spirv_module(
+        NAME "upt04_initial_${family}_only_raygen_compact"
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_raygen.slang"
+        ENTRY main
+        STAGE raygeneration
+        OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+        INCLUDE_DIRS
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_LIST_DIR}/.."
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+            "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_raygen.slang"
+        DEFINES UPT04_PACKED_PRIMARY_RECEIVER=1
+        OUT_VAR static_compact_raygen_outputs
+        RAY_TRACING)
+    list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS
+        ${static_compact_raygen_outputs})
 endforeach()
 
 set(UPT04_STATIC_VERIFY_STAMP "${UPT04_OUTPUT_DIR}/upt04_static_specializations_verified.txt")
@@ -427,19 +496,25 @@ add_custom_command(
     COMMENT "UPT-04 verifying compact live-TLAS Slang/DXC probes"
     VERBATIM)
 
-# Runtime admission is explicit: copy only the six selectable initial modules
+# Runtime admission is explicit: copy only the legacy and compact selectable initial modules
 # and the two shared raygen hit modules after every offline verifier passes.
 # Reflection/disassembly artifacts remain build-only evidence.
 set(UPT04_RUNTIME_OUTPUT_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../../../base/renderprogs2/spirv/builtin/pathtracing/slang_upt04")
 set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery
+    upt04_initial_rayquery_compact
     upt04_initial_diagnostics
     upt04_initial_direct_only_rayquery
+    upt04_initial_direct_only_rayquery_compact
     upt04_initial_indirect_only_rayquery
+    upt04_initial_indirect_only_rayquery_compact
     upt04_initial_raygen
+    upt04_initial_raygen_compact
     upt04_initial_direct_only_raygen
+    upt04_initial_direct_only_raygen_compact
     upt04_initial_indirect_only_raygen
+    upt04_initial_indirect_only_raygen_compact
     upt04_initial_miss
     upt04_initial_closest_hit)
 set(UPT04_RUNTIME_OUTPUTS)

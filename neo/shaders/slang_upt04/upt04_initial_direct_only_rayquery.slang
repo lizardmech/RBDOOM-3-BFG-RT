@@ -24,7 +24,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     if (gUpt04Control.shaderProofMode == 2u)
     {
-        const Upt04PrimarySurfaceRecord surface = gUpt04PrimarySurfaces[surfaceIndex];
+        const Upt04PrimarySurfaceRecord surface =
+            Upt04LoadPrimarySurfaceRecord(surfaceIndex);
         Upt03PackedReservoir proof = (Upt03PackedReservoir)0;
         proof.word15 = surface.header.x;
         gUpt04Reservoirs[surfaceIndex] = proof;

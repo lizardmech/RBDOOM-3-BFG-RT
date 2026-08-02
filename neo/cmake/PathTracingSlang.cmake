@@ -57,7 +57,7 @@ endfunction()
 function(path_tracing_declare_slang_spirv_module)
     set(options RAY_QUERY RAY_TRACING)
     set(oneValueArgs NAME SOURCE ENTRY STAGE OUTPUT_DIR OUT_VAR)
-    set(multiValueArgs INCLUDE_DIRS DEPENDS)
+    set(multiValueArgs INCLUDE_DIRS DEPENDS DEFINES)
     cmake_parse_arguments(PTSLANG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     foreach(required_arg NAME SOURCE ENTRY STAGE OUTPUT_DIR OUT_VAR)
@@ -78,6 +78,11 @@ function(path_tracing_declare_slang_spirv_module)
     set(include_args)
     foreach(include_dir IN LISTS PTSLANG_INCLUDE_DIRS)
         list(APPEND include_args -I "${include_dir}")
+    endforeach()
+
+    set(define_args)
+    foreach(define IN LISTS PTSLANG_DEFINES)
+        list(APPEND define_args "-D${define}")
     endforeach()
 
     set(capability_args -capability SPIRV_1_5)
@@ -110,6 +115,7 @@ function(path_tracing_declare_slang_spirv_module)
             -restrictive-capability-check
             ${capability_args}
             ${include_args}
+            ${define_args}
             -depfile "${depfile_output}"
             -reflection-json "${reflection_output}"
             -o "${spirv_output}"

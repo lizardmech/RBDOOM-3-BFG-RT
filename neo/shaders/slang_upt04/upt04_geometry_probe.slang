@@ -19,7 +19,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (index >= gUpt04Control.surfaceCount)
         return;
 
-    const Upt04PrimarySurfaceRecord primary = gUpt04PrimarySurfaces[index];
+    const Upt04PrimarySurfaceRecord primary =
+        Upt04LoadPrimarySurfaceRecord(index);
     Upt04HitFacts hit = Upt04MissFacts(0.0f);
     hit.status = kUpt04HitTriangle;
     hit.instanceId = primary.instancePrimitiveObject.x;

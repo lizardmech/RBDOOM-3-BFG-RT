@@ -21,7 +21,8 @@ public Upt04InitialTraceWork Upt04PrepareStaticInitialFamilyTraceWork<
     work.surfaceIndex = surfaceIndex;
     if (familyKind != kUpt04InitialFamilyDirect)
         return work;
-    const Upt04PrimarySurfaceRecord surface = gUpt04PrimarySurfaces[surfaceIndex];
+    const Upt04PrimarySurfaceRecord surface =
+        Upt04LoadPrimarySurfaceRecord(surfaceIndex);
     return Upt04PrimarySurfaceRecordValid(surface)
         ? Upt04PrepareDirectTrial<TMaterialSet>(work, surface, pixel)
         : work;

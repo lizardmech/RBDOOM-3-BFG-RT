@@ -48,7 +48,7 @@ public bool Upt04LoadInitialSurface(
     if (surfaceIndex >= gUpt04Control.surfaceCount)
         return false;
     work.surfaceIndex = surfaceIndex;
-    surface = gUpt04PrimarySurfaces[surfaceIndex];
+    surface = Upt04LoadPrimarySurfaceRecord(surfaceIndex);
     return Upt04PrimarySurfaceRecordValid(surface);
 }
 

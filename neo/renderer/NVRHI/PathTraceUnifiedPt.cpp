@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceUnifiedPt.h"
+#include "PathTraceUnifiedPtPrimaryReceiver.h"
 
 #include <nvrhi/utils.h>
 
@@ -61,29 +62,42 @@ static uint32_t Upt04FamilyMask(PathTraceUnifiedPtFamily family)
 
 static const char* Upt04InitialShaderPath(
     PathTraceUnifiedPtBackend backend,
-    PathTraceUnifiedPtFamily family)
+    PathTraceUnifiedPtFamily family,
+    bool compactPrimaryReceiver)
 {
     if (backend == PathTraceUnifiedPtBackend::RayQuery)
     {
         switch (family)
         {
         case PathTraceUnifiedPtFamily::Unified:
-            return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery.bin";
+            return compactPrimaryReceiver
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery.bin";
         case PathTraceUnifiedPtFamily::IndirectOnly:
-            return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery.bin";
+            return compactPrimaryReceiver
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery.bin";
         default:
-            return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery.bin";
+            return compactPrimaryReceiver
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery.bin";
         }
     }
 
     switch (family)
     {
     case PathTraceUnifiedPtFamily::Unified:
-        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_raygen.bin";
+        return compactPrimaryReceiver
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_raygen_compact.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_raygen.bin";
     case PathTraceUnifiedPtFamily::IndirectOnly:
-        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_raygen.bin";
+        return compactPrimaryReceiver
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_raygen_compact.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_raygen.bin";
     default:
-        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_raygen.bin";
+        return compactPrimaryReceiver
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_raygen_compact.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_raygen.bin";
     }
 }
 
@@ -351,6 +365,14 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
     if (!dispatch.device || !dispatch.commandList || !dispatch.sceneInputs ||
         !dispatch.sceneInputs->valid || dispatch.width == 0 || dispatch.height == 0 ||
         !dispatch.primarySurfaceBuffer)
+    {
+        return false;
+    }
+    const uint32_t expectedPrimaryStride = dispatch.compactPrimaryReceiver
+        ? PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE
+        : 176u;
+    if (dispatch.primarySurfaceBuffer->getDesc().structStride !=
+        expectedPrimaryStride)
     {
         return false;
     }
@@ -655,6 +677,7 @@ void PathTraceUnifiedPtState::Release()
     m_pipelineVariant = 0;
     m_selectionValid = false;
     m_diagnostics = false;
+    m_compactPrimaryReceiver = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
 }
@@ -762,13 +785,15 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
     const bool usesBindlessSet = Upt04UsesBindlessSet(pipelineVariant) &&
         !directOnlyProduction;
     if (!m_selectionValid || m_backend != inputs.backend || m_family != inputs.family ||
-        m_pipelineVariant != pipelineVariant || m_diagnostics != inputs.diagnostics)
+        m_pipelineVariant != pipelineVariant || m_diagnostics != inputs.diagnostics ||
+        m_compactPrimaryReceiver != inputs.compactPrimaryReceiver)
     {
         ReleasePipeline();
         m_backend = inputs.backend;
         m_family = inputs.family;
         m_pipelineVariant = pipelineVariant;
         m_diagnostics = inputs.diagnostics;
+        m_compactPrimaryReceiver = inputs.compactPrimaryReceiver;
         m_selectionValid = true;
         m_resourceFailureLogged = false;
     }
@@ -868,7 +893,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         ? Upt04DiagnosticShaderPath()
         : (liveTlasProbe
         ? Upt04LiveTlasProbePath(pipelineVariant)
-        : Upt04InitialShaderPath(m_backend, m_family));
+        : Upt04InitialShaderPath(
+            m_backend, m_family, inputs.compactPrimaryReceiver));
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -913,7 +939,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             return false;
         }
         common->Printf(
-            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
+            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
             Upt04BackendName(m_backend),
             Upt04FamilyName(m_family),
             pipelineVariant,
@@ -923,6 +949,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             static_cast<long long>(initialTimestamp),
             traversalIsolationLayout || !liveTlasProbe ? "8x8" : "1x1",
             usesBindlessSet ? 1 : 0,
+            inputs.compactPrimaryReceiver ? "compact48" : "legacy176",
             static_cast<unsigned long long>(pipelineUs));
         return true;
     }
@@ -1033,9 +1060,10 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
     m_shaderTable->addHitGroup("Upt04HitGroupSkinned");
 
     common->Printf(
-        "PathTraceUnifiedPt: pipeline backend=%s family=%s raygenBytes=%d raygenHash=%016llx missBytes=%d missHash=%016llx hitBytes=%d hitHash=%016llx sbtHitGroups=3 payload=32 attribute=8 recursion=1 createUs=%llu deferredHost=0 driverCache=opaque\n",
+        "PathTraceUnifiedPt: pipeline backend=%s family=%s receiver=%s raygenBytes=%d raygenHash=%016llx missBytes=%d missHash=%016llx hitBytes=%d hitHash=%016llx sbtHitGroups=3 payload=32 attribute=8 recursion=1 createUs=%llu deferredHost=0 driverCache=opaque\n",
         Upt04BackendName(m_backend),
         Upt04FamilyName(m_family),
+        inputs.compactPrimaryReceiver ? "compact48" : "legacy176",
         initialSize,
         static_cast<unsigned long long>(initialHash),
         missSize,

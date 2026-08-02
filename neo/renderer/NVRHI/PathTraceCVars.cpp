@@ -1375,7 +1375,13 @@ idCVar r_pathTracingUnifiedPtLeanPrimary(
     "r_pathTracingUnifiedPtLeanPrimary",
     "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT-only primary payload A/B: 0 uses the existing 336-byte shared P0 payload; 1 uses a Vulkan-only 172-byte payload with decal/liquid candidate bins omitted while preserving the 176-byte receiver ABI" );
+    "UPT-only primary payload A/B: 0 uses the existing 336-byte shared P0 payload; 1 uses a Vulkan-only 172-byte payload with decal/liquid candidate bins omitted; receiver ABI is selected independently by r_pathTracingUnifiedPtCompactReceiver" );
+
+idCVar r_pathTracingUnifiedPtCompactReceiver(
+    "r_pathTracingUnifiedPtCompactReceiver",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-only P0-to-D0 receiver A/B for production shader proofs 1..6: 0 uses the legacy 176-byte history record; 1 writes and reads only the UPT-owned 48-byte current-frame shading receiver" );
 
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",

@@ -2082,6 +2082,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingUnifiedPtLeanPrimary.GetBool() &&
             deviceManager &&
             deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
+        const int requestedUnifiedPtShaderProof = idMath::ClampInt(
+            1, 14, r_pathTracingUnifiedPtShaderProof.GetInteger());
+        const bool useUptCompactPrimaryReceiver =
+            uptOnlyPrimaryRequested &&
+            r_pathTracingUnifiedPtCompactReceiver.GetBool() &&
+            r_pathTracingUnifiedPtDiagnostics.GetInteger() == 0 &&
+            requestedUnifiedPtShaderProof <= 6 &&
+            m_frameResources.unifiedPtPrimaryReceiverBuffer &&
+            deviceManager &&
+            deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
         nvrhi::rt::ShaderTableHandle selectedPrimarySurfaceShaderTable =
             useUptLeanPrimary
                 ? m_smokeUptLeanPrimarySurfaceProducerShaderTable
@@ -2286,6 +2296,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             // on the UPT-only route.
             primarySurfaceConstants.motionVectorInfo[1] =
                 primarySchedule.requestedByCleanDi ? 1.0f : 0.0f;
+            primarySurfaceConstants.motionVectorInfo[2] =
+                useUptCompactPrimaryReceiver ? 1.0f : 0.0f;
             primarySurfaceConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
             primarySurfaceConstants.restirPTInfo[0] = static_cast<float>(cleanRtxdiDiFrameIndexForDispatch);
             primarySurfaceConstants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
@@ -2374,8 +2386,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(dispatchPreviousStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(dispatchPreviousStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(dispatchPreviousStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
+            if (useUptCompactPrimaryReceiver)
+            {
+                commandList->setBufferState(
+                    m_frameResources.unifiedPtPrimaryReceiverBuffer,
+                    nvrhi::ResourceStates::UnorderedAccess);
+            }
+            else
+            {
+                commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
+            }
             for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
             {
                 if (texture)
@@ -2383,16 +2404,19 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     commandList->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
                 }
             }
-            commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setTextureState(m_frameResources.rrMotionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setTextureState(m_frameResources.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setTextureState(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-            commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            if (primarySchedule.requestedByCleanDi)
+            {
+                commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.rrMotionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            }
             commandList->commitBarriers();
             commandList->writeBuffer(m_smokeConstantsBuffer, &primarySurfaceConstants, sizeof(primarySurfaceConstants));
             if (requestedLiquidPoolMode != 0 && liquidPoolTelemetryReady)
@@ -2416,7 +2440,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     commandList,
                     uptOnlyPrimaryRequested
                         ? (useUptLeanPrimary
-                            ? "UPT.P0 LeanPrimary DispatchRays"
+                            ? (useUptCompactPrimaryReceiver
+                                ? "UPT.P0 LeanPrimary Compact48 DispatchRays"
+                                : "UPT.P0 LeanPrimary Legacy176 DispatchRays")
                             : "UPT.P0 SharedPrimary DispatchRays")
                         : staticBucketSecondaryIsolationActive
                         ? "GEO10.View16.Stage2 PrimarySurface DispatchRays"
@@ -2425,17 +2451,26 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 commandList->dispatchRays(primarySurfaceArgs);
             }
 
-            nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorMaskTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
-            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
+            if (primarySchedule.requestedByCleanDi)
+            {
+                // Clean DI keeps these resources in UAV state and therefore
+                // needs an explicit producer/consumer ordering point.  UPT
+                // transitions the primary receiver to SRV in its D0 bind
+                // stage, which supplies the required P0-write to D0-read
+                // dependency; adding UAV-to-UAV barriers here only broadens
+                // that dependency to unused RR guide images.
+                nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorMaskTexture);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
+                nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
+            }
 
             if (cleanNeeCacheBuildPrepassRequested &&
                 staticBucketSecondaryIsolation.neeCachePrimaryUpdate &&
@@ -2565,7 +2600,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.commandList = commandList;
             unifiedPtInputs.sceneInputs = &m_sceneInputs;
             unifiedPtInputs.primarySurfaceBuffer =
-                m_frameResources.primarySurfaceHistoryBuffers.current;
+                useUptCompactPrimaryReceiver
+                    ? m_frameResources.unifiedPtPrimaryReceiverBuffer
+                    : m_frameResources.primarySurfaceHistoryBuffers.current;
             unifiedPtInputs.width = static_cast<uint32_t>(m_frameResources.width);
             unifiedPtInputs.height = static_cast<uint32_t>(m_frameResources.height);
             const int unifiedPtFixedSampleIndex =
@@ -2584,10 +2621,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 1,
                 9,
                 r_pathTracingUnifiedPtProofStage.GetInteger()));
-            unifiedPtInputs.shaderProofMode = static_cast<uint32_t>(idMath::ClampInt(
-                1,
-                14,
-                r_pathTracingUnifiedPtShaderProof.GetInteger()));
+            unifiedPtInputs.shaderProofMode =
+                static_cast<uint32_t>(requestedUnifiedPtShaderProof);
             unifiedPtInputs.backend =
                 r_pathTracingUnifiedPtBackend.GetInteger() == 1
                     ? PathTraceUnifiedPtBackend::RayGeneration
@@ -2610,6 +2645,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.nsightMarkers = nsightGpuMarkers;
             unifiedPtInputs.diagnostics =
                 r_pathTracingUnifiedPtDiagnostics.GetInteger() != 0;
+            unifiedPtInputs.compactPrimaryReceiver =
+                useUptCompactPrimaryReceiver;
             const bool unifiedPtInitialExecuted =
                 m_unifiedPtState.ExecuteInitial(unifiedPtInputs);
             if (unifiedPtInputs.diagnostics)

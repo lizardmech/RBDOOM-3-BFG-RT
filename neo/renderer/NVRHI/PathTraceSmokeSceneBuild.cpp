@@ -14180,6 +14180,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.constantsBuffer = m_smokeConstantsBuffer;
     bindingBuildDesc.boundsOverlayLineBuffer = m_smokeBoundsOverlayLineBuffer;
     bindingBuildDesc.liquidPoolStatusBuffer = m_liquidPoolStatusBuffer;
+    bindingBuildDesc.unifiedPtPrimaryReceiverBuffer =
+        m_frameResources.unifiedPtPrimaryReceiverBuffer;
     bindingBuildDesc.bindingLayout = m_smokeBindingLayout;
     bindingBuildDesc.textureBindlessLayout = m_smokeTextureBindlessLayout;
     const int sceneRetireFrames = idMath::ClampInt(0, 32, r_pathTracingSceneRetireFrames.GetInteger());

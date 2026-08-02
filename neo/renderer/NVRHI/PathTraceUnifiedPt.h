@@ -49,6 +49,7 @@ struct PathTraceUnifiedPtDispatchInputs
     PathTraceUnifiedPtFamily family = PathTraceUnifiedPtFamily::DirectOnly;
     bool nsightMarkers = false;
     bool diagnostics = false;
+    bool compactPrimaryReceiver = false;
 };
 
 class PathTraceUnifiedPtState
@@ -86,6 +87,7 @@ private:
     uint32_t m_pipelineVariant = 0;
     bool m_selectionValid = false;
     bool m_diagnostics = false;
+    bool m_compactPrimaryReceiver = false;
     bool m_pipelineAttempted = false;
     bool m_resourceFailureLogged = false;
     bool m_pageNeedsClear = false;

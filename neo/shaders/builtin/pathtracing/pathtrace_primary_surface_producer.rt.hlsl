@@ -654,6 +654,10 @@ bool RAB_IsSurfaceValid(RAB_Surface surface)
     return surface.valid != 0u;
 }
 
+#include "PathTraceUnifiedPtPrimaryReceiver.hlsli"
+RWStructuredBuffer<PathTraceUnifiedPtPrimaryReceiver>
+    PathTraceUnifiedPtPrimaryReceivers : register(u88);
+
 float GetRoughness(RAB_Material material)
 {
     return material.roughness;
@@ -1182,6 +1186,30 @@ int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame)
 
 void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
 {
+    // UPT's current-frame D0 input is deliberately independent from the
+    // multipurpose 176-byte DI/GI temporal history ABI.  MotionVectorInfo.z
+    // selects exactly one write; it never duplicates both records.
+    if (MotionVectorInfo.z >= 0.5)
+    {
+        if (PathTraceSafetyDisabled(
+                RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY))
+        {
+            return;
+        }
+        pixel = PathTracePrimarySurfaceStorePixel(pixel);
+        const uint2 dimensions = PathTraceFullOutputSize();
+        if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+        {
+            return;
+        }
+        const uint index = pixel.y * dimensions.x + pixel.x;
+        if (index < PathTracePrimarySurfaceHistoryCount())
+        {
+            PathTraceUnifiedPtPrimaryReceivers[index] =
+                PackPathTraceUnifiedPtPrimaryReceiver(surface);
+        }
+        return;
+    }
     StorePathTracePrimarySurfaceRecord(pixel, surface);
 }
 

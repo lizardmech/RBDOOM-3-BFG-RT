@@ -8,6 +8,7 @@
 // consume the same NVRHI handles.
 
 #include "PathTraceRestirPTReservoirs.h"
+#include "PathTraceUnifiedPtPrimaryReceiver.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -69,6 +70,7 @@ struct RtPathTraceFrameResourceDiagnostics
     int readbacksUnmapped = 0;
     uint64_t outputTextureBytes = 0;
     uint64_t primarySurfaceHistoryBytes = 0;
+    uint64_t unifiedPtPrimaryReceiverBytes = 0;
     uint64_t motionVectorBytes = 0;
     uint64_t motionVectorMaskBytes = 0;
     uint64_t rrGuideBytes = 0;
@@ -104,6 +106,7 @@ struct RtPathTraceFrameResources
     int outputHeight = 0;
 
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
+    nvrhi::BufferHandle unifiedPtPrimaryReceiverBuffer;
     uint32_t restirPTFrameIndex = 0;
 
     bool primarySurfaceHistoryNeedsClear = true;

@@ -402,3 +402,86 @@ remaining already-proven structural target is a UPT-owned compact receiver:
 production D0 only consumes primary validity, position, normals, view direction,
 roughness, base color, and F0, so it must not retain the legacy 176-byte history
 record merely for compatibility with unrelated temporal/material consumers.
+
+Opaque fast-path runtime result and synchronization audit
+---------------------------------------------------------
+
+The common opaque any-hit fast path shortened P0 and reduced its traffic, but
+the next capture showed the saved interval as a visible P0-to-D0 gap while D0
+and the remainder of the frame stayed heavily loaded.  This rejects opaque
+any-hit reconstruction as the dominant limiter and confirms that making one
+producer locally cheaper cannot repair the downstream working set.
+
+The gap also exposed stale shared-producer synchronization.  UPT-only sets the
+primary producer's RR publication bit to zero, so it writes none of the motion
+or RR guide images.  Nevertheless the host requested UAV state before P0 and
+UAV-to-UAV barriers after P0 for ten such images.  This NVRHI version maps UAV
+state to ALL_COMMANDS plus shader read/write access.  UPT-only now omits those
+explicit image requests.  It also omits the redundant post-P0 receiver UAV
+barrier because D0's existing UAV-to-SRV transition is the actual required
+P0-write to D0-read dependency.  Clean DI retains the original barriers.
+
+This is synchronization cleanup, not the structural performance claim.  The
+shared P0 binding set still contains unused guide UAVs and NVRHI automatically
+tracks bound resources.  A future UPT-owned P0 layout may remove those bindings,
+but only after the compact receiver A/B measures the dominant traffic change.
+
+Frozen UPT current-frame receiver contract
+------------------------------------------
+
+The hot P0-to-D0 record is 48 bytes, expressed as three uint4 words:
+
+    positionAndHeader
+        xyz: full-precision world position bit patterns
+        w: packed receiver version and valid bit
+
+    directionsAndRoughness
+        x: 2x16-bit octahedral geometric normal
+        y: 2x16-bit octahedral shading normal
+        z: 2x16-bit octahedral view direction
+        w: fp16 roughness; upper half reserved
+
+    material
+        fp16 baseColor.rgb and specularF0.rgb
+        final uint reserved
+
+The producer writes exactly one record.  Compact mode does not also publish the
+176-byte history record.  D0 expands the 48-byte record to its existing logical
+surface value after the single buffer load, so material-provider and ReSTIR
+code remain independent from the storage ABI.
+
+The exclusions are intentional:
+
+* previous position, motion, material identity, instance/primitive identity,
+  emissive, alpha cutoff, opacity, and surface class are not read by the
+  admitted current initial sampler;
+* temporal/spatial validation and reconnection identity must use an optional
+  sidecar later rather than enlarge every current-frame D0 load;
+* PSR, decal/liquid collections, and special shading remain separate producer
+  or material-provider responsibilities;
+* three-bounce continuation and aggressive Russian roulette are not impaired:
+  current continuation already needs only position, directions, roughness,
+  base color, and F0.  Per-bounce state stays in the bounded transport contract.
+
+At 2560x1440, the record changes one full-frame write or load from 648,806,400
+bytes (about 619 MiB) to 176,947,200 bytes (about 169 MiB), a 72.7-percent
+reduction.  P0 write plus D0 read falls from about 1.30 GB to 353,894,400 bytes
+before traversal, lights, geometry, textures, and reservoir traffic.
+
+Runtime A/B:
+
+    r_pathTracingUnifiedPtCompactReceiver 0  legacy 176-byte receiver
+    r_pathTracingUnifiedPtCompactReceiver 1  UPT-owned 48-byte receiver (default)
+
+It applies only to UPT-only Vulkan execution, diagnostics off, and production
+shader-proof modes 1 through 6.  Diagnostic and live-TLAS proof variants keep
+the legacy ABI.  The pipeline log prints receiver=compact48 or receiver=legacy176,
+and the compact P0 marker is:
+
+    UPT.P0 LeanPrimary Compact48 DispatchRays
+
+SPIR-V proof for the direct-only compact consumer records ArrayStride 48 and
+loads Upt04PackedPrimarySurfaceRecord.  The retained A/B blob records
+ArrayStride 176 and loads Upt04PrimarySurfaceRecord.  Both RayQuery and raygen,
+and unified/direct-only/indirect-only family variants, are separately compiled
+and Vulkan-validated.
