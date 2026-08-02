@@ -18,9 +18,12 @@ P0/D0/R0 duration alone as proof of an efficient low-level design.
 Disposition
 -----------
 
-The counter observation is explained by the live shader ABI and compiled
-SPIR-V.  The current no-reuse UPT path is memory-traffic heavy before temporal
-or spatial reuse exists.  Temporal and spatial work remains blocked.
+The live shader ABI and compiled SPIR-V proved substantial avoidable traffic,
+but the runtime A/B rejected that traffic as the governing counter bottleneck.
+Removing 228 B/pixel of explicit no-reuse traffic produced no meaningful
+change in the reported RT-core or VRAM behavior.  The cleanup remains correct,
+but this document's initial causal explanation is superseded by the payload
+and occupancy audit in 19.  Temporal and spatial work remains blocked.
 
 This audit corrects one earlier suspicion.  The live UPT P0 route uses
 pathtrace_primary_surface_producer.rt.bin, not the old pathtrace_smoke.rt.bin
@@ -272,6 +275,20 @@ to E:/prog/rbdoom-3-BFG-prebuilt.  Source and deployed SHA-256 hashes matched:
         EF2BF1EA4D39AFC5084C166BA5E13873751E12F597A11221D3D30CB845F62385
 
 Runtime and Nsight A/B remain open.
+
+Runtime rejection of the root-cause hypothesis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The user repeated the hardware-counter comparison after deployment.  The
+reported behavior was unchanged: rbdoom remained write-heavy with low RT-core
+utilization.  NVIDIA FullSample and Cyberpunk 2077 path tracing both showed the
+opposite healthy pattern: comparatively low VRAM activity, read-dominant
+traffic when active, and high RT-core utilization.
+
+Therefore the removed 801.563 MiB/frame logical traffic was real and worth
+removing before reuse, but it was not the constraint producing the cross-pass
+slowdown.  Do not use the calculated bytes/pixel in this document as a causal
+explanation for the 18-percent RT-core observation.  Continue with 19.
 
 Architectural correction required before reuse
 ----------------------------------------------

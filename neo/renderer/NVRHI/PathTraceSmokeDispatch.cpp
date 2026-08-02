@@ -2568,7 +2568,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 r_pathTracingUnifiedPtProofStage.GetInteger()));
             unifiedPtInputs.shaderProofMode = static_cast<uint32_t>(idMath::ClampInt(
                 1,
-                13,
+                14,
                 r_pathTracingUnifiedPtShaderProof.GetInteger()));
             unifiedPtInputs.backend =
                 r_pathTracingUnifiedPtBackend.GetInteger() == 1

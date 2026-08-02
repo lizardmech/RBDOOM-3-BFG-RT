@@ -15,12 +15,15 @@ captures accept the steady-state timing and no-pipeline-creation gates:
 the UPT submit remained within 4.67-4.83 ms and P0+D0+R0 remained within
 4.24-4.37 ms. The live image was fully functional and remained at the user's
 120 FPS cap with textured models. A subsequent live-SPIR-V bandwidth audit
-found that UPT-only P0 exports unused RR guides and unified D0 loads the
-176-byte receiver twice. The conservative no-reuse total is 716 bytes/pixel,
-or 2,517.188 MiB at 1440p, before AS, geometry, material, light, and texture
-traffic. Timing stability is retained, but low-level efficiency is not yet
-accepted. Temporal and spatial work remains unauthorized pending the bounded
-remediation in 18.
+removed unused UPT-only RR guides and a duplicate 176-byte D0 receiver load,
+but the runtime A/B produced no counter change and rejected explicit output
+traffic as the governing bottleneck. Audit 19 proves a much larger shared
+architecture divergence: the early/current P0 payloads are 176/336 bytes
+versus NVIDIA FullSample's 40-byte PT payload, and unified RayQuery D0 retains
+multiple 168-byte work records across three inline traversal loops. A 5,732-
+byte full-frame traversal-isolation shader is built and deployed as proof mode
+14. Timing stability is retained, but low-level efficiency is not yet
+accepted. Temporal and spatial work remains unauthorized pending that A/B.
 
 Purpose
 -------
@@ -274,8 +277,13 @@ Packet index
 
     18_upt05_bandwidth_bottleneck_audit.txt
         Live-SPIR-V proof of the 176-byte receiver loads, unused UPT-only RR
-        guide writes, 64-byte reservoir traffic, exact bytes/pixel budget, and
-        the pre-reuse remediation gate.
+        guide writes, 64-byte reservoir traffic, exact bytes/pixel budget, the
+        implemented cleanup, and its runtime rejection as the root cause.
+
+    19_upt05_payload_and_occupancy_audit.txt
+        Exact early/current/reference payload sizes, unified D0 live-state and
+        three-query megakernel evidence, and the deployed full-frame
+        traversal-isolation proof mode 14.
 
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
@@ -298,4 +306,5 @@ Do not add temporal or spatial reuse unless the no-reuse renderer:
     builds Vulkan pipelines in a normal bounded time;
     reaches the reference-comparison timing gate in UPT-05;
     eliminates the proven unused/duplicate no-reuse traffic in 18;
+    resolves the payload/live-state occupancy gate in 19;
     and admits a bounded UPT-owned hot receiver ABI before neighbor reads.

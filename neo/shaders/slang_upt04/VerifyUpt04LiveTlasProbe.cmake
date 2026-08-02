@@ -63,8 +63,35 @@ if(DEFINED UPT04_FULL_HOST_PROBE_DISASSEMBLY)
     endif()
 endif()
 
+if(DEFINED UPT04_TRAVERSAL_PROBE_DISASSEMBLY)
+    file(READ "${UPT04_TRAVERSAL_PROBE_DISASSEMBLY}" traversal_contents)
+    if(NOT traversal_contents MATCHES "OpExecutionMode [^\n]* LocalSize 8 8 1")
+        message(FATAL_ERROR "UPT-04 traversal-isolation probe is not 8x8")
+    endif()
+    string(REGEX MATCHALL "OpRayQueryInitializeKHR" traversal_query_initializers
+        "${traversal_contents}")
+    list(LENGTH traversal_query_initializers traversal_query_initializer_count)
+    if(NOT traversal_query_initializer_count EQUAL 1)
+        message(FATAL_ERROR "UPT-04 traversal-isolation probe must contain exactly one RayQuery initializer")
+    endif()
+    foreach(required_binding IN ITEMS 0 1 4)
+        if(NOT traversal_contents MATCHES "OpDecorate [^\n]* Binding ${required_binding}")
+            message(FATAL_ERROR "UPT-04 traversal-isolation probe is missing binding ${required_binding}")
+        endif()
+    endforeach()
+    foreach(forbidden_binding IN ITEMS 2 3 5)
+        if(traversal_contents MATCHES "OpDecorate [^\n]* Binding ${forbidden_binding}")
+            message(FATAL_ERROR "UPT-04 traversal-isolation probe retained forbidden binding ${forbidden_binding}")
+        endif()
+    endforeach()
+    if(NOT traversal_contents MATCHES "PushConstant")
+        message(FATAL_ERROR "UPT-04 traversal-isolation probe must retain render dimensions")
+    endif()
+endif()
+
 file(WRITE "${UPT04_PROBE_STAMP}"
     "UPT-04 live TLAS compiler A/B verified\n"
     "Slang and DXC compact: LocalSize 1 1 1, descriptor set 0 bindings 0/1, one RayQuery initializer\n"
     "Slang full layout: LocalSize 1 1 1, production bindings 0/4, push constants, one RayQuery initializer\n"
-    "Slang full host: LocalSize 1 1 1, production bindings 0/4, no imported UPT ABI, one RayQuery initializer\n")
+    "Slang full host: LocalSize 1 1 1, production bindings 0/4, no imported UPT ABI, one RayQuery initializer\n"
+    "Slang traversal isolation: LocalSize 8 8 1, bindings 0/1/4, push constants, one RayQuery initializer\n")

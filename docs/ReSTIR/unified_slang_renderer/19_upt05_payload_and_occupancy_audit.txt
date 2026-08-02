@@ -1,0 +1,229 @@
+UPT-05 Payload, Live-State, and Occupancy Audit
+===============================================
+
+Date
+----
+
+2026-08-02
+
+Trigger
+-------
+
+The 18 mechanical cleanup removed a conservative 801.563 MiB/frame of
+explicit P0/D0 traffic at 2560 x 1440, but the user observed no meaningful
+change in the hardware-counter pattern.  A separate Cyberpunk 2077 path-
+tracing capture matched NVIDIA FullSample instead of rbdoom: ray dispatch was
+RT-core-heavy, VRAM use was modest, and reads dominated the memory traffic.
+
+That comparison rejects the idea that rbdoom's write-heavy behavior is an
+ordinary consequence of path tracing.  The next shared low-level suspect is
+compiled execution state: oversized RT payloads in P0 and a live-state-heavy
+RayQuery megakernel in D0.
+
+Disposition
+-----------
+
+The payload/live-state divergence is proven.  Its exact SASS register count,
+local-memory spills, and causal share of frame time are not yet proven.  A new
+full-frame traversal-isolation mode is built and deployed to obtain that proof.
+
+Do not add temporal or spatial reuse until the new A/B is captured.  Runtime
+feature switches cannot repair a statically oversized payload or reduce state
+which the compiler must keep live across an inline traversal loop.
+
+P0 primary ray payload
+----------------------
+
+Current shared UPT primary producer
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pathtrace_primary_surface_producer.rt.hlsl declares a 336-byte, 84-dword
+PathTraceSmokePayload.  It contains:
+
+    hit distance, normals, tangent basis, UVs, barycentrics, vertex colors
+    surface/material/instance/geometry/primitive identities
+    shadow-ignore and debug state
+    three detail-decal candidates across four payload arrays
+    four liquid-pool candidates across six payload arrays
+
+InitSmokePayload initializes this entire contract before every camera
+TraceRay.  The decal and liquid arrays remain part of the static Vulkan
+RayPayloadKHR type even when their runtime feature switches are disabled.
+They therefore cannot be treated as zero-cost optional features.
+
+The deployed P0 SPIR-V declares the complete 39-member payload type for the
+ray-generation, any-hit, and closest-hit stages.  The host's stale
+maxPayloadSize = 64 assignment does not shrink Vulkan SPIR-V; this old NVRHI
+Vulkan path does not apply that D3D12 pipeline field to the shader payload ABI.
+
+Early renderer payload
+~~~~~~~~~~~~~~~~~~~~~~
+
+The older pathtrace_smoke.rt.hlsl payload was already 176 bytes, or 44 dwords,
+before detail-decal and liquid-pool state was added.  It carried full shaded
+surface attributes rather than compact hit identity.  This proves the design
+problem existed in the early basic DI/GI era and was later enlarged; optional
+modern features are not required to explain its origin.
+
+Reference payloads
+~~~~~~~~~~~~~~~~~~
+
+The local NVIDIA FullSample path-tracing RAB payload is 40 bytes, or 10
+dwords:
+
+    float3 throughput
+    committed hit distance
+    instance, geometry, and primitive identities
+    front-face flag
+    float2 barycentrics
+
+It reconstructs geometry and material state after the hit from compact
+identity and barycentrics.  Its ray-traced G-buffer payload is 28 bytes.
+
+The exact size ratios are:
+
+    rbdoom early core payload / NVIDIA PT payload       176 / 40 = 4.4x
+    rbdoom current P0 payload / NVIDIA PT payload       336 / 40 = 8.4x
+
+These ratios do not directly predict elapsed time.  They do establish a major
+architecture-level divergence on the path shared by DI and GI.
+
+D0 RayQuery live state
+----------------------
+
+Upt04InitialTraceWork is 168 bytes under the scalar layout:
+
+    scalar candidate, replay, path, and PDF state        120 B
+    Upt04TraceRequest                                     32 B
+    Upt04BoundedTransportState                            16 B
+
+Upt04IndirectHitTrialResult contains two such records and is 336 bytes.  The
+unified D0 composition root also retains or copies the 176-byte primary
+surface, direct work, continuation work, secondary-NEE work, reservoir state,
+hit facts, decoded geometry/material state, and transport state while it
+serially executes:
+
+    primary NEE proposal and visibility
+    BSDF continuation traversal
+    hit geometry/material reconstruction
+    endpoint candidate construction
+    secondary NEE proposal and visibility
+    unified reservoir streaming
+
+The optimized Slang production SPIR-V is one inlined function with three
+distinct OpRayQueryProceedKHR loops.  This is functionally a ray-query
+megakernel even though its source is split into modules.  Source modularity
+does not shorten the compiled live ranges.
+
+RayQuery traversal shares SM execution and registers with surrounding shader
+code.  A large live set can reduce resident warps and starve RT traversal; a
+spill of shader-local values is backed by device memory and is a plausible
+source of write-heavy VRAM counters.  This is an inference until Nsight reports
+register/local-memory evidence or the isolation A/B separates it.
+
+Full-frame traversal-isolation proof
+------------------------------------
+
+Shader proof 14 is a separate 8x8 compute module.  For every valid primary
+receiver it performs:
+
+    read header, world position, and geometric normal       48 B/pixel
+    trace one opaque accept-first-hit inline ray
+    write one committed-hit status uint                      4 B/pixel
+
+It imports no light, material, reservoir, geometry-decode, initial-sampling,
+or resolve module.  It uses only descriptor-set-0 bindings:
+
+    t0 TLAS
+    t1 primary receiver
+    u4 uint result storage backed by the existing private page allocation
+    128-byte push range for dimensions/counts
+
+Compiled proof
+~~~~~~~~~~~~~~
+
+The verified runtime blob is 5,732 bytes.  Its SPIR-V contains:
+
+    LocalSize 8 8 1
+    exactly one OpRayQueryInitializeKHR
+    exactly one static OpRayQueryProceedKHR loop
+    ArrayStride 176 for the source receiver
+    three 16-byte receiver-field loads, not a 176-byte struct load
+    one 4-byte result store on the valid path
+    no bindings 2, 3, 5, or bindless set 1
+
+The Vulkan-only build and all UPT verification targets passed.  The rebuilt
+executable and proof blob were deployed with matching source/destination
+SHA-256 values:
+
+    RBDoom3BFG.exe
+        1A08F6BCF6C072FD037179B2906079CA02AE3526F2BD82B3D0EBBE365A271675
+    upt04_full_frame_traversal_probe.bin
+        5BFAC2CBDFC8158490EB56B9578E75424058780663AAA26C0C980B0A0BD3AE61
+
+Runtime command
+~~~~~~~~~~~~~~~
+
+Use the same scene, resolution, camera, and Nsight counter set as the unified
+D0 capture.  The proof is intentionally non-presenting; the normal image may
+remain absent because resolve must be disabled.
+
+    r_pathTracingUnifiedPtEnable 0
+    r_pathTracingUnifiedPtBackend 0
+    r_pathTracingUnifiedPtFamily 0
+    r_pathTracingUnifiedPtDiagnostics 0
+    r_pathTracingUnifiedPtResolve 0
+    r_pathTracingUnifiedPtProofStage 9
+    r_pathTracingUnifiedPtShaderProof 14
+    r_pathTracingUnifiedPtFixedSampleIndex -1
+    r_pathTracingUnifiedPtEnable 1
+
+The target Nsight marker is:
+
+    UPT.D0 TraversalOnly RayQuery
+
+Compare only that D0 marker with the production unified marker obtained from
+the same settings except shaderProof 6.  P0 remains a separate shared producer
+and must not be folded into the D0 comparison.
+
+Interpretation gate
+-------------------
+
+1. Proof 14 becomes RT-core-heavy and read-dominant.
+
+   The TLAS and RayQuery mechanism can feed the RT cores.  Production D0's
+   live state, material/light work, or spills are the governing cause.  Split
+   D0 at explicit ray/work-queue boundaries before adding reuse.
+
+2. Proof 14 remains near the reported 18-percent RT-core utilization.
+
+   The production reservoir/material state is not sufficient to explain the
+   low traversal occupancy.  Investigate TLAS traversal, ray coherence,
+   scheduling, or a lower Vulkan/NVRHI issue before restructuring D0.
+
+3. Proof 14 is RT-core-heavy but remains unexpectedly write-heavy.
+
+   Inspect shader registers/thread and local-memory load/store counters for
+   the 5.7-KiB module.  A compiler/backend or counter-scope issue is then more
+   likely than the UPT work contract.
+
+The proof ray starts at the primary hit and follows the geometric normal with
+a long tMax.  It deliberately does not reproduce the production light or BSDF
+distribution.  It answers whether the same live TLAS and Vulkan RayQuery path
+can sustain traversal when the surrounding state is removed; it is not an
+image-quality or equal-ray-distribution benchmark.
+
+Likely remediation boundary if case 1 passes
+--------------------------------------------
+
+P0 must get a UPT-owned compact hit payload containing only hit distance,
+instance/geometry/primitive identity, barycentrics, and front-face state, with
+surface/material reconstruction after TraceRay.  Decal and liquid collection
+must attach through explicit optional passes or specialized pipelines rather
+than enlarging the baseline payload.
+
+D0 must cease being one three-query live-state kernel.  Candidate/reservoir
+state must be compact at each pass boundary, and separate traversal/shading
+stages must justify each queue and buffer in the GPU work ledger.  This is not
+authorization to add generic queues speculatively; the proof result selects
+the next design.
