@@ -955,6 +955,14 @@ void ApplyPathTraceDynamicMaterialRecord(uint materialIndex, inout PathTraceSmok
     }
 }
 
+uint LoadSmokeMaterialFlags(uint materialIndex)
+{
+    const uint materialCount = (uint)TextureInfo.z;
+    return materialIndex < materialCount
+        ? SmokeMaterials[materialIndex].flags
+        : 0u;
+}
+
 PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material = (PathTraceSmokeMaterial)0;
@@ -2203,17 +2211,19 @@ bool SmokeGlassFallbackRejectsHit(PathTraceSmokeMaterial material, float2 texCoo
     return opacity < SmokeHashToUnitFloat(SmokeAlphaStochasticHash(hash, 37u));
 }
 
-bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBarycentrics, uint rayMode)
+bool SmokeAlphaRejectsResolvedHit(
+    uint instanceId,
+    uint primitiveIndex,
+    float2 hitBarycentrics,
+    uint rayMode,
+    uint materialIndex,
+    uint materialFlags,
+    uint triangleClassAndFlags)
 {
-    if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA) ||
-        !SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+    if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA))
     {
         return false;
     }
-    const uint materialIndex = LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
-    const PathTraceSmokeMaterial material = LoadSmokeMaterial(materialIndex);
-    const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, hitBarycentrics);
-    const uint triangleClassAndFlags = LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
     const bool shadowRay =
         rayMode != 0u &&
         rayMode != RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE &&
@@ -2222,6 +2232,39 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBaryce
     {
         return true;
     }
+
+    const uint surfaceClass =
+        triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
+    const uint translucentSubtype =
+        (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >>
+        RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+    const uint materialCoverageFlags =
+        RT_SMOKE_MATERIAL_ALPHA_TEST |
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+        RT_SMOKE_MATERIAL_FILTER_DECAL;
+    const bool particleCoverage =
+        ((uint)LightInfo.w & 1u) != 0u &&
+        surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE;
+    const bool glassCoverage =
+        PortalWindowInfo.x > 0.0 &&
+        surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        (translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW ||
+            (translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS &&
+                (materialFlags & RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK) != 0u));
+    if (!particleCoverage && !glassCoverage &&
+        (materialFlags & materialCoverageFlags) == 0u)
+    {
+        // The common opaque hit needs no texture coordinates, vertex fetches,
+        // full 112-byte material load, or stochastic coverage work.
+        return false;
+    }
+
+    const PathTraceSmokeMaterial material = LoadSmokeMaterial(materialIndex);
+    const float2 texCoord = InterpolateSmokeTexCoord(
+        instanceId,
+        primitiveIndex,
+        hitBarycentrics);
     if (SmokeParticleDitherRejectsHit(material, texCoord, hitBarycentrics, instanceId, primitiveIndex, triangleClassAndFlags, shadowRay))
     {
         return true;
@@ -2243,6 +2286,24 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBaryce
         return false;
     }
     return SmokeAlphaCoverage(material, texCoord) < material.alphaCutoff;
+}
+
+bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBarycentrics, uint rayMode)
+{
+    if (!SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+    {
+        return false;
+    }
+    const uint materialIndex =
+        LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
+    return SmokeAlphaRejectsResolvedHit(
+        instanceId,
+        primitiveIndex,
+        hitBarycentrics,
+        rayMode,
+        materialIndex,
+        LoadSmokeMaterialFlags(materialIndex),
+        LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex));
 }
 
 bool TryGetLiquidPoolStageColor(uint materialIndex, out float4 stageColor)
@@ -3412,15 +3473,40 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             return;
         }
     }
+
+    // Resolve the material tuple once for the whole any-hit invocation.  The
+    // old path repeated route validation/material-index loads in liquid,
+    // decal, and alpha branches, then loaded the full material even for the
+    // overwhelmingly common opaque case.
+    const bool lookupTriangleValid = SmokeTriangleIndexRangeValid(
+        lookupInstanceId,
+        lookupPrimitiveIndex);
+    const uint hitMaterialIndex = lookupTriangleValid
+        ? LoadSmokeTriangleMaterialIndex(
+            lookupInstanceId,
+            lookupPrimitiveIndex)
+        : 0xffffffffu;
+    const uint hitMaterialFlags = lookupTriangleValid
+        ? LoadSmokeMaterialFlags(hitMaterialIndex)
+        : 0u;
+    const uint hitTriangleClassAndFlags = lookupTriangleValid
+        ? LoadSmokeTriangleClassAndFlags(
+            lookupInstanceId,
+            lookupPrimitiveIndex)
+        : 0u;
+
     if ((RB_PT_UPT_LEAN_PRIMARY || PathTraceLiquidPoolCollectionEnabled()) &&
-        SmokeTriangleIndexRangeValid(
-            lookupInstanceId,
-            lookupPrimitiveIndex))
+        lookupTriangleValid)
     {
-        const uint materialIndex = LoadSmokeTriangleMaterialIndex(
-            lookupInstanceId,
-            lookupPrimitiveIndex);
-        if (PathTraceMaterialIsSemanticLiquidPool(materialIndex))
+#if RB_PT_UPT_LEAN_PRIMARY
+        const bool semanticLiquidPool =
+            (hitMaterialFlags &
+                RT_SMOKE_MATERIAL_DETAIL_DECAL_LIQUID_POOL) != 0u;
+#else
+        const bool semanticLiquidPool =
+            PathTraceMaterialIsSemanticLiquidPool(hitMaterialIndex);
+#endif
+        if (semanticLiquidPool)
         {
 #if RB_PT_UPT_LEAN_PRIMARY
             // Modifier cards do not become receivers when their candidate bin is
@@ -3440,13 +3526,14 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                 // coverage is zero. Raw/retained counts remain positive-
                 // coverage-only so zero-alpha cards stay reducer identities.
                 payload.liquidStatusMask |= RT_LIQUID_POOL_STATUS_CANDIDATE;
-                const PathTraceSmokeMaterial material = LoadSmokeMaterial(materialIndex);
+                const PathTraceSmokeMaterial material =
+                    LoadSmokeMaterial(hitMaterialIndex);
                 const float2 texCoord = InterpolateSmokeTexCoord(
                     lookupInstanceId,
                     lookupPrimitiveIndex,
                     attributes.barycentrics);
                 float4 stageColor;
-                if (TryGetLiquidPoolStageColor(materialIndex, stageColor))
+                if (TryGetLiquidPoolStageColor(hitMaterialIndex, stageColor))
                 {
                     const float coverage = saturate(SmokeAlphaCoverage(material, texCoord)) * saturate(stageColor.a);
                     if (coverage > 0.0)
@@ -3454,7 +3541,7 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                         ConditionallyStoreLiquidPoolCandidate(
                             payload,
                             resolved.identityInstanceId,
-                            materialIndex,
+                            hitMaterialIndex,
                             resolved.identityPrimitiveIndex,
                             attributes.barycentrics);
                     }
@@ -3486,30 +3573,27 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
 #endif
     if (inspectOptionalDecalCard &&
         !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA) &&
-        SmokeTriangleIndexRangeValid(
-            lookupInstanceId,
-            lookupPrimitiveIndex))
+        lookupTriangleValid)
     {
-        const uint materialIndex = LoadSmokeTriangleMaterialIndex(
-            lookupInstanceId,
-            lookupPrimitiveIndex);
-        const PathTraceSmokeMaterial material =
-            LoadSmokeMaterial(materialIndex);
 #if RB_PT_UPT_LEAN_PRIMARY
+        const uint optionalMaterialFlags = hitMaterialFlags;
         const bool detailDecal =
-            (material.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u;
+            (optionalMaterialFlags & RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u;
         const bool additiveEmissiveSignage =
-            (material.flags &
+            (optionalMaterialFlags &
                 (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
                     RT_SMOKE_MATERIAL_EMISSIVE)) ==
                 (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
                     RT_SMOKE_MATERIAL_EMISSIVE);
 #else
+        const PathTraceSmokeMaterial material =
+            LoadSmokeMaterial(hitMaterialIndex);
+        const uint optionalMaterialFlags = material.flags;
         const bool detailDecal =
             payload.value == 0u &&
             PathTraceDecalCollectEnabled(
                 PathTraceDecalCompositeStage()) &&
-            (material.flags &
+            (optionalMaterialFlags &
                 RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u;
         const bool additiveEmissiveSignage =
             PathTraceAdditiveEmissiveCollectEnabled() &&
@@ -3517,7 +3601,7 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             // ParticleAlpha/SignageGlow class and does not retain its subtype.
             // ADDITIVE_DECAL is the surviving classifier contract; its CPU
             // producer already excludes particles, glass, GUIs, and decals.
-            (material.flags &
+            (optionalMaterialFlags &
                 (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
                     RT_SMOKE_MATERIAL_EMISSIVE)) ==
                 (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
@@ -3533,7 +3617,7 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
                 {
                     ConditionallyStoreDetailDecalResolved(
                         payload,
-                        materialIndex,
+                        hitMaterialIndex,
                         resolved.staticAddress.triangleIndex &
                             0x3fffffffu,
                         InterpolateSmokeTexCoord(
@@ -3546,7 +3630,7 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             {
                 ConditionallyStoreDetailDecal(
                     payload,
-                    materialIndex,
+                    hitMaterialIndex,
                     instanceId,
                     primitiveIndex,
                     attributes.barycentrics);
@@ -3556,11 +3640,14 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             return;
         }
     }
-    if (SmokeAlphaRejectsHit(
+    if (lookupTriangleValid && SmokeAlphaRejectsResolvedHit(
             lookupInstanceId,
             lookupPrimitiveIndex,
             attributes.barycentrics,
-            payload.value))
+            payload.value,
+            hitMaterialIndex,
+            hitMaterialFlags,
+            hitTriangleClassAndFlags))
     {
         IgnoreHit();
     }

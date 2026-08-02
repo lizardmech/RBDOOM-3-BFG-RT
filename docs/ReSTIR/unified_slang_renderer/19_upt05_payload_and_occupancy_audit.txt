@@ -363,3 +363,42 @@ downstream receiver-contract change; its inputs and binary must otherwise be
 identical.  A meaningful P0 gain with stable D0 validates the payload/live-state
 cause.  No gain rejects payload size alone and points the next split at material
 reconstruction inside P0 rather than optional candidate transport.
+
+Compact-payload runtime result and L2 follow-up
+-----------------------------------------------
+
+The first comparison capture used lean primary and the second used the normal
+shared primary.  The lean payload visibly reduced VRAM traffic and increased
+RT-core use, but neither reached the reference utilization shape.  The user
+also identified persistent near-90-percent L2 utilization across rbdoom's hot
+work, unlike the comparison renderers.  Therefore optional payload state was a
+real cost but not the underlying cache-working-set problem.
+
+Two exact source/SPIR-V findings explain the remaining L2 pressure:
+
+* P0 any-hit loaded the full 112-byte material and interpolated UVs from three
+  112-byte vertices before its final test proved the common triangle was not
+  alpha-tested.  This ran for ordinary opaque candidate hits because primary
+  TraceRay uses RAY_FLAG_NONE, and closest-hit fetched the vertex attributes
+  again for the committed hit.
+* Production D0 performs one OpLoad of the complete 176-byte
+  Upt04PrimarySurfaceRecord before extracting fields.  At 2560x1440, one full
+  write or read is 648,806,400 bytes (about 619 MiB); P0 write plus D0 read is
+  about 1.30 GB per frame before geometry, lights, textures, or the reservoir.
+
+The immediate follow-up keeps all hit rules but resolves material index, flags,
+and triangle class once per any-hit invocation.  Opaque candidates now return
+before full material loading, UV interpolation, texture work, or stochastic
+coverage.  Lean liquid/detail-card pass-through uses the existing static
+material classification flags instead of loading the feature record and full
+material for every candidate.  SPIR-V confirms the common flags probe is a
+scalar uint load at material member 8; full material loads remain only behind
+special coverage branches.
+
+This is the next isolated runtime test.  Compare a new lean-primary capture to
+the saved lean-primary capture at the same camera.  A P0/L2 improvement proves
+unconditional any-hit reconstruction was another common-path defect.  The
+remaining already-proven structural target is a UPT-owned compact receiver:
+production D0 only consumes primary validity, position, normals, view direction,
+roughness, base color, and F0, so it must not retain the legacy 176-byte history
+record merely for compatibility with unrelated temporal/material consumers.
