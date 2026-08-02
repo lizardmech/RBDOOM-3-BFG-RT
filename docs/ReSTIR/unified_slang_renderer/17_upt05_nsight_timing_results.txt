@@ -115,6 +115,74 @@ Do not compare only whole-frame FPS between the two applications. Record
 resolution, ray policy, material set, candidate count, and dispatch dimensions
 beside each corresponding marker.
 
+FullSample Vulkan comparison captures
+-------------------------------------
+
+The three newest FullSample captures supplied after the rbdoom capture set are:
+
+    FullSample_2026_08_02_17_57_29.ngfx-gputrace
+    FullSample_2026_08_02_17_58_02.ngfx-gputrace
+    FullSample_2026_08_02_17_58_18.ngfx-gputrace
+
+All three dispatch at 3014 x 1761, or 5,307,654 pixels. That is 1.439793 times
+the pixel count of the 2560 x 1440 UPT captures, so they do not satisfy the
+formal identical-resolution gate. The middle capture is unambiguously the
+empty view from its 0.23 ms G-buffer and 1.63 ms initial-sample cost. The last
+is the busy view. The first is retained as a second populated view.
+
+The direct-lighting path is shared by NVIDIA's renderer modes. Therefore
+DIGenerateInitialSamples and DIShadeSamples are valid comparison ranges for
+the direct component even though no dedicated PT-prefixed DI marker exists.
+They must not, however, be represented as the complete unified DI+GI PT path.
+
+Native 3014 x 1761 GPU durations:
+
+                            populated 1       empty        busy
+    trace window                10.72 ms      5.38 ms     11.30 ms
+    queue submit                10.61 ms      5.27 ms     11.19 ms
+    GBufferFill                  1.13 ms      0.23 ms      1.29 ms
+    DIGenerateInitialSamples     4.27 ms      1.63 ms      3.89 ms
+    DIShadeSamples               0.87 ms      1.36 ms      1.80 ms
+    three-range sum              6.27 ms      3.22 ms      6.98 ms
+
+Linear pixel-count normalization to 2560 x 1440, shown only as a comparison
+aid and not as a substitute for an equal-resolution capture:
+
+                            populated 1       empty        busy
+    GBufferFill                  0.785 ms     0.160 ms     0.896 ms
+    DIGenerateInitialSamples     2.966 ms     1.132 ms     2.702 ms
+    DIShadeSamples               0.604 ms     0.945 ms     1.250 ms
+    three-range sum              4.355 ms     2.236 ms     4.848 ms
+    DI initial + shade           3.570 ms     2.077 ms     3.952 ms
+
+The FullSample G-buffer is rasterized. In the busy capture, GBufferFill owns a
+vkCmdDraw range of 0.97 ms within its 1.29 ms marker. It is not an equal-work
+comparison for UPT.P0 SharedPrimary DispatchRays, which is ray traced. Do not
+use the roughly 0.8-0.9 ms normalized FullSample G-buffer number to diagnose a
+primary-ray multiplier.
+
+The shared DI comparison is still informative. UPT's unified D0 dispatch is
+1.27-1.62 ms and its trace-free R0 resolve is 0.30-0.62 ms at native 1440p.
+Their measured 1.57-1.95 ms combined range is below the populated FullSample
+direct-only initial+shade normalized range of 3.57-3.95 ms. The first standard
+capture supplies the widest UPT value because its resolve is 0.62 ms; the
+frozen/live pair is 1.57-1.92 ms. UPT also carries continuation and
+secondary-NEE candidate work,
+so these captures provide no evidence of the old three-times multiplier in the
+new producer/resolve lane.
+
+The empty FullSample view is an important workload result: at unchanged
+resolution, DIGenerateInitialSamples falls from 3.89-4.27 ms in populated views
+to 1.63 ms. Its cost is strongly scene/sample dependent rather than a fixed
+full-screen dispatch tax. The busy-view DIShadeSamples increase to 1.80 ms is
+likewise consistent with more surviving visibility/shading work.
+
+This comparison does not close the formal equal-work gate because the
+resolution, scene, primary-visibility method, and exact candidate/ray counts do
+not match. It does close the narrower question raised by these captures: the
+new UPT D0/R0 implementation is not slower than FullSample's shared DI stages
+in these measured views.
+
 UPT-05 disposition
 ------------------
 
@@ -128,7 +196,8 @@ Accepted by this capture set:
 Still open:
 
     remaining required scene matrix
-    identical-resolution/equal-work comparison with E:/prog/rtxdi_testing
+    formal identical-resolution/equal-work comparison with
+        E:/prog/rtxdi_testing
 
 Temporal and spatial reuse remain unauthorized until those remaining gates are
 evaluated.
