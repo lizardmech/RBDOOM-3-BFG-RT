@@ -99,6 +99,11 @@ private:
     nvrhi::BufferHandle m_diagnosticReadback;
     bool m_diagnosticReadbackPending = false;
     int m_diagnosticReadbackDelayFrames = 0;
+    uint32_t m_diagnosticReadbackSampleIndex = 0;
+    uint32_t m_diagnosticReadbackWidth = 0;
+    uint32_t m_diagnosticReadbackHeight = 0;
+    PathTraceUnifiedPtFamily m_diagnosticReadbackFamily =
+        PathTraceUnifiedPtFamily::DirectOnly;
 
     nvrhi::BindingLayoutHandle m_bindingLayout;
     nvrhi::BindingSetHandle m_bindingSet;

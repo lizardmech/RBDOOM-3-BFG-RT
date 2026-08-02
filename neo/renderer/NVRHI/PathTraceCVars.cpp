@@ -1399,7 +1399,13 @@ idCVar r_pathTracingUnifiedPtDiagnostics(
     "r_pathTracingUnifiedPtDiagnostics",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "One-shot UPT-04 RayQuery diagnostic specialization; clears and reads back the fixed 16-counter acceptance tuple, then returns to the selected production specialization" );
+    "One-shot UPT-04 RayQuery diagnostic specialization; clears and reads back the fixed 16-counter acceptance tuple plus a 128-bit order-independent reservoir signature, then returns to the selected production specialization" );
+
+idCVar r_pathTracingUnifiedPtFixedSampleIndex(
+    "r_pathTracingUnifiedPtFixedSampleIndex",
+    "-1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT fixed RNG sample index for repeatability tests: -1 uses the live frame index, values >= 0 hold the UPT random streams at that sample without freezing unrelated renderer state" );
 
 idCVar r_pathTracingUnifiedPtResolve(
     "r_pathTracingUnifiedPtResolve",

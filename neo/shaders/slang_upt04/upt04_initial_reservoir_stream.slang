@@ -50,8 +50,7 @@ public void Upt04StreamInitialTraceWork(
             kUpt04DimensionInitialReservoirSelection)));
 }
 
-public void Upt04WriteInitialReservoir(
-    uint surfaceIndex,
+public Upt03PackedReservoir Upt04FinalizeInitialReservoir(
     inout Upt03LogicalReservoir reservoir)
 {
     if (reservoir.hasSelectedSample != 0u && reservoir.effectiveM != 0u)
@@ -59,7 +58,15 @@ public void Upt04WriteInitialReservoir(
         reservoir.weightSum /= float(reservoir.effectiveM);
         reservoir.effectiveM = 1u;
     }
-    gUpt04Reservoirs[surfaceIndex] = Upt03PackReservoir(reservoir);
+    return Upt03PackReservoir(reservoir);
+}
+
+public void Upt04WriteInitialReservoir(
+    uint surfaceIndex,
+    inout Upt03LogicalReservoir reservoir)
+{
+    gUpt04Reservoirs[surfaceIndex] =
+        Upt04FinalizeInitialReservoir(reservoir);
 }
 
 public void Upt04FinishInitialTraceWork(Upt04InitialTraceWork work)

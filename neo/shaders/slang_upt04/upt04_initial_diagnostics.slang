@@ -11,9 +11,11 @@ import upt04_primary_surface_live_contract;
 import upt04_light_contract;
 import upt04_initial_control;
 import upt05_material_set_openpbr;
+import upt04_random_white_hash;
 
 // This entry point is intentionally separate from every production entry.
-// The fixed 16-word tuple is a bring-up observable, not production state.
+// The first 16 words are the bring-up counters.  Words 16..19 are a
+// group-reduced, order-independent signature of every packed reservoir.
 [[vk::binding(23, 0)]] RWStructuredBuffer<uint> gUpt04Diagnostics;
 
 public static const uint kUpt04DiagReceiverValid = 0u;
@@ -32,6 +34,15 @@ public static const uint kUpt04DiagVisibilityRays = 12u;
 public static const uint kUpt04DiagCanonicalEmptyWrites = 13u;
 public static const uint kUpt04DiagCandidateInputs = 14u;
 public static const uint kUpt04DiagRayCeilingViolations = 15u;
+public static const uint kUpt04DiagReservoirHash0 = 16u;
+public static const uint kUpt04DiagReservoirHash1 = 17u;
+public static const uint kUpt04DiagReservoirHash2 = 18u;
+public static const uint kUpt04DiagReservoirHash3 = 19u;
+
+groupshared uint gUpt04GroupReservoirHash0;
+groupshared uint gUpt04GroupReservoirHash1;
+groupshared uint gUpt04GroupReservoirHash2;
+groupshared uint gUpt04GroupReservoirHash3;
 
 public void Upt04DiagIncrement(uint counter)
 {
@@ -80,24 +91,57 @@ public void Upt04DiagSelection(Upt03LogicalReservoir reservoir)
         Upt04DiagIncrement(kUpt04DiagSelectedSecondaryNee);
 }
 
-[numthreads(8, 8, 1)]
-void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+public uint Upt04DiagMixReservoirWord(uint hash, uint word, uint salt)
 {
-    const uint2 pixel = dispatchThreadId.xy;
-    if (pixel.x >= gUpt04Control.renderWidth || pixel.y >= gUpt04Control.renderHeight)
-        return;
-    const uint surfaceIndex = pixel.y * gUpt04Control.renderWidth + pixel.x;
-    if (surfaceIndex >= gUpt04Control.surfaceCount)
-        return;
+    return Upt04HashWord(hash ^ Upt04HashWord(word + salt));
+}
 
+public uint4 Upt04DiagReservoirHash(
+    uint surfaceIndex,
+    Upt03PackedReservoir packed)
+{
+    uint4 hash = uint4(
+        Upt04HashWord(surfaceIndex ^ 0x243f6a88u),
+        Upt04HashWord(surfaceIndex ^ 0x85a308d3u),
+        Upt04HashWord(surfaceIndex ^ 0x13198a2eu),
+        Upt04HashWord(surfaceIndex ^ 0x03707344u));
+#define UPT04_DIAG_MIX_WORD(field, ordinal) \
+    hash.x = Upt04DiagMixReservoirWord(hash.x, packed.field, 0x9e3779b9u * (ordinal)); \
+    hash.y = Upt04DiagMixReservoirWord(hash.y, packed.field, 0x7f4a7c15u * (17u - (ordinal))); \
+    hash.z = Upt04DiagMixReservoirWord(hash.z, packed.field, 0x94d049bbu ^ (ordinal)); \
+    hash.w = Upt04DiagMixReservoirWord(hash.w, packed.field, 0x5bd1e995u + (ordinal));
+    UPT04_DIAG_MIX_WORD(word0, 1u)
+    UPT04_DIAG_MIX_WORD(word1, 2u)
+    UPT04_DIAG_MIX_WORD(word2, 3u)
+    UPT04_DIAG_MIX_WORD(word3, 4u)
+    UPT04_DIAG_MIX_WORD(word4, 5u)
+    UPT04_DIAG_MIX_WORD(word5, 6u)
+    UPT04_DIAG_MIX_WORD(word6, 7u)
+    UPT04_DIAG_MIX_WORD(word7, 8u)
+    UPT04_DIAG_MIX_WORD(word8, 9u)
+    UPT04_DIAG_MIX_WORD(word9, 10u)
+    UPT04_DIAG_MIX_WORD(word10, 11u)
+    UPT04_DIAG_MIX_WORD(word11, 12u)
+    UPT04_DIAG_MIX_WORD(word12, 13u)
+    UPT04_DIAG_MIX_WORD(word13, 14u)
+    UPT04_DIAG_MIX_WORD(word14, 15u)
+    UPT04_DIAG_MIX_WORD(word15, 16u)
+#undef UPT04_DIAG_MIX_WORD
+    return hash;
+}
+
+public Upt03PackedReservoir Upt04BuildDiagnosticReservoir(
+    uint2 pixel,
+    uint surfaceIndex)
+{
+    Upt03PackedReservoir packedEmpty = (Upt03PackedReservoir)0;
     Upt04InitialTraceWork receiverWork;
     Upt04PrimarySurfaceRecord receiverSurface;
     if (!Upt04LoadInitialSurface(pixel, receiverWork, receiverSurface))
     {
         Upt04DiagIncrement(kUpt04DiagReceiverInvalid);
-        gUpt04Reservoirs[surfaceIndex] = (Upt03PackedReservoir)0;
         Upt04DiagIncrement(kUpt04DiagCanonicalEmptyWrites);
-        return;
+        return packedEmpty;
     }
     Upt04DiagIncrement(kUpt04DiagReceiverValid);
 
@@ -121,8 +165,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (!Upt04CompletePrimaryNeeStage(transport))
     {
         Upt04DiagSelection(reservoir);
-        Upt04WriteInitialReservoir(surfaceIndex, reservoir);
-        return;
+        return Upt04FinalizeInitialReservoir(reservoir);
     }
 
     const bool indirectEnabled =
@@ -151,5 +194,58 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         Upt04DiagCandidate(secondaryNee, false);
     Upt04StreamInitialTraceWork(reservoir, secondaryNee, pixel, 2u);
     Upt04DiagSelection(reservoir);
-    Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+    return Upt04FinalizeInitialReservoir(reservoir);
+}
+
+[numthreads(8, 8, 1)]
+void main(
+    uint3 dispatchThreadId : SV_DispatchThreadID,
+    uint groupIndex : SV_GroupIndex)
+{
+    if (groupIndex == 0u)
+    {
+        gUpt04GroupReservoirHash0 = 0u;
+        gUpt04GroupReservoirHash1 = 0u;
+        gUpt04GroupReservoirHash2 = 0u;
+        gUpt04GroupReservoirHash3 = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    const uint2 pixel = dispatchThreadId.xy;
+    const uint surfaceIndex = pixel.y * gUpt04Control.renderWidth + pixel.x;
+    if (pixel.x < gUpt04Control.renderWidth
+        && pixel.y < gUpt04Control.renderHeight
+        && surfaceIndex < gUpt04Control.surfaceCount)
+    {
+        const Upt03PackedReservoir packed =
+            Upt04BuildDiagnosticReservoir(pixel, surfaceIndex);
+        gUpt04Reservoirs[surfaceIndex] = packed;
+        const uint4 hash = Upt04DiagReservoirHash(surfaceIndex, packed);
+        uint ignored;
+        InterlockedXor(gUpt04GroupReservoirHash0, hash.x, ignored);
+        InterlockedXor(gUpt04GroupReservoirHash1, hash.y, ignored);
+        InterlockedXor(gUpt04GroupReservoirHash2, hash.z, ignored);
+        InterlockedXor(gUpt04GroupReservoirHash3, hash.w, ignored);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (groupIndex == 0u)
+    {
+        uint ignored;
+        InterlockedXor(
+            gUpt04Diagnostics[kUpt04DiagReservoirHash0],
+            gUpt04GroupReservoirHash0,
+            ignored);
+        InterlockedXor(
+            gUpt04Diagnostics[kUpt04DiagReservoirHash1],
+            gUpt04GroupReservoirHash1,
+            ignored);
+        InterlockedXor(
+            gUpt04Diagnostics[kUpt04DiagReservoirHash2],
+            gUpt04GroupReservoirHash2,
+            ignored);
+        InterlockedXor(
+            gUpt04Diagnostics[kUpt04DiagReservoirHash3],
+            gUpt04GroupReservoirHash3,
+            ignored);
+    }
 }

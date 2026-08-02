@@ -650,6 +650,7 @@ B4. Observability
 
     IMPLEMENTED: the RayQuery-only upt04_initial_diagnostics entry owns set-0
     u23, a fixed 16-word counter tuple, and three trace sites matching unified
-    production. The host clears/copies/maps a dedicated 64-byte counter/readback
-    pair under the one-shot r_pathTracingUnifiedPtDiagnostics cvar. Production
-    artifacts have no binding 23 or diagnostic branch.
+    production. UPT-05 later appended four repeatability-signature words. The
+    host now clears/copies/maps a dedicated 80-byte counter/readback pair under
+    the one-shot r_pathTracingUnifiedPtDiagnostics cvar. Production artifacts
+    have no binding 23 or diagnostic branch.

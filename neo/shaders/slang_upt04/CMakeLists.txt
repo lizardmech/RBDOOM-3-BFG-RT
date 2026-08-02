@@ -327,6 +327,32 @@ set_target_properties(PathTraceSlangUpt05MaterialBoundary
 add_dependencies(PathTraceSlangUpt04ModuleGraph
     PathTraceSlangUpt05MaterialBoundary)
 
+set(UPT05_REPEATABILITY_STAMP
+    "${UPT04_OUTPUT_DIR}/upt05_repeatability_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT05_REPEATABILITY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT05_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DUPT05_HOST_DIR=${CMAKE_SOURCE_DIR}/renderer/NVRHI
+        -DUPT05_DIAGNOSTIC_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_diagnostics.slang.spvasm
+        -DUPT05_STAMP=${UPT05_REPEATABILITY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt05Repeatability.cmake"
+    DEPENDS ${UPT04_BACKEND_OUTPUTS}
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt05Repeatability.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_diagnostics.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_reservoir_stream.slang"
+        "${CMAKE_SOURCE_DIR}/renderer/NVRHI/PathTraceCVars.cpp"
+        "${CMAKE_SOURCE_DIR}/renderer/NVRHI/PathTraceSmokeDispatch.cpp"
+        "${CMAKE_SOURCE_DIR}/renderer/NVRHI/PathTraceUnifiedPt.cpp"
+    COMMENT "UPT-05 verifying fixed-input reservoir repeatability signature"
+    VERBATIM)
+add_custom_target(PathTraceSlangUpt05Repeatability
+    DEPENDS "${UPT05_REPEATABILITY_STAMP}")
+set_target_properties(PathTraceSlangUpt05Repeatability
+    PROPERTIES FOLDER "Shaders/UPT-05")
+add_dependencies(PathTraceSlangUpt04ModuleGraph
+    PathTraceSlangUpt05Repeatability)
+
 # Minimal live-game TLAS compiler A/B. These modules intentionally share only
 # a TLAS and one uint UAV; they do not import any UPT estimator modules.
 path_tracing_declare_slang_spirv_module(

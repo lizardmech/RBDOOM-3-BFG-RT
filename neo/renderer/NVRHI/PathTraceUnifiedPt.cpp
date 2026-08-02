@@ -21,7 +21,7 @@ static constexpr uint32_t UPT04_TRANSPORT_K_MAX = 2u;
 static constexpr uint32_t UPT04_TRANSPORT_POLICY_ID = 1u;
 static constexpr uint32_t UPT04_NEE_RIS_CANDIDATE_COUNT = 1u;
 static constexpr uint32_t UPT04_ABI_VERSION = 5u;
-static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 16u;
+static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 20u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
 static constexpr uint32_t UPT05_PUSH_CONSTANT_BYTES = 16u;
@@ -639,6 +639,10 @@ void PathTraceUnifiedPtState::Release()
     m_diagnosticReadback = nullptr;
     m_diagnosticReadbackPending = false;
     m_diagnosticReadbackDelayFrames = 0;
+    m_diagnosticReadbackSampleIndex = 0;
+    m_diagnosticReadbackWidth = 0;
+    m_diagnosticReadbackHeight = 0;
+    m_diagnosticReadbackFamily = PathTraceUnifiedPtFamily::DirectOnly;
     m_pipelineVariant = 0;
     m_selectionValid = false;
     m_diagnostics = false;
@@ -1140,11 +1144,15 @@ void PathTraceUnifiedPtState::DrainDiagnosticReadback(
         return;
     }
     common->Printf(
-        "PathTraceUnifiedPt: diagnostic receivers(valid/invalid)=%u/%u candidates(direct invalid/zero/positive)=%u/%u/%u candidates(indirect invalid/zero/positive)=%u/%u/%u selected(primaryNee/bsdfEndpoint/secondaryNee)=%u/%u/%u rays(continuation/visibility)=%u/%u canonicalEmpty=%u candidateInputs=%u rayCeilingViolations=%u\n",
+        "PathTraceUnifiedPt: diagnostic receivers(valid/invalid)=%u/%u candidates(direct invalid/zero/positive)=%u/%u/%u candidates(indirect invalid/zero/positive)=%u/%u/%u selected(primaryNee/bsdfEndpoint/secondaryNee)=%u/%u/%u rays(continuation/visibility)=%u/%u canonicalEmpty=%u candidateInputs=%u rayCeilingViolations=%u reservoirSignature=%08x:%08x:%08x:%08x sampleIndex=%u family=%s size=%ux%u\n",
         counters[0], counters[1], counters[2], counters[3], counters[4],
         counters[5], counters[6], counters[7], counters[8], counters[9],
         counters[10], counters[11], counters[12], counters[13], counters[14],
-        counters[15]);
+        counters[15], counters[16], counters[17], counters[18], counters[19],
+        m_diagnosticReadbackSampleIndex,
+        Upt04FamilyName(m_diagnosticReadbackFamily),
+        m_diagnosticReadbackWidth,
+        m_diagnosticReadbackHeight);
     inputs.device->unmapBuffer(m_diagnosticReadback);
     m_diagnosticReadbackPending = false;
 }
@@ -1377,6 +1385,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 UPT04_DIAGNOSTIC_BYTES);
             m_diagnosticReadbackPending = true;
             m_diagnosticReadbackDelayFrames = 2;
+            m_diagnosticReadbackSampleIndex = inputs.frameSampleIndex;
+            m_diagnosticReadbackWidth = inputs.width;
+            m_diagnosticReadbackHeight = inputs.height;
+            m_diagnosticReadbackFamily = inputs.family;
         }
     }
     if (inputs.proofStage == 7u)

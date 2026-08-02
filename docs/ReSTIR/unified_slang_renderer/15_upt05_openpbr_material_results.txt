@@ -120,8 +120,10 @@ Remaining UPT-05 gates
 
     stable Nsight capture of UPT.D0 and UPT.R0
     no pipeline creation during measured steady frames
-    fixed camera/RNG repeatability evidence
     remaining required scene matrix
     identical-resolution comparison with E:/prog/rtxdi_testing
+
+Fixed-input direct-only and unified repeatability are accepted in
+16_upt05_repeatability_probe.txt.
 
 Temporal and spatial reuse remain unauthorized until these gates are evaluated.

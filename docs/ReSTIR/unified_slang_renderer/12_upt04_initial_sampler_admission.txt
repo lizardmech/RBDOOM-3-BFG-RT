@@ -740,8 +740,9 @@ barrier and before the single primary-history publication. It owns:
     one set-0 binding layout and one cached binding set
     one selected backend/family pipeline
     no output, history, queue, constant buffer, or optional feature
-    one optional 64-byte counter UAV plus 64-byte CPU-read buffer owned only by
-        the one-shot diagnostic specialization
+    one optional 80-byte counter/signature UAV plus 80-byte CPU-read buffer
+        owned only by the one-shot diagnostic specialization; the original 16
+        counters remain words 0..15 and UPT-05 repeatability uses words 16..19
 
 The route is execution-exclusive. r_pathTracingUnifiedPtEnable overrides the
 default-on Clean-DI/GI execution request so legacy pipeline creation and GPU

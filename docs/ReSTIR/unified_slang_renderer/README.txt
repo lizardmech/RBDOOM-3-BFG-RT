@@ -8,11 +8,13 @@ UPT-00 through UPT-03 are complete. UPT-04 has passed its live RayQuery and
 ray-generation execution ladder, full-frame dispatch, diagnostic counter, and
 backend-parity gates. UPT-05 now owns one verified trace-free compute resolve,
 one RGBA16F output, direct presentation, and a statically selected modular
-OpenPBR material provider. The live 2560 x 1440 image was fully functional and
-remained at the user's 120 FPS cap with textured models. This is preliminary
+OpenPBR material provider. A zero-production-cost fixed-input repeatability
+probe is also accepted for direct-only and unified RayQuery at 2560 x 1440
+through the existing one-shot diagnostic. The live image was fully functional
+and remained at the user's 120 FPS cap with textured models. This is preliminary
 first-image throughput evidence, not a substitute for the required long stable
-Nsight capture and remaining scene/repeatability gates. Temporal and spatial
-work remains unauthorized.
+Nsight capture and remaining scene matrix. Temporal and spatial work remains
+unauthorized.
 
 Purpose
 -------
@@ -250,6 +252,10 @@ Packet index
         Static material-provider boundary, rbdoom-owned EON/GGX/VNDF baseline,
         Vulkan build and live image result, shader sizes, and disposition of
         the inherited Doom analytic-light range cutoff seen in resolve view 2.
+
+    16_upt05_repeatability_probe.txt
+        Fixed sample-index control and group-reduced 128-bit exact packed-
+        reservoir signature using only the optional diagnostic buffer pair.
 
         SUPERSEDED IN PART by 13. Its initial-sampling design (one-draw
         technique mixture, M = 1, two-ray ceiling) does not match the cited

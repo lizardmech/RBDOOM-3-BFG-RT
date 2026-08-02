@@ -2544,7 +2544,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_frameResources.primarySurfaceHistoryBuffers.current;
             unifiedPtInputs.width = static_cast<uint32_t>(m_frameResources.width);
             unifiedPtInputs.height = static_cast<uint32_t>(m_frameResources.height);
-            unifiedPtInputs.frameSampleIndex = m_frameResources.restirPTFrameIndex;
+            const int unifiedPtFixedSampleIndex =
+                r_pathTracingUnifiedPtFixedSampleIndex.GetInteger();
+            unifiedPtInputs.frameSampleIndex = unifiedPtFixedSampleIndex >= 0
+                ? static_cast<uint32_t>(unifiedPtFixedSampleIndex)
+                : m_frameResources.restirPTFrameIndex;
             unifiedPtInputs.materialPolicyFlags =
                 (r_pathTracingUseSpecularMaps.GetInteger() != 0
                     ? PATH_TRACE_UPT_MATERIAL_USE_SPECULAR_MAPS

@@ -1,0 +1,174 @@
+UPT-05 Fixed-Input Repeatability Probe
+======================================
+
+Status
+------
+
+The fixed-input repeatability instrumentation is implemented and passes its
+Vulkan-only shader, SPIR-V, host build, direct-only runtime, and unified runtime
+gates at 2560 x 1440.
+
+Purpose
+-------
+
+Prove that an unchanged primary surface/light/material input and an explicitly
+fixed UPT random sample index produce the exact same 64-byte reservoir at every
+pixel. Because the UPT-05 resolve is a deterministic, trace-free function of
+that packed reservoir, exact reservoir equality is the stronger upstream
+repeatability gate without allocating or reading back a full-screen texture.
+
+Production cost
+---------------
+
+None. The production entry points, descriptor layouts, dispatch count, ray
+count, and reservoir page are unchanged. The live frame sample remains the
+default while r_pathTracingUnifiedPtFixedSampleIndex is -1.
+
+Optional diagnostic cost
+------------------------
+
+The existing one-shot RayQuery diagnostic owns an 80-byte UAV and 80-byte CPU
+readback buffer. Its first 16 words remain the accepted counters. Four added
+words contain a 128-bit order-independent signature.
+
+Each valid diagnostic invocation hashes its surface index and all 16 packed
+reservoir words. Threads XOR into four group-shared accumulators; one lane per
+8 x 8 group performs four global XOR atomics. This bounds global contention to
+four atomics per group rather than four per pixel. The diagnostic remains
+outside every production binary and timing capture.
+
+Static verifier
+---------------
+
+VerifyUpt05Repeatability.cmake proves:
+
+    all packed words word0 through word15 participate
+    the surface index seeds every per-pixel hash
+    four group-shared accumulators and SV_GroupIndex are present
+    SPIR-V contains exactly four group and four global XOR atomics
+    SPIR-V contains exactly two group barriers
+    diagnostic and production share reservoir finalization
+    the fixed sample-index cvar reaches frameSampleIndex
+    the readback records the dispatch sample index, family, and dimensions
+    the optional diagnostic allocation is exactly 20 uint words
+
+Runtime procedure
+-----------------
+
+Use a static scene. Do not move the camera, alter cvars, animate/spawn/remove an
+entity, or allow a scripted light/material change between the two requests.
+For a map containing an idle monster, particles, or other game-driven state,
+set g_stopTime 1 and wait for geometry-route transition logging to settle before
+requesting either signature.
+
+    r_pathTracingUnifiedPtEnable 0
+    r_pathTracingUnifiedPtBackend 0
+    r_pathTracingUnifiedPtFamily 0
+    r_pathTracingUnifiedPtProofStage 9
+    r_pathTracingUnifiedPtShaderProof 6
+    r_pathTracingUnifiedPtResolve 1
+    r_pathTracingUnifiedPtFixedSampleIndex 0
+    r_pathTracingUnifiedPtEnable 1
+
+After the image is stable, request two independent one-shot captures without
+moving or changing state:
+
+    r_pathTracingUnifiedPtDiagnostics 1
+
+Wait for the diagnostic line, then issue the same command again and wait for
+the second line. Compare the complete tuple:
+
+    reservoirSignature=hhhhhhhh:hhhhhhhh:hhhhhhhh:hhhhhhhh
+    sampleIndex=0
+    family=unified
+    size=widthxheight
+
+Acceptance
+----------
+
+The two signatures, sample indices, families, dimensions, and the first 16
+counters must match exactly. Any mismatch is a failed gate. Do not dismiss a
+mismatch as stochastic noise: with a fixed sample index, stochastic dimensions
+are part of the fixed input.
+
+After testing, restore live sampling:
+
+    r_pathTracingUnifiedPtFixedSampleIndex -1
+
+The signature is a regression/diagnostic checksum, not a cryptographic digest.
+Its four independent 32-bit lanes are intended to detect output drift cheaply;
+they are not an image-quality metric or a replacement for the scene matrix.
+
+First live trial, rejected
+--------------------------
+
+The first 2560 x 1440 pair used fixed sample index 0 and direct-only RayQuery,
+but ran while the log showed GEO08 skinned-route transitions and a GEO09
+skinned-emissive publication. It therefore does not satisfy the static-input
+precondition.
+
+First request:
+
+    direct invalid/zero/positive = 183462 / 3085884 / 417054
+    visibility rays             = 418653
+    canonical empty             = 3269346
+    signature                   = 8cd6e63e:1ab232a9:2a7466c8:805f6278
+
+Second request:
+
+    direct invalid/zero/positive = 188936 / 3076140 / 421324
+    visibility rays             = 423650
+    canonical empty             = 3265076
+    signature                   = 8d58fa80:31ea8086:966f12db:92d26951
+
+Both reported sampleIndex=0, family=direct-only, size=2560x1440, and zero ray-
+ceiling violations. The changed candidate classifications and ray count prove
+that this is not merely a hash collision or logging error. Repeat with game
+time frozen before attributing the mismatch to shader nondeterminism.
+
+Direct-only live acceptance
+---------------------------
+
+After g_stopTime 1, two consecutive 2560 x 1440 direct-only RayQuery captures
+matched exactly:
+
+    receiver valid/invalid       = 3686400 / 0
+    direct invalid/zero/positive = 253035 / 2829020 / 604345
+    selected primary NEE         = 604345
+    visibility rays              = 631162
+    canonical empty              = 3082055
+    candidate inputs             = 3686400
+    ray-ceiling violations       = 0
+    signature                    = e219cccc:ba4c93ee:1a29ea36:9eb08822
+    sample/family/size           = 0 / direct-only / 2560x1440
+
+The capture immediately before the freeze differed, then the two frozen-input
+captures matched. This validates both the expected sensitivity to live scene
+changes and bit-repeatability of the fixed-input direct-only path. Unified-
+family repeatability was then evaluated separately because direct-only does not
+exercise continuation or secondary-NEE reservoir fields.
+
+Unified live acceptance
+-----------------------
+
+With g_stopTime 1 and sample index 0, two consecutive 2560 x 1440 unified
+RayQuery captures matched exactly:
+
+    receiver valid/invalid         = 3686400 / 0
+    direct invalid/zero/positive   = 330135 / 3130397 / 225868
+    indirect invalid/zero/positive = 448237 / 6362531 / 562032
+    selected primary NEE           = 207232
+    selected BSDF endpoint         = 0
+    selected secondary NEE         = 548382
+    continuation rays              = 3665053
+    visibility rays                = 819481
+    canonical empty                = 2930786
+    candidate inputs               = 11059200
+    ray-ceiling violations         = 0
+    signature                      = d8bbdcdf:92b64c9d:f9aec871:ec154bd4
+    sample/family/size             = 0 / unified / 2560x1440
+
+All counters and every signature lane matched. The unified fixed-input
+producer/packed-reservoir path is therefore bit-repeatable for this accepted
+scene state. Restore g_stopTime 0 and r_pathTracingUnifiedPtFixedSampleIndex -1
+for ordinary live rendering.
