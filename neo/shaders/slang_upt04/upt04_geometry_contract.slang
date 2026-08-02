@@ -16,6 +16,134 @@ public struct Upt04SmokeVertex
     public float4 bitangent;
 };
 
+// UPT-only replay sidecar. The scene/TLAS vertex ABI remains Upt04SmokeVertex;
+// a small compute pass repacks the four live vertex pools immediately before
+// D0. Position stays fp32, basis vectors use oct16, and texture/color channels
+// use fp16. Three uint4 words are exactly 48 bytes.
+public static const uint kUpt04CompactVertexVersion = 1u;
+public static const uint kUpt04CompactVertexNegativeHandedness = 0x00010000u;
+
+public struct Upt04CompactVertex
+{
+    public uint4 positionAndHeader;
+    public uint4 basisAndTexCoord;
+    public uint4 color;
+};
+
+public float3 Upt04GeometrySafeNormalizeForPacking(float3 value)
+{
+    const float lengthSquared = dot(value, value);
+    return isfinite(lengthSquared) && lengthSquared > 1.0e-12f
+        ? value * rsqrt(lengthSquared)
+        : float3(0.0f, 0.0f, 1.0f);
+}
+
+public uint Upt04PackHalf2(float2 value)
+{
+    const float2 finiteValue = float2(
+        isfinite(value.x) ? value.x : 0.0f,
+        isfinite(value.y) ? value.y : 0.0f);
+    return (f32tof16(finiteValue.x) & 0xffffu) |
+        ((f32tof16(finiteValue.y) & 0xffffu) << 16u);
+}
+
+public float2 Upt04UnpackVertexHalf2(uint packed)
+{
+    return float2(
+        f16tof32(packed & 0xffffu),
+        f16tof32((packed >> 16u) & 0xffffu));
+}
+
+public uint Upt04EncodeVertexOctahedral(float3 value)
+{
+    value = Upt04GeometrySafeNormalizeForPacking(value);
+    value /= max(abs(value.x) + abs(value.y) + abs(value.z), 1.0e-12f);
+    if (value.z < 0.0f)
+    {
+        const float2 signValue = float2(
+            value.x >= 0.0f ? 1.0f : -1.0f,
+            value.y >= 0.0f ? 1.0f : -1.0f);
+        value.xy = (1.0f - abs(value.yx)) * signValue;
+    }
+    const uint2 encoded = uint2(round(saturate(value.xy * 0.5f + 0.5f) * 65535.0f));
+    return (encoded.x & 0xffffu) | ((encoded.y & 0xffffu) << 16u);
+}
+
+public float3 Upt04DecodeVertexOctahedral(uint packed)
+{
+    const float2 encoded = float2(
+        float(packed & 0xffffu),
+        float((packed >> 16u) & 0xffffu)) / 65535.0f;
+    const float2 f = encoded * 2.0f - 1.0f;
+    float3 value = float3(f, 1.0f - abs(f.x) - abs(f.y));
+    if (value.z < 0.0f)
+    {
+        const float2 signValue = float2(
+            value.x >= 0.0f ? 1.0f : -1.0f,
+            value.y >= 0.0f ? 1.0f : -1.0f);
+        value.xy = (1.0f - abs(value.yx)) * signValue;
+    }
+    const float lengthSquared = dot(value, value);
+    return isfinite(lengthSquared) && lengthSquared > 1.0e-12f
+        ? value * rsqrt(lengthSquared)
+        : float3(0.0f, 0.0f, 1.0f);
+}
+
+public Upt04CompactVertex Upt04PackCompactVertex(Upt04SmokeVertex source)
+{
+    Upt04CompactVertex packed = (Upt04CompactVertex)0;
+    const float3 normal = Upt04GeometrySafeNormalizeForPacking(source.normal.xyz);
+    const float3 tangent = Upt04GeometrySafeNormalizeForPacking(source.tangent.xyz);
+    const float3 bitangent = Upt04GeometrySafeNormalizeForPacking(source.bitangent.xyz);
+    const bool negativeHandedness = dot(cross(normal, tangent), bitangent) < 0.0f;
+    packed.positionAndHeader = uint4(
+        asuint(source.position.x),
+        asuint(source.position.y),
+        asuint(source.position.z),
+        kUpt04CompactVertexVersion |
+            (negativeHandedness ? kUpt04CompactVertexNegativeHandedness : 0u));
+    packed.basisAndTexCoord = uint4(
+        Upt04EncodeVertexOctahedral(normal),
+        Upt04EncodeVertexOctahedral(tangent),
+        Upt04PackHalf2(source.texCoord.xy),
+        Upt04PackHalf2(source.texCoord.zw));
+    packed.color = uint4(
+        Upt04PackHalf2(source.color.xy),
+        Upt04PackHalf2(source.color.zw),
+        Upt04PackHalf2(source.color2.xy),
+        Upt04PackHalf2(source.color2.zw));
+    return packed;
+}
+
+public Upt04SmokeVertex Upt04UnpackCompactVertex(Upt04CompactVertex packed)
+{
+    Upt04SmokeVertex vertex = (Upt04SmokeVertex)0;
+    const float3 normal = Upt04DecodeVertexOctahedral(packed.basisAndTexCoord.x);
+    float3 tangent = Upt04DecodeVertexOctahedral(packed.basisAndTexCoord.y);
+    tangent = tangent - normal * dot(normal, tangent);
+    tangent = Upt04GeometrySafeNormalizeForPacking(tangent);
+    const float handedness =
+        (packed.positionAndHeader.w & kUpt04CompactVertexNegativeHandedness) != 0u
+            ? -1.0f
+            : 1.0f;
+    vertex.position = float4(asfloat(packed.positionAndHeader.xyz), 1.0f);
+    vertex.normal = float4(normal, 0.0f);
+    vertex.tangent = float4(tangent, 0.0f);
+    vertex.bitangent = float4(
+        Upt04GeometrySafeNormalizeForPacking(cross(normal, tangent)) * handedness,
+        0.0f);
+    vertex.texCoord = float4(
+        Upt04UnpackVertexHalf2(packed.basisAndTexCoord.z),
+        Upt04UnpackVertexHalf2(packed.basisAndTexCoord.w));
+    vertex.color = float4(
+        Upt04UnpackVertexHalf2(packed.color.x),
+        Upt04UnpackVertexHalf2(packed.color.y));
+    vertex.color2 = float4(
+        Upt04UnpackVertexHalf2(packed.color.z),
+        Upt04UnpackVertexHalf2(packed.color.w));
+    return vertex;
+}
+
 public struct Upt04RigidRouteInstance
 {
     public uint vertexOffset;

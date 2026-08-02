@@ -11,6 +11,8 @@
 namespace {
 
 static constexpr uint32_t UPT04_RESERVOIR_STRIDE = 64u;
+static constexpr uint32_t UPT04_COMPACT_VERTEX_STRIDE = 48u;
+static constexpr uint32_t UPT04_COMPACT_GEOMETRY_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 128u;
 static constexpr uint32_t UPT04_FAMILY_LOCAL_LIGHT = 1u << 0u;
 static constexpr uint32_t UPT04_FAMILY_INDIRECT = 1u << 1u;
@@ -70,30 +72,37 @@ static const char* Upt04ReceiverName(uint32_t mode)
 static const char* Upt04InitialShaderPath(
     PathTraceUnifiedPtBackend backend,
     PathTraceUnifiedPtFamily family,
-    uint32_t primaryReceiverMode)
+    uint32_t primaryReceiverMode,
+    bool compactGeometry)
 {
     if (backend == PathTraceUnifiedPtBackend::RayQuery)
     {
         switch (family)
         {
         case PathTraceUnifiedPtFamily::Unified:
-            return primaryReceiverMode == 2u
+            return compactGeometry
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48.bin"
+                : (primaryReceiverMode == 2u
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32.bin"
                 : (primaryReceiverMode == 1u
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact.bin"
-                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery.bin");
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery.bin"));
         case PathTraceUnifiedPtFamily::IndirectOnly:
-            return primaryReceiverMode == 2u
+            return compactGeometry
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact32_geometry48.bin"
+                : (primaryReceiverMode == 2u
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact32.bin"
                 : (primaryReceiverMode == 1u
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact.bin"
-                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery.bin");
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery.bin"));
         default:
-            return primaryReceiverMode == 2u
+            return compactGeometry
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact32_geometry48.bin"
+                : (primaryReceiverMode == 2u
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact32.bin"
                 : (primaryReceiverMode == 1u
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery_compact.bin"
-                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery.bin");
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_direct_only_rayquery.bin"));
         }
     }
 
@@ -323,6 +332,18 @@ struct Upt05ResolveControl
 static_assert(sizeof(Upt05ResolveControl) == UPT05_PUSH_CONSTANT_BYTES,
     "UPT-05 host push constants must match Slang reflection");
 
+struct Upt04CompactGeometryPackControl
+{
+    uint32_t staticVertexCount;
+    uint32_t dynamicVertexCount;
+    uint32_t rigidVertexCount;
+    uint32_t skinnedVertexCount;
+};
+static_assert(
+    sizeof(Upt04CompactGeometryPackControl) ==
+        UPT04_COMPACT_GEOMETRY_PUSH_CONSTANT_BYTES,
+    "UPT compact-geometry push constants must match Slang reflection");
+
 class Upt04MarkerScope
 {
 public:
@@ -468,7 +489,11 @@ static void Upt04AddDirectBindingLayoutItems(nvrhi::BindingLayoutDesc& desc)
 static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     const PathTraceUnifiedPtDispatchInputs& dispatch,
     nvrhi::BufferHandle page0,
-    nvrhi::BufferHandle diagnosticCounters)
+    nvrhi::BufferHandle diagnosticCounters,
+    nvrhi::BufferHandle compactStaticVertices,
+    nvrhi::BufferHandle compactDynamicVertices,
+    nvrhi::BufferHandle compactRigidVertices,
+    nvrhi::BufferHandle compactSkinnedVertices)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -483,18 +508,22 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, page0));
     desc.addItem(nvrhi::BindingSetItem::Sampler(5, materials.textureSampler));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, lights.emissiveTriangleBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, geometry.staticVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        7, dispatch.compactGeometry ? compactStaticVertices : geometry.staticVertexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, geometry.staticIndexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(9, geometry.staticTriangleClassBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, geometry.staticTriangleMaterialIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, geometry.dynamicVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        11, dispatch.compactGeometry ? compactDynamicVertices : geometry.dynamicVertexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, geometry.dynamicIndexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(13, geometry.dynamicTriangleClassBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(14, geometry.dynamicTriangleMaterialIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(15, geometry.rigidRouteVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        15, dispatch.compactGeometry ? compactRigidVertices : geometry.rigidRouteVertexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, geometry.rigidRouteIndexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(17, geometry.rigidRouteInstanceBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, Upt04SkinnedVertexBuffer(inputs)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        18, dispatch.compactGeometry ? compactSkinnedVertices : Upt04SkinnedVertexBuffer(inputs)));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, Upt04SkinnedIndexBuffer(inputs)));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(20, geometry.skinnedHitRouteRecordBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(21, geometry.skinnedHitRouteTriangleBuffer));
@@ -510,7 +539,11 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
 
 static nvrhi::BindingSetDesc Upt04BuildDirectBindingSetDesc(
     const PathTraceUnifiedPtDispatchInputs& dispatch,
-    nvrhi::BufferHandle page0)
+    nvrhi::BufferHandle page0,
+    nvrhi::BufferHandle compactStaticVertices,
+    nvrhi::BufferHandle compactDynamicVertices,
+    nvrhi::BufferHandle compactRigidVertices,
+    nvrhi::BufferHandle compactSkinnedVertices)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -521,16 +554,20 @@ static nvrhi::BindingSetDesc Upt04BuildDirectBindingSetDesc(
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, lights.restirLightManagerCurrentPayloadBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, page0));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, lights.emissiveTriangleBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, geometry.staticVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        7, dispatch.compactGeometry ? compactStaticVertices : geometry.staticVertexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, geometry.staticIndexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, geometry.staticTriangleMaterialIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, geometry.dynamicVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        11, dispatch.compactGeometry ? compactDynamicVertices : geometry.dynamicVertexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, geometry.dynamicIndexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(14, geometry.dynamicTriangleMaterialIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(15, geometry.rigidRouteVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        15, dispatch.compactGeometry ? compactRigidVertices : geometry.rigidRouteVertexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, geometry.rigidRouteIndexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(17, geometry.rigidRouteInstanceBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, Upt04SkinnedVertexBuffer(inputs)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        18, dispatch.compactGeometry ? compactSkinnedVertices : Upt04SkinnedVertexBuffer(inputs)));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, Upt04SkinnedIndexBuffer(inputs)));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(20, geometry.skinnedHitRouteRecordBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(21, geometry.skinnedHitRouteTriangleBuffer));
@@ -682,9 +719,29 @@ void PathTraceUnifiedPtState::ReleasePipeline()
     m_pipelineAttempted = false;
 }
 
+void PathTraceUnifiedPtState::ReleaseCompactGeometry()
+{
+    m_compactGeometryBindingSet = nullptr;
+    m_compactGeometryBindingSetDesc = nvrhi::BindingSetDesc();
+    m_compactGeometryBindingSetDescValid = false;
+    m_compactGeometryPipeline = nullptr;
+    m_compactGeometryShader = nullptr;
+    m_compactGeometryBindingLayout = nullptr;
+    m_compactGeometryPipelineAttempted = false;
+    m_compactStaticVertices = nullptr;
+    m_compactDynamicVertices = nullptr;
+    m_compactRigidVertices = nullptr;
+    m_compactSkinnedVertices = nullptr;
+    m_compactStaticVertexCapacity = 0;
+    m_compactDynamicVertexCapacity = 0;
+    m_compactRigidVertexCapacity = 0;
+    m_compactSkinnedVertexCapacity = 0;
+}
+
 void PathTraceUnifiedPtState::Release()
 {
     ReleasePipeline();
+    ReleaseCompactGeometry();
     ReleaseResolve();
     m_page0 = nullptr;
     m_pageWidth = 0;
@@ -703,6 +760,7 @@ void PathTraceUnifiedPtState::Release()
     m_selectionValid = false;
     m_diagnostics = false;
     m_primaryReceiverMode = 0;
+    m_compactGeometry = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
 }
@@ -811,7 +869,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         !directOnlyProduction;
     if (!m_selectionValid || m_backend != inputs.backend || m_family != inputs.family ||
         m_pipelineVariant != pipelineVariant || m_diagnostics != inputs.diagnostics ||
-        m_primaryReceiverMode != inputs.primaryReceiverMode)
+        m_primaryReceiverMode != inputs.primaryReceiverMode ||
+        m_compactGeometry != inputs.compactGeometry)
     {
         ReleasePipeline();
         m_backend = inputs.backend;
@@ -819,6 +878,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_pipelineVariant = pipelineVariant;
         m_diagnostics = inputs.diagnostics;
         m_primaryReceiverMode = inputs.primaryReceiverMode;
+        m_compactGeometry = inputs.compactGeometry;
         m_selectionValid = true;
         m_resourceFailureLogged = false;
     }
@@ -919,7 +979,10 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         : (liveTlasProbe
         ? Upt04LiveTlasProbePath(pipelineVariant)
         : Upt04InitialShaderPath(
-            m_backend, m_family, inputs.primaryReceiverMode));
+            m_backend,
+            m_family,
+            inputs.primaryReceiverMode,
+            inputs.compactGeometry));
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -964,7 +1027,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             return false;
         }
         common->Printf(
-            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
+            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
             Upt04BackendName(m_backend),
             Upt04FamilyName(m_family),
             pipelineVariant,
@@ -975,6 +1038,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             traversalIsolationLayout || !liveTlasProbe ? "8x8" : "1x1",
             usesBindlessSet ? 1 : 0,
             Upt04ReceiverName(inputs.primaryReceiverMode),
+            inputs.compactGeometry ? "compact48" : "legacy112",
             static_cast<unsigned long long>(pipelineUs));
         return true;
     }
@@ -1141,12 +1205,24 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
     }
     else if (directOnlyProduction)
     {
-        desc = Upt04BuildDirectBindingSetDesc(inputs, m_page0);
+        desc = Upt04BuildDirectBindingSetDesc(
+            inputs,
+            m_page0,
+            m_compactStaticVertices,
+            m_compactDynamicVertices,
+            m_compactRigidVertices,
+            m_compactSkinnedVertices);
     }
     else
     {
         desc = Upt04BuildBindingSetDesc(
-            inputs, m_page0, m_diagnosticCounters);
+            inputs,
+            m_page0,
+            m_diagnosticCounters,
+            m_compactStaticVertices,
+            m_compactDynamicVertices,
+            m_compactRigidVertices,
+            m_compactSkinnedVertices);
     }
     if (m_bindingSet && m_bindingSetDescValid && m_bindingSetDesc == desc)
     {
@@ -1206,6 +1282,314 @@ bool PathTraceUnifiedPtState::EnsureDiagnosticBuffers(
         common->Printf(
             "PathTraceUnifiedPt: failed to allocate diagnostic counter/readback buffers\n");
         return false;
+    }
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureCompactGeometryResources(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactGeometry)
+    {
+        return true;
+    }
+
+    const RtPathTraceSceneInputGeometry& geometry = inputs.sceneInputs->geometry;
+    const uint32_t requestedCounts[4] = {
+        static_cast<uint32_t>(Max(0, geometry.staticVertexCount)),
+        static_cast<uint32_t>(Max(0, geometry.dynamicVertexCount)),
+        static_cast<uint32_t>(Max(0, geometry.rigidRouteVertexCount)),
+        static_cast<uint32_t>(Max(0, geometry.skinnedGpuComputeVertexCount))
+    };
+    const char* debugNames[4] = {
+        "PathTraceUnifiedPtCompactStaticVertices",
+        "PathTraceUnifiedPtCompactDynamicVertices",
+        "PathTraceUnifiedPtCompactRigidVertices",
+        "PathTraceUnifiedPtCompactSkinnedVertices"
+    };
+
+    bool replaced = false;
+    const auto ensureRouteBuffer = [&inputs, &replaced](
+        nvrhi::BufferHandle& buffer,
+        uint32_t& storedCapacity,
+        uint32_t requestedCount,
+        uint32_t route,
+        const char* debugName)
+    {
+        const uint32_t capacity = Max(1u, requestedCount);
+        const uint64_t bytes = uint64_t(capacity) * UPT04_COMPACT_VERTEX_STRIDE;
+        if (buffer &&
+            buffer->getDesc().structStride == UPT04_COMPACT_VERTEX_STRIDE &&
+            buffer->getDesc().byteSize >= bytes)
+        {
+            return true;
+        }
+        nvrhi::BufferDesc desc;
+        desc.debugName = debugName;
+        desc.byteSize = bytes;
+        desc.structStride = UPT04_COMPACT_VERTEX_STRIDE;
+        desc.canHaveUAVs = true;
+        desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        desc.keepInitialState = true;
+        buffer = inputs.device->createBuffer(desc);
+        if (!buffer)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: failed to allocate compact geometry route %u count=%u bytes=%llu\n",
+                route,
+                requestedCount,
+                static_cast<unsigned long long>(bytes));
+            return false;
+        }
+        storedCapacity = capacity;
+        replaced = true;
+        return true;
+    };
+    if (!ensureRouteBuffer(
+            m_compactStaticVertices,
+            m_compactStaticVertexCapacity,
+            requestedCounts[0],
+            0u,
+            debugNames[0]) ||
+        !ensureRouteBuffer(
+            m_compactDynamicVertices,
+            m_compactDynamicVertexCapacity,
+            requestedCounts[1],
+            1u,
+            debugNames[1]) ||
+        !ensureRouteBuffer(
+            m_compactRigidVertices,
+            m_compactRigidVertexCapacity,
+            requestedCounts[2],
+            2u,
+            debugNames[2]) ||
+        !ensureRouteBuffer(
+            m_compactSkinnedVertices,
+            m_compactSkinnedVertexCapacity,
+            requestedCounts[3],
+            3u,
+            debugNames[3]))
+    {
+        return false;
+    }
+    if (replaced)
+    {
+        m_compactGeometryBindingSet = nullptr;
+        m_compactGeometryBindingSetDescValid = false;
+        m_bindingSet = nullptr;
+        m_bindingSetDescValid = false;
+        common->Printf(
+            "PathTraceUnifiedPt: compact geometry sidecars stride=%u capacities=%u/%u/%u/%u bytes=%llu\n",
+            UPT04_COMPACT_VERTEX_STRIDE,
+            m_compactStaticVertexCapacity,
+            m_compactDynamicVertexCapacity,
+            m_compactRigidVertexCapacity,
+            m_compactSkinnedVertexCapacity,
+            static_cast<unsigned long long>(
+                uint64_t(m_compactStaticVertexCapacity +
+                    m_compactDynamicVertexCapacity +
+                    m_compactRigidVertexCapacity +
+                    m_compactSkinnedVertexCapacity) *
+                UPT04_COMPACT_VERTEX_STRIDE));
+    }
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureCompactGeometryPipeline(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactGeometry || m_compactGeometryPipeline)
+    {
+        return true;
+    }
+    if (m_compactGeometryPipelineAttempted)
+    {
+        return false;
+    }
+    m_compactGeometryPipelineAttempted = true;
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    for (uint32_t slot = 0; slot < 4u; ++slot)
+    {
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
+    }
+    for (uint32_t slot = 4; slot < 8u; ++slot)
+    {
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(slot));
+    }
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT04_COMPACT_GEOMETRY_PUSH_CONSTANT_BYTES));
+    m_compactGeometryBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_compactGeometryBindingLayout)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact geometry binding layout\n");
+        return false;
+    }
+
+    void* shaderData = nullptr;
+    int shaderSize = 0;
+    ID_TIME_T shaderTimestamp = 0;
+    uint64_t shaderHash = 0;
+    if (!Upt04ReadShader(
+            "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_compact_geometry_pack.bin",
+            shaderData,
+            shaderSize,
+            shaderTimestamp,
+            shaderHash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtCompactGeometryPack";
+    m_compactGeometryShader = inputs.device->createShader(
+        shaderDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!m_compactGeometryShader)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact geometry shader\n");
+        return false;
+    }
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_compactGeometryShader;
+    pipelineDesc.bindingLayouts = { m_compactGeometryBindingLayout };
+    const uint64_t pipelineStartUs = Sys_Microseconds();
+    m_compactGeometryPipeline = inputs.device->createComputePipeline(pipelineDesc);
+    const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
+    if (!m_compactGeometryPipeline)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact geometry pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: compact geometry pack compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=128x1 stride=48 createUs=%llu\n",
+        shaderSize,
+        static_cast<unsigned long long>(shaderHash),
+        static_cast<long long>(shaderTimestamp),
+        static_cast<unsigned long long>(pipelineUs));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureCompactGeometryBindingSet(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactGeometry)
+    {
+        return true;
+    }
+    const RtPathTraceSceneInputs& scene = *inputs.sceneInputs;
+    const RtPathTraceSceneInputGeometry& geometry = scene.geometry;
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, geometry.staticVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, geometry.dynamicVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, geometry.rigidRouteVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, Upt04SkinnedVertexBuffer(scene)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, m_compactStaticVertices));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(5, m_compactDynamicVertices));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(6, m_compactRigidVertices));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(7, m_compactSkinnedVertices));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT04_COMPACT_GEOMETRY_PUSH_CONSTANT_BYTES));
+    if (m_compactGeometryBindingSet &&
+        m_compactGeometryBindingSetDescValid &&
+        m_compactGeometryBindingSetDesc == desc)
+    {
+        return true;
+    }
+    m_compactGeometryBindingSet = inputs.device->createBindingSet(
+        desc, m_compactGeometryBindingLayout);
+    if (!m_compactGeometryBindingSet)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create compact geometry binding set\n");
+        return false;
+    }
+    m_compactGeometryBindingSetDesc = desc;
+    m_compactGeometryBindingSetDescValid = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteCompactGeometryPack(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactGeometry)
+    {
+        return true;
+    }
+    const RtPathTraceSceneInputs& scene = *inputs.sceneInputs;
+    const RtPathTraceSceneInputGeometry& geometry = scene.geometry;
+    const Upt04CompactGeometryPackControl control = {
+        static_cast<uint32_t>(Max(0, geometry.staticVertexCount)),
+        static_cast<uint32_t>(Max(0, geometry.dynamicVertexCount)),
+        static_cast<uint32_t>(Max(0, geometry.rigidRouteVertexCount)),
+        static_cast<uint32_t>(Max(0, geometry.skinnedGpuComputeVertexCount))
+    };
+    const uint32_t maxVertexCount = Max(
+        Max(control.staticVertexCount, control.dynamicVertexCount),
+        Max(control.rigidVertexCount, control.skinnedVertexCount));
+
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.G0 CompactGeometry48 Bind+Barriers",
+            inputs.nsightMarkers);
+        inputs.commandList->setBufferState(
+            geometry.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.dynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.rigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            Upt04SkinnedVertexBuffer(scene), nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_compactStaticVertices, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setBufferState(
+            m_compactDynamicVertices, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setBufferState(
+            m_compactRigidVertices, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setBufferState(
+            m_compactSkinnedVertices, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+
+        nvrhi::ComputeState state;
+        state.pipeline = m_compactGeometryPipeline;
+        state.bindings = { m_compactGeometryBindingSet };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+    }
+    if (maxVertexCount > 0u)
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.G0 CompactGeometry48 Dispatch",
+            inputs.nsightMarkers);
+        inputs.commandList->dispatch((maxVertexCount + 127u) / 128u, 1u, 1u);
+    }
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.G0 CompactGeometry48 OutputBarrier",
+            inputs.nsightMarkers);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_compactStaticVertices);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_compactDynamicVertices);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_compactRigidVertices);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_compactSkinnedVertices);
+        inputs.commandList->setBufferState(
+            m_compactStaticVertices, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_compactDynamicVertices, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_compactRigidVertices, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_compactSkinnedVertices, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->commitBarriers();
     }
     return true;
 }
@@ -1288,6 +1672,13 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         ReportProofStage(3u, "pipeline-creation", inputs.backend, inputs.family);
         return true;
     }
+    if (inputs.compactGeometry &&
+        (!EnsureCompactGeometryResources(inputs) ||
+         !EnsureCompactGeometryPipeline(inputs) ||
+         !EnsureCompactGeometryBindingSet(inputs)))
+    {
+        return false;
+    }
     if (!EnsureBindingSet(inputs))
     {
         return false;
@@ -1296,6 +1687,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     {
         ReportProofStage(4u, "descriptor-creation", inputs.backend, inputs.family);
         return true;
+    }
+    if (!ExecuteCompactGeometryPack(inputs))
+    {
+        return false;
     }
     m_resourceFailureLogged = false;
 

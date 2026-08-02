@@ -522,3 +522,79 @@ both allocated at resize but only the selected buffer is written and read.
 Thus mode switching does not change allocation pressure, while the inactive
 buffer contributes no per-frame shader traffic.  Remove the losing allocation
 after measurement rather than hiding allocation differences inside this test.
+
+Deferred PCIe incoming-BAR hitch investigation
+-----------------------------------------------
+
+After compact32 made P0/D0 traffic and RT-core utilization resemble the
+reference renderers, D0 still exhibited two repeatable performance states with
+an approximately eight-FPS difference.  Both the direct-only and indirect-only
+families can enter the slow state, so it is not specific to the unified
+shader's serial direct/continuation/secondary-visibility sequence.  The user
+observed a stronger correlation: fast frames show no PCIe Incoming BAR Access,
+while slow/hitching frames show incoming BAR activity overlapping D0.
+
+Treat this as a deferred cross-cutting upload/residency issue, not evidence
+against compact32 and not a reason to continue modifying D0 shading.  Relevant
+future suspects are the many per-frame scene-buffer uploads and the old NVRHI
+Vulkan upload manager, whose shared UploadChunk usage includes acceleration-
+structure-input and shader-binding-table flags.  CPU preparation of the next
+frame may therefore overlap current-frame D0 through mapped upload or ReBAR
+memory and contend with the L2 cache used by RayQuery traversal.  This remains
+a hypothesis until the selected Vulkan memory type and concurrent upload bytes
+are measured.
+
+Required future proof, as one isolated task:
+
+* report the actual Vulkan memory-type index and property flags for UploadChunk;
+* report per-frame upload bytes grouped by destination buffer;
+* freeze the scene, publish one accepted upload frame, then suppress subsequent
+  scene uploads without reallocating or rebinding resources;
+* compare D0 duration, PCIe Incoming BAR Access, L2 behavior, and the two FPS
+  states with and without those uploads.
+
+If the slow state disappears, pursue generation-gated uploads and dedicated
+system-memory staging.  Do not use shader feature removal or additional D0
+packing as a substitute for that proof.
+
+Experimental 48-byte geometry replay sidecar
+----------------------------------------------
+
+The first post-receiver experiment applies the same storage-versus-logical-
+contract separation to D0 geometry replay.  The authoritative scene and TLAS
+buffers remain the existing 112-byte PathTraceSmokeVertex ABI.  When enabled,
+a UPT-only compute pass reads each live static, dynamic, rigid, and skinned
+vertex once and writes a 48-byte sidecar immediately before D0.  D0 binds the
+sidecars at the existing vertex descriptor slots; no new set-0 descriptors and
+no CPU upload path are added.
+
+The 48-byte record keeps fp32 position, oct16 normal and tangent, tangent-frame
+handedness, fp16 primary/normal texture coordinates, and fp16 vertex color and
+additive color.  D0 expands it to the existing logical Upt04SmokeVertex before
+material evaluation.  The scene ABI, BLAS/TLAS input, material-provider API,
+and reservoir ABI are unchanged.
+
+Runtime A/B (RayQuery production only):
+
+    r_pathTracingUnifiedPtCompactReceiver 2
+    r_pathTracingUnifiedPtCompactGeometry 0  legacy112 replay
+    r_pathTracingUnifiedPtCompactGeometry 1  GPU-packed compact48 replay
+
+Mode 1 is admitted only with Vulkan RayQuery, diagnostics off, shader proofs
+1 through 6, and compact receiver mode 2.  The pipeline log prints
+geometry=compact48 or geometry=legacy112.  Nsight separates the new cost as:
+
+    UPT.G0 CompactGeometry48 Dispatch
+    UPT.D0 Initial RayQuery Dispatch FullFrame
+
+The experiment must be judged on G0+D0 combined time as well as D0 alone.
+Capture visual parity, G0 duration, D0 duration, combined duration, L2 and VRAM
+throughput, RTCORE dependency, and the incoming-BAR state.  Packing every frame
+is deliberate for this first correctness-safe A/B; generation-gating static
+and rigid repacks is a later optimization only if the storage reduction wins.
+
+Emitted SPIR-V proves ArrayStride 48 for the compact D0 vertex buffers and has
+no 112-byte smoke-vertex storage buffer in that D0 variant.  The separate G0
+shader proves one 112-byte source load and one 48-byte destination record per
+eligible vertex pool element.  The retained legacy D0 variants remain the
+rollback/control.

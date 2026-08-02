@@ -1383,6 +1383,12 @@ idCVar r_pathTracingUnifiedPtCompactReceiver(
     CVAR_RENDERER | CVAR_INTEGER,
     "UPT-only P0-to-D0 receiver A/B for production shader proofs 1..6: 0 legacy 176-byte history record; 1 UPT-owned 48-byte current-frame receiver; 2 experimental 32-byte distance/direction receiver with D0 world-position reconstruction" );
 
+idCVar r_pathTracingUnifiedPtCompactGeometry(
+    "r_pathTracingUnifiedPtCompactGeometry",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT D0 geometry replay A/B for Vulkan RayQuery production with compact receiver 2: 0 binds the scene's 112-byte vertices; 1 GPU-packs four UPT-only 48-byte sidecars before D0 and binds those at the existing vertex slots" );
+
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",
     "0",

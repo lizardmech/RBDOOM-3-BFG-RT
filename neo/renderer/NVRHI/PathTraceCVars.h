@@ -237,6 +237,7 @@ extern idCVar r_pathTracingRestirPdfNeeVerifierSourcePolicy;
 extern idCVar r_pathTracingUnifiedPtEnable;
 extern idCVar r_pathTracingUnifiedPtLeanPrimary;
 extern idCVar r_pathTracingUnifiedPtCompactReceiver;
+extern idCVar r_pathTracingUnifiedPtCompactGeometry;
 extern idCVar r_pathTracingUnifiedPtBackend;
 extern idCVar r_pathTracingUnifiedPtFamily;
 extern idCVar r_pathTracingUnifiedPtProofStage;

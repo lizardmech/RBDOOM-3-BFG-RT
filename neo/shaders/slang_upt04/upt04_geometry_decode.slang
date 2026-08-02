@@ -4,6 +4,10 @@ import upt04_initial_bindings;
 import upt04_initial_control;
 import upt04_hit_contract;
 
+#ifndef UPT04_PACKED_GEOMETRY_VERTEX
+#define UPT04_PACKED_GEOMETRY_VERTEX 0
+#endif
+
 public float3 Upt04GeometrySafeNormalize(float3 value, float3 fallback)
 {
     const float lengthSquared = dot(value, value);
@@ -25,7 +29,11 @@ public bool Upt04LoadIndexedTriangle(
     uint primitiveIndex,
     uint vertexCount,
     uint indexCount,
+#if UPT04_PACKED_GEOMETRY_VERTEX
+    StructuredBuffer<Upt04CompactVertex> vertices,
+#else
     StructuredBuffer<Upt04SmokeVertex> vertices,
+#endif
     StructuredBuffer<uint> indices,
     out Upt04SmokeVertex vertex0,
     out Upt04SmokeVertex vertex1,
@@ -42,9 +50,15 @@ public bool Upt04LoadIndexedTriangle(
     const uint index2 = indices[indexOffset + 2u];
     if (index0 >= vertexCount || index1 >= vertexCount || index2 >= vertexCount)
         return false;
+#if UPT04_PACKED_GEOMETRY_VERTEX
+    vertex0 = Upt04UnpackCompactVertex(vertices[index0]);
+    vertex1 = Upt04UnpackCompactVertex(vertices[index1]);
+    vertex2 = Upt04UnpackCompactVertex(vertices[index2]);
+#else
     vertex0 = vertices[index0];
     vertex1 = vertices[index1];
     vertex2 = vertices[index2];
+#endif
     return true;
 }
 
@@ -159,9 +173,15 @@ public bool Upt04LoadRigidTriangle(
         || localIndex1 >= gUpt04Control.rigidVertexCount - route.vertexOffset
         || localIndex2 >= gUpt04Control.rigidVertexCount - route.vertexOffset)
         return false;
+#if UPT04_PACKED_GEOMETRY_VERTEX
+    triangle.vertex0 = Upt04RigidTransformVertex(route, Upt04UnpackCompactVertex(gUpt04RigidVertices[route.vertexOffset + localIndex0]));
+    triangle.vertex1 = Upt04RigidTransformVertex(route, Upt04UnpackCompactVertex(gUpt04RigidVertices[route.vertexOffset + localIndex1]));
+    triangle.vertex2 = Upt04RigidTransformVertex(route, Upt04UnpackCompactVertex(gUpt04RigidVertices[route.vertexOffset + localIndex2]));
+#else
     triangle.vertex0 = Upt04RigidTransformVertex(route, gUpt04RigidVertices[route.vertexOffset + localIndex0]);
     triangle.vertex1 = Upt04RigidTransformVertex(route, gUpt04RigidVertices[route.vertexOffset + localIndex1]);
     triangle.vertex2 = Upt04RigidTransformVertex(route, gUpt04RigidVertices[route.vertexOffset + localIndex2]);
+#endif
     triangle.materialIndex = route.materialIndex;
     triangle.triangleClassAndFlags = kUpt04RigidSurfaceClass;
     triangle.instanceId = instanceId;
@@ -223,9 +243,15 @@ public bool Upt04LoadSkinnedTriangle(
         || localIndex1 >= gUpt04Control.skinnedCurrentVertexCount - route.outputVertexOffset
         || localIndex2 >= gUpt04Control.skinnedCurrentVertexCount - route.outputVertexOffset)
         return false;
+#if UPT04_PACKED_GEOMETRY_VERTEX
+    triangle.vertex0 = Upt04UnpackCompactVertex(gUpt04SkinnedCurrentVertices[route.outputVertexOffset + localIndex0]);
+    triangle.vertex1 = Upt04UnpackCompactVertex(gUpt04SkinnedCurrentVertices[route.outputVertexOffset + localIndex1]);
+    triangle.vertex2 = Upt04UnpackCompactVertex(gUpt04SkinnedCurrentVertices[route.outputVertexOffset + localIndex2]);
+#else
     triangle.vertex0 = gUpt04SkinnedCurrentVertices[route.outputVertexOffset + localIndex0];
     triangle.vertex1 = gUpt04SkinnedCurrentVertices[route.outputVertexOffset + localIndex1];
     triangle.vertex2 = gUpt04SkinnedCurrentVertices[route.outputVertexOffset + localIndex2];
+#endif
     triangle.materialIndex = metadata.materialIndex;
     triangle.triangleClassAndFlags = metadata.triangleClassAndFlags;
     triangle.instanceId = instanceId;

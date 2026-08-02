@@ -50,6 +50,7 @@ struct PathTraceUnifiedPtDispatchInputs
     bool nsightMarkers = false;
     bool diagnostics = false;
     uint32_t primaryReceiverMode = 0;
+    bool compactGeometry = false;
     float primaryCameraOrigin[3] = {};
 };
 
@@ -72,6 +73,10 @@ private:
     bool EnsurePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureDiagnosticBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureCompactGeometryResources(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureCompactGeometryPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureCompactGeometryBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool ExecuteCompactGeometryPack(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolveResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolvePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolveBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -82,6 +87,7 @@ private:
         PathTraceUnifiedPtBackend backend,
         PathTraceUnifiedPtFamily family);
     void ReleasePipeline();
+    void ReleaseCompactGeometry();
 
     PathTraceUnifiedPtBackend m_backend = PathTraceUnifiedPtBackend::RayQuery;
     PathTraceUnifiedPtFamily m_family = PathTraceUnifiedPtFamily::DirectOnly;
@@ -89,6 +95,7 @@ private:
     bool m_selectionValid = false;
     bool m_diagnostics = false;
     uint32_t m_primaryReceiverMode = 0;
+    bool m_compactGeometry = false;
     bool m_pipelineAttempted = false;
     bool m_resourceFailureLogged = false;
     bool m_pageNeedsClear = false;
@@ -115,6 +122,22 @@ private:
 
     nvrhi::ShaderHandle m_computeShader;
     nvrhi::ComputePipelineHandle m_computePipeline;
+
+    uint32_t m_compactStaticVertexCapacity = 0;
+    uint32_t m_compactDynamicVertexCapacity = 0;
+    uint32_t m_compactRigidVertexCapacity = 0;
+    uint32_t m_compactSkinnedVertexCapacity = 0;
+    nvrhi::BufferHandle m_compactStaticVertices;
+    nvrhi::BufferHandle m_compactDynamicVertices;
+    nvrhi::BufferHandle m_compactRigidVertices;
+    nvrhi::BufferHandle m_compactSkinnedVertices;
+    nvrhi::BindingLayoutHandle m_compactGeometryBindingLayout;
+    nvrhi::BindingSetHandle m_compactGeometryBindingSet;
+    nvrhi::BindingSetDesc m_compactGeometryBindingSetDesc;
+    bool m_compactGeometryBindingSetDescValid = false;
+    nvrhi::ShaderHandle m_compactGeometryShader;
+    nvrhi::ComputePipelineHandle m_compactGeometryPipeline;
+    bool m_compactGeometryPipelineAttempted = false;
 
     nvrhi::ShaderLibraryHandle m_rayGenerationLibrary;
     nvrhi::ShaderLibraryHandle m_missLibrary;
