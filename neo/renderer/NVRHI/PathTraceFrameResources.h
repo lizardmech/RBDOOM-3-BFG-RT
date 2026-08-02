@@ -71,6 +71,7 @@ struct RtPathTraceFrameResourceDiagnostics
     uint64_t outputTextureBytes = 0;
     uint64_t primarySurfaceHistoryBytes = 0;
     uint64_t unifiedPtPrimaryReceiverBytes = 0;
+    uint64_t unifiedPtPrimaryReceiver32Bytes = 0;
     uint64_t motionVectorBytes = 0;
     uint64_t motionVectorMaskBytes = 0;
     uint64_t rrGuideBytes = 0;
@@ -107,6 +108,7 @@ struct RtPathTraceFrameResources
 
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     nvrhi::BufferHandle unifiedPtPrimaryReceiverBuffer;
+    nvrhi::BufferHandle unifiedPtPrimaryReceiver32Buffer;
     uint32_t restirPTFrameIndex = 0;
 
     bool primarySurfaceHistoryNeedsClear = true;

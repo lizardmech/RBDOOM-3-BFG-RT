@@ -2084,14 +2084,28 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
         const int requestedUnifiedPtShaderProof = idMath::ClampInt(
             1, 14, r_pathTracingUnifiedPtShaderProof.GetInteger());
-        const bool useUptCompactPrimaryReceiver =
+        const int requestedUnifiedPtReceiverMode = idMath::ClampInt(
+            0, 2, r_pathTracingUnifiedPtCompactReceiver.GetInteger());
+        const bool allowUptCompactPrimaryReceiver =
             uptOnlyPrimaryRequested &&
-            r_pathTracingUnifiedPtCompactReceiver.GetBool() &&
+            requestedUnifiedPtReceiverMode != 0 &&
             r_pathTracingUnifiedPtDiagnostics.GetInteger() == 0 &&
             requestedUnifiedPtShaderProof <= 6 &&
-            m_frameResources.unifiedPtPrimaryReceiverBuffer &&
             deviceManager &&
             deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
+        const int unifiedPtReceiverMode = allowUptCompactPrimaryReceiver
+            ? requestedUnifiedPtReceiverMode
+            : 0;
+        const bool useUptCompactPrimaryReceiver =
+            unifiedPtReceiverMode != 0 &&
+            ((unifiedPtReceiverMode == 1 &&
+                m_frameResources.unifiedPtPrimaryReceiverBuffer) ||
+             (unifiedPtReceiverMode == 2 &&
+                m_frameResources.unifiedPtPrimaryReceiver32Buffer));
+        const nvrhi::BufferHandle unifiedPtPrimaryReceiverBuffer =
+            unifiedPtReceiverMode == 2
+                ? m_frameResources.unifiedPtPrimaryReceiver32Buffer
+                : m_frameResources.unifiedPtPrimaryReceiverBuffer;
         nvrhi::rt::ShaderTableHandle selectedPrimarySurfaceShaderTable =
             useUptLeanPrimary
                 ? m_smokeUptLeanPrimarySurfaceProducerShaderTable
@@ -2297,7 +2311,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.motionVectorInfo[1] =
                 primarySchedule.requestedByCleanDi ? 1.0f : 0.0f;
             primarySurfaceConstants.motionVectorInfo[2] =
-                useUptCompactPrimaryReceiver ? 1.0f : 0.0f;
+                useUptCompactPrimaryReceiver
+                    ? static_cast<float>(unifiedPtReceiverMode)
+                    : 0.0f;
             primarySurfaceConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
             primarySurfaceConstants.restirPTInfo[0] = static_cast<float>(cleanRtxdiDiFrameIndexForDispatch);
             primarySurfaceConstants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
@@ -2389,7 +2405,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             if (useUptCompactPrimaryReceiver)
             {
                 commandList->setBufferState(
-                    m_frameResources.unifiedPtPrimaryReceiverBuffer,
+                    unifiedPtPrimaryReceiverBuffer,
                     nvrhi::ResourceStates::UnorderedAccess);
             }
             else
@@ -2440,9 +2456,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     commandList,
                     uptOnlyPrimaryRequested
                         ? (useUptLeanPrimary
-                            ? (useUptCompactPrimaryReceiver
-                                ? "UPT.P0 LeanPrimary Compact48 DispatchRays"
-                                : "UPT.P0 LeanPrimary Legacy176 DispatchRays")
+                            ? (unifiedPtReceiverMode == 2
+                                ? "UPT.P0 LeanPrimary Compact32 DispatchRays"
+                                : (useUptCompactPrimaryReceiver
+                                    ? "UPT.P0 LeanPrimary Compact48 DispatchRays"
+                                    : "UPT.P0 LeanPrimary Legacy176 DispatchRays"))
                             : "UPT.P0 SharedPrimary DispatchRays")
                         : staticBucketSecondaryIsolationActive
                         ? "GEO10.View16.Stage2 PrimarySurface DispatchRays"
@@ -2459,7 +2477,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::BufferUavBarrier(
                 commandList,
                 useUptCompactPrimaryReceiver
-                    ? m_frameResources.unifiedPtPrimaryReceiverBuffer
+                    ? unifiedPtPrimaryReceiverBuffer
                     : m_frameResources.primarySurfaceHistoryBuffers.current);
 
             if (primarySchedule.requestedByCleanDi)
@@ -2606,7 +2624,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.sceneInputs = &m_sceneInputs;
             unifiedPtInputs.primarySurfaceBuffer =
                 useUptCompactPrimaryReceiver
-                    ? m_frameResources.unifiedPtPrimaryReceiverBuffer
+                    ? unifiedPtPrimaryReceiverBuffer
                     : m_frameResources.primarySurfaceHistoryBuffers.current;
             unifiedPtInputs.width = static_cast<uint32_t>(m_frameResources.width);
             unifiedPtInputs.height = static_cast<uint32_t>(m_frameResources.height);
@@ -2650,8 +2668,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.nsightMarkers = nsightGpuMarkers;
             unifiedPtInputs.diagnostics =
                 r_pathTracingUnifiedPtDiagnostics.GetInteger() != 0;
-            unifiedPtInputs.compactPrimaryReceiver =
-                useUptCompactPrimaryReceiver;
+            unifiedPtInputs.primaryReceiverMode = useUptCompactPrimaryReceiver
+                ? static_cast<uint32_t>(unifiedPtReceiverMode)
+                : 0u;
+            unifiedPtInputs.primaryCameraOrigin[0] =
+                viewDef->renderView.vieworg.x;
+            unifiedPtInputs.primaryCameraOrigin[1] =
+                viewDef->renderView.vieworg.y;
+            unifiedPtInputs.primaryCameraOrigin[2] =
+                viewDef->renderView.vieworg.z;
             const bool unifiedPtInitialExecuted =
                 m_unifiedPtState.ExecuteInitial(unifiedPtInputs);
             if (unifiedPtInputs.diagnostics)

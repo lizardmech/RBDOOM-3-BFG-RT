@@ -485,3 +485,40 @@ loads Upt04PackedPrimarySurfaceRecord.  The retained A/B blob records
 ArrayStride 176 and loads Upt04PrimarySurfaceRecord.  Both RayQuery and raygen,
 and unified/direct-only/indirect-only family variants, are separately compiled
 and Vulkan-validated.
+
+Experimental 32-byte receiver A/B
+---------------------------------
+
+Mode 2 tests whether the remaining 16 bytes per pixel cross a cache or memory-
+traffic threshold.  It keeps full-precision primary hit distance, packs the
+geometric normal, shading normal, and surface-to-camera direction as octahedral
+2x16-bit values, and packs base color, roughness, and F0 as fp16 values.  D0
+reconstructs world position as:
+
+    primaryCameraOrigin - viewDirection * hitDistance
+
+The camera origin reuses three otherwise unconsumed UPT-04 push-constant words;
+the push-constant ABI remains 128 bytes and no matrix or new constant buffer is
+introduced.  Mode 1 remains the proven 48-byte world-position receiver, so any
+precision or performance regression has an immediate control.
+
+At 2560x1440, one compact32 full-frame access is 117,964,800 bytes (112.5 MiB).
+P0 write plus D0 read is 235,929,600 bytes (225 MiB), saving 117,964,800 logical
+bytes per frame versus compact48.  These figures describe the shader-visible
+record footprint; Nsight must determine physical L2/VRAM traffic and timing.
+
+    r_pathTracingUnifiedPtCompactReceiver 0  legacy 176-byte receiver
+    r_pathTracingUnifiedPtCompactReceiver 1  compact48 control/default
+    r_pathTracingUnifiedPtCompactReceiver 2  experimental compact32
+
+The compact32 pipeline log prints receiver=compact32 and P0 uses marker:
+
+    UPT.P0 LeanPrimary Compact32 DispatchRays
+
+Emitted SPIR-V proves ArrayStride 32 and one structured record load.  Six
+Vulkan runtime variants cover RayQuery/raygen and unified/direct-only/indirect-
+only families.  For this first fair A/B, compact48 and compact32 buffers are
+both allocated at resize but only the selected buffer is written and read.
+Thus mode switching does not change allocation pressure, while the inactive
+buffer contributes no per-frame shader traffic.  Remove the losing allocation
+after measurement rather than hiding allocation differences inside this test.

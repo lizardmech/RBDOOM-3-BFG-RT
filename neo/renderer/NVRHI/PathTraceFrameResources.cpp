@@ -78,6 +78,14 @@ uint64_t UnifiedPtPrimaryReceiverBytes(int width, int height)
         PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE;
 }
 
+uint64_t UnifiedPtPrimaryReceiver32Bytes(int width, int height)
+{
+    const uint64_t safeWidth = static_cast<uint64_t>(width > 0 ? width : 1);
+    const uint64_t safeHeight = static_cast<uint64_t>(height > 0 ? height : 1);
+    return safeWidth * safeHeight *
+        PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE;
+}
+
 bool UnifiedPtPrimaryReceiverMatches(
     const nvrhi::BufferHandle& buffer,
     int width,
@@ -88,6 +96,18 @@ bool UnifiedPtPrimaryReceiverMatches(
             PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE &&
         buffer->getDesc().byteSize >=
             UnifiedPtPrimaryReceiverBytes(width, height);
+}
+
+bool UnifiedPtPrimaryReceiver32Matches(
+    const nvrhi::BufferHandle& buffer,
+    int width,
+    int height)
+{
+    return buffer &&
+        buffer->getDesc().structStride ==
+            PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE &&
+        buffer->getDesc().byteSize >=
+            UnifiedPtPrimaryReceiver32Bytes(width, height);
 }
 
 nvrhi::BufferHandle ReuseOrCreateUnifiedPtPrimaryReceiver(
@@ -104,6 +124,26 @@ nvrhi::BufferHandle ReuseOrCreateUnifiedPtPrimaryReceiver(
     desc.debugName = "PathTraceUnifiedPtPrimaryReceiver";
     desc.byteSize = UnifiedPtPrimaryReceiverBytes(width, height);
     desc.structStride = PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE;
+    desc.canHaveUAVs = true;
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    return device ? device->createBuffer(desc) : nullptr;
+}
+
+nvrhi::BufferHandle ReuseOrCreateUnifiedPtPrimaryReceiver32(
+    nvrhi::IDevice* device,
+    const nvrhi::BufferHandle& existing,
+    int width,
+    int height)
+{
+    if (UnifiedPtPrimaryReceiver32Matches(existing, width, height))
+    {
+        return existing;
+    }
+    nvrhi::BufferDesc desc;
+    desc.debugName = "PathTraceUnifiedPtPrimaryReceiver32";
+    desc.byteSize = UnifiedPtPrimaryReceiver32Bytes(width, height);
+    desc.structStride = PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE;
     desc.canHaveUAVs = true;
     desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
     desc.keepInitialState = true;
@@ -139,6 +179,7 @@ void RtPathTraceFrameResourceDiagnostics::ResetResizeStats()
     outputTextureBytes = 0;
     primarySurfaceHistoryBytes = 0;
     unifiedPtPrimaryReceiverBytes = 0;
+    unifiedPtPrimaryReceiver32Bytes = 0;
     motionVectorBytes = 0;
     motionVectorMaskBytes = 0;
     rrGuideBytes = 0;
@@ -168,6 +209,10 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         readbackTexture &&
         UnifiedPtPrimaryReceiverMatches(
             unifiedPtPrimaryReceiverBuffer,
+            requestedWidth,
+            requestedHeight) &&
+        UnifiedPtPrimaryReceiver32Matches(
+            unifiedPtPrimaryReceiver32Buffer,
             requestedWidth,
             requestedHeight) &&
         primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight)) &&
@@ -200,6 +245,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         rrGuidePositionTexture ||
         readbackTexture ||
         unifiedPtPrimaryReceiverBuffer ||
+        unifiedPtPrimaryReceiver32Buffer ||
         primarySurfaceHistoryBuffers.current ||
         primarySurfaceHistoryBuffers.previous;
 }
@@ -497,9 +543,25 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
             PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE);
         return false;
     }
+    unifiedPtPrimaryReceiver32Buffer = ReuseOrCreateUnifiedPtPrimaryReceiver32(
+        device,
+        unifiedPtPrimaryReceiver32Buffer,
+        requestedWidth,
+        requestedHeight);
+    if (!unifiedPtPrimaryReceiver32Buffer)
+    {
+        common->Printf(
+            "PathTraceFrameResources: failed to create UPT primary receiver32 (%dx%d stride=%u)\n",
+            requestedWidth,
+            requestedHeight,
+            PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE);
+        return false;
+    }
     diagnostics.primarySurfaceHistoryBytes = primarySurfaceHistoryBuffers.surfaceBytes * 2ull;
     diagnostics.unifiedPtPrimaryReceiverBytes =
         UnifiedPtPrimaryReceiverBytes(requestedWidth, requestedHeight);
+    diagnostics.unifiedPtPrimaryReceiver32Bytes =
+        UnifiedPtPrimaryReceiver32Bytes(requestedWidth, requestedHeight);
     if (primaryHistoryWasValid)
     {
         diagnostics.primarySurfaceHistoryBuffersReused += 2;
@@ -577,6 +639,7 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     outputHeight = 0;
     primarySurfaceHistoryBuffers.Reset();
     unifiedPtPrimaryReceiverBuffer = nullptr;
+    unifiedPtPrimaryReceiver32Buffer = nullptr;
     primarySurfaceHistoryNeedsClear = true;
     primarySurfaceHistoryState.Reset(reasonFlags);
     primarySurfaceHistoryView.Reset();
@@ -740,7 +803,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         diagnostics.waitForIdleCalls,
         diagnostics.lastWaitForIdleReason ? diagnostics.lastWaitForIdleReason : "");
     common->Printf(
-        "%s: UPT primary receiver valid=%d bytes=%llu stride=%u\n",
+        "%s: UPT primary receivers compact48(valid=%d bytes=%llu stride=%u) compact32(valid=%d bytes=%llu stride=%u)\n",
         prefix ? prefix : "PathTraceFrameResources",
         UnifiedPtPrimaryReceiverMatches(
             unifiedPtPrimaryReceiverBuffer,
@@ -748,5 +811,12 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
             height) ? 1 : 0,
         static_cast<unsigned long long>(
             diagnostics.unifiedPtPrimaryReceiverBytes),
-        PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE);
+        PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE,
+        UnifiedPtPrimaryReceiver32Matches(
+            unifiedPtPrimaryReceiver32Buffer,
+            width,
+            height) ? 1 : 0,
+        static_cast<unsigned long long>(
+            diagnostics.unifiedPtPrimaryReceiver32Bytes),
+        PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE);
 }

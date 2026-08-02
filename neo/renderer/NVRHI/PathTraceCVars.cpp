@@ -1380,8 +1380,8 @@ idCVar r_pathTracingUnifiedPtLeanPrimary(
 idCVar r_pathTracingUnifiedPtCompactReceiver(
     "r_pathTracingUnifiedPtCompactReceiver",
     "1",
-    CVAR_RENDERER | CVAR_BOOL,
-    "UPT-only P0-to-D0 receiver A/B for production shader proofs 1..6: 0 uses the legacy 176-byte history record; 1 writes and reads only the UPT-owned 48-byte current-frame shading receiver" );
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-only P0-to-D0 receiver A/B for production shader proofs 1..6: 0 legacy 176-byte history record; 1 UPT-owned 48-byte current-frame receiver; 2 experimental 32-byte distance/direction receiver with D0 world-position reconstruction" );
 
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",

@@ -29,6 +29,7 @@ set(UPT04_MODULES
 set(UPT04_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_primary_surface_live_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_packed_primary_surface.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_packed_primary_surface32.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_hit_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_control.slang"
@@ -134,6 +135,22 @@ path_tracing_declare_slang_spirv_module(
 list(APPEND UPT04_BACKEND_OUTPUTS ${compact_rayquery_outputs})
 
 path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_rayquery_compact32
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2
+    OUT_VAR compact32_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${compact32_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_diagnostics
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_diagnostics.slang"
     ENTRY main
@@ -191,6 +208,22 @@ path_tracing_declare_slang_spirv_module(
     OUT_VAR compact_raygen_outputs
     RAY_TRACING)
 list(APPEND UPT04_BACKEND_OUTPUTS ${compact_raygen_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_raygen_compact32
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_raygen.slang"
+    ENTRY main
+    STAGE raygeneration
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2
+    OUT_VAR compact32_raygen_outputs
+    RAY_TRACING)
+list(APPEND UPT04_BACKEND_OUTPUTS ${compact32_raygen_outputs})
 
 set(UPT04_BACKEND_VERIFY_STAMP "${UPT04_OUTPUT_DIR}/upt04_backend_closure_verified.txt")
 add_custom_command(
@@ -305,6 +338,24 @@ foreach(family direct indirect)
         ${static_compact_rayquery_outputs})
 
     path_tracing_declare_slang_spirv_module(
+        NAME "upt04_initial_${family}_only_rayquery_compact32"
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_rayquery.slang"
+        ENTRY main
+        STAGE compute
+        OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+        INCLUDE_DIRS
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_LIST_DIR}/.."
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+            "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_rayquery.slang"
+        DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2
+        OUT_VAR static_compact32_rayquery_outputs
+        RAY_QUERY)
+    list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS
+        ${static_compact32_rayquery_outputs})
+
+    path_tracing_declare_slang_spirv_module(
         NAME "upt04_initial_${family}_only_raygen"
         SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_raygen.slang"
         ENTRY main
@@ -337,6 +388,24 @@ foreach(family direct indirect)
         RAY_TRACING)
     list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS
         ${static_compact_raygen_outputs})
+
+    path_tracing_declare_slang_spirv_module(
+        NAME "upt04_initial_${family}_only_raygen_compact32"
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_raygen.slang"
+        ENTRY main
+        STAGE raygeneration
+        OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+        INCLUDE_DIRS
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_LIST_DIR}/.."
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+            "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_raygen.slang"
+        DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2
+        OUT_VAR static_compact32_raygen_outputs
+        RAY_TRACING)
+    list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS
+        ${static_compact32_raygen_outputs})
 endforeach()
 
 set(UPT04_STATIC_VERIFY_STAMP "${UPT04_OUTPUT_DIR}/upt04_static_specializations_verified.txt")
@@ -504,17 +573,23 @@ set(UPT04_RUNTIME_OUTPUT_DIR
 set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery
     upt04_initial_rayquery_compact
+    upt04_initial_rayquery_compact32
     upt04_initial_diagnostics
     upt04_initial_direct_only_rayquery
     upt04_initial_direct_only_rayquery_compact
+    upt04_initial_direct_only_rayquery_compact32
     upt04_initial_indirect_only_rayquery
     upt04_initial_indirect_only_rayquery_compact
+    upt04_initial_indirect_only_rayquery_compact32
     upt04_initial_raygen
     upt04_initial_raygen_compact
+    upt04_initial_raygen_compact32
     upt04_initial_direct_only_raygen
     upt04_initial_direct_only_raygen_compact
+    upt04_initial_direct_only_raygen_compact32
     upt04_initial_indirect_only_raygen
     upt04_initial_indirect_only_raygen_compact
+    upt04_initial_indirect_only_raygen_compact32
     upt04_initial_miss
     upt04_initial_closest_hit)
 set(UPT04_RUNTIME_OUTPUTS)

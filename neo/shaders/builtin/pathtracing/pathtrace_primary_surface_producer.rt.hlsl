@@ -657,6 +657,8 @@ bool RAB_IsSurfaceValid(RAB_Surface surface)
 #include "PathTraceUnifiedPtPrimaryReceiver.hlsli"
 RWStructuredBuffer<PathTraceUnifiedPtPrimaryReceiver>
     PathTraceUnifiedPtPrimaryReceivers : register(u88);
+RWStructuredBuffer<PathTraceUnifiedPtPrimaryReceiver32>
+    PathTraceUnifiedPtPrimaryReceivers32 : register(u89);
 
 float GetRoughness(RAB_Material material)
 {
@@ -1205,8 +1207,16 @@ void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
         const uint index = pixel.y * dimensions.x + pixel.x;
         if (index < PathTracePrimarySurfaceHistoryCount())
         {
-            PathTraceUnifiedPtPrimaryReceivers[index] =
-                PackPathTraceUnifiedPtPrimaryReceiver(surface);
+            if (MotionVectorInfo.z >= 1.5)
+            {
+                PathTraceUnifiedPtPrimaryReceivers32[index] =
+                    PackPathTraceUnifiedPtPrimaryReceiver32(surface);
+            }
+            else
+            {
+                PathTraceUnifiedPtPrimaryReceivers[index] =
+                    PackPathTraceUnifiedPtPrimaryReceiver(surface);
+            }
         }
         return;
     }

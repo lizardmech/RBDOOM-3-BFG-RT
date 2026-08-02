@@ -6,9 +6,9 @@ public static const uint kUpt04MaterialUseSpecularMaps = 0x00000010u;
 public static const uint kUpt04MaterialLegacySpecmapToPbr = 0x00000020u;
 public static const uint kUpt04TextureProbeDisabled = 0u;
 
-// Thirty-two scalar words / 128 bytes.  The host combines all resource epochs
-// into one 64-bit page generation, leaving exact O(1) geometry bounds in the
-// Vulkan push-constant budget without admitting a second constant buffer.
+// Thirty-two scalar words / 128 bytes.  UPT-04 has no history page consumer;
+// three formerly reserved generation words carry the primary camera origin
+// needed by the compact32 current-frame receiver without adding a buffer.
 public struct Upt04InitialControl
 {
     public uint renderWidth;
@@ -16,15 +16,15 @@ public struct Upt04InitialControl
     public uint surfaceCount;
     public uint frameSampleIndex;
     public uint enabledFamilyMask;
-    public uint specializationIdentity;
+    public float primaryCameraOriginX;
     public uint emissiveRangeStart;
     public uint emissiveRangeCount;
     public uint analyticRangeStart;
     public uint analyticRangeCount;
     public uint availabilityFlags;
     public uint logicalTextureCount;
-    public uint pageGenerationLo;
-    public uint pageGenerationHi;
+    public float primaryCameraOriginY;
+    public float primaryCameraOriginZ;
     public uint shaderProofMode;
     public uint materialCount;
     public uint currentLightCount;

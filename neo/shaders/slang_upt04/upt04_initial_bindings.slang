@@ -6,13 +6,17 @@ import upt04_initial_control;
 #ifndef UPT04_PACKED_PRIMARY_RECEIVER
 #define UPT04_PACKED_PRIMARY_RECEIVER 0
 #endif
-#if UPT04_PACKED_PRIMARY_RECEIVER
+#if UPT04_PACKED_PRIMARY_RECEIVER == 1
 import upt04_packed_primary_surface;
+#elif UPT04_PACKED_PRIMARY_RECEIVER == 2
+import upt04_packed_primary_surface32;
 #endif
 
 public [[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt04Scene;
-#if UPT04_PACKED_PRIMARY_RECEIVER
+#if UPT04_PACKED_PRIMARY_RECEIVER == 1
 public [[vk::binding(1, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord> gUpt04PrimarySurfaces;
+#elif UPT04_PACKED_PRIMARY_RECEIVER == 2
+public [[vk::binding(1, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord32> gUpt04PrimarySurfaces;
 #else
 public [[vk::binding(1, 0)]] StructuredBuffer<Upt04PrimarySurfaceRecord> gUpt04PrimarySurfaces;
 #endif
@@ -25,8 +29,15 @@ public [[vk::push_constant]] ConstantBuffer<Upt04InitialControl> gUpt04Control;
 
 public Upt04PrimarySurfaceRecord Upt04LoadPrimarySurfaceRecord(uint index)
 {
-#if UPT04_PACKED_PRIMARY_RECEIVER
+#if UPT04_PACKED_PRIMARY_RECEIVER == 1
     return Upt04UnpackPrimarySurface(gUpt04PrimarySurfaces[index]);
+#elif UPT04_PACKED_PRIMARY_RECEIVER == 2
+    return Upt04UnpackPrimarySurface32(
+        gUpt04PrimarySurfaces[index],
+        float3(
+            gUpt04Control.primaryCameraOriginX,
+            gUpt04Control.primaryCameraOriginY,
+            gUpt04Control.primaryCameraOriginZ));
 #else
     return gUpt04PrimarySurfaces[index];
 #endif
