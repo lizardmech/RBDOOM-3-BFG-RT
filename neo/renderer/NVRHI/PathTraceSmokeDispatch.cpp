@@ -2451,15 +2451,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 commandList->dispatchRays(primarySurfaceArgs);
             }
 
+            // Keep an explicit producer ordering point on the record P0 just
+            // wrote.  D0 also transitions this buffer to SRV, but relying on
+            // that transition alone produced visible corruption on the live
+            // Vulkan route.  This is one buffer barrier, not the former set of
+            // unrelated full-frame RR-guide barriers.
+            nvrhi::utils::BufferUavBarrier(
+                commandList,
+                useUptCompactPrimaryReceiver
+                    ? m_frameResources.unifiedPtPrimaryReceiverBuffer
+                    : m_frameResources.primarySurfaceHistoryBuffers.current);
+
             if (primarySchedule.requestedByCleanDi)
             {
-                // Clean DI keeps these resources in UAV state and therefore
-                // needs an explicit producer/consumer ordering point.  UPT
-                // transitions the primary receiver to SRV in its D0 bind
-                // stage, which supplies the required P0-write to D0-read
-                // dependency; adding UAV-to-UAV barriers here only broadens
-                // that dependency to unused RR guide images.
-                nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
+                // These guide images have live consumers only on clean DI.
                 nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
                 nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
                 nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorMaskTexture);
