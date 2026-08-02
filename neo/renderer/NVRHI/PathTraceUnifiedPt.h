@@ -3,9 +3,10 @@
 // Isolated runtime owner for the clean Slang unified ReSTIR PT lane.
 //
 // UPT-04 owns exactly one 64-byte reservoir page and exactly one selected
-// initial-sampling pipeline. It deliberately does not own output, history,
-// temporal/spatial reuse, queues, or any legacy smoke constants. A separate
-// one-shot diagnostic specialization owns one fixed counter/readback pair.
+// initial-sampling pipeline. UPT-05 adds one trace-free resolve pipeline and
+// one RGBA16F output. Neither stage owns history, temporal/spatial reuse,
+// queues, or any legacy smoke constants. A separate one-shot diagnostic
+// specialization owns one fixed counter/readback pair.
 
 #include "PathTraceSceneInputs.h"
 
@@ -47,6 +48,14 @@ class PathTraceUnifiedPtState
 {
 public:
     bool ExecuteInitial(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool ExecuteResolve(
+        const PathTraceUnifiedPtDispatchInputs& inputs,
+        uint32_t view);
+    nvrhi::TextureHandle GetOutputTexture() const
+    {
+        return m_resolveReady ? m_resolveOutput : nullptr;
+    }
+    void ReleaseResolve();
     void Release();
 
 private:
@@ -54,6 +63,9 @@ private:
     bool EnsurePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureDiagnosticBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureResolveResources(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureResolvePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureResolveBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     void DrainDiagnosticReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
     void ReportProofStage(
         uint32_t stage,
@@ -94,4 +106,17 @@ private:
     nvrhi::ShaderLibraryHandle m_closestHitLibrary;
     nvrhi::rt::PipelineHandle m_rayPipeline;
     nvrhi::rt::ShaderTableHandle m_shaderTable;
+
+    uint32_t m_resolveWidth = 0;
+    uint32_t m_resolveHeight = 0;
+    bool m_resolvePipelineAttempted = false;
+    bool m_resolveFailureLogged = false;
+    bool m_resolveReady = false;
+    nvrhi::TextureHandle m_resolveOutput;
+    nvrhi::BindingLayoutHandle m_resolveBindingLayout;
+    nvrhi::BindingSetHandle m_resolveBindingSet;
+    nvrhi::BindingSetDesc m_resolveBindingSetDesc;
+    bool m_resolveBindingSetDescValid = false;
+    nvrhi::ShaderHandle m_resolveShader;
+    nvrhi::ComputePipelineHandle m_resolvePipeline;
 };

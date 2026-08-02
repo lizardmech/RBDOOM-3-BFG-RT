@@ -322,7 +322,11 @@ void PathTracePrimaryPass::BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffe
 {
     OPTICK_EVENT("PT Blit Debug Output");
 
-    if (!m_smokeTestDispatched || !m_frameResources.outputTexture || !m_backend || !targetFramebuffer)
+    const bool unifiedPtRoute = r_pathTracingUnifiedPtEnable.GetInteger() != 0;
+    const nvrhi::TextureHandle outputTexture = unifiedPtRoute
+        ? m_unifiedPtState.GetOutputTexture()
+        : m_frameResources.outputTexture;
+    if (!m_smokeTestDispatched || !outputTexture || !m_backend || !targetFramebuffer)
     {
         return;
     }
@@ -336,12 +340,12 @@ void PathTracePrimaryPass::BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffe
 
     {
         OPTICK_GPU_EVENT("PT GPU Blit Output Barriers");
-        commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->commitBarriers();
     }
 
     BlitParameters blitParms;
-    blitParms.sourceTexture = m_frameResources.outputTexture;
+    blitParms.sourceTexture = outputTexture;
     blitParms.targetFramebuffer = targetFramebuffer;
     blitParms.targetViewport = targetViewport;
     blitParms.sampler = BlitSampler::Point;
@@ -355,7 +359,11 @@ void PathTracePrimaryPass::TonemapDebugOutput(TonemapPass* tonemapPass, const vi
 {
     OPTICK_EVENT("PT Tonemap Debug Output");
 
-    if (!m_smokeTestDispatched || !m_frameResources.outputTexture || !m_backend || !tonemapPass || !viewDef || !targetFramebuffer)
+    const bool unifiedPtRoute = r_pathTracingUnifiedPtEnable.GetInteger() != 0;
+    const nvrhi::TextureHandle outputTexture = unifiedPtRoute
+        ? m_unifiedPtState.GetOutputTexture()
+        : m_frameResources.outputTexture;
+    if (!m_smokeTestDispatched || !outputTexture || !m_backend || !tonemapPass || !viewDef || !targetFramebuffer)
     {
         return;
     }
@@ -369,7 +377,7 @@ void PathTracePrimaryPass::TonemapDebugOutput(TonemapPass* tonemapPass, const vi
 
     {
         OPTICK_GPU_EVENT("PT GPU Tonemap Output Barriers");
-        commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->commitBarriers();
     }
 
@@ -517,7 +525,7 @@ void PathTracePrimaryPass::TonemapDebugOutput(TonemapPass* tonemapPass, const vi
         }
     }
 
-    tonemapPass->SimpleRender(commandList, params, viewDef, m_frameResources.outputTexture, targetFramebuffer);
+    tonemapPass->SimpleRender(commandList, params, viewDef, outputTexture, targetFramebuffer);
 }
 
 void PathTracePrimaryPass::DrawBoundsOverlayRaster(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport)

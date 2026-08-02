@@ -1,0 +1,118 @@
+UPT-05 Trace-Free Resolve and First Image Results
+=================================================
+
+Status
+------
+
+The isolated trace-free resolve, RGBA16F output, and direct presentation route
+are implemented, built, deployed, and live-tested. At 2560 x 1440 the user
+reported a fully functional image with textured models while the game remained
+at its 120 FPS cap.
+
+This accepts the first-image plumbing and preliminary throughput gate. It does
+not yet accept the complete UPT-05 task: the modular baseline OpenPBR material
+provider, required scene matrix, fixed-output repeatability, long stable Nsight
+capture, and reference timing comparison remain.
+
+Admitted GPU work
+-----------------
+
+Resource:
+
+    PathTraceUnifiedPtResolveOutput
+    one 2D RGBA16_FLOAT texture at render resolution
+    UAV during resolve, shader resource during presentation
+    no history, mip chain, readback, accumulation, or duplicate debug target
+
+Pipeline closure:
+
+    set 0 binding 0: 64-byte unified reservoir StructuredBuffer SRV
+    set 0 binding 1: RGBA16F RWTexture2D UAV
+    16-byte push range: width, height, surface count, view
+    8 x 8 compute groups
+
+Dispatch:
+
+    exactly one full-resolution compute dispatch after a successful production
+    UPT-04 full-frame dispatch
+    zero ray operations
+    zero texture sample or fetch operations
+    one reservoir record read and one output texel write per in-range thread
+
+Markers:
+
+    UPT.R0 Resolve Bind+Barriers
+    UPT.R0 Resolve Dispatch
+    UPT.R0 Resolve OutputBarrier
+
+The output is presented directly by the existing blit or tone-map path. It is
+not copied or converted through the legacy RGBA32F path-tracing output.
+
+Estimator and empty contract
+----------------------------
+
+The resolve reads the selected contribution, selected target, and c=1 mean
+weight stored by UPT-04. A valid record evaluates:
+
+    estimate = selectedContribution * meanWeight / selectedTarget
+
+Canonical empty records and any record failing the finite, positive PDF/weight,
+Jacobian, roulette, event, or lobe checks write finite black. The resolve does
+not trace final visibility and cannot admit or mutate reservoir samples.
+
+Views use the same output allocation:
+
+    0 estimator
+    1 direct/global classification
+    2 diffuse/specular classification
+    3 selected contribution
+    4 normalization
+
+Static verification
+-------------------
+
+The Vulkan-only Slang target compiles and validates upt05_resolve.slang. Its
+reflection/disassembly verifier proves:
+
+    exactly two descriptor bindings at set 0 bindings 0 and 1
+    reservoir array stride 64
+    8 x 8 workgroup size
+    Rgba16f storage-image type
+    no OpTraceRayKHR, OpRayQuery, OpImageSample, or OpImageFetch
+
+The Release game build passed after host integration. The deployed resolve blob
+was 9,280 bytes. Pipeline creation and presentation remain isolated from the
+legacy Clean-DI/GI route.
+
+Live result, 2026-08-02
+-----------------------
+
+Configuration:
+
+    Vulkan
+    2560 x 1440
+    unified family
+    production shader proof 6
+    full-frame proof stage 9
+    UPT-05 resolve enabled
+
+Observed result:
+
+    classification and estimator presentation were fully functional
+    textured models displayed
+    frame rate remained capped at 120 FPS
+    no device removal was reported
+
+This is intentionally recorded as a user-observed cap result rather than a GPU
+duration. The next performance gate must record the UPT.D0 and UPT.R0 marker
+durations in a stable Nsight capture without inferring unused headroom from the
+120 FPS cap.
+
+Next work boundary
+------------------
+
+Implement the baseline OpenPBR material provider as an independently owned
+Slang module selected by the UPT composition root. ReSTIR candidate streaming,
+reservoir packing, and resolve source must not acquire concrete material math.
+Temporal and spatial reuse remain blocked until the remaining UPT-05 correctness
+and timing gates are evaluated.

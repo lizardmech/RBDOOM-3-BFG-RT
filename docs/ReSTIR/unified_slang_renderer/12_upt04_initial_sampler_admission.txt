@@ -21,9 +21,28 @@ Status
 The corrected D0 path-tree shader closure, host runtime wiring, exact emissive
 reverse map, family-specific descriptor closures, scalar-layout game-device
 contract, and fixed diagnostic readback are implemented and pass offline build,
-reflection, disassembly, and native compile gates. UPT-04 is not accepted yet
-and has no display output. Vulkan validation plus live diagnostic/full-hit,
-bounded row/full-frame, and ray-generation parity remain runtime gates.
+reflection, disassembly, and native compile gates. Live diagnostic/full-hit,
+bounded row/full-frame, and ray-generation parity gates now pass. UPT-04 itself
+still has no display output; UPT-05 owns presentation. A Vulkan-validation-layer
+run has not been recorded, so do not describe that independent gate as passed.
+
+Live acceptance update, 2026-08-02:
+
+    RayQuery direct-only reached full-frame proof stage 9 at 2560 x 1440. Its
+    diagnostic tuple accounted for all 3,686,400 receivers and candidate inputs
+    with zero ray-ceiling violations.
+
+    RayQuery unified reached the bounded full-width row and full-frame gates.
+    The row diagnostic accounted for 20,480 receivers, 61,440 candidate inputs,
+    20,480 continuation rays, and zero ray-ceiling violations.
+
+    Ray-generation unified reached the one-group, full-width row, and full-frame
+    proof stages with the three required SBT hit-group records, 32-byte payload,
+    recursion depth one, and no device removal.
+
+    The final full-frame ray-generation admission ran at the user's 120 FPS cap.
+    The static screen at this stage was expected because only the private page
+    existed; the subsequently admitted UPT-05 resolve presented correctly.
 
 The first live attempt with the default direct-only RayQuery route produced
 Windows LiveKernelEvent 141. r_pathTracingUnifiedPtProofStage localized the

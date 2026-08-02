@@ -240,6 +240,8 @@ extern idCVar r_pathTracingUnifiedPtFamily;
 extern idCVar r_pathTracingUnifiedPtProofStage;
 extern idCVar r_pathTracingUnifiedPtShaderProof;
 extern idCVar r_pathTracingUnifiedPtDiagnostics;
+extern idCVar r_pathTracingUnifiedPtResolve;
+extern idCVar r_pathTracingUnifiedPtResolveView;
 extern idCVar r_pathTracingCleanRtxdiDiEnable;
 extern idCVar r_pathTracingCleanRtxdiDiView;
 extern idCVar r_pathTracingCleanRtxdiDiTemporal;

@@ -4,11 +4,14 @@ Unified ReSTIR PT Slang Test Renderer
 Status
 ------
 
-UPT-00 through UPT-03 are complete. UPT-04 now has its offline shader closure,
-exact live ABI, one-page runtime owner, selected-pipeline wiring, and compiled
-host dispatch. It has not yet passed live Vulkan pipeline creation or GPU
-dispatch, and it has no displayed output until UPT-05. Temporal and spatial
-work remains unauthorized.
+UPT-00 through UPT-03 are complete. UPT-04 has passed its live RayQuery and
+ray-generation execution ladder, full-frame dispatch, diagnostic counter, and
+backend-parity gates. UPT-05 now owns one verified trace-free compute resolve,
+one RGBA16F output, and direct presentation. The first live 2560 x 1440 image
+was fully functional and remained at the user's 120 FPS cap with textured
+models. This is preliminary first-image throughput evidence, not a substitute
+for the required long Nsight capture or OpenPBR material acceptance. Temporal
+and spatial work remains unauthorized.
 
 Purpose
 -------
@@ -237,6 +240,10 @@ Packet index
         candidate streaming, exact three-ray ceiling, resource/module boundaries,
         mandatory host publications, fixed counter readback, offline shader
         closure, and selected runtime wiring.
+
+    14_upt05_trace_free_resolve_results.txt
+        UPT-05 resolve resource/dispatch admission, static SPIR-V closure,
+        direct presentation path, and first live 1440p image result.
 
         SUPERSEDED IN PART by 13. Its initial-sampling design (one-draw
         technique mixture, M = 1, two-ray ceiling) does not match the cited

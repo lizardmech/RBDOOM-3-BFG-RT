@@ -1369,7 +1369,7 @@ idCVar r_pathTracingUnifiedPtEnable(
     "r_pathTracingUnifiedPtEnable",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean unified Slang ReSTIR PT route request; overrides legacy Clean-DI/GI execution, runs the shared primary producer and one selected UPT-04 initial sampler into a private 64-byte reservoir page, with no presented output yet" );
+    "Clean unified Slang ReSTIR PT route request; overrides legacy Clean-DI/GI execution, runs the shared primary producer and one selected UPT-04 initial sampler into a private 64-byte reservoir page; UPT-05 presentation is separately admitted by r_pathTracingUnifiedPtResolve" );
 
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",
@@ -1400,6 +1400,18 @@ idCVar r_pathTracingUnifiedPtDiagnostics(
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "One-shot UPT-04 RayQuery diagnostic specialization; clears and reads back the fixed 16-counter acceptance tuple, then returns to the selected production specialization" );
+
+idCVar r_pathTracingUnifiedPtResolve(
+    "r_pathTracingUnifiedPtResolve",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Admit the UPT-05 trace-free RGBA16F resolve and present its output; requires production shaderProof 1..6 and full-frame proofStage 9" );
+
+idCVar r_pathTracingUnifiedPtResolveView(
+    "r_pathTracingUnifiedPtResolveView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-05 resolve view: 0 estimator, 1 direct/global classification, 2 diffuse/specular classification, 3 selected contribution, 4 normalization" );
 
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",

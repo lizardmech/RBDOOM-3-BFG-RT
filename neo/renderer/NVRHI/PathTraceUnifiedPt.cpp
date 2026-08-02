@@ -22,6 +22,7 @@ static constexpr uint32_t UPT04_ABI_VERSION = 5u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 16u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
+static constexpr uint32_t UPT05_PUSH_CONSTANT_BYTES = 16u;
 
 static const char* Upt04BackendName(PathTraceUnifiedPtBackend backend)
 {
@@ -267,6 +268,16 @@ struct Upt04InitialControl
 };
 static_assert(sizeof(Upt04InitialControl) == UPT04_PUSH_CONSTANT_BYTES,
     "UPT-04 host push constants must match Slang reflection");
+
+struct Upt05ResolveControl
+{
+    uint32_t renderWidth;
+    uint32_t renderHeight;
+    uint32_t surfaceCount;
+    uint32_t view;
+};
+static_assert(sizeof(Upt05ResolveControl) == UPT05_PUSH_CONSTANT_BYTES,
+    "UPT-05 host push constants must match Slang reflection");
 
 class Upt04MarkerScope
 {
@@ -608,6 +619,7 @@ void PathTraceUnifiedPtState::ReleasePipeline()
 void PathTraceUnifiedPtState::Release()
 {
     ReleasePipeline();
+    ReleaseResolve();
     m_page0 = nullptr;
     m_pageWidth = 0;
     m_pageHeight = 0;
@@ -622,6 +634,22 @@ void PathTraceUnifiedPtState::Release()
     m_diagnostics = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
+}
+
+void PathTraceUnifiedPtState::ReleaseResolve()
+{
+    m_resolveBindingSet = nullptr;
+    m_resolveBindingSetDesc = nvrhi::BindingSetDesc();
+    m_resolveBindingSetDescValid = false;
+    m_resolvePipeline = nullptr;
+    m_resolveShader = nullptr;
+    m_resolveBindingLayout = nullptr;
+    m_resolveOutput = nullptr;
+    m_resolveWidth = 0;
+    m_resolveHeight = 0;
+    m_resolvePipelineAttempted = false;
+    m_resolveFailureLogged = false;
+    m_resolveReady = false;
 }
 
 void PathTraceUnifiedPtState::ReportProofStage(
@@ -684,6 +712,8 @@ bool PathTraceUnifiedPtState::EnsurePage(const PathTraceUnifiedPtDispatchInputs&
     m_pageNeedsClear = true;
     m_bindingSet = nullptr;
     m_bindingSetDescValid = false;
+    m_resolveBindingSet = nullptr;
+    m_resolveBindingSetDescValid = false;
     common->Printf(
         "PathTraceUnifiedPt: allocated page 0 %ux%u records=%llu bytes=%llu stride=%u\n",
         inputs.width,
@@ -1111,6 +1141,9 @@ void PathTraceUnifiedPtState::DrainDiagnosticReadback(
 
 bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInputs& inputs)
 {
+    // Presentation is admitted per frame only after the matching UPT-05
+    // resolve completes; never expose a previous frame after an early return.
+    m_resolveReady = false;
     DrainDiagnosticReadback(inputs);
     if (!Upt04InputsValid(inputs))
     {
@@ -1352,5 +1385,228 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     {
         ReportProofStage(9u, "full-frame-dispatch", inputs.backend, inputs.family);
     }
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureResolveResources(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (m_resolveOutput && m_resolveWidth == inputs.width &&
+        m_resolveHeight == inputs.height &&
+        m_resolveOutput->getDesc().format == nvrhi::Format::RGBA16_FLOAT)
+    {
+        return true;
+    }
+
+    nvrhi::TextureDesc desc;
+    desc.width = inputs.width;
+    desc.height = inputs.height;
+    desc.mipLevels = 1;
+    desc.format = nvrhi::Format::RGBA16_FLOAT;
+    desc.isUAV = true;
+    desc.debugName = "PathTraceUnifiedPtResolveOutput";
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    nvrhi::TextureHandle output = inputs.device->createTexture(desc);
+    if (!output)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate UPT-05 RGBA16F output %ux%u\n",
+            inputs.width,
+            inputs.height);
+        return false;
+    }
+
+    m_resolveOutput = output;
+    m_resolveWidth = inputs.width;
+    m_resolveHeight = inputs.height;
+    m_resolveBindingSet = nullptr;
+    m_resolveBindingSetDescValid = false;
+    common->Printf(
+        "PathTraceUnifiedPt: allocated UPT-05 output %ux%u format=RGBA16_FLOAT bytes=%llu\n",
+        inputs.width,
+        inputs.height,
+        static_cast<unsigned long long>(
+            uint64_t(inputs.width) * uint64_t(inputs.height) * 8ull));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureResolvePipeline(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (m_resolvePipeline)
+    {
+        return true;
+    }
+    if (m_resolvePipelineAttempted)
+    {
+        return false;
+    }
+    m_resolvePipelineAttempted = true;
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT05_PUSH_CONSTANT_BYTES));
+    m_resolveBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_resolveBindingLayout)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create UPT-05 resolve binding layout\n");
+        return false;
+    }
+
+    const char* path =
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt05/upt05_resolve.bin";
+    void* data = nullptr;
+    int size = 0;
+    ID_TIME_T timestamp = 0;
+    uint64_t hash = 0;
+    if (!Upt04ReadShader(path, data, size, timestamp, hash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtResolve";
+    m_resolveShader = inputs.device->createShader(shaderDesc, data, size);
+    Mem_Free(data);
+    if (!m_resolveShader)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create UPT-05 resolve shader\n");
+        return false;
+    }
+
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_resolveShader;
+    pipelineDesc.bindingLayouts = { m_resolveBindingLayout };
+    const uint64_t pipelineStartUs = Sys_Microseconds();
+    m_resolvePipeline = inputs.device->createComputePipeline(pipelineDesc);
+    const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
+    if (!m_resolvePipeline)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create UPT-05 resolve pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: resolve compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 output=RGBA16_FLOAT rays=0 samples=0 createUs=%llu\n",
+        size,
+        static_cast<unsigned long long>(hash),
+        static_cast<long long>(timestamp),
+        static_cast<unsigned long long>(pipelineUs));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureResolveBindingSet(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, m_page0));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_resolveOutput));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT05_PUSH_CONSTANT_BYTES));
+    if (m_resolveBindingSet && m_resolveBindingSetDescValid &&
+        m_resolveBindingSetDesc == desc)
+    {
+        return true;
+    }
+    m_resolveBindingSet = inputs.device->createBindingSet(
+        desc, m_resolveBindingLayout);
+    if (!m_resolveBindingSet)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create UPT-05 resolve binding set\n");
+        return false;
+    }
+    m_resolveBindingSetDesc = desc;
+    m_resolveBindingSetDescValid = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteResolve(
+    const PathTraceUnifiedPtDispatchInputs& inputs,
+    uint32_t view)
+{
+    m_resolveReady = false;
+    const bool productionFullFrame = inputs.proofStage >= 9u &&
+        Upt04PipelineVariant(inputs) == 0u;
+    if (!productionFullFrame || !m_page0 || m_pageWidth != inputs.width ||
+        m_pageHeight != inputs.height)
+    {
+        if (!m_resolveFailureLogged)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: UPT-05 resolve requires production shaderProof 1..6 and proofStage 9; skipped\n");
+            m_resolveFailureLogged = true;
+        }
+        return false;
+    }
+    if (!EnsureResolveResources(inputs) || !EnsureResolvePipeline(inputs) ||
+        !EnsureResolveBindingSet(inputs))
+    {
+        return false;
+    }
+    m_resolveFailureLogged = false;
+
+    const uint64_t surfaceCount64 = uint64_t(inputs.width) * uint64_t(inputs.height);
+    if (surfaceCount64 > std::numeric_limits<uint32_t>::max())
+    {
+        return false;
+    }
+    const Upt05ResolveControl control = {
+        inputs.width,
+        inputs.height,
+        static_cast<uint32_t>(surfaceCount64),
+        view
+    };
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.R0 Resolve Bind+Barriers",
+            inputs.nsightMarkers);
+        inputs.commandList->setBufferState(
+            m_page0, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setTextureState(
+            m_resolveOutput,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+
+        nvrhi::ComputeState state;
+        state.pipeline = m_resolvePipeline;
+        state.bindings = { m_resolveBindingSet };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+    }
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.R0 Resolve Dispatch",
+            inputs.nsightMarkers);
+        inputs.commandList->dispatch(
+            (inputs.width + 7u) / 8u,
+            (inputs.height + 7u) / 8u,
+            1u);
+    }
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.R0 Resolve OutputBarrier",
+            inputs.nsightMarkers);
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, m_resolveOutput);
+        inputs.commandList->setTextureState(
+            m_resolveOutput,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->commitBarriers();
+    }
+    m_resolveReady = true;
     return true;
 }

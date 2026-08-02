@@ -2575,14 +2575,36 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.nsightMarkers = nsightGpuMarkers;
             unifiedPtInputs.diagnostics =
                 r_pathTracingUnifiedPtDiagnostics.GetInteger() != 0;
-            m_unifiedPtState.ExecuteInitial(unifiedPtInputs);
+            const bool unifiedPtInitialExecuted =
+                m_unifiedPtState.ExecuteInitial(unifiedPtInputs);
             if (unifiedPtInputs.diagnostics)
             {
                 r_pathTracingUnifiedPtDiagnostics.SetInteger(0);
             }
 
-            // UPT-04 has no admitted HDR resolve or presentation path yet.
-            // Publish the shared primary history once after the D0 consumer,
+            const bool unifiedPtResolveRequested =
+                r_pathTracingUnifiedPtResolve.GetInteger() != 0;
+            if (unifiedPtResolveRequested)
+            {
+                if (unifiedPtInitialExecuted &&
+                    m_unifiedPtState.ExecuteResolve(
+                        unifiedPtInputs,
+                        static_cast<uint32_t>(idMath::ClampInt(
+                            0,
+                            4,
+                            r_pathTracingUnifiedPtResolveView.GetInteger()))))
+                {
+                    m_smokeTestDispatched = true;
+                }
+            }
+            else
+            {
+                // Never leave an old UPT image eligible for presentation when
+                // the current frame did not execute the admitted resolve.
+                m_unifiedPtState.ReleaseResolve();
+            }
+
+            // Publish the shared primary history once after the UPT consumer,
             // then stop before every legacy execution branch.
             publishPrimarySurfaceHistory("UPT.P0 PrimarySurfaceHistory Copy");
             return;
