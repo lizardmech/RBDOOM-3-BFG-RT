@@ -287,6 +287,62 @@ path_tracing_declare_slang_spirv_module(
 list(APPEND UPT04_BACKEND_OUTPUTS
     ${split_indirect_material48_rayquery_outputs})
 
+# Continuation-hit boundary experiment. C0 writes only the frozen 32-byte hit
+# facts; D0 deterministically reconstructs path state and performs one final
+# reservoir write after direct/endpoint/secondary streaming.
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_continuation_trace_rayquery_compact32
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_continuation_trace_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_continuation_trace_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_continuation_hit_bindings.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_CONTINUATION_HIT_WRITE=1
+    OUT_VAR continuation_trace_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${continuation_trace_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_rayquery_compact32_geometry48_light64_continuation32
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_continuation_hit_bindings.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_CONTINUATION_SHADE=1
+    OUT_VAR continuation32_shade_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${continuation32_shade_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_rayquery_compact32_geometry48_light64_material48_continuation32
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_continuation_hit_bindings.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1 UPT04_PACKED_MATERIAL_RECORD=1 UPT04_SPLIT_CONTINUATION_SHADE=1
+    OUT_VAR continuation32_material48_shade_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${continuation32_material48_shade_rayquery_outputs})
+
 path_tracing_declare_slang_spirv_module(
     NAME upt04_compact_material_pack
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_compact_material_pack.slang"
@@ -789,6 +845,9 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_split_direct_rayquery_compact32_geometry48_light64
     upt04_initial_split_indirect_rayquery_compact32_geometry48_light64
     upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_material48
+    upt04_continuation_trace_rayquery_compact32
+    upt04_initial_rayquery_compact32_geometry48_light64_continuation32
+    upt04_initial_rayquery_compact32_geometry48_light64_material48_continuation32
     upt04_compact_material_pack
     upt04_initial_diagnostics
     upt04_initial_direct_only_rayquery

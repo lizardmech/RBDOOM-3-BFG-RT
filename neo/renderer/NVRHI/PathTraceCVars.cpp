@@ -1407,6 +1407,12 @@ idCVar r_pathTracingUnifiedPtSplitInitial(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT unified D0 A/B: 0 runs the three-query RayQuery megakernel; 1 splits direct and indirect work into two 8x8 dispatches using one exact intermediate/final 64-byte reservoir page; requires unified RayQuery production with compact receiver, geometry, and lights" );
 
+idCVar r_pathTracingUnifiedPtSplitContinuation(
+    "r_pathTracingUnifiedPtSplitContinuation",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT unified D0 A/B: trace the deterministic primary continuation into one 32-byte hit-facts sidecar, then run direct plus secondary shading with one final reservoir write; mutually exclusive with the rejected direct/indirect split" );
+
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",
     "0",

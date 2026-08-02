@@ -753,3 +753,50 @@ fixed-sample image parity first, then compare total duration, registers/live
 warps, local-memory traffic, L2/VRAM traffic, RTCORE dependency, and frame
 stability.  A later continuation/shading split is not authorized until this
 boundary proves that live-range reduction can repay an explicit boundary.
+
+Runtime rejection: the combined D0a + intermediate barrier + D0b path measured
+about 1 ms slower than monolithic D0, and D0a saturated L2.  The extra
+full-frame 64-byte reservoir publication/read is therefore the governing cost,
+not a useful occupancy trade.  Keep this proof default-off and do not extend it
+with another queue or page.  The next admissible boundary removes only the
+continuation traversal loop: publish the already-frozen 32-byte hit facts,
+deterministically reconstruct continuation state in the final shade pass, and
+write the 64-byte reservoir only once.
+
+Continuation-hit split A/B
+--------------------------
+
+The narrower experiment is exposed by
+`r_pathTracingUnifiedPtSplitContinuation 1`.  Admission is deliberately strict:
+unified family, RayQuery backend, proof shader 6, compact32 receiver, compact48
+geometry, compact64 lights, diagnostics off, and the rejected direct/indirect
+split off.  Compact materials may be either state; the matching final shader is
+selected automatically.
+
+`UPT.C0 ContinuationTrace32` reconstructs the deterministic primary
+continuation from the compact receiver, executes exactly one RayQuery traversal,
+and writes one frozen 32-byte `Upt04HitFacts` record per pixel.  The renamed
+`UPT.D0 ContinuationShade` reconstructs the same continuation state, consumes
+those facts, performs the remaining direct and secondary visibility queries,
+and writes the 64-byte reservoir once.  This is not a generic work queue and
+does not add another reservoir page.
+
+At 2560x1440 the explicit new traffic ceiling is 112.5 MiB for the 32-byte hit
+publication, 112.5 MiB for its read, and 112.5 MiB for the additional compact32
+receiver read: about 337.5 MiB total.  This is half the intermediate record
+traffic of the rejected reservoir split and removes its extra 225 MiB reservoir
+write plus 225 MiB reservoir read.  It is still accepted only if combined C0 +
+D0 beats monolithic D0; a faster D0 marker alone is not evidence of a win.
+
+Validation sequence:
+
+1. Hold all other UPT CVars, resolution, scene, camera, and sample index fixed.
+2. Compare `r_pathTracingUnifiedPtSplitContinuation 0` against `1`.
+3. Confirm the console reports `continuation=inline` versus
+   `continuation=split-hit32` and the split run allocates stride 32.
+4. Require fixed-sample resolved-image parity before judging performance.
+5. In Nsight add `UPT.C0 ContinuationTrace32 RayQuery FullFrame` and
+   `UPT.D0 ContinuationShade RayQuery FullFrame`, including their boundary,
+   then compare that sum against `UPT.D0 Initial RayQuery Dispatch FullFrame`.
+6. Record total time, L2/VRAM throughput, RTCORE dependency, registers/live
+   warps, and frame stability.  Reject/default-off on a neutral or slower sum.

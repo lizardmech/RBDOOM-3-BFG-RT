@@ -2693,6 +2693,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.compactLights &&
                 !unifiedPtInputs.diagnostics &&
                 unifiedPtInputs.shaderProofMode == 6u;
+            unifiedPtInputs.splitContinuation =
+                r_pathTracingUnifiedPtSplitContinuation.GetBool() &&
+                !unifiedPtInputs.splitInitial &&
+                unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
+                unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified &&
+                unifiedPtInputs.primaryReceiverMode == 2u &&
+                unifiedPtInputs.compactGeometry &&
+                unifiedPtInputs.compactLights &&
+                !unifiedPtInputs.diagnostics &&
+                unifiedPtInputs.shaderProofMode == 6u;
             unifiedPtInputs.primaryCameraOrigin[0] =
                 viewDef->renderView.vieworg.x;
             unifiedPtInputs.primaryCameraOrigin[1] =

@@ -10,6 +10,13 @@ import upt04_initial_reservoir_stream;
 import upt04_primary_surface_live_contract;
 import upt05_material_set_openpbr;
 
+#ifndef UPT04_SPLIT_CONTINUATION_SHADE
+#define UPT04_SPLIT_CONTINUATION_SHADE 0
+#endif
+#if UPT04_SPLIT_CONTINUATION_SHADE
+import upt04_continuation_hit_bindings;
+#endif
+
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -49,9 +56,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     Upt04InitialTraceWork continuation =
         Upt04PrepareIndirectPathTreeWorkFromSurface<Upt05OpenPbrMaterialSet>(
             pixel, receiverWork.surfaceIndex, primarySurface, transport);
+#if UPT04_SPLIT_CONTINUATION_SHADE
+    hit = gUpt04ContinuationHits[surfaceIndex];
+#else
     hit = Upt04MissFacts(continuation.ray.tMax);
     if (continuation.valid != 0u && continuation.traceRequired != 0u)
         hit = Upt04TraceRayQuery(continuation.ray);
+#endif
     const Upt04IndirectHitTrialResult indirect =
         Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
             continuation, hit, pixel);

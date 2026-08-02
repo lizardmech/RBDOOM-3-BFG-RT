@@ -54,6 +54,7 @@ struct PathTraceUnifiedPtDispatchInputs
     bool compactLights = false;
     bool compactMaterials = false;
     bool splitInitial = false;
+    bool splitContinuation = false;
     float primaryCameraOrigin[3] = {};
 };
 
@@ -88,6 +89,10 @@ private:
     bool EnsureCompactMaterialPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureCompactMaterialBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool ExecuteCompactMaterialPack(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureContinuationResources(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureContinuationPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureContinuationBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool ExecuteContinuationTrace(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolveResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolvePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolveBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -101,6 +106,7 @@ private:
     void ReleaseCompactGeometry();
     void ReleaseCompactLights();
     void ReleaseCompactMaterials();
+    void ReleaseContinuation();
 
     PathTraceUnifiedPtBackend m_backend = PathTraceUnifiedPtBackend::RayQuery;
     PathTraceUnifiedPtFamily m_family = PathTraceUnifiedPtFamily::DirectOnly;
@@ -112,6 +118,7 @@ private:
     bool m_compactLights = false;
     bool m_compactMaterials = false;
     bool m_splitInitial = false;
+    bool m_splitContinuation = false;
     bool m_pipelineAttempted = false;
     bool m_resourceFailureLogged = false;
     bool m_pageNeedsClear = false;
@@ -140,6 +147,16 @@ private:
     nvrhi::ComputePipelineHandle m_computePipeline;
     nvrhi::ShaderHandle m_splitIndirectComputeShader;
     nvrhi::ComputePipelineHandle m_splitIndirectComputePipeline;
+
+    uint32_t m_continuationCapacity = 0;
+    nvrhi::BufferHandle m_continuationHits;
+    nvrhi::BindingLayoutHandle m_continuationBindingLayout;
+    nvrhi::BindingSetHandle m_continuationBindingSet;
+    nvrhi::BindingSetDesc m_continuationBindingSetDesc;
+    bool m_continuationBindingSetDescValid = false;
+    nvrhi::ShaderHandle m_continuationShader;
+    nvrhi::ComputePipelineHandle m_continuationPipeline;
+    bool m_continuationPipelineAttempted = false;
 
     uint32_t m_compactStaticVertexCapacity = 0;
     uint32_t m_compactDynamicVertexCapacity = 0;

@@ -17,6 +17,7 @@ static constexpr uint32_t UPT04_COMPACT_LIGHT_STRIDE = 64u;
 static constexpr uint32_t UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES = 4u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_PUSH_CONSTANT_BYTES = 4u;
+static constexpr uint32_t UPT04_CONTINUATION_HIT_STRIDE = 32u;
 static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 128u;
 static constexpr uint32_t UPT04_FAMILY_LOCAL_LIGHT = 1u << 0u;
 static constexpr uint32_t UPT04_FAMILY_INDIRECT = 1u << 1u;
@@ -79,14 +80,19 @@ static const char* Upt04InitialShaderPath(
     uint32_t primaryReceiverMode,
     bool compactGeometry,
     bool compactLights,
-    bool compactMaterials)
+    bool compactMaterials,
+    bool splitContinuation)
 {
     if (backend == PathTraceUnifiedPtBackend::RayQuery)
     {
         switch (family)
         {
         case PathTraceUnifiedPtFamily::Unified:
-            return compactMaterials
+            return splitContinuation
+                ? (compactMaterials
+                    ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_material48_continuation32.bin"
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_continuation32.bin")
+                : (compactMaterials
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_material48.bin"
                 : (compactLights
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64.bin"
@@ -96,7 +102,7 @@ static const char* Upt04InitialShaderPath(
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32.bin"
                 : (primaryReceiverMode == 1u
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact.bin"
-                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery.bin"))));
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery.bin")))));
         case PathTraceUnifiedPtFamily::IndirectOnly:
             return compactMaterials
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_indirect_only_rayquery_compact32_geometry48_light64_material48.bin"
@@ -157,6 +163,11 @@ static const char* Upt04SplitIndirectShaderPath(bool compactMaterials)
     return compactMaterials
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_material48.bin"
         : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64.bin";
+}
+
+static const char* Upt04ContinuationTraceShaderPath()
+{
+    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_continuation_trace_rayquery_compact32.bin";
 }
 
 static const char* Upt04DiagnosticShaderPath()
@@ -498,7 +509,8 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
 
 static void Upt04AddBindingLayoutItems(
     nvrhi::BindingLayoutDesc& desc,
-    bool diagnostics)
+    bool diagnostics,
+    bool splitContinuation)
 {
     desc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
@@ -514,6 +526,10 @@ static void Upt04AddBindingLayoutItems(
     if (diagnostics)
     {
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(23));
+    }
+    if (splitContinuation)
+    {
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
     }
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
 }
@@ -542,7 +558,8 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     nvrhi::BufferHandle compactRigidVertices,
     nvrhi::BufferHandle compactSkinnedVertices,
     nvrhi::BufferHandle compactLights,
-    nvrhi::BufferHandle compactMaterials)
+    nvrhi::BufferHandle compactMaterials,
+    nvrhi::BufferHandle continuationHits)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -583,6 +600,11 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     {
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
             23, diagnosticCounters));
+    }
+    if (dispatch.splitContinuation)
+    {
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            24, continuationHits));
     }
     desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
     return desc;
@@ -819,12 +841,30 @@ void PathTraceUnifiedPtState::ReleaseCompactMaterials()
     m_compactMaterialCapacity = 0;
 }
 
+void PathTraceUnifiedPtState::ReleaseContinuation()
+{
+    m_continuationBindingSet = nullptr;
+    m_continuationBindingSetDesc = nvrhi::BindingSetDesc();
+    m_continuationBindingSetDescValid = false;
+    m_continuationPipeline = nullptr;
+    m_continuationShader = nullptr;
+    m_continuationBindingLayout = nullptr;
+    m_continuationPipelineAttempted = false;
+    m_continuationHits = nullptr;
+    m_continuationCapacity = 0;
+    // The final D0 binding set owns the same sidecar as an SRV at slot 24.
+    // Never retain a descriptor set that points at a released/replaced buffer.
+    m_bindingSet = nullptr;
+    m_bindingSetDescValid = false;
+}
+
 void PathTraceUnifiedPtState::Release()
 {
     ReleasePipeline();
     ReleaseCompactGeometry();
     ReleaseCompactLights();
     ReleaseCompactMaterials();
+    ReleaseContinuation();
     ReleaseResolve();
     m_page0 = nullptr;
     m_pageWidth = 0;
@@ -847,6 +887,7 @@ void PathTraceUnifiedPtState::Release()
     m_compactLights = false;
     m_compactMaterials = false;
     m_splitInitial = false;
+    m_splitContinuation = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
 }
@@ -959,7 +1000,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactGeometry != inputs.compactGeometry ||
         m_compactLights != inputs.compactLights ||
         m_compactMaterials != inputs.compactMaterials ||
-        m_splitInitial != inputs.splitInitial)
+        m_splitInitial != inputs.splitInitial ||
+        m_splitContinuation != inputs.splitContinuation)
     {
         ReleasePipeline();
         m_backend = inputs.backend;
@@ -971,6 +1013,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactLights = inputs.compactLights;
         m_compactMaterials = inputs.compactMaterials;
         m_splitInitial = inputs.splitInitial;
+        m_splitContinuation = inputs.splitContinuation;
         m_selectionValid = true;
         m_resourceFailureLogged = false;
     }
@@ -1049,7 +1092,10 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
     }
     else
     {
-        Upt04AddBindingLayoutItems(layoutDesc, inputs.diagnostics);
+        Upt04AddBindingLayoutItems(
+            layoutDesc,
+            inputs.diagnostics,
+            inputs.splitContinuation);
     }
     m_bindingLayout = inputs.device->createBindingLayout(layoutDesc);
     if (!m_bindingLayout)
@@ -1080,7 +1126,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.primaryReceiverMode,
             inputs.compactGeometry,
             inputs.compactLights,
-            inputs.compactMaterials)));
+            inputs.compactMaterials,
+            inputs.splitContinuation)));
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -1168,7 +1215,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             }
         }
         common->Printf(
-            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s split=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
+            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s split=%s continuation=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
             Upt04BackendName(m_backend),
             Upt04FamilyName(m_family),
             pipelineVariant,
@@ -1183,6 +1230,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.compactLights ? "compact64" : "legacy112",
             inputs.compactMaterials ? "compact48" : "legacy112",
             inputs.splitInitial ? "direct+indirect" : "monolithic",
+            inputs.splitContinuation ? "split-hit32" : "inline",
             static_cast<unsigned long long>(pipelineUs));
         if (inputs.splitInitial)
         {
@@ -1378,7 +1426,8 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_compactRigidVertices,
             m_compactSkinnedVertices,
             m_compactLightsBuffer,
-            m_compactMaterialsBuffer);
+            m_compactMaterialsBuffer,
+            m_continuationHits);
     }
     if (m_bindingSet && m_bindingSetDescValid && m_bindingSetDesc == desc)
     {
@@ -2156,6 +2205,232 @@ bool PathTraceUnifiedPtState::ExecuteCompactMaterialPack(
     return true;
 }
 
+bool PathTraceUnifiedPtState::EnsureContinuationResources(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.splitContinuation)
+    {
+        return true;
+    }
+    const uint64_t requestedCount64 = uint64_t(inputs.width) * uint64_t(inputs.height);
+    if (requestedCount64 == 0u || requestedCount64 > UINT32_MAX)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: invalid continuation-hit capacity=%llu\n",
+            static_cast<unsigned long long>(requestedCount64));
+        return false;
+    }
+    const uint32_t capacity = static_cast<uint32_t>(requestedCount64);
+    const uint64_t bytes = requestedCount64 * UPT04_CONTINUATION_HIT_STRIDE;
+    if (m_continuationHits &&
+        m_continuationHits->getDesc().structStride == UPT04_CONTINUATION_HIT_STRIDE &&
+        m_continuationHits->getDesc().byteSize >= bytes)
+    {
+        return true;
+    }
+
+    nvrhi::BufferDesc desc;
+    desc.debugName = "PathTraceUnifiedPtContinuationHits";
+    desc.byteSize = bytes;
+    desc.structStride = UPT04_CONTINUATION_HIT_STRIDE;
+    desc.canHaveUAVs = true;
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    m_continuationHits = inputs.device->createBuffer(desc);
+    if (!m_continuationHits)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate continuation hits count=%u bytes=%llu\n",
+            capacity,
+            static_cast<unsigned long long>(bytes));
+        return false;
+    }
+    m_continuationCapacity = capacity;
+    m_continuationBindingSet = nullptr;
+    m_continuationBindingSetDescValid = false;
+    m_bindingSet = nullptr;
+    m_bindingSetDescValid = false;
+    common->Printf(
+        "PathTraceUnifiedPt: continuation-hit sidecar stride=%u capacity=%u bytes=%llu\n",
+        UPT04_CONTINUATION_HIT_STRIDE,
+        capacity,
+        static_cast<unsigned long long>(bytes));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureContinuationPipeline(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.splitContinuation || m_continuationPipeline)
+    {
+        return true;
+    }
+    if (m_continuationPipelineAttempted)
+    {
+        return false;
+    }
+    m_continuationPipelineAttempted = true;
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(24));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT04_PUSH_CONSTANT_BYTES));
+    m_continuationBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_continuationBindingLayout)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create continuation-trace binding layout\n");
+        return false;
+    }
+
+    void* shaderData = nullptr;
+    int shaderSize = 0;
+    ID_TIME_T shaderTimestamp = 0;
+    uint64_t shaderHash = 0;
+    if (!Upt04ReadShader(
+            Upt04ContinuationTraceShaderPath(),
+            shaderData,
+            shaderSize,
+            shaderTimestamp,
+            shaderHash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtContinuationTraceRayQuery";
+    m_continuationShader = inputs.device->createShader(
+        shaderDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!m_continuationShader)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create continuation-trace shader\n");
+        return false;
+    }
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_continuationShader;
+    pipelineDesc.bindingLayouts = { m_continuationBindingLayout };
+    const uint64_t pipelineStartUs = Sys_Microseconds();
+    m_continuationPipeline = inputs.device->createComputePipeline(pipelineDesc);
+    const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
+    if (!m_continuationPipeline)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create continuation-trace pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: continuation trace compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 hitStride=32 queries=1 createUs=%llu\n",
+        shaderSize,
+        static_cast<unsigned long long>(shaderHash),
+        static_cast<long long>(shaderTimestamp),
+        static_cast<unsigned long long>(pipelineUs));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureContinuationBindingSet(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.splitContinuation)
+    {
+        return true;
+    }
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(
+        0, inputs.sceneInputs->geometry.tlas));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        1, inputs.primarySurfaceBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+        24, m_continuationHits));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT04_PUSH_CONSTANT_BYTES));
+    if (m_continuationBindingSet && m_continuationBindingSetDescValid &&
+        m_continuationBindingSetDesc == desc)
+    {
+        return true;
+    }
+    m_continuationBindingSet = inputs.device->createBindingSet(
+        desc, m_continuationBindingLayout);
+    if (!m_continuationBindingSet)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create continuation-trace binding set\n");
+        return false;
+    }
+    m_continuationBindingSetDesc = desc;
+    m_continuationBindingSetDescValid = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteContinuationTrace(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.splitContinuation)
+    {
+        return true;
+    }
+    const Upt04InitialControl control = Upt04BuildControl(inputs);
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.C0 ContinuationTrace32 Bind+Barriers",
+            inputs.nsightMarkers);
+        inputs.commandList->setAccelStructState(
+            inputs.sceneInputs->geometry.tlas,
+            nvrhi::ResourceStates::AccelStructRead);
+        inputs.commandList->setBufferState(
+            inputs.primarySurfaceBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_continuationHits,
+            nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+        nvrhi::ComputeState state;
+        state.pipeline = m_continuationPipeline;
+        state.bindings = { m_continuationBindingSet };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+    }
+    {
+        const bool oneGroup = inputs.proofStage == 7u;
+        const bool oneGroupRow = inputs.proofStage == 8u;
+        const char* markerName = oneGroup
+            ? "UPT.C0 ContinuationTrace32 RayQuery 8x8"
+            : (oneGroupRow
+                ? "UPT.C0 ContinuationTrace32 RayQuery OneGroupRow"
+                : "UPT.C0 ContinuationTrace32 RayQuery FullFrame");
+        Upt04MarkerScope marker(
+            inputs.commandList, markerName, inputs.nsightMarkers);
+        inputs.commandList->dispatch(
+            oneGroup ? 1u : (inputs.width + 7u) / 8u,
+            oneGroup || oneGroupRow ? 1u : (inputs.height + 7u) / 8u,
+            1u);
+    }
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.C0 ContinuationTrace32 OutputBarrier",
+            inputs.nsightMarkers);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_continuationHits);
+        inputs.commandList->setBufferState(
+            m_continuationHits,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->commitBarriers();
+    }
+    return true;
+}
+
 void PathTraceUnifiedPtState::DrainDiagnosticReadback(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
@@ -2220,6 +2495,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     {
         return false;
     }
+    if (!inputs.splitContinuation && m_continuationHits)
+    {
+        ReleaseContinuation();
+    }
     if (inputs.proofStage == 2u)
     {
         ReportProofStage(2u, "page-allocation", inputs.backend, inputs.family);
@@ -2255,6 +2534,13 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     {
         return false;
     }
+    if (inputs.splitContinuation &&
+        (!EnsureContinuationResources(inputs) ||
+         !EnsureContinuationPipeline(inputs) ||
+         !EnsureContinuationBindingSet(inputs)))
+    {
+        return false;
+    }
     if (!EnsureBindingSet(inputs))
     {
         return false;
@@ -2273,6 +2559,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         return false;
     }
     if (!ExecuteCompactMaterialPack(inputs))
+    {
+        return false;
+    }
+    if (!ExecuteContinuationTrace(inputs))
     {
         return false;
     }
@@ -2322,6 +2612,12 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         else
         {
             Upt04SetSrvStates(inputs.commandList, inputs);
+        }
+        if (inputs.splitContinuation)
+        {
+            inputs.commandList->setBufferState(
+                m_continuationHits,
+                nvrhi::ResourceStates::ShaderResource);
         }
         inputs.commandList->setBufferState(m_page0, nvrhi::ResourceStates::UnorderedAccess);
         if (inputs.diagnostics)
@@ -2408,11 +2704,17 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                     : (oneGroupRow
                         ? "UPT.D0a Split Direct RayQuery OneGroupRow"
                         : "UPT.D0a Split Direct RayQuery FullFrame"))
-                : (oneGroup
-                ? oneGroupRayQueryMarker
-                : (oneGroupRow
-                    ? "UPT.D0 Initial RayQuery Dispatch OneGroupRow"
-                    : "UPT.D0 Initial RayQuery Dispatch FullFrame")))
+                : (inputs.splitContinuation
+                    ? (oneGroup
+                        ? "UPT.D0 ContinuationShade RayQuery 8x8"
+                        : (oneGroupRow
+                            ? "UPT.D0 ContinuationShade RayQuery OneGroupRow"
+                            : "UPT.D0 ContinuationShade RayQuery FullFrame"))
+                    : (oneGroup
+                        ? oneGroupRayQueryMarker
+                        : (oneGroupRow
+                            ? "UPT.D0 Initial RayQuery Dispatch OneGroupRow"
+                            : "UPT.D0 Initial RayQuery Dispatch FullFrame"))))
             : (oneGroup
                 ? "UPT.D0 Initial RayGen DispatchRays 8x8"
                 : (oneGroupRow

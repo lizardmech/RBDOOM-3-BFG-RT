@@ -241,6 +241,7 @@ extern idCVar r_pathTracingUnifiedPtCompactGeometry;
 extern idCVar r_pathTracingUnifiedPtCompactLights;
 extern idCVar r_pathTracingUnifiedPtCompactMaterials;
 extern idCVar r_pathTracingUnifiedPtSplitInitial;
+extern idCVar r_pathTracingUnifiedPtSplitContinuation;
 extern idCVar r_pathTracingUnifiedPtBackend;
 extern idCVar r_pathTracingUnifiedPtFamily;
 extern idCVar r_pathTracingUnifiedPtProofStage;
